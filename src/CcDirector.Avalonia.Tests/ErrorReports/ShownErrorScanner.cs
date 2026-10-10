@@ -44,7 +44,9 @@ namespace CcDirector.Avalonia.Tests.ErrorReports;
 /// That last rule trusts the method to report what its callbacks show: it holds for <c>BusyAction</c>, whose work
 /// callback must THROW to fail, but a callback that put error text on screen without throwing would pass unreported.
 /// The body of a method whose name says it shows an error, and of a <c>Show...</c> method that shows the text it is
-/// given, is that method's own business: its CALLS are the sites, so its insides are not counted again.
+/// given, is that method's own business: its CALLS are the sites, so its insides are not counted again. So such a
+/// method must show only what it is given - a failure-named method that put error text of its own on the screen
+/// would hide it from the scan.
 ///
 /// A site may instead be EXEMPT, with a written reason in a comment on the line above the statement:
 ///   <c>// shown-error-exempt (user input): the name field is empty - the user's own entry</c>
@@ -267,10 +269,60 @@ public sealed class ShownErrorScanner
         return null;
     }
 
+    /// <summary>
+    /// The call says it may be showing a failure through a flag (rule d):
+    ///   - an error flag that is not a literal false (<c>error: true</c>, <c>error: !ok</c>);
+    ///   - a success flag that is not a literal (<c>success: result.Ok</c>) - sometimes it is a failure;
+    ///   - <c>success: false</c> with text that is not a plain literal (<c>$"{result.Message} ..."</c>): text a producer
+    ///     decided, shown as a failure. A plain literal is judged by its words like any other.
+    /// <c>neutral: true</c> ("Detecting...") is neither.
+    /// </summary>
     private static bool SaysError(InvocationExpressionSyntax call)
-        => call.ArgumentList.Arguments.Any(a =>
-            a.NameColon?.Name.Identifier.Text is "error" or "isError"
-            && a.Expression.IsKind(SyntaxKind.TrueLiteralExpression));
+    {
+        var args = call.ArgumentList.Arguments;
+        if (args.Any(a => a.NameColon?.Name.Identifier.Text is "neutral" or "isNeutral" && a.Expression.IsKind(SyntaxKind.TrueLiteralExpression)))
+            return false;
+        var shownIsPlainLiteral = args.FirstOrDefault(a => a.NameColon is null)?.Expression is LiteralExpressionSyntax lit
+                                  && lit.IsKind(SyntaxKind.StringLiteralExpression);
+        return args.Any(a => a.NameColon?.Name.Identifier.Text switch
+        {
+            "error" or "isError" or "failed" => !a.Expression.IsKind(SyntaxKind.FalseLiteralExpression),
+            "success" or "ok" or "succeeded" or "isSuccess" =>
+                a.Expression.IsKind(SyntaxKind.FalseLiteralExpression) ? !shownIsPlainLiteral
+                : !a.Expression.IsKind(SyntaxKind.TrueLiteralExpression),
+            _ => false,
+        });
+    }
+
+    private static readonly HashSet<string> OutcomeTexts = new(StringComparer.Ordinal)
+        { "Message", "Detail", "Reason", "Summary", "Text", "Explanation" };
+    private static readonly HashSet<string> SuccessFlags = new(StringComparer.Ordinal)
+        { "Succeeded", "Success", "Ok", "IsOk", "Found", "IsAvailable", "Available", "Passed", "IsSuccess" };
+
+    /// <summary>
+    /// Rule (e): <c>x.Message</c> (or Detail, Reason, Summary, Text) where the same method tests whether x succeeded
+    /// - <c>!x.Succeeded</c>, <c>x.Ok == false</c>, <c>x.Found is false</c> - is the outcome's own account of itself, and
+    /// in the branch that failed it is the failure. Read without branches: a method that tests x's success and shows
+    /// x's text is a site, and a success-path display of the same text is exempted as not an error.
+    /// </summary>
+    private static bool IsOutcomeText(MemberAccessExpressionSyntax m)
+    {
+        if (!OutcomeTexts.Contains(m.Name.Identifier.Text) || m.Expression is not IdentifierNameSyntax owner) return false;
+        var method = m.Ancestors().FirstOrDefault(a => a is BaseMethodDeclarationSyntax or LocalFunctionStatementSyntax or AccessorDeclarationSyntax);
+        if (method is null) return false;
+        var name = owner.Identifier.Text;
+        bool IsFlagOfOwner(ExpressionSyntax e) => e is MemberAccessExpressionSyntax f
+            && f.Expression is IdentifierNameSyntax o && o.Identifier.Text == name && SuccessFlags.Contains(f.Name.Identifier.Text);
+        return method.DescendantNodes().Any(n => n switch
+        {
+            PrefixUnaryExpressionSyntax p when p.IsKind(SyntaxKind.LogicalNotExpression) => IsFlagOfOwner(p.Operand),
+            BinaryExpressionSyntax b when b.IsKind(SyntaxKind.EqualsExpression) =>
+                (IsFlagOfOwner(b.Left) && b.Right.IsKind(SyntaxKind.FalseLiteralExpression))
+                || (IsFlagOfOwner(b.Right) && b.Left.IsKind(SyntaxKind.FalseLiteralExpression)),
+            IsPatternExpressionSyntax ip => IsFlagOfOwner(ip.Expression) && ip.Pattern.ToString() is "false" or "not true",
+            _ => false,
+        });
+    }
 
     private static bool IsClearing(ExpressionSyntax value)
         => value.IsKind(SyntaxKind.NullLiteralExpression)
@@ -303,6 +355,8 @@ public sealed class ShownErrorScanner
                     return true;
                 case MemberAccessExpressionSyntax m when IsShownValue(m) && FailureValueName.IsMatch(m.Name.Identifier.Text)
                                                          && !IsEnumValue(m):
+                    return true;
+                case MemberAccessExpressionSyntax m when IsShownValue(m) && IsOutcomeText(m):
                     return true;
                 case IdentifierNameSyntax id when IsShownValue(id) && IsVariable(id) && !IsDeclaredBool(id):
                     if (FailureValueName.IsMatch(id.Identifier.Text)) return true;

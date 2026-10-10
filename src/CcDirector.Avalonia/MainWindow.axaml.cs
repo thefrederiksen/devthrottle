@@ -6363,6 +6363,9 @@ public partial class MainWindow : Window
             UpdateIndicatorIcon.Fill = Brush.Parse(status.Accent);
             UpdateIndicator.Background = Brush.Parse(status.Background);
             UpdateIndicator.BorderBrush = Brush.Parse(status.Border);
+            // Error report decision (issue #3675): NOT reported here. "UPDATE INSTALL FAILED" re-displays the launcher's
+            // failure from the updater state; the launcher reports it with its own FAILED lines (DirectorUpdateOwner),
+            // and reporting it again here would be a second row, on every refresh, for one failed install.
             UpdateIndicatorLabel.Text = status.Headline;
             UpdateIndicatorLabel.Foreground = Brush.Parse(status.Accent);
             UpdateIndicatorSub.Text = status.Detail;
@@ -6461,7 +6464,9 @@ public partial class MainWindow : Window
                     var result = await CcDirector.Core.Update.LauncherRestartClient.RequestRestartAsync();
                     Dispatcher.UIThread.Post(() =>
                     {
-                        ShowNotification(result.Message);
+                        ShowNotification(result.Ok
+                            ? result.Message
+                            : ShownError.Report("main window", "ask the launcher to install the update and restart", result.Message));
                         RefreshUpdateStatus();
                     });
                 });

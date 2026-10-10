@@ -242,6 +242,7 @@ public partial class BrowserSettingsView : UserControl
                 return;
             }
 
+            // shown-error-exempt (not an error): the install succeeded; the failure returned above, reported
             StatusText.Text = result.Message;
 
             await RefreshAsync();

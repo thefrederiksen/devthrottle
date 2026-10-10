@@ -92,6 +92,13 @@ public sealed class ShownErrorSourceScanTests
         Assert.True(result.CountKind("control text") > 0, "no control text read - the control text rule is broken");
         Assert.True(result.CountKind("error call") > 0, "no error call read - the error call rule is broken");
         Assert.True(result.CountKind("layout text") > 0, "no layout text read - the axaml rule is broken");
+        // One sentinel per rule that a real site depends on: a rule that silently stopped matching leaves every KIND
+        // above zero (the other rules still fill it), so each must still read the site it was written for.
+        AssertRead(result, "ColourLegendDialog.axaml.cs", "Fail(\"read what the colours mean\"", "error call", "a call named for a failure (rule a)");
+        AssertRead(result, "DirectorTeamPanel.axaml.cs", "$\"move this Director to {(", "error call", "a member named for a failure (rule b)");
+        AssertRead(result, "SaveWorkspaceDialog.axaml.cs", "TxtWarning.Text = _existingIdsProblem", "control text", "a field named for a failure (rule b)");
+        AssertRead(result, "AgentEditorDialog.axaml.cs", "SetQuickCheckResult(result.Ok", "error call", "a success flag that is not a literal (rule d)");
+        AssertRead(result, "ToolsView.axaml.cs", "repair.Detail", "control text", "the text of an outcome whose success the method tests (rule e)");
         Assert.True(result.Findings.Count == 0, string.Join("\n", result.Findings));
         Assert.True(violations.Count == 0,
             $"{violations.Count} place(s) show the user an error that is never reported. Show it through " +
@@ -99,6 +106,10 @@ public sealed class ShownErrorSourceScanTests
             $"put \"// {ShownErrorScanner.ExemptPrefix} (<kind>): <reason>\" on the line above:\n" +
             string.Join("\n", violations.Select(v => $"{v.File}:{v.Line} [{v.Kind}] {v.Text}")));
     }
+
+    private static void AssertRead(ShownErrorScanner.Result result, string file, string fragment, string kind, string rule)
+        => Assert.True(result.Sites.Any(s => s.File.EndsWith(file, StringComparison.Ordinal) && s.Kind == kind && s.Text.Contains(fragment, StringComparison.Ordinal)),
+            $"the scan no longer reads the {kind} in {file} containing \"{fragment}\" - {rule} has stopped matching");
 
     private static ShownErrorScanner.Result ScanOne(string code, string? axaml = null)
     {
@@ -291,6 +302,57 @@ public sealed class ShownErrorSourceScanTests
         var r = ScanOne(Head + "void M(){\n // shown-error-exempt (user input): the name the user typed is empty\n\n // something else\n NameError.Text = \"Name cannot be empty\"; } }");
         Assert.Single(r.Violations);
         Assert.Contains(r.Findings, f => f.Contains("no display site uses"));
+    }
+
+    // ----- the shapes review finding F1-R2 named -----
+
+    [Fact]
+    public void Scan_AnErrorFlagThatIsNotALiteral_IsASite()
+    {
+        // SettingsDialog: ShowFirewallStatus(message, error: !ok).
+        var r = ScanOne(Head + "void M(bool ok, string message){ ShowFirewallStatus(message, error: !ok); } }");
+        Assert.Equal("error call", Assert.Single(r.Violations).Kind);
+    }
+
+    [Fact]
+    public void Scan_ASuccessFlagThatIsNotALiteral_OrFalseWithComputedText_IsASite()
+    {
+        // AgentEditorDialog: SetQuickCheckResult(result.Message, success: result.Ok), and
+        // SetDetectResult($"{result.Message} Enter the executable ...", success: false).
+        var r = ScanOne(Head + "void M(){ SetQuickCheckResult(result.Message, success: result.Ok);" +
+                        " SetDetectResult($\"{found.Message} Enter the executable below.\", success: false); } }");
+        Assert.Equal(2, r.Violations.Count());
+    }
+
+    [Fact]
+    public void Scan_AFlagThatSaysAllIsWell_OrNeutral_OrPlainLiteralText_IsNotASite()
+    {
+        var r = ScanOne(Head + "void M(){ ShowStatus(message, error: false); SetQuickCheckResult(\"Testing...\", success: false, neutral: true);" +
+                        " SetDetectResult(\"Detect is only for the built-in agent types.\", success: false); SetResult(text, success: true); } }");
+        Assert.Empty(r.Sites);
+    }
+
+    [Fact]
+    public void Scan_TheTextOfAnOutcomeWhoseSuccessTheMethodTests_IsErrorText()
+    {
+        // ToolsView: if (!repair.Succeeded) { PathFaultProgress.Text = repair.Detail; }
+        var r = ScanOne(Head + "void M(){ var repair = Run(); if (!repair.Succeeded) { PathFaultProgress.Text = repair.Detail; return; } } }");
+        Assert.Equal("control text", Assert.Single(r.Violations).Kind);
+    }
+
+    [Fact]
+    public void Scan_TheTextOfAnOutcomeTheMethodNeverTests_IsNotErrorText()
+    {
+        var r = ScanOne(Head + "void M(){ var answer = Ask(); StatusText.Text = answer.Message; } }");
+        Assert.Empty(r.Sites);
+    }
+
+    [Fact]
+    public void Scan_AnErrorCallbackGivenUnreportedText_IsASite()
+    {
+        // CommManagerViewModel: ShowErrorCallback(...) is the site the hand-built error window depends on.
+        var r = ScanOne(Head + "async Task M(Exception ex){ if (ShowErrorCallback != null) await ShowErrorCallback($\"Could not post: {ex.Message}\"); } }");
+        Assert.Single(r.Violations);
     }
 
     [Fact]

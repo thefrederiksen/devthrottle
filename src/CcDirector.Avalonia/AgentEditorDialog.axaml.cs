@@ -492,7 +492,8 @@ public partial class AgentEditorDialog : Window
             {
                 // Detect failed: reveal the manual Executable/Browse/Quick-check area (AC8).
                 ManualPathPanel.IsVisible = true;
-                SetDetectResult($"{result.Message} Enter the executable below or use Browse.", success: false);
+                SetDetectResult(ShownError.Report("agent editor", $"find the {LabelFor(type)} executable",
+                    $"{result.Message} Enter the executable below or use Browse."), success: false);
             }
         }
         catch (Exception ex)
@@ -526,7 +527,12 @@ public partial class AgentEditorDialog : Window
         try
         {
             var result = await _toolDetector.TestToolAsync(type, path);
-            SetQuickCheckResult(result.Message, success: result.Ok);
+            // A failed check is reported without the message: it can carry 500 characters of the tool's own output.
+            SetQuickCheckResult(result.Ok
+                    ? result.Message
+                    : ShownError.Report("agent editor", $"run the {LabelFor(type)} quick check", result.Message,
+                        reported: $"the {LabelFor(type)} executable did not pass the quick check"),
+                success: result.Ok);
             await Task.Run(() => CcDirectorConfigService.MergePatch(ToolDetectionService.BuildValidationPatch(result)));
             FileLog.Write($"[AgentEditorDialog] RunQuickCheckAsync: persisted validation type={type}, ok={result.Ok}");
 

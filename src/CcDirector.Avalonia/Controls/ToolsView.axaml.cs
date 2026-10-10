@@ -275,7 +275,7 @@ public partial class ToolsView : UserControl
 
             if (!repair.Succeeded)
             {
-                PathFaultProgress.Text = repair.Detail;
+                PathFaultProgress.Text = ShownError.Report("tools", "put this machine's tools first on PATH", repair.Detail);
                 PathFaultFixButton.IsEnabled = true;
                 return;
             }

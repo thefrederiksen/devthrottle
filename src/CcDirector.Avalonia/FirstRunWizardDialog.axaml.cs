@@ -1950,6 +1950,7 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
                 }
 
                 _browsersHarnessInstalled = true;
+                // shown-error-exempt (not an error): the install succeeded; this is its own account of the success
                 BrowsersStatusText.Text = result.Message;
                 RefreshBrowsersUi();
             }

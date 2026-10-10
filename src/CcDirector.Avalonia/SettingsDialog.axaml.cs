@@ -793,7 +793,7 @@ public partial class SettingsDialog : Window
         try
         {
             var (ok, message) = await Task.Run(RunFirewallPromptSuppression);
-            ShowFirewallStatus(message, error: !ok);
+            ShowFirewallStatus(ok ? message : ShownError.Report("settings", "turn off the firewall prompt", message), error: !ok);
             FileLog.Write($"[SettingsDialog] BtnSuppressFirewallPrompt_Click: ok={ok}");
         }
         catch (Win32Exception wex) when (wex.NativeErrorCode == 1223)

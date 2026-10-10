@@ -206,6 +206,9 @@ public partial class OnboardingWizardDialog : Window
         {
             var availability = await Task.Run(() => _model.CheckClaudeAvailable(_options));
             _agentAvailable = availability.IsAvailable;
+            // Error report decision (issue #3675): NOT reported. "Claude Code was not found on your PATH" is a setup
+            // state on a new machine - nothing has failed, the next step is to install it - the same ruling as the
+            // "No agent configured" box (exempt as user input). The amber badge says NOT FOUND, never an error.
             AgentStatusMessage.Text = availability.Message;
 
             if (availability.IsAvailable)
