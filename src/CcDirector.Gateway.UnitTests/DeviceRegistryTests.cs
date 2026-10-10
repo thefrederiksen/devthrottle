@@ -82,11 +82,13 @@ public sealed class DeviceRegistryTests : IDisposable
     }
 
     /// <summary>
-    /// THE ONE TEST ON THE PATH CONSTRUCTOR. Every other test in this assembly builds the registry over the
-    /// harness's already-migrated database, because the path constructor opens its own GatewayDatabase and runs
-    /// the whole migration chain - about 1.5 seconds - and paying that once per test was most of sixteen classes'
-    /// time. This one keeps the constructor's promise proven: handed a path with no database beside it, it
-    /// migrates an empty file, and a key it issued survives a reopen over the same path.
+    /// THE ONE TEST ON THE PATH CONSTRUCTOR. Every other test in this class, and every harness-backed test in this
+    /// assembly, builds the registry over the harness's already-migrated database, because the path constructor
+    /// opens its own GatewayDatabase and runs the whole migration chain - about 1.5 seconds - and paying that once
+    /// per test was most of fifteen classes' time. This one keeps the constructor's promise proven: handed a path
+    /// with no database beside it, it migrates an empty file, and a key it issued survives a reopen over the same
+    /// path. Each open is taken under the environment gate, as the harness takes its own: one test in this assembly
+    /// blanks the provider selection for a moment, and an open outside the gate can fail with that test's fault.
     /// </summary>
     [Fact]
     public void PathConstructor_MigratesAnEmptyFile_AndAKeySurvivesAReopen()
@@ -99,11 +101,11 @@ public sealed class DeviceRegistryTests : IDisposable
             Assert.False(File.Exists(storePath + ".gateway.db"));
 
             string key;
-            using (var first = new DeviceRegistry(storePath))
+            using (var first = GatewayDbEnvironmentGate.WhileTheConfigurationIsStable(() => new DeviceRegistry(storePath)))
                 key = first.Register("device-a", "MACHINE-A").DeviceKey;
 
             Assert.True(File.Exists(storePath + ".gateway.db"), "the path constructor opens its database beside the store path");
-            using var reloaded = new DeviceRegistry(storePath);
+            using var reloaded = GatewayDbEnvironmentGate.WhileTheConfigurationIsStable(() => new DeviceRegistry(storePath));
             Assert.Equal(1, reloaded.Count);
             Assert.True(reloaded.IsValidDeviceKey(key));
         }

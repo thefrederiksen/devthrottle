@@ -53,7 +53,8 @@ public sealed class HostedEntitlementGateTests : IDisposable
     private readonly GatewayDbTestHarness _harness = new();
     private readonly TestEs256Key _key = new();
 
-    /// <summary>The legacy JSON store the registry would import from; never written by these tests.</summary>
+    /// <summary>The legacy JSON store the registry would import from. Nothing writes it: the registry has kept its
+    /// devices in the database since the cutover, so a check on this file says nothing about enrollment.</summary>
     private string DevPath => _harness.LegacyPath("devices.json");
 
     public void Dispose()
@@ -108,7 +109,7 @@ public sealed class HostedEntitlementGateTests : IDisposable
     private void AssertNothingWasGivenAway(TenantRegistry tenants)
     {
         Assert.Null(tenants.LookupBySubject(Subject));                       // no tenant minted
-        Assert.False(File.Exists(DevPath) && File.ReadAllText(DevPath).Contains("device-1", StringComparison.Ordinal));
+        Assert.Empty(_harness.OpenDevices().List());                         // no device enrolled
     }
 
     [Fact]

@@ -7,7 +7,7 @@ namespace CcDirector.Gateway.Tests.Data;
 ///
 /// The registry's path constructor opens its OWN <c>GatewayDatabase</c> beside the path it is given and runs the
 /// whole migration chain - about 1.5 seconds on this machine, measured by
-/// <c>DatabaseOpensAfterTheBindTests.Open_connects_and_migrates</c>. Sixteen test classes built a registry that way
+/// <c>DatabaseOpensAfterTheBindTests.Open_connects_and_migrates</c>. Fifteen test classes built a registry that way
 /// once per test, and the migration was most of their time: 37 seconds for the 23 tests of AuthMiddlewareTests
 /// alone. The harness already holds the migrated schema, built once per process and copied, so a registry over
 /// <see cref="GatewayDbTestHarness.Open"/> opens the real schema through the real code path and migrates nothing.
