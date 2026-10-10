@@ -236,7 +236,9 @@ public sealed class PreSignInOutbox
             diagnostics.Append(block);
             used++;
         }
-        var text = diagnostics.Length > DiagnosticsBudget ? diagnostics.ToString(0, DiagnosticsBudget) : diagnostics.ToString();
+        // Scrubbed again on the way out (issue #3644): an entry written by an older version of this file, before
+        // its sender scrubbed with this machine's names, must not leave the machine with them.
+        var text = ErrorTextScrubber.ScrubOnThisMachine(diagnostics.Length > DiagnosticsBudget ? diagnostics.ToString(0, DiagnosticsBudget) : diagnostics.ToString());
 
         var first = items[0];
         var occurrences = items.Take(used).Sum(i => (long)Math.Max(1, i.RepeatCount));
@@ -245,7 +247,7 @@ public sealed class PreSignInOutbox
         if (used < items.Count) message.Append($" {items.Count - used} more are waiting for the next report.");
         if (notKept > 0) message.Append($" {notKept} further distinct error(s) were not kept because the queue on disk was full.");
         message.Append($" First: [{first.Source}] {first.Message}");
-        var messageText = message.ToString();
+        var messageText = ErrorTextScrubber.ScrubOnThisMachine(message.ToString());
         if (messageText.Length > InstallReportLimits.MaxMessage) messageText = messageText[..InstallReportLimits.MaxMessage];
 
         return (new InstallReportPayload(

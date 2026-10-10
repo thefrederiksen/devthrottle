@@ -12,6 +12,7 @@ public sealed class ErrorTextAndLineTests
     [InlineData("/Users/robert/Library/Application Support/cc-director/logs", "~/Library/Application Support/cc-director/logs")]
     [InlineData("/home/soren/.local/share/cc-director", "~/.local/share/cc-director")]
     [InlineData(@"C:\Users\soren\AppData\Local\cc-director", @"~\AppData\Local\cc-director")]
+    [InlineData("C:/Users/soren/AppData/Local/cc-director", "~/AppData/Local/cc-director")]
     public void Scrub_HomeFolder_BecomesTilde(string input, string expected)
         => Assert.Equal(expected, ErrorTextScrubber.Scrub(input));
 
@@ -104,6 +105,78 @@ public sealed class ErrorTextAndLineTests
         Assert.DoesNotContain("robert", scrubbed);
         Assert.DoesNotContain("SOREN_NORTH", scrubbed);
         Assert.Contains("~", scrubbed);
+    }
+
+    // Issue #3644: the shapes a report from before sign-in actually carries, one per operating system, each
+    // written the way that system's own tools print it.
+    [Theory]
+    // Windows: a .NET exception message, a forward-slash path from Git or Python, a short 8.3 name, the temp folder.
+    [InlineData(@"System.UnauthorizedAccessException: Access to the path 'C:\Users\robert.ziegler\AppData\Local\cc-director\app\cc-director.exe' is denied.")]
+    [InlineData("fatal: not a git repository: C:/Users/robert.ziegler/source/repos/devthrottle/.git")]
+    [InlineData(@"extracting to C:\Users\ROBERT~1\AppData\Local\Temp\dt-setup-4411\payload.zip FAILED")]
+    // macOS: a launchd error, a Python traceback line, a home folder on a second volume.
+    [InlineData("Load failed: 5: Input/output error for /Users/robert.ziegler/Library/LaunchAgents/com.devthrottle.cc-launcher.plist")]
+    [InlineData("  File \"/Users/robert.ziegler/.local/share/devthrottle/tools/cc_vault/main.py\", line 41, in <module>")]
+    [InlineData("home: /Users/robert.ziegler -> /Volumes/Data/Users/robert.ziegler")]
+    // Linux: a dynamic linker error, a systemd user unit, a Fedora Silverblue home.
+    [InlineData("/home/robert.ziegler/.local/bin/devthrottle-setup: error while loading shared libraries: libICE.so.6")]
+    [InlineData("Failed to start unit /home/robert.ziegler/.config/systemd/user/cc-launcher.service")]
+    [InlineData("open /var/home/robert.ziegler/.local/share/cc-director/config.json: permission denied")]
+    public void Scrub_RealShapedHomePathOnEachSystem_LosesTheName(string input)
+    {
+        var scrubbed = ErrorTextScrubber.Scrub(input);
+
+        Assert.DoesNotContain("robert", scrubbed, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("~", scrubbed);
+    }
+
+    [Theory]
+    // macOS id output.
+    [InlineData("id: uid=501(robert) gid=20(staff) groups=20(staff),12(everyone),61(localaccounts),79(_appserverusr),80(admin)",
+        "id: uid=501 gid=20 groups=20,12,61,79,80")]
+    // Linux: the primary group is named after the person.
+    [InlineData("uid=1000(robert) gid=1000(robert) groups=1000(robert),4(adm),27(sudo)", "uid=1000 gid=1000 groups=1000,4,27")]
+    // A Mac bound to a directory: a group name holds a backslash and a space.
+    [InlineData(@"uid=1102(robert) gid=1301(CORP\domain users) groups=1301(CORP\domain users),12(everyone)", "uid=1102 gid=1301 groups=1301,12")]
+    // Already numbers only: unchanged.
+    [InlineData("id: uid=501 gid=20 groups=20,12,61", "id: uid=501 gid=20 groups=20,12,61")]
+    public void Scrub_IdCommandOutput_KeepsTheNumbersAndDropsTheNames(string input, string expected)
+        => Assert.Equal(expected, ErrorTextScrubber.Scrub(input));
+
+    [Fact]
+    public void ScrubOnThisMachine_UserAndMachineNameOutsideAPath_AreReplaced()
+    {
+        var scrubbed = ErrorTextScrubber.ScrubOnThisMachine(
+            "The trust relationship between ROBERTS-MACBOOK-PRO and the domain failed for user robertz (robertz@corp)",
+            userName: "robertz", machineName: "Roberts-MacBook-Pro");
+
+        Assert.Equal("The trust relationship between <machine> and the domain failed for user <user> (<user>@corp)", scrubbed);
+    }
+
+    [Fact]
+    public void ScrubOnThisMachine_NameInsideALongerWord_IsKept()
+    {
+        // "dev" is a user name on some machines; "devthrottle" and "device" are not that person.
+        var scrubbed = ErrorTextScrubber.ScrubOnThisMachine("devthrottle could not open the device for dev", "dev", "BOX-1");
+
+        Assert.Equal("devthrottle could not open the device for <user>", scrubbed);
+    }
+
+    [Fact]
+    public void ScrubOnThisMachine_NameShorterThanThreeLetters_IsKept()
+    {
+        var scrubbed = ErrorTextScrubber.ScrubOnThisMachine("give me the file", "me", "pc");
+
+        Assert.Equal("give me the file", scrubbed);
+    }
+
+    [Fact]
+    public void ScrubOnThisMachine_StillDoesEverythingScrubDoes()
+    {
+        var scrubbed = ErrorTextScrubber.ScrubOnThisMachine(
+            @"C:\Users\someone\x.txt token=abc123secretvalue uid=501(someone)", "nobody-here", "NO-SUCH-PC");
+
+        Assert.Equal(@"~\x.txt token=" + ErrorTextScrubber.Redacted + " uid=501", scrubbed);
     }
 
     [Fact]

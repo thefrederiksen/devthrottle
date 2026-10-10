@@ -71,6 +71,52 @@ public sealed class InstallFailureReporterTests : IDisposable
     }
 
     [Fact]
+    public async Task ReportAsync_ACredentialAnIdLineAndThisMachinesNames_NeverLeaveTheMachine()
+    {
+        // Issue #3644: the installer scrubs with the same rules as Director errors, before sending.
+        var handler = new CapturingHandler(HttpStatusCode.Accepted);
+        var reporter = new InstallFailureReporter(new InstallLayout(_root), "setup-wizard",
+            new HttpClient(handler), () => "https://gateway.example.test/");
+        var key = "Kq3vZ8wYp2LmN5tR7xB1cD4fG6hJ9kQ0sT2uV5wX8yZ";
+
+        await reporter.ReportAsync("launcher", "start",
+            $"enroll FAILED: Authorization: Bearer {key} on {Environment.MachineName} for {Environment.UserName}",
+            "id: uid=501(robertziegler) gid=20(staff) groups=20(staff),80(admin)\n" +
+            $"connect FAILED token={key}\nhome: C:/Users/robertziegler/AppData");
+
+        Assert.NotNull(handler.Body);
+        Assert.DoesNotContain(key, handler.Body);
+        Assert.DoesNotContain("robertziegler", handler.Body);
+        Assert.DoesNotContain("(staff)", handler.Body);
+        Assert.Contains("uid=501 gid=20 groups=20,80", handler.Body);
+        if (Environment.MachineName.Length >= 3)
+            Assert.DoesNotContain(Environment.MachineName, handler.Body, StringComparison.OrdinalIgnoreCase);
+        if (Environment.UserName.Length >= 3)
+            Assert.DoesNotContain(Environment.UserName, handler.Body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void InstallMacScript_SendsNumericIdsOnly_AndScrubsThisMacsNames()
+    {
+        // The macOS one-line installer is a shell script, so its report cannot be run here. What it may put in a
+        // report is read from the script itself: the bare "id" command names the person (issue #3644).
+        var script = File.ReadAllText(Path.Combine(RepoRoot(), "scripts", "install-mac.sh"));
+
+        Assert.DoesNotContain("$(id 2>", script);
+        Assert.DoesNotContain("$(id)", script);
+        Assert.Contains("id -u", script);
+        Assert.Contains("<machine>", script);
+        Assert.Contains("<user>", script);
+    }
+
+    private static string RepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "scripts", "install-mac.sh"))) dir = dir.Parent;
+        return dir?.FullName ?? throw new InvalidOperationException("the repository root (with scripts/install-mac.sh) was not found above " + AppContext.BaseDirectory);
+    }
+
+    [Fact]
     public void InstallId_IsStableAcrossReportsOnOneMachine()
     {
         var reporter = new InstallFailureReporter(new InstallLayout(_root), "setup-wizard",

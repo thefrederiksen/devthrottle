@@ -180,6 +180,27 @@ public sealed class PreSignInOutboxTests : IDisposable
     }
 
     [Fact]
+    public void Compose_AnEntryKeptBeforeItsSenderScrubbed_LeavesWithoutCredentialIdNamesOrThisMachinesNames()
+    {
+        // Issue #3644: an entry written to the file by an older version, before the sender scrubbed with this
+        // machine's names, is scrubbed again on its way out.
+        var key = "Kq3vZ8wYp2LmN5tR7xB1cD4fG6hJ9kQ0sT2uV5wX8yZ";
+        var item = Item($"Enroll FAILED on {Environment.MachineName} for {Environment.UserName}: token={key}",
+            stack: "uid=501(robertziegler) gid=20(staff)\n   at C:/Users/robertziegler/x.cs");
+
+        var (payload, _) = PreSignInOutbox.Compose("launcher", "id-12345678", new[] { item }, 0);
+        var leaves = payload.Message + "\n" + payload.Diagnostics;
+
+        Assert.DoesNotContain(key, leaves);
+        Assert.DoesNotContain("robertziegler", leaves);
+        Assert.DoesNotContain("(staff)", leaves);
+        if (Environment.MachineName.Length >= 3)
+            Assert.DoesNotContain(Environment.MachineName, leaves, StringComparison.OrdinalIgnoreCase);
+        if (Environment.UserName.Length >= 3)
+            Assert.DoesNotContain(Environment.UserName, leaves, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Compose_OneErrorLargerThanAReport_IsStillSent_CutToFit()
     {
         var huge = Item("Save FAILED: x", stack: new string('s', 100_000)) with { Message = new string('m', 30_000) };

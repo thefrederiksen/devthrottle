@@ -19,8 +19,16 @@ namespace CcDirector.Core.ErrorReports;
 ///     hyphen in them). A GUID, a git hash and a lower-case folder or branch name have no upper-case letter,
 ///     so session ids, Director ids and paths survive - they are what make an error traceable. A long method
 ///     name in a stack frame survives too.
+///   - the names in the output of the Unix <c>id</c> command: <c>uid=501(robert) gid=20(staff)</c> becomes
+///     <c>uid=501 gid=20</c>. The numbers say what a failure needs (root or not, which group); the names in
+///     brackets are the person's user name and, on Linux, a group named after them (issue #3644).
 ///   - control characters other than newline and tab.
 /// and it caps the length.
+///
+/// <see cref="ScrubOnThisMachine(string)"/> is the sender's form: everything above, and then this machine's own
+/// user name and machine name wherever they still stand as whole words - a message the operating system wrote
+/// ("the trust relationship between ROBERT-PC and the domain failed") carries them outside any path. Only the machine that
+/// sends knows those names, so the Gateway cannot do this part; it scrubs with <see cref="Scrub"/> again.
 /// </summary>
 public static class ErrorTextScrubber
 {
@@ -29,6 +37,14 @@ public static class ErrorTextScrubber
     // One or two backslashes between the parts: a path quoted inside JSON or an escaped string doubles them
     // ("C:\\Users\\robert"), and that shape reached the store untouched before.
     private static readonly Regex WindowsHome = new(@"[A-Za-z]:\\{1,2}Users\\{1,2}[^\\\s""']+", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+    // The same home folder written with forward slashes, the way .NET, Git and Python often print a Windows path
+    // ("C:/Users/robert/AppData/..."). The Mac rule does not see it: it wants "/Users" at the start of a path.
+    private static readonly Regex WindowsHomeForward = new(@"[A-Za-z]:/{1,2}Users/{1,2}[^/\s""']+", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+    // The output of the Unix "id" command: uid=501(robert) gid=20(staff) groups=20(staff),12(everyone),...
+    // A group name can hold a space ("MYDOMAIN\domain users" on a Mac bound to a directory), so a name runs to the
+    // closing bracket.
+    private static readonly Regex IdOutput = new(@"\b(?:uid|gid|euid|egid|groups)=\d+\([^)\r\n]*\)(?:,\d+\([^)\r\n]*\))*", RegexOptions.CultureInvariant);
+    private static readonly Regex IdName = new(@"\([^)\r\n]*\)", RegexOptions.CultureInvariant);
     // A network path to a home folder names the machine AND the person: \\MACHINE\Users\robert, or the
     // administrative share \\MACHINE\c$\Users\robert. The whole prefix becomes "~".
     private static readonly Regex UncHome = new(@"\\{2,4}[^\\\s""']+\\{1,2}(?:[A-Za-z]\$\\{1,2})?Users\\{1,2}[^\\\s""']+", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
@@ -66,15 +82,57 @@ public static class ErrorTextScrubber
     public static string Scrub(string value)
     {
         if (string.IsNullOrEmpty(value)) return "";
-        var s = MacHome.Replace(value, "~");
+        // The forward-slash Windows form first: the Mac rule would otherwise take "/Users/robert" out of it and
+        // leave "C:~/...".
+        var s = WindowsHomeForward.Replace(value, "~");
+        s = MacHome.Replace(s, "~");
         s = LinuxHome.Replace(s, "~");
         s = UncHome.Replace(s, "~");
         s = WindowsHome.Replace(s, "~");
+        s = IdOutput.Replace(s, m => IdName.Replace(m.Value, ""));
         s = Bearer.Replace(s, "Bearer " + Redacted);
         s = NamedSecret.Replace(s, m => m.Groups[1].Value + m.Groups[2].Value + Redacted);
         var text = s;
         s = KeyRun.Replace(text, m => LooksLikeAKey(m.Value) && !InStackFrame(text, m.Index) ? Redacted : m.Value);
         return s;
+    }
+
+    /// <summary>The placeholder for this machine's user name.</summary>
+    public const string UserPlaceholder = "<user>";
+
+    /// <summary>The placeholder for this machine's name.</summary>
+    public const string MachinePlaceholder = "<machine>";
+
+    /// <summary>A name shorter than this is not replaced: a two-letter user name ("me", "jo") as a whole word
+    /// would take ordinary words out of every message.</summary>
+    internal const int MinNameLength = 3;
+
+    /// <summary><see cref="Scrub"/>, then this machine's user name and machine name. What every sender on this
+    /// machine uses before text leaves it.</summary>
+    public static string ScrubOnThisMachine(string value)
+        => ScrubOnThisMachine(value, Environment.UserName, Environment.MachineName);
+
+    /// <summary><see cref="ScrubOnThisMachine(string)"/> with the names given, so a test can name them.</summary>
+    public static string ScrubOnThisMachine(string value, string? userName, string? machineName)
+    {
+        var s = Scrub(value);
+        // The machine first: on a Mac it is often built from the person's name ("Roberts-MacBook-Pro"), and the
+        // user name inside it would otherwise be replaced alone and leave "<user>s-MacBook-Pro".
+        s = ReplaceWholeWord(s, machineName, MachinePlaceholder);
+        return ReplaceWholeWord(s, userName, UserPlaceholder);
+    }
+
+    /// <summary><see cref="Clean"/> with <see cref="ScrubOnThisMachine(string)"/> as its scrub.</summary>
+    public static string CleanOnThisMachine(string? value, int max)
+        => string.IsNullOrEmpty(value) ? "" : Clean(ScrubOnThisMachine(value), max);
+
+    private static string ReplaceWholeWord(string text, string? name, string placeholder)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return text;
+        name = name.Trim();
+        if (name.Length < MinNameLength) return text;
+        var pattern = @"(?<![A-Za-z0-9_])" + Regex.Escape(name) + @"(?![A-Za-z0-9_])";
+        return Regex.Replace(text, pattern, placeholder, RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
     }
 
     /// <summary>

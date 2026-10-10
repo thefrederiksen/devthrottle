@@ -249,10 +249,10 @@ public sealed class ErrorReporter : IDisposable
 
     internal void Add(string source, string kind, string message, string exceptionType, string stack)
     {
-        var cleanSource = ErrorTextScrubber.Clean(source, ErrorReportLimits.MaxShortField);
-        var cleanMessage = ErrorTextScrubber.Clean(message, ErrorReportLimits.MaxMessage);
-        var cleanType = ErrorTextScrubber.Clean(exceptionType, ErrorReportLimits.MaxShortField);
-        var cleanStack = ErrorTextScrubber.Clean(stack, ErrorReportLimits.MaxStack);
+        var cleanSource = ErrorTextScrubber.CleanOnThisMachine(source, ErrorReportLimits.MaxShortField);
+        var cleanMessage = ErrorTextScrubber.CleanOnThisMachine(message, ErrorReportLimits.MaxMessage);
+        var cleanType = ErrorTextScrubber.CleanOnThisMachine(exceptionType, ErrorReportLimits.MaxShortField);
+        var cleanStack = ErrorTextScrubber.CleanOnThisMachine(stack, ErrorReportLimits.MaxStack);
         var signature = string.Join('|', cleanSource, kind, cleanType, Digits.Replace(cleanMessage, "#"));
         var now = _clock();
         var announceFull = false;

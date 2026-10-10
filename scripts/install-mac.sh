@@ -178,15 +178,26 @@ log() {
 # 64 kilobytes - a report over either is refused outright, and then it is gone.
 MAX_MESSAGE_CHARS=4000
 MAX_BODY_BYTES=60000
-json_string() { # text -> one quoted string in the notation the Gateway reads, home folder reduced to ~
+json_string() { # text -> one quoted string in the notation the Gateway reads, scrubbed of this Mac's names
     # JavaScript for Automation's JSON.stringify, which every Mac has and which the hash check above already
     # relies on: it escapes every control byte, quote and backslash correctly. A bash encoder cannot be written
     # once for both bash versions - the Mac's bash 3.2 keeps the quote characters of a quoted replacement
     # literally, bash 5.2 strips backslashes from an unquoted one - and one unescaped carriage return (curl
     # writes its progress with them) makes the whole report unreadable to the Gateway, which refuses it.
-    local text="$1" tilde='~'
+    local text="$1" tilde='~' name
     # The replacement is a variable because a bare ~ there is tilde-expanded straight back into $HOME.
     text="${text//"$HOME"/$tilde}"
+    # The person's user name and the Mac's own name, wherever they still stand in the text (issue #3644): a home
+    # folder that is a link elsewhere, a message the system wrote, the computer name macOS builds from the person's
+    # name ("Roberts-MacBook-Pro"). The machine first, so a user name inside it is not replaced alone. A name
+    # shorter than three letters is left: as a plain substring it would take ordinary words out of the text. The
+    # Gateway scrubs home folders and credentials again on receipt, but only this Mac knows its own names.
+    for name in "$(scutil --get ComputerName 2>/dev/null || true)" "$(scutil --get LocalHostName 2>/dev/null || true)" \
+                "$(hostname -s 2>/dev/null || true)"; do
+        if [[ ${#name} -ge 3 ]]; then text="${text//"$name"/<machine>}"; fi
+    done
+    name="$(id -un 2>/dev/null || true)"
+    if [[ ${#name} -ge 3 ]]; then text="${text//"$name"/<user>}"; fi
     osascript -l JavaScript -e 'function run(argv) { return JSON.stringify(argv[0]); }' -- "$text"
 }
 report_step() { # message
@@ -221,7 +232,7 @@ report_step() { # message
             # these do not.
             diagnostics="sw_vers:"$'\n'"$(sw_vers 2>/dev/null || true)"
         else
-            diagnostics="run log ($(basename "${LOG_FILE:-no log file}")):"$'\n'"${run_log:-(empty)}"$'\n'"sw_vers:"$'\n'"$(sw_vers 2>/dev/null || true)"$'\n'"id: $(id 2>/dev/null || true)"$'\n'"home: $HOME -> $(readlink "$HOME" 2>/dev/null || printf 'not a link')"
+            diagnostics="run log ($(basename "${LOG_FILE:-no log file}")):"$'\n'"${run_log:-(empty)}"$'\n'"sw_vers:"$'\n'"$(sw_vers 2>/dev/null || true)"$'\n'"id: uid=$(id -u 2>/dev/null || true) gid=$(id -g 2>/dev/null || true) groups=$(id -G 2>/dev/null | tr ' ' ',' || true)"$'\n'"home: $HOME -> $(readlink "$HOME" 2>/dev/null || printf 'not a link')"
         fi
         diagnostics_json="$(json_string "$diagnostics")" || return 1
         body="{\"install_id\":\"$id\",\"installer\":\"install-mac.sh\",\"component\":\"setup-wizard\",\"step\":\"$STEP\",\"message\":$message_json,\"diagnostics\":$diagnostics_json,\"os\":\"macos\",\"os_version\":\"$(sw_vers -productVersion 2>/dev/null || true)\",\"arch\":\"$(uname -m)\",\"product_version\":\"latest\"}"
