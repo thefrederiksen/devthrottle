@@ -21,7 +21,9 @@
                   The browser shells' report, field for field, POSTed to /client-errors on this machine's
                   credential. The screen that would have shown the error is NOT exercised.
       gateway     A prompt to a session id no Director holds, sent on this session's own key. The Gateway answers
-                  404 and stores its OWN row (the phone's red-box path). The Gateway mints the correlation id -
+                  404 and stores its OWN row through RecordRefusal - the function that also stores the phone's
+                  red box, though the phone itself, on a device credential, would be HELD, not refused, for a
+                  session that cannot be found. The Gateway mints the correlation id -
                   by design no client can choose it - so the proof marker rides in the row's session id, and the
                   row is matched on the exact id the answer's X-Correlation-Id header carried.
       tool        cc-devthrottle, run from THIS checkout (the installed copy may predate the reporter), asked for
@@ -33,6 +35,11 @@
                   id; the marker rides in the step.
       website     NOT PROVEN from this machine: the website files its reports server-side with its own service
                   credential, which this machine does not hold.
+
+    NOT PROVEN MEANS ONLY "CANNOT BE TRIGGERED FROM THIS MACHINE" (no credential for the target, no session
+    key, no trigger possible). A component that WAS triggered here always goes through the read: if its sender
+    dropped the report, paused, was refused (429, 503) or the tool exited with the wrong code, no row arrives and
+    it comes out NO, which fails the run. -DropComponent proves that on demand.
 
     A component the script has no trigger for at all (one added to the contract after this script) is a FAILURE,
     not a skip: the proof must be extended before it can pass again.
@@ -60,6 +67,10 @@
 .PARAMETER WaitSeconds
     How long to keep reading for rows that have not arrived yet. Default 90.
 
+.PARAMETER DropComponent
+    SELF-CHECK. Send NOTHING for this one component (it is still counted as triggered), so the run must report it
+    NO and exit 1. Proves that a report the sender dropped fails the run rather than passing as NOT PROVEN.
+
 .PARAMETER SkipBuild
     Reuse the driver already built (a re-run while iterating).
 
@@ -71,6 +82,7 @@
 param(
     [string]$Gateway = "https://gateway.devthrottle.com",
     [int]$WaitSeconds = 90,
+    [string]$DropComponent = "",
     [switch]$SkipBuild
 )
 
@@ -106,22 +118,29 @@ if (-not (Test-Path $driver)) { Fail-Setup "the driver is not at $driver; run wi
 # Run one driver verb; its answer is the JSON file it wrote.
 function Invoke-Driver([string]$name, [string[]]$arguments, [hashtable]$environment = @{}, [switch]$AsAdmin) {
     $out = Join-Path $work "$name.json"
+    $errors = Join-Path $work "$name.stderr.txt"
     $saved = @{}
     foreach ($k in $environment.Keys) {
         $saved[$k] = [Environment]::GetEnvironmentVariable($k)
         [Environment]::SetEnvironmentVariable($k, $environment[$k])
     }
+    # Windows PowerShell turns a native command's error output into a terminating error under Stop when the
+    # caller captures standard error; cc-secrets always writes "[cc-secrets] command exited N" there. The exit
+    # code and the answer file are what is checked.
+    $savedPreference = $ErrorActionPreference
     try {
+        $ErrorActionPreference = 'Continue'
         if ($AsAdmin) {
-            & cc-secrets run admin-service-token -- $driver @arguments --out $out | Out-Host
+            & cc-secrets run admin-service-token -- $driver @arguments --out $out 2> $errors | Out-Host
         } else {
-            & $driver @arguments --out $out | Out-Host
+            & $driver @arguments --out $out 2> $errors | Out-Host
         }
         $code = $LASTEXITCODE
     } finally {
         foreach ($k in $saved.Keys) { [Environment]::SetEnvironmentVariable($k, $saved[$k]) }
+        $ErrorActionPreference = $savedPreference
     }
-    if (-not (Test-Path $out)) { Fail-Setup "the driver verb '$name' wrote no answer (exit $code)" }
+    if (-not (Test-Path $out)) { Fail-Setup "the driver verb '$name' wrote no answer (exit $code); its error output: $(Get-Content -Raw -Path $errors)" }
     $answer = Get-Content -Raw -Path $out | ConvertFrom-Json
     if ($answer.outcome -eq 'failed') { Fail-Setup "the driver verb '$name' failed: $($answer.error)" }
     return $answer
@@ -154,20 +173,29 @@ function Add-Plan([string]$component, [string]$how, [bool]$provable, [string]$re
 
 $pythonExe = Join-Path $env:LOCALAPPDATA "cc-director\pyenv\Scripts\python.exe"
 
+if ($DropComponent -and $DropComponent -notin $components) { Fail-Setup "-DropComponent '$DropComponent' is not in the contract's list" }
+
 foreach ($component in $components) {
     $marker = "$runId-$component"
+    if ($component -eq $DropComponent) {
+        # The self-check: triggered, nothing sent. Its row cannot arrive, so it must come out NO.
+        $m = $marker
+        Add-Plan $component "SELF-CHECK: deliberately not sent (-DropComponent)" $true "the self-check sent nothing" { param($row) $row.correlation_id -eq $m -or $row.session_id -eq $m -or $row.step -eq $m }.GetNewClosure()
+        Write-Step "SELF-CHECK: nothing is sent for $component; the run must report it NO and exit 1"
+        continue
+    }
     switch ($component) {
         { $_ -in @('director', 'launcher', 'gateway-app') } {
             $r = Invoke-Driver "trigger-$component" @("device", "--component", $component, "--marker", $marker, "--target", $Gateway, "--logs", (Join-Path $work "logs"))
             if ($r.outcome -eq 'not-proven') { Add-Plan $component "ErrorReporter as $component" $false $r.reason $null; break }
             $m = $marker
-            Add-Plan $component $r.triggered_how ($r.outcome -eq 'sent') "reporter sent $($r.sent), dropped $($r.dropped)" { param($row) $row.correlation_id -eq $m }.GetNewClosure()
+            Add-Plan $component $r.triggered_how $true "the reporter said: $($r.outcome), sent $($r.sent), dropped $($r.dropped)" { param($row) $row.correlation_id -eq $m }.GetNewClosure()
         }
         { $_ -in @('cockpit', 'mobile') } {
             $r = Invoke-Driver "trigger-$component" @("browser", "--component", $component, "--marker", $marker, "--target", $Gateway)
             if ($r.outcome -eq 'not-proven') { Add-Plan $component "POST /client-errors" $false $r.reason $null; break }
             $m = $marker
-            Add-Plan $component $r.triggered_how $true "answered HTTP $($r.http_status)" { param($row) $row.correlation_id -eq $m }.GetNewClosure()
+            Add-Plan $component $r.triggered_how $true "the route answered HTTP $($r.http_status)" { param($row) $row.correlation_id -eq $m }.GetNewClosure()
         }
         'gateway' {
             $r = Invoke-Driver "trigger-gateway" @("gateway-refusal", "--marker", $marker, "--target", $Gateway)
@@ -208,13 +236,13 @@ foreach ($component in $components) {
                 $ErrorActionPreference = $savedPreference
             }
             $m = $marker
-            Add-Plan $component "cc-devthrottle errors list with a refused moment, from this checkout, CC_SESSION_ID = marker" ($toolExit -eq 1) "the tool exited $toolExit" { param($row) $row.session_id -eq $m }.GetNewClosure()
+            Add-Plan $component "cc-devthrottle errors list with a refused moment, from this checkout, CC_SESSION_ID = marker" $true "the tool exited $toolExit (1 expected)" { param($row) $row.session_id -eq $m }.GetNewClosure()
         }
         'install' {
             $r = Invoke-Driver "trigger-install" @("install", "--marker", $marker, "--target", $Gateway, "--root", (Join-Path $work "install-root"))
             $installId = $r.install_id
             $m = $marker
-            Add-Plan $component $r.triggered_how ($r.outcome -eq 'sent') "install id $installId" { param($row) $row.step -eq $m -and $row.device -eq $installId }.GetNewClosure()
+            Add-Plan $component $r.triggered_how $true "the reporter said: $($r.outcome), install id $installId" { param($row) $row.step -eq $m -and $row.device -eq $installId }.GetNewClosure()
         }
         'website' {
             Add-Plan $component "none" $false "the website files its reports server-side with its own service credential, which this machine does not hold" $null

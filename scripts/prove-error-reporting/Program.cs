@@ -24,7 +24,8 @@ namespace CcDirector.Proof.ErrorReporting;
 ///   browser         - a Cockpit or phone error, as the browser shells send it to <c>POST /client-errors</c>, on
 ///                     this machine's Gateway credential. What is NOT exercised: the screen that would have shown it.
 ///   gateway-refusal - a prompt to a session no Director holds, sent on this session's own key. The Gateway refuses
-///                     it with 404 and stores its OWN row (the phone's red box path). The correlation id is the
+///                     it with 404 and stores its OWN row through RecordRefusal (the phone's red box is stored by the same
+///                     function, but the phone itself would be held, not refused). The correlation id is the
 ///                     Gateway's - no client can choose it - so the proof marker rides in the session id.
 ///   install         - a failed install step, through the installer's REAL <see cref="InstallFailureReporter"/>,
 ///                     from a throwaway install root so the machine's own install id and its hourly allowance are
