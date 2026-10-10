@@ -19,20 +19,30 @@ namespace CcDirector.Avalonia.Tests.ErrorReports;
 ///                     carries error text; and any non-clearing assignment to the text of a control whose own name
 ///                     says it holds an error (<c>ErrorText</c>, <c>TxtFailure</c>).
 ///   error call      - a call to a method whose name says it shows an error (<c>ShowError</c>,
-///                     <c>ShowFailure</c>, <c>SwitchToFailed</c>); and a call that puts text on a
-///                     screen (<c>ShowStatus</c>, <c>ShowNotification</c>, <c>SetDetectResult</c>, <c>Notified?.Invoke</c>,
-///                     <c>AppendLog</c>) whose arguments carry error text or say <c>error: true</c>.
+///                     <c>ShowFailure</c>, <c>SwitchToFailed</c>, <c>Fail</c>, <c>SetIncomplete</c>); and a call that
+///                     puts text on a screen (<c>ShowStatus</c>, <c>ShowNotification</c>, <c>SetDetectResult</c>,
+///                     <c>Notified?.Invoke</c>, <c>AppendLog</c>) whose arguments carry error text or say
+///                     <c>error: true</c>.
 ///   layout text     - static text in a <c>.axaml</c> file that carries error words: it is shown by code that makes
 ///                     the element visible, so it names that code (see <see cref="AxamlMarker"/>).
 ///   helper call     - any call to the helper not already inside one of the above.
 ///
-/// "Carries error text" means a string literal with a failure word in it (failed, could not, cannot, unable to,
-/// error) or an exception's <c>.Message</c>.
+/// "Carries error text" means any of:
+///   - a string literal with a failure word in it (failed, could not, cannot, unable to, error);
+///   - an exception's <c>.Message</c>;
+///   - a variable, field or member whose NAME says it holds a failure (<c>moved.ErrorMessage</c>, <c>cache.Error</c>,
+///     <c>_existingIdsProblem</c>, a list named <c>failed</c>);
+///   - a local or a field of the same class that was given error text anywhere - assigned it, initialised with it,
+///     or had it added to it (<c>parts.Add("Could NOT fully delete ...")</c> then <c>ShowBanner(string.Join(.., parts))</c>);
+///   - a value the same method also writes into a FAILED line (<c>FileLog.Write($"... FAILED: {result.Message}")</c>
+///     next to <c>StatusText.Text = result.Message</c>): the code itself says it is a failure.
 ///
 /// A site is ON THE HELPER when the helper is called inside it, when what it shows is a local the helper returned
 /// earlier in the same method or a field that only ever holds what the helper returned, or when it sits inside a
 /// call to a method of the
 /// scanned source whose body calls the helper (<c>BusyAction.RunAsync</c> reports for the callbacks given to it).
+/// That last rule trusts the method to report what its callbacks show: it holds for <c>BusyAction</c>, whose work
+/// callback must THROW to fail, but a callback that put error text on screen without throwing would pass unreported.
 /// The body of a method whose name says it shows an error, and of a <c>Show...</c> method that shows the text it is
 /// given, is that method's own business: its CALLS are the sites, so its insides are not counted again.
 ///
@@ -43,8 +53,9 @@ namespace CcDirector.Avalonia.Tests.ErrorReports;
 /// The reason is required, and "reported above" is checked: an earlier statement in the same block must call the
 /// helper. An exemption comment that no site uses is itself a finding, so they cannot pile up.
 ///
-/// WHAT IT CANNOT SEE: error text built somewhere else and passed in a variable with no failure word near the
-/// display (<c>PathFaultProgress.Text = repair.Detail</c>). It follows literal text and exception messages.
+/// WHAT IT CANNOT SEE: error text that crosses a method or class boundary under a name that does not say failure
+/// (<c>PathFaultProgress.Text = repair.Detail</c>, where only <c>repair</c>'s producer knows it failed). Within one
+/// method or class it follows locals and fields; across them it relies on names.
 /// </summary>
 public sealed class ShownErrorScanner
 {
@@ -68,6 +79,17 @@ public sealed class ShownErrorScanner
     // A call whose name says it shows an error: ShowError, ShowGatewayFailure, SwitchToFailed. A callback named for a
     // failure (onFailed, OnBrowserError) is plumbing, not a screen: the code it hands the error to is where the site is.
     private static readonly Regex ErrorCallName = new(@"^_?(Show|show|SwitchTo)", RegexOptions.CultureInvariant);
+    // A call whose own name is a failure, with no Show prefix: Fail(...), MarkFailed(...), SetIncomplete(...). Callbacks
+    // (on/On) and test seams are plumbing, as above, and a Log... method writes the log, not a screen.
+    private static readonly Regex FailureCallName = new(
+        @"^(?!_?(on|On|Try|Is|Has|Assert|Clear|Log))_?\w*(Fail|Failed|Failure|Incomplete)$", RegexOptions.CultureInvariant);
+    // A name that says the value IS a failure: Error, ErrorMessage, FailureReason, _existingIdsProblem, failed.
+    // Not a flag about one (IsFailed, HasError, AnyErrors) and not a count.
+    private static readonly Regex FailureValueName = new(
+        @"^_?(error|failure|failures|failed|problem|fault)$|^_?(?!(is|Is|has|Has|any|Any|show|Show|on|On)[A-Z])\w*?(Error|ErrorMessage|ErrorDetail|Failure|FailureReason|Failures|Failed|Problem|Fault)$",
+        RegexOptions.CultureInvariant);
+    private static readonly HashSet<string> CollectsText = new(StringComparer.Ordinal)
+        { "Add", "AddRange", "Append", "AppendLine", "Insert", "Prepend" };
     // A call that puts text on a screen - a status line, the notification bar, a result line, a log pane the user
     // reads: ShowStatus, ShowNotification, _showMessage, Notified, SetDetectResult, AppendLog.
     private static readonly Regex DisplayCallName = new(
@@ -215,6 +237,12 @@ public sealed class ShownErrorScanner
                 // A delegate called through Invoke is named by the delegate: Notified?.Invoke(...), onFailed.Invoke(...).
                 if (name == "Invoke") name = InvokedName(callee) ?? name;
                 if (ErrorName.IsMatch(name) && ErrorCallName.IsMatch(name)) return "error call";
+                // A failure-named call that SHOWS something: it is given text, and it is not a result factory on a type
+                // (OperationResult.Fail(...), LauncherCommandResult.Fail(...) build a value; they show nothing).
+                // Raising an event (BrowserLaunchFailed?.Invoke(...)) hands the error on; its handler is the site.
+                if (FailureCallName.IsMatch(name) && CalleeName(callee) != "Invoke"
+                    && call.ArgumentList.Arguments.Count > 0 && !IsCallOnAType(callee))
+                    return "error call";
                 if (DisplayCallName.IsMatch(name)
                     && (call.ArgumentList.Arguments.Any(a => CarriesErrorText(a.Expression)) || SaysError(call)))
                     return "error call";
@@ -251,9 +279,18 @@ public sealed class ShownErrorScanner
 
     /// <summary>A string literal with a failure word in it, or an exception's message, anywhere in the expression -
     /// but not inside a lambda, whose body is code that runs later rather than the value being shown.</summary>
-    private static bool CarriesErrorText(SyntaxNode expression)
+    private static bool CarriesErrorText(SyntaxNode expression) => CarriesErrorText(expression, follow: true);
+
+    /// <param name="follow">Look at what a variable was given. Only for the shown value itself: what the variable was
+    /// given is read for literals, messages and names, never followed a second step.</param>
+    private static bool CarriesErrorText(SyntaxNode expression, bool follow)
     {
-        foreach (var n in expression.DescendantNodesAndSelf(d => d is not LambdaExpressionSyntax))
+        // Not inside a lambda (code that runs later), a throw (the exception's text is not what is shown), or a pattern
+        // (a "Failed" => arm tests a value; it does not show one), or an object built from text (new FleetToolCheck(..)
+        // is a value its own display code reads, and that code is where the site is).
+        foreach (var n in expression.DescendantNodesAndSelf(d =>
+                     d is not (LambdaExpressionSyntax or ThrowExpressionSyntax or PatternSyntax or WhenClauseSyntax
+                         or BaseObjectCreationExpressionSyntax)))
         {
             switch (n)
             {
@@ -264,9 +301,153 @@ public sealed class ShownErrorScanner
                 case MemberAccessExpressionSyntax { Name.Identifier.Text: "Message" } m
                     when m.Expression is IdentifierNameSyntax id && ExceptionName.IsMatch(id.Identifier.Text):
                     return true;
+                case MemberAccessExpressionSyntax m when IsShownValue(m) && FailureValueName.IsMatch(m.Name.Identifier.Text)
+                                                         && !IsEnumValue(m):
+                    return true;
+                case IdentifierNameSyntax id when IsShownValue(id) && IsVariable(id) && !IsDeclaredBool(id):
+                    if (FailureValueName.IsMatch(id.Identifier.Text)) return true;
+                    if (follow && WasGivenErrorText(id)) return true;
+                    break;
             }
         }
+        return LoggedAsFailed(expression);
+    }
+
+    /// <summary>A node that is a value being shown, not a test about one (<c>x.Failed ? red : grey</c>,
+    /// <c>!result.Error</c>, <c>error is null</c>) and not the name half of a member access.</summary>
+    private static bool IsShownValue(ExpressionSyntax node)
+    {
+        if (node.Parent is MemberAccessExpressionSyntax ma && ma.Name == node) return false;
+        if (node.Parent is MemberAccessExpressionSyntax || node.Parent is InvocationExpressionSyntax) return false;
+        if (node.Parent is ConditionalAccessExpressionSyntax ca && ca.Expression == node) return false;
+        for (SyntaxNode? child = node, parent = node.Parent; parent is not null; child = parent, parent = parent.Parent)
+        {
+            switch (parent)
+            {
+                case ConditionalExpressionSyntax c when c.Condition == child:
+                case PrefixUnaryExpressionSyntax:
+                case IsPatternExpressionSyntax:
+                case BinaryExpressionSyntax b when !b.IsKind(SyntaxKind.CoalesceExpression) && !b.IsKind(SyntaxKind.AddExpression):
+                    return false;
+                case ArgumentSyntax or StatementSyntax or EqualsValueClauseSyntax or AssignmentExpressionSyntax:
+                    return true;
+            }
+        }
+        return true;
+    }
+
+    private static IEnumerable<ExpressionSyntax> ShownValues(SyntaxNode node)
+    {
+        switch (node)
+        {
+            case ParenthesizedExpressionSyntax p:
+                foreach (var e in ShownValues(p.Expression)) yield return e;
+                break;
+            case BinaryExpressionSyntax b when b.IsKind(SyntaxKind.CoalesceExpression):
+                foreach (var e in ShownValues(b.Left)) yield return e;
+                break;
+            case ConditionalExpressionSyntax c:
+                foreach (var e in ShownValues(c.WhenTrue)) yield return e;
+                foreach (var e in ShownValues(c.WhenFalse)) yield return e;
+                break;
+            case ArgumentListSyntax args:
+                foreach (var a in args.Arguments)
+                    foreach (var e in ShownValues(a.Expression)) yield return e;
+                break;
+            case ExpressionSyntax e:
+                yield return e;
+                break;
+        }
+    }
+
+    /// <summary><c>StatusLevel.Error</c>, <c>RunState.Failed</c>: a value of an enumeration, which names a state rather
+    /// than carrying the text of a failure.</summary>
+    private static bool IsEnumValue(MemberAccessExpressionSyntax m)
+        => m.Expression is IdentifierNameSyntax owner && char.IsUpper(owner.Identifier.Text[0])
+           && m.Name.Identifier.Text is "Error" or "Failed" or "Failure" or "Fault" or "Problem";
+
+    private static bool IsCallOnAType(ExpressionSyntax callee) => callee is MemberAccessExpressionSyntax ma
+        && (ma.Expression is GenericNameSyntax
+            || (ma.Expression is IdentifierNameSyntax owner && char.IsUpper(owner.Identifier.Text[0])));
+
+    /// <summary>A flag (<c>bool _gatewayError</c>) says THAT something failed; it is not the text of the failure.</summary>
+    private static bool IsDeclaredBool(IdentifierNameSyntax id)
+    {
+        var name = id.Identifier.Text;
+        var type = id.Ancestors().OfType<TypeDeclarationSyntax>().FirstOrDefault();
+        var method = id.Ancestors().FirstOrDefault(a => a is BaseMethodDeclarationSyntax or LocalFunctionStatementSyntax or AccessorDeclarationSyntax);
+        static bool IsBool(TypeSyntax? t) => t is PredefinedTypeSyntax p && p.Keyword.IsKind(SyntaxKind.BoolKeyword);
+        if (method is not null)
+        {
+            if (method.DescendantNodes().OfType<ParameterSyntax>().Any(p => p.Identifier.Text == name && IsBool(p.Type))) return true;
+            if (method.DescendantNodes().OfType<VariableDeclarationSyntax>().Any(d => IsBool(d.Type) && d.Variables.Any(v => v.Identifier.Text == name))) return true;
+        }
+        return type is not null && (
+            type.Members.OfType<FieldDeclarationSyntax>().Any(f => IsBool(f.Declaration.Type) && f.Declaration.Variables.Any(v => v.Identifier.Text == name))
+            || type.Members.OfType<PropertyDeclarationSyntax>().Any(p => p.Identifier.Text == name && IsBool(p.Type)));
+    }
+
+    private static bool IsVariable(IdentifierNameSyntax id)
+        => id.Parent is not (InvocationExpressionSyntax or NameColonSyntax or TypeArgumentListSyntax)
+           && id.Parent is not (QualifiedNameSyntax or VariableDeclarationSyntax);
+
+    /// <summary>A local of the enclosing method, or a field of the enclosing class, that is given error text
+    /// anywhere: initialised with it, assigned it, or has it added (<c>parts.Add("Could NOT ...")</c>). What the helper
+    /// returned does not count: it has been reported (<c>parts.Add(ShownError.Report(...))</c>).</summary>
+    private static bool WasGivenErrorText(IdentifierNameSyntax id)
+    {
+        var name = id.Identifier.Text;
+        var type = id.Ancestors().OfType<TypeDeclarationSyntax>().FirstOrDefault();
+        if (type is null) return false;
+        var method = id.Ancestors().FirstOrDefault(a => a is BaseMethodDeclarationSyntax or LocalFunctionStatementSyntax or AccessorDeclarationSyntax);
+        var isLocal = method is not null && method.DescendantNodes().Any(d =>
+            (d is VariableDeclaratorSyntax v && v.Identifier.Text == name)
+            || (d is ParameterSyntax p && p.Identifier.Text == name)
+            || (d is SingleVariableDesignationSyntax sv && sv.Identifier.Text == name));
+        var isField = !isLocal && type.Members.OfType<FieldDeclarationSyntax>().Any(f => f.Declaration.Variables.Any(v => v.Identifier.Text == name));
+        if (!isLocal && !isField) return false;
+        var scope = isLocal ? method! : type;
+        foreach (var d in scope.DescendantNodes())
+        {
+            ExpressionSyntax? given = d switch
+            {
+                VariableDeclaratorSyntax v when v.Identifier.Text == name => v.Initializer?.Value,
+                AssignmentExpressionSyntax a when LastName(a.Left) == name => a.Right,
+                _ => null,
+            };
+            if (given is not null && !(given is InvocationExpressionSyntax gc && IsHelperCall(gc)) && CarriesErrorText(given, follow: false))
+                return true;
+            if (d is InvocationExpressionSyntax { Expression: MemberAccessExpressionSyntax { Expression: IdentifierNameSyntax target } add } call
+                && target.Identifier.Text == name && CollectsText.Contains(add.Name.Identifier.Text)
+                && call.ArgumentList.Arguments.Any(arg => !(arg.Expression is InvocationExpressionSyntax ac && IsHelperCall(ac))
+                                                          && CarriesErrorText(arg.Expression, follow: false)))
+                return true;
+        }
         return false;
+    }
+
+    /// <summary>The value shown also goes into a FAILED or FATAL line written in the same method: the code has
+    /// already said it is a failure (<c>FileLog.Write($"... FAILED: {result.Message}")</c> beside
+    /// <c>StatusText.Text = result.Message</c>).</summary>
+    private static bool LoggedAsFailed(SyntaxNode expression)
+    {
+        var method = expression.Ancestors().FirstOrDefault(a => a is BaseMethodDeclarationSyntax or LocalFunctionStatementSyntax or AccessorDeclarationSyntax);
+        if (method is null) return false;
+        var logged = method.DescendantNodes().OfType<InvocationExpressionSyntax>()
+            .Where(c => c.Expression is MemberAccessExpressionSyntax { Name.Identifier.Text: "Write" } w && LastName(w.Expression) == "FileLog")
+            .SelectMany(c => c.ArgumentList.Arguments.Select(a => a.Expression))
+            .OfType<InterpolatedStringExpressionSyntax>()
+            .SelectMany(i => i.Contents.Zip(i.Contents.Skip(1)))
+            .Where(pair => pair.First is InterpolatedStringTextSyntax t
+                           && (t.TextToken.ValueText.EndsWith("FAILED: ", StringComparison.Ordinal)
+                               || t.TextToken.ValueText.EndsWith("FATAL: ", StringComparison.Ordinal))
+                           && pair.Second is InterpolationSyntax)
+            .Select(pair => ((InterpolationSyntax)pair.Second).Expression.ToString())
+            .Where(e => e is not ("ex" or "ex.Message"))
+            .ToHashSet(StringComparer.Ordinal);
+        if (logged.Count == 0) return false;
+        // The value shown is that very expression - on its own, before a ?? default, or as an arm of a ?: choice.
+        return ShownValues(expression).Any(e => logged.Contains(e.ToString()));
     }
 
     private static bool IsHelperCall(InvocationExpressionSyntax call)
@@ -352,6 +533,7 @@ public sealed class ShownErrorScanner
         var name = m.Identifier.Text;
         if (ErrorName.IsMatch(name) && (name.StartsWith("Show", StringComparison.Ordinal) || name.StartsWith("SwitchTo", StringComparison.Ordinal)))
             return true;
+        if (FailureCallName.IsMatch(name)) return true;
         if (!name.StartsWith("Show", StringComparison.Ordinal)) return false;
         var parameters = m.ParameterList.Parameters.Select(p => p.Identifier.Text).ToHashSet(StringComparer.Ordinal);
         SyntaxNode? value = node switch
@@ -403,6 +585,9 @@ public sealed class ShownErrorScanner
                 var m = Exemption.Match(trivia.ToString());
                 if (!m.Success) continue;
                 var line = trivia.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
+                var siteLine = candidate.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
+                // On the line directly above, as the documentation says - not anywhere in the comments before it.
+                if (line != siteLine - 1) break;
                 return (line, m.Groups["kind"].Value.Trim(), m.Groups["reason"].Value.Trim());
             }
             if (candidate is StatementSyntax or MemberDeclarationSyntax) break;

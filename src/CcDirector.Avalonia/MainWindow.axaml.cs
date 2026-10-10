@@ -2125,10 +2125,9 @@ public partial class MainWindow : Window
             }
             else
             {
-                progress.SetIncomplete(started, total, string.Join("  |  ", failed));
-                FileLog.Write(
-                    $"[MainWindow] LoadWorkspaceAsync: workspace '{workspace.Name}' INCOMPLETE - " +
-                    $"{started}/{total} started; failures: {string.Join("; ", failed)}");
+                progress.SetIncomplete(started, total, ShownError.Report("workspace progress",
+                    $"start every session in workspace '{workspace.Name}'", string.Join("  |  ", failed),
+                    reported: $"only {started} of {total} sessions started: {string.Join("; ", failed)}"));
 
                 // Held open, because the fleet that was there is gone and this is the only place the
                 // user is told which seats did not replace it.
@@ -2205,7 +2204,9 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[MainWindow] ImportLegacyWorkspacesAsync FAILED: {ex.Message}");
+            // Not a FAILED line: the workspace dialog that shows the sentence below reports it, and one failure is
+            // one report. The exception and its stack stay in the log here.
+            FileLog.Write($"[MainWindow] ImportLegacyWorkspacesAsync: the import threw, and the dialog reports it: {ex}");
             return "The workspaces saved on this machine before they moved to the Gateway could not " +
                    $"be imported: {ex.Message} They are still on disk and will be tried again.";
         }

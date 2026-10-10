@@ -48,7 +48,9 @@ public partial class LoadWorkspaceDialog : Window
         InitializeComponent();
 
         _catalog = catalog;
-        _importProblem = importProblem;
+        // Reported here, where it is shown, once per dialog (issue #3675).
+        if (importProblem is not null)
+            _importProblem = ShownError.Report("load workspace dialog", "import the workspaces saved on this machine before they moved to the Gateway", importProblem);
 
         // An entry point, so it carries the try/catch: an exception out of an async void handler has
         // nowhere to go but the dispatcher, where nobody sees it and the window sits on "Loading...".

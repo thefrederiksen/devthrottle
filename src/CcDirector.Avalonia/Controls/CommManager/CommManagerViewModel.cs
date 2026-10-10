@@ -729,8 +729,10 @@ public partial class CommManagerViewModel : ObservableObject, IDisposable
             }
             else
             {
-                // The poster's output can carry the post itself, so the report says what failed and stops there.
-                var failure = ShownError.Report("communication manager", "post to LinkedIn", $"LinkedIn posting failed: {error}");
+                // The poster's output and its error stream can carry the post itself, so the screen shows the error
+                // stream and the report carries only the exit code.
+                var failure = ShownError.Report("communication manager", "post to LinkedIn", $"LinkedIn posting failed: {error}",
+                    reported: $"the LinkedIn poster exited with code {process.ExitCode}");
                 StatusMessage = failure;
                 if (ShowErrorCallback != null)
                     await ShowErrorCallback($"{failure}\n\n{output}");
@@ -849,7 +851,10 @@ public partial class CommManagerViewModel : ObservableObject, IDisposable
             if (skipped > 0)
                 resultMsg += $", {skipped} skipped";
 
-            StatusMessage = resultMsg;
+            // A dispatch that failed is reported here, once, with the counts: the item-level paths only log.
+            StatusMessage = failed > 0
+                ? ShownError.Report("communications manager", "send the approved items", resultMsg)
+                : resultMsg;
             FileLog.Write($"[CommManager.VM] SendAllAsync: {resultMsg}");
             progress?.ReportComplete(sent, failed, skipped);
             await RefreshAsync();

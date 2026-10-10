@@ -336,8 +336,8 @@ public sealed class SmartShutdownCoordinator
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SmartShutdownCoordinator] CheckIntoAsync FAILED: {ex}");
-            viewModel.ApplyCheckFailure($"The check did not finish: {ex.Message}");
+            viewModel.ApplyCheckFailure(ShownError.Report("smart shutdown", "check whether a smart shutdown can run",
+                $"The check did not finish: {ex.Message}", ex));
         }
     }
 

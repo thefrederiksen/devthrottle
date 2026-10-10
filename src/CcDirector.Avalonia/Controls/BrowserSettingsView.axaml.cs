@@ -233,15 +233,16 @@ public partial class BrowserSettingsView : UserControl
             var progress = new Progress<string>(line => StatusText.Text = line);
             var result = await Task.Run(() => BrowserHarnessInstaller.InstallAsync(progress));
 
-            StatusText.Text = result.Message;
             if (!result.Success)
             {
                 // Say what went wrong and offer the manual page. Never re-check and never continue as
                 // though it had worked (CLAUDE.md rule 3).
-                FileLog.Write($"[BrowserSettingsView] BtnInstallHarness_Click FAILED: {result.Message}");
+                StatusText.Text = ShownError.Report("browser settings", "install Browser Harness", result.Message);
                 HarnessManualLink.IsVisible = true;
                 return;
             }
+
+            StatusText.Text = result.Message;
 
             await RefreshAsync();
         }

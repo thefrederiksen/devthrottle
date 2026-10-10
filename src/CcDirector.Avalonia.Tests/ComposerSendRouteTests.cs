@@ -6,6 +6,7 @@ using CcDirector.Core.Backends;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Memory;
 using CcDirector.Core.Sessions;
+using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 using Xunit;
 
@@ -391,6 +392,45 @@ public sealed class ComposerSendRouteTests
         {
             TaskScheduler.UnobservedTaskException -= onUnobserved;
         }
+    }
+
+    /// <summary>
+    /// THE OWNER'S RULE: no prompt-send path ever passes the prompt's words into a report (issue #3675). A refused send
+    /// is reported through the display helper, and its FAILED line is what reaches the Gateway. Read off the real log
+    /// on the real route: the line is there (so the absence below is about a line that was written), it names what
+    /// failed and carries the refusal exception, and the words - typed or dictated - are in no error line at all.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SendPromptCoreAsync_Refused_NoErrorLineCarriesTheWords(bool dictated)
+    {
+        // Arrange
+        using var rig = new Rig(backend: () => new RefusingBackend());
+        rig.Window.SendRefusedShownForTests = (_, _) => { };
+        var lines = new List<string>();
+        Action<string> capture = line => { lock (lines) lines.Add(line); };
+        using var log = FileLog.RedirectForTests(); // the log writes nothing until started, and this owns it for the test
+        if (dictated) rig.Dictate(Words); else rig.Type(Words);
+        FileLog.ErrorObserver += capture;
+        try
+        {
+            // Act
+            await rig.Window.SendPromptCoreAsync();
+            Dispatcher.UIThread.RunJobs();
+        }
+        finally
+        {
+            FileLog.ErrorObserver -= capture;
+        }
+
+        // Assert
+        string[] seen;
+        lock (lines) seen = lines.ToArray();
+        var reported = Assert.Single(seen, l => l.Contains($"could not send a prompt to session {rig.Sessions[0].Id}"));
+        Assert.Contains(RefusingBackend.Refusal, reported); // the exception rides on the line: type, message, stack
+        Assert.All(seen, l => Assert.DoesNotContain(Words, l));
+        Assert.All(seen, l => Assert.DoesNotContain("deploy the gateway", l));
     }
 
     [AvaloniaFact]

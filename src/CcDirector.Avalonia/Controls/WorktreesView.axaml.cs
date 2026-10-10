@@ -374,7 +374,9 @@ public partial class WorktreesView : UserControl
             parts.Add($"Skipped {result.Skipped.Count} in use by a live session.");
         if (result.Leftovers.Count > 0)
         {
-            parts.Add($"Could NOT fully delete {result.Leftovers.Count} folder(s) (files locked); they remain and will be retried on the next cleanup once the lock is released:");
+            // A partial failure of the removal: reported once, with the count; the folder paths stay on the screen.
+            parts.Add(ShownError.Report("worktrees", "remove the finished worktrees",
+                $"Could NOT fully delete {result.Leftovers.Count} folder(s) (files locked); they remain and will be retried on the next cleanup once the lock is released:"));
             parts.AddRange(result.Leftovers);
         }
 

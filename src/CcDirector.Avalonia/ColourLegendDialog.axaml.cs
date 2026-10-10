@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
+using CcDirector.Core.ErrorReports;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 
@@ -54,7 +55,7 @@ public partial class ColourLegendDialog : Window
             var cache = (global::Avalonia.Application.Current as App)?.ControlApiHost?.ColourLegend;
             if (cache is null)
             {
-                Fail("The Director is still starting, so it has not asked the Gateway what the colours mean yet.");
+                Fail("read what the colours mean", "The Director is still starting, so it has not asked the Gateway what the colours mean yet.");
                 return;
             }
 
@@ -70,7 +71,7 @@ public partial class ColourLegendDialog : Window
 
             if (legend is null)
             {
-                Fail(cache.Error is { Length: > 0 } why
+                Fail("read what the colours mean", cache.Error is { Length: > 0 } why
                     ? $"The Gateway could not be asked what the colours mean: {why}"
                     : "This Director has no Gateway to ask what the colours mean.");
                 return;
@@ -80,8 +81,7 @@ public partial class ColourLegendDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[ColourLegendDialog] LoadAsync FAILED: {ex.Message}");
-            Fail($"What the colours mean could not be loaded: {ex.Message}");
+            Fail("load what the colours mean", $"What the colours mean could not be loaded: {ex.Message}", ex);
         }
     }
 
@@ -189,13 +189,13 @@ public partial class ColourLegendDialog : Window
     }
 
     /// <summary>Say what went wrong, in the status line, and draw no colours. A legend window that is
-    /// silently blank tells the person the colours have no meanings.</summary>
-    private void Fail(string message)
+    /// silently blank tells the person the colours have no meanings.
+    /// It reports (issue #3675): the caller says what the user was trying to do.</summary>
+    private void Fail(string action, string message, Exception? ex = null)
     {
-        FileLog.Write($"[ColourLegendDialog] Fail: {message}");
         ColourRows.Children.Clear();
         VerdictNoteText.IsVisible = false;
-        StatusText.Text = message;
+        StatusText.Text = ShownError.Report("colour legend", action, message, ex);
         StatusText.Foreground = new SolidColorBrush(Color.Parse("#F0B848"));
         StatusText.IsVisible = true;
     }

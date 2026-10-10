@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using CcDirector.ControlApi.SmartRestart;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia.SmartRestart;
 
@@ -188,7 +189,7 @@ public sealed class SmartShutdownViewModel : INotifyPropertyChanged
         FileLog.Write($"[SmartShutdownViewModel] ApplyNoEngine: door={Door}");
         IsChecking = false;
         CanConfirm = false;
-        SmartShutdownRefusalText = NoEngineReason;
+        SmartShutdownRefusalText = ShownError.Report("smart shutdown", "run a smart shutdown", NoEngineReason);
         RaiseCheckChanged();
     }
 

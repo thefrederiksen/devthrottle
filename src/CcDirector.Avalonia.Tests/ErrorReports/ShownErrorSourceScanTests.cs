@@ -219,6 +219,80 @@ public sealed class ShownErrorSourceScanTests
         Assert.Single(bad.Violations);
     }
 
+    // ----- the shapes review finding F1 named: each hid a real error the user saw -----
+
+    [Fact]
+    public void Scan_ACallNamedForAFailure_WithoutAShowPrefix_IsASite()
+    {
+        // ColourLegendDialog: Fail("...") put its argument on the status line in amber.
+        var r = ScanOne(Head + "void L(){ Fail(\"The Gateway could not be asked.\"); } void Fail(string m){ StatusText.Text = m; } }");
+        Assert.Equal("error call", Assert.Single(r.Violations).Kind);
+    }
+
+    [Fact]
+    public void Scan_AFailureFactoryOnAType_OrACallWithNothingToShow_IsNotASite()
+    {
+        var r = ScanOne(Head + "object M(){ ClearGatewayFailure(); item.SetFailed(); return OperationResult<int>.Fail(\"could not join\"); } }");
+        Assert.Empty(r.Sites);
+    }
+
+    [Fact]
+    public void Scan_ANamedFailureMember_CarriesErrorText()
+    {
+        // DirectorTeamPanel: ShowStatus(moved.ErrorMessage ?? "The move did not happen.", red).
+        var r = ScanOne(Head + "void M(){ ShowStatus(moved.ErrorMessage ?? \"The move did not happen.\", \"#F14C4C\"); } }");
+        Assert.Single(r.Violations);
+    }
+
+    [Fact]
+    public void Scan_AnEnumValueOrAFlag_NamedForAFailure_IsNotErrorText()
+    {
+        var r = ScanOne(Head + "bool _gatewayError; void M(){ ShowStatus(StatusLevel.Error); SetStatus(_gatewayError); } }");
+        Assert.Empty(r.Sites);
+    }
+
+    [Fact]
+    public void Scan_ALocalGivenErrorText_ThenShown_IsASite_UnlessWhatItWasGivenWasReported()
+    {
+        // WorktreesView: parts.Add("Could NOT fully delete ..."), then ShowBanner(string.Join(.., parts)).
+        const string bad = "void M(){ var parts = new List<string>(); parts.Add(\"Could NOT fully delete 2 folders\"); ShowBanner(string.Join(\" \", parts)); } }";
+        Assert.Single(ScanOne(Head + bad).Violations);
+        const string good = "void M(){ var parts = new List<string>(); parts.Add(ShownError.Report(\"s\", \"a\", \"Could NOT fully delete 2 folders\")); ShowBanner(string.Join(\" \", parts)); } }";
+        Assert.Empty(ScanOne(Head + good).Violations);
+    }
+
+    [Fact]
+    public void Scan_AFieldGivenErrorText_ShownElsewhereInTheClass_IsASite()
+    {
+        // SaveWorkspaceDialog: _existingIdsProblem = "Could not read ..." in a catch, shown later on TxtWarning.
+        var r = ScanOne(Head + "string? _existing; void L(Exception ex){ _existing = \"Could not read the workspaces\"; } void S(){ TxtWarning.Text = _existing; } }");
+        Assert.Single(r.Violations);
+    }
+
+    [Fact]
+    public void Scan_AValueTheMethodLogsAsFailed_IsErrorText()
+    {
+        // BrowserSettingsView: StatusText.Text = result.Message beside FileLog.Write($"... FAILED: {result.Message}").
+        var r = ScanOne(Head + "void M(){ StatusText.Text = result.Message; if (!result.Success) FileLog.Write($\"[V] M FAILED: {result.Message}\"); } }");
+        Assert.Single(r.Violations);
+    }
+
+    [Fact]
+    public void Scan_TextInsideAThrowOrAPattern_IsNotShownText()
+    {
+        var r = ScanOne(Head + "void M(string s){ var exe = s ?? throw new Exception(\"Cannot find the program\"); Label.Text = exe;" +
+                        " var colour = s switch { \"Failed\" => \"red\", _ => \"grey\" }; Dot.Text = colour; } }");
+        Assert.Empty(r.Sites);
+    }
+
+    [Fact]
+    public void Scan_AnExemptionNotOnTheLineDirectlyAbove_DoesNotExempt()
+    {
+        var r = ScanOne(Head + "void M(){\n // shown-error-exempt (user input): the name the user typed is empty\n\n // something else\n NameError.Text = \"Name cannot be empty\"; } }");
+        Assert.Single(r.Violations);
+        Assert.Contains(r.Findings, f => f.Contains("no display site uses"));
+    }
+
     [Fact]
     public void Scan_AWrapperOnAnotherInstance_IsNotTrustedToReport()
     {

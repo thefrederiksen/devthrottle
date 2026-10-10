@@ -250,7 +250,8 @@ public partial class DirectorTeamPanel : UserControl
             var moved = await _mover.MoveAsync(directorId, target, CancellationToken.None);
             if (!moved.Success)
             {
-                ShowStatus(moved.ErrorMessage ?? "The move did not happen.", "#F14C4C");
+                ShowStatus(ShownError.Report("Director team", $"move this Director to {(target.IsPersonal ? "the personal account" : "team " + target.TeamId)}",
+                    moved.ErrorMessage ?? "The move did not happen."), "#F14C4C");
                 // A failure after the Gateway's yes may already have recorded the new team (review finding
                 // R2-F1), so the heading is read again rather than left naming the team it showed before, and the
                 // same move is not offered again once the recorded team is the target.
