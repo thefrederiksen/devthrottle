@@ -281,9 +281,10 @@ if ($Gateway) {
 # WHICH COMMIT THIS RUN CERTIFIES, AND WHETHER THE TREE WAS CLEAN. A run folder used to hold result files
 # and logs only: across 523 saved folders nobody could say which commit any of them had run on, which is
 # how a green quietly goes stale when main moves. Both facts are written into run.json in the run folder
-# at launch, printed in the verdict, and - for a green, unfiltered -Parked run - recorded where
-# scripts\assert-gated.ps1 can find them when the tag step asks whether a candidate was gated. A dirty
-# tree is recorded as dirty, never hidden: the run still happens, the record says what it tested.
+# at launch, printed in the verdict, appended with the outcome to the runs log beside the gate records
+# when the run ends, and - for a green, unfiltered -Parked run - recorded where scripts\assert-gated.ps1
+# can find them when the tag step asks whether a candidate was gated. A dirty tree is recorded as dirty,
+# never hidden: the run still happens, the record says what it tested.
 $commit = (& git -C $repoRoot rev-parse HEAD).Trim()
 $dirtyFiles = @(& git -C $repoRoot status --porcelain | Where-Object { $_ -ne "" })
 $treeClean = ($dirtyFiles.Count -eq 0)
