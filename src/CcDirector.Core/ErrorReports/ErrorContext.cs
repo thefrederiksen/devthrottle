@@ -32,7 +32,9 @@ namespace CcDirector.Core.ErrorReports;
 /// puts such text into a line also hands the exact same string to <see cref="Withhold"/>, and every report made inside
 /// the context has each withheld string replaced by <c>&lt;withheld: N characters&gt;</c> before anything else is done
 /// with it. The local log keeps the line whole. Withheld strings belong to the whole chain of nested scopes, so a line
-/// logged by an outer scope after an inner one ended (the command's own failure line) is covered too.
+/// logged by an outer scope after an inner one ended (the command's own failure line) is covered too. They are also
+/// kept in a small process-wide list of the most recent ones, applied to EVERY report, so a caller that logs the same
+/// failure message outside any context (a Wingman, a queue drain, a fleet relay) cannot carry the text out either.
 /// </summary>
 public sealed class ErrorContext : IDisposable
 {
@@ -45,7 +47,17 @@ public sealed class ErrorContext : IDisposable
     /// as the exact token its line carries.</summary>
     internal const int MinWithheldPromptChars = 4;
 
+    /// <summary>How many recently withheld strings every report is checked against, whatever its context.</summary>
+    internal const int MaxRecentWithheld = 512;
+
+    /// <summary>The shortest string the process-wide list keeps. A shorter one is withheld inside its own context only:
+    /// applied to every report in the process it would blank ordinary words in unrelated lines.</summary>
+    internal const int MinRecentWithheldChars = 8;
+
     private static readonly AsyncLocal<ErrorContext?> CurrentContext = new();
+    private static readonly object RecentLock = new();
+    private static readonly Queue<string> Recent = new();
+    private static readonly HashSet<string> RecentSet = new(StringComparer.Ordinal);
 
     private readonly ErrorContext? _outer;
     private readonly WithheldTexts _withheld;
@@ -140,13 +152,21 @@ public sealed class ErrorContext : IDisposable
 
     /// <summary>
     /// Withhold <paramref name="text"/> - the exact string a line is about to carry from a screen or from a prompt - from
-    /// every report made inside the context open on this flow of execution. Nothing happens when no context is open or
-    /// the text is empty; the prompt path always opens one (<see cref="WithholdPrompt"/>).
+    /// every report made inside the context open on this flow of execution, and - from
+    /// <see cref="MinRecentWithheldChars"/> characters - from every report in the process while it is among the
+    /// <see cref="MaxRecentWithheld"/> most recent. Empty text is ignored.
     /// </summary>
     public static void Withhold(string? text)
     {
         if (string.IsNullOrEmpty(text)) return;
         Current?._withheld.Add(text);
+        if (text.Length < MinRecentWithheldChars) return;
+        lock (RecentLock)
+        {
+            if (!RecentSet.Add(text)) return;
+            Recent.Enqueue(text);
+            while (Recent.Count > MaxRecentWithheld) RecentSet.Remove(Recent.Dequeue());
+        }
     }
 
     /// <summary>Withhold a prompt's own words, from <see cref="MinWithheldPromptChars"/> characters.</summary>
@@ -157,16 +177,23 @@ public sealed class ErrorContext : IDisposable
     }
 
     /// <summary>
-    /// <paramref name="text"/> with every string withheld in <paramref name="context"/>'s chain replaced. When the chain
-    /// overflowed, only the head of the line is kept (<see cref="ErrorLine.Head"/>), since a string past the cap was
-    /// never recorded and could be anywhere in it.
+    /// <paramref name="text"/> with every string withheld in <paramref name="context"/>'s chain, and every recently
+    /// withheld string, replaced. When the chain overflowed, only the head of the line is kept
+    /// (<see cref="ErrorLine.Head"/>), since a string past the cap was never recorded and could be anywhere in it.
     /// </summary>
     internal static string ApplyWithheld(string text, ErrorContext? context)
     {
-        if (context is null || string.IsNullOrEmpty(text)) return text;
-        var (texts, overflowed) = context._withheld.Snapshot();
-        if (overflowed) return ErrorLine.Head(text) + ": <withheld: this line may carry screen or prompt text>";
-        foreach (var withheld in texts)
+        if (string.IsNullOrEmpty(text)) return text;
+        var texts = new HashSet<string>(StringComparer.Ordinal);
+        if (context is not null)
+        {
+            var (chain, overflowed) = context._withheld.Snapshot();
+            if (overflowed) return ErrorLine.Head(text) + ": <withheld: this line may carry screen or prompt text>";
+            texts.UnionWith(chain);
+        }
+        lock (RecentLock) texts.UnionWith(Recent);
+        // Longest first, so a string inside a longer one cannot break the longer one's match.
+        foreach (var withheld in texts.OrderByDescending(t => t.Length))
             text = text.Replace(withheld, $"<withheld: {withheld.Length} characters>", StringComparison.Ordinal);
         return text;
     }

@@ -238,6 +238,110 @@ public sealed class ErrorContextTests
         Assert.Equal("repair-1", Assert.Single(Sent(handler)).CorrelationId);
     }
 
+    // ---- Withheld text: a report never carries what a screen showed or what a person typed ----
+
+    private static string Unique(string label) => $"{label}-{Guid.NewGuid():N}";
+
+    [Fact]
+    public async Task Withhold_InsideAContext_TheStringIsReplacedInMessageAndStack()
+    {
+        var (reporter, handler) = NewReporter();
+        var typed = Unique("the words a person typed");
+
+        using (ErrorContext.Begin(correlationId: "cmd-w1"))
+        {
+            ErrorContext.Withhold($"'{typed}'");
+            reporter.OnLogLine($"[TerminalSubmit] Resolve FAILED: what it read: text='{typed}', cursor=1,2\nrow='{typed}' again");
+        }
+        await reporter.SendPendingAsync(CancellationToken.None);
+
+        var item = Assert.Single(Sent(handler));
+        Assert.DoesNotContain(typed, item.Message + item.Stack);
+        Assert.Contains($"text=<withheld: {typed.Length + 2} characters>, cursor=1,2", item.Message);
+        Assert.Contains($"row=<withheld: {typed.Length + 2} characters> again", item.Stack);
+    }
+
+    [Fact]
+    public async Task Withhold_InAnInnerScope_StillCoversALineTheOuterScopeLogsAfterIt()
+    {
+        var (reporter, handler) = NewReporter();
+        var typed = Unique("inner");
+
+        using (ErrorContext.Begin(correlationId: "cmd-w2"))
+        {
+            using (ErrorContext.Begin(sessionId: "session-w2"))
+                ErrorContext.Withhold(typed);
+            reporter.OnLogLine($"[GatewayStreamClient] Command FAILED: verb=prompt, error=the composer held {typed}");
+        }
+        await reporter.SendPendingAsync(CancellationToken.None);
+
+        Assert.DoesNotContain(typed, Assert.Single(Sent(handler)).Message);
+    }
+
+    [Fact]
+    public async Task Withhold_ALineLoggedOutsideAnyContext_IsStillCovered_FromEightCharacters()
+    {
+        var (reporter, handler) = NewReporter();
+        var typed = Unique("relay");
+        const string shortText = "q7z";
+
+        using (ErrorContext.Begin(correlationId: "cmd-w3"))
+        {
+            ErrorContext.Withhold(typed);
+            ErrorContext.Withhold(shortText);
+        }
+        reporter.OnLogLine($"[FleetRelay] Deliver FAILED: {typed} and {shortText}");
+        await reporter.SendPendingAsync(CancellationToken.None);
+
+        var message = Assert.Single(Sent(handler)).Message!;
+        Assert.DoesNotContain(typed, message);
+        // A string shorter than the floor is withheld inside its own context only.
+        Assert.Contains(shortText, message);
+    }
+
+    [Fact]
+    public async Task Withhold_PastTheCapForOneChain_KeepsOnlyTheHeadOfTheLine()
+    {
+        var (reporter, handler) = NewReporter();
+
+        using (ErrorContext.Begin(correlationId: "cmd-w4"))
+        {
+            for (var i = 0; i <= ErrorContext.MaxWithheld; i++) ErrorContext.Withhold($"s{i}");
+            reporter.OnLogLine("[TerminalSubmit] Resolve FAILED: the composer held something never recorded");
+        }
+        await reporter.SendPendingAsync(CancellationToken.None);
+
+        var item = Assert.Single(Sent(handler));
+        Assert.DoesNotContain("never recorded", item.Message);
+        Assert.StartsWith("Resolve FAILED: <withheld:", item.Message);
+    }
+
+    [Fact]
+    public void WithholdPrompt_BelowFourCharacters_IsNotWithheld()
+    {
+        using var _ = ErrorContext.Begin(correlationId: "cmd-w5");
+        ErrorContext.WithholdPrompt("go");
+
+        Assert.Equal("[X] A FAILED: go on", ErrorContext.ApplyWithheld("[X] A FAILED: go on", ErrorContext.Current));
+    }
+
+    [Fact]
+    public async Task ReportOutcome_InsideAContext_WithholdsFromMessageAndDetail()
+    {
+        var (reporter, handler) = NewReporter();
+        var typed = Unique("outcome");
+
+        using (ErrorContext.Begin(correlationId: "cmd-w6"))
+        {
+            ErrorContext.Withhold(typed);
+            reporter.ReportOutcome("LauncherRepair", "launcher-repair", $"rebuilt {typed}", $"detail {typed}");
+        }
+        await reporter.SendPendingAsync(CancellationToken.None);
+
+        var item = Assert.Single(Sent(handler));
+        Assert.DoesNotContain(typed, item.Message + item.Stack);
+    }
+
     // ---- Before sign-in: the outbox carries the fields ----
 
     [Fact]
