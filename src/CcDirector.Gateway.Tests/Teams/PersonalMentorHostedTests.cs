@@ -138,14 +138,17 @@ public sealed class PersonalMentorHostedTests : IAsyncLifetime
     [Fact]
     public async Task OverTheWire_TeamsDark_TheRouteIsNotMapped()
     {
-        // No Cockpit is built beside these binaries, so an unmapped address is the Gateway's plain 404. In production the
-        // built Cockpit answers it with its HTML shell instead, which the client reads as "not offered" too.
+        // An unmapped address is the Gateway's plain 404 when no Cockpit is built beside these binaries (a Debug build),
+        // and the built Cockpit's HTML shell when one is (a Release build builds it into wwwroot, as production does).
+        // Both are what the client reads as "not offered"; what must never come back is the Mentor's JSON page.
         var gateway = await StartAsync(teamsReleased: false);
         var ann = Enroll(gateway, $"sub-pm-dark-{_runId}", $"dark-{_runId}@example.com", $"dev-pm-dark-{_runId}");
 
         var (status, body) = await Get(gateway, PersonalMentorEndpoints.Route.TrimStart('/'), ann.Key);
 
-        Assert.Equal(HttpStatusCode.NotFound, status);
+        var cockpitShell = status == HttpStatusCode.OK && body.TrimStart().StartsWith("<!doctype html", StringComparison.OrdinalIgnoreCase);
+        Assert.True(status == HttpStatusCode.NotFound || cockpitShell,
+            $"expected 404 or the Cockpit's HTML shell for an unmapped route, got {(int)status}: {body[..Math.Min(body.Length, 200)]}");
         Assert.DoesNotContain("\"scope\"", body, StringComparison.Ordinal);
     }
 }
