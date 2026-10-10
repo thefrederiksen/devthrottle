@@ -36,6 +36,7 @@
     <PackageReference Include="NetArchTest.Rules" Version="1.3.2" />
     <PackageReference Include="Mono.Cecil" Version="0.11.3" />
     <PackageReference Include="xunit" Version="2.*" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.*" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.*" />
   </ItemGroup>
 

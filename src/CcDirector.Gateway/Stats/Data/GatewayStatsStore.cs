@@ -146,6 +146,9 @@ public sealed class GatewayStatsStore : IDisposable
     private IDbContextFactory<GatewayStatsDbContext>? _factory;
     private bool _disposed;
     private bool _reopening;
+    private readonly TimeProvider _time;
+    private int _reopenWaits;
+    private int _reopenAttempts;
 
     /// <summary>
     /// What the statistics surface should say about itself. Folded once, here.
@@ -160,6 +163,26 @@ public sealed class GatewayStatsStore : IDisposable
 
     /// <summary>This store's own health, in the shape the statistics failure surface consumes.</summary>
     public IStatsFailureState Health => _health;
+
+    /// <summary>
+    /// How many backoff waits the reopen loop has BEGUN. The loop arms its timer before this moves, so a test that
+    /// drives a fake clock waits for it to move and then advances - the advance reaches a timer that exists. An
+    /// advance made before the timer is armed is simply lost, and a test built that way passes or fails on
+    /// scheduling luck.
+    /// </summary>
+    internal int ReopenWaits => Volatile.Read(ref _reopenWaits);
+
+    /// <summary>
+    /// How many reopen attempts have FINISHED, successful or not. It moves after the attempt has published whatever
+    /// it had to publish, so a reader that sees it move also sees the availability that attempt left behind.
+    /// </summary>
+    internal int ReopenAttempts => Volatile.Read(ref _reopenAttempts);
+
+    /// <summary>Whether a reopen loop is running. A store with nothing configured never starts one.</summary>
+    internal bool ReopenScheduled
+    {
+        get { lock (_gate) return _reopening; }
+    }
 
     /// <summary>
     /// The pooled statistics context factory, or NULL when the store is unavailable.
@@ -217,11 +240,15 @@ public sealed class GatewayStatsStore : IDisposable
     /// Build the statistics store over an already-chosen connection.
     /// </summary>
     /// <param name="choice">The chosen connection, or the named reason there is not one.</param>
+    /// <param name="time">The clock the reopen backoff waits on. Production passes nothing and gets the system
+    /// clock. A test passes a fake clock and advances it, so the backoff is proven without being sat out: the
+    /// schedule is seconds to a minute per step, and four tests once slept through it for 55 seconds.</param>
     /// <exception cref="ArgumentNullException"><paramref name="choice"/> is null. A caller contract
     /// violation - a programming error, not a state a deployment can be in - so it throws.</exception>
-    public GatewayStatsStore(StatsConnectionChoice choice)
+    public GatewayStatsStore(StatsConnectionChoice choice, TimeProvider? time = null)
     {
         ArgumentNullException.ThrowIfNull(choice);
+        _time = time ?? TimeProvider.System;
 
         if (!choice.IsConfigured)
         {
@@ -511,7 +538,11 @@ public sealed class GatewayStatsStore : IDisposable
             var wait = ReopenBackoff[Math.Min(attempt, ReopenBackoff.Count - 1)];
             try
             {
-                await Task.Delay(wait, _stop.Token).ConfigureAwait(false);
+                // On the injected clock. The timer is armed when Task.Delay returns, and only then is the wait
+                // counted - see ReopenWaits for why that order is load-bearing.
+                var waiting = Task.Delay(wait, _time, _stop.Token);
+                Interlocked.Increment(ref _reopenWaits);
+                await waiting.ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -583,6 +614,11 @@ public sealed class GatewayStatsStore : IDisposable
                 FileLog.Write(
                     $"[GatewayStatsStore] Reopen attempt {attempt + 1} FAILED (CONTAINED): " +
                     $"target={choice.Target}: {ex.GetType().Name}. Waiting and retrying.");
+            }
+            finally
+            {
+                // After the attempt has published, on every path out of it - see ReopenAttempts.
+                Interlocked.Increment(ref _reopenAttempts);
             }
         }
     }
