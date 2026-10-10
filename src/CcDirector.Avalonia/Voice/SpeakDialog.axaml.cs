@@ -124,6 +124,13 @@ public partial class SpeakDialog : Window
     /// <summary>TEST SEAM: the saved microphone name, in place of reading config.json. Null in production.</summary>
     internal Func<string?>? PersistedMicNameForTests;
 
+    /// <summary>
+    /// TEST SEAM (issue #3672): whether this machine can capture from a microphone. Null in production, where
+    /// the answer is <see cref="OperatingSystem.IsWindows"/>: capture is NAudio's winmm and Core Audio, both
+    /// Windows COM, so on Linux and macOS every device query throws "COM is not supported".
+    /// </summary>
+    internal Func<bool>? CaptureSupportedForTests;
+
     // Inspection two, finding 3: device resolution can outlast the GETTING READY window. While it is
     // outstanding these say so, so the timeout can name what it was waiting for. Set and read on the
     // interface thread, except the saved name, which the background resolution writes.
@@ -280,6 +287,17 @@ public partial class SpeakDialog : Window
         _eqTimer.Start();
         try
         {
+            // Issue #3672: desktop capture is Windows-only. Say so before any hosted-AI check or device query,
+            // instead of letting the first COM call fail with "COM is not supported".
+            var captureSupported = CaptureSupportedForTests is not null ? CaptureSupportedForTests() : OperatingSystem.IsWindows();
+            if (!captureSupported)
+            {
+                FileLog.Write($"[SpeakDialog] desktop dictation needs Windows audio capture; not offered on "
+                    + $"{System.Runtime.InteropServices.RuntimeInformation.OSDescription}");
+                SwitchToFailed("Desktop dictation is only available on Windows.");
+                return;
+            }
+
             // Pre-flight (issue #940): do NOT record into a dead feature. If hosted AI is not ready
             // (out of credits, or no bring-your-own key), close without recording and show the ONE
             // shared "add credits / add a key" dialog over the owner instead of a raw failure later.
