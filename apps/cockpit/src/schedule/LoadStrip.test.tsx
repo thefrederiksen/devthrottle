@@ -16,6 +16,7 @@ function hour(i: number, overrides: Partial<CronLoadHour> = {}): CronLoadHour {
     startUtc: `2026-10-09T${String((i + 4) % 24).padStart(2, "0")}:00:00Z-${i}`,
     label,
     concurrent: 0,
+    factoryConcurrent: 0,
     starts: 0,
     over: false,
     jobIds: [],
@@ -25,7 +26,7 @@ function hour(i: number, overrides: Partial<CronLoadHour> = {}): CronLoadHour {
 
 function machine(name: string, overrides: Partial<CronMachineLoad> = {}): CronMachineLoad {
   const hours = Array.from({ length: 24 }, (_, i) => hour(i));
-  hours[7] = hour(7, { concurrent: 8, starts: 5, over: true, jobIds: ["a", "b"] });
+  hours[7] = hour(7, { concurrent: 8, factoryConcurrent: 6, starts: 5, over: true, jobIds: ["a", "b"] });
   hours[9] = hour(9, { concurrent: 1, starts: 1, jobIds: ["c"] });
   return {
     machine: name,
@@ -90,6 +91,9 @@ describe("LoadStrip", () => {
     expect(bars).toHaveLength(24);
     expect(bars[7]!.querySelector(".sched-load-bar.over")).not.toBeNull();
     expect(bars[9]!.querySelector(".sched-load-bar.over")).toBeNull();
+    // Six of the eight open at 07:00 are factory schedules: three quarters of the bar in the factory colour.
+    expect((bars[7]!.querySelector(".sched-load-bar-factory") as HTMLElement).style.height).toBe("75%");
+    expect((bars[9]!.querySelector(".sched-load-bar-factory") as HTMLElement).style.height).toBe("0%");
     expect(screen.getByText("capacity 6")).toBeTruthy();
     // One machine needs no switch.
     expect(screen.queryByRole("group", { name: "Machine" })).toBeNull();

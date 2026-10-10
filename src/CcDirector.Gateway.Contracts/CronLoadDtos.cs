@@ -78,6 +78,12 @@ public sealed class CronLoadHourDto
     /// <summary>The most scheduled sessions open at the same moment during the hour.</summary>
     public int Concurrent { get; set; }
 
+    /// <summary>
+    /// The most FACTORY scheduled sessions open at once during the hour - the part of the bar drawn in the factory
+    /// colour. Never more than <see cref="Concurrent"/>; the rest of the bar is the owner's own jobs.
+    /// </summary>
+    public int FactoryConcurrent { get; set; }
+
     /// <summary>How many scheduled runs start during the hour.</summary>
     public int Starts { get; set; }
 

@@ -70,6 +70,11 @@ export interface CronJob {
   seat?: string | null;
   /** The factory's registered title, stamped by the Gateway on a list read; null in no factory or unregistered. */
   factoryTitle?: string | null;
+  /**
+   * Where this schedule is changed: its factory's Seats page. Stamped by the Gateway on a list read; null in no
+   * factory and when the factory is not registered (that one keeps its own Edit and Delete on the Schedule page).
+   */
+  factoryHref?: string | null;
   /** The name without its leading factory segment, for under the factory's header. Folded by the Gateway. */
   shortName?: string | null;
   /**
@@ -138,6 +143,8 @@ export interface CronLoadHour {
   label: string;
   /** The most scheduled sessions open at once during the hour. */
   concurrent: number;
+  /** How many of those are factory schedules - the part of the bar in the factory colour. At most `concurrent`. */
+  factoryConcurrent: number;
   starts: number;
   over: boolean;
   /** The schedules with a session open during the hour. */

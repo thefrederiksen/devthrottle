@@ -105,16 +105,18 @@ internal static class CronJobEndpoints
                 .Select(j => Describe(CronSchedule.StampDisplay(j, now), names))
                 .ToList();
             var records = runRecords.SummariesOf(jobs.Select(j => j.Id).ToList(), now);
-            // The factory titles, one registry read per factory named rather than per schedule.
-            var titles = jobs.Select(j => j.Factory).Where(f => !string.IsNullOrWhiteSpace(f)).Select(f => f!)
+            // The registered factories, one registry read per factory named rather than per schedule.
+            var factories = jobs.Select(j => j.Factory).Where(f => !string.IsNullOrWhiteSpace(f)).Select(f => f!)
                 .Distinct(StringComparer.Ordinal)
-                .ToDictionary(f => f, f => findFactory(ctx, f)?.Title, StringComparer.Ordinal);
+                .ToDictionary(f => f, f => findFactory(ctx, f), StringComparer.Ordinal);
+            var registered = factories.Where(t => t.Value is not null).Select(t => t.Key).ToHashSet(StringComparer.Ordinal);
             foreach (var job in jobs)
             {
                 job.RunRecord = records.TryGetValue(job.Id, out var record)
                     ? record
                     : new CronRunRecordSummaryDto { Verdict = "none", Text = "no runs yet", Runs = 0 };
-                job.FactoryTitle = string.IsNullOrWhiteSpace(job.Factory) ? null : titles[job.Factory];
+                job.FactoryTitle = string.IsNullOrWhiteSpace(job.Factory) ? null : factories[job.Factory]?.Title;
+                job.FactoryHref = FactoryHrefOf(job.Factory, registered);
                 job.ShortName = CronDisplayName.ShortName(job.Name, job.Factory, job.FactoryTitle);
             }
             return Results.Json(new { jobs });
@@ -408,6 +410,15 @@ internal static class CronJobEndpoints
     internal static bool IncludesRandom(string? include) =>
         (include ?? "").Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
             .Any(CronSchedule.IsRandom);
+
+    /// <summary>
+    /// Where a factory schedule is changed: its factory's Seats page. Null in no factory, and null when the factory is not
+    /// registered - there is no page to send the owner to, so the Schedule page keeps its own Edit and Delete for it.
+    /// </summary>
+    internal static string? FactoryHrefOf(string? factory, IReadOnlySet<string> registered) =>
+        !string.IsNullOrWhiteSpace(factory) && registered.Contains(factory)
+            ? $"/factories/{Uri.EscapeDataString(factory)}/seats"
+            : null;
 
     // WINDOW SCHEDULES ARE LISTED ONLY TO A CALLER THAT ASKS, for the same reason as random ones: a released tool that
     // does not know the kind refuses the whole list over one row.

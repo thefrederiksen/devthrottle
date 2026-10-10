@@ -59,6 +59,22 @@ public sealed class CronLoadTests
     }
 
     [Fact]
+    public void Build_EachHourSaysHowManyOfItsOpenSessionsAreFactoryOnes()
+    {
+        var factoryJob = Daily("factory", "0 7 * * *");
+        factoryJob.Factory = "clickfunnels";
+        factoryJob.Seat = "builder";
+        var jobs = new[] { factoryJob, Daily("own-a", "0 7 * * *"), Daily("own-b", "30 9 * * *") };
+
+        var machine = Assert.Single(CronLoad.Build(jobs, Lengths(("factory", 30), ("own-a", 30), ("own-b", 30)), Now, 6).Machines);
+
+        Assert.Equal(2, Hour(machine, "07:00").Concurrent);
+        Assert.Equal(1, Hour(machine, "07:00").FactoryConcurrent);
+        Assert.Equal(1, Hour(machine, "09:00").Concurrent);
+        Assert.Equal(0, Hour(machine, "09:00").FactoryConcurrent);
+    }
+
+    [Fact]
     public void Build_ARunEndingAsAnotherStarts_DoesNotOverlapIt()
     {
         var jobs = new[] { Daily("a", "0 7 * * *"), Daily("b", "0 8 * * *") };

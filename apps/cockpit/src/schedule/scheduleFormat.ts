@@ -131,12 +131,20 @@ export function scheduleGroupOf(job: CronJob): string {
   return factory.length > 0 ? factory : NO_FACTORY_GROUP;
 }
 
-// Factory groups in title order, and the plain scheduled jobs last.
+// The owner's own jobs first, then factory groups in title order.
 export function compareScheduleGroups(a: string, b: string, titleOf: (groupKey: string) => string): number {
   if (a === b) return 0;
-  if (a === NO_FACTORY_GROUP) return 1;
-  if (b === NO_FACTORY_GROUP) return -1;
+  // The owner's own jobs come first (2026-10-09): they are what this page is mostly for.
+  if (a === NO_FACTORY_GROUP) return -1;
+  if (b === NO_FACTORY_GROUP) return 1;
   return titleOf(a).localeCompare(titleOf(b), undefined, { sensitivity: "base" });
+}
+
+// Whether a schedule is changed in its factory: the Schedule page hides it unless asked, and sends its Edit there
+// (the owner, 2026-10-09). The Gateway decides, by stamping the address; a schedule whose factory is not registered
+// gets none, so it stays an ordinary row with its own Edit and Delete.
+export function isFactorySchedule(job: CronJob): boolean {
+  return (job.factoryHref ?? "").length > 0;
 }
 
 // A group's heading: the factory's registered title, the factory id when it is not registered, or "Personal"

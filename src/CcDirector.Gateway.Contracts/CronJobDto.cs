@@ -148,6 +148,15 @@ public sealed class CronJobDto
     public string? FactoryTitle { get; set; }
 
     /// <summary>
+    /// Where this schedule is changed: its factory's Seats page ("/factories/clickfunnels/seats"). Stamped by the
+    /// Gateway on a list read. Null for a schedule in no factory AND for one whose factory is not registered - that
+    /// one has no factory page to be changed on, so the Schedule page keeps its own Edit and Delete for it. The
+    /// Schedule page hides a schedule with this set unless asked to show factory schedules (the owner, 2026-10-09).
+    /// Read-only.
+    /// </summary>
+    public string? FactoryHref { get; set; }
+
+    /// <summary>
     /// The name to show under the factory's header: <see cref="Name"/> without its leading factory segment
     /// ("ClickFunnels Factory - Builder" reads "Builder"). The full name for a schedule in no factory. Folded by
     /// <c>CronDisplayName</c> on a list read. Read-only.

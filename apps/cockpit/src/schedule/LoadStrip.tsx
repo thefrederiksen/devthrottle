@@ -86,7 +86,13 @@ export function LoadStrip({ load, machine, onMachine, selectedHour, onSelectHour
               <span
                 className={`sched-load-bar${h.over ? " over" : ""}`}
                 style={{ height: `${(h.concurrent / scale) * 100}%` }}
-              />
+              >
+                {/* The factory share on top of the owner's own jobs, in its own colour (the owner, 2026-10-09). */}
+                <span
+                  className="sched-load-bar-factory"
+                  style={{ height: h.concurrent === 0 ? "0" : `${(h.factoryConcurrent / h.concurrent) * 100}%` }}
+                />
+              </span>
             </button>
           );
         })}
@@ -95,6 +101,11 @@ export function LoadStrip({ load, machine, onMachine, selectedHour, onSelectHour
         {current.hours.map((h, i) => (
           <span key={h.startUtc}>{i % LABEL_EVERY === 0 ? h.label : ""}</span>
         ))}
+      </div>
+      <div className="sched-load-legend">
+        <span className="sched-load-swatch own" /> your own jobs
+        <span className="sched-load-swatch factory" /> factory schedules
+        <span className="sched-load-swatch over" /> over capacity
       </div>
       {current.estimateNote !== "" && <div className="sched-load-note">{current.estimateNote}</div>}
       {current.unplacedNote !== "" && <div className="sched-load-note">{current.unplacedNote}</div>}
