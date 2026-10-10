@@ -19,10 +19,12 @@ import { GatewayError, holdSession } from "../api/client";
 import { answerTurnVerdict } from "../sessions/verdictAnswer";
 import { recordWalkthroughAnswer, recordWalkthroughSnooze } from "./walkthroughClient";
 
+/** A refusal and a record that failed carry the sentence AND the original error (`cause`), so the walkthrough reports
+ *  the Gateway's own facts with what it shows (the step 3 rulings, R2). */
 export type WalkthroughActResult =
   | { kind: "done"; sentence: string }
-  | { kind: "refused"; sentence: string }
-  | { kind: "record-failed"; sentence: string };
+  | { kind: "refused"; sentence: string; cause: unknown }
+  | { kind: "record-failed"; sentence: string; cause: unknown };
 
 export interface WalkthroughActionDeps {
   answer: (sessionId: string, verdictId: string, indexes: readonly number[]) => Promise<{ reason: string }>;
@@ -58,12 +60,12 @@ export async function answerWalkthroughItem(
   try {
     reason = (await deps.answer(sessionId, verdictId, indexes)).reason;
   } catch (err) {
-    return { kind: "refused", sentence: sentenceOf(err) };
+    return { kind: "refused", sentence: sentenceOf(err), cause: err };
   }
   try {
     await deps.recordAnswer(recordId, verdictId, indexes);
   } catch (err) {
-    return { kind: "record-failed", sentence: sentenceOf(err) };
+    return { kind: "record-failed", sentence: sentenceOf(err), cause: err };
   }
   return { kind: "done", sentence: reason };
 }
@@ -78,12 +80,12 @@ export async function snoozeWalkthroughItem(
   try {
     await deps.snooze(sessionId, minutes);
   } catch (err) {
-    return { kind: "refused", sentence: sentenceOf(err) };
+    return { kind: "refused", sentence: sentenceOf(err), cause: err };
   }
   try {
     await deps.recordSnooze(recordId);
   } catch (err) {
-    return { kind: "record-failed", sentence: sentenceOf(err) };
+    return { kind: "record-failed", sentence: sentenceOf(err), cause: err };
   }
   return { kind: "done", sentence: "" };
 }

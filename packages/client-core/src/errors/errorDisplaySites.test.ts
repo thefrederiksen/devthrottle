@@ -242,6 +242,15 @@ describe("errorDisplaySites scanner", () => {
     expect(scan(src)[0].reported).toBe(true);
   });
 
+  it("scanSource_ErrorCallbackWithTheOriginalErrorAsASecondArgument_JudgesTheShownTextOnly", () => {
+    // The host shows the first argument; the second is the original error handed over beside it.
+    const passed = `const shown = describeAndReport("s", "a", err);\nhooks.onError?.(shown, err);`;
+    const hidden = `onError(err.message, describeAndReport("s", "a", err));`;
+
+    expect(scan(passed)[0].reported).toBe(true);
+    expect(scan(hidden)[0].reported).toBe(false);
+  });
+
   it("scanSource_StoreErrorField_IsASiteWhateverTheStoreIsCalled", () => {
     const src = [
       `emit({ phase: "idle", error: msg });`,

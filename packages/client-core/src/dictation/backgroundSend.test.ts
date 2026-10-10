@@ -55,6 +55,7 @@ import {
 } from "./backgroundSend";
 import { deletePending, getPending, listPending, savePending, type PendingDictation } from "./pendingStore";
 import { allDictationStatuses, clearDictationStatus } from "./status";
+import { resetReportingForTests, setReportingComponent } from "../errors/reportClientError";
 
 // The moment Send was pressed in these tests: deliberately NOT "now", so a test can tell the Send time
 // apart from the moment the record was saved.
@@ -176,7 +177,7 @@ describe("the empty-capture gate (an empty recording must never enter the durabl
       "Recording failed - it captured no audio, so nothing was sent and nothing is being retried. Check the microphone is working and record it again.",
     );
     // The host's own error surface fires too, so the message is not confined to the strip.
-    expect(onError).toHaveBeenCalledWith(status?.error);
+    expect(onError).toHaveBeenCalledWith(status?.error, undefined);
     // Nothing was queued, so any typed text the dialog cleared must come back - same contract as the
     // no-durable-store path, the other case where the clip is not queued.
     expect(onFailed).toHaveBeenCalledTimes(1);
@@ -304,6 +305,48 @@ describe("backgroundTranscribeAndSend", () => {
     const all = allDictationStatuses();
     expect(all[0].phase).toBe("failed");
     expect(all[0].retryable).toBe(false);
+  });
+});
+
+describe("the dictation Send red box is reported (the Error Logging mission, issue #3675, ruling R2)", () => {
+  // Both hard failures render the red strip, so both are reported in the same act: as the Send failure ("send
+  // prompt"), seen by the user, with the session - and never the words. The typed text either side of the
+  // dictation travels with this send, so a report that carried it would put a prompt into the error store.
+  const MARKER = "WORDS-MARKER-7f3a";
+  const reportBodies = () =>
+    vi
+      .mocked(fetch)
+      .mock.calls.filter(([url]) => url === "/client-errors")
+      .map(([, init]) => String((init as RequestInit).body));
+
+  beforeEach(() => {
+    resetReportingForTests();
+    setReportingComponent("mobile");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 202 })));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it.each([
+    ["an empty capture", () => ({ ...captured, blob: new Blob([]) }), undefined],
+    ["no durable storage", () => captured, new Error("indexedDB unavailable")],
+  ])("%s: reported as send prompt, with the session, and the host gets the original error", async (_name, clip, cause) => {
+    if (cause) vi.mocked(savePending).mockRejectedValue(cause);
+    const onError = vi.fn();
+
+    await backgroundTranscribeAndSend("sid", { ...clip(), prefixText: `${MARKER} prefix` }, {
+      onError,
+      composeParts: { before: `${MARKER} before`, after: `${MARKER} after` },
+    });
+
+    expect(onError).toHaveBeenCalledWith(expect.any(String), cause);
+    await vi.waitFor(() => expect(reportBodies()).toHaveLength(1));
+    const report = JSON.parse(reportBodies()[0]) as Record<string, unknown>;
+    expect(report).toMatchObject({ surface: "dictation", action: "send prompt", user_visible: true, session_id: "sid" });
+    expect(report.message).toBe(onError.mock.calls[0][0]);
+    expect(reportBodies()[0]).not.toContain(MARKER);
   });
 });
 

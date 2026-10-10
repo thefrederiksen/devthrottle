@@ -68,7 +68,7 @@ describe("the hand-over list on the Fleet Manager page", () => {
   });
 
   it("shows a refusal in the Gateway's words, keeps the button, and does not refresh", async () => {
-    hand.run.mockResolvedValue({ ok: false, error: "It is owned by another running session. (fake)" });
+    hand.run.mockResolvedValue({ ok: false, error: "It is owned by another running session. (fake)", cause: new Error("fake") });
     const onChanged = renderPanel(morningPage(), true);
     const row = screen.getByTestId("fmp-ho-sess-loose-1");
 

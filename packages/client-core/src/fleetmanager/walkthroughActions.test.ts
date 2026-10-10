@@ -46,16 +46,18 @@ describe("answerWalkthroughItem", () => {
     expect(result).toEqual({
       kind: "refused",
       sentence: "The session's screen changed since the Wingman read it, so nothing was sent.",
+      cause: refusal,
     });
     expect(d.recordAnswer).not.toHaveBeenCalled();
   });
 
   it("says when the session took the answer but the record was not updated", async () => {
-    const d = deps({ recordAnswer: vi.fn(async () => Promise.reject(new Error("outcome was already answered"))) });
+    const failure = new Error("outcome was already answered");
+    const d = deps({ recordAnswer: vi.fn(async () => Promise.reject(failure)) });
 
     const result = await answerWalkthroughItem("sid-1", "rec-1", "verdict-1", [0], d);
 
-    expect(result).toEqual({ kind: "record-failed", sentence: "outcome was already answered" });
+    expect(result).toEqual({ kind: "record-failed", sentence: "outcome was already answered", cause: failure });
     expect(d.answer).toHaveBeenCalledOnce();
   });
 
@@ -89,7 +91,7 @@ describe("snoozeWalkthroughItem", () => {
 
     const result = await snoozeWalkthroughItem("sid-1", "rec-1", 60, d);
 
-    expect(result).toEqual({ kind: "refused", sentence: "This session has exited, so it cannot be snoozed." });
+    expect(result).toEqual({ kind: "refused", sentence: "This session has exited, so it cannot be snoozed.", cause: expect.any(GatewayError) });
     expect(d.recordSnooze).not.toHaveBeenCalled();
   });
 });

@@ -187,7 +187,10 @@ export interface CapturedUtterance {
  *  is durable and its progress shows on the status strip and the roster, so success and held states need
  *  no host callback - the status store is the single source of truth. */
 export interface BackgroundSendHooks {
-  onError?: (message: string) => void;
+  /** The hard failure, already shown on the strip AND already reported (action "send prompt", the session id, never
+   *  the words) - so a host shows `message` and must not report it again. `cause` is the original error, for a host
+   *  that needs more than the sentence; undefined when the client found the failure itself (an empty capture). */
+  onError?: (message: string, cause?: unknown) => void;
   /** Called only when the clip could NOT be saved durably (so nothing is queued), so the host can restore
    *  any typed compose text it cleared at dialog-close time. It is NOT called for a held/retrying send:
    *  the typed text is part of the durable record and is delivered with the dictation. */
@@ -256,7 +259,7 @@ export async function backgroundTranscribeAndSend(
   if (captured.blob.size === 0) {
     // Published and reported FIRST: an optional call skips its argument when there is no host callback.
     const shown = failDictation(sessionId, crypto.randomUUID(), EMPTY_CAPTURE_MESSAGE);
-    hooks.onError?.(shown);
+    hooks.onError?.(shown, undefined);
     hooks.onFailed?.();
     return;
   }
@@ -339,7 +342,7 @@ export async function backgroundTranscribeAndSend(
     // Durable storage genuinely unavailable (rare, e.g. a private-mode tab with IndexedDB disabled): the
     // clip cannot be queued, so say so loudly and restore the typed text. We do NOT silently one-shot it.
     const shown = failDictation(sessionId, rec.id, NO_DURABLE_STORE_MESSAGE, err);
-    hooks.onError?.(shown);
+    hooks.onError?.(shown, err);
     hooks.onFailed?.();
     return;
   }
@@ -1130,11 +1133,12 @@ function publishHeld(rec: PendingDictation, message: string): void {
 
 // Publish a dictation that FAILED for good. The strip shows it as an alert, so it is reported in the same act
 // (the Error Logging mission, issue #3675) - the sentence and the session, never the words. Returns the sentence,
-// so a host's onError shows exactly what the strip shows. (A typed prompt's failures are published by
+// so a host's onError shows exactly what the strip shows. The action is "send prompt": this red box is the Send
+// failure, the same one a typed prompt reports (the step 3 rulings, R2). (A typed prompt's failures are published by
 // typedPromptDelivery and reported there.)
 function failDictation(sessionId: string, uploadId: string, message: string, cause?: unknown): string {
   publishDictationStatus({ sessionId, uploadId, phase: "failed", retryable: false, error: message });
-  return reportShownError("dictation", "send the dictation", message, { sessionId }, cause);
+  return reportShownError("dictation", "send prompt", message, { sessionId }, cause);
 }
 
 // Publish the parked (permanent-failure) status: saved-and-retryable, with an explicit Retry (retryable

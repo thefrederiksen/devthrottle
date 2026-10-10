@@ -13,7 +13,9 @@
 // recorded or queued.
 import { answerFleetOutcome } from "./pageClient";
 
-export type CardAnswerResult = { kind: "recorded" } | { kind: "refused"; error: string };
+/** A refusal carries the sentence AND the original error (`cause`), so the page that shows it reports the Gateway's own
+ *  facts - status, code, correlation id - and not just the words (the step 3 rulings, R2). */
+export type CardAnswerResult = { kind: "recorded" } | { kind: "refused"; error: string; cause: unknown };
 
 export interface CardAnswerDeps {
   answer: (outcomeId: string, words: string) => Promise<void>;
@@ -31,7 +33,7 @@ export async function answerCard(outcomeId: string, words: string, deps: CardAns
   try {
     await deps.answer(outcomeId, words);
   } catch (err) {
-    return { kind: "refused", error: messageOf(err) };
+    return { kind: "refused", error: messageOf(err), cause: err };
   }
   return { kind: "recorded" };
 }

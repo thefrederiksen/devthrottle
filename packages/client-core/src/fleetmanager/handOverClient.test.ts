@@ -42,9 +42,10 @@ describe("runHandOver", () => {
   });
 
   it("reports a refusal as the Gateway's words, never throwing", async () => {
+    const refusal = new GatewayError(409, "Already yours. (fake)");
     const out = await runHandOver("s1", "owner", async () => {
-      throw new GatewayError(409, "Already yours. (fake)");
+      throw refusal;
     });
-    expect(out).toEqual({ ok: false, error: "Already yours. (fake)" });
+    expect(out).toEqual({ ok: false, error: "Already yours. (fake)", cause: refusal });
   });
 });

@@ -208,7 +208,8 @@ export function scanSource(
     const open = m.index! + m[0].length - 1;
     const close = matchingClose(src, open);
     if (close < 0) continue;
-    const value = src.slice(open + 1, close);
+    // The text shown is the FIRST argument; a second (`onError(shown, err)`, the original error) is not displayed.
+    const value = src.slice(open + 1, Math.min(expressionEnd(src, open + 1), close));
     addCall(m.index!, "callback", m[1], value);
     // `hooks.onError?.(describeAndReport(...))` reports nothing when there is no callback: an optional call never
     // evaluates its argument. Report first, then hand the result over.
