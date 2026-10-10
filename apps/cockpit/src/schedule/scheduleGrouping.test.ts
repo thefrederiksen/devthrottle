@@ -55,14 +55,14 @@ describe("compareScheduleGroups", () => {
 });
 
 describe("scheduleGroupTitle", () => {
-  it("uses the registered title, the factory id when it is not registered, and Scheduled jobs for the plain ones", () => {
+  it("uses the registered title, the factory id when it is not registered, and Personal for the plain ones", () => {
     expect(scheduleGroupTitle("clickfunnels", [job({ factory: "clickfunnels", factoryTitle: "ClickFunnels" })])).toBe(
       "ClickFunnels",
     );
     expect(scheduleGroupTitle("unregistered", [job({ factory: "unregistered", factoryTitle: null })])).toBe(
       "unregistered",
     );
-    expect(scheduleGroupTitle(NO_FACTORY_GROUP, [job()])).toBe("Scheduled jobs");
+    expect(scheduleGroupTitle(NO_FACTORY_GROUP, [job()])).toBe("Personal");
   });
 });
 

@@ -535,7 +535,7 @@ export function ScheduleView() {
             <span className="sched-cell-name-main">{grouped ? job.shortName ?? job.name : job.name}</span>
             <span className="sched-cell-name-sub">
               {scheduleGroupOf(job) === "" ? (
-                <span className="sched-plainbadge">scheduled job</span>
+                <span className="sched-plainbadge">personal</span>
               ) : grouped ? (
                 `seat: ${job.seat ?? "-"}`
               ) : (
