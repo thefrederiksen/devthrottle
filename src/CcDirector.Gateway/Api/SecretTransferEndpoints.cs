@@ -396,8 +396,8 @@ public static class SecretTransferEndpoints
             if (body.Approve && words.Length == 0)
             {
                 refusal = Refuse(StatusCodes.Status403Forbidden, "owner_words_required",
-                    "A session approves a transfer only with the owner's own words from its chat: ask him, then rerun with "
-                    + "--owner-approved \"<his words, verbatim>\". He can also approve it on the phone, in the Cockpit or in "
+                    "A session approves a transfer only with the owner's own words from its chat: ask the owner, then rerun with "
+                    + "--owner-approved \"<the owner's words, verbatim>\". The owner can also approve it on the phone, in the Cockpit or in "
                     + "the cc-secrets window.");
                 return null;
             }
