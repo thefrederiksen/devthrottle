@@ -25,8 +25,8 @@ public, permanent record. Get them right.
 | 5 | Write the canonical release notes markdown | File written in the required shape |
 | 6 | Coordinate the internal documentation site | Internal session has the file, building in draft |
 | 7 | Human signs off on the notes | The human says the wording is correct |
-| 8 | Commit the notes file | Only when the human asks |
-| 9 | Cut the release (the human publishes) | Tag exists, build attached |
+| 8 | Freeze the candidate: bump and notes in ONE pull request | Merged; its merge commit is the candidate |
+| 9 | Gate the candidate once, then tag it | `assert-gated.ps1` accepts the candidate; tag pushed |
 | 10 | Announce to the mailing list | Only if the opt-out feature is live and tested |
 | 11 | Post-release verification | Download and unsubscribe both work |
 
@@ -55,8 +55,17 @@ public, permanent record. Get them right.
   email and ship the release without it.
 - **Do not commit unless the human asks.** Even after one commit, a later commit
   needs its own explicit request.
-- **This is a shared working tree.** Many sessions edit this repository at once.
-  Stage only the files you created or changed, by name. Never `git add -A`.
+- **The candidate is frozen.** The version bump and the notes merge together in one
+  pull request, and its merge commit is the release candidate. The notes are never
+  edited after that merge, the gate runs once on that commit, and the tag goes on that
+  commit even when main has moved on. Work merged after the candidate waits for the
+  next release. See Step 8.
+- **One seat runs the release gate.** The release seat - the session running this
+  skill - is the only session that runs `-Parked` for a candidate. Every other session
+  runs the default gate. Two release gates on one machine fight over the Gateway test
+  lock, and the loser executes nothing.
+- **Work in your own worktree cut from origin/main**, never the shared checkout. Stage
+  only the files you created or changed, by name. Never `git add -A`.
 - **Plain English, no abbreviations. ASCII only, no emoji or special symbols.**
   This applies to the notes, the emails, and every message.
 
@@ -75,15 +84,15 @@ git rev-list --count <last-tag>..origin/main    # how many commits shipped
   behind it. The code you are documenting lives on `origin/main`; your working
   branch may not have it.
 - Know that a release is gated by a LOCAL run, not by continuous integration, and that the run
-  which counts happens later - on MERGED `main`, at the exact commit about to be tagged, after the
-  version-bump pull request has landed (see "Cut the release"). A run against the pull-request head
-  does not count: the squash merge produces a different commit.
-  It is `.\scripts\test-local.ps1 -Parked -Configuration Release` PLUS the two
-  installer test projects the script cannot reach, and it is the one release-blocking wait, because
-  the release workflow runs ZERO tests and a pushed tag cannot be un-pushed. A release is the
-  single place "fix it forward" is unavailable.
-- You may run it now as an early warning, but an early run is NOT the gate: everything committed
-  after it - notes, the version bump, other people's merges - is untested by it.
+  which counts happens later - on the frozen candidate, the merge commit of the bump-and-notes
+  pull request (Step 8). A run against the pull-request head does not count: the squash merge
+  produces a different commit. It is ONE command,
+  `.\scripts\test-local.ps1 -Parked -Configuration Release`, and it is the one release-blocking
+  wait, because the release workflow runs ZERO tests and a pushed tag cannot be un-pushed. A
+  release is the single place "fix it forward" is unavailable.
+- An early warning is the DEFAULT run (`.\scripts\test-local.ps1`), never `-Parked`. A parked run
+  now is not the gate - the candidate does not exist yet - and it is one more contender for the
+  Gateway test lock.
 
 ### Step 2: Decide the version number
 
@@ -189,18 +198,31 @@ cc-devthrottle message send <session-id> "<one-line message with the file path>"
 Show the human the full notes text. Change whatever they ask. Nothing is committed,
 published, or sent until they confirm the wording is correct.
 
-### Step 8: Commit the notes file
+### Step 8: Freeze the candidate
 
-Only when the human asks. Stage the notes file by name (shared working tree):
+Only when the human asks you to commit. The version bump and the notes travel in ONE
+pull request, and its merge commit is the release candidate. Never merge them separately:
+the release workflow requires the notes file in the tagged tree and the gate must run on
+the tagged commit, so every separate notes edit is a new commit that voids any gate run
+already under way. v2.18.0 rewrote its notes four times this way, each time to cover
+work merged while a gate was running.
 
-```bash
-git add docs/public/release-notes/v<version>.md
-git commit
-```
+1. In your own worktree cut from origin/main, bump `Directory.Build.props` (the version
+   lives in exactly that one file) and add `docs/public/release-notes/v<version>.md`.
+   Stage both by name and commit, following the `/commit` skill.
+2. Open the pull request titled `release: v<version> - <one-line summary>`. The notes
+   describe the last tag up to this pull request's base, and nothing later.
+3. Merge it once the ordinary local gate is green and the review is clean - never on a
+   continuous integration result, which is never waited for.
+4. Record the merge commit: `gh pr view <n> --json mergeCommit`. That commit is the
+   candidate, C.
 
-Follow the repository commit standard (the `/commit` skill).
+From here the candidate is frozen:
+- The notes are never edited again for this candidate.
+- Work merged to main after C waits for the next release. It is not added to the notes
+  and does not move the candidate.
 
-### Step 9: Cut the release (the human publishes)
+### Step 9: Gate the candidate once, then tag it (the human publishes)
 
 Read this whole step before you start. `docs/Release-Process.md` describes the web
 interface flow, but it is out of date in two ways that will cost you time:
@@ -213,41 +235,41 @@ interface flow, but it is out of date in two ways that will cost you time:
   (issue #1133, still open). Do not reach for it and expect it to work.
 
 The version-bump commit therefore reaches `main` like any other change - through a
-pull request. That is how v1.1.0 shipped (pull request #1489).
+pull request (Step 8). That is how v1.1.0 shipped (pull request #1489).
 
-1. Make sure `docs/public/release-notes/v<version>.md` is already merged to `main`.
-   The workflow publishes that file verbatim and FAILS if it is missing, so a tag
-   pushed without it burns a whole build and cannot be un-pushed.
-2. Open a pull request that bumps `Directory.Build.props` to the new version, titled
-   `release: v<version> - <one-line summary>`.
-3. Merge the bump pull request once its ordinary local gate is green and the review is clean -
-   never on a continuous integration result, which is never waited for.
-4. **Run the release gate on MERGED MAIN, immediately before you tag.** Not on the pull request
-   head: a squash merge produces a different commit, and `main` can move underneath you during a
-   run that takes tens of minutes. Park the checkout on the exact commit you are about to tag,
-   and run all three of these:
+1. **Run the release gate ONCE, on the candidate C, in a worktree of its own.** Only the
+   release seat runs it, and it is one command:
 
-       git checkout main && git pull
+       git fetch origin
+       git worktree add ../devthrottle-gate-v<version> --detach <C>
+       cd ../devthrottle-gate-v<version>
        .\scripts\test-local.ps1 -Parked -Configuration Release
-       dotnet test tools/cc-director-setup.Tests/ -c Release
-       dotnet test tools/cc-director-setup-engine.Tests/ -c Release
 
-   Every part of that is deliberate:
-   - `-Parked` adds `Gateway.Tests` and `Core.Tests`, which the ordinary gate skips.
-   - `-Configuration Release` matches what is shipped. The script defaults to **Debug**, while
-     the continuous integration job this replaced ran `-c Release`. Releasing on a Debug-only
-     run would quietly test a different build from the one users download.
-   - **The two installer projects are NOT optional and NOT covered by the script.** They are not
-     in `cc-director.sln`, so `test-local.ps1` never touches them - it runs nine projects, all
-     under `src\`. The continuous integration job ran them separately, and the release publishes
-     `cc-director-setup.exe`, so leaving them out ships the first thing a new user sees with no
-     test behind it at all. Folding them into `-Parked` is the follow-up that removes this
-     footgun; until then, run them by hand.
+   - `-Parked` adds the three suites the default run skips: `Gateway.Tests`, `Core.Tests` and
+     `Gateway.UnitTests`. The installer suites (`cc-director-setup.Tests`,
+     `cc-director-setup-engine.Tests`, `cc-director-setup-cli.Tests`) are already in the
+     script's own project list. Do not run them again by hand.
+   - `-Configuration Release` matches what is shipped. The script defaults to **Debug**.
+   - The worktree is detached at C on purpose: main may move during the run, and the gate
+     certifies C, not whatever main is when the run finishes.
+2. **If the gate is red, name which kind of red it is.**
+   - A flaky test: fix the test on main, then run the gate on C again. The candidate does not
+     move, because the product at C did not change.
+   - A product defect: fix it forward on main. The fix's merge commit becomes the new candidate,
+     and it carries everything merged since C. If any of that is user-visible, the fix's pull
+     request corrects the notes - once, for the new candidate. Then run the gate once on the new
+     candidate.
+3. **Prove the candidate is gated, then tag it.** `assert-gated.ps1` refuses a commit with no
+   green `-Parked` run recorded against it:
 
-   If anything here is red, fix it forward on `main` and run the gate again. Do not tag until it
-   is green: this is the one release-blocking wait, and it is local.
-5. Create the tag `v<version>` on `main` at the gated commit and push it. That
-   is the last manual act. Monitor the Actions run.
+       .\scripts\assert-gated.ps1 <C>
+       git tag v<version> <C>
+       git push origin v<version>
+
+   The tag goes on C even when main has moved on. A tag does not have to be the tip of main, and
+   C is on main because it is the squash commit of the candidate pull request. That push is the
+   last manual act. Monitor the Actions run.
+4. Remove the gate worktree: `git worktree remove ../devthrottle-gate-v<version>`.
 
 **Do NOT create or publish a GitHub release by hand, and do NOT paste the notes into
 the release body.** The workflow does both: it creates the release as a DRAFT, attaches
@@ -328,18 +350,25 @@ This feature is built and tested once; thereafter Step 10 simply uses it.
 6. Hands the file path to the internal session, which folds it into the changelog
    in draft and holds for FINAL.
 7. The human signs off on the wording.
-8. On request, commits the notes file (staged by name).
-9. Opens the `release: v1.2.0` pull request bumping `Directory.Build.props`, merges
-   it green, then the human publishes the v1.2.0 tag from main; Actions attaches the
-   executable; the agent sends the internal session FINAL.
+8. On request, opens the `release: v1.2.0` pull request carrying both the bump and
+   the notes, merges it green, and records its merge commit as the candidate.
+9. Runs the release gate once on the candidate in a detached worktree, runs
+   `assert-gated.ps1` on it, and the v1.2.0 tag goes on the candidate; Actions
+   attaches the executable; the agent sends the internal session FINAL.
 10. The opt-out feature is not yet live, so the announcement email is recorded as a
     fast-follow rather than sent.
 11. Verifies the download link and the changelog page.
 
 ---
 
-**Skill Version:** 1.1
-**Last Updated:** 2026-07-14
+**Skill Version:** 1.2
+**Last Updated:** 2026-10-10
+**Changes in 1.2:** The frozen candidate: the version bump and the notes merge in one pull
+request, its merge commit is the candidate, the notes are never edited after, the gate runs
+once on it, the tag goes on it, and work merged later waits. One seat runs the release gate.
+The gate is one command - the installer suites were already in the script, so the two
+hand-run `dotnet test` lines are gone. The early warning is the default run, never `-Parked`.
+The tag step calls `scripts/assert-gated.ps1` first.
 **Changes in 1.1:** Recovered - version 1.0 was written but never landed, and was named
 `skill.md` where the runtime requires `SKILL.md`, so it never loaded for any session
 despite being referenced. Renamed and corrected on landing: Step 9 now records that
