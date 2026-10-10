@@ -118,7 +118,8 @@ const hoisted = vi.hoisted(() => {
     }
   }
   const terminals: FakeTerminal[] = [];
-  return { FakeTerminal, terminals, sendPrompt, ensureGatewayCookie };
+  const reportClientError = vi.fn();
+  return { FakeTerminal, terminals, sendPrompt, ensureGatewayCookie, reportClientError };
 });
 
 const sendPrompt = hoisted.sendPrompt;
@@ -127,9 +128,14 @@ const ensureGatewayCookie = hoisted.ensureGatewayCookie;
 const windowOpen = vi.fn();
 
 vi.mock("@xterm/xterm", () => ({ Terminal: hoisted.FakeTerminal }));
+vi.mock("../errors/reportClientError", () => ({
+  reportClientError: (report: unknown) => hoisted.reportClientError(report),
+  errorFacts: (err: unknown) => ({ exception_type: err instanceof Error ? err.name : typeof err }),
+}));
 vi.mock("../api/client", () => ({
   sendPrompt: (sid: string, text: string, appendEnter: boolean) => hoisted.sendPrompt(sid, text, appendEnter),
   ensureGatewayCookie: () => hoisted.ensureGatewayCookie(),
+  gatewayErrorMessage: (err: unknown, action: string) => `Could not ${action}: ${err instanceof Error ? err.message : String(err)}`,
 }));
 
 // ----- fake WebSocket (drivable) ----------------------------------------------------------------
@@ -207,6 +213,7 @@ beforeEach(() => {
   rafCallbacks = new Map();
   rafSeq = 0;
   sendPrompt.mockReset();
+  hoisted.reportClientError.mockReset();
   sendPrompt.mockImplementation((_sid: string, _text: string, _appendEnter: boolean) => Promise.resolve());
   ensureGatewayCookie.mockClear();
   windowOpen.mockReset();
@@ -650,5 +657,34 @@ describe("InteractiveTerminal link provider (Local Files, Phase 2/4)", () => {
   it("returns no links for a line with none, so xterm leaves the line undecorated", () => {
     const { links } = linksFor("just some ordinary output text");
     expect(links).toEqual([]);
+  });
+});
+
+describe("InteractiveTerminal dropped keystrokes (the Error Logging mission, issue #3675, ruling R4)", () => {
+  it("reports a failed run of keystrokes once, with the session and never the characters, and again after one lands", async () => {
+    startTerminal();
+    const term = hoisted.terminals[0];
+    sendPrompt.mockImplementation(() => Promise.reject(new Error("owning director is not connected")));
+
+    for (const ch of "secret-typed") term.onDataCb?.(ch);
+    await vi.runAllTimersAsync();
+    term.onDataCb?.("x");
+    await vi.runAllTimersAsync();
+
+    // One report for the whole outage, not one per key.
+    expect(hoisted.reportClientError).toHaveBeenCalledTimes(1);
+    const report = hoisted.reportClientError.mock.calls[0][0] as Record<string, unknown>;
+    expect(report).toMatchObject({ surface: "terminal", action: "type into the terminal", user_visible: false, session_id: SID });
+    expect(JSON.stringify(report)).not.toContain("secret");
+
+    // A send that lands ends the outage; the next failure is a new one.
+    sendPrompt.mockImplementation(() => Promise.resolve());
+    term.onDataCb?.("y");
+    await vi.runAllTimersAsync();
+    sendPrompt.mockImplementation(() => Promise.reject(new Error("owning director is not connected")));
+    term.onDataCb?.("z");
+    await vi.runAllTimersAsync();
+
+    expect(hoisted.reportClientError).toHaveBeenCalledTimes(2);
   });
 });

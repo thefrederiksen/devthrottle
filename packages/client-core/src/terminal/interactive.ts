@@ -42,7 +42,8 @@
 
 import { Terminal as Xterm } from "@xterm/xterm";
 import type { IDisposable, ILink, ILinkProvider } from "@xterm/xterm";
-import { ensureGatewayCookie, sendPrompt } from "../api/client";
+import { ensureGatewayCookie, gatewayErrorMessage, sendPrompt } from "../api/client";
+import { errorFacts, reportClientError } from "../errors/reportClientError";
 import { findLineLinks, type LineLink } from "./lineLinks";
 
 // Match the desktop terminal (TerminalFonts.Family + TerminalControl metrics): Cascadia MONO (not
@@ -136,6 +137,8 @@ export class InteractiveTerminal {
   // before starting the next, so the PTY never sees reordered or dropped input at any typing speed.
   private pendingInput = "";
   private inputPumping = false;
+  // Whether the current run of failed keystroke sends has been reported; cleared by the next send that lands.
+  private keystrokeFailureReported = false;
 
   constructor(hostEl: HTMLElement, sessionId: string, onFileLink?: (path: string) => void) {
     this.hostEl = hostEl;
@@ -280,7 +283,7 @@ export class InteractiveTerminal {
 
   // Drain the keystroke buffer one POST at a time, awaiting each send before the next so the PTY
   // receives bytes in the exact order typed (issue #1021). Bytes that arrive while a send is in
-  // flight are coalesced into the following POST. A failed send is logged and the buffered bytes it
+  // flight are coalesced into the following POST. A failed send is reported and the buffered bytes it
   // carried are dropped (a degraded network; the user retypes) - we do NOT re-queue, which would risk
   // duplicating bytes the Director may already have applied. The loop re-checks pendingInput after
   // every await, so anything enqueued mid-send is still sent, in order.
@@ -296,13 +299,31 @@ export class InteractiveTerminal {
         this.pendingInput = "";
         try {
           await sendPrompt(this.sessionId, chunk, false);
+          this.keystrokeFailureReported = false;
         } catch (err) {
           console.debug("[cockpit-terminal] keystroke send failed", this.sessionId, err);
+          this.reportKeystrokeFailure(err);
         }
       }
     } finally {
       this.inputPumping = false;
     }
+  }
+
+  // Keys typed into the terminal were dropped (the Error Logging mission, issue #3675, ruling R4). Reported once per
+  // run of failures, not once per key, with the session and the Gateway's facts - and NEVER the characters: they are
+  // what the person typed, and the error store must not hold them. Nothing is shown, so it is not user_visible.
+  private reportKeystrokeFailure(err: unknown): void {
+    if (this.keystrokeFailureReported) return;
+    this.keystrokeFailureReported = true;
+    reportClientError({
+      surface: "terminal",
+      action: "type into the terminal",
+      message: gatewayErrorMessage(err, "type into the terminal"),
+      user_visible: false,
+      ...errorFacts(err),
+      session_id: this.sessionId,
+    });
   }
 
   dispose(): void {
