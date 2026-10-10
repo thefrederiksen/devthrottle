@@ -64,6 +64,18 @@ function Get-GateLockPath([string] $Name) {
 
 function Get-ReleaseGateLockPath { return Get-GateLockPath "release-gate.lock" }
 
+<#
+.SYNOPSIS
+    Where the gate records a green, unfiltered -Parked run: one JSON file per run, named by the commit it
+    certified. Beside the locks, for the same reason - per user, per machine, and nowhere the environment
+    can move. scripts\assert-gated.ps1 reads it; nothing else writes it. The run folder in TEMP is
+    deleted after a green run, so this record is the one that outlives it.
+#>
+function Get-GateRecordDirectory {
+    $locks = Split-Path -Parent (Get-GateLockPath "release-gate.lock")
+    return Join-Path (Join-Path (Split-Path -Parent $locks) "test-gate") "gated"
+}
+
 function Get-GatewaySuiteLockPath { return Get-GateLockPath "gateway-test-suite.lock" }
 
 # PowerShell hands a .NET constructor's exception back wrapped in a MethodInvocationException. The
