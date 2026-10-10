@@ -51,6 +51,8 @@ unknown flag.
 | `dotnet test src/CcDirector.Core.Tests --filter TerminalThroughputTests` | 4 passed - the one Core.Tests failure is a timing test that passes on its own |
 | `pytest tests` in `tools/cc-devthrottle`, with click 8.5 | 3,892 passed, 2 failed before the help fix; after it, the only failure left is `errors website-token`'s over-long summary, which fails identically on origin/main |
 | `dotnet ef migrations has-pending-model-changes` (SQLite and Postgres) | no changes |
+| After rebasing onto origin/main `51627d041`: `dotnet test src/CcDirector.Gateway.UnitTests` | 10,387 passed, 0 failed |
+| After the rebase: `.\scripts	est-database.ps1` (throwaway PostgreSQL) | green: 68 executed, 68 passed, none skipped - the new Postgres migration applies |
 
 ## Revert proof
 
@@ -63,8 +65,9 @@ restored and the 46 run-result tests passed again on a rebuild.
 ## What was NOT proved
 
 - **Gateway.Tests (the parked integration suite) did not run.** Another session's run held the
-  machine-wide Gateway test lock for the whole 45-minute wait, and the run gave up with no tests. That
-  suite holds the Postgres migration-chain tests, which were updated for the new migration but not run.
+  machine-wide Gateway test lock for the whole 45-minute wait (and still held it two hours later), and the
+  run gave up with no tests. The PostgreSQL migration tests that used to live there now run through
+  `scripts	est-database.ps1`, which was green.
 - The machine's own Python has click 8.1.8 while the tool requires 8.2.1 or later; with it, about 1,660
   command-line tests fail on origin/main too. The counts above come from a scratch environment with the
   required versions.
