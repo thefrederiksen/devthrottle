@@ -89,7 +89,7 @@ public static class Program
                 "prereqs" => Commands.Prereqs(json),
                 "plan" => await Commands.PlanAsync(args, layout, json),
                 "update" => await Commands.UpdateAsync(args, layout, json, installMode: false),
-                "install" => await Commands.UpdateAsync(args, layout, json, installMode: true),
+                "install" => await Commands.InstallAsync(args, layout, json),
                 "signin" => await Commands.SignInAsync(args, json),
                 "enroll" => await Commands.EnrollAsync(args, layout, json),
                 "uninstall" => Commands.Uninstall(args, layout, json),

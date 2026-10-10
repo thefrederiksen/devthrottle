@@ -158,6 +158,12 @@ mkdir -p "$LOG_DIR" 2>/dev/null || LOG_FILE=""
 # The step the script is on, carried by every failure report. It used to say "download" whatever failed.
 STEP="preconditions"
 
+# The website's copied command can carry an anonymous install tag (DEVTHROTTLE_INSTALL_TAG, issue #3722), so a
+# website visit can be joined to the install it led to. Only 4 to 16 lower-case letters and digits are kept;
+# anything else is ignored, so the variable cannot put other text into a report.
+INSTALL_TAG=""
+if [[ "${DEVTHROTTLE_INSTALL_TAG:-}" =~ ^[a-z0-9]{4,16}$ ]]; then INSTALL_TAG="$DEVTHROTTLE_INSTALL_TAG"; fi
+
 log() {
     printf '%s\n' "$*"
     if [[ -n "$LOG_FILE" ]]; then printf '%s %s\n' "$(date +%H:%M:%S)" "$*" >> "$LOG_FILE" 2>/dev/null || true; fi
@@ -184,7 +190,10 @@ json_string() { # text -> one quoted string in the notation the Gateway reads, h
     osascript -l JavaScript -e 'function run(argv) { return JSON.stringify(argv[0]); }' -- "$text"
 }
 report_step() { # message
-    local message="${1:0:$MAX_MESSAGE_CHARS}" id_dir="$HOME/Library/Application Support/cc-director" id="" run_log=""
+    local message="$1"
+    if [[ -n "$INSTALL_TAG" ]]; then message="$message [tag $INSTALL_TAG]"; fi
+    message="${message:0:$MAX_MESSAGE_CHARS}"
+    local id_dir="$HOME/Library/Application Support/cc-director" id="" run_log=""
     if [[ -s "$id_dir/install-id" ]]; then
         id="$(cat "$id_dir/install-id")"
     else
@@ -206,7 +215,14 @@ report_step() { # message
     # bytes, as sent; when it is too big the run log gives way from the top, twenty lines at a time, and a body
     # still too big with no run log left is not sent at all - the measurement is the last word before curl.
     while :; do
-        diagnostics="run log ($(basename "${LOG_FILE:-no log file}")):"$'\n'"${run_log:-(empty)}"$'\n'"sw_vers:"$'\n'"$(sw_vers 2>/dev/null || true)"$'\n'"id: $(id 2>/dev/null || true)"$'\n'"home: $HOME -> $(readlink "$HOME" 2>/dev/null || printf 'not a link')"
+        if [[ "$STEP" == "start" || "$STEP" == "done" ]]; then
+            # The start and done reports are sent on every install that gets that far, so they carry only the
+            # macOS version - not the run log, the user id or the home folder, which a failure report needs and
+            # these do not.
+            diagnostics="sw_vers:"$'\n'"$(sw_vers 2>/dev/null || true)"
+        else
+            diagnostics="run log ($(basename "${LOG_FILE:-no log file}")):"$'\n'"${run_log:-(empty)}"$'\n'"sw_vers:"$'\n'"$(sw_vers 2>/dev/null || true)"$'\n'"id: $(id 2>/dev/null || true)"$'\n'"home: $HOME -> $(readlink "$HOME" 2>/dev/null || printf 'not a link')"
+        fi
         diagnostics_json="$(json_string "$diagnostics")" || return 1
         body="{\"install_id\":\"$id\",\"installer\":\"install-mac.sh\",\"component\":\"setup-wizard\",\"step\":\"$STEP\",\"message\":$message_json,\"diagnostics\":$diagnostics_json,\"os\":\"macos\",\"os_version\":\"$(sw_vers -productVersion 2>/dev/null || true)\",\"arch\":\"$(uname -m)\",\"product_version\":\"latest\"}"
         if [[ "$(printf '%s' "$body" | LC_ALL=C wc -c)" -le $MAX_BODY_BYTES || -z "$run_log" ]]; then break; fi
@@ -264,6 +280,11 @@ trap 'fail "Unexpected failure at line $LINENO while running: $BASH_COMMAND (exi
 
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$WORK_DIR"' EXIT
+
+# Say that the script started (issue #3722). Before this, a run that stopped without an error - closed
+# Terminal, a pasted command never run to the end - and a run that never happened looked the same to us.
+STEP="start"
+report_step "install-mac.sh started" || true
 
 # ----------------------------------------------------------------------------
 # Download the wizard and the release manifest from the latest release.

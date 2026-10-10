@@ -231,6 +231,10 @@ internal static class Program
         // the same process claiming its own mutex twice would deadlock on a non-reentrant wait, and a
         // second claim would in any case answer a question that was already settled.
 
+        // The first open before sign-in is reported once, off the startup path, so a person who installed and
+        // stopped at the sign-in screen is visible (issue #3722).
+        FirstOpenReport.StartInBackground();
+
         // Never let a startup exception exit with no window and no message (issue #242).
         try
         {
