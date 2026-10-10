@@ -295,6 +295,7 @@ public partial class SpeakDialog : Window
             {
                 FileLog.Write($"[SpeakDialog] desktop dictation needs Windows audio capture; not offered on "
                     + $"{System.Runtime.InteropServices.RuntimeInformation.OSDescription}");
+                // shown-error-exempt (not an error): this platform does not offer desktop dictation; nothing failed
                 SwitchToFailed("Desktop dictation is only available on Windows.");
                 return;
             }
