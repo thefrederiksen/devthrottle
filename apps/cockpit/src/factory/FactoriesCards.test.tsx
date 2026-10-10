@@ -84,6 +84,8 @@ function row(id: string, title: string, statusRank: number, extra: Partial<Facto
     noBossText: "No boss named",
     purpose: null,
     bossName: null,
+    leftOpenText: null,
+    leftOpenHref: null,
     ...extra,
   };
 }

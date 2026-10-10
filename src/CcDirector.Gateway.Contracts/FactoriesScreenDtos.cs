@@ -219,6 +219,16 @@ public sealed class FactoryListRowDto
     /// <summary>The boss's role word ("Boss", or "CFO") for the card's avatar and name line - never a person's
     /// name (the owner, 8 October 2026); null when no boss is named.</summary>
     public string? BossName { get; set; }
+
+    /// <summary>
+    /// The flag for seats whose sessions do not close themselves (Factory Control, step 2): "Does not close itself:
+    /// Scout - stayed open 3 of its last 7 runs", or "2 seats do not close themselves: ..." with each one. Null when
+    /// every seat closes itself or has nothing recorded yet. Drawn amber, whatever the status word.
+    /// </summary>
+    public string? LeftOpenText { get; set; }
+
+    /// <summary>Where the flag goes: the factory's Seats tab, where each seat shows its marker. Null with no flag.</summary>
+    public string? LeftOpenHref { get; set; }
 }
 
 /// <summary><c>GET /gateway/factories/{factory}</c>: one factory's page - its header, tabs and Overview.</summary>
@@ -250,6 +260,13 @@ public sealed class FactoryPageViewDto
 
     /// <summary>"4 seats".</summary>
     public string SeatCountText { get; set; } = "";
+
+    /// <summary>The same flag as the list's <see cref="FactoryListRowDto.LeftOpenText"/>, shown in the page header;
+    /// null when every seat closes itself or has nothing recorded yet.</summary>
+    public string? LeftOpenText { get; set; }
+
+    /// <summary>The Seats tab, where each seat shows its marker. Null with no flag.</summary>
+    public string? LeftOpenHref { get; set; }
 
     /// <summary>"runs on SOREN_NORTH".</summary>
     public string ComputerText { get; set; } = "";
@@ -457,6 +474,16 @@ public sealed class FactorySeatRowDto
 
     /// <summary>The computer the seat runs on.</summary>
     public string ComputerText { get; set; } = "";
+
+    /// <summary>
+    /// Whether the seat's sessions close themselves (Factory Control, step 2), folded from how its schedules' recent
+    /// runs ended: "closes itself - its last 7 runs", "stayed open 3 of its last 7 runs", or "no runs recorded yet".
+    /// </summary>
+    public string ClosingText { get; set; } = "";
+
+    /// <summary><see cref="FactoryTone.Ok"/> when it closes itself, <see cref="FactoryTone.Amber"/> when it stayed
+    /// open, <see cref="FactoryTone.Grey"/> when nothing is recorded yet.</summary>
+    public string ClosingTone { get; set; } = "";
 
     public FactoryTalkDto Talk { get; set; } = new();
 

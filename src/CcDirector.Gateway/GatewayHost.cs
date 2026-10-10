@@ -4976,7 +4976,8 @@ public sealed class GatewayHost : IAsyncDisposable
             sources: FactoryAgentsViewSources());
         // The Factories screen (Factories screen mission, phase B): the list, a factory's page and its Seats tab, built
         // from the registry, the record and the schedules.
-        var factoriesScreenSources = new Api.FactoriesScreenSources(FactoryAgentsViewSources(), FactoryRegistry, tenant => _cronJobs.ListAll(tenant));
+        var factoriesScreenSources = new Api.FactoriesScreenSources(FactoryAgentsViewSources(), FactoryRegistry, tenant => _cronJobs.ListAll(tenant),
+            (tenant, ids, now) => Running.CronRunRecordReader.RecentRunsOf(_cronRuns, _sessionHistory, tenant, ids, now));
         Api.FactoriesScreenEndpoints.Map(factoryGate,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             sources: factoriesScreenSources);

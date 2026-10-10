@@ -85,6 +85,11 @@ export interface FactoryListRow {
   /** The boss's role word ("Boss", or "CFO") for the card's avatar and name line - never a person's name; null
    *  when no boss is named. */
   bossName: string | null;
+  /** The flag for seats that do not close themselves ("Does not close itself: Scout - stayed open 3 of its last 7
+   *  runs"); null when every seat closes itself or has nothing recorded. Shown amber, verbatim. */
+  leftOpenText: string | null;
+  /** The Seats tab, where each seat shows its marker; null with no flag. */
+  leftOpenHref: string | null;
 }
 
 export interface FactoriesListView {
@@ -215,6 +220,10 @@ export interface FactoryPageView {
   bossText: string;
   /** "4 seats". */
   seatCountText: string;
+  /** The same flag as the list row's leftOpenText; null when every seat closes itself or has nothing recorded. */
+  leftOpenText: string | null;
+  /** The Seats tab; null with no flag. */
+  leftOpenHref: string | null;
   /** "runs on SOREN_NORTH". */
   computerText: string;
   talk: FactoryTalkTarget | null;
@@ -246,6 +255,11 @@ export interface FactorySeatRow {
   lastRunText: string;
   lastRunTone: FactoryTone;
   computerText: string;
+  /** Whether its sessions close themselves: "closes itself - its last 7 runs", "stayed open 3 of its last 7 runs",
+   *  or "no runs recorded yet". */
+  closingText: string;
+  /** ok, amber or grey. */
+  closingTone: FactoryTone;
   talk: FactoryTalkTarget;
   /** Every schedule the seat names, with its words and the button that edits it; empty when it has none. */
   schedules: FactorySeatSchedule[];

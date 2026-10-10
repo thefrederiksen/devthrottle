@@ -481,13 +481,32 @@ public sealed class SessionHistoryStore
         lock (_gate)
         {
             using var ctx = _db.CreateContext();
-            return ctx.SessionHistory.AsNoTracking()
-                .Where(e => sessionIds.Contains(e.SessionId))
-                .Select(e => new { e.SessionId, e.EndingKind, e.EndedAtUtc })
-                .ToList()
-                .ToDictionary(e => e.SessionId, e => new SessionEndingFact(e.EndingKind, e.EndedAtUtc), StringComparer.Ordinal);
+            return EndingsIn(ctx, sessionIds);
         }
     }
+
+    /// <summary>
+    /// <see cref="EndingsOf(IReadOnlyCollection{string})"/> in the account a route resolved EXPLICITLY - the Factories
+    /// screen's seat markers - never the ambient one.
+    /// </summary>
+    public IReadOnlyDictionary<string, SessionEndingFact> EndingsOf(Core.Tenancy.TenantId tenant, IReadOnlyCollection<string> sessionIds)
+    {
+        ArgumentNullException.ThrowIfNull(sessionIds);
+        if (sessionIds.Count == 0)
+            return new Dictionary<string, SessionEndingFact>(StringComparer.Ordinal);
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            return EndingsIn(ctx, sessionIds);
+        }
+    }
+
+    private static Dictionary<string, SessionEndingFact> EndingsIn(GatewayDbContext ctx, IReadOnlyCollection<string> sessionIds) =>
+        ctx.SessionHistory.AsNoTracking()
+            .Where(e => sessionIds.Contains(e.SessionId))
+            .Select(e => new { e.SessionId, e.EndingKind, e.EndedAtUtc })
+            .ToList()
+            .ToDictionary(e => e.SessionId, e => new SessionEndingFact(e.EndingKind, e.EndedAtUtc), StringComparer.Ordinal);
 
     /// <summary>One session's folded record, or null.</summary>
     public WorkHistorySessionDto? Get(string sessionId)
