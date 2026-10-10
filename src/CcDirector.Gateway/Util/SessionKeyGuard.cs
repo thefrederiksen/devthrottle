@@ -360,8 +360,13 @@ public static class SessionKeyGuard
                 // The machines that can receive a secret (the Secret Handoff mission, issue #2943): machine names and
                 // PUBLIC keys only, what `cc-secrets machines` and `cc-secrets request` read inside a session.
                 case "gateway/secrets/machines":
+                // The account's secret transfers and their approvals: names, machines, reasons, answers - never a value.
+                case "gateway/secrets/transfers":
                     return true;
             }
+
+            // One secret transfer, which `cc-secrets request` and `send` read while they wait for the owner's answer.
+            if (s.Length == 4 && s[0] == "gateway" && s[1] == "secrets" && s[2] == "transfers") return true;
 
             // One factory's page on the Factories screen (issue #3685): its status word, the reason, what is
             // failing and what is waiting on the owner, each with its row id - what `factory status --factory`
@@ -546,6 +551,12 @@ public static class SessionKeyGuard
             // it against the key's own hourly allowance. Exactly this one literal: the grouped read beside it stays a
             // read, and the administrator routes under /gateway/admin stay refused.
             if (Join(s) == "gateway/director-errors") return true;
+
+            // ASK for a secret transfer, and ANSWER one (the Secret Handoff mission, issue #2943). A session asks with a
+            // reason; it approves only with the owner's own words from its chat, which the route requires and records
+            // (owner decision 3). Neither route takes or returns a secret.
+            if (Join(s) == "gateway/secrets/transfers") return true;
+            if (s.Length == 5 && s[0] == "gateway" && s[1] == "secrets" && s[2] == "transfers" && s[4] == "answer") return true;
 
             // Append one row to the factory activity record (Website Business Factory). This is the write a
             // business tool makes BEFORE it acts, and the Gateway stamps the calling session on the row. It

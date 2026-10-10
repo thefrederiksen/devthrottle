@@ -153,4 +153,121 @@ public sealed class SecretTransferHostTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, status);
         Assert.Empty(Machines(body));
     }
+
+    // ---- approvals (phase 3) -------------------------------------------------------------------------------
+
+    private async Task<(HttpStatusCode Status, JsonElement Body)> Post(HttpClient http, string path, object body)
+    {
+        using var resp = await http.PostAsync(path, new StringContent(JsonSerializer.Serialize(body), System.Text.Encoding.UTF8, "application/json"));
+        var text = await resp.Content.ReadAsStringAsync();
+        _out.WriteLine($"POST {path} -> {(int)resp.StatusCode}: {(text.Length > 600 ? text[..600] + " ..." : text)}");
+        return (resp.StatusCode, JsonDocument.Parse(text).RootElement.Clone());
+    }
+
+    private void BothMachines()
+    {
+        Connect(_tenantA, DirectorNorth, "SOREN_NORTH");
+        Connect(_tenantA, DirectorMac, "devthrottle-mac-mini");
+    }
+
+    private static object Ask(string? reason = "sudo on the mac", string? ownerApproved = null, string? approvedHere = null,
+        string? askedOn = null, string to = "devthrottle-mac-mini")
+        => new { entry = "qa-handoff-host", fromMachine = "SOREN_NORTH", toMachine = to, reason, ownerApproved, approvedHere, askedOn };
+
+    private static string State(JsonElement body) => body.GetProperty("transfer").GetProperty("state").GetString()!;
+    private static string Id(JsonElement body) => body.GetProperty("transfer").GetProperty("transferId").GetString()!;
+    private static string Code(JsonElement body) => body.GetProperty("code").GetString()!;
+
+    [Fact]
+    public async Task Transfer_ASessionAsks_ItWaits_TheOwnersPhoneAnswers_AndASecondAnswerIsRefused()
+    {
+        BothMachines();
+
+        var (asked, created) = await Post(_sessionA, "gateway/secrets/transfers", Ask());
+        Assert.Equal(HttpStatusCode.OK, asked);
+        Assert.Equal("waiting", State(created));
+        var id = Id(created);
+
+        var (listed, _) = await Get(_sessionA, "gateway/secrets/transfers");
+        Assert.Equal(HttpStatusCode.OK, listed);
+        var (one, _) = await Get(_sessionA, $"gateway/secrets/transfers/{id}");
+        Assert.Equal(HttpStatusCode.OK, one);
+
+        var (answered, after) = await Post(_ownerA, $"gateway/secrets/transfers/{id}/answer", new { approve = true, where = "phone" });
+        Assert.Equal(HttpStatusCode.OK, answered);
+        Assert.Equal("phone", after.GetProperty("transfer").GetProperty("answeredWhere").GetString());
+
+        var (again, refused) = await Post(_machineA, $"gateway/secrets/transfers/{id}/answer", new { deny = true, where = "window" });
+        Assert.Equal(HttpStatusCode.Conflict, again);
+        Assert.Equal("already_answered", Code(refused));
+    }
+
+    [Fact]
+    public async Task Transfer_ASessionReportingTheOwnersWords_IsApprovedInTheChat_AndEmptyWordsAreRefused()
+    {
+        BothMachines();
+
+        var (status, body) = await Post(_sessionA, "gateway/secrets/transfers", Ask(ownerApproved: "yes, send it"));
+        Assert.Equal(HttpStatusCode.OK, status);
+        var transfer = body.GetProperty("transfer");
+        Assert.Equal(("chat", "yes, send it"),
+            (transfer.GetProperty("answeredWhere").GetString(), transfer.GetProperty("approvalWords").GetString()));
+
+        var (empty, refused) = await Post(_sessionA, "gateway/secrets/transfers", Ask(ownerApproved: "  "));
+        Assert.Equal(HttpStatusCode.BadRequest, empty);
+        Assert.Equal("owner_approved_empty", Code(refused));
+    }
+
+    [Fact]
+    public async Task Transfer_ASessionCannotClaimTheWindow_NorAnswerWithoutTheOwnersWords_NorAskWithoutAReason()
+    {
+        BothMachines();
+
+        var (claimed, c) = await Post(_sessionA, "gateway/secrets/transfers", Ask(approvedHere: "window", askedOn: "SOREN_NORTH"));
+        Assert.Equal((HttpStatusCode.Forbidden, "session_cannot_approve_here"), (claimed, Code(c)));
+
+        var (noReason, r) = await Post(_sessionA, "gateway/secrets/transfers", Ask(reason: ""));
+        Assert.Equal((HttpStatusCode.BadRequest, "reason_required"), (noReason, Code(r)));
+
+        var (_, waiting) = await Post(_sessionA, "gateway/secrets/transfers", Ask());
+        var (answered, a) = await Post(_sessionA, $"gateway/secrets/transfers/{Id(waiting)}/answer", new { approve = true });
+        Assert.Equal((HttpStatusCode.Forbidden, "owner_words_required"), (answered, Code(a)));
+    }
+
+    [Fact]
+    public async Task Transfer_TheMachinesOwnCredential_ApprovesInTheWindowWhereItWasAsked()
+    {
+        BothMachines();
+
+        var (status, body) = await Post(_machineA, "gateway/secrets/transfers", Ask(reason: null, approvedHere: "window", askedOn: "SOREN_NORTH"));
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal("window", body.GetProperty("transfer").GetProperty("answeredWhere").GetString());
+    }
+
+    [Fact]
+    public async Task Transfer_ToAMachineThatIsNotConnected_IsRefusedWithTheReason()
+    {
+        Connect(_tenantA, DirectorNorth, "SOREN_NORTH");
+
+        var (status, body) = await Post(_sessionA, "gateway/secrets/transfers", Ask());
+
+        Assert.Equal((HttpStatusCode.Conflict, "machine_offline"), (status, Code(body)));
+    }
+
+    [Fact]
+    public async Task Transfer_AnotherAccount_NeitherSeesNorAnswersIt()
+    {
+        BothMachines();
+        var (_, created) = await Post(_sessionA, "gateway/secrets/transfers", Ask());
+        var id = Id(created);
+
+        var (read, _) = await Get(_ownerB, $"gateway/secrets/transfers/{id}");
+        var (answer, _) = await Post(_ownerB, $"gateway/secrets/transfers/{id}/answer", new { approve = true, where = "cockpit" });
+
+        Assert.Equal(HttpStatusCode.NotFound, read);
+        Assert.Equal(HttpStatusCode.NotFound, answer);
+        var (_, mine) = await Get(_ownerA, $"gateway/secrets/transfers/{id}");
+        Assert.Contains("\"state\":\"waiting\"", mine);
+    }
 }
