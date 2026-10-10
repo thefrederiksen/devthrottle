@@ -3,7 +3,7 @@ import type { SpokenSpan } from "./composerProvenance";
 import { activeAccount, listAccounts } from "../auth/accountStore";
 import { deleteHeldPrompt, getHeldPrompt, listHeldPrompts, saveHeldPrompt, type HeldPrompt } from "./heldPromptStore";
 import { clearDictationStatus, publishDictationStatus } from "./status";
-import { errorFacts, reportClientError } from "../errors/reportClientError";
+import { errorFacts, reportClientError, reportShownError } from "../errors/reportClientError";
 
 // A typed prompt the Gateway has not finished delivering (voice delivery phase 5, contract section 7, T6).
 //
@@ -86,15 +86,7 @@ export async function sendTypedPrompt(
   ensureListeners();
   if (answer.deliveryId === undefined) {
     // A 202 with nothing to read it by. The words may be in, so they are not handed back for a second send.
-    reportDeliveryFailure(sessionId, `the Gateway answered 202 for a typed prompt in ${sessionId} with no deliveryId`, true);
-    publishDictationStatus({
-      sessionId,
-      uploadId: `typed-${Date.now()}`,
-      phase: "failed",
-      retryable: false,
-      typed: true,
-      error: NO_DELIVERY_ID_MESSAGE,
-    });
+    failTyped(sessionId, `typed-${Date.now()}`, NO_DELIVERY_ID_MESSAGE, `the Gateway answered 202 for a typed prompt in ${sessionId} with no deliveryId`);
     return "held";
   }
   const rec: HeldPrompt = {
@@ -108,7 +100,7 @@ export async function sendTypedPrompt(
     await saveHeldPrompt(rec);
   } catch (err) {
     // The device could not keep it. This page still reads the outcome; only a reload loses track of it.
-    reportDeliveryFailure(sessionId, `could not keep held typed message ${rec.deliveryId} on this device: ${errText(err)}`, false, err);
+    reportDeliveryFailure(sessionId, `could not keep held typed message ${rec.deliveryId} on this device: ${messageOf(err)}`, false, err);
     _unkept.set(rec.deliveryId, rec);
   }
   publishDelivering(rec);
@@ -192,8 +184,8 @@ export async function sendTypedPromptAnyway(deliveryId: string): Promise<void> {
       answer = await sendPrompt(rec.sessionId, rec.text, true, undefined, undefined, undefined, rec.deliveryId);
     } catch (err) {
       // Keep the record and the words on screen; the owner decides again. The failure is shown, so it is reported.
-      reportDeliveryFailure(rec.sessionId, `Send anyway failed for typed message ${rec.deliveryId}: ${errText(err)}`, true, err);
-      publishShownBack(rec, SEND_ANYWAY_FAILED_MESSAGE);
+      console.error(`[typedPromptDelivery] Send anyway failed for typed message ${rec.deliveryId}: ${messageOf(err)}`);
+      publishShownBack(rec, reportShownError("typed-prompt-delivery", SEND_ACTION, SEND_ANYWAY_FAILED_MESSAGE, { sessionId: rec.sessionId }, err));
       return;
     }
     if (answer.unconfirmed === true || answer.shownBack?.reason === "unconfirmed") {
@@ -235,14 +227,7 @@ export async function sendTypedPromptAnyway(deliveryId: string): Promise<void> {
       // ordinary prompt: a fresh id, its own record and strip. The old record is retired - its delivery is over.
       await forgetHeld(rec.deliveryId);
       if (answer.deliveryId === undefined) {
-        publishDictationStatus({
-          sessionId: rec.sessionId,
-          uploadId: `typed-${Date.now()}`,
-          phase: "failed",
-          retryable: false,
-          typed: true,
-          error: NO_DELIVERY_ID_MESSAGE,
-        });
+        failTyped(rec.sessionId, `typed-${Date.now()}`, NO_DELIVERY_ID_MESSAGE, `the Gateway answered 202 for a re-sent typed prompt in ${rec.sessionId} with no deliveryId`);
         return;
       }
       const fresh: HeldPrompt = {
@@ -255,7 +240,7 @@ export async function sendTypedPromptAnyway(deliveryId: string): Promise<void> {
       try {
         await saveHeldPrompt(fresh);
       } catch (err) {
-        reportDeliveryFailure(fresh.sessionId, `could not keep held typed message ${fresh.deliveryId} on this device: ${errText(err)}`, false, err);
+        reportDeliveryFailure(fresh.sessionId, `could not keep held typed message ${fresh.deliveryId} on this device: ${messageOf(err)}`, false, err);
         _unkept.set(fresh.deliveryId, fresh);
       }
       publishDelivering(fresh);
@@ -320,7 +305,7 @@ async function keepHeld(rec: HeldPrompt): Promise<void> {
   try {
     await saveHeldPrompt(rec);
   } catch (err) {
-    reportDeliveryFailure(rec.sessionId, `could not keep typed message ${rec.deliveryId} on this device: ${errText(err)}`, false, err);
+    reportDeliveryFailure(rec.sessionId, `could not keep typed message ${rec.deliveryId} on this device: ${messageOf(err)}`, false, err);
     _unkept.set(rec.deliveryId, rec);
   }
 }
@@ -348,7 +333,7 @@ async function readHeld(rec: HeldPrompt): Promise<void> {
       read = await readPromptOutcome(rec.sessionId, rec.deliveryId);
     } catch (err) {
       // The read did not happen. The Gateway is still asking the Director; read again later.
-      console.warn(`[typedPromptDelivery] could not read the outcome of typed message ${rec.deliveryId}: ${errText(err)}`);
+      console.warn(`[typedPromptDelivery] could not read the outcome of typed message ${rec.deliveryId}: ${messageOf(err)}`);
       publishDelivering(rec);
       scheduleOutcomeRead(rec);
       return;
@@ -367,16 +352,14 @@ async function applyOutcome(rec: HeldPrompt, read: DictationOutcomeRead): Promis
   }
   if (read.kind === "not-found") {
     // Never a reason to send again: the words may already be in. The copy is kept on the device.
-    reportDeliveryFailure(rec.sessionId, `outcome read for typed message ${rec.deliveryId} answered 404, but the Gateway was holding it`, true);
-    publishFailed(rec, notFoundMessage(rec.deliveryId));
+    publishFailed(rec, notFoundMessage(rec.deliveryId), `outcome read for typed message ${rec.deliveryId} answered 404, but the Gateway was holding it`);
     return;
   }
   if (read.kind !== "resolved") {
     // The dictation-only handback kinds (out of credits, permanent, incomplete) are never answered for a
     // typed prompt - it is not transcribed, and its outcome reader produces none of them - so a kind that
     // is neither delivering, not-found nor resolved is a defect, not a state: said loudly, never guessed at.
-    reportDeliveryFailure(rec.sessionId, `outcome for typed message ${rec.deliveryId} answered ${read.kind}, which a typed prompt cannot`, true);
-    publishFailed(rec, unexpectedAnswerMessage(rec.deliveryId));
+    publishFailed(rec, unexpectedAnswerMessage(rec.deliveryId), `outcome for typed message ${rec.deliveryId} answered ${read.kind}, which a typed prompt cannot`);
     return;
   }
   const result = read.result;
@@ -396,8 +379,7 @@ async function applyOutcome(rec: HeldPrompt, read: DictationOutcomeRead): Promis
     publishShownBack(shown);
     return;
   }
-  reportDeliveryFailure(rec.sessionId, `outcome for typed message ${rec.deliveryId} was neither delivered nor shown back`, true);
-  publishFailed(rec, unexpectedAnswerMessage(rec.deliveryId));
+  publishFailed(rec, unexpectedAnswerMessage(rec.deliveryId), `outcome for typed message ${rec.deliveryId} was neither delivered nor shown back`);
 }
 
 function scheduleOutcomeRead(rec: HeldPrompt): void {
@@ -465,6 +447,7 @@ function publishDelivering(rec: HeldPrompt): void {
     retryable: true,
     delivering: true,
     typed: true,
+    // error-report-exempt: the Gateway's own 202 answer that it is still delivering the words - its verdict, not a failure here
     error: STILL_DELIVERING_MESSAGE,
   });
 }
@@ -492,21 +475,24 @@ function publishShownBack(rec: HeldPrompt, message?: string): void {
     typed: true,
     offerSendAnyway: offer,
     recoverableText: rec.text,
+    // error-report-exempt: the Gateway's shown-back verdict, held and decided by the Gateway; a message passed in is one its caller already reported
     error: message ?? shownBackMessage(rec),
   });
 }
 
-function publishFailed(rec: HeldPrompt, message: string): void {
-  publishDictationStatus({
-    sessionId: rec.sessionId,
-    uploadId: rec.deliveryId,
-    phase: "failed",
-    retryable: false,
-    typed: true,
-    error: message,
-  });
+function publishFailed(rec: HeldPrompt, message: string, detail: string): void {
+  failTyped(rec.sessionId, rec.deliveryId, message, detail);
 }
 
-function errText(err: unknown): string {
+// A typed prompt that FAILED for good: the red strip. Reported in the same act as it is shown (the 3c review, finding
+// 4) - the sentence the person sees, as the Send failure, with the session and never the words. `detail` is what
+// went wrong underneath, for the console.
+function failTyped(sessionId: string, uploadId: string, message: string, detail: string): void {
+  console.error(`[typedPromptDelivery] ${detail}`);
+  const shown = reportShownError("typed-prompt-delivery", SEND_ACTION, message, { sessionId });
+  publishDictationStatus({ sessionId, uploadId, phase: "failed", retryable: false, typed: true, error: shown });
+}
+
+function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }

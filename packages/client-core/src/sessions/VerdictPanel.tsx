@@ -1,8 +1,19 @@
 import { useEffect, useState } from "react";
-import { GatewayError, gatewayErrorMessage, type SessionDto } from "../api/client";
+import { GatewayError, type SessionDto } from "../api/client";
+import { describeAndReport, reportShownError } from "../errors/reportClientError";
 import { readLatestJudgedStop, reportTurnVerdictWrong, type TurnVerdict, type TurnVerdictRow } from "./verdictAnswer";
 import { VERDICT_WORDS } from "./verdictVocabulary";
 import "./verdictPanel.css";
+
+const SURFACE = "wingman-verdict";
+
+/** A failed verdict read or report, shown AND reported (issue #3675). The Gateway's own reason is shown as it
+ *  stands - it is the sentence written for this refusal - and anything else gets the shared sentence. */
+function verdictFailure(action: string, err: unknown, sessionId: string): string {
+  return err instanceof GatewayError && err.serverReason
+    ? reportShownError(SURFACE, action, err.serverReason, { sessionId }, err)
+    : describeAndReport(SURFACE, action, err, { sessionId });
+}
 
 // ---- The verdict panel: what the Wingman read at this stop, and the owner's answer to it ----------------
 //
@@ -102,11 +113,7 @@ export function VerdictPanel({ sessionId, session, onReported }: VerdictPanelPro
       .catch((err) => {
         if (abort.signal.aborted || !current) return;
         setPast(null);
-        setPastRefusal(
-          err instanceof GatewayError && err.serverReason
-            ? err.serverReason
-            : gatewayErrorMessage(err, "read what the Wingman said about this session"),
-        );
+        setPastRefusal(verdictFailure("read what the Wingman said about this session", err, sessionId));
       });
     return () => {
       current = false;
@@ -142,11 +149,7 @@ export function VerdictPanel({ sessionId, session, onReported }: VerdictPanelPro
       setReporting(false);
       onReported?.(verdict, correctWord);
     } catch (err) {
-      setReportRefusal(
-        err instanceof GatewayError && err.serverReason
-          ? err.serverReason
-          : gatewayErrorMessage(err, "report that verdict wrong"),
-      );
+      setReportRefusal(verdictFailure("report that verdict wrong", err, sessionId));
     } finally {
       setReportBusy(false);
     }

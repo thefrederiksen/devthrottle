@@ -122,6 +122,7 @@ export function DevReportConversation({ conversation }: { conversation: DevRepor
           </button>
           {sendError && (
             <div className="dev-report-error" role="alert" data-testid="dev-report-send-error">
+              {/* error-reported-by: DevReportController */}
               {sendError}
             </div>
           )}

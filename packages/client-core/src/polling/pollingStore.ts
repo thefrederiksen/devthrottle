@@ -20,6 +20,7 @@
 // timer, the visibility source, the fetch - is injectable, so the whole loop is unit-tested in Node
 // with no DOM.
 import { documentVisibility, type VisibilitySource } from "./visibility";
+import { backgroundRecovered, reportShownError } from "../errors/reportClientError";
 
 // The snapshot every subscriber reads. `data` is null until the first fetch settles; `loading` is true
 // only over that first fetch (a subsequent failed poll keeps the last data and sets `error`, it does
@@ -57,6 +58,9 @@ export interface PollingStoreOptions<T> {
   intervalMs: number;
   /** Map a thrown value to the message subscribers see (defaults to the Error message). */
   mapError?: (err: unknown) => string;
+  /** Where a failed poll is filed and what it was doing, in the user's words ("load the sessions"). Subscribers show
+   *  the error, so it is reported too (issue #3675) - when it first appears, not on every round. */
+  reporting: { surface: string; action: string };
   visibility?: VisibilitySource;
   timers?: PollTimers;
 }
@@ -71,6 +75,7 @@ export function createPollingStore<T>(options: PollingStoreOptions<T>): PollingS
     fetcher,
     intervalMs,
     mapError = (err) => (err instanceof Error ? err.message : String(err)),
+    reporting,
     visibility = documentVisibility(),
     timers = defaultTimers,
   } = options;
@@ -99,12 +104,18 @@ export function createPollingStore<T>(options: PollingStoreOptions<T>): PollingS
     try {
       const data = await fetcher(own.signal);
       if (own.signal.aborted) return;
+      backgroundRecovered(reporting.surface, reporting.action);
       setState({ data, error: null, loading: false });
     } catch (err) {
       // A cancelled poll (tab hidden, unmount) is not an error to show - just stop.
       if (own.signal.aborted) return;
       // Keep the last good data; raise the error alongside it.
-      setState({ data: state.data, error: mapError(err), loading: false });
+      setState({
+        data: state.data,
+        // A background poll: reported when what it shows changes, not every round.
+        error: reportShownError(reporting.surface, reporting.action, mapError(err), { background: true }, err),
+        loading: false,
+      });
     }
   }
 

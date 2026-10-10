@@ -9,7 +9,11 @@ import { MemoryRouter } from "react-router-dom";
 // "turns 0" or "idle 0m" - and the impossible 0001-01-01 CreatedAt must not render a decades-long
 // runtime.
 
-vi.mock("@devthrottle/client-core/api/client", () => ({
+vi.mock("@devthrottle/client-core/api/client", async (importOriginal) => ({
+  // The error reporter needs the real error helpers; the rest is faked.
+  ...(({ GatewayError, gatewayErrorMessage, authHeaders }) => ({ GatewayError, gatewayErrorMessage, authHeaders }))(
+    await importOriginal<typeof import("@devthrottle/client-core/api/client")>(),
+  ),
   // The restart-requests panel polls inside this roster and reaches for gatewayErrorMessage when a
   // read fails. Without it here, every poll threw an unhandled rejection - the tests still passed, but
   // the run reported errors and exited non-zero, which is how a real failure would come to be ignored.

@@ -174,6 +174,7 @@ export function NotDeliveredIndicator({ sessionId, notice = null, history = null
   return (
     <span ref={rootRef} className={`nd-root nd-${placement}`}>
       <span role="alert" className="nd-alert">
+        {/* error-report-exempt: shows the Gateway's own delivery verdict and the words it handed back (rule 7) - the Gateway decided it, nothing failed in this client */}
         <button
           type="button"
           className="nd-chip"

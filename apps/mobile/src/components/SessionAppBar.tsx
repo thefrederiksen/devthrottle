@@ -243,7 +243,7 @@ export function SessionAppBar({ title, manage, showSnooze = false, showSwitchToV
           shows the same sentence inside itself and a modal overlay covers this row anyway - two copies
           of one event, one of them unreadable, is exactly what finding I8 was. */}
       {manage.error !== null && !confirming && (
-        <div className="banner banner-error" role="alert">{manage.error}</div>
+        <div className="banner banner-error" role="alert">{/* error-reported-by: useSessionManage */}{manage.error}</div>
       )}
       {/* The snooze pill. A DEFERRED snooze reads "Snoozing when it finishes" (asked for while the agent is
           working, so it arms when the work ends) - this is what makes snoozing a busy session give instant
@@ -274,7 +274,7 @@ export function SessionAppBar({ title, manage, showSnooze = false, showSwitchToV
             {/* The failure, in the Gateway's own words, INSIDE the dialog the operator is looking at -
                 above the retry button it explains. */}
             {manage.error !== null && (
-              <div className="confirm-error" role="alert">{manage.error}</div>
+              <div className="confirm-error" role="alert">{/* error-reported-by: useSessionManage */}{manage.error}</div>
             )}
             <div className="confirm-actions">
               {/* Focus lands here when the sheet opens. The reason box used to be the modal's one focus

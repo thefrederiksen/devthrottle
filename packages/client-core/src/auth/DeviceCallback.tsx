@@ -21,6 +21,7 @@ import { enrollmentProfile, takeEnrollNext } from "./enrollRequest";
 import { runEnrollmentCallback } from "./enrollCallback";
 import { isGatewayNotSignedIn } from "../api/enroll";
 import { ensureGatewayCookie } from "../api/client";
+import { reportShownError } from "../errors/reportClientError";
 import { beginSignIn, getAccountStatusForKey } from "../account/accountClient";
 
 // "gatewaySignedOut" is the Gateway itself not being signed in to a DevThrottle account (HTTP 409 from
@@ -106,11 +107,20 @@ export function DeviceCallback() {
         if (cancelled) return;
         if (isGatewayNotSignedIn(err)) {
           setPhase("gatewaySignedOut");
+          // error-report-exempt: being signed out is the person's state, not a failure of ours - a user state is information, and the page asks them to sign in
           setMessage(err.message);
           return;
         }
         setPhase("error");
-        setMessage(err instanceof Error ? err.message : "Could not connect this device. Please try again.");
+        setMessage(
+          reportShownError(
+            "device-callback",
+            "connect this device",
+            err instanceof Error ? err.message : "Could not connect this device. Please try again.",
+            undefined,
+            err,
+          ),
+        );
       }
     })();
 

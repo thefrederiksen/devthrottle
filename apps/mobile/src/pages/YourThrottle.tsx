@@ -13,7 +13,7 @@ import {
   type ThrottleSummary,
 } from "@devthrottle/client-core/stats/statsClient";
 import { ThrottleWindowSelector } from "@devthrottle/client-core/stats/ThrottleWindowSelector";
-import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
+import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 
 // Your Throttle on the phone: a compact dashboard of the MAIN stats, not the whole desktop page - many
 // people drive the fleet mostly from their phone, so this is a clean, glanceable view of how they work. It
@@ -68,10 +68,11 @@ export function YourThrottle() {
         const fresh = await getThrottle(controller.signal, request);
         if (controller.signal.aborted) return;
         setData(fresh);
+        backgroundRecovered("mobile-your-throttle", "read your throttle");
         setError(null);
       } catch (err) {
         if (controller.signal.aborted) return;
-        setError(gatewayErrorMessage(err));
+        setError(describeAndReport("mobile-your-throttle", "read your throttle", err, { background: true }));
       } finally {
         if (!controller.signal.aborted) timer = setTimeout(() => void tick(), REFRESH_MS);
       }

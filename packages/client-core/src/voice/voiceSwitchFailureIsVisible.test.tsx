@@ -12,11 +12,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render } from "@testing-library/react";
 
-vi.mock("../api/client", () => ({
-  GatewayError: class GatewayError extends Error {
-    status: number;
-    constructor(status: number, message: string) { super(message); this.status = status; }
-  },
+vi.mock("../api/client", async (importOriginal) => ({
+  // The error reporter needs the real error helpers and the real error type; everything else stays faked.
+  GatewayError: (await importOriginal<typeof import("../api/client")>()).GatewayError,
+  gatewayErrorMessage: (await importOriginal<typeof import("../api/client")>()).gatewayErrorMessage,
+  authHeaders: (await importOriginal<typeof import("../api/client")>()).authHeaders,
   getWaitingScreen: vi.fn(),
   sendVoicePrompt: vi.fn(),
   getWingmanVoice: vi.fn(async () => ({ ready: false, generatedAt: "", spoken: "", reply: "" })),
@@ -37,6 +37,8 @@ const setVoiceModeMock = api.setVoiceMode as unknown as ReturnType<typeof vi.fn>
 const explainMock = api.markVoiceAndExplain as unknown as ReturnType<typeof vi.fn>;
 
 const SID = "6f0b8f52-0000-4000-8000-000000000002";
+// What the screen shows for the failed switch: the sentence describeAndReport makes for it (and reports).
+const SHOWN = "DevThrottle could not switch to voice mode: Gateway returned 503";
 
 type View = ReturnType<typeof useVoiceMode>;
 
@@ -95,13 +97,13 @@ describe("a voice action that fails", () => {
       const { view } = mount();
       await act(async () => { await vi.advanceTimersByTimeAsync(10); });
       await act(async () => { await view().onSwitchOn(); });
-      expect(view().error).toBe("Gateway returned 503");
+      expect(view().error).toBe(SHOWN);
 
       // Two poll ticks: the session IS reported, still not in voice mode. That is the exact branch that used
       // to wipe the message within three seconds of the person pressing the button.
       await act(async () => { await vi.advanceTimersByTimeAsync(3100); });
       await act(async () => { await vi.advanceTimersByTimeAsync(3100); });
-      expect(view().error).toBe("Gateway returned 503");
+      expect(view().error).toBe(SHOWN);
     } finally {
       vi.useRealTimers();
     }
@@ -117,7 +119,7 @@ describe("a voice action that fails", () => {
       const { view } = mount();
       await act(async () => { await vi.advanceTimersByTimeAsync(10); });
       await act(async () => { await view().onSwitchOn(); });
-      expect(view().error).toBe("Gateway returned 503");
+      expect(view().error).toBe(SHOWN);
 
       setVoiceModeMock.mockResolvedValue(undefined);
       await act(async () => { await view().onSwitchOn(); });

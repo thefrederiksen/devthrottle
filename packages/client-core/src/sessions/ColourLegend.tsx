@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { gatewayErrorMessage } from "../api/client";
 import { useDismissOnBackdrop } from "../ui/useDismissOnBackdrop";
 import {
   getSessionColourLegend,
   legendSnapshot,
-  MalformedColourLegendError,
+  legendFailureMessage,
   subscribeLegend,
   type LegendState,
   type SessionColourLegend,
@@ -54,7 +53,7 @@ export function ColourLegendDialog({ onClose }: { onClose: () => void }) {
       .catch((err: unknown) => {
         if (controller.signal.aborted) return;
         // A malformed answer says what is missing; a failed request gets the shared sentence for this action.
-        setError(err instanceof MalformedColourLegendError ? err.message : gatewayErrorMessage(err, "load what the session colours mean"));
+        setError(legendFailureMessage(err));
       });
     return () => controller.abort();
   }, []);

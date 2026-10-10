@@ -10,4 +10,5 @@ export const FLEET_MANAGER_PAGE_POLL_MS = 3000;
 export const fleetManagerPageStore = createPollingStore<FleetManagerPage>({
   fetcher: (signal) => getFleetManagerPage(signal),
   intervalMs: FLEET_MANAGER_PAGE_POLL_MS,
+  reporting: { surface: "cockpit-fleet-manager", action: "read the Fleet Manager page" },
 });

@@ -16,6 +16,22 @@ import {
   type HoldToggleOutcome,
   type HoldUiState,
 } from "@devthrottle/client-core/sessions/snoozeAction";
+import {
+  describeAndReport,
+  backgroundRecovered,
+  reportShownError,
+} from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "mobile-session-manage";
+// The two background reads behind the session problem line. Each is reported when what it shows changes, not on
+// every round of the roster poll, and forgotten only once THAT read succeeds again.
+const SNOOZE_READ = "read the session's snooze state";
+const ROSTER_READ = "read the session roster";
+
+function problemRecovered(): void {
+  backgroundRecovered(SURFACE, SNOOZE_READ);
+  backgroundRecovered(SURFACE, ROSTER_READ);
+}
 
 // The reason the phone records with every stop it sends (issue internal#1992). The Gateway requires
 // one under Ruling 4 and writes it into the audit trail; the phone satisfies it with what it knows -
@@ -133,14 +149,22 @@ export function useSessionManage(sessionId: string | undefined): SessionManage {
       if (signal?.aborted || routeRef.current !== sessionId) return;
       if (pendingRef.current) return;
       const match = all.find((s) => s.sessionId === sessionId);
+      // The roster answered: that read is good, whatever it held. The snooze read is good only once classify() is.
+      backgroundRecovered(SURFACE, ROSTER_READ);
       if (!match) {
         // The roster answered and does not hold this session: nothing survives to be pressed.
         setSession(null);
-        setSessionProblem("This session is not on the roster right now, so its snooze state may be out of date.");
+        setSessionProblem(reportShownError(
+          SURFACE,
+          SNOOZE_READ,
+          "This session is not on the roster right now, so its snooze state may be out of date.",
+          { sessionId, background: true },
+        ));
       }
       if (match) {
         setSession(match);
         setSessionProblem(null);
+        // Not the snooze read yet: classify() below can still fail, and recovering first would report it every round.
         // The toggle needs the raw hold (what it will flip); the DISPLAY reads the fold (working wins).
         setOnHold(Boolean(match.onHold));
         // The Gateway-owned tri-state: DeferredHold is a real snooze that has not armed yet.
@@ -157,17 +181,18 @@ export function useSessionManage(sessionId: string | undefined): SessionManage {
         // mixed-version blip must not throw the refresh, so keep the last verdict on that rare miss.
         try {
           setSnoozed(classify(match) === "onHold");
+          backgroundRecovered(SURFACE, SNOOZE_READ);
         } catch (err) {
           // The row itself is this read's and current, so it stays; the snooze verdict could not be read from it,
           // and the screen says so rather than passing the last one off as fresh.
-          setSessionProblem(`This session's snooze state could not be read: ${err instanceof Error ? err.message : String(err)}`);
+          setSessionProblem(`This session's snooze state could not be read: ${describeAndReport(SURFACE, SNOOZE_READ, err, { sessionId, background: true })}`);
         }
       }
     } catch (err) {
       if (signal?.aborted || routeRef.current !== sessionId) return;
       // A failed read confirms nothing, so no row survives it: the answer buttons go, and the reason is shown.
       setSession(null);
-      setSessionProblem(`Could not read the roster, so this session's snooze state may be out of date: ${err instanceof Error ? err.message : String(err)}`);
+      setSessionProblem(`Could not read the roster, so this session's snooze state may be out of date: ${describeAndReport(SURFACE, ROSTER_READ, err, { sessionId, background: true })}`);
     }
   }, [sessionId]);
 
@@ -175,6 +200,7 @@ export function useSessionManage(sessionId: string | undefined): SessionManage {
   useEffect(() => {
     setSession(null);
     setSessionProblem(null);
+    problemRecovered();
   }, [sessionId]);
 
   useEffect(() => {
@@ -212,7 +238,7 @@ export function useSessionManage(sessionId: string | undefined): SessionManage {
       // /hold FAILED: the snooze did NOT happen. Surface the error; the rollback below returns the UI to
       // its pre-tap state so the button never falsely reads "Snoozed"/"Snoozing when it finishes".
       outcome = { ok: false };
-      setError(err instanceof Error ? err.message : "Hold failed");
+      setError(describeAndReport(SURFACE, desired ? "snooze the session" : "wake the session", err, { sessionId }));
     } finally {
       pendingRef.current = false;
       setBusy(false);
@@ -272,7 +298,7 @@ export function useSessionManage(sessionId: string | undefined): SessionManage {
     } catch (err) {
       // The Gateway's own sentence - an ordinary failure, the Director that could not be reached - carried
       // to the caller rather than replaced with a word of ours.
-      setError(err instanceof Error ? err.message : "Stop failed");
+      setError(describeAndReport(SURFACE, "stop the session", err, { sessionId }));
       throw err;
     } finally {
       stopInFlightRef.current = false;

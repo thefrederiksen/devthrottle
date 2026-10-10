@@ -19,7 +19,12 @@ import { switchVoiceModeOn } from "./switchVoiceMode";
 import { speakLocally } from "../speech/localSpeech";
 import { utteranceFor } from "../speech/spokenUtterance";
 import { isWorking } from "../sessions/ordering";
-import { describeAndReport } from "../errors/reportClientError";
+import { backgroundRecovered, describeAndReport, reportShownError } from "../errors/reportClientError";
+
+/** Where a voice-mode failure is filed (issue #3675). */
+const SURFACE = "voice-mode";
+// The three-second poll of the voice state: reported when what it shows changes, not every round.
+const VOICE_READ = "read the voice state";
 
 // Session Voice mode (issue #850): the hands-free Wingman narration screen, the third session view
 // alongside Terminal (#817) and Chat (#811). A read-only Wingman narrates every completed turn as
@@ -195,6 +200,7 @@ export function useVoiceMode(
     setError(null);
   }, []);
   const clearPollError = useCallback(() => {
+    backgroundRecovered(SURFACE, VOICE_READ);
     if (!actionErrorRef.current) setError(null);
   }, []);
   const [autoPlayBlocked, setAutoPlayBlocked] = useState(false);
@@ -280,7 +286,7 @@ export function useVoiceMode(
           // NOT authority to turn voice off - only the branch below (the session IS reported, with
           // voiceMode=false) does that. Surface a soft reconnecting note; the next good poll clears it.
           setPollDone(true);
-          setError("Reconnecting to this session's computer...");
+          setError(reportShownError(SURFACE, VOICE_READ, "Reconnecting to this session's computer...", { sessionId: sid, background: true }));
           return;
         }
 
@@ -306,7 +312,7 @@ export function useVoiceMode(
         if (signal.aborted) return;
         // Background poll: keep the last-known view on screen and surface a soft note; the next tick
         // retries. (Mirrors the roster's keep-last-known behavior - not a degraded fallback.)
-        setError(err instanceof Error ? err.message : "Voice update failed");
+        setError(describeAndReport(SURFACE, VOICE_READ, err, { sessionId: sid, background: true }));
       }
     },
     [sid, clearPollError],
@@ -483,7 +489,7 @@ export function useVoiceMode(
       // STICKY. The poll runs every three seconds and used to clear this, so a switch that failed - a 503 from
       // an unreachable computer, say - showed nothing at all and the button looked inert. It stays until the
       // person tries again.
-      setActionError(err instanceof Error ? err.message : "Could not switch to voice mode");
+      setActionError(describeAndReport(SURFACE, "switch to voice mode", err, { sessionId: sid }));
     } finally {
       setEnabling(false);
     }
@@ -513,7 +519,7 @@ export function useVoiceMode(
       await setVoiceMode(sid, false);
       await stopWingmanVoice(sid);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Could not turn voice off");
+      setActionError(describeAndReport(SURFACE, "turn voice off", err, { sessionId: sid }));
     }
   }, [sid, setActionError]);
 
@@ -545,9 +551,15 @@ export function useVoiceMode(
       // 404 - all three the same story, "that computer is not reachable" - but only the 404s got the
       // plain-English line and the 502 leaked a raw message. Same cause, same sentence.
       if (err instanceof GatewayError && (err.status === 404 || err.status === 502)) {
-        setActionError("This session's computer looks offline. Voice can't be generated until it reconnects.");
+        setActionError(reportShownError(
+          SURFACE,
+          "generate the narration",
+          "This session's computer looks offline. Voice can't be generated until it reconnects.",
+          { sessionId: sid },
+          err,
+        ));
       } else {
-        setActionError(err instanceof Error ? err.message : "Could not generate narration");
+        setActionError(describeAndReport(SURFACE, "generate the narration", err, { sessionId: sid }));
       }
     } finally {
       setRegenerating(false);
@@ -706,7 +718,7 @@ export function useVoiceMode(
       } catch (err) {
         // A failed spoken reply is a Send red box like the typed one: shown and reported in one act, with the
         // session and the Gateway's correlation id - never the words (the Error Logging mission, issue #3675).
-        setError(describeAndReport("voice-mode", "send prompt", err, { sessionId: sid }));
+        setError(describeAndReport(SURFACE, "send prompt", err, { sessionId: sid }));
         return false;
       }
     },
@@ -752,7 +764,7 @@ export function useVoiceMode(
           try {
             speakBlocked(screen.spoken, screen.spokenLanguage);
           } catch (err) {
-            setError(err instanceof Error ? err.message : "The refusal could not be spoken");
+            setError(describeAndReport(SURFACE, "speak the refusal", err, { sessionId: sid }));
           }
           return;
         }

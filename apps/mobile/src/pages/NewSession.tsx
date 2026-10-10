@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   createSession,
-  gatewayErrorMessage,
   getAgents,
   getDirectors,
   getKnownRepositories,
@@ -10,7 +9,10 @@ import {
   type DirectorInfo,
   type RepoInfo,
 } from "@devthrottle/client-core/api/client";
+import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 import { durationLabel, useNow } from "@devthrottle/client-core/sessions/waiting";
+
+const SURFACE = "mobile-new-session";
 
 type ActiveStep = "director" | "agent" | "repository" | "review";
 
@@ -139,6 +141,7 @@ export function NewSession() {
     setDirectorsError(null);
     getDirectors(controller.signal)
       .then((list) => {
+        backgroundRecovered(SURFACE, "load the Directors");
         if (controller.signal.aborted) return;
         setDirectors(list);
         if (list.length > 0) {
@@ -154,7 +157,7 @@ export function NewSession() {
       })
       .catch((error) => {
         if (controller.signal.aborted) return;
-        setDirectorsError(gatewayErrorMessage(error));
+        setDirectorsError(describeAndReport(SURFACE, "load the Directors", error, { background: true }));
       });
     return () => controller.abort();
   }, [directorReload, clearDirectorChoices]);
@@ -173,6 +176,7 @@ export function NewSession() {
       .then((list) => {
         if (!isCurrent()) return;
         setAgents(list);
+        backgroundRecovered(SURFACE, "load the agents");
         setSelectedAgentType((selected) => {
           if (selected !== null && list.some((agent) => agent.type === selected)) return selected;
           if (list.length === 0) return null;
@@ -183,7 +187,7 @@ export function NewSession() {
       .catch((error) => {
         if (!isCurrent()) return;
         setAgents([]);
-        setAgentsError(gatewayErrorMessage(error));
+        setAgentsError(describeAndReport(SURFACE, "load the agents", error, { background: true }));
       });
 
     return () => agentController.abort();
@@ -203,11 +207,12 @@ export function NewSession() {
       .then((list) => {
         if (!isCurrent()) return;
         setKnownRepositories(list);
+        backgroundRecovered(SURFACE, "load the repositories");
       })
       .catch((error) => {
         if (knownController.signal.aborted || !isCurrent()) return;
         setKnownRepositories([]);
-        setKnownRepositoriesError(gatewayErrorMessage(error));
+        setKnownRepositoriesError(describeAndReport(SURFACE, "load the repositories", error, { background: true }));
       });
 
     return () => knownController.abort();
@@ -257,6 +262,7 @@ export function NewSession() {
   const chooseManualPath = () => {
     const path = manualPath.trim();
     if (!path) {
+      // error-report-exempt: an input check - the user has not typed a path yet, nothing failed
       setCreateError("Enter a repository path before continuing.");
       return;
     }
@@ -266,16 +272,19 @@ export function NewSession() {
   const create = useCallback(async () => {
     if (createInFlightRef.current) return;
     if (!selectedId || selectedDirector === null) {
+      // error-report-exempt: an input check - the user has not chosen a Director yet, nothing failed
       setCreateError("Choose a Director first.");
       setActiveStep("director");
       return;
     }
     if (selectedAgent === null) {
+      // error-report-exempt: an input check - the user has not chosen an agent yet, nothing failed
       setCreateError("Choose an agent before creating the session.");
       setActiveStep("agent");
       return;
     }
     if (selectedRepository === null || !selectedRepository.path.trim()) {
+      // error-report-exempt: an input check - the user has not chosen a repository yet, nothing failed
       setCreateError("Choose a repository before creating the session.");
       setActiveStep("repository");
       return;
@@ -291,7 +300,7 @@ export function NewSession() {
       if (!session.sessionId) throw new Error("The created session had no identifier.");
       navigate("/session/" + encodeURIComponent(session.sessionId));
     } catch (error) {
-      setCreateError(gatewayErrorMessage(error));
+      setCreateError(describeAndReport(SURFACE, "create the session", error));
       setCreating(false);
       createInFlightRef.current = false;
     }

@@ -4,6 +4,7 @@ import { blobToWav16kMono } from "./wav";
 import { judgeAccuracy, scoreTranscription, type AccuracyVerdict, type DiffStep } from "./transcriptionAccuracy";
 import { preferredLanguage, TEST_LANGUAGES, type TestLanguage } from "./languages";
 import { uploadVoiceTestClip } from "./voiceTestClient";
+import { reportShownError } from "../errors/reportClientError";
 import "./mictest.css";
 
 // The "Test transcription" check, shared verbatim by the Cockpit dictation health page and the mobile
@@ -128,7 +129,7 @@ export function TranscriptionTestPanel({ className }: TranscriptionTestPanelProp
       setVerdict(judgeAccuracy(scoreTranscription(spoken.passage, result.transcript, spoken.tokenMode), spoken.name));
       setStage("done");
     } catch (err) {
-      setErrorText(err instanceof Error ? err.message : String(err));
+      setErrorText(reportShownError("transcription-test", "test the transcription", err instanceof Error ? err.message : String(err), undefined, err));
       setStage("error");
     }
   }, [clearCap, releasePlayback, stopMeter]);
@@ -154,8 +155,14 @@ export function TranscriptionTestPanel({ className }: TranscriptionTestPanelProp
       recorderRef.current = null;
       const reason = err instanceof Error ? err.message : String(err);
       setErrorText(
-        `The microphone could not be opened: ${reason} Check that a microphone is connected, that it ` +
-          "is not muted, and that this site is allowed to use it.",
+        reportShownError(
+          "transcription-test",
+          "open the microphone",
+          `The microphone could not be opened: ${reason} Check that a microphone is connected, that it ` +
+            "is not muted, and that this site is allowed to use it.",
+          undefined,
+          err,
+        ),
       );
       setStage("error");
       return;

@@ -20,10 +20,26 @@ vi.mock("../api/client", () => ({
   abandonDictation: vi.fn(),
 }));
 // The error report boundary: what this module reports when a delivery goes wrong (issue #3675).
-vi.mock("../errors/reportClientError", () => ({
-  reportClientError: vi.fn(),
-  errorFacts: (err: unknown) => (err instanceof Error ? { exception_type: err.name } : {}),
-}));
+vi.mock("../errors/reportClientError", async () => {
+  const reportClientError = vi.fn();
+  const errorFacts = (err: unknown) => (err instanceof Error ? { exception_type: err.name } : {});
+  return {
+    reportClientError,
+    errorFacts,
+    // The same record the real one builds, handed to the faked channel, so a test reads every report in one place.
+    reportShownError: (surface: string, action: string, message: string, context?: { sessionId?: string }, cause?: unknown) => {
+      reportClientError({
+        surface,
+        action,
+        message,
+        user_visible: true,
+        ...(cause === undefined ? {} : errorFacts(cause)),
+        ...(context?.sessionId ? { session_id: context.sessionId } : {}),
+      });
+      return message;
+    },
+  };
+});
 vi.mock("./heldPromptStore", () => ({
   saveHeldPrompt: vi.fn(),
   listHeldPrompts: vi.fn(),

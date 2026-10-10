@@ -30,7 +30,11 @@ vi.mock("react-router-dom", () => ({
 }));
 
 const stopSessionMock = vi.fn();
-vi.mock("@devthrottle/client-core/api/client", () => ({
+vi.mock("@devthrottle/client-core/api/client", async (importOriginal) => ({
+  // The error reporter (errors/reportClientError) needs the real error helpers; the rest is faked.
+  ...(({ GatewayError, gatewayErrorMessage, authHeaders }) => ({ GatewayError, gatewayErrorMessage, authHeaders }))(
+    await importOriginal<typeof import("@devthrottle/client-core/api/client")>(),
+  ),
   holdSession: () => Promise.resolve({ onHold: false, pending: false }),
   // The hook polls the shared roster for the held state. An empty fleet is a real answer and nothing
   // here is about the hold surface.
@@ -40,6 +44,7 @@ vi.mock("@devthrottle/client-core/api/client", () => ({
 
 import { SessionAppBar } from "./SessionAppBar";
 import { useSessionManage } from "./useSessionManage";
+import { GatewayError } from "@devthrottle/client-core/api/client";
 
 const SID = "9c41e7a2-0000-4000-8000-000000000000";
 const HEADLINE = "stopped 9c41e7a2 - process 51884 ended, row removed";
@@ -155,7 +160,7 @@ describe("the phone sends ONE stop, however many times it is tapped", () => {
 
 describe("a failed stop is explained INSIDE the sheet the operator is looking at", () => {
   async function failTheStop() {
-    stopSessionMock.mockRejectedValue(new Error(FAILURE));
+    stopSessionMock.mockRejectedValue(new GatewayError(502, "POST stop failed", { reason: FAILURE, retryable: false }));
     render(<Harness />);
     openStopSheet();
     fireEvent.click(stopButton());

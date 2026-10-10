@@ -13,7 +13,7 @@
 // NOTHING HERE DECIDES ANYTHING. The headings, the "this call was not made" sentences and the cut warnings are the
 // Gateway's own words, rendered verbatim. The only work done in this file is layout and turning UTC into local time.
 import { useEffect, useState } from "react";
-import { gatewayErrorMessage } from "../api/client";
+import { describeAndReport } from "../errors/reportClientError";
 import { readWingmanDebug, type WingmanDebugResponse, type WingmanDebugStop } from "./wingmanDebug";
 import { formatLocalInstant } from "./WingmanTab";
 
@@ -37,7 +37,7 @@ export function WingmanDebugView({ sessionId }: { sessionId: string }) {
       .then((answer) => setLoad({ kind: "loaded", answer }))
       .catch((err: unknown) => {
         if (controller.signal.aborted) return;
-        setLoad({ kind: "error", message: gatewayErrorMessage(err, "read the Wingman's debug record") });
+        setLoad({ kind: "error", message: describeAndReport("wingman-debug", "read the Wingman's debug record", err, { sessionId }) });
       });
     return () => controller.abort();
   }, [sessionId]);

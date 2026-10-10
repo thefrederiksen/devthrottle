@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { GatewayError, gatewayErrorMessage } from "../api/client";
+import { GatewayError } from "../api/client";
+import { describeAndReport, reportShownError } from "../errors/reportClientError";
 import { useVisiblePolling } from "../polling/useVisiblePolling";
 import { DevReportController, type DevReportApi, type DevReportSnapshot } from "./controller";
 import type { DevReportConversationModel } from "./DevReportConversation";
@@ -11,6 +12,8 @@ import { DEV_REPORT_NOTES_SCRIPT } from "./notesScript";
 import { DevReportStateStore } from "./stateStore";
 import { APP_DEV_REPORT_THEME } from "./theme";
 import "./devReports.css";
+
+const SURFACE = "dev-report-viewer";
 
 // One dev report, shared by the Cockpit and the phone: the report frame (through the framework-free host and
 // controller) and a slot for the conversation. The shell decides where the conversation goes - beside the
@@ -141,15 +144,21 @@ export function DevReportViewer({ reportId, api = gatewayDevReportApi, notes = t
     try {
       const page = await apiRef.current.getHtml(reportId, exportVersion);
       if (!page) {
-        setExportError("This report does not appear any more, so there was nothing to save.");
+        setExportError(reportShownError(SURFACE, "save the report", "This report does not appear any more, so there was nothing to save."));
         return;
       }
       saveHtmlFile(window.document, reportFileName(detail.report.title, page.version), page.html);
     } catch (err) {
       setExportError(
         err instanceof GatewayError
-          ? gatewayErrorMessage(err, "save the report")
-          : `The report could not be saved${err instanceof Error && err.message ? ` (${err.message})` : ""}.`,
+          ? describeAndReport(SURFACE, "save the report", err)
+          : reportShownError(
+              SURFACE,
+              "save the report",
+              `The report could not be saved${err instanceof Error && err.message ? ` (${err.message})` : ""}.`,
+              undefined,
+              err,
+            ),
       );
     } finally {
       setExporting(false);
@@ -231,6 +240,7 @@ export function DevReportViewer({ reportId, api = gatewayDevReportApi, notes = t
         )}
         {snapshot.loadError && (
           <div className="dev-report-error" role="alert">
+            {/* error-reported-by: DevReportController */}
             {snapshot.loadError}
           </div>
         )}

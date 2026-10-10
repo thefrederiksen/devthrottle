@@ -7,6 +7,10 @@ import { MicRecorder } from "./recorder";
 import { joinText } from "./transcript";
 import { blobToWav16kMono } from "./wav";
 import { reportDictationQuality } from "./qualityReport";
+import { reportShownError } from "../errors/reportClientError";
+
+/** Where a dictation dialog failure is filed (issue #3675): the sentence shown, never the words spoken. */
+const SURFACE = "dictation-dialog";
 // The dialog carries its own styles (issue #1288): every shell that mounts this component gets the
 // dictate-* rules from one copy, so the Cockpit renders it as a centered overlay just like the phone
 // instead of unstyled elements at the page bottom. The rules formerly lived only in the mobile
@@ -185,7 +189,11 @@ export function DictationDialog({
       readyTimeoutRef.current = null;
       if (stageRef.current !== "connecting") return;
       setErrorText(
-        "The microphone did not start capturing. Check that it is connected, not muted, and that this site is allowed to use it, then try again.",
+        reportShownError(
+          SURFACE,
+          "start the microphone",
+          "The microphone did not start capturing. Check that it is connected, not muted, and that this site is allowed to use it, then try again.",
+        ),
       );
       setStage("error");
     }, READY_TIMEOUT_MS);
@@ -242,7 +250,7 @@ export function DictationDialog({
         // would re-render the dialog for no reason.
         if (alarm !== liveWarningRef.current) {
           liveWarningRef.current = alarm;
-          setLiveWarning(alarm);
+          setLiveWarning(alarm === "" ? alarm : reportShownError(SURFACE, "record a dictation", alarm));
         }
       }
       raf = window.requestAnimationFrame(tick);
@@ -271,7 +279,7 @@ export function DictationDialog({
       } catch (err) {
         if (cancelled) return;
         clearReadyBackstop();
-        setErrorText(err instanceof Error ? err.message : "Could not start the microphone.");
+        setErrorText(reportShownError(SURFACE, "start the microphone", err instanceof Error ? err.message : "Could not start the microphone.", undefined, err));
         setStage("error");
       }
     })();
@@ -312,9 +320,9 @@ export function DictationDialog({
       // words, and a silent commit of truncated speech is exactly the failure mode this dialog
       // exists to prevent. The caller shows the warning and parks instead of auto-committing.
       lossWarning = captureLossWarning(health);
-      if (lossWarning !== null) setCaptureWarning(lossWarning);
+      if (lossWarning !== null) setCaptureWarning(reportShownError(SURFACE, "record a dictation", lossWarning));
     } catch (err) {
-      setHint(err instanceof Error ? err.message : "Could not capture the recording.");
+      setHint(reportShownError(SURFACE, "capture the recording", err instanceof Error ? err.message : "Could not capture the recording.", undefined, err));
       return null;
     }
     // Measure the microphone in the background. AFTER the transcode and BEFORE awaiting the
@@ -332,7 +340,15 @@ export function DictationDialog({
       });
       return { text: transcribed.text, lossWarning, deliveryId: transcribed.deliveryId };
     } catch (err) {
-      setHint(err instanceof Error ? err.message : "The transcription service had a problem and couldn't process your recording.");
+      setHint(
+        reportShownError(
+          SURFACE,
+          "transcribe the recording",
+          err instanceof Error ? err.message : "The transcription service had a problem and couldn't process your recording.",
+          undefined,
+          err,
+        ),
+      );
       return null;
     }
   }, [surface]);
@@ -369,7 +385,7 @@ export function DictationDialog({
         await recorderRef.current.start();
       } catch (err) {
         clearReadyBackstop();
-        setHint("Could not resume - your text is kept. " + (err instanceof Error ? err.message : ""));
+        setHint(reportShownError(SURFACE, "resume the microphone", "Could not resume - your text is kept. " + (err instanceof Error ? err.message : ""), undefined, err));
         setStage("paused");
       }
     }
@@ -452,7 +468,7 @@ export function DictationDialog({
     } catch (err) {
       // Could not finalize the mic - keep the user's audio session alive in PAUSED rather than
       // dropping it, and surface why. (No text is lost; nothing was committed.)
-      setHint(err instanceof Error ? err.message : "Could not capture the recording.");
+      setHint(reportShownError(SURFACE, "capture the recording", err instanceof Error ? err.message : "Could not capture the recording.", undefined, err));
       setStage("paused");
       busyRef.current = false;
       return;

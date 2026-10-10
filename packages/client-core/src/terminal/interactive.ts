@@ -42,7 +42,8 @@
 
 import { Terminal as Xterm } from "@xterm/xterm";
 import type { IDisposable, ILink, ILinkProvider } from "@xterm/xterm";
-import { ensureGatewayCookie, sendPrompt } from "../api/client";
+import { ensureGatewayCookie, gatewayErrorMessage, sendPrompt } from "../api/client";
+import { backgroundRecovered, errorFacts, reportClientError, reportShownError } from "../errors/reportClientError";
 import { findLineLinks, type LineLink } from "./lineLinks";
 
 // Match the desktop terminal (TerminalFonts.Family + TerminalControl metrics): Cascadia MONO (not
@@ -67,6 +68,14 @@ const MAX_RECONNECT_ATTEMPTS = 30; // ~36s of fast dead-leg retries before dropp
 // stream resumes on its own when the Gateway returns (issue #1032). 15s is slow enough to be
 // effectively idle on the network yet quick enough that recovery feels automatic.
 const SLOW_RECONNECT_DELAY_MS = 15000;
+
+// The stream's own failures, shown as status lines in the terminal (the Error Logging mission, issue #3675, 3c review
+// finding 2). Each is a background report: once per outage, keyed by its action, and forgotten when the stream is
+// live again (markLive). Three actions, so the lines of one outage never displace each other's memory.
+const STREAM_SURFACE = "terminal";
+const STREAM_LOST = "reconnect the terminal stream";
+const STREAM_OPEN = "open the terminal stream";
+const STREAM_DOWN = "keep the terminal stream open";
 
 // How many animation frames start() will wait for the host to be laid out (non-zero size) before it
 // opens the terminal anyway. ~30 frames is roughly half a second at 60fps - long enough to cover the
@@ -136,6 +145,8 @@ export class InteractiveTerminal {
   // before starting the next, so the PTY never sees reordered or dropped input at any typing speed.
   private pendingInput = "";
   private inputPumping = false;
+  // Whether the current run of failed keystroke sends has been reported; cleared by the next send that lands.
+  private keystrokeFailureReported = false;
 
   constructor(hostEl: HTMLElement, sessionId: string, onFileLink?: (path: string) => void) {
     this.hostEl = hostEl;
@@ -280,7 +291,7 @@ export class InteractiveTerminal {
 
   // Drain the keystroke buffer one POST at a time, awaiting each send before the next so the PTY
   // receives bytes in the exact order typed (issue #1021). Bytes that arrive while a send is in
-  // flight are coalesced into the following POST. A failed send is logged and the buffered bytes it
+  // flight are coalesced into the following POST. A failed send is reported and the buffered bytes it
   // carried are dropped (a degraded network; the user retypes) - we do NOT re-queue, which would risk
   // duplicating bytes the Director may already have applied. The loop re-checks pendingInput after
   // every await, so anything enqueued mid-send is still sent, in order.
@@ -296,13 +307,31 @@ export class InteractiveTerminal {
         this.pendingInput = "";
         try {
           await sendPrompt(this.sessionId, chunk, false);
+          this.keystrokeFailureReported = false;
         } catch (err) {
           console.debug("[cockpit-terminal] keystroke send failed", this.sessionId, err);
+          this.reportKeystrokeFailure(err);
         }
       }
     } finally {
       this.inputPumping = false;
     }
+  }
+
+  // Keys typed into the terminal were dropped (the Error Logging mission, issue #3675, ruling R4). Reported once per
+  // run of failures, not once per key, with the session and the Gateway's facts - and NEVER the characters: they are
+  // what the person typed, and the error store must not hold them. Nothing is shown, so it is not user_visible.
+  private reportKeystrokeFailure(err: unknown): void {
+    if (this.keystrokeFailureReported) return;
+    this.keystrokeFailureReported = true;
+    reportClientError({
+      surface: "terminal",
+      action: "type into the terminal",
+      message: gatewayErrorMessage(err, "type into the terminal"),
+      user_visible: false,
+      ...errorFacts(err),
+      session_id: this.sessionId,
+    });
   }
 
   dispose(): void {
@@ -475,6 +504,10 @@ export class InteractiveTerminal {
     this.gotFirstByte = true;
     this.attempts = 0;
     this.announcedSlow = false; // a live stream ends the outage; the next one re-announces the slow probe
+    // ...and the next outage is reported again.
+    backgroundRecovered(STREAM_SURFACE, STREAM_LOST);
+    backgroundRecovered(STREAM_SURFACE, STREAM_OPEN);
+    backgroundRecovered(STREAM_SURFACE, STREAM_DOWN);
     if (this.term) {
       try {
         this.term.reset();
@@ -501,17 +534,22 @@ export class InteractiveTerminal {
     // wsHost is the GATEWAY this page was served from, not the owning Director - the Gateway proxies
     // on to the Director. Word it as the path so a loopback Gateway host is never mistaken for the
     // stream's real target.
-    this.statusLine(
-      this.attempts > 0
-        ? "stream lost, reconnecting via gateway " + wsHost + " (attempt " + (this.attempts + 1) + ")..."
-        : "connecting via gateway " + wsHost + "...",
-    );
+    // A lost stream is reported once per outage; the attempt count goes on a line of its own, so the reported
+    // sentence stays the same from one attempt to the next.
+    if (this.attempts > 0) {
+      const context = { sessionId: this.sessionId, background: true as const };
+      this.statusLine(reportShownError(STREAM_SURFACE, STREAM_LOST, "stream lost, reconnecting via gateway " + wsHost, context));
+      this.statusLine("attempt " + (this.attempts + 1) + "...");
+    } else {
+      this.statusLine("connecting via gateway " + wsHost + "...");
+    }
 
     let sock: WebSocket;
     try {
       sock = new WebSocket(url);
     } catch (err) {
-      this.statusLine("cannot open stream: " + (err instanceof Error ? err.message : String(err)));
+      const shown = "cannot open stream: " + (err instanceof Error ? err.message : String(err));
+      this.statusLine(reportShownError(STREAM_SURFACE, STREAM_OPEN, shown, { sessionId: this.sessionId, background: true }, err));
       return;
     }
     sock.binaryType = "arraybuffer";
@@ -530,6 +568,7 @@ export class InteractiveTerminal {
         // it). Surface the real reason instead of a bare reconnect to the Gateway's own host.
         if (m.type === "closed") {
           try {
+            // error-report-exempt: the Gateway's own verdict on why the owning Director is unreachable, written and held by the Gateway - nothing failed in this browser
             t.write("\r\n[stream closed: " + (m.reason || "") + "]\r\n");
           } catch {
             /* mid-dispose */
@@ -562,12 +601,12 @@ export class InteractiveTerminal {
       const slow = this.attempts > MAX_RECONNECT_ATTEMPTS;
       if (slow && !this.announcedSlow) {
         this.announcedSlow = true;
-        this.statusLine(
+        const shown =
           "stream via gateway " + wsHost + " is down after " + MAX_RECONNECT_ATTEMPTS +
-            " attempts (last close code " + ev.code + ") - now retrying every " +
-            Math.round(SLOW_RECONNECT_DELAY_MS / 1000) +
-            "s; it resumes automatically when the gateway returns.",
-        );
+          " attempts (last close code " + ev.code + ") - now retrying every " +
+          Math.round(SLOW_RECONNECT_DELAY_MS / 1000) +
+          "s; it resumes automatically when the gateway returns.";
+        this.statusLine(reportShownError(STREAM_SURFACE, STREAM_DOWN, shown, { sessionId: this.sessionId, background: true }));
       }
       this.reconnectTimer = window.setTimeout(() => {
         this.reconnectTimer = null;

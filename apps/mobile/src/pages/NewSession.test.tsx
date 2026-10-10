@@ -14,7 +14,11 @@ const api = vi.hoisted(() => ({
   getRepos: vi.fn(),
 }));
 
-vi.mock("@devthrottle/client-core/api/client", () => ({
+vi.mock("@devthrottle/client-core/api/client", async (importOriginal) => ({
+  // The error reporter (errors/reportClientError) needs the real error helpers; the rest is faked.
+  ...(({ GatewayError, gatewayErrorMessage, authHeaders }) => ({ GatewayError, gatewayErrorMessage, authHeaders }))(
+    await importOriginal<typeof import("@devthrottle/client-core/api/client")>(),
+  ),
   ...api,
   gatewayErrorMessage: (error: unknown) => error instanceof Error ? error.message : String(error),
 }));

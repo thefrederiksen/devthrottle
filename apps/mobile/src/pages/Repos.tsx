@@ -8,7 +8,7 @@ import {
   type RepoStat,
   type RepoSummary,
 } from "@devthrottle/client-core/stats/statsClient";
-import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
+import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 
 // The private "Repos" page for the phone: where the owner's development actually happens - how driving
 // splits across the codebases worked in, ranked by submitted turns. Its own page, deliberately separate
@@ -44,10 +44,11 @@ export function Repos() {
         const fresh = await getThrottle(controller.signal);
         if (controller.signal.aborted) return;
         setData(fresh);
+        backgroundRecovered("mobile-repos", "read the repositories");
         setError(null);
       } catch (err) {
         if (controller.signal.aborted) return;
-        setError(gatewayErrorMessage(err));
+        setError(describeAndReport("mobile-repos", "read the repositories", err, { background: true }));
       } finally {
         if (!controller.signal.aborted) timer = setTimeout(() => void tick(), REFRESH_MS);
       }

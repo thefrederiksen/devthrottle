@@ -5,7 +5,8 @@
 //
 // The types are hand-written rather than taken from the generated schema, for the reason recorded on `ModelDisplay`
 // in api/client.ts and followed by restartRequests.ts: the committed schema predates this route.
-import { authHeaders, GatewayError, gatewayErrorMessage, gatewayFetch, type SessionDto } from "../api/client";
+import { authHeaders, GatewayError, gatewayFetch, type SessionDto } from "../api/client";
+import { describeAndReport, reportShownError } from "../errors/reportClientError";
 import { effectiveColor, stateLabel } from "./ordering";
 
 export const SESSION_COLOURS_PATH = "/gateway/session-colours";
@@ -44,6 +45,15 @@ export class MalformedColourLegendError extends Error {
     super(message);
     this.name = "MalformedColourLegendError";
   }
+}
+
+/** The words every legend surface shows when the legend cannot be read - shown AND reported in one act (issue
+ *  #3675). A malformed answer says what is missing; a failed request gets the shared sentence for the action. */
+export function legendFailureMessage(err: unknown): string {
+  const action = "load what the session colours mean";
+  return err instanceof MalformedColourLegendError
+    ? reportShownError("colour-legend", action, err.message, undefined, err)
+    : describeAndReport("colour-legend", action, err);
 }
 
 /** Read the legend from the Gateway. A failed or malformed answer throws; there is no built-in copy to fall back on. */
@@ -143,9 +153,8 @@ function loadLegendOnce(): void {
   getSessionColourLegend()
     .then((legend) => setLegendState({ legend, error: null }))
     .catch((err: unknown) => {
-      // The same words the dialog shows for the same failure.
-      const message =
-        err instanceof MalformedColourLegendError ? err.message : gatewayErrorMessage(err, "load what the session colours mean");
+      // The same words the dialog shows for the same failure, reported as it is shown.
+      const message = legendFailureMessage(err);
       console.error("[sessionColours] the colour legend could not be read", err);
       // Not cached: the next surface that mounts asks again, so one failed read does not blank the legend for the page.
       setLegendState({ legend: null, error: message });

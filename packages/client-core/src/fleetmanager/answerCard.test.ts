@@ -16,9 +16,10 @@ describe("answerCard", () => {
   });
 
   it("reports a refused answer in the Gateway's words", async () => {
-    const deps = { answer: vi.fn(async () => Promise.reject(new Error("already answered"))) };
+    const refusal = new Error("already answered");
+    const deps = { answer: vi.fn(async () => Promise.reject(refusal)) };
 
-    expect(await answerCard("rec-1", "Yes.", deps)).toEqual({ kind: "refused", error: "already answered" });
+    expect(await answerCard("rec-1", "Yes.", deps)).toEqual({ kind: "refused", error: "already answered", cause: refusal });
   });
 
   it("refuses empty words before calling anything", async () => {

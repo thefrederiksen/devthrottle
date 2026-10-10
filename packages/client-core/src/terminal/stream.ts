@@ -410,6 +410,7 @@ export class TerminalMirror {
           this.lastRows = m.rows ?? this.lastRows;
           this.applyFont();
         } else if (m.type === "closed") {
+          // error-report-exempt: the Gateway's own verdict on why the owning Director is unreachable, written and held by the Gateway - nothing failed in this browser
           term.write("\r\n[stream closed: " + (m.reason || "") + "]\r\n");
         }
         return;

@@ -56,7 +56,7 @@ describe("the session menu's change of owner", () => {
   });
 
   it("shows a refusal in the Gateway's words", async () => {
-    hand.run.mockResolvedValue({ ok: false, error: "Its Director is older than hand over. (fake)" });
+    hand.run.mockResolvedValue({ ok: false, error: "Its Director is older than hand over. (fake)", cause: new Error("fake") });
     render(<SessionMenu session={session(handBack)} variant="rail" />);
     openMenu();
 

@@ -13,7 +13,8 @@
 // twice, and the Gateway's answer is shown under it. A button that reports nothing reads as broken.
 import { useEffect, useSyncExternalStore } from "react";
 import type { SessionDto } from "../api/client";
-import { askWingmanAgain, gatewayErrorMessage } from "../api/client";
+import { askWingmanAgain } from "../api/client";
+import { describeAndReport } from "../errors/reportClientError";
 import { useNow } from "../polling/useNow";
 import { wingmanErrorOf, wingmanRetryLine, type WingmanErrorDisplay } from "./wingmanError";
 import "./wingmanError.css";
@@ -55,7 +56,7 @@ async function askAgain(sid: string): Promise<void> {
     const result = await askWingmanAgain(sid);
     setPress(sid, { asking: false, answer: result.message });
   } catch (err) {
-    setPress(sid, { asking: false, answer: gatewayErrorMessage(err, "ask the Wingman again") });
+    setPress(sid, { asking: false, answer: describeAndReport("wingman-error-line", "ask the Wingman again", err, { sessionId: sid }) });
   }
 }
 

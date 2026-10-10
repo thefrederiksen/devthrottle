@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { getDevReport } from "./devReportsClient";
+import { reportShownError } from "../errors/reportClientError";
 import "./devReports.css";
+
+const SURFACE = "dev-report-landing";
 
 // THE ONE LANDING THAT NEEDS ONLY A REPORT ID (dev reports mission, phase 3b, issue #3025).
 //
@@ -50,7 +53,7 @@ export function useDevReportLanding(
 
   useEffect(() => {
     if (!reportId) {
-      setState({ kind: "error", message: "This address carries no report." });
+      setState({ kind: "error", message: reportShownError(SURFACE, "open the report", "This address carries no report.") });
       return;
     }
     setState({ kind: "opening" });
@@ -66,7 +69,7 @@ export function useDevReportLanding(
       })
       .catch((err: unknown) => {
         if (controller.signal.aborted) return;
-        setState({ kind: "error", message: err instanceof Error ? err.message : String(err) });
+        setState({ kind: "error", message: reportShownError(SURFACE, "open the report", err instanceof Error ? err.message : String(err), undefined, err) });
       });
     return () => controller.abort();
   }, [reportId]);

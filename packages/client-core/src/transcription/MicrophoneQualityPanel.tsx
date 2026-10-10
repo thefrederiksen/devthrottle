@@ -6,7 +6,10 @@ import {
   type MicrophoneQualityDetail,
   type MicrophoneTrendPoint,
 } from "./microphoneQualityClient";
+import { reportShownError } from "../errors/reportClientError";
 import "./microphoneQuality.css";
+
+const LOAD_FAILED = "Couldn't load microphone quality from the Gateway.";
 
 // "How your microphones are doing" - shared by the Cockpit's Transcription Health page and the
 // Transcription settings tab on both surfaces. This is the DETAILED view (issue #2183): per
@@ -42,15 +45,15 @@ function formatWhen(iso: string): string {
 
 export function MicrophoneQualityPanel() {
   const [detail, setDetail] = useState<MicrophoneQualityDetail | null>(null);
-  const [loadError, setLoadError] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async (signal?: AbortSignal) => {
     try {
-      setLoadError(false);
+      setLoadError(null);
       setDetail(await getMicrophoneQualityDetail(30, signal));
-    } catch {
+    } catch (err) {
       if (signal?.aborted) return;
-      setLoadError(true);
+      setLoadError(reportShownError("microphone-quality", "load microphone quality", LOAD_FAILED, undefined, err));
     }
   }, []);
 
@@ -71,7 +74,7 @@ export function MicrophoneQualityPanel() {
 
       {loadError ? (
         <div className="mq-load-error">
-          Couldn&apos;t load microphone quality from the Gateway.
+          {loadError}
           <button type="button" className="mq-retry" onClick={() => void load()}>
             Retry
           </button>

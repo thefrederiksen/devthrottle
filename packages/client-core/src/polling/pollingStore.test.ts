@@ -1,6 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createPollingStore, type PollTimers } from "./pollingStore";
+import { resetReportingForTests, setReportingComponent } from "../errors/reportClientError";
 import type { VisibilitySource } from "./visibility";
+
+const REPORTING = { surface: "test-poll", action: "read the thing" };
 
 // The polling store is the heart of issue #1239 (one shared loop, visibility-aware, keep-last-on-error),
 // so it is tested directly - no DOM, every seam injected: a hand-driven interval, a controllable
@@ -72,7 +75,7 @@ describe("createPollingStore", () => {
   it("does not poll until the first subscriber arrives, and stops after the last leaves", async () => {
     const timers = fakeTimers();
     const f = fakeFetcher();
-    const store = createPollingStore({ fetcher: f.fetcher, intervalMs: 1000, visibility: fakeVisibility(), timers });
+    const store = createPollingStore({ fetcher: f.fetcher, intervalMs: 1000, reporting: REPORTING, visibility: fakeVisibility(), timers });
 
     // No subscribers: nothing runs.
     expect(f.calls()).toBe(0);
@@ -90,7 +93,7 @@ describe("createPollingStore", () => {
   it("runs ONE loop shared across many subscribers", async () => {
     const timers = fakeTimers();
     const f = fakeFetcher();
-    const store = createPollingStore({ fetcher: f.fetcher, intervalMs: 1000, visibility: fakeVisibility(), timers });
+    const store = createPollingStore({ fetcher: f.fetcher, intervalMs: 1000, reporting: REPORTING, visibility: fakeVisibility(), timers });
 
     let aNotified = 0;
     let bNotified = 0;
@@ -116,7 +119,7 @@ describe("createPollingStore", () => {
     const f = fakeFetcher();
     f.queueValue(42); // first poll succeeds
     f.queueError(new Error("Gateway down")); // next poll fails
-    const store = createPollingStore({ fetcher: f.fetcher, intervalMs: 1000, visibility: fakeVisibility(), timers });
+    const store = createPollingStore({ fetcher: f.fetcher, intervalMs: 1000, reporting: REPORTING, visibility: fakeVisibility(), timers });
 
     store.subscribe(() => {});
     await settle();
@@ -134,7 +137,7 @@ describe("createPollingStore", () => {
     const timers = fakeTimers();
     const f = fakeFetcher();
     const visibility = fakeVisibility(true);
-    const store = createPollingStore({ fetcher: f.fetcher, intervalMs: 1000, visibility, timers });
+    const store = createPollingStore({ fetcher: f.fetcher, intervalMs: 1000, reporting: REPORTING, visibility, timers });
 
     store.subscribe(() => {});
     await settle();
@@ -159,7 +162,7 @@ describe("createPollingStore", () => {
     const timers = fakeTimers();
     const f = fakeFetcher();
     const visibility = fakeVisibility(false);
-    const store = createPollingStore({ fetcher: f.fetcher, intervalMs: 1000, visibility, timers });
+    const store = createPollingStore({ fetcher: f.fetcher, intervalMs: 1000, reporting: REPORTING, visibility, timers });
 
     store.subscribe(() => {});
     await settle();
@@ -184,7 +187,7 @@ describe("createPollingStore", () => {
     const f = fakeFetcher();
     f.queueError(new Error("Gateway down"));
     const visibility = fakeVisibility(false);
-    const store = createPollingStore({ fetcher: f.fetcher, intervalMs: 1000, visibility, timers });
+    const store = createPollingStore({ fetcher: f.fetcher, intervalMs: 1000, reporting: REPORTING, visibility, timers });
 
     store.subscribe(() => {});
     await settle();
@@ -203,7 +206,7 @@ describe("createPollingStore", () => {
     const timers = fakeTimers();
     const f = fakeFetcher();
     const visibility = fakeVisibility(true);
-    const store = createPollingStore({ fetcher: f.fetcher, intervalMs: 1000, visibility, timers });
+    const store = createPollingStore({ fetcher: f.fetcher, intervalMs: 1000, reporting: REPORTING, visibility, timers });
 
     // No subscribers: refreshNow does nothing.
     store.refreshNow();
@@ -227,7 +230,7 @@ describe("createPollingStore", () => {
   it("returns a stable snapshot reference between changes (useSyncExternalStore safe)", async () => {
     const timers = fakeTimers();
     const f = fakeFetcher();
-    const store = createPollingStore({ fetcher: f.fetcher, intervalMs: 1000, visibility: fakeVisibility(), timers });
+    const store = createPollingStore({ fetcher: f.fetcher, intervalMs: 1000, reporting: REPORTING, visibility: fakeVisibility(), timers });
 
     store.subscribe(() => {});
     await settle();
@@ -238,5 +241,42 @@ describe("createPollingStore", () => {
     timers.tick();
     await settle();
     expect(store.getSnapshot()).not.toBe(first); // a real change swaps the reference
+  });
+
+  // Subscribers show the error, so it is reported too (the Error Logging mission, issue #3675) - once per failure,
+  // not once per round: a store polling every two seconds must not file thirty reports a minute about one outage.
+  it("reports a failing poll when it first fails, not every round, and again after a good round", async () => {
+    resetReportingForTests();
+    setReportingComponent("cockpit");
+    const fetchMock = vi.fn(async () => new Response(null, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const timers = fakeTimers();
+      const f = fakeFetcher();
+      f.queueError(new Error("Gateway down"));
+      f.queueError(new Error("Gateway down"));
+      f.queueValue(7);
+      f.queueError(new Error("Gateway down"));
+      const store = createPollingStore({ fetcher: f.fetcher, intervalMs: 1000, reporting: REPORTING, visibility: fakeVisibility(), timers });
+      const reports = () =>
+        fetchMock.mock.calls.map((call) => JSON.parse(((call as unknown[])[1] as { body: string }).body) as Record<string, unknown>);
+
+      store.subscribe(() => {});
+      await settle();
+      timers.tick(); // the same failure again
+      await settle();
+      expect(store.getSnapshot().error).toBe("Gateway down");
+      expect(reports()).toHaveLength(1);
+      expect(reports()[0]).toMatchObject({ component: "cockpit", surface: "test-poll", action: "read the thing", message: "Gateway down", user_visible: true });
+
+      timers.tick(); // a good round clears it
+      await settle();
+      timers.tick(); // and the failure coming back is a new one
+      await settle();
+      expect(reports()).toHaveLength(2);
+    } finally {
+      vi.unstubAllGlobals();
+      resetReportingForTests();
+    }
   });
 });

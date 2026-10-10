@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { type SessionDto } from "@devthrottle/client-core/api/client";
+import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 import { getAutoSpeak, queueTouchMs, setAutoSpeak } from "@devthrottle/client-core/voice/queueTouch";
 import { useVoiceModeAll, writeVoiceModeAll } from "@devthrottle/client-core/voice/useVoiceModeAll";
 import { VoiceAutoOffNote } from "@devthrottle/client-core/voice/VoiceAutoOffNote";
@@ -188,6 +189,7 @@ export function Home() {
       setSessions(merged.roster.sessions);
       setMarks(merged.roster.marks);
       setError(null);
+      backgroundRecovered("mobile-home", "load the sessions");
       // The app-icon "needs you" dot is counted over the MERGED roster - the same sessions this page
       // renders and builds the voice queue from. It used to be counted from the RAW envelope, and in a
       // wobbly fallback - a connected-but-quiet Director the Gateway names but serves no rows for - the
@@ -212,7 +214,7 @@ export function Home() {
       // single voice for "bad connection, showing last known", so this page no longer shows its own
       // offline strip. The error is kept only to stop the "Loading sessions..." line from lying after a
       // first-load failure.
-      setError(err instanceof Error ? err.message : "Failed to load sessions");
+      setError(describeAndReport("mobile-home", "load the sessions", err, { background: true }));
     }
   }, []);
 
@@ -678,7 +680,7 @@ export function VoiceAllControl({ sessions }: { sessions: SessionDto[] }) {
           : changedLabel,
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not change voice mode for all sessions");
+      setError(describeAndReport("mobile-home", enable ? "turn voice mode on for all sessions" : "turn voice mode off for all sessions", err));
     } finally {
       setWriting(false);
     }
@@ -706,7 +708,7 @@ export function VoiceAllControl({ sessions }: { sessions: SessionDto[] }) {
       {note && <p className="voice-all-note" role="status">{note}</p>}
       <VoiceAutoOffNote className="voice-all-note" />
       {error && <p className="voice-all-error" role="alert">{error}</p>}
-      {voice.error !== null && <p className="voice-all-error" role="alert">{voice.error}</p>}
+      {voice.error !== null && <p className="voice-all-error" role="alert">{/* error-reported-by: useVoiceModeAll */}{voice.error}</p>}
     </div>
   );
 }

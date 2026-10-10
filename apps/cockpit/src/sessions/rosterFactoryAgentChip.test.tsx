@@ -8,7 +8,11 @@ import { resetCrewExpandedForTests } from "@devthrottle/client-core/sessions/tre
 // Website Business Factory, Screen 6: a session a factory agent started wears a "factory agent" chip in the Sessions
 // list, in the Gateway's words (SessionDto.factoryAgent). Every other row wears nothing. Words are fixtures.
 
-vi.mock("@devthrottle/client-core/api/client", () => ({
+vi.mock("@devthrottle/client-core/api/client", async (importOriginal) => ({
+  // The error reporter needs the real error helpers; the rest is faked.
+  ...(({ GatewayError, gatewayErrorMessage, authHeaders }) => ({ GatewayError, gatewayErrorMessage, authHeaders }))(
+    await importOriginal<typeof import("@devthrottle/client-core/api/client")>(),
+  ),
   gatewayErrorMessage: (err: unknown) => String(err),
   setVoiceModeAllSessions: vi.fn(async () => {}),
 }));

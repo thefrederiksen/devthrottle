@@ -15,7 +15,11 @@ import { resetDensityForTests, setDensity } from "@devthrottle/client-core/sessi
 // the crew line; the chevron expands it; a child whose supervisor is not in the roster is a top-level
 // row again (the dead-supervisor case).
 
-vi.mock("@devthrottle/client-core/api/client", () => ({
+vi.mock("@devthrottle/client-core/api/client", async (importOriginal) => ({
+  // The error reporter needs the real error helpers; the rest is faked.
+  ...(({ GatewayError, gatewayErrorMessage, authHeaders }) => ({ GatewayError, gatewayErrorMessage, authHeaders }))(
+    await importOriginal<typeof import("@devthrottle/client-core/api/client")>(),
+  ),
   gatewayErrorMessage: (err: unknown) => String(err),
   setVoiceModeAllSessions: vi.fn(async () => {}),
 }));

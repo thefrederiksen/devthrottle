@@ -24,8 +24,9 @@ export async function handOverSession(sessionId: string, to: string): Promise<Ha
   return (await res.json()) as HandOverResult;
 }
 
-/** How one hand over ended, in the Gateway's words either way. */
-export type HandOverOutcome = { ok: true; sentence: string } | { ok: false; error: string };
+/** How one hand over ended, in the Gateway's words either way. A failure also carries the original error (`cause`), so
+ *  the page that shows it can report the Gateway's own facts with it (the step 3 rulings, R2). */
+export type HandOverOutcome = { ok: true; sentence: string } | { ok: false; error: string; cause: unknown };
 
 /** Hand one session over and say how it went. Never throws: a refusal or a lost request is an outcome to show. */
 export async function runHandOver(
@@ -37,6 +38,6 @@ export async function runHandOver(
     const result = await send(sessionId, to);
     return { ok: true, sentence: result.sentence };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    return { ok: false, error: err instanceof Error ? err.message : String(err), cause: err };
   }
 }

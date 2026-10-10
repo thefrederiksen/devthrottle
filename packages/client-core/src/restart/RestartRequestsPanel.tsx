@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { gatewayErrorMessage } from "../api/client";
+import { backgroundRecovered, describeAndReport } from "../errors/reportClientError";
 import {
   acceptRestartRequest,
   declineRestartRequest,
@@ -7,6 +7,8 @@ import {
   visibleRestartRequests,
   type DirectorRestartRequest,
 } from "./restartRequests";
+
+const SURFACE = "restart-requests";
 
 // The "Needs you" item for a Director restart - issue #2725 (restart epic, Phase 6). Shared by the
 // Cockpit and the phone: ONE component, mounted by both shells above their "Needs you" group, so the
@@ -40,10 +42,11 @@ export function useRestartRequests(): { requests: DirectorRestartRequest[]; erro
         if (stopped) return;
         setRequests(list);
         setError(null);
+        backgroundRecovered(SURFACE, "read the restart requests");
       } catch (err) {
         if (stopped || controller.signal.aborted) return;
         // Keep the last-known list on screen; say plainly that the read failed.
-        setError(gatewayErrorMessage(err));
+        setError(describeAndReport(SURFACE, "read the restart requests", err, { background: true }));
       }
       if (!stopped) timer = setTimeout(() => void load(), POLL_INTERVAL_MS);
     };
@@ -107,7 +110,7 @@ export function RestartRequestCard({ request, onChanged }: RestartRequestCardPro
       onChanged?.();
     } catch (err) {
       // The Gateway's own sentence, verbatim - a refusal on accept names what changed on the machine.
-      if (mounted.current) setFailure(gatewayErrorMessage(err, which === "accept" ? "accept the restart" : "decline the restart"));
+      if (mounted.current) setFailure(describeAndReport(SURFACE, which === "accept" ? "accept the restart" : "decline the restart", err));
     } finally {
       if (mounted.current) setBusy(null);
     }

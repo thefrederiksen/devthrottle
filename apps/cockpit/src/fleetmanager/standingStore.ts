@@ -9,4 +9,5 @@ export const FLEET_STANDING_POLL_MS = 30000;
 export const fleetStandingStore = createPollingStore<FleetStanding>({
   fetcher: (signal) => getFleetStanding(signal),
   intervalMs: FLEET_STANDING_POLL_MS,
+  reporting: { surface: "cockpit-fleet-manager", action: "read the standing preferences" },
 });

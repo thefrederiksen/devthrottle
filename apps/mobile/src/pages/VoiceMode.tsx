@@ -311,7 +311,7 @@ export function VoiceMode() {
         </div>
 
         {error !== null && (
-          <div className="banner banner-error" role="alert">{error}</div>
+          <div className="banner banner-error" role="alert">{/* error-reported-by: useVoiceMode */}{error}</div>
         )}
 
         {/* A menu owns this session's screen, so the last spoken reply was NOT typed (issue #2193).
@@ -320,6 +320,7 @@ export function VoiceMode() {
             wingman says this out loud too; the banner is what stays on screen afterwards. */}
         {menuBlocked !== null && (
           <div className="banner banner-menu banner-action" role="alert">
+            {/* error-report-exempt: the Gateway's own refusal (a menu owns the screen), decided and answered there - no client failure to log */}
             <span>{menuBlocked}</span>
             <button type="button" className="banner-btn" onClick={clearMenuBlocked}>
               Dismiss

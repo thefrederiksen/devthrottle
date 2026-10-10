@@ -198,6 +198,31 @@ function backgroundKey(surface: string, action: string): string {
 }
 
 /**
+ * Show AND report a failure the client found itself, with no error object to describe: "This browser cannot
+ * store recordings", "the phone suspended the microphone". The sibling of describeAndReport for those sites -
+ * describeAndReport would rewrite a sentence that is already right into "something unexpected went wrong".
+ * Returns `message` unchanged, so the call can sit where the text is shown. Never pass the user's own words.
+ * `background` works as it does for describeAndReport: reported only when the sentence changes for that surface
+ * and action, until {@link backgroundRecovered}.
+ */
+export function reportShownError(surface: string, action: string, message: string, context?: ReportContext, cause?: unknown): string {
+  if (context?.background) {
+    const key = backgroundKey(surface, action);
+    if (backgroundShown.get(key) === message) return message;
+    backgroundShown.set(key, message);
+  }
+  reportClientError({
+    surface,
+    action,
+    message,
+    user_visible: true,
+    ...(cause === undefined ? {} : errorFacts(cause)),
+    ...(context?.sessionId ? { session_id: context.sessionId } : {}),
+  });
+  return message;
+}
+
+/**
  * Send what is waiting: the lost count first (as a report of its own), then the queue, oldest first, while
  * the per-minute cap allows. Stops at the first report that cannot be sent - the connection is not back.
  */

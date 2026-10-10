@@ -37,7 +37,7 @@ export function TranscriptionTab({ healthHref }: TranscriptionTabProps) {
       setError(null);
       setSnap(await getAiProvider());
     } catch (e) {
-      setError(errText(e));
+      setError(errText(e, "load the transcription settings"));
     }
   }, []);
 

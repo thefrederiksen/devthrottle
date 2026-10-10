@@ -40,7 +40,7 @@
 // starts in their team on the next load here. A stored answer that names a team waits for the list like a picked
 // team does (`resolving`); a stored own-account answer draws at once.
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { gatewayErrorMessage } from "../api/client";
+import { backgroundRecovered, describeAndReport } from "../errors/reportClientError";
 import { activeAccount } from "../auth/accountStore";
 import { getMyTeams, type MyTeamsAnswer, type TeamStart, type TeamSummary } from "./teamsClient";
 
@@ -207,6 +207,7 @@ export function CurrentTeamProvider({
         (answer) => {
           if (controller.signal.aborted) return;
           failures = 0;
+          backgroundRecovered("current-team", "read your teams");
           setLoaded(
             answer.kind === "teams"
               ? { status: "ready", teams: answer.teams, start: answer.start, error: null }
@@ -216,7 +217,7 @@ export function CurrentTeamProvider({
         (err: unknown) => {
           if (controller.signal.aborted) return;
           failures += 1;
-          setLoaded({ status: "error", teams: [], start: null, error: gatewayErrorMessage(err, "read your teams") });
+          setLoaded({ status: "error", teams: [], start: null, error: describeAndReport("current-team", "read your teams", err, { background: true }) });
           timer = window.setTimeout(read, retryDelayMs(failures));
         },
       );

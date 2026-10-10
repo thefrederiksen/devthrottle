@@ -15,12 +15,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 //   - a genuinely permanent failure PARKS the clip (keeps the audio, stops the auto-loop) and only an
 //     explicit Retry re-drives it, while transient failures still auto-retry (issue #1184).
 
-vi.mock("../api/client", () => ({
-  uploadDictationToSession: vi.fn(),
-  abandonDictation: vi.fn(),
-  sendPrompt: vi.fn(),
-  readDictationOutcome: vi.fn(),
-}));
+vi.mock("../api/client", async (importOriginal) => {
+  // The error reporter needs the real error helpers; everything else stays faked.
+  const real = await importOriginal<typeof import("../api/client")>();
+  return {
+    GatewayError: real.GatewayError,
+    gatewayErrorMessage: real.gatewayErrorMessage,
+    authHeaders: real.authHeaders,
+    uploadDictationToSession: vi.fn(),
+    abandonDictation: vi.fn(),
+    sendPrompt: vi.fn(),
+    readDictationOutcome: vi.fn(),
+  };
+});
 vi.mock("./pendingStore", () => ({
   savePending: vi.fn(),
   deletePending: vi.fn(),
@@ -48,6 +55,7 @@ import {
 } from "./backgroundSend";
 import { deletePending, getPending, listPending, savePending, type PendingDictation } from "./pendingStore";
 import { allDictationStatuses, clearDictationStatus } from "./status";
+import { resetReportingForTests, setReportingComponent } from "../errors/reportClientError";
 
 // The moment Send was pressed in these tests: deliberately NOT "now", so a test can tell the Send time
 // apart from the moment the record was saved.
@@ -169,7 +177,7 @@ describe("the empty-capture gate (an empty recording must never enter the durabl
       "Recording failed - it captured no audio, so nothing was sent and nothing is being retried. Check the microphone is working and record it again.",
     );
     // The host's own error surface fires too, so the message is not confined to the strip.
-    expect(onError).toHaveBeenCalledWith(status?.error);
+    expect(onError).toHaveBeenCalledWith(status?.error, undefined);
     // Nothing was queued, so any typed text the dialog cleared must come back - same contract as the
     // no-durable-store path, the other case where the clip is not queued.
     expect(onFailed).toHaveBeenCalledTimes(1);
@@ -297,6 +305,97 @@ describe("backgroundTranscribeAndSend", () => {
     const all = allDictationStatuses();
     expect(all[0].phase).toBe("failed");
     expect(all[0].retryable).toBe(false);
+  });
+});
+
+describe("the dictation Send red box is reported (the Error Logging mission, issue #3675, ruling R2)", () => {
+  // Both hard failures render the red strip, so both are reported in the same act: as the Send failure ("send
+  // prompt"), seen by the user, with the session - and never the words. The typed text either side of the
+  // dictation travels with this send, so a report that carried it would put a prompt into the error store.
+  const MARKER = "WORDS-MARKER-7f3a";
+  const reportBodies = () =>
+    vi
+      .mocked(fetch)
+      .mock.calls.filter(([url]) => url === "/client-errors")
+      .map(([, init]) => String((init as RequestInit).body));
+
+  beforeEach(() => {
+    resetReportingForTests();
+    setReportingComponent("mobile");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 202 })));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it.each([
+    ["an empty capture", () => ({ ...captured, blob: new Blob([]) }), undefined],
+    ["no durable storage", () => captured, new Error("indexedDB unavailable")],
+  ])("%s: reported as send prompt, with the session, and the host gets the original error", async (_name, clip, cause) => {
+    if (cause) vi.mocked(savePending).mockRejectedValue(cause);
+    const onError = vi.fn();
+
+    await backgroundTranscribeAndSend("sid", { ...clip(), prefixText: `${MARKER} prefix` }, {
+      onError,
+      composeParts: { before: `${MARKER} before`, after: `${MARKER} after` },
+    });
+
+    expect(onError).toHaveBeenCalledWith(expect.any(String), cause);
+    await vi.waitFor(() => expect(reportBodies()).toHaveLength(1));
+    const report = JSON.parse(reportBodies()[0]) as Record<string, unknown>;
+    expect(report).toMatchObject({ surface: "dictation", action: "send prompt", user_visible: true, session_id: "sid" });
+    expect(report.message).toBe(onError.mock.calls[0][0]);
+    expect(reportBodies()[0]).not.toContain(MARKER);
+  });
+});
+
+describe("a parked recording is reported where the park is decided (the 3c re-review)", () => {
+  // A park is a Send that stopped for good, and the person sees it. Every park is reported, each recording its own;
+  // showing a recorded park again on resume is not a new failure. (A background report under one key reported only
+  // the first park of each kind for the life of the page.)
+  const reportBodies = () =>
+    vi
+      .mocked(fetch)
+      .mock.calls.filter(([url]) => url === "/client-errors")
+      .map(([, init]) => JSON.parse(String((init as RequestInit).body)) as Record<string, unknown>);
+
+  beforeEach(() => {
+    resetReportingForTests();
+    setReportingComponent("mobile");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 202 })));
+    vi.mocked(uploadDictationToSession).mockResolvedValue(PERMANENT);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("two recordings parked for the same reason are two reports, one per session", async () => {
+    await backgroundTranscribeAndSend("session-A", captured);
+    await vi.advanceTimersByTimeAsync(1500);
+    await backgroundTranscribeAndSend("session-B", captured);
+    await vi.advanceTimersByTimeAsync(1500);
+
+    expect(allDictationStatuses().filter((s) => s.phase === "parked")).toHaveLength(2);
+    expect(reportBodies().map((r) => [r.action, r.session_id])).toEqual([
+      ["send prompt", "session-A"],
+      ["send prompt", "session-B"],
+    ]);
+  });
+
+  it("a parked recording shown again on resume is not reported again", async () => {
+    await backgroundTranscribeAndSend("session-A", captured);
+    await vi.advanceTimersByTimeAsync(1500);
+    const saved = vi.mocked(savePending).mock.calls[0][0];
+    vi.mocked(listPending).mockResolvedValue([{ ...saved, parkedReason: "audio-too-large" }]);
+    const before = reportBodies().length;
+
+    await resumePendingDictations();
+    await vi.advanceTimersByTimeAsync(1500);
+
+    expect(allDictationStatuses().find((s) => s.uploadId === saved.id)?.phase).toBe("parked");
+    expect(reportBodies()).toHaveLength(before);
   });
 });
 

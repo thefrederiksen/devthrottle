@@ -7,7 +7,11 @@ import { MemoryRouter } from "react-router-dom";
 // folds the words; the card renders them verbatim and decides nothing. These fail if the line is dropped,
 // reworded, or shown for a session the Gateway said nothing about.
 
-vi.mock("@devthrottle/client-core/api/client", () => ({
+vi.mock("@devthrottle/client-core/api/client", async (importOriginal) => ({
+  // The error reporter needs the real error helpers; the rest is faked.
+  ...(({ GatewayError, gatewayErrorMessage, authHeaders }) => ({ GatewayError, gatewayErrorMessage, authHeaders }))(
+    await importOriginal<typeof import("@devthrottle/client-core/api/client")>(),
+  ),
   gatewayErrorMessage: (err: unknown) => String(err),
   setVoiceModeAllSessions: vi.fn(async () => ({ changed: 0, skipped: 0 })),
 }));

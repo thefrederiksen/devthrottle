@@ -19,13 +19,15 @@
 //
 // Lives in client-core so the shell stays thin; only the Cockpit mounts it (the owner's ruling - not the phone).
 import { useEffect, useMemo, useState } from "react";
-import { gatewayErrorMessage } from "../api/client";
+import { describeAndReport } from "../errors/reportClientError";
 import { readWingmanStops, type WingmanStop, type WingmanStopsResponse } from "./wingmanStops";
 import { readWingmanNow, type WingmanNow as WingmanNowDto } from "./wingmanNowRead";
 import { WingmanNow, type WingmanNowActions, type WingmanNowReplyBox } from "./WingmanNow";
 import { WingmanDebugView } from "./WingmanDebugView";
 import { getAccountStatus } from "../account/accountClient";
 import "./wingmanTab.css";
+
+const SURFACE = "wingman-tab";
 
 /** How often Now is re-read while the tab is open. It is one session's live stop, read only while it is on screen. */
 const NOW_REFRESH_MILLISECONDS = 5000;
@@ -89,7 +91,7 @@ export function WingmanTab({
         })
         .catch((err: unknown) => {
           if (!live || controller.signal.aborted) return;
-          setFailure(gatewayErrorMessage(err, "read what this session needs now"));
+          setFailure(describeAndReport(SURFACE, "read what this session needs now", err, { sessionId }));
         });
     };
 
@@ -232,7 +234,7 @@ export function WingmanStopsView({ sessionId }: { sessionId: string }) {
       .then((answer) => setLoad({ kind: "loaded", answer }))
       .catch((err: unknown) => {
         if (controller.signal.aborted) return;
-        setLoad({ kind: "error", message: gatewayErrorMessage(err, "read the Wingman's stops for this session") });
+        setLoad({ kind: "error", message: describeAndReport(SURFACE, "read the Wingman's stops for this session", err, { sessionId }) });
       });
     return () => controller.abort();
   }, [sessionId]);

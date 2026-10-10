@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { getSessionHistory } from "../api/client";
 import { useVisiblePolling } from "../polling/useVisiblePolling";
+import { backgroundRecovered, describeAndReport } from "../errors/reportClientError";
 import type { HistoryBubbleFilter } from "./bubbleMapper";
 import type { SessionHistoryDto } from "./types";
 import { applyHistoryPage, type HeldConversation } from "./conversationTail";
@@ -99,12 +100,13 @@ export function useSessionChat(sessionId: string | undefined): SessionChat {
         const history = next.history;
         setLoadFailed(false);
         setLoadError(null);
+        backgroundRecovered("session-chat", "load the conversation");
         lastHistoryRef.current = history;
         renderHistory(history, false);
       } catch (err) {
         if (signal.aborted) return;
         setLoadFailed(true);
-        setLoadError(err instanceof Error ? err.message : String(err));
+        setLoadError(describeAndReport("session-chat", "load the conversation", err, { sessionId, background: true }));
       }
     },
     [sessionId, renderHistory],

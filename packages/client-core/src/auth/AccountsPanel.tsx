@@ -10,6 +10,7 @@
 import { useState } from "react";
 import { signOutAccount, signOutAllAccounts, switchAccount } from "./accountActions";
 import { useAccounts } from "./useAccounts";
+import { reportShownError } from "../errors/reportClientError";
 import "./accounts.css";
 
 export interface AccountsPanelProps {
@@ -39,7 +40,7 @@ export function AccountsPanel({ onAddAccount }: AccountsPanelProps) {
     const result = await run();
     // On success the app is already navigating away, so there is nothing to put back.
     if (!result.ok) {
-      setProblem(result.reason);
+      setProblem(reportShownError("accounts", "sign out", result.reason));
       setBusy(false);
     }
   }
