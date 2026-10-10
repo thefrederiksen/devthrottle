@@ -1,4 +1,5 @@
 using CcDirector.Core.Configuration;
+using CcDirector.Core.ErrorReports;
 using CcDirector.Setup.Engine;
 
 namespace CcDirector.Setup.Cli;
@@ -405,6 +406,51 @@ internal static class Commands
         if (json) Program.WriteJson(new { command = "enroll", enrolled = false, message = reason });
         else Console.Error.WriteLine(reason);
         return Error;
+    }
+
+    /// <summary>
+    /// `install`: the install itself (<see cref="UpdateAsync"/> in install mode), with a start report before it,
+    /// a done or failed report after it, and the next step printed on success (issue #3722). A dry run sends
+    /// nothing. The start report is sent while the install runs, so an unreachable Gateway never delays it.
+    /// </summary>
+    public static async Task<int> InstallAsync(CliArgs args, InstallLayout layout, bool json)
+    {
+        if (args.HasFlag("dry-run")) return await UpdateAsync(args, layout, json, installMode: true);
+
+        var role = Role(args);
+        var tag = InstallTag.FromEnvironment();
+        var reporter = new InstallFailureReporter(layout, InstallProgress.Component);
+        var started = reporter.ReportAsync(InstallProgress.Component, InstallProgress.StepStart,
+            InstallProgress.StartMessage(role, tag), null);
+
+        int code;
+        try
+        {
+            code = await UpdateAsync(args, layout, json, installMode: true);
+        }
+        catch (Exception ex) when (ex is not UsageException)
+        {
+            await started;
+            await reporter.ReportAsync(InstallProgress.Component, InstallProgress.StepFailed,
+                InstallProgress.CrashedMessage(role, ex, tag), ex.ToString());
+            throw;
+        }
+
+        await started;
+        if (code == Ok)
+        {
+            await reporter.ReportAsync(InstallProgress.Component, InstallProgress.StepDone,
+                InstallProgress.DoneMessage(role, tag), null);
+            if (!json)
+                foreach (var line in InstallProgress.NextStep(role, OperatingSystem.IsMacOS(), OperatingSystem.IsWindows()))
+                    Console.WriteLine(line);
+        }
+        else
+        {
+            await reporter.ReportAsync(InstallProgress.Component, InstallProgress.StepFailed,
+                InstallProgress.FailedMessage(role, code, tag), null);
+        }
+        return code;
     }
 
     public static async Task<int> UpdateAsync(CliArgs args, InstallLayout layout, bool json, bool installMode)

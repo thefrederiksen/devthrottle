@@ -323,6 +323,7 @@ public partial class MainWindow : Window
     private async Task RunInstallAsync()
     {
         SetupLog.Write("[MainWindow] RunInstallAsync: starting");
+        WizardProgressReport.Start(_role, _isUpdate);
 
         var runner = new EngineInstallRunner
         {
@@ -343,6 +344,7 @@ public partial class MainWindow : Window
         catch (GitHubRateLimitException ex)
         {
             SetupLog.Write($"[MainWindow] RunInstallAsync: prepare FAILED (rate limit): {ex.Message}");
+            WizardProgressReport.Failed(_role, "release info: GitHub rate limit", ex.Message);
             _installStep?.SetNotStarted();
             _installStep?.SetStatus(ex.UserMessage());
             NextButton.Content = "Retry";
@@ -355,6 +357,7 @@ public partial class MainWindow : Window
         catch (ReleaseNotReadyException ex)
         {
             SetupLog.Write($"[MainWindow] RunInstallAsync: prepare deferred (release not ready): {ex.Message}");
+            WizardProgressReport.Failed(_role, "release info: release not ready", ex.Message);
             _installStep?.SetNotStarted();
             _installStep?.SetStatus(ex.UserMessage());
             NextButton.Content = "Retry";
@@ -364,6 +367,7 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             SetupLog.Write($"[MainWindow] RunInstallAsync: prepare FAILED: {ex.Message}");
+            WizardProgressReport.Failed(_role, "could not fetch release info", ex.ToString());
             _installStep?.SetNotStarted();
             _installStep?.SetStatus("ERROR: Could not fetch release info from GitHub.");
             NextButton.Content = "Retry";
@@ -412,6 +416,7 @@ public partial class MainWindow : Window
                 return;
             }
 
+            WizardProgressReport.Done(_role, _isUpdate, $"already up to date at {prep.Version}");
             NextButton.Content = "Next";
             NextButton.IsEnabled = true;
             return;
@@ -486,6 +491,7 @@ public partial class MainWindow : Window
             return;
         }
 
+        WizardProgressReport.Done(_role, _isUpdate, $"{prep.Version}, {installed} installed, {skipped} skipped{(repair ? " (repair)" : "")}");
         NextButton.Content = "Next";
         NextButton.IsEnabled = true;
     }
@@ -515,11 +521,13 @@ public partial class MainWindow : Window
             }
             _installStep?.SetLauncherFailed();
             _installStep?.SetStatus($"ERROR: Launcher tray app failed to start. {result.Message}");
+            WizardProgressReport.Failed(_role, $"launcher did not start: {result.Message}", string.Join(Environment.NewLine, result.Steps));
             return false;
         }
         catch (Exception ex)
         {
             SetupLog.Write($"[MainWindow] StartLauncherAsync FAILED: {ex.Message}");
+            WizardProgressReport.Failed(_role, $"launcher did not start: {ex.GetType().Name}: {ex.Message}", ex.ToString());
             _installStep?.SetLauncherFailed();
             _installStep?.SetStatus($"ERROR: Launcher tray app failed to start. {ex.Message}");
             return false;
