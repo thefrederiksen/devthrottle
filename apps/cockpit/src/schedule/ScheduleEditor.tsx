@@ -396,28 +396,31 @@ export function ScheduleEditor({
 
                 {/* The factory seat this schedule runs as (the owner, 2026-10-10). The Gateway checks the pair on
                     save; it cannot take a schedule out of its factory, so "no factory" is offered only to a
-                    schedule that has none. A stored value the list does not hold is kept as it is. */}
-                <div className="sched-fld">
-                  <label className="sched-fld-label" htmlFor="sched-factory">Factory</label>
-                  <select
-                    id="sched-factory"
-                    value={form.factory}
-                    disabled={seatChoices === null}
-                    onChange={(e) => setForm((f) => ({ ...f, factory: e.target.value, seat: "" }))}
-                  >
-                    {seatChoices === null && <option value={form.factory}>{seatChoicesError === null ? "Loading..." : form.factory}</option>}
-                    {seatChoices !== null && initial.factory.length === 0 && <option value="">{seatChoices.noneLabel}</option>}
-                    {seatChoices !== null && form.factory.length > 0 && chosenFactory === undefined && (
-                      <option value={form.factory}>{form.factory}</option>
-                    )}
-                    {seatChoices?.factories.map((c) => (
-                      <option key={c.factory} value={c.factory}>
-                        {c.title}
-                      </option>
-                    ))}
-                  </select>
-                  {seatChoicesError !== null && <div className="sched-fld-err">{seatChoicesError}</div>}
-                </div>
+                    schedule that has none. A stored value the list does not hold is kept as it is. A work-list
+                    schedule cannot be a factory's, so it is offered no factory at all. */}
+                {(form.actionKind === "seed" || form.factory.length > 0) && (
+                  <div className="sched-fld">
+                    <label className="sched-fld-label" htmlFor="sched-factory">Factory</label>
+                    <select
+                      id="sched-factory"
+                      value={form.factory}
+                      disabled={seatChoices === null}
+                      onChange={(e) => setForm((f) => ({ ...f, factory: e.target.value, seat: "" }))}
+                    >
+                      {seatChoices === null && <option value={form.factory}>{seatChoicesError === null ? "Loading..." : form.factory || "Unavailable"}</option>}
+                      {seatChoices !== null && initial.factory.length === 0 && <option value="">{seatChoices.noneLabel}</option>}
+                      {seatChoices !== null && form.factory.length > 0 && chosenFactory === undefined && (
+                        <option value={form.factory}>{form.factory}</option>
+                      )}
+                      {seatChoices?.factories.map((c) => (
+                        <option key={c.factory} value={c.factory}>
+                          {c.title}
+                        </option>
+                      ))}
+                    </select>
+                    {seatChoicesError !== null && <div className="sched-fld-err">{seatChoicesError}</div>}
+                  </div>
+                )}
 
                 {form.factory.length > 0 && (
                   <div className="sched-fld">

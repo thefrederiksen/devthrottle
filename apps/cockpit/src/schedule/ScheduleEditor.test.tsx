@@ -21,6 +21,7 @@ vi.mock("@devthrottle/client-core/fleet/fleetClient", async (importOriginal) => 
 }));
 
 import { ScheduleEditor } from "./ScheduleEditor";
+import type { CronJob } from "@devthrottle/client-core/schedule/scheduleClient";
 
 const CHOICES = {
   noneLabel: "No factory (Personal)",
@@ -36,7 +37,7 @@ const CHOICES = {
   ],
 };
 
-const personal = {
+const personal: CronJob = {
   id: "cj_54663c",
   name: "WarmForward Factory - Nora Hale - morning run",
   enabled: true,
@@ -53,7 +54,7 @@ const personal = {
   seat: null,
 };
 
-function openOn(job: typeof personal) {
+function openOn(job: CronJob) {
   const onSaved = vi.fn();
   render(<ScheduleEditor request={{ kind: "edit", job }} onClose={vi.fn()} onSaved={onSaved} />);
   return onSaved;
@@ -113,13 +114,20 @@ describe("ScheduleEditor factory and seat picker", () => {
     expect(cronClient.updateCronJob).toHaveBeenCalledWith("cj_54663c", expect.objectContaining({ factory: null, seat: null }));
   });
 
+  it("offers no factory to a work-list schedule, which the Gateway would refuse", async () => {
+    openOn({ ...personal, action: { ...personal.action, seed: "", workListName: "Tonight" } });
+    await waitFor(() => expect(cronClient.getSeatChoices).toHaveBeenCalled());
+
+    expect(screen.queryByLabelText("Factory")).toBeNull();
+  });
+
   it("shows the Gateway's refusal of a pair in the form", async () => {
     cronClient.updateCronJob.mockRejectedValue(
       new GatewayError(400, "PUT /cron/jobs/cj_54663c failed", {
         reason: "'ceo' is not a seat of WarmForward Factory (warmforward); its seats are: value-hunter.",
       }),
     );
-    openOn({ ...personal, factory: "warmforward" as never, seat: "ceo" as never });
+    openOn({ ...personal, factory: "warmforward", seat: "ceo" });
     await factorySelect();
 
     fireEvent.click(screen.getByRole("button", { name: "Save" }));

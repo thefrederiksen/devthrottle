@@ -1116,6 +1116,8 @@ public static class SessionKeyGuard
     {
         // /cron/load - each machine's next 24 hours (the load strip), which `schedule load` reads.
         if (s.Length == 2 && s[0] == "cron" && s[1] == "load") return verb is "GET" or "HEAD";
+        // /cron/seat-choices - the factories and seats a schedule may be linked to (the editor's picker).
+        if (s.Length == 2 && s[0] == "cron" && s[1] == "seat-choices") return verb is "GET" or "HEAD";
 
         if (s.Length < 2 || s[0] != "cron" || s[1] != "jobs") return false;
 
