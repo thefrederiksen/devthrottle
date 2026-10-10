@@ -1068,7 +1068,7 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
             }
             else
             {
-                ToolsFixProgress.Text = $"The repair did not succeed: {result.Message}";
+                ToolsFixProgress.Text = ShownError.Report("first-run wizard", "repair the tools", $"The repair did not succeed: {result.Message}");
             }
         }
         catch (Exception ex)

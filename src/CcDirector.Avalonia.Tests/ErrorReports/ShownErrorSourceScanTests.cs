@@ -355,6 +355,84 @@ public sealed class ShownErrorSourceScanTests
         Assert.Single(r.Violations);
     }
 
+    // ----- review of #3737, round 3: the reviewer's out-of-tree probe shapes, as tests -----
+
+    [Fact]
+    public void Scan_S1_ShapeA_TheFailureBranchReported_IsOnTheHelper()
+    {
+        var r = ScanOne(Head + "void M(bool ok, string message){ ShowFirewallStatus(ok ? message : ShownError.Report(\"settings\", \"x\", message), error: !ok); } }");
+        Assert.Equal("on the helper", Assert.Single(r.Sites).Status);
+    }
+
+    [Fact]
+    public void Scan_S1_ShapeB_TheBranchesSwapped_IsNotReported()
+    {
+        // The SUCCESS branch reported and the failure branch shown raw.
+        var r = ScanOne(Head + "void M(bool ok, string message){ ShowFirewallStatus(ok ? ShownError.Report(\"settings\", \"x\", message) : message, error: !ok); } }");
+        Assert.Single(r.Violations);
+    }
+
+    [Fact]
+    public void Scan_S1_ShapeC_AHelperCallInAnArgumentThatIsNotTheShownText_IsNotReported()
+    {
+        var r = ScanOne(Head + "void M(bool ok, string message){ ShowStatus(message, ShownError.Report(\"settings\", \"x\", \"title\"), error: !ok); } }");
+        Assert.Single(r.Violations);
+    }
+
+    [Fact]
+    public void Scan_S1_TheFailureBranch_IsToldByTheFlagWhenTheConditionsNameDoesNot()
+    {
+        // The condition `answer` says nothing; the flag `success: answer` makes WhenFalse the failure.
+        const string good = "void M(bool answer, string m){ SetResult(answer ? m : ShownError.Report(\"s\", \"a\", m), success: answer); } }";
+        Assert.Empty(ScanOne(Head + good).Violations);
+        const string bad = "void M(bool answer, string m){ SetResult(answer ? ShownError.Report(\"s\", \"a\", m) : m, success: answer); } }";
+        Assert.Single(ScanOne(Head + bad).Violations);
+    }
+
+    [Fact]
+    public void Scan_S1_ACountOfFailures_TellsTheFailureBranch()
+    {
+        // CommManagerViewModel: StatusMessage-style `failed > 0 ? Report(..) : summary`.
+        const string good = "void M(int failed, string summary){ StatusText.Text = failed > 0 ? ShownError.Report(\"s\", \"a\", $\"{failed} failed\") : summary; } }";
+        Assert.Empty(ScanOne(Head + good).Violations);
+        const string bad = "void M(int failed, string summary){ StatusText.Text = failed > 0 ? $\"{failed} failed\" : ShownError.Report(\"s\", \"a\", summary); } }";
+        Assert.Single(ScanOne(Head + bad).Violations);
+    }
+
+    [Fact]
+    public void Scan_S1_AFixedTitleLiteral_IsNotTheShownError()
+    {
+        // App: NativeNotice.Show(notice, "Director - Startup error", ...) with notice reported.
+        var r = ScanOne(Head + "void M(Exception ex){ var notice = ShownError.Report(\"s\", \"a\", ex.Message, ex); NativeNotice.Show(notice, \"Director - Startup error\", NativeNotice.Kind.Error); } }");
+        Assert.Equal("on the helper", Assert.Single(r.Sites, s => s.Kind == "message box").Status);
+    }
+
+    [Fact]
+    public void Scan_S1_TheTextArgument_IsReadFromTheMethodsDeclaration()
+    {
+        // SetIncomplete(int started, int total, string detail): the text is the third argument.
+        const string decl = " void SetIncomplete(int started, int total, string detail){ } }";
+        Assert.Empty(ScanOne(Head + "void M(int s, int t, string d){ SetIncomplete(s, t, ShownError.Report(\"s\", \"a\", d)); }" + decl).Violations);
+        Assert.Single(ScanOne(Head + "void M(int s, int t, string d){ SetIncomplete(s, t, d); }" + decl).Violations);
+    }
+
+    [Fact]
+    public void Scan_S2_ShapeD_APositiveTestOfTheOutcome_MakesItsTextErrorText()
+    {
+        var conditional = ScanOne(Head + "void M(){ var result = Run(); StatusText.Text = result.Ok ? result.Message : result.Message; } }");
+        Assert.Equal("control text", Assert.Single(conditional.Violations).Kind);
+        var ifElse = ScanOne(Head + "void M(){ var result = Run(); if (result.Ok) { Go(); } else { StatusText.Text = result.Message; } } }");
+        Assert.Equal("control text", Assert.Single(ifElse.Violations).Kind);
+    }
+
+    [Fact]
+    public void Scan_S2_APositiveTestWithNoElse_DoesNotMakeTheTextErrorText()
+    {
+        // if (x.Ok) alone chooses nothing - the text shown under it is the success's own account.
+        var r = ScanOne(Head + "void M(){ var result = Run(); if (result.Ok) StatusText.Text = result.Message; } }");
+        Assert.Empty(r.Sites);
+    }
+
     [Fact]
     public void Scan_AWrapperOnAnotherInstance_IsNotTrustedToReport()
     {

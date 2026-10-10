@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using Avalonia.Media;
 using CcDirector.Core.Tools;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia.Controls;
 
@@ -80,7 +81,13 @@ public sealed class TestResultViewModel
         Passed = result.Passed;
         ResultText = result.Passed ? "[PASS]" : "[FAIL]";
         ResultBrush = ToolStatusVisuals.Brush(result.Passed ? "#22C55E" : "#DC2626");
-        Detail = $"{result.DurationMs} ms  -  {result.Message}";
+        // A failed test is a failure the user sees in red. Reported without its message, which can carry the
+        // tool's own output; the label says which test.
+        var detail = $"{result.DurationMs} ms  -  {result.Message}";
+        Detail = result.Passed
+            ? detail
+            : ShownError.Report("tools", $"pass the tool test \"{result.Label}\"", detail,
+                reported: $"the tool test \"{result.Label}\" failed");
     }
 
     public string Label { get; }
