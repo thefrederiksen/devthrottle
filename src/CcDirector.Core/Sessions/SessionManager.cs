@@ -822,6 +822,15 @@ public sealed class SessionManager : IDisposable
             if (factoryMemoryDir is not null)
                 envVars[FactoryMemoryFiles.DirectoryEnvVar] = factoryMemoryDir;
 
+            // Every build an agent runs gets helper processes that end with that build. With node reuse
+            // on (the MSBuild default), each `dotnet build` leaves its worker nodes alive for minutes
+            // waiting for a next build that, from a session's worktree, rarely comes - and a fleet of
+            // sessions each building in its own worktree piled up dozens of idle MSBuild.exe and
+            // VBCSCompiler processes holding gigabytes on SOREN_NORTH. Stamped for every agent kind and
+            // every repository, and it overrides an inherited value on purpose: this is the Director's
+            // decision for the sessions it starts.
+            envVars[MsBuildNodeReuse.DisableEnvVar] = MsBuildNodeReuse.Disabled;
+
             // Put the machine's installed cc-* tools first on the session's PATH.
             //
             // Machine PATH is shared state: any other install, an unfinished migration, or a test rig
