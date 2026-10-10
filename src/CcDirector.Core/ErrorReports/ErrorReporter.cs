@@ -25,8 +25,14 @@ namespace CcDirector.Core.ErrorReports;
 ///     no input or output, no waiting. The table holds at most <see cref="MaxPending"/> distinct errors;
 ///     beyond that, new ones are counted and dropped, and one line says so for each time it fills up.
 ///     A line longer than <see cref="MaxLineChars"/> is cut before it is parsed or scrubbed.
-///   - The same error repeated is ONE entry with a count, so an error loop costs one row, not thousands.
-///     Digits are ignored when deciding "the same", so "retry 3" and "retry 4" collapse too.
+///   - The same error repeated under the same <see cref="ErrorContext"/> is ONE entry with a count, so an error
+///     loop costs one row, not thousands. Digits are ignored in the message when deciding "the same", so "retry 3"
+///     and "retry 4" collapse too - but never in the context: the same error under two correlation ids is two
+///     rows, on purpose, so two incidents never read as one. The cost, accepted by the Tech Lead on 10 October
+///     2026: a failed prompt send is two or three rows under its own command id, so the
+///     <see cref="MaxSentPerHour"/> of 60 reports 20 to 30 failed sends an hour in full and the rest wait, and
+///     the <see cref="MaxPending"/> of 200 is full after about 66 to 100 failed sends - from then on every new
+///     distinct error on the machine is dropped, and counted, until a batch leaves.
 ///   - Sending happens on a background timer, in batches of at most
 ///     <see cref="ErrorReportLimits.MaxReportsPerBatch"/>, and at most <see cref="MaxSentPerHour"/> reports
 ///     an hour leave the process. The Gateway enforces its own per-device limit as well.

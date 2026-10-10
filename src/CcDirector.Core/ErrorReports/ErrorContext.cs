@@ -14,6 +14,16 @@ namespace CcDirector.Core.ErrorReports;
 /// Scopes nest: an inner scope keeps every field of the outer one it does not set itself, and disposing it puts
 /// the outer one back. The same model as <see cref="OutcomeScope"/>.
 ///
+/// Keep a scope open until the last row it is meant to stamp has been logged. A task started inside it that logs
+/// after it was disposed is stamped with nothing - the scope's fields describe work that has ended.
+///
+/// An inner scope can override an outer field but never clear it: a field it leaves out keeps the outer value. So a
+/// field that must describe one row only - userVisible, surface, action - goes on the innermost scope around that
+/// row; a scope around a whole path carries only what every row in it shares, such as the correlation and session id.
+///
+/// An inner scope copies the outer's fields when it opens, so disposing the outer while the inner is still open
+/// (possible only with scopes held by hand, never with nested using blocks) leaves the inner carrying them.
+///
 /// Every value here is written by our own code - ids, a screen's name, a plain-words action. Never put text a
 /// person or a model wrote into it. The reporter scrubs and caps every text field all the same.
 /// </summary>

@@ -159,6 +159,31 @@ public sealed class ErrorContextTests
     }
 
     [Fact]
+    public async Task OnLogLine_InATaskThatOutlivesItsContext_CarriesNoneOfTheFields()
+    {
+        var (reporter, handler) = NewReporter();
+        var release = new TaskCompletionSource();
+        Task late;
+
+        using (ErrorContext.Begin(correlationId: "cmd-8", sessionId: "session-c", userVisible: true))
+        {
+            late = Task.Run(async () =>
+            {
+                await release.Task;
+                reporter.OnLogLine("[Worker] Late FAILED: the answer came after the scope closed");
+            });
+        }
+        release.SetResult();
+        await late;
+        await reporter.SendPendingAsync(CancellationToken.None);
+
+        var item = Assert.Single(Sent(handler));
+        Assert.Null(item.CorrelationId);
+        Assert.Null(item.SessionId);
+        Assert.Null(item.UserVisible);
+    }
+
+    [Fact]
     public async Task OnLogLine_TheSameTextUnderTwoIds_StaysTwoRows_AndTheSameIdTwiceIsOneCountedRow()
     {
         var (reporter, handler) = NewReporter();
