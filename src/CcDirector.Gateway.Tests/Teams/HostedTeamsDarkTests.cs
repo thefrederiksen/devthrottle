@@ -96,8 +96,8 @@ public sealed class HostedTeamsDarkTests : IAsyncLifetime
         var team = _gateway.TeamRegistry.CreateTeam(_subject, "Dark governance").Team!.TeamId;
 
         // Only the TEAM governance route is switched by Teams. The governance event routes under /gateway/governance
-        // are a separate, always-mapped feature, so the filter names the team route and nothing else.
-        Assert.DoesNotContain(MappedPatterns(), p => p.StartsWith("/teams", StringComparison.Ordinal) && p.Contains("/governance", StringComparison.Ordinal));
+        // are a separate, always-mapped feature, so the check names the team route itself and nothing else.
+        Assert.DoesNotContain(CcDirector.Gateway.Api.TeamGovernanceEndpoints.GovernancePath, MappedPatterns());
         await AssertAnsweredAsAPathThatDoesNotExist(HttpMethod.Get, $"teams/{team}/governance", new { });
         await AssertAnsweredAsAPathThatDoesNotExist(HttpMethod.Put, $"teams/{team}/governance", new { review = new { noSelfMerge = true } });
 
