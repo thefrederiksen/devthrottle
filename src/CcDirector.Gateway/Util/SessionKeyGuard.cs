@@ -1123,6 +1123,15 @@ public static class SessionKeyGuard
         if (s.Length == 2 && s[0] == "cron" && s[1] == "load") return verb is "GET" or "HEAD";
         // /cron/seat-choices - the factories and seats a schedule may be linked to (the editor's picker).
         if (s.Length == 2 && s[0] == "cron" && s[1] == "seat-choices") return verb is "GET" or "HEAD";
+        // /cron/problems - the account's scheduled-run problems (Factory Control, step 1), which a factory's boss and
+        // the Factory Manager read with `run problems`.
+        if (s.Length == 2 && s[0] == "cron" && s[1] == "problems") return verb is "GET" or "HEAD";
+        // /cron/runs/result - a scheduled run's own session reports how it went (`run result`). The route reads the run
+        // off the calling key, so a session can only ever report on its own run.
+        if (s.Length == 3 && s[0] == "cron" && s[1] == "runs" && s[2] == "result") return verb == "POST";
+        // /cron/runs/{runId}/resolve - resolve a problem with a reason (`run resolve`). The route limits a factory's
+        // problem to that factory's own sessions, the same as acting on its schedule.
+        if (s.Length == 4 && s[0] == "cron" && s[1] == "runs" && s[3] == "resolve") return verb == "POST";
 
         if (s.Length < 2 || s[0] != "cron" || s[1] != "jobs") return false;
 

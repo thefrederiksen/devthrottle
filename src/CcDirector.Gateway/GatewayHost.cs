@@ -926,6 +926,8 @@ public sealed class GatewayHost : IAsyncDisposable
     private readonly CronJobStore _cronJobs;
     private readonly CronRunHistoryStore _cronRuns;
     private readonly Running.CronEngine _cronEngine;
+    // Factory Control, step 1: how each scheduled run went - its own report, and the problems the Gateway records.
+    private readonly Running.CronRunResultService _cronRunResults;
     // G8 increment 2: the cron sweep now fires through the per-tenant tenancy seam (TenantScopedSweep) so it
     // can run ON hosted, tenant-isolated, instead of being disabled. Constructed alongside _cronEngine.
     private Running.CronTenantSweep? _cronSweep;
@@ -2327,6 +2329,18 @@ public sealed class GatewayHost : IAsyncDisposable
             // than filed under a guessed owner. On self-host this is always Local.
             resolveTenant: () => _tenantPass.Current);
         var cronClock = new Running.SystemClock();
+        // Factory Control, step 1 and 6: every run says how it went, and a factory-linked run leaves an activity row.
+        // The schedules and the work history are read in the ambient scope the route or the sweep entered; the run
+        // history and the activity record are told the account explicitly.
+        _cronRunResults = new Running.CronRunResultService(
+            _cronRuns,
+            jobById: id => _cronJobs.Get(id),
+            allJobs: () => _cronJobs.ListAll(),
+            // Assigned further down this constructor, before the first sweep or request can call this.
+            endingsOf: ids => _sessionHistory!.EndingsOf(ids),
+            zoneOf: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)),
+            appendActivity: (tenant, row) => FactoryActivity.Append(tenant, row, callingActor: null).Id,
+            nowUtc: () => cronClock.UtcNow);
         _cronEngine = new Running.CronEngine(
             _cronJobs, _cronRuns, new Running.DirectorCronSessionStarter(_machineSessionSpawner, cronClock,
                 // Issue #3650: a job whose factory or seat the registry does not have never starts. The fire runs in
@@ -2337,10 +2351,17 @@ public sealed class GatewayHost : IAsyncDisposable
             // MTR (audit MED): partition the overlap guard by the tenant of the CURRENT unit of work - the
             // run-now request scope on hosted, the single Local scope on self-host - the same seam the notifier
             // reads. A run-now for tenant A's cj_ id must never be refused by tenant B's in-flight same-id job.
-            resolveTenant: () => _tenantPass.Current);
+            resolveTenant: () => _tenantPass.Current,
+            onResultRecorded: (tenant, job, run) => _cronRunResults.Announce(tenant, job, run));
         // G8 increment 2: wrap the cron engine in the per-tenant worker seam so the background sweep enters
-        // each tenant's scope before it reads the tenant-scoped cron_jobs store.
-        _cronSweep = new Running.CronTenantSweep(_tenantBoundary, TenantRegistry, _cronEngine);
+        // each tenant's scope before it reads the tenant-scoped cron_jobs store. The same pass records the runs that
+        // did not report or ran past their shift (Factory Control, step 1).
+        _cronSweep = new Running.CronTenantSweep(_tenantBoundary, TenantRegistry, _cronEngine,
+            sweepResults: () =>
+            {
+                if (_tenantPass.Current is { } tenant)
+                    _cronRunResults.Sweep(tenant);
+            });
 
         // The factory triggers (Website Business Factory, product track). A trigger's session starts through the
         // SAME single resolve-then-create method a schedule's does, stamped with its own origin surface; whether
@@ -5505,6 +5526,14 @@ public sealed class GatewayHost : IAsyncDisposable
             // of that factory, so this route needs the schedule's factory and the caller's.
             jobById: id => _cronJobs.Get(id),
             sessionFactoryOf: _sessionHistory.FactoryOf);
+
+        // Factory Control, step 1: a scheduled run reports how it went, a problem is resolved with a reason, and the
+        // account's problems are read through the one fold the factory page, the email and the Factory Manager share.
+        Api.CronRunResultEndpoints.Map(_app, _cronRunResults,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            jobById: id => _cronJobs.Get(id),
+            sessionFactoryOf: _sessionHistory.FactoryOf,
+            findRun: (tenant, runId) => _cronRuns.Find(tenant, runId));
 
         // Factory triggers (Website Business Factory, product track): the definitions, the run history, and the
         // Director's half - fetch its checks, report each result. Behind the factory agents switch PER ACCOUNT: for

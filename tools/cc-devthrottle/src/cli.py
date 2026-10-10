@@ -17,6 +17,7 @@ from . import factory_ops
 from . import factory_memory_ops
 from . import factory_registry_ops
 from . import factory_status_ops
+from . import run_ops
 from . import fleet_manager_ops
 from . import fleet_ops
 from . import link_ops
@@ -120,6 +121,12 @@ fleet_manager_app = typer.Typer(
 settings_app = typer.Typer(
     cls=AxiGroup,
     help="Read and write CC Director settings.", add_completion=False, no_args_is_help=True
+)
+run_app = typer.Typer(
+    cls=AxiGroup,
+    help="How scheduled runs went: report a result, resolve a problem, list problems.",
+    add_completion=False,
+    no_args_is_help=True,
 )
 schedule_app = typer.Typer(
     cls=AxiGroup,
@@ -230,6 +237,7 @@ app.add_typer(diag_app, name="diag")
 app.add_typer(autostart_app, name="autostart")
 app.add_typer(browser_app, name="browser")
 app.add_typer(fleet_app, name="fleet")
+app.add_typer(run_app, name="run")
 console = Console()
 
 _ACTIONS = [
@@ -4317,6 +4325,49 @@ def fleet_forget(
     fleet_ops.forget_preference(preference_id, json_output)
 
 
+@run_app.command("result")
+def run_result(
+    outcome: str = typer.Argument(..., help="ok, or problem."),
+    reason: Optional[str] = typer.Argument(None, help="The one line why. Required for a problem; an optional note for ok."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Say how this scheduled run went. Called at its end, by the run's own session.
+
+    `run result ok` records that the run went well, and then this session closes itself - the same as
+    `session done`. `run result problem "<one line why>"` records a problem, and the session stays open for
+    someone to look at. A session no schedule started is refused, and nothing is recorded.
+    """
+    run_ops.result(outcome, reason, json_output)
+
+
+@run_app.command("resolve")
+def run_resolve(
+    run: str = typer.Argument(..., help="The run id, from `run problems`."),
+    reason: str = typer.Argument(..., help="The one-line reason the problem is resolved. Required."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Resolve a run's problem with a one-line reason, which is kept.
+
+    Who resolved it is kept with the reason.
+    A factory's problem may be resolved by the owner or a session of that factory - its boss among them.
+    A problem also clears by itself when the next run of the same schedule reports ok.
+    """
+    run_ops.resolve(run, reason, json_output)
+
+
+@run_app.command("problems")
+def run_problems(
+    factory: Optional[str] = typer.Option(None, "--factory", help="Only this factory's schedules."),
+    include_closed: bool = typer.Option(False, "--all", help="Also list problems already cleared or resolved."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """List the scheduled-run problems still open (every one, with --all).
+
+    Each carries the schedule, its factory, the run and its shift, the kind of problem and its one line why,
+    and the session to read. The same list the factory page, the morning email and the Factory Manager read.
+    """
+    run_ops.problems(factory, include_closed, json_output)
+
 def tool_main() -> None:
     """The console-script entry point. The tool runs through the shared failure reporter (issue #3642): a
     failure is reported to the Gateway, and the exit code and the printed error stay exactly as they were."""
@@ -4327,3 +4378,4 @@ def tool_main() -> None:
 
 if __name__ == "__main__":
     tool_main()
+

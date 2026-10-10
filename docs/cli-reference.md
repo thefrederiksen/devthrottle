@@ -1876,6 +1876,47 @@ exist yet"). When another session wrote the note since, nothing is written: the 
 the current text, says another writer got there first, and records that version - so the next `set`,
 carrying the merged text, goes through. Without the folder, pass `--expected-version`.
 
+### Run
+
+How each scheduled run went (Factory Control, step 1). Every run says how it went - ok, or a problem with
+one line why - and then closes its own session; only a run with a problem stays open.
+
+```
+USAGE: cc-devthrottle run result ok ["<optional note>"] [--json]
+       cc-devthrottle run result problem "<one line why>" [--json]
+       cc-devthrottle run resolve <run> "<one line reason>" [--json]
+       cc-devthrottle run problems [--factory ID] [--all] [--json]
+```
+
+`run result` is called at the END of a scheduled run, by the run's own session. The Gateway finds the run
+from the calling session's key, so there is no run id to pass; a session no schedule started is refused
+and nothing is recorded. After `ok` the session closes itself exactly as `session done` does (undo it with
+`session done --undo`); after `problem` it stays open for someone to look at. A problem needs its one line
+why.
+
+The Gateway records three problems by itself:
+
+- **did not report** - the run's session ended without calling `run result`;
+- **ran past its shift** - the run had not reported and was still open when its shift ended. The shifts
+  are night 00:00-08:00, morning 08:00-16:00 and evening 16:00-24:00 in the account's time zone, and a
+  run belongs to the shift it started in;
+- **did not run** - a due run that never started a session: its machine could not be reached, it was
+  reached only after its deadline, or the Gateway was not running when it was due.
+
+A problem stays open until the next run of the same schedule reports ok, or someone resolves it with
+`run resolve` and a one-line reason (an empty one is refused). The reason and who resolved it are kept. A
+factory's problem may be resolved by the owner or a session of that factory - its boss among them.
+
+`run problems` lists the open problems, newest first: the run id, the schedule, its factory, the run's
+shift, the kind of problem and its one line why, the session to read, and the state. `--all` adds the ones
+already cleared or resolved; `--factory` narrows to one factory's schedules, and both apply to `--json`,
+which prints the Gateway's answer verbatim. No problems prints `count: 0`. The factory page, the morning
+email and the Factory Manager read the same list.
+
+Every result of a schedule linked to a factory also leaves a row in that factory's activity record - `done`
+for ok, `failed` for a problem - so no factory is silent on its dashboard. Resolving the problem marks its
+failed row handled.
+
 ### Trigger
 
 A trigger is a check with no model in it that a Director runs on an interval. When the check counts

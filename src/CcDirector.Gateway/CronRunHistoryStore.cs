@@ -80,7 +80,9 @@ public sealed class CronRunHistoryStore
                 .ToList();
 
             var nextSeq = (ctx.CronRuns.Max(e => (long?)e.Sequence) ?? 0) + 1;
-            ctx.CronRuns.Add(ToEntity(jobId, record, nextSeq, ctx.ActiveTenant!));
+            var entity = ToEntity(jobId, record, nextSeq, ctx.ActiveTenant!);
+            ctx.CronRuns.Add(entity);
+            record.RunId = entity.Id.ToString("D");
 
             // Prune the oldest beyond the cap (lowest Sequence = oldest) in the SAME change set as the insert.
             var overflow = existing.Count + 1 - MaxRecordsPerJob;
@@ -197,6 +199,134 @@ public sealed class CronRunHistoryStore
         }
     }
 
+    /// <summary>A recorded run with the schedule it belongs to.</summary>
+    public sealed record JobRun(string JobId, CronRunRecord Run, Guid? ProblemActivityId);
+
+    /// <summary>
+    /// The scheduled run this session is: the newest run that names it. Null when no schedule of this account started
+    /// the session - which is every session that is not a scheduled run.
+    /// </summary>
+    public JobRun? FindBySession(Core.Tenancy.TenantId tenant, string sessionId)
+    {
+        if (!tenant.IsValid || string.IsNullOrWhiteSpace(sessionId)) return null;
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var row = ctx.CronRuns.AsNoTracking()
+                .Where(e => e.SessionId == sessionId)
+                .OrderByDescending(e => e.Sequence)
+                .FirstOrDefault();
+            return row is null ? null : new JobRun(row.JobId, ToRecord(row), row.ProblemActivityId);
+        }
+    }
+
+    /// <summary>One run by its id, or null when this account has no such run.</summary>
+    public JobRun? Find(Core.Tenancy.TenantId tenant, Guid runId)
+    {
+        if (!tenant.IsValid) return null;
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var row = ctx.CronRuns.AsNoTracking().FirstOrDefault(e => e.Id == runId);
+            return row is null ? null : new JobRun(row.JobId, ToRecord(row), row.ProblemActivityId);
+        }
+    }
+
+    /// <summary>Every run of this account still waiting on its session's report, oldest first.</summary>
+    public IReadOnlyList<JobRun> PendingRuns(Core.Tenancy.TenantId tenant)
+    {
+        if (!tenant.IsValid) return Array.Empty<JobRun>();
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            return ctx.CronRuns.AsNoTracking()
+                .Where(e => e.Result == CronRunResults.Pending)
+                .OrderBy(e => e.Sequence)
+                .ToList()
+                .Select(e => new JobRun(e.JobId, ToRecord(e), e.ProblemActivityId))
+                .ToList();
+        }
+    }
+
+    /// <summary>
+    /// Every run of this account, grouped by schedule, newest first - what the problems fold reads. Bounded by the
+    /// per-schedule cap <see cref="Append"/> keeps.
+    /// </summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<CronRunRecord>> AllByJob(Core.Tenancy.TenantId tenant)
+    {
+        if (!tenant.IsValid) return new Dictionary<string, IReadOnlyList<CronRunRecord>>(StringComparer.Ordinal);
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            return ctx.CronRuns.AsNoTracking()
+                .OrderByDescending(e => e.Sequence)
+                .ToList()
+                .GroupBy(e => e.JobId, StringComparer.Ordinal)
+                .ToDictionary(g => g.Key, g => (IReadOnlyList<CronRunRecord>)g.Select(ToRecord).ToList(), StringComparer.Ordinal);
+        }
+    }
+
+    /// <summary>
+    /// Write how a run went onto it. <paramref name="problem"/> is null for an ok result. Returns the run as stored, or
+    /// null when this account has no such run.
+    /// </summary>
+    public CronRunRecord? RecordResult(Core.Tenancy.TenantId tenant, Guid runId, string result, string? problem, string? reason, DateTime nowUtc)
+    {
+        if (result is not (CronRunResults.Ok or CronRunResults.Problem))
+            throw new ArgumentException($"only ok or problem may be recorded, not '{result}'", nameof(result));
+        if (result == CronRunResults.Problem && string.IsNullOrWhiteSpace(problem))
+            throw new ArgumentException("a problem needs its kind", nameof(problem));
+        if (!tenant.IsValid) return null;
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var row = ctx.CronRuns.FirstOrDefault(e => e.Id == runId);
+            if (row is null) return null;
+            row.Result = result;
+            row.Problem = result == CronRunResults.Problem ? problem : null;
+            row.ResultReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
+            row.ResultUtc = nowUtc;
+            ctx.SaveChanges();
+            FileLog.Write($"[CronRunHistoryStore] RecordResult: run={runId}, job={row.JobId}, result={result}, problem={row.Problem ?? "-"}");
+            return ToRecord(row);
+        }
+    }
+
+    /// <summary>Remember the factory activity row that recorded a run's problem, so resolving it can mark that row handled.</summary>
+    public void SetProblemActivity(Core.Tenancy.TenantId tenant, Guid runId, Guid activityRowId)
+    {
+        if (!tenant.IsValid) return;
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var row = ctx.CronRuns.FirstOrDefault(e => e.Id == runId)
+                ?? throw new InvalidOperationException($"there is no run {runId} to link to activity row {activityRowId}");
+            row.ProblemActivityId = activityRowId;
+            ctx.SaveChanges();
+            FileLog.Write($"[CronRunHistoryStore] SetProblemActivity: run={runId}, activity={activityRowId}");
+        }
+    }
+
+    /// <summary>Mark a run's problem resolved by hand, keeping who did it and why. Returns the run as stored.</summary>
+    public CronRunRecord? Resolve(Core.Tenancy.TenantId tenant, Guid runId, string resolvedBy, string reason, DateTime nowUtc)
+    {
+        if (string.IsNullOrWhiteSpace(resolvedBy)) throw new ArgumentException("who resolved it is required", nameof(resolvedBy));
+        if (string.IsNullOrWhiteSpace(reason)) throw new ArgumentException("a reason is required", nameof(reason));
+        if (!tenant.IsValid) return null;
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var row = ctx.CronRuns.FirstOrDefault(e => e.Id == runId);
+            if (row is null) return null;
+            row.ResolvedUtc = nowUtc;
+            row.ResolvedBy = resolvedBy.Trim();
+            row.ResolvedReason = reason.Trim();
+            ctx.SaveChanges();
+            FileLog.Write($"[CronRunHistoryStore] Resolve: run={runId}, job={row.JobId}, by={row.ResolvedBy}");
+            return ToRecord(row);
+        }
+    }
+
     /// <summary>The task status a fire writes, before anything is known about how the work ended.</summary>
     public const string TaskStatusUnknown = "unknown";
 
@@ -237,10 +367,15 @@ public sealed class CronRunHistoryStore
         SessionId = r.SessionId,
         InfraStatus = r.InfraStatus,
         TaskStatus = r.TaskStatus,
+        Result = string.IsNullOrWhiteSpace(r.Result) ? CronRunResults.Untracked : r.Result,
+        Problem = r.Problem,
+        ResultReason = r.ResultReason,
+        ResultUtc = r.ResultUtc,
     };
 
     private static CronRunRecord ToRecord(CronRunEntity e) => new()
     {
+        RunId = e.Id.ToString("D"),
         ScheduledUtc = e.ScheduledUtc,
         FiredUtc = e.FiredUtc,
         Machine = e.Machine,
@@ -248,7 +383,17 @@ public sealed class CronRunHistoryStore
         SessionId = e.SessionId,
         InfraStatus = e.InfraStatus,
         TaskStatus = e.TaskStatus,
+        Result = e.Result,
+        Problem = e.Problem,
+        ResultReason = e.ResultReason,
+        ResultUtc = SpecifyUtc(e.ResultUtc),
+        ResolvedUtc = SpecifyUtc(e.ResolvedUtc),
+        ResolvedBy = e.ResolvedBy,
+        ResolvedReason = e.ResolvedReason,
     };
+
+    private static DateTime? SpecifyUtc(DateTime? value) =>
+        value is { } v ? DateTime.SpecifyKind(v, DateTimeKind.Utc) : null;
 
     // ---- one-time legacy JSON import --------------------------------------------------------------
 
