@@ -58,6 +58,7 @@ public sealed class TtsService
     private readonly AgentOptions _options;
     private readonly HttpMessageHandler? _handler;
     private readonly HostedAiKeyResolver? _keyResolver;
+    private readonly TimeProvider _clock;
 
     /// <param name="options">Chunking + legacy standalone defaults.</param>
     /// <param name="keyResolver">When supplied (the consolidated AI-provider path), the base URL, key,
@@ -68,6 +69,7 @@ public sealed class TtsService
         _options = options;
         _handler = null;
         _keyResolver = keyResolver;
+        _clock = TimeProvider.System;
     }
 
     /// <summary>
@@ -76,12 +78,26 @@ public sealed class TtsService
     /// and retry behaviour are unit-testable without hitting the network.  The
     /// handler is owned by the caller and is NOT disposed by this service.
     /// </summary>
-    public TtsService(AgentOptions options, HttpMessageHandler handler, HostedAiKeyResolver? keyResolver = null)
+    /// <param name="clock">The clock the two deadlines (<see cref="PerRequestTimeout"/>, <see cref="OverallBudget"/>)
+    /// run on. The product gets the system clock; a test passes its own and moves it, so a stalled call times out
+    /// when the test says so instead of the test sitting out the real thirty and sixty seconds.</param>
+    public TtsService(AgentOptions options, HttpMessageHandler handler, HostedAiKeyResolver? keyResolver = null,
+        TimeProvider? clock = null)
     {
         _options = options;
         _handler = handler;
         _keyResolver = keyResolver;
+        _clock = clock ?? TimeProvider.System;
     }
+
+    /// <summary>
+    /// Cancel <paramref name="source"/> once <paramref name="after"/> has passed on this service's clock. The
+    /// built-in <see cref="CancellationTokenSource.CancelAfter(TimeSpan)"/> runs on the system clock only, and a
+    /// linked source cannot be given another; a timer on the clock is the same deadline on any clock. The
+    /// returned timer is disposed by the caller with the source.
+    /// </summary>
+    private ITimer DeadlineOn(CancellationTokenSource source, TimeSpan after) =>
+        _clock.CreateTimer(static state => ((CancellationTokenSource)state!).Cancel(), source, after, Timeout.InfiniteTimeSpan);
 
     /// <summary>True when a legacy standalone key is configured. Prefer
     /// <see cref="IsAvailableAsync"/>, which uses the DevThrottle account key.</summary>
@@ -184,7 +200,7 @@ public sealed class TtsService
         // caller cancel still wins, and self-cancels after OverallBudget so the
         // turn can never block for minutes (issue #389).
         using var budgetCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        budgetCts.CancelAfter(OverallBudget);
+        using var budgetDeadline = DeadlineOn(budgetCts, OverallBudget);
 
         try
         {
@@ -310,7 +326,7 @@ public sealed class TtsService
         // Per-request deadline, linked to the overall budget so whichever fires
         // first wins.  CancelAfter is the per-chunk timeout (issue #389).
         using var requestCts = CancellationTokenSource.CreateLinkedTokenSource(budgetToken);
-        requestCts.CancelAfter(PerRequestTimeout);
+        using var requestDeadline = DeadlineOn(requestCts, PerRequestTimeout);
 
         var payload = JsonContent.Create(new
         {
