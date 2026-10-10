@@ -70,10 +70,18 @@
     used to exit 0 from every project and end on "all projects exited zero" - a green that means nothing
     ran. Red-first evidence is gathered with this command, so that shape of green is now a failure:
     exit 3 means zero tests were collected anywhere, exit 4 means a project exited zero without writing a
-    result file, exit 5 means part of the filter matched nothing (or -ExpectTests was not met), and exit 6
+    result file, exit 5 means part of the filter matched nothing (or -ExpectTests was not met), exit 6
     means another run holding the Gateway suite is in progress and this one was refused before building
-    (and exit 2, as for a bad argument, means the lock's own location is broken). None of them is a test
-    failure (exit 1) and none of them is ever evidence.
+    (and exit 2, as for a bad argument, means the lock's own location is broken), and exit 9 means a
+    suite NEVER RAN or did not finish: it executed zero tests with no filter, its result file says the
+    run was aborted, or its outcome is one of the unfinished ones. None of them is a test failure
+    (exit 1) and none of them is ever evidence.
+
+    A -Parked OR -Gateway RUN NAMES A HUNG TEST. Every suite in those runs gets dotnet test's hang and
+    crash detection: a test that runs longer than the hang timeout is dumped, named in a Sequence file
+    in the run folder, and its host is killed, which turns "the release gate is slow" into "test X hung".
+    A crashed host leaves a dump the same way. The default run does not need it - its ceiling is two
+    minutes and the kill is already here.
 
     EVERY RUN WRITES A TRX FILE AND PRINTS ITS OUTCOME AND TEST COUNT. That pair, not the console
     "Passed!" line, is the verdict - see the comment above the run loop for why. A green with a collapsed
@@ -235,6 +243,13 @@ $parkedProjects = @(
 # longer belongs in the default run. Park it, and put it back the day it fits.
 $BudgetSeconds = 120
 
+# A SINGLE TEST THAT RUNS THIS LONG HAS HUNG, in the -Parked and -Gateway runs that have no ceiling.
+# Measured from 523 saved runs on 2026-10-10: the slowest legitimate test on main takes about six and a
+# half minutes (RetiredMessagingWordsTests, being cut down), the next about three. Ten minutes is above
+# every real test and far below the release gate's own length, so a hang is named within the run instead
+# of holding it until a person notices. This is not a raised timeout: it is the opposite of waiting.
+$HangTimeoutMinutes = 10
+
 $toRun = @()
 if ($Gateway) {
     # -Gateway is the "only that one suite" switch, so it stays exactly that and pulls in nothing else.
@@ -347,6 +362,17 @@ try {
     $filterArgs = @()
     if ($Filter -ne "") { $filterArgs = @("--filter", $Filter) }
 
+    # Hang and crash detection for the runs that have no ceiling (see $HangTimeoutMinutes). A hung test is
+    # dumped and named in Sequence_<guid>.xml inside the run folder, and its host is killed; the suite then
+    # reports an aborted run, which the verdict below refuses as NEVER RAN rather than passing what finished.
+    # Mini dumps: the name of the hung test is the finding, and a full dump of a Gateway host is hundreds of
+    # megabytes nobody opens.
+    $blameArgs = @()
+    if ($Parked -or $Gateway) {
+        $blameArgs = @("--blame-hang", "--blame-hang-timeout", "${HangTimeoutMinutes}m", "--blame-hang-dump-type", "mini",
+                       "--blame-crash", "--blame-crash-dump-type", "mini")
+    }
+
     # WHY EVERY RUN WRITES A TRX FILE, AND WHY THE CONSOLE SUMMARY BELOW IS NOT THE VERDICT.
     #
     # "Passed! - Failed: 0" is printed by a run that passed everything it managed to START. When a test host
@@ -365,7 +391,7 @@ try {
         $out = Join-Path $logDir "$name.log"
         $trx = Join-Path $logDir "$name.trx"
         $args = @("test", (Join-Path $repoRoot $proj), "--no-build", "-c", $Configuration, "--nologo", "-v", "q",
-                  "--logger", "trx;LogFileName=$name.trx", "--results-directory", $logDir) + $filterArgs
+                  "--logger", "trx;LogFileName=$name.trx", "--results-directory", $logDir) + $filterArgs + $blameArgs
         $p = Start-Process -FilePath "dotnet" -ArgumentList $args -NoNewWindow -PassThru `
                            -RedirectStandardOutput $out -RedirectStandardError "$out.err"
 
@@ -401,7 +427,8 @@ try {
     foreach ($r in $running) {
         # Wait only up to the budget. A suite that has not finished by then is over the ceiling: kill it, so a
         # single slow project cannot hold the whole gate, and record it separately from a real failure.
-        # -Parked deliberately suspends the ceiling: that run is the release gate and is EXPECTED to be slow.
+        # -Parked and -Gateway deliberately suspend the ceiling: that run is the release gate and is EXPECTED
+        # to be slow, and a hung test in it is caught by the hang timeout instead.
         if ($Parked -or $Gateway) {
             $r.Process.WaitForExit()
         } elseif (-not $r.Process.WaitForExit($BudgetSeconds * 1000)) {
@@ -420,8 +447,16 @@ try {
         $outcome = "NO-TRX"
         $executed = 0
         $total = 0
-        if (Test-Path $r.Trx) {
-            [xml] $doc = Get-Content $r.Trx -Raw
+        $aborted = $false
+        # Read as a string first: Get-Content -Raw on a ZERO-BYTE file returns null in PowerShell 5.1, and a
+        # host killed before it wrote anything leaves exactly that file. An empty result file is its own
+        # outcome, EMPTY-TRX, which the never-ran check below refuses as an unfinished run.
+        $raw = ""
+        if (Test-Path $r.Trx) { $raw = [string] (Get-Content $r.Trx -Raw) }
+        if ([string]::IsNullOrWhiteSpace($raw) -and (Test-Path $r.Trx)) {
+            $outcome = "EMPTY-TRX"
+        } elseif (Test-Path $r.Trx) {
+            [xml] $doc = $raw
             $outcome = [string] $doc.TestRun.ResultSummary.outcome
             $total = [int] $doc.TestRun.ResultSummary.Counters.total
             # EXECUTED is not the same number as TOTAL, and the difference is load-bearing (issue #2834).
@@ -429,10 +464,16 @@ try {
             # run can report total=1, executed=0 and "Test Run Successful". Anything that asks "did this run
             # actually enforce something" has to read executed.
             $executed = [int] $doc.TestRun.ResultSummary.Counters.executed
+            # A host that was killed, crashed, or stopped by the suite lock writes outcome="Failed" with
+            # total=0 - the same outcome as an ordinary red - and says what happened only in a RunInfo text:
+            # "The active test run was aborted". Observed three times in October 2026, each read as a test
+            # failure by the check below instead of as a suite that never ran.
+            $aborted = $raw.Contains("The active test run was aborted")
         }
         $r | Add-Member -NotePropertyName Outcome -NotePropertyValue $outcome
         $r | Add-Member -NotePropertyName Total -NotePropertyValue $total
         $r | Add-Member -NotePropertyName Executed -NotePropertyValue $executed
+        $r | Add-Member -NotePropertyName Aborted -NotePropertyValue $aborted
 
         if ($r.Process.ExitCode -eq 0) {
             Write-Host ("  PASS  {0}  {1}" -f $r.Name, $summary.Trim())
@@ -475,16 +516,45 @@ try {
     # passing assertions up to the point they stopped, which is the shape that has "very nearly certified a
     # change that silently stopped 1,340 tests from running" - the warning this script already carries
     # twenty lines above, now actually enforced.
+    #
+    # AND THE SUITE THAT NEVER RAN AT ALL, WHICH THE OUTCOME CHECK ABOVE CANNOT SEE. A Gateway host that
+    # gave up on the suite lock, a host killed by the hang timeout, a host that crashed before its first
+    # test - every one of these writes outcome="Failed" with total=0 executed=0, exactly the outcome the
+    # block above was told to treat as finished, so for a week nineteen release gates that executed nothing
+    # ended as "FAILED in 1 project(s)" and read as a red test. Two presences name it: the result file's
+    # own words, "The active test run was aborted", and - with no filter, where every suite has tests to
+    # run - an executed count of zero. A suite that wrote no result file and exited nonzero is the same
+    # thing one step earlier. An over-budget suite is excluded here because it is reported on its own
+    # below: it was killed by this script, and the reason is the ceiling, not the suite.
     $finishedOutcomes = @("Completed", "Failed")
-    $notCompleted = @($running | Where-Object { $_.Outcome -ne "NO-TRX" -and $finishedOutcomes -notcontains $_.Outcome })
-    if ($notCompleted.Count -gt 0) {
+    $neverRan = @()
+    foreach ($r in $running) {
+        if ($overBudget -contains $r.Name) { continue }
+        $why = $null
+        if ($r.Outcome -eq "NO-TRX") {
+            if ($r.Process.ExitCode -ne 0 -and $Filter -eq "") { $why = "wrote no result file and exited $($r.Process.ExitCode)" }
+        } elseif ($finishedOutcomes -notcontains $r.Outcome) {
+            $why = "reported outcome=$($r.Outcome), which is not a finished run"
+        } elseif ($r.Aborted) {
+            $why = "says in its result file that the active test run was aborted (total=$($r.Total), executed=$($r.Executed))"
+        } elseif ($Filter -eq "" -and $r.Executed -eq 0) {
+            $why = "executed zero tests with no filter (outcome=$($r.Outcome), total=$($r.Total))"
+        }
+        if ($null -ne $why) { $neverRan += [pscustomobject]@{ Name = $r.Name; Why = $why; Log = $r.Log } }
+    }
+    if ($neverRan.Count -gt 0) {
         Write-Host ""
-        Write-Host "RESULT: A SUITE DID NOT FINISH - this run is not a verdict on anything."
-        foreach ($r in $notCompleted) { Write-Host ("  {0} reported outcome={1} -> {2}" -f $r.Name, $r.Outcome, $r.Log) }
+        Write-Host "RESULT: NEVER RAN - a suite did not run, or did not finish. This run is not a verdict on anything."
+        foreach ($n in $neverRan) {
+            Write-Host ("  {0} {1} -> {2}" -f $n.Name, $n.Why, $n.Log)
+            $tail = Get-Content $n.Log -Tail 12 -ErrorAction SilentlyContinue
+            foreach ($l in $tail) { Write-Host "      $l" }
+        }
         Write-Host ""
-        Write-Host "This is NOT an assertion failure - a run that finished with failures reports 'Failed' and is"
-        Write-Host "reported below, in full. This is a suite that stopped part way through, whose assertions may"
-        Write-Host "all have passed up to the point it stopped, and whose remaining tests were never reached."
+        Write-Host "This is NOT an assertion failure - a run that finished with failures reports 'Failed' with a"
+        Write-Host "nonzero executed count and is reported in full as exit 1. This is a suite whose tests were"
+        Write-Host "never reached: it was refused, killed, or stopped part way, and whatever passed before that"
+        Write-Host "point certifies nothing. Read the lines above for why, fix that, and run again."
         exit 9
     }
     Write-Host ""
