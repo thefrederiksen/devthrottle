@@ -10,14 +10,15 @@
     WHAT THE DEFAULT RUNS: every suite that finishes inside the two-minute budget, PLUS the three installer
     test projects. They start together and the wall clock is the slowest of them, not the sum.
 
-    COUNTS, MEASURED 2026-09-13 FROM THE TRX FILES OF A FULL RUN - not estimated, and not copied forward:
-      Avalonia 423    Launcher 191    HostedAgent 88    Core.UnitTests 278    Engine 63    Terminal 25
-      installer: setup.Tests 25, setup-engine.Tests 541, setup-cli.Tests 34 (setup-cli added 2026-10-01)
-    1068 in the default suites, 1634 including the installer.
+    COUNTS, MEASURED 2026-10-10 FROM THE TRX FILES OF A DEFAULT RUN - not estimated, and not copied forward:
+      Core.UnitTests 1418    Avalonia 937    Reclaim 310    Launcher 218    Engine 102    HostedAgent 89
+      Terminal 82    installer: setup.Tests 39, setup-engine.Tests 875, setup-cli.Tests 74
+    3156 in the default suites, 4144 including the installer. (The 2026-09-13 figures this header carried
+    until October - 1068 and 1634 - were a third of the truth within four weeks.)
 
-    Gateway.UnitTests (4,267) LEFT this list on 2026-09-13 - see the parked block below and issue #2824.
-    Re-measure before changing these numbers; the per-project comments below were carried forward for
-    months after they stopped being true.
+    Gateway.UnitTests LEFT this list on 2026-09-13 at 4,267 tests - see the parked block below and issue
+    #2824 - and stood at 10,344 on 2026-10-10. Re-measure before changing these numbers; the per-project
+    comments below were carried forward for months after they stopped being true.
 
     The installer projects live outside cc-director.sln and are built separately here. They are in the
     default run because they are fast and because the thing they cover - the first screen a new user
@@ -35,7 +36,11 @@
                                    run until 2026-09-13 and is now parked beside it (issue #2824); what is
                                    parked here is the host-bound remainder.
       CcDirector.Core.Tests      - 11 minutes on a quiet machine and 33 with the fleet busy. Nothing is
-                                   wrong with it; it is simply far outside the budget.
+                                   wrong with it; it is simply far outside the budget. 4,929 tests on
+                                   2026-10-10.
+      CcDirector.Gateway.UnitTests - the pure half of the Gateway tests, parked 2026-09-13 when it grew
+                                   past the ceiling (issue #2824); 10,344 tests on 2026-10-10. Its block
+                                   in $parkedProjects below says what would bring it back.
 
     THE TRADE, STATED PLAINLY SO NOBODY DISCOVERS IT THE HARD WAY: those three suites hold real coverage,
     including the Gateway's host-bound endpoint, tenancy and boundary tests. Parked means a regression in
@@ -99,6 +104,12 @@
 .PARAMETER Fast
     Retained for callers that pass it. The default IS fast now, so this is a no-op.
 
+.PARAMETER KeepRun
+    Keep the run folder after a GREEN run. By default a green run's folder is deleted - a green needs no
+    reading, its record is run.json's facts in the verdict and, for a -Parked run, the gate record - and
+    a red run's folder is always kept. 523 folders and 2.6 GB had piled up in TEMP by 2026-10-10. Pass
+    this when the result files themselves are the point: per-class timings, a count to quote.
+
 .PARAMETER Filter
     An xUnit filter passed through to every project (e.g. "FullyQualifiedName~Dictation").
 
@@ -120,6 +131,7 @@ param(
     [switch]$Gateway,
     [switch]$Parked,
     [switch]$Fast,
+    [switch]$KeepRun,
     [string]$Filter = "",
     [int]$ExpectTests = 0,
     [string]$Configuration = "Debug"
@@ -138,12 +150,14 @@ if ($Gateway -and $Parked) {
 # THE TWO-MINUTE BUDGET IS THE RULE THIS LIST ENCODES. A suite is in the default run if it finishes
 # inside it, and parked if it does not. DURATIONS ONLY - the test counts live once in the header, with
 # the date they were measured, because keeping them in two places is what let one drift by a factor of
-# thirty. Measured 2026-09-13 from a full run:
-#   Avalonia 32s   HostedAgent 40s   Terminal 33s   Launcher 20s   Engine 10s   Core.UnitTests 5s
-#   installer: setup.Tests 12s, setup-engine.Tests 13s, setup-cli.Tests 1s (plus about 3s each to build)
-# They start together, so the default costs about the slowest one - now HostedAgent at about 40 seconds,
-# comfortably inside the budget. Gateway.UnitTests used to be that suite at 56 seconds; it grew to about
-# 180 and was parked (issue #2824), which is why the budget has room again.
+# thirty. Measured 2026-10-10 from a default run on a quiet machine, as each suite's own log reports it:
+#   Avalonia 117s   Core.UnitTests 63s   Engine 41s   HostedAgent 23s   Terminal 21s   Launcher 14s
+#   Reclaim 10s   installer: setup-engine.Tests 11s, setup.Tests 3s, setup-cli.Tests 1s
+# They start together, so the default costs about the slowest one - now Avalonia, AT the ceiling: on a
+# loaded machine it goes over and is stopped. The two Avalonia fixes in the Release Process Fix mission
+# (GitChangesViewHiddenTabTests, RemovedDirectorTunnelTests) take about 36 seconds off it. The 2026-09-13
+# figures this comment carried (Avalonia 32s, HostedAgent 40s) were off by a factor of three within a
+# month, which is the reason the date is on the line.
 $defaultProjects = @(
     # The PARALLEL half of the Core tests. The project they came from runs sequentially
     # (DisableTestParallelization) and takes eleven minutes for the same kind of work - that attribute is
@@ -333,6 +347,14 @@ function Stop-Gate([int] $Code, [string] $Verdict) {
         if (-not $treeClean) {
             Write-Host "NOTE: the tree was DIRTY, and the record says so. scripts\assert-gated.ps1 will refuse it."
         }
+    }
+    # A green run's folder is deleted, a red run's is kept, and -KeepRun keeps a green one. The folder is
+    # only ever removed AFTER the records above are written, so nothing a later reader needs goes with it.
+    if ($Code -eq 0 -and -not $KeepRun) {
+        Remove-Item -Recurse -Force $logDir
+        Write-Host "Run folder deleted (green run; pass -KeepRun to keep the result files)."
+    } elseif ($Code -ne 0) {
+        Write-Host "Run folder kept: $logDir"
     }
     exit $Code
 }
@@ -632,7 +654,7 @@ try {
         Stop-Gate 9 "NEVER RAN"
     }
     Write-Host ""
-    Write-Host "TRX files: $logDir"
+    Write-Host "Run folder: $logDir (kept after a red run; deleted after a green one unless -KeepRun)"
     Write-Host ""
 
     # COVERAGE WARNING. The default run is fast because three suites are parked - but "parked" must never

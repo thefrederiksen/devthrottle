@@ -37,7 +37,7 @@ The owner of this repository's test suites. Three duties, in priority order:
 |--------|---------|
 | Run the gate (this is THE gate) | `.\scripts\test-local.ps1` |
 | Run the gate plus parked suites | `.\scripts\test-local.ps1 -Parked` |
-| THE RELEASE GATE - on merged main, at the commit being tagged | `.\scripts\test-local.ps1 -Parked -Configuration Release` **plus** the two `tools/cc-director-setup*.Tests` projects - see the release gate section; the script alone is NOT the whole gate |
+| THE RELEASE GATE - on the frozen candidate, in a worktree detached at it | `.\scripts\test-local.ps1 -Parked -Configuration Release` - one command; the three installer projects are in the script's own list. A green run records the commit for `scripts\assert-gated.ps1`, which the tag step calls |
 | Run only the locked Gateway suite | `.\scripts\test-local.ps1 -Gateway` |
 | Filter within a run | `.\scripts\test-local.ps1 -Filter "FullyQualifiedName~Snooze"` |
 
@@ -175,14 +175,13 @@ A release still needs the coverage the default run skips, and gets it LOCALLY, o
 the exact commit about to be tagged:
 
     .\scripts\test-local.ps1 -Parked -Configuration Release
-    dotnet test tools/cc-director-setup.Tests/ -c Release
-    dotnet test tools/cc-director-setup-engine.Tests/ -c Release
 
 `-Parked` adds the three skipped suites. `-Configuration Release` matches what users download,
 because this script defaults to Debug while the continuous integration job it replaced ran Release.
-The two installer projects are outside `cc-director.sln` and this script therefore never runs them,
-while the release ships `cc-director-setup.exe` - folding them into `-Parked` is the follow-up that
-removes the footgun. An earlier run does not count, and neither does a run against a pull-request
+The three installer projects are outside `cc-director.sln` and the script builds and runs them
+itself; do not run them again by hand. A green run writes a record naming the commit, and
+`scripts\assert-gated.ps1 <commit>` is what the tag step asks before tagging - a run on a dirty
+tree, a Debug run, a filtered run or a default run is refused by it. An earlier run does not count, and neither does a run against a pull-request
 head rather than the squashed commit that gets tagged.
 
 That is not a softened version of the old rule - it is a local gate, not a wait on a runner. It
@@ -352,7 +351,9 @@ Follow this order. It is written down because guessing produced three wrong answ
 
 ### 1. Get per-class timings from the TRX. Do not read the code first.
 
-Every run writes a TRX. Group by class and sort:
+Every run writes a TRX, but a GREEN run's folder is deleted when it ends (October 2026; 523 folders
+had piled up in TEMP). Run the gate with `-KeepRun` when you want the result files. Group by class
+and sort:
 
 ```powershell
 $f = Get-ChildItem "$env:TEMP\cc-test-local-*\<Suite>.trx" | Sort-Object LastWriteTime -Desc | Select -First 1
