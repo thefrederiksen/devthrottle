@@ -2124,19 +2124,31 @@ runs `cc-secrets ui`.
 USAGE: cc-secrets ui
 ```
 
-Opens the cc-secrets window and returns when it is closed. Every entry, with a search box (names, user names,
-notes and settings' values - never a secret's), and the columns Name, Kind, User name, Secret, Agents and Last used
-(the last successful `run`, `login` or `get`, from the audit log). A setting shows in full. A secret shows as
-asterisks with `[show]`: clicking it (or selecting the row and pressing Show / hide) shows the secret until it is
-clicked again - there is no timer and no Copy button (the owner's rulings, 9 October 2026). Every reveal is
-written to the audit log as `ui reveal`, with the time, the machine, and the session that opened the window.
+Opens the cc-secrets window and returns when it is closed. It opens where it was last closed, while that place is
+still on a screen, or under the mouse the first time, and remembers its size, sort order and filter in
+`window.json` beside the store - nothing about any entry. On Windows each monitor is known, so a window is kept on
+one monitor; on macOS and Linux Tk reports the screens as one area, so there it is kept on that area.
 
-Add and Edit (or a double-click) open the form: Name, Kind (secret or setting), User name, Secret (with its own
-Show / Hide), Notes, Agents may use with the uses (run, login), and Login sites. Editing leaves the secret box empty;
-leave it empty to keep the current secret, or click Show to see it (a reveal, audited). The name of an existing
-entry is not edited - add a new one and delete the old. Delete asks to confirm. Every save goes through the same
-code as `add` and is audited as `ui add` or `ui edit` (with "value kept" or "value changed"); a delete as
-`ui delete`.
+The list shows every entry with the columns Name, Kind (Password or Setting), User name, Value, Agents may (what
+agents may do with it: `run`, `login`, or "not allowed") and Last used (the last successful `run`, `login` or `get`,
+from the audit log). Click a column heading to sort by it; click again to reverse. All / Passwords / Settings
+filters by kind, and the search box matches names, user names, notes and settings' values - never a password. A
+setting shows in full. A password shows as asterisks with Show beside it: clicking Show (or its asterisks, or the
+Show button, or Space on the selected row) shows it until Hide is clicked - there is no timer and no Copy button
+(the owner's rulings, 9 October 2026). Every reveal is written to the audit log as `ui reveal`, with the time, the
+machine, and the session that opened the window.
+
+Keys: Ctrl+F (Command+F on a Mac) searches, Ctrl+N adds, Down or Enter moves from the search box into the list,
+Escape clears the search, Enter edits the selected entry, Delete deletes it. A right-click on a row offers Edit,
+Show or Hide, and Delete.
+
+Add and Edit (or a double-click) open the form centred over the list: Name, Kind (Password or Setting), User
+name, Password (with its own Show / Hide) or Value, Notes, whether agents may use it and for what (run commands,
+log in to websites), and Login sites (used only when login is ticked). Editing a setting shows its value. Editing
+a password leaves its box empty: leave it empty to keep the current password, or click Show to see it (a reveal,
+audited). The name of an existing entry is not edited - add a new one and delete the old. Closing a form with
+changes asks first. Delete asks to confirm. Every save goes through the same code as `add` and is audited as
+`ui add` or `ui edit` (with "value kept" or "value changed"); a delete as `ui delete`.
 
 Agents may open the window - so they can put it on the owner's screen - and it is not refused inside a session.
 No command, option or interface reveals a secret through it; only a click on the eye does. Like the rest of
@@ -2166,7 +2178,8 @@ OPTIONS:
 ```
 
 The pop-up is the same form as the window's Add, pre-filled with everything except the secret, with the asking
-session's number and name and the reason at the top. If the entry already exists an amber line says Save REPLACES
+session's number and name and the reason at the top. It opens under the mouse (on Windows, centred on that
+monitor). If the entry already exists an amber line says Save REPLACES
 it; a name the owner types over an existing one is warned about on the first Save. A secret
 that cannot be stored (too short, for example) is reported in the window, which stays open.
 

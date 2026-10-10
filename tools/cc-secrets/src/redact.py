@@ -42,7 +42,7 @@ import locale
 import re
 import sys
 import threading
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 from urllib.parse import quote, quote_plus
 
 REDACTED = "[REDACTED]"
@@ -226,24 +226,50 @@ class Scrubber:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._variants: List[str] = []
-        self._needles: List[Tuple[bytes, bytes]] = []
+        self._needle_map: Dict[bytes, bytes] = {}
+        self._needles: Optional[List[Tuple[bytes, bytes]]] = []
+        # What is already registered, so reading the store again - which the window does on every click - costs
+        # nothing. Each add used to rebuild and re-sort the needles for EVERY variant held, which made one store
+        # read of 77 secrets take two seconds. The encodings are part of the key: a new output encoding needs
+        # every variant held in it too, so a change re-registers them all.
+        self._registered: Set[Tuple[str, str]] = set()
+        self._encodings: Tuple[str, ...] = ()
 
     def add(self, secret: str, username: str = "") -> None:
         """Remember `secret` so it is removed from everything this process emits. Always registers, even a
         secret that conflicts with the marker: reading the store registers every entry, and one bad entry must
         not stop the others being scrubbed. Commands that USE a secret refuse a conflicting one first."""
         with self._lock:
-            merged = set(self._variants) | set(variants_for(secret, username))
-            self._variants = sorted(merged, key=len, reverse=True)
-            needles = dict(self._needles)
-            for needle, marker in _needle_pairs(self._variants, secret):
-                needles.setdefault(needle, marker)
-            self._needles = sorted(needles.items(), key=lambda item: len(item[0]), reverse=True)
+            encodings = tuple(output_encodings())
+            if encodings != self._encodings:
+                self._encodings = encodings
+                self._registered = set()
+                needs_needles = list(self._variants)  # every variant held, in the new encodings
+            elif (secret, username) in self._registered:
+                return
+            else:
+                needs_needles = []
+            known = set(self._variants)
+            fresh = [v for v in variants_for(secret, username) if v not in known]
+            self._variants = sorted(known | set(fresh), key=len, reverse=True)
+            for needle, marker in _needle_pairs(needs_needles + fresh, secret):
+                self._needle_map.setdefault(needle, marker)
+            self._needles = None  # sorted when next used, not once per secret
+            self._registered.add((secret, username))
+
+    def _sorted_needles(self) -> List[Tuple[bytes, bytes]]:
+        """The needles, longest first. Call with the lock held."""
+        if self._needles is None:
+            self._needles = sorted(self._needle_map.items(), key=lambda item: len(item[0]), reverse=True)
+        return self._needles
 
     def clear(self) -> None:
         with self._lock:
             self._variants = []
+            self._needle_map = {}
             self._needles = []
+            self._registered = set()
+            self._encodings = ()
 
     def scrub(self, text: str) -> str:
         if text is None:
@@ -258,7 +284,7 @@ class Scrubber:
 
     def scrub_bytes(self, data: bytes) -> bytes:
         with self._lock:
-            needles = list(self._needles)
+            needles = list(self._sorted_needles())
         for needle, marker in needles:
             data = data.replace(needle, marker)
         if any(needle in data for needle, _ in needles):

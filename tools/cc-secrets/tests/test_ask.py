@@ -16,7 +16,7 @@ from typer.testing import CliRunner
 from conftest import add_entry, new_secret
 from src import cli, entry_window, paths
 from src.audit import AuditLog
-from src.store import KIND_SETTING
+from src.store import KIND_SETTING, make_entry
 from src.window_actions import ASK_RECORD, MODE_ASK, FormInput, FormRequest
 
 runner = CliRunner()
@@ -233,9 +233,27 @@ def test_Ask_HasNoParameterThatCouldCarryASecret():
     assert parameters == {"name", "username", "notes", "reason", "domains", "uses", "agents", "setting", "env_name"}
 
 
+def test_Ask_ForASettingThatExists_DoesNotPreFillItsValue(store, owner):
+    """The owner types the value; ask never shows what is stored, even for a setting, which the window's Edit
+    does show."""
+    store.put(make_entry("posthog-host", "", "https://us.i.posthog.com", [], "", True, ["run"], kind=KIND_SETTING))
+    stand_in = owner(cancel=True)
+
+    runner.invoke(cli.app, ["ask", "posthog-host", "--setting"])
+
+    assert stand_in.request.kind_setting and stand_in.request.exists
+    assert stand_in.request.setting_value == ""
+
+
 def test_FormRequest_HasNoSecretField():
+    """The one value it carries is a setting's (an email address shown in the edit form), and it refuses one for
+    a password. Ask never fills it: the agent pre-fills everything but the value."""
     fields = {f.name for f in dataclasses.fields(FormRequest)}
-    assert not any(word in field for field in fields for word in ("secret", "password", "value"))
+    assert not any(word in field for field in fields for word in ("secret", "password"))
+    assert [f for f in fields if "value" in f] == ["setting_value"]
+    with pytest.raises(ValueError):
+        FormRequest(mode=MODE_ASK, kind_setting=False, setting_value="hunter2-hunter2")
+    assert "setting_value" not in inspect.getsource(cli.ask)
 
 
 @pytest.mark.parametrize("option", ["--secret", "--password", "--value"])

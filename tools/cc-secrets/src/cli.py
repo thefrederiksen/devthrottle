@@ -420,10 +420,10 @@ def ask(
 
 @app.command()
 def ui():
-    """Open the cc-secrets window: every entry, searchable, with Add, Edit and Delete, and an eye ([show]) that
-    shows a secret until it is clicked again. Settings show in full. Agents may open it to put it on the owner's
-    screen; only a click on the eye shows a secret, and every reveal is written to the audit log. Returns when the
-    window is closed."""
+    """Open the cc-secrets window: every entry, searchable, sortable and filtered by kind, with Add, Edit and
+    Delete, and Show beside each password, which shows it until Hide is clicked. Settings show in full. Agents may
+    open it to put it on the owner's screen; only a click on Show reveals a password, and every reveal is written
+    to the audit log. Returns when the window is closed."""
     approval, _ = _window_approval(WINDOW_RECORD)
     try:
         entry_window.show_list(WindowActions(_store(), _audit(), approval, detail=WINDOW_RECORD))

@@ -16,7 +16,7 @@ from __future__ import annotations
 import traceback
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Dict, Iterable, List, Optional, Set
+from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 from . import filelog
 from .audit import AuditLog, OwnerApproval
@@ -38,10 +38,13 @@ _USE_COMMANDS = ("run", "login", "get")
 
 @dataclass(frozen=True)
 class FormRequest:
-    """What a form opens with. Deliberately without a secret: the form's secret box always starts empty."""
+    """What a form opens with. Never a secret: a password's box always starts empty, and only the eye fills it.
+    `setting_value` is a SETTING's value - an email address or a host, which is not secret and shows in full -
+    and is refused for a password."""
     mode: str
     name: str = ""
     kind_setting: bool = False
+    setting_value: str = ""
     username: str = ""
     notes: str = ""
     agents_may_use: bool = True
@@ -50,6 +53,10 @@ class FormRequest:
     asked_by: str = ""
     reason: str = ""
     exists: bool = False
+
+    def __post_init__(self) -> None:
+        if self.setting_value and not self.kind_setting:
+            raise ValueError("a form request carries a setting's value only, never a password")
 
 
 @dataclass(frozen=True)
@@ -75,10 +82,21 @@ class Row:
     agents: str
     last_used: str
     notes: str
+    uses: Tuple[str, ...] = ()
+    last_used_at: str = ""  # the ISO time behind last_used, for sorting
 
     @property
     def is_setting(self) -> bool:
         return self.kind == KIND_SETTING
+
+    @property
+    def kind_label(self) -> str:
+        return "Setting" if self.is_setting else "Password"
+
+    @property
+    def access(self) -> str:
+        """What agents may do with it, in words: 'run, login', 'run', or 'not allowed'."""
+        return ", ".join(self.uses) if self.agents == "yes" and self.uses else "not allowed"
 
 
 def replace_warning(name: str) -> str:
@@ -114,17 +132,47 @@ def build_rows(entries: Iterable[Entry], used: Dict[str, str], now: datetime) ->
     return [Row(name=e.name, kind=e.kind, username=e.username,
                 setting_value=e.secret.reveal() if e.is_setting else "",
                 agents="yes" if e.agents_may_use else "no",
-                last_used=relative_time(used.get(e.name, ""), now), notes=e.notes)
+                last_used=relative_time(used.get(e.name, ""), now), notes=e.notes, uses=tuple(e.uses),
+                last_used_at=used.get(e.name, ""))
             for e in sorted(entries, key=lambda e: e.name)]
 
 
-def filter_rows(rows: List[Row], query: str) -> List[Row]:
-    """Rows whose name, user name or notes contain the query, ignoring case. A setting's value is matched too;
-    a secret's never is, so typing part of a password cannot find - and so confirm - which entry holds it."""
+SHOW_ALL = "all"
+SHOW_PASSWORDS = "passwords"
+SHOW_SETTINGS = "settings"
+SHOW_CHOICES = (SHOW_ALL, SHOW_PASSWORDS, SHOW_SETTINGS)
+
+
+def filter_rows(rows: List[Row], query: str, show: str = SHOW_ALL) -> List[Row]:
+    """Rows of the kind asked for whose name, user name or notes contain the query, ignoring case. A setting's
+    value is matched too; a secret's never is, so typing part of a password cannot find - and so confirm - which
+    entry holds it."""
+    if show not in SHOW_CHOICES:
+        raise ValueError(f"unknown filter {show!r}")
     wanted = query.strip().lower()
-    if not wanted:
-        return list(rows)
-    return [r for r in rows if wanted in " ".join((r.name, r.username, r.notes, r.setting_value)).lower()]
+    return [r for r in rows
+            if (show == SHOW_ALL or r.is_setting == (show == SHOW_SETTINGS))
+            and (not wanted or wanted in " ".join((r.name, r.username, r.notes, r.setting_value)).lower())]
+
+
+SORT_COLUMNS = ("name", "kind", "username", "value", "access", "used")
+
+
+def sort_rows(rows: List[Row], column: str, descending: bool) -> List[Row]:
+    """The rows sorted by a column heading, ties by name. A secret sorts by nothing about its value - its 'value'
+    is the same mask for every password - and 'never used' sorts as the oldest."""
+    keys = {
+        "name": lambda r: r.name.lower(),
+        "kind": lambda r: r.kind_label,
+        "username": lambda r: r.username.lower(),
+        "value": lambda r: r.setting_value.lower(),
+        "access": lambda r: r.access,
+        "used": lambda r: r.last_used_at,
+    }
+    if column not in keys:
+        raise ValueError(f"unknown column {column!r}")
+    by_name = sorted(rows, key=lambda r: r.name.lower())
+    return sorted(by_name, key=keys[column], reverse=descending)
 
 
 def log_failure(where: str, exc: BaseException) -> None:
@@ -155,12 +203,13 @@ class WindowActions:
         return build_rows(self._store.entries(), last_used(self._audit.read(10 ** 9)), datetime.now(timezone.utc))
 
     def edit_request(self, name: str) -> FormRequest:
-        """The edit form for an entry: everything but its secret, which only the eye fetches."""
+        """The edit form for an entry: everything but a password, which only the eye fetches. A setting's value is
+        in it - it is not secret, and an empty box made a stored email address look lost."""
         entry = self._store.get(name)
         if entry is None:
             raise CcSecretsError(f"There is no entry named '{name}'.")
         return FormRequest(mode=MODE_EDIT, name=entry.name, kind_setting=entry.is_setting, username=entry.username,
-                           notes=entry.notes, agents_may_use=entry.agents_may_use, uses=list(entry.uses),
+                           setting_value=entry.secret.reveal() if entry.is_setting else "", notes=entry.notes, agents_may_use=entry.agents_may_use, uses=list(entry.uses),
                            domains=", ".join(entry.allowed_domains), exists=True)
 
     def reveal(self, name: str) -> str:
