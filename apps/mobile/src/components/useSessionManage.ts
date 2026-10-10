@@ -24,7 +24,7 @@ import {
 
 const SURFACE = "mobile-session-manage";
 // The two background reads behind the session problem line. Each is reported when what it shows changes, not on
-// every round of the roster poll, and forgotten once the row reads cleanly again.
+// every round of the roster poll, and forgotten only once THAT read succeeds again.
 const SNOOZE_READ = "read the session's snooze state";
 const ROSTER_READ = "read the session roster";
 
@@ -149,6 +149,8 @@ export function useSessionManage(sessionId: string | undefined): SessionManage {
       if (signal?.aborted || routeRef.current !== sessionId) return;
       if (pendingRef.current) return;
       const match = all.find((s) => s.sessionId === sessionId);
+      // The roster answered: that read is good, whatever it held. The snooze read is good only once classify() is.
+      backgroundRecovered(SURFACE, ROSTER_READ);
       if (!match) {
         // The roster answered and does not hold this session: nothing survives to be pressed.
         setSession(null);
@@ -162,7 +164,7 @@ export function useSessionManage(sessionId: string | undefined): SessionManage {
       if (match) {
         setSession(match);
         setSessionProblem(null);
-        problemRecovered();
+        // Not the snooze read yet: classify() below can still fail, and recovering first would report it every round.
         // The toggle needs the raw hold (what it will flip); the DISPLAY reads the fold (working wins).
         setOnHold(Boolean(match.onHold));
         // The Gateway-owned tri-state: DeferredHold is a real snooze that has not armed yet.
@@ -179,6 +181,7 @@ export function useSessionManage(sessionId: string | undefined): SessionManage {
         // mixed-version blip must not throw the refresh, so keep the last verdict on that rare miss.
         try {
           setSnoozed(classify(match) === "onHold");
+          backgroundRecovered(SURFACE, SNOOZE_READ);
         } catch (err) {
           // The row itself is this read's and current, so it stays; the snooze verdict could not be read from it,
           // and the screen says so rather than passing the last one off as fresh.
