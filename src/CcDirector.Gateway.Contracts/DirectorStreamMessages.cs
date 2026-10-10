@@ -69,6 +69,15 @@ public sealed class DirectorStreamHello
     /// </summary>
     public bool ChangesOwnerIfExpected { get; set; }
 
+    /// <summary>
+    /// The Secret Handoff mission: this machine's public key for receiving a secret, as cc-secrets made it (X25519,
+    /// 32 bytes, base64). EMPTY means this Director cannot take part in a secret transfer - an older build, or a
+    /// machine where cc-secrets is not installed - and the Gateway then never lists the machine as able to receive
+    /// nor sends it a transfer command. Only a PUBLIC key ever travels here; the private half never leaves the
+    /// machine's private secrets folder.
+    /// </summary>
+    public string SecretTransferPublicKey { get; set; } = "";
+
     /// <summary>Gateway Cleanup mission (tunnel-only): when the Director process started (UTC).</summary>
     public DateTime StartedAt { get; set; }
 
