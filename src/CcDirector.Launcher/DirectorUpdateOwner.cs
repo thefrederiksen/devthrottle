@@ -525,7 +525,14 @@ public sealed class DirectorUpdateOwner
     /// Director that comes up during the swap - the restored build after a rollback included - hand itself
     /// the same update, which is the rollback loop the claim exists to prevent.
     /// </summary>
-    internal static bool ClearStagedRecord(StagedDirectorUpdate staged)
+    internal static bool ClearStagedRecord(StagedDirectorUpdate staged) =>
+        ClearStagedRecord(staged, UpdaterState.DefaultLockWait);
+
+    /// <summary>
+    /// <see cref="ClearStagedRecord(StagedDirectorUpdate)"/> with the lock wait chosen by the caller. A claim
+    /// that cannot get the lock within <paramref name="lockWait"/> is not made.
+    /// </summary>
+    internal static bool ClearStagedRecord(StagedDirectorUpdate staged, TimeSpan lockWait)
     {
         try
         {
@@ -544,7 +551,7 @@ public sealed class DirectorUpdateOwner
                 state.ApplyAttempts = 0;
                 state.ApplyAttemptVersion = null;
                 claimed = true;
-            });
+            }, lockWait);
             return claimed;
         }
         catch (Exception ex)
