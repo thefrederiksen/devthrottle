@@ -15,8 +15,10 @@ public class InstallProgressTests
     {
         var lines = InstallProgress.NextStep(InstallRole.Workstation, isMac: true, isWindows: false);
         var text = string.Join("\n", lines);
-        Assert.Contains("~/Applications", text);
-        Assert.Contains("Command-Space", text);
+        // The Mac bundle is Director.app: Spotlight and Finder show "Director", never "DevThrottle".
+        Assert.Contains("type Director", text);
+        Assert.Contains("Director in ~/Applications", text);
+        Assert.DoesNotContain("type DevThrottle", text);
         Assert.Contains("Sign in and connect", text);
     }
 

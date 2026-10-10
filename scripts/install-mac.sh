@@ -215,9 +215,10 @@ report_step() { # message
     # bytes, as sent; when it is too big the run log gives way from the top, twenty lines at a time, and a body
     # still too big with no run log left is not sent at all - the measurement is the last word before curl.
     while :; do
-        if [[ "$STEP" == "start" ]]; then
-            # The start report is sent on every install, so it carries only the macOS version - not the run
-            # log, the user id or the home folder, which a failure report needs and a start does not.
+        if [[ "$STEP" == "start" || "$STEP" == "done" ]]; then
+            # The start and done reports are sent on every install that gets that far, so they carry only the
+            # macOS version - not the run log, the user id or the home folder, which a failure report needs and
+            # these do not.
             diagnostics="sw_vers:"$'\n'"$(sw_vers 2>/dev/null || true)"
         else
             diagnostics="run log ($(basename "${LOG_FILE:-no log file}")):"$'\n'"${run_log:-(empty)}"$'\n'"sw_vers:"$'\n'"$(sw_vers 2>/dev/null || true)"$'\n'"id: $(id 2>/dev/null || true)"$'\n'"home: $HOME -> $(readlink "$HOME" 2>/dev/null || printf 'not a link')"

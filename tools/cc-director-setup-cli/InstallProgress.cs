@@ -42,10 +42,11 @@ internal static class InstallProgress
     public static IReadOnlyList<string> NextStep(InstallRole role, bool isMac, bool isWindows)
     {
         if (role != InstallRole.Workstation) return [];
-        // On a Mac the app is placed in the Applications folder inside the home folder (~/Applications), which
-        // Finder's sidebar does not open; Spotlight finds it either way.
+        // On a Mac the app is placed as Director.app in the Applications folder inside the home folder
+        // (~/Applications), which Finder's sidebar does not open. Its name there and in Spotlight is "Director",
+        // not "DevThrottle" - typing DevThrottle finds only the setup wizard.
         var open = isMac
-            ? "open DevThrottle (press Command-Space and type DevThrottle, or open ~/Applications)"
+            ? "open the DevThrottle app, which is called Director on a Mac (press Command-Space and type Director, or open Director in ~/Applications),"
             : isWindows ? "open DevThrottle from the Start menu" : "open DevThrottle from your app menu";
         return
         [
