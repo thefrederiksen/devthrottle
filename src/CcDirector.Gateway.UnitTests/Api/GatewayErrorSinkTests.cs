@@ -189,6 +189,26 @@ public sealed class GatewayErrorSinkTests : IDisposable
     }
 
     [Fact]
+    public void A_failure_the_sink_does_not_expect_still_loses_nothing()
+    {
+        // Step 2 review, observation 8. A root holding a NUL character makes the store throw an ArgumentException - none
+        // of the three failures the write expects. The exception goes on to the caller (the loop logs it), and both the
+        // waiting error and the closed flood hour are put back first.
+        var floods = new ErrorIntakeFloods();
+        var sink = new GatewayErrorSink(new ErrorReportStore(_root + "\0bad"), floods, () => Now, Facts);
+        sink.OnLogLine("[TurnLogStore] Append FAILED: the disk is full");
+        floods.Dropped(ErrorIntakeFloods.InstallReports, 3, Now.AddHours(-1));
+
+        Assert.ThrowsAny<ArgumentException>(() => sink.Flush());
+        Assert.Equal(3, floods.Pending);
+
+        floods.TakeAll();
+        Assert.ThrowsAny<ArgumentException>(() => sink.Flush());
+        Assert.Equal(1, sink.PendingCount);
+        Assert.Equal(0, sink.Dropped);
+    }
+
+    [Fact]
     public void A_full_table_drops_new_errors_and_counts_them_for_the_flood_record()
     {
         var floods = new ErrorIntakeFloods();

@@ -283,7 +283,19 @@ internal sealed class GatewayErrorSink : IDisposable
             var floods = final ? _floods.TakeAll() : _floods.TakeClosed(now);
             if (floods.Count > 0)
             {
-                if (TryWrite(floods.Select(f => f.ToRecord(now, _facts)).ToList(), out var failure))
+                bool floodsStored;
+                Exception? failure;
+                try
+                {
+                    floodsStored = TryWrite(floods.Select(f => f.ToRecord(now, _facts)).ToList(), out failure);
+                }
+                catch
+                {
+                    // An unexpected failure: the hours are put back before the exception goes on, so none is lost.
+                    _floods.Restore(floods);
+                    throw;
+                }
+                if (floodsStored)
                 {
                     written += floods.Count;
                 }
@@ -308,7 +320,22 @@ internal sealed class GatewayErrorSink : IDisposable
                 }
             }
 
-            if (TryWrite(batch.Select(p => ToRecord(p, now)).ToList(), out var error))
+            bool stored;
+            Exception? error;
+            try
+            {
+                stored = TryWrite(batch.Select(p => ToRecord(p, now)).ToList(), out error);
+            }
+            catch (Exception unexpected)
+            {
+                // A failure TryWrite does not expect (step 2 review, observation 8). The batch has already left the table,
+                // so it goes back before the exception goes on to the loop, which logs it: nothing leaves uncounted.
+                var lost = Requeue(batch, now);
+                FileLog.Write($"{ErrorLine.ReporterTag} gateway: {batch.Count} error(s) not stored ({unexpected.GetType().Name}): {unexpected.Message}; "
+                    + (lost > 0 ? $"{lost} given up after {MaxAttempts} attempts and counted as dropped" : "kept for the next flush"));
+                throw;
+            }
+            if (stored)
             {
                 lock (_lock) _storedWindow.Enqueue((now, batch.Count));
                 return written + batch.Count;

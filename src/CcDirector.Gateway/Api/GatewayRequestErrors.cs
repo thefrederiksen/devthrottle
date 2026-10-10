@@ -109,6 +109,16 @@ internal static class GatewayRequestErrors
                 $"an unhandled exception reached the error boundary on a request with no error scope; install {nameof(GatewayRequestErrors)}.{nameof(Use)} first in the pipeline",
                 ex);
         var route = scope.Route ?? RouteOf(ctx, scope.Method);
+
+        // THE CLIENT LEFT (step 2 review, observation 3). A cancellation while the request itself is aborted is the
+        // phone or the browser going away mid-request, not a fault of ours: it is logged, in the reporter's own tag so it
+        // is never observed as an error, and no row is stored. There is nobody left to answer.
+        if (ex is OperationCanceledException && ctx.RequestAborted.IsCancellationRequested)
+        {
+            FileLog.Write($"{CcDirector.Core.ErrorReports.ErrorLine.ReporterTag} gateway: {route} abandoned by the client (correlation {scope.CorrelationId}); not stored");
+            return;
+        }
+
         var type = ex.GetType().FullName ?? ex.GetType().Name;
 
         scope.Sink.Report(new GatewayError(

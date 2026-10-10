@@ -50,6 +50,7 @@ public sealed class GatewayHttpFailureLineShapeTests(ITestOutputHelper output)
 
         var errorSites = 0;
         var httpSites = 0;
+        var multiLineSites = 0;
         var bad = new List<string>();
         foreach (var file in files)
         {
@@ -58,7 +59,8 @@ public sealed class GatewayHttpFailureLineShapeTests(ITestOutputHelper output)
             {
                 var at = lines[i].IndexOf("FileLog.Write(", StringComparison.Ordinal);
                 if (at < 0) continue;
-                var text = lines[i][at..];
+                var text = WholeCall(lines, i, at);
+                if (text.Contains('\n')) multiLineSites++;
                 if (!Marker.IsMatch(text)) continue;
                 errorSites++;
                 if (Verb.IsMatch(text) || LowerVerbRoute.IsMatch(text)) httpSites++;
@@ -67,7 +69,9 @@ public sealed class GatewayHttpFailureLineShapeTests(ITestOutputHelper output)
             }
         }
 
-        output.WriteLine($"read {files.Count} files, {errorSites} FileLog error lines, {httpSites} of them name an HTTP verb");
+        output.WriteLine($"read {files.Count} files, {errorSites} FileLog error lines, {httpSites} of them name an HTTP verb, "
+            + $"{multiLineSites} FileLog calls read across more than one line");
+        Assert.True(multiLineSites > 0, "the scan read no call that spans lines - the multi-line reading is broken, not clean");
         Assert.True(errorSites > 0, "the scan read no FileLog error lines at all - it is broken, not clean");
         Assert.True(httpSites > 0, "the scan found no HTTP failure line at all - it is broken, not clean");
         Assert.True(bad.Count == 0, "HTTP failure lines not in the \"VERB /route\" shape:\n" + string.Join("\n", bad));
@@ -88,6 +92,33 @@ public sealed class GatewayHttpFailureLineShapeTests(ITestOutputHelper output)
     [InlineData("FileLog.Write($\"[Cron] Save FAILED: {ex.Message}\");")]
     [InlineData("FileLog.Write($\"[GatewayHost] GET /sessions -> 200\");")]
     public void A_site_in_shape_passes(string line) => Assert.Null(Violation(line));
+
+    /// <summary>
+    /// The text of one <c>FileLog.Write(...)</c> call from where it starts, joined across lines until the line that
+    /// closes it (step 2 review, observation 7): a string that starts on the next line is read like any other. At most
+    /// eight lines, which is longer than any call in the Gateway.
+    /// </summary>
+    internal static string WholeCall(IReadOnlyList<string> lines, int start, int column)
+    {
+        var text = lines[start][column..];
+        for (var i = start + 1; i < lines.Count && i < start + 8 && !text.TrimEnd().EndsWith(");", StringComparison.Ordinal); i++)
+            text += "\n" + lines[i].Trim();
+        return text;
+    }
+
+    [Fact]
+    public void A_call_whose_string_starts_on_the_next_line_is_read_whole()
+    {
+        string[] lines =
+        [
+            "            FileLog.Write(",
+            "                $\"[FleetManagerPlacementEndpoints] POST start FAILED: {ex.Message}\");",
+            "            return x;",
+        ];
+        var text = WholeCall(lines, 0, lines[0].IndexOf("FileLog.Write(", StringComparison.Ordinal));
+        Assert.DoesNotContain("return x", text);
+        Assert.NotNull(Violation(text));
+    }
 
     private static string Excerpt(string text) => text.Length > 30 ? text[..30] : text;
 

@@ -115,6 +115,47 @@ public sealed class GatewayRequestErrorsTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task A_request_the_client_abandoned_is_logged_not_stored()
+    {
+        // Step 2 review, observation 3: the phone leaving mid-request is not a fault of ours.
+        var (sink, store) = DirectSink();
+        using var gone = new CancellationTokenSource();
+        gone.Cancel();
+        var ctx = new DefaultHttpContext { RequestAborted = gone.Token };
+        ctx.Response.Body = new MemoryStream();
+
+        await GatewayRequestErrors.RunAsync(ctx,
+            () => GatewayRequestErrors.AnswerUnhandledAsync(ctx, new OperationCanceledException(gone.Token)), sink);
+
+        sink.Flush();
+        Assert.Empty(store.Query(new ErrorReportQuery(DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1))).Records);
+        Assert.Equal(0, ctx.Response.Body.Length);
+    }
+
+    [Fact]
+    public async Task A_cancellation_the_client_did_not_cause_is_still_a_stored_500()
+    {
+        // The contrast: the same exception with the request still open is ours - a timeout of our own, say.
+        var (sink, store) = DirectSink();
+        var ctx = new DefaultHttpContext();
+        ctx.Response.Body = new MemoryStream();
+
+        await GatewayRequestErrors.RunAsync(ctx,
+            () => GatewayRequestErrors.AnswerUnhandledAsync(ctx, new OperationCanceledException()), sink);
+
+        sink.Flush();
+        var row = Assert.Single(store.Query(new ErrorReportQuery(DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1))).Records);
+        Assert.Equal(500, row.HttpStatus);
+        Assert.Equal(StatusCodes.Status500InternalServerError, ctx.Response.StatusCode);
+    }
+
+    private (GatewayErrorSink Sink, ErrorReportStore Store) DirectSink()
+    {
+        var store = new ErrorReportStore(_root);
+        return (new GatewayErrorSink(store, new ErrorIntakeFloods()), store);
+    }
+
+    [Fact]
     public async Task Every_error_answer_carries_an_id_and_a_success_carries_none()
     {
         await StartAsync(app =>
@@ -184,10 +225,26 @@ public sealed class GatewayRequestErrorsTests : IAsyncDisposable
                 await next();
             }));
 
-        var response = await _http!.PostAsJsonAsync($"sessions/{target}/prompt", new { text = PromptWords });
+        // The sink is attached to the process log too (step 2 review, observation 9), so a FAILED line anywhere on the
+        // prompt path that carried the prompt's words would land in the store and fail the sweep below.
+        HttpResponseMessage response;
+        using (var log = FileLog.RedirectForTests())
+        {
+            FileLog.ErrorObserver += _sink!.OnLogLine;
+            try
+            {
+                response = await _http!.PostAsJsonAsync($"sessions/{target}/prompt", new { text = PromptWords });
+            }
+            finally
+            {
+                FileLog.ErrorObserver -= _sink.OnLogLine;
+            }
+            // Presence, not absence: the prompt path did log while the sink was listening, so the sweep saw its lines.
+            Assert.Contains(log.DrainAndReadLines(), l => l.Contains("[GatewayEndpoints]") && l.Contains(target));
+        }
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
-        var row = Assert.Single(Stored());
+        var row = Assert.Single(Stored(), r => r.Kind == "refused");
         Assert.Equal(HeaderOf(response), row.CorrelationId);
         Assert.Equal(target, row.SessionId);
         Assert.Equal("tenant-a", row.Account);
