@@ -367,8 +367,11 @@ def get_json(path: str, timeout: float = 30, *, bearer: Optional[str] = None, ba
     return _request("GET", path, None, timeout=timeout, bearer=bearer, base_url=base_url)
 
 
-def post_json(path: str, body: Optional[dict] = None, timeout: float = 30) -> Any:
-    return _request("POST", path, body if body is not None else {}, timeout=timeout)
+def post_json(path: str, body: Optional[dict] = None, timeout: float = 30, *, bearer: Optional[str] = None,
+              base_url: Optional[str] = None) -> Any:
+    """`bearer` and `base_url` exist for the one POST that presents the administrator service token instead of
+    this session's key (`errors website-token`); every other caller leaves them unset."""
+    return _request("POST", path, body if body is not None else {}, timeout=timeout, bearer=bearer, base_url=base_url)
 
 
 def patch_json(path: str, body: dict, timeout: float = 30) -> Any:

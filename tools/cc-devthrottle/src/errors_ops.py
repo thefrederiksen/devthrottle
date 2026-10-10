@@ -20,6 +20,8 @@ The grouped read and the linked issue (the Error Logging mission, issue #3675):
   errors link <fingerprint> <issue>
                               - record the work item filed for a problem on its permanent summary (or --clear
                                 it). Administrator only.
+  errors website-token        - mint (or rotate) the token the website files its errors with. The Gateway keeps
+                                only its hash and shows the value once. Administrator only.
 
 Output follows docs/axi-standard.md: a count line, a compact list, truncated messages with a size hint,
 help[] lines, and `--json` for the Gateway's answer unchanged.
@@ -51,6 +53,10 @@ GROUPS_PATH = "gateway/director-errors/groups"
 ADMIN_GROUPS_PATH = "gateway/admin/director-errors/groups"
 ADMIN_LINKED_ISSUE_PATH = "gateway/admin/director-errors/linked-issue"
 ADMIN_LINK_COMMAND = "cc-secrets run admin-service-token -- cc-devthrottle errors link <fingerprint> <issue>"
+ADMIN_WEBSITE_TOKEN_PATH = "gateway/admin/website-error-token"
+ADMIN_WEBSITE_TOKEN_COMMAND = (
+    "cc-secrets run admin-service-token -- cc-devthrottle errors website-token --gateway https://gateway.devthrottle.com"
+)
 
 # The same list, in the same order, as ErrorReportLimits.Components in
 # src/CcDirector.Core/ErrorReports/ErrorReportContract.cs - the one place the components are defined.
@@ -388,3 +394,37 @@ def link_issue(
         f"last seen {answer.get('last_seen_utc')}",
     )
     axi_cli.print_next(["cc-devthrottle errors groups --all-accounts"])
+
+
+def mint_website_token(*, json_output: bool, gateway_url: Optional[str]) -> None:
+    """`errors website-token`: ask the Gateway to mint the website's error-report token (issue #3675), replacing
+    any before it. The hosted Gateway takes no secret through its settings, so it mints this one itself and keeps
+    only its hash; the value is shown here once, for the owner to put into the website's environment as
+    WEBSITE_ERROR_SERVICE_TOKEN. Administrator only."""
+    bearer = _admin_token("minting the website error token", ADMIN_WEBSITE_TOKEN_COMMAND)
+    try:
+        answer = gateway.post_json(ADMIN_WEBSITE_TOKEN_PATH, {}, bearer=bearer, base_url=gateway_url)
+    except gateway.GatewayError as err:
+        axi_cli.fail(axi_output.escape_ascii(str(err)), [axi_cli.CHECK_GATEWAY])
+
+    token = answer.get("token") if isinstance(answer, dict) else None
+    if not isinstance(token, str) or not token:
+        axi_cli.fail(
+            "the Gateway's answer holds no token, so this tool cannot say one was minted.",
+            [axi_cli.CHECK_GATEWAY],
+        )
+
+    if json_output:
+        print(json.dumps(answer, indent=2))
+        return
+
+    axi_output.write_blocks(
+        sys.stdout,
+        f"token: {token}",
+        f"minted_utc: {answer.get('minted_utc')}",
+        "shown once: any earlier website error token stopped working when this one was minted.",
+    )
+    axi_cli.print_next([
+        "put the token into the website's environment as WEBSITE_ERROR_SERVICE_TOKEN (production and preview)",
+        "cc-devthrottle errors list --all-accounts --component website",
+    ])

@@ -34,6 +34,8 @@ internal sealed class ErrorIntakeFloods
     public const string DirectorErrors = "POST " + DirectorErrorEndpoints.Path;
     /// <summary>The browsers' route.</summary>
     public const string ClientErrors = "POST /client-errors";
+    /// <summary>The website's route.</summary>
+    public const string WebsiteErrors = WebsiteErrorEndpoints.Intake;
     /// <summary>Not a route: the Gateway's own failure lines, which <see cref="GatewayErrorSink"/> stores within a budget.</summary>
     public const string GatewayLog = "the Gateway's own error log";
 
