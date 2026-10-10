@@ -355,10 +355,12 @@ public sealed class ErrorReporterTests
         Assert.NotNull(dir);
         var program = File.ReadAllText(Path.Combine(dir!.FullName, "src", "CcDirector.GatewayApp", "Program.cs"));
 
-        var start = program.IndexOf("ErrorReporter.Start(ErrorReportLimits.GatewayApp, ErrorReporter.HostedConnectionOnly(", StringComparison.Ordinal);
+        var start = program.IndexOf("ErrorReporter.Start(ErrorReportLimits.GatewayApp, ErrorReporter.HostedConnectionOnly(ErrorReportConnection, HostedGateway.ResolveUrl));", StringComparison.Ordinal);
         Assert.True(start > 0, "the Gateway app does not start the error reporter as gateway-app on the hosted connection");
         Assert.True(start < program.IndexOf("return ApplyUpdate(args);", StringComparison.Ordinal), "the reporter starts after the self-update helper");
         Assert.True(start < program.IndexOf("StartWithClassicDesktopLifetime", StringComparison.Ordinal), "the reporter starts after the app");
+        // The connection is the default Director's (review of #3756): the machine root holds none since #3506.
+        Assert.Contains("ErrorReportConnection() => DefaultDirectorConnection.For(InstallLayout.Default()).LoadGateway();", program);
     }
 
     // ---- Before sign-in (issue #3311, B1) ----

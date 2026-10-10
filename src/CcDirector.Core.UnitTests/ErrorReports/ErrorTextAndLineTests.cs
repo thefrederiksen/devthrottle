@@ -153,6 +153,24 @@ public sealed class ErrorTextAndLineTests
         Assert.Equal("The trust relationship between <machine> and the domain failed for user <user> (<user>@corp)", scrubbed);
     }
 
+    [Theory]
+    // Review of #3756: a home folder rule stops at the first space, so a two-word user name used to leave
+    // "~ Smith\..." - the surname left the machine. Windows, the forward-slash form, and macOS.
+    [InlineData(@"Access to the path 'C:\Users\Robert Smith\AppData\Local\cc-director\app\cc-director.exe' is denied.",
+        @"Access to the path '~\AppData\Local\cc-director\app\cc-director.exe' is denied.")]
+    [InlineData("fatal: not a git repository: C:/Users/Robert Smith/source/repos/x/.git",
+        "fatal: not a git repository: ~/source/repos/x/.git")]
+    [InlineData("Load failed for /Users/Robert Smith/Library/LaunchAgents/x.plist",
+        "Load failed for ~/Library/LaunchAgents/x.plist")]
+    public void ScrubOnThisMachine_AUserNameWithASpace_LeavesNoPartOfIt(string input, string expected)
+    {
+        var scrubbed = ErrorTextScrubber.ScrubOnThisMachine(input, "Robert Smith", "ROBERT-PC");
+
+        Assert.Equal(expected, scrubbed);
+        Assert.DoesNotContain("Smith", scrubbed);
+        Assert.DoesNotContain("Robert", scrubbed);
+    }
+
     [Fact]
     public void ScrubOnThisMachine_NameInsideALongerWord_IsKept()
     {

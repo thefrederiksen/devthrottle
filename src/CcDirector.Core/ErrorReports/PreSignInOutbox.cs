@@ -183,13 +183,15 @@ public sealed class PreSignInOutbox
     /// <summary>The kind of the report that carries the dropped count to a signed-in account.</summary>
     public const string DroppedKind = "outbox-dropped";
 
-    /// <summary>" (by source: Store x12, Session x3)" - the sources that lost errors, most first - or nothing.</summary>
+    /// <summary>"; the occurrences given up, by source: Store 12 occurrences, Session 3 occurrences" - the sources
+    /// that lost errors, most first - or nothing. Said in words, because the sentence before it counts DISTINCT
+    /// errors and these count OCCURRENCES, and the reader of the report does not have the pull request.</summary>
     internal static string BySourceText(IReadOnlyDictionary<string, long>? bySource)
     {
         if (bySource is null || bySource.Count == 0) return "";
         var parts = bySource.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key, StringComparer.Ordinal)
-            .Select(kv => $"{kv.Key} x{kv.Value}");
-        return " (by source: " + string.Join(", ", parts) + ")";
+            .Select(kv => $"{kv.Key} {kv.Value} occurrence{(kv.Value == 1 ? "" : "s")}");
+        return "; the occurrences given up, by source: " + string.Join(", ", parts);
     }
 
     /// <summary>The count of what the full file gave up, as one report for the device route.</summary>
@@ -197,7 +199,7 @@ public sealed class PreSignInOutbox
         Component: component,
         Source: nameof(PreSignInOutbox),
         Kind: DroppedKind,
-        Message: $"{file.NotKept} distinct error(s) logged by the {component} before this machine signed in were not kept, because the queue on disk was full{BySourceText(file.NotKeptBySource)}.",
+        Message: $"{file.NotKept} distinct error{(file.NotKept == 1 ? "" : "s")} logged by the {component} before this machine signed in {(file.NotKept == 1 ? "was" : "were")} not kept, because the queue on disk was full{BySourceText(file.NotKeptBySource)}.",
         ExceptionType: null,
         Stack: null,
         RepeatCount: 1,
@@ -337,7 +339,7 @@ public sealed class PreSignInOutbox
         var message = new StringBuilder()
             .Append($"{used} distinct error(s), {occurrences} in all, logged by the {component} before this machine signed in.");
         if (used < items.Count) message.Append($" {items.Count - used} more are waiting for the next report.");
-        if (notKept > 0) message.Append($" {notKept} further distinct error(s) were not kept because the queue on disk was full{BySourceText(notKeptBySource)}.");
+        if (notKept > 0) message.Append($" {notKept} further distinct error{(notKept == 1 ? "" : "s")} {(notKept == 1 ? "was" : "were")} not kept because the queue on disk was full{BySourceText(notKeptBySource)}.");
         message.Append($" First: [{first.Source}] {first.Message}");
         var messageText = ErrorTextScrubber.ScrubOnThisMachine(message.ToString());
         if (messageText.Length > InstallReportLimits.MaxMessage) messageText = messageText[..InstallReportLimits.MaxMessage];

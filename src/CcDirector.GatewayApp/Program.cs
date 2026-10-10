@@ -18,6 +18,10 @@ public static class Program
     // instance (self-update test harness, CC_GATEWAY_NO_TAILSCALE dev runs) is legitimate.
     private static string SingleInstanceMutexName => $"CcDirector.GatewayApp.SingleInstance.{GatewayAppOptions.Port}";
 
+    /// <summary>This machine's Gateway connection as the default Director holds it, read from its own home
+    /// (issues #3506, #3643).</summary>
+    internal static GatewayConfig ErrorReportConnection() => DefaultDirectorConnection.For(InstallLayout.Default()).LoadGateway();
+
     [STAThread]
     public static int Main(string[] args)
     {
@@ -28,7 +32,9 @@ public static class Program
         // embedded Gateway's own handled errors - and anything that escapes a thread or a task. Before this they
         // stayed in the log on this machine. The connection is the HOSTED Gateway's or none: this machine's own
         // connection points at this very Gateway, whose store we cannot read. With none, the errors go through
-        // the before-sign-in outbox to the hosted Gateway's public install-report route.
+        // the before-sign-in outbox to the hosted Gateway's public install-report route. The connection is read
+        // from the default Director's home, where a machine's connection lives (#3506), as the launcher does - the
+        // machine root holds none, so reading it would leave the hosted case dead.
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
         {
             FileLog.Write($"[Program] UNHANDLED ({(e.IsTerminating ? "terminating" : "non-terminating")}): {e.ExceptionObject}");
@@ -39,7 +45,7 @@ public static class Program
             FileLog.Write($"[Program] UNOBSERVED TASK: {e.Exception}");
             e.SetObserved();
         };
-        ErrorReporter.Start(ErrorReportLimits.GatewayApp, ErrorReporter.HostedConnectionOnly(GatewayConfig.Load, HostedGateway.ResolveUrl));
+        ErrorReporter.Start(ErrorReportLimits.GatewayApp, ErrorReporter.HostedConnectionOnly(ErrorReportConnection, HostedGateway.ResolveUrl));
 
         // Detached self-update helper mode: this process is a STAGED copy of the new Gateway exe.
         // It asks the running tray app to exit (POST /shutdown), swaps itself into the installed

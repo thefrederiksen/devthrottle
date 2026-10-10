@@ -115,11 +115,14 @@ public static class ErrorTextScrubber
     /// <summary><see cref="ScrubOnThisMachine(string)"/> with the names given, so a test can name them.</summary>
     public static string ScrubOnThisMachine(string value, string? userName, string? machineName)
     {
-        var s = Scrub(value);
-        // The machine first: on a Mac it is often built from the person's name ("Roberts-MacBook-Pro"), and the
-        // user name inside it would otherwise be replaced alone and leave "<user>s-MacBook-Pro".
-        s = ReplaceWholeWord(s, machineName, MachinePlaceholder);
-        return ReplaceWholeWord(s, userName, UserPlaceholder);
+        // The names BEFORE the path rules (review of #3756). A home folder rule stops at the first space, so with
+        // the paths first "C:\Users\Robert Smith\..." became "~ Smith\..." and the whole name could no longer be
+        // found. Replaced first, the folder reads "C:\Users\<user>\..." and the path rule still makes it "~".
+        // The machine before the user: on a Mac it is often built from the person's name ("Roberts-MacBook-Pro"),
+        // and the user name inside it would otherwise be replaced alone and leave "<user>s-MacBook-Pro".
+        var s = ReplaceWholeWord(value ?? "", machineName, MachinePlaceholder);
+        s = ReplaceWholeWord(s, userName, UserPlaceholder);
+        return Scrub(s);
     }
 
     /// <summary><see cref="Clean"/> with <see cref="ScrubOnThisMachine(string)"/> as its scrub.</summary>

@@ -130,7 +130,7 @@ public sealed class PreSignInOutboxTests : IDisposable
 
         await outbox.SendBeforeSignInAsync(final: true, CancellationToken.None);
 
-        Assert.Contains("2 further distinct error(s) were not kept because the queue on disk was full (by source: Store x2).",
+        Assert.Contains("2 further distinct errors were not kept because the queue on disk was full; the occurrences given up, by source: Store 2 occurrences.",
             Payload(handler).Message);
         Assert.DoesNotContain("not_kept_by_source", File.ReadAllText(FilePath));
         Assert.Contains("\"not_kept\":0", File.ReadAllText(FilePath));
@@ -151,8 +151,8 @@ public sealed class PreSignInOutboxTests : IDisposable
 
         Assert.Equal(PreSignInOutbox.MaxKept + 1, handed.Count);
         var dropped = Assert.Single(handed, i => i.Kind == PreSignInOutbox.DroppedKind);
-        Assert.Contains("1 distinct error(s)", dropped.Message);
-        Assert.Contains("(by source: Store x3)", dropped.Message);
+        Assert.Contains("1 distinct error logged by the director before this machine signed in was not kept", dropped.Message);
+        Assert.Contains("the occurrences given up, by source: Store 3 occurrences.", dropped.Message);
         Assert.False(File.Exists(FilePath));
     }
 
@@ -252,7 +252,7 @@ public sealed class PreSignInOutboxTests : IDisposable
         Assert.InRange(used, 1, items.Count - 1);
         Assert.True(payload.Diagnostics.Length <= PreSignInOutbox.DiagnosticsBudget);
         Assert.Contains($"{items.Count - used} more are waiting", payload.Message);
-        Assert.Contains("4 further distinct error(s) were not kept", payload.Message);
+        Assert.Contains("4 further distinct errors were not kept", payload.Message);
         Assert.Contains("[C0] Save FAILED: 0", payload.Message);
     }
 
