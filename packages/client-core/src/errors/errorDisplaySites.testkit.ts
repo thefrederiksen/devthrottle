@@ -1,0 +1,624 @@
+// TEST SUPPORT ONLY - never imported by product code (it reads source files from disk).
+//
+// Every place a browser shell turns an error into on-screen text, DERIVED FROM THE CODE (the Error Logging
+// mission, issue #3675). The mission's rule is that an error a user sees is also logged centrally, and the one
+// act that does both is describeAndReport (reportClientError.ts). A hand-kept list of display sites goes stale
+// the day someone adds one, so the sites are worked out here from the source files themselves, and a scan test
+// in each shell fails on any site that neither reports nor carries a written exemption. The phone and
+// client-core scan, and the Cockpit's, are built on this one file.
+//
+// WHAT IS A DISPLAY SITE (a "site"):
+//
+//   setter    A call of an error-state setter with a value: setError(...), setLoadError(...), any set...Error,
+//             set...Failure, set...Problem or set...Refusal. Also any setter whose state is rendered inside a
+//             role="alert" element in the same file (`const [note, setNote] = useState` and `{note}` in an
+//             alert make setNote a display setter). Clearing calls - null, undefined, false, "" - are not sites.
+//   catch     Inside a catch block or a .catch(...) handler, a call of any setter whose value uses the caught
+//             error: `catch (err) { setStatus(err.message) }` shows the error whatever the setter is called.
+//   callback  A call of an error callback with a value: onError(...), hooks.onError?.(...), onSomethingError(...).
+//             The callback hands the text to a host that displays it, so the text must already be reported.
+//   alert     A role="alert" element whose content is NOT state set in the same file - a prop, a hook's field,
+//             or fixed text. The scan cannot follow the value to where it was made, so the element must name
+//             the function that reports it (see the markers below), and the scan checks that function reports.
+//
+// WHAT COUNTS AS REPORTED:
+//
+//   - The value contains a call of a REPORTING FUNCTION: describeAndReport itself, or any function whose
+//     returned value is a reporting call (followed until nothing new is found), so a wrapper such as
+//     `function loadFailed(err) { return describeAndReport(...) }` reports too.
+//   - The value is a variable assigned from a reporting call in the same file:
+//     `const message = describeAndReport(...); setError(message);`.
+//   - The value is the parameter of an error callback or an error setter being passed straight through:
+//     `onError={(message) => setError(message)}`, `const setActionError = useCallback((message) => setError(message))`
+//     - the sites are the callers of that callback or setter, each scanned on its own.
+//
+// THE ONLY TWO MARKERS, written as a comment on the site's line or on the line directly above it:
+//
+//   error-report-exempt: <reason>   An input check the user caused (an empty field, a bad format) - nothing
+//                                   failed, so there is nothing to log. The reason is required and is printed.
+//   error-reported-by: <function>   On an alert site only: the function (a hook, a helper) that reports the
+//                                   value this element shows. The scan checks that function exists in the
+//                                   scanned code and calls a reporting function; a name that does not is a
+//                                   failure, never a pass.
+//
+// A regex scan, not a type checker: it is written for our own source and errs towards counting a site.
+
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join, relative, sep } from "node:path";
+
+export type ErrorDisplaySiteKind = "setter" | "catch" | "callback" | "alert";
+
+export interface ErrorDisplaySite {
+  /** Repository-relative path, forward slashes. */
+  file: string;
+  line: number;
+  kind: ErrorDisplaySiteKind;
+  /** The setter or callback called, or "role=alert". */
+  name: string;
+  /** The value shown (the call's argument, or the alert's content), whitespace collapsed. */
+  value: string;
+  /** True when the value is reported. */
+  reported: boolean;
+  /** The written reason, when the site is exempt. */
+  exemptReason?: string;
+  /** Why an unreported site failed, for the failure message. */
+  problem?: string;
+}
+
+export interface ErrorDisplayScan {
+  /** How many source files were read. */
+  filesRead: number;
+  sites: ErrorDisplaySite[];
+  /** Every function name that counts as reporting. */
+  reportingFunctions: Set<string>;
+}
+
+/** The function every reporting function leads back to. */
+export const REPORTING_ROOT = "describeAndReport";
+
+/** The repository root, from this file's own location: <root>/packages/client-core/src/errors/. */
+export function repositoryRoot(): string {
+  return join(__dirname, "..", "..", "..", "..");
+}
+
+/**
+ * Scan the given source roots (paths relative to the repository root, e.g. "apps/mobile/src") for every
+ * error display site. client-core's own source is always read for reporting functions, because the shared
+ * wrappers live there, but its sites are only listed when it is one of the roots.
+ */
+export function scanErrorDisplaySites(roots: string[], root = repositoryRoot()): ErrorDisplayScan {
+  const scanned = roots.flatMap((r) => sourceFiles(join(root, r)));
+  const library = sourceFiles(join(root, "packages", "client-core", "src"));
+  const all = [...new Set([...scanned, ...library])];
+  const texts = new Map(all.map((f) => [f, readFileSync(f, "utf8")]));
+  const reporting = reportingFunctions([...texts.values()]);
+  const producers = functionBodies([...texts.values()].join("\n"));
+  const sites = scanned.flatMap((f) => scanSource(relative(root, f).split(sep).join("/"), texts.get(f)!, reporting, producers));
+  return { filesRead: scanned.length, sites, reportingFunctions: reporting };
+}
+
+/** The sites that neither report nor carry a written exemption. */
+export function unreportedSites(scan: ErrorDisplayScan): ErrorDisplaySite[] {
+  return scan.sites.filter((s) => !s.reported && s.exemptReason === undefined);
+}
+
+/** One line per site, for a failure message: "apps/mobile/src/pages/Home.tsx:215 setError(err.message) - ...". */
+export function describeSite(site: ErrorDisplaySite): string {
+  const value = site.value.length > 100 ? `${site.value.slice(0, 97)}...` : site.value;
+  const shown = site.kind === "alert" ? `role="alert" showing ${value}` : `${site.name}(${value})`;
+  return `${site.file}:${site.line} [${site.kind}] ${shown}${site.problem ? ` - ${site.problem}` : ""}`;
+}
+
+/**
+ * Every reporting function in the given sources: describeAndReport, and every function whose returned value
+ * contains a call of a reporting function, followed until nothing new is found. Exported for unit tests.
+ */
+export function reportingFunctions(sources: string[]): Set<string> {
+  const functions = sources.flatMap((s) => functionBodies(s));
+  const found = new Set([REPORTING_ROOT]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const f of functions) {
+      if (found.has(f.name)) continue;
+      if (f.returned.some((r) => callsAny(r, found))) {
+        found.add(f.name);
+        grew = true;
+      }
+    }
+  }
+  return found;
+}
+
+/**
+ * The sites in one source file. Exported so the scanner's own rules can be tested on small sources.
+ * `producers` are the functions an error-reported-by marker may name (defaults to this file's own).
+ */
+export function scanSource(
+  file: string,
+  src: string,
+  reporting: Set<string>,
+  producers: FunctionBody[] = functionBodies(src),
+): ErrorDisplaySite[] {
+  const lines = src.split("\n");
+  const lineOf = (at: number) => src.slice(0, at).split("\n").length;
+  const assignments = assignmentsOf(src, reporting);
+  const states = useStatePairs(src);
+  const sites = new Map<number, ErrorDisplaySite>();
+
+  const valueReported = (value: string, at: number): boolean =>
+    callsAny(value, reporting) || lastAssignmentReports(assignments, value.trim(), at) || isPassThrough(src, at, value.trim());
+
+  const addCall = (at: number, kind: ErrorDisplaySiteKind, name: string, value: string) => {
+    if (sites.has(at) || isClearing(value) || !carriesText(value, kind)) return;
+    const line = lineOf(at);
+    const marker = markerFor(lines, line);
+    const reported = valueReported(value, at);
+    sites.set(at, {
+      file,
+      line,
+      kind,
+      name,
+      value: collapse(value),
+      reported,
+      ...(marker?.kind === "exempt" ? { exemptReason: marker.text } : {}),
+      ...(reported || marker?.kind === "exempt" ? {} : { problem: problemFor(marker) }),
+    });
+  };
+
+  // Display setters: by name, and by being rendered inside an alert.
+  // A setter whose state an alert reads only through members (`{load.message}`) shows text only when it is
+  // given one of those members; `setLoad({ kind: "loading" })` shows nothing.
+  const alerts = alertElements(src);
+  const displaySetters = new Map<string, Set<string> | null>();
+  for (const [value, setter] of states) {
+    if (ERROR_SETTER.test(setter)) displaySetters.set(setter, null);
+    for (const a of alerts) {
+      if (!a.roots.has(value) || displaySetters.get(setter) === null) continue;
+      const members = a.roots.get(value)!;
+      const known = displaySetters.get(setter);
+      displaySetters.set(setter, members === null ? null : new Set([...(known ?? []), ...members]));
+    }
+  }
+  for (const m of src.matchAll(/(?<![\w$.])(set[A-Z][\w$]*)\s*\(/g)) {
+    const name = m[1];
+    if (!ERROR_SETTER.test(name) && !displaySetters.has(name)) continue;
+    if (isDeclaration(src, m.index!)) continue;
+    const open = m.index! + m[0].length - 1;
+    const close = matchingClose(src, open);
+    if (close < 0) continue;
+    const value = src.slice(open + 1, close);
+    const members = displaySetters.get(name);
+    // A flag (`setSaving(true)`) shows no error text of its own unless its name says it is an error.
+    if (!ERROR_SETTER.test(name) && /^\s*true\s*$/.test(value)) continue;
+    if (members && /^\s*\{/.test(value) && ![...members].some((k) => new RegExp(`(?<![\\w$.])${escape(k)}\\s*[:,}]`).test(value))) continue;
+    addCall(m.index!, "setter", name, value);
+  }
+
+  // Error callbacks.
+  for (const m of src.matchAll(/(?<![\w$])(on[A-Z]?[\w$]*Error)\s*(?:\?\.)?\s*\(/g)) {
+    if (isDeclaration(src, m.index!)) continue;
+    const open = m.index! + m[0].length - 1;
+    const close = matchingClose(src, open);
+    if (close < 0) continue;
+    addCall(m.index!, "callback", m[1], src.slice(open + 1, close));
+  }
+
+  // Any setter inside a catch that shows the caught error.
+  for (const c of catchBodies(src)) {
+    const body = src.slice(c.start, c.end);
+    const uses = new RegExp(`(?<![\\w$.])${c.variable}(?![\\w$])`);
+    for (const m of body.matchAll(/(?<![\w$.])(set[A-Z][\w$]*)\s*\(/g)) {
+      const at = c.start + m.index!;
+      const open = at + m[0].length - 1;
+      const close = matchingClose(src, open);
+      if (close < 0) continue;
+      const value = src.slice(open + 1, close);
+      if (uses.test(value)) addCall(at, "catch", m[1], value);
+    }
+  }
+
+  // Alerts whose content is not state set in this file.
+  const stateValues = new Set(states.keys());
+  for (const a of alerts) {
+    const outside = [...a.roots.keys()].filter((r) => !stateValues.has(r));
+    if (a.roots.size > 0 && outside.length === 0) continue;
+    const line = lineOf(a.at);
+    const marker = markerFor(lines, line);
+    let reported = false;
+    let problem: string | undefined;
+    if (marker?.kind === "reported-by") {
+      const producer = producers.find((p) => p.name === marker.text);
+      if (!producer) problem = `error-reported-by names "${marker.text}", which is not a function in the scanned code`;
+      else if (!callsAny(producer.body, reporting)) problem = `error-reported-by names "${marker.text}", which never calls ${REPORTING_ROOT}`;
+      else reported = true;
+    } else if (marker?.kind !== "exempt") {
+      problem = `this alert shows ${outside.length > 0 ? outside.join(", ") : "fixed text"}, not state set in this file; name the function that reports it with error-reported-by`;
+    }
+    sites.set(a.at, {
+      file,
+      line,
+      kind: "alert",
+      name: "role=alert",
+      value: collapse(a.content),
+      reported,
+      ...(marker?.kind === "exempt" ? { exemptReason: marker.text } : {}),
+      ...(problem ? { problem } : {}),
+    });
+  }
+
+  return [...sites.values()].sort((a, b) => a.line - b.line);
+}
+
+// ---- the rules' pieces ----------------------------------------------------------------------------------
+
+/** A setter that holds an error by its name. */
+const ERROR_SETTER = /^set[\w$]*(?:Error|Err|Failure|Problem|Refusal)[\w$]*$/;
+
+function isClearing(value: string): boolean {
+  return /^\s*(?:null|undefined|false|""|''|``|\[\]|\{\})?\s*$/.test(value);
+}
+
+/** An updater function (`setErrors((e) => ...)`) only shows text when it builds some; a pure reshuffle - removing
+ *  one entry - is not a display. Any other value is a display. */
+function carriesText(value: string, kind: ErrorDisplaySiteKind): boolean {
+  if (kind === "catch") return true;
+  if (!/^\s*(?:async\s*)?\(?[\w$\s,{}:]*\)?\s*=>/.test(value)) return true;
+  return /["'`]|\.message\b|[\w$]\s*\(/.test(value.replace(/^\s*(?:async\s*)?\(?[\w$\s,{}:]*\)?\s*=>/, ""));
+}
+
+/** `function setError(` and a type's `onError(message: string): void` declare a name; they do not call it. */
+function isDeclaration(src: string, at: number): boolean {
+  if (/function\s*$/.test(src.slice(Math.max(0, at - 20), at))) return true;
+  const open = src.indexOf("(", at);
+  const close = matchingClose(src, open);
+  return close > 0 && /^\s*:\s*[\w$<>[\]| ]+\s*[;,}]/.test(src.slice(close + 1, close + 60)) && /^\s*[\w$]+\s*:/.test(src.slice(open + 1, close));
+}
+
+function callsAny(text: string, names: Set<string>): boolean {
+  for (const name of names) {
+    if (new RegExp(`(?<![\\w$.])${escape(name)}\\s*\\(`).test(text)) return true;
+  }
+  return false;
+}
+
+/** Every assignment in the file, by variable: where it is and whether its value is a reporting call. */
+function assignmentsOf(src: string, reporting: Set<string>): Map<string, { at: number; reports: boolean }[]> {
+  const out = new Map<string, { at: number; reports: boolean }[]>();
+  for (const m of src.matchAll(/(?<![\w$.])([A-Za-z_$][\w$]*)\s*=(?!=|>)\s*/g)) {
+    const start = m.index! + m[0].length;
+    const end = expressionEnd(src, start);
+    const list = out.get(m[1]) ?? [];
+    list.push({ at: m.index!, reports: callsAny(src.slice(start, end), reporting) });
+    out.set(m[1], list);
+  }
+  return out;
+}
+
+/** A variable is reported when the LAST assignment to it before the site is a reporting call:
+ *  `const message = describeAndReport(...); setError(message);`. */
+function lastAssignmentReports(assignments: Map<string, { at: number; reports: boolean }[]>, value: string, at: number): boolean {
+  if (!/^[A-Za-z_$][\w$]*$/.test(value)) return false;
+  const before = (assignments.get(value) ?? []).filter((a) => a.at < at);
+  return before.length > 0 && before[before.length - 1].reports;
+}
+
+/** `onError={(message) => setError(message)}`, `onError: (message) => { setError(message) }` and
+ *  `const setActionError = useCallback((message) => { setError(message) })`: the value is the parameter of an
+ *  error callback or an error setter, reported (or not) where THAT is called - and each such call is a site. */
+function isPassThrough(src: string, at: number, value: string): boolean {
+  if (!/^[A-Za-z_$][\w$]*$/.test(value)) return false;
+  const before = src.slice(Math.max(0, at - 300), at);
+  const named = "(?:on[A-Z]?[\\w$]*Error|set[\\w$]*(?:Error|Err|Failure|Problem|Refusal)[\\w$]*)";
+  const re = new RegExp(
+    `${named}\\s*[:=]\\s*(?:useCallback\\(\\s*)?\\{?\\s*(?:async\\s*)?\\(?\\s*([A-Za-z_$][\\w$]*)|function\\s+${named}\\s*\\(\\s*([A-Za-z_$][\\w$]*)`,
+    "g",
+  );
+  let last: string | null = null;
+  for (const m of before.matchAll(re)) last = m[1] ?? m[2];
+  return last === value;
+}
+
+/** Every `const [value, setValue] = useState` in the file, value to setter. */
+function useStatePairs(src: string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const m of src.matchAll(/\[\s*([A-Za-z_$][\w$]*)\s*,\s*(set[A-Z][\w$]*)\s*\]\s*=\s*(?:React\.)?useState\b/g)) out.set(m[1], m[2]);
+  return out;
+}
+
+interface AlertElement {
+  at: number;
+  content: string;
+  /** The root identifiers of every {expression} in the content, each with the members read from it, or null
+   *  when it is used whole: `{manage.error}` gives manage -> {error}, `{error}` gives error -> null. */
+  roots: Map<string, Set<string> | null>;
+}
+
+function alertElements(src: string): AlertElement[] {
+  const out: AlertElement[] = [];
+  for (const m of src.matchAll(/role=(?:"alert"|\{\s*"alert"\s*\})/g)) {
+    const tagStart = src.lastIndexOf("<", m.index!);
+    const tag = /^<([A-Za-z][\w.]*)/.exec(src.slice(tagStart))?.[1];
+    if (!tag) continue;
+    const openEnd = jsxTagEnd(src, tagStart);
+    if (openEnd < 0) continue;
+    let content = "";
+    if (src[openEnd - 1] !== "/") {
+      const close = closingTag(src, openEnd + 1, tag);
+      if (close < 0) continue;
+      content = src.slice(openEnd + 1, close);
+    }
+    out.push({ at: tagStart, content, roots: jsxRoots(content) });
+  }
+  return out;
+}
+
+/** The index of the ">" that ends the opening tag at `start`, skipping {expressions} and quoted attributes. */
+function jsxTagEnd(src: string, start: number): number {
+  for (let i = start + 1; i < src.length; i++) {
+    const c = src[i];
+    if (c === "{") {
+      i = matchingClose(src, i);
+      if (i < 0) return -1;
+    } else if (c === '"' || c === "'") {
+      i = src.indexOf(c, i + 1);
+      if (i < 0) return -1;
+    } else if (c === ">") return i;
+  }
+  return -1;
+}
+
+function closingTag(src: string, from: number, tag: string): number {
+  const re = new RegExp(`<(/?)${escape(tag)}(?![\\w.])`, "g");
+  re.lastIndex = from;
+  let depth = 1;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(src)) !== null) {
+    if (m[1] === "/") {
+      depth--;
+      if (depth === 0) return m.index;
+    } else {
+      const end = jsxTagEnd(src, m.index);
+      if (end > 0 && src[end - 1] !== "/") depth++;
+      if (end > 0) re.lastIndex = end;
+    }
+  }
+  return -1;
+}
+
+const NOT_ROOTS = new Set(["null", "undefined", "true", "false", "typeof", "new", "this", "void", "in", "of", "instanceof", "String", "Number"]);
+
+/** The root identifiers of the top-level {expressions} in some JSX content, skipping nested elements' attributes
+ *  and anything that is a component, a string, or a comment. */
+function jsxRoots(content: string): Map<string, Set<string> | null> {
+  const roots = new Map<string, Set<string> | null>();
+  for (let i = 0; i < content.length; i++) {
+    if (content[i] === "<" && /[A-Za-z]/.test(content[i + 1] ?? "")) {
+      const end = jsxTagEnd(content, i);
+      if (end < 0) break;
+      i = end;
+      continue;
+    }
+    if (content[i] !== "{") continue;
+    const close = matchingClose(content, i);
+    if (close < 0) break;
+    const expr = stripStringsAndComments(content.slice(i + 1, close));
+    for (const m of expr.matchAll(/(?<![\w$.])([A-Za-z_$][\w$]*)(?:\s*\??\.\s*([A-Za-z_$][\w$]*))?/g)) {
+      const name = m[1];
+      if (NOT_ROOTS.has(name) || /^[A-Z]/.test(name)) continue;
+      const known = roots.get(name);
+      if (m[2] === undefined || known === null) roots.set(name, null);
+      else roots.set(name, new Set([...(known ?? []), m[2]]));
+    }
+    i = close;
+  }
+  return roots;
+}
+
+interface CatchBody {
+  variable: string;
+  start: number;
+  end: number;
+}
+
+/** `catch (err) { ... }` and `.catch((err) => ...)`: the caught variable and the handler's span. */
+function catchBodies(src: string): CatchBody[] {
+  const out: CatchBody[] = [];
+  for (const m of src.matchAll(/\bcatch\s*\(\s*([A-Za-z_$][\w$]*)[^)]*\)\s*\{/g)) {
+    const open = m.index! + m[0].length - 1;
+    const close = matchingClose(src, open);
+    if (close > 0) out.push({ variable: m[1], start: open, end: close });
+  }
+  for (const m of src.matchAll(/\.catch\(\s*(?:async\s*)?\(?\s*([A-Za-z_$][\w$]*)\s*(?::[^)=]*)?\)?\s*=>/g)) {
+    const open = m.index! + "catch".length + 1;
+    const close = matchingClose(src, open);
+    if (close > 0) out.push({ variable: m[1], start: m.index! + m[0].length, end: close });
+  }
+  return out;
+}
+
+interface Marker {
+  kind: "exempt" | "reported-by";
+  text: string;
+}
+
+/** A marker on the site's line or the line directly above it. An exemption without a reason is no exemption. */
+function markerFor(lines: string[], line: number): Marker | null {
+  for (const text of [lines[line - 1] ?? "", lines[line - 2] ?? ""]) {
+    const exempt = /error-report-exempt:\s*(.*?)\s*(?:\*\/\s*\}?)?\s*$/.exec(text);
+    if (exempt) return exempt[1].length >= 10 ? { kind: "exempt", text: exempt[1] } : { kind: "reported-by", text: "" };
+    const by = /error-reported-by:\s*([A-Za-z_$][\w$]*)/.exec(text);
+    if (by) return { kind: "reported-by", text: by[1] };
+  }
+  return null;
+}
+
+function problemFor(marker: Marker | null): string {
+  if (marker?.kind === "reported-by" && marker.text === "") return "error-report-exempt needs a written reason of at least ten characters";
+  if (marker?.kind === "reported-by") return "error-reported-by is for alert elements only; report the value with describeAndReport";
+  return `the value is not reported - pass it through ${REPORTING_ROOT}, or exempt a user input check with error-report-exempt: <reason>`;
+}
+
+export interface FunctionBody {
+  name: string;
+  body: string;
+  /** What the function returns: each `return` expression, or an arrow's expression body. */
+  returned: string[];
+}
+
+/** Every named function in some source - `function x(`, `const x = (...) =>`, `const x = useCallback((...) =>` -
+ *  with its body and what it returns. */
+export function functionBodies(src: string): FunctionBody[] {
+  const out: FunctionBody[] = [];
+  const decl = /(?:^|[^\w$.])(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*)\s*[(<]/g;
+  for (const m of src.matchAll(decl)) {
+    const paramsOpen = src.indexOf("(", m.index! + m[0].length - 1);
+    const paramsClose = matchingClose(src, paramsOpen);
+    if (paramsClose < 0) continue;
+    const open = src.indexOf("{", paramsClose);
+    const close = open < 0 ? -1 : matchingClose(src, open);
+    if (close < 0) continue;
+    const body = src.slice(open, close + 1);
+    out.push({ name: m[1], body, returned: returnExpressions(body) });
+  }
+  const arrow = /(?:const|let)\s+([A-Za-z_$][\w$]*)\s*(?::[^=]+)?=\s*(?:useCallback\(\s*|useMemo\(\s*\(\)\s*=>\s*)?(?:async\s*)?(\([^)]*\)|[A-Za-z_$][\w$]*)\s*(?::[^=]+?)?=>\s*/g;
+  for (const m of src.matchAll(arrow)) {
+    const start = m.index! + m[0].length;
+    if (src[start] === "{") {
+      const close = matchingClose(src, start);
+      if (close < 0) continue;
+      const body = src.slice(start, close + 1);
+      out.push({ name: m[1], body, returned: returnExpressions(body) });
+    } else {
+      const end = expressionEnd(src, start);
+      const body = src.slice(start, end);
+      out.push({ name: m[1], body, returned: [body] });
+    }
+  }
+  return out;
+}
+
+/** The expression of every `return` in a body that belongs to the function itself - a nested function's or
+ *  callback's return is not what this function returns, so those bodies are blanked out first. */
+function returnExpressions(body: string): string[] {
+  let own = body;
+  for (const m of body.matchAll(/=>\s*\{|\bfunction\b[^{]*\{/g)) {
+    if (m.index === 0) continue;
+    const open = m.index! + m[0].length - 1;
+    const close = matchingClose(body, open);
+    if (close > open) own = own.slice(0, open + 1) + " ".repeat(close - open - 1) + own.slice(close);
+  }
+  const out: string[] = [];
+  for (const m of own.matchAll(/\breturn\b\s*/g)) {
+    const start = m.index! + m[0].length;
+    out.push(body.slice(start, expressionEnd(body, start)));
+  }
+  return out;
+}
+
+// ---- a small lexer: enough of JavaScript to match brackets past strings, templates and comments -----------
+
+/** The index of the bracket closing the one at `open`, or -1. */
+export function matchingClose(src: string, open: number): number {
+  const pairs: Record<string, string> = { "(": ")", "[": "]", "{": "}" };
+  const stack: string[] = [];
+  for (let i = open; i < src.length; i++) {
+    const c = src[i];
+    if (c === '"' || c === "'") {
+      i = skipQuoted(src, i);
+      continue;
+    }
+    if (c === "`") {
+      i = skipTemplate(src, i);
+      continue;
+    }
+    if (c === "/" && src[i + 1] === "/") {
+      const nl = src.indexOf("\n", i);
+      i = nl < 0 ? src.length : nl;
+      continue;
+    }
+    if (c === "/" && src[i + 1] === "*") {
+      const end = src.indexOf("*/", i + 2);
+      i = end < 0 ? src.length : end + 1;
+      continue;
+    }
+    if (pairs[c]) stack.push(pairs[c]);
+    else if (c === ")" || c === "]" || c === "}") {
+      if (stack.pop() !== c) return -1;
+      if (stack.length === 0) return i;
+    }
+  }
+  return -1;
+}
+
+/** Where an expression starting at `start` ends: a `;`, or a `,` `)` `]` `}` at depth zero, or a blank line. */
+function expressionEnd(src: string, start: number): number {
+  for (let i = start; i < src.length; i++) {
+    const c = src[i];
+    if (c === '"' || c === "'") i = skipQuoted(src, i);
+    else if (c === "`") i = skipTemplate(src, i);
+    else if (c === "(" || c === "[" || c === "{") {
+      const close = matchingClose(src, i);
+      if (close < 0) return src.length;
+      i = close;
+    } else if (c === ";" || c === "," || c === ")" || c === "]" || c === "}") return i;
+    else if (c === "\n" && src[i + 1] === "\n") return i;
+  }
+  return src.length;
+}
+
+function skipQuoted(src: string, at: number): number {
+  const q = src[at];
+  for (let i = at + 1; i < src.length; i++) {
+    if (src[i] === "\\") i++;
+    else if (src[i] === q || src[i] === "\n") return i;
+  }
+  return src.length;
+}
+
+function skipTemplate(src: string, at: number): number {
+  for (let i = at + 1; i < src.length; i++) {
+    if (src[i] === "\\") i++;
+    else if (src[i] === "`") return i;
+    else if (src[i] === "$" && src[i + 1] === "{") {
+      const close = matchingClose(src, i + 1);
+      if (close < 0) return src.length;
+      i = close;
+    }
+  }
+  return src.length;
+}
+
+function stripStringsAndComments(expr: string): string {
+  let out = "";
+  for (let i = 0; i < expr.length; i++) {
+    const c = expr[i];
+    if (c === '"' || c === "'") i = skipQuoted(expr, i);
+    else if (c === "`") i = skipTemplate(expr, i);
+    else if (c === "/" && expr[i + 1] === "*") {
+      const end = expr.indexOf("*/", i + 2);
+      i = end < 0 ? expr.length : end + 1;
+    } else out += c;
+  }
+  return out;
+}
+
+function collapse(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function escape(name: string): string {
+  return name.replace(/[$]/g, "\\$");
+}
+
+function sourceFiles(dir: string, out: string[] = []): string[] {
+  for (const name of readdirSync(dir)) {
+    const full = join(dir, name);
+    if (statSync(full).isDirectory()) {
+      if (name !== "node_modules") sourceFiles(full, out);
+    } else if (/\.(ts|tsx)$/.test(name) && !/\.(test|testkit)\.(ts|tsx)$/.test(name) && !name.endsWith(".d.ts")) {
+      out.push(full);
+    }
+  }
+  return out;
+}
