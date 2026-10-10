@@ -38,6 +38,12 @@
     per-user local application data folder on Windows, /tmp with the user name in the file name
     elsewhere. The same derivation as GatewayTestSuiteLock.cs, for the same reason - a lock whose path
     follows TEMP is a lock two shells with different TEMP values never share.
+
+    WINDOWS IS THE ONLY PLATFORM THIS IS VERIFIED ON. The sharing-violation test is exact there. The
+    non-Windows branch mirrors the C# lock's, which that file itself calls unverified: .NET maps every
+    FileShare other than None to a SHARED advisory lock on Unix, so two writers with FileShare.Read may
+    both be admitted and nothing is excluded. Nobody runs this gate on a Mac or Linux box today; the day
+    somebody does, this file and the C# lock need a real exclusive lock there, not a wider claim here.
 #>
 
 function Test-GateLockOnWindows {
@@ -178,7 +184,9 @@ function Get-GateLockField($Holder, [string] $Key) {
 
 <#
 .SYNOPSIS
-    One line a person can act on: who holds the lock, since when, from where.
+    One line a person can act on: who holds the lock, since when, from where. Only the fields the holder
+    wrote: the release-gate lock carries commit and command, the suite lock (written by the C# test
+    process) carries neither, and a field that was never written is left out rather than shown as unknown.
 #>
 function Format-GateLockHolder($Holder) {
     if ($null -eq $Holder) { return "(the lock file carries no readable diagnostics)" }
@@ -192,11 +200,11 @@ function Format-GateLockHolder($Holder) {
     $parts = @(
         ("process " + (Get-GateLockField $Holder "processId") + " (started " + (Get-GateLockField $Holder "processStartUtc") + ")"),
         ("holding since $since$held"),
-        ("session " + (Get-GateLockField $Holder "session")),
-        ("commit " + (Get-GateLockField $Holder "commit")),
-        ("command " + (Get-GateLockField $Holder "command")),
-        ("directory " + (Get-GateLockField $Holder "directory"))
+        ("session " + (Get-GateLockField $Holder "session"))
     )
+    foreach ($key in @("commit", "command", "directory")) {
+        if ((Get-GateLockField $Holder $key) -ne "unknown") { $parts += ($key + " " + $Holder[$key]) }
+    }
     return ($parts -join ", ")
 }
 

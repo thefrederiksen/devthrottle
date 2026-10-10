@@ -314,9 +314,12 @@ assembly. Running one pure unit test from that project still queues behind anoth
 
 That is why the pure tests were MOVED OUT into `CcDirector.Gateway.UnitTests` rather than filtered.
 
-Past `MaxWait` (45 minutes) a queued run stops with an error naming the holder. That is the designed
-behaviour, not a bug: it never takes a lock from a living process. If a holder is genuinely stuck,
-that is a decision for a human - measure a CPU delta before calling anything stuck.
+Past `MaxWait` (two minutes since October 2026; it was forty-five) a queued run stops with an error
+naming the holder. That is the designed behaviour, not a bug: it never takes a lock from a living
+process. If a holder is genuinely stuck, that is a decision for a human - measure a CPU delta before
+calling anything stuck. The gate script does not queue at all: `test-local.ps1 -Parked` or `-Gateway`
+takes a release-gate lock before building and is refused with exit 6, naming the holder, when another
+run that includes the Gateway suite is in progress (`scripts/gate-lock.ps1`).
 
 ---
 

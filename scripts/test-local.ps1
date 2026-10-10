@@ -52,8 +52,9 @@
     ONE RUN THAT INCLUDES THE GATEWAY SUITE AT A TIME, AND A SECOND ONE IS REFUSED, NEVER QUEUED. Before
     building, a -Parked or -Gateway run takes the release-gate lock (scripts\gate-lock.ps1) and probes
     the Gateway suite's own lock. If either is held by a live process, this run stops within seconds
-    with exit 6, naming the holder's process, session, commit and command - it does not build, it does
-    not start, and it does not wait. Between 8 and 10 October 2026 nineteen release-gate runs each
+    with exit 6 naming the holder - the release-gate lock carries its process, session, commit and
+    command; the suite's own lock, written by the test process, carries its process, session and
+    directory - and it does not build, it does not start, and it does not wait. Between 8 and 10 October 2026 nineteen release-gate runs each
     queued forty-five minutes behind another and then executed nothing: fourteen hours that proved
     nothing, with up to seven gates overlapping. A queue hides a conflict; a refusal shows it. The
     default run takes no lock, because it includes no suite that cannot overlap.
@@ -70,8 +71,9 @@
     ran. Red-first evidence is gathered with this command, so that shape of green is now a failure:
     exit 3 means zero tests were collected anywhere, exit 4 means a project exited zero without writing a
     result file, exit 5 means part of the filter matched nothing (or -ExpectTests was not met), and exit 6
-    means another run holding the Gateway suite is in progress and this one was refused before building.
-    None of them is a test failure (exit 1) and none of them is ever evidence.
+    means another run holding the Gateway suite is in progress and this one was refused before building
+    (and exit 2, as for a bad argument, means the lock's own location is broken). None of them is a test
+    failure (exit 1) and none of them is ever evidence.
 
     EVERY RUN WRITES A TRX FILE AND PRINTS ITS OUTCOME AND TEST COUNT. That pair, not the console
     "Passed!" line, is the verdict - see the comment above the run loop for why. A green with a collapsed
@@ -260,8 +262,39 @@ New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 # script run from an interactive shell (whose process survives "exit") releases it too.
 $gateLock = $null
 if ($toRun -contains $gatewayProject) {
+    $command = "test-local.ps1"
+    if ($Parked) { $command += " -Parked" }
+    if ($Gateway) { $command += " -Gateway" }
+    $command += " -Configuration $Configuration"
+    if ($Filter -ne "") { $command += " -Filter `"$Filter`"" }
     $suiteLockPath = Get-GatewaySuiteLockPath
-    if (Test-GateLockHeld $suiteLockPath) {
+    $gateLockPath = Get-ReleaseGateLockPath
+    $suiteHeld = $false
+    try {
+        $suiteHeld = Test-GateLockHeld $suiteLockPath
+        if (-not $suiteHeld) {
+            $gateLock = Enter-GateLock $gateLockPath ([ordered]@{
+                session = (Get-GateLockSessionName); commit = $commit; command = $command
+                directory = $repoRoot; runFolder = $logDir })
+        }
+    } catch {
+        # Only a sharing conflict means "held", and the helper answers that without throwing. Anything that
+        # reaches here is a fault in the lock's home - permissions, a directory at the path, a read-only
+        # file, a full disk - which no amount of waiting clears. Named here, as the C# lock names it,
+        # instead of dying with a raw constructor error and an empty run folder left behind.
+        $fault = Get-GateLockInnerException $_.Exception
+        Write-Host ""
+        Write-Host "RESULT: CANNOT SET UP THE GATE LOCK - nothing was built and nothing was started."
+        Write-Host ("  " + $fault.GetType().Name + ": " + $fault.Message)
+        Write-Host "  Lock files: $gateLockPath and $suiteLockPath"
+        Write-Host ""
+        Write-Host "This is NOT another run holding the lock. It is a fault in the lock's location that will not"
+        Write-Host "clear by waiting: fix the path above (permissions, a directory or read-only file sitting at it,"
+        Write-Host "a full disk) and run this again."
+        Remove-Item $logDir -Force
+        exit 2
+    }
+    if ($suiteHeld) {
         Write-Host ""
         Write-Host "RESULT: REFUSED - a run of CcDirector.Gateway.Tests is in progress on this machine, and this"
         Write-Host "run includes that suite. Nothing was built and nothing was started."
@@ -274,16 +307,6 @@ if ($toRun -contains $gatewayProject) {
         Remove-Item $logDir -Force
         exit 6
     }
-
-    $command = "test-local.ps1"
-    if ($Parked) { $command += " -Parked" }
-    if ($Gateway) { $command += " -Gateway" }
-    $command += " -Configuration $Configuration"
-    if ($Filter -ne "") { $command += " -Filter `"$Filter`"" }
-    $gateLockPath = Get-ReleaseGateLockPath
-    $gateLock = Enter-GateLock $gateLockPath ([ordered]@{
-        session = (Get-GateLockSessionName); commit = $commit; command = $command
-        directory = $repoRoot; runFolder = $logDir })
     if ($null -eq $gateLock) {
         Write-Host ""
         Write-Host "RESULT: REFUSED - another run that includes the Gateway suite is in progress on this machine."

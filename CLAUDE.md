@@ -308,9 +308,11 @@ run against a pull-request head is not a run against the squashed commit that ge
 the release gate, it is local, and it replaces the old instruction to wait for a green continuous
 integration run rather than reintroducing it.
 
-If the Gateway suite says it is WAITING on a lock held by another run, that is not a hang - it is
-one run at a time by design, and it prints its holder every 30 seconds. See issue #1156 for why that
-queue exists and the work to remove it.
+A second `-Parked` or `-Gateway` run on one machine is REFUSED, not queued: the gate takes a
+release-gate lock before it builds and exits 6 within seconds naming the holder's process, session,
+commit and command (`scripts/gate-lock.ps1`). Wait for that run to finish, or if it is stuck end that
+process; do not start another gate beside it. See issue #1156 for the lock's history and the work to
+remove the in-process one.
 
 **A one-off workflow is disabled by the pull request that finishes it.** A workflow added on a branch
 to rehearse or reproduce something stays registered and dispatchable after its file and branch are
