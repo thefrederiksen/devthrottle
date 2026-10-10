@@ -362,6 +362,8 @@ public sealed class PreSignInOutbox
         var sb = new StringBuilder();
         sb.Append($"--- [{item.Kind}] {item.Source} x{Math.Max(1, item.RepeatCount)}, first {item.FirstSeenUtc:yyyy-MM-dd HH:mm:ss}Z, last {item.LastSeenUtc:yyyy-MM-dd HH:mm:ss}Z, version {item.ProductVersion}\n");
         sb.Append(item.Message).Append('\n');
+        var context = ContextOf(item);
+        if (context.Length > 0) sb.Append(context).Append('\n');
         if (!string.IsNullOrEmpty(item.ExceptionType)) sb.Append(item.ExceptionType).Append('\n');
         if (!string.IsNullOrEmpty(item.Stack))
         {
@@ -371,8 +373,28 @@ public sealed class PreSignInOutbox
         return sb.Append('\n').ToString();
     }
 
+    /// <summary>
+    /// The <see cref="ErrorContext"/> fields of an error as one line. The install-report route has no field of its
+    /// own for them, so they travel in the diagnostics text. Empty when the error carried none. (Kept in the file
+    /// they are whole fields of <see cref="ErrorReportItem"/>, and reach the device route as fields once signed in.)
+    /// </summary>
+    internal static string ContextOf(ErrorReportItem item)
+    {
+        var parts = new List<string>();
+        if (item.CorrelationId is { Length: > 0 }) parts.Add($"correlation_id={item.CorrelationId}");
+        if (item.SessionId is { Length: > 0 }) parts.Add($"session_id={item.SessionId}");
+        if (item.UserVisible is { } visible) parts.Add($"user_visible={(visible ? "true" : "false")}");
+        if (item.Surface is { Length: > 0 }) parts.Add($"surface={item.Surface}");
+        if (item.Action is { Length: > 0 }) parts.Add($"action={item.Action}");
+        if (item.HttpStatus is { } status) parts.Add($"http_status={status}");
+        if (item.ErrorCode is { Length: > 0 }) parts.Add($"error_code={item.ErrorCode}");
+        return string.Join(", ", parts);
+    }
+
+    /// <summary>Two errors are one entry only when their context fields match too - the same rule as
+    /// <see cref="ErrorReporter"/>'s, so six refusals with six ids stay six entries on disk as well.</summary>
     internal static string SignatureOf(ErrorReportItem item)
-        => string.Join('|', item.Component, item.Source, item.Kind, item.ExceptionType, Digits.Replace(item.Message ?? "", "#"));
+        => string.Join('|', item.Component, item.Source, item.Kind, item.ExceptionType, Digits.Replace(item.Message ?? "", "#"), ContextOf(item));
 
     /// <summary>
     /// <see cref="Remove"/>, where a file that cannot be read or written costs duplicates, never the send loop:
