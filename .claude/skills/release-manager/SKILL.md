@@ -227,7 +227,7 @@ candidate must be exactly that base plus this one commit. The script checks both
   lists what landed. **If main moved**, recut in the same worktree. Copy
   `docs/public/release-notes/v<version>.md` out of it first, then, inside it:
 
-      gh pr close <pull request number>
+      gh pr close release/v<version>
       git checkout --detach origin/main
       git branch -D release/v<version>
       git push origin --delete release/v<version>
