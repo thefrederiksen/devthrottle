@@ -60,7 +60,7 @@ public static class BrowserLauncher
     /// order. The first exe that exists wins. User-Data directory is the standard per-user Chromium
     /// location for that platform.
     ///
-    /// The desktop Director ships on Windows and macOS, and the two lay Chromium out completely
+    /// The desktop Director ships on Windows, macOS and Linux, and the three lay Chromium out completely
     /// differently - a Windows-shaped table asked on a Mac finds nothing and the product reports
     /// "neither Chrome nor Edge is installed" on a machine holding both. So the table is chosen by
     /// platform, never guessed at: each branch names only the locations that platform actually uses.
@@ -69,12 +69,24 @@ public static class BrowserLauncher
     {
         if (OperatingSystem.IsWindows()) return WindowsCandidates();
         if (OperatingSystem.IsMacOS()) return MacCandidates();
+        if (OperatingSystem.IsLinux())
+            return LinuxCandidates(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                Environment.GetEnvironmentVariable("XDG_CONFIG_HOME"));
 
-        // The desktop app is published for Windows and macOS only. Saying so is the honest answer;
-        // inventing Linux paths we have never run against would be a guess dressed as support.
+        // No Director is published for any other platform, so there is no table to choose. Saying so is
+        // the honest answer; inventing paths we have never run against would be a guess dressed as support.
         FileLog.Write($"[BrowserLauncher] Candidates: no browser table for this platform ({Environment.OSVersion.Platform})");
         return Array.Empty<(BrowserKind, string, string[], string)>();
     }
+
+    /// <summary>
+    /// Every exe location the probe checks for <paramref name="kind"/> on THIS platform, in the order it
+    /// checks them. Empty when the platform has no table. Used to name the paths in a "not installed"
+    /// error, so the person reading it can see where we looked rather than being told only "no".
+    /// </summary>
+    public static IReadOnlyList<string> CandidatePathsFor(BrowserKind kind)
+        => Candidates().Where(c => c.Kind == kind).SelectMany(c => c.ExeCandidates).ToList();
 
     /// <summary>Exposed internally so the table's shape can be asserted from any host OS - a Windows
     /// test run is the only place the macOS table would otherwise never be looked at.</summary>
@@ -167,6 +179,52 @@ public static class BrowserLauncher
             (BrowserKind.Opera, "Opera",
                 BundlePaths(home, "Opera.app", "Opera"),
                 Path.Combine(appSupport, "com.operasoftware.Opera")),
+        };
+    }
+
+    /// <summary>
+    /// Linux: the vendors' own .deb/.rpm packages install the real Chromium binary under /opt (or
+    /// /usr/lib for Opera) and put a launcher symlink in /usr/bin. The binary itself comes first: it is
+    /// what the package always installs, while the /usr/bin names are links a distribution's
+    /// alternatives system may repoint. Every location below was read out of the vendor's package, not
+    /// assumed from the Chrome pattern - Opera in particular lives under /usr/lib, not /opt.
+    ///
+    /// The user-data directory follows the XDG base-directory rule every Linux Chromium honours:
+    /// <c>$XDG_CONFIG_HOME</c> when it is set to an absolute path (the specification says a relative
+    /// value is invalid and must be ignored), and <c>~/.config</c> otherwise. There is no "User Data"
+    /// level, as on macOS. Parameterised on home and XDG_CONFIG_HOME so its shape can be asserted from
+    /// any host OS.
+    /// </summary>
+    internal static IReadOnlyList<(BrowserKind Kind, string DisplayName, string[] ExeCandidates, string UserDataDir)> LinuxCandidates(
+        string home, string? xdgConfigHome)
+    {
+        if (string.IsNullOrEmpty(home))
+            throw new InvalidOperationException(
+                "The home directory is not known (HOME is not set), so no browser profile folder can be located.");
+
+        var config = !string.IsNullOrEmpty(xdgConfigHome) && xdgConfigHome.StartsWith('/')
+            ? xdgConfigHome
+            : home + "/.config";
+
+        // Built with "/" rather than Path.Combine so a test on a Windows host sees the real Linux path.
+        return new (BrowserKind, string, string[], string)[]
+        {
+            (BrowserKind.Chrome, "Google Chrome",
+                new[] { "/opt/google/chrome/chrome", "/usr/bin/google-chrome-stable", "/usr/bin/google-chrome" },
+                config + "/google-chrome"),
+            (BrowserKind.Edge, "Microsoft Edge",
+                new[] { "/opt/microsoft/msedge/msedge", "/usr/bin/microsoft-edge-stable", "/usr/bin/microsoft-edge" },
+                config + "/microsoft-edge"),
+            (BrowserKind.Brave, "Brave",
+                new[] { "/opt/brave.com/brave/brave", "/usr/bin/brave-browser-stable", "/usr/bin/brave-browser" },
+                config + "/BraveSoftware/Brave-Browser"),
+            // Opera's package puts the binary under /usr/lib/<multiarch>, not /opt, and its profile
+            // folder is plain "opera" - neither follows the pattern the other three share. The library
+            // folder was renamed between releases: "opera-stable" in the current package, "opera" in
+            // older ones, so both are checked before the /usr/bin link.
+            (BrowserKind.Opera, "Opera",
+                new[] { "/usr/lib/x86_64-linux-gnu/opera-stable/opera", "/usr/lib/x86_64-linux-gnu/opera/opera", "/usr/bin/opera" },
+                config + "/opera"),
         };
     }
 

@@ -203,16 +203,91 @@ public class BrowserLauncherTests
     }
 
     [Fact]
-    public void EveryBrowserKind_HasAWindowsAndAMacCandidateRow()
+    public void EveryBrowserKind_HasAWindowsAMacAndALinuxCandidateRow()
     {
         // The bug this catches is an enum member added without its install locations: the browser
         // appears in the API's accepted list and in error messages, then reports "not installed" on
-        // every machine because nothing ever looks for it.
+        // every machine because nothing ever looks for it. Linux was exactly that case for every
+        // browser (#3741) - a Director running on Ubuntu with Chrome and Edge installed found neither.
         foreach (var kind in Enum.GetValues<BrowserKind>())
         {
             Assert.Single(BrowserLauncher.WindowsCandidates(), c => c.Kind == kind);
             Assert.Single(BrowserLauncher.MacCandidates(), c => c.Kind == kind);
+            Assert.Single(BrowserLauncher.LinuxCandidates("/home/someone", null), c => c.Kind == kind);
         }
+    }
+
+    // The Linux table, asserted from any host OS. Every location here was read out of the vendor's own
+    // package: Chrome and Edge from the installs on a real Ubuntu 24.04 machine, Brave and Opera from
+    // the .deb files in the vendors' apt repositories.
+
+    [Fact]
+    public void LinuxCandidates_ChromeAndEdgePreferTheBinaryUnderOptOverTheUsrBinLinks()
+    {
+        var linux = BrowserLauncher.LinuxCandidates("/home/someone", null);
+        var chrome = Assert.Single(linux, c => c.Kind == BrowserKind.Chrome);
+        var edge = Assert.Single(linux, c => c.Kind == BrowserKind.Edge);
+
+        Assert.Equal(
+            new[] { "/opt/google/chrome/chrome", "/usr/bin/google-chrome-stable", "/usr/bin/google-chrome" },
+            chrome.ExeCandidates);
+        Assert.Equal(
+            new[] { "/opt/microsoft/msedge/msedge", "/usr/bin/microsoft-edge-stable", "/usr/bin/microsoft-edge" },
+            edge.ExeCandidates);
+    }
+
+    [Fact]
+    public void LinuxCandidates_BraveAndOperaUseTheLocationsTheirPackagesInstall()
+    {
+        var linux = BrowserLauncher.LinuxCandidates("/home/someone", null);
+        var brave = Assert.Single(linux, c => c.Kind == BrowserKind.Brave);
+        var opera = Assert.Single(linux, c => c.Kind == BrowserKind.Opera);
+
+        Assert.Equal("/opt/brave.com/brave/brave", brave.ExeCandidates[0]);
+        Assert.Contains("/usr/bin/brave-browser", brave.ExeCandidates);
+        // Opera is NOT under /opt like the other three - a Chrome-shaped guess would never find it.
+        Assert.Equal("/usr/lib/x86_64-linux-gnu/opera-stable/opera", opera.ExeCandidates[0]);
+        Assert.Contains("/usr/lib/x86_64-linux-gnu/opera/opera", opera.ExeCandidates);
+        Assert.Contains("/usr/bin/opera", opera.ExeCandidates);
+    }
+
+    [Fact]
+    public void LinuxCandidates_ProfilesLiveUnderDotConfigWithNoUserDataLevel()
+    {
+        var linux = BrowserLauncher.LinuxCandidates("/home/someone", null);
+
+        Assert.Equal("/home/someone/.config/google-chrome", Assert.Single(linux, c => c.Kind == BrowserKind.Chrome).UserDataDir);
+        Assert.Equal("/home/someone/.config/microsoft-edge", Assert.Single(linux, c => c.Kind == BrowserKind.Edge).UserDataDir);
+        Assert.Equal("/home/someone/.config/BraveSoftware/Brave-Browser", Assert.Single(linux, c => c.Kind == BrowserKind.Brave).UserDataDir);
+        Assert.Equal("/home/someone/.config/opera", Assert.Single(linux, c => c.Kind == BrowserKind.Opera).UserDataDir);
+        Assert.All(linux, c => Assert.DoesNotContain("User Data", c.UserDataDir));
+        Assert.All(linux, c => Assert.DoesNotContain("\\", c.UserDataDir));
+    }
+
+    [Fact]
+    public void LinuxCandidates_AbsoluteXdgConfigHome_MovesEveryProfileFolder()
+    {
+        var linux = BrowserLauncher.LinuxCandidates("/home/someone", "/data/conf");
+
+        Assert.All(linux, c => Assert.StartsWith("/data/conf/", c.UserDataDir));
+        Assert.Equal("/data/conf/google-chrome", Assert.Single(linux, c => c.Kind == BrowserKind.Chrome).UserDataDir);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("relative/conf")]
+    public void LinuxCandidates_EmptyOrRelativeXdgConfigHome_IsIgnoredAsTheSpecificationRequires(string xdg)
+    {
+        var linux = BrowserLauncher.LinuxCandidates("/home/someone", xdg);
+
+        Assert.All(linux, c => Assert.StartsWith("/home/someone/.config/", c.UserDataDir));
+    }
+
+    [Fact]
+    public void LinuxCandidates_NoHome_ThrowsRatherThanBuildingARelativePath()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => BrowserLauncher.LinuxCandidates("", null));
+        Assert.Contains("HOME", ex.Message);
     }
 
     [Fact]
