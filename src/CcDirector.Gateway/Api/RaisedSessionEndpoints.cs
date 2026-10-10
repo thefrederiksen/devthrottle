@@ -100,7 +100,7 @@ internal static class RaisedSessionEndpoints
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[RaisedSessionEndpoints] POST {what} FAILED: {ex.Message}");
+            FileLog.Write($"[RaisedSessionEndpoints] POST /sessions/{{sid}}/{what} FAILED: {ex.Message}");
             throw;
         }
     }

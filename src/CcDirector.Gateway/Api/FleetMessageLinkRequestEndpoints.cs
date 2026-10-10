@@ -138,7 +138,7 @@ public static class FleetMessageLinkRequestEndpoints
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[FleetMessageLinkRequestEndpoints] POST request FAILED: {ex.Message}");
+            FileLog.Write($"[FleetMessageLinkRequestEndpoints] POST {Route} FAILED: {ex.Message}");
             throw;
         }
     }
@@ -170,7 +170,7 @@ public static class FleetMessageLinkRequestEndpoints
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[FleetMessageLinkRequestEndpoints] GET requests FAILED: {ex.Message}");
+            FileLog.Write($"[FleetMessageLinkRequestEndpoints] GET {Route} FAILED: {ex.Message}");
             throw;
         }
     }
@@ -265,7 +265,7 @@ public static class FleetMessageLinkRequestEndpoints
             {
                 // The claim must not outlive a link that was never made: the request goes back to waiting, so the
                 // owner can answer it again, rather than reading "allowed" with nothing behind it.
-                FileLog.Write($"[FleetMessageLinkRequestEndpoints] POST answer: setting up the link FAILED, reopening request {request.RequestId}: {ex.Message}");
+                FileLog.Write($"[FleetMessageLinkRequestEndpoints] POST {AnswerRoute}: setting up the link FAILED, reopening request {request.RequestId}: {ex.Message}");
                 requests.Reopen(tenant, request.RequestId);
                 throw;
             }
@@ -281,7 +281,7 @@ public static class FleetMessageLinkRequestEndpoints
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[FleetMessageLinkRequestEndpoints] POST answer FAILED: {ex.Message}");
+            FileLog.Write($"[FleetMessageLinkRequestEndpoints] POST {AnswerRoute} FAILED: {ex.Message}");
             throw;
         }
     }

@@ -347,8 +347,8 @@ public static class SessionKeyGuard
                 // owner does and can act. Account data; the route is only mapped while the factory agents switch is on.
                 case "gateway/factories":
                 // The errors this account's Directors and launchers reported (issue #3311), so an agent can
-                // look before it asks the owner. The route files the read under the key's own account; only
-                // the READ is here - reporting is a device's, never an agent's.
+                // look before it asks the owner. The route files the read under the key's own account. Reporting is
+                // listed with the fleet actions below (issue #3675).
                 case "gateway/director-errors":
                 // The same errors, one row per problem (issue #3675). The same account scoping as the list.
                 case "gateway/director-errors/groups":
@@ -531,6 +531,13 @@ public static class SessionKeyGuard
 
             // Create a mission - the unit of work sessions attach to.
             if (Join(s) == "missions") return true;
+
+            // SEND an error report (the Error Logging mission, issue #3675, the owner's ruling of 9 October): a command
+            // line tool run by an agent reports its failures with the session's own key, as component "tool". The route
+            // files every report under the key's OWN account - there is no account in the body to choose - and counts
+            // it against the key's own hourly allowance. Exactly this one literal: the grouped read beside it stays a
+            // read, and the administrator routes under /gateway/admin stay refused.
+            if (Join(s) == "gateway/director-errors") return true;
 
             // Append one row to the factory activity record (Website Business Factory). This is the write a
             // business tool makes BEFORE it acts, and the Gateway stamps the calling session on the row. It

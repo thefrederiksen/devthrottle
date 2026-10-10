@@ -116,7 +116,7 @@ internal static class FleetMessageLinkEndpoints
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[FleetMessageLinkEndpoints] POST link FAILED: {ex.Message}");
+            FileLog.Write($"[FleetMessageLinkEndpoints] POST {Route} FAILED: {ex.Message}");
             throw;
         }
     }
@@ -200,7 +200,7 @@ internal static class FleetMessageLinkEndpoints
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[FleetMessageLinkEndpoints] GET links FAILED: {ex.Message}");
+            FileLog.Write($"[FleetMessageLinkEndpoints] GET {Route} FAILED: {ex.Message}");
             throw;
         }
     }
@@ -240,7 +240,7 @@ internal static class FleetMessageLinkEndpoints
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[FleetMessageLinkEndpoints] DELETE link FAILED: {ex.Message}");
+            FileLog.Write($"[FleetMessageLinkEndpoints] DELETE {OneRoute} FAILED: {ex.Message}");
             throw;
         }
     }

@@ -17,7 +17,10 @@ namespace CcDirector.Gateway.Api;
 ///
 ///   POST /gateway/director-errors        - a Director or launcher sends a batch of the errors it logged,
 ///                                          through the device's existing Gateway credential. Filed under
-///                                          that device's account.
+///                                          that device's account. A SESSION key may send too (issue #3675):
+///                                          a command line tool an agent runs reports as component "tool", and
+///                                          the batch is filed under the key's own account - the body names no
+///                                          account, so there is none to claim.
 ///   GET  /gateway/director-errors        - the CALLER'S OWN account's errors, newest first. Open to a
 ///                                          session key, so an agent can look before it asks the owner.
 ///   GET  /gateway/admin/director-errors  - every account's errors, and installer failures, for the
@@ -328,7 +331,8 @@ internal static class DirectorErrorEndpoints
     }
 
     /// <summary>Validate, bound, scrub and store one batch. Internal so every branch is testable without a host.</summary>
-    internal static IResult HandlePost(ErrorReportStore store, TenantId tenant, string device, ErrorReportBatch? batch, DateTime nowUtc)
+    internal static IResult HandlePost(ErrorReportStore store, TenantId tenant, string device, ErrorReportBatch? batch, DateTime nowUtc,
+        ErrorIntakeFloods? floods = null)
     {
         var items = batch?.Reports;
         if (items is null || items.Count == 0)
@@ -340,7 +344,11 @@ internal static class DirectorErrorEndpoints
         // device over its limit must not get to spend it. Whatever does not end up stored is refunded, so a
         // refused or failed batch does not use up the allowance its retry needs.
         if (!TryAdmit(device, items.Count, nowUtc))
+        {
+            // Counted for the hour's flood record, so the store itself says reports were lost (issue #3675).
+            (floods ?? ErrorIntakeFloods.Shared).Dropped(ErrorIntakeFloods.DirectorErrors, items.Count, nowUtc);
             return Results.Json(new { recorded = false, reason = "rate limited" }, statusCode: StatusCodes.Status429TooManyRequests);
+        }
 
         // The refund is for OUR failure only - the store could not take the write, so the Director's retry must
         // not find its allowance spent. A batch the route refuses as invalid (400) stays charged: its sender has

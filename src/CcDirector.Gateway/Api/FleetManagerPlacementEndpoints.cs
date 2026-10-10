@@ -67,7 +67,7 @@ internal static class FleetManagerPlacementEndpoints
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            FileLog.Write($"[FleetManagerPlacementEndpoints] GET placement FAILED: {ex.Message}");
+            FileLog.Write($"[FleetManagerPlacementEndpoints] GET {PlacementRoute} FAILED: {ex.Message}");
             throw;
         }
     }
@@ -85,7 +85,7 @@ internal static class FleetManagerPlacementEndpoints
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            FileLog.Write($"[FleetManagerPlacementEndpoints] PUT placement FAILED: {ex.Message}");
+            FileLog.Write($"[FleetManagerPlacementEndpoints] PUT {PlacementRoute} FAILED: {ex.Message}");
             throw;
         }
     }
@@ -102,7 +102,7 @@ internal static class FleetManagerPlacementEndpoints
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            FileLog.Write($"[FleetManagerPlacementEndpoints] POST start FAILED: {ex.Message}");
+            FileLog.Write($"[FleetManagerPlacementEndpoints] POST {StartRoute} FAILED: {ex.Message}");
             throw;
         }
     }
@@ -119,7 +119,7 @@ internal static class FleetManagerPlacementEndpoints
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            FileLog.Write($"[FleetManagerPlacementEndpoints] POST restart FAILED: {ex.Message}");
+            FileLog.Write($"[FleetManagerPlacementEndpoints] POST {RestartRoute} FAILED: {ex.Message}");
             throw;
         }
     }
@@ -138,7 +138,7 @@ internal static class FleetManagerPlacementEndpoints
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            FileLog.Write($"[FleetManagerPlacementEndpoints] POST move FAILED: {ex.Message}");
+            FileLog.Write($"[FleetManagerPlacementEndpoints] POST {MoveRoute} FAILED: {ex.Message}");
             throw;
         }
     }

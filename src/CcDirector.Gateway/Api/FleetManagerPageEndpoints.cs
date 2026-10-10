@@ -95,7 +95,7 @@ internal static class FleetManagerPageEndpoints
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[FleetManagerPageEndpoints] GET standing FAILED: {ex.Message}");
+            FileLog.Write($"[FleetManagerPageEndpoints] GET {StandingRoute} FAILED: {ex.Message}");
             throw;
         }
     }
@@ -142,7 +142,7 @@ internal static class FleetManagerPageEndpoints
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[FleetManagerPageEndpoints] GET page FAILED: {ex.Message}");
+            FileLog.Write($"[FleetManagerPageEndpoints] GET {PageRoute} FAILED: {ex.Message}");
             throw;
         }
     }
