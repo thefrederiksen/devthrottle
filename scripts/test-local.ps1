@@ -262,9 +262,80 @@ if ($Gateway) {
 
 # ---------------------------------------------------------------------------------------------------
 # THE RUN'S IDENTITY AND ITS FOLDER, settled before anything is built, because the lock below names both.
+#
+# WHICH COMMIT THIS RUN CERTIFIES, AND WHETHER THE TREE WAS CLEAN. A run folder used to hold result files
+# and logs only: across 523 saved folders nobody could say which commit any of them had run on, which is
+# how a green quietly goes stale when main moves. Both facts are written into run.json in the run folder
+# at launch, printed in the verdict, and - for a green, unfiltered -Parked run - recorded where
+# scripts\assert-gated.ps1 can find them when the tag step asks whether a candidate was gated. A dirty
+# tree is recorded as dirty, never hidden: the run still happens, the record says what it tested.
 $commit = (& git -C $repoRoot rev-parse HEAD).Trim()
+$dirtyFiles = @(& git -C $repoRoot status --porcelain | Where-Object { $_ -ne "" })
+$treeClean = ($dirtyFiles.Count -eq 0)
 $logDir = Join-Path ([System.IO.Path]::GetTempPath()) ("cc-test-local-" + [Guid]::NewGuid().ToString("N").Substring(0,8))
 New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+
+$runRecord = [ordered]@{
+    commit        = $commit
+    treeClean     = $treeClean
+    dirtyFiles    = @($dirtyFiles | Select-Object -First 50)
+    parked        = [bool] $Parked
+    gateway       = [bool] $Gateway
+    configuration = $Configuration
+    filter        = $Filter
+    expectTests   = $ExpectTests
+    startedUtc    = (Get-Date).ToUniversalTime().ToString("o")
+    machine       = [Environment]::MachineName
+    user          = [Environment]::UserName
+    session       = (Get-GateLockSessionName)
+    directory     = $repoRoot
+    runFolder     = $logDir
+    finishedUtc   = $null
+    exitCode      = $null
+    verdict       = "RUNNING"
+    suites        = @()
+}
+function Write-RunRecord {
+    if (Test-Path $logDir) {
+        $runRecord | ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $logDir "run.json") -Encoding Ascii
+    }
+}
+Write-RunRecord
+
+# EVERY VERDICT LEAVES THROUGH HERE. The exit code and the verdict word go into run.json beside the commit
+# and the suite results, so the folder says what the run concluded, not only what it saw. A green,
+# unfiltered -Parked run is additionally recorded under the gate record directory, named by its commit:
+# that file is what scripts\assert-gated.ps1 reads, and it outlives the run folder. "exit" here flows
+# through the finally block below, so the release-gate lock is released as on every other path.
+function Stop-Gate([int] $Code, [string] $Verdict) {
+    $runRecord.finishedUtc = (Get-Date).ToUniversalTime().ToString("o")
+    $runRecord.exitCode = $Code
+    $runRecord.verdict = $Verdict
+    if ($null -ne $running) {
+        $runRecord.suites = @($running | ForEach-Object {
+            [ordered]@{
+                name     = $_.Name
+                outcome  = $(if ($null -ne $_.PSObject.Properties["Outcome"]) { $_.Outcome } else { "NOT-WAITED-FOR" })
+                total    = $(if ($null -ne $_.PSObject.Properties["Total"]) { [int] $_.Total } else { 0 })
+                executed = $(if ($null -ne $_.PSObject.Properties["Executed"]) { [int] $_.Executed } else { 0 })
+                exitCode = $_.Process.ExitCode
+            }
+        })
+    }
+    Write-RunRecord
+    if ($Code -eq 0 -and $Parked -and $Filter -eq "") {
+        $recordDir = Get-GateRecordDirectory
+        New-Item -ItemType Directory -Force $recordDir | Out-Null
+        $stamp = ([DateTime]::Parse($runRecord.startedUtc)).ToUniversalTime().ToString("yyyyMMddTHHmmssZ")
+        $recordPath = Join-Path $recordDir ("$commit-$stamp.json")
+        $runRecord | ConvertTo-Json -Depth 5 | Set-Content -Path $recordPath -Encoding Ascii
+        Write-Host "Gate record written: $recordPath"
+        if (-not $treeClean) {
+            Write-Host "NOTE: the tree was DIRTY, and the record says so. scripts\assert-gated.ps1 will refuse it."
+        }
+    }
+    exit $Code
+}
 
 # ONE RUN HOLDING THE GATEWAY SUITE AT A TIME. A SECOND ONE IS REFUSED HERE, BEFORE THE BUILD, NEVER
 # QUEUED. See the header and scripts\gate-lock.ps1 for why: a queue hid nineteen conflicting release
@@ -343,7 +414,7 @@ try {
     if ($LASTEXITCODE -ne 0) {
         Write-Host ""
         Write-Host "RESULT: BUILD FAILED - no tests were run."
-        exit 1
+        Stop-Gate 1 "BUILD FAILED"
     }
 
     # The installer projects are outside cc-director.sln, so the build above did not produce them and the run
@@ -355,7 +426,7 @@ try {
         if ($LASTEXITCODE -ne 0) {
             Write-Host ""
             Write-Host "RESULT: BUILD FAILED for $proj - no tests were run."
-            exit 1
+            Stop-Gate 1 "BUILD FAILED"
         }
     }
 
@@ -485,6 +556,9 @@ try {
 
     Write-Host ""
     Write-Host "TRX verdict - THIS is the gate. Every suite must report outcome=Completed:"
+    Write-Host ("  commit {0}  tree {1}  parked={2} configuration={3}{4}" -f $commit,
+        $(if ($treeClean) { "clean" } else { "DIRTY ($($dirtyFiles.Count) changed or untracked)" }),
+        [bool] $Parked, $Configuration, $(if ($Filter -ne "") { " filter=$Filter" } else { "" }))
     foreach ($r in $running) {
         Write-Host ("  {0,-40} outcome={1,-12} total={2,-6} executed={3}" -f $r.Name, $r.Outcome, $r.Total, $r.Executed)
     }
@@ -555,7 +629,7 @@ try {
         Write-Host "nonzero executed count and is reported in full as exit 1. This is a suite whose tests were"
         Write-Host "never reached: it was refused, killed, or stopped part way, and whatever passed before that"
         Write-Host "point certifies nothing. Read the lines above for why, fix that, and run again."
-        exit 9
+        Stop-Gate 9 "NEVER RAN"
     }
     Write-Host ""
     Write-Host "TRX files: $logDir"
@@ -599,7 +673,7 @@ try {
         Write-Host "Park it in `$parkedProjects, or make it fit. Do not raise the ceiling to make this go away -"
         Write-Host "the ceiling is the point, and every second added to it is paid by every person and agent"
         Write-Host "on every change, forever."
-        exit 1
+        Stop-Gate 1 "OVER BUDGET"
     }
 
     # A RUN THAT COLLECTED ZERO TESTS IS A BROKEN INSTRUMENT, NOT A PASS.
@@ -631,7 +705,7 @@ try {
         Write-Host ""
         Write-Host "A project that exited zero and produced no result file did not report a run. That is a"
         Write-Host "broken instrument, not a pass. Do not quote a number from this run."
-        exit 4
+        Stop-Gate 4 "NO RESULT FILE"
     }
 
     # A RUN THAT COLLECTED ONLY PART OF WHAT IT WAS ASKED FOR IS NOT EVIDENCE EITHER.
@@ -700,14 +774,14 @@ try {
             Write-Host "why it would otherwise have passed. A term that matches nothing is a test name that has"
             Write-Host "drifted, a test that has been removed, or a typo; in all three the claim this run was"
             Write-Host "gathered to support is unproven."
-            exit 5
+            Stop-Gate 5 "FILTER MATCHED NOTHING"
         }
 
         if ($ExpectTests -gt 0 -and $collected -ne $ExpectTests) {
             Write-Host ""
             Write-Host "RESULT: EXPECTED $ExpectTests TEST(S), COLLECTED $collected."
             Write-Host "The caller declared the inventory this evidence needs and the run did not match it."
-            exit 5
+            Stop-Gate 5 "EXPECTED COUNT NOT MET"
         }
     }
 
@@ -734,7 +808,7 @@ try {
         if ($Filter -ne "") { Write-Host "  The filter was: $Filter" }
         Write-Host ""
         Write-Host "  A skip proves nothing. Name a test that runs."
-        exit 8
+        Stop-Gate 8 "EVERYTHING SKIPPED"
     }
 
     if ($collected -eq 0) {
@@ -751,13 +825,13 @@ try {
         Write-Host ""
         Write-Host "A run that collected zero tests is a broken instrument. It is never evidence, and a red-first"
         Write-Host "claim must never be quoted from one."
-        exit 3
+        Stop-Gate 3 "ZERO COLLECTED"
     }
 
     if ($failed.Count -eq 0) {
-        Write-Host "RESULT: all projects exited zero. Check the TRX outcome and totals above before calling it green."
+        Write-Host ("RESULT: GREEN at commit {0}, tree {1}. Check the TRX outcome and totals above before calling it green." -f $commit, $(if ($treeClean) { "clean" } else { "DIRTY" }))
         Write-Host "This is the gate - you do not need to wait for GitHub CI to merge."
-        exit 0
+        Stop-Gate 0 "GREEN"
     }
 
     Write-Host "RESULT: FAILED in $($failed.Count) project(s):"
@@ -768,7 +842,7 @@ try {
     }
     Write-Host ""
     Write-Host "Logs kept in $logDir"
-    exit 1
+    Stop-Gate 1 "FAILED"
 } finally {
     # Released here on EVERY path - a normal end, every exit code above, an exception, Ctrl+C. The next
     # run on this machine is refused only while a live process holds the handle, so the handle must not
