@@ -189,12 +189,16 @@ public sealed class HostedOwnerSettingsSelfHostControlTests : IAsyncLifetime
                     // that page already reads. Adding them here is the acknowledgement this exact allow-list
                     // exists to demand - it went red on the day they were added, which is its whole job.
                     "turnVerdictJudgeEnabled", "turnVerdictColourEnabled",
+                    // Demo mode (owner, 8 Oct 2026): per-account, read by the Settings card from this snapshot.
+                    "demoMode",
                 }, properties);
                 Assert.True(root.GetProperty("mentorReportEnabled").GetBoolean());
                 // Both default OFF, and that direction is asserted rather than assumed: ON for the colour
                 // switch means a session painted calm, which is the failure nobody is woken by.
                 Assert.False(root.GetProperty("turnVerdictJudgeEnabled").GetBoolean());
                 Assert.False(root.GetProperty("turnVerdictColourEnabled").GetBoolean());
+                // Off by default: ON blurs the account's Cockpit, which nobody asked for.
+                Assert.False(root.GetProperty("demoMode").GetBoolean());
                 Assert.Equal(ReportCadences.DailyName, root.GetProperty("dailyReportCadence").GetString());
                 Assert.True(root.GetProperty("snoozePresets").GetArrayLength() > 0);
                 Assert.Equal(SnoozePresetsConfig.MaxPresets, root.GetProperty("snoozeMaxPresets").GetInt32());
