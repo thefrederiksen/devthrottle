@@ -53,10 +53,40 @@ class WindowInput:
     agents_may_use: bool
 
 
+def _windows_desktop_visible() -> bool:
+    """True when this process runs on the interactive window station, the one a person sees. An SSH shell into
+    Windows, a service, or a task set to run whether the user is logged on or not gets an invisible one: Tk
+    opens a window there without complaint, nobody can see it, and the command would wait forever."""
+    import ctypes
+    from ctypes import wintypes
+
+    class USEROBJECTFLAGS(ctypes.Structure):
+        _fields_ = [("fInherit", wintypes.BOOL), ("fReserved", wintypes.BOOL), ("dwFlags", wintypes.DWORD)]
+
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    user32.GetProcessWindowStation.restype = wintypes.HANDLE
+    user32.GetUserObjectInformationW.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD,
+                                                 ctypes.POINTER(wintypes.DWORD)]
+    user32.GetUserObjectInformationW.restype = wintypes.BOOL
+    UOI_FLAGS = 1
+    WSF_VISIBLE = 1
+    flags = USEROBJECTFLAGS()
+    needed = wintypes.DWORD(0)
+    station = user32.GetProcessWindowStation()
+    if not station or not user32.GetUserObjectInformationW(station, UOI_FLAGS, ctypes.byref(flags),
+                                                           ctypes.sizeof(flags), ctypes.byref(needed)):
+        raise NoDisplayError(f"Windows could not say whether this process has a visible desktop "
+                             f"(error {ctypes.get_last_error()}).")
+    return bool(flags.dwFlags & WSF_VISIBLE)
+
+
 def display_problem() -> Optional[str]:
-    """Why there is no display to open a window on, or None when there may be one. Windows and macOS always
-    have one for a desktop user; on Linux and other X11 systems a window needs DISPLAY or WAYLAND_DISPLAY."""
-    if sys.platform in ("win32", "darwin"):
+    """Why there is no display to open a window on, or None when there may be one. On Windows the process must be
+    on the visible window station; on Linux and other X11 systems it needs DISPLAY or WAYLAND_DISPLAY. On macOS
+    Tk itself refuses when there is no window server, which show() reports."""
+    if sys.platform == "win32":
+        return None if _windows_desktop_visible() else "this process is not on the desktop a person sees"
+    if sys.platform == "darwin":
         return None
     if os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
         return None
@@ -108,8 +138,8 @@ def show(request: WindowRequest, on_save: Callable[[WindowInput], Optional[str]]
         return var, box
 
     name_var, name_box = field("Name", request.name)
-    user_var, _ = field("Username", request.username)
-    notes_var, _ = field("Notes", request.notes)
+    user_var, user_box = field("Username", request.username)
+    notes_var, notes_box = field("Notes", request.notes)
 
     ttk.Label(frame, text="Value" if request.is_setting else "Secret").grid(row=row, column=0, sticky="w",
                                                                            padx=(0, 8), pady=3)
@@ -153,10 +183,16 @@ def show(request: WindowRequest, on_save: Callable[[WindowInput], Optional[str]]
 
     buttons = ttk.Frame(frame)
     buttons.grid(row=row, column=0, columnspan=2, sticky="e")
-    ttk.Button(buttons, text="Cancel", command=cancel).grid(row=0, column=0, padx=(0, 8))
-    ttk.Button(buttons, text="Save", command=save).grid(row=0, column=1)
+    cancel_button = ttk.Button(buttons, text="Cancel", command=cancel)
+    cancel_button.grid(row=0, column=0, padx=(0, 8))
+    save_button = ttk.Button(buttons, text="Save", command=save)
+    save_button.grid(row=0, column=1)
 
-    root.bind("<Return>", save)
+    # Return saves from a text box, and presses whichever button has the focus - never Save from Cancel.
+    for box in (name_box, user_box, notes_box, secret_box):
+        box.bind("<Return>", save)
+    save_button.bind("<Return>", save)
+    cancel_button.bind("<Return>", cancel)
     root.bind("<Escape>", cancel)
     root.protocol("WM_DELETE_WINDOW", cancel)
 

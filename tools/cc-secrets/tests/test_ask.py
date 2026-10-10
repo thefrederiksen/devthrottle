@@ -158,6 +158,43 @@ def test_Ask_SecretTooShort_StaysOpenWithTheReason_ThenSavesTheCorrection(store,
     assert store.get("devlinux").secret.reveal() == secret
 
 
+def test_Ask_ARefusedSecret_DoesNotBlockTheNextSave_EvenWhenTheNameContainsIt(store, owner):
+    # Review of pull request 3732: a refused three-letter typo stayed in the scrubber, and every later Save of an
+    # entry whose name contained it was refused as "an audit line that contained a secret".
+    secret = new_secret()
+    stand_in = owner({"name": "soren-laptop", "secret": "sor"}, {"name": "soren-laptop", "secret": secret})
+
+    result = runner.invoke(cli.app, ["ask", "soren-laptop"])
+
+    assert result.exit_code == 0, _text(result)
+    assert stand_in.answers[1] is None
+    assert store.get("soren-laptop").secret.reveal() == secret
+
+
+def test_Ask_EmptySecret_IsReportedAsTooShort_NotAsAnUnexpectedError(store, owner):
+    stand_in = owner({"secret": ""}, {"secret": new_secret()})
+
+    result = runner.invoke(cli.app, ["ask", "devlinux"])
+
+    assert result.exit_code == 0, _text(result)
+    assert "at least" in stand_in.answers[0] and "unexpected" not in stand_in.answers[0]
+
+
+def test_Ask_CancelWhoseAuditLineFails_StillExitsCancelled_WithoutATraceback(store, owner, monkeypatch):
+    owner(cancel=True)
+
+    def broken_record(self, *args, **kwargs):
+        raise OSError("disk full")
+    monkeypatch.setattr(AuditLog, "record", broken_record)
+
+    result = runner.invoke(cli.app, ["ask", "devlinux"])
+
+    assert result.exit_code == cli.EXIT_CANCELLED
+    assert "cancelled" in result.output
+    assert "Traceback" not in _text(result)
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+
+
 def test_Ask_WithNoName_OpensAnEmptyForm_AndSavesUnderTheTypedName(store, owner):
     stand_in = owner({"name": "github-work", "username": "me", "secret": new_secret()})
 
@@ -262,10 +299,24 @@ def test_DisplayProblem_OnLinuxWithoutDisplay_SaysSo(monkeypatch):
     assert entry_window.display_problem() is None
 
 
-def test_DisplayProblem_OnWindowsAndMac_IsNone(monkeypatch):
-    for platform in ("win32", "darwin"):
-        monkeypatch.setattr(entry_window.sys, "platform", platform)
-        assert entry_window.display_problem() is None
+def test_DisplayProblem_OnMac_IsLeftToTk(monkeypatch):
+    monkeypatch.setattr(entry_window.sys, "platform", "darwin")
+    assert entry_window.display_problem() is None
+
+
+def test_DisplayProblem_OnWindows_FollowsTheVisibleDesktop(monkeypatch):
+    # Review of pull request 3732: an SSH shell into Windows gets an invisible desktop, where Tk opens a window
+    # nobody can see and the command would wait forever.
+    monkeypatch.setattr(entry_window.sys, "platform", "win32")
+    monkeypatch.setattr(entry_window, "_windows_desktop_visible", lambda: False)
+    assert "desktop" in entry_window.display_problem()
+    monkeypatch.setattr(entry_window, "_windows_desktop_visible", lambda: True)
+    assert entry_window.display_problem() is None
+
+
+@pytest.mark.skipif(entry_window.sys.platform != "win32", reason="asks Windows itself")
+def test_WindowsDesktopVisible_AnswersOnThisMachine():
+    assert isinstance(entry_window._windows_desktop_visible(), bool)
 
 
 # --- Leak search: the typed secret appears in no output, audit line or tool log --------------------------------

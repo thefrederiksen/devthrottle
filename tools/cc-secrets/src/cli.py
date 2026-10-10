@@ -258,10 +258,13 @@ def _save_entry(store: SecretStore, name: str, username: str, secret: str, domai
                 approval: Optional[OwnerApproval]) -> tuple:
     """Validate and store one entry, and write its audit line. The ONE way an entry the owner typed is written:
     `add` and the `ask` window both come through here. Returns (entry, replaced)."""
-    if not setting:
-        SCRUBBER.add(secret, username)
     entry = make_entry(name, username, secret, domains, notes, agents, uses,
                        env_name=env_name, kind=KIND_SETTING if setting else KIND_SECRET)
+    # Registered only once make_entry has accepted it: the ask window lets the owner try again in the same
+    # process, and a refused attempt (a typo, three letters) left in the scrubber would then block every audit
+    # line whose entry or machine name happened to contain it. make_entry's messages never carry the secret.
+    if not setting:
+        SCRUBBER.add(secret, username)
     audit = _audit()
     # The audit line is built and checked before the store changes, so an approval text that carries the secret
     # is refused with nothing saved, rather than after the entry is already in.
@@ -429,7 +432,11 @@ def ask(
     if saved:
         _say(f"saved {saved_as['name']}")
         return
-    _audit().record(label, "ask", "cancelled", "the owner closed the window without saving", approval)
+    try:
+        _audit().record(label, "ask", "cancelled", "the owner closed the window without saving", approval)
+    except Exception as exc:
+        _log_failure("ask", exc)
+        _say(f"The cancellation could not be written to the audit log: {_describe(exc)}", err=True)
     _say("cancelled")
     raise typer.Exit(EXIT_CANCELLED)
 
