@@ -113,7 +113,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
     internal static readonly TimeSpan RestartDelay = TimeSpan.FromSeconds(5);
 
     /// <summary>The wait before the supervise loop dials again; <see cref="RestartDelay"/> unless a test supplies its own.</summary>
-    private readonly Func<Task> _redialWait;
+    private readonly Func<Task> _redialDelay;
 
     /// <summary>The supervise loop <see cref="Start"/> runs. It completes when the loop stops for good - a terminal
     /// refusal or disposal - so a test can wait for that decision instead of watching the clock.</summary>
@@ -145,7 +145,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
     /// up-stream handler, whose producer sends frames up this same connection. Null (older callers, tests)
     /// leaves stream verbs declined with a typed Error, so behaviour is unchanged for them.
     /// </param>
-    /// <param name="redialWait">
+    /// <param name="redialDelay">
     /// The wait before the supervise loop dials again after a failed or closed connection. Null waits
     /// <see cref="RestartDelay"/>. A test seam, so a test decides when the next dial happens instead of waiting out
     /// the real delay; production passes null.
@@ -164,9 +164,9 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         CcDirector.Core.Background.BackgroundJobs? jobs = null,
         Action? onNewConnection = null,
         Func<string, string?>? teamNameForKey = null,
-        Func<Task>? redialWait = null)
+        Func<Task>? redialDelay = null)
     {
-        _redialWait = redialWait ?? (() => Task.Delay(RestartDelay));
+        _redialDelay = redialDelay ?? (() => Task.Delay(RestartDelay));
         _teamNameForKey = teamNameForKey;
         _jobs = jobs ?? CcDirector.Core.Background.BackgroundJobs.Default;
         _onHello = onHello;
@@ -517,7 +517,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
             }
             if (_disposed) break;
             _monitor?.MarkTunnelConnecting();      // dropped / dialing again (yellow) until the next connect
-            await _redialWait();                   // long-outage restart
+            await _redialDelay();                  // long-outage restart
         }
     }
 

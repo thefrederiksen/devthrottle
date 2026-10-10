@@ -135,7 +135,7 @@ public sealed class RemovedDirectorTunnelTests
             "director-1", "test", () => new List<SessionDto>(),
             monitor: monitor,
             teamNameForKey: teamNameForKey,
-            redialWait: (redials ?? new Redials()).WaitAsync);
+            redialDelay: (redials ?? new Redials()).WaitAsync);
         client.Start();
         return (client, monitor);
     }
