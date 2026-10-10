@@ -26,7 +26,8 @@ TIMEOUT_SECONDS = 10
 SCHEDULE_RECURRING = "recurring"
 SCHEDULE_ONE_OFF = "oneOff"
 SCHEDULE_RANDOM = "random"
-SCHEDULE_KINDS = (SCHEDULE_RECURRING, SCHEDULE_ONE_OFF, SCHEDULE_RANDOM)
+SCHEDULE_WINDOW = "window"
+SCHEDULE_KINDS = (SCHEDULE_RECURRING, SCHEDULE_ONE_OFF, SCHEDULE_RANDOM, SCHEDULE_WINDOW)
 SHAPE_HUMAN = "human"
 PLAN_MAX_DAYS = 14
 NOTIFY_NONE = "none"
@@ -128,7 +129,8 @@ class ScheduleClient:
     def list_jobs(self) -> List[Dict[str, Any]]:
         # include=random: the Gateway lists random schedules (issue #3622) only to a caller that knows the kind,
         # because a tool released before it refuses the whole list over one row it cannot read.
-        data = self._ok_or_raise(self._request("GET", "/cron/jobs?include=random"))
+        # include=window likewise: a window schedule (the Gateway picks the minute) is listed only on request.
+        data = self._ok_or_raise(self._request("GET", "/cron/jobs?include=random,window"))
         # Absent is not empty: an answer with no list of jobs must never read as "no schedules".
         jobs = data.get("jobs") if isinstance(data, dict) else None
         if not isinstance(jobs, list):
@@ -220,6 +222,9 @@ def _schedule_label(job: dict) -> str:
         return f"cron {_fmt(job.get('cronExpression'))}"
     if kind == SCHEDULE_RANDOM.lower():
         return f"random {_fmt(job.get('cronExpression'))}"
+    if kind == SCHEDULE_WINDOW.lower():
+        # The Gateway's own words: the window, the minute it placed it at, and any deadline or after-constraint.
+        return _fmt(job.get("scheduleText")) if job.get("scheduleText") else f"window {_fmt(job.get('cronExpression'))}"
     return f"once @ {_fmt(job.get('runAt'))}"
 
 
@@ -365,7 +370,7 @@ _JOB_READERS = {
     "next-run": lambda j: _job_field(j, "nextRunUtc", nullable=True, blank_ok=False),
     "machine": _job_machine,
     "kind": _job_kind,
-    "cron": lambda j: _job_timing(j, "cronExpression", SCHEDULE_RECURRING, SCHEDULE_RANDOM),
+    "cron": lambda j: _job_timing(j, "cronExpression", SCHEDULE_RECURRING, SCHEDULE_RANDOM, SCHEDULE_WINDOW),
     "run-at": lambda j: _job_timing(j, "runAt", SCHEDULE_ONE_OFF),
     "time-zone": lambda j: _job_field(j, "timeZoneId", nullable=False, blank_ok=False),
     # A seed job may carry an empty work list name; the Gateway requires a seed or a work list, not both.
@@ -535,13 +540,19 @@ def create_job(
     shape: Optional[str] = None,
     factory: Optional[str] = None,
     seat: Optional[str] = None,
+    window: Optional[str] = None,
+    days: Optional[str] = None,
+    deadline: Optional[str] = None,
+    after: Optional[str] = None,
+    gap: Optional[int] = None,
 ) -> None:
-    if sum(1 for timing in (at, cron, random_window) if timing) != 1:
+    if sum(1 for timing in (at, cron, random_window, window) if timing) != 1:
         _create_usage_error(
-            "specify exactly one of --at (one-off), --cron (recurring) or --random (about --per-day times a day "
-            "at random inside a daily window)."
+            "specify exactly one of --at (one-off), --cron (recurring), --random (about --per-day times a day "
+            "at random inside a daily window) or --window (once a day, at a minute the Gateway chooses inside it)."
         )
     random_settings = _random_settings(random_window, per_day, min_gap, shape)
+    window_settings = _window_settings(window, days, deadline, after, gap)
     if not seed and not worklist:
         _create_usage_error("specify what to run: either --seed <text> or --worklist <name>.")
     if seed and worklist:
@@ -564,8 +575,9 @@ def create_job(
     job = {
         "name": name,
         "enabled": True,
-        "scheduleKind": SCHEDULE_ONE_OFF if at else SCHEDULE_RANDOM if random_window else SCHEDULE_RECURRING,
-        "cronExpression": cron if cron else random_settings,
+        "scheduleKind": (SCHEDULE_ONE_OFF if at else SCHEDULE_RANDOM if random_window
+                         else SCHEDULE_WINDOW if window else SCHEDULE_RECURRING),
+        "cronExpression": cron if cron else random_settings if random_window else window_settings,
         "runAt": at if at else None,
         "timeZoneId": tz,
         "target": {"machine": machine},
@@ -609,9 +621,36 @@ def create_job(
     axi_cli.print_next([
         f"cc-devthrottle schedule get {job_ref}",
         *([f"cc-devthrottle schedule plan {job_ref}"] if random_window else []),
+        *([f"cc-devthrottle schedule load --machine {axi_cli.bare(machine, '<machine>')}"] if window else []),
         f"cc-devthrottle schedule run {job_ref}",
         f"cc-devthrottle schedule disable {job_ref}",
     ])
+
+
+def _window_settings(
+    window: Optional[str], days: Optional[str], deadline: Optional[str], after: Optional[str], gap: Optional[int]
+) -> Optional[str]:
+    """The settings text a window schedule stores, e.g. 'window=00:00-06:30 deadline=07:00 after=cj_a gap=120'. The
+    Gateway checks the values, chooses the minute, and answers each bad value with its own reason; this only checks
+    that the flags belong together."""
+    if not window:
+        given = [flag for flag, value in (("--days", days), ("--deadline", deadline), ("--after", after),
+                                          ("--gap", gap)) if value is not None]
+        if given:
+            _create_usage_error(f"{', '.join(given)} only go with --window.")
+        return None
+    if gap is not None and not after:
+        _create_usage_error("--gap is the time after another schedule, so it needs --after <schedule-id>.")
+    parts = [f"window={window.strip()}"]
+    if days is not None:
+        parts.append(f"days={days.strip()}")
+    if deadline is not None:
+        parts.append(f"deadline={deadline.strip()}")
+    if after:
+        parts.append(f"after={after.strip()}")
+    if gap is not None:
+        parts.append(f"gap={gap}")
+    return " ".join(parts)
 
 
 def _random_settings(

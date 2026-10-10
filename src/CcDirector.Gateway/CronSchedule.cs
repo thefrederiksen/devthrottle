@@ -27,6 +27,14 @@ public static class CronSchedule
     public const string KindRandom = "random";
 
     /// <summary>
+    /// A window job (the owner, 2026-10-09): once a day at a minute the Gateway chooses inside a local window, spread
+    /// by the machine's load, optionally by a deadline and after another schedule. Its settings are text in
+    /// <see cref="CronJobDto.CronExpression"/> (see <see cref="WindowSchedule"/>), and the engine treats it as
+    /// recurring: it fires at the placed minute and advances to the next allowed day.
+    /// </summary>
+    public const string KindWindow = "window";
+
+    /// <summary>
     /// Validate a job's definition (required fields + schedule grammar + time zone). Returns
     /// (true, null) when the job is well-formed, otherwise (false, reason) with a single
     /// human-readable reason suitable for a 400 response. Does not mutate the job.
@@ -74,7 +82,13 @@ public static class CronSchedule
             return settings is null ? (false, error) : (true, null);
         }
 
-        return (false, $"scheduleKind must be '{KindRecurring}', '{KindOneOff}' or '{KindRandom}'");
+        if (IsWindow(job.ScheduleKind))
+        {
+            var (settings, error) = WindowSchedule.Parse(job.CronExpression);
+            return settings is null ? (false, error) : (true, null);
+        }
+
+        return (false, $"scheduleKind must be '{KindRecurring}', '{KindOneOff}', '{KindRandom}' or '{KindWindow}'");
     }
 
     /// <summary>
@@ -111,6 +125,13 @@ public static class CronSchedule
             return RandomSchedule.NextAfter(job.Id, settings, zone, fromUtc);
         }
 
+        if (IsWindow(job.ScheduleKind))
+        {
+            // The minute the Gateway placed it at, on the next allowed day; none until it has been placed.
+            var (settings, _) = WindowSchedule.Parse(job.CronExpression);
+            return settings is null ? null : WindowSchedule.NextAfter(settings, zone, fromUtc);
+        }
+
         // One-off: the RunAt wall-clock time in the job's zone, converted to UTC.
         var local = TryParseLocal(job.RunAt);
         if (local is null)
@@ -143,6 +164,10 @@ public static class CronSchedule
 
     internal static bool IsOneOff(string? kind) =>
         string.Equals(kind?.Trim(), KindOneOff, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>True when the kind is <see cref="KindWindow"/>, ignoring case and surrounding spaces.</summary>
+    public static bool IsWindow(string? kind) =>
+        string.Equals(kind?.Trim(), KindWindow, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>True when the kind is <see cref="KindRandom"/>, ignoring case and surrounding spaces.</summary>
     public static bool IsRandom(string? kind) =>
@@ -185,6 +210,12 @@ public static class CronSchedule
     {
         ArgumentNullException.ThrowIfNull(job);
         job.Lifecycle = LifecycleOf(job);
+        if (IsWindow(job.ScheduleKind) && Validate(job).Ok)
+        {
+            // The schedule it runs after is named by the list route, which holds every schedule; here it is its id.
+            job.ScheduleText = WindowSchedule.Describe(WindowSchedule.Parse(job.CronExpression).Settings!);
+            return job;
+        }
         if (!IsRandom(job.ScheduleKind) || !Validate(job).Ok)
             return job;
         var plan = BuildPlan(job, nowUtc, days: 1);

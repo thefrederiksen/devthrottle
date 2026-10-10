@@ -77,8 +77,12 @@ internal static class CronJobEndpoints
             if (!TrySettleSeat(ctx, findFactory, job, storedFactory: null, storedSeat: null, "POST /cron/jobs", out var seatError))
                 return seatError!;
 
+            // A WINDOW schedule's minute is chosen here, against the load, before it is stored (the owner, 2026-10-09).
+            if (CronSchedule.IsWindow(job.ScheduleKind) && job.Enabled && PlaceWindow(job) is { } placeError)
+                return Results.BadRequest(new { error = placeError });
+
             var created = store.Create(job);
-            var stamped = CronSchedule.StampDisplay(created, DateTime.UtcNow);
+            var stamped = Describe(CronSchedule.StampDisplay(created, DateTime.UtcNow));
             stamped.LoadWarning = LoadWarningFor(stamped);
             return Results.Json(stamped, statusCode: StatusCodes.Status201Created);
         });
@@ -90,10 +94,15 @@ internal static class CronJobEndpoints
         app.MapGet("/cron/jobs", (HttpContext ctx) =>
         {
             var now = DateTime.UtcNow;
-            var includeRandom = IncludesRandom(ctx.Request.Query["include"].ToString());
-            var jobs = store.ListAll()
+            var include = ctx.Request.Query["include"].ToString();
+            var includeRandom = IncludesRandom(include);
+            var includeWindow = IncludesWindow(include);
+            var all = store.ListAll();
+            var names = all.ToDictionary(j => j.Id, j => j.Name, StringComparer.Ordinal);
+            var jobs = all
                 .Where(j => includeRandom || !CronSchedule.IsRandom(j.ScheduleKind))
-                .Select(j => CronSchedule.StampDisplay(j, now))
+                .Where(j => includeWindow || !CronSchedule.IsWindow(j.ScheduleKind))
+                .Select(j => Describe(CronSchedule.StampDisplay(j, now), names))
                 .ToList();
             var records = runRecords.SummariesOf(jobs.Select(j => j.Id).ToList(), now);
             // The factory titles, one registry read per factory named rather than per schedule.
@@ -147,6 +156,67 @@ internal static class CronJobEndpoints
             }
         }
 
+        // Choose a window schedule's minute (WindowSchedule.Place) and write it into its settings; the reason when no
+        // minute in its window works. Whatever `placed=` the caller sent is discarded: the minute is the Gateway's.
+        string? PlaceWindow(CronJobDto job)
+        {
+            var settings = WindowSchedule.Parse(job.CronExpression).Settings!;
+            var (jobs, lengths) = ForecastInputs();
+            var (placed, error) = WindowSchedule.Place(job, settings with { PlacedMinute = null }, jobs, lengths, DateTime.UtcNow);
+            if (placed is null)
+            {
+                FileLog.Write($"[CronJobEndpoints] place window {job.Id} '{job.Name}' REFUSED: {error}");
+                return $"this window schedule cannot be placed: {error}";
+            }
+            job.CronExpression = placed.ToText();
+            FileLog.Write($"[CronJobEndpoints] place window {job.Id} '{job.Name}': {job.CronExpression}");
+            return null;
+        }
+
+        // A window schedule that runs AFTER the one just written is placed again, so its gap holds when the other one
+        // moves - and so on down a chain. One whose window no longer has a minute that keeps its gap keeps the minute it
+        // had, and the answer says so: it is never silently stopped and never silently left in breach.
+        string? RePlaceDependents(string writtenId)
+        {
+            var problems = new List<string>();
+            var seen = new HashSet<string>(StringComparer.Ordinal) { writtenId };
+            var queue = new Queue<string>();
+            queue.Enqueue(writtenId);
+            while (queue.Count > 0)
+            {
+                var anchor = queue.Dequeue();
+                foreach (var dependent in store.ListAll().Where(j => CronSchedule.IsWindow(j.ScheduleKind) && j.Enabled
+                             && WindowSchedule.Parse(j.CronExpression).Settings?.AfterJobId == anchor).ToList())
+                {
+                    if (!seen.Add(dependent.Id))
+                        continue;
+                    var before = dependent.CronExpression;
+                    if (PlaceWindow(dependent) is { } error)
+                    {
+                        problems.Add($"'{dependent.Name}' runs after it and keeps its old minute, because {error}");
+                        continue;
+                    }
+                    if (dependent.CronExpression != before)
+                        store.Update(dependent.Id, dependent);
+                    queue.Enqueue(dependent.Id);
+                }
+            }
+            return problems.Count == 0 ? null : string.Join(" ", problems);
+        }
+
+        // The schedule it runs after, by name, in a window schedule's words.
+        CronJobDto Describe(CronJobDto job, IReadOnlyDictionary<string, string>? names = null)
+        {
+            if (!CronSchedule.IsWindow(job.ScheduleKind) || WindowSchedule.Parse(job.CronExpression).Settings is not { } settings)
+                return job;
+            var known = names ?? store.ListAll().ToDictionary(j => j.Id, j => j.Name, StringComparer.Ordinal);
+            job.ScheduleText = WindowSchedule.Describe(settings, id => known.TryGetValue(id, out var n) ? n : null);
+            return job;
+        }
+
+        static string? JoinWarnings(string? first, string? second) =>
+            first is null ? second : second is null ? first : $"{first} {second}";
+
         // THE LOAD STRIP (the owner, 2026-10-09): each machine's next 24 hours, one bar per hour, from every active
         // schedule's fires and its own measured run length. Random schedules count: they start sessions like any other.
         app.MapGet("/cron/load", () =>
@@ -161,7 +231,7 @@ internal static class CronJobEndpoints
             var job = store.Get(id);
             return job is null
                 ? Results.NotFound(new { error = "no such cron job", id })
-                : Results.Json(CronSchedule.StampDisplay(job, DateTime.UtcNow));
+                : Results.Json(Describe(CronSchedule.StampDisplay(job, DateTime.UtcNow)));
         });
 
         // The planned fires of a random schedule (issue #3622). The plan is derived from the job id, the date and
@@ -241,11 +311,21 @@ internal static class CronJobEndpoints
             if (!TrySettleSeat(ctx, findFactory, incoming, storedFactory, store.Get(id)?.Seat, $"PUT /cron/jobs/{id}", out var seatError))
                 return seatError!;
 
+            if (store.Get(id) is null)
+                return Results.NotFound(new { error = "no such cron job", id });
+            incoming.Id = id;
+            // Only a schedule that will run is placed. A switch-off always lands, even when the schedule it runs after
+            // is gone or paused - otherwise it could not be stopped at all; it is placed again when switched back on.
+            if (CronSchedule.IsWindow(incoming.ScheduleKind) && incoming.Enabled && PlaceWindow(incoming) is { } placeError)
+                return Results.BadRequest(new { error = placeError, id });
+
             var updated = store.Update(id, incoming);
             if (updated is null)
                 return Results.NotFound(new { error = "no such cron job", id });
-            var stamped = CronSchedule.StampDisplay(updated, DateTime.UtcNow);
-            stamped.LoadWarning = LoadWarningFor(stamped);
+            // The followers move first, so the load warning describes the night as it now is.
+            var followers = RePlaceDependents(id);
+            var stamped = Describe(CronSchedule.StampDisplay(updated, DateTime.UtcNow));
+            stamped.LoadWarning = JoinWarnings(LoadWarningFor(stamped), followers);
             return Results.Json(stamped);
         });
 
@@ -256,9 +336,21 @@ internal static class CronJobEndpoints
             if (!Api.FactoryNaming.TryAct(ctx, sessionFactoryOf, store.Get(id)?.Factory, "schedule",
                     $"DELETE /cron/jobs/{id}", out var actError))
                 return actError!;
-            return store.Delete(id)
-                ? Results.Json(new { id, deleted = true })
-                : Results.NotFound(new { error = "no such cron job", id });
+            // A window schedule that runs after this one keeps the minute it has and keeps running; it cannot be
+            // placed again until its after= names a schedule that exists, and the answer says which ones.
+            var orphans = store.ListAll()
+                .Where(j => CronSchedule.IsWindow(j.ScheduleKind)
+                    && WindowSchedule.Parse(j.CronExpression).Settings?.AfterJobId == id)
+                .Select(j => j.Name)
+                .ToList();
+            if (!store.Delete(id))
+                return Results.NotFound(new { error = "no such cron job", id });
+            if (orphans.Count == 0)
+                return Results.Json(new { id, deleted = true });
+            var warning = $"{string.Join(", ", orphans.Select(n => $"'{n}'"))} ran after it: each keeps its minute and "
+                + "keeps running, and cannot be placed again until its after= names a schedule that exists.";
+            FileLog.Write($"[CronJobEndpoints] DELETE /cron/jobs/{id}: {warning}");
+            return Results.Json(new { id, deleted = true, warning });
         });
 
         FileLog.Write("[CronJobEndpoints] mapped /cron/jobs routes");
@@ -316,4 +408,10 @@ internal static class CronJobEndpoints
     internal static bool IncludesRandom(string? include) =>
         (include ?? "").Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
             .Any(CronSchedule.IsRandom);
+
+    // WINDOW SCHEDULES ARE LISTED ONLY TO A CALLER THAT ASKS, for the same reason as random ones: a released tool that
+    // does not know the kind refuses the whole list over one row.
+    internal static bool IncludesWindow(string? include) =>
+        (include ?? "").Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .Any(CronSchedule.IsWindow);
 }

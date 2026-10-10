@@ -38,7 +38,7 @@ export interface CronJob {
   id: string;
   name: string;
   enabled: boolean;
-  /** "recurring" (uses cronExpression), "oneOff" (uses runAt) or "random" (its settings in cronExpression). */
+  /** "recurring" (uses cronExpression), "oneOff" (uses runAt), "random" or "window" (their settings in cronExpression). */
   scheduleKind: string;
   cronExpression?: string | null;
   runAt?: string | null;
@@ -160,8 +160,9 @@ async function gatewayErrorFrom(res: Response, label: string): Promise<GatewayEr
 
 // GET /cron/jobs -> { jobs: [ CronJobDto ] }. Read path: an empty list on a null/absent body.
 export async function getCronJobs(signal?: AbortSignal): Promise<CronJob[]> {
-  // include=random: random schedules (issue #3622) are listed only to a caller that knows the kind.
-  const res = await fetch("/cron/jobs?include=random", {
+  // include=random,window: random schedules (issue #3622) and window schedules (the Gateway picks the minute) are
+  // listed only to a caller that knows the kind.
+  const res = await fetch("/cron/jobs?include=random,window", {
     method: "GET",
     headers: { Accept: "application/json", ...authHeaders() },
     signal,

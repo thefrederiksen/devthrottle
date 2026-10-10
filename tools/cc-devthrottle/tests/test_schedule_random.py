@@ -61,12 +61,13 @@ def test_create_random_with_a_custom_shape_sends_the_weights():
     assert posted["cronExpression"].endswith(f"shape={weights}")
 
 
-def test_create_with_two_timings_is_a_usage_error_naming_all_three():
+def test_create_with_two_timings_is_a_usage_error_naming_all_four():
     result, posted = _create(["--cron", "0 7 * * *", "--random", "07:00-01:00", "--per-day", "4", "--min-gap", "45"])
 
     assert result.exit_code == 2
     assert posted is None
-    assert "exactly one of --at (one-off), --cron (recurring) or --random" in result.stderr
+    assert "exactly one of --at (one-off), --cron (recurring), --random" in result.stderr
+    assert "or --window" in result.stderr
 
 
 def test_create_with_no_timing_is_a_usage_error():

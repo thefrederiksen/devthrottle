@@ -218,7 +218,7 @@ public static class CronLoad
     }
 
     /// <summary>Every fire of the schedule at or after <paramref name="fromUtc"/> and before <paramref name="toUtc"/>.</summary>
-    private static IEnumerable<DateTime> FiresBetween(CronJobDto job, DateTime fromUtc, DateTime toUtc, DateTime now)
+    internal static IEnumerable<DateTime> FiresBetween(CronJobDto job, DateTime fromUtc, DateTime toUtc, DateTime now)
     {
         if (CronSchedule.IsOneOff(job.ScheduleKind))
         {
@@ -252,7 +252,7 @@ public static class CronLoad
     }
 
     /// <summary>The most of these runs open at one moment inside [from, to). A run ending as another starts does not overlap it.</summary>
-    private static int PeakOpen(List<(string JobId, DateTime Start, DateTime End)> runs, DateTime from, DateTime to)
+    internal static int PeakOpen(List<(string JobId, DateTime Start, DateTime End)> runs, DateTime from, DateTime to)
     {
         var events = new List<(DateTime At, int Delta)>(runs.Count * 2);
         foreach (var r in runs)

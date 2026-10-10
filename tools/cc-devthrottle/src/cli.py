@@ -3585,7 +3585,7 @@ def schedule_load(
     machine: Optional[str] = typer.Option(None, "--machine", help="Only this machine. Default: every machine."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's forecast as JSON."),
 ) -> None:
-    """Show how many scheduled sessions each machine has open, hour by hour, over the next 24 hours."""
+    """Show each machine's scheduled load, hour by hour, for 24 hours."""
     schedule_ops.show_load(machine, json_output)
 
 
@@ -3628,9 +3628,29 @@ def schedule_create(
         None, "--factory", help="The factory this schedule's work belongs to. Needs --seat; the seat must be registered."
     ),
     seat: Optional[str] = typer.Option(None, "--seat", help="The registered seat of --factory this schedule runs."),
+    window: Optional[str] = typer.Option(
+        None,
+        "--window",
+        help="Run once a day at a minute the Gateway chooses inside this local window, HH:mm-HH:mm, spread by the "
+        "machine's load (an end at or before the start crosses midnight).",
+    ),
+    days: Optional[str] = typer.Option(
+        None, "--days", help="With --window: the days it runs, as a cron day-of-week field, e.g. 1-5. Default: every day."
+    ),
+    deadline: Optional[str] = typer.Option(
+        None, "--deadline", help="With --window: HH:mm it must have finished by; the Gateway allows for its run length."
+    ),
+    after: Optional[str] = typer.Option(
+        None,
+        "--after",
+        help="With --window: the schedule id it runs after. Alone, it starts once that one's sessions usually end.",
+    ),
+    gap: Optional[int] = typer.Option(
+        None, "--gap", help="With --after: the minutes it starts at least after that schedule starts, 0 to 720."
+    ),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the created schedule as JSON."),
 ) -> None:
-    """Create a schedule: --at once, --cron recurring, --random random."""
+    """Create a schedule: --at, --cron, --random or --window."""
     schedule_ops.create_job(
         name,
         machine,
@@ -3649,6 +3669,11 @@ def schedule_create(
         shape=shape,
         factory=factory,
         seat=seat,
+        window=window,
+        days=days,
+        deadline=deadline,
+        after=after,
+        gap=gap,
     )
 
 
