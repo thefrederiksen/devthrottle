@@ -3956,7 +3956,7 @@ public partial class MainWindow : Window
     /// submit failed; null when the failure happened before a transcript existed, in which case only the
     /// typed <paramref name="composerText"/> can be restored. Runs on the UI thread.
     /// </summary>
-    private async void OnDictationFailed(Session target, string composerText, string? composedText, string error, bool spokenAlone)
+    internal void OnDictationFailed(Session target, string composerText, string? composedText, string error, bool spokenAlone)
     {
         try
         {
@@ -3985,10 +3985,13 @@ public partial class MainWindow : Window
             var whatSurvived = composedText is not null
                 ? "The transcribed text has been put in the message box - review it and press Send when you are ready."
                 : "Any text you had typed has been put back - dictate again when you are ready.";
-            // Reported with what failed and never with the words: they were put back in the box above, not sent.
-            await ShownErrorBox.ShowAsync(this, "main window", $"send the dictation to session {target.Id}",
-                "Dictation not sent", $"Your dictation was not sent: {error}\n\nNothing was queued. {whatSurvived}",
-                reported: $"the dictation was not sent: {error}");
+            // The box shows the error; the report never carries it. It is the refusal's or the transcriber's message,
+            // and a refusal's message holds the prompt's first characters and the terminal's tail.
+            ReportSendRefused("Dictation not sent", $"Your dictation was not sent: {error}\n\nNothing was queued. {whatSurvived}",
+                $"send the dictation to session {target.Id}",
+                composedText is null
+                    ? "the dictation could not be transcribed, so nothing was sent"
+                    : $"the session refused the transcribed dictation; {restore.Length} characters were put back");
         }
         catch (Exception ex)
         {
@@ -4021,13 +4024,17 @@ public partial class MainWindow : Window
 
     /// <summary>Show a refused send's modal without making the send wait on it; a failure to show it is logged, never
     /// thrown into the UI thread.</summary>
-    private async void ReportSendRefused(string title, string message, string action, Exception refusal)
+    /// <param name="message">What the box shows. It may carry the refusal's own text - the screen is the owner's.</param>
+    /// <param name="reported">What the report says instead: built from the refusal's type, the session id and lengths,
+    /// never from its message. A real refusal's message carries the first characters of the prompt, the composer's
+    /// text and the terminal's tail (SubmitVerifier, TerminalSubmit), so no part of it may reach a report.</param>
+    /// <param name="refusal">The refusal, for its type and stack; the helper withholds its message.</param>
+    private async void ReportSendRefused(string title, string message, string action, string reported, Exception? refusal = null)
     {
         try
         {
-            // Reported as the user sees it, and before the seam, so a test that stops at the seam still exercised it.
-            // The message names what failed; the words that were not sent stay in the box and never reach a report.
-            var shown = ShownError.Report("main window", action, message, refusal);
+            // Reported before the seam, so a test that stops at the seam still exercised it.
+            var shown = ShownError.Report("main window", action, message, refusal, reported: reported);
             if (SendRefusedShownForTests is { } seam) { seam(title, shown); return; }
             await MessageBox.ShowAsync(this, title, shown);
         }
@@ -5997,7 +6004,8 @@ public partial class MainWindow : Window
             ReportSendRefused(spokenAlone ? "Dictation not sent" : "Prompt not sent",
                 $"Your {(spokenAlone ? "dictation" : "prompt")} was not sent: {ex.Message}\n\n" +
                 "Nothing was queued. The text has been put back in the message box - press Send when you are ready.",
-                $"send a prompt to session {target.Id}", ex);
+                $"send a prompt to session {target.Id}",
+                $"the session refused it ({ex.GetType().Name}); {boxText.Length} characters were put back in the box", ex);
             return;
         }
 
@@ -6201,7 +6209,7 @@ public partial class MainWindow : Window
         {
             // A refused send ends in a message, never an unhandled UI-thread exception (issue 3481).
             ReportSendRefused("Handover not sent", $"/handover was not sent: {ex.Message}",
-                $"send /handover to session {target.Id}", ex);
+                $"send /handover to session {target.Id}", $"the session refused /handover ({ex.GetType().Name})", ex);
             return;
         }
         FileLog.Write($"[MainWindow] BtnHandover_Click: sent /handover to session {target.Id}");
@@ -7178,7 +7186,8 @@ public partial class MainWindow : Window
             // the owner never heard the handover did not go in (issue 3481). It is reported instead.
             Dispatcher.UIThread.Post(() => ReportSendRefused("Handover not sent",
                 $"The handover prompt was not sent to the new session: {ex.Message}\n\nThe handover document is {handoverPath}.",
-                $"send the handover prompt to session {session.Id}", ex));
+                $"send the handover prompt to session {session.Id}",
+                $"the session refused the handover prompt ({ex.GetType().Name})", ex));
             return;
         }
         FileLog.Write($"[MainWindow] InjectHandoverPromptAsync: sent handover prompt for session {session.Id}");

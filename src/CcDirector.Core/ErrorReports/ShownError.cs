@@ -23,7 +23,11 @@ namespace CcDirector.Core.ErrorReports;
 /// rows logged around it, and the correlation and session id of any scope the caller has open still apply.
 ///
 /// WHAT IT NEVER WRITES. Prompt, transcript, terminal or model text. Where a site shows such text, it passes
-/// <c>reported</c> - what failed, in our own words - and the line carries that instead of the shown text.
+/// <c>reported</c> - what failed, in our own words - and the line carries that instead of the shown text. With
+/// <c>reported</c>, an exception goes on the line as its type and stack only, never its message: a site that has to
+/// say what to report is a site whose exception can carry the same words (a refused send's exception holds the first
+/// characters of the prompt, the composer's text and the terminal's tail), and the screen may show them; the report
+/// may not.
 ///
 /// It does no input or output beyond <see cref="FileLog.Write"/>, which only queues, so it is safe on the user
 /// interface thread and on any other.
@@ -39,7 +43,8 @@ public static class ShownError
     /// <param name="shown">The text the user sees. Returned unchanged.</param>
     /// <param name="exception">The exception behind it, when there is one; its type and stack go in the report.</param>
     /// <param name="reported">What to report INSTEAD of <paramref name="shown"/>, for a site whose shown text carries
-    /// words that must not leave the machine (a prompt, a transcript, terminal or model output).</param>
+    /// words that must not leave the machine (a prompt, a transcript, terminal or model output). When it is given, the
+    /// exception's message is withheld too - its type and stack are reported, its text is not.</param>
     /// <param name="fatal">True when the process ends because of it (a start-up that cannot go on): the line says
     /// FATAL rather than FAILED, so the report's kind is "fatal".</param>
     /// <param name="callerFile">Supplied by the compiler: the file that showed the error.</param>
@@ -73,7 +78,22 @@ public static class ShownError
         var what = OneLine(reported ?? shown);
         var marker = fatal ? "FATAL" : "FAILED";
         var head = $"[{source}] {member} {marker}: could not {OneLine(action)}: {what} (surface: {OneLine(surface)})";
-        return exception is null ? head : $"{head}\n{exception}";
+        if (exception is null) return head;
+        return reported is null ? $"{head}\n{exception}" : $"{head}\n{WithoutMessages(exception)}";
+    }
+
+    /// <summary>An exception as <c>Type: (message withheld)</c> and its stack, inner exceptions the same way: the type
+    /// and where it was thrown, none of the text it carries.</summary>
+    internal static string WithoutMessages(Exception exception)
+    {
+        var text = new System.Text.StringBuilder();
+        for (var e = exception; e is not null; e = e.InnerException)
+        {
+            if (!ReferenceEquals(e, exception)) text.Append("\n ---> ");
+            text.Append(e.GetType().FullName).Append(": (message withheld)");
+            if (!string.IsNullOrEmpty(e.StackTrace)) text.Append('\n').Append(e.StackTrace);
+        }
+        return text.ToString();
     }
 
     /// <summary>"C:\...\TurnReviewDialog.axaml.cs" gives "TurnReviewDialog": the class a code-behind file holds.</summary>

@@ -81,8 +81,11 @@ public sealed class BackgroundDictationSendTests : IDisposable
 #pragma warning restore CS0067
         public void Start(string executable, string args, string workingDir, short cols, short rows, Dictionary<string, string>? environmentVars = null) { }
         public void Write(byte[] data) { }
-        public Task SendTextAsync(string text) => Task.FromException(
-            new CcDirector.Core.Drivers.ComposerNotAcceptingInputException("the composer cannot be read, so nothing was typed"));
+        // Shaped like the real throws: the prompt's first characters, the composer's text and the terminal's tail.
+        public Task SendTextAsync(string text) => Task.FromException(new CcDirector.Core.Drivers.ComposerNotAcceptingInputException(
+            $"the composer cannot be read, so nothing was typed; prompt '{text[..Math.Min(60, text.Length)]}'; " +
+            $"what it read: text='{text}'. Readable buffer tail: {ScreenTail}"));
+        public const string ScreenTail = "the model wrote: the staging database password is in the vault";
         public Task SendEnterAsync() => Task.CompletedTask;
         public void Resize(short cols, short rows) { }
         public Task GracefulShutdownAsync(int timeoutMs = 5000) => Task.CompletedTask;
@@ -176,8 +179,10 @@ public sealed class BackgroundDictationSendTests : IDisposable
     /// which the window reports as "the dictation was not sent: {error}" - and every error line written on the way
     /// carry none of them. The submit line is checked to be there, so the absence is about a line that was written.
     /// </summary>
-    [Fact]
-    public async Task SubmitRefusedBySession_NeitherTheErrorLinesNorTheReportedErrorCarryTheWords()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task SubmitRefusedBySession_NoErrorLineCarriesTheWordsOrTheScreen(bool withCallback)
     {
         // Arrange
         const string spoken = "transfer the budget to the marketing account";
@@ -197,7 +202,7 @@ public sealed class BackgroundDictationSendTests : IDisposable
                 recorder, prefix: "", session,
                 new FakeTranscriber { Text = spoken },
                 submit: (text, origin, provenance) => session.SendTextAsync(text, provenance, origin: origin),
-                onFailed: (err, composed) => { failedError = err; restored = composed; },
+                onFailed: withCallback ? (err, composed) => { failedError = err; restored = composed; } : null,
                 recordingsDirectory: _dir);
         }
         finally
@@ -206,14 +211,24 @@ public sealed class BackgroundDictationSendTests : IDisposable
         }
 
         // Assert
-        Assert.Equal(spoken, restored); // the words went back to the box - that is where they belong
-        Assert.NotNull(failedError);
-        Assert.DoesNotContain(spoken, failedError);
-        Assert.DoesNotContain("marketing", failedError);
         string[] seen;
         lock (lines) seen = lines.ToArray();
-        Assert.Contains(seen, l => l.Contains($"submit FAILED for session {session.Id}"));
+        if (withCallback)
+        {
+            // The words went back to the box, and the refusal goes to the window, which shows it and reports it
+            // without it (ComposerSendRouteTests.OnDictationFailed_...). Nothing here is a second report.
+            Assert.Equal(spoken, restored);
+            Assert.NotNull(failedError);
+            Assert.DoesNotContain(seen, l => l.Contains("[BackgroundDictationSend]"));
+        }
+        else
+        {
+            // Nobody else reports it, so this is the FAILED line - with the type and the length, nothing else.
+            var line = Assert.Single(seen, l => l.Contains($"submit FAILED for session {session.Id}"));
+            Assert.Contains("ComposerNotAcceptingInputException", line);
+        }
         Assert.All(seen, l => Assert.DoesNotContain("marketing", l));
+        Assert.All(seen, l => Assert.DoesNotContain(RefusingBackend.ScreenTail, l));
     }
 
     [Fact]

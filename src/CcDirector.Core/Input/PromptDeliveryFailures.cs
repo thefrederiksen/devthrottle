@@ -131,9 +131,13 @@ public static class PromptDeliveryFailures
 
         Push(new PromptDeliveryFailure(at, sessionId, "failed-delivery", source, trimmed, textLength));
 
-        // The log line carries the reason WHOLE; only the ledger a screen renders is trimmed (the Prompt Delivery mission).
-        FileLog.Write($"[PromptDeliveryFailures] FAILED DELIVERY: session={sessionId}, source={source}, " +
-                      $"len={textLength}, reason={reason}");
+        // The FAILED line is an error line, so it is REPORTED to the Gateway: it carries the session, the source and
+        // the length, never the reason. The reason is a refusal's message, and a real one holds the prompt's first
+        // characters, the composer's text and the terminal's tail - no prompt words in a report (issue #3675). The
+        // reason is still written WHOLE, on the next line, which is not an error line (quoted, no marker in its head)
+        // and so stays in this machine's log, where the Prompt Delivery mission wanted it.
+        FileLog.Write($"[PromptDeliveryFailures] FAILED DELIVERY: session={sessionId}, source={source}, len={textLength}");
+        FileLog.Write($"[PromptDeliveryFailures] why that delivery to session {sessionId} did not go, kept in this log only: \"{reason}\"");
     }
 
     /// <summary>
