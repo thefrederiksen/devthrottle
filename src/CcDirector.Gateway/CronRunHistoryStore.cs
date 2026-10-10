@@ -214,16 +214,35 @@ public sealed class CronRunHistoryStore
         lock (_gate)
         {
             using var ctx = _db.CreateContext();
-            return ctx.CronRuns.AsNoTracking()
-                .Where(e => jobIds.Contains(e.JobId))
-                .OrderByDescending(e => e.Sequence)
-                .ToList()
-                .GroupBy(e => e.JobId, StringComparer.Ordinal)
-                .ToDictionary(g => g.Key,
-                    g => (IReadOnlyList<CronRunRecord>)g.Take(perJob).Select(ToRecord).ToList(),
-                    StringComparer.Ordinal);
+            return RecentIn(ctx, jobIds, perJob);
         }
     }
+
+    /// <summary>
+    /// <see cref="RecentByJob(IReadOnlyCollection{string}, int)"/> in the account a route resolved EXPLICITLY - the
+    /// Factories screen's seat markers - never the ambient one.
+    /// </summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<CronRunRecord>> RecentByJob(Core.Tenancy.TenantId tenant, IReadOnlyCollection<string> jobIds, int perJob)
+    {
+        ArgumentNullException.ThrowIfNull(jobIds);
+        if (perJob < 1) throw new ArgumentOutOfRangeException(nameof(perJob), perJob, "perJob must be at least 1");
+        if (jobIds.Count == 0) return new Dictionary<string, IReadOnlyList<CronRunRecord>>(StringComparer.Ordinal);
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            return RecentIn(ctx, jobIds, perJob);
+        }
+    }
+
+    private static Dictionary<string, IReadOnlyList<CronRunRecord>> RecentIn(GatewayDbContext ctx, IReadOnlyCollection<string> jobIds, int perJob) =>
+        ctx.CronRuns.AsNoTracking()
+            .Where(e => jobIds.Contains(e.JobId))
+            .OrderByDescending(e => e.Sequence)
+            .ToList()
+            .GroupBy(e => e.JobId, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key,
+                g => (IReadOnlyList<CronRunRecord>)g.Take(perJob).Select(ToRecord).ToList(),
+                StringComparer.Ordinal);
 
     private static CronRunEntity ToEntity(string jobId, CronRunRecord r, long sequence, string tenantId) => new()
     {

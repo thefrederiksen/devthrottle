@@ -664,3 +664,59 @@ describe("Factories - the owner's sort order (mockups A and B, 8 Oct 2026)", () 
     expect(screen.getByTestId("fa-sort-direction").textContent).toBe("Best first");
   });
 });
+
+describe("Seats that do not close themselves (Factory Control, step 2)", () => {
+  it("flags a factory on the list in the Gateway's words, linking to its Seats tab, and leaves the others unflagged", async () => {
+    renderAt("/factories");
+
+    const flagged = await screen.findByTestId("fa-factory-mindzie-web");
+    const flag = within(flagged).getByTestId("fa-left-open");
+    expect(flag.textContent).toBe("Does not close itself: Deployer - stayed open 3 of its last 7 runs (fixture)");
+    expect(flag.getAttribute("href")).toBe("/factories/mindzie-web/seats");
+    expect(within(screen.getByTestId("fa-factory-warmforward")).queryByTestId("fa-left-open")).toBeNull();
+    expect(within(screen.getByTestId("fa-factory-devthrottle")).queryByTestId("fa-left-open")).toBeNull();
+
+    // The flag opens the Seats tab, not the factory's page the row itself opens.
+    fireEvent.click(flag);
+    await waitFor(() => expect(where()).toBe("/factories/mindzie-web/seats"));
+  });
+
+  it("flags the factory's card the same way", async () => {
+    window.localStorage.setItem("cockpit.factoriesView", JSON.stringify("cards"));
+    renderAt("/factories");
+
+    const card = await screen.findByTestId("fa-card-mindzie-web");
+    expect(within(card).getByTestId("fa-left-open").textContent).toBe(
+      "Does not close itself: Deployer - stayed open 3 of its last 7 runs (fixture)",
+    );
+    expect(within(screen.getByTestId("fa-card-warmforward")).queryByTestId("fa-left-open")).toBeNull();
+  });
+
+  it("shows the flag in the factory page's header", async () => {
+    renderAt("/factories/warmforward");
+
+    const flag = await screen.findByTestId("fa-page-left-open");
+    expect(flag.textContent).toBe("Does not close itself: Boss - stayed open 3 of its last 7 runs (fixture)");
+    expect(within(flag).getByRole("link").getAttribute("href")).toBe("/factories/warmforward/seats");
+  });
+
+  it("shows no flag in the header when the Gateway sends none", async () => {
+    screenClient.getFactoryPage.mockResolvedValue({ ...FACTORY_PAGE, leftOpenText: null, leftOpenHref: null });
+    renderAt("/factories/warmforward");
+
+    await screen.findByTestId("fa-overview");
+    expect(screen.queryByTestId("fa-page-left-open")).toBeNull();
+  });
+
+  it("gives each seat its marker verbatim, coloured by the Gateway's tone", async () => {
+    renderAt("/factories/warmforward/seats");
+
+    const table = await screen.findByTestId("fa-seats-table");
+    const boss = within(within(table).getByTestId("fa-seat-nora-hale")).getByTestId("fa-seat-closing");
+    expect(boss.textContent).toBe("stayed open 3 of its last 7 runs (fixture)");
+    expect(boss.className).toContain("fa-tone-amber");
+    const hunter = within(within(table).getByTestId("fa-seat-value-hunter")).getByTestId("fa-seat-closing");
+    expect(hunter.textContent).toBe("no runs recorded yet (fixture)");
+    expect(hunter.className).toContain("fa-tone-grey");
+  });
+});

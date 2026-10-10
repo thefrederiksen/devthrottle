@@ -326,6 +326,31 @@ public sealed class CronRunEndingTests : IDisposable
     }
 
     [Fact]
+    public void Reader_RecentRunsOf_ReadsInTheAccountItIsGiven_WithEachEndingStamped()
+    {
+        // The Factories screen resolves its account explicitly; the seat markers must read that account, not the
+        // ambient one, and another account sees none of these runs.
+        var db = _h.Open();
+        var runs = new CronRunHistoryStore(db, _h.LegacyPath("recent.runs.json"));
+        var history = new SessionHistoryStore(db);
+        var sid = Guid.NewGuid().ToString();
+        var fired = DateTime.UtcNow.AddHours(-3);
+        runs.Append("job-a", Run(sid, fired: fired));
+        history.UpsertLive("dir-1", new SessionDto
+        {
+            SessionId = sid, Name = "Scout", RepoPath = @"D:\repo", Agent = "ClaudeCode",
+            MachineName = "SOREN_NORTH", CreatedAt = fired, ActivityState = "Working", Status = "Running",
+        }, fired);
+
+        var local = CronRunRecordReader.RecentRunsOf(runs, history, TenantId.Local, new[] { "job-a", "job-never" }, DateTime.UtcNow);
+        var other = CronRunRecordReader.RecentRunsOf(runs, history, new TenantId("another-account"), new[] { "job-a" }, DateTime.UtcNow);
+
+        Assert.Equal(CronRunEndings.StillOpen, local["job-a"].Single().Ending);
+        Assert.False(local.ContainsKey("job-never"));
+        Assert.Empty(other);
+    }
+
+    [Fact]
     public void Reader_RunLengthsOf_TakesTheMiddleOfTheRunsThatEnded_AndLeavesOutAScheduleWithNone()
     {
         var db = _h.Open();

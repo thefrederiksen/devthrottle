@@ -10,10 +10,14 @@ using Microsoft.AspNetCore.Routing;
 namespace CcDirector.Gateway.Api;
 
 /// <summary>What the Factories screen reads beyond what the Factory Agents views already read.</summary>
+/// <param name="ScheduleRuns">The newest runs of these schedules in this account, each with its ending stamped
+/// (<see cref="Running.CronRunRecordReader.RecentRunsOf"/>), at this instant - what each seat's "closes itself"
+/// marker is folded from.</param>
 internal sealed record FactoriesScreenSources(
     FactoryAgentsSources Activity,
     FactoryRegistryStore Registry,
-    Func<TenantId, IReadOnlyList<CronJobDto>> Schedules);
+    Func<TenantId, IReadOnlyList<CronJobDto>> Schedules,
+    Func<TenantId, IReadOnlyCollection<string>, DateTime, IReadOnlyDictionary<string, IReadOnlyList<CronRunRecord>>> ScheduleRuns);
 
 /// <summary>
 /// The Factories screen (Factories screen mission, phase B): every view folded once by
@@ -125,7 +129,13 @@ internal static class FactoriesScreenEndpoints
         var latest = new Dictionary<string, GoalNumberDto>(StringComparer.Ordinal);
         if (factory is not null && sources.Registry.GoalNumbers(tenant, factory, 1).Latest is { } newest)
             latest[factory] = newest;
-        return new FactoriesScreenInputs(registry, activity, sources.Schedules(tenant), latest, talks);
+        // The runs of the seats in view - every factory's for the list, one factory's for its page - for the markers.
+        var seatSchedules = registry
+            .Where(f => factory is null || string.Equals(f.Factory, factory, StringComparison.Ordinal))
+            .SelectMany(f => f.Seats).SelectMany(s => s.Schedules)
+            .Distinct(StringComparer.Ordinal).ToList();
+        var runs = sources.ScheduleRuns(tenant, seatSchedules, now);
+        return new FactoriesScreenInputs(registry, activity, sources.Schedules(tenant), latest, talks, runs);
     }
 
     private static IResult NotRegistered(string factory) =>

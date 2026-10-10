@@ -117,12 +117,46 @@ public static class CronRunEndingFold
         };
     }
 
+    /// <summary>What one run says about whether its schedule's sessions close themselves.</summary>
+    public enum RunJudgement
+    {
+        /// <summary>Says nothing either way: still young, closer not recorded, ended with its Director, a work-list
+        /// drain, or no record of how it ended.</summary>
+        NotJudged,
+        ClosedItself,
+        StoppedByYou,
+        StoppedBySession,
+        /// <summary>Its session is still open, past <see cref="LeftOpenAfter"/>.</summary>
+        LeftOpen,
+        /// <summary>The fire started no session.</summary>
+        DidNotStart,
+    }
+
+    /// <summary>
+    /// The ONE ruling on what a run already stamped by <see cref="Stamp"/> counts as - shared by a schedule's record
+    /// (<see cref="Summarize"/>) and a factory seat's marker (<see cref="SeatMarker"/>), so the two can never judge the
+    /// same run differently.
+    /// </summary>
+    public static RunJudgement Judge(CronRunRecord run, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(run);
+        return run.Ending switch
+        {
+            CronRunEndings.ClosedItself => RunJudgement.ClosedItself,
+            CronRunEndings.StoppedByYou => RunJudgement.StoppedByYou,
+            CronRunEndings.StoppedBySession => RunJudgement.StoppedBySession,
+            CronRunEndings.StillOpen when nowUtc - run.FiredUtc >= LeftOpenAfter => RunJudgement.LeftOpen,
+            CronRunEndings.NoSession => RunJudgement.DidNotStart,
+            _ => RunJudgement.NotJudged,
+        };
+    }
+
     /// <summary>
     /// A schedule's run record from its newest runs (newest first), already stamped by <see cref="Stamp"/>. A run
     /// that closed itself counts for the schedule; one stopped by someone, left open past <see cref="LeftOpenAfter"/>,
     /// or that failed to start a session at all counts against it. Everything else - a run that is still young, one
     /// whose closer was not recorded, one that ended with its Director, a work-list drain - is left out, because it
-    /// says nothing either way.
+    /// says nothing either way (<see cref="Judge"/>).
     /// </summary>
     public static CronRunRecordSummaryDto Summarize(IReadOnlyList<CronRunRecord> runs, IReadOnlyDictionary<string, SessionEndingFact> endings, DateTime nowUtc)
     {
@@ -132,11 +166,12 @@ public static class CronRunEndingFold
         if (considered.Count == 0)
             return new CronRunRecordSummaryDto { Verdict = "none", Text = "no runs yet", Runs = 0 };
 
-        var closedItself = considered.Where(r => r.Ending == CronRunEndings.ClosedItself).ToList();
-        var byYou = considered.Count(r => r.Ending == CronRunEndings.StoppedByYou);
-        var bySession = considered.Count(r => r.Ending == CronRunEndings.StoppedBySession);
-        var leftOpen = considered.Count(r => r.Ending == CronRunEndings.StillOpen && nowUtc - r.FiredUtc >= LeftOpenAfter);
-        var didNotStart = considered.Count(r => r.Ending == CronRunEndings.NoSession);
+        var judgements = considered.Select(r => (Run: r, Judgement: Judge(r, nowUtc))).ToList();
+        var closedItself = judgements.Where(x => x.Judgement == RunJudgement.ClosedItself).Select(x => x.Run).ToList();
+        var byYou = judgements.Count(x => x.Judgement == RunJudgement.StoppedByYou);
+        var bySession = judgements.Count(x => x.Judgement == RunJudgement.StoppedBySession);
+        var leftOpen = judgements.Count(x => x.Judgement == RunJudgement.LeftOpen);
+        var didNotStart = judgements.Count(x => x.Judgement == RunJudgement.DidNotStart);
         var judged = closedItself.Count + byYou + bySession + leftOpen + didNotStart;
 
         if (judged == 0)
@@ -172,6 +207,47 @@ public static class CronRunEndingFold
             Text = $"{closedItself.Count} of {judged} closed itself - {string.Join(", ", parts)}",
             Runs = considered.Count,
         };
+    }
+
+    /// <summary>
+    /// A factory seat's marker (Factory Control, step 2): does the seat close itself, across every schedule it runs
+    /// on? <paramref name="runsBySchedule"/> holds each of the seat's schedules' newest runs, already stamped by
+    /// <see cref="Stamp"/>.
+    ///
+    /// THE WINDOW is the seat's newest <see cref="SummaryRuns"/> (10) runs, merged across its schedules by when they
+    /// fired - the same depth the Schedule page's record reads, so a seat with one schedule is judged on the runs its
+    /// schedule's record shows. Of those, only the runs <see cref="Judge"/> rules on are counted, and a fire that
+    /// started no session is left out too: it left nothing open, and the factory's status already reports a run that
+    /// did not start. A run "stayed open" when someone else had to end it (you, or another session) or it is still
+    /// open past <see cref="LeftOpenAfter"/>.
+    ///
+    /// Verdict <c>ok</c> ("closes itself - its last 7 runs"), <c>bad</c> ("stayed open 3 of its last 7 runs") or
+    /// <c>none</c> ("no runs recorded yet" - said plainly rather than claiming either). When the counted runs came
+    /// from more than one of the seat's schedules the words say so.
+    /// </summary>
+    public static CronRunRecordSummaryDto SeatMarker(IReadOnlyList<IReadOnlyList<CronRunRecord>> runsBySchedule, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(runsBySchedule);
+        var counted = runsBySchedule
+            .SelectMany((runs, schedule) => runs.Select(r => (Run: r, Schedule: schedule)))
+            .Where(x => x.Run.Ending is not null)
+            .OrderByDescending(x => x.Run.FiredUtc)
+            .Take(SummaryRuns)
+            .Select(x => (x.Schedule, Judgement: Judge(x.Run, nowUtc)))
+            .Where(x => x.Judgement is not (RunJudgement.NotJudged or RunJudgement.DidNotStart))
+            .ToList();
+        if (counted.Count == 0)
+            return new CronRunRecordSummaryDto { Verdict = "none", Text = "no runs recorded yet", Runs = 0 };
+
+        var stayedOpen = counted.Count(x => x.Judgement != RunJudgement.ClosedItself);
+        var schedules = counted.Select(x => x.Schedule).Distinct().Count();
+        var across = schedules > 1 ? $", across its {schedules} schedules" : "";
+        var last = counted.Count == 1 ? "its last run" : $"its last {counted.Count} runs";
+        string text;
+        if (stayedOpen == 0) text = $"closes itself - {last}{across}";
+        else if (counted.Count == 1) text = $"stayed open its last run{across}";
+        else text = $"stayed open {stayedOpen} of {last}{across}";
+        return new CronRunRecordSummaryDto { Verdict = stayedOpen == 0 ? "ok" : "bad", Text = text, Runs = counted.Count };
     }
 
     /// <summary>A span as "6 min", "2h 05m" or "3d 4h".</summary>

@@ -124,7 +124,8 @@ public sealed class FactoryOwnerActionEndpointTests : IAsyncDisposable
                 Reports: new FactoryReportStore(settings),
                 Maps: new FactoryMapStore(settings)),
             _registry,
-            _ => _schedules.Values.Select(Copy).ToList());
+            _ => _schedules.Values.Select(Copy).ToList(),
+            (_, _, _) => new Dictionary<string, IReadOnlyList<CronRunRecord>>());
 
         FactoryOwnerActionEndpoints.Map(app, new FactoryAgentsSwitch(switchOn, settings),
             resolveTenant: _ => TenantId.Local,
@@ -179,7 +180,7 @@ public sealed class FactoryOwnerActionEndpointTests : IAsyncDisposable
                 (tenant, request, actor) => record.Append(tenant, request, actor),
                 _ => Array.Empty<FactoryTriggerFacts>(), (_, _, _, _, _) => Task.FromResult(false), _ => new HashSet<string>(),
                 _ => TimeZoneInfo.Utc, () => Now, new FactoryReportStore(settings), new FactoryMapStore(settings)),
-            _registry!, _ => _schedules.Values.Select(Copy).ToList());
+            _registry!, _ => _schedules.Values.Select(Copy).ToList(), (_, _, _) => new Dictionary<string, IReadOnlyList<CronRunRecord>>());
         return FactoriesScreenFold.Page(registered, FactoriesScreenEndpoints.Inputs(sources, TenantId.Local, FactoryAgentsFold.WindowLast7d, "website-business"));
     }
 

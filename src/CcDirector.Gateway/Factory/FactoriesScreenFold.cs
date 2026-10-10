@@ -1,5 +1,6 @@
 using System.Globalization;
 using CcDirector.Gateway.Contracts;
+using CcDirector.Gateway.Running;
 
 namespace CcDirector.Gateway.Factory;
 
@@ -12,12 +13,16 @@ namespace CcDirector.Gateway.Factory;
 /// <param name="Schedules">Every schedule in the account; a seat's are the ones that point at it (its registration lists them, derived from the schedules - issue #3650).</param>
 /// <param name="LatestGoalNumbers">The newest goal number of each factory, by factory id.</param>
 /// <param name="Talks">The newest "talked" rows of the factory or factories in view, whatever their age.</param>
+/// <param name="ScheduleRuns">The newest runs of the seats' schedules, by schedule id, each with its ending stamped
+/// (<see cref="CronRunRecordReader.RecentRunsOf"/>). A schedule that never ran is absent. What each seat's
+/// "closes itself" marker is folded from.</param>
 public sealed record FactoriesScreenInputs(
     IReadOnlyList<RegisteredFactoryDto> Registry,
     FactoryFoldInputs Activity,
     IReadOnlyList<CronJobDto> Schedules,
     IReadOnlyDictionary<string, GoalNumberDto> LatestGoalNumbers,
-    IReadOnlyList<FactoryActivityDto> Talks);
+    IReadOnlyList<FactoryActivityDto> Talks,
+    IReadOnlyDictionary<string, IReadOnlyList<CronRunRecord>> ScheduleRuns);
 
 /// <summary>
 /// THE FACTORIES SCREEN, FOLDED ONCE (Factories screen mission, phase B; critical rule 7). The list of factories, one
@@ -90,6 +95,7 @@ public static class FactoriesScreenFold
                 var status = Status(f, input, open);
                 var talk = BossTalk(f);
                 var waiting = open.Where(r => SameId(r.Factory, f.Factory)).ToList();
+                var leftOpen = LeftOpenText(f, input);
                 return (Rank: status.Rank, Row: new FactoryListRowDto
                 {
                     Id = f.Factory,
@@ -108,6 +114,8 @@ public static class FactoriesScreenFold
                     NoBossText = talk is null ? NoBoss : null,
                     Purpose = string.IsNullOrWhiteSpace(f.Purpose) ? null : f.Purpose.Trim(),
                     BossName = Boss(f) is { } boss ? BossRole(boss) : null,
+                    LeftOpenText = leftOpen,
+                    LeftOpenHref = leftOpen is null ? null : SeatsHref(f.Factory),
                 });
             })
             .OrderBy(x => x.Rank)
@@ -206,6 +214,7 @@ public static class FactoriesScreenFold
         var status = Status(factory, input, open);
         var boss = Boss(factory);
         input.LatestGoalNumbers.TryGetValue(factory.Factory, out var number);
+        var leftOpen = LeftOpenText(factory, input);
 
         return new FactoryPageViewDto
         {
@@ -220,6 +229,8 @@ public static class FactoriesScreenFold
             StatusHref = status.Href,
             BossText = boss is null ? NoBoss : BossRole(boss),
             SeatCountText = Count(factory.Seats.Count, "seat"),
+            LeftOpenText = leftOpen,
+            LeftOpenHref = leftOpen is null ? null : SeatsHref(factory.Factory),
             ComputerText = $"runs on {factory.Computer}",
             Talk = BossTalk(factory),
             Tabs = PageTabs(factory.Seats.Count),
@@ -370,6 +381,7 @@ public static class FactoriesScreenFold
         var schedules = SchedulesOf(seat, input.Schedules);
         var clock = SeatClock(schedules, a.Zone);
         var (lastText, lastTone) = LastRun(f, seat, schedules, a, clock);
+        var closing = SeatClosing(seat, input);
         return new FactorySeatRowDto
         {
             SeatId = seat.Id,
@@ -384,6 +396,8 @@ public static class FactoriesScreenFold
             LastRunText = lastText,
             LastRunTone = lastTone,
             ComputerText = seat.Computer,
+            ClosingText = closing.Text,
+            ClosingTone = ClosingTone(closing.Verdict),
             // One per schedule the seat names, in its order, each with its Edit (the owner, 2026-10-09: edited in the
             // factory). A missing one keeps its sentence on screen and offers nothing to edit.
             Schedules = seat.Schedules
@@ -449,6 +463,49 @@ public static class FactoriesScreenFold
     }
 
     // ---------------------------------------------------------------------------------------------------------
+    // Seats that do not close themselves (Factory Control, step 2)
+
+    /// <summary>
+    /// Whether a seat's sessions close themselves, across every schedule it names - folded once, by
+    /// <see cref="CronRunEndingFold.SeatMarker"/>, from the same ruling on each run the Schedule page's record uses.
+    /// </summary>
+    internal static CronRunRecordSummaryDto SeatClosing(RegisteredFactorySeatDto seat, FactoriesScreenInputs input) =>
+        CronRunEndingFold.SeatMarker(
+            seat.Schedules.Where(input.ScheduleRuns.ContainsKey).Select(id => input.ScheduleRuns[id]).ToList(),
+            input.Activity.NowUtc);
+
+    private static string ClosingTone(string verdict) => verdict switch
+    {
+        "ok" => FactoryTone.Ok,
+        "bad" => FactoryTone.Amber,
+        _ => FactoryTone.Grey,
+    };
+
+    /// <summary>
+    /// The flag a factory carries when any of its seats does not close itself: each such seat by its role word and
+    /// its marker. Null when every seat closes itself or has nothing recorded yet - a seat with no record is not
+    /// accused.
+    /// </summary>
+    internal static string? LeftOpenText(RegisteredFactoryDto f, FactoriesScreenInputs input)
+    {
+        var open = f.Seats
+            .Select(s => (Seat: s, Marker: SeatClosing(s, input)))
+            .Where(x => x.Marker.Verdict == "bad")
+            .Select(x => $"{SeatWord(x.Seat)} - {x.Marker.Text}")
+            .ToList();
+        return open.Count switch
+        {
+            0 => null,
+            1 => $"Does not close itself: {open[0]}",
+            _ => $"{open.Count} seats do not close themselves: {string.Join("; ", open)}",
+        };
+    }
+
+    /// <summary>A seat named by its role word ("Scout"), never a person's name; its id when it has no role.</summary>
+    private static string SeatWord(RegisteredFactorySeatDto seat) =>
+        string.IsNullOrWhiteSpace(seat.Role) ? seat.Id : seat.Role.Trim();
+
+    // ---------------------------------------------------------------------------------------------------------
     // Status
 
     /// <summary>A factory's status: its rank (worst first), its word and tone, the full sentence of why (a
@@ -505,7 +562,7 @@ public static class FactoriesScreenFold
         if (!seatSchedules.Any(j => j.Enabled) && !triggers.Any(t => !t.Paused))
         {
             var line = PausedText(f, seatSchedules.Select(j => j.Id).Distinct(StringComparer.Ordinal).Count(), triggers.Count, input.Schedules);
-            return new(2, StatusPaused, FactoryTone.Paused, line, line, $"{PageHref(f.Factory)}/seats");
+            return new(2, StatusPaused, FactoryTone.Paused, line, line, SeatsHref(f.Factory));
         }
 
         return new(3, StatusRunning, FactoryTone.Ok, "Nothing failed and nothing is waiting on you.", null, null);
@@ -679,6 +736,9 @@ public static class FactoriesScreenFold
 
     /// <summary>The waiting items on the factory's page - where NEEDS YOU and the waiting count link to.</summary>
     public static string WaitingHref(string factory) => $"{PageHref(factory)}#waiting";
+
+    /// <summary>The factory's Seats tab.</summary>
+    public static string SeatsHref(string factory) => $"{PageHref(factory)}/seats";
 
     /// <summary>What a factory with no boss says where the boss's Talk button would be.</summary>
     public const string NoBoss = "No boss named";

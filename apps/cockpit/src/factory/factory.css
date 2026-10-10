@@ -686,6 +686,33 @@
   font-size: 13px;
 }
 
+/* A factory with a seat whose sessions do not close themselves (Factory Control, step 2): amber, whatever the status
+   word, so it is seen at a glance on the list, the card and the page header. */
+.fa-left-open {
+  display: block;
+  color: var(--warn);
+  font-size: 12px;
+  line-height: 1.35;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.fa-left-open a,
+a.fa-left-open {
+  color: var(--warn);
+}
+
+.fa-factory-id .fa-left-open {
+  margin-top: 4px;
+  font-size: 13px;
+}
+
+/* A seat's "closes itself" marker, under its last run. */
+.fa-closing {
+  font-size: 12px;
+  margin-top: 2px;
+}
+
 .fa-talk {
   cursor: auto;
 }

@@ -1,0 +1,62 @@
+{
+  "factoryId": "qa-tallyhand",
+  "title": "Tallyhand (QA)",
+  "crumb": "Factories / Tallyhand (QA) / Seats",
+  "columns": [
+    "Seat",
+    "When it runs",
+    "Last run",
+    "Computer"
+  ],
+  "rows": [
+    {
+      "seatId": "boss",
+      "name": "Boss",
+      "role": "Boss",
+      "whenText": "Cron 0 3 1 1 * (UTC)",
+      "lastRunText": "Not run yet",
+      "lastRunTone": "grey",
+      "computerText": "SOREN_NORTH",
+      "closingText": "closes itself - its last 6 runs",
+      "closingTone": "ok",
+      "talk": {
+        "label": "Talk",
+        "busyLabel": "Starting the talk with the boss...",
+        "factoryId": "qa-tallyhand",
+        "seatId": "boss"
+      },
+      "schedules": [
+        {
+          "jobId": "cj_4484b8",
+          "whenText": "Cron 0 3 1 1 * (UTC)",
+          "editLabel": "Edit schedule"
+        }
+      ]
+    },
+    {
+      "seatId": "scout",
+      "name": "Scout",
+      "role": "Scout",
+      "whenText": "Cron 0 3 1 1 * (UTC)",
+      "lastRunText": "Not run yet",
+      "lastRunTone": "grey",
+      "computerText": "SOREN_NORTH",
+      "closingText": "stayed open 3 of its last 7 runs",
+      "closingTone": "amber",
+      "talk": {
+        "label": "Talk",
+        "busyLabel": "Starting the talk with Scout...",
+        "factoryId": "qa-tallyhand",
+        "seatId": "scout"
+      },
+      "schedules": [
+        {
+          "jobId": "cj_ea37a1",
+          "whenText": "Cron 0 3 1 1 * (UTC)",
+          "editLabel": "Edit schedule"
+        }
+      ]
+    }
+  ],
+  "note": "Only seats the boss hired are listed. Sessions that only wrote activity rows are not seats and do not appear."
+}
