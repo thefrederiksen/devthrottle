@@ -218,10 +218,12 @@ public static class BrowserLauncher
             (BrowserKind.Brave, "Brave",
                 new[] { "/opt/brave.com/brave/brave", "/usr/bin/brave-browser-stable", "/usr/bin/brave-browser" },
                 config + "/BraveSoftware/Brave-Browser"),
-            // Opera's package puts the binary under /usr/lib/<multiarch>/opera-stable, and its profile
-            // folder is plain "opera" - neither follows the pattern the other three share.
+            // Opera's package puts the binary under /usr/lib/<multiarch>, not /opt, and its profile
+            // folder is plain "opera" - neither follows the pattern the other three share. The library
+            // folder was renamed between releases: "opera-stable" in the current package, "opera" in
+            // older ones, so both are checked before the /usr/bin link.
             (BrowserKind.Opera, "Opera",
-                new[] { "/usr/lib/x86_64-linux-gnu/opera-stable/opera", "/usr/bin/opera" },
+                new[] { "/usr/lib/x86_64-linux-gnu/opera-stable/opera", "/usr/lib/x86_64-linux-gnu/opera/opera", "/usr/bin/opera" },
                 config + "/opera"),
         };
     }

@@ -218,19 +218,25 @@ public static class AutomationBrowserService
 
     /// <summary>
     /// Remove a browser entirely: stop it (CDP close), wait for the port to release, delete its
-    /// user-data directory, and drop its registry entry. THROWS if the directory cannot be deleted
-    /// because the browser is still holding it (we surface that rather than leaving a half-removed
-    /// browser) - the caller can retry after the process has fully exited.
+    /// user-data directory, and drop its registry entry. THROWS, leaving the entry in place, when the
+    /// browser is still running after every shutdown path, or when the directory cannot be deleted -
+    /// we surface that rather than leaving a half-removed browser. The caller can retry after the
+    /// process has fully exited.
     /// </summary>
     public static async Task RemoveAsync(string idOrName, CancellationToken ct = default)
     {
         var browser = AutomationBrowserRegistry.Get(idOrName);
         FileLog.Write($"[AutomationBrowserService] RemoveAsync: id={browser.Id}");
 
-        // A shutdown that fails here is not fatal on its own: the folder delete below throws the
-        // actionable error if the browser is genuinely still holding its directory.
+        // A browser still running must stop the removal here. Counting on the folder delete to fail
+        // instead only works on Windows, where open files lock the folder: on Linux and macOS the
+        // delete succeeds underneath the running browser, so the entry would be dropped and the verb
+        // would answer "removed" while an orphan kept listening on the port.
         if (!await TryShutDownAsync(browser, ct).ConfigureAwait(false))
-            FileLog.Write($"[AutomationBrowserService] RemoveAsync: id={browser.Id} still up after shutdown attempts; the folder delete will report if it is locked");
+            throw new TimeoutException(
+                $"Browser \"{browser.Name}\" was not removed: its debug port {browser.Port} is still answering after a close " +
+                "request and it was not launched by this Director, so there is no process to stop. Close the browser window " +
+                "by hand and remove it again.");
 
         if (Directory.Exists(browser.UserDataDir))
         {

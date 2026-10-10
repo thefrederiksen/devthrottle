@@ -148,10 +148,11 @@ internal sealed class BrowserExecutor : ISessionCommandArea
                         await AutomationBrowserService.RemoveAsync(b.Id, ct).ConfigureAwait(false);
                         return Ok(new { removed = true, id = b.Id, name = b.Name });
                     }
-                    catch (IOException ex)
+                    catch (Exception ex) when (ex is IOException or TimeoutException)
                     {
-                        // A folder that will not delete is a CONFLICT, not a server fault: something on this
-                        // machine still holds it, and the caller can close that and try again.
+                        // A folder that will not delete, or a browser that will not shut down, is a CONFLICT,
+                        // not a server fault: something on this machine still holds it, and the caller can
+                        // close that and try again.
                         return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, ex.Message);
                     }
                 });

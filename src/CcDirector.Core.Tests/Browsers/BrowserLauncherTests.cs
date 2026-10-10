@@ -247,6 +247,7 @@ public class BrowserLauncherTests
         Assert.Contains("/usr/bin/brave-browser", brave.ExeCandidates);
         // Opera is NOT under /opt like the other three - a Chrome-shaped guess would never find it.
         Assert.Equal("/usr/lib/x86_64-linux-gnu/opera-stable/opera", opera.ExeCandidates[0]);
+        Assert.Contains("/usr/lib/x86_64-linux-gnu/opera/opera", opera.ExeCandidates);
         Assert.Contains("/usr/bin/opera", opera.ExeCandidates);
     }
 
