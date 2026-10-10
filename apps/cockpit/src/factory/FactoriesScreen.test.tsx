@@ -46,6 +46,10 @@ const cronClient = vi.hoisted(() => ({
   getCronJob: vi.fn(),
   createCronJob: vi.fn(),
   updateCronJob: vi.fn(),
+  getSeatChoices: vi.fn(async () => ({
+    noneLabel: "No factory (Personal)",
+    factories: [{ factory: "warmforward", title: "WarmForward Factory", seats: [{ id: "nora-hale", label: "Nora Hale (nora-hale)" }] }],
+  })),
 }));
 vi.mock("@devthrottle/client-core/schedule/scheduleClient", () => cronClient);
 
@@ -380,6 +384,10 @@ describe("A factory's Seats tab (mockup 3)", () => {
     const dialog = await screen.findByRole("dialog", { name: "Edit cron job" });
     expect(cronClient.getCronJob).toHaveBeenCalledWith("cj_boss");
     expect((within(dialog).getByDisplayValue("15 6 * * *") as HTMLInputElement).value).toBe("15 6 * * *");
+    // It opens on its own factory and seat, and a factory schedule is never offered "no factory".
+    await waitFor(() => expect((within(dialog).getByLabelText("Factory") as HTMLSelectElement).disabled).toBe(false));
+    expect((within(dialog).getByLabelText("Seat") as HTMLSelectElement).value).toBe("nora-hale");
+    expect(within(dialog).queryByRole("option", { name: "No factory (Personal)" })).toBeNull();
     fireEvent.change(within(dialog).getByDisplayValue("15 6 * * *"), { target: { value: "30 6 * * *" } });
     const seatReads = screenClient.getFactorySeats.mock.calls.length;
     fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
@@ -387,7 +395,7 @@ describe("A factory's Seats tab (mockup 3)", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit cron job" })).toBeNull());
     expect(cronClient.updateCronJob).toHaveBeenCalledWith(
       "cj_boss",
-      expect.objectContaining({ cronExpression: "30 6 * * *", name: boss.name, enabled: true }),
+      expect.objectContaining({ cronExpression: "30 6 * * *", name: boss.name, enabled: true, factory: "warmforward", seat: "nora-hale" }),
     );
     await waitFor(() => expect(screenClient.getFactorySeats.mock.calls.length).toBeGreaterThan(seatReads));
     // The Gateway's warning is shown here too, as on the Schedule page.

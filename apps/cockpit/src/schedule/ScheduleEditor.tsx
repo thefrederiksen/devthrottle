@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { createCronJob, updateCronJob, type CronJob } from "@devthrottle/client-core/schedule/scheduleClient";
+import {
+  createCronJob,
+  getSeatChoices,
+  updateCronJob,
+  type CronJob,
+  type CronSeatChoices,
+} from "@devthrottle/client-core/schedule/scheduleClient";
 import {
   ENDPOINT_STATE_UNREACHABLE_BY_NAME,
   getFleetDirectors,
@@ -45,6 +51,9 @@ interface FormState {
   notifyWebhookUrl: string;
   enabled: boolean;
   preventOverlap: boolean;
+  // The factory and seat the schedule runs as, or "" for a schedule in no factory (the owner, 2026-10-10).
+  factory: string;
+  seat: string;
 }
 
 // Per-field validation messages for the create/edit form. A field is present here only when it is
@@ -56,6 +65,7 @@ interface FormErrors {
   machine?: string;
   repoPath?: string;
   schedule?: string;
+  seat?: string;
 }
 
 function validateForm(f: FormState): FormErrors {
@@ -63,6 +73,7 @@ function validateForm(f: FormState): FormErrors {
   if (f.name.trim().length === 0) errors.name = "Enter a name so you can find this job in the list.";
   if (f.machine.trim().length === 0) errors.machine = "Choose the machine this job runs on.";
   if (f.repoPath.trim().length === 0) errors.repoPath = "Enter the repository path the session opens in.";
+  if (f.factory.length > 0 && f.seat.length === 0) errors.seat = "Choose the seat this schedule runs as.";
   if (f.scheduleKind === "recurring") {
     if (f.cron.trim().length === 0) errors.schedule = "Enter a 5-field cron expression, for example 0 0 * * *.";
   } else if (f.scheduleKind === "random") {
@@ -94,6 +105,8 @@ const EMPTY_FORM: FormState = {
   notifyWebhookUrl: "",
   enabled: true,
   preventOverlap: true,
+  factory: "",
+  seat: "",
 };
 
 // The form for an existing job. Every field it has no control for is still carried, so an edit never drops it.
@@ -114,6 +127,8 @@ function formFromJob(job: CronJob): FormState {
     notifyWebhookUrl: job.notifyWebhookUrl ?? "",
     enabled: job.enabled,
     preventOverlap: job.preventOverlap,
+    factory: job.factory ?? "",
+    seat: job.seat ?? "",
   };
 }
 
@@ -156,6 +171,20 @@ export function ScheduleEditor({
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
+  // The factory and seat picker's choices, folded by the Gateway from the registry a save is checked against.
+  const [seatChoices, setSeatChoices] = useState<CronSeatChoices | null>(null);
+  const [seatChoicesError, setSeatChoicesError] = useState<string | null>(null);
+  useEffect(() => {
+    const abort = new AbortController();
+    getSeatChoices(abort.signal)
+      .then(setSeatChoices)
+      .catch((err: unknown) => {
+        if (!abort.signal.aborted) setSeatChoicesError(`Could not read the factories: ${gatewayErrorMessage(err)}`);
+      });
+    return () => abort.abort();
+  }, []);
+  const chosenFactory = seatChoices?.factories.find((c) => c.factory === form.factory);
+
   const loadDirectors = useCallback(async () => {
     try {
       const [dirs, env] = await Promise.all([getFleetDirectors(), getSessionsEnvelope()]);
@@ -192,6 +221,8 @@ export function ScheduleEditor({
       notifyOn: f.notifyOn,
       notifyWebhookUrl:
         f.notifyOn !== "none" && f.notifyWebhookUrl.trim().length > 0 ? f.notifyWebhookUrl.trim() : null,
+      factory: f.factory.length > 0 ? f.factory : null,
+      seat: f.seat.length > 0 ? f.seat : null,
     };
   }, []);
 
@@ -362,6 +393,54 @@ export function ScheduleEditor({
                   />
                   {formErrors.name && <div className="sched-fld-err">{formErrors.name}</div>}
                 </div>
+
+                {/* The factory seat this schedule runs as (the owner, 2026-10-10). The Gateway checks the pair on
+                    save; it cannot take a schedule out of its factory, so "no factory" is offered only to a
+                    schedule that has none. A stored value the list does not hold is kept as it is. */}
+                <div className="sched-fld">
+                  <label className="sched-fld-label" htmlFor="sched-factory">Factory</label>
+                  <select
+                    id="sched-factory"
+                    value={form.factory}
+                    disabled={seatChoices === null}
+                    onChange={(e) => setForm((f) => ({ ...f, factory: e.target.value, seat: "" }))}
+                  >
+                    {seatChoices === null && <option value={form.factory}>{seatChoicesError === null ? "Loading..." : form.factory}</option>}
+                    {seatChoices !== null && initial.factory.length === 0 && <option value="">{seatChoices.noneLabel}</option>}
+                    {seatChoices !== null && form.factory.length > 0 && chosenFactory === undefined && (
+                      <option value={form.factory}>{form.factory}</option>
+                    )}
+                    {seatChoices?.factories.map((c) => (
+                      <option key={c.factory} value={c.factory}>
+                        {c.title}
+                      </option>
+                    ))}
+                  </select>
+                  {seatChoicesError !== null && <div className="sched-fld-err">{seatChoicesError}</div>}
+                </div>
+
+                {form.factory.length > 0 && (
+                  <div className="sched-fld">
+                    <label className="sched-fld-label" htmlFor="sched-seat">Seat</label>
+                    <select
+                      id="sched-seat"
+                      className={formErrors.seat ? "invalid" : undefined}
+                      value={form.seat}
+                      onChange={(e) => setForm((f) => ({ ...f, seat: e.target.value }))}
+                    >
+                      {form.seat.length === 0 && <option value="">Choose a seat...</option>}
+                      {form.seat.length > 0 && !chosenFactory?.seats.some((s) => s.id === form.seat) && (
+                        <option value={form.seat}>{form.seat}</option>
+                      )}
+                      {chosenFactory?.seats.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.label}
+                        </option>
+                      ))}
+                    </select>
+                    {formErrors.seat && <div className="sched-fld-err">{formErrors.seat}</div>}
+                  </div>
+                )}
 
                 <div className="sched-fld">
                   <label className="sched-fld-label">Run on (machine)</label>

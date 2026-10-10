@@ -1,0 +1,139 @@
+// @vitest-environment jsdom
+// The schedule editor's factory and seat picker (the owner, 2026-10-10: link a schedule to its factory seat from the
+// page). The choices come from the Gateway's GET /cron/seat-choices; the save carries the pair, which the Gateway
+// checks against the same registry.
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, fireEvent, waitFor, cleanup, within } from "@testing-library/react";
+import { GatewayError } from "@devthrottle/client-core/api/client";
+
+const cronClient = vi.hoisted(() => ({
+  createCronJob: vi.fn(),
+  updateCronJob: vi.fn(),
+  getSeatChoices: vi.fn(),
+}));
+vi.mock("@devthrottle/client-core/schedule/scheduleClient", () => cronClient);
+
+// The editor reads the machines for its machine picker as it opens; nothing here is about that picker.
+vi.mock("@devthrottle/client-core/fleet/fleetClient", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@devthrottle/client-core/fleet/fleetClient")>()),
+  getFleetDirectors: vi.fn(async () => []),
+  getSessionsEnvelope: vi.fn(async () => ({ sessions: [], machineErrors: [], directors: [] })),
+}));
+
+import { ScheduleEditor } from "./ScheduleEditor";
+
+const CHOICES = {
+  noneLabel: "No factory (Personal)",
+  factories: [
+    {
+      factory: "warmforward",
+      title: "WarmForward Factory",
+      seats: [
+        { id: "ceo", label: "Nora Hale (ceo)" },
+        { id: "value-hunter", label: "Value Hunter (value-hunter)" },
+      ],
+    },
+  ],
+};
+
+const personal = {
+  id: "cj_54663c",
+  name: "WarmForward Factory - Nora Hale - morning run",
+  enabled: true,
+  scheduleKind: "recurring",
+  cronExpression: "15 6 * * *",
+  runAt: null,
+  timeZoneId: "America/Toronto",
+  target: { machine: "SOREN_NORTH" },
+  action: { repoPath: "D:\\ReposFred\\warmforward-factory", seed: "You are Nora Hale.", workListName: null },
+  preventOverlap: true,
+  notifyOn: "none",
+  notifyWebhookUrl: null,
+  factory: null,
+  seat: null,
+};
+
+function openOn(job: typeof personal) {
+  const onSaved = vi.fn();
+  render(<ScheduleEditor request={{ kind: "edit", job }} onClose={vi.fn()} onSaved={onSaved} />);
+  return onSaved;
+}
+
+async function factorySelect(): Promise<HTMLSelectElement> {
+  const select = (await screen.findByLabelText("Factory")) as HTMLSelectElement;
+  await waitFor(() => expect(select.disabled).toBe(false));
+  return select;
+}
+
+beforeEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+  cronClient.getSeatChoices.mockResolvedValue(CHOICES);
+});
+
+describe("ScheduleEditor factory and seat picker", () => {
+  it("links a Personal schedule to a factory seat, and saves the pair", async () => {
+    cronClient.updateCronJob.mockResolvedValue({ ...personal, factory: "warmforward", seat: "ceo" });
+    const onSaved = openOn(personal);
+
+    const factory = await factorySelect();
+    expect(factory.value).toBe("");
+    // No seat is asked for until a factory is chosen.
+    expect(screen.queryByLabelText("Seat")).toBeNull();
+
+    fireEvent.change(factory, { target: { value: "warmforward" } });
+    const seat = screen.getByLabelText("Seat") as HTMLSelectElement;
+    expect(within(seat).getAllByRole("option").map((o) => o.textContent)).toEqual([
+      "Choose a seat...",
+      "Nora Hale (ceo)",
+      "Value Hunter (value-hunter)",
+    ]);
+    // A factory without a seat cannot be saved; the Gateway would refuse it.
+    expect(screen.getByText("Choose the seat this schedule runs as.")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.change(seat, { target: { value: "ceo" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(cronClient.updateCronJob).toHaveBeenCalledWith(
+      "cj_54663c",
+      expect.objectContaining({ factory: "warmforward", seat: "ceo", cronExpression: "15 6 * * *" }),
+    );
+  });
+
+  it("leaves a Personal schedule in no factory when the picker is not touched", async () => {
+    cronClient.updateCronJob.mockResolvedValue(personal);
+    const onSaved = openOn(personal);
+    await factorySelect();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(cronClient.updateCronJob).toHaveBeenCalledWith("cj_54663c", expect.objectContaining({ factory: null, seat: null }));
+  });
+
+  it("shows the Gateway's refusal of a pair in the form", async () => {
+    cronClient.updateCronJob.mockRejectedValue(
+      new GatewayError(400, "PUT /cron/jobs/cj_54663c failed", {
+        reason: "'ceo' is not a seat of WarmForward Factory (warmforward); its seats are: value-hunter.",
+      }),
+    );
+    openOn({ ...personal, factory: "warmforward" as never, seat: "ceo" as never });
+    await factorySelect();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect((await screen.findByText(/is not a seat of WarmForward Factory/)).textContent).toContain("value-hunter");
+  });
+
+  it("says so when the factories cannot be read, and the schedule can still be saved as it is", async () => {
+    cronClient.getSeatChoices.mockRejectedValue(new GatewayError(500, "GET /cron/seat-choices failed", { reason: "the registry could not be read" }));
+    cronClient.updateCronJob.mockResolvedValue(personal);
+    const onSaved = openOn(personal);
+
+    expect((await screen.findByText(/Could not read the factories/)).textContent).toContain("the registry could not be read");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+  });
+});
