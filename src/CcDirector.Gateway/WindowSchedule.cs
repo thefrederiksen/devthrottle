@@ -206,6 +206,42 @@ public static class WindowSchedule
     }
 
     /// <summary>
+    /// The deadline a window schedule's fire due at <paramref name="scheduledUtc"/> must be done by: the first time the
+    /// deadline's clock time comes round after that minute. Null when the schedule is not a window schedule or has no
+    /// deadline. A fire found after this moment - a catch-up after the Gateway was down - is not started.
+    /// </summary>
+    public static DateTime? DeadlineFor(CronJobDto job, DateTime scheduledUtc)
+    {
+        ArgumentNullException.ThrowIfNull(job);
+        if (!CronSchedule.IsWindow(job.ScheduleKind))
+            return null;
+        if (Parse(job.CronExpression).Settings?.DeadlineMinute is not { } deadlineMinute)
+            return null;
+        var zone = CronSchedule.FindZone(job.TimeZoneId);
+        if (zone is null)
+            return null;
+        var scheduled = DateTime.SpecifyKind(scheduledUtc, DateTimeKind.Utc);
+        var date = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(scheduled, zone));
+        var deadline = Utc(date, deadlineMinute, zone);
+        return deadline > scheduled ? deadline : Utc(date.AddDays(1), deadlineMinute, zone);
+    }
+
+    /// <summary>
+    /// Choose <paramref name="job"/>'s minute afresh, discarding any minute it has, and return its whole settings text
+    /// with <c>placed</c> set - or the reason no minute in its window works. A save does this to every switched-on window
+    /// schedule, and so does a factory's Restore, which is the other way one is switched on.
+    /// </summary>
+    public static (string? CronExpression, string? Error) PlaceAgain(CronJobDto job, IReadOnlyList<CronJobDto> allJobs,
+        IReadOnlyDictionary<string, TimeSpan> runLengths, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(job);
+        var settings = Parse(job.CronExpression).Settings
+            ?? throw new ArgumentException($"job {job.Name} is not a window schedule with readable settings", nameof(job));
+        var (placed, error) = Place(job, settings with { PlacedMinute = null }, allJobs, runLengths, nowUtc);
+        return placed is null ? (null, error) : (placed.ToText(), null);
+    }
+
+    /// <summary>
     /// Choose the minute for <paramref name="job"/> (a window schedule) against every other schedule in
     /// <paramref name="allJobs"/>, and return its settings with <c>placed</c> set - or the reason no minute in its
     /// window works. <paramref name="runLengths"/> are the measured run lengths (<see cref="CronLoad"/>).

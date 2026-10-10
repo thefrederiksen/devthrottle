@@ -125,6 +125,44 @@ public sealed class WindowScheduleTests
     }
 
     [Fact]
+    public void PlaceAgain_AWindowThatWasNeverPlaced_GetsAMinute_AndThenANextRun()
+    {
+        // A window schedule created switched off is never placed; a factory's Restore switches it on through this.
+        var job = Window("restored", "window=02:00-05:00");
+        Assert.Null(CronSchedule.ComputeNextRunUtc(job, Now));
+
+        var (expression, error) = WindowSchedule.PlaceAgain(job, new[] { job }, Lengths(("restored", 30)), Now);
+
+        Assert.Null(error);
+        Assert.Contains("placed=", expression);
+        job.CronExpression = expression;
+        Assert.NotNull(CronSchedule.ComputeNextRunUtc(job, Now));
+    }
+
+    [Fact]
+    public void PlaceAgain_AWindowWithNoWorkableMinute_SaysWhy()
+    {
+        var job = Window("tight", "window=02:00-02:30 deadline=02:40");
+
+        var (expression, error) = WindowSchedule.PlaceAgain(job, new[] { job }, Lengths(("tight", 90)), Now);
+
+        Assert.Null(expression);
+        Assert.Contains("deadline", error);
+    }
+
+    [Fact]
+    public void DeadlineFor_IsTheFirstDeadlineAfterTheRun_AndNullWithoutOne()
+    {
+        var job = Window("late", "window=23:00-02:00 deadline=03:00 placed=23:30");
+        // 23:30 on 9 October, Toronto time, is 03:30 UTC on the 10th; the deadline is 03:00 on the 10th, 07:00 UTC.
+        var run = new DateTime(2026, 10, 10, 3, 30, 0, DateTimeKind.Utc);
+
+        Assert.Equal(new DateTime(2026, 10, 10, 7, 0, 0, DateTimeKind.Utc), WindowSchedule.DeadlineFor(job, run));
+        Assert.Null(WindowSchedule.DeadlineFor(Window("open", "window=23:00-02:00 placed=23:30"), run));
+        Assert.Null(WindowSchedule.DeadlineFor(Fixed("fixed", "0 7 * * *"), run));
+    }
+
+    [Fact]
     public void Place_TwoWindowsOnOneMachine_DoNotStartTogether()
     {
         var one = Window("one", "window=01:00-05:00");

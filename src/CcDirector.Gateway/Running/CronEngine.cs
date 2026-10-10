@@ -38,6 +38,9 @@ public sealed class CronEngine
 {
     private const string TaskStatusUnknown = "unknown";
 
+    /// <summary>The last status of a window schedule whose missed run was not started because its deadline had passed.</summary>
+    public const string SkippedPastDeadline = "skipped: past its deadline";
+
     private readonly CronJobStore _store;
     private readonly CronRunHistoryStore _history;
     private readonly ICronSessionStarter _starter;
@@ -112,6 +115,16 @@ public sealed class CronEngine
             ct.ThrowIfCancellationRequested();
             try
             {
+                // A window schedule promises to be done by its deadline. A fire found after that moment - the Gateway
+                // was down when it was due - is not started late; the schedule moves on to its next run, and its
+                // last status says so.
+                if (WindowSchedule.DeadlineFor(job, job.NextRunUtc ?? now) is { } deadline && now >= deadline)
+                {
+                    var next = CronSchedule.ComputeNextRunUtc(job, now);
+                    _store.SkipRun(job.Id, SkippedPastDeadline, next);
+                    FileLog.Write($"[CronEngine] skip past deadline: job={job.Id}, due={job.NextRunUtc:o}, deadline={deadline:o}, next={next:o}");
+                    continue;
+                }
                 var result = await FireAsync(job, job.NextRunUtc ?? now, isManual: false, ct);
                 if (result.Record is not null)
                     fired.Add(result.Record);

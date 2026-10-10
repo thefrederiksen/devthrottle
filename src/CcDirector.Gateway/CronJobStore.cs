@@ -225,7 +225,9 @@ public sealed class CronJobStore
     /// Switching on recomputes the next run from now, so a schedule that was off does not fire the runs it missed.
     /// Returns the updated copy, or null if the account has no job with that id.
     /// </summary>
-    public CronJobDto? SetEnabled(TenantId tenant, string id, bool enabled)
+    /// <param name="cronExpression">A window schedule's settings with its newly chosen minute, written with the switch;
+    /// null leaves the stored expression as it is.</param>
+    public CronJobDto? SetEnabled(TenantId tenant, string id, bool enabled, string? cronExpression = null)
     {
         if (string.IsNullOrWhiteSpace(id))
             return null;
@@ -239,6 +241,8 @@ public sealed class CronJobStore
                 return null;
             }
             entity.Enabled = enabled;
+            if (cronExpression is not null)
+                entity.CronExpression = cronExpression;
             entity.NextRunUtc = CronSchedule.ComputeNextRunUtc(ToDto(entity), DateTime.UtcNow);
             ctx.SaveChanges();
             var stored = ToDto(entity);
@@ -299,6 +303,34 @@ public sealed class CronJobStore
             ctx.SaveChanges();
             var stored = ToDto(entity);
             FileLog.Write($"[CronJobStore] MarkFired: id={id}, status={lastStatus}, enabled={enabled}, nextRunUtc={nextRunUtc:o}");
+            return stored;
+        }
+    }
+
+    /// <summary>
+    /// Move a job on to its next run WITHOUT a fire: its last status says why, and its last fire time is left alone
+    /// because nothing ran. The engine uses it for a window schedule's catch-up found after its deadline.
+    /// </summary>
+    public CronJobDto? SkipRun(string id, string lastStatus, DateTime? nextRunUtc)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+            return null;
+
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext();
+            var entity = ctx.CronJobs.FirstOrDefault(e => e.Id == id);
+            if (entity is null)
+            {
+                FileLog.Write($"[CronJobStore] SkipRun: no such job id={id}");
+                return null;
+            }
+
+            entity.LastStatus = lastStatus;
+            entity.NextRunUtc = nextRunUtc;
+            ctx.SaveChanges();
+            var stored = ToDto(entity);
+            FileLog.Write($"[CronJobStore] SkipRun: id={id}, status={lastStatus}, nextRunUtc={nextRunUtc:o}");
             return stored;
         }
     }

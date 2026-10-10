@@ -476,6 +476,17 @@ class TestScheduleMutations:
         commands = _help_block(result.stdout)
         assert commands[0] == "cc-devthrottle schedule list"
         assert commands[1].startswith('cc-devthrottle schedule create --name "<name>"')
+        assert "WARNING" not in result.stdout
+
+    def test_delete_prints_the_gateways_warning_about_window_schedules_left_behind(self, schedule_client):
+        schedule_client.delete_job.return_value = {
+            "id": "cj_abc123",
+            "deleted": True,
+            "warning": "'Night tidy' ran after it: each keeps its minute and keeps running.",
+        }
+        result = runner.invoke(app, ["schedule", "delete", "cj_abc123"])
+        assert result.stdout.startswith("Deleted schedule cj_abc123.\n")
+        assert "  WARNING:   'Night tidy' ran after it: each keeps its minute and keeps running." in result.stdout
 
 
 class TestScheduleErrors:

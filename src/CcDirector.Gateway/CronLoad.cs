@@ -35,8 +35,11 @@ public static class CronLoad
     /// spent or switched-off schedule starts nothing. <paramref name="runLengths"/> is each schedule's measured typical
     /// run length; a schedule absent from it is assumed to run for <see cref="UnmeasuredRunLength"/>.
     /// </summary>
+    /// <param name="registeredFactories">The account's registered factory ids. Only a schedule in one of them is drawn
+    /// in the factory colour, matching the Schedule page, which lists a schedule whose factory is not registered among
+    /// the owner's own. Null counts every schedule that names a factory (the unit tests' shape).</param>
     public static CronLoadDto Build(IEnumerable<CronJobDto> jobs, IReadOnlyDictionary<string, TimeSpan> runLengths,
-        DateTime nowUtc, int capacity)
+        DateTime nowUtc, int capacity, IReadOnlySet<string>? registeredFactories = null)
     {
         ArgumentNullException.ThrowIfNull(jobs);
         ArgumentNullException.ThrowIfNull(runLengths);
@@ -47,7 +50,7 @@ public static class CronLoad
         var active = jobs.Where(j => CronSchedule.LifecycleOf(j) == CronLifecycle.Active).ToList();
         var machines = active
             .GroupBy(j => j.Target.Machine, StringComparer.OrdinalIgnoreCase)
-            .Select(g => MachineLoad(g.Key, g.ToList(), runLengths, now, capacity))
+            .Select(g => MachineLoad(g.Key, g.ToList(), runLengths, now, capacity, registeredFactories))
             .OrderByDescending(m => m.Peak)
             .ThenBy(m => m.Machine, StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -104,10 +107,13 @@ public static class CronLoad
     }
 
     private static CronMachineLoadDto MachineLoad(string machine, List<CronJobDto> jobs,
-        IReadOnlyDictionary<string, TimeSpan> runLengths, DateTime now, int capacity)
+        IReadOnlyDictionary<string, TimeSpan> runLengths, DateTime now, int capacity, IReadOnlySet<string>? registeredFactories)
     {
         var (_, zoneId, zone, windowStart, _, runs, estimated, unplaced) = PlanMachine(machine, jobs, runLengths, now);
-        var factoryJobs = jobs.Where(j => !string.IsNullOrWhiteSpace(j.Factory)).Select(j => j.Id).ToHashSet(StringComparer.Ordinal);
+        var factoryJobs = jobs
+            .Where(j => !string.IsNullOrWhiteSpace(j.Factory) && (registeredFactories is null || registeredFactories.Contains(j.Factory)))
+            .Select(j => j.Id)
+            .ToHashSet(StringComparer.Ordinal);
 
         var hours = new List<CronLoadHourDto>(Hours);
         for (var i = 0; i < Hours; i++)
