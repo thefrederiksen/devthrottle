@@ -106,8 +106,9 @@
 
 .PARAMETER KeepRun
     Keep the run folder after a GREEN run. By default a green run's folder is deleted - a green needs no
-    reading, its record is run.json's facts in the verdict and, for a -Parked run, the gate record - and
-    a red run's folder is always kept. 523 folders and 2.6 GB had piled up in TEMP by 2026-10-10. Pass
+    reading, and every run's record (commit, tree state, verdict, each suite's counts) is appended to the
+    runs log beside the gate records, so nothing a later reader needs goes with the folder - and a red
+    run's folder is always kept. 523 folders and 2.6 GB had piled up in TEMP by 2026-10-10. Pass
     this when the result files themselves are the point: per-class timings, a count to quote.
 
 .PARAMETER Filter
@@ -314,6 +315,14 @@ function Write-RunRecord {
         $runRecord | ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $logDir "run.json") -Encoding Ascii
     }
 }
+# EVERY run, green or red, default or parked, appends its finished record as one line to a runs log beside
+# the gate records. The run folder of a green run is deleted (see Stop-Gate), so without this a green
+# default run would leave no trace of the commit it ran on - the very gap finding C5 is about.
+function Write-RunsLog {
+    $logPath = Join-Path (Split-Path -Parent (Get-GateRecordDirectory)) "runs.jsonl"
+    New-Item -ItemType Directory -Force (Split-Path -Parent $logPath) | Out-Null
+    Add-Content -Path $logPath -Value ($runRecord | ConvertTo-Json -Depth 5 -Compress) -Encoding Ascii
+}
 Write-RunRecord
 
 # EVERY VERDICT LEAVES THROUGH HERE. The exit code and the verdict word go into run.json beside the commit
@@ -337,6 +346,7 @@ function Stop-Gate([int] $Code, [string] $Verdict) {
         })
     }
     Write-RunRecord
+    Write-RunsLog
     if ($Code -eq 0 -and $Parked -and $Filter -eq "") {
         $recordDir = Get-GateRecordDirectory
         New-Item -ItemType Directory -Force $recordDir | Out-Null
@@ -349,7 +359,8 @@ function Stop-Gate([int] $Code, [string] $Verdict) {
         }
     }
     # A green run's folder is deleted, a red run's is kept, and -KeepRun keeps a green one. The folder is
-    # only ever removed AFTER the records above are written, so nothing a later reader needs goes with it.
+    # only ever removed AFTER the records above are written - run.json's content is in the runs log by
+    # then - so nothing a later reader needs goes with it.
     if ($Code -eq 0 -and -not $KeepRun) {
         Remove-Item -Recurse -Force $logDir
         Write-Host "Run folder deleted (green run; pass -KeepRun to keep the result files)."
@@ -876,5 +887,6 @@ try {
         $runRecord.verdict = "STOPPED BEFORE A VERDICT"
         $runRecord.finishedUtc = (Get-Date).ToUniversalTime().ToString("o")
         Write-RunRecord
+        Write-RunsLog
     }
 }
