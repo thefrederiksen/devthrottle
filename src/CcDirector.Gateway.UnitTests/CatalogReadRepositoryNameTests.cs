@@ -28,11 +28,13 @@ namespace CcDirector.Gateway.Tests;
 /// right there and no test can make the defect appear on that platform.
 ///
 /// The registry file lives in a folder of this test's own. The Director root is NOT moved: this class used to
-/// point the process-wide CC_DIRECTOR_ROOT at that folder and delete the folder afterwards, under a collection
-/// name defined in another assembly that protected nothing, and TeamMentorEndpointsTests and
-/// TurnVerdictFeedbackRouteTests failed with "SQLite Error 14: unable to open database file" at paths inside it.
-/// The overview lists the REGISTRY's repositories and only enriches them from the root, and the registry is
-/// handed its file, so the assembly-wide throwaway root that TestStorageRootRedirect sets is all it needs.
+/// point the process-wide CC_DIRECTOR_ROOT at that folder and delete the folder afterwards, under the
+/// "DirectorRoot" collection name. That name kept it away from the eleven classes that share it, and from
+/// nothing else - a collection serialises its members, not the rest of the assembly - so TeamMentorEndpointsTests
+/// and TurnVerdictFeedbackRouteTests, which read the root and are not in it, failed with "SQLite Error 14: unable
+/// to open database file" at paths inside the deleted folder. The overview lists the REGISTRY's repositories and
+/// only enriches them from the root, and the registry is handed its file, so the assembly-wide throwaway root that
+/// TestStorageRootRedirect sets is all it needs, and the collection attribute has no work left to do here.
 /// </summary>
 public sealed class CatalogReadRepositoryNameTests : IDisposable
 {
@@ -61,7 +63,8 @@ public sealed class CatalogReadRepositoryNameTests : IDisposable
 
     public void Dispose()
     {
-        try { if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true); } catch { /* best effort */ }
+        // Nothing holds the folder - the registry reads its file and closes it - so a failure here is a defect to see.
+        Directory.Delete(_root, recursive: true);
     }
 
     [Fact]

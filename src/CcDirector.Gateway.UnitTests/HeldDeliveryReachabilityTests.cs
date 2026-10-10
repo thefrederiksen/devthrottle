@@ -490,14 +490,14 @@ public sealed class HeldDeliveryReachabilityTests : IDisposable
         Assert.Equal(DictationDeliveryState.Delivered, _store.ReadRecord(uploadId)!.State);
     }
 
-    [Fact]
+    // Windows only, and SKIPPED elsewhere rather than silently green.
+    [CcDirector.Core.Tests.WindowsOnlyFact("the failing-ffmpeg script this test hands the transcoder is a batch file")]
     public async Task APermanentFailureOnADriverAttempt_IsHandedBack_TheOutcomeReadAnswers422_AndARetryReEnters()
     {
         // The same ruling for a clip that can never be transcribed: nothing before ownership proved it
         // (the first attempt held at the reachability gate), so the DRIVER's attempt is the first to hear
         // the permanent failure. The outcome read answers the same 422 the complete path gives, and the
         // owner's Retry re-enters PENDING and is owned again - no dead end.
-        if (!OperatingSystem.IsWindows()) return;   // the failing-ffmpeg transcode path below is Windows-shaped
         // The clip is over-budget non-WAV, so the pipeline transcodes it - and the ffmpeg this driver is HANDED
         // cannot decode anything, which is the REAL permanent path: a clip ffmpeg cannot decode is a permanent
         // failure, never retried forever. The transcoder is passed in; nothing here touches the process environment,

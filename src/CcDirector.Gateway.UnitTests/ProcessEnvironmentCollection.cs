@@ -35,6 +35,12 @@ public sealed class ProcessEnvironmentCollection
 /// method or a helper in the same class is found where it lands, and a file-level search for a string is not what
 /// decides. An earlier guard covered ONE variable this way (the administrator service token) and the other three
 /// variables above still took the suite down; this one covers the call itself, whatever the variable.
+///
+/// WHAT IT DOES NOT SEE, so nobody mistakes it for more: it reads THIS assembly only, so a test that sets a
+/// variable through a product method (two rewrite PATH today, BrowserHarnessInstaller and FleetToolPathRepair; no
+/// unit test calls either) is not found; it judges the type that CONTAINS the call, so the attribute on a helper
+/// class with no tests would silence it while xunit ignored the attribute - put the call in the test class; and it
+/// inspects direct calls only, so a method-group conversion or a reflection call is not found.
 /// </summary>
 public sealed class ProcessEnvironmentCollectionTests
 {
@@ -60,8 +66,11 @@ public sealed class ProcessEnvironmentCollectionTests
             }
         }
 
-        // A PRESENCE, so an empty read cannot pass: the administrator token alone is set by six classes today.
-        Assert.True(setters.Count >= 9, $"expected at least 9 classes that set an environment variable, found {setters.Count}: {string.Join(", ", setters)}");
+        // A PRESENCE, so an empty read cannot pass - named, not counted, so a setter that phase 2 turns into a
+        // parameter does not turn this red for doing the right thing. These two read a service token straight from
+        // the process and stay until that token is handed in.
+        Assert.Contains("CcDirector.Gateway.Tests.Api.AdminAccountLookupEndpointTests", setters);
+        Assert.Contains("CcDirector.Gateway.Tests.HostedAi.AiCallTagTests", setters);
         Assert.True(outside.Count == 0,
             "These set a process-wide environment variable outside [Collection(ProcessEnvironmentCollection.Name)], so they " +
             "run beside other tests and change the variable under them. Pass the value in instead, or join the collection: " +
