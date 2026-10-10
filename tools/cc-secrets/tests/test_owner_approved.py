@@ -91,7 +91,7 @@ def test_Add_InsideASession_WithApproval_TakesTheValueOnStdin_AndNeverShowsIt(st
     secret = new_secret()
 
     result = runner.invoke(cli.app, ["add", "mailbox", "--username", "jake@example.com", "--domains",
-                                     "https://mail.example.com", "--agents", "--owner-approved", "yes, add the mailbox"],
+                                     "https://mail.example.com", "--owner-approved", "yes, add the mailbox"],
                            input=secret + "\n")
 
     assert result.exit_code == 0, _text(result)
@@ -104,7 +104,7 @@ def test_Add_InsideASession_WithApproval_TakesTheValueOnStdin_AndNeverShowsIt(st
 
 
 def test_Add_InsideASession_WithoutApproval_IsRefused_BeforeReadingTheValue(store, in_session):
-    result = runner.invoke(cli.app, ["add", "mailbox", "--username", "u", "--domains", "example.com", "--agents"],
+    result = runner.invoke(cli.app, ["add", "mailbox", "--username", "u", "--domains", "example.com"],
                            input=new_secret() + "\n")
 
     assert result.exit_code == cli.EXIT_REFUSED
@@ -114,7 +114,7 @@ def test_Add_InsideASession_WithoutApproval_IsRefused_BeforeReadingTheValue(stor
 def test_Add_InsideASession_FromATerminal_IsRefused_NoPromptInTheSession(store, in_session, monkeypatch):
     monkeypatch.setattr(cli, "_stdin_is_tty", lambda: True)
 
-    result = runner.invoke(cli.app, ["add", "mailbox", "--username", "u", "--domains", "example.com", "--agents",
+    result = runner.invoke(cli.app, ["add", "mailbox", "--username", "u", "--domains", "example.com",
                                      "--owner-approved", "yes"], input="typed\ntyped\n")
 
     assert result.exit_code == cli.EXIT_REFUSED
@@ -127,7 +127,7 @@ def test_Add_InsideASession_FromATerminal_IsRefused_NoPromptInTheSession(store, 
 def test_Add_AnApprovalThatQuotesTheSecret_NeverWritesItToTheLog(store, in_session):
     secret = new_secret()
 
-    result = runner.invoke(cli.app, ["add", "mailbox", "--username", "u", "--domains", "example.com", "--agents",
+    result = runner.invoke(cli.app, ["add", "mailbox", "--username", "u", "--domains", "example.com",
                                      "--owner-approved", f"set it to {secret}"], input=secret + "\n")
 
     assert secret not in _text(result)
@@ -150,7 +150,7 @@ def test_Import_InsideASession_WithApproval_ImportsEachEntry_AuditedWithTheWords
     path = tmp_path / "credentials.env"
     path.write_text(f"API_KEY={secret}\n", encoding="utf-8")
 
-    result = runner.invoke(cli.app, ["import", str(path), "--agents", "--owner-approved", "import that file"])
+    result = runner.invoke(cli.app, ["import", str(path), "--owner-approved", "import that file"])
 
     assert result.exit_code == 0, _text(result)
     assert store.get("api-key").secret.reveal() == secret

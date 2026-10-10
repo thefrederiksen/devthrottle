@@ -23,7 +23,7 @@ def _text(result):
 def _import(tmp_path, lines, *extra):
     path = tmp_path / "credentials.env"
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return runner.invoke(cli.app, ["import", str(path), "--agents", *extra])
+    return runner.invoke(cli.app, ["import", str(path), *extra])
 
 
 def test_Import_Settings_AreStoredAsSettings_AndTheRestAsSecrets(store, tmp_path):
@@ -79,15 +79,11 @@ def test_Get_ASecret_IsRefused_AndPrintsNothingOfIt(store):
     assert secret not in _text(result)
 
 
-def test_Get_ASettingAgentsMayNotUse_IsRefused(store, tmp_path):
-    path = tmp_path / "credentials.env"
-    path.write_text(f"POSTHOG_HOST={HOST}\n", encoding="utf-8")
-    runner.invoke(cli.app, ["import", str(path), "--no-agents", "--settings", "POSTHOG_HOST"])
-
+def test_Get_ASettingThatIsNotThere_IsRefused(store):
     result = runner.invoke(cli.app, ["get", "posthog-host"])
 
     assert result.exit_code == cli.EXIT_REFUSED
-    assert HOST not in result.output
+    assert "No setting named 'posthog-host'" in result.output + result.stderr
 
 
 def test_List_ShowsASettingsValue_ButNeverASecret(store, tmp_path):
@@ -136,7 +132,7 @@ def test_Login_WithASetting_IsRefused(store, tmp_path):
 
 
 def test_AddSetting_PipedValue_IsStoredAsASetting(store):
-    result = runner.invoke(cli.app, ["add", "service-host", "--username", "", "--domains", "", "--agents", "--setting",
+    result = runner.invoke(cli.app, ["add", "service-host", "--username", "", "--domains", "", "--setting",
                                      "--env-name", "SERVICE_HOST"], input=HOST + "\n")
 
     assert result.exit_code == 0, _text(result)
@@ -156,7 +152,7 @@ def test_Import_ASkippedOrSettingValueThatIsACommonWord_DoesNotBreakEntryNamesOr
         path = tmp_path / f"credentials{mode.strip('-')}.env"
         path.write_text("\n".join(home_values) + "\n", encoding="utf-8")
 
-        result = runner.invoke(cli.app, ["import", str(path), "--agents", "--replace", mode, "ORBI_ADMIN_USERNAME"])
+        result = runner.invoke(cli.app, ["import", str(path), "--replace", mode, "ORBI_ADMIN_USERNAME"])
 
         assert result.exit_code == 0, _text(result)
         assert {"orbi-admin-password", "admin-service-token"} <= {e.name for e in store.entries()}
@@ -173,7 +169,7 @@ def test_Import_AnAuditLineThatWouldBeRefused_ThroughTheRealUnchangedPath_Change
     path = tmp_path / "credentials.env"
     path.write_text(f"API_TOKEN={new_secret()}\nNEW_KEY=changed\n", encoding="utf-8")
 
-    result = runner.invoke(cli.app, ["import", str(path), "--agents"])
+    result = runner.invoke(cli.app, ["import", str(path)])
 
     assert result.exit_code != 0
     assert "nothing was imported" in _text(result)
@@ -188,7 +184,7 @@ def test_Import_AShortCommentedValue_DoesNotBlockTheImport(store, tmp_path):
     path = tmp_path / "credentials.env"
     path.write_text(f"# DEBUG=1\n# ENV=dev\nAPI_KEY={secret}\n", encoding="utf-8")
 
-    result = runner.invoke(cli.app, ["import", str(path), "--agents"])
+    result = runner.invoke(cli.app, ["import", str(path)])
 
     assert result.exit_code == 0, _text(result)
     assert store.get("api-key").secret.reveal() == secret
@@ -229,7 +225,7 @@ def test_ListTable_ASettingWhoseValueHoldsAStoredSecret_ShowsTheSecretHidden(sto
     add_entry(store, name="service-token", secret=secret)
     path = tmp_path / "credentials.env"
     path.write_text(f"SERVICE_URL=https://x.example.com/?t={secret}\n", encoding="utf-8")
-    runner.invoke(cli.app, ["import", str(path), "--agents", "--settings", "SERVICE_URL"])
+    runner.invoke(cli.app, ["import", str(path), "--settings", "SERVICE_URL"])
 
     result = runner.invoke(cli.app, ["list"])
 

@@ -11,10 +11,10 @@ from .store import KIND_SECRET, KIND_SETTING, Entry, SecretStore, make_entry
 
 
 def save_entry(store: SecretStore, audit: AuditLog, name: str, username: str, secret: str, domains: List[str],
-               notes: str, agents: bool, uses: List[str], env_name: str, setting: bool, command: str, detail: str,
+               notes: str, uses: List[str], env_name: str, setting: bool, command: str, detail: str,
                approval: Optional[OwnerApproval]) -> Tuple[Entry, bool]:
     """Validate and store one entry, and write its audit line. Returns (entry, replaced)."""
-    entry = make_entry(name, username, secret, domains, notes, agents, uses,
+    entry = make_entry(name, username, secret, domains, notes, uses,
                        env_name=env_name, kind=KIND_SETTING if setting else KIND_SECRET)
     # Registered only once make_entry has accepted it: the windows let the owner try again in the same process,
     # and a refused attempt (a typo, three letters) left in the scrubber would then block every audit line whose

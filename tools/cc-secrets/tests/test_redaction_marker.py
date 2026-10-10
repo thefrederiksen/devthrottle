@@ -54,8 +54,8 @@ def test_ScrubThatWouldSpellTheSecretOut_WithholdsTheWholeOutput():
 
 
 def test_Add_SecretInsideTheMarker_IsRefused_AndNothingStored(store, monkeypatch):
-    result = runner.invoke(cli.app, ["add", "marker", "--username", "u", "--domains", "https://127.0.0.1",
-                                     "--agents"], input="DACT\n")
+    result = runner.invoke(cli.app, ["add", "marker", "--username", "u", "--domains", "https://127.0.0.1"],
+                       input="DACT\n")
 
     assert result.exit_code != 0
     assert "cannot be stored" in result.output, result.output
@@ -65,7 +65,7 @@ def test_Add_SecretInsideTheMarker_IsRefused_AndNothingStored(store, monkeypatch
 
 def test_MakeEntry_SecretInsideTheMarker_Raises():
     with pytest.raises(InputError):
-        make_entry("marker", "u", "REDACTED", ["https://127.0.0.1"], "", True, ["login", "run"])
+        make_entry("marker", "u", "REDACTED", ["https://127.0.0.1"], "", ["login", "run"])
 
 
 def _store_directly(store, secret):

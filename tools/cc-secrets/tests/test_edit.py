@@ -1,5 +1,6 @@
 """Changing an entry's details without re-entering its secret - so an imported password can be set up for login."""
 
+import pytest
 from typer.testing import CliRunner
 
 from conftest import add_entry, new_secret
@@ -33,11 +34,26 @@ def test_Edit_SetsUsernameDomainsAndUses_AndKeepsTheSecret(store):
 def test_Edit_LeavesEveryDetailNotGiven_AsItWas(store):
     add_entry(store, name="web", username="me", domains=("https://example.com",), uses=("login",), notes="keep")
 
-    runner.invoke(cli.app, ["edit", "web", "--no-agents"])
+    runner.invoke(cli.app, ["edit", "web", "--env-name", "WEB_PASSWORD"])
 
     entry = store.get("web")
-    assert (entry.username, entry.allowed_domains, entry.uses, entry.notes, entry.agents_may_use) == \
-        ("me", ["https://example.com"], ["login"], "keep", False)
+    assert (entry.username, entry.allowed_domains, entry.uses, entry.notes, entry.env_name) == \
+        ("me", ["https://example.com"], ["login"], "keep", "WEB_PASSWORD")
+
+
+@pytest.mark.parametrize("flag", ["--agents", "--no-agents"])
+@pytest.mark.parametrize("command", [["edit", "web"], ["add", "web", "--username", "u", "--domains", ""],
+                                     ["ask", "web"], ["import", "creds.env"]])
+def test_TheRemovedAgentsFlag_IsRefusedWithTheReason_AndChangesNothing(store, command, flag):
+    # Owner decision 2026-10-10: the "agents may use it" switch is gone. Passing it says so, not "no such option".
+    add_entry(store, name="web", username="me")
+    before = paths.store_path().read_bytes()
+
+    result = runner.invoke(cli.app, [*command, flag], input=new_secret() + "\n")
+
+    assert result.exit_code == cli.EXIT_FAILED
+    assert "--agents and --no-agents were removed" in _text(result)
+    assert paths.store_path().read_bytes() == before
 
 
 def test_Edit_AnEmptyDomainsValue_ClearsThem(store):
@@ -68,7 +84,7 @@ def test_Edit_WithNothingToChange_OrAMissingEntry_Fails(store):
 def test_Edit_ASetting_KeepsItASetting(store, tmp_path):
     path = tmp_path / "credentials.env"
     path.write_text("SERVICE_HOST=https://svc.example.com\n", encoding="utf-8")
-    runner.invoke(cli.app, ["import", str(path), "--agents", "--settings", "SERVICE_HOST"])
+    runner.invoke(cli.app, ["import", str(path), "--settings", "SERVICE_HOST"])
 
     result = runner.invoke(cli.app, ["edit", "service-host", "--notes", "the service"])
 
@@ -88,24 +104,24 @@ def test_Edit_IsAudited_ByFieldName_WithoutTheSecret(store):
 
 
 def test_Edit_AnOptionSwallowedAsAValue_IsRefused_AndChangesNothing(store, paths_snapshot=None):
-    # The review's case: PowerShell 5.1 dropped "" from `--username "" --no-agents`.
+    # The review's case: PowerShell 5.1 dropped "" from `--username "" --notes x`.
     import json as _json
     from src import paths as _paths
 
     add_entry(store, name="web", username="me")
     before = _paths.store_path().read_bytes()
 
-    for args in (["--username", "--no-agents"], ["--notes", "--agents"], ["--domains", "--uses"]):
+    for args in (["--username", "--notes"], ["--notes"], ["--domains", "--uses"]):
         result = runner.invoke(cli.app, ["edit", "web", *args])
         assert result.exit_code != 0, args
         assert _paths.store_path().read_bytes() == before, args
-    assert "--username=" in _text(runner.invoke(cli.app, ["edit", "web", "--username", "--no-agents"]))
+    assert "--username=" in _text(runner.invoke(cli.app, ["edit", "web", "--username", "--notes"]))
 
 
 def test_Add_AnOptionSwallowedAsAValue_IsRefused_AndNothingIsSaved(store):
-    # "--username --no-agents": a well-formed command line that only the guard refuses, not a usage error.
-    result = runner.invoke(cli.app, ["add", "web", "--username", "--no-agents", "--domains", "https://example.com",
-                                     "--agents"], input=new_secret() + "\n")
+    # "--username --notes": a well-formed command line that only the guard refuses, not a usage error.
+    result = runner.invoke(cli.app, ["add", "web", "--username", "--notes", "--domains", "https://example.com"],
+                           input=new_secret() + "\n")
 
     assert result.exit_code != 0
     assert "--username=" in _text(result)

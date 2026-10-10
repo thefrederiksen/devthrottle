@@ -49,7 +49,7 @@ def test_Search_MissingEmptyOrUnrelatedFile_IsABrokenInstrument(tmp_path):
 
 def test_EveryCommand_LeaksTheSecretNowhere(store, tmp_path, monkeypatch):
     secret = add_entry(store, name="leak", username="leak-user", domains=("https://127.0.0.1",))
-    kept = add_entry(store, name="kept", agents=False)
+    kept = add_entry(store, name="kept")
     monkeypatch.setenv("CC_SESSION_ID", RUN_MARKER)
     monkeypatch.setattr(browser_login, "POLL_SECONDS", 0.01)
     runner = CliRunner()

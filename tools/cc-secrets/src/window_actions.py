@@ -47,7 +47,6 @@ class FormRequest:
     setting_value: str = ""
     username: str = ""
     notes: str = ""
-    agents_may_use: bool = True
     uses: List[str] = field(default_factory=lambda: list(USES))
     domains: str = ""
     asked_by: str = ""
@@ -67,7 +66,6 @@ class FormInput:
     username: str
     secret: str
     notes: str
-    agents_may_use: bool
     uses: List[str]
     domains: str
 
@@ -79,7 +77,6 @@ class Row:
     kind: str
     username: str
     setting_value: str
-    agents: str
     last_used: str
     notes: str
     uses: Tuple[str, ...] = ()
@@ -95,8 +92,9 @@ class Row:
 
     @property
     def access(self) -> str:
-        """What agents may do with it, in words: 'run, login', 'run', or 'not allowed'."""
-        return ", ".join(self.uses) if self.agents == "yes" and self.uses else "not allowed"
+        """What it is used for, in words: 'run, login' or 'run'. Every entry is available to agents (owner decision
+        2026-10-10); its uses are what limit it."""
+        return ", ".join(self.uses)
 
 
 def replace_warning(name: str) -> str:
@@ -131,7 +129,6 @@ def last_used(lines: Iterable[Dict[str, str]]) -> Dict[str, str]:
 def build_rows(entries: Iterable[Entry], used: Dict[str, str], now: datetime) -> List[Row]:
     return [Row(name=e.name, kind=e.kind, username=e.username,
                 setting_value=e.secret.reveal() if e.is_setting else "",
-                agents="yes" if e.agents_may_use else "no",
                 last_used=relative_time(used.get(e.name, ""), now), notes=e.notes, uses=tuple(e.uses),
                 last_used_at=used.get(e.name, ""))
             for e in sorted(entries, key=lambda e: e.name)]
@@ -209,7 +206,7 @@ class WindowActions:
         if entry is None:
             raise CcSecretsError(f"There is no entry named '{name}'.")
         return FormRequest(mode=MODE_EDIT, name=entry.name, kind_setting=entry.is_setting, username=entry.username,
-                           setting_value=entry.secret.reveal() if entry.is_setting else "", notes=entry.notes, agents_may_use=entry.agents_may_use, uses=list(entry.uses),
+                           setting_value=entry.secret.reveal() if entry.is_setting else "", notes=entry.notes, uses=list(entry.uses),
                            domains=", ".join(entry.allowed_domains), exists=True)
 
     def reveal(self, name: str) -> str:
@@ -273,6 +270,6 @@ class WindowActions:
                 env_name = existing.env_name  # replacing keeps the variable run supplies it in
         domains = [d.strip() for d in form.domains.split(",") if d.strip()]
         save_entry(self._store, self._audit, form.name, form.username, secret, domains, form.notes,
-                   form.agents_may_use, form.uses, env_name, form.kind_setting, command, detail, self._approval)
+                   form.uses, env_name, form.kind_setting, command, detail, self._approval)
         self.saved_name = form.name
         return None

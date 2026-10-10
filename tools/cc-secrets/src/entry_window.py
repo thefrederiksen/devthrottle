@@ -221,19 +221,16 @@ class EntryForm:
         ttk.Separator(frame).grid(row=row, column=0, columnspan=3, sticky="we", pady=(12, 10))
         row += 1
 
-        caption("Agents")
-        self._agents = tk.BooleanVar(value=request.agents_may_use)
+        caption("Used for")
         self._uses = {use: tk.BooleanVar(value=use in request.uses) for use in USES}
         access = ttk.Frame(frame)
         access.grid(row=row, column=1, columnspan=2, sticky="w", pady=5)
-        ttk.Checkbutton(access, text="Agents may use it", variable=self._agents,
-                        command=self._access_changed).grid(row=0, column=0, sticky="w")
-        self._run_check = ttk.Checkbutton(access, text="to run commands (cc-secrets run)", variable=self._uses["run"],
+        self._run_check = ttk.Checkbutton(access, text="running commands (cc-secrets run)", variable=self._uses["run"],
                                           command=self._access_changed)
-        self._run_check.grid(row=1, column=0, sticky="w", padx=(24, 0), pady=(4, 0))
-        self._login_check = ttk.Checkbutton(access, text="to log in to websites (cc-secrets login)",
+        self._run_check.grid(row=0, column=0, sticky="w")
+        self._login_check = ttk.Checkbutton(access, text="logging in to websites (cc-secrets login)",
                                             variable=self._uses["login"], command=self._access_changed)
-        self._login_check.grid(row=2, column=0, sticky="w", padx=(24, 0), pady=(4, 0))
+        self._login_check.grid(row=1, column=0, sticky="w", pady=(4, 0))
         row += 1
 
         caption("Login sites")
@@ -274,7 +271,7 @@ class EntryForm:
 
     def _snapshot(self) -> Tuple:
         return (self._name.get(), bool(self._setting.get()), self._username.get(), self._secret.get(),
-                self._notes.get(), bool(self._agents.get()), tuple(u for u in USES if self._uses[u].get()),
+                self._notes.get(), tuple(u for u in USES if self._uses[u].get()),
                 self._domains.get())
 
     def _changed(self) -> bool:
@@ -303,10 +300,7 @@ class EntryForm:
             self._secret_hint.grid_remove()
 
     def _access_changed(self) -> None:
-        allowed = bool(self._agents.get())
-        for check in (self._run_check, self._login_check):
-            check.state(["!disabled"] if allowed else ["disabled"])
-        login = allowed and bool(self._uses["login"].get())
+        login = bool(self._uses["login"].get())
         self._domains_box.state(["!disabled"] if login else ["disabled"])
 
     def _toggle_eye(self) -> None:
@@ -337,7 +331,7 @@ class EntryForm:
         result = self._on_save(FormInput(
             name=self._name.get().strip(), kind_setting=bool(self._setting.get()),
             username=self._username.get().strip(), secret=self._secret.get(), notes=self._notes.get().strip(),
-            agents_may_use=bool(self._agents.get()), uses=[u for u in USES if self._uses[u].get()],
+            uses=[u for u in USES if self._uses[u].get()],
             domains=self._domains.get()))
         if result is None:
             self._secret.set("")
@@ -387,7 +381,7 @@ class ListWindow:
 
     # (key, heading, width, stretches)
     COLUMNS = (("name", "Name", 230, True), ("kind", "Kind", 80, False), ("username", "User name", 190, True),
-               ("value", "Value", 200, True), ("eye", "", 56, False), ("access", "Agents may", 96, False),
+               ("value", "Value", 200, True), ("eye", "", 56, False), ("access", "Used for", 96, False),
                ("used", "Last used", 104, False))
     VALUE_COLUMN = "#4"
     EYE_COLUMN = "#5"
@@ -416,7 +410,7 @@ class ListWindow:
         header.grid(row=0, column=0, sticky="we")
         header.columnconfigure(0, weight=1)
         ttk.Label(header, text="Passwords and settings", style="Title.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(header, text=f"Stored on {platform.node()}, for you and the agents you allow.",
+        ttk.Label(header, text=f"Stored on {platform.node()}, for you and your agents.",
                   style="Muted.TLabel").grid(row=1, column=0, sticky="w", pady=(2, 0))
         ttk.Button(header, text="+ Add", style="Accent.TButton", command=self._add).grid(
             row=0, column=1, rowspan=2, sticky="e")

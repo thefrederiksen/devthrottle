@@ -50,7 +50,7 @@ class Owner:
             typed = FormInput(
                 name=form.get("name", request.name), kind_setting=form.get("setting", request.kind_setting),
                 username=form.get("username", request.username), secret=form["secret"],
-                notes=form.get("notes", request.notes), agents_may_use=form.get("agents", request.agents_may_use),
+                notes=form.get("notes", request.notes),
                 uses=form.get("uses", request.uses), domains=form.get("domains", request.domains))
             answer = actions.submit(typed, MODE_ASK)
             self.answers.append(answer)
@@ -78,7 +78,7 @@ def test_Ask_OwnerTypesTheSecret_SavesItThroughTheAddPath_PrintsOnlySaved(store,
     assert result.exit_code == 0, _text(result)
     assert result.output.strip() == "saved devlinux"
     entry = store.get("devlinux")
-    assert (entry.username, entry.notes, entry.uses, entry.agents_may_use) == ("soren", "desktop login", ["run"], True)
+    assert (entry.username, entry.notes, entry.uses) == ("soren", "desktop login", ["run"])
     assert entry.secret.reveal() == secret
     assert stand_in.request.reason == "sudo over SSH"
     assert stand_in.request.exists is False
@@ -218,14 +218,6 @@ def test_Ask_Setting_IsStoredAsASetting(store, owner):
     assert store.get("devlinux-host").kind == KIND_SETTING
 
 
-def test_Ask_OwnerUntoggledSessionsMayUse_IsRespected(store, owner):
-    owner({"secret": new_secret(), "agents": False})
-
-    runner.invoke(cli.app, ["ask", "devlinux"])
-
-    assert store.get("devlinux").agents_may_use is False
-
-
 # --- No way in for the secret except the window ---------------------------------------------------------------
 
 def test_Ask_HasNoParameterThatCouldCarryASecret():
@@ -236,7 +228,7 @@ def test_Ask_HasNoParameterThatCouldCarryASecret():
 def test_Ask_ForASettingThatExists_DoesNotPreFillItsValue(store, owner):
     """The owner types the value; ask never shows what is stored, even for a setting, which the window's Edit
     does show."""
-    store.put(make_entry("posthog-host", "", "https://us.i.posthog.com", [], "", True, ["run"], kind=KIND_SETTING))
+    store.put(make_entry("posthog-host", "", "https://us.i.posthog.com", [], "", ["run"], kind=KIND_SETTING))
     stand_in = owner(cancel=True)
 
     runner.invoke(cli.app, ["ask", "posthog-host", "--setting"])

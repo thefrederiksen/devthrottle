@@ -36,14 +36,14 @@ def test_Import_CreatesOneEntryPerKey_NamedAfterIt_WithItsVariable_AndPrintsNoVa
     path = _env_file(tmp_path, ["# comment", "", f"API={values['API']}", f"OTHER_TOKEN={values['OTHER_TOKEN']}",
                                 f"SERVICE_HOST={values['SERVICE_HOST']}"])
 
-    result = runner.invoke(cli.app, ["import", str(path), "--agents", "--skip", "SERVICE_HOST"])
+    result = runner.invoke(cli.app, ["import", str(path), "--skip", "SERVICE_HOST"])
 
     assert result.exit_code == 0, _text(result)
     entries = {e.name: e for e in store.entries()}
     assert sorted(entries) == ["api", "other-token"]
     assert entries["api"].secret.reveal() == values["API"]
     assert entries["other-token"].env_name == "OTHER_TOKEN"
-    assert entries["api"].uses == ["run"] and entries["api"].agents_may_use is True
+    assert entries["api"].uses == ["run"]
     text = plain(_text(result))
     assert not any(v in text for v in (values["API"], values["OTHER_TOKEN"]))
     assert "2 added" in " ".join(text.split()) and "1 skipped" in " ".join(text.split())
@@ -52,7 +52,7 @@ def test_Import_CreatesOneEntryPerKey_NamedAfterIt_WithItsVariable_AndPrintsNoVa
 def test_Import_SkipNamingAKeyNotInTheFile_ImportsNothing(store, tmp_path):
     path = _env_file(tmp_path, [f"API={new_secret()}"])
 
-    result = runner.invoke(cli.app, ["import", str(path), "--agents", "--skip", "NOT_THERE"])
+    result = runner.invoke(cli.app, ["import", str(path), "--skip", "NOT_THERE"])
 
     assert result.exit_code != 0
     assert "NOT_THERE" in _text(result)
@@ -63,7 +63,7 @@ def test_Import_AValueTooShort_IsReportedByKey_OthersImported_ValueNeverShown(st
     good = new_secret()
     path = _env_file(tmp_path, ["SHORT=xy9", f"GOOD={good}"])
 
-    result = runner.invoke(cli.app, ["import", str(path), "--agents"])
+    result = runner.invoke(cli.app, ["import", str(path)])
 
     assert result.exit_code != 0
     assert "SHORT" in _text(result)
@@ -76,10 +76,10 @@ def test_Import_ExistingEntry_IsLeftAsItIs_UnlessReplace(store, tmp_path):
     newer = new_secret()
     path = _env_file(tmp_path, [f"API={newer}"])
 
-    runner.invoke(cli.app, ["import", str(path), "--agents"])
+    runner.invoke(cli.app, ["import", str(path)])
     assert store.get("api").secret.reveal() == original
 
-    result = runner.invoke(cli.app, ["import", str(path), "--agents", "--replace"])
+    result = runner.invoke(cli.app, ["import", str(path), "--replace"])
     assert result.exit_code == 0, _text(result)
     assert store.get("api").secret.reveal() == newer
 
@@ -88,7 +88,7 @@ def test_Import_DryRun_ChangesNothing_AndPrintsNoValue(store, tmp_path, plain):
     value = new_secret()
     path = _env_file(tmp_path, [f"API={value}"])
 
-    result = runner.invoke(cli.app, ["import", str(path), "--agents", "--dry-run"])
+    result = runner.invoke(cli.app, ["import", str(path), "--dry-run"])
 
     assert result.exit_code == 0, _text(result)
     assert store.entries() == []
@@ -99,25 +99,25 @@ def test_Import_InsideASession_IsRefused(store, tmp_path, monkeypatch):
     path = _env_file(tmp_path, [f"API={new_secret()}"])
     monkeypatch.setenv("CC_SESSION_ID", "agent-session")
 
-    result = runner.invoke(cli.app, ["import", str(path), "--agents"])
+    result = runner.invoke(cli.app, ["import", str(path)])
 
     assert result.exit_code == cli.EXIT_REFUSED
     assert store.entries() == []
 
 
-def test_Import_WithoutSayingWhetherAgentsMayUseThem_IsRefused(store, tmp_path):
+def test_Import_WithTheRemovedAgentsFlag_IsRefused_AndImportsNothing(store, tmp_path):
     path = _env_file(tmp_path, [f"API={new_secret()}"])
 
-    result = runner.invoke(cli.app, ["import", str(path)])
+    result = runner.invoke(cli.app, ["import", str(path), "--no-agents"])
 
-    assert result.exit_code != 0
+    assert result.exit_code == cli.EXIT_FAILED
     assert store.entries() == []
 
 
 def test_Import_AKeyGivenTwice_IsRefusedNamingTheLines_AndImportsNothing(store, tmp_path):
     path = _env_file(tmp_path, [f"API={new_secret()}", f"API={new_secret()}"])
 
-    result = runner.invoke(cli.app, ["import", str(path), "--agents"])
+    result = runner.invoke(cli.app, ["import", str(path)])
 
     assert result.exit_code != 0
     assert "line 1" in _text(result)
@@ -135,7 +135,7 @@ def test_Import_SavesTheStoreOnce_ForManyEntries(store, tmp_path, monkeypatch):
 
     monkeypatch.setattr(UserOnlyFile, "write", counting_write)
 
-    result = runner.invoke(cli.app, ["import", str(path), "--agents"])
+    result = runner.invoke(cli.app, ["import", str(path)])
 
     assert result.exit_code == 0, _text(result)
     assert len(store.entries()) == 12
@@ -146,7 +146,7 @@ def test_Import_IsAudited_PerEntry_WithoutValues(store, tmp_path):
     value = new_secret()
     path = _env_file(tmp_path, [f"API={value}"])
 
-    runner.invoke(cli.app, ["import", str(path), "--agents"])
+    runner.invoke(cli.app, ["import", str(path)])
 
     lines = AuditLog(paths.audit_path()).read(100)
     assert any(l["entry"] == "api" and l["command"] == "import" for l in lines)
@@ -155,7 +155,7 @@ def test_Import_IsAudited_PerEntry_WithoutValues(store, tmp_path):
 
 def _imported(store, tmp_path, lines):
     path = _env_file(tmp_path, lines)
-    result = runner.invoke(cli.app, ["import", str(path), "--agents"])
+    result = runner.invoke(cli.app, ["import", str(path)])
     assert result.exit_code == 0, _text(result)
 
 
@@ -203,12 +203,11 @@ def test_Run_WithSeveralEntries_AndOneVariableName_IsRefused(store, tmp_path):
     assert result.exit_code != 0
 
 
-def test_Run_WithAnEntryAgentsMayNotUse_IsRefused_AndNothingRuns(store, tmp_path):
+def test_Run_WithAnEntryThatIsNotThere_IsRefused_AndNothingRuns(store, tmp_path):
     _imported(store, tmp_path, [f"ONE_KEY={new_secret()}"])
-    add_entry(store, name="kept-back", agents=False)
     marker = tmp_path / "ran.txt"
 
-    result = runner.invoke(cli.app, ["run", "one-key", "--with", "kept-back", "--", PY, "-c",
+    result = runner.invoke(cli.app, ["run", "one-key", "--with", "not-there", "--", PY, "-c",
                                      f"open(r'{marker}', 'w').write('ran')"])
 
     assert result.exit_code == cli.EXIT_REFUSED
@@ -238,7 +237,7 @@ def test_Import_AMalformedLineHoldingAnotherLinesValue_NeverPrintsOrLogsIt(store
     value = new_secret()
     path = _env_file(tmp_path, [f"A_KEY={value}", f"TOKEN:{value}={new_secret()}"])
 
-    result = runner.invoke(cli.app, ["import", str(path), "--agents"])
+    result = runner.invoke(cli.app, ["import", str(path)])
 
     assert result.exit_code != 0
     assert "Line 2" in _text(result)
@@ -254,7 +253,7 @@ def test_Import_DryRun_AKeyThatIsAlsoAValue_IsNotPrinted(store, tmp_path):
     value = "SHARED_KEY_77"
     path = _env_file(tmp_path, [f"A_KEY={value}", f"{value}={new_secret()}"])
 
-    result = runner.invoke(cli.app, ["import", str(path), "--agents", "--dry-run"])
+    result = runner.invoke(cli.app, ["import", str(path), "--dry-run"])
 
     # Refused outright now (a key holding a value would also leak through its entry name), by line number.
     assert result.exit_code != 0
@@ -266,8 +265,8 @@ def test_Import_DryRun_AKeyThatIsAlsoAValue_IsNotPrinted(store, tmp_path):
 def test_Import_TwoKeysBecomingTheSameEntry_AreRefused_AndNothingIsSaved(store, tmp_path, extra):
     path = _env_file(tmp_path, [f"API_KEY={new_secret()}", f"api_key={new_secret()}"])
 
-    result = runner.invoke(cli.app, ["import", str(path), "--agents", *extra])
-    dry = runner.invoke(cli.app, ["import", str(path), "--agents", "--dry-run", *extra])
+    result = runner.invoke(cli.app, ["import", str(path), *extra])
+    dry = runner.invoke(cli.app, ["import", str(path), "--dry-run", *extra])
 
     assert result.exit_code != 0 and dry.exit_code != 0
     assert "Lines 1 and 2" in _text(result)
@@ -278,13 +277,13 @@ def test_Import_AValueIsStoredExactly_AndSurroundingSpacesAreRefusedNotTrimmed(s
     inner = "in ner " + new_secret()
     spaced = _env_file(tmp_path, [f"SPACED={new_secret()}  "])
 
-    refused = runner.invoke(cli.app, ["import", str(spaced), "--agents"])
+    refused = runner.invoke(cli.app, ["import", str(spaced)])
     assert refused.exit_code != 0
     assert store.entries() == []
 
     exact = tmp_path / "exact.env"
     exact.write_text(f"INNER={inner}\n", encoding="utf-8")
-    result = runner.invoke(cli.app, ["import", str(exact), "--agents"])
+    result = runner.invoke(cli.app, ["import", str(exact)])
     assert result.exit_code == 0, _text(result)
     assert store.get("inner").secret.reveal() == inner
 
@@ -296,7 +295,7 @@ def test_Import_AKeyHoldingAnotherLinesValue_IsRefusedByLine_InEveryMode_AndNoth
     folded = value.lower().replace("_", "-")
 
     for extra in ([], ["--dry-run"], ["--replace"]):
-        result = runner.invoke(cli.app, ["import", str(path), "--agents", *extra])
+        result = runner.invoke(cli.app, ["import", str(path), *extra])
         text = _text(result).lower()
         assert result.exit_code != 0
         assert "line" in text
@@ -331,7 +330,7 @@ def test_Import_AKeyHoldingASecretAlreadyInTheStore_IsRefused_AndNeverListedOrAu
     add_entry(store, name="older", secret=existing)
     path = _env_file(tmp_path, [f"{existing}={new_secret()}"])
 
-    result = runner.invoke(cli.app, ["import", str(path), "--agents"])
+    result = runner.invoke(cli.app, ["import", str(path)])
 
     assert result.exit_code != 0
     assert "Line 1" in _text(result)
@@ -347,7 +346,7 @@ def test_Import_AKeyHoldingACommentedOutValue_IsRefused(store, tmp_path):
     old = "RETIRED_TOKEN_42"
     path = _env_file(tmp_path, [f"# OLD={old}", f"{old}={new_secret()}"])
 
-    result = runner.invoke(cli.app, ["import", str(path), "--agents"])
+    result = runner.invoke(cli.app, ["import", str(path)])
 
     assert result.exit_code != 0
     assert store.entries() == []
@@ -358,7 +357,7 @@ def test_Import_ASkippedSettingInsideACredentialKey_DoesNotBlockIt(store, tmp_pa
     secret = new_secret()
     path = _env_file(tmp_path, ["ENV=PROD", f"PROD_API_KEY={secret}"])
 
-    result = runner.invoke(cli.app, ["import", str(path), "--agents", "--skip", "ENV"])
+    result = runner.invoke(cli.app, ["import", str(path), "--skip", "ENV"])
 
     assert result.exit_code == 0, _text(result)
     assert store.get("prod-api-key").secret.reveal() == secret
@@ -370,7 +369,7 @@ def test_Import_AKeyHoldingACommentedValueWrittenWithASpace_IsRefused_AndNeverLi
     add_entry(store, name="older")
     path = _env_file(tmp_path, [f"# OLD= {old}", f"{old}={new_secret()}"])
 
-    result = runner.invoke(cli.app, ["import", str(path), "--agents"])
+    result = runner.invoke(cli.app, ["import", str(path)])
 
     assert result.exit_code != 0
     assert "Line 2" in _text(result)
