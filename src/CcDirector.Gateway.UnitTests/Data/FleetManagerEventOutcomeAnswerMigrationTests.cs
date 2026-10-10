@@ -39,52 +39,8 @@ public sealed class FleetManagerEventOutcomeAnswerMigrationTests
             Assert.True(index > 0, $"'{SqliteUnderTest}' is not in the SQLite migration set.");
             Assert.Equal(SqliteBefore, all[index - 1]);
             Assert.Equal("20260917110500_AddTurnVerdictAnswerChoice", all[index + 1]);
-            Assert.Equal("20260917110600_AddFleetOutcomeStopIdentity", all[index + 2]);
-            Assert.Equal("20260918171353_AddWingmanNarrationCallTrace", all[index + 3]);
-            Assert.Equal("20260920021757_AddDiscoveredRepositories", all[index + 4]);
-            Assert.Equal("20260920052924_AddRaisedSessions", all[index + 5]);
-            Assert.Equal("20260921081600_AddFactoryActivity", all[index + 6]);
-            Assert.Equal("20260921105211_AddFactoryTriggers", all[index + 7]);
-            Assert.Equal("20260921131049_IndexFactoryActivityReads", all[index + 8]); // the only migrations after it
-            Assert.Equal("20260921203243_AddTriggerStartName", all[index + 9]);
-            Assert.Equal("20260927212143_AddFleetMessageUnreachableNotice", all[index + 10]);
-            Assert.Equal("20260928123819_AddSessionAndScheduleFactory", all[index + 11]);
-            Assert.Equal("20260928124401_AddFactoryMemoryNotes", all[index + 12]);
-            Assert.Equal("20261003182410_AddTeams", all[index + 13]);
-            Assert.Equal("20261003233525_AddTeamInvitations", all[index + 14]);
-            // The Mentor's weekly page (devthrottle_internal#2305), after that.
-            Assert.Equal("20261004214334_AddTeamMentor", all[index + 15]);
-            // The message links between sessions (issue #3548), after that.
-            Assert.Equal("20261005031703_AddFleetMessageLinks", all[index + 16]);
-            // The team requests (devthrottle_internal#2308), after that.
-            Assert.Equal("20261005124413_AddTeamRequests", all[index + 17]);
-            // The requests for a message link (issue #3548), after that.
-            Assert.Equal("20261005160401_AddFleetMessageLinkRequests", all[index + 18]);
-            // The Fleet Manager's lessons (issue #3559), after that.
-            Assert.Equal("20261005184745_AddFleetManagerLessons", all[index + 19]);
-            // A dev report sent to a member of a team (devthrottle_internal#2309), after that.
-            Assert.Equal("20261005234625_AddDevReportSharing", all[index + 20]);
-            // The factory registry and goal numbers (Factories screen mission, phase A), after that.
-            Assert.Equal("20261006140613_AddFactoryRegistry", all[index + 21]);
-            // A team member's answer and the question a person's comment is about (devthrottle_internal#2307), after that.
-            Assert.Equal("20261006171223_AddTeamQuestionAnswers", all[index + 22]);
-            // Archiving a factory (Factories screen mission, round 2), after that.
-            Assert.Equal("20261007035034_ArchiveFactories", all[index + 23]);
-            // The team bill the Gateway owns, and its billing history (Teams v1, the team bill without Stripe), after that.
-            Assert.Equal("20261007070434_AddTeamBills", all[index + 24]);
-            // The amount a link request asks for (issue #3631), after that.
-            Assert.Equal("20261007180102_AddLinkRequestRequestedAmount", all[index + 25]);
-            // The seat a schedule runs (issue #3650), after that.
-            Assert.Equal("20261008043059_AddScheduleSeat", all[index + 26]);
-            // The team's governance rules and their record of changes (Teams v1, the Governance tab), after that.
-            Assert.Equal("20261008191540_AddTeamGovernance", all[index + 27]);
-            // A factory's one-line purpose (the Factories cards, 8 Oct 2026), after that.
-            Assert.Equal("20261008200000_AddFactoryPurpose", all[index + 28]);
-            // The team showcase's tag, and a made-up member's name and email (team showcase, 8 Oct 2026), after that.
-            Assert.Equal("20261008211957_AddTeamShowcase", all[index + 29]);
-            // The factory registry's boss seat column, renamed from CeoSeat (Factory Design and Improvements), after that.
-            Assert.Equal("20261008220200_RenameCeoSeatToBossSeat", all[index + 30]);
-            Assert.Equal(index + 31, all.Count);
+            // What sorts after that is not this test's concern: naming the tail pins today's newest migration, and
+            // that name moves every time one is added.
 
             // From an EMPTY database to the schema just before, with a stop stored as step 4 stores it.
             Assert.Empty(context.Database.GetAppliedMigrations());

@@ -14,7 +14,8 @@ namespace CcDirector.Gateway.Tests.Data;
 /// after step 4's delivery migration and their Designer files rebuilt on its model. For each provider this walks the
 /// chain from step 4's delivery migration: each migration comes straight after the one before it, and the schema
 /// difference between the two Designer models is exactly what the migration's Up does - no more, no less. Read with no
-/// database.
+/// database. The chain is a fixed window: a migration added after its last entry is not its concern, so this never
+/// names the newest migration and never goes red because one was added.
 /// </summary>
 public sealed class FleetManagerLaterStepsMigrationChainTests
 {
@@ -99,7 +100,6 @@ public sealed class FleetManagerLaterStepsMigrationChainTests
         var assembly = context.GetService<IMigrationsAssembly>();
         var differ = context.GetService<IMigrationsModelDiffer>();
         var ordered = assembly.Migrations.Keys.OrderBy(k => k, StringComparer.Ordinal).ToList();
-        Assert.Equal(chain[^1], ordered[^1]);
 
         var changes = 0;
         for (var i = 1; i < chain.Length; i++)

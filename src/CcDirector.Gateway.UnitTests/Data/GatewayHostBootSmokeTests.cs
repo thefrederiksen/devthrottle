@@ -113,7 +113,7 @@ public sealed class GatewayHostBootSmokeTests
     // A dev report sent to a member of a team, and that member's comments (devthrottle_internal#2309).
     private const string DevReportSharingPostgresMigration = "20261005234644_AddDevReportSharing";
     private const string DevReportSharingSqliteMigration = "20261005234625_AddDevReportSharing";
-    // The factory registry and goal numbers (Factories screen mission, phase A) - the newest.
+    // The factory registry and goal numbers (Factories screen mission, phase A).
     private const string FactoryRegistryPostgresMigration = "20261006140813_AddFactoryRegistry";
     private const string FactoryRegistrySqliteMigration = "20261006140613_AddFactoryRegistry";
 
@@ -124,7 +124,7 @@ public sealed class GatewayHostBootSmokeTests
     private const string TeamRequestsSqliteMigration = "20261005124413_AddTeamRequests";
     private const string MessageLinkRequestsSqliteMigration = "20261005160401_AddFleetMessageLinkRequests";
 
-    // The Fleet Manager's lessons (issue #3559), after the message link requests - the newest.
+    // The Fleet Manager's lessons (issue #3559), after the message link requests.
     private const string LessonsPostgresMigration = "20261005184813_AddFleetManagerLessons";
     private const string LessonsSqliteMigration = "20261005184745_AddFleetManagerLessons";
     // Who answered a question on a team member's Questions page, and which question a comment is about
@@ -134,10 +134,9 @@ public sealed class GatewayHostBootSmokeTests
     // Archiving a factory (Factories screen mission, round 2).
     private const string ArchiveFactoriesPostgresMigration = "20261007052952_ArchiveFactories";
     private const string ArchiveFactoriesSqliteMigration = "20261007035034_ArchiveFactories";
-    // The newest migration: the team showcase's tag and a made-up member's name and email (8 Oct 2026). It moves each
-    // time one is added.
-    private const string NewestPostgresMigration = "20261008220319_RenameCeoSeatToBossSeat";
-    private const string NewestSqliteMigration = "20261008220200_RenameCeoSeatToBossSeat";
+    // The NEWEST migration is never named here. A name moves every time a migration is added, and a test that pins
+    // it goes red on every branch that adds one until somebody edits the test. That the newest Designer of each
+    // provider carries the current model is FleetOutcomeStopIdentityMigrationTests' job, and it derives the id.
 
     /// <summary>
     /// The Postgres migration set resolves BY ASSEMBLY NAME - the exact mechanism EF uses at runtime when the
@@ -191,8 +190,6 @@ public sealed class GatewayHostBootSmokeTests
         Assert.Contains(FactoryRegistryPostgresMigration, migrations);
         Assert.Contains(TeamQuestionAnswersPostgresMigration, migrations);
         Assert.Contains(ArchiveFactoriesPostgresMigration, migrations);
-        Assert.Contains(NewestPostgresMigration, migrations);
-        Assert.Equal(NewestPostgresMigration, migrations[^1]);
     }
 
     /// <summary>
@@ -257,8 +254,6 @@ public sealed class GatewayHostBootSmokeTests
         Assert.Contains(FactoryRegistrySqliteMigration, sqliteAll);
         Assert.Contains(TeamQuestionAnswersSqliteMigration, sqliteAll);
         Assert.Contains(ArchiveFactoriesSqliteMigration, sqliteAll);
-        Assert.Contains(NewestSqliteMigration, sqliteAll);
-        Assert.Equal(NewestSqliteMigration, sqliteAll[^1]);
         Assert.Contains("AddFleetManagerMarkHistory", sqliteSince);
 
         Assert.Equal(sqliteSince.OrderBy(n => n, StringComparer.Ordinal), postgresSince.OrderBy(n => n, StringComparer.Ordinal));
@@ -367,9 +362,7 @@ public sealed class GatewayHostBootSmokeTests
             DevReportSharingSqliteMigration,
             FactoryRegistrySqliteMigration,
             TeamQuestionAnswersSqliteMigration,
-            ArchiveFactoriesSqliteMigration,
-            NewestSqliteMigration);
-        Assert.Equal(NewestSqliteMigration, applied[^1]);
+            ArchiveFactoriesSqliteMigration);
         Assert.Empty(ctx.Database.GetPendingMigrations());
         Assert.False(ctx.Database.HasPendingModelChanges(),
             "The SQLite model snapshot does not match the model - a migration is missing or the snapshot was merged wrong.");
@@ -431,9 +424,7 @@ public sealed class GatewayHostBootSmokeTests
             DevReportSharingPostgresMigration,
             FactoryRegistryPostgresMigration,
             TeamQuestionAnswersPostgresMigration,
-            ArchiveFactoriesPostgresMigration,
-            NewestPostgresMigration);
-        Assert.Equal(NewestPostgresMigration, migrations[^1]);
+            ArchiveFactoriesPostgresMigration);
         Assert.False(ctx.Database.HasPendingModelChanges(),
             "The PostgreSQL model snapshot does not match the model - a migration is missing or the snapshot was merged wrong.");
     }
