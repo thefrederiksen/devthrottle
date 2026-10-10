@@ -18,6 +18,19 @@ const client = vi.hoisted(() => ({
 
 vi.mock("@devthrottle/client-core/factory/factoryAgentsClient", () => client);
 
+// The real describeAndReport formats the sentence; only the report it makes is captured.
+const reported = vi.hoisted(() => vi.fn());
+vi.mock("@devthrottle/client-core/errors/reportClientError", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@devthrottle/client-core/errors/reportClientError")>();
+  return {
+    ...real,
+    describeAndReport: (surface: string, action: string, err: unknown, context?: { sessionId?: string }) => {
+      reported({ surface, action, err });
+      return real.describeAndReport(surface, action, err, context);
+    },
+  };
+});
+
 import { FactoryAgentPageView } from "./FactoryAgentPageView";
 import { FactoryWaitingView } from "./FactoryWaitingView";
 import { FactoryAreaGate } from "./FactoryAreaGate";
@@ -190,6 +203,18 @@ describe("The Factory Agents switch gate", () => {
 
     expect((await screen.findByRole("alert")).textContent).toContain("did not say how to start it");
     expect(screen.queryByText("the factory area")).toBeNull();
+    // A fault in the Gateway the user is looking at is reported like any other error, once.
+    expect(reported).toHaveBeenCalledTimes(1);
+    expect(reported.mock.calls[0][0]).toMatchObject({ surface: "cockpit-factory-switch", action: "read how to start Factories" });
+  });
+
+  it("the switch cannot be read: says so, and reports it once", async () => {
+    client.getFactoryAgentsSwitch.mockRejectedValue(new Error("boom"));
+    renderGate();
+
+    expect((await screen.findByRole("alert")).textContent).toContain("could not ask the Gateway whether Factories is on");
+    expect(reported).toHaveBeenCalledTimes(1);
+    expect(reported.mock.calls[0][0]).toMatchObject({ surface: "cockpit-factory-switch", action: "ask the Gateway whether Factories is on" });
   });
 
   it("on: shows the area", async () => {

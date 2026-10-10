@@ -61,6 +61,7 @@ export function SourceControlTab({ sessionId, onInsertPath }: SourceControlTabPr
       busyRef.current = true;
       try {
         const snap = await getGitStatus(sessionId, signal);
+        // error-report-exempt: the Director's repository snapshot; when git failed on that machine its answer says so, nothing failed in the Cockpit
         setSnapshot(snap);
         // A non-ok status ("not a git repository" / "git failed") is a normal rendered result, not a
         // transport error; clear the transport error so a recovered fetch stops showing the old banner.
@@ -177,7 +178,7 @@ function ScmHeaderBody({
   if (snapshot.status !== "ok") {
     // "git_failed" (or any future non-ok status): show the error detail, never a silent blank.
     return (
-      <div className="scm-state scm-state-error" role="alert" /* error-report-exempt: git's own failure on the session's machine, carried in the Director's answer; nothing failed in the Cockpit */>
+      <div className="scm-state scm-state-error" role="alert">
         <span className="scm-state-title">git failed</span>
         <span className="scm-state-detail">{snapshot.error ?? "git could not read this repository."}</span>
       </div>

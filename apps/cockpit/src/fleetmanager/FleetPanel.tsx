@@ -69,6 +69,7 @@ export function FleetPanel({
   return (
     <aside className="fmp-side" aria-label="What the Gateway knows">
       {state.error !== null && (
+        // error-reported-by: fleetManagerPageErrorSentence
         <div className="fmp-region-error" role="alert">
           {state.error}
         </div>

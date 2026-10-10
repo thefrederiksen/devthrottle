@@ -205,6 +205,7 @@ export function FleetManagerView() {
               </>
             )}
             {placementError !== null && (
+              // error-reported-by: usePlacement
               <span className="fmp-inline-error" role="alert">
                 {" "}
                 {placementError}
@@ -281,6 +282,7 @@ export function FleetManagerView() {
         />
       )}
       {standingState.error !== null && (standingShown || mistakeOpen) && (
+        // error-reported-by: fleetStandingErrorSentence
         <div className="fmp-bar fmp-bar-bad" role="alert">
           {standingState.error}
         </div>
@@ -328,11 +330,13 @@ export function FleetManagerView() {
               </div>
             )}
             {chat.loadError !== null && (
+              // error-reported-by: useSessionChat
               <div className="fmp-region-error" role="alert">
                 {chat.loadError}
               </div>
             )}
             {page.error !== null && (
+              // error-reported-by: fleetManagerPageErrorSentence
               <div className="fmp-region-error" role="alert">
                 {page.error}
               </div>

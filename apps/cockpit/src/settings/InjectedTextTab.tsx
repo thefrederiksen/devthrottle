@@ -246,7 +246,8 @@ export function InjectedTextTab() {
           </p>
         )}
         {templateProblem !== null && (
-          <p className="itx-problem" role="alert" /* error-report-exempt: input check, the template the user is typing is not valid yet */>
+          // error-report-exempt: input check, the template the user is typing is not valid yet
+          <p className="itx-problem" role="alert">
             {templateProblem}
           </p>
         )}

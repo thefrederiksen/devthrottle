@@ -144,7 +144,8 @@ export function ActivityTable({ rows, showFactory }: { rows: FactoryActivityLine
 export function Faults({ faults }: { faults: string[] }) {
   if (faults.length === 0) return null;
   return (
-    <div className="fa-faults" role="alert" data-testid="fa-faults" /* error-report-exempt: the Gateway's own fault lines, carried in its answer; nothing failed here */>
+    // error-report-exempt: the Gateway's own fault lines, carried in its answer; nothing failed here
+    <div className="fa-faults" role="alert" data-testid="fa-faults">
       {faults.map((f) => (
         <div key={f} className="fa-fault">
           {f}

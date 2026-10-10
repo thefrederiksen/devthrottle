@@ -153,6 +153,7 @@ export function SessionRoster({ sessions, directors, portByDirector, selectedId,
       <RestartRequestsPanel />
 
       {error !== null && (
+        // error-reported-by: useSharedRoster
         <div className="roster-error" role="alert">
           {sessions !== null ? "Roster stale - showing last-known sessions" : error}
         </div>

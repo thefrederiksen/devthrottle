@@ -408,7 +408,7 @@ describe("A factory's Seats tab (mockup 3)", () => {
 
     fireEvent.click(within(await screen.findByTestId("fa-seat-nora-hale")).getByRole("button", { name: "Edit schedule" }));
 
-    expect((await screen.findByRole("alert")).textContent).toContain("Could not open the schedule");
+    expect((await screen.findByRole("alert")).textContent).toContain("could not open the schedule");
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 

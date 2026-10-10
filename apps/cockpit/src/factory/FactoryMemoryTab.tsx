@@ -156,6 +156,7 @@ export function FactoryMemoryTab({ factory }: FactoryMemoryTabProps) {
         if (err instanceof FactoryMemoryRefusal && err.outcome === "Stale" && err.current !== null) {
           // Someone wrote it since it was read. The owner's text stays in the box; the newer one is shown beside
           // it, and the next save is made against it only when he says so.
+          // error-report-exempt: the user's save raced another writer; the newer text is shown beside theirs to choose from, nothing failed
           setConflict(err.current);
         } else {
           setSaveError(describeAndReport(SURFACE, "save this note", err));
@@ -293,7 +294,8 @@ export function FactoryMemoryTab({ factory }: FactoryMemoryTabProps) {
                     rows={12}
                   />
                   {conflict !== null && (
-                    <div className="fa-memory-conflict" role="alert" data-testid="fa-memory-conflict" /* error-report-exempt: someone else saved the note first; the newer text is shown beside the owner's, nothing failed */>
+                    // error-report-exempt: the user's save raced another writer; the newer text is shown beside theirs to choose from, nothing failed
+                    <div className="fa-memory-conflict" role="alert" data-testid="fa-memory-conflict">
                       <p>
                         {conflict.deleted
                           ? `This note was deleted since you opened it: version ${conflict.version}, by ${authorText(conflict)}, ${writtenText(conflict.writtenAtUtc)}. Your text is still in the box. Saving brings the note back with it.`
