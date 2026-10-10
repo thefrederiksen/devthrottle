@@ -139,8 +139,8 @@ export function compareScheduleGroups(a: string, b: string, titleOf: (groupKey: 
   return titleOf(a).localeCompare(titleOf(b), undefined, { sensitivity: "base" });
 }
 
-// A group's heading: the factory's registered title, the factory id when it is not registered, or "Scheduled
-// jobs" for the plain ones.
+// A group's heading: the factory's registered title, the factory id when it is not registered, or "Personal"
+// for the plain ones.
 export function scheduleGroupTitle(groupKey: string, rows: CronJob[]): string {
   // The owner, 2026-10-09: a schedule in no factory is allowed, and it is filed under Personal rather than refused.
   if (groupKey === NO_FACTORY_GROUP) return "Personal";
