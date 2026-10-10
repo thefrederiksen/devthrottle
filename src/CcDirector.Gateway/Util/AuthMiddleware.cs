@@ -255,6 +255,11 @@ internal static class AuthMiddleware
         Api.DirectorErrorEndpoints.AdminGroupsPath,
         Api.DirectorErrorEndpoints.AdminSummariesPath,
         Api.DirectorErrorEndpoints.AdminLinkedIssuePath,
+        // Issue #3675: the website's error intake and the minting of its token. The website's server holds no device
+        // key. The intake carries its own gate - the website error token, which can write component "website" and
+        // nothing else - and the minting carries the administrator service-token gate. Both exact-match.
+        Api.WebsiteErrorEndpoints.Path,
+        Api.WebsiteErrorEndpoints.TokenPath,
         // The administrator read of the corrections people made to the Wingman's verdicts (the
         // Wingman-on-every-turn mission, slice G), exempt for the same reason and behind the same gate: the
         // daily corpus pull is a job with no device key on this Gateway. It names ONE account - a blank one is

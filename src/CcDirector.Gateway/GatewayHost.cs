@@ -5177,6 +5177,12 @@ public sealed class GatewayHost : IAsyncDisposable
         // here, into the SAME durable store under the caller's account (the Error Logging mission, issue #3675) -
         // no on-screen error exists only on the user's screen.
         Api.ClientErrorEndpoints.Map(_app, errorReports, _tenantBoundary);
+        // The website's errors - what its signed-in pages show and its API functions answer with a server error - into
+        // the same store, filed by the website's server under the account it verified. Behind a token this Gateway
+        // mints and keeps only the hash of, because the hosted Gateway's settings take no secret but the deploy's.
+        WebsiteErrorEndpoints.Map(_app, errorReports,
+            new WebsiteErrorTokenStore(Path.Combine(CcDirector.Core.Storage.CcStorage.Root(), "website-error-token")),
+            TenantRegistry);
         // The corrections the Wingman's verdicts were given (the Wingman-on-every-turn mission, slice G). The
         // labelled corpus lives in another repository and is pulled by a job holding no account credential, so
         // this is the only path an owner label has out of the database.

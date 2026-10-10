@@ -1853,6 +1853,19 @@ def errors_link(
     link_issue(fingerprint=fingerprint, issue=issue, clear=clear, json_output=json_output, gateway_url=gateway_url)
 
 
+@errors_app.command("website-token")
+def errors_website_token(
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+    gateway_url: str = typer.Option(
+        None, "--gateway", help="Mint on this Gateway instead of CC_GATEWAY_URL, e.g. the hosted one."
+    ),
+) -> None:
+    """Mint (or rotate) the token the website files its errors with. Shown once. Needs ADMIN_SERVICE_TOKEN."""
+    from .errors_ops import mint_website_token
+
+    mint_website_token(json_output=json_output, gateway_url=gateway_url)
+
+
 @repo_app.command("list")
 def repo_list(
     json_output: bool = typer.Option(

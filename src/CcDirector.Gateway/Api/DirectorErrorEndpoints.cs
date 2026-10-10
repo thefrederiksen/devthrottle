@@ -372,13 +372,30 @@ internal static class DirectorErrorEndpoints
     private static IResult BuildAndStore(ErrorReportStore store, TenantId tenant, string device,
         IReadOnlyList<ErrorReportItem> items, DateTime nowUtc)
     {
-        var records = new List<ErrorReportRecord>(items.Count);
+        if (TryBuildRecords(tenant.Value, device, items, nowUtc, ErrorReportLimits.ReportedComponents, out var records) is { } bad)
+            return bad;
+
+        store.Append(records);
+        FileLog.Write($"[DirectorErrorEndpoints] recorded {records.Count} report(s): tenant={tenant.ToLogString()} device={device}");
+        return Results.Json(new { recorded = records.Count }, statusCode: StatusCodes.Status202Accepted);
+    }
+
+    /// <summary>
+    /// Validate, cap and scrub a batch into stored records, filed under <paramref name="account"/> ("" for none).
+    /// Null when every report is good; otherwise the 400 that names what is wrong, and nothing is built. Shared with
+    /// the website's intake (<see cref="WebsiteErrorEndpoints"/>), so a website report is checked and scrubbed by
+    /// exactly the rules a Director's is.
+    /// </summary>
+    internal static IResult? TryBuildRecords(string account, string device, IReadOnlyList<ErrorReportItem> items,
+        DateTime nowUtc, IReadOnlySet<string> components, out List<ErrorReportRecord> records)
+    {
+        records = new List<ErrorReportRecord>(items.Count);
         foreach (var item in items)
         {
             if (item is null) return Results.BadRequest(new { error = "a report in the batch is empty" });
             var component = (item.Component ?? "").Trim();
-            if (!ErrorReportLimits.ReportedComponents.Contains(component))
-                return Results.BadRequest(new { error = $"component must be one of: {string.Join(", ", ErrorReportLimits.Components.Where(ErrorReportLimits.ReportedComponents.Contains))}" });
+            if (!components.Contains(component))
+                return Results.BadRequest(new { error = $"component must be one of: {string.Join(", ", ErrorReportLimits.Components.Where(components.Contains))}" });
             var message = ErrorTextScrubber.Clean(item.Message, ErrorReportLimits.MaxMessage);
             if (message.Length == 0)
                 return Results.BadRequest(new { error = "every report needs a message" });
@@ -402,7 +419,7 @@ internal static class DirectorErrorEndpoints
             {
                 ReceivedUtc = nowUtc,
                 Component = component,
-                Account = tenant.Value,
+                Account = account,
                 Device = device,
                 MachineId = machineId,
                 ProductVersion = ErrorTextScrubber.Clean(item.ProductVersion, ErrorReportLimits.MaxShortField),
@@ -426,10 +443,7 @@ internal static class DirectorErrorEndpoints
                 SessionId = sessionId.Length > 0 ? sessionId : null,
             });
         }
-
-        store.Append(records);
-        FileLog.Write($"[DirectorErrorEndpoints] recorded {records.Count} report(s): tenant={tenant.ToLogString()} device={device}");
-        return Results.Json(new { recorded = records.Count }, statusCode: StatusCodes.Status202Accepted);
+        return null;
     }
 
     /// <summary>Read the shared filters. A malformed one is a 400 that names the valid form - never ignored.</summary>

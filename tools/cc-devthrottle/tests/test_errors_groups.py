@@ -76,7 +76,12 @@ def calls(monkeypatch):
         return state["answer"]
 
     monkeypatch.setattr(errors_ops.gateway, "get_json", fake_get_json)
+    def fake_post_json(path, body=None, timeout=30, *, bearer=None, base_url=None):
+        seen.append({"verb": "POST", "path": path, "body": body, "bearer": bearer, "base_url": base_url})
+        return state["answer"]
+
     monkeypatch.setattr(errors_ops.gateway, "put_json", fake_put_json)
+    monkeypatch.setattr(errors_ops.gateway, "post_json", fake_post_json)
     monkeypatch.delenv("ADMIN_SERVICE_TOKEN", raising=False)
     seen.state = state
     return seen
@@ -243,3 +248,38 @@ def test_link_an_answer_that_is_not_the_summary_is_a_failure(calls, monkeypatch)
 
     assert result.exit_code == 1
     assert "cannot say the link was recorded" in result.output
+
+
+# --- errors website-token (issue #3675) ---
+
+def test_website_token_without_the_admin_token_fails_with_the_exact_command(calls):
+    result = runner.invoke(app, ["errors", "website-token"])
+
+    assert result.exit_code == 1
+    assert "cc-secrets run admin-service-token -- cc-devthrottle errors website-token" in result.output
+    assert calls == []
+
+
+def test_website_token_mints_on_the_admin_token_and_shows_the_value_once(calls, monkeypatch):
+    monkeypatch.setenv("ADMIN_SERVICE_TOKEN", "admin-secret")
+    calls.state["answer"] = {"token": "dtwe_abc", "minted_utc": "2026-10-10T12:00:00Z", "note": "Shown once."}
+
+    result = runner.invoke(app, ["errors", "website-token", "--gateway", "https://gateway.devthrottle.com"])
+
+    assert result.exit_code == 0, result.output
+    assert calls[0]["verb"] == "POST"
+    assert calls[0]["path"] == "gateway/admin/website-error-token"
+    assert calls[0]["bearer"] == "admin-secret"
+    assert calls[0]["base_url"] == "https://gateway.devthrottle.com"
+    assert "token: dtwe_abc" in result.output
+    assert "WEBSITE_ERROR_SERVICE_TOKEN" in result.output
+
+
+def test_website_token_an_answer_without_a_token_is_a_failure(calls, monkeypatch):
+    monkeypatch.setenv("ADMIN_SERVICE_TOKEN", "admin-secret")
+    calls.state["answer"] = {"something": "else"}
+
+    result = runner.invoke(app, ["errors", "website-token"])
+
+    assert result.exit_code == 1
+    assert "holds no token" in result.output
