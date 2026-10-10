@@ -88,3 +88,10 @@ so the schedules' own last-fired time was never set. A real fire sets both.
   - `cc-director-setup-engine.Tests` failed 1 of 875: `ToolReconcilerTests.ReconcileAsync_EmptyToolsState_ProvisionFails_ReturnsFailed`.
     That suite is installer code this change does not touch. The test class passed 3 runs out of 3 on its own.
 - `CcDirector.Gateway.Tests` builds. It was not run, because `-Parked` needs Docker.
+
+After rebasing onto `de46cb8e2`:
+
+- The focused Gateway run (factory, run-ending and schedule tests) passed: 233 tests.
+- The Cockpit factory tests passed: 116. `tsc` is clean.
+- `cc-director-setup-engine.Tests` passed 875 of 875. Main's #3781 fixed the reconciler tests' shared helper, which is
+  the likely cause of the earlier failure.
