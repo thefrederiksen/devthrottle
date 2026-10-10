@@ -80,6 +80,83 @@ public sealed class PreSignInOutboxTests : IDisposable
     }
 
     [Fact]
+    public void Keep_Full_ANewDistinctErrorTakesThePlaceOfTheMostRepeated_AndItsSourceIsCounted()
+    {
+        // Issue #3647: past the limit a new distinct error used to be only a number. Now the entry seen most often
+        // gives way (the oldest of those), and the occurrences it carried are counted under its source.
+        var (outbox, _) = NewOutbox();
+        var noisy = Item("Inventory FAILED: scan", count: 40, source: "WorktreeInventoryService");
+        outbox.Keep(new[] { noisy }.Concat(Enumerable.Range(1, PreSignInOutbox.MaxKept - 1)
+            .Select(i => Item($"Save FAILED: {i}", source: $"C{i}"))).ToList());
+
+        outbox.Keep(new[] { Item("Enroll FAILED: refused", source: "Enrollment") });
+
+        Assert.Equal(PreSignInOutbox.MaxKept, outbox.Count);
+        var text = File.ReadAllText(FilePath);
+        Assert.Contains("Enroll FAILED: refused", text);
+        Assert.DoesNotContain("Inventory FAILED: scan", text);
+        Assert.Contains("\"not_kept\":1", text);
+        Assert.Contains("\"not_kept_by_source\":{\"WorktreeInventoryService\":40}", text);
+    }
+
+    [Fact]
+    public void Keep_FullOfOneOffs_TheNewcomerIsTheOneCounted_UnderItsSource()
+    {
+        var (outbox, _) = NewOutbox();
+        outbox.Keep(Enumerable.Range(0, PreSignInOutbox.MaxKept).Select(i => Item($"Save FAILED: {i}", source: $"C{i}")).ToList());
+
+        outbox.Keep(new[] { Item("Load FAILED: late", source: "Store") });
+
+        Assert.DoesNotContain("Load FAILED: late", File.ReadAllText(FilePath));
+        Assert.Contains("\"not_kept_by_source\":{\"Store\":1}", File.ReadAllText(FilePath));
+    }
+
+    [Fact]
+    public void Tally_PastTheLimitOfNamedSources_AddsTheRestUpTogether()
+    {
+        var bySource = new Dictionary<string, long>(StringComparer.Ordinal);
+        for (var i = 0; i < PreSignInOutbox.MaxDroppedSources + 5; i++) PreSignInOutbox.Tally(bySource, $"S{i}", 2);
+
+        Assert.Equal(PreSignInOutbox.MaxDroppedSources + 1, bySource.Count);
+        Assert.Equal(10, bySource[PreSignInOutbox.OtherSources]);
+    }
+
+    [Fact]
+    public async Task SendBeforeSignIn_SaysWhichSourcesLostErrors_AndClearsTheCountOnceAccepted()
+    {
+        var (outbox, handler) = NewOutbox();
+        outbox.Keep(Enumerable.Range(0, PreSignInOutbox.MaxKept).Select(i => Item($"Save FAILED: {i}", source: $"C{i}")).ToList());
+        outbox.Keep(new[] { Item("Load FAILED: a", source: "Store"), Item("Load FAILED: b", source: "Store") });
+
+        await outbox.SendBeforeSignInAsync(final: true, CancellationToken.None);
+
+        Assert.Contains("2 further distinct errors were not kept because the queue on disk was full; the occurrences given up, by source: Store 2 occurrences.",
+            Payload(handler).Message);
+        Assert.DoesNotContain("not_kept_by_source", File.ReadAllText(FilePath));
+        Assert.Contains("\"not_kept\":0", File.ReadAllText(FilePath));
+    }
+
+    [Fact]
+    public async Task SendSignedIn_TheDroppedCountTravelsAsAReportOfItsOwn_AndIsClearedWhenAccepted()
+    {
+        // Issue #3647: a signed-in machine never sends on the install route again, so the count must go to the
+        // account on the device route, or it would stay in the file for ever.
+        var (outbox, _) = NewOutbox();
+        outbox.Keep(Enumerable.Range(0, PreSignInOutbox.MaxKept).Select(i => Item($"Save FAILED: {i}", source: $"C{i}")).ToList());
+        outbox.Keep(new[] { Item("Load FAILED: late", source: "Store", count: 3) });
+
+        var handed = new List<ErrorReportItem>();
+        for (var tick = 0; tick < 100 && File.Exists(FilePath); tick++)
+            await outbox.SendSignedInAsync(ErrorReportLimits.MaxReportsPerBatch, items => { handed.AddRange(items); return Task.FromResult(true); });
+
+        Assert.Equal(PreSignInOutbox.MaxKept + 1, handed.Count);
+        var dropped = Assert.Single(handed, i => i.Kind == PreSignInOutbox.DroppedKind);
+        Assert.Contains("1 distinct error logged by the director before this machine signed in was not kept", dropped.Message);
+        Assert.Contains("the occurrences given up, by source: Store 3 occurrences.", dropped.Message);
+        Assert.False(File.Exists(FilePath));
+    }
+
+    [Fact]
     public async Task SendBeforeSignIn_PostsOneInstallReportWithTheMachinesId_AndEmptiesTheFileWhenAccepted()
     {
         var (outbox, handler) = NewOutbox();
@@ -175,8 +252,29 @@ public sealed class PreSignInOutboxTests : IDisposable
         Assert.InRange(used, 1, items.Count - 1);
         Assert.True(payload.Diagnostics.Length <= PreSignInOutbox.DiagnosticsBudget);
         Assert.Contains($"{items.Count - used} more are waiting", payload.Message);
-        Assert.Contains("4 further distinct error(s) were not kept", payload.Message);
+        Assert.Contains("4 further distinct errors were not kept", payload.Message);
         Assert.Contains("[C0] Save FAILED: 0", payload.Message);
+    }
+
+    [Fact]
+    public void Compose_AnEntryKeptBeforeItsSenderScrubbed_LeavesWithoutCredentialIdNamesOrThisMachinesNames()
+    {
+        // Issue #3644: an entry written to the file by an older version, before the sender scrubbed with this
+        // machine's names, is scrubbed again on its way out.
+        var key = "Kq3vZ8wYp2LmN5tR7xB1cD4fG6hJ9kQ0sT2uV5wX8yZ";
+        var item = Item($"Enroll FAILED on {Environment.MachineName} for {Environment.UserName}: token={key}",
+            stack: "uid=501(robertziegler) gid=20(staff)\n   at C:/Users/robertziegler/x.cs");
+
+        var (payload, _) = PreSignInOutbox.Compose("launcher", "id-12345678", new[] { item }, 0);
+        var leaves = payload.Message + "\n" + payload.Diagnostics;
+
+        Assert.DoesNotContain(key, leaves);
+        Assert.DoesNotContain("robertziegler", leaves);
+        Assert.DoesNotContain("(staff)", leaves);
+        if (Environment.MachineName.Length >= 3)
+            Assert.DoesNotContain(Environment.MachineName, leaves, StringComparison.OrdinalIgnoreCase);
+        if (Environment.UserName.Length >= 3)
+            Assert.DoesNotContain(Environment.UserName, leaves, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

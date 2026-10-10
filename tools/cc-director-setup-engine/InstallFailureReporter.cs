@@ -2,7 +2,6 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.ErrorReports;
 
@@ -14,8 +13,8 @@ namespace CcDirector.Setup.Engine;
 ///
 /// It needs no sign-in: installation happens before the machine has any credential. What it sends is
 /// written by the installer itself - the step, the error message, the diagnostics the step collected, the
-/// operating system, its version, the processor architecture and the product version. Home-folder paths are
-/// reduced to "~" before anything leaves the machine. No machine name, no user name, no file contents
+/// operating system, its version, the processor architecture and the product version. All of it is scrubbed
+/// with the rules Director errors use (<see cref="Scrub"/>) before anything leaves the machine. No machine name, no user name, no file contents
 /// other than the tail of our own log that a step chose to attach.
 ///
 /// The install id is one random identifier per machine, kept beside the install, so a failure and the
@@ -28,10 +27,6 @@ namespace CcDirector.Setup.Engine;
 public sealed class InstallFailureReporter
 {
     public const string Path = InstallReportLimits.Path;
-
-    private static readonly Regex MacHome = new(@"/Users/[^/\s""']+", RegexOptions.CultureInvariant);
-    private static readonly Regex LinuxHome = new(@"/home/[^/\s""']+", RegexOptions.CultureInvariant);
-    private static readonly Regex WindowsHome = new(@"[A-Za-z]:\\Users\\[^\\\s""']+", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
     private readonly InstallLayout _layout;
     private readonly string _installer;
@@ -101,14 +96,13 @@ public sealed class InstallFailureReporter
         return max > note.Length ? text[..(max - note.Length)] + note : text[..Math.Max(0, max)];
     }
 
-    /// <summary>Reduce every home folder in the text to "~".</summary>
-    public static string Scrub(string text)
-    {
-        if (string.IsNullOrEmpty(text)) return "";
-        var s = MacHome.Replace(text, "~");
-        s = LinuxHome.Replace(s, "~");
-        return WindowsHome.Replace(s, "~");
-    }
+    /// <summary>
+    /// Make the text safe to leave the machine with the rules every Director and launcher error uses
+    /// (<see cref="ErrorTextScrubber.ScrubOnThisMachine(string)"/>, issue #3644): home folders to "~", credential-shaped
+    /// values redacted, the names taken out of <c>id</c> output, and this machine's user name and machine name
+    /// replaced. The Gateway scrubs again on receipt, but only the sending machine knows its own names.
+    /// </summary>
+    public static string Scrub(string text) => ErrorTextScrubber.ScrubOnThisMachine(text ?? "");
 
     /// <summary>One random id per machine, created on first use and kept beside the install. The launcher and
     /// the Director read the same file (<see cref="CcDirector.Core.ErrorReports.InstallId"/>).</summary>

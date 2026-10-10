@@ -75,8 +75,9 @@ public static class ErrorReportLimits
     /// </summary>
     public static readonly IReadOnlyList<string> Components = [Director, Launcher, Install, Tool, Cockpit, Mobile, Gateway, GatewayApp, Website];
 
-    /// <summary>The components the desktop <see cref="ErrorReporter"/> runs as: a Director or a launcher process.</summary>
-    public static readonly IReadOnlySet<string> DeviceComponents = new HashSet<string>(StringComparer.Ordinal) { Director, Launcher };
+    /// <summary>The components the desktop <see cref="ErrorReporter"/> runs as: a Director, a launcher, or the
+    /// self-hosted Gateway app (issue #3643).</summary>
+    public static readonly IReadOnlySet<string> DeviceComponents = new HashSet<string>(StringComparer.Ordinal) { Director, Launcher, GatewayApp };
 
     /// <summary>The components a credentialed sender may file through <c>POST /gateway/director-errors</c>: every
     /// component except two. The installer reports through the separate, credential-less <c>/install-reports</c>

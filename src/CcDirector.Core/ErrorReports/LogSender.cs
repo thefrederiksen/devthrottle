@@ -96,7 +96,7 @@ public static class LogSender
         var length = 0;
         for (var i = lines.Count - 1; i >= 0; i--)
         {
-            var clean = ErrorTextScrubber.Scrub(lines[i]);
+            var clean = ErrorTextScrubber.ScrubOnThisMachine(lines[i]);
             if (length + clean.Length + 1 > maxChars)
             {
                 if (kept.Count == 0) kept.AddFirst(clean[^Math.Min(clean.Length, maxChars)..]);

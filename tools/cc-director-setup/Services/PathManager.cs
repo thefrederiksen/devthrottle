@@ -42,6 +42,7 @@ public static class PathManager
         catch (Exception ex)
         {
             SetupLog.Write($"[PathManager] AddToPath FAILED: {ex.Message}");
+            _ = WizardProgressReport.Error("path", $"Windows setup wizard could not add the tools folder to PATH: {ex.GetType().Name}: {ex.Message}", ex);
             return false;
         }
     }
@@ -61,6 +62,7 @@ public static class PathManager
         }
         catch
         {
+            // Not reported: a PATH that cannot be read counts as not holding the folder; AddToPath then writes it and reports its own failure.
             return false;
         }
     }

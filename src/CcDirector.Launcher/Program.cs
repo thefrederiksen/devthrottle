@@ -36,6 +36,11 @@ public static class Program
         return 0;
     }
 
+    /// <summary>The Gateway connection the launcher's error reports are sent under: the default Director's,
+    /// read from its own home (issue #3507).</summary>
+    internal static CcDirector.Core.Configuration.GatewayConfig ErrorReportConnection(InstallLayout layout)
+        => DefaultDirectorConnection.For(layout).LoadGateway();
+
     [STAThread]
     public static int Main(string[] args)
     {
@@ -87,7 +92,12 @@ public static class Program
             FileLog.Write($"[Program] UNOBSERVED TASK: {e.Exception}");
             e.SetObserved();
         };
-        ErrorReporter.Start(ErrorReportLimits.Launcher);
+        // Reported under the default Director's connection (issue #3507). The launcher runs at the machine root,
+        // and the machine root holds no connection: the Director keeps its own in its instance home, where the
+        // in-app wizard and `enroll` write it (#3506). Read from the machine root, every connected machine's
+        // launcher looked signed out, and its errors went out unowned through the before-sign-in route - 252 of
+        // them from one install in thirty days - sharing that route's small limit with the installer.
+        ErrorReporter.Start(ErrorReportLimits.Launcher, () => ErrorReportConnection(InstallLayout.Default()));
 
         // Detached self-update helper mode: this process is a STAGED copy of the new Launcher exe.
         // It asks the running tray app to exit (the shutdown lifecycle signal), swaps itself into the

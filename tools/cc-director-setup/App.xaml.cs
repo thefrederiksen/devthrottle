@@ -29,6 +29,30 @@ public partial class App : Application
         // where installs stall - so a failed/stuck install can't be diagnosed.
         EngineLog.Sink = SetupLog.Write;
 
+        // A crash reaches DevThrottle, not only this machine's setup log (issue #3640). An error on the window's
+        // thread is shown, reported and the wizard carries on, so the person can still read the screen and open
+        // the log; an error anywhere else ends the process, so its report is waited for, briefly, first.
+        DispatcherUnhandledException += (_, args) =>
+        {
+            SetupLog.Write($"[App] UNHANDLED UI-THREAD EXCEPTION: {args.Exception}");
+            _ = WizardProgressReport.Error("ui-thread", $"The Windows setup wizard hit an error: {args.Exception.GetType().Name}: {args.Exception.Message}", args.Exception);
+            MessageBox.Show($"The setup wizard hit an error and reported it to DevThrottle:\n\n{args.Exception.Message}\n\nThe log of this run is {SetupLog.Path}",
+                "DevThrottle Setup", MessageBoxButton.OK, MessageBoxImage.Error);
+            args.Handled = true;
+        };
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+        {
+            var ex = args.ExceptionObject as Exception;
+            SetupLog.Write($"[App] UNHANDLED EXCEPTION (terminating={args.IsTerminating}): {args.ExceptionObject}");
+            WizardProgressReport.CrashAndWait("crash", ex);
+        };
+        TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            SetupLog.Write($"[App] UNOBSERVED TASK: {args.Exception}");
+            _ = WizardProgressReport.Error("unobserved-task", $"A background task in the Windows setup wizard failed: {args.Exception.GetBaseException().Message}", args.Exception);
+            args.SetObserved();
+        };
+
         // Windows started us from the copy inside the install root (the Uninstall button in
         // Settings > Apps runs the UninstallString we registered there). Uninstalling from inside
         // the tree we are about to delete would hold a file open in it, so hand the job to a copy

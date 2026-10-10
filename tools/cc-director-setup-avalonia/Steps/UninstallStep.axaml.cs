@@ -118,6 +118,21 @@ public partial class UninstallStep : UserControl
         }
     }
 
+    /// <summary>
+    /// A failed uninstall reaches DevThrottle (issue #3645), not only this screen. Except when the person chose to
+    /// delete their data and the folder is gone: the report needs the install id, and reading it would make the
+    /// folder again underneath a person who asked for it to be gone. That case is logged with its reason.
+    /// </summary>
+    private void ReportUninstallError(string message, Exception? ex)
+    {
+        if (!Directory.Exists(_layout.LocalRoot))
+        {
+            SetupLog.Write($"[UninstallStep] NOT reported, because the data folder was deleted at the person's request and the report would recreate it: {message}");
+            return;
+        }
+        _ = WizardErrorReport.SendAsync("wizard", "uninstall", message, ex);
+    }
+
     private void ConfirmCancelButton_Click(object? sender, RoutedEventArgs e)
     {
         SetupLog.Write("[UninstallStep] cancelled by user");
@@ -141,6 +156,7 @@ public partial class UninstallStep : UserControl
         catch (Exception ex)
         {
             SetupLog.Write($"[UninstallStep] uninstall FAILED: {ex}");
+            ReportUninstallError($"Uninstall failed: {ex.GetType().Name}: {ex.Message}", ex);
             ShowComplete(success: false, errors: new[] { ex.Message });
             return;
         }
@@ -148,6 +164,8 @@ public partial class UninstallStep : UserControl
         // Mark the final phase done, then show the result.
         if (_currentPhase is not null) _completed.Add(_currentPhase);
         SetupLog.Write($"[UninstallStep] done success={report.Success}, steps={report.Steps.Count}, errors={report.Errors.Count}");
+        if (report.Errors.Count > 0)
+            ReportUninstallError($"Uninstall finished with {report.Errors.Count} error(s): {string.Join(" | ", report.Errors)}", null);
         ShowComplete(report.Success, report.Errors);
     }
 

@@ -298,6 +298,71 @@ public sealed class ErrorReporterTests
     public void Constructor_AComponentADeviceMayNotReportAs_Throws()
         => Assert.Throws<ArgumentException>(() => new ErrorReporter(ErrorReportLimits.Install));
 
+    // ---- The self-hosted Gateway app (issue #3643) ----
+
+    [Fact]
+    public async Task GatewayApp_ConnectedToTheHostedGateway_ReportsToTheAccountAsGatewayApp()
+    {
+        var handler = new StubHandler();
+        var connection = new GatewayConfig { Url = "https://gateway.devthrottle.com", Token = "device-key" };
+        var config = ErrorReporter.HostedConnectionOnly(() => connection, () => "https://gateway.devthrottle.com");
+        using var reporter = new ErrorReporter(ErrorReportLimits.GatewayApp, config, new HttpClient(handler),
+            () => _now, machineName: "TEST-MACHINE", productVersion: "2.17.0");
+
+        reporter.OnLogLine("[App] Controller start FAILED: System.IO.IOException: port 7878 is in use");
+        await reporter.FlushAsync(CancellationToken.None);
+
+        var request = Assert.Single(handler.Requests);
+        Assert.Equal("https://gateway.devthrottle.com/gateway/director-errors", request.Url);
+        Assert.Contains("\"component\":\"gateway-app\"", request.Body);
+        Assert.Contains("Controller start FAILED", request.Body);
+    }
+
+    [Theory]
+    // This app's own Gateway, which is where a self-hosted machine's connection points.
+    [InlineData("http://127.0.0.1:7878")]
+    [InlineData("http://soren-north.tailnet.example:7878")]
+    // Same host on another port or scheme is another Gateway.
+    [InlineData("https://gateway.devthrottle.com:8443")]
+    [InlineData("http://gateway.devthrottle.com")]
+    // Not connected at all.
+    [InlineData("")]
+    public void HostedConnectionOnly_AConnectionToAnyOtherGateway_IsNoConnection(string url)
+    {
+        var config = ErrorReporter.HostedConnectionOnly(() => new GatewayConfig { Url = url, Token = "local-machine-token" },
+            () => "https://gateway.devthrottle.com")();
+
+        Assert.False(config.HasCredential);
+    }
+
+    [Fact]
+    public void HostedConnectionOnly_TheHostedGateway_KeepsTheCredential()
+    {
+        var config = ErrorReporter.HostedConnectionOnly(() => new GatewayConfig { Url = "https://GATEWAY.devthrottle.com/", Token = "device-key" },
+            () => "https://gateway.devthrottle.com")();
+
+        Assert.True(config.HasCredential);
+        Assert.Equal("device-key", config.Token);
+    }
+
+    [Fact]
+    public void GatewayAppProgram_StartsTheReporterAsGatewayApp_OnTheHostedConnectionOnly_BeforeAnythingElse()
+    {
+        // The app's start-up cannot be run here (it is a Windows tray app), so its first lines are read: the
+        // reporter must be running before the self-update helper and the main start, or their failures are lost.
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "src", "CcDirector.GatewayApp", "Program.cs"))) dir = dir.Parent;
+        Assert.NotNull(dir);
+        var program = File.ReadAllText(Path.Combine(dir!.FullName, "src", "CcDirector.GatewayApp", "Program.cs"));
+
+        var start = program.IndexOf("ErrorReporter.Start(ErrorReportLimits.GatewayApp, ErrorReporter.HostedConnectionOnly(ErrorReportConnection, HostedGateway.ResolveUrl));", StringComparison.Ordinal);
+        Assert.True(start > 0, "the Gateway app does not start the error reporter as gateway-app on the hosted connection");
+        Assert.True(start < program.IndexOf("return ApplyUpdate(args);", StringComparison.Ordinal), "the reporter starts after the self-update helper");
+        Assert.True(start < program.IndexOf("StartWithClassicDesktopLifetime", StringComparison.Ordinal), "the reporter starts after the app");
+        // The connection is the default Director's (review of #3756): the machine root holds none since #3506.
+        Assert.Contains("ErrorReportConnection() => DefaultDirectorConnection.For(InstallLayout.Default()).LoadGateway();", program);
+    }
+
     // ---- Before sign-in (issue #3311, B1) ----
 
     private sealed class SignInState

@@ -131,6 +131,7 @@ public partial class UninstallStep : UserControl
         catch (Exception ex)
         {
             SetupLog.Write($"[UninstallStep] uninstall FAILED: {ex}");
+            _ = WizardProgressReport.UninstallError($"Windows uninstall failed: {ex.GetType().Name}: {ex.Message}", ex);
             ShowComplete(success: false, errors: new[] { ex.Message });
             return;
         }
@@ -138,6 +139,8 @@ public partial class UninstallStep : UserControl
         // Mark the final phase done, then show the result.
         if (_currentPhase is not null) _completed.Add(_currentPhase);
         SetupLog.Write($"[UninstallStep] done success={report.Success}, steps={report.Steps.Count}, errors={report.Errors.Count}");
+        if (report.Errors.Count > 0)
+            _ = WizardProgressReport.UninstallError($"Windows uninstall finished with {report.Errors.Count} error(s): {string.Join(" | ", report.Errors)}", null);
         ShowComplete(report.Success, report.Errors);
     }
 

@@ -23,8 +23,11 @@ namespace CcDirector.Core.ErrorReports;
 ///   - <see cref="SendSignedInAsync"/> hands whatever is still kept to the device's own route once the machine
 ///     HAS signed in, so an error from before sign-in reaches the account it belongs to.
 ///   - An entry leaves the file only when the Gateway has accepted it. A failure, a refusal or a missing route
-///     keeps it for the next try. Nothing is dropped; when the file is full, the count of distinct errors that
-///     did not fit is kept instead and said in the next report.
+///     keeps it for the next try. When the file is full (issue #3647), a new distinct error takes the place of
+///     the entry seen most often (the oldest of those), and what gives way is counted by its source - so the
+///     report says which sources lost errors and how many. Nothing is lost uncounted: the count travels in the
+///     next install report's message, or, once the machine has signed in, as a report of its own on the
+///     device route.
 ///
 /// ONE WRITER. The file is per storage root and per component, and a launcher and a Director are each one
 /// process per storage root (their single-instance guards), so no two processes write the same file. Calls
@@ -58,9 +61,22 @@ public sealed class PreSignInOutbox
     private readonly Queue<DateTime> _sentTimes = new();
     private DateTime _pausedUntilUtc = DateTime.MinValue;
 
+    /// <summary>How many sources the dropped tally names one by one; the rest are added up under
+    /// <see cref="OtherSources"/>, so a flood of one-off sources cannot grow the file without bound.</summary>
+    internal const int MaxDroppedSources = 50;
+
+    internal const string OtherSources = "(other sources)";
+
     internal sealed record FileShape(
         [property: JsonPropertyName("items")] List<ErrorReportItem> Items,
-        [property: JsonPropertyName("not_kept")] long NotKept);
+        [property: JsonPropertyName("not_kept")] long NotKept)
+    {
+        /// <summary>The occurrences given up when the file was full, by the source that logged them (issue #3647).
+        /// Null in a file written before this existed.</summary>
+        [JsonPropertyName("not_kept_by_source")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public Dictionary<string, long>? NotKeptBySource { get; init; }
+    }
 
     /// <param name="path">The outbox file.</param>
     /// <param name="component"><see cref="ErrorReportLimits.Director"/> or <see cref="ErrorReportLimits.Launcher"/>.</param>
@@ -97,6 +113,9 @@ public sealed class PreSignInOutbox
             var file = Read();
             var kept = file.Items;
             var notKept = file.NotKept;
+            var bySource = file.NotKeptBySource is null
+                ? new Dictionary<string, long>(StringComparer.Ordinal)
+                : new Dictionary<string, long>(file.NotKeptBySource, StringComparer.Ordinal);
             foreach (var item in items)
             {
                 var signature = SignatureOf(item);
@@ -117,12 +136,80 @@ public sealed class PreSignInOutbox
                 }
                 else
                 {
+                    // Full (issue #3647). The entry seen most often gives way, the oldest of those first: its
+                    // message has the most occurrences behind it, so it is the one most likely to be logged and
+                    // kept again, while a new distinct error may never come back. What it gives up is counted
+                    // under its source, so the next report says which sources lost errors and how many.
+                    var victim = IndexToGiveWay(kept);
+                    if (kept[victim].RepeatCount > item.RepeatCount)
+                    {
+                        Tally(bySource, kept[victim].Source, Math.Max(1, kept[victim].RepeatCount));
+                        kept[victim] = item;
+                    }
+                    else
+                    {
+                        // Nothing kept is more repeated than the newcomer: the newcomer is the one counted.
+                        Tally(bySource, item.Source, Math.Max(1, item.RepeatCount));
+                    }
                     notKept++;
                 }
             }
-            Write(new FileShape(kept, notKept));
+            Write(new FileShape(kept, notKept) { NotKeptBySource = bySource.Count == 0 ? null : bySource });
         }
     }
+
+    /// <summary>The kept entry that gives way to a new distinct error: the most repeated, the oldest of those.</summary>
+    internal static int IndexToGiveWay(List<ErrorReportItem> kept)
+    {
+        var best = 0;
+        for (var i = 1; i < kept.Count; i++)
+        {
+            var (a, b) = (kept[i], kept[best]);
+            if (a.RepeatCount > b.RepeatCount || (a.RepeatCount == b.RepeatCount && a.FirstSeenUtc < b.FirstSeenUtc))
+                best = i;
+        }
+        return best;
+    }
+
+    /// <summary>Add <paramref name="count"/> occurrences to a source's tally, within <see cref="MaxDroppedSources"/>.</summary>
+    internal static void Tally(Dictionary<string, long> bySource, string? source, long count)
+    {
+        var key = string.IsNullOrWhiteSpace(source) ? "(no source)" : source;
+        if (!bySource.ContainsKey(key) && bySource.Count(kv => kv.Key != OtherSources) >= MaxDroppedSources)
+            key = OtherSources;
+        bySource[key] = bySource.TryGetValue(key, out var existing) ? existing + count : count;
+    }
+
+    /// <summary>The kind of the report that carries the dropped count to a signed-in account.</summary>
+    public const string DroppedKind = "outbox-dropped";
+
+    /// <summary>"; the occurrences given up, by source: Store 12 occurrences, Session 3 occurrences" - the sources
+    /// that lost errors, most first - or nothing. Said in words, because the sentence before it counts DISTINCT
+    /// errors and these count OCCURRENCES, and the reader of the report does not have the pull request.</summary>
+    internal static string BySourceText(IReadOnlyDictionary<string, long>? bySource)
+    {
+        if (bySource is null || bySource.Count == 0) return "";
+        var parts = bySource.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key, StringComparer.Ordinal)
+            .Select(kv => $"{kv.Key} {kv.Value} occurrence{(kv.Value == 1 ? "" : "s")}");
+        return "; the occurrences given up, by source: " + string.Join(", ", parts);
+    }
+
+    /// <summary>The count of what the full file gave up, as one report for the device route.</summary>
+    internal static ErrorReportItem DroppedReport(string component, FileShape file, ErrorReportItem? like, DateTime nowUtc) => new(
+        Component: component,
+        Source: nameof(PreSignInOutbox),
+        Kind: DroppedKind,
+        Message: $"{file.NotKept} distinct error{(file.NotKept == 1 ? "" : "s")} logged by the {component} before this machine signed in {(file.NotKept == 1 ? "was" : "were")} not kept, because the queue on disk was full{BySourceText(file.NotKeptBySource)}.",
+        ExceptionType: null,
+        Stack: null,
+        RepeatCount: 1,
+        FirstSeenUtc: nowUtc,
+        LastSeenUtc: nowUtc,
+        ProductVersion: like?.ProductVersion,
+        Os: like?.Os,
+        OsVersion: like?.OsVersion,
+        Arch: like?.Arch,
+        MachineId: like?.MachineId);
 
     /// <summary>
     /// Send what is kept as one report to <c>POST /install-reports</c>. Returns how many errors the Gateway
@@ -134,7 +221,7 @@ public sealed class PreSignInOutbox
     {
         InstallReportPayload payload;
         List<(string Signature, int Count)> sent;
-        long notKeptSent;
+        FileShape droppedSent;
         var now = _clock();
         try
         {
@@ -143,10 +230,10 @@ public sealed class PreSignInOutbox
                 var file = Read();
                 if (file.Items.Count == 0) return 0;
                 if (!final && (now < _pausedUntilUtc || SentInLastHour(now) >= MaxReportsPerHour)) return 0;
-                var (composed, used) = Compose(_component, _installId(), file.Items, file.NotKept);
+                var (composed, used) = Compose(_component, _installId(), file.Items, file.NotKept, file.NotKeptBySource);
                 payload = composed;
                 sent = file.Items.Take(used).Select(i => (SignatureOf(i), i.RepeatCount)).ToList();
-                notKeptSent = file.NotKept;
+                droppedSent = file;
                 _sentTimes.Enqueue(now);
             }
         }
@@ -172,7 +259,7 @@ public sealed class PreSignInOutbox
         var outcome = await InstallReportClient.PostAsync(_http, url, payload, ct).ConfigureAwait(false);
         if (outcome.Accepted)
         {
-            TryRemove(sent, notKeptSent);
+            TryRemove(sent, droppedSent);
             FileLog.Write($"{ErrorLine.ReporterTag} {sent.Count} error(s) from before sign-in sent to DevThrottle ({outcome})");
             return sent.Count;
         }
@@ -202,9 +289,11 @@ public sealed class PreSignInOutbox
     {
         if (max <= 0) return 0;
         List<ErrorReportItem> batch;
+        FileShape file;
         try
         {
-            lock (_lock) batch = Read().Items.Take(Math.Min(max, ErrorReportLimits.MaxReportsPerBatch)).ToList();
+            lock (_lock) file = Read();
+            batch = file.Items.Take(Math.Min(max, ErrorReportLimits.MaxReportsPerBatch)).ToList();
         }
         catch (Exception ex) when (IsFileFailure(ex))
         {
@@ -213,11 +302,16 @@ public sealed class PreSignInOutbox
             FileLog.Write($"{ErrorLine.ReporterTag} errors kept from before sign-in could not be read ({ex.GetType().Name}): {ex.Message}; next tick tries again");
             return 0;
         }
+        // What the full file gave up travels too, as one report of its own, so the count reaches the account and
+        // is not left in a file a signed-in machine never sends from again (issue #3647).
+        var carriesDropped = file.NotKept > 0 && batch.Count < Math.Min(max, ErrorReportLimits.MaxReportsPerBatch);
+        if (carriesDropped) batch.Add(DroppedReport(_component, file, batch.Count > 0 ? batch[0] : null, _clock()));
         if (batch.Count == 0) return 0;
         if (!await send(batch).ConfigureAwait(false)) return 0;
-        TryRemove(batch.Select(i => (SignatureOf(i), i.RepeatCount)).ToList(), notKeptSent: 0);
-        FileLog.Write($"{ErrorLine.ReporterTag} {batch.Count} error(s) kept from before sign-in sent with this machine's credential");
-        return batch.Count;
+        var delivered = carriesDropped ? batch.Take(batch.Count - 1).ToList() : batch;
+        TryRemove(delivered.Select(i => (SignatureOf(i), i.RepeatCount)).ToList(), carriesDropped ? file : null);
+        FileLog.Write($"{ErrorLine.ReporterTag} {delivered.Count} error(s) kept from before sign-in sent with this machine's credential{(carriesDropped ? $", with the count of {file.NotKept} that were not kept" : "")}");
+        return delivered.Count;
     }
 
     /// <summary>
@@ -225,7 +319,7 @@ public sealed class PreSignInOutbox
     /// budget, and always at least the first (cut to fit). Returns the payload and how many errors it carries.
     /// </summary>
     internal static (InstallReportPayload Payload, int Used) Compose(string component, string installId,
-        IReadOnlyList<ErrorReportItem> items, long notKept)
+        IReadOnlyList<ErrorReportItem> items, long notKept, IReadOnlyDictionary<string, long>? notKeptBySource = null)
     {
         var diagnostics = new StringBuilder();
         var used = 0;
@@ -236,16 +330,18 @@ public sealed class PreSignInOutbox
             diagnostics.Append(block);
             used++;
         }
-        var text = diagnostics.Length > DiagnosticsBudget ? diagnostics.ToString(0, DiagnosticsBudget) : diagnostics.ToString();
+        // Scrubbed again on the way out (issue #3644): an entry written by an older version of this file, before
+        // its sender scrubbed with this machine's names, must not leave the machine with them.
+        var text = ErrorTextScrubber.ScrubOnThisMachine(diagnostics.Length > DiagnosticsBudget ? diagnostics.ToString(0, DiagnosticsBudget) : diagnostics.ToString());
 
         var first = items[0];
         var occurrences = items.Take(used).Sum(i => (long)Math.Max(1, i.RepeatCount));
         var message = new StringBuilder()
             .Append($"{used} distinct error(s), {occurrences} in all, logged by the {component} before this machine signed in.");
         if (used < items.Count) message.Append($" {items.Count - used} more are waiting for the next report.");
-        if (notKept > 0) message.Append($" {notKept} further distinct error(s) were not kept because the queue on disk was full.");
+        if (notKept > 0) message.Append($" {notKept} further distinct error{(notKept == 1 ? "" : "s")} {(notKept == 1 ? "was" : "were")} not kept because the queue on disk was full{BySourceText(notKeptBySource)}.");
         message.Append($" First: [{first.Source}] {first.Message}");
-        var messageText = message.ToString();
+        var messageText = ErrorTextScrubber.ScrubOnThisMachine(message.ToString());
         if (messageText.Length > InstallReportLimits.MaxMessage) messageText = messageText[..InstallReportLimits.MaxMessage];
 
         return (new InstallReportPayload(
@@ -283,11 +379,11 @@ public sealed class PreSignInOutbox
     /// an exception here used to escape into the reporter's loop, which then stopped for the life of the
     /// process (review of #3425). The delivered errors stay in the file and are sent again next time.
     /// </summary>
-    private void TryRemove(List<(string Signature, int Count)> delivered, long notKeptSent)
+    private void TryRemove(List<(string Signature, int Count)> delivered, FileShape? droppedSent)
     {
         try
         {
-            lock (_lock) Remove(delivered, notKeptSent);
+            lock (_lock) Remove(delivered, droppedSent);
         }
         catch (Exception ex) when (IsFileFailure(ex))
         {
@@ -299,7 +395,7 @@ public sealed class PreSignInOutbox
 
     /// <summary>Take what was delivered out of the file. An entry that was seen AGAIN while its report was in
     /// flight keeps the occurrences the report did not carry, so a count is never lost.</summary>
-    private void Remove(List<(string Signature, int Count)> delivered, long notKeptSent)
+    private void Remove(List<(string Signature, int Count)> delivered, FileShape? droppedSent)
     {
         var file = Read();
         var sentCounts = delivered.GroupBy(d => d.Signature, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Sum(d => d.Count), StringComparer.Ordinal);
@@ -311,7 +407,19 @@ public sealed class PreSignInOutbox
             else if (item.RepeatCount > count)
                 remaining.Add(item with { RepeatCount = item.RepeatCount - count });
         }
-        Write(new FileShape(remaining, Math.Max(0, file.NotKept - notKeptSent)));
+        // What was dropped while the report was in flight stays for the next one.
+        var bySource = file.NotKeptBySource is null ? null : new Dictionary<string, long>(file.NotKeptBySource, StringComparer.Ordinal);
+        if (bySource is not null && droppedSent?.NotKeptBySource is { } sentBySource)
+            foreach (var (source, count) in sentBySource)
+                if (bySource.TryGetValue(source, out var now))
+                {
+                    if (now > count) bySource[source] = now - count;
+                    else bySource.Remove(source);
+                }
+        Write(new FileShape(remaining, Math.Max(0, file.NotKept - (droppedSent?.NotKept ?? 0)))
+        {
+            NotKeptBySource = bySource is { Count: > 0 } ? bySource : null,
+        });
     }
 
     private int SentInLastHour(DateTime now)

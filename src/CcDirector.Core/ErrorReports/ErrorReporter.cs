@@ -108,15 +108,47 @@ public sealed class ErrorReporter : IDisposable
     /// (<see cref="ErrorReportLimits.Director"/> or <see cref="ErrorReportLimits.Launcher"/>). Call once, after
     /// <see cref="FileLog.Start"/>. A second call is ignored.
     /// </summary>
-    public static void Start(string component)
+    public static void Start(string component) => Start(component, config: null);
+
+    /// <summary>
+    /// <see cref="Start(string)"/> with the Gateway connection the reports are sent under. The self-hosted Gateway
+    /// app passes one that only ever names the HOSTED Gateway (issue #3643): its own machine's connection points
+    /// at itself, and a report sent there would never leave the person's machine.
+    /// </summary>
+    public static void Start(string component, Func<GatewayConfig>? config)
     {
         if (Current is not null) return;
-        var reporter = new ErrorReporter(component, preSignIn: DefaultOutbox);
+        var reporter = new ErrorReporter(component, config, preSignIn: DefaultOutbox);
         Current = reporter;
-        FileLog.ErrorObserver = reporter.OnLogLine;
+        // Added, not assigned: an embedded Gateway attaches its own store's sink to the same observer.
+        FileLog.ErrorObserver += reporter.OnLogLine;
         reporter.StartLoop();
         FileLog.Write($"{ErrorLine.ReporterTag} started: component={component}, version={reporter._productVersion}, os={reporter._os}, arch={reporter._arch}");
     }
+
+    /// <summary>
+    /// The connection a self-hosted Gateway app reports under (issue #3643): this machine's connection when it is
+    /// to the HOSTED Gateway - so the errors reach the account - and none otherwise, so they go through the
+    /// before-sign-in outbox to the hosted Gateway's public install-report route. A connection to any other
+    /// Gateway, the app's own included, holds a credential the hosted Gateway does not know, and a report sent
+    /// there would land in the very store on the person's machine that we cannot read.
+    /// </summary>
+    public static Func<GatewayConfig> HostedConnectionOnly(Func<GatewayConfig> load, Func<string> hostedUrl)
+    {
+        ArgumentNullException.ThrowIfNull(load);
+        ArgumentNullException.ThrowIfNull(hostedUrl);
+        return () =>
+        {
+            var config = load();
+            return IsSameGateway(config.Url, hostedUrl()) ? config : new GatewayConfig();
+        };
+    }
+
+    private static bool IsSameGateway(string url, string hosted)
+        => Uri.TryCreate(url, UriKind.Absolute, out var a) && Uri.TryCreate(hosted, UriKind.Absolute, out var b)
+           && string.Equals(a.Scheme, b.Scheme, StringComparison.OrdinalIgnoreCase)
+           && string.Equals(a.Host, b.Host, StringComparison.OrdinalIgnoreCase)
+           && a.Port == b.Port;
 
     /// <summary>
     /// Try to send what is pending before the process dies - from a terminating unhandled-exception hook.
@@ -249,10 +281,10 @@ public sealed class ErrorReporter : IDisposable
 
     internal void Add(string source, string kind, string message, string exceptionType, string stack)
     {
-        var cleanSource = ErrorTextScrubber.Clean(source, ErrorReportLimits.MaxShortField);
-        var cleanMessage = ErrorTextScrubber.Clean(message, ErrorReportLimits.MaxMessage);
-        var cleanType = ErrorTextScrubber.Clean(exceptionType, ErrorReportLimits.MaxShortField);
-        var cleanStack = ErrorTextScrubber.Clean(stack, ErrorReportLimits.MaxStack);
+        var cleanSource = ErrorTextScrubber.CleanOnThisMachine(source, ErrorReportLimits.MaxShortField);
+        var cleanMessage = ErrorTextScrubber.CleanOnThisMachine(message, ErrorReportLimits.MaxMessage);
+        var cleanType = ErrorTextScrubber.CleanOnThisMachine(exceptionType, ErrorReportLimits.MaxShortField);
+        var cleanStack = ErrorTextScrubber.CleanOnThisMachine(stack, ErrorReportLimits.MaxStack);
         var signature = string.Join('|', cleanSource, kind, cleanType, Digits.Replace(cleanMessage, "#"));
         var now = _clock();
         var announceFull = false;
@@ -600,7 +632,7 @@ public sealed class ErrorReporter : IDisposable
     {
         if (ReferenceEquals(Current, this))
         {
-            FileLog.ErrorObserver = null;
+            FileLog.ErrorObserver -= OnLogLine;
             Current = null;
         }
         _stop.Cancel();

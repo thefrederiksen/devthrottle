@@ -161,6 +161,8 @@ public sealed class EngineInstallRunner
             };
             Set(prep, r.ComponentId, status, r.Error);
         }
+        // A card that says "Failed" is a failure on our side too (issue #3640).
+        WizardProgressReport.ComponentsFailed(result.Results);
 
         // The installer does NOT provision the Python tools bundle - the app provisions it from nothing on
         // first launch (see InstallerToolsProvisioning). The real provisioner is wired but deliberately not
@@ -247,6 +249,8 @@ public sealed class EngineInstallRunner
             bundleItem.Status = result.Success ? "Done" : "Failed";
             if (!result.Success) bundleItem.StatusDetail = result.Message;
         }
+        if (!result.Success)
+            _ = WizardProgressReport.Error("tools", $"Windows setup wizard could not install the command line tools: {result.Message}", null);
         SetupLog.Write($"[EngineInstallRunner] Python tools: success={result.Success}, count={result.ToolCount}");
         return result.Success ? result.ToolCount : 0;
     }
@@ -291,6 +295,7 @@ public sealed class EngineInstallRunner
                 }
                 catch
                 {
+                    // Not reported: expected, not a failure.
                     // MainModule can throw (access denied / different bitness). A process we cannot
                     // introspect is not assumed to be our target; a genuine same-path conflict would
                     // still surface as a file lock during the swap.
@@ -308,7 +313,7 @@ public sealed class EngineInstallRunner
     {
         if (string.IsNullOrEmpty(path)) return null;
         try { return Path.GetFullPath(path); }
-        catch { return null; }
+        catch { return null; /* Not reported: a path that cannot be normalised is not the install path; the caller compares. */ }
     }
 
     /// <summary>
@@ -328,6 +333,7 @@ public sealed class EngineInstallRunner
         catch (Exception ex)
         {
             SetupLog.Write($"[EngineInstallRunner] Could not remove legacy Director: {ex.Message}");
+            _ = WizardProgressReport.Error("migrate-legacy", $"Windows setup wizard could not remove the old Director copy: {ex.GetType().Name}: {ex.Message}", ex);
         }
     }
 
