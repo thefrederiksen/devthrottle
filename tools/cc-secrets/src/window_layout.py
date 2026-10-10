@@ -139,6 +139,13 @@ def list_geometry(prefs: ListPrefs, monitors: Sequence[Rect], pointer: Tuple[int
     return x, y, width, height
 
 
+def fit_height(top: int, title_bar: int, height: int, monitor: Rect, minimum: int) -> int:
+    """The list's height so its frame - title bar included - ends inside the monitor. Tk sizes the content and
+    places the frame, so a list as tall as the work area would otherwise run a title bar's height past it."""
+    room = monitor[3] - top - title_bar
+    return max(minimum, min(height, room))
+
+
 def windows_monitors() -> List[Rect]:
     """The work area of every monitor, from Windows itself (Tk only knows the main screen)."""
     import ctypes

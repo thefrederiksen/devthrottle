@@ -71,6 +71,12 @@ def test_TheListOpenedTheFirstTime_IsCentredUnderTheMouse_AndNeverBiggerThanTheM
     assert (x, y) == (THIRD[0], THIRD[1])
 
 
+def test_TheListsFrame_TitleBarIncluded_EndsInsideTheMonitor():
+    assert wl.fit_height(top=0, title_bar=31, height=1032, monitor=MAIN, minimum=420) == 1001
+    assert wl.fit_height(top=100, title_bar=31, height=600, monitor=MAIN, minimum=420) == 600
+    assert wl.fit_height(top=900, title_bar=31, height=600, monitor=MAIN, minimum=420) == 420  # never below minimum
+
+
 def test_StillVisible_NeedsEnoughOfTheTitleBarToGrab():
     assert wl.still_visible((1900, 100, 2900, 700), MONITORS)
     assert not wl.still_visible((3830, 100, 4830, 700), MONITORS)  # only 10 pixels on the second screen

@@ -16,7 +16,7 @@ from typer.testing import CliRunner
 from conftest import add_entry, new_secret
 from src import cli, entry_window, paths
 from src.audit import AuditLog
-from src.store import KIND_SETTING
+from src.store import KIND_SETTING, make_entry
 from src.window_actions import ASK_RECORD, MODE_ASK, FormInput, FormRequest
 
 runner = CliRunner()
@@ -231,6 +231,18 @@ def test_Ask_OwnerUntoggledSessionsMayUse_IsRespected(store, owner):
 def test_Ask_HasNoParameterThatCouldCarryASecret():
     parameters = set(inspect.signature(cli.ask).parameters)
     assert parameters == {"name", "username", "notes", "reason", "domains", "uses", "agents", "setting", "env_name"}
+
+
+def test_Ask_ForASettingThatExists_DoesNotPreFillItsValue(store, owner):
+    """The owner types the value; ask never shows what is stored, even for a setting, which the window's Edit
+    does show."""
+    store.put(make_entry("posthog-host", "", "https://us.i.posthog.com", [], "", True, ["run"], kind=KIND_SETTING))
+    stand_in = owner(cancel=True)
+
+    runner.invoke(cli.app, ["ask", "posthog-host", "--setting"])
+
+    assert stand_in.request.kind_setting and stand_in.request.exists
+    assert stand_in.request.setting_value == ""
 
 
 def test_FormRequest_HasNoSecretField():

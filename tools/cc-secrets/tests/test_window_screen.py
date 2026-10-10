@@ -157,7 +157,11 @@ def test_ClosingTheList_RemembersWhereItWas(store):
         from src.window_actions import WINDOW_RECORD, WindowActions
         real = tk.Tk.mainloop
         def close_soon(self, n=0):
-            self.after(300, lambda: self.tk.call(self.protocol("WM_DELETE_WINDOW")))
+            def move_then_close():
+                self.geometry("900x500+150+120")
+                self.update()
+                self.tk.call(self.protocol("WM_DELETE_WINDOW"))
+            self.after(300, move_then_close)
             real(self, n)
         tk.Tk.mainloop = close_soon
         entry_window.show_list(WindowActions(SecretStore(UserOnlyFile(paths.store_path())),
@@ -171,4 +175,4 @@ def test_ClosingTheList_RemembersWhereItWas(store):
 
     assert done.returncode == 0, done.stderr[-2000:]
     prefs = window_layout.load_prefs(paths.secrets_home() / entry_window.PREFS_FILE)
-    assert prefs.x is not None and prefs.width >= 760
+    assert (prefs.x, prefs.y, prefs.width, prefs.height) == (150, 120, 900, 500)

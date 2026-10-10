@@ -35,6 +35,8 @@ NO_DISPLAY_MESSAGE = ("cc-secrets needs a screen to show its window on, and this
 MASK = "**********"
 WRAP = 470
 PREFS_FILE = "window.json"
+LIST_MIN_WIDTH = 760
+LIST_MIN_HEIGHT = 420
 
 
 def _windows_desktop_visible() -> bool:
@@ -100,7 +102,8 @@ def open_root(title: str):
 
 def monitors(win) -> List[window_layout.Rect]:
     """Every monitor's work area. Tk alone knows only the main screen on Windows, which is why a form used to
-    open on the main screen while the list was on another."""
+    open on the main screen while the list was on another. On macOS and Linux Tk reports one rectangle for the
+    whole screen area, so there a window is kept on that area, not on one monitor of it."""
     if sys.platform == "win32":
         return window_layout.windows_monitors()
     return [(0, 0, win.winfo_screenwidth(), win.winfo_screenheight())]
@@ -473,7 +476,10 @@ class ListWindow:
         self._tree.bind("<Delete>", lambda _e: self._delete())
         self._tree.bind("<space>", lambda _e: self._toggle_selected())
         self._tree.bind("<Escape>", lambda _e: self._search.focus_set())
-        right_click = ("<Button-2>", "<Control-Button-1>") if sys.platform == "darwin" else ("<Button-3>",)
+        right_click = ("<Button-3>",)
+        if sys.platform == "darwin":
+            # Tk before 8.7 numbered a Mac's right button 2; Tk 8.7 and 9 number it 3 like everywhere else.
+            right_click = ("<Button-3>" if tk.TkVersion >= 8.7 else "<Button-2>", "<Control-Button-1>")
         for sequence in right_click:
             self._tree.bind(sequence, self._context_menu)
         self._menu = tk.Menu(root, tearoff=0)
@@ -683,8 +689,10 @@ class ListWindow:
                          reveal)
         self.form = form  # the open form, for the tests that drive this window
         win.update_idletasks()
-        x, y = window_layout.centre_over(_client_rect(self._root), win.winfo_reqwidth(), win.winfo_reqheight(),
-                                         monitors(self._root))
+        # The size the window takes on screen includes its title bar, which the list's own shows.
+        title_bar = max(0, self._root.winfo_rooty() - self._root.winfo_y())
+        x, y = window_layout.centre_over(_client_rect(self._root), win.winfo_reqwidth(),
+                                         win.winfo_reqheight() + title_bar, monitors(self._root))
         win.geometry(f"+{x}+{y}")
         win.deiconify()
         win.lift()
@@ -750,7 +758,7 @@ def show_list(actions: WindowActions) -> None:
     prefs_path = _prefs_path()
     prefs = window_layout.load_prefs(prefs_path)
     root = open_root(f"cc-secrets - passwords and settings ({platform.node()})")
-    root.minsize(760, 420)
+    root.minsize(LIST_MIN_WIDTH, LIST_MIN_HEIGHT)
     window = ListWindow(root, actions, prefs)
     x, y, width, height = window_layout.list_geometry(prefs, monitors(root), root.winfo_pointerxy())
     root.geometry(f"{width}x{height}+{x}+{y}")
@@ -764,4 +772,10 @@ def show_list(actions: WindowActions) -> None:
 
     root.protocol("WM_DELETE_WINDOW", close)
     bring_to_front(root)
+    root.update()
+    title_bar = max(0, root.winfo_rooty() - root.winfo_y())
+    monitor = window_layout.monitor_at(x + width // 2, y + title_bar, monitors(root))
+    fitted = window_layout.fit_height(y, title_bar, height, monitor, LIST_MIN_HEIGHT)
+    if fitted != height:
+        root.geometry(f"{width}x{fitted}")
     root.mainloop()

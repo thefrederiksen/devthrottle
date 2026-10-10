@@ -2124,9 +2124,10 @@ runs `cc-secrets ui`.
 USAGE: cc-secrets ui
 ```
 
-Opens the cc-secrets window and returns when it is closed. It opens where it was last closed (on whichever
-monitor that was, if it is still connected), or on the monitor under the mouse the first time, and remembers its
-size, sort order and filter in `window.json` beside the store - nothing about any entry.
+Opens the cc-secrets window and returns when it is closed. It opens where it was last closed, while that place is
+still on a screen, or under the mouse the first time, and remembers its size, sort order and filter in
+`window.json` beside the store - nothing about any entry. On Windows each monitor is known, so a window is kept on
+one monitor; on macOS and Linux Tk reports the screens as one area, so there it is kept on that area.
 
 The list shows every entry with the columns Name, Kind (Password or Setting), User name, Value, Agents may (what
 agents may do with it: `run`, `login`, or "not allowed") and Last used (the last successful `run`, `login` or `get`,
@@ -2177,7 +2178,8 @@ OPTIONS:
 ```
 
 The pop-up is the same form as the window's Add, pre-filled with everything except the secret, with the asking
-session's number and name and the reason at the top. It opens on the monitor under the mouse. If the entry already exists an amber line says Save REPLACES
+session's number and name and the reason at the top. It opens under the mouse (on Windows, centred on that
+monitor). If the entry already exists an amber line says Save REPLACES
 it; a name the owner types over an existing one is warned about on the first Save. A secret
 that cannot be stored (too short, for example) is reported in the window, which stays open.
 
