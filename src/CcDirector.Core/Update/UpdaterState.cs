@@ -228,9 +228,16 @@ public sealed class UpdaterState
     /// read failed. A file that reads but is not JSON is treated as
     /// empty, as a load has always treated it, and that is logged as a failure.
     /// </summary>
-    public static UpdaterState UpdateAt(string path, Action<UpdaterState> change) => UpdateAt(path, change, FileLock.DefaultWait);
+    public static UpdaterState UpdateAt(string path, Action<UpdaterState> change) => UpdateAt(path, change, DefaultLockWait);
 
-    internal static UpdaterState UpdateAt(string path, Action<UpdaterState> change, TimeSpan wait)
+    /// <summary>How long a read or a change waits for the state file's lock when the caller names no wait.</summary>
+    public static TimeSpan DefaultLockWait => FileLock.DefaultWait;
+
+    /// <summary>
+    /// <see cref="UpdateAt(string, Action{UpdaterState})"/> with the lock wait chosen by the caller instead of
+    /// <see cref="DefaultLockWait"/>. Throws <see cref="TimeoutException"/> when the lock is not had within it.
+    /// </summary>
+    public static UpdaterState UpdateAt(string path, Action<UpdaterState> change, TimeSpan wait)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         ArgumentNullException.ThrowIfNull(change);

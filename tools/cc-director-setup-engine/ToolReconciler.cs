@@ -59,16 +59,22 @@ public sealed class ToolReconciler
 
     private readonly InstallLayout _layout;
     private readonly Func<CancellationToken, Task<PythonToolsResult>> _heavyRepairAsync;
+    private readonly string _heavyRepairMutexName;
 
     /// <summary>
     /// Construct against an install layout (defaults to the production layout) and the heavy-repair
     /// escalation (defaults to <see cref="ToolUpdater.RepairPythonToolsAsync"/>). The heavy-repair delegate is
     /// injectable so tests can drive the reconcile logic without a real release or network access.
+    /// The mutex name defaults to <see cref="HeavyRepairMutexName"/>, the one every Director on the machine
+    /// shares; a test passes a name of its own so it never contends with a live Director or another test run.
     /// </summary>
     public ToolReconciler(
         InstallLayout? layout = null,
-        Func<CancellationToken, Task<PythonToolsResult>>? heavyRepairAsync = null)
+        Func<CancellationToken, Task<PythonToolsResult>>? heavyRepairAsync = null,
+        string heavyRepairMutexName = HeavyRepairMutexName)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(heavyRepairMutexName);
+        _heavyRepairMutexName = heavyRepairMutexName;
         _layout = layout ?? InstallLayout.Default();
         _heavyRepairAsync = heavyRepairAsync ?? (ct => new ToolUpdater(_layout).RepairPythonToolsAsync(ct: ct));
     }
@@ -285,7 +291,7 @@ public sealed class ToolReconciler
         // named mutex gives us across Directors is preserved.
         return RunOwningOneThreadAsync<ReconcileResult?>(() =>
         {
-            using var mutex = new Mutex(initiallyOwned: false, HeavyRepairMutexName, out _);
+            using var mutex = new Mutex(initiallyOwned: false, _heavyRepairMutexName, out _);
             var held = false;
             try
             {

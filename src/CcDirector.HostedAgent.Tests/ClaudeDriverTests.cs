@@ -193,6 +193,28 @@ public class ClaudeDriverTests : IDisposable
     }
 
     [Fact]
+    public async Task SubmitAsync_EchoTimeoutGiven_IsTheWaitTheSubmitUses()
+    {
+        // The constructor used to accept the echo timeout and drop it, so a submit waited the
+        // production wait (over a minute for this case) whatever the caller asked for. With a
+        // 50 ms timeout the failed submit is over in well under the ten seconds allowed here;
+        // with the production wait it cannot be.
+        var backend = new FakeBackend();
+        backend.Start("x", "", ".", 80, 24);
+        var driver = new ClaudeDriver(
+            new FakeTranscriptReader(),
+            echoTimeout: TimeSpan.FromMilliseconds(50),
+            echoPollInterval: TimeSpan.FromMilliseconds(5));
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+
+        await Assert.ThrowsAsync<ComposerNotAcceptingInputException>(
+            () => driver.SubmitAsync(backend, "hello"));
+
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(10),
+            $"the submit took {clock.Elapsed.TotalSeconds:0.0} s, so the echo timeout given was not used");
+    }
+
+    [Fact]
     public async Task SubmitAsync_MultiLineInput_DelegatesToBackendTempFilePath()
     {
         var backend = new FakeBackend();

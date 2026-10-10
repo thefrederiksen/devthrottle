@@ -66,7 +66,7 @@ public sealed class DirectorUpdateClaimTests : IDisposable
         Assert.True(held.Wait(TimeSpan.FromSeconds(5)));
         try
         {
-            Assert.False(DirectorUpdateOwner.ClearStagedRecord(Staged("9.9.9")));
+            Assert.False(DirectorUpdateOwner.ClearStagedRecord(Staged("9.9.9"), TimeSpan.FromMilliseconds(100)));
         }
         finally
         {

@@ -29,6 +29,30 @@ public class GitFileLeafNode : GitTreeNode
     public ISolidColorBrush StatusBrush { get; set; } = Brushes.Gray;
 }
 
+/// <summary>
+/// The git work the Source Control page does, in one place so a test can hand the page its own and
+/// count what it is asked to do instead of running real git.
+/// </summary>
+internal interface IGitChangesGit
+{
+    Task<GitStatusResult> GetStatusAsync(string repoPath);
+    string? GetCachedRawOutput(string repoPath);
+    Task FetchAsync(string repoPath);
+    Task<GitSyncStatus> GetSyncStatusAsync(string repoPath);
+}
+
+/// <summary>The real git work: the status and sync providers the page has always used.</summary>
+internal sealed class ProviderGitChangesGit : IGitChangesGit
+{
+    private readonly GitStatusProvider _provider = new();
+    private readonly GitSyncStatusProvider _syncProvider = new();
+
+    public Task<GitStatusResult> GetStatusAsync(string repoPath) => _provider.GetStatusAsync(repoPath);
+    public string? GetCachedRawOutput(string repoPath) => _provider.GetCachedRawOutput(repoPath);
+    public Task FetchAsync(string repoPath) => _syncProvider.FetchAsync(repoPath);
+    public Task<GitSyncStatus> GetSyncStatusAsync(string repoPath) => _syncProvider.GetSyncStatusAsync(repoPath);
+}
+
 public partial class GitChangesView : UserControl
 {
     private static readonly ISolidColorBrush BrushModified = new SolidColorBrush(Color.FromRgb(0xCC, 0xA7, 0x00));
@@ -38,8 +62,7 @@ public partial class GitChangesView : UserControl
     private static readonly ISolidColorBrush BrushUntracked = new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88));
     private static readonly ISolidColorBrush BrushDefault = new SolidColorBrush(Color.FromRgb(0xAA, 0xAA, 0xAA));
 
-    private readonly GitStatusProvider _provider = new();
-    private readonly GitSyncStatusProvider _syncProvider = new();
+    private readonly IGitChangesGit _git;
     private DispatcherTimer? _pollTimer;
     private DispatcherTimer? _syncTimer;
     private DateTime _lastFetchTime = DateTime.MinValue;
@@ -49,10 +72,18 @@ public partial class GitChangesView : UserControl
     /// <summary>Raised when the user requests to view a file.</summary>
     public event Action<string>? ViewFileRequested;
 
-    public GitChangesView()
+    public GitChangesView() : this(new ProviderGitChangesGit())
     {
+    }
+
+    internal GitChangesView(IGitChangesGit git)
+    {
+        _git = git ?? throw new ArgumentNullException(nameof(git));
         InitializeComponent();
     }
+
+    /// <summary>The refresh and fetch <see cref="Attach"/> starts, so a caller can wait for it to finish.</summary>
+    internal Task AttachRefresh { get; private set; } = Task.CompletedTask;
 
     public void Attach(string repoPath)
     {
@@ -74,8 +105,7 @@ public partial class GitChangesView : UserControl
         _syncTimer.Tick += SyncTimer_Tick;
         _syncTimer.Start();
 
-        _ = RefreshAsync();
-        _ = RefreshSyncAsync(fetch: true);
+        AttachRefresh = Task.WhenAll(RefreshAsync(), RefreshSyncAsync(fetch: true));
     }
 
     public void Detach()
@@ -164,10 +194,10 @@ public partial class GitChangesView : UserControl
         if (fetch)
         {
             _lastFetchTime = DateTime.UtcNow;
-            await _syncProvider.FetchAsync(_repoPath);
+            await _git.FetchAsync(_repoPath);
         }
 
-        var status = await _syncProvider.GetSyncStatusAsync(_repoPath);
+        var status = await _git.GetSyncStatusAsync(_repoPath);
         if (!status.Success)
         {
             BranchBar.IsVisible = false;
@@ -199,11 +229,11 @@ public partial class GitChangesView : UserControl
     {
         if (_repoPath == null || !Directory.Exists(_repoPath)) return;
 
-        var result = await _provider.GetStatusAsync(_repoPath);
+        var result = await _git.GetStatusAsync(_repoPath);
         if (!result.Success) return;
 
         // Skip expensive tree rebuild if git output hasn't changed
-        var rawOutput = _provider.GetCachedRawOutput(_repoPath);
+        var rawOutput = _git.GetCachedRawOutput(_repoPath);
         if (rawOutput != null && rawOutput == _lastRawOutput)
             return;
         _lastRawOutput = rawOutput;

@@ -21,12 +21,19 @@ public static class PythonRuntimeProbe
     /// prove this - a stripped standard library or a non-executable file both report as a dead runtime
     /// (false), which the caller treats as "needs (re)provisioning".
     /// </summary>
-    public static bool CanImportStdlib(string pythonExe)
+    public static bool CanImportStdlib(string pythonExe) => CanImportStdlib(pythonExe, ProcessRunner.Run);
+
+    /// <summary>The arguments the probe runs the interpreter with.</summary>
+    internal const string ProbeArguments = "-c \"import encodings\"";
+
+    /// <summary><see cref="CanImportStdlib(string)"/>, running the interpreter through <paramref name="run"/>.</summary>
+    internal static bool CanImportStdlib(string pythonExe, RunProcess run)
     {
+        ArgumentNullException.ThrowIfNull(run);
         if (string.IsNullOrWhiteSpace(pythonExe) || !File.Exists(pythonExe)) return false;
         try
         {
-            var (exit, _) = ProcessRunner.Run(pythonExe, "-c \"import encodings\"", onStdoutLine: null, Timeout);
+            var (exit, _) = run(pythonExe, ProbeArguments, null, Timeout);
             return exit == 0;
         }
         catch
