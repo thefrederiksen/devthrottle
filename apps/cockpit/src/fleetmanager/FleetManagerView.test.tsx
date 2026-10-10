@@ -5,7 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 import type { FleetManagerPlacement } from "@devthrottle/client-core/settings/fleetManagerClient";
 import type { FleetManagerPage } from "@devthrottle/client-core/fleetmanager/pageClient";
 import type { FleetStanding } from "@devthrottle/client-core/fleetmanager/standingClient";
-import { emptyPage, FM_SESSION, morningPage, placement, standing } from "./fixtures";
+import { emptyPage, FM_SESSION, morningPage, placement, standing, startFresh } from "./fixtures";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 

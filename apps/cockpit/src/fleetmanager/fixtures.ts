@@ -363,7 +363,7 @@ function placementAction(label: string, offered: boolean, note: string | null = 
   return { offered, label, note, busyLabel: `${label} busy (fake)` };
 }
 
-function startFresh(offered: boolean) {
+export function startFresh(offered: boolean) {
   return {
     ...placementAction("Start fresh (fake)", offered),
     confirmTitle: offered ? "Start a fresh one? (fake)" : null,
