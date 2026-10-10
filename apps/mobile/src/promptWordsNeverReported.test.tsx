@@ -134,7 +134,15 @@ const DRIVERS: Record<string, () => Promise<void>> = {
       await result.current.onRespondSend(`${MARKER} spoken reply`);
     });
     expect(result.current.error).toBeTruthy();
-    act(() => result.current.onRespondSendAudio(capturedWithMarker() as never));
+    // The voice reply's red box is the same Send failure as the typed one: it carries the Gateway's reason and
+    // the X-Correlation-Id it answered with (review finding 2 - sendVoicePrompt threw a bare GatewayError).
+    expect(result.current.error).toContain("owning director is not connected");
+    await waitFor(() =>
+      expect(
+        reports.map((r) => JSON.parse(r) as Record<string, unknown>).filter((r) => r.surface === "voice-mode"),
+      ).toEqual([expect.objectContaining({ action: "send prompt", http_status: 502, correlation_id: "corr-test-1", session_id: SID })]),
+    );
+    act(() =>result.current.onRespondSendAudio(capturedWithMarker() as never));
   },
   "apps/mobile/src/routes.tsx#resumePendingDictations#GatedLayout": async () => {
     pending.set("pending-1", {

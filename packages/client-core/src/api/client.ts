@@ -1042,7 +1042,7 @@ export async function sendVoicePrompt(
     signal,
   });
   if (!res.ok) {
-    throw new GatewayError(res.status, `POST prompt failed: ${res.status}`);
+    throw await GatewayError.from(res, "send that to the session");
   }
   const answer = (await res.json()) as {
     accepted?: boolean;
