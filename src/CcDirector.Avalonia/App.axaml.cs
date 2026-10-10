@@ -340,11 +340,8 @@ public partial class App : Application
             if (args.IsTerminating) CcDirector.Core.ErrorReports.ErrorReporter.FlushBeforeExit(TimeSpan.FromSeconds(3));
         };
 
-        TaskScheduler.UnobservedTaskException += (_, args) =>
-        {
-            FileLog.Write($"[App] UNOBSERVED TASK EXCEPTION: {args.Exception}");
-            args.SetObserved();
-        };
+        // Unobserved task exceptions are logged by Program's hook alone, which covers the whole process. A second
+        // subscription here reported every one of them twice (issue #3749).
 
         // Avalonia UI-thread exceptions are NOT caught by AppDomain.UnhandledException
         // when they originate in dispatcher-posted callbacks or binding/render paths.
