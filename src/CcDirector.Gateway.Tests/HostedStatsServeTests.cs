@@ -182,10 +182,18 @@ public sealed class HostedStatsServeTests : IAsyncLifetime
         _httpA?.Dispose();
         _httpB?.Dispose();
         _httpUnbound?.Dispose();
-        if (_gateway is not null) await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable(StatsConnectionSelection.StatsConnectionEnvVar, _priorStatsConnection);
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
-        Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
+        // The process-wide variables are restored in a finally: a stop that throws must not leave
+        // CC_GATEWAY_HOSTED=1 set for every class that runs after this one in the same test process.
+        try
+        {
+            if (_gateway is not null) await _gateway.StopAsync();
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(StatsConnectionSelection.StatsConnectionEnvVar, _priorStatsConnection);
+            Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
+            Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
+        }
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); } catch { /* best effort */ }
         try { if (Directory.Exists(_root)) Directory.Delete(_root, true); } catch { /* best effort */ }
     }
