@@ -448,8 +448,14 @@ try {
         $executed = 0
         $total = 0
         $aborted = $false
-        if (Test-Path $r.Trx) {
-            $raw = Get-Content $r.Trx -Raw
+        # Read as a string first: Get-Content -Raw on a ZERO-BYTE file returns null in PowerShell 5.1, and a
+        # host killed before it wrote anything leaves exactly that file. An empty result file is its own
+        # outcome, EMPTY-TRX, which the never-ran check below refuses as an unfinished run.
+        $raw = ""
+        if (Test-Path $r.Trx) { $raw = [string] (Get-Content $r.Trx -Raw) }
+        if ([string]::IsNullOrWhiteSpace($raw) -and (Test-Path $r.Trx)) {
+            $outcome = "EMPTY-TRX"
+        } elseif (Test-Path $r.Trx) {
             [xml] $doc = $raw
             $outcome = [string] $doc.TestRun.ResultSummary.outcome
             $total = [int] $doc.TestRun.ResultSummary.Counters.total
