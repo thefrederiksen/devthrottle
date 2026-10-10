@@ -33,16 +33,20 @@ internal static class FactoryOwnerActionEndpoints
 
     /// <param name="appendRows">Record several activity rows as one write: all of them or none.</param>
     /// <param name="setScheduleEnabled">Switch one schedule of the account on or off; null when it does not exist.</param>
+    /// <param name="placeWindows">After Restore switched schedules on, give each window schedule among them its minute,
+    /// as a save does; returns a sentence for each one no minute could be found for (WindowRestorePlacement).</param>
     public static void Map(IEndpointRouteBuilder app, FactoryAgentsSwitch factorySwitch,
         Func<HttpContext, TenantId?> resolveTenant, FactoriesScreenSources sources,
         Func<TenantId, IReadOnlyList<AppendFactoryActivityRequest>, string, IReadOnlyList<FactoryActivityDto>> appendRows,
-        Func<TenantId, string, bool, CronJobDto?> setScheduleEnabled)
+        Func<TenantId, string, bool, CronJobDto?> setScheduleEnabled,
+        Func<TenantId, IReadOnlyList<CronJobDto>, IReadOnlyList<string>> placeWindows)
     {
         ArgumentNullException.ThrowIfNull(factorySwitch);
         ArgumentNullException.ThrowIfNull(resolveTenant);
         ArgumentNullException.ThrowIfNull(sources);
         ArgumentNullException.ThrowIfNull(appendRows);
         ArgumentNullException.ThrowIfNull(setScheduleEnabled);
+        ArgumentNullException.ThrowIfNull(placeWindows);
 
         app.MapPost(Prefix + "/waiting/handled-older", (HttpContext ctx, string factory) =>
             Handle(ctx, factory, "mark old waiting items handled", factorySwitch, resolveTenant, sources, (tenant, f, body, actor) =>
@@ -98,6 +102,9 @@ internal static class FactoryOwnerActionEndpoints
                 // The schedules first, the registry after: should a switch fail, the factory is still archived and
                 // still names them, so pressing Restore again finishes the job.
                 var switched = Switch(tenant, plan, enabled: true, setScheduleEnabled);
+                // Every one is switched on before any window is placed, so a window that runs after another of the
+                // factory's schedules finds it running.
+                var unplaced = placeWindows(tenant, switched);
                 sources.Registry.Restore(tenant, f.Factory);
                 appendRows(tenant, new[] { FactoryOwnerActions.RestoreRow(f, switched, actor, now) }, actor);
                 FileLog.Write($"[FactoryOwnerActionEndpoints] restore: {f.Factory} switched on={string.Join(",", switched.Select(j => j.Id))}, actor={actor}");
@@ -105,7 +112,8 @@ internal static class FactoryOwnerActionEndpoints
                 {
                     Text = $"{f.Title} is back on the Factories list. " + (switched.Count == 0
                         ? "No schedule was switched back on."
-                        : $"Switched back on: {FactoryOwnerActions.Names(switched)}."),
+                        : $"Switched back on: {FactoryOwnerActions.Names(switched)}.")
+                        + string.Concat(unplaced.Select(u => " " + u)),
                     SchedulesSwitched = switched.Select(j => j.Id).ToList(),
                 });
             }));

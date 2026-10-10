@@ -4986,7 +4986,12 @@ public sealed class GatewayHost : IAsyncDisposable
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             sources: factoriesScreenSources,
             appendRows: (tenant, rows, actor) => FactoryActivity.Append(tenant, rows, actor),
-            setScheduleEnabled: (tenant, id, enabled) => _cronJobs.SetEnabled(tenant, id, enabled));
+            setScheduleEnabled: (tenant, id, enabled) => _cronJobs.SetEnabled(tenant, id, enabled),
+            // A window schedule Restore switched on is given its minute the way a save gives it one.
+            placeWindows: (tenant, switchedOn) => WindowRestorePlacement.PlaceSwitchedOn(_cronJobs, tenant,
+                switchedOn.Select(j => j.Id).ToList(),
+                ids => new Running.CronRunRecordReader(_cronRuns, _sessionHistory.EndingsOf).RunLengthsOf(ids),
+                DateTime.UtcNow));
         // The Talk button (Factories screen mission, phase C): a session seated as one seat, started down the same
         // path a person's New Session takes, built from the same stores GatewayEndpoints.Map was handed above.
         var talkSpawnDoor = new Api.DirectorSpawnDoor(_tenantBoundary, Registry, _sessionHistory.FactoryOf, SendCommandAsync,

@@ -860,11 +860,15 @@ def disable_job(job_id: str) -> None:
 
 def delete_job(job_id: str) -> None:
     try:
-        _client().delete_job(job_id)
+        answer = _client().delete_job(job_id)
     except GatewayError as ex:
         _fail(str(ex), [_FIND_A_SCHEDULE, "cc-devthrottle schedule endpoint"])
         return
     axi_cli.write_lines(f"Deleted schedule {job_id}.")
+    # The Gateway's warning when window schedules ran after this one: they keep running but cannot be placed again.
+    warning = answer.get("warning")
+    if warning:
+        axi_cli.write_lines(f"  WARNING:   {axi_cli.ascii_text(warning)}")
     axi_cli.print_next([_FIND_A_SCHEDULE, _CREATE_USAGE])
 
 

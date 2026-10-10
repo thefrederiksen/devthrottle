@@ -75,6 +75,23 @@ public sealed class CronLoadTests
     }
 
     [Fact]
+    public void Build_AScheduleWhoseFactoryIsNotRegistered_IsCountedAsTheOwnersOwn()
+    {
+        var live = Daily("live", "0 7 * * *");
+        live.Factory = "clickfunnels";
+        live.Seat = "builder";
+        var gone = Daily("gone", "0 7 * * *");
+        gone.Factory = "retired";
+        gone.Seat = "boss";
+
+        var machine = Assert.Single(CronLoad.Build(new[] { live, gone }, Lengths(("live", 30), ("gone", 30)), Now, 6,
+            registeredFactories: new HashSet<string>(StringComparer.Ordinal) { "clickfunnels" }).Machines);
+
+        Assert.Equal(2, Hour(machine, "07:00").Concurrent);
+        Assert.Equal(1, Hour(machine, "07:00").FactoryConcurrent);
+    }
+
+    [Fact]
     public void Build_ARunEndingAsAnotherStarts_DoesNotOverlapIt()
     {
         var jobs = new[] { Daily("a", "0 7 * * *"), Daily("b", "0 8 * * *") };

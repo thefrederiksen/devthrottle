@@ -132,10 +132,15 @@ internal static class CronJobEndpoints
             return (jobs, lengths);
         }
 
-        CronLoadDto Forecast()
+        CronLoadDto Forecast(HttpContext ctx)
         {
             var (jobs, lengths) = ForecastInputs();
-            return CronLoad.Build(jobs, lengths, DateTime.UtcNow, CronLoad.DefaultCapacity);
+            // The factory colour follows the Schedule page: a schedule whose factory is not registered is the owner's own.
+            var registered = jobs.Select(j => j.Factory).Where(f => !string.IsNullOrWhiteSpace(f)).Select(f => f!)
+                .Distinct(StringComparer.Ordinal)
+                .Where(f => findFactory(ctx, f) is not null)
+                .ToHashSet(StringComparer.Ordinal);
+            return CronLoad.Build(jobs, lengths, DateTime.UtcNow, CronLoad.DefaultCapacity, registered);
         }
 
         // The schedule is already saved when this runs, so a failure reading the forecast must not turn the saved
@@ -162,15 +167,14 @@ internal static class CronJobEndpoints
         // minute in its window works. Whatever `placed=` the caller sent is discarded: the minute is the Gateway's.
         string? PlaceWindow(CronJobDto job)
         {
-            var settings = WindowSchedule.Parse(job.CronExpression).Settings!;
             var (jobs, lengths) = ForecastInputs();
-            var (placed, error) = WindowSchedule.Place(job, settings with { PlacedMinute = null }, jobs, lengths, DateTime.UtcNow);
+            var (placed, error) = WindowSchedule.PlaceAgain(job, jobs, lengths, DateTime.UtcNow);
             if (placed is null)
             {
                 FileLog.Write($"[CronJobEndpoints] place window {job.Id} '{job.Name}' REFUSED: {error}");
                 return $"this window schedule cannot be placed: {error}";
             }
-            job.CronExpression = placed.ToText();
+            job.CronExpression = placed;
             FileLog.Write($"[CronJobEndpoints] place window {job.Id} '{job.Name}': {job.CronExpression}");
             return null;
         }
@@ -221,9 +225,9 @@ internal static class CronJobEndpoints
 
         // THE LOAD STRIP (the owner, 2026-10-09): each machine's next 24 hours, one bar per hour, from every active
         // schedule's fires and its own measured run length. Random schedules count: they start sessions like any other.
-        app.MapGet("/cron/load", () =>
+        app.MapGet("/cron/load", (HttpContext ctx) =>
         {
-            var load = Forecast();
+            var load = Forecast(ctx);
             FileLog.Write($"[CronJobEndpoints] GET /cron/load: machines={load.Machines.Count}");
             return Results.Json(load);
         });

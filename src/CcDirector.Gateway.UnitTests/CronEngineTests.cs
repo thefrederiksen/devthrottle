@@ -62,6 +62,71 @@ public sealed class CronEngineTests : IDisposable
         Action = new CronJobAction { RepoPath = @"D:\repo", Seed = "/help" },
     };
 
+    // A window schedule placed at 02:00 Toronto time, to be done by 04:00 when it has a deadline.
+    private static CronJobDto WindowJob(bool deadline) => new()
+    {
+        Name = "night window",
+        Enabled = true,
+        ScheduleKind = CronSchedule.KindWindow,
+        CronExpression = deadline ? "window=01:00-03:00 deadline=04:00 placed=02:00" : "window=01:00-03:00 placed=02:00",
+        TimeZoneId = "America/Toronto",
+        Target = new CronJobTarget { Machine = "workstation-A" },
+        Action = new CronJobAction { RepoPath = @"D:\repo", Seed = "/help" },
+    };
+
+    [Fact]
+    public async Task EvaluateDue_AWindowRunMissedPastItsDeadline_IsNotStarted_AndMovesOnSayingWhy()
+    {
+        var store = NewJobStore();
+        var history = NewHistory();
+        var starter = new RecordingStarter();
+        var created = store.Create(WindowJob(deadline: true));
+        Assert.NotNull(created.NextRunUtc);
+        // The sweep comes round at 05:00 (the machine slept through 02:00) - an hour past the 04:00 deadline.
+        var clock = new FakeClock(created.NextRunUtc.Value.AddHours(3));
+
+        var fired = await Engine(store, history, starter, clock).EvaluateDueAsync(CancellationToken.None);
+
+        Assert.Empty(fired);
+        Assert.Equal(0, starter.StartCount);
+        Assert.Empty(history.List(created.Id));
+        var after = store.Get(created.Id)!;
+        Assert.Equal(CronEngine.SkippedPastDeadline, after.LastStatus);
+        Assert.Null(after.LastFiredUtc);
+        Assert.True(after.NextRunUtc > clock.UtcNow);
+    }
+
+    [Fact]
+    public async Task EvaluateDue_AWindowRunMissedButStillBeforeItsDeadline_StillCatchesUp()
+    {
+        var store = NewJobStore();
+        var history = NewHistory();
+        var starter = new RecordingStarter();
+        var created = store.Create(WindowJob(deadline: true));
+        // The sweep comes round at 03:00, before the 04:00 deadline.
+        var clock = new FakeClock(created.NextRunUtc!.Value.AddHours(1));
+
+        var fired = await Engine(store, history, starter, clock).EvaluateDueAsync(CancellationToken.None);
+
+        Assert.Single(fired);
+        Assert.Equal("catch-up", fired[0].InfraStatus);
+    }
+
+    [Fact]
+    public async Task EvaluateDue_AWindowRunWithNoDeadline_CatchesUpHoweverLate()
+    {
+        var store = NewJobStore();
+        var history = NewHistory();
+        var starter = new RecordingStarter();
+        var created = store.Create(WindowJob(deadline: false));
+        var clock = new FakeClock(created.NextRunUtc!.Value.AddHours(3));
+
+        var fired = await Engine(store, history, starter, clock).EvaluateDueAsync(CancellationToken.None);
+
+        Assert.Single(fired);
+        Assert.Equal(1, starter.StartCount);
+    }
+
     [Fact]
     public async Task EvaluateDue_RecurringJobDue_Fires_RecordsRun_AdvancesNextRun()
     {
