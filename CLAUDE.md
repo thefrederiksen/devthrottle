@@ -262,8 +262,8 @@ the browser shells or the Python toolbelt, start it yourself right after merging
 **Releasing is the one place the missing coverage bites, and it cannot be fixed forward.** The
 release workflow runs ZERO tests - it builds and publishes artifacts - and a pushed tag cannot be
 un-pushed. So a defect that the default gate never looked at ships, and "fix it forward" is not
-available to a release that is already out. **The release gate runs on merged `main` at the exact
-commit about to be tagged, and it is ONE command:**
+available to a release that is already out. **The release gate runs once, on the frozen candidate,
+and it is ONE command:**
 
     .\scripts\test-local.ps1 -Parked -Configuration Release
 
@@ -278,15 +278,29 @@ alternative is those proofs reporting SKIPPED, which is indistinguishable from a
 produce - a dead shared container did exactly that to the v2.1.2 release gate. The DEFAULT run starts no
 database and needs no Docker.
 
-**Corrected 2026-08-04, on evidence, by the remove-the-network-port mission.** This section used to
-say the gate was THREE commands, because the two installer projects were not in `cc-director.sln`
-and the script "runs nine projects, all under `src\`". That is no longer true of the script: it
-names `tools\cc-director-setup.Tests` and `tools\cc-director-setup-engine.Tests` in its own project
-list, its default run reports both (25 and 454 tests), and a `-Parked` run produces ELEVEN result
-files. Verified twice - a Manager's eleven result files, and the Architect reading the project list
-in `scripts\test-local.ps1` - rather than taken from either report. The two extra `dotnet test`
-commands were re-running suites the gate had already run. **If you are about to release, run the one
-command; the installer IS covered.**
+**The installer IS covered.** This section once said the gate was THREE commands, with the installer
+suites run by hand. The script names all three installer suites in its own project list -
+`tools\cc-director-setup.Tests`, `tools\cc-director-setup-engine.Tests` and
+`tools\cc-director-setup-cli.Tests` - so extra `dotnet test` commands only re-run suites the gate
+already ran. Read the project list in `scripts\test-local.ps1` rather than a count written here.
+**If you are about to release, run the one command.**
+
+**The frozen candidate.** The version bump and the release notes merge in ONE pull request, and its
+merge commit is the candidate. The notes are never edited after that merge. The gate runs once on
+the candidate, `scripts\assert-gated.ps1 <candidate>` must accept it, and the tag goes on the
+candidate even when main has moved on. Work merged after the candidate waits for the next release.
+A red candidate is not released and is not run again - the gate runs in a worktree detached at the
+candidate, so a fix made on main never reaches it, and a second run is a retry. Fix the cause on main
+(a flaky test is a defect in the test) and cut a new candidate. `scripts\new-release.ps1` freezes
+the candidate, and `scripts\new-release.ps1 -Tag <candidate>` tags it only once `assert-gated.ps1`
+accepts it. The `release-manager` skill holds the steps. **Why:** v2.18.0's notes were rewritten four times, because
+every notes edit was a new commit that voided the gate run under way, and every merge widened what
+the notes had to cover - a gate that takes hours cannot win that race.
+
+**One seat runs the release gate - the release seat.** Every other session runs the default gate,
+and an early warning is the default run, never `-Parked`. Two release gates on one machine fight
+over the Gateway test lock and the loser executes nothing: 19 runs in three days gave up after 45
+minutes having run no test at all.
 
 An earlier run does not count: the version bump and anything merged since is untested by it, and a
 run against a pull-request head is not a run against the squashed commit that gets tagged. This is
@@ -296,6 +310,11 @@ integration run rather than reintroducing it.
 If the Gateway suite says it is WAITING on a lock held by another run, that is not a hang - it is
 one run at a time by design, and it prints its holder every 30 seconds. See issue #1156 for why that
 queue exists and the work to remove it.
+
+**A one-off workflow is disabled by the pull request that finishes it.** A workflow added on a branch
+to rehearse or reproduce something stays registered and dispatchable after its file and branch are
+gone. Run `gh workflow disable <id>` as part of finishing that work. On 10 October 2026 eleven such
+workflows were still active, cluttering the Actions page where the release run is watched.
 
 ### 6. UI Thread Safety
 

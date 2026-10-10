@@ -159,12 +159,45 @@ public sealed class ReleaseWorkflowContractTests
                 + "message and then carry on to push the tag - the exact defect these guards exist to stop.");
         }
 
-        // The guard has to run BEFORE the tag is created, or it is decoration.
-        var guardAt = script.IndexOf("$notesPath = Join-Path", StringComparison.Ordinal);
+        // The tag step checks the notes IN THE CANDIDATE, and it has to do so BEFORE the tag is created, or it
+        // is decoration.
+        var guardAt = script.IndexOf("ls-tree --name-only $candidate -- $notesRel", StringComparison.Ordinal);
         var tagAt = script.IndexOf("git -C $repoRoot tag $tagName", StringComparison.Ordinal);
         Assert.True(guardAt > 0 && tagAt > 0 && guardAt < tagAt,
             $"{ScriptPath} checks the release notes AFTER creating the tag. The point of the local guard is to fail "
             + "while nothing has happened yet.");
+    }
+
+    /// <summary>
+    /// The frozen candidate (Release Process Fix mission, 10 October 2026). The release workflow runs no
+    /// tests and a pushed tag cannot be un-pushed, so the script may tag only a commit the release gate
+    /// passed on. It used to merge the bump and tag in one run with no gate between them. Now step 1
+    /// freezes the candidate and never tags; step 2 (-Tag) tags only after assert-gated.ps1 accepts it.
+    /// </summary>
+    [Fact]
+    public void NewReleaseScript_TagsOnlyACandidateTheReleaseGateAccepted()
+    {
+        var script = File.ReadAllText(Path.Combine(GetRepoRoot(), ScriptPath));
+
+        var tagCalls = Regex.Matches(script, @"git -C \$repoRoot tag \$tagName");
+        Assert.True(tagCalls.Count == 1,
+            $"{ScriptPath} creates a tag in {tagCalls.Count} places. Exactly one place may tag: the -Tag step, "
+            + "after the gate is proven.");
+
+        var tagAt = tagCalls[0].Index;
+        var assertAt = script.IndexOf("& $assertGated $candidate", StringComparison.Ordinal);
+        Assert.True(assertAt > 0 && assertAt < tagAt,
+            $"{ScriptPath} tags without first running assert-gated.ps1 on the candidate. A tag on a commit the "
+            + "release gate never passed ships whatever the default gate does not run.");
+
+        var refusal = Regex.Match(script, @"& \$assertGated \$candidate\s*\r?\n\s*if \(\$LASTEXITCODE -ne 0\) \{\s*\r?\n\s*Fail ");
+        Assert.True(refusal.Success,
+            $"{ScriptPath} runs assert-gated.ps1 but does not stop when it refuses.");
+
+        var freezeAt = script.IndexOf("STEP 1: FREEZE THE CANDIDATE ====", StringComparison.Ordinal);
+        Assert.True(freezeAt > tagAt,
+            $"{ScriptPath}: the candidate step must come after the tag step's exit, so step 1 can never reach "
+            + "the tag.");
     }
 
     /// <summary>
