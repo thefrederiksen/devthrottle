@@ -90,11 +90,17 @@ internal static class RaisedSessionEndpoints
             }
             else
             {
+                // THE FLEET MANAGER IS RAISED BY ITS MARK, so lowering its entry would change nothing and the record would
+                // state a lowering that never happened. Refused, with what does lower it.
+                if (raised.IsMarkedFleetManager(tenant, sessionId))
+                    return Refuse(StatusCodes.Status409Conflict, "fleet_manager_is_raised_by_its_mark",
+                        $"Session {sessionId} is your Fleet Manager, and the Fleet Manager is always raised, so nothing was " +
+                        "changed. To lower it, move or clear the Fleet Manager in Settings.");
                 record.Lowered(tenant, sessionId, actor, "the owner lowered it from their own device");
                 raised.Lower(tenant, sessionId);
             }
 
-            var state = RaisedSessionRosterFold.For(session, raised.IsRaised(tenant, sessionId));
+            var state = RaisedSessionRosterFold.For(session, raised.IsRaised(tenant, sessionId), raised.MarkedSessionId(tenant));
             FileLog.Write($"[RaisedSessionEndpoints] POST {what}: sid={sessionId}, by={actor}, raised={state.Raised}");
             return Results.Json(new SessionRaiseResponse { SessionId = sessionId, Raise = state });
         }

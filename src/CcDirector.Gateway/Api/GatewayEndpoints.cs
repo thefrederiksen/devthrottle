@@ -6436,7 +6436,7 @@ internal static partial class GatewayEndpoints
         // Whether each row is raised, and the raise or lower offered on it (the Fleet Manager Improvement mission,
         // phase 1). Assigned either way, so a Director's echo never survives.
         if (tenant is { IsValid: true } raiseTenant && raisedSessions is not null)
-            Fleet.RaisedSessionRosterFold.Stamp(all, raisedSessions(raiseTenant));
+            Fleet.RaisedSessionRosterFold.Stamp(all, raisedSessions(raiseTenant), marked);
         else
             foreach (var s in all) s.Raise = null;
         // The "factory agent" chip (Website Business Factory, Screen 6). Assigned either way, so a Director's echo

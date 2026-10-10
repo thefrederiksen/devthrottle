@@ -116,6 +116,13 @@ public sealed class RaisedSessionStore
         return raised;
     }
 
+    /// <summary>The account's Fleet Manager mark now, or null.</summary>
+    public string? MarkedSessionId(TenantId tenant) => _markedSessionId(tenant);
+
+    /// <summary>True when <paramref name="sessionId"/> is the account's marked Fleet Manager, which the mark raises.</summary>
+    public bool IsMarkedFleetManager(TenantId tenant, string? sessionId)
+        => !string.IsNullOrWhiteSpace(sessionId) && FleetManagerSessions.SameId(sessionId, _markedSessionId(tenant));
+
     /// <summary>The ids of every session of the account that is raised now - one read, for the roster fold.</summary>
     public IReadOnlySet<string> RaisedIds(TenantId tenant)
     {

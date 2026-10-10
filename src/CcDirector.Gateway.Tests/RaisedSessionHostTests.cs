@@ -289,6 +289,22 @@ public sealed class RaisedSessionHostTests : IAsyncLifetime
         Assert.Equal(_raisedId, record.GetProperty("sessionId").GetString());
     }
 
+    /// <summary>The owner pressing Lower on the Fleet Manager is refused with what does lower it, and no lowering is
+    /// recorded - the mark raises it, so lowering an entry would change nothing.</summary>
+    [Fact]
+    public async Task Lower_TheMarkedFleetManager_IsRefusedWithWhatDoesLowerIt_AndRecordsNothing()
+    {
+        Assert.Equal(HttpStatusCode.OK, (await Send(_ownerA, "PUT", "gateway/fleet-manager", new { sessionId = _raisedId })).Status);
+
+        var (status, body) = await Send(_ownerA, "POST", $"sessions/{_raisedId}/lower");
+
+        Assert.Equal(HttpStatusCode.Conflict, status);
+        Assert.Equal("fleet_manager_is_raised_by_its_mark", Root(body).GetProperty("code").GetString());
+        Assert.Contains("move or clear the Fleet Manager in Settings", Root(body).GetProperty("error").GetString());
+        Assert.True(_gateway.RaisedSessions.IsRaised(_tenantA, _raisedId));
+        Assert.Empty(await Records(GovernanceAuditEventType.SessionLowered, _raisedId));
+    }
+
     [Fact]
     public async Task RaiseAndLower_FromAnySessionKey_RaisedOrNot_AreRefusedByTheGuard_AndChangeNothing()
     {
