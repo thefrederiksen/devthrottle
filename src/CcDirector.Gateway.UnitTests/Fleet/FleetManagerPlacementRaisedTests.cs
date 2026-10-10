@@ -80,17 +80,16 @@ public sealed class FleetManagerPlacementRaisedTests : IDisposable
     }
 
     [Fact]
-    public async Task SetMarkByOwnerAsync_FromASessionKey_MarksTheSession_AndRaisesNobody()
+    public async Task SetMarkByOwnerAsync_FromASessionKey_MarksTheSession_RaisesIt_AndRecordsWhoSetItUp()
     {
         _world.Roster.Add(("dir-a", Live(OtherId, "Idle")));
 
         await _service.SetMarkByOwnerAsync(Tenant, OtherId, default, ASessionKey);
 
-        // POSITIVE CONTROL: the mark was set, so the call did its work.
         Assert.Equal(OtherId, _settings.FleetManagerSessionId(Tenant));
-        Assert.False(_raised.IsRaised(Tenant, OtherId));
-        Assert.Empty(_raised.List(Tenant));
-        Assert.Empty(Records(GovernanceAuditEventType.SessionRaised, OtherId));
+        Assert.True(_raised.IsRaised(Tenant, OtherId));
+        var record = Assert.Single(Records(GovernanceAuditEventType.SessionRaised, OtherId));
+        Assert.Equal(ASessionKey.Actor, record.Actor);
     }
 
     [Fact]
@@ -116,7 +115,7 @@ public sealed class FleetManagerPlacementRaisedTests : IDisposable
         await _service.SetMarkByOwnerAsync(Tenant, OtherId, default, ASessionKey);
 
         Assert.False(_raised.IsRaised(Tenant, OldId));
-        Assert.False(_raised.IsRaised(Tenant, OtherId));
+        Assert.True(_raised.IsRaised(Tenant, OtherId));
         var lowered = Assert.Single(Records(GovernanceAuditEventType.SessionLowered, OldId));
         Assert.Equal(ASessionKey.Actor, lowered.Actor);
     }
@@ -184,8 +183,13 @@ public sealed class FleetManagerPlacementRaisedTests : IDisposable
         Assert.Single(Records(GovernanceAuditEventType.SessionRaised, NewId));
     }
 
+    /// <summary>
+    /// THE ROOT CAUSE OF 10 OCTOBER 2026. A Fleet Manager that was not raised - marked by a session key, or one whose
+    /// entry a Director had deleted - handed "not raised" on to every Fleet Manager restarted after it, even one the
+    /// owner restarted from his own Cockpit page. The successor is raised now, from the moment the mark reaches it.
+    /// </summary>
     [Fact]
-    public async Task RestartAsync_OfAFleetManagerThatIsNotRaised_TheNewOneIsNotRaisedEither()
+    public async Task RestartAsync_OfAFleetManagerMarkedByASessionKey_TheNewOneIsRaisedOnceTheMarkMoves()
     {
         _world.Machines.Add(Running("WORKSTATION-A"));
         _settings.SetFleetManagerPlacement(Tenant, "ClaudeCode", "WORKSTATION-A", Now);
@@ -197,9 +201,8 @@ public sealed class FleetManagerPlacementRaisedTests : IDisposable
         Assert.Equal(200, result.Status);
         await _service.WhenIdleAsync();
 
-        // POSITIVE CONTROL: the restart ran to its end - the mark moved.
         Assert.Equal(NewId, _settings.FleetManagerSessionId(Tenant));
-        Assert.False(_raised.IsRaised(Tenant, NewId));
-        Assert.Empty(Records(GovernanceAuditEventType.SessionRaised, NewId));
+        Assert.True(_raised.IsRaised(Tenant, NewId));
+        Assert.False(_raised.IsRaised(Tenant, OldId));
     }
 }

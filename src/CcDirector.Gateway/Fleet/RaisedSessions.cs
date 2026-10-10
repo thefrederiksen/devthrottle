@@ -38,12 +38,31 @@ public sealed record RaisedSession(string SessionId, string Source, string Raise
 public static class RaisedSessions
 {
     /// <summary>
+    /// True when <paramref name="sessionId"/> is raised now: it is the account's marked Fleet Manager, or its stored
+    /// <paramref name="entry"/> raises it.
+    ///
+    /// THE MARKED FLEET MANAGER IS RAISED BECAUSE IT IS MARKED (the owner, 10 October 2026: "the fleet manager is God
+    /// and can do whatever you want"). It used to need a stored entry as well, written only when the owner's own device
+    /// set the mark, and that second step failed him: a restart carried the entry only when the session it replaced
+    /// already had one, and a Director reaping or re-keying the session deleted the entry while the mark stayed - so a
+    /// Fleet Manager the owner had started from his own Cockpit page answered as an ordinary session. The mark IS the
+    /// owner's choice of Fleet Manager; there is no second question to ask. Every action this lets through is still
+    /// recorded against the Fleet Manager's session id, exactly as before.
+    /// </summary>
+    public static bool IsRaised(string? sessionId, RaisedSession? entry, string? markedSessionId)
+    {
+        if (!string.IsNullOrWhiteSpace(sessionId) && FleetManagerSessions.SameId(sessionId, markedSessionId)) return true;
+        return IsRaised(entry, markedSessionId);
+    }
+
+    /// <summary>
     /// True when <paramref name="entry"/> makes its session raised now. <paramref name="markedSessionId"/> is the
     /// account's current Fleet Manager mark, or null when it has none.
     /// </summary>
     public static bool IsRaised(RaisedSession? entry, string? markedSessionId)
     {
         if (entry is null) return false;
+        if (FleetManagerSessions.SameId(entry.SessionId, markedSessionId)) return true;
         return entry.Source switch
         {
             RaisedSessionSources.Owner => true,
@@ -62,6 +81,9 @@ public sealed record RaisedMarkChange(IReadOnlyList<string> Lowered, string? Rai
 /// <summary>
 /// THE LIST OF RAISED SESSIONS, per account, over the <c>raised_sessions</c> table - durable, so it survives a
 /// Gateway restart. Tenant-partitioned by construction, like <see cref="FleetManagerMarkHistory"/>.
+///
+/// THE MARKED FLEET MANAGER NEEDS NO ENTRY: it is raised because it is marked. An entry still matters for a session
+/// the owner raised himself.
 ///
 /// WHO WRITES IT. Only the owner's own device (<see cref="Raise"/>, <see cref="Lower"/>), setting up the Fleet
 /// Manager (<see cref="FollowMark"/>, <see cref="CarryToSuccessor"/>), and a session ending
@@ -89,7 +111,7 @@ public sealed class RaisedSessionStore
         var sid = parsed.ToString("D");
         using var ctx = _db.CreateContext(tenant);
         var row = ctx.RaisedSessions.AsNoTracking().FirstOrDefault(r => r.SessionId == sid);
-        var raised = RaisedSessions.IsRaised(row is null ? null : ToRecord(row), _markedSessionId(tenant));
+        var raised = RaisedSessions.IsRaised(sid, row is null ? null : ToRecord(row), _markedSessionId(tenant));
         FileLog.Write($"[RaisedSessionStore] IsRaised: tenant={tenant.ToLogString()}, session={sid}, raised={raised}");
         return raised;
     }
@@ -99,11 +121,14 @@ public sealed class RaisedSessionStore
     {
         using var ctx = _db.CreateContext(tenant);
         var rows = ctx.RaisedSessions.AsNoTracking().ToList();
-        var marked = rows.Count == 0 ? null : _markedSessionId(tenant);
-        return rows.Select(ToRecord)
+        var marked = _markedSessionId(tenant);
+        var ids = rows.Select(ToRecord)
             .Where(r => RaisedSessions.IsRaised(r, marked))
             .Select(r => r.SessionId)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        // The marked Fleet Manager is raised with or without an entry (RaisedSessions.IsRaised).
+        if (Guid.TryParse(marked, out var markedId)) ids.Add(markedId.ToString("D"));
+        return ids;
     }
 
     /// <summary>Every stored entry of the account, counted or not, oldest first.</summary>
@@ -180,10 +205,9 @@ public sealed class RaisedSessionStore
     }
 
     /// <summary>
-    /// THE MARK WAS SET OR CLEARED BY HAND. Every entry the mark granted to another session is removed, and - only
-    /// when <paramref name="raise"/> is true, which the caller sets only for the owner's own device - the newly marked
-    /// session gets one. Removing the others here is what stops an old entry coming back to life when a session key
-    /// later marks that session again.
+    /// THE MARK WAS SET OR CLEARED BY HAND. Every entry the mark granted to another session is removed, and - when
+    /// <paramref name="raise"/> is true - the newly marked session gets one, so the list shows it. Whether the marked
+    /// session is raised does not depend on that entry: the mark itself raises it (<see cref="RaisedSessions.IsRaised(string?, RaisedSession?, string?)"/>).
     /// </summary>
     /// <param name="markedSessionId">The session now marked, or null when the mark was cleared.</param>
     public RaisedMarkChange FollowMark(TenantId tenant, string? markedSessionId, bool raise, string raisedBy, DateTime nowUtc)

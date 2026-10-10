@@ -392,15 +392,40 @@ public sealed class FleetManagerHandOverServiceTests
         Assert.Equal(("dir-1", Owned, (string?)null), Assert.Single(_world.Sent));
     }
 
+    /// <summary>
+    /// THE FLEET MANAGER HAS THE OWNER'S POWER OVER HIS SESSIONS (the owner, 10 October 2026: "the fleet manager is God
+    /// and can do whatever you want"). It takes a session another live session owns - which no other session may - and
+    /// the record says the Fleet Manager did it, and whose the session was.
+    /// </summary>
     [Fact]
-    public async Task FleetManagerKey_SessionAnotherRunningSessionOwns_IsRefusedAndNotTaken()
-        => AssertRefused(await HandAsSessionAsync(Fm, ArchitectWorker, "fleet-manager"), 409, "which is still running");
+    public async Task FleetManagerKey_TakesASessionAnotherRunningSessionOwns_AndTheRecordSaysWhoseItWas()
+    {
+        var result = await HandAsSessionAsync(Fm, ArchitectWorker, "fleet-manager");
 
+        Assert.Equal(200, result.Status);
+        Assert.Equal(Fm, result.Answer!.OwnerSessionId);
+        Assert.Equal(Architect, result.Answer.PreviousOwnerSessionId);
+        Assert.Equal(("dir-2", ArchitectWorker, (string?)Fm), Assert.Single(_world.Sent));
+        var audit = Assert.Single(_world.Audited);
+        Assert.Equal($"session {Fm}", audit.Actor);
+        Assert.Contains("by the Fleet Manager itself", audit.Detail);
+        Assert.Contains(Architect, audit.Detail);
+    }
+
+    /// <summary>The Fleet Manager hands back to the owner a session another session holds, as the owner may from his
+    /// own screens - and the record names the Fleet Manager as the one who did it.</summary>
     [Fact]
-    public async Task FleetManagerKey_HandBackOfASessionItDoesNotOwn_IsRefused()
-        => AssertRefused(await HandAsSessionAsync(Fm, ArchitectWorker, "owner"), 409,
-            "not by the session asking. A session hands back only a session it owns itself; the owner hands any " +
-            "session back from the Cockpit or the phone.");
+    public async Task FleetManagerKey_HandsBackToTheOwnerASessionAnotherSessionOwns_AndIsRecorded()
+    {
+        var result = await HandAsSessionAsync(Fm, ArchitectWorker, "owner");
+
+        Assert.Equal(200, result.Status);
+        Assert.Null(result.Answer!.OwnerSessionId);
+        Assert.Equal(("dir-2", ArchitectWorker, (string?)null), Assert.Single(_world.Sent));
+        var audit = Assert.Single(_world.Audited);
+        Assert.Equal($"session {Fm}", audit.Actor);
+        Assert.Contains($"by the Fleet Manager {Fm}", audit.Detail);
+    }
 
     [Fact]
     public async Task FleetManagerKey_AnotherAccountsSession_AnswersAsAnUnknownOne()
