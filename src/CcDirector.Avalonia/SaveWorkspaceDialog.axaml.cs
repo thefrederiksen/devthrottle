@@ -9,6 +9,7 @@ using Avalonia.Media;
 using CcDirector.ControlApi;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia;
 
@@ -82,8 +83,7 @@ public partial class SaveWorkspaceDialog : Window
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[SaveWorkspaceDialog] Loaded FAILED: {ex.Message}");
-                TxtWarning.Text = ex.Message;
+                TxtWarning.Text = ShownError.Report("save workspace", "read the workspaces already saved", ex.Message, ex);
                 TxtWarning.IsVisible = true;
             }
         };
@@ -288,8 +288,7 @@ public partial class SaveWorkspaceDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SaveWorkspaceDialog] BtnSave_Click FAILED: {ex.Message}");
-            TxtWarning.Text = ex.Message;
+            TxtWarning.Text = ShownError.Report("save workspace", "save the workspace", ex.Message, ex);
             TxtWarning.IsVisible = true;
             BtnSave.IsEnabled = true;
         }

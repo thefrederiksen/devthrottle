@@ -32,7 +32,7 @@ public class BusyActionTests
         bool enabledWhenWorkBegan = true;
         object? labelWhenWorkBegan = null;
 
-        await BusyAction.RunAsync(button, () =>
+        await BusyAction.RunAsync(button, "test", "run the test action", () =>
         {
             // Sampled INSIDE the work: this is the state the user is looking at for however long the work
             // takes. The Cockpit button spent eight seconds here looking completely untouched.
@@ -50,7 +50,7 @@ public class BusyActionTests
     {
         var button = new Button { Content = "Cockpit" };
 
-        await BusyAction.RunAsync(button, () => Task.CompletedTask, "Opening...");
+        await BusyAction.RunAsync(button, "test", "run the test action", () => Task.CompletedTask, "Opening...");
 
         Assert.True(button.IsEnabled);
         Assert.Equal("Cockpit", button.Content);
@@ -62,7 +62,7 @@ public class BusyActionTests
         var button = new Button { Content = "Cockpit" };
         var shown = new List<string>();
 
-        var ok = await BusyAction.RunAsync(button,
+        var ok = await BusyAction.RunAsync(button, "test", "run the test action",
             () => throw new InvalidOperationException("gateway unreachable"),
             "Opening...",
             onFailure: shown.Add);
@@ -87,7 +87,7 @@ public class BusyActionTests
         var clicks = new List<Task<bool>>();
         for (var i = 0; i < 5; i++)
         {
-            clicks.Add(BusyAction.RunAsync(button, async () =>
+            clicks.Add(BusyAction.RunAsync(button, "test", "run the test action", async () =>
             {
                 started++;
                 await release.Task;
@@ -111,7 +111,7 @@ public class BusyActionTests
         var button = new Button { Content = "Record" };
         var shown = new List<string>();
 
-        await BusyAction.RunAsync(button,
+        await BusyAction.RunAsync(button, "test", "run the test action",
             () => throw new InvalidOperationException("the browser daemon refused to start recording"),
             "Starting...",
             onFailure: shown.Add);
@@ -129,7 +129,7 @@ public class BusyActionTests
         object? labelWhenWorkBegan = null;
         var enabledWhenWorkBegan = true;
 
-        await BusyAction.RunAsync(button, () =>
+        await BusyAction.RunAsync(button, "test", "run the test action", () =>
         {
             labelWhenWorkBegan = button.Content;
             enabledWhenWorkBegan = button.IsEnabled;
@@ -149,7 +149,7 @@ public class BusyActionTests
         // they should not have.
         var button = new Button { Content = "Run", IsEnabled = false };
 
-        await BusyAction.RunAsync(button, () => Task.CompletedTask, "Running...");
+        await BusyAction.RunAsync(button, "test", "run the test action", () => Task.CompletedTask, "Running...");
 
         Assert.False(button.IsEnabled);
         Assert.Equal("Run", button.Content);
@@ -162,7 +162,7 @@ public class BusyActionTests
         // label welded on for the rest of the session.
         var button = new Button();
 
-        await BusyAction.RunAsync(button, () => Task.CompletedTask, "Working...");
+        await BusyAction.RunAsync(button, "test", "run the test action", () => Task.CompletedTask, "Working...");
 
         Assert.Null(button.Content);
     }
@@ -175,8 +175,8 @@ public class BusyActionTests
         var button = new Button { Content = "Run" };
         var runs = 0;
 
-        await BusyAction.RunAsync(button, () => { runs++; return Task.CompletedTask; });
-        await BusyAction.RunAsync(button, () => { runs++; return Task.CompletedTask; });
+        await BusyAction.RunAsync(button, "test", "run the test action", () => { runs++; return Task.CompletedTask; });
+        await BusyAction.RunAsync(button, "test", "run the test action", () => { runs++; return Task.CompletedTask; });
 
         Assert.Equal(2, runs);
         Assert.False(BusyAction.IsRunning(button));

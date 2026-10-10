@@ -9,6 +9,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using CcDirector.Core.Git;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia.Controls;
 
@@ -204,8 +205,7 @@ public partial class RepositoryDetailView : UserControl
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[RepositoryDetailView] LoadBranchesAsync FAILED: {ex.Message}");
-            BranchesStatus.Text = $"Could not list branches: {ex.Message}";
+            BranchesStatus.Text = ShownError.Report("repository detail", "list the branches", $"Could not list branches: {ex.Message}", ex);
         }
     }
 
@@ -261,7 +261,7 @@ public partial class RepositoryDetailView : UserControl
     private async void DeleteSafeBranchesButton_Click(object? sender, RoutedEventArgs e)
     {
         if (sender is not Control button) return;
-        await BusyAction.RunAsync(button, DeleteSafeBranchesAsync, "Deleting...",
+        await BusyAction.RunAsync(button, "repository detail", "delete the merged branches", DeleteSafeBranchesAsync, "Deleting...",
             onFailure: message =>
             {
                 BranchesStatus.Text = $"Could not delete branches: {message}";
@@ -326,7 +326,7 @@ public partial class RepositoryDetailView : UserControl
             if (_repoPath != repo) return;
             if (!result.Success)
             {
-                PullRequestsStatus.Text = result.Error ?? "Could not list pull requests.";
+                PullRequestsStatus.Text = ShownError.Report("repository detail", "list the pull requests", result.Error ?? "Could not list pull requests.");
                 return;
             }
             PullRequestsList.ItemsSource = result.Items.Select(ToPullRequestRow).ToList();
@@ -335,8 +335,7 @@ public partial class RepositoryDetailView : UserControl
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[RepositoryDetailView] LoadPullRequestsAsync FAILED: {ex.Message}");
-            PullRequestsStatus.Text = $"Could not list pull requests: {ex.Message}";
+            PullRequestsStatus.Text = ShownError.Report("repository detail", "list the pull requests", $"Could not list pull requests: {ex.Message}", ex);
         }
     }
 
@@ -402,8 +401,7 @@ public partial class RepositoryDetailView : UserControl
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[RepositoryDetailView] LoadHistoryAsync FAILED: {ex.Message}");
-            HistoryStatus.Text = $"Could not read history: {ex.Message}";
+            HistoryStatus.Text = ShownError.Report("repository detail", "read the history", $"Could not read history: {ex.Message}", ex);
         }
     }
 

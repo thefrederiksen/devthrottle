@@ -38,6 +38,7 @@
                 <StackPanel Grid.Column="1" Spacing="6" Margin="12,0,0,0">
                     <TextBlock Text="Turn on browser control" Foreground="#CCCCCC"
                                FontSize="13" FontWeight="SemiBold" />
+                    <!-- shown-error-exempt (not an error): an explanation of what installing Browser Harness gives you -->
                     <TextBlock Classes="hint"
                                Text="To let your agents drive these profiles, install Browser Harness - the tool DevThrottle uses to drive them, made by browser-use. DevThrottle installs it for you, into its own environment. Your profiles below stay listed and ready; they just cannot be driven until it is installed." />
                     <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
@@ -266,6 +267,7 @@
                                TextWrapping="Wrap" Margin="0,0,0,10" />
                     <TextBlock Classes="hint" MaxWidth="760" HorizontalAlignment="Left"
                                Text="A profile here is a real, signed-in Chrome or Edge profile your agents can drive - click things, read pages, fill forms - through Browser Harness. It is not a scraper and not a headless shell. It is a real browser, running on this machine, that an agent controls the way a person would." />
+                    <!-- shown-error-exempt (not an error): an explanation of why the profile is a separate one -->
                     <TextBlock Classes="hint" MaxWidth="760" HorizontalAlignment="Left" Margin="0,8,0,0"
                                Text="It is not the profile you browse in yourself, and that is deliberate. Chrome and Edge now refuse to be remote-controlled on your everyday profile, and they encrypt its saved logins so they cannot be copied out. So DevThrottle creates a separate, dedicated one instead - which is also the arrangement you want: your agent gets exactly the accounts you give it, and nothing else." />
 

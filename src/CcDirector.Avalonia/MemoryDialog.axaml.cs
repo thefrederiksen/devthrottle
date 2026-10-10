@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia;
 
@@ -121,8 +122,7 @@ public partial class MemoryDialog : Window
         }
         catch (Exception ex)
         {
-            SaveStatusText.Text = $"Save failed: {ex.Message}";
-            FileLog.Write($"[MemoryDialog] SaveFile FAILED: {ex.Message}");
+            SaveStatusText.Text = ShownError.Report("memory", $"save {label}", $"Save failed: {ex.Message}", ex);
         }
     }
 

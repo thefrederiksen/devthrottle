@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using Avalonia.Controls;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia;
 
@@ -29,7 +30,9 @@ namespace CcDirector.Avalonia;
 ///      reason is never confused with one that is working.
 ///   3. FAILURE REACHES THE SCREEN. An unhandled exception is shown to the user, not written only to
 ///      FileLog. A button that fails invisibly is indistinguishable from a button that does nothing, which
-///      is the defect behind three of the nine sites in #1107.
+///      is the defect behind three of the nine sites in #1107. And what reaches the screen is REPORTED, in
+///      the same act, through <see cref="ShownError"/> (issue #3675): the caller names the screen and what
+///      the user was trying to do, so the report says it.
 ///
 /// The finally always restores the control, including when the work throws, so a failure can never leave a
 /// button disabled forever - which would turn a transient error into a dead control until restart.
@@ -47,6 +50,8 @@ public static class BusyAction
     /// re-entry, with any failure surfaced to the screen.
     /// </summary>
     /// <param name="button">The control that was clicked. Disabled for the duration and always restored.</param>
+    /// <param name="surface">Which screen the button is on, in plain words, for the error report.</param>
+    /// <param name="action">What the click does, as it reads after "could not", for the error report.</param>
     /// <param name="work">The asynchronous work. Started only after the button is already showing busy.</param>
     /// <param name="busyLabel">
     /// What the button says while working (e.g. "Opening..."). Null leaves the label alone and only
@@ -60,17 +65,23 @@ public static class BusyAction
     /// <param name="owner">The window to parent the default failure dialog to.</param>
     /// <param name="failureTitle">Title for the default failure dialog.</param>
     /// <param name="origin">Caller name, for the log. Supplied by the compiler.</param>
+    /// <param name="originFile">Caller file, so the error report names the caller's class. Supplied by the compiler.</param>
     /// <returns>True when the work ran to completion; false when it was blocked as re-entrant or it threw.</returns>
     public static async Task<bool> RunAsync(
         Control button,
+        string surface,
+        string action,
         Func<Task> work,
         string? busyLabel = null,
         Action<string>? onFailure = null,
         Window? owner = null,
         string? failureTitle = null,
-        [CallerMemberName] string? origin = null)
+        [CallerMemberName] string? origin = null,
+        [CallerFilePath] string originFile = "")
     {
         ArgumentNullException.ThrowIfNull(button);
+        ArgumentException.ThrowIfNullOrWhiteSpace(surface);
+        ArgumentException.ThrowIfNullOrWhiteSpace(action);
         ArgumentNullException.ThrowIfNull(work);
 
         // THE GUARD, and it is deliberately the first thing here. Everything below this line - including the
@@ -106,27 +117,28 @@ public static class BusyAction
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[BusyAction] {origin} FAILED: {ex}");
-
-            // The failure must land somewhere the user can see. Reporting it only to FileLog is what made
-            // the recorder's Record button look like it did not exist.
-            var message = ex.Message;
-            if (onFailure is not null)
-            {
-                onFailure(message);
-            }
-            else if (owner is not null)
-            {
-                await new MessageDialog(failureTitle ?? "Something went wrong", message).ShowDialog<bool?>(owner);
-            }
-            else
+            if (onFailure is null && owner is null)
             {
                 // No surface was given and no owner to parent a dialog to. That is a wiring mistake at the
                 // call site rather than a user-facing condition, and it is logged as loudly as it gets
-                // BECAUSE the alternative is the silent failure this helper exists to abolish.
-                FileLog.Write($"[BusyAction] {origin} FAILED: NO FAILURE SURFACE was supplied, so the user was told "
-                    + $"nothing. Pass onFailure or owner. The failure was: {message}");
+                // BECAUSE the alternative is the silent failure this helper exists to abolish. Not reported as
+                // shown, because nothing was.
+                FileLog.Write($"[BusyAction] {origin} FAILED: {ex}");
+                // not-an-error: the failure was reported on the line above; this line only says why nobody saw it
+                FileLog.Write($"[BusyAction] {origin}: NO FAILURE SURFACE was supplied, so the user was told "
+                    + $"nothing. Pass onFailure or owner. The failure was: {ex.Message}");
+                return false;
             }
+
+            // The failure must land somewhere the user can see, and what lands there is reported in the same
+            // act - one line, named for the caller, carrying the exception. Reporting it only to FileLog is
+            // what made the recorder's Record button look like it did not exist.
+            var message = ShownError.Report(surface, action, ex.Message, ex,
+                callerFile: originFile, callerMember: origin ?? nameof(RunAsync));
+            if (onFailure is not null)
+                onFailure(message);
+            else
+                await new MessageDialog(failureTitle ?? "Something went wrong", message).ShowDialog<bool?>(owner!);
 
             return false;
         }

@@ -5,6 +5,7 @@ using Avalonia.Interactivity;
 using Avalonia.Threading;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia;
 
@@ -94,8 +95,7 @@ public partial class LaunchPreviewDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[LaunchPreviewDialog] StartPreview FAILED: {ex.Message}");
-            ShowStatus($"Could not start {_displayName}: {ex.Message}");
+            ShowStatus(ShownError.Report("launch preview", "start the agent preview", $"Could not start {_displayName}: {ex.Message}", ex));
         }
     }
 

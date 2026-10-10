@@ -4,6 +4,7 @@ using Avalonia.Interactivity;
 using Avalonia.Threading;
 using CcDirector.Core.Instances;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia;
 
@@ -48,6 +49,7 @@ public partial class CreateInstanceDialog : Window
         var displayName = (DisplayNameInput.Text ?? "").Trim();
         if (string.IsNullOrWhiteSpace(displayName))
         {
+            // shown-error-exempt (user input): the user left the display name empty
             ShowError("Enter a display name.");
             return;
         }
@@ -63,8 +65,7 @@ public partial class CreateInstanceDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[CreateInstanceDialog] Create FAILED: {ex.Message}");
-            ShowError($"Could not create instance: {ex.Message}");
+            ShowError(ShownError.Report("create instance", "create the instance", $"Could not create instance: {ex.Message}", ex));
         }
     }
 

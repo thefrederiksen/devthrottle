@@ -11,6 +11,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia;
 
@@ -357,8 +358,7 @@ public partial class ExpandedEditorDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[ExpandedEditorDialog] DictateButton_Click FAILED: {ex.Message}");
-            HeaderText.Text = "Dictation failed: " + ex.Message;
+            HeaderText.Text = ShownError.Report("expanded editor", "dictate into the editor", "Dictation failed: " + ex.Message, ex);
         }
     }
 

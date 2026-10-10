@@ -6,6 +6,7 @@ using Avalonia.Controls;
 using CcDirector.ControlApi.SmartRestart;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia.SmartRestart;
 
@@ -114,7 +115,8 @@ public sealed class SmartShutdownCoordinator
             var engine = _engine();
             if (engine is null)
             {
-                _showMessage("Smart Restart is not available: this Director's control service did not start. The log says why.");
+                _showMessage(ShownError.Report("smart restart", "open Smart Restart",
+                    "Smart Restart is not available: this Director's control service did not start. The log says why."));
                 return Task.CompletedTask;
             }
 
@@ -132,8 +134,7 @@ public sealed class SmartShutdownCoordinator
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SmartShutdownCoordinator] OpenFromFileMenuAsync FAILED: {ex}");
-            _showMessage($"Smart Restart could not start: {ex.Message}");
+            _showMessage(ShownError.Report("smart restart", "start Smart Restart", $"Smart Restart could not start: {ex.Message}", ex));
             return Task.CompletedTask;
         }
     }
@@ -185,8 +186,8 @@ public sealed class SmartShutdownCoordinator
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SmartShutdownCoordinator] HandleWindowClosing FAILED: {ex}");
-            _showMessage($"The window was not closed, because the shutdown could not be started: {ex.Message}");
+            _showMessage(ShownError.Report("smart restart", "shut down when the window closed",
+                $"The window was not closed, because the shutdown could not be started: {ex.Message}", ex));
             return true;
         }
     }
@@ -304,11 +305,11 @@ public sealed class SmartShutdownCoordinator
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SmartShutdownCoordinator] RunDoorAsync FAILED: {ex}");
             _stage = Stage.Idle;
+            var shown = ShownError.Report("smart restart", "run the smart shutdown", ex.Message, ex);
             if (surfaceShown)
                 _restoreSessionView();
-            _showMessage(ex.Message);
+            _showMessage(shown);
         }
     }
 
@@ -376,8 +377,7 @@ public sealed class SmartShutdownCoordinator
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SmartShutdownCoordinator] OnRunFinished FAILED: {ex}");
-            _showMessage(ex.Message);
+            _showMessage(ShownError.Report("smart restart", "finish the smart shutdown", ex.Message, ex));
         }
     }
 

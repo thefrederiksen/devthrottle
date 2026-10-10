@@ -8,6 +8,7 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia;
 
@@ -59,8 +60,7 @@ public partial class LoadWorkspaceDialog : Window
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[LoadWorkspaceDialog] Loaded FAILED: {ex.Message}");
-                TxtEmpty.Text = ex.Message;
+                TxtEmpty.Text = ShownError.Report("load workspace", "list the saved workspaces", ex.Message, ex);
                 TxtEmpty.IsVisible = true;
                 WorkspaceListBox.IsVisible = false;
             }
@@ -91,8 +91,7 @@ public partial class LoadWorkspaceDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[LoadWorkspaceDialog] LoadWorkspacesAsync FAILED: {ex.Message}");
-            TxtEmpty.Text = ex.Message;
+            TxtEmpty.Text = ShownError.Report("load workspace", "list the saved workspaces", ex.Message, ex);
             TxtEmpty.IsVisible = true;
             WorkspaceListBox.IsVisible = false;
             return;
@@ -166,8 +165,7 @@ public partial class LoadWorkspaceDialog : Window
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[LoadWorkspaceDialog] preview FAILED for {item.Summary.Id}: {ex.Message}");
-                TxtPreviewEmpty.Text = ex.Message;
+                TxtPreviewEmpty.Text = ShownError.Report("load workspace", "read the workspace to preview it", ex.Message, ex);
                 return;
             }
 
@@ -205,8 +203,7 @@ public partial class LoadWorkspaceDialog : Window
         {
             // Say so where the reader is looking. Logging alone would leave the preview on "Loading..."
             // for ever, which reads as a slow fetch rather than a failed one.
-            FileLog.Write($"[LoadWorkspaceDialog] WorkspaceListBox_SelectionChanged FAILED: {ex.Message}");
-            TxtPreviewEmpty.Text = ex.Message;
+            TxtPreviewEmpty.Text = ShownError.Report("load workspace", "preview the workspace", ex.Message, ex);
             TxtPreviewEmpty.IsVisible = true;
             PreviewList.IsVisible = false;
         }
@@ -233,8 +230,7 @@ public partial class LoadWorkspaceDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[LoadWorkspaceDialog] BtnLoadDefault_Click FAILED: {ex.Message}");
-            TxtEmpty.Text = ex.Message;
+            TxtEmpty.Text = ShownError.Report("load workspace", "load the default workspace", ex.Message, ex);
             TxtEmpty.IsVisible = true;
         }
     }
@@ -262,8 +258,7 @@ public partial class LoadWorkspaceDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[LoadWorkspaceDialog] BtnLoad_Click FAILED: {ex.Message}");
-            TxtPreviewEmpty.Text = ex.Message;
+            TxtPreviewEmpty.Text = ShownError.Report("load workspace", "load the workspace", ex.Message, ex);
             TxtPreviewEmpty.IsVisible = true;
         }
     }
@@ -288,8 +283,7 @@ public partial class LoadWorkspaceDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[LoadWorkspaceDialog] BtnDelete_Click FAILED: {ex.Message}");
-            TxtPreviewEmpty.Text = ex.Message;
+            TxtPreviewEmpty.Text = ShownError.Report("load workspace", "delete the workspace", ex.Message, ex);
             TxtPreviewEmpty.IsVisible = true;
         }
     }

@@ -24,6 +24,7 @@ using CcDirector.Core.Tools;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
 using CcDirector.Setup.Engine;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia;
 
@@ -622,8 +623,7 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[FirstRunWizardDialog] ScanAgentsAsync FAILED: {ex.Message}");
-            AgentsStatusText.Text = $"Agent scan failed: {ex.Message}";
+            AgentsStatusText.Text = ShownError.Report("first-run wizard", "scan this machine for agents", $"Agent scan failed: {ex.Message}", ex);
             // A failed scan must not leave the user stranded on a dead button - re-checking and the
             // install path are still open to them.
             AgentsEmptyActions.IsVisible = true;
@@ -827,8 +827,8 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[FirstRunWizardDialog] BtnInstallAgent_Click FAILED: {ex.Message}");
-            AgentsStatusText.Text = $"Could not open the browser. Visit {OnboardingModel.ClaudeInstallUrl} manually.";
+            AgentsStatusText.Text = ShownError.Report("first-run wizard", "open the Claude Code install page",
+                $"Could not open the browser. Visit {OnboardingModel.ClaudeInstallUrl} manually.", ex);
         }
     }
 
@@ -872,14 +872,14 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
                 {
                     // The script said success but the re-scan still sees nothing - never leave the
                     // user with a silent no-op. Name the state and hand them the guide.
-                    AgentsInstallErrorText.Text =
-                        "The installer finished, but Claude Code was not found afterwards. Restart the Director and re-check, or use the install guide.";
+                    AgentsInstallErrorText.Text = ShownError.Report("first-run wizard", "install Claude Code",
+                        "The installer finished, but Claude Code was not found afterwards. Restart the Director and re-check, or use the install guide.");
                     AgentsInstallErrorPanel.IsVisible = true;
                 }
             }
             else
             {
-                AgentsInstallErrorText.Text = result.Message;
+                AgentsInstallErrorText.Text = ShownError.Report("first-run wizard", "install Claude Code", result.Message);
                 AgentsInstallErrorPanel.IsVisible = true;
             }
         }
@@ -890,8 +890,7 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[FirstRunWizardDialog] BtnInstallClaude_Click FAILED: {ex.Message}");
-            AgentsInstallErrorText.Text = $"Could not run the installer: {ex.Message}";
+            AgentsInstallErrorText.Text = ShownError.Report("first-run wizard", "install Claude Code", $"Could not run the installer: {ex.Message}", ex);
             AgentsInstallErrorPanel.IsVisible = true;
         }
         finally
@@ -990,8 +989,7 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[FirstRunWizardDialog] RefreshToolsScreenAsync FAILED: {ex.Message}");
-            ToolsStatusText.Text = $"Could not read the tool catalog: {ex.Message}";
+            ToolsStatusText.Text = ShownError.Report("first-run wizard", "read the tool catalog", $"Could not read the tool catalog: {ex.Message}", ex);
             ToolsStatusText.Foreground = Brush("#DC2626");
         }
     }
@@ -1075,9 +1073,8 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[FirstRunWizardDialog] BtnFixTools_Click FAILED: {ex.Message}");
             _toolsRepairing = false;
-            ToolsFixProgress.Text = $"The repair could not run: {ex.Message}";
+            ToolsFixProgress.Text = ShownError.Report("first-run wizard", "repair the tools", $"The repair could not run: {ex.Message}", ex);
         }
         finally
         {
@@ -1118,8 +1115,8 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[FirstRunWizardDialog] BtnToolsDocs_Click FAILED: {ex.Message}");
-            ToolsStatusText.Text = "Could not open the browser. Visit devthrottle.com/docs/tools manually.";
+            ToolsStatusText.Text = ShownError.Report("first-run wizard", "open the tools documentation",
+                "Could not open the browser. Visit devthrottle.com/docs/tools manually.", ex);
         }
     }
 
@@ -1204,10 +1201,9 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[FirstRunWizardDialog] ScanCodeFoldersAsync FAILED: {ex.Message}");
             CodeScanActivity.IsVisible = false;
             CodeScanStatusText.IsVisible = true;
-            CodeScanStatusText.Text = $"Folder scan failed: {ex.Message}";
+            CodeScanStatusText.Text = ShownError.Report("first-run wizard", "scan for code folders", $"Folder scan failed: {ex.Message}", ex);
         }
     }
 
@@ -1531,15 +1527,15 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
             else
             {
                 ShotsPathText.Text = "No screenshots folder found";
+                // shown-error-exempt (not an error): nothing found is an answer - most machines have no screenshots folder yet
                 ShotsProvenanceText.Text =
                     "We could not detect where your screenshots go. Browse to the folder, take a screenshot and we'll find where it lands - or just continue; you can set this any time in Settings.";
             }
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[FirstRunWizardDialog] DetectScreenshotsForWizardAsync FAILED: {ex.Message}");
             ShotsPathText.Text = "No screenshots folder found";
-            ShotsProvenanceText.Text = $"Detection failed: {ex.Message}";
+            ShotsProvenanceText.Text = ShownError.Report("first-run wizard", "detect the screenshots folder", $"Detection failed: {ex.Message}", ex);
         }
         finally
         {
@@ -1826,8 +1822,8 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
         {
             // A state read that fails must not paint a state: leave the rows where they were and say
             // what happened, rather than showing "Not installed" on the strength of a failed check.
-            FileLog.Write($"[FirstRunWizardDialog] RefreshBrowsersScreenAsync FAILED: {ex.Message}");
-            _browsersError = $"Could not read this machine's browser setup: {ex.Message}";
+            _browsersError = ShownError.Report("first-run wizard", "read this machine's browser setup",
+                $"Could not read this machine's browser setup: {ex.Message}", ex);
         }
 
         if (!_closed) RefreshBrowsersUi();
@@ -1949,8 +1945,7 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
                     // Say so, and leave the manual install page on screen. The step does NOT go on to
                     // create a browser: without the harness there would be nothing to drive it with,
                     // and a green browser row under a failed install would be a lie.
-                    _browsersError = result.Message;
-                    FileLog.Write($"[FirstRunWizardDialog] SetUpBrowserAsync: harness install failed: {result.Message}");
+                    _browsersError = ShownError.Report("first-run wizard", "install Browser Harness", result.Message);
                     return;
                 }
 
@@ -1986,8 +1981,7 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[FirstRunWizardDialog] SetUpBrowserAsync FAILED: {ex.Message}");
-            _browsersError = ex.Message;
+            _browsersError = ShownError.Report("first-run wizard", "set up a browser for the agents", ex.Message, ex);
         }
         finally
         {
@@ -2036,8 +2030,9 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[FirstRunWizardDialog] BtnBrowsersInstallPage_Click FAILED: {ex.Message}");
-            BrowsersErrorText.Text = $"{_browsersError}\n\nCould not open the install page: {ex.Message}";
+            BrowsersErrorText.Text = ShownError.Report("first-run wizard", "open the Browser Harness install page",
+                $"{_browsersError}\n\nCould not open the install page: {ex.Message}", ex,
+                reported: $"Could not open the install page: {ex.Message}");
         }
     }
 
@@ -2322,7 +2317,7 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
         var directorId = host?.DirectorId;
         if (host is null || directorId is null)
         {
-            ShowGatewayFailure("The Director is still starting, so it cannot connect yet. Give it a moment, then try again.");
+            ShowGatewayFailure("join the hosted Gateway", "The Director is still starting, so it cannot connect yet. Give it a moment, then try again.");
             return;
         }
 
@@ -2339,8 +2334,7 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
 
             if (!result.Success)
             {
-                FileLog.Write($"[FirstRunWizardDialog] hosted enroll failed: {result.ErrorMessage}");
-                ShowGatewayFailure(result.ErrorMessage ?? "Could not sign in and join the hosted gateway.");
+                ShowGatewayFailure("sign in and join the hosted Gateway", result.ErrorMessage ?? "Could not sign in and join the hosted gateway.");
                 return;
             }
 
@@ -2365,8 +2359,7 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[FirstRunWizardDialog] hosted enroll ERROR: {ex.Message}");
-            ShowGatewayFailure($"Could not sign in and join the hosted gateway: {ex.Message}");
+            ShowGatewayFailure("sign in and join the hosted Gateway", $"Could not sign in and join the hosted gateway: {ex.Message}", ex);
         }
         finally
         {
@@ -2383,9 +2376,9 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
     /// remaining six steps. It also ends the stickiness - the visible sub-view is the choice view, so
     /// leaving the step and coming back cannot land on a cards-less screen.
     /// </summary>
-    private void ShowGatewayFailure(string message)
+    private void ShowGatewayFailure(string action, string message, Exception? ex = null)
     {
-        GatewayFailText.Text = message;
+        GatewayFailText.Text = ShownError.Report("first-run wizard", action, message, ex);
         GatewayFailBanner.IsVisible = true;
         ShowGatewayView(GatewayChoiceView);
         RefreshGatewayChoiceUi();
@@ -2444,8 +2437,8 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[FirstRunWizardDialog] GatewayCopySignInAddress_Click FAILED: {ex.Message}");
-            ShowSignInAddressStatus($"Could not copy the address: {ex.Message}. Select it above and copy it by hand.");
+            ShowSignInAddressStatus(ShownError.Report("first-run wizard", "copy the sign-in address",
+                $"Could not copy the address: {ex.Message}. Select it above and copy it by hand.", ex));
         }
     }
 
@@ -2459,8 +2452,8 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[FirstRunWizardDialog] GatewayOpenSignInAddress_Click FAILED: {ex.Message}");
-            ShowSignInAddressStatus($"Could not open a browser: {ex.Message}. Copy the address instead.");
+            ShowSignInAddressStatus(ShownError.Report("first-run wizard", "open the sign-in address in a browser",
+                $"Could not open a browser: {ex.Message}. Copy the address instead.", ex));
         }
     }
 
@@ -2781,7 +2774,7 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
     /// a user would see. It drives <see cref="ShowGatewayFailure"/> itself rather than a copy of it - a
     /// test that reproduced the rendering would pass while the product's own path stayed broken.
     /// </summary>
-    internal void ReportGatewayFailureForTests(string message) => ShowGatewayFailure(message);
+    internal void ReportGatewayFailureForTests(string message) => ShowGatewayFailure("sign in and join the hosted Gateway", message);
 
     /// <summary>
     /// The three gateway option cards, in the order they read on screen.

@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using CcDirector.Core.ErrorReports;
 using CcDirector.Core.Utilities;
 
 namespace CcDirector.Avalonia.Controls.CommManager;
@@ -27,6 +28,7 @@ public partial class SendProgressDialog : Window
         CurrentItemText.Text = itemDescription;
         ProgressBar.Value = currentIndex;
         SentText.Text = $"Sent: {sent}";
+        // shown-error-exempt (not an error): a running count while the run goes on; ReportComplete reports the failures once
         FailedText.Text = $"Failed: {failed}";
         SkippedText.Text = $"Skipped: {skipped}";
     }
@@ -38,7 +40,11 @@ public partial class SendProgressDialog : Window
         CurrentItemText.Text = "";
         ProgressBar.Value = TotalItems;
         SentText.Text = $"Sent: {sent}";
-        FailedText.Text = $"Failed: {failed}";
+        // The failures of the whole run, reported once now it is over (issue #3675).
+        FailedText.Text = failed > 0
+            ? ShownError.Report("send progress", "send the approved items", $"Failed: {failed}",
+                reported: $"{failed} of {TotalItems} approved items failed to send")
+            : $"Failed: {failed}";
         SkippedText.Text = $"Skipped: {skipped}";
         CloseButton.IsVisible = true;
     }

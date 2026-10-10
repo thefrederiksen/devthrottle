@@ -5,6 +5,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia;
 
@@ -60,8 +61,7 @@ public partial class GitHubRepoPickerDialog : Window
         }
         catch (JsonException ex)
         {
-            FileLog.Write($"[GitHubRepoPickerDialog] LoadReposAsync FAILED: {ex.Message}");
-            StatusText.Text = "Failed to parse response from gh CLI.";
+            StatusText.Text = ShownError.Report("GitHub repository picker", "read the repository list from gh", "Failed to parse response from gh CLI.", ex);
         }
     }
 
@@ -83,8 +83,7 @@ public partial class GitHubRepoPickerDialog : Window
             using var proc = Process.Start(psi);
             if (proc is null)
             {
-                StatusText.Text = "Failed to start gh CLI.";
-                FileLog.Write("[GitHubRepoPickerDialog] RunGhAsync: failed to start process");
+                StatusText.Text = ShownError.Report("GitHub repository picker", "start the gh command line", "Failed to start gh CLI.");
                 return null;
             }
 
@@ -94,10 +93,11 @@ public partial class GitHubRepoPickerDialog : Window
 
             if (proc.ExitCode != 0)
             {
-                StatusText.Text = error.Contains("auth login")
-                    ? "gh CLI is not authenticated. Run 'gh auth login' first."
-                    : $"gh error: {error.Trim().Split('\n').FirstOrDefault()}";
-                FileLog.Write($"[GitHubRepoPickerDialog] RunGhAsync: gh exited with code {proc.ExitCode}");
+                StatusText.Text = ShownError.Report("GitHub repository picker", "list the repositories with gh",
+                    error.Contains("auth login")
+                        ? "gh CLI is not authenticated. Run 'gh auth login' first."
+                        : $"gh error: {error.Trim().Split('\n').FirstOrDefault()}",
+                    reported: $"gh exited with code {proc.ExitCode}: {error.Trim().Split('\n').FirstOrDefault()}");
                 return null;
             }
 

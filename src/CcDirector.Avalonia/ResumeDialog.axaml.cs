@@ -2,6 +2,7 @@ using System.IO;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia;
 
@@ -46,8 +47,7 @@ public partial class ResumeDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[ResumeDialog] ScanSessions FAILED: {ex.Message}");
-            LoadingText.Text = $"Failed to load sessions: {ex.Message}";
+            LoadingText.Text = ShownError.Report("resume", "load the sessions to resume", $"Failed to load sessions: {ex.Message}", ex);
         }
     }
 

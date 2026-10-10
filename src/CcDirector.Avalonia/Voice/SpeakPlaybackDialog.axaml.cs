@@ -6,6 +6,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia.Voice;
 
@@ -73,7 +74,8 @@ public partial class SpeakPlaybackDialog : Window
             if (played)
                 Close();
             else
-                ShowError("Could not generate the audio. Check your DevThrottle account setup and network connection.");
+                ShowError(ShownError.Report("read aloud", "generate the audio",
+                    "Could not generate the audio. Check your DevThrottle account setup and network connection."));
         }
         catch (OperationCanceledException)
         {
@@ -81,9 +83,10 @@ public partial class SpeakPlaybackDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SpeakPlaybackDialog] PlayAsync FAILED: {ex.Message}");
             if (!_stopped)
-                ShowError("Playback failed: " + ex.Message);
+                ShowError(ShownError.Report("read aloud", "play the audio", "Playback failed: " + ex.Message, ex));
+            else
+                FileLog.Write($"[SpeakPlaybackDialog] PlayAsync FAILED after the user stopped it: {ex.Message}");
         }
     }
 

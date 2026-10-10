@@ -10,6 +10,7 @@ using CcDirector.Core.Utilities;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Data.Sqlite;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia.Controls.CommManager;
 
@@ -299,8 +300,7 @@ public partial class CommManagerViewModel : ObservableObject, IDisposable
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[CommManager.VM] RefreshAsync FAILED: {ex.Message}");
-            StatusMessage = $"Error: {ex.Message}";
+            ShowFailure("load the communications queue", $"Error: {ex.Message}", ex);
         }
         finally
         {
@@ -410,7 +410,7 @@ public partial class CommManagerViewModel : ObservableObject, IDisposable
         }
         else
         {
-            StatusMessage = "Failed to approve item";
+            ShowFailure("approve the item", "Failed to approve item");
         }
     }
 
@@ -438,7 +438,7 @@ public partial class CommManagerViewModel : ObservableObject, IDisposable
         }
         else
         {
-            StatusMessage = "Failed to approve item";
+            ShowFailure("approve the item", "Failed to approve item");
         }
     }
 
@@ -465,7 +465,7 @@ public partial class CommManagerViewModel : ObservableObject, IDisposable
         }
         else
         {
-            StatusMessage = "Failed to reschedule item";
+            ShowFailure("reschedule the item", "Failed to reschedule item");
         }
     }
 
@@ -485,7 +485,7 @@ public partial class CommManagerViewModel : ObservableObject, IDisposable
         }
         else
         {
-            StatusMessage = "Failed to reject item";
+            ShowFailure("reject the item", "Failed to reject item");
         }
     }
 
@@ -505,7 +505,7 @@ public partial class CommManagerViewModel : ObservableObject, IDisposable
         }
         else
         {
-            StatusMessage = "Failed to reject item";
+            ShowFailure("reject the item", "Failed to reject item");
         }
     }
 
@@ -532,7 +532,7 @@ public partial class CommManagerViewModel : ObservableObject, IDisposable
         }
         else
         {
-            StatusMessage = "Failed to delete item";
+            ShowFailure("delete the item", "Failed to delete item");
         }
     }
 
@@ -566,7 +566,7 @@ public partial class CommManagerViewModel : ObservableObject, IDisposable
         }
         else
         {
-            StatusMessage = "Failed to save changes";
+            ShowFailure("save the changes to the item", "Failed to save changes");
         }
     }
 
@@ -637,7 +637,7 @@ public partial class CommManagerViewModel : ObservableObject, IDisposable
         }
         else
         {
-            StatusMessage = "Failed to move item";
+            ShowFailure("move the item back to review", "Failed to move item");
         }
     }
 
@@ -657,7 +657,7 @@ public partial class CommManagerViewModel : ObservableObject, IDisposable
         }
         else
         {
-            StatusMessage = "Failed to move item to sent";
+            ShowFailure("move the item to sent", "Failed to move item to sent");
         }
     }
 
@@ -707,7 +707,7 @@ public partial class CommManagerViewModel : ObservableObject, IDisposable
             using var process = Process.Start(startInfo);
             if (process == null)
             {
-                StatusMessage = "Failed to start cc-browser";
+                ShowFailure("start cc-browser", "Failed to start cc-browser");
                 return;
             }
 
@@ -724,23 +724,30 @@ public partial class CommManagerViewModel : ObservableObject, IDisposable
                 }
                 else
                 {
-                    StatusMessage = "Posted but failed to update status";
+                    ShowFailure("mark the LinkedIn post as sent", "Posted but failed to update status");
                 }
             }
             else
             {
-                StatusMessage = $"LinkedIn posting failed: {error}";
+                // The poster's output can carry the post itself, so the report says what failed and stops there.
+                var failure = ShownError.Report("communication manager", "post to LinkedIn", $"LinkedIn posting failed: {error}");
+                StatusMessage = failure;
                 if (ShowErrorCallback != null)
-                    await ShowErrorCallback($"LinkedIn posting failed:\n\n{error}\n\n{output}");
+                    await ShowErrorCallback($"{failure}\n\n{output}");
             }
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Error: {ex.Message}";
+            var failure = ShownError.Report("communication manager", "post to LinkedIn", $"Failed to post to LinkedIn: {ex.Message}", ex);
+            StatusMessage = failure;
             if (ShowErrorCallback != null)
-                await ShowErrorCallback($"Failed to post to LinkedIn: {ex.Message}");
+                await ShowErrorCallback(failure);
         }
     }
+
+    /// <summary>Put a failure on the status line, and report it (issue #3675).</summary>
+    private void ShowFailure(string action, string shown, Exception? ex = null)
+        => StatusMessage = ShownError.Report("communication manager", action, shown, ex);
 
     private enum DispatchResult { Sent, Failed, Skipped }
 
@@ -849,8 +856,7 @@ public partial class CommManagerViewModel : ObservableObject, IDisposable
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[CommManager.VM] SendAllAsync FAILED: {ex.Message}");
-            StatusMessage = $"Send error: {ex.Message}";
+            ShowFailure("send the approved items", $"Send error: {ex.Message}", ex);
             progress?.Close();
         }
         finally

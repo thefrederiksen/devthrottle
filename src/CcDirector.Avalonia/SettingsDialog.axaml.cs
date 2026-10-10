@@ -20,6 +20,7 @@ using CcDirector.Core.Onboarding;
 using CcDirector.Core.Settings;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia;
 
@@ -111,8 +112,7 @@ public partial class SettingsDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SettingsDialog] LoadAsync FAILED: {ex.Message}");
-            LoadingText.Text = $"Failed to read config.json: {ex.Message}";
+            LoadingText.Text = ShownError.Report("settings", "read the settings", $"Failed to read config.json: {ex.Message}", ex);
             LoadingText.Foreground = global::Avalonia.Media.Brushes.IndianRed;
         }
     }
@@ -358,8 +358,7 @@ public partial class SettingsDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SettingsDialog] BtnRemoveAgent_Click FAILED: {ex.Message}");
-            StatusText.Text = $"Could not remove agent: {ex.Message}";
+            StatusText.Text = ShownError.Report("settings", "remove the agent", $"Could not remove agent: {ex.Message}", ex);
         }
     }
 
@@ -422,8 +421,7 @@ public partial class SettingsDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SettingsDialog] OpenAgentEditorAsync FAILED: {ex.Message}");
-            StatusText.Text = $"Could not save agent: {ex.Message}";
+            StatusText.Text = ShownError.Report("settings", "save the agent", $"Could not save agent: {ex.Message}", ex);
         }
     }
 
@@ -476,7 +474,8 @@ public partial class SettingsDialog : Window
             var dir = (await _detector.DetectScreenshotsAsync()).Directory;
             if (string.IsNullOrEmpty(dir))
             {
-                ShowScreenshotsStatus("Could not detect a screenshots folder on this machine. Use Browse to pick one.", error: true);
+                ShowScreenshotsStatus(ShownError.Report("settings", "detect the screenshots folder",
+                    "Could not detect a screenshots folder on this machine. Use Browse to pick one."), error: true);
                 return;
             }
 
@@ -486,8 +485,7 @@ public partial class SettingsDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SettingsDialog] BtnDetectScreenshots_Click FAILED: {ex.Message}");
-            ShowScreenshotsStatus($"Detection failed: {ex.Message}", error: true);
+            ShowScreenshotsStatus(ShownError.Report("settings", "detect the screenshots folder", $"Detection failed: {ex.Message}", ex), error: true);
         }
         finally
         {
@@ -597,8 +595,7 @@ public partial class SettingsDialog : Window
         catch (Exception ex)
         {
             // On failure stay open so the user can see what went wrong and retry.
-            FileLog.Write($"[SettingsDialog] BtnSave_Click FAILED: {ex.Message}");
-            StatusText.Text = $"Save failed: {ex.Message}";
+            StatusText.Text = ShownError.Report("settings", "save the settings", $"Save failed: {ex.Message}", ex);
             SaveButton.IsEnabled = true;
         }
     }
@@ -692,7 +689,7 @@ public partial class SettingsDialog : Window
                 : global::Avalonia.Media.Brushes.IndianRed;
             FixToolsStatus.Text = result.Success
                 ? $"Done - {result.ToolCount} tools downloaded and ready."
-                : $"Repair failed: {result.Message}";
+                : ShownError.Report("settings", "repair the tools", $"Repair failed: {result.Message}");
 
             // Refresh the embedded status dashboard so it reflects the freshly installed toolset.
             if (result.Success)
@@ -700,9 +697,8 @@ public partial class SettingsDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SettingsDialog] BtnFixTools_Click FAILED: {ex.Message}");
             FixToolsStatus.Foreground = global::Avalonia.Media.Brushes.IndianRed;
-            FixToolsStatus.Text = $"Repair failed: {ex.Message}";
+            FixToolsStatus.Text = ShownError.Report("settings", "repair the tools", $"Repair failed: {ex.Message}", ex);
         }
         finally
         {
@@ -739,8 +735,7 @@ public partial class SettingsDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SettingsDialog] BtnRunWizard_Click FAILED: {ex.Message}");
-            ShowAgentToolsStatus($"Setup wizard failed: {ex.Message}", error: true);
+            ShowAgentToolsStatus(ShownError.Report("settings", "run the agent setup wizard", $"Setup wizard failed: {ex.Message}", ex), error: true);
         }
         finally
         {
@@ -806,12 +801,12 @@ public partial class SettingsDialog : Window
             // 1223 = the user clicked No on the User Account Control approval prompt.
             // not-an-error: the person declined the administrator prompt
             FileLog.Write("[SettingsDialog] BtnSuppressFirewallPrompt_Click: administrator approval declined");
+            // shown-error-exempt (user input): the user answered No to the administrator approval prompt
             ShowFirewallStatus("No change was made - administrator approval was declined.", error: true);
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SettingsDialog] BtnSuppressFirewallPrompt_Click FAILED: {ex.Message}");
-            ShowFirewallStatus($"Could not change the setting: {ex.Message}", error: true);
+            ShowFirewallStatus(ShownError.Report("settings", "change the firewall prompt setting", $"Could not change the setting: {ex.Message}", ex), error: true);
         }
         finally
         {
@@ -888,8 +883,7 @@ public partial class SettingsDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SettingsDialog] AutoUpdateToolsCheck_Changed FAILED: {ex.Message}");
-            AutoUpdateToolsStatus.Text = $"Could not save this setting: {ex.Message}";
+            AutoUpdateToolsStatus.Text = ShownError.Report("settings", "save the tools auto-update setting", $"Could not save this setting: {ex.Message}", ex);
             AutoUpdateToolsStatus.Foreground = global::Avalonia.Media.Brushes.IndianRed;
         }
     }
@@ -929,8 +923,7 @@ public partial class SettingsDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SettingsDialog] BtnWakeWordTest_Click FAILED: {ex.Message}");
-            StatusText.Text = $"Could not open wake-word test: {ex.Message}";
+            StatusText.Text = ShownError.Report("settings", "open the wake-word test", $"Could not open wake-word test: {ex.Message}", ex);
         }
     }
 }

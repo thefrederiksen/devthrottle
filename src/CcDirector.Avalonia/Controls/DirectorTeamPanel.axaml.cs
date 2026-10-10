@@ -8,6 +8,7 @@ using CcDirector.Core.Sessions;
 using CcDirector.Core.Teams;
 using CcDirector.Core.Utilities;
 using CcDirector.Setup.Engine;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia.Controls;
 
@@ -139,7 +140,8 @@ public partial class DirectorTeamPanel : UserControl
             var resolved = await _deps.ResolveTeam(CancellationToken.None);
             if (!resolved.Success)
             {
-                CurrentTeamText.Text = resolved.ErrorMessage ?? "Could not tell which team this Director works for.";
+                CurrentTeamText.Text = ShownError.Report("Director team", "tell which team this Director works for",
+                    resolved.ErrorMessage ?? "Could not tell which team this Director works for.");
                 ChooseButton.IsVisible = false;
                 return;
             }
@@ -150,8 +152,8 @@ public partial class DirectorTeamPanel : UserControl
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[DirectorTeamPanel] LoadCurrentAsync FAILED: {ex.Message}");
-            CurrentTeamText.Text = $"Could not read which team this Director works for: {ex.Message}";
+            CurrentTeamText.Text = ShownError.Report("Director team", "read which team this Director works for",
+                $"Could not read which team this Director works for: {ex.Message}", ex);
             ChooseButton.IsVisible = false;
         }
     }
@@ -182,7 +184,7 @@ public partial class DirectorTeamPanel : UserControl
             var listed = await _deps.Service.ListTeamsAsync(CancellationToken.None);
             if (!listed.Success)
             {
-                ShowStatus(listed.ErrorMessage ?? "Your teams could not be listed.", "#F14C4C");
+                ShowStatus(ShownError.Report("Director team", "list your teams", listed.ErrorMessage ?? "Your teams could not be listed."), "#F14C4C");
                 return;
             }
             if (!listed.Value!.TeamsReleased)
@@ -234,7 +236,8 @@ public partial class DirectorTeamPanel : UserControl
         var directorId = _deps.DirectorId();
         if (directorId is null)
         {
-            ShowStatus("This Director is still starting, so it cannot move yet. Try again in a moment.", "#F14C4C");
+            ShowStatus(ShownError.Report("Director team", "move this Director to another team",
+                "This Director is still starting, so it cannot move yet. Try again in a moment."), "#F14C4C");
             return;
         }
 
@@ -285,8 +288,7 @@ public partial class DirectorTeamPanel : UserControl
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[DirectorTeamPanel] BtnChoose_Click FAILED: {ex.Message}");
-            ShowStatus($"Your teams could not be listed: {ex.Message}", "#F14C4C");
+            ShowStatus(ShownError.Report("Director team", "list your teams", $"Your teams could not be listed: {ex.Message}", ex), "#F14C4C");
         }
     }
 
@@ -299,10 +301,10 @@ public partial class DirectorTeamPanel : UserControl
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[DirectorTeamPanel] BtnMove_Click FAILED: {ex.Message}");
             // Every failure after the Gateway's yes is answered inside the mover in its own words; this is an
             // error the mover did not expect, so it says only what is known and how to see where things stand.
-            ShowStatus($"The move stopped with an error ({ex.Message}). Open this tab again to see which team this Director works for.", "#F14C4C");
+            ShowStatus(ShownError.Report("Director team", "move this Director to another team",
+                $"The move stopped with an error ({ex.Message}). Open this tab again to see which team this Director works for.", ex), "#F14C4C");
         }
     }
 

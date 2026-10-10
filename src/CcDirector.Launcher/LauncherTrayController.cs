@@ -11,6 +11,7 @@ using CcDirector.Core.Diagnostics;
 using CcDirector.Core.Utilities;
 using CcDirector.Setup.Engine;
 using CcDirector.TrayUi;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Launcher;
 
@@ -296,7 +297,10 @@ public sealed class LauncherTrayController : IDisposable
                 var result = await CcDirector.Core.ErrorReports.LogSender.SendAsync(
                     CcDirector.Core.ErrorReports.ErrorReportLimits.Launcher, trigger, _lifetime.Token);
                 Dispatcher.UIThread.Post(() => { if (_trayIcon is not null) _trayIcon.ToolTipText = "Launcher"; });
-                NativeNotice.Show(result.Detail, "Launcher - Send logs",
+                // Logs that did not go are a failure the user is now looking at, so it is reported as one (issue #3675).
+                NativeNotice.Show(
+                    result.Sent ? result.Detail : ShownError.Report("launcher tray", "send the logs to DevThrottle", result.Detail),
+                    "Launcher - Send logs",
                     result.Sent ? NativeNotice.Kind.Info : NativeNotice.Kind.Warning);
             }
             catch (Exception ex)

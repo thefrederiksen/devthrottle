@@ -7,6 +7,7 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia;
 
@@ -115,7 +116,8 @@ public partial class RestoreSessionsDialog : Window
         if (FailedCount == 0)
             ProgressStatusText.Text = $"All {total} {word} restored successfully.";
         else
-            ProgressStatusText.Text = $"Restored {RestoredCount} of {total} {word}. {FailedCount} failed.";
+            ProgressStatusText.Text = ShownError.Report("restore sessions", "restore the sessions",
+                $"Restored {RestoredCount} of {total} {word}. {FailedCount} failed.");
 
         _isRestoring = false;
 

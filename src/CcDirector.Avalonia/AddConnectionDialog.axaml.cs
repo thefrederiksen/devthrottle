@@ -37,6 +37,7 @@ public partial class AddConnectionDialog : Window
 
         if (!ValidName.IsMatch(name))
         {
+            // shown-error-exempt (user input): the name the user typed has characters a connection name cannot hold
             NameError.Text = "Use lowercase letters, numbers, and hyphens only";
             NameError.IsVisible = true;
             BtnOk.IsEnabled = false;
@@ -45,6 +46,7 @@ public partial class AddConnectionDialog : Window
 
         if (name.Length > 50)
         {
+            // shown-error-exempt (user input): the name the user typed is longer than a connection name may be
             NameError.Text = "Name must be 50 characters or less";
             NameError.IsVisible = true;
             BtnOk.IsEnabled = false;

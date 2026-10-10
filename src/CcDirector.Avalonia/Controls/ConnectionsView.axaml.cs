@@ -9,6 +9,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia.Controls;
 
@@ -505,9 +506,10 @@ public partial class ConnectionsView : UserControl
 
             if (!response.IsSuccessStatusCode)
             {
-                FileLog.Write($"[ConnectionsView] OpenConnection FAILED: {json}");
                 item.SetBusy(false);
-                await ShowError($"Failed to open connection \"{item.Name}\".\n\n{json}");
+                await ShowError("open the browser connection",
+                    $"Failed to open connection \"{item.Name}\".\n\n{json}", null,
+                    reported: $"the browser daemon answered {(int)response.StatusCode}: {json}");
                 return;
             }
 
@@ -521,9 +523,8 @@ public partial class ConnectionsView : UserControl
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[ConnectionsView] OpenConnection FAILED: {ex.Message}");
             item.SetBusy(false);
-            await ShowError($"Failed to open connection \"{item.Name}\".\n\n{ex.Message}");
+            await ShowError("open the browser connection", $"Failed to open connection \"{item.Name}\".\n\n{ex.Message}", ex);
         }
     }
 
@@ -607,10 +608,16 @@ public partial class ConnectionsView : UserControl
         }
     }
 
-    private async Task ShowError(string message)
+    /// <summary>Show a connection error in a box, and report it (issue #3675).</summary>
+    private async Task ShowError(string action, string message, Exception? ex, string? reported = null)
     {
         var parentWindow = TopLevel.GetTopLevel(this) as Window;
-        if (parentWindow == null) return;
+        if (parentWindow == null)
+        {
+            FileLog.Write($"[ConnectionsView] ShowError FAILED: no window to show it in, so the user saw nothing: could not {action}: {reported ?? message}");
+            return;
+        }
+        ShownError.Report("connections", action, message, ex, reported);
 
         var dialog = new Window
         {

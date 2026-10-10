@@ -9,6 +9,7 @@ using CcDirector.Core.GatewayConnection;
 using CcDirector.Core.Onboarding;
 using CcDirector.Core.Settings;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia;
 
@@ -146,8 +147,7 @@ public partial class OnboardingWizardDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[OnboardingWizardDialog] BtnNext_Click FAILED: {ex.Message}");
-            ShowStepStatus($"Something went wrong: {ex.Message}", error: true);
+            ShowStepStatus(ShownError.Report("onboarding", "go to the next step", $"Something went wrong: {ex.Message}", ex), error: true);
         }
     }
 
@@ -162,6 +162,7 @@ public partial class OnboardingWizardDialog : Window
         if (!_gatewaySettled)
         {
             FileLog.Write("[OnboardingWizardDialog] AdvanceFromGateway: not settled yet (connected+signed-in), nudging");
+            // shown-error-exempt (user input): the user pressed Next before connecting and signing in; this says what to do first
             ShowStepStatus("Connect and sign in to your Gateway above to continue, or use \"Skip for now\" to set it up later in Settings.", error: true);
             return;
         }
@@ -222,9 +223,8 @@ public partial class OnboardingWizardDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[OnboardingWizardDialog] RunAgentCheckAsync FAILED: {ex.Message}");
             SetAgentBadge("ERROR", "#3A2A1B", "#F59E0B");
-            AgentStatusMessage.Text = $"Could not check for Claude Code: {ex.Message}";
+            AgentStatusMessage.Text = ShownError.Report("onboarding", "check for Claude Code", $"Could not check for Claude Code: {ex.Message}", ex);
             AgentInstallGuidance.IsVisible = true;
             _agentAvailable = false;
         }
@@ -243,8 +243,7 @@ public partial class OnboardingWizardDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[OnboardingWizardDialog] BtnCreateSession_Click FAILED: {ex.Message}");
-            ShowStepStatus($"Something went wrong: {ex.Message}", error: true);
+            ShowStepStatus(ShownError.Report("onboarding", "create the first session", $"Something went wrong: {ex.Message}", ex), error: true);
         }
     }
 
@@ -263,8 +262,8 @@ public partial class OnboardingWizardDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[OnboardingWizardDialog] BtnInstallClaude_Click FAILED: {ex.Message}");
-            ShowStepStatus($"Could not open the browser. Visit {OnboardingModel.ClaudeInstallUrl} manually.", error: true);
+            ShowStepStatus(ShownError.Report("onboarding", "open the Claude Code install page",
+                $"Could not open the browser. Visit {OnboardingModel.ClaudeInstallUrl} manually.", ex), error: true);
         }
     }
 

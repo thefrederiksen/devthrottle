@@ -32,6 +32,7 @@
         <!-- Stats row -->
         <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,0,0,16">
             <TextBlock x:Name="SentText" Text="Sent: 0" Foreground="#22C55E" FontSize="12" Margin="0,0,16,0"/>
+            <!-- shown-error-exempt (not an error): the counter's starting zero; ReportComplete reports the failures -->
             <TextBlock x:Name="FailedText" Text="Failed: 0" Foreground="#DC3545" FontSize="12" Margin="0,0,16,0"/>
             <TextBlock x:Name="SkippedText" Text="Skipped: 0" Foreground="#888888" FontSize="12"/>
         </StackPanel>

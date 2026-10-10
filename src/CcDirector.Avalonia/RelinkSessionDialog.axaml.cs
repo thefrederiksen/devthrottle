@@ -4,6 +4,7 @@ using Avalonia.Interactivity;
 using Avalonia.Threading;
 using CcDirector.Core.Claude;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia;
 
@@ -129,9 +130,8 @@ public partial class RelinkSessionDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[RelinkSessionDialog] LoadSessionsAsync FAILED: {ex.Message}");
             LoadingText.IsVisible = false;
-            NoSessionsText.Text = "Error loading sessions";
+            NoSessionsText.Text = ShownError.Report("relink session", "load the sessions to relink to", "Error loading sessions", ex);
             NoSessionsText.IsVisible = true;
         }
     }

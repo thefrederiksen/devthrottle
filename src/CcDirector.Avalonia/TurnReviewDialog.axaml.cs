@@ -8,6 +8,7 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia;
 
@@ -35,8 +36,7 @@ public partial class TurnReviewDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[TurnReviewDialog] load FAILED: {ex.Message}");
-            StatusText.Text = "Failed to load reviews.";
+            StatusText.Text = ShownError.Report("turn reviews", "load the turn reviews", "Failed to load reviews.", ex);
             return;
         }
 

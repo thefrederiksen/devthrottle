@@ -335,7 +335,7 @@ public partial class ChangesDiffView : UserControl
     {
         if (sender is not Control button) return;
 
-        await BusyAction.RunAsync(button, async () =>
+        await BusyAction.RunAsync(button, "source control changes", "commit the changes", async () =>
         {
             var repo = _repoPath;
             var message = CommitMessage.Text;

@@ -412,6 +412,7 @@ public partial class TranscriptionComponent : UserControl
         SetFullButtons("Retry", true, null, false, "Cancel");
 
         SetSmallDot("#FF6B6B");
+        // shown-error-exempt (not an error): draws the error state; the error itself arrives through ShowError, whose callers are the sites
         SmallTimer.Text = "Error";
         SmallTimer.Foreground = new SolidColorBrush(Color.Parse("#FF6B6B"));
         SmallWave.IsVisible = false;

@@ -95,7 +95,9 @@ public partial class TranscriptionComponentPreviewDialog : Window
                 SmallComponent.ShowUsed(SampleText);
                 break;
             case TranscriptionState.Error:
+                // shown-error-exempt (not an error): a design preview of the error state with sample words; nothing failed
                 FullComponent.ShowError("Microphone not available");
+                // shown-error-exempt (not an error): a design preview of the error state with sample words; nothing failed
                 SmallComponent.ShowError("Microphone not available");
                 break;
         }

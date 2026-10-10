@@ -66,12 +66,11 @@ public partial class WorkflowRecorderWindow : Window
     private async void BtnRecord_Click(object? sender, RoutedEventArgs e)
     {
         if (sender is not Control button) return;
-        await BusyAction.RunAsync(button, StartRecordingAsync, "Starting...",
+        await BusyAction.RunAsync(button, "workflow recorder", "start recording", StartRecordingAsync, "Starting...",
             onFailure: message =>
             {
                 StatusText.Text = "COULD NOT START";
                 StatusText.Foreground = new SolidColorBrush(Color.FromRgb(0xE5, 0x3E, 0x3E));
-                FileLog.Write($"[WorkflowRecorder] record/start reported to the user: {message}");
             });
     }
 
@@ -137,8 +136,14 @@ public partial class WorkflowRecorderWindow : Window
     private async void BtnStop_Click(object? sender, RoutedEventArgs e)
     {
         if (sender is not Control button) return;
-        await BusyAction.RunAsync(button, StopRecordingAsync, "Stopping...",
-            onFailure: message => FileLog.Write($"[WorkflowRecorder] record/stop reported to the user: {message}"));
+        // The stop's failure used to go only to the log while its callback said "reported to the user". It is now on
+        // the status line, where the start's failure already was.
+        await BusyAction.RunAsync(button, "workflow recorder", "stop recording", StopRecordingAsync, "Stopping...",
+            onFailure: message =>
+            {
+                StatusText.Text = $"COULD NOT STOP: {message}";
+                StatusText.Foreground = new SolidColorBrush(Color.FromRgb(0xE5, 0x3E, 0x3E));
+            });
     }
 
     private async Task StopRecordingAsync()
@@ -431,6 +436,7 @@ public partial class WorkflowRecorderWindow : Window
             Connection = _connectionName,
             StartedAt = DateTime.UtcNow.ToString("o"),
             CompletedAt = DateTime.UtcNow.ToString("o"),
+            // shown-error-exempt (not an error): a field of the run record that is saved, not text on a screen
             Status = runner.AllSucceeded ? "completed" : "failed",
             ParameterValues = paramValues,
             Steps = runner.CompletedSteps,

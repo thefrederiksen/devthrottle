@@ -9,6 +9,7 @@ using CcDirector.Core.Configuration;
 using CcDirector.Core.HostedAi;
 using CcDirector.Core.Transcription;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia.Voice;
 
@@ -360,8 +361,7 @@ public partial class SpeakDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SpeakDialog] StartAsync FAILED: {ex.Message}");
-            SwitchToFailed("Failed to start recording: " + ex.Message);
+            SwitchToFailed(ShownError.Report("dictation", "start recording", "Failed to start recording: " + ex.Message, ex));
         }
     }
 
@@ -521,8 +521,7 @@ public partial class SpeakDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SpeakDialog] MicSelector_SelectionChanged FAILED: {ex.Message}");
-            SwitchToFailed("Could not switch microphone: " + ex.Message);
+            SwitchToFailed(ShownError.Report("dictation", "switch the microphone", "Could not switch microphone: " + ex.Message, ex));
         }
     }
 
@@ -799,8 +798,9 @@ public partial class SpeakDialog : Window
             FileLog.Write($"[BatchDictationRecorder] no first audio: device=\"{_selectedDeviceDescription}\", "
                 + $"clickToTimeoutMs={clickMs}, startRecordingToTimeoutMs=unknown");
         }
-        SwitchToFailed("The microphone did not start capturing. Check that it is connected, "
-            + "not muted, and that DevThrottle is allowed to use it, then try again.");
+        SwitchToFailed(ShownError.Report("dictation", "start capturing from the microphone",
+            "The microphone did not start capturing. Check that it is connected, "
+            + "not muted, and that DevThrottle is allowed to use it, then try again."));
     }
 
     /// <summary>
@@ -930,9 +930,12 @@ public partial class SpeakDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SpeakDialog] FinalizeFromRecording FAILED: {ex.Message}");
-            if (await TryShowOutOfCreditsAsync(ex)) return;
-            SwitchToFailed(ex.Message);
+            if (await TryShowOutOfCreditsAsync(ex))
+            {
+                FileLog.Write($"[SpeakDialog] FinalizeFromRecording FAILED, out of credits: {ex.Message}");
+                return;
+            }
+            SwitchToFailed(ShownError.Report("dictation", "transcribe the recording", ex.Message, ex));
         }
     }
 
@@ -976,9 +979,12 @@ public partial class SpeakDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SpeakDialog] PauseAsync FAILED: {ex.Message}");
-            if (await TryShowOutOfCreditsAsync(ex)) return;
-            SwitchToFailed("Pause failed: " + ex.Message);
+            if (await TryShowOutOfCreditsAsync(ex))
+            {
+                FileLog.Write($"[SpeakDialog] PauseAsync FAILED, out of credits: {ex.Message}");
+                return;
+            }
+            SwitchToFailed(ShownError.Report("dictation", "pause and transcribe what was said", "Pause failed: " + ex.Message, ex));
         }
     }
 
@@ -1008,15 +1014,15 @@ public partial class SpeakDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SpeakDialog] ResumeAsync FAILED: {ex.Message}");
             // NOT SwitchToFailed: the accumulated text is still good. Fall back to
             // Paused so Send/Insert keep working and Resume can be retried. The
             // error must NOT go into the text box - in the Paused stage the box
             // content IS what Send submits, so writing the error there would send
             // the error message as the prompt.
             SwitchToPaused();
-            StatusLabel.Text = "ERROR - could not resume";
+            StatusLabel.Text = ShownError.Report("dictation", "resume recording", "ERROR - could not resume", ex);
             StatusLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
+            // shown-error-exempt (reported above): the advice under the ERROR label, which reported this failure
             LevelHint.Text = "Could not resume - your text is kept. Try Resume again, or Send what you have.";
         }
     }

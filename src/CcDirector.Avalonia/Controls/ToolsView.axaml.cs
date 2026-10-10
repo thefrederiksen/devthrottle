@@ -12,6 +12,7 @@ using Avalonia.Threading;
 using CcDirector.Core.Setup;
 using CcDirector.Core.Tools;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia.Controls;
 
@@ -113,7 +114,8 @@ public partial class ToolsView : UserControl
                 ? (swept.Removed ? "REMOVED" : "LEFT")
                 : "KEPT";
             Reason = swept.Action == SweepAction.Delete && !swept.Removed
-                ? $"{swept.Reason} - but it could not be removed: {swept.RemovalFailure}. It is off the path, and the next start tries again."
+                ? ShownError.Report("tools", "remove a stale tools directory",
+                    $"{swept.Reason} - but it could not be removed: {swept.RemovalFailure}. It is off the path, and the next start tries again.")
                 : swept.Reason;
         }
 
@@ -185,9 +187,12 @@ public partial class ToolsView : UserControl
         PathFaultResolved.Text = check.ResolvedPath ?? "(not resolved)";
         PathFaultExpected.Text = check.ExpectedBinDir ?? "(unknown)";
 
+        // The banner is an error the user sees, whichever of the faults it is: it is reported once, as it is painted,
+        // with the explanation it shows (issue #3675).
+        string explanation;
         if (check.OwnToolsAreMissingOrBroken)
         {
-            PathFaultExplanation.Text =
+            explanation =
                 "This Director's own command-line tools are not installed and working, so PATH order is "
                 + "not the problem - there is nothing here to point at yet. "
                 + $"{check.OwnDetail} Installing them is the repair; putting an empty directory on PATH "
@@ -197,7 +202,7 @@ public partial class ToolsView : UserControl
         }
         else if (check.CanRepairByRepointingPath)
         {
-            PathFaultExplanation.Text =
+            explanation =
                 "The command line on your PATH belongs to another install, so agents in your sessions "
                 + "report \"cannot connect to DevThrottle\" even though this Director's Gateway "
                 + "connection is healthy. This Director's own copy is installed and works.";
@@ -209,10 +214,12 @@ public partial class ToolsView : UserControl
             // Same install and still refused, or no install directory to compare against. Repointing
             // repairs neither, so state what was seen and offer nothing rather than a button that
             // cannot work.
-            PathFaultExplanation.Text =
+            explanation =
                 $"The command line on your PATH could not reach the fleet through the Gateway: {check.Detail}";
             PathFaultFixButton.IsVisible = false;
         }
+
+        PathFaultExplanation.Text = ShownError.Report("tools", "reach the fleet from the sessions' command line", explanation);
 
         PathFaultFixButton.IsEnabled = true;
         PathFaultProgress.Text = "";
@@ -254,7 +261,7 @@ public partial class ToolsView : UserControl
                     $"[ToolsView] PATH fault: tool install success={installed.Success}, {installed.Message}");
                 if (!installed.Success)
                 {
-                    PathFaultProgress.Text = $"Could not install the tools: {installed.Message}";
+                    PathFaultProgress.Text = ShownError.Report("tools", "install this Director's tools", $"Could not install the tools: {installed.Message}");
                     PathFaultFixButton.IsEnabled = true;
                     return;
                 }
@@ -294,15 +301,14 @@ public partial class ToolsView : UserControl
             }
             else
             {
-                PathFaultProgress.Text =
-                    $"PATH updated, but it still cannot reach the fleet: {recheck?.Detail ?? "no verdict"}";
+                PathFaultProgress.Text = ShownError.Report("tools", "repoint PATH to this install",
+                    $"PATH updated, but it still cannot reach the fleet: {recheck?.Detail ?? "no verdict"}");
                 PathFaultFixButton.IsEnabled = true;
             }
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[ToolsView] PathFaultFixButton_Click FAILED: {ex.Message}");
-            PathFaultProgress.Text = $"Could not repoint PATH: {ex.Message}";
+            PathFaultProgress.Text = ShownError.Report("tools", "repoint PATH to this install", $"Could not repoint PATH: {ex.Message}", ex);
             PathFaultFixButton.IsEnabled = true;
         }
     }
@@ -346,8 +352,7 @@ public partial class ToolsView : UserControl
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[ToolsView] LoadCatalogAsync FAILED: {ex.Message}");
-            ListSummary.Text = $"Failed to load catalog: {ex.Message}";
+            ListSummary.Text = ShownError.Report("tools", "load the tool catalog", $"Failed to load catalog: {ex.Message}", ex);
         }
     }
 
@@ -434,7 +439,7 @@ public partial class ToolsView : UserControl
         if (ToolList.SelectedItem is not ToolItemViewModel vm) return;
         if (sender is not Control button) return;
 
-        await BusyAction.RunAsync(button, async () =>
+        await BusyAction.RunAsync(button, "tools", "run the tool", async () =>
         {
             await RunToolAsync(vm, refreshDetailIfSelected: true);
             UpdateSummary();
@@ -547,6 +552,7 @@ public partial class ToolsView : UserControl
         var d = vm.Descriptor;
         if (!d.IsAvailable)
         {
+            // shown-error-exempt (not an error): the selected tool is not installed, which its row already says; nothing failed
             CommandsOutput.Text = "(tool unavailable - cannot read --help)";
             return;
         }
@@ -559,8 +565,7 @@ public partial class ToolsView : UserControl
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[ToolsView] LoadCommands {d.Name} FAILED: {ex.Message}");
-            CommandsOutput.Text = $"Failed to run --help: {ex.Message}";
+            CommandsOutput.Text = ShownError.Report("tools", $"run {d.Name} --help", $"Failed to run --help: {ex.Message}", ex);
         }
     }
 
