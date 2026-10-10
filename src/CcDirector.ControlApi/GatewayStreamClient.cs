@@ -110,7 +110,14 @@ public sealed class GatewayStreamClient : IAsyncDisposable
     private volatile bool _disposed;
 
     /// <summary>Reconnect backoff between long-outage restart attempts once auto-reconnect has given up.</summary>
-    private static readonly TimeSpan RestartDelay = TimeSpan.FromSeconds(5);
+    internal static readonly TimeSpan RestartDelay = TimeSpan.FromSeconds(5);
+
+    /// <summary>The wait before the supervise loop dials again; <see cref="RestartDelay"/> unless a test supplies its own.</summary>
+    private readonly Func<Task> _redialWait;
+
+    /// <summary>The supervise loop <see cref="Start"/> runs. It completes when the loop stops for good - a terminal
+    /// refusal or disposal - so a test can wait for that decision instead of watching the clock.</summary>
+    internal Task Supervision { get; private set; } = Task.CompletedTask;
 
     /// <summary>The body of the Gateway's last 401 on this tunnel, which says why it refused the key.</summary>
     private readonly TunnelRefusalRecorder _refusals = new();
@@ -138,6 +145,11 @@ public sealed class GatewayStreamClient : IAsyncDisposable
     /// up-stream handler, whose producer sends frames up this same connection. Null (older callers, tests)
     /// leaves stream verbs declined with a typed Error, so behaviour is unchanged for them.
     /// </param>
+    /// <param name="redialWait">
+    /// The wait before the supervise loop dials again after a failed or closed connection. Null waits
+    /// <see cref="RestartDelay"/>. A test seam, so a test decides when the next dial happens instead of waiting out
+    /// the real delay; production passes null.
+    /// </param>
     public GatewayStreamClient(GatewayConfig config, string directorId, string version, Func<List<SessionDto>> snapshot,
         Func<DirectorCommand, Task<DirectorCommandResult>>? commandDispatcher = null,
         TimeSpan? rePushInterval = null,
@@ -151,8 +163,10 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         Action<GatewayCapabilities>? onHello = null,
         CcDirector.Core.Background.BackgroundJobs? jobs = null,
         Action? onNewConnection = null,
-        Func<string, string?>? teamNameForKey = null)
+        Func<string, string?>? teamNameForKey = null,
+        Func<Task>? redialWait = null)
     {
+        _redialWait = redialWait ?? (() => Task.Delay(RestartDelay));
         _teamNameForKey = teamNameForKey;
         _jobs = jobs ?? CcDirector.Core.Background.BackgroundJobs.Default;
         _onHello = onHello;
@@ -187,7 +201,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         if (!IsEnabled) return;
         if (Interlocked.Exchange(ref _started, 1) == 1) return;
         FileLog.Write($"[GatewayStreamClient] Start: dialing {_config.Url} for director {_directorId}");
-        _ = SuperviseAsync();
+        Supervision = SuperviseAsync();
 
         // Issue #1177 (Phase 4a): keep the Gateway's pushed cache fresh for a QUIET session. A portless
         // (remotely-unreachable) Director has no HTTP pull floor, so once the last push ages past the
@@ -503,7 +517,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
             }
             if (_disposed) break;
             _monitor?.MarkTunnelConnecting();      // dropped / dialing again (yellow) until the next connect
-            await Task.Delay(RestartDelay);        // long-outage restart
+            await _redialWait();                   // long-outage restart
         }
     }
 

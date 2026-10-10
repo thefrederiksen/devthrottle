@@ -103,12 +103,30 @@ public sealed class RemovedDirectorTunnelTests
         }
     }
 
-    private static (GatewayStreamClient Client, GatewayConnectionMonitor Monitor) Dial(string url, string? teamName)
-        => Dial(url, "the-directors-key", _ => teamName);
+    /// <summary>
+    /// The tunnel's wait before it dials again, counted and kept short, so a test that needs the next dial does
+    /// not wait out the client's real five-second restart delay, and a test that must see NO next dial can ask
+    /// whether one was ever asked for.
+    /// </summary>
+    private sealed class Redials
+    {
+        private int _count;
+        public int Count => Volatile.Read(ref _count);
+
+        public Task WaitAsync()
+        {
+            Interlocked.Increment(ref _count);
+            return Task.Delay(TimeSpan.FromMilliseconds(50));
+        }
+    }
+
+    private static (GatewayStreamClient Client, GatewayConnectionMonitor Monitor) Dial(string url, string? teamName,
+        Redials? redials = null)
+        => Dial(url, "the-directors-key", _ => teamName, redials);
 
     // The tunnel asks for the team recorded for the very key it dialled with (review RM-F6).
     private static (GatewayStreamClient Client, GatewayConnectionMonitor Monitor) Dial(string url, string key,
-        Func<string, string?> teamNameForKey)
+        Func<string, string?> teamNameForKey, Redials? redials = null)
     {
         var monitor = new GatewayConnectionMonitor();
         monitor.Reset(gatewayConfigured: true);
@@ -116,7 +134,8 @@ public sealed class RemovedDirectorTunnelTests
             new GatewayConfig { Url = url, Token = key },
             "director-1", "test", () => new List<SessionDto>(),
             monitor: monitor,
-            teamNameForKey: teamNameForKey);
+            teamNameForKey: teamNameForKey,
+            redialWait: (redials ?? new Redials()).WaitAsync);
         client.Start();
         return (client, monitor);
     }
@@ -136,7 +155,8 @@ public sealed class RemovedDirectorTunnelTests
     public async Task Tunnel_KeyRevokedForTeamRemoval_StopsInTheRemovedStateNamingTheTeam_AndStopsRetrying()
     {
         await using var gateway = new StandInGateway(401, RemovedBody);
-        var (client, monitor) = Dial(gateway.Url, "Team B");
+        var redials = new Redials();
+        var (client, monitor) = Dial(gateway.Url, "Team B", redials);
         await using var _ = client;
 
         Assert.True(await WaitForAsync(() => monitor.Status == GatewayConnectionStatus.KeyRefused, TimeSpan.FromSeconds(20)),
@@ -146,10 +166,11 @@ public sealed class RemovedDirectorTunnelTests
         Assert.Equal("Removed from Team B", monitor.KeyRefusal.ChipText);
         Assert.StartsWith("This Director was removed from Team B", monitor.FailureSummary);
 
-        // Stopped for good: the client's long-outage restart would re-dial within 5 seconds; it must not.
-        var negotiatesAtStop = gateway.Negotiates;
-        await Task.Delay(TimeSpan.FromSeconds(7));
-        Assert.Equal(negotiatesAtStop, gateway.Negotiates);
+        // Stopped for good: the supervise loop ENDED, without ever asking to wait for a next dial. A loop that
+        // went on would ask for that wait and stay running, so this is the decision itself, not a quiet spell.
+        await client.Supervision.WaitAsync(TimeSpan.FromSeconds(20));
+        Assert.Equal(0, redials.Count);
+        Assert.Equal(1, gateway.Negotiates);
         Assert.Equal(GatewayConnectionStatus.KeyRefused, monitor.Status);
     }
 
