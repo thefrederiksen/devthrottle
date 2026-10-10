@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!-- THE GATEWAY TESTS THAT NEED A REAL POSTGRESQL, AND NOTHING ELSE.
-       Every test here carries [RequiresPostgresFact] or [RequiresPostgresTheory] (Data/RequiresPostgresAttributes.cs)
+       Every test here but the two rig checks carries [RequiresPostgresFact] or [RequiresPostgresTheory] (RequiresPostgresAttributes.cs)
        and runs against the throwaway PostgreSQL that scripts\test-database.ps1 builds for the run and destroys
        after it. That script is the ONLY thing that runs this project against a database. scripts\test-local.ps1
        does not run it at all, so the everyday gate and the release gate start no database and need no Docker.

@@ -74,6 +74,12 @@ $RigLabel = 'cc-test-database-rig'
 # container is nobody's, rather than guessing from its age.
 $RigOwnerLabel = 'cc-test-database-rig-owner'
 
+# The labels test-local.ps1 stamped on its rigs before October 2026, when it built the database itself. Nothing
+# else looks for them any more, so a rig a killed -Parked run left behind is swept here, by the same rule: only
+# when its owner stamp names a process that is gone. Remove these once no such rig can still exist.
+$LegacyRigLabel = 'cc-test-local-rig'
+$LegacyRigOwnerLabel = 'cc-test-local-rig-owner'
+
 # The rig this run must destroy when it ends, whatever way it ends. Null until one is started.
 $script:RigToTearDown = $null
 
@@ -188,29 +194,33 @@ function Get-FreeTcpPort {
 function Remove-AbandonedRigs {
     # The whole label set is asked for as ONE field and parsed here: a Go template carrying quoted strings has
     # to survive PowerShell's quoting and then Docker's own parser, and it did not.
-    $listed = Invoke-Docker @("ps", "-a", "--filter", "label=$RigLabel", "--format", "{{.ID}}|{{.Labels}}")
-    if ($listed.ExitCode -ne 0) { return }
-    $rows = @($listed.Output -split "`r?`n" | Where-Object { $_.Trim() -ne "" })
+    foreach ($pair in @(@($RigLabel, $RigOwnerLabel), @($LegacyRigLabel, $LegacyRigOwnerLabel))) {
+        $sweepLabel = $pair[0]
+        $ownerKey = $pair[1]
+        $listed = Invoke-Docker @("ps", "-a", "--filter", "label=$sweepLabel", "--format", "{{.ID}}|{{.Labels}}")
+        if ($listed.ExitCode -ne 0) { continue }
+        $rows = @($listed.Output -split "`r?`n" | Where-Object { $_.Trim() -ne "" })
 
-    foreach ($row in $rows) {
-        $parts = "$row" -split '\|', 2
-        if ($parts.Count -lt 2) { continue }
-        $id = $parts[0]
+        foreach ($row in $rows) {
+            $parts = "$row" -split '\|', 2
+            if ($parts.Count -lt 2) { continue }
+            $id = $parts[0]
 
-        $ownerPid = ""
-        foreach ($label in ($parts[1] -split ',')) {
-            $kv = $label -split '=', 2
-            if ($kv.Count -eq 2 -and $kv[0].Trim() -eq $RigOwnerLabel) { $ownerPid = $kv[1].Trim() }
-        }
+            $ownerPid = ""
+            foreach ($label in ($parts[1] -split ',')) {
+                $kv = $label -split '=', 2
+                if ($kv.Count -eq 2 -and $kv[0].Trim() -eq $ownerKey) { $ownerPid = $kv[1].Trim() }
+            }
 
-        if ($ownerPid -notmatch '^\d+$') { continue }
-        if ($null -ne (Get-Process -Id ([int]$ownerPid) -ErrorAction SilentlyContinue)) { continue }
+            if ($ownerPid -notmatch '^\d+$') { continue }
+            if ($null -ne (Get-Process -Id ([int]$ownerPid) -ErrorAction SilentlyContinue)) { continue }
 
-        Write-Host "Removing abandoned database test rig $id - the run that created it (process $ownerPid) is gone."
-        $removal = Invoke-Docker @("rm", "-f", "-v", $id)
-        if ($removal.ExitCode -ne 0) {
-            Write-Host "WARNING: that rig could NOT be removed (docker exited $($removal.ExitCode)):"
-            Write-Host "         $($removal.Output.Trim())"
+            Write-Host "Removing abandoned database test rig $id - the run that created it (process $ownerPid) is gone."
+            $removal = Invoke-Docker @("rm", "-f", "-v", $id)
+            if ($removal.ExitCode -ne 0) {
+                Write-Host "WARNING: that rig could NOT be removed (docker exited $($removal.ExitCode)):"
+                Write-Host "         $($removal.Output.Trim())"
+            }
         }
     }
 }
@@ -249,11 +259,24 @@ try {
     # from an open shell the engine outlives the script.
     $script:RigToTearDown = @{ Script = $rigScript; Instance = $rigInstance; Port = $rigPort }
 
-    & powershell -NoProfile -File $rigScript -Instance $rigInstance -Port $rigPort -Verb up `
-        -Label $RigLabel -OwnerLabel "$RigOwnerLabel=$PID" 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) {
+    # Under Continue, as every docker call here is. The rig script fails by THROWING, which writes to stderr,
+    # and under Stop Windows PowerShell 5.1 turns that into a terminating error in THIS script - so the message
+    # and exit 6 below were unreachable and the run exited 1, the code for a failed test. Found in review.
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $rigOutput = (& powershell -NoProfile -File $rigScript -Instance $rigInstance -Port $rigPort -Verb up `
+            -Label $RigLabel -OwnerLabel "$RigOwnerLabel=$PID" 2>&1 | Out-String)
+        $rigExit = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previous
+    }
+    if ($rigExit -ne 0) {
         Write-Host ""
         Write-Host "RESULT: CANNOT RUN - the throwaway PostgreSQL for this run could not be provisioned."
+        Write-Host "  The rig said:"
+        foreach ($l in ($rigOutput -split "`r?`n" | Where-Object { $_.Trim() -ne "" })) { Write-Host "    $l" }
         Write-Host "  Re-run the rig by hand to see why:"
         Write-Host "    powershell -NoProfile -File scripts\pg-stats-proof-rig.ps1 -Instance $rigInstance -Port $rigPort -Verb up"
         exit 6
@@ -266,7 +289,22 @@ try {
     $expectedVars = @("CC_GATEWAY_TEST_PG_CONNECTION", "CC_GATEWAY_TEST_PG_STATS_CONNECTION")
     foreach ($name in $expectedVars) { [Environment]::SetEnvironmentVariable($name, $null) }
 
-    $envLines = & powershell -NoProfile -File $rigScript -Instance $rigInstance -Port $rigPort -Verb print-env
+    # Stdout only (the assignments); stderr is kept apart so a warning cannot be read as a line to parse.
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $envLines = & powershell -NoProfile -File $rigScript -Instance $rigInstance -Port $rigPort -Verb print-env 2>$null
+        $printExit = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previous
+    }
+    if ($printExit -ne 0) {
+        Write-Host ""
+        Write-Host "RESULT: CANNOT RUN - the rig started but print-env failed (exit $printExit). See why with:"
+        Write-Host "    powershell -NoProfile -File scripts\pg-stats-proof-rig.ps1 -Instance $rigInstance -Port $rigPort -Verb print-env"
+        exit 6
+    }
     $seenVars = @{}
     foreach ($line in $envLines) {
         if ([string]::IsNullOrWhiteSpace("$line")) { continue }
@@ -344,7 +382,15 @@ try {
     $executed = [int] $counters.executed
     $passed = [int] $counters.passed
     $failedCount = [int] $counters.failed
-    $notExecuted = [int] $counters.notExecuted
+    # SKIPS ARE COUNTED FROM THE RESULT ROWS, NOT FROM A SUMMARY COUNTER. The result file's notExecuted
+    # counter reads 0 for a run in which xUnit skipped tests - the skips appear only as rows whose outcome is
+    # NotExecuted, and as the gap between total and executed. The first version of this script read the
+    # counter, and a run with a skipped test printed "none skipped" and exited 0: found in review, and
+    # reproduced through this script with a deliberately skipped test before it was fixed. Both measures are
+    # taken, and the larger wins, so neither can hide a skip the other sees.
+    $skippedRows = @(@($doc.TestRun.Results.UnitTestResult) |
+        Where-Object { $null -ne $_ -and [string]$_.outcome -eq "NotExecuted" })
+    $notExecuted = [Math]::Max($skippedRows.Count, $total - $executed)
     Write-Host ("Verdict: outcome={0} total={1} executed={2} passed={3} failed={4} skipped={5}" -f `
         $outcome, $total, $executed, $passed, $failedCount, $notExecuted)
 
@@ -389,9 +435,7 @@ try {
         Write-Host "RESULT: $notExecuted TEST(S) SKIPPED, $executed EXECUTED - this is not a pass."
         Write-Host "  This script built the database every test here needs, so nothing should skip. A skipped"
         Write-Host "  test here is one whose rule stopped matching the rig."
-        foreach ($u in @($doc.TestRun.Results.UnitTestResult)) {
-            if ($null -ne $u -and [string]$u.outcome -eq "NotExecuted") { Write-Host "    $($u.testName)" }
-        }
+        foreach ($u in $skippedRows) { Write-Host "    $($u.testName)" }
         exit 8
     }
 

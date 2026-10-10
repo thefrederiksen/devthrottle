@@ -379,8 +379,7 @@ foreach ($r in $running) {
 #
 # THE FIRST VERSION OF THIS CHECK GOT THAT WRONG and called anything that was not "Completed"
 # incomplete - so every ordinary red run would have exited 9 here, losing its exit code and its detailed
-# output, and a database death that made tests fail would have been intercepted before the liveness
-# branch that exists to explain it. Caught in review round five before it ever ran in anger.
+# output. Caught in review round five before it ever ran in anger.
 #
 # What is left is the genuinely unfinished: Aborted, Timeout, Error, Disconnected. Those can carry
 # passing assertions up to the point they stopped, which is the shape that has "very nearly certified a
@@ -495,9 +494,11 @@ if ($Filter -ne "") {
     #
     # This read TestDefinitions, which lists every test the run COLLECTED - including one carrying a
     # static Skip, which executes nothing. So a caller who named a skipped test in their filter got a
-    # green for it: reproduced with "PostgresRigIsPresentWhenRequiredTests|DT_TEN_3" and -ExpectTests 5,
-    # where four ran, the named DT_TEN_3 was skipped, and the gate exited 0. One live term laundered the
-    # dead one, which is the same shape as the defect this whole issue is about.
+    # green for it: reproduced, when the database rig checks still ran in this gate, with the filter
+    # "PostgresRigIsPresentWhenRequiredTests|DT_TEN_3" and -ExpectTests 5, where four ran, the named
+    # DT_TEN_3 was skipped, and the gate exited 0. One live term laundered the dead one, which is the same
+    # shape as the defect this whole issue is about. (Those rig checks now live in the database tests
+    # project, which this script never runs; the rule they exposed still applies to every suite here.)
     #
     # So a term is satisfied only by a test that EXECUTED. The results carry the outcome; NotExecuted is
     # what xUnit writes for a skip, and it is exactly what must not count as evidence.
