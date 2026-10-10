@@ -227,7 +227,7 @@ public sealed class MicAudioCapture : IAudioMeterSource, IAudioCaptureDiagnostic
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[MicAudioCapture] Stop error: {ex.Message}");
+            FileLog.Write($"[MicAudioCapture] Stop ERROR: {ex.Message}");
         }
         _started = false;
     }
@@ -258,7 +258,7 @@ public sealed class MicAudioCapture : IAudioMeterSource, IAudioCaptureDiagnostic
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[MicAudioCapture] StopAsync error: {ex.Message}");
+            FileLog.Write($"[MicAudioCapture] StopAsync ERROR: {ex.Message}");
             signal.TrySetResult(false);
         }
         _started = false;
@@ -290,15 +290,15 @@ public sealed class MicAudioCapture : IAudioMeterSource, IAudioCaptureDiagnostic
         Buffer.BlockCopy(e.Buffer, 0, chunk, 0, e.BytesRecorded);
 
         try { OnAudioChunk?.Invoke(chunk); }
-        catch (Exception ex) { FileLog.Write($"[MicAudioCapture] OnAudioChunk handler threw: {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[MicAudioCapture] OnAudioChunk handler FAILED: {ex.Message}"); }
 
         var bands = ComputeBands(chunk);
         try { OnAudioBands?.Invoke(bands); }
-        catch (Exception ex) { FileLog.Write($"[MicAudioCapture] OnAudioBands handler threw: {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[MicAudioCapture] OnAudioBands handler FAILED: {ex.Message}"); }
 
         double rawRms = ComputeInt16Rms(chunk);
         try { OnInputRms?.Invoke(rawRms); }
-        catch (Exception ex) { FileLog.Write($"[MicAudioCapture] OnInputRms handler threw: {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[MicAudioCapture] OnInputRms handler FAILED: {ex.Message}"); }
 
         // Handler self-time = the wall-clock the whole callback body took. Large values
         // for cheap CPU work mean the thread was descheduled mid-callback (machine under

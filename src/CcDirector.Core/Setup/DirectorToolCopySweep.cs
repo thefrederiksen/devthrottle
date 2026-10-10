@@ -226,7 +226,7 @@ public static class DirectorToolCopySweep
             var result = new ToolCopySweepResult(
                 false, $"The sweep could not run and nothing was deleted: {ex.Message}", Array.Empty<SweptDirectory>());
             Last = result;
-            FileLog.Write($"[DirectorToolCopySweep] {result.Summary}");
+            FileLog.Write($"[DirectorToolCopySweep] sweep FAILED: {result.Summary}");
             return result;
         }
     }
@@ -499,7 +499,7 @@ public static class DirectorToolCopySweep
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[DirectorToolCopySweep] could not list {path}, so nothing under it was swept: {ex.Message}");
+            FileLog.Write($"[DirectorToolCopySweep] could not list {path}, so nothing under it was swept FAILED: {ex.Message}");
             return Array.Empty<ChildDirectory>();
         }
 
@@ -528,7 +528,7 @@ public static class DirectorToolCopySweep
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[DirectorToolCopySweep] could not read what {path} is, so it was kept: {ex.Message}");
+            FileLog.Write($"[DirectorToolCopySweep] could not read what {path} is, so it was kept FAILED: {ex.Message}");
             return DirectoryKind.CouldNotTell;
         }
     }
@@ -544,7 +544,7 @@ public static class DirectorToolCopySweep
         {
             // An unanswerable question is Unknown, which keeps. It is NOT NotRunning, and writing the
             // catch that way round is the entire difference between this and a fail-open.
-            FileLog.Write($"[DirectorToolCopySweep] could not read the Director state of {instanceHome}: {ex.Message}");
+            FileLog.Write($"[DirectorToolCopySweep] could not read the Director state of {instanceHome} FAILED: {ex.Message}");
             return DirectorResolution.Unknown;
         }
     }

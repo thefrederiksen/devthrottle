@@ -57,7 +57,7 @@ public sealed class ReleaseInfoCache
             // unreadable file must NOT break the install - it just means no conditional request is
             // sent and the fetch proceeds normally. Logged, never thrown (this is the documented
             // contract above and mirrors how the workspace/named-session stores skip bad files).
-            EngineLog.Write($"[ReleaseInfoCache] Read: ignoring unusable cache ({ex.GetType().Name}: {ex.Message})");
+            EngineLog.Write($"[ReleaseInfoCache] Read FAILED: ignoring unusable cache ({ex.GetType().Name}: {ex.Message})");
             return null;
         }
     }

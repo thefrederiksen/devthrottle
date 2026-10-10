@@ -101,7 +101,7 @@ public static class LauncherDiscovery
         }
         catch (JsonException ex)
         {
-            FileLog.Write($"[LauncherDiscovery] Read: corrupt launcher.json at {path}: {ex.Message}");
+            FileLog.Write($"[LauncherDiscovery] Read FAILED: corrupt launcher.json at {path}: {ex.Message}");
             return new LauncherFact(Installed: true, Pid: null, Version: null,
                 Error: $"launcher.json unparsable: {ex.Message}", CommandSignals: []);
         }
@@ -126,7 +126,7 @@ public static class LauncherDiscovery
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[LauncherDiscovery] IsRunning: could not read process {pid}: {ex.Message}");
+            FileLog.Write($"[LauncherDiscovery] IsRunning FAILED: could not read process {pid}: {ex.Message}");
             return false;
         }
     }

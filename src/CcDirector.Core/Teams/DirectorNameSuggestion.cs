@@ -162,15 +162,15 @@ public sealed class DirectorNameFollower
             }
             catch (Exception saveError)
             {
-                FileLog.Write($"[DirectorNameFollower] FollowMove: renamed, but the new suggestion could not be recorded: {saveError.Message}");
+                FileLog.Write($"[DirectorNameFollower] FollowMove FAILED: renamed, but the new suggestion could not be recorded: {saveError.Message}");
                 try
                 {
                     _saveSuggestion(null);
-                    FileLog.Write("[DirectorNameFollower] FollowMove: the old suggestion record was removed, so the name will not follow later moves");
+                    FileLog.Write("[DirectorNameFollower] FollowMove FAILED: the old suggestion record was removed, so the name will not follow later moves");
                 }
                 catch (Exception removeError)
                 {
-                    FileLog.Write($"[DirectorNameFollower] FollowMove: the old suggestion record could NOT be removed either ({removeError.Message}); " +
+                    FileLog.Write($"[DirectorNameFollower] FollowMove FAILED: the old suggestion record could NOT be removed either ({removeError.Message}); " +
                                   "it is tied to the key this move revoked, so it can never match a later move");
                 }
                 throw new NameChangedButNotRecordedException(decision.NewName, saveError);
@@ -190,7 +190,7 @@ public sealed class DirectorNameFollower
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[DirectorNameFollower] FollowMove: a record that no longer applies could NOT be removed ({ex.Message}); " +
+                FileLog.Write($"[DirectorNameFollower] FollowMove FAILED: a record that no longer applies could NOT be removed ({ex.Message}); " +
                               "it is tied to a key this Director no longer holds, so it can never match a later move");
                 notRemoved = ex.Message;
             }

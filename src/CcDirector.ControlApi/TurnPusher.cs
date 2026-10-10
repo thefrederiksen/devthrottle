@@ -173,7 +173,7 @@ public sealed class TurnPusher : IAsyncDisposable
         if (!_canPush()) return;
         IReadOnlyCollection<Guid> ids;
         try { ids = _sessionIds(); }
-        catch (Exception ex) { FileLog.Write($"[TurnPusher] sweep could not list sessions: {ex.Message}"); return; }
+        catch (Exception ex) { FileLog.Write($"[TurnPusher] sweep could not list sessions FAILED: {ex.Message}"); return; }
         foreach (var sid in ids)
         {
             if (ct.IsCancellationRequested) return;
@@ -287,7 +287,7 @@ public sealed class TurnPusher : IAsyncDisposable
                     // failing has set Pending, and returning here would clear the run without anyone consuming
                     // it - the turn would then wait for the next trigger or the minute-long sweep (found in
                     // review). The round cap bounds this, so a persistently failing push cannot spin.
-                    FileLog.Write($"[TurnPusher] push for session={sessionId} stopped: {ex.Message}; resuming from the Gateway's watermark");
+                    FileLog.Write($"[TurnPusher] push for session={sessionId} stopped FAILED: {ex.Message}; resuming from the Gateway's watermark");
                 }
             }
         }

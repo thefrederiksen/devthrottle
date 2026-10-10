@@ -87,7 +87,7 @@ public partial class RestoreSessionsDialog : Window
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[RestoreSessionsDialog] Restore threw exception: {ex.Message}");
+                FileLog.Write($"[RestoreSessionsDialog] Restore threw exception FAILED: {ex.Message}");
                 result = new SingleRestoreResult(RestoreStatus.CreateFailed, $"{displayName} ({ex.Message})");
             }
 

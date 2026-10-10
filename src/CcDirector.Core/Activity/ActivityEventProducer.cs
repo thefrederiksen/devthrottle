@@ -99,7 +99,7 @@ public sealed class ActivityEventProducer : IDisposable
     private static void Guarded(Action record)
     {
         try { record(); }
-        catch (Exception ex) { FileLog.Write($"[ActivityEventProducer] record failed: {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[ActivityEventProducer] record FAILED: {ex.Message}"); }
     }
 
     // ---- the producers -----------------------------------------------------------------------------

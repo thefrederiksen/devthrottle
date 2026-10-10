@@ -151,6 +151,7 @@ public static class RemoteRepoProvider
         catch (System.ComponentModel.Win32Exception)
         {
             var msg = $"{fileName} CLI not found. Please install it first.";
+            // not-an-error: the command line is optional, and the person is told to install it
             FileLog.Write($"[RemoteRepoProvider] RunCliAsync: {msg}");
             return ("", msg);
         }

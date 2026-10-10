@@ -627,7 +627,7 @@ public sealed class ControlApiHost : IAsyncDisposable
         _ = Task.Run(async () =>
         {
             try { await signedInUserProvider.ResolveAsync(CancellationToken.None); }
-            catch (Exception ex) { FileLog.Write($"[ControlApiHost] signed-in user warm-up failed (best-effort): {ex.Message}"); }
+            catch (Exception ex) { FileLog.Write($"[ControlApiHost] signed-in user warm-up FAILED (best-effort): {ex.Message}"); }
         });
 
         // Keep the Director's cache of the Gateway-owned injected text current while it runs, so a Cockpit
@@ -726,7 +726,7 @@ public sealed class ControlApiHost : IAsyncDisposable
                 }
                 catch (Exception ex)
                 {
-                    FileLog.Write($"[ControlApiHost] stale Serve teardown for old port {oldPort} failed (best-effort): {ex.Message}");
+                    FileLog.Write($"[ControlApiHost] stale Serve teardown for old port {oldPort} FAILED (best-effort): {ex.Message}");
                 }
             }
 
@@ -736,7 +736,7 @@ public sealed class ControlApiHost : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[ControlApiHost] listener-leftover cleanup failed (best-effort, retried next start): {ex.Message}");
+            FileLog.Write($"[ControlApiHost] listener-leftover cleanup FAILED (best-effort, retried next start): {ex.Message}");
         }
     }
 
@@ -799,7 +799,7 @@ public sealed class ControlApiHost : IAsyncDisposable
             catch (Exception ex)
             {
                 FileLog.Write(
-                    $"[ControlApiHost] session key registration for {id} FAULTED: {ex.Message}");
+                    $"[ControlApiHost] session key registration for {id} FAILED: {ex.Message}");
             }
         }
     }
@@ -1826,7 +1826,7 @@ public sealed class ControlApiHost : IAsyncDisposable
                 // Stop the old heartbeat + unregister BEFORE building the new client, so we
                 // never have two clients heartbeating for the same directorId.
                 try { await _gatewayClient.StopAsync(); }
-                catch (Exception ex) { FileLog.Write($"[ControlApiHost] ReapplyGateway stop error: {ex.Message}"); }
+                catch (Exception ex) { FileLog.Write($"[ControlApiHost] ReapplyGateway stop ERROR: {ex.Message}"); }
                 _gatewayClient.Dispose();
                 _gatewayClient = null;
             }
@@ -1835,7 +1835,7 @@ public sealed class ControlApiHost : IAsyncDisposable
             if (_streamClient is not null)
             {
                 try { await _streamClient.StopAsync(); }
-                catch (Exception ex) { FileLog.Write($"[ControlApiHost] ReapplyGateway stream stop error: {ex.Message}"); }
+                catch (Exception ex) { FileLog.Write($"[ControlApiHost] ReapplyGateway stream stop ERROR: {ex.Message}"); }
                 await _streamClient.DisposeAsync();
                 _streamClient = null;
             }
@@ -1878,20 +1878,20 @@ public sealed class ControlApiHost : IAsyncDisposable
 
         // Stop the refresh cycle first so it does not tick against a tearing-down host.
         try { _refreshCycle?.Dispose(); _refreshCycle = null; }
-        catch (Exception ex) { FileLog.Write($"[ControlApiHost] refresh cycle stop error: {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[ControlApiHost] refresh cycle stop ERROR: {ex.Message}"); }
         try { _triggerRunnerCts.Cancel(); _triggerRunnerCts.Dispose(); }
-        catch (Exception ex) { FileLog.Write($"[ControlApiHost] trigger runner cancel error: {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[ControlApiHost] trigger runner cancel ERROR: {ex.Message}"); }
 
         // Let go of the session manager's creation event, so a host that is stopped and replaced
         // (the settings reapply path, and every test that stands one up) leaves no handler behind
         // writing into the registry of a host nobody is using any more.
         try { _repositoryUsage?.Dispose(); }
-        catch (Exception ex) { FileLog.Write($"[ControlApiHost] repository-usage recorder dispose error: {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[ControlApiHost] repository-usage recorder dispose ERROR: {ex.Message}"); }
 
         if (_gatewayClient is not null)
         {
             try { await _gatewayClient.StopAsync(); }
-            catch (Exception ex) { FileLog.Write($"[ControlApiHost] GatewayClient.StopAsync error: {ex.Message}"); }
+            catch (Exception ex) { FileLog.Write($"[ControlApiHost] GatewayClient.StopAsync ERROR: {ex.Message}"); }
             _gatewayClient.Dispose();
             _gatewayClient = null;
         }
@@ -1899,7 +1899,7 @@ public sealed class ControlApiHost : IAsyncDisposable
         if (_streamClient is not null)
         {
             try { await _streamClient.StopAsync(); }
-            catch (Exception ex) { FileLog.Write($"[ControlApiHost] GatewayStreamClient.StopAsync error: {ex.Message}"); }
+            catch (Exception ex) { FileLog.Write($"[ControlApiHost] GatewayStreamClient.StopAsync ERROR: {ex.Message}"); }
             await _streamClient.DisposeAsync();
             _streamClient = null;
         }
@@ -1941,7 +1941,7 @@ public sealed class ControlApiHost : IAsyncDisposable
         if (_turnPusher is not null)
         {
             try { await _turnPusher.DisposeAsync(); }
-            catch (Exception ex) { FileLog.Write($"[ControlApiHost] turn pusher dispose error: {ex.Message}"); }
+            catch (Exception ex) { FileLog.Write($"[ControlApiHost] turn pusher dispose ERROR: {ex.Message}"); }
             _turnPusher = null;
         }
         _pointerWatcher = null;

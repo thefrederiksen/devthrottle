@@ -786,6 +786,7 @@ public partial class NewSessionDialog : Window
         }
         catch (OperationCanceledException) when (_closing.IsCancellationRequested)
         {
+            // not-an-error: the person closed the dialog, which cancels the question
             FileLog.Write("[NewSessionDialog] LoadGatewayRepositoriesAsync: the ask was cancelled by the dialog closing");
         }
         catch (Exception ex)

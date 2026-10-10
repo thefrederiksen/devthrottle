@@ -193,7 +193,7 @@ public sealed class SessionPointerWatcher : IDisposable
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SessionPointerWatcher] could not read {path}: {ex.Message}");
+            FileLog.Write($"[SessionPointerWatcher] could not read {path} FAILED: {ex.Message}");
             return false;
         }
 
@@ -228,7 +228,7 @@ public sealed class SessionPointerWatcher : IDisposable
                           "A pointer drop carrying a non-GUID id is a bug in whatever wrote it; the session " +
                           "keeps the pointer it had - see issue #2456.");
             try { File.Delete(path); }
-            catch (Exception ex) { FileLog.Write($"[SessionPointerWatcher] could not remove refused {path}: {ex.Message}"); }
+            catch (Exception ex) { FileLog.Write($"[SessionPointerWatcher] could not remove refused {path} FAILED: {ex.Message}"); }
             return false;
         }
 
@@ -247,7 +247,7 @@ public sealed class SessionPointerWatcher : IDisposable
         // every sweep, and the session has already logged why. A failed delete is harmless - re-applying the
         // same drop changes nothing - so it is logged rather than retried.
         try { File.Delete(path); }
-        catch (Exception ex) { FileLog.Write($"[SessionPointerWatcher] {(moved ? "applied" : "refused")} but could not remove {path}: {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[SessionPointerWatcher] {(moved ? "applied" : "refused")} but could not remove {path} FAILED: {ex.Message}"); }
 
         return moved;
     }
@@ -265,7 +265,7 @@ public sealed class SessionPointerWatcher : IDisposable
                          _directory, sessionId + ".*" + SessionHookFiles.DropExtension))
             {
                 try { File.Delete(path); }
-                catch (Exception ex) { FileLog.Write($"[SessionPointerWatcher] could not delete {path}: {ex.Message}"); }
+                catch (Exception ex) { FileLog.Write($"[SessionPointerWatcher] could not delete {path} FAILED: {ex.Message}"); }
             }
         }
         catch (DirectoryNotFoundException)
@@ -274,7 +274,7 @@ public sealed class SessionPointerWatcher : IDisposable
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SessionPointerWatcher] could not enumerate {_directory} to forget {sessionId}: {ex.Message}");
+            FileLog.Write($"[SessionPointerWatcher] could not enumerate {_directory} to forget {sessionId} FAILED: {ex.Message}");
         }
     }
 
@@ -316,12 +316,12 @@ public sealed class SessionPointerWatcher : IDisposable
             foreach (var path in System.IO.Directory.EnumerateFiles(_directory))
             {
                 try { File.Delete(path); removed++; }
-                catch (Exception ex) { FileLog.Write($"[SessionPointerWatcher] could not purge {path}: {ex.Message}"); }
+                catch (Exception ex) { FileLog.Write($"[SessionPointerWatcher] could not purge {path} FAILED: {ex.Message}"); }
             }
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SessionPointerWatcher] could not enumerate {_directory} to purge it: {ex.Message}");
+            FileLog.Write($"[SessionPointerWatcher] could not enumerate {_directory} to purge it FAILED: {ex.Message}");
         }
         if (removed > 0)
             FileLog.Write($"[SessionPointerWatcher] purged {removed} drop(s) left by a previous Director");

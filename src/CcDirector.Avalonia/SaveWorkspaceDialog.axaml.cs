@@ -275,6 +275,7 @@ public partial class SaveWorkspaceDialog : Window
                         "it, or change the name to keep both.";
                     TxtWarning.IsVisible = true;
                     BtnSave.IsEnabled = true;
+                    // not-an-error: the name the person typed is taken, and they are asked before anything is replaced
                     FileLog.Write(
                         $"[SaveWorkspaceDialog] BtnSave_Click: '{doc.Id}' is taken; asking before replacing");
                     return;

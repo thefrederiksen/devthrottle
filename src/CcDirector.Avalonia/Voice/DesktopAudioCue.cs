@@ -59,7 +59,7 @@ public sealed class DesktopAudioCue
         {
             // Synthesis is pure arithmetic and should never fail; if it somehow does,
             // the cue is skipped rather than propagating into the dictation flow.
-            FileLog.Write($"[DesktopAudioCue] bloop synthesis failed: {ex.Message}");
+            FileLog.Write($"[DesktopAudioCue] bloop synthesis FAILED: {ex.Message}");
             onPlaybackFailed?.Invoke($"synthesis failed: {ex.Message}");
             return;
         }
@@ -111,12 +111,12 @@ public sealed class DesktopAudioCue
                 // reported end changes nothing.
                 if (Interlocked.CompareExchange(ref state, 2, 0) == 0)
                 {
-                    FileLog.Write($"[DesktopAudioCue] bloop playback failed, end NOT reported: {ex.Message}");
+                    FileLog.Write($"[DesktopAudioCue] bloop playback FAILED, end NOT reported: {ex.Message}");
                     onPlaybackFailed?.Invoke($"playback failed: {ex.Message}");
                 }
                 else
                 {
-                    FileLog.Write($"[DesktopAudioCue] bloop playback failed after its outcome was settled: {ex.Message}");
+                    FileLog.Write($"[DesktopAudioCue] bloop playback failed after its outcome was settled FAILED: {ex.Message}");
                 }
             }
         });

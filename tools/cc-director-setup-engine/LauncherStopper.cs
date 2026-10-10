@@ -154,7 +154,7 @@ public sealed class LauncherStopper
         }
         catch (Exception ex)
         {
-            EngineLog.Write($"[LauncherStopper] listing launcher processes failed: {ex.Message}");
+            EngineLog.Write($"[LauncherStopper] listing launcher processes FAILED: {ex.Message}");
             listed = false;
             return [];
         }
@@ -182,7 +182,7 @@ public sealed class LauncherStopper
         }
         catch (Exception ex)
         {
-            EngineLog.Write($"[LauncherStopper] quit request failed: {ex.Message}");
+            EngineLog.Write($"[LauncherStopper] quit request FAILED: {ex.Message}");
             return false;
         }
     }
@@ -206,7 +206,7 @@ public sealed class LauncherStopper
             }
             catch (Exception ex)
             {
-                EngineLog.Write($"[LauncherStopper] polite stop of pid={pid} failed: {ex.Message}");
+                EngineLog.Write($"[LauncherStopper] polite stop of pid={pid} FAILED: {ex.Message}");
             }
 
             p.Kill(entireProcessTree: true);
@@ -218,7 +218,7 @@ public sealed class LauncherStopper
         }
         catch (Exception ex)
         {
-            EngineLog.Write($"[LauncherStopper] kill pid={pid} failed: {ex.Message}");
+            EngineLog.Write($"[LauncherStopper] kill pid={pid} FAILED: {ex.Message}");
             return false;
         }
     }

@@ -281,7 +281,7 @@ public sealed class LauncherUpdateOwner
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[LauncherUpdateOwner] the process list is unreadable: {ex.Message}");
+            FileLog.Write($"[LauncherUpdateOwner] the process list is unreadable FAILED: {ex.Message}");
             return LauncherUpdateResult.Of(LauncherUpdateDecision.HeldBecauseUndecidable,
                 $"The process list could not be read, so which process the launcher is could not be established: {ex.Message}");
         }
@@ -385,7 +385,7 @@ public sealed class LauncherUpdateOwner
         catch (Exception ex)
         {
             stillOurs = false;
-            FileLog.Write($"[LauncherUpdateOwner] the no-orphan check itself failed: {ex.Message}");
+            FileLog.Write($"[LauncherUpdateOwner] the no-orphan check itself FAILED: {ex.Message}");
         }
         steps.Add(stillOurs
             ? "this Director still holds its instance after the swap"
@@ -536,7 +536,7 @@ public sealed class LauncherUpdateOwner
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[LauncherUpdateOwner] listing launcher processes failed: {ex.Message}");
+            FileLog.Write($"[LauncherUpdateOwner] listing launcher processes FAILED: {ex.Message}");
             // Unreadable is NOT empty. Answering "none left" here would report a stop nobody observed,
             // so an unreadable list yields a process id nothing can stop and the caller waits its
             // timeout out instead of believing a clean result.
@@ -556,7 +556,7 @@ public sealed class LauncherUpdateOwner
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[LauncherUpdateOwner] recording launcher {version} failed: {ex.Message}");
+            FileLog.Write($"[LauncherUpdateOwner] recording launcher {version} FAILED: {ex.Message}");
         }
     }
 

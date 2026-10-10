@@ -86,7 +86,7 @@ public class GitCommandRunner
         }
         catch (System.ComponentModel.Win32Exception ex)
         {
-            FileLog.Write($"[GitCommandRunner] git could not be started: {ex.Message}");
+            FileLog.Write($"[GitCommandRunner] git could not be started FAILED: {ex.Message}");
             return new GitCommandResult { Success = false, ExitCode = -1, Error = GitLaunchFailure.Describe(ex) };
         }
 

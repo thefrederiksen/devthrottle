@@ -118,7 +118,7 @@ public static class FleetToolPathRepair
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
             {
-                FileLog.Write($"[FleetToolPathRepair] RepairAtDirectorStart could not write the saved path: {ex.Message}");
+                FileLog.Write($"[FleetToolPathRepair] RepairAtDirectorStart could not write the saved path FAILED: {ex.Message}");
                 return new PathRepairResult(false, $"Could not update the saved path: {ex.Message}. {running}");
             }
         }

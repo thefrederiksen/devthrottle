@@ -242,7 +242,7 @@ public sealed class DirectorWayUp : IDirectorWayUp
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
-            FileLog.Write($"[DirectorWayUp] BringBackAsync: the restore refused: {ex.Message}");
+            FileLog.Write($"[DirectorWayUp] BringBackAsync FAILED: the restore refused: {ex.Message}");
             return Refused(ex.Message);
         }
 

@@ -44,7 +44,7 @@ public static class CodexTranscriptReader
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[CodexTranscriptReader] Read error for {rolloutPath}: {ex.Message}");
+            FileLog.Write($"[CodexTranscriptReader] Read error for {rolloutPath} FAILED: {ex.Message}");
         }
 
         return messages.Count == 0 ? ConversationHistory.Empty : new ConversationHistory(messages);

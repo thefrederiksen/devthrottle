@@ -308,7 +308,7 @@ public sealed class GatewayConfig
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[GatewayConfig] TryReadLocalMachineToken failed: {ex.Message}");
+            FileLog.Write($"[GatewayConfig] TryReadLocalMachineToken FAILED: {ex.Message}");
             return null;
         }
     }

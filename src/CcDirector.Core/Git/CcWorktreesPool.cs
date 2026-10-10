@@ -140,7 +140,7 @@ public sealed class CcWorktreesPool : IWorktreePool
         catch (Exception ex)
         {
             // The tool directory is not readable on this machine. That is not a reason to stop looking.
-            FileLog.Write($"[CcWorktreesPool] could not look in the machine's tool directory: {ex.Message}");
+            FileLog.Write($"[CcWorktreesPool] could not look in the machine's tool directory FAILED: {ex.Message}");
         }
 
         return ExecutableResolver.Resolve(ToolName);
@@ -196,7 +196,7 @@ public sealed class CcWorktreesPool : IWorktreePool
             // no longer matches, a remote that cannot be reached, the tool missing) is also reported as
             // held: in every one of them the Director does not know that the slot came back, and
             // recording it as free would hand the next session a worktree somebody else's work is in.
-            FileLog.Write($"[CcWorktreesPool] Return: slot={worktree.Slot} held: {ex.Message}");
+            FileLog.Write($"[CcWorktreesPool] Return FAILED: slot={worktree.Slot} held: {ex.Message}");
             return new PooledWorktreeReturn(worktree.Slot, worktree.Path, Freed: false, HeldReason: ex.Message);
         }
     }

@@ -180,12 +180,12 @@ public static class ClaudeSettingsFile
             // Distinguished only for the message, never for the verdict - the verdict is the same
             // either way, so a wrong guess about which it is cannot make this permissive.
             var what = Directory.Exists(path) ? "is a directory, not a file" : $"could not be opened ({ex.Message})";
-            FileLog.Write($"[ClaudeSettingsFile] Read: {path} {what}");
+            FileLog.Write($"[ClaudeSettingsFile] Read FAILED: {path} {what}");
             return new ConfigRead(ConfigReadKind.Unreadable, null, what);
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[ClaudeSettingsFile] Read: {path} exists but could not be opened: {ex.Message}");
+            FileLog.Write($"[ClaudeSettingsFile] Read FAILED: {path} exists but could not be opened: {ex.Message}");
             return new ConfigRead(ConfigReadKind.Unreadable, null, $"could not be opened ({ex.Message})");
         }
 
@@ -196,7 +196,7 @@ public static class ClaudeSettingsFile
         }
         catch (JsonException ex)
         {
-            FileLog.Write($"[ClaudeSettingsFile] Read: {path} is not valid JSON: {ex.Message}");
+            FileLog.Write($"[ClaudeSettingsFile] Read FAILED: {path} is not valid JSON: {ex.Message}");
             return new ConfigRead(ConfigReadKind.Unreadable, null, $"is not valid JSON ({ex.Message})");
         }
 
@@ -275,7 +275,7 @@ public static class ClaudeSettingsFile
                 try { File.Delete(temp); }
                 catch (Exception cleanup)
                 {
-                    FileLog.Write($"[ClaudeSettingsFile] Save: could not remove the temp file {temp}: {cleanup.Message}");
+                    FileLog.Write($"[ClaudeSettingsFile] Save FAILED: could not remove the temp file {temp}: {cleanup.Message}");
                 }
             }
 

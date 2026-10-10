@@ -76,7 +76,7 @@ public static class OpenCodeHistoryReader
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[OpenCodeHistoryReader] Read error for {databasePath}: {ex.Message}");
+            FileLog.Write($"[OpenCodeHistoryReader] Read error for {databasePath} FAILED: {ex.Message}");
             return ConversationHistory.Empty;
         }
     }
@@ -121,7 +121,7 @@ public static class OpenCodeHistoryReader
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[OpenCodeHistoryReader] UserPrompts read error for {databasePath}: {ex.Message}");
+            FileLog.Write($"[OpenCodeHistoryReader] UserPrompts read error for {databasePath} FAILED: {ex.Message}");
             return [];
         }
     }
@@ -215,7 +215,7 @@ public static class OpenCodeHistoryReader
         {
             // Tolerate a malformed blob rather than failing the whole read, but record it so a bad
             // row is diagnosable instead of silently vanishing.
-            FileLog.Write($"[OpenCodeHistoryReader] AppendParts: skipping malformed part blob: {ex.Message}");
+            FileLog.Write($"[OpenCodeHistoryReader] AppendParts FAILED: skipping malformed part blob: {ex.Message}");
             return;
         }
 
@@ -283,7 +283,7 @@ public static class OpenCodeHistoryReader
         {
             // A malformed message blob cannot tell us the role; default to User but log it, since a
             // silent default here could misclassify an assistant turn as a user turn.
-            FileLog.Write($"[OpenCodeHistoryReader] ParseRole: malformed message data, defaulting to User: {ex.Message}");
+            FileLog.Write($"[OpenCodeHistoryReader] ParseRole FAILED: malformed message data, defaulting to User: {ex.Message}");
             return ConversationRole.User;
         }
 

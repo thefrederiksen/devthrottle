@@ -58,7 +58,7 @@ public static class ProcessPriorityFloor
             // A REFUSAL IS REPORTED, NOT SWALLOWED. On Linux and macOS an unprivileged process may not raise its own
             // priority once it has been lowered. The Director keeps running as it was started, and the line says what
             // that costs and how to start it properly.
-            FileLog.Write($"[ProcessPriorityFloor] Apply REFUSED by the system: this process was started at {current} and " +
+            FileLog.Write($"[ProcessPriorityFloor] Apply FAILED, refused by the system: this process was started at {current} and " +
                           $"raising it to {Floor} failed ({ex.Message}). On a busy machine its answers to the Gateway will be " +
                           $"late - the prompt verb past its 20-second budget, reads past the Gateway's 30-second wait. " +
                           "Start the Director at normal priority.");

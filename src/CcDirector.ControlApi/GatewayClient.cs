@@ -197,12 +197,12 @@ public sealed class GatewayClient : IGatewayHold, IGatewayColourLegend, Triggers
         {
             // A 200 whose body is not a list. The Gateway answered - it is reachable - so this is a
             // refusal to report, never a reason to quietly show a different list.
-            FileLog.Write($"[GatewayClient] GetKnownRepositoriesAsync REFUSED: the answer could not be read: {ex.Message}");
+            FileLog.Write($"[GatewayClient] GetKnownRepositoriesAsync FAILED (refused): the answer could not be read: {ex.Message}");
             return KnownRepositoryListResult.Refused("the Gateway's answer could not be read");
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException)
         {
-            FileLog.Write($"[GatewayClient] GetKnownRepositoriesAsync UNREACHABLE: {ex.Message}");
+            FileLog.Write($"[GatewayClient] GetKnownRepositoriesAsync FAILED (unreachable): {ex.Message}");
             return KnownRepositoryListResult.Unreachable(ex.Message);
         }
     }
@@ -236,7 +236,7 @@ public sealed class GatewayClient : IGatewayHold, IGatewayColourLegend, Triggers
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
-            FileLog.Write($"[GatewayClient] DownloadFactoryMemoryAsync UNREACHABLE: session={sessionId}: {ex.Message}");
+            FileLog.Write($"[GatewayClient] DownloadFactoryMemoryAsync FAILED (unreachable): session={sessionId}: {ex.Message}");
             throw new InvalidOperationException($"the Gateway could not be reached: {ex.Message}", ex);
         }
 
@@ -256,7 +256,7 @@ public sealed class GatewayClient : IGatewayHold, IGatewayColourLegend, Triggers
             }
             catch (JsonException ex)
             {
-                FileLog.Write($"[GatewayClient] DownloadFactoryMemoryAsync UNREADABLE: session={sessionId}: {ex.Message}");
+                FileLog.Write($"[GatewayClient] DownloadFactoryMemoryAsync FAILED (unreadable): session={sessionId}: {ex.Message}");
                 throw new InvalidOperationException($"the Gateway's answer could not be read: {ex.Message}", ex);
             }
             if (list is null)
@@ -1274,7 +1274,7 @@ public sealed class GatewayClient : IGatewayHold, IGatewayColourLegend, Triggers
         {
             try { await SelectActiveUrlAsync(_cts.Token); }
             catch (OperationCanceledException) { }
-            catch (Exception ex) { FileLog.Write($"[GatewayClient] candidate selection failed, using {_activeUrl}: {ex.Message}"); }
+            catch (Exception ex) { FileLog.Write($"[GatewayClient] candidate selection FAILED, using {_activeUrl}: {ex.Message}"); }
         });
     }
 

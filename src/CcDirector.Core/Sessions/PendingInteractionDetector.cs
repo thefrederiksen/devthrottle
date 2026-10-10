@@ -236,7 +236,7 @@ public static class PendingInteractionDetector
                 // transcript parser truncates any input value over 2000 characters and appends a marker,
                 // which leaves the array unclosed. That costs the wording, not the detection - the tool
                 // call is still plainly unanswered - so the box is reported with its text unread.
-                FileLog.Write("[PendingInteractionDetector] BuildQuestion: the question text could not be " +
+                FileLog.Write("[PendingInteractionDetector] BuildQuestion FAILED: the question text could not be " +
                               $"read from the tool input, so the box is reported without it: {ex.Message}");
             }
         }

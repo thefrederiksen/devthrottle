@@ -79,6 +79,7 @@ public static class BackgroundDictationSend
             }
             catch (NoAudioCapturedException ex)
             {
+                // not-an-error: a recording with no sound in it is the speaker's outcome, and nothing is sent
                 FileLog.Write($"[BackgroundDictationSend] no audio captured for session {target.Id}: {ex.Message}");
                 return;
             }
@@ -154,7 +155,7 @@ public static class BackgroundDictationSend
                     // No failure callback means nobody restored the words as text - the saved WAV is
                     // then the only copy of what was said, so it is kept and the log names it. The
                     // single production caller always passes onFailed; this guards a future caller.
-                    FileLog.Write($"[BackgroundDictationSend] no onFailed callback; keeping savedRecording={savedPath ?? "none"}");
+                    FileLog.Write($"[BackgroundDictationSend] restoring the words FAILED: no onFailed callback; keeping savedRecording={savedPath ?? "none"}");
                     savedPath = null; // kept; do not delete below
                     return;
                 }
@@ -167,14 +168,14 @@ public static class BackgroundDictationSend
         {
             // Root of a detached task: never let it fault unobserved. No transcript text reached the
             // caller, so a saved recording (if any) is kept and named - it may be the only copy.
-            FileLog.Write($"[BackgroundDictationSend] unexpected error for session {target.Id} ({DiagnosticState(target)}): {ex.Message}; savedRecording={savedPath ?? "none"}");
+            FileLog.Write($"[BackgroundDictationSend] unexpected error for session {target.Id} ({DiagnosticState(target)}) FAILED: {ex.Message}; savedRecording={savedPath ?? "none"}");
             onFailed?.Invoke(WithSavedRecording(ex.Message, savedPath), null);
         }
         finally
         {
             target.IsTranscribing = false;
             try { await recorder.DisposeAsync(); }
-            catch (Exception ex) { FileLog.Write($"[BackgroundDictationSend] recorder dispose error: {ex.Message}"); }
+            catch (Exception ex) { FileLog.Write($"[BackgroundDictationSend] recorder dispose ERROR: {ex.Message}"); }
         }
     }
 

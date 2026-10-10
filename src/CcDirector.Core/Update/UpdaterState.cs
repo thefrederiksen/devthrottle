@@ -346,6 +346,7 @@ public sealed class UpdaterState
             }
             catch (AbandonedMutexException)
             {
+                // not-an-error: evidence of an earlier crash, which that crash's own report covers; taking the lock over is the recovery
                 FileLog.Write($"[UpdaterState] {name} was left held by a process that ended mid-save; taken over");
                 got = true;
             }

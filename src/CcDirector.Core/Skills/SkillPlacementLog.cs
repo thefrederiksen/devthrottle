@@ -89,7 +89,7 @@ public static class SkillPlacementLog
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SkillPlacementLog] could not record placement for {placement.Kind}: {ex.Message}");
+            FileLog.Write($"[SkillPlacementLog] could not record placement for {placement.Kind} FAILED: {ex.Message}");
         }
     }
 
@@ -105,7 +105,7 @@ public static class SkillPlacementLog
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SkillPlacementLog] could not read the placement record: {ex.Message}");
+            FileLog.Write($"[SkillPlacementLog] could not read the placement record FAILED: {ex.Message}");
             return Array.Empty<SkillPlacementRecord>();
         }
     }

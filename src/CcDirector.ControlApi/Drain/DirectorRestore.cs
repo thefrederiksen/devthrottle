@@ -320,7 +320,7 @@ public sealed class DirectorRestore
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[DirectorRestore] could not give back the restore lease on {workspaceId}; it lapses after " +
+            FileLog.Write($"[DirectorRestore] lease give-back FAILED for {workspaceId}; it lapses after " +
                           $"{WorkspaceRestoreLease.Expiry.TotalMinutes:0} minutes: {ex.Message}");
         }
     }

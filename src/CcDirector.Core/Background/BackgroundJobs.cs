@@ -227,7 +227,7 @@ public sealed class BackgroundJob : IDisposable
         try { return isOn(); }
         catch (Exception ex)
         {
-            FileLog.Write($"[BackgroundJobs] '{Spec.Name}' off switch threw ({ex.Message}) - treated as off");
+            FileLog.Write($"[BackgroundJobs] '{Spec.Name}' off switch FAILED ({ex.Message}) - treated as off");
             return false;
         }
     }

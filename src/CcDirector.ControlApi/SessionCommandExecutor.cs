@@ -264,7 +264,7 @@ internal static class SessionCommandExecutor
         }
         catch (DeliveryRecordUnreadableException ex)
         {
-            FileLog.Write($"[SessionCommandExecutor] SendRecordedDeliveryAsync: REFUSED session={session.Id}, deliveryId={deliveryId}: {ex.Message}");
+            FileLog.Write($"[SessionCommandExecutor] SendRecordedDeliveryAsync FAILED: REFUSED session={session.Id}, deliveryId={deliveryId}: {ex.Message}");
             return DirectorCommandResult.Fail(DirectorCommandStatus.Error, ex.Message);
         }
 
@@ -977,13 +977,21 @@ internal static class SessionCommandExecutor
             // in flight. That is "there is nothing left to stop", which Ruling 3 makes a SUCCESS, so it falls
             // through with the rest of the best-effort handling. This used to return NotFound; the ONE place
             // a missing row is now decided is the null-session check above, before any of the facts are read.
+            // not-an-error: another remover took the row first, so the stop is already done
             FileLog.Write($"[SessionCommandExecutor] kill: session={guid} the row vanished mid-stop (raced with another remover)");
+        }
+        catch (InvalidOperationException killEx)
+        {
+            // The process had already exited; that is not a reason to leave a zombie row, so log and fall through
+            // to removal. A stop always means gone (matches the desktop close flow).
+            // not-an-error: the process had already exited, and the stop removes the row either way
+            FileLog.Write($"[SessionCommandExecutor] kill: session={guid} process already gone: {killEx.Message}");
         }
         catch (Exception killEx)
         {
-            // The process may have already exited; that is not a reason to leave a zombie row, so log and
-            // fall through to removal. A stop always means gone (matches the desktop close flow).
-            FileLog.Write($"[SessionCommandExecutor] kill: session={guid} kill raised (process likely already gone): {killEx.Message}");
+            // Any other fault in the kill may leave the process running; the row is still removed (a stop always
+            // means gone), but the failure is reported.
+            FileLog.Write($"[SessionCommandExecutor] kill FAILED: session={guid}: {killEx.GetType().Name}: {killEx.Message}");
         }
 
         // ---- did the BACKEND itself say the shutdown failed? ----
@@ -1139,7 +1147,7 @@ internal static class SessionCommandExecutor
         catch (Exception ex)
         {
             var words = $"could not read process {processId} on this machine ({ex.GetType().Name}: {ex.Message})";
-            FileLog.Write($"[SessionCommandExecutor] kill: {words} - reporting UNREADABLE, not gone");
+            FileLog.Write($"[SessionCommandExecutor] kill FAILED: {words} - reporting UNREADABLE, not gone");
             return ProcessLivenessReading.CouldNotRead(words);
         }
     }
@@ -1197,7 +1205,7 @@ internal static class SessionCommandExecutor
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SessionCommandExecutor] kill: session={sessionId} worktree probe on {worktreePath} "
+            FileLog.Write($"[SessionCommandExecutor] kill FAILED: session={sessionId} worktree probe on {worktreePath} "
                 + $"did not answer ({ex.GetType().Name}: {ex.Message}) - reporting UNKNOWN, not clean");
             return null;
         }

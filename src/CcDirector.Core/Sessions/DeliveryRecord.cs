@@ -426,7 +426,7 @@ public sealed class DeliveryRecord
         {
             // Includes a process that exits between the lookup and the read - but that is not proven, so it is reported
             // unreadable rather than guessed gone.
-            FileLog.Write($"[DeliveryRecord] AskTheOperatingSystem: could not read process {owner.ProcessId} " +
+            FileLog.Write($"[DeliveryRecord] AskTheOperatingSystem FAILED: could not read process {owner.ProcessId} " +
                           $"({ex.GetType().Name}: {ex.Message}); unreadable, not gone");
             return DeliveryOwnerLiveness.Unreadable;
         }

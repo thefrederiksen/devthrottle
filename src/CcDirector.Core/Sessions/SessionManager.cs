@@ -1287,7 +1287,7 @@ public sealed class SessionManager : IDisposable
         {
             // The setting could not be read. OFF is the only safe reading of "I do not know", and it is
             // also the default, so this session behaves exactly as it did before the setting existed.
-            FileLog.Write($"[SessionManager] AcquirePooledWorktree: could not read the setting for {repoPath}: {ex.Message}; treating it as off");
+            FileLog.Write($"[SessionManager] AcquirePooledWorktree FAILED: could not read the setting for {repoPath}: {ex.Message}; treating it as off");
             return null;
         }
 
@@ -1312,7 +1312,7 @@ public sealed class SessionManager : IDisposable
             var help = ex.Help.Count == 0 ? "" : " Try: " + string.Join("; ", ex.Help);
             var message = $"No session was opened. {repoPath} is set to run its sessions in a pooled worktree, "
                 + $"and cc-worktrees refused: {ex.Message}.{help}";
-            FileLog.Write($"[SessionManager] AcquirePooledWorktree REFUSED: code={ex.Code}, exit={ex.ExitCode}, message={ex.Message}");
+            FileLog.Write($"[SessionManager] AcquirePooledWorktree FAILED (refused): code={ex.Code}, exit={ex.ExitCode}, message={ex.Message}");
             _log?.Invoke(message);
             throw new InvalidOperationException(message, ex);
         }

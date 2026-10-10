@@ -125,7 +125,7 @@ public partial class BrowsersRailGroup : UserControl
             {
                 // One browser that cannot be probed stays on its last known status and takes nothing
                 // else down with it.
-                FileLog.Write($"[BrowsersRailGroup] ProbeStatusesAsync: id={pending.Id} failed (non-fatal): {ex.Message}");
+                FileLog.Write($"[BrowsersRailGroup] ProbeStatusesAsync: id={pending.Id} FAILED (non-fatal): {ex.Message}");
                 return;
             }
 

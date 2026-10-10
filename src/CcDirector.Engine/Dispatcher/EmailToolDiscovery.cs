@@ -105,7 +105,7 @@ public static class EmailToolDiscovery
         }
         catch (OperationCanceledException)
         {
-            FileLog.Write($"[EmailToolDiscovery] {toolName} timed out after {Timeout.TotalSeconds}s");
+            FileLog.Write($"[EmailToolDiscovery] {toolName} FAILED: timed out after {Timeout.TotalSeconds}s");
         }
         catch (Exception ex)
         {

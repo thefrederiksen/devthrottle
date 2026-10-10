@@ -52,6 +52,7 @@ public sealed class VoiceService
         }
         catch (TranscriptionUnavailableException ex)
         {
+            // not-an-error: no transcription key is set up; the answer tells the person
             FileLog.Write($"[VoiceService] Transcribe unavailable: {ex.Message}");
             return new VoiceCommandResponse
             {
@@ -120,6 +121,7 @@ public sealed class VoiceService
         }
         catch (TranscriptionUnavailableException ex)
         {
+            // not-an-error: no transcription key is set up; the answer tells the person
             FileLog.Write($"[VoiceService] TranscribeAndCleanAsync unavailable: {ex.Message}");
             return new VoiceCommandResponse { Status = "no_key", Error = ex.Message };
         }
@@ -127,6 +129,7 @@ public sealed class VoiceService
         {
             // Out of credits / cap (issue #941): carry the machine code as the status so the endpoint
             // maps it to the shared 402 message, instead of a generic "transcribe_failed".
+            // not-an-error: the account has run out of credits; the answer tells the person
             FileLog.Write($"[VoiceService] TranscribeAndCleanAsync OUT OF CREDITS: {credits.Code}");
             return new VoiceCommandResponse { Status = credits.Code, Error = credits.Message };
         }

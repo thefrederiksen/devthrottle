@@ -50,7 +50,7 @@ internal static class FilesystemIdentity
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[FilesystemIdentity] NameCount undeterminable for {filePath}: {ex.GetType().Name} {ex.Message}");
+            FileLog.Write($"[FilesystemIdentity] NameCount undeterminable for {filePath} FAILED: {ex.GetType().Name} {ex.Message}");
             return null;
         }
     }
@@ -113,7 +113,7 @@ internal static class FilesystemIdentity
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[FilesystemIdentity] CanonicalPath undeterminable for {path}: {ex.GetType().Name} {ex.Message}");
+            FileLog.Write($"[FilesystemIdentity] CanonicalPath undeterminable for {path} FAILED: {ex.GetType().Name} {ex.Message}");
             return null;
         }
     }
@@ -332,7 +332,7 @@ internal static class FilesystemIdentity
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[FilesystemIdentity] Unix link-count calibration failed: {ex.GetType().Name} {ex.Message}");
+            FileLog.Write($"[FilesystemIdentity] Unix link-count calibration FAILED: {ex.GetType().Name} {ex.Message}");
             return null;
         }
         finally

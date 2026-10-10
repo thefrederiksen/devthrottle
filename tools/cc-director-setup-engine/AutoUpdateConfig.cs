@@ -41,7 +41,7 @@ public sealed record AutoUpdateConfig(bool Enabled, double IntervalHours)
         }
         catch (Exception ex)
         {
-            EngineLog.Write($"[AutoUpdateConfig] load failed ({layout.ConfigPath}): {ex.Message}; using defaults");
+            EngineLog.Write($"[AutoUpdateConfig] load FAILED ({layout.ConfigPath}): {ex.Message}; using defaults");
             return Default;
         }
     }

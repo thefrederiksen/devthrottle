@@ -242,7 +242,7 @@ public sealed class SkillStoreRefresh
         }
         catch (IOException ex)
         {
-            FileLog.Write($"[SkillStoreRefresh] could not read the marker for '{row.Id}' ({ex.Message}) - fetching it again");
+            FileLog.Write($"[SkillStoreRefresh] marker read FAILED for '{row.Id}' ({ex.Message}) - fetching it again");
             return false;
         }
         if (lines.Length < 2)

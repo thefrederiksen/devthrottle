@@ -143,7 +143,7 @@ public static class ClaudeHookInstaller
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[ClaudeHookInstaller] EnsureInstalled failed for '{directory}': {ex.Message}");
+            FileLog.Write($"[ClaudeHookInstaller] EnsureInstalled failed for '{directory}' FAILED: {ex.Message}");
             return null;
         }
     }

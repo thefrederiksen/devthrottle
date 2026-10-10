@@ -36,7 +36,7 @@ public static class TurnReviewLog
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[TurnReviewLog] Write failed for session={record.SessionId}: {ex.Message}");
+            FileLog.Write($"[TurnReviewLog] Write failed for session={record.SessionId} FAILED: {ex.Message}");
         }
     }
 
@@ -56,13 +56,13 @@ public static class TurnReviewLog
                     && day.Date < cutoff)
                 {
                     try { Directory.Delete(dir, recursive: true); }
-                    catch (Exception ex) { FileLog.Write($"[TurnReviewLog] Purge skip {name}: {ex.Message}"); }
+                    catch (Exception ex) { FileLog.Write($"[TurnReviewLog] Purge skip {name} FAILED: {ex.Message}"); }
                 }
             }
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[TurnReviewLog] Purge failed: {ex.Message}");
+            FileLog.Write($"[TurnReviewLog] Purge FAILED: {ex.Message}");
         }
     }
 

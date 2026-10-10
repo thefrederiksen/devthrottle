@@ -162,7 +162,7 @@ public sealed class ClaudeDriver : IAgentDriver
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[ClaudeDriver] ReadConfiguredDefaultModel: could not read settings.json: {ex.Message}");
+            FileLog.Write($"[ClaudeDriver] ReadConfiguredDefaultModel FAILED: could not read settings.json: {ex.Message}");
             return null;
         }
     }

@@ -110,7 +110,7 @@ public sealed class RepositoryWatcher : IDisposable
             foreach (var root in wantedRoots.Where(r => !_rootWatchers.ContainsKey(r)))
             {
                 try { _rootWatchers[root] = CreateRootWatcher(root); }
-                catch (Exception ex) { FileLog.Write($"[RepositoryWatcher] root watch failed for {root}: {ex.Message}"); }
+                catch (Exception ex) { FileLog.Write($"[RepositoryWatcher] root watch failed for {root} FAILED: {ex.Message}"); }
             }
             foreach (var repo in wantedRepos.Where(r => !_repoWatchers.ContainsKey(r)))
             {
@@ -118,7 +118,7 @@ public sealed class RepositoryWatcher : IDisposable
                 if (!Directory.Exists(gitDir))
                     continue; // a worktree-style .git FILE has its real state under the primary's .git
                 try { _repoWatchers[repo] = CreateRepoWatcher(repo); }
-                catch (Exception ex) { FileLog.Write($"[RepositoryWatcher] git watch failed for {repo}: {ex.Message}"); }
+                catch (Exception ex) { FileLog.Write($"[RepositoryWatcher] git watch failed for {repo} FAILED: {ex.Message}"); }
             }
 
             FileLog.Write($"[RepositoryWatcher] watching {_rootWatchers.Count} roots, {_repoWatchers.Count} repositories");
@@ -237,7 +237,7 @@ public sealed class RepositoryWatcher : IDisposable
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[RepositoryWatcher] reconciliation handler threw: {ex.Message}");
+            FileLog.Write($"[RepositoryWatcher] reconciliation handler FAILED: {ex.Message}");
         }
     }
 
@@ -313,7 +313,7 @@ public sealed class RepositoryWatcher : IDisposable
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[RepositoryWatcher] recompute failed for {repoPath}: {ex.Message}");
+            FileLog.Write($"[RepositoryWatcher] recompute failed for {repoPath} FAILED: {ex.Message}");
         }
     }
 

@@ -159,7 +159,7 @@ public partial class WakeWordTestDialog : Window
             {
                 recorder.OnAudioBands -= OnAudioBands;
                 try { await recorder.DisposeAsync(); }
-                catch (Exception disposeEx) { FileLog.Write($"[WakeWordTestDialog] failed-start dispose error: {disposeEx.Message}"); }
+                catch (Exception disposeEx) { FileLog.Write($"[WakeWordTestDialog] failed-start dispose ERROR: {disposeEx.Message}"); }
             }
             _recorder = null;
             StartButton.IsEnabled = true;
@@ -201,7 +201,7 @@ public partial class WakeWordTestDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[WakeWordTestDialog] stop/transcribe failed: {ex.Message}");
+            FileLog.Write($"[WakeWordTestDialog] stop/transcribe FAILED: {ex.Message}");
             AppendLog($"ERROR: transcription failed: {ex.Message}");
         }
         ParkBars();
@@ -220,7 +220,7 @@ public partial class WakeWordTestDialog : Window
         if (recorder is null) return;
         recorder.OnAudioBands -= OnAudioBands;
         try { await recorder.DisposeAsync(); }
-        catch (Exception ex) { FileLog.Write($"[WakeWordTestDialog] dispose error: {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[WakeWordTestDialog] dispose ERROR: {ex.Message}"); }
     }
 
     private async System.Threading.Tasks.Task OnClosedAsync()
@@ -239,9 +239,9 @@ public partial class WakeWordTestDialog : Window
             RawTranscriptText.Text = transcript;
             RawScroller.ScrollToEnd();
             try { _engine.Feed(transcript ?? ""); }
-            catch (Exception ex) { FileLog.Write($"[WakeWordTestDialog] engine.Feed threw: {ex.Message}"); }
+            catch (Exception ex) { FileLog.Write($"[WakeWordTestDialog] engine.Feed FAILED: {ex.Message}"); }
             try { _engine.Flush(); }
-            catch (Exception ex) { FileLog.Write($"[WakeWordTestDialog] engine.Flush threw: {ex.Message}"); }
+            catch (Exception ex) { FileLog.Write($"[WakeWordTestDialog] engine.Flush FAILED: {ex.Message}"); }
         });
     }
 
@@ -249,7 +249,7 @@ public partial class WakeWordTestDialog : Window
     {
         _debounceTimer.Stop();
         try { _engine.Flush(); }
-        catch (Exception ex) { FileLog.Write($"[WakeWordTestDialog] Flush on debounce threw: {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[WakeWordTestDialog] Flush on debounce FAILED: {ex.Message}"); }
     }
 
     // ===== engine events -> UI ==============================================

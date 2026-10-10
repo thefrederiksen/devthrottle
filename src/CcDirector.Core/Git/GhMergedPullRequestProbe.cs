@@ -52,10 +52,22 @@ public sealed class GhMergedPullRequestProbe : IMergedPullRequestProbe
                 return false;
             }
         }
-        catch (Exception ex)
+        catch (System.ComponentModel.Win32Exception ex)
         {
             // gh not installed, or the process could not start - fall through to local git signals.
+            // not-an-error: the gh command line is optional; without it the local git signals decide
             FileLog.Write($"[GhMergedPullRequestProbe] gh could not run ({ex.Message}) - relying on local git signals");
+            return false;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // not-an-error: the caller cancelled the probe; nothing went wrong
+            FileLog.Write("[GhMergedPullRequestProbe] gh pr list cancelled - relying on local git signals");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GhMergedPullRequestProbe] gh pr list FAILED: {ex.GetType().Name}: {ex.Message} - relying on local git signals");
             return false;
         }
 

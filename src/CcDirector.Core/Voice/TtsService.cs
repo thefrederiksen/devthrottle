@@ -244,6 +244,7 @@ public sealed class TtsService
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             // The caller cancelled - surface that rather than the budget message.
+            // not-an-error: the caller cancelled the request
             FileLog.Write($"[TtsService] GenerateAsync cancelled by caller after {stopwatch.ElapsedMilliseconds}ms");
             return TtsResult.Error("cancelled", "TTS cancelled");
         }
@@ -352,7 +353,7 @@ public sealed class TtsService
         {
             // The per-request timeout fired (the overall budget has NOT) - this
             // is the stalled-chunk case; transient, so the caller retries once.
-            FileLog.Write($"[TtsService] chunk {chunkIndex} attempt {attempt} timed out after {PerRequestTimeout.TotalSeconds:0}s");
+            FileLog.Write($"[TtsService] chunk {chunkIndex} attempt {attempt} FAILED: timed out after {PerRequestTimeout.TotalSeconds:0}s");
             return TtsResult.Error("timeout", $"per-request timeout of {PerRequestTimeout.TotalSeconds:0}s elapsed", transient: true);
         }
     }

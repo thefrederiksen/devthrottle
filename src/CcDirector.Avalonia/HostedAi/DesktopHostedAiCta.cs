@@ -54,7 +54,7 @@ public static class DesktopHostedAiCta
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[DesktopHostedAiCta] could not resolve the Cockpit URL from {baseUrl}: {ex.Message}");
+            FileLog.Write($"[DesktopHostedAiCta] could not resolve the Cockpit URL from {baseUrl} FAILED: {ex.Message}");
             return null;
         }
     }

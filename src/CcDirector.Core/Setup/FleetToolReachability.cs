@@ -318,7 +318,7 @@ public sealed class FleetToolReachability
         {
             // A tool old enough to reject the arguments, or broken enough not to launch, is exactly the
             // case this check exists for. It is a failure, reported as one, with its real reason.
-            FileLog.Write($"[FleetToolReachability] launch error for {toolPath}: {ex.Message}");
+            FileLog.Write($"[FleetToolReachability] launch error for {toolPath} FAILED: {ex.Message}");
             return (-1, $"could not run it: {ex.Message}");
         }
     }

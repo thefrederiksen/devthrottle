@@ -53,7 +53,7 @@ public static class PiTranscriptReader
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[PiTranscriptReader] Read error for {path}: {ex.Message}");
+            FileLog.Write($"[PiTranscriptReader] Read error for {path} FAILED: {ex.Message}");
         }
 
         return messages.Count == 0 ? ConversationHistory.Empty : new ConversationHistory(messages);

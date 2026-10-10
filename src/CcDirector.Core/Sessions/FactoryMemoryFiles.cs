@@ -109,7 +109,7 @@ public static class FactoryMemoryFiles
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[FactoryMemoryFiles] DeleteFor: could not remove {dir}: {ex.Message}");
+            FileLog.Write($"[FactoryMemoryFiles] DeleteFor FAILED: could not remove {dir}: {ex.Message}");
         }
     }
 

@@ -150,7 +150,7 @@ public sealed class WorktreeReservationStore
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[WorktreeReservationStore] Reserve failed for {sessionId}: {ex.Message}");
+            FileLog.Write($"[WorktreeReservationStore] Reserve failed for {sessionId} FAILED: {ex.Message}");
         }
     }
 
@@ -167,7 +167,7 @@ public sealed class WorktreeReservationStore
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[WorktreeReservationStore] Release failed for {sessionId}: {ex.Message}");
+            FileLog.Write($"[WorktreeReservationStore] Release failed for {sessionId} FAILED: {ex.Message}");
         }
     }
 

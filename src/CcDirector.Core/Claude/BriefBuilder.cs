@@ -184,7 +184,7 @@ public sealed class BriefBuilder : IDisposable
         }
         catch (RegexMatchTimeoutException)
         {
-            FileLog.Write("[BriefBuilder] FindVerbatim: regex timeout; rejecting extraction");
+            FileLog.Write("[BriefBuilder] FindVerbatim FAILED: regex timeout; rejecting extraction");
             return null;
         }
     }

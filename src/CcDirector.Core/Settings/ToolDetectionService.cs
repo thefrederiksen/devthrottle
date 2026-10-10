@@ -124,6 +124,7 @@ public sealed class ToolDetectionService
         }
         catch (OperationCanceledException)
         {
+            // not-an-error: a tool that does not answer in time is shown as not working in the tools list
             FileLog.Write($"[ToolDetectionService] TestToolAsync: tool={tool}, timed out");
             var seconds = (plugin.Validation.Timeout == default ? DefaultTimeout : plugin.Validation.Timeout).TotalSeconds;
             return new ToolTestResult(tool, display, false, resolved, null, $"{display} did not answer within {seconds:0} seconds.");

@@ -142,7 +142,7 @@ public static class ClaudeSessionReader
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[ClaudeSessionReader] Error reading sessions-index.json: {ex.Message}");
+            FileLog.Write($"[ClaudeSessionReader] Error reading sessions-index.json FAILED: {ex.Message}");
             return null;
         }
     }
@@ -186,7 +186,7 @@ public static class ClaudeSessionReader
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[ClaudeSessionReader] Error reading sessions-index.json: {ex.Message}");
+            FileLog.Write($"[ClaudeSessionReader] Error reading sessions-index.json FAILED: {ex.Message}");
         }
 
         return result;
@@ -421,7 +421,7 @@ public static class ClaudeSessionReader
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[ClaudeSessionReader] ExtractUserPrompts error: {ex.Message}");
+            FileLog.Write($"[ClaudeSessionReader] ExtractUserPrompts ERROR: {ex.Message}");
         }
 
         return prompts;
@@ -645,12 +645,12 @@ public static class ClaudeSessionReader
         }
         catch (IOException ex)
         {
-            FileLog.Write($"[ClaudeSessionReader] ReadFirstPromptFromJsonl IO error: {ex.Message}");
+            FileLog.Write($"[ClaudeSessionReader] ReadFirstPromptFromJsonl IO ERROR: {ex.Message}");
             return null;
         }
         catch (UnauthorizedAccessException ex)
         {
-            FileLog.Write($"[ClaudeSessionReader] ReadFirstPromptFromJsonl access denied: {ex.Message}");
+            FileLog.Write($"[ClaudeSessionReader] ReadFirstPromptFromJsonl access denied FAILED: {ex.Message}");
             return null;
         }
     }
@@ -730,13 +730,13 @@ public static class ClaudeSessionReader
                 }
                 catch (Exception ex)
                 {
-                    FileLog.Write($"[ClaudeSessionReader] Error reading {indexPath}: {ex.Message}");
+                    FileLog.Write($"[ClaudeSessionReader] Error reading {indexPath} FAILED: {ex.Message}");
                 }
             }
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[ClaudeSessionReader] Error scanning projects: {ex.Message}");
+            FileLog.Write($"[ClaudeSessionReader] Error scanning projects FAILED: {ex.Message}");
         }
 
         // Sort by Modified date, most recent first
@@ -849,7 +849,7 @@ public static class ClaudeSessionReader
         }
         catch (IOException ex)
         {
-            FileLog.Write($"[ClaudeSessionReader] ReadFileContentOrNull: skipping {Path.GetFileName(filePath)}: {ex.Message}");
+            FileLog.Write($"[ClaudeSessionReader] ReadFileContentOrNull FAILED: skipping {Path.GetFileName(filePath)}: {ex.Message}");
             return null;
         }
     }

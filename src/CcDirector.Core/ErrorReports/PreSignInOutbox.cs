@@ -29,9 +29,15 @@ namespace CcDirector.Core.ErrorReports;
 ///     next install report's message, or, once the machine has signed in, as a report of its own on the
 ///     device route.
 ///
-/// ONE WRITER. The file is per storage root and per component, and a launcher and a Director are each one
-/// process per storage root (their single-instance guards), so no two processes write the same file. Calls
-/// from within the process are serialised by <see cref="ErrorReporter"/>'s send gate and by the lock here.
+/// AT EXIT TOO. A signed-in process that ends with errors the Gateway did not take - unreachable, refused, out of
+/// time - keeps them here as well (<see cref="ErrorReporter.FlushBeforeExit"/>, issue #3352), and the next start
+/// sends them with the device's credential through <see cref="SendSignedInAsync"/>.
+///
+/// WRITERS. The file is per storage root and per component, and a launcher and a Director are each one
+/// process per storage root (their single-instance guards). The exception is a self-update helper, which runs
+/// beside the process it replaces and may keep its errors here at the same moment; each process writes through
+/// its own temporary file, so the two cannot corrupt the file, though the later write wins. Calls from within the
+/// process are serialised by <see cref="ErrorReporter"/>'s send gate and by the lock here.
 /// </summary>
 public sealed class PreSignInOutbox
 {
@@ -486,7 +492,9 @@ public sealed class PreSignInOutbox
             return;
         }
         Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-        var temp = _path + ".tmp";
+        // One temporary file per process: a launcher's update helper keeps its errors here at exit while the
+        // launcher it replaces may be doing the same, and two writers of one temporary file would collide.
+        var temp = $"{_path}.{Environment.ProcessId}.tmp";
         File.WriteAllText(temp, JsonSerializer.Serialize(shape, FileJson));
         File.Move(temp, _path, overwrite: true);
     }

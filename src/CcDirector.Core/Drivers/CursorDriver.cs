@@ -137,7 +137,7 @@ public sealed class CursorDriver : IAgentDriver
         }
         catch (JsonException ex)
         {
-            FileLog.Write($"[CursorDriver] TryCaptureSessionId: invalid JSON: {ex.Message}");
+            FileLog.Write($"[CursorDriver] TryCaptureSessionId FAILED: invalid JSON: {ex.Message}");
             return null;
         }
     }
@@ -175,7 +175,7 @@ public sealed class CursorDriver : IAgentDriver
         }
         catch (JsonException ex)
         {
-            FileLog.Write($"[CursorDriver] ParseStreamLine: invalid JSON: {ex.Message}");
+            FileLog.Write($"[CursorDriver] ParseStreamLine FAILED: invalid JSON: {ex.Message}");
             return null;
         }
     }

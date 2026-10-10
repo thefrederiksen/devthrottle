@@ -81,7 +81,7 @@ public sealed class SessionLogManager : IDisposable
         if (_writers.TryRemove(session.Id, out var writer))
         {
             try { writer.Dispose(); }
-            catch (Exception ex) { FileLog.Write($"[SessionLogManager] writer dispose failed for {session.Id}: {ex.Message}"); }
+            catch (Exception ex) { FileLog.Write($"[SessionLogManager] writer dispose failed for {session.Id} FAILED: {ex.Message}"); }
             FileLog.Write($"[SessionLogManager] writer closed for {session.Id}");
         }
     }
@@ -133,7 +133,7 @@ public sealed class SessionLogManager : IDisposable
         foreach (var w in _writers.Values)
         {
             try { w.Dispose(); }
-            catch (Exception ex) { FileLog.Write($"[SessionLogManager] writer dispose failed: {ex.Message}"); }
+            catch (Exception ex) { FileLog.Write($"[SessionLogManager] writer dispose FAILED: {ex.Message}"); }
         }
         _writers.Clear();
     }

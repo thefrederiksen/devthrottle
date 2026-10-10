@@ -88,7 +88,7 @@ public static class StateVoteService
                 if (!string.IsNullOrEmpty(saved)) return saved;
             }
         }
-        catch (Exception ex) { FileLog.Write($"[StateVoteService] read issue file failed: {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[StateVoteService] read issue file FAILED: {ex.Message}"); }
 
         // Create the tracking issue once.
         var initialBody =
@@ -108,7 +108,7 @@ public static class StateVoteService
         if (string.IsNullOrEmpty(number)) return null;
 
         try { await File.WriteAllTextAsync(IssueNumberFile, number, ct); }
-        catch (Exception ex) { FileLog.Write($"[StateVoteService] persist issue number failed: {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[StateVoteService] persist issue number FAILED: {ex.Message}"); }
         return number;
     }
 

@@ -703,7 +703,7 @@ public sealed class DirectorSupervisor
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[DirectorSupervisor] kill of pid={pid} failed: {ex.Message}");
+            FileLog.Write($"[DirectorSupervisor] kill of pid={pid} FAILED: {ex.Message}");
         }
     }
 }

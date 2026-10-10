@@ -34,7 +34,7 @@ public static class TurnReviewReader
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[TurnReviewReader] skip {Path.GetFileName(file)}: {ex.Message}");
+                FileLog.Write($"[TurnReviewReader] skip {Path.GetFileName(file)} FAILED: {ex.Message}");
             }
         }
 

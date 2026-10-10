@@ -107,6 +107,7 @@ public partial class GitHubRepoPickerDialog : Window
         catch (System.ComponentModel.Win32Exception)
         {
             StatusText.Text = "gh CLI not found. Install it from https://cli.github.com";
+            // not-an-error: the gh command line is optional, and the dialog tells the person how to install it
             FileLog.Write("[GitHubRepoPickerDialog] RunGhAsync: gh CLI not found");
             return null;
         }

@@ -44,7 +44,7 @@ public static class HandoverScanner
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[HandoverScanner] ScanAll: skipping {Path.GetFileName(file)}: {ex.Message}");
+                FileLog.Write($"[HandoverScanner] ScanAll FAILED: skipping {Path.GetFileName(file)}: {ex.Message}");
             }
         }
 

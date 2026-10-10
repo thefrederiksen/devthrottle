@@ -35,7 +35,7 @@ public partial class TurnReviewDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[TurnReviewDialog] load failed: {ex.Message}");
+            FileLog.Write($"[TurnReviewDialog] load FAILED: {ex.Message}");
             StatusText.Text = "Failed to load reviews.";
             return;
         }

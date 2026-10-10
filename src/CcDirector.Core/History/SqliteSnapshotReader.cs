@@ -68,7 +68,7 @@ public static class SqliteSnapshotReader
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[SqliteSnapshotReader] Temp cleanup failed for {tempDirectory}: {ex.Message}");
+                FileLog.Write($"[SqliteSnapshotReader] Temp cleanup failed for {tempDirectory} FAILED: {ex.Message}");
             }
         }
     }

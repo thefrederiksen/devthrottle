@@ -154,7 +154,7 @@ public partial class BrowserSettingsView : UserControl
             {
                 // One browser that cannot be probed (removed mid-refresh, unreadable entry) leaves its
                 // own row saying "Checking..." and takes nothing else down with it.
-                FileLog.Write($"[BrowserSettingsView] ProbeStatusesAsync: id={pending.Id} failed (non-fatal): {ex.Message}");
+                FileLog.Write($"[BrowserSettingsView] ProbeStatusesAsync: id={pending.Id} FAILED (non-fatal): {ex.Message}");
                 return;
             }
 

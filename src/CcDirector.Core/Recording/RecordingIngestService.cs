@@ -463,7 +463,7 @@ public sealed class RecordingIngestService : IDisposable
                             StartMs = chunk.StartMs,
                             Reason = ex.Message,
                         });
-                        FileLog.Write($"[RecordingIngestService] chunk {chunk.Index} skipped on the last attempt: id={recordingId}: {ex.Message}");
+                        FileLog.Write($"[RecordingIngestService] chunk {chunk.Index} skipped on the last attempt FAILED: id={recordingId}: {ex.Message}");
                         continue;
                     }
                     await WriteAtomicAsync(txtPath, Encoding.UTF8.GetBytes(raw), ct);
@@ -501,6 +501,7 @@ public sealed class RecordingIngestService : IDisposable
                 // Shutdown, not a failure. Leave the state as-is (transcribing):
                 // the already-written per-segment .txt files mean the next run
                 // resumes from here. Do not burn an attempt for a shutdown.
+                // not-an-error: shutdown pauses the transcription, and it resumes on the next start
                 FileLog.Write($"[RecordingIngestService] Transcribe paused (shutdown): id={recordingId}");
                 throw;
             }
@@ -554,7 +555,7 @@ public sealed class RecordingIngestService : IDisposable
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[RecordingIngestService] CleanupSegmentFiles: id={recordingId} could not delete {Path.GetFileName(file)}: {ex.Message}");
+                FileLog.Write($"[RecordingIngestService] CleanupSegmentFiles FAILED: id={recordingId} could not delete {Path.GetFileName(file)}: {ex.Message}");
             }
         }
         FileLog.Write($"[RecordingIngestService] CleanupSegmentFiles: id={recordingId} removed={removed} segment files");
@@ -602,7 +603,7 @@ public sealed class RecordingIngestService : IDisposable
             catch (Exception ex)
             {
                 last = ex;
-                FileLog.Write($"[RecordingIngestService] chunk {chunkIndex} attempt {attempt}/{_maxChunkAttempts} failed: {ex.Message}");
+                FileLog.Write($"[RecordingIngestService] chunk {chunkIndex} attempt {attempt}/{_maxChunkAttempts} FAILED: {ex.Message}");
                 if (attempt < _maxChunkAttempts)
                     await Task.Delay(TimeSpan.FromTicks(_chunkRetryDelay.Ticks * (1L << (attempt - 1))), ct);
             }
@@ -654,7 +655,7 @@ public sealed class RecordingIngestService : IDisposable
             catch (Exception ex)
             {
                 // A scan/processing fault must never kill the worker.
-                FileLog.Write($"[RecordingIngestService] worker tick error: {ex.Message}");
+                FileLog.Write($"[RecordingIngestService] worker tick ERROR: {ex.Message}");
             }
 
             try { await _wake.WaitAsync(NextWait(foundWork, DateTime.UtcNow), ct); }
@@ -1237,7 +1238,7 @@ public sealed class RecordingIngestService : IDisposable
     {
         _workerCts.Cancel();
         try { _workerTask?.Wait(TimeSpan.FromSeconds(5)); }
-        catch (Exception ex) { FileLog.Write($"[RecordingIngestService] worker shutdown error: {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[RecordingIngestService] worker shutdown ERROR: {ex.Message}"); }
         _workerCts.Dispose();
         _wake.Dispose();
     }

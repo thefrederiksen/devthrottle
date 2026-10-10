@@ -114,7 +114,7 @@ public static class LegacyWorkspaceImport
                 {
                     // Left exactly where it is, under its own name, so the bytes are still there for
                     // somebody to look at. Renaming it aside would say it had been dealt with.
-                    FileLog.Write($"[LegacyWorkspaceImport] REFUSED {name}: {ex.Message}");
+                    FileLog.Write($"[LegacyWorkspaceImport] import of {name} FAILED (refused): {ex.Message}");
                     refused.Add($"{name}: {ex.Message}");
                     continue;
                 }
@@ -144,6 +144,7 @@ public static class LegacyWorkspaceImport
                     // was running. Either way this file is not imported and the Gateway's copy is left
                     // exactly as it is. An import never overwrites; that is a decision for a person at
                     // the Save dialog, not for a migration nobody asked to run.
+                    // not-an-error: the Gateway already holds this workspace, so leaving its copy alone is the intended outcome
                     FileLog.Write(
                         $"[LegacyWorkspaceImport] {name} -> id '{doc.Id}' already on the Gateway; leaving " +
                         "the Gateway's copy alone");

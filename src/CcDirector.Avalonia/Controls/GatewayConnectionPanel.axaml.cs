@@ -567,7 +567,7 @@ public partial class GatewayConnectionPanel : UserControl, ISignInAddressDisplay
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[GatewayConnectionPanel] scan failed: {ex.Message}");
+            FileLog.Write($"[GatewayConnectionPanel] scan FAILED: {ex.Message}");
             RenderFound(Array.Empty<FoundGateway>());
         }
         finally
@@ -704,7 +704,7 @@ public partial class GatewayConnectionPanel : UserControl, ISignInAddressDisplay
         catch (OperationCanceledException) { /* panel left or re-run superseded */ }
         catch (Exception ex)
         {
-            FileLog.Write($"[GatewayConnectionPanel] diagnostics failed: {ex.Message}");
+            FileLog.Write($"[GatewayConnectionPanel] diagnostics FAILED: {ex.Message}");
             DiagnosticsVerdict.Text = $"Diagnostics failed to run: {ex.Message}";
         }
         finally
@@ -798,7 +798,7 @@ public partial class GatewayConnectionPanel : UserControl, ISignInAddressDisplay
                 }
                 catch (Exception ex)
                 {
-                    FileLog.Write($"[GatewayConnectionPanel] copy command failed: {ex.Message}");
+                    FileLog.Write($"[GatewayConnectionPanel] copy command FAILED: {ex.Message}");
                 }
             };
             buttons.Children.Add(copyBtn);
@@ -1209,7 +1209,7 @@ public partial class GatewayConnectionPanel : UserControl, ISignInAddressDisplay
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[GatewayConnectionPanel] remote enroll error: {ex.Message}");
+            FileLog.Write($"[GatewayConnectionPanel] remote enroll ERROR: {ex.Message}");
             ShowFailure($"Could not sign in and join the Gateway: {ex.Message}", null);
             return;
         }
@@ -1319,7 +1319,7 @@ public partial class GatewayConnectionPanel : UserControl, ISignInAddressDisplay
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[GatewayConnectionPanel] hosted enroll error: {ex.Message}");
+            FileLog.Write($"[GatewayConnectionPanel] hosted enroll ERROR: {ex.Message}");
             ShowFailure($"Could not sign in and join the hosted Gateway: {ex.Message}", null);
             return;
         }
@@ -1633,7 +1633,7 @@ public partial class GatewayConnectionPanel : UserControl, ISignInAddressDisplay
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[GatewayConnectionPanel] sign-in launch failed: {ex.Message}");
+            FileLog.Write($"[GatewayConnectionPanel] sign-in launch FAILED: {ex.Message}");
             ShowSignInError("Could not open the sign-in page. " + ex.Message);
             return;
         }
@@ -1753,7 +1753,7 @@ public partial class GatewayConnectionPanel : UserControl, ISignInAddressDisplay
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[GatewayConnectionPanel] enroll-through-Gateway error: {ex.Message}");
+            FileLog.Write($"[GatewayConnectionPanel] enroll-through-Gateway ERROR: {ex.Message}");
         }
     }
 
@@ -1763,7 +1763,7 @@ public partial class GatewayConnectionPanel : UserControl, ISignInAddressDisplay
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
-            FileLog.Write($"[GatewayConnectionPanel] account status read failed: {ex.Message}");
+            FileLog.Write($"[GatewayConnectionPanel] account status read FAILED: {ex.Message}");
             return GatewayAccountStatus.NotConfigured();
         }
     }

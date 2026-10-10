@@ -45,7 +45,7 @@ public static class GeminiPromptLogReader
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[GeminiPromptLogReader] ResolvePath failed for {repoPath}: {ex.Message}");
+            FileLog.Write($"[GeminiPromptLogReader] ResolvePath failed for {repoPath} FAILED: {ex.Message}");
             return null;
         }
     }
@@ -110,7 +110,7 @@ public static class GeminiPromptLogReader
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[GeminiPromptLogReader] Read failed for {path}: {ex.Message}");
+            FileLog.Write($"[GeminiPromptLogReader] Read failed for {path} FAILED: {ex.Message}");
             return ConversationHistory.Empty;
         }
     }

@@ -417,7 +417,7 @@ public partial class SpeakDialog : Window
             // reach this instance. DisposeAsync is idempotent, so double-disposing after StartAsync's
             // own cleanup is safe.
             try { await svc.DisposeAsync(); }
-            catch (Exception disposeEx) { FileLog.Write($"[SpeakDialog] failed-start dispose error: {disposeEx.Message}"); }
+            catch (Exception disposeEx) { FileLog.Write($"[SpeakDialog] failed-start dispose ERROR: {disposeEx.Message}"); }
             throw;
         }
 
@@ -428,7 +428,7 @@ public partial class SpeakDialog : Window
         {
             FileLog.Write("[SpeakDialog] closed while the microphone was starting; disposing the recorder we just built");
             try { await svc.DisposeAsync(); }
-            catch (Exception disposeEx) { FileLog.Write($"[SpeakDialog] closed-during-start dispose error: {disposeEx.Message}"); }
+            catch (Exception disposeEx) { FileLog.Write($"[SpeakDialog] closed-during-start dispose ERROR: {disposeEx.Message}"); }
             return;
         }
 
@@ -442,7 +442,7 @@ public partial class SpeakDialog : Window
         _service = null;
         if (svc is null) return;
         try { await svc.DisposeAsync(); }
-        catch (Exception ex) { FileLog.Write($"[SpeakDialog] dispose error: {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[SpeakDialog] dispose ERROR: {ex.Message}"); }
     }
 
     private MicDevice ResolveSavedMic()

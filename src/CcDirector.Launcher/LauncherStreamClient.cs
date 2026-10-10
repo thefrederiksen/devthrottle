@@ -346,9 +346,16 @@ public sealed class LauncherStreamClient : IAsyncDisposable
             FileLog.Write($"[LauncherStreamClient] connected to {_config.Url}");
             return true;
         }
+        catch (Exception ex) when (GatewayHttp.IsUnreachable(ex))
+        {
+            // not-an-error: the Gateway could not be reached (offline, no answer, or a 502-504 while it restarts); the connect is retried with back-off
+            FileLog.Write($"[LauncherStreamClient] connect failed (will retry): {ex.Message}");
+            return false;
+        }
         catch (Exception ex)
         {
-            FileLog.Write($"[LauncherStreamClient] connect failed (will retry): {ex.Message}");
+            // Reached the far side and still failed, so it is reported. Still retried; a repeat folds into one report.
+            FileLog.Write($"[LauncherStreamClient] connect FAILED (will retry): {ex.GetType().Name}: {ex.Message}");
             return false;
         }
     }
@@ -447,7 +454,7 @@ public sealed class LauncherStreamClient : IAsyncDisposable
         if (_connection is not null)
         {
             try { await _connection.StopAsync(); }
-            catch (Exception ex) { FileLog.Write($"[LauncherStreamClient] StopAsync error: {ex.Message}"); }
+            catch (Exception ex) { FileLog.Write($"[LauncherStreamClient] StopAsync ERROR: {ex.Message}"); }
         }
     }
 
@@ -457,7 +464,7 @@ public sealed class LauncherStreamClient : IAsyncDisposable
         if (_connection is not null)
         {
             try { await _connection.DisposeAsync(); }
-            catch (Exception ex) { FileLog.Write($"[LauncherStreamClient] DisposeAsync error: {ex.Message}"); }
+            catch (Exception ex) { FileLog.Write($"[LauncherStreamClient] DisposeAsync ERROR: {ex.Message}"); }
             _connection = null;
         }
     }

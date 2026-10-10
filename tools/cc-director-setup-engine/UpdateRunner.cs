@@ -132,7 +132,7 @@ public sealed class UpdateRunner
                 }
                 catch (Exception ex)
                 {
-                    EngineLog.Write($"[UpdateRunner] {item.ComponentId}: xattr quarantine strip could not run ({ex.GetType().Name}): {ex.Message}");
+                    EngineLog.Write($"[UpdateRunner] {item.ComponentId} FAILED: xattr quarantine strip could not run ({ex.GetType().Name}): {ex.Message}");
                 }
             }
 
@@ -169,7 +169,7 @@ public sealed class UpdateRunner
         }
         catch (Exception ex)
         {
-            EngineLog.Write($"[UpdateRunner] recording installed versions failed: {ex.Message}");
+            EngineLog.Write($"[UpdateRunner] recording installed versions FAILED: {ex.Message}");
         }
     }
 
@@ -179,6 +179,6 @@ public sealed class UpdateRunner
     private static void TryDelete(string path)
     {
         try { if (File.Exists(path)) File.Delete(path); }
-        catch (Exception ex) { EngineLog.Write($"[UpdateRunner] cleanup delete failed for {path}: {ex.Message}"); }
+        catch (Exception ex) { EngineLog.Write($"[UpdateRunner] cleanup delete failed for {path} FAILED: {ex.Message}"); }
     }
 }

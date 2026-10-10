@@ -143,7 +143,7 @@ public sealed class TailscaleServeSelfProvisioner : IDisposable
         catch (Exception ex)
         {
             LastError = $"tailscale serve --https={_port} threw: {ex.Message}";
-            FileLog.Write($"[TailscaleServeSelfProvisioner] EnsureMapping EXCEPTION: {ex.Message}");
+            FileLog.Write($"[TailscaleServeSelfProvisioner] EnsureMapping FAILED: {ex.Message}");
             return (false, LastError);
         }
     }
@@ -184,7 +184,7 @@ public sealed class TailscaleServeSelfProvisioner : IDisposable
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[TailscaleServeSelfProvisioner] RemoveOwnMapping EXCEPTION: {ex.Message}");
+            FileLog.Write($"[TailscaleServeSelfProvisioner] RemoveOwnMapping FAILED: {ex.Message}");
         }
     }
 

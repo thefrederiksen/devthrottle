@@ -146,7 +146,7 @@ internal sealed class DirectorUpStreamHandler
     {
         long? total = null;
         try { total = new FileInfo(path).Length; }
-        catch (Exception ex) { FileLog.Write($"[DirectorUpStreamHandler] could not stat {path} for total size: {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[DirectorUpStreamHandler] could not stat {path} for total size FAILED: {ex.Message}"); }
         return new OpenReadResponse { TotalBytes = total, ContentType = contentType };
     }
 
@@ -180,7 +180,7 @@ internal sealed class DirectorUpStreamHandler
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[DirectorUpStreamHandler] stream {streamId} pump failed: {ex.Message}");
+            FileLog.Write($"[DirectorUpStreamHandler] stream {streamId} pump FAILED: {ex.Message}");
         }
         finally
         {

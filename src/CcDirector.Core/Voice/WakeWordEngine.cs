@@ -316,7 +316,7 @@ public sealed class WakeWordEngine
     private void Emit(WakeWordEventKind kind, string text, string? reason)
     {
         try { OnEvent?.Invoke(new WakeWordEvent(kind, text, reason)); }
-        catch (Exception ex) { FileLog.Write($"[WakeWordEngine] OnEvent handler threw: {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[WakeWordEngine] OnEvent handler FAILED: {ex.Message}"); }
     }
 
     // ===== tokenization / normalization =====================================

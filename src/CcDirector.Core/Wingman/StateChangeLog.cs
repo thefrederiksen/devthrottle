@@ -56,7 +56,7 @@ public static class StateChangeLog
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[StateChangeLog] append failed for {sessionId}: {ex.Message}");
+            FileLog.Write($"[StateChangeLog] append failed for {sessionId} FAILED: {ex.Message}");
         }
     }
 }

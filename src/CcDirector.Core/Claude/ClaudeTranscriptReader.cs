@@ -52,7 +52,7 @@ public static class ClaudeTranscriptReader
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[ClaudeTranscriptReader] Read error for {jsonlPath}: {ex.Message}");
+            FileLog.Write($"[ClaudeTranscriptReader] Read error for {jsonlPath} FAILED: {ex.Message}");
         }
 
         return messages.Count == 0 ? ConversationHistory.Empty : new ConversationHistory(messages);

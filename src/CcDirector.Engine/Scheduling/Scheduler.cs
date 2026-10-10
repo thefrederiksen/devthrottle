@@ -121,7 +121,7 @@ public sealed class Scheduler : IDisposable
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[Scheduler] Loop error: {ex.Message}");
+                FileLog.Write($"[Scheduler] Loop ERROR: {ex.Message}");
                 RaiseEvent(new EngineEvent(EngineEventType.Error, Message: ex.Message));
 
                 // Brief pause before retrying
@@ -158,6 +158,7 @@ public sealed class Scheduler : IDisposable
         }
         catch (OperationCanceledException)
         {
+            // not-an-error: shutdown cancels the running jobs
             FileLog.Write($"[Scheduler] Job cancelled during shutdown: {job.Name}");
         }
         catch (Exception ex)
@@ -188,7 +189,7 @@ public sealed class Scheduler : IDisposable
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[Scheduler] Event handler error: {ex.Message}");
+            FileLog.Write($"[Scheduler] Event handler ERROR: {ex.Message}");
         }
     }
 

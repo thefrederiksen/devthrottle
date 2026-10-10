@@ -215,7 +215,7 @@ public sealed class StandbySlotProvisioner
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            FileLog.Write($"[StandbySlotProvisioner] named instances could not be listed: {instancesRoot}: {ex.Message}");
+            FileLog.Write($"[StandbySlotProvisioner] named instances could not be listed FAILED: {instancesRoot}: {ex.Message}");
             return HealthGate.Unreadable;
         }
 
@@ -232,7 +232,7 @@ public sealed class StandbySlotProvisioner
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                FileLog.Write($"[StandbySlotProvisioner] health state could not be read: {file}: {ex.Message}");
+                FileLog.Write($"[StandbySlotProvisioner] health state could not be read FAILED: {file}: {ex.Message}");
                 return HealthGate.Unreadable;
             }
 
@@ -263,7 +263,7 @@ public sealed class StandbySlotProvisioner
             }
             catch (JsonException ex)
             {
-                FileLog.Write($"[StandbySlotProvisioner] health state is not valid JSON: {file}: {ex.Message}");
+                FileLog.Write($"[StandbySlotProvisioner] health state is not valid JSON FAILED: {file}: {ex.Message}");
                 return HealthGate.Unreadable;
             }
 
@@ -438,7 +438,7 @@ public sealed class StandbySlotProvisioner
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            FileLog.Write($"[StandbySlotProvisioner] could not inspect {path}, so it counts as present: {ex.Message}");
+            FileLog.Write($"[StandbySlotProvisioner] could not inspect {path}, so it counts as present FAILED: {ex.Message}");
             return true;
         }
     }

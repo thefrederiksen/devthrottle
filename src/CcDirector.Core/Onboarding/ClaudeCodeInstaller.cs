@@ -62,6 +62,7 @@ public sealed class ClaudeCodeInstaller
         }
         catch (OperationCanceledException)
         {
+            // not-an-error: the install was cancelled on purpose
             FileLog.Write("[ClaudeCodeInstaller] InstallAsync: cancelled");
             throw;
         }

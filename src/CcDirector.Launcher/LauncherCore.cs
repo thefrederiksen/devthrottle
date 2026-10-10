@@ -128,7 +128,7 @@ public sealed class LauncherCore : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[LauncherCore] stopping the lifecycle signals failed: {ex.Message}");
+            FileLog.Write($"[LauncherCore] stopping the lifecycle signals FAILED: {ex.Message}");
         }
         _shutdownSignal = null;
         _restartDirectorSignal = null;
@@ -396,12 +396,13 @@ public sealed class LauncherCore : IAsyncDisposable
                 catch (ReleaseNotReadyException ex)
                 {
                     shortRetry = notReady.NextDelay();
+                    // not-an-error: the release is not published in full yet, so the check simply looks again in minutes
                     FileLog.Write($"[LauncherCore] {notReady.Describe(ex, shortRetry)}");
                 }
                 catch (Exception ex)
                 {
                     notReady.Reset();
-                    FileLog.Write($"[LauncherCore] update check failed: {ex.Message}");
+                    FileLog.Write($"[LauncherCore] update check FAILED: {ex.Message}");
                 }
             }
 

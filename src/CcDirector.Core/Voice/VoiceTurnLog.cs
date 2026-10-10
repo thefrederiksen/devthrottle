@@ -170,7 +170,7 @@ public static class VoiceTurnLog
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[VoiceTurnLog] Purge skip {Path.GetFileName(dir)}: {ex.Message}");
+                FileLog.Write($"[VoiceTurnLog] Purge skip {Path.GetFileName(dir)} FAILED: {ex.Message}");
             }
         }
     }

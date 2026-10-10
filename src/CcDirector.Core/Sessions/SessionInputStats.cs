@@ -57,7 +57,7 @@ public sealed class SessionInputStats
     private void RaiseChanged()
     {
         try { Changed?.Invoke(); }
-        catch (Exception ex) { FileLog.Write($"[SessionInputStats] Changed subscriber failed (contained; the tally and the submission ledger both stand): {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[SessionInputStats] Changed subscriber FAILED (contained; the tally and the submission ledger both stand): {ex.Message}"); }
     }
 
     /// <summary>

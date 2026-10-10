@@ -216,10 +216,16 @@ public sealed class ToolRunner
             if (!process.HasExited)
                 process.Kill(entireProcessTree: true);
         }
+        catch (InvalidOperationException ex)
+        {
+            // The tree raced us to exit - nothing left to kill.
+            // not-an-error: the process had already exited, which is what the kill wanted
+            FileLog.Write($"[ToolRunner] KillTree: exe={exePath} already gone ({ex.Message})");
+        }
         catch (Exception ex)
         {
-            // The tree raced us to exit - nothing left to kill. Logged so a real kill failure is visible.
-            FileLog.Write($"[ToolRunner] KillTree: exe={exePath} already gone ({ex.Message})");
+            // A real kill failure - access denied, or a tree that would not die - leaves a process behind.
+            FileLog.Write($"[ToolRunner] KillTree FAILED: exe={exePath}: {ex.GetType().Name}: {ex.Message}");
         }
     }
 

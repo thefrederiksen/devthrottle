@@ -191,7 +191,7 @@ public partial class SettingsDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SettingsDialog] ResolveLocalAccountLine: could not read the local Director account state -> degrading this identity line only (dialog stays usable): {ex.Message}");
+            FileLog.Write($"[SettingsDialog] ResolveLocalAccountLine FAILED: could not read the local Director account state -> degrading this identity line only (dialog stays usable): {ex.Message}");
             return "Account status unavailable. This Director is running; connect a Gateway on the Gateway tab.";
         }
     }
@@ -804,6 +804,7 @@ public partial class SettingsDialog : Window
         catch (Win32Exception wex) when (wex.NativeErrorCode == 1223)
         {
             // 1223 = the user clicked No on the User Account Control approval prompt.
+            // not-an-error: the person declined the administrator prompt
             FileLog.Write("[SettingsDialog] BtnSuppressFirewallPrompt_Click: administrator approval declined");
             ShowFirewallStatus("No change was made - administrator approval was declined.", error: true);
         }

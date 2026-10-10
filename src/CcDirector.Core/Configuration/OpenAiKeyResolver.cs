@@ -173,7 +173,7 @@ public class HostedAiKeyResolver
         {
             // Gateway configured but unreachable: dictation is unavailable for now. We do not
             // silently use a local key here - on a Gateway, the Gateway is the source of truth.
-            FileLog.Write($"[HostedAiKeyResolver] vault fetch failed ({url}): {ex.Message}");
+            FileLog.Write($"[HostedAiKeyResolver] vault fetch FAILED ({url}): {ex.Message}");
             return null;
         }
     }

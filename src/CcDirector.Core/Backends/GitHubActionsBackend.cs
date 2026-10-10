@@ -421,7 +421,7 @@ public sealed class GitHubActionsBackend : ISessionBackend
     {
         if (_disposed) return;
         try { _buffer.Write(Encoding.UTF8.GetBytes(text)); }
-        catch (Exception ex) { FileLog.Write($"[GitHubActionsBackend] buffer write failed: {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[GitHubActionsBackend] buffer write FAILED: {ex.Message}"); }
     }
 
     private void SetStatus(string status)

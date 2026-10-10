@@ -232,13 +232,14 @@ public sealed class ClaudeClient
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             // Timeout (not user cancellation)
-            FileLog.Write($"[ClaudeClient] Process timed out after {effectiveTimeout}ms, killing PID={process.Id}");
+            FileLog.Write($"[ClaudeClient] Process FAILED: timed out after {effectiveTimeout}ms, killing PID={process.Id}");
             KillProcess(process);
             throw new TimeoutException($"Claude process timed out after {effectiveTimeout}ms.");
         }
         catch (OperationCanceledException)
         {
             // User cancellation
+            // not-an-error: the caller cancelled the request
             FileLog.Write($"[ClaudeClient] Process cancelled, killing PID={process.Id}");
             KillProcess(process);
             throw;

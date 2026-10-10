@@ -146,7 +146,7 @@ public sealed class FirstRunLoginCoordinator
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[FirstRunLoginCoordinator] RunAsync: could not open the system browser: {ex.Message}");
+            FileLog.Write($"[FirstRunLoginCoordinator] RunAsync FAILED: could not open the system browser: {ex.Message}");
             return FirstRunLoginResult.Failure(
                 "DevThrottle could not open your web browser to sign in. Please check that you have a default browser set, then try again.");
         }
@@ -158,12 +158,13 @@ public sealed class FirstRunLoginCoordinator
         }
         catch (OperationCanceledException)
         {
+            // not-an-error: the sign-in was cancelled before a credential arrived (the person or the closing window stopped it); nothing failed
             FileLog.Write("[FirstRunLoginCoordinator] RunAsync: login cancelled before a credential arrived");
             return FirstRunLoginResult.Failure("Sign-in was cancelled.");
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[FirstRunLoginCoordinator] RunAsync: hand-back capture failed: {ex.Message}");
+            FileLog.Write($"[FirstRunLoginCoordinator] RunAsync: hand-back capture FAILED: {ex.Message}");
             return FirstRunLoginResult.Failure(
                 "Sign-in did not complete. Please return to your browser and finish signing in, then try again.");
         }

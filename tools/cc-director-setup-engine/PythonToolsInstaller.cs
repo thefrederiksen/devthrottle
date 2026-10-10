@@ -591,7 +591,7 @@ public sealed class PythonToolsInstaller
         {
             // Unreadable is not permission. A file this process cannot read is a file it cannot prove
             // anything about, and the whole boundary is that only a positive proof deletes.
-            EngineLog.Write($"[PythonToolsInstaller] keeping {path}: it could not be read ({ex.Message}), "
+            EngineLog.Write($"[PythonToolsInstaller] keeping {path} FAILED: it could not be read ({ex.Message}), "
                             + "so it cannot be shown to be a shim this product wrote");
             return false;
         }
@@ -626,7 +626,7 @@ public sealed class PythonToolsInstaller
             }
             catch (Exception ex)
             {
-                EngineLog.Write($"[PythonToolsInstaller] could not remove legacy alias shim {path}: {ex.Message}");
+                EngineLog.Write($"[PythonToolsInstaller] could not remove legacy alias shim {path} FAILED: {ex.Message}");
             }
         }
     }
@@ -651,7 +651,7 @@ public sealed class PythonToolsInstaller
             foreach (var path in paths)
             {
                 try { if (File.Exists(path)) File.Delete(path); }
-                catch (Exception ex) { EngineLog.Write($"[PythonToolsInstaller] could not remove managed shim {path}: {ex.Message}"); }
+                catch (Exception ex) { EngineLog.Write($"[PythonToolsInstaller] could not remove managed shim {path} FAILED: {ex.Message}"); }
             }
         }
     }
@@ -683,7 +683,7 @@ public sealed class PythonToolsInstaller
             if (File.Exists(staleExe))
             {
                 try { File.Delete(staleExe); EngineLog.Write($"[PythonToolsInstaller] removed stale {script}.exe (would shadow the shim)"); }
-                catch (Exception ex) { EngineLog.Write($"[PythonToolsInstaller] could not remove stale {script}.exe: {ex.Message}"); }
+                catch (Exception ex) { EngineLog.Write($"[PythonToolsInstaller] could not remove stale {script}.exe FAILED: {ex.Message}"); }
             }
 
             var cmd = Path.Combine(_layout.BinDir, $"{script}.cmd");
@@ -742,7 +742,7 @@ public sealed class PythonToolsInstaller
             }
             catch (Exception ex)
             {
-                EngineLog.Write($"[PythonToolsInstaller] could not link {script}: {ex.Message}");
+                EngineLog.Write($"[PythonToolsInstaller] could not link {script} FAILED: {ex.Message}");
             }
         }
     }

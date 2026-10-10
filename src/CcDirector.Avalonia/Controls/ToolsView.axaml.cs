@@ -559,7 +559,7 @@ public partial class ToolsView : UserControl
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[ToolsView] LoadCommands {d.Name} failed: {ex.Message}");
+            FileLog.Write($"[ToolsView] LoadCommands {d.Name} FAILED: {ex.Message}");
             CommandsOutput.Text = $"Failed to run --help: {ex.Message}";
         }
     }

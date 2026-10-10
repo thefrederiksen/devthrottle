@@ -257,7 +257,7 @@ public sealed class Session : IDisposable
         }
         FileLog.Write($"[Session] {Id} SetController: owner {OwnerName(previous)} -> {OwnerName(controllerSessionId)}");
         try { OnControllerChanged?.Invoke(); }
-        catch (Exception ex) { FileLog.Write($"[Session] {Id} OnControllerChanged handler threw: {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[Session] {Id} OnControllerChanged handler FAILED: {ex.Message}"); }
         return new OwnerChangeResult(OwnerChangeOutcome.Changed, null);
     }
 
@@ -456,7 +456,7 @@ public sealed class Session : IDisposable
         // Fires only on a real change (the equality guard above returns first otherwise), so the Gateway
         // re-stamping the same role every sweep does not churn the rail.
         try { OnGatewayResolvedRoleChanged?.Invoke(normalized); }
-        catch (Exception ex) { FileLog.Write($"[Session] {Id} OnGatewayResolvedRoleChanged handler threw: {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[Session] {Id} OnGatewayResolvedRoleChanged handler FAILED: {ex.Message}"); }
     }
 
     /// <summary>
@@ -562,7 +562,7 @@ public sealed class Session : IDisposable
 
         FileLog.Write($"[Session] ApplyGatewayDisplayState: session={Id}, color={color ?? "(cleared)"}, label={label ?? "(none)"}, bucket={bucket ?? "(none)"}, snoozeUntil={snoozeUntil?.ToString("O") ?? "(none)"}, snoozeExpired={snoozeExpired}, inboxLine={inbox ?? "(none)"}");
         try { OnGatewayDisplayStateChanged?.Invoke(); }
-        catch (Exception ex) { FileLog.Write($"[Session] {Id} OnGatewayDisplayStateChanged handler threw: {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[Session] {Id} OnGatewayDisplayStateChanged handler FAILED: {ex.Message}"); }
     }
 
     /// <summary>Set (or clear, on a null/blank value) this session's sticky explicit role. The value is
@@ -590,7 +590,7 @@ public sealed class Session : IDisposable
     private void RaisePreambleInputsChanged(string what)
     {
         try { OnPreambleInputsChanged?.Invoke(); }
-        catch (Exception ex) { FileLog.Write($"[Session] {Id} OnPreambleInputsChanged ({what}) handler threw: {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[Session] {Id} OnPreambleInputsChanged ({what}) handler FAILED: {ex.Message}"); }
     }
 
     /// <summary>
@@ -676,7 +676,7 @@ public sealed class Session : IDisposable
         if (Number == number) return;
         Number = number;
         try { OnNumberChanged?.Invoke(); }
-        catch (Exception ex) { FileLog.Write($"[Session] {Id} OnNumberChanged handler threw: {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[Session] {Id} OnNumberChanged handler FAILED: {ex.Message}"); }
     }
 
     public string RepoPath { get; }
@@ -1300,7 +1300,7 @@ public sealed class Session : IDisposable
             _wingmanEnabled = value;
             FileLog.Write($"[Session] WingmanEnabled: session={Id}, enabled={value}");
             try { OnWingmanEnabledChanged?.Invoke(value); }
-            catch (Exception ex) { FileLog.Write($"[Session] {Id} OnWingmanEnabledChanged handler threw: {ex.Message}"); }
+            catch (Exception ex) { FileLog.Write($"[Session] {Id} OnWingmanEnabledChanged handler FAILED: {ex.Message}"); }
         }
     }
     private bool _wingmanEnabled;
@@ -1377,7 +1377,7 @@ public sealed class Session : IDisposable
         CurrentModel = normalized;
         FileLog.Write($"[Session] SetCurrentModel: session={Id} model={normalized}");
         try { OnCurrentModelChanged?.Invoke(); }
-        catch (Exception ex) { FileLog.Write($"[Session] {Id} OnCurrentModelChanged handler threw: {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[Session] {Id} OnCurrentModelChanged handler FAILED: {ex.Message}"); }
     }
 
     /// <summary>
@@ -2181,7 +2181,7 @@ public sealed class Session : IDisposable
         if (!wasPending)
         {
             try { OnPendingDeletionChanged?.Invoke(true); }
-            catch (Exception ex) { FileLog.Write($"[Session] {Id} OnPendingDeletionChanged handler threw: {ex.Message}"); }
+            catch (Exception ex) { FileLog.Write($"[Session] {Id} OnPendingDeletionChanged handler FAILED: {ex.Message}"); }
         }
     }
 
@@ -2194,7 +2194,7 @@ public sealed class Session : IDisposable
         DeletionReason = null;
         FileLog.Write($"[Session] CancelDeletion: session={Id}");
         try { OnPendingDeletionChanged?.Invoke(false); }
-        catch (Exception ex) { FileLog.Write($"[Session] {Id} OnPendingDeletionChanged handler threw: {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[Session] {Id} OnPendingDeletionChanged handler FAILED: {ex.Message}"); }
     }
 
     /// <summary>
@@ -3335,7 +3335,7 @@ public sealed class Session : IDisposable
         foreach (var observer in observers.GetInvocationList())
         {
             try { ((Action<SendSource?, InputOrigin?, SubmissionEvidence>)observer)(source, origin, evidence); }
-            catch (Exception ex) { FileLog.Write($"[Session] OnTurnSubmitted handler failed: session={Id}, handler={observer.Method.DeclaringType?.Name}.{observer.Method.Name}, {ex.Message}"); }
+            catch (Exception ex) { FileLog.Write($"[Session] OnTurnSubmitted handler FAILED: session={Id}, handler={observer.Method.DeclaringType?.Name}.{observer.Method.Name}, {ex.Message}"); }
         }
     }
 
@@ -3350,7 +3350,7 @@ public sealed class Session : IDisposable
     private void RaisePromptDeliveryChanged()
     {
         try { OnPromptDeliveryChanged?.Invoke(); }
-        catch (Exception ex) { FileLog.Write($"[Session] OnPromptDeliveryChanged handler failed: session={Id}, {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[Session] OnPromptDeliveryChanged handler FAILED: session={Id}, {ex.Message}"); }
     }
 
     /// <param name="provenance">What the door this text came through knew at entry (source logging): required,
@@ -4280,6 +4280,7 @@ public sealed class Session : IDisposable
                     // the composer whole, in part, or not at all. The next submit clears the composer with the keys
                     // measured for this agent - checked empty where the composer can be read - and types it once more;
                     // the conversation records then decide. Nothing here retypes over text it cannot account for.
+                    // not-an-error: the one designed recovery from an unconfirmed echo; the retry's own outcome is what counts
                     FileLog.Write($"[Session] unconfirmed echo, clearing with the measured keys and sending once more: session={Id}: {ex.Message}");
                     typed = await Submit(clearFirst: true);
                 }
@@ -5079,7 +5080,7 @@ public sealed class Session : IDisposable
         {
             _exitNotified = true;
             try { OnExited?.Invoke(exitCode); }
-            catch (Exception ex) { FileLog.Write($"[Session] OnExited handler threw: {ex.Message}"); }
+            catch (Exception ex) { FileLog.Write($"[Session] OnExited handler FAILED: {ex.Message}"); }
         }
     }
 

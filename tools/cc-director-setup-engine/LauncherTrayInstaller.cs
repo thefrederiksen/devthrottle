@@ -170,7 +170,7 @@ public sealed class LauncherTrayInstaller
         try { return !started.HasExited; }
         catch (Exception ex)
         {
-            EngineLog.Write($"[LauncherTrayInstaller] could not read the started launcher's process state: {ex.Message}");
+            EngineLog.Write($"[LauncherTrayInstaller] could not read the started launcher's process state FAILED: {ex.Message}");
             return true;
         }
     }
@@ -257,7 +257,7 @@ public sealed class LauncherTrayInstaller
                 p.WaitForExit(5000);
                 stopped++;
             }
-            catch (Exception ex) { EngineLog.Write($"[LauncherTrayInstaller] stop cc-launcher pid={p.Id}: {ex.Message}"); }
+            catch (Exception ex) { EngineLog.Write($"[LauncherTrayInstaller] stop cc-launcher pid={p.Id} FAILED: {ex.Message}"); }
             finally { p.Dispose(); }
         }
         if (stopped > 0) steps.Add($"stopped {stopped} running installed Launcher process(es)");

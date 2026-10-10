@@ -1560,7 +1560,7 @@ public class TerminalControl : Control
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[TerminalControl] BuildPasteContextMenuAsync: clipboard read failed: {ex.Message}");
+            FileLog.Write($"[TerminalControl] BuildPasteContextMenuAsync: clipboard read FAILED: {ex.Message}");
         }
 
         var menu = new ContextMenu();
@@ -2334,7 +2334,7 @@ public class TerminalControl : Control
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[TerminalControl] PasteToTerminalAsync: clipboard read failed: {ex.Message}");
+            FileLog.Write($"[TerminalControl] PasteToTerminalAsync: clipboard read FAILED: {ex.Message}");
             return;
         }
 

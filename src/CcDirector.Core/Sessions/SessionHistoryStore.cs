@@ -100,7 +100,7 @@ public class SessionHistoryStore
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[SessionHistoryStore] LoadAll: skipping corrupt file {Path.GetFileName(file)}: {ex.Message}");
+                FileLog.Write($"[SessionHistoryStore] LoadAll FAILED: skipping corrupt file {Path.GetFileName(file)}: {ex.Message}");
             }
         }
 
@@ -139,7 +139,7 @@ public class SessionHistoryStore
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[SessionHistoryStore] FindByClaudeSessionId: skipping corrupt file {Path.GetFileName(file)}: {ex.Message}");
+                FileLog.Write($"[SessionHistoryStore] FindByClaudeSessionId FAILED: skipping corrupt file {Path.GetFileName(file)}: {ex.Message}");
             }
         }
 

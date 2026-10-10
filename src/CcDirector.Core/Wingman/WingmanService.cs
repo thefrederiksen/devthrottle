@@ -325,7 +325,7 @@ public static class WingmanService
         }
         catch (JsonException ex)
         {
-            FileLog.Write($"[WingmanService] turn-summary JSON parse failed: {ex.Message}, raw='{Truncate(raw, 200)}'");
+            FileLog.Write($"[WingmanService] turn-summary JSON parse FAILED: {ex.Message}, answer length={raw?.Length ?? 0} (the model's words are not logged in an error line)");
             summary.Status = "parse_failed";
             summary.Error = "wingman JSON parse failed";
             summary.Headline = BuildFallbackHeadline();
@@ -394,7 +394,7 @@ public static class WingmanService
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[WingmanService] LoadRulesChain: walking parents failed: {ex.Message}");
+                FileLog.Write($"[WingmanService] LoadRulesChain: walking parents FAILED: {ex.Message}");
             }
         }
 
@@ -414,7 +414,7 @@ public static class WingmanService
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[WingmanService] LoadRulesChain: global CLAUDE.md failed: {ex.Message}");
+            FileLog.Write($"[WingmanService] LoadRulesChain: global CLAUDE.md FAILED: {ex.Message}");
         }
 
         return sb.ToString();
@@ -493,7 +493,7 @@ public static class WingmanService
         }
         catch (JsonException ex)
         {
-            FileLog.Write($"[WingmanService] rules JSON parse failed: {ex.Message}");
+            FileLog.Write($"[WingmanService] rules JSON parse FAILED: {ex.Message}");
             resp.Status = "parse_failed";
             resp.Error = "wingman JSON parse failed";
         }
@@ -635,13 +635,13 @@ public static class WingmanService
                 }
                 catch (Exception ex)
                 {
-                    FileLog.Write($"[WingmanService] git diff for recovery prompt failed: {ex.Message}");
+                    FileLog.Write($"[WingmanService] git diff for recovery prompt FAILED: {ex.Message}");
                 }
             }
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[WingmanService] git snapshot for recovery prompt failed: {ex.Message}");
+            FileLog.Write($"[WingmanService] git snapshot for recovery prompt FAILED: {ex.Message}");
             rp.Status = "generated_with_warnings";
             rp.Error = ex.Message;
         }
@@ -1450,7 +1450,7 @@ public static class WingmanService
         }
         catch (JsonException ex)
         {
-            FileLog.Write($"[WingmanService] goal-assessment JSON parse failed: {ex.Message}, raw='{Truncate(raw, 200)}'");
+            FileLog.Write($"[WingmanService] goal-assessment JSON parse FAILED: {ex.Message}, answer length={raw?.Length ?? 0} (the model's words are not logged in an error line)");
             return new GoalAssessment { State = GoalStates.Unknown, Reason = "wingman JSON parse failed" };
         }
     }
@@ -1596,7 +1596,7 @@ public static class WingmanService
         }
         catch (JsonException ex)
         {
-            FileLog.Write($"[WingmanService] action-decision JSON parse failed: {ex.Message}, raw='{Truncate(raw, 200)}'");
+            FileLog.Write($"[WingmanService] action-decision JSON parse FAILED: {ex.Message}, answer length={raw?.Length ?? 0} (the model's words are not logged in an error line)");
             return none;
         }
     }

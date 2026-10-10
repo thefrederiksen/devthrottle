@@ -71,7 +71,7 @@ public static class DirectorMachineSecret
                 {
                     // A malformed config.json is not the answer to "what is the secret" - the token
                     // file below is where a standalone Director keeps it. Same order Resolve applies.
-                    FileLog.Write($"[DirectorMachineSecret] TryReadFrom: {configJson} is not readable JSON ({ex.Message}); reading the token file instead");
+                    FileLog.Write($"[DirectorMachineSecret] TryReadFrom FAILED: {configJson} is not readable JSON ({ex.Message}); reading the token file instead");
                 }
             }
 

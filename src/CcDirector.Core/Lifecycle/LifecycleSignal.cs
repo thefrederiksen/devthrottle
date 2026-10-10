@@ -318,7 +318,7 @@ public static class LifecycleSignal
                 }
                 catch (Exception ex)
                 {
-                    FileLog.Write($"[LifecycleSignal] {Name}: poll failed: {ex.Message}");
+                    FileLog.Write($"[LifecycleSignal] {Name}: poll FAILED: {ex.Message}");
                 }
 
                 if (_stop.Token.WaitHandle.WaitOne(UnixPollInterval)) return;
@@ -340,7 +340,7 @@ public static class LifecycleSignal
         private void TryDeleteRequest()
         {
             try { if (File.Exists(_path)) File.Delete(_path); }
-            catch (Exception ex) { FileLog.Write($"[LifecycleSignal] {Name}: cannot remove {_path}: {ex.Message}"); }
+            catch (Exception ex) { FileLog.Write($"[LifecycleSignal] {Name} FAILED: cannot remove {_path}: {ex.Message}"); }
         }
 
         public void Dispose()

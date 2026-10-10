@@ -444,7 +444,7 @@ public sealed class DirectorDrain
             {
                 // Both failures reach the caller. Swallowing the save error would leave the operator with
                 // the refusal and no idea that the record of it never landed either.
-                FileLog.Write($"[DirectorDrain] refusal could not be recorded: {saveEx.Message}");
+                FileLog.Write($"[DirectorDrain] refusal could not be recorded FAILED: {saveEx.Message}");
                 throw new AggregateException(
                     "The drain refused to start, AND the refusal could not be written to the Gateway - so " +
                     "the stored workspace still reads as a drain in progress.", ex, saveEx);
@@ -1161,7 +1161,7 @@ public sealed class DirectorDrain
         catch (Exception ex)
         {
             // Anything else is "I could not look", and a failure to look must not authorise a close.
-            FileLog.Write($"[DirectorDrain] SeatWroteItsOwn: cannot tell for {path}: {ex.Message}");
+            FileLog.Write($"[DirectorDrain] SeatWroteItsOwn FAILED: cannot tell for {path}: {ex.Message}");
             return true;
         }
     }
@@ -2220,7 +2220,7 @@ public sealed class DirectorDrain
 
         if (smart.OnSnapshot is null) return;
         try { smart.OnSnapshot(snapshot); }
-        catch (Exception ex) { FileLog.Write($"[DirectorDrain] snapshot handler threw: {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[DirectorDrain] snapshot handler FAILED: {ex.Message}"); }
     }
 
     /// <summary>Leads first, each lead followed by the sessions under it, at every depth.</summary>
@@ -2889,6 +2889,6 @@ public sealed class DirectorDrain
     {
         if (_onProgress is null) return;
         try { _onProgress(new DrainProgress(phase, seats, accounted, closed, note)); }
-        catch (Exception ex) { FileLog.Write($"[DirectorDrain] progress handler threw: {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[DirectorDrain] progress handler FAILED: {ex.Message}"); }
     }
 }

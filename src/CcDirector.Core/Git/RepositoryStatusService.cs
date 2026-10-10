@@ -203,7 +203,7 @@ public sealed class RepositoryStatusService
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[RepositoryStatusService] MeasureWorktreeBytes failed for {w.Path}: {ex.Message}");
+            FileLog.Write($"[RepositoryStatusService] MeasureWorktreeBytes failed for {w.Path} FAILED: {ex.Message}");
             return null;
         }
     }

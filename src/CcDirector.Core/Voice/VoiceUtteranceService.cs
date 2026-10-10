@@ -189,6 +189,6 @@ public sealed class VoiceUtteranceService
     private static void TryDelete(string dir)
     {
         try { if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true); }
-        catch (Exception ex) { FileLog.Write($"[VoiceUtterance] cleanup failed for {dir}: {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[VoiceUtterance] cleanup failed for {dir} FAILED: {ex.Message}"); }
     }
 }
