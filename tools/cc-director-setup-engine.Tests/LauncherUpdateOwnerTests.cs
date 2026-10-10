@@ -540,11 +540,11 @@ public class LauncherUpdateOwnerTests : IDisposable
         var holderThread = new Thread(() =>
         {
             using var heldByAnotherSwap = new Mutex(initiallyOwned: false, _swapLockName, out _);
-            heldByAnotherSwap.WaitOne();
+            if (!heldByAnotherSwap.WaitOne(TimeSpan.FromSeconds(5))) return;
             acquired.Set();
-            release.Wait();
+            release.Wait(TimeSpan.FromSeconds(60));
             heldByAnotherSwap.ReleaseMutex();
-        });
+        }) { IsBackground = true };
         holderThread.Start();
         Assert.True(acquired.Wait(TimeSpan.FromSeconds(5)), "could not take the lock to set the test up");
         try
