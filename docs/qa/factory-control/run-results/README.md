@@ -52,6 +52,14 @@ unknown flag.
 | `pytest tests` in `tools/cc-devthrottle`, with click 8.5 | 3,892 passed, 2 failed before the help fix; after it, the only failure left is `errors website-token`'s over-long summary, which fails identically on origin/main |
 | `dotnet ef migrations has-pending-model-changes` (SQLite and Postgres) | no changes |
 
+## Revert proof
+
+With the fix committed, two rules were broken on purpose and the tests run against a fresh build:
+removing the "missed while the Gateway was down" record, and removing the clearing rule (a later ok run of
+the same schedule). Exactly `Engine_ARunDueWhileTheGatewayWasDown_IsRecordedOnceAsDidNotRun` and
+`Problems_TheNextRunOfTheSameScheduleReportsOk_ClearsIt` went red (2 failed, 36 passed); the source was then
+restored and the 46 run-result tests passed again on a rebuild.
+
 ## What was NOT proved
 
 - **Gateway.Tests (the parked integration suite) did not run.** Another session's run held the
