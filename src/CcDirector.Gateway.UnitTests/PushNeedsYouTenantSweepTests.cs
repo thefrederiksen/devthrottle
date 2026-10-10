@@ -25,13 +25,8 @@ namespace CcDirector.Gateway.Tests;
 public sealed class PushNeedsYouTenantSweepTests : IDisposable
 {
     private readonly GatewayDbTestHarness _h = new();
-    private readonly string _devPath = Path.Combine(Path.GetTempPath(), $"pushsweep-dev-{Guid.NewGuid():N}.json");
 
-    public void Dispose()
-    {
-        _h.Dispose();
-        if (File.Exists(_devPath)) File.Delete(_devPath);
-    }
+    public void Dispose() => _h.Dispose();
 
     private sealed class FakeSender : IWebPushSender
     {
@@ -54,7 +49,7 @@ public sealed class PushNeedsYouTenantSweepTests : IDisposable
         var ambient = new AsyncLocalTenantContext();
         var db = _h.Open(ambient);
         var tenants = new TenantRegistry(db);
-        var boundary = new HostedTenantBoundary(ambient, new DeviceRegistry(_devPath));
+        var boundary = new HostedTenantBoundary(ambient, _h.OpenDevices());
         Assert.True(boundary.IsHosted); // the whole point: this is the mode push used to be switched off in
 
         var a = tenants.MintOrLookupBySubject("sub-a", "a@example.com");

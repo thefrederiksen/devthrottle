@@ -17,6 +17,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.SignalR;
 using Xunit;
+using CcDirector.Gateway.Tests.Data;
 
 namespace CcDirector.Gateway.Tests;
 
@@ -43,14 +44,14 @@ namespace CcDirector.Gateway.Tests;
 /// </summary>
 public sealed class StreamOwnershipTests : IDisposable
 {
-    private readonly string _devPath = Path.Combine(Path.GetTempPath(), $"strown-dev-{Guid.NewGuid():N}.json");
+    private readonly GatewayDbTestHarness _harness = new();
     private readonly string _tempDir = Path.Combine(Path.GetTempPath(), $"strown-{Guid.NewGuid():N}");
 
     public StreamOwnershipTests() => Directory.CreateDirectory(_tempDir);
 
     public void Dispose()
     {
-        if (File.Exists(_devPath)) File.Delete(_devPath);
+        _harness.Dispose();
         try { Directory.Delete(_tempDir, recursive: true); } catch { /* best-effort */ }
     }
 
@@ -63,7 +64,7 @@ public sealed class StreamOwnershipTests : IDisposable
         // boundary hosted, so construct it explicitly and assert the mode actually took effect before relying
         // on anything below. A boundary that silently came up self-host would make every account Local and
         // this whole test would prove nothing.
-        var devices = new DeviceRegistry(_devPath);
+        var devices = _harness.OpenDevices();
         var boundary = new HostedTenantBoundary(new AsyncLocalTenantContext(), devices);
         Assert.True(boundary.IsHosted);
 
@@ -135,7 +136,7 @@ public sealed class StreamOwnershipTests : IDisposable
         // which is exactly what separates this design from the single-key one it replaced.
         const string sharedDirectorId = "dir-shared";
 
-        var devices = new DeviceRegistry(_devPath);
+        var devices = _harness.OpenDevices();
         var boundary = new HostedTenantBoundary(new AsyncLocalTenantContext(), devices);
         Assert.True(boundary.IsHosted);
 
@@ -191,7 +192,7 @@ public sealed class StreamOwnershipTests : IDisposable
         // SELF-HOST MODE IS SET HERE, NOT INHERITED: the single-tenant context makes the boundary inert.
         // Assert the mode took effect - this is the control that says the fix costs the self-host install
         // nothing, and it is worthless if the boundary silently came up hosted.
-        var devices = new DeviceRegistry(_devPath);
+        var devices = _harness.OpenDevices();
         var boundary = new HostedTenantBoundary(new SingleTenantContext(), devices);
         Assert.False(boundary.IsHosted);
 

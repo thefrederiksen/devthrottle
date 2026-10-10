@@ -2,6 +2,7 @@ using CcDirector.Gateway.Pairing;
 using CcDirector.Gateway.Util;
 using Microsoft.AspNetCore.Http;
 using Xunit;
+using CcDirector.Gateway.Tests.Data;
 
 namespace CcDirector.Gateway.Tests;
 
@@ -21,20 +22,17 @@ public sealed class AuthenticatedCredentialStashTests : IDisposable
 {
     private const string SharedToken = "shared-machine-token-stash-tests";
 
-    private readonly string _registryPath = Path.Combine(Path.GetTempPath(), $"cc-gw-stash-devices-{Guid.NewGuid():N}.json");
+    private readonly GatewayDbTestHarness _harness = new();
     private readonly DeviceRegistry _devices;
     private readonly string _deviceKey;
 
     public AuthenticatedCredentialStashTests()
     {
-        _devices = new DeviceRegistry(_registryPath);
+        _devices = _harness.OpenDevices();
         _deviceKey = _devices.Register("device-one", "PHONE-ONE", "android", "phone").DeviceKey;
     }
 
-    public void Dispose()
-    {
-        if (File.Exists(_registryPath)) File.Delete(_registryPath);
-    }
+    public void Dispose() => _harness.Dispose();
 
     private static string? StashedCredential(HttpContext ctx)
         => ctx.Items.TryGetValue(AuthMiddleware.AuthenticatedCredentialItemKey, out var v) ? v as string : null;

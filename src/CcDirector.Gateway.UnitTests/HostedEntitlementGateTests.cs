@@ -51,14 +51,16 @@ public sealed class HostedEntitlementGateTests : IDisposable
     private const string Subject = "sub-paying-account";
 
     private readonly GatewayDbTestHarness _harness = new();
-    private readonly string _devPath = Path.Combine(Path.GetTempPath(), $"ent-dev-{Guid.NewGuid():N}.json");
     private readonly TestEs256Key _key = new();
+
+    /// <summary>The legacy JSON store the registry would import from. Nothing writes it: the registry has kept its
+    /// devices in the database since the cutover, so a check on this file says nothing about enrollment.</summary>
+    private string DevPath => _harness.LegacyPath("devices.json");
 
     public void Dispose()
     {
         _harness.Dispose();
         _key.Dispose();
-        if (File.Exists(_devPath)) File.Delete(_devPath);
     }
 
     private static EnrollSignedInRequest Req() => new()
@@ -93,7 +95,7 @@ public sealed class HostedEntitlementGateTests : IDisposable
 
     private (DeviceRegistry devices, TenantRegistry tenants, JwtAccessTokenValidator validator) Wire(GatewayDatabase db)
     {
-        var devices = new DeviceRegistry(_devPath);
+        var devices = new DeviceRegistry(db, DevPath);
         var tenants = new TenantRegistry(db);
         var validator = new JwtAccessTokenValidator(
             "test-signing-secret", timeProvider: null, publicKeySetJson: _key.PublicKeySetJson(),
@@ -107,7 +109,7 @@ public sealed class HostedEntitlementGateTests : IDisposable
     private void AssertNothingWasGivenAway(TenantRegistry tenants)
     {
         Assert.Null(tenants.LookupBySubject(Subject));                       // no tenant minted
-        Assert.False(File.Exists(_devPath) && File.ReadAllText(_devPath).Contains("device-1", StringComparison.Ordinal));
+        Assert.Empty(_harness.OpenDevices().List());                         // no device enrolled
     }
 
     [Fact]

@@ -3,6 +3,7 @@ using System.Text;
 using CcDirector.Gateway.Pairing;
 using Microsoft.Data.Sqlite;
 using Xunit;
+using CcDirector.Gateway.Tests.Data;
 
 namespace CcDirector.Gateway.Tests;
 
@@ -25,24 +26,24 @@ namespace CcDirector.Gateway.Tests;
 /// </summary>
 public sealed class DeviceKeyAtRestTests : IDisposable
 {
-    private readonly string _dir =
-        Path.Combine(Path.GetTempPath(), "cc-devkeys-" + Guid.NewGuid().ToString("N"));
+    private readonly GatewayDbTestHarness _harness = new();
     private readonly List<DeviceRegistry> _registries = new();
 
-    private string StorePath => Path.Combine(_dir, "devices.json");
+    /// <summary>The legacy JSON store, in the harness directory beside the database the registry reads.</summary>
+    private string StorePath => _harness.LegacyPath("devices.json");
 
-    public DeviceKeyAtRestTests() => Directory.CreateDirectory(_dir);
+    public DeviceKeyAtRestTests() => Directory.CreateDirectory(Path.GetDirectoryName(StorePath)!);
 
     public void Dispose()
     {
         foreach (var registry in _registries)
             registry.Dispose();
-        if (Directory.Exists(_dir)) Directory.Delete(_dir, recursive: true);
+        _harness.Dispose();
     }
 
     private DeviceRegistry OpenRegistry()
     {
-        var registry = new DeviceRegistry(StorePath);
+        var registry = _harness.OpenDevices();
         _registries.Add(registry);
         return registry;
     }
@@ -54,7 +55,7 @@ public sealed class DeviceKeyAtRestTests : IDisposable
     {
         // Unpooled, so closing it releases the file and Dispose() can delete the directory. A pooled
         // connection here stays open in its own pool, which only a process-wide ClearAllPools() released.
-        using var connection = new SqliteConnection($"Data Source={StorePath}.gateway.db;Pooling=False");
+        using var connection = new SqliteConnection($"Data Source={_harness.DbPath};Pooling=False");
         connection.Open();
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT * FROM device_credentials";
@@ -194,7 +195,7 @@ public sealed class DeviceKeyAtRestTests : IDisposable
         _ = OpenRegistry();
 
         Assert.False(File.Exists(StorePath));
-        Assert.Single(Directory.GetFiles(_dir, "devices.json.migrated-*"));
+        Assert.Single(Directory.GetFiles(Path.GetDirectoryName(StorePath)!, "devices.json.migrated-*"));
         Assert.DoesNotContain(StoredDatabaseValues(),
             value => value.Contains(alreadyIssuedKey, StringComparison.Ordinal));
         Assert.Contains(ExpectedHash(alreadyIssuedKey), StoredDatabaseValues());

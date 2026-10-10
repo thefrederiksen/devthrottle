@@ -3,6 +3,7 @@ using CcDirector.Core.Account;
 using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Pairing;
 using Xunit;
+using CcDirector.Gateway.Tests.Data;
 
 namespace CcDirector.Gateway.Tests;
 
@@ -84,8 +85,8 @@ public sealed class SignedInEnrollmentTests
     [Fact]
     public void RegisterIfAbsent_SameDeviceTwice_LeavesOneEntryAndOneValidKey()
     {
-        using var temp = new TempStore();
-        var registry = new DeviceRegistry(temp.Path);
+        using var harness = new GatewayDbTestHarness();
+        var registry = harness.OpenDevices();
 
         var first = registry.RegisterIfAbsent("device-1", "MACHINE_A", "windows", "workstation");
         var second = registry.RegisterIfAbsent("device-1", "MACHINE_A", "windows", "workstation");
@@ -104,8 +105,8 @@ public sealed class SignedInEnrollmentTests
         // The retry-safety property post-#1899: a repeat enrollment hands back a FRESH working key rather than
         // re-revealing the old one from a plaintext cache. The client writes whichever key it receives, so a
         // sequential retry always ends up holding a valid credential; no plaintext is retained to replay.
-        using var temp = new TempStore();
-        var registry = new DeviceRegistry(temp.Path);
+        using var harness = new GatewayDbTestHarness();
+        var registry = harness.OpenDevices();
 
         var first = registry.RegisterIfAbsent("device-1", "MACHINE_A", "windows", "workstation");
         var second = registry.RegisterIfAbsent("device-1", "MACHINE_A", "windows", "workstation");
@@ -121,8 +122,8 @@ public sealed class SignedInEnrollmentTests
     {
         // The poll loop is guarded to never call enroll repeatedly, but the server holds the line anyway:
         // even ten calls yield one device and one working key (the #1136 guardrail). Every call rotates.
-        using var temp = new TempStore();
-        var registry = new DeviceRegistry(temp.Path);
+        using var harness = new GatewayDbTestHarness();
+        var registry = harness.OpenDevices();
 
         var issued = new List<string> { registry.RegisterIfAbsent("device-1", "MACHINE_A").DeviceKey };
         for (var i = 0; i < 10; i++)
@@ -137,8 +138,8 @@ public sealed class SignedInEnrollmentTests
     [Fact]
     public void RegisterIfAbsent_DistinctDevices_GetDistinctKeys()
     {
-        using var temp = new TempStore();
-        var registry = new DeviceRegistry(temp.Path);
+        using var harness = new GatewayDbTestHarness();
+        var registry = harness.OpenDevices();
 
         var a = registry.RegisterIfAbsent("device-a", "MACHINE_A").DeviceKey;
         var b = registry.RegisterIfAbsent("device-b", "MACHINE_B").DeviceKey;
@@ -150,8 +151,8 @@ public sealed class SignedInEnrollmentTests
     [Fact]
     public void RegisterIfAbsent_MintedKeyValidates()
     {
-        using var temp = new TempStore();
-        var registry = new DeviceRegistry(temp.Path);
+        using var harness = new GatewayDbTestHarness();
+        var registry = harness.OpenDevices();
 
         var key = registry.RegisterIfAbsent("device-1", "MACHINE_A").DeviceKey;
 
@@ -161,26 +162,10 @@ public sealed class SignedInEnrollmentTests
     [Fact]
     public void RegisterIfAbsent_BlankDeviceId_Throws()
     {
-        using var temp = new TempStore();
-        var registry = new DeviceRegistry(temp.Path);
+        using var harness = new GatewayDbTestHarness();
+        var registry = harness.OpenDevices();
 
         Assert.Throws<ArgumentException>(() => registry.RegisterIfAbsent("  ", "MACHINE_A"));
     }
 
-    // An isolated on-disk registry file per test, cleaned up afterward.
-    private sealed class TempStore : IDisposable
-    {
-        public string Path { get; } = System.IO.Path.Combine(
-            System.IO.Path.GetTempPath(), "cc-enroll-test-" + System.IO.Path.GetRandomFileName(), "devices.json");
-
-        public void Dispose()
-        {
-            try
-            {
-                var dir = System.IO.Path.GetDirectoryName(Path);
-                if (dir is not null && Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
-            }
-            catch { /* best effort */ }
-        }
-    }
 }

@@ -2,6 +2,7 @@ using CcDirector.Gateway.Pairing;
 using CcDirector.Gateway.Util;
 using Microsoft.AspNetCore.Http;
 using Xunit;
+using CcDirector.Gateway.Tests.Data;
 
 namespace CcDirector.Gateway.Tests;
 
@@ -16,18 +17,21 @@ namespace CcDirector.Gateway.Tests;
 /// credential-gated - these tests drive the REAL <see cref="AuthMiddleware.Run"/> gate and prove both
 /// halves without weakening it.
 /// </summary>
-public sealed class BrowserSignInGateTests
+public sealed class BrowserSignInGateTests : IDisposable
 {
     private const string SharedToken = "shared-machine-token-1088";
 
-    private static DeviceRegistry TempRegistry() =>
-        new(Path.Combine(Path.GetTempPath(), "cc-gw-signin-gate-" + Guid.NewGuid().ToString("N") + ".json"));
+    private readonly GatewayDbTestHarness _harness = new();
+
+    public void Dispose() => _harness.Dispose();
+
+    private DeviceRegistry TempRegistry() => _harness.OpenDevices();
 
     /// <summary>
     /// Drives the real host-wide gate for one request and reports what it did: whether the downstream
     /// ran, the status code, and the redirect target (when the gate redirected).
     /// </summary>
-    private static async Task<(bool Allowed, int StatusCode, string? Location)> RunGateAsync(
+    private async Task<(bool Allowed, int StatusCode, string? Location)> RunGateAsync(
         string method, string path, string? query = null, string? accept = null, string? bearer = null)
     {
         var ctx = new DefaultHttpContext();
