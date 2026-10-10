@@ -19,7 +19,11 @@ const { sendPrompt, transcribeUtterance, listSessions } = vi.hoisted(() => ({
   listSessions: vi.fn(async () => [{ sessionId: "sess-42", totalBufferBytes: 4321 }]),
 }));
 
-vi.mock("@devthrottle/client-core/api/client", () => ({
+vi.mock("@devthrottle/client-core/api/client", async (importOriginal) => ({
+  // The error reporter needs the real error helpers; the rest is faked.
+  ...(({ GatewayError, gatewayErrorMessage, authHeaders }) => ({ GatewayError, gatewayErrorMessage, authHeaders }))(
+    await importOriginal<typeof import("@devthrottle/client-core/api/client")>(),
+  ),
   sendPrompt,
   transcribeUtterance,
   listSessions,

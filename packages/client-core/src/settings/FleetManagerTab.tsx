@@ -77,7 +77,7 @@ function FleetManagerPlacementCard({ sessionHref }: FleetManagerTabProps) {
       setLoadError(null);
       apply(next, false);
     } catch (e) {
-      setLoadError(errText(e));
+      setLoadError(errText(e, "read where the Fleet Manager runs"));
     }
   }, [apply]);
 
@@ -91,7 +91,7 @@ function FleetManagerPlacementCard({ sessionHref }: FleetManagerTabProps) {
 
   // Every action: immediate feedback in the Gateway's words, the Gateway's own sentence on failure, and the
   // refreshed answer the Gateway returns on success. This is the event-handler entry point, hence the try.
-  const run = async (label: string, act: () => Promise<FleetManagerPlacement>) => {
+  const run = async (action: string, label: string, act: () => Promise<FleetManagerPlacement>) => {
     if (busyRef.current) return;
     busyRef.current = true;
     setBusyLabel(label);
@@ -100,7 +100,7 @@ function FleetManagerPlacementCard({ sessionHref }: FleetManagerTabProps) {
     try {
       apply(await act(), true);
     } catch (e) {
-      setActionError(errText(e));
+      setActionError(errText(e, action));
       void load();
     } finally {
       busyRef.current = false;
@@ -130,13 +130,13 @@ function FleetManagerPlacementCard({ sessionHref }: FleetManagerTabProps) {
       setPending({ kind: "move", action: save });
       return;
     }
-    void run(save.busyLabel, () => saveFleetManagerPlacement(agent, machine));
+    void run("save where the Fleet Manager runs", save.busyLabel, () => saveFleetManagerPlacement(agent, machine));
   };
 
   const confirm = () => {
     if (pending === null) return;
-    if (pending.kind === "restart") void run(pending.action.busyLabel, restartFleetManager);
-    else void run(pending.action.busyLabel, () => moveFleetManager(agent, machine));
+    if (pending.kind === "restart") void run("restart the Fleet Manager", pending.action.busyLabel, restartFleetManager);
+    else void run("move the Fleet Manager", pending.action.busyLabel, () => moveFleetManager(agent, machine));
   };
 
   const barNote = status.start.offered ? status.start.note : status.restart.note ?? status.start.note;
@@ -157,7 +157,7 @@ function FleetManagerPlacementCard({ sessionHref }: FleetManagerTabProps) {
               type="button"
               className="settings-btn primary"
               disabled={busy}
-              onClick={() => void run(status.start.busyLabel, startFleetManager)}
+              onClick={() => void run("start the Fleet Manager", status.start.busyLabel, startFleetManager)}
             >
               {status.start.label}
             </button>

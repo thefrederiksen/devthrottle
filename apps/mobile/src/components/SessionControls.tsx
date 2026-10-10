@@ -96,7 +96,7 @@ export function SessionControls({ sessionId, onFlash, onError, showKeyRows }: Se
         await sendPrompt(sessionId, seq, false);
         onFlash("Sent");
       } catch (err) {
-        onError(err instanceof Error ? err.message : `${label} failed`);
+        onError(describeAndReport(SURFACE, `send the ${label} key`, err, { sessionId }));
       }
     },
     [sessionId, onFlash, onError],
@@ -125,7 +125,7 @@ export function SessionControls({ sessionId, onFlash, onError, showKeyRows }: Se
       await sendEscape(sessionId);
       onFlash("Sent Esc");
     } catch (err) {
-      onError(err instanceof Error ? err.message : "Esc failed");
+      onError(describeAndReport(SURFACE, "send Esc", err, { sessionId }));
     }
   }, [sessionId, onFlash, onError]);
 
@@ -135,7 +135,7 @@ export function SessionControls({ sessionId, onFlash, onError, showKeyRows }: Se
       await sendInterrupt(sessionId);
       onFlash("Sent Stop (Ctrl+C)");
     } catch (err) {
-      onError(err instanceof Error ? err.message : "Stop failed");
+      onError(describeAndReport(SURFACE, "send Stop", err, { sessionId }));
     }
   }, [sessionId, onFlash, onError]);
 
@@ -171,7 +171,7 @@ export function SessionControls({ sessionId, onFlash, onError, showKeyRows }: Se
         });
         onFlash(paths.length === 1 ? "Image attached" : `${paths.length} images attached`);
       } catch (err) {
-        onError(describeAndReport(SURFACE, "attach the image", err));
+        onError(describeAndReport(SURFACE, "attach the image", err, { sessionId }));
       } finally {
         setUploading(false);
       }

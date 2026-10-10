@@ -11,7 +11,11 @@ import { __resetVoiceModeAllForTests } from "@devthrottle/client-core/voice/useV
 const LINE = "Voice mode switched off at 14:32 - you answered five sessions without listening";
 const gateway = vi.hoisted(() => ({ note: null as string | null }));
 
-vi.mock("@devthrottle/client-core/api/client", () => ({
+vi.mock("@devthrottle/client-core/api/client", async (importOriginal) => ({
+  // The error reporter needs the real error helpers; the rest is faked.
+  ...(({ GatewayError, gatewayErrorMessage, authHeaders }) => ({ GatewayError, gatewayErrorMessage, authHeaders }))(
+    await importOriginal<typeof import("@devthrottle/client-core/api/client")>(),
+  ),
   gatewayErrorMessage: (err: unknown) => String(err),
   setVoiceModeAllSessions: vi.fn(async () => ({ changed: 0, skipped: 0 })),
   getVoiceModeAllState: vi.fn(async () => ({ enabled: false, note: gateway.note })),

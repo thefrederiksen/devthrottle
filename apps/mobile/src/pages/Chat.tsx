@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { listSessions } from "@devthrottle/client-core/api/client";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 import { useSessionChat } from "@devthrottle/client-core/history/useSessionChat";
 import { chatLinkLabel } from "@devthrottle/client-core/history/chatView";
 import { DictationStatusStrip } from "@devthrottle/client-core/dictation/DictationStatusStrip";
@@ -83,9 +84,9 @@ export function Chat() {
       setCopied(text);
       window.setTimeout(() => setCopied((cur) => (cur === text ? null : cur)), 1500);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Copy failed");
+      setError(describeAndReport("mobile-chat", "copy the link", err, { sessionId }));
     }
-  }, []);
+  }, [sessionId]);
 
   return (
     <div className="terminal-screen">

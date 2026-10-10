@@ -235,6 +235,7 @@ export async function sendTypedPromptAnyway(deliveryId: string): Promise<void> {
       // ordinary prompt: a fresh id, its own record and strip. The old record is retired - its delivery is over.
       await forgetHeld(rec.deliveryId);
       if (answer.deliveryId === undefined) {
+        reportDeliveryFailure(rec.sessionId, `the Gateway answered 202 for a re-sent typed prompt in ${rec.sessionId} with no deliveryId`, true);
         publishDictationStatus({
           sessionId: rec.sessionId,
           uploadId: `typed-${Date.now()}`,

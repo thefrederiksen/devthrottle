@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { gatewayErrorMessage } from "../api/client";
+import { describeAndReport, describeReadAndReport, type ReportMemory } from "../errors/reportClientError";
+
+const SURFACE = "restart-requests";
 import {
   acceptRestartRequest,
   declineRestartRequest,
@@ -34,16 +36,19 @@ export function useRestartRequests(): { requests: DirectorRestartRequest[]; erro
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     let stopped = false;
+    // A poll: a failure to read is reported when it first appears, not on every round.
+    const shown: ReportMemory = { current: null };
     const load = async () => {
       try {
         const list = await listRestartRequests(controller.signal);
         if (stopped) return;
         setRequests(list);
         setError(null);
+        shown.current = null;
       } catch (err) {
         if (stopped || controller.signal.aborted) return;
         // Keep the last-known list on screen; say plainly that the read failed.
-        setError(gatewayErrorMessage(err));
+        setError(describeReadAndReport(SURFACE, "read the restart requests", err, undefined, shown));
       }
       if (!stopped) timer = setTimeout(() => void load(), POLL_INTERVAL_MS);
     };
@@ -107,7 +112,7 @@ export function RestartRequestCard({ request, onChanged }: RestartRequestCardPro
       onChanged?.();
     } catch (err) {
       // The Gateway's own sentence, verbatim - a refusal on accept names what changed on the machine.
-      if (mounted.current) setFailure(gatewayErrorMessage(err, which === "accept" ? "accept the restart" : "decline the restart"));
+      if (mounted.current) setFailure(describeAndReport(SURFACE, which === "accept" ? "accept the restart" : "decline the restart", err));
     } finally {
       if (mounted.current) setBusy(null);
     }

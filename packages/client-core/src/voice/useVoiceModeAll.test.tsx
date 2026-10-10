@@ -11,10 +11,17 @@ import { getAutoSpeak, setAutoSpeak } from "./queueTouch";
 import { __resetVoiceModeAllForTests, useVoiceModeAll, writeVoiceModeAll } from "./useVoiceModeAll";
 import { VoiceAutoOffNote } from "./VoiceAutoOffNote";
 
-vi.mock("../api/client", () => ({
-  getVoiceModeAllState: vi.fn(),
-  setVoiceModeAllSessions: vi.fn(),
-}));
+vi.mock("../api/client", async (importOriginal) => {
+  // The error reporter needs the real error helpers; everything else stays faked.
+  const real = await importOriginal<typeof import("../api/client")>();
+  return {
+    GatewayError: real.GatewayError,
+    gatewayErrorMessage: real.gatewayErrorMessage,
+    authHeaders: real.authHeaders,
+    getVoiceModeAllState: vi.fn(),
+    setVoiceModeAllSessions: vi.fn(),
+  };
+});
 
 const api = await import("../api/client");
 const getMock = api.getVoiceModeAllState as unknown as ReturnType<typeof vi.fn>;

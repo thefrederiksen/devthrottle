@@ -33,7 +33,11 @@ const stopSessionMock = vi.fn();
 
 // The Gateway boundary. The provider's stopSession is the only call under test; the rest are what the
 // roster, the menu and the restart panel reach for while they render.
-vi.mock("@devthrottle/client-core/api/client", () => ({
+vi.mock("@devthrottle/client-core/api/client", async (importOriginal) => ({
+  // The error reporter needs the real error helpers; the rest is faked.
+  ...(({ GatewayError, gatewayErrorMessage, authHeaders }) => ({ GatewayError, gatewayErrorMessage, authHeaders }))(
+    await importOriginal<typeof import("@devthrottle/client-core/api/client")>(),
+  ),
   gatewayErrorMessage: (err: unknown) => String(err),
   // The verdict panel asks the Gateway what it last said about a row that carries no verdict (slice G,
   // round 2), so this boundary now has to answer that read as well. It answers what the real Gateway
@@ -59,6 +63,8 @@ vi.mock("@devthrottle/client-core/settings/snoozeOptions", () => ({
 vi.mock("@devthrottle/client-core/errors/reportClientError", () => ({
   reportClientError: () => {},
   describeAndReport: (_surface: string, _action: string, err: unknown) => String(err),
+  describeReadAndReport: (_surface: string, _action: string, err: unknown) => String(err),
+  reportShownError: (_surface: string, _action: string, message: string) => message,
 }));
 
 // The session page's other regions. None of them is the subject: what is under test is SessionDetail's

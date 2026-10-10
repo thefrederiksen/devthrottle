@@ -14,6 +14,7 @@ import { blobToWav16kMono } from "./wav";
 import { reportDictationQuality } from "./qualityReport";
 import { activeAccount, listAccounts } from "../auth/accountStore";
 import { resumeHeldPrompts } from "./typedPromptDelivery";
+import { reportShownError } from "../errors/reportClientError";
 
 // The durable Send pipeline + background retry driver for the mobile Speak dialog (issue #1006,
 // strengthened for #1182). The instant the user hits Send the dialog hands the recorded audio here and
@@ -253,14 +254,9 @@ export async function backgroundTranscribeAndSend(
   // covers the different case of a clip that was queued whole and whose on-device copy later reads back
   // empty or unreadable. This gate stops the queue being polluted; that one stops a polluted queue looping.
   if (captured.blob.size === 0) {
-    publishDictationStatus({
-      sessionId,
-      uploadId: crypto.randomUUID(),
-      phase: "failed",
-      retryable: false,
-      error: EMPTY_CAPTURE_MESSAGE,
-    });
-    hooks.onError?.(EMPTY_CAPTURE_MESSAGE);
+    // Published and reported FIRST: an optional call skips its argument when there is no host callback.
+    const shown = failDictation(sessionId, crypto.randomUUID(), EMPTY_CAPTURE_MESSAGE);
+    hooks.onError?.(shown);
     hooks.onFailed?.();
     return;
   }
@@ -339,17 +335,11 @@ export async function backgroundTranscribeAndSend(
 
   try {
     await savePending(rec);
-  } catch {
+  } catch (err) {
     // Durable storage genuinely unavailable (rare, e.g. a private-mode tab with IndexedDB disabled): the
     // clip cannot be queued, so say so loudly and restore the typed text. We do NOT silently one-shot it.
-    publishDictationStatus({
-      sessionId,
-      uploadId: rec.id,
-      phase: "failed",
-      retryable: false,
-      error: NO_DURABLE_STORE_MESSAGE,
-    });
-    hooks.onError?.(NO_DURABLE_STORE_MESSAGE);
+    const shown = failDictation(sessionId, rec.id, NO_DURABLE_STORE_MESSAGE, err);
+    hooks.onError?.(shown);
     hooks.onFailed?.();
     return;
   }
@@ -1008,13 +998,7 @@ async function applyOwnedOutcome(rec: PendingDictation, read: DictationOutcomeRe
   }
   if (read.kind === "not-found") {
     console.error(`[backgroundSend] outcome read for ${rec.id} answered 404, but the Gateway had taken it over`);
-    publishDictationStatus({
-      sessionId: rec.sessionId,
-      uploadId: rec.id,
-      phase: "failed",
-      retryable: false,
-      error: ownedNotFoundMessage(rec.id),
-    });
+    failDictation(rec.sessionId, rec.id, ownedNotFoundMessage(rec.id));
     return;
   }
   await applyFinalOutcome(rec, read.result);
@@ -1142,6 +1126,15 @@ function publishHeld(rec: PendingDictation, message: string): void {
     retryable: true,
     error: message,
   });
+}
+
+// Publish a dictation that FAILED for good. The strip shows it as an alert, so it is reported in the same act
+// (the Error Logging mission, issue #3675) - the sentence and the session, never the words. Returns the sentence,
+// so a host's onError shows exactly what the strip shows. (A typed prompt's failures are published by
+// typedPromptDelivery and reported there.)
+function failDictation(sessionId: string, uploadId: string, message: string, cause?: unknown): string {
+  publishDictationStatus({ sessionId, uploadId, phase: "failed", retryable: false, error: message });
+  return reportShownError("dictation", "send the dictation", message, { sessionId }, cause);
 }
 
 // Publish the parked (permanent-failure) status: saved-and-retryable, with an explicit Retry (retryable

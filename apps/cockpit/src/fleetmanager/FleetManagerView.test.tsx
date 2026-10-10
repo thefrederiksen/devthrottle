@@ -31,7 +31,13 @@ vi.mock("@devthrottle/client-core/fleetmanager/pageClient", () => ({
   getFleetManagerPage: api.page,
   answerFleetOutcome: vi.fn(async () => undefined),
 }));
-vi.mock("@devthrottle/client-core/api/client", () => ({ sendPrompt: api.sendPrompt }));
+vi.mock("@devthrottle/client-core/api/client", async (importOriginal) => ({
+  // The error reporter needs the real error helpers (a failed poll is reported as well as shown).
+  ...(({ GatewayError, gatewayErrorMessage, authHeaders }) => ({ GatewayError, gatewayErrorMessage, authHeaders }))(
+    await importOriginal<typeof import("@devthrottle/client-core/api/client")>(),
+  ),
+  sendPrompt: api.sendPrompt,
+}));
 vi.mock("@devthrottle/client-core/fleetmanager/standingClient", () => ({
   getFleetStanding: api.standing,
   keepLesson: vi.fn(async () => undefined),
@@ -42,6 +48,7 @@ vi.mock("@devthrottle/client-core/fleetmanager/standingClient", () => ({
 vi.mock("@devthrottle/client-core/errors/reportClientError", () => ({
   reportClientError: vi.fn(),
   describeAndReport: (_s: string, _a: string, err: unknown) => (err instanceof Error ? err.message : String(err)),
+  reportShownErrorWhenNew: (_m: unknown, _s: string, _a: string, message: string) => message,
 }));
 vi.mock("@devthrottle/client-core/history/useSessionChat", () => ({
   useSessionChat: () => ({

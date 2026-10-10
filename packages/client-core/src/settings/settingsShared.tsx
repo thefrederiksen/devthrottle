@@ -2,6 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getGatewaySettings, type GatewaySettings } from "./settingsClient";
 import { gatewayErrorMessage } from "../api/client";
 import type { AiModel } from "../api/ai";
+import { reportShownError } from "../errors/reportClientError";
+
+/** Where a Settings failure is filed. Settings is one page on both shells, so one surface. */
+const SETTINGS_SURFACE = "settings";
 
 // The pieces every Settings card is built from, shared by the Cockpit and the phone: the card heading
 // with its scope pill, the Gateway settings document loader, the read-only row, and the small helpers
@@ -53,7 +57,7 @@ export function useGatewaySettings() {
       setSettings(await getGatewaySettings(signal));
     } catch (e) {
       if (signal?.aborted) return;
-      setError(errText(e));
+      setError(errText(e, "load the settings"));
     }
   }, []);
 
@@ -71,7 +75,7 @@ export function useGatewaySettings() {
     try {
       setMsg(await apply());
     } catch (e) {
-      setMsg(errText(e));
+      setMsg(errText(e, "save the settings"));
     } finally {
       busyRef.current = false;
       setBusy(false);
@@ -105,6 +109,9 @@ export function ensureStrings(current: string, values: string[]): string[] {
   return out;
 }
 
-export function errText(e: unknown): string {
-  return gatewayErrorMessage(e);
+/** A settings failure, shown AND reported in one act (the Error Logging mission, issue #3675). The sentence names
+ *  no action, as it always has - the card around it already says what was being done; `action` labels the stored
+ *  report. */
+export function errText(e: unknown, action: string): string {
+  return reportShownError(SETTINGS_SURFACE, action, gatewayErrorMessage(e), undefined, e);
 }

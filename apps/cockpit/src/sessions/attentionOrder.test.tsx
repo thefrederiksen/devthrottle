@@ -12,7 +12,11 @@ import type { SessionDto } from "@devthrottle/client-core/api/client";
 // The distinguishing test is the second one: the desktop sortOrder is set to the EXACT OPPOSITE of the
 // wait order, so a roster that fell back to the old inBucket ordering renders the reverse and fails.
 
-vi.mock("@devthrottle/client-core/api/client", () => ({
+vi.mock("@devthrottle/client-core/api/client", async (importOriginal) => ({
+  // The error reporter needs the real error helpers; the rest is faked.
+  ...(({ GatewayError, gatewayErrorMessage, authHeaders }) => ({ GatewayError, gatewayErrorMessage, authHeaders }))(
+    await importOriginal<typeof import("@devthrottle/client-core/api/client")>(),
+  ),
   // The restart-requests panel polls inside this roster and reaches for gatewayErrorMessage when a
   // read fails. Without it here, every poll threw an unhandled rejection - the tests still passed, but
   // the run reported errors and exited non-zero, which is how a real failure would come to be ignored.

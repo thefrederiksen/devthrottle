@@ -328,7 +328,7 @@ function NotificationsCard() {
         setMsg("Off. Notifications stopped for this device only.");
       }
     } catch (e) {
-      setMsg(errText(e));
+      setMsg(errText(e, checked ? "turn notifications on" : "turn notifications off"));
     } finally {
       setBusy(false);
     }

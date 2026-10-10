@@ -3,6 +3,7 @@ import { MicRecorder, startRecorderWithTimeout } from "./recorder";
 import { blobToWav16kMono, decodeToMono } from "./wav";
 import { checkMicQuality, formatDb, type MicQualityVerdict } from "./micQuality";
 import { uploadVoiceTestClip } from "./voiceTestClient";
+import { reportShownError } from "../errors/reportClientError";
 import "./mictest.css";
 
 // The "Test microphone" check, shared verbatim by the Cockpit dictation health page and the mobile
@@ -132,7 +133,7 @@ export function MicTestPanel({ className }: MicTestPanelProps) {
         console.warn(`[MicTestPanel] could not store the test clip: ${err instanceof Error ? err.message : String(err)}`);
       });
     } catch (err) {
-      setErrorText(err instanceof Error ? err.message : String(err));
+      setErrorText(reportShownError("mic-test", "test the microphone", err instanceof Error ? err.message : String(err), undefined, err));
       setStage("error");
     }
   }, [clearCap, releasePlayback, stopMeter]);
@@ -159,8 +160,14 @@ export function MicTestPanel({ className }: MicTestPanelProps) {
       // No silent fallback: say exactly what failed and what to check.
       const reason = err instanceof Error ? err.message : String(err);
       setErrorText(
-        `The microphone could not be opened: ${reason} Check that a microphone is connected, that it ` +
-          "is not muted, and that this site is allowed to use it.",
+        reportShownError(
+          "mic-test",
+          "open the microphone",
+          `The microphone could not be opened: ${reason} Check that a microphone is connected, that it ` +
+            "is not muted, and that this site is allowed to use it.",
+          undefined,
+          err,
+        ),
       );
       setStage("error");
       return;

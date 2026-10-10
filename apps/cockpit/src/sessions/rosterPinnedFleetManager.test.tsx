@@ -9,7 +9,11 @@ import { resetCrewExpandedForTests } from "@devthrottle/client-core/sessions/tre
 // words; the Cockpit draws that row first in both views, wearing the mark, with its team collapsed under it, then the
 // Gateway's heading, then every other row exactly where it was. All words below are fixtures, rendered verbatim.
 
-vi.mock("@devthrottle/client-core/api/client", () => ({
+vi.mock("@devthrottle/client-core/api/client", async (importOriginal) => ({
+  // The error reporter needs the real error helpers; the rest is faked.
+  ...(({ GatewayError, gatewayErrorMessage, authHeaders }) => ({ GatewayError, gatewayErrorMessage, authHeaders }))(
+    await importOriginal<typeof import("@devthrottle/client-core/api/client")>(),
+  ),
   gatewayErrorMessage: (err: unknown) => String(err),
   setVoiceModeAllSessions: vi.fn(async () => {}),
 }));

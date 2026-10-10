@@ -40,7 +40,7 @@
 // starts in their team on the next load here. A stored answer that names a team waits for the list like a picked
 // team does (`resolving`); a stored own-account answer draws at once.
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { gatewayErrorMessage } from "../api/client";
+import { describeAndReportWhenNew, type ReportMemory } from "../errors/reportClientError";
 import { activeAccount } from "../auth/accountStore";
 import { getMyTeams, type MyTeamsAnswer, type TeamStart, type TeamSummary } from "./teamsClient";
 
@@ -201,12 +201,15 @@ export function CurrentTeamProvider({
     const controller = new AbortController();
     let timer: number | undefined;
     let failures = 0;
+    // Retried on a timer: a failure is reported when it first appears, not on every retry.
+    const shown: ReportMemory = { current: null };
 
     const read = () => {
       load(controller.signal).then(
         (answer) => {
           if (controller.signal.aborted) return;
           failures = 0;
+          shown.current = null;
           setLoaded(
             answer.kind === "teams"
               ? { status: "ready", teams: answer.teams, start: answer.start, error: null }
@@ -216,7 +219,7 @@ export function CurrentTeamProvider({
         (err: unknown) => {
           if (controller.signal.aborted) return;
           failures += 1;
-          setLoaded({ status: "error", teams: [], start: null, error: gatewayErrorMessage(err, "read your teams") });
+          setLoaded({ status: "error", teams: [], start: null, error: describeAndReportWhenNew(shown, "current-team", "read your teams", err) });
           timer = window.setTimeout(read, retryDelayMs(failures));
         },
       );

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { gatewayErrorMessage } from "../api/client";
+import { describeAndReport, describeReadAndReport } from "../errors/reportClientError";
 import { useVisiblePolling } from "../polling/useVisiblePolling";
 import { listDevReports, type DevReportSummary } from "./devReportsClient";
 import "./devReports.css";
+
+const SURFACE = "dev-report-list";
 
 // One session's dev reports, shared by the Cockpit's Reports tab and the phone's Reports screen - or, with no session
 // named, every report the account's sessions sent, for the Cockpit's Reports page on a person's own account. Every
@@ -55,6 +57,8 @@ export function DevReportList({ sessionId, onOpen }: DevReportListProps) {
   const [newestNext, setNewestNext] = useState<string | null>(null);
   const [olderNext, setOlderNext] = useState<string | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
+  // The list is polled; a failure to read it is reported when it first appears, not on every round.
+  const listReportRef = useRef<string | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [olderError, setOlderError] = useState<string | null>(null);
   // Which list this is: bumped when the session changes, so an answer for the previous session is dropped, never shown.
@@ -82,10 +86,11 @@ export function DevReportList({ sessionId, onOpen }: DevReportListProps) {
         setReports((shown) => (olderOnScreen.current && shown !== null ? fold(shown, page.reports) : page.reports));
         setNewestNext(page.next);
         setError(null);
+        listReportRef.current = null;
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return;
         if (asked !== generation.current) return;
-        setError(gatewayErrorMessage(err));
+        setError(describeReadAndReport(SURFACE, "load the reports", err, { sessionId }, listReportRef));
       }
     },
     [sessionId],
@@ -110,7 +115,7 @@ export function DevReportList({ sessionId, onOpen }: DevReportListProps) {
       setOlderNext(page.next);
     } catch (err) {
       if (asked !== generation.current) return;
-      setOlderError(gatewayErrorMessage(err, "load older reports"));
+      setOlderError(describeAndReport(SURFACE, "load older reports", err, { sessionId }));
     } finally {
       if (asked === generation.current) setLoadingOlder(false);
     }

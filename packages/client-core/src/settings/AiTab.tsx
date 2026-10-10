@@ -64,7 +64,7 @@ export function AiTab({ accountHref }: AiTabProps) {
       // renders clean with the account's saved selections instead of painting a load error.
       if (s.catalogAvailable !== false) await loadModels();
     } catch (e) {
-      setError(errText(e));
+      setError(errText(e, "load the AI settings"));
     }
   }, [loadModels]);
 
@@ -97,7 +97,7 @@ export function AiTab({ accountHref }: AiTabProps) {
       setSnap({ ...snap, wingmanModel: model });
       setMsg("Thinking model set. Test it to confirm.");
     } catch (e) {
-      setMsg(errText(e));
+      setMsg(errText(e, "set the thinking model"));
     } finally {
       setBusy(false);
     }
@@ -120,7 +120,7 @@ export function AiTab({ accountHref }: AiTabProps) {
       setSnap({ ...snap, wingmanFastModel: model });
       setMsg("Fast model set. Test it to confirm.");
     } catch (e) {
-      setMsg(errText(e));
+      setMsg(errText(e, "set the fast model"));
     } finally {
       setBusy(false);
     }
@@ -149,7 +149,7 @@ export function AiTab({ accountHref }: AiTabProps) {
       setSnap({ ...snap, ttsModel: model, ttsVoice: voice });
       setMsg("Speech model set.");
     } catch (e) {
-      setMsg(errText(e));
+      setMsg(errText(e, "set the speech model"));
     } finally {
       setBusy(false);
     }
@@ -163,7 +163,7 @@ export function AiTab({ accountHref }: AiTabProps) {
       setSnap({ ...snap, ttsVoice: voice });
       setMsg("Voice set to " + voice + ".");
     } catch (e) {
-      setMsg(errText(e));
+      setMsg(errText(e, "set the voice"));
     } finally {
       setBusy(false);
     }
@@ -181,7 +181,7 @@ export function AiTab({ accountHref }: AiTabProps) {
       setSampleMsg("Playing " + snap.ttsVoice + "...");
       await audioRef.current.play();
     } catch (e) {
-      setSampleMsg(errText(e));
+      setSampleMsg(errText(e, "play the voice sample"));
     } finally {
       setBusy(false);
     }

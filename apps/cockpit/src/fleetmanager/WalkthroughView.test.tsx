@@ -27,6 +27,7 @@ vi.mock("@devthrottle/client-core/fleetmanager/walkthroughClient", () => ({
 vi.mock("@devthrottle/client-core/errors/reportClientError", () => ({
   reportClientError: vi.fn(),
   describeAndReport: (_s: string, _a: string, err: unknown) => (err instanceof Error ? err.message : String(err)),
+  errorFacts: () => ({}),
 }));
 vi.mock("./pageStore", () => ({ fleetManagerPageStore: { refreshNow: api.refreshPage } }));
 // The card is step 6's and has its own tests; here it only has to be mounted, and to say when it was answered.

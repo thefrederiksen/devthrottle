@@ -52,7 +52,7 @@ export function LanguageTab() {
       setSnap(await getSpokenLanguage(signal));
     } catch (e) {
       if (signal?.aborted) return;
-      setError(errText(e));
+      setError(errText(e, "load the spoken language"));
     }
   }, []);
 
@@ -77,7 +77,7 @@ export function LanguageTab() {
       setSnap(snapshot);
       setMsg(said);
     } catch (e) {
-      setMsg(errText(e));
+      setMsg(errText(e, "save the spoken language"));
     } finally {
       busyRef.current = false;
       setBusy(false);
@@ -143,7 +143,7 @@ export function LanguageTab() {
       setSampleMsg("Playing...");
       await audioRef.current.play();
     } catch (e) {
-      setSampleMsg(errText(e));
+      setSampleMsg(errText(e, "play the language sample"));
     } finally {
       setBusy(false);
     }

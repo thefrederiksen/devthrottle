@@ -12,19 +12,22 @@
 //   setter    A call of an error-state setter with a value: setError(...), setLoadError(...), any set...Error,
 //             set...Failure, set...Problem or set...Refusal. Also any setter whose state is rendered inside a
 //             role="alert" element in the same file (`const [note, setNote] = useState` and `{note}` in an
-//             alert make setNote a display setter). Clearing calls - null, undefined, false, "" - are not sites.
+//             alert make setNote a display setter). And a store's error field set through emit, set..., update...
+//             or patch...: `emit({ phase: "idle", error: msg })`. Clearing calls - null, undefined, false, "" - are
+//             not sites.
 //   catch     Inside a catch block or a .catch(...) handler, a call of any setter whose value uses the caught
 //             error: `catch (err) { setStatus(err.message) }` shows the error whatever the setter is called.
 //   callback  A call of an error callback with a value: onError(...), hooks.onError?.(...), onSomethingError(...).
 //             The callback hands the text to a host that displays it, so the text must already be reported.
+//             Also an element's own error handler written in place: `<img onError={() => setFailed(true)} />`.
 //   alert     A role="alert" element whose content is NOT state set in the same file - a prop, a hook's field,
 //             or fixed text. The scan cannot follow the value to where it was made, so the element must name
 //             the function that reports it (see the markers below), and the scan checks that function reports.
 //
 // WHAT COUNTS AS REPORTED:
 //
-//   - The value contains a call of a REPORTING FUNCTION: describeAndReport itself, or any function whose
-//     returned value is a reporting call (followed until nothing new is found), so a wrapper such as
+//   - The value contains a call of a REPORTING FUNCTION: describeAndReport, or reportShownError (its sibling for a
+//     failure the client found with no error object), or any function whose returned value is a reporting call (followed until nothing new is found), so a wrapper such as
 //     `function loadFailed(err) { return describeAndReport(...) }` reports too.
 //   - The value is a variable assigned from a reporting call in the same file:
 //     `const message = describeAndReport(...); setError(message);`.
@@ -32,7 +35,8 @@
 //     `onError={(message) => setError(message)}`, `const setActionError = useCallback((message) => setError(message))`
 //     - the sites are the callers of that callback or setter, each scanned on its own.
 //
-// THE ONLY TWO MARKERS, written as a comment on the site's line or on the line directly above it:
+// THE ONLY TWO MARKERS, written as a comment on the site's line or on the line directly above it (an alert's
+// marker may also sit inside the element, as a {/* ... */} comment):
 //
 //   error-report-exempt: <reason>   An input check the user caused (an empty field, a bad format) - nothing
 //                                   failed, so there is nothing to log. The reason is required and is printed.
@@ -73,8 +77,11 @@ export interface ErrorDisplayScan {
   reportingFunctions: Set<string>;
 }
 
-/** The function every reporting function leads back to. */
+/** The show-and-report act for a caught error. */
 export const REPORTING_ROOT = "describeAndReport";
+/** The two functions that show and report in one act (reportClientError.ts). Every reporting function leads back
+ *  to one of them. */
+export const REPORTING_ROOTS = [REPORTING_ROOT, "reportShownError"];
 
 /** The repository root, from this file's own location: <root>/packages/client-core/src/errors/. */
 export function repositoryRoot(): string {
@@ -115,7 +122,7 @@ export function describeSite(site: ErrorDisplaySite): string {
  */
 export function reportingFunctions(sources: string[]): Set<string> {
   const functions = sources.flatMap((s) => functionBodies(s));
-  const found = new Set([REPORTING_ROOT]);
+  const found = new Set(REPORTING_ROOTS);
   let grew = true;
   while (grew) {
     grew = false;
@@ -201,7 +208,15 @@ export function scanSource(
     const open = m.index! + m[0].length - 1;
     const close = matchingClose(src, open);
     if (close < 0) continue;
-    addCall(m.index!, "callback", m[1], src.slice(open + 1, close));
+    const value = src.slice(open + 1, close);
+    addCall(m.index!, "callback", m[1], value);
+    // `hooks.onError?.(describeAndReport(...))` reports nothing when there is no callback: an optional call never
+    // evaluates its argument. Report first, then hand the result over.
+    const site = sites.get(m.index!);
+    if (site && m[0].includes("?.") && callsAny(value, reporting)) {
+      site.reported = false;
+      site.problem = "the report is inside an optional call, which skips its argument when there is no callback - report first, then pass the result";
+    }
   }
 
   // Any setter inside a catch that shows the caught error.
@@ -218,13 +233,48 @@ export function scanSource(
     }
   }
 
+  // An element's own load failure handled in place: `<img onError={() => setFailed(true)} />`. The handler is the
+  // site unless a site already counted sits inside it (`onError={() => setError(describeAndReport(...))}`).
+  // A setter passed by name (`onError={setError}`) is not a handler written here - its caller is the site.
+  for (const m of src.matchAll(/(?<![\w$])(on[A-Z]?[\w$]*Error)=\{\s*(?=(?:async\s*)?\(|[A-Za-z_$][\w$]*\s*=>)/g)) {
+    const open = m.index! + m[1].length + 1;
+    const close = matchingClose(src, open);
+    if (close < 0 || [...sites.keys()].some((at) => at > open && at < close)) continue;
+    const handler = src.slice(open + 1, close);
+    const line = lineOf(m.index!);
+    const marker = markerFor(lines, line);
+    const reported = callsAny(handler, reporting);
+    sites.set(m.index!, {
+      file,
+      line,
+      kind: "callback",
+      name: `${m[1]}=`,
+      value: collapse(handler),
+      reported,
+      ...(marker?.kind === "exempt" ? { exemptReason: marker.text } : {}),
+      ...(reported || marker?.kind === "exempt" ? {} : { problem: problemFor(marker) }),
+    });
+  }
+
+  // A store's error field: `emit({ phase: "idle", error: msg })`, `setState({ ...s, error: mapError(err) })`. A call
+  // already counted whole by a rule above is not counted again. A store's own method counts too: `this.update({ ... })`.
+  for (const m of src.matchAll(/(?<![\w$])(emit|set[A-Z][\w$]*|update[A-Z]?[\w$]*|patch[A-Z]?[\w$]*)\s*\(\s*\{/g)) {
+    if (sites.has(m.index!)) continue;
+    const open = m.index! + m[0].length - 1;
+    const close = matchingClose(src, open);
+    if (close < 0) continue;
+    for (const p of objectProperties(src, open, close)) {
+      if (ERROR_KEY.test(p.key)) addCall(p.at, "setter", `${m[1]}({ ${p.key} })`, p.value);
+    }
+  }
+
   // Alerts whose content is not state set in this file.
   const stateValues = new Set(states.keys());
   for (const a of alerts) {
     const outside = [...a.roots.keys()].filter((r) => !stateValues.has(r));
     if (a.roots.size > 0 && outside.length === 0) continue;
     const line = lineOf(a.at);
-    const marker = markerFor(lines, line);
+    const marker = markerFor(lines, line, a.content);
     let reported = false;
     let problem: string | undefined;
     if (marker?.kind === "reported-by") {
@@ -254,6 +304,41 @@ export function scanSource(
 
 /** A setter that holds an error by its name. */
 const ERROR_SETTER = /^set[\w$]*(?:Error|Err|Failure|Problem|Refusal)[\w$]*$/;
+
+/** A store field that holds an error by its name. */
+const ERROR_KEY = /^(?:error|[\w$]*Error|failure|problem)$/;
+
+/** The top-level properties of the object literal between `open` and `close`: `{ a: 1, b, ...c }` gives a and b. */
+function objectProperties(src: string, open: number, close: number): { key: string; value: string; at: number }[] {
+  const out: { key: string; value: string; at: number }[] = [];
+  let i = open + 1;
+  while (i < close) {
+    while (i < close && /[\s,]/.test(src[i])) i++;
+    if (i >= close) break;
+    if (src.startsWith("...", i)) {
+      i = expressionEnd(src, i + 3) + 1;
+      continue;
+    }
+    const key = /^(?:"([^"]*)"|'([^']*)'|([A-Za-z_$][\w$]*))\s*/.exec(src.slice(i, close));
+    if (!key) {
+      i = expressionEnd(src, i) + 1;
+      continue;
+    }
+    const name = key[1] ?? key[2] ?? key[3];
+    const after = i + key[0].length;
+    if (src[after] === ":") {
+      const start = after + 1;
+      const end = Math.min(expressionEnd(src, start), close);
+      out.push({ key: name, value: src.slice(start, end), at: i });
+      i = end + 1;
+    } else {
+      // Shorthand `{ error }` - the value is the variable of that name. A method or anything else is skipped.
+      if (src[after] === "," || after >= close) out.push({ key: name, value: name, at: i });
+      i = expressionEnd(src, after) + 1;
+    }
+  }
+  return out;
+}
 
 function isClearing(value: string): boolean {
   return /^\s*(?:null|undefined|false|""|''|``|\[\]|\{\})?\s*$/.test(value);
@@ -442,10 +527,12 @@ interface Marker {
   text: string;
 }
 
-/** A marker on the site's line or the line directly above it. An exemption without a reason is no exemption. */
-function markerFor(lines: string[], line: number): Marker | null {
-  for (const text of [lines[line - 1] ?? "", lines[line - 2] ?? ""]) {
-    const exempt = /error-report-exempt:\s*(.*?)\s*(?:\*\/\s*\}?)?\s*$/.exec(text);
+/** A marker on the site's line or the line directly above it - or, for an alert, inside the element itself
+ *  (`<div role="alert">{/* error-reported-by: useX *\/}{x.error}</div>`). An exemption without a reason is no
+ *  exemption. */
+function markerFor(lines: string[], line: number, inside = ""): Marker | null {
+  for (const text of [lines[line - 1] ?? "", lines[line - 2] ?? "", ...inside.split("\n")]) {
+    const exempt = /error-report-exempt:\s*(.*?)\s*(?:\*\/.*)?$/.exec(text);
     if (exempt) return exempt[1].length >= 10 ? { kind: "exempt", text: exempt[1] } : { kind: "reported-by", text: "" };
     const by = /error-reported-by:\s*([A-Za-z_$][\w$]*)/.exec(text);
     if (by) return { kind: "reported-by", text: by[1] };
@@ -481,6 +568,14 @@ export function functionBodies(src: string): FunctionBody[] {
     const body = src.slice(open, close + 1);
     out.push({ name: m[1], body, returned: returnExpressions(body) });
   }
+  // A module object of methods (`export const recordingSession = { async start() { ... } }`) - named by an
+  // error-reported-by marker as the store that reports what it holds. It returns nothing itself.
+  // A class is named the same way (`error-reported-by: DevReportController`).
+  for (const m of src.matchAll(/(?:^|\n)\s*(?:export\s+)?(?:const\s+([A-Za-z_$][\w$]*)\s*(?::[^=\n]+)?=\s*|class\s+([A-Za-z_$][\w$]*)[^{\n]*)\{/g)) {
+    const open = m.index! + m[0].length - 1;
+    const close = matchingClose(src, open);
+    if (close > 0) out.push({ name: m[1] ?? m[2], body: src.slice(open, close + 1), returned: [] });
+  }
   const arrow = /(?:const|let)\s+([A-Za-z_$][\w$]*)\s*(?::[^=]+)?=\s*(?:useCallback\(\s*|useMemo\(\s*\(\)\s*=>\s*)?(?:async\s*)?(\([^)]*\)|[A-Za-z_$][\w$]*)\s*(?::[^=]+?)?=>\s*/g;
   for (const m of src.matchAll(arrow)) {
     const start = m.index! + m[0].length;
@@ -508,10 +603,16 @@ function returnExpressions(body: string): string[] {
     const close = matchingClose(body, open);
     if (close > open) own = own.slice(0, open + 1) + " ".repeat(close - open - 1) + own.slice(close);
   }
+  // An expression-bodied callback (`onError={() => setFailed(report(...))}`) is not what this function returns.
+  for (const m of body.matchAll(/=>\s*(?=[^\s{])/g)) {
+    const start = m.index! + m[0].length;
+    const end = expressionEnd(body, start);
+    own = own.slice(0, start) + " ".repeat(end - start) + own.slice(end);
+  }
   const out: string[] = [];
   for (const m of own.matchAll(/\breturn\b\s*/g)) {
     const start = m.index! + m[0].length;
-    out.push(body.slice(start, expressionEnd(body, start)));
+    out.push(own.slice(start, expressionEnd(own, start)));
   }
   return out;
 }

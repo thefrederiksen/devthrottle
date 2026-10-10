@@ -213,4 +213,73 @@ describe("errorDisplaySites scanner", () => {
   it("scanSource_UpdaterThatAddsText_IsASite", () => {
     expect(bad(`setErrors((e) => ({ ...e, [id]: err.message }));`)).toHaveLength(1);
   });
+
+  it("scanSource_ElementErrorHandlerWrittenInPlace_IsASite", () => {
+    const sites = bad(`<img src={url} onError={() => setFailed(true)} />`);
+
+    expect(sites.map((s) => [s.kind, s.name])).toEqual([["callback", "onError="]]);
+  });
+
+  it("scanSource_ElementErrorHandlerThatReports_IsReported", () => {
+    const [site] = scan(`<img src={url} onError={() => setFailed(reportShownError("s", "show the image", TEXT))} />`, new Set(["reportShownError"]));
+
+    expect(site.reported).toBe(true);
+  });
+
+  it("scanSource_SetterPassedByNameAsAnErrorProp_IsNotASite", () => {
+    expect(scan(`<SessionControls onError={setError} />`)).toEqual([]);
+  });
+
+  it("scanSource_ReportInsideAnOptionalCall_FailsBecauseItCanBeSkipped", () => {
+    const [site] = bad(`hooks.onError?.(describeAndReport("s", "a", err));`);
+
+    expect(site.problem).toContain("optional call");
+  });
+
+  it("scanSource_ReportedFirstThenPassedToAnOptionalCall_IsReported", () => {
+    const src = `const shown = describeAndReport("s", "a", err);\nhooks.onError?.(shown);`;
+
+    expect(scan(src)[0].reported).toBe(true);
+  });
+
+  it("scanSource_StoreErrorField_IsASiteWhateverTheStoreIsCalled", () => {
+    const src = [
+      `emit({ phase: "idle", error: msg });`,
+      `this.update({ loadError: gatewayErrorMessage(err) });`,
+      `emit({ phase: "starting", error: null });`,
+      `emit({ error: describeAndReport("s", "a", err) });`,
+    ].join("\n");
+
+    expect(scan(src).map((s) => [s.line, s.reported])).toEqual([
+      [1, false],
+      [2, false],
+      [4, true],
+    ]);
+  });
+
+  it("scanSource_AlertMarkerInsideTheElement_NamesAClassThatReports", () => {
+    const producers = functionBodies(
+      `export class Controller {\n  load() {\n    this.update({ loadError: describeAndReport("s", "a", err) });\n  }\n}`,
+    );
+    const src = `<div role="alert">\n  {/* error-reported-by: Controller */}\n  {snapshot.loadError}\n</div>`;
+
+    const [site] = scanSource("fixture.tsx", src, REPORTING, producers);
+
+    expect(site.reported).toBe(true);
+  });
+
+  it("scanSource_AlertMarkerNamesAModuleObjectThatReports_IsReported", () => {
+    const producers = functionBodies(`export const recordingSession = {\n  async start() {\n    emit({ error: reportShownError("r", "a", "m") });\n  },\n};`);
+    const src = `<div role="alert">{/* error-reported-by: recordingSession */}{error}</div>`;
+
+    const [site] = scanSource("fixture.tsx", src, new Set(["reportShownError"]), producers);
+
+    expect(site.reported).toBe(true);
+  });
+
+  it("reportingFunctions_ComponentWhoseCallbackReports_IsNotReporting", () => {
+    const lib = `function ImageFile() {\n  return (\n    <img onError={() => setFailed(describeAndReport("s", "a", e))} />\n  );\n}`;
+
+    expect(reportingFunctions([lib]).has("ImageFile")).toBe(false);
+  });
 });

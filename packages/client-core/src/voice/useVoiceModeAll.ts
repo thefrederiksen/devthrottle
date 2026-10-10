@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { getVoiceModeAllState, setVoiceModeAllSessions, type VoiceModeAllResult } from "../api/client";
 import { setAutoSpeak } from "./queueTouch";
+import { describeAndReport } from "../errors/reportClientError";
 
 // VOICE MODE - the fleet-wide switch, read from the Gateway and never derived (owner, 2026-07-24).
 //
@@ -139,7 +140,7 @@ export function useVoiceModeAll(): VoiceModeAll {
       await writeVoiceModeAll(next);
       return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not change voice mode for all sessions");
+      setError(describeAndReport("voice-mode-all", next ? "turn voice mode on for all sessions" : "turn voice mode off for all sessions", err));
       return false;
     } finally {
       setBusy(false);

@@ -11,13 +11,18 @@ import { renderHook, act, cleanup, waitFor } from "@testing-library/react";
 // pinned here too, because they belong to the verb and not to any one sheet.
 
 const stopSessionMock = vi.fn();
-vi.mock("@devthrottle/client-core/api/client", () => ({
+vi.mock("@devthrottle/client-core/api/client", async (importOriginal) => ({
+  // The error reporter (errors/reportClientError) needs the real error helpers; the rest is faked.
+  ...(({ GatewayError, gatewayErrorMessage, authHeaders }) => ({ GatewayError, gatewayErrorMessage, authHeaders }))(
+    await importOriginal<typeof import("@devthrottle/client-core/api/client")>(),
+  ),
   holdSession: () => Promise.resolve({ onHold: false, pending: false }),
   listSessions: () => Promise.resolve([]),
   stopSession: (...args: unknown[]) => stopSessionMock(...args),
 }));
 
 import { useSessionManage } from "./useSessionManage";
+import { GatewayError } from "@devthrottle/client-core/api/client";
 
 // The one sentence the phone records with every stop it sends. A trail reader sees what happened and
 // where from; the owner is not asked to justify his own tap.
@@ -101,7 +106,9 @@ describe("useSessionManage's stop verb", () => {
     });
 
   it("surfaces the Gateway's own sentence on the shared error and rethrows", async () => {
-    stopSessionMock.mockRejectedValue(new Error("the Director on SORENLAPTOP could not be reached"));
+    stopSessionMock.mockRejectedValue(
+      new GatewayError(502, "POST stop failed", { reason: "the Director on SORENLAPTOP could not be reached", retryable: false }),
+    );
     const { result } = renderHook(() => useSessionManage("9c41e7a2"));
 
     await act(async () => {

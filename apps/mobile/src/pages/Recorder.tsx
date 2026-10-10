@@ -24,7 +24,17 @@ import {
   recordingAudioUrl,
   type RecordingListItem,
 } from "@devthrottle/client-core/recordings/recordingsClient";
-import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
+import { describeReadAndReport, reportShownError } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "mobile-recorder";
+const NO_DURABLE_STORE =
+  "This browser cannot store recordings durably (no IndexedDB), so recording is disabled here. " +
+  "Open DevThrottle in a normal browser tab to record.";
+
+/** The recorder cannot work in this browser at all: said on screen from the first paint, and reported once. */
+function reportStoreUnavailable(): void {
+  reportShownError(SURFACE, "open the recorder", NO_DURABLE_STORE);
+}
 
 // The Voice Recorder screen (issue #958) - the PWA successor of the retired native Android recorder,
 // carrying its concepts over: rolling one-minute segments persisted durably AS THEY ARE CAPTURED (a
@@ -100,6 +110,9 @@ function Cross() {
 
 export function Recorder() {
   const storeOk = recordingStoreAvailable();
+  useEffect(() => {
+    if (!storeOk) reportStoreUnavailable();
+  }, [storeOk]);
 
   // The capture lifecycle lives in the app-level recording session, NOT in this page: leaving this
   // page must not stop the recording (recorder-unlimited-capture mission). This page renders the
@@ -116,6 +129,8 @@ export function Recorder() {
   const [localRecordings, setLocalRecordings] = useState<LocalRecording[]>([]);
   const [serverRecordings, setServerRecordings] = useState<RecordingListItem[]>([]);
   const [serverError, setServerError] = useState<string | null>(null);
+  // The library poll: its failure is reported when it first appears, not on every round.
+  const serverReportRef = useRef<string | null>(null);
 
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
@@ -134,9 +149,10 @@ export function Recorder() {
       const items = await getRecordings(signal);
       setServerRecordings(items);
       setServerError(null);
+      serverReportRef.current = null;
     } catch (err) {
       if (signal?.aborted) return;
-      setServerError(gatewayErrorMessage(err));
+      setServerError(describeReadAndReport(SURFACE, "load the recordings on the Gateway", err, undefined, serverReportRef));
     }
   }, []);
 
@@ -295,7 +311,7 @@ export function Recorder() {
           cleanup();
           if (playTokenRef.current === token) {
             setPlayingId(null);
-            setPlaybackError("Playback failed - this segment could not be decoded.");
+            setPlaybackError(reportShownError(SURFACE, "play the recording", "Playback failed - this segment could not be decoded."));
           }
         };
         void audio.play().catch(() => {
@@ -345,13 +361,14 @@ export function Recorder() {
 
       {!storeOk && (
         <div className="banner banner-error" role="alert">
-          This browser cannot store recordings durably (no IndexedDB), so recording is disabled here.
-          Open DevThrottle in a normal browser tab to record.
+          {/* error-reported-by: reportStoreUnavailable */}
+          {NO_DURABLE_STORE}
         </div>
       )}
 
       {error !== null && (
         <div className="banner banner-error" role="alert">
+          {/* error-reported-by: recordingSession */}
           {error}{" "}
           <button type="button" className="rec-row-btn" onClick={() => recordingSession.clearError()}>
             Dismiss

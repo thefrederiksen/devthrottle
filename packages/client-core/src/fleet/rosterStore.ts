@@ -25,6 +25,7 @@ export const rosterStore = createPollingStore<SessionsEnvelope>({
   fetcher: getSessionsEnvelope,
   intervalMs: ROSTER_POLL_MS,
   mapError: gatewayErrorMessage,
+  reporting: { surface: "session-roster", action: "load the sessions" },
 });
 
 // The roster as a page reads it: the live sessions (null until the first load, so a page can tell

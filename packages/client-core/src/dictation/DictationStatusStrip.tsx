@@ -157,6 +157,7 @@ export function DictationStatusStrip({ sessionId }: { sessionId: string | undefi
     return (
       <div className="dictate-strip dictate-strip-failed" role="alert">
         <span className="dictate-strip-icon" aria-hidden="true">!</span>
+        {/* error-reported-by: failDictation */}
         <span className="dictate-strip-text">{status.error ?? "Dictation failed."}</span>
         <button type="button" className="dictate-strip-btn dictate-strip-dismiss" onClick={() => clearDictationStatus(status.uploadId)}>
           Dismiss

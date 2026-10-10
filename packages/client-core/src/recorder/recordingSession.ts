@@ -27,6 +27,7 @@
 
 import { useSyncExternalStore } from "react";
 import { SegmentRecorder } from "./segmentRecorder";
+import { reportShownError } from "../errors/reportClientError";
 import {
   deleteRecording,
   getRecording,
@@ -39,6 +40,9 @@ import {
 } from "./recordingStore";
 import { driveRecordingUpload, sha256Hex } from "./ingestUpload";
 import { getInstallId } from "../auth/deviceKey";
+
+/** Where a recorder failure is filed: every one the user sees is shown AND reported (issue #3675). */
+const SURFACE = "recorder";
 
 export type RecordingPhase = "idle" | "starting" | "recording" | "paused" | "stopping";
 
@@ -180,7 +184,15 @@ async function finalizeActive(recordingId: string, interruptedReason: string | n
   } catch (err) {
     // The header write failed (storage trouble). The audio segments already on disk are untouched
     // and recovery will pick the row up on the next open; what must NOT happen is a lying UI.
-    emit({ error: `The recording could not be finalized: ${err instanceof Error ? err.message : String(err)}` });
+    emit({
+      error: reportShownError(
+        SURFACE,
+        "save the recording",
+        `The recording could not be finalized: ${err instanceof Error ? err.message : String(err)}`,
+        undefined,
+        err,
+      ),
+    });
   } finally {
     // Only reset session state this finalizer still owns: a new capture may have legitimately
     // begun (start() refuses while non-idle, but a stale catch could have force-idled the phase),
@@ -211,7 +223,7 @@ async function finalizeActive(recordingId: string, interruptedReason: string | n
  *  "Recording" over a dead microphone, and a user Stop pressed during this finalize is a no-op. */
 function handleCaptureLoss(from: SegmentRecorder, recordingId: string, message: string): void {
   if (recorder !== from || !owns(recordingId) || finalized === recordingId) return;
-  emit({ phase: "stopping", error: `Recording stopped: ${message}` });
+  emit({ phase: "stopping", error: reportShownError(SURFACE, "keep recording", `Recording stopped: ${message}`) });
   void finalizeActive(recordingId, message).catch(() => {
     // finalizeActive contains its own failure handling; this guard only prevents an unhandled
     // rejection from a double-failure.
@@ -249,7 +261,7 @@ export const recordingSession = {
   async start(): Promise<void> {
     if (state.phase !== "idle") return;
     if (!recordingStoreAvailable()) {
-      emit({ error: "This browser cannot store recordings durably (no IndexedDB)." });
+      emit({ error: reportShownError(SURFACE, "start a recording", "This browser cannot store recordings durably (no IndexedDB).") });
       return;
     }
     emit({ error: null, phase: "starting" });
@@ -307,7 +319,7 @@ export const recordingSession = {
             await saveRecording(fresh);
           });
         },
-        onError: (message) => {
+        onCaptureLost: (message) => {
           handleCaptureLoss(rr, recordingId, message);
         },
       });
@@ -336,7 +348,7 @@ export const recordingSession = {
       const msg = err instanceof Error ? err.message : String(err);
       // Failed before the session held anything: nothing to unwind, just report honestly.
       if (!registered) {
-        emit({ phase: "idle", recordingId: null, error: msg });
+        emit({ phase: "idle", recordingId: null, error: reportShownError(SURFACE, "start a recording", msg, undefined, err) });
         return;
       }
       // Unwind ONLY a capture this continuation provably still owns, with no loss-finalizer in
@@ -360,7 +372,7 @@ export const recordingSession = {
       } catch {
         /* the row stays; recovery on next open cleans an empty shell */
       }
-      emit({ phase: "idle", recordingId: null, error: msg });
+      emit({ phase: "idle", recordingId: null, error: reportShownError(SURFACE, "start a recording", msg, undefined, err) });
     }
   },
 
@@ -375,7 +387,7 @@ export const recordingSession = {
       if (recorder === r && id !== null && owns(id) && state.phase === "recording") emit({ phase: "paused" });
     } catch (err) {
       if (recorder === r && id !== null && owns(id)) {
-        emit({ error: err instanceof Error ? err.message : String(err) });
+        emit({ error: reportShownError(SURFACE, "pause the recording", err instanceof Error ? err.message : String(err), undefined, err) });
       }
     }
   },
@@ -391,7 +403,7 @@ export const recordingSession = {
     } catch (err) {
       // A late rejection from a capture that already ended must not raise a false alarm.
       if (recorder === r && id !== null && owns(id)) {
-        emit({ error: err instanceof Error ? err.message : String(err) });
+        emit({ error: reportShownError(SURFACE, "resume the recording", err instanceof Error ? err.message : String(err), undefined, err) });
       }
     }
   },
@@ -413,7 +425,7 @@ export const recordingSession = {
         "the final part of the recording could not be saved (" +
         (err instanceof Error ? err.message : String(err)) +
         ")";
-      emit({ error: `Recording stopped: ${flushFailure}` });
+      emit({ error: reportShownError(SURFACE, "stop the recording", `Recording stopped: ${flushFailure}`, undefined, err) });
     }
     await finalizeActive(id, flushFailure);
   },

@@ -9,7 +9,11 @@ import { renderHook, cleanup, waitFor } from "@testing-library/react";
 
 let rosterRead: () => Promise<unknown[]> = () => Promise.resolve([]);
 
-vi.mock("@devthrottle/client-core/api/client", () => ({
+vi.mock("@devthrottle/client-core/api/client", async (importOriginal) => ({
+  // The error reporter (errors/reportClientError) needs the real error helpers; the rest is faked.
+  ...(({ GatewayError, gatewayErrorMessage, authHeaders }) => ({ GatewayError, gatewayErrorMessage, authHeaders }))(
+    await importOriginal<typeof import("@devthrottle/client-core/api/client")>(),
+  ),
   holdSession: () => Promise.resolve({ onHold: false, pending: false }),
   listSessions: () => rosterRead(),
   stopSession: () => Promise.resolve(null),

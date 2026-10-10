@@ -15,7 +15,7 @@ export function DemoModeCard() {
   useEffect(() => {
     const ctrl = new AbortController();
     getDemoMode(ctrl.signal).then(setOn, (e: unknown) => {
-      if (!ctrl.signal.aborted) setError(errText(e));
+      if (!ctrl.signal.aborted) setError(errText(e, "load demo mode"));
     });
     return () => ctrl.abort();
   }, []);
@@ -32,7 +32,7 @@ export function DemoModeCard() {
       setOn(applied);
       setMsg(applied ? "On. Private text is blurred on every screen on this account." : "Off. Everything shows again.");
     } catch (e) {
-      setMsg(`Could not save: ${errText(e)}`);
+      setMsg(`Could not save: ${errText(e, "save demo mode")}`);
     } finally {
       setBusy(false);
     }

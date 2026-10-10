@@ -61,10 +61,10 @@ export interface FinalizedSegment {
 
 export interface SegmentRecorderOptions {
   /** Called for EVERY finalized segment (rotation, pause, and stop). The caller persists it durably
-   *  before anything else happens to it. Errors thrown here are reported via onError. */
+   *  before anything else happens to it. Errors thrown here are reported via onCaptureLost. */
   onSegment: (segment: FinalizedSegment) => Promise<void>;
   /** A segment could not be persisted or the recorder failed mid-capture. The capture is stopped. */
-  onError: (message: string) => void;
+  onCaptureLost: (message: string) => void;
   /** Total capture reached the opt-in cap and the recorder stopped itself. */
   onAutoStop?: () => void;
   /** OPT-IN auto-stop cap on total captured (non-paused) time. There is deliberately NO default:
@@ -290,7 +290,7 @@ export class SegmentRecorder {
       this.clearRotateTimer();
       await this.finalizeSegment();
       this.releaseStream();
-      this.opts.onError(
+      this.opts.onCaptureLost(
         "the phone suspended the microphone (screen lock, another app took it, or the browser " +
           "paused the page). Everything captured up to that point is saved.",
       );
@@ -340,7 +340,7 @@ export class SegmentRecorder {
       this.stopped = true;
       this.clearRotateTimer();
       this.releaseStream();
-      this.opts.onError(err instanceof Error ? err.message : String(err));
+      this.opts.onCaptureLost(err instanceof Error ? err.message : String(err));
     }
   }
 

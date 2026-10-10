@@ -11,6 +11,10 @@ import {
   sessionFileUrl,
 } from "@devthrottle/client-core/api/client";
 import { markdownToHtml } from "@devthrottle/client-core/history/historyMarkdown";
+import { reportShownError } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "mobile-file-view";
+const IMAGE_FAILED = "Could not load image. The file may be missing (404) or the session's machine offline.";
 
 // Local Files mission (Phase 3): the mobile /m file viewer. A clicked file path - in the Chat page or
 // in the Terminal mirror - navigates to this FULL-SCREEN ROUTE (mobile has no modal shell; every view
@@ -39,8 +43,13 @@ function baseName(path: string): string {
 
 // Turn a file-load failure into a specific, human message. A 404 is a missing file; a 503 is the
 // owning session's machine being offline (the Gateway could not reach the Director). Anything else
-// shows its status so the failure is never mistaken for an empty file.
-function fileLoadMessage(err: unknown): string {
+// shows its status so the failure is never mistaken for an empty file. Shown AND reported in one act (issue #3675);
+// the report carries the session, never the file's path.
+function fileLoadMessage(err: unknown, action: string, sessionId: string): string {
+  return reportShownError(SURFACE, action, fileLoadSentence(err), { sessionId }, err);
+}
+
+function fileLoadSentence(err: unknown): string {
   if (err instanceof GatewayError) {
     if (err.status === 404) return "Could not load file: not found (404). It may have been moved or deleted.";
     if (err.status === 503) return "Could not load file: the session's machine is offline (503).";
@@ -98,7 +107,7 @@ export function FileView() {
       <header className="app-bar">
         <button type="button" className="file-view-back" onClick={goBack}>Back</button>
         <h1 className="term-title" title={path}>{name}</h1>
-        <DownloadButton url={url} name={name} />
+        <DownloadButton url={url} name={name} sessionId={sessionId} />
       </header>
       <div className="file-view-body">
         <FileViewContent type={type} url={url} name={name} sessionId={sessionId} path={path} />
@@ -112,7 +121,7 @@ export function FileView() {
 // and over. This fetches the bytes itself (carrying the Bearer, so it works regardless of the cookie),
 // shows "Saving..." while it runs, then a visible "Saved ... to your device" (or the specific failure),
 // and only then triggers the browser's save. One in-flight download at a time.
-function DownloadButton({ url, name }: { url: string; name: string }) {
+function DownloadButton({ url, name, sessionId }: { url: string; name: string; sessionId: string }) {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
@@ -134,7 +143,7 @@ function DownloadButton({ url, name }: { url: string; name: string }) {
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 15000);
       setNote(`Saved ${name} to your device`);
     } catch (err) {
-      setNote(fileLoadMessage(err));
+      setNote(fileLoadMessage(err, "save the file", sessionId));
     } finally {
       setBusy(false);
       window.setTimeout(() => setNote(null), 4000);
@@ -161,7 +170,7 @@ function FileViewContent(props: {
   const { type, url, name, sessionId, path } = props;
   switch (type) {
     case "image":
-      return <ImageFile url={url} name={name} />;
+      return <ImageFile url={url} name={name} sessionId={sessionId} />;
     case "pdf":
       return <iframe className="file-view-frame" src={url} title={name} />;
     case "html":
@@ -206,7 +215,7 @@ function DownloadPanel({
       .then((bytes) => setSize(bytes))
       .catch((err) => {
         if (controller.signal.aborted) return;
-        setError(fileLoadMessage(err));
+        setError(fileLoadMessage(err, "read the file's size", sessionId));
       });
     return () => controller.abort();
   }, [sessionId, path]);
@@ -226,18 +235,17 @@ function DownloadPanel({
 
 // An image renders directly from the Gateway URL. A failed load (missing file / offline machine) shows
 // a specific message rather than a broken-image icon, keeping the fail-loud contract for this mode too.
-function ImageFile({ url, name }: { url: string; name: string }) {
-  const [failed, setFailed] = useState(false);
-  if (failed) {
-    return (
-      <div className="file-view-error">
-        Could not load image. The file may be missing (404) or the session's machine offline.
-      </div>
-    );
-  }
+function ImageFile({ url, name, sessionId }: { url: string; name: string; sessionId: string }) {
+  const [failed, setFailed] = useState<string | null>(null);
+  if (failed !== null) return <div className="file-view-error">{failed}</div>;
   return (
     <div className="file-view-scroll">
-      <img className="file-view-image" src={url} alt={name} onError={() => setFailed(true)} />
+      <img
+        className="file-view-image"
+        src={url}
+        alt={name}
+        onError={() => setFailed(reportShownError(SURFACE, "show the image", IMAGE_FAILED, { sessionId }))}
+      />
     </div>
   );
 }
@@ -264,7 +272,7 @@ function TextFile({
       .then((t) => setText(t))
       .catch((err) => {
         if (controller.signal.aborted) return;
-        setError(fileLoadMessage(err));
+        setError(fileLoadMessage(err, "open the file", sessionId));
       });
     return () => controller.abort();
   }, [sessionId, path]);

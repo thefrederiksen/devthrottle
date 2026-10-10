@@ -27,7 +27,11 @@ vi.mock("@devthrottle/client-core/push/register", () => ({
 
 // The roster reads GET /directors for its "computer:port" headers; the rest of the module is mocked out
 // because this test is about one number, not about the session rail's own behaviour.
-vi.mock("@devthrottle/client-core/api/client", () => ({
+vi.mock("@devthrottle/client-core/api/client", async (importOriginal) => ({
+  // The error reporter needs the real error helpers; the rest is faked.
+  ...(({ GatewayError, gatewayErrorMessage, authHeaders }) => ({ GatewayError, gatewayErrorMessage, authHeaders }))(
+    await importOriginal<typeof import("@devthrottle/client-core/api/client")>(),
+  ),
   getDirectors: () => Promise.resolve([]),
   getRepos: () => Promise.resolve([]),
   // The New Session dialog reads the one ordered repository list from here (the one-repository-list

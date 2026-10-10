@@ -15,12 +15,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 //   - a genuinely permanent failure PARKS the clip (keeps the audio, stops the auto-loop) and only an
 //     explicit Retry re-drives it, while transient failures still auto-retry (issue #1184).
 
-vi.mock("../api/client", () => ({
-  uploadDictationToSession: vi.fn(),
-  abandonDictation: vi.fn(),
-  sendPrompt: vi.fn(),
-  readDictationOutcome: vi.fn(),
-}));
+vi.mock("../api/client", async (importOriginal) => {
+  // The error reporter needs the real error helpers; everything else stays faked.
+  const real = await importOriginal<typeof import("../api/client")>();
+  return {
+    GatewayError: real.GatewayError,
+    gatewayErrorMessage: real.gatewayErrorMessage,
+    authHeaders: real.authHeaders,
+    uploadDictationToSession: vi.fn(),
+    abandonDictation: vi.fn(),
+    sendPrompt: vi.fn(),
+    readDictationOutcome: vi.fn(),
+  };
+});
 vi.mock("./pendingStore", () => ({
   savePending: vi.fn(),
   deletePending: vi.fn(),

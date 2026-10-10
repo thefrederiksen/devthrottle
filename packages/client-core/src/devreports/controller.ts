@@ -13,7 +13,8 @@
 //   - When the Gateway's version rises above the loaded one, the new page is fetched and loaded in place,
 //     with a fresh nonce and token, and the draft carried across (handoff ruling 4).
 
-import { gatewayErrorMessage, GatewayError } from "../api/client";
+import { GatewayError } from "../api/client";
+import { describeAndReport, describeReadAndReport, reportShownError, type ReportMemory } from "../errors/reportClientError";
 import type { DevReportDetail, DevReportHtml, DevReportSendUpdate } from "./devReportsClient";
 import { DevReportFrameHost } from "./frameHost";
 import {
@@ -77,15 +78,21 @@ function isAbort(err: unknown): boolean {
 }
 
 /** The words a failed send request is answered with. A Gateway sentence when there is one. */
+/** Where a report viewer failure is filed (issue #3675). The notes themselves are never in a report. */
+const SURFACE = "dev-report-viewer";
+
+/** Why a send failed - shown on every refused note AND reported once. */
 function sendFailureLabel(err: unknown): string {
-  if (err instanceof GatewayError) return gatewayErrorMessage(err, "send these notes");
+  if (err instanceof GatewayError) return describeAndReport(SURFACE, "send these notes", err);
   const detail = err instanceof Error && err.message ? ` (${err.message})` : "";
-  return `Not sent: the Gateway could not be reached${detail}. Press Send to try again.`;
+  return reportShownError(SURFACE, "send these notes", `Not sent: the Gateway could not be reached${detail}. Press Send to try again.`, undefined, err);
 }
 
 export class DevReportController {
   readonly host: DevReportFrameHost;
   private readonly options: DevReportControllerOptions;
+  /** The record is polled; a failure to read it is reported when it first appears, not on every round. */
+  private readonly loadErrorReport: ReportMemory = { current: null };
   private snapshot: DevReportSnapshot = {
     detail: null,
     notFound: false,
@@ -146,7 +153,7 @@ export class DevReportController {
       detail = await this.options.api.getDetail(this.options.reportId, signal);
     } catch (err) {
       if (isAbort(err) || this.disposed) return;
-      this.update({ loadError: gatewayErrorMessage(err) });
+      this.update({ loadError: describeReadAndReport(SURFACE, "open the report", err, undefined, this.loadErrorReport) });
       return;
     }
     if (this.disposed) return;
@@ -154,6 +161,7 @@ export class DevReportController {
       this.update({ notFound: true, loadError: null });
       return;
     }
+    this.loadErrorReport.current = null;
     this.update({ detail, notFound: false, loadError: null });
     const loaded = this.snapshot.loadedVersion;
     if (loaded === null || detail.report.version > loaded) {
@@ -188,7 +196,7 @@ export class DevReportController {
         page = await this.options.api.getHtml(this.options.reportId, version, signal);
       } catch (err) {
         if (isAbort(err) || this.disposed) return;
-        this.update({ loadError: gatewayErrorMessage(err) });
+        this.update({ loadError: describeReadAndReport(SURFACE, "open the report", err, undefined, this.loadErrorReport) });
         return;
       }
       if (this.disposed) return;
