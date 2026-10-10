@@ -1102,9 +1102,8 @@ public sealed class RecordingIngestServiceTests : IDisposable
     }
 
     /// <summary>
-    /// <see cref="WaitForStateAsync"/> for a test whose worker is RUNNING: the status file is not written atomically, so
+    /// Wait for a recording's state in a test whose worker is RUNNING: the status file is not written atomically, so
     /// a read can land mid-write while the worker saves it. Such a read is retried, which is what the polling phone does.
-    /// (This race is why <c>Worker_TranscribesQueuedRecording_EndToEnd</c> is skipped.)
     /// </summary>
     private static async Task<bool> WaitForStateToleratingHalfWrittenStatusAsync(
         RecordingIngestService svc, string id, string state, TimeSpan timeout)
@@ -1190,18 +1189,6 @@ public sealed class RecordingIngestServiceTests : IDisposable
             new() { new RecordingChunkInfo(0, "0000.mp3", 0, 60000, c0.Length, Sha(c0)) },
             new());
         return await svc.CompleteAsync(id, manifest);
-    }
-
-    private static async Task<bool> WaitForStateAsync(
-        RecordingIngestService svc, string id, string state, TimeSpan timeout)
-    {
-        var deadline = DateTime.UtcNow + timeout;
-        while (DateTime.UtcNow < deadline)
-        {
-            if (svc.GetStatus(id).State == state) return true;
-            await Task.Delay(25);
-        }
-        return svc.GetStatus(id).State == state;
     }
 
     private string WriteTestDictionary()
