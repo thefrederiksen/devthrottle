@@ -74,7 +74,7 @@ public static class ScreenshotLocator
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[ScreenshotLocator] CountImages failed for {directory}: {ex.Message}");
+            FileLog.Write($"[ScreenshotLocator] CountImages failed for {directory} FAILED: {ex.Message}");
             return 0;
         }
     }
@@ -157,7 +157,7 @@ public static class ScreenshotLocator
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[ScreenshotLocator] SHGetKnownFolderPath failed: {ex.Message}");
+            FileLog.Write($"[ScreenshotLocator] SHGetKnownFolderPath FAILED: {ex.Message}");
             return null;
         }
         finally
@@ -213,7 +213,7 @@ public static class ScreenshotLocator
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[ScreenshotLocator] defaults read failed: {ex.Message}");
+            FileLog.Write($"[ScreenshotLocator] defaults read FAILED: {ex.Message}");
             return null;
         }
     }

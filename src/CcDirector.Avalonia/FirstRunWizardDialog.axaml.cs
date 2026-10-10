@@ -666,7 +666,7 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[FirstRunWizardDialog] ProbeVersionsAsync: {s.Tool} probe failed: {ex.Message}");
+                FileLog.Write($"[FirstRunWizardDialog] ProbeVersionsAsync: {s.Tool} probe FAILED: {ex.Message}");
             }
         }
         return versions;
@@ -885,6 +885,7 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
         }
         catch (OperationCanceledException)
         {
+            // not-an-error: the install was cancelled on purpose
             FileLog.Write("[FirstRunWizardDialog] BtnInstallClaude_Click: cancelled");
         }
         catch (Exception ex)
@@ -1193,6 +1194,7 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
             // this branch used to write the identical "that is everywhere we checked" sentence the
             // completed scan writes, so a scan cut off part way through a large disk told the user it
             // had been exhaustive and there was no way to tell the two apart.
+            // not-an-error: the scan stops at its time budget by design, and the screen says it was cut short
             FileLog.Write($"[FirstRunWizardDialog] ScanCodeFoldersAsync: scan hit its {budgetSeconds}s budget");
             CodeScanActivity.IsVisible = false;
             CodeScanStatusText.IsVisible = true;
@@ -1227,7 +1229,7 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
         {
             // Each registration already logs its own failure; this only stops one bad folder taking
             // the whole wait down.
-            FileLog.Write($"[FirstRunWizardDialog] WaitForPendingCodeWritesAsync: a registration failed: {ex.Message}");
+            FileLog.Write($"[FirstRunWizardDialog] WaitForPendingCodeWritesAsync: a registration FAILED: {ex.Message}");
         }
     }
 
@@ -1555,7 +1557,7 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[FirstRunWizardDialog] ReadConfiguredScreenshotsFolder failed: {ex.Message}");
+            FileLog.Write($"[FirstRunWizardDialog] ReadConfiguredScreenshotsFolder FAILED: {ex.Message}");
             return null;
         }
     }
@@ -1649,6 +1651,7 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
         }
         catch (Exception ex)
         {
+            // not-an-error: a picture file the image decoder cannot read is the user's file, not our failure; its thumbnail is left out
             FileLog.Write($"[FirstRunWizardDialog] LoadPreviewThumbnail skipped {file}: {ex.Message}");
             return null;
         }
@@ -2095,7 +2098,7 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[FirstRunWizardDialog] ReviewSummaryRows: agent read failed: {ex.Message}");
+            FileLog.Write($"[FirstRunWizardDialog] ReviewSummaryRows: agent read FAILED: {ex.Message}");
         }
         rows.Add(AgentRow(
             "Your coding agents",
@@ -2113,7 +2116,7 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[FirstRunWizardDialog] ReviewSummaryRows: roots read failed: {ex.Message}");
+            FileLog.Write($"[FirstRunWizardDialog] ReviewSummaryRows: roots read FAILED: {ex.Message}");
         }
         rows.Add(AgentRow(
             "Where your code lives",
@@ -2356,12 +2359,13 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
         }
         catch (OperationCanceledException)
         {
+            // not-an-error: the sign-in was cancelled before a credential arrived (the person or the closing window stopped it); nothing failed
             FileLog.Write("[FirstRunWizardDialog] hosted enroll cancelled");
             ShowGatewayView(GatewayChoiceView);
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[FirstRunWizardDialog] hosted enroll error: {ex.Message}");
+            FileLog.Write($"[FirstRunWizardDialog] hosted enroll ERROR: {ex.Message}");
             ShowGatewayFailure($"Could not sign in and join the hosted gateway: {ex.Message}");
         }
         finally

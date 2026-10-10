@@ -98,7 +98,7 @@ public sealed class MacKeychainProtectedTokenStore : IProtectedTokenStore
         {
             // A stored value that will not parse is treated as "nothing usable", matching the Windows
             // store's behavior when a blob cannot be decrypted. This is an explicit null, not a fallback.
-            FileLog.Write("[MacKeychainProtectedTokenStore] Load: stored value did not parse; treating as none");
+            FileLog.Write("[MacKeychainProtectedTokenStore] Load FAILED: stored value did not parse; treating as none");
             return null;
         }
     }

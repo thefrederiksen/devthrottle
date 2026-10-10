@@ -935,7 +935,7 @@ public partial class CommManagerViewModel : ObservableObject, IDisposable
         }
         catch (JsonException ex)
         {
-            FileLog.Write($"[CommManager.VM] DispatchEmailItemAsync: failed to parse email_specific for ticket #{item.TicketNumber}: {ex.Message}");
+            FileLog.Write($"[CommManager.VM] DispatchEmailItemAsync FAILED: failed to parse email_specific for ticket #{item.TicketNumber}: {ex.Message}");
             return false;
         }
 

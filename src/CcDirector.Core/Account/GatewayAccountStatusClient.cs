@@ -121,7 +121,7 @@ public sealed class GatewayAccountStatusClient
         catch (Exception ex)
         {
             // Informational panel: report the unreachable Gateway as a result value, not an exception.
-            FileLog.Write($"[GatewayAccountStatusClient] GetStatusAsync: could not reach the Gateway: {ex.Message}");
+            FileLog.Write($"[GatewayAccountStatusClient] GetStatusAsync FAILED: could not reach the Gateway: {ex.Message}");
             return new GatewayAccountStatus(GatewayConfigured: true, Reachable: false, SignedIn: false,
                 Email: null, Provider: null, Error: $"Could not reach the Gateway at {config.Url}.");
         }

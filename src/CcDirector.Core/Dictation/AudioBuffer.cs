@@ -164,7 +164,7 @@ public sealed class AudioBuffer : IDisposable
                 }
                 catch (Exception ex)
                 {
-                    FileLog.Write($"[AudioBuffer] DrainAll: failed to read {d.Path}: {ex.Message}");
+                    FileLog.Write($"[AudioBuffer] DrainAll FAILED: failed to read {d.Path}: {ex.Message}");
                 }
                 TryDelete(d.Path);
             }
@@ -249,7 +249,7 @@ public sealed class AudioBuffer : IDisposable
     private static void TryDelete(string path)
     {
         try { if (File.Exists(path)) File.Delete(path); }
-        catch (Exception ex) { FileLog.Write($"[AudioBuffer] TryDelete: {path}: {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[AudioBuffer] TryDelete FAILED: {path}: {ex.Message}"); }
     }
 
     private readonly record struct MemChunk(long Sequence, byte[] Data);

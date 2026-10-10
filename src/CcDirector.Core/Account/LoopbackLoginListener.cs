@@ -94,11 +94,13 @@ public sealed class LoopbackLoginListener : IDisposable
             }
             catch (HttpListenerException) when (ct.IsCancellationRequested)
             {
+                // not-an-error: the wait was cancelled on purpose
                 FileLog.Write("[LoopbackLoginListener] WaitForCredentialAsync: cancelled before a credential arrived");
                 throw new OperationCanceledException(ct);
             }
             catch (ObjectDisposedException) when (ct.IsCancellationRequested)
             {
+                // not-an-error: the wait was cancelled on purpose
                 FileLog.Write("[LoopbackLoginListener] WaitForCredentialAsync: cancelled before a credential arrived");
                 throw new OperationCanceledException(ct);
             }
@@ -250,6 +252,6 @@ public sealed class LoopbackLoginListener : IDisposable
         _disposed = true;
 
         try { _listener.Close(); }
-        catch (Exception ex) { FileLog.Write($"[LoopbackLoginListener] Dispose: listener close error: {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[LoopbackLoginListener] Dispose: listener close ERROR: {ex.Message}"); }
     }
 }

@@ -301,7 +301,7 @@ public sealed class SessionManagerDrainControl : IDrainSessionControl
             // first wedged session, unhandled, leaving a capture on the Gateway reading "draining" for
             // ever. That is what the seam's own contract promised would not happen, and it is what would
             // have happened.
-            FileLog.Write($"[DrainSessionControl] SendAsync: session={sessionId} wedged: {ex.Message}");
+            FileLog.Write($"[DrainSessionControl] SendAsync FAILED: session={sessionId} wedged: {ex.Message}");
             return DrainDelivery.Refused(ex.Message);
         }
         catch (PromptNotSubmittedException ex)
@@ -316,7 +316,7 @@ public sealed class SessionManagerDrainControl : IDrainSessionControl
             // command line session took the words, never started a turn, and the exception came out of
             // the whole smart shutdown. The run stopped at the sixth of seven sessions, the seventh was
             // never asked, every other session was left running, and nothing was handed over.
-            FileLog.Write($"[DrainSessionControl] SendAsync: session={sessionId} never started a turn: {ex.Message}");
+            FileLog.Write($"[DrainSessionControl] SendAsync FAILED: session={sessionId} never started a turn: {ex.Message}");
             return DrainDelivery.Refused(ex.Message);
         }
     }

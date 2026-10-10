@@ -44,7 +44,7 @@ public static class PythonToolsState
         }
         catch (Exception ex)
         {
-            EngineLog.Write($"[PythonToolsState] load failed ({path}): {ex.Message}; treating as empty");
+            EngineLog.Write($"[PythonToolsState] load FAILED ({path}): {ex.Message}; treating as empty");
             return Array.Empty<string>();
         }
     }

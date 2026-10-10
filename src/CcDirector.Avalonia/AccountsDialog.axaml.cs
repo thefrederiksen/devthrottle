@@ -149,7 +149,7 @@ public partial class AccountsDialog : Window
                 }
                 catch (Exception ex)
                 {
-                    FileLog.Write($"[AccountsDialog] BtnLogin_Click: auto-label fetch failed: {ex.Message}");
+                    FileLog.Write($"[AccountsDialog] BtnLogin_Click: auto-label fetch FAILED: {ex.Message}");
                 }
 
                 var label = await PromptForLabel("Enter a label for this account (e.g. 'Personal', 'Work'):", autoLabel ?? "");
@@ -199,7 +199,7 @@ public partial class AccountsDialog : Window
                 }
                 catch (Exception ex)
                 {
-                    FileLog.Write($"[AccountsDialog] BtnCapture_Click: auto-label fetch failed: {ex.Message}");
+                    FileLog.Write($"[AccountsDialog] BtnCapture_Click: auto-label fetch FAILED: {ex.Message}");
                 }
 
                 var label = await PromptForLabel("Enter a label for this account (e.g. 'Personal', 'Work'):", autoLabel ?? "");
@@ -318,7 +318,7 @@ public partial class AccountsDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[AccountsDialog] AddAccountFromJson: auto-label fetch failed: {ex.Message}");
+            FileLog.Write($"[AccountsDialog] AddAccountFromJson: auto-label fetch FAILED: {ex.Message}");
         }
 
         var label = await PromptForLabel("Enter a label for this account (e.g. 'Personal', 'Work'):", autoLabel ?? "");

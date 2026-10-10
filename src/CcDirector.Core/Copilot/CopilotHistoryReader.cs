@@ -67,7 +67,7 @@ public static class CopilotHistoryReader
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[CopilotHistoryReader] Read error for {databasePath}: {ex.Message}");
+            FileLog.Write($"[CopilotHistoryReader] Read error for {databasePath} FAILED: {ex.Message}");
             return ConversationHistory.Empty;
         }
     }
@@ -121,7 +121,7 @@ public static class CopilotHistoryReader
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[CopilotHistoryReader] tool-events read failed (rendering turns without tools): {ex.Message}");
+            FileLog.Write($"[CopilotHistoryReader] tool-events read FAILED (rendering turns without tools): {ex.Message}");
             toolEventsByTurn = new Dictionary<int, List<ToolEvent>>();
         }
 

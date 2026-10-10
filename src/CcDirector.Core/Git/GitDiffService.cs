@@ -58,7 +58,7 @@ public sealed class GitDiffService
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[GitDiffService] UntrackedAsync failed for {file}: {ex.Message}");
+            FileLog.Write($"[GitDiffService] UntrackedAsync failed for {file} FAILED: {ex.Message}");
             return null;
         }
     }

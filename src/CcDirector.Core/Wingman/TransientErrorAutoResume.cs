@@ -181,7 +181,7 @@ public sealed class TransientErrorAutoResume : IDisposable
             catch (Exception ex)
             {
                 // Runs on a Timer thread; an escaped exception would terminate the process.
-                FileLog.Write($"[TransientErrorAutoResume] scan failed session={_session.Id}: {ex.Message}");
+                FileLog.Write($"[TransientErrorAutoResume] scan failed session={_session.Id} FAILED: {ex.Message}");
             }
         }
 
@@ -200,7 +200,7 @@ public sealed class TransientErrorAutoResume : IDisposable
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[TransientErrorAutoResume] retry failed session={_session.Id}: {ex.Message}");
+                FileLog.Write($"[TransientErrorAutoResume] retry failed session={_session.Id} FAILED: {ex.Message}");
             }
         }
 

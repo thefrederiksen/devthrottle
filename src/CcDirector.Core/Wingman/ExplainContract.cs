@@ -122,7 +122,7 @@ public static class ExplainContract
         try { doc = JsonDocument.Parse(json); }
         catch (JsonException ex)
         {
-            FileLog.Write($"[ExplainContract] validation: not JSON ({ex.Message})");
+            FileLog.Write($"[ExplainContract] validation FAILED: not JSON ({ex.Message})");
             return null;
         }
 

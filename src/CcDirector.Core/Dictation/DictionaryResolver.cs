@@ -88,7 +88,7 @@ public sealed class DictionaryResolver
                 }
                 catch (Exception ex)
                 {
-                    FileLog.Write($"[DictionaryResolver] cache write failed ({cachePath}): {ex.Message}");
+                    FileLog.Write($"[DictionaryResolver] cache write FAILED ({cachePath}): {ex.Message}");
                 }
                 return fetched;
             }
@@ -125,7 +125,7 @@ public sealed class DictionaryResolver
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[DictionaryResolver] gateway fetch failed ({url}): {ex.Message}");
+            FileLog.Write($"[DictionaryResolver] gateway fetch FAILED ({url}): {ex.Message}");
             return null;
         }
     }

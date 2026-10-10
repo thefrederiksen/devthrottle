@@ -59,7 +59,7 @@ public static class GrokTranscriptReader
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[GrokTranscriptReader] Read error for {path}: {ex.Message}");
+            FileLog.Write($"[GrokTranscriptReader] Read error for {path} FAILED: {ex.Message}");
         }
 
         return messages.Count == 0 ? ConversationHistory.Empty : new ConversationHistory(messages);

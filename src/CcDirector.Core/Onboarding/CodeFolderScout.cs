@@ -91,7 +91,7 @@ public static class CodeFolderScout
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[CodeFolderScout] cannot list {container}: {ex.GetBaseException().Message}");
+                FileLog.Write($"[CodeFolderScout] cannot list {container} FAILED: {ex.GetBaseException().Message}");
             }
         }
 
@@ -137,7 +137,7 @@ public static class CodeFolderScout
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[CodeFolderScout] cannot list /Volumes: {ex.Message}");
+            FileLog.Write($"[CodeFolderScout] cannot list /Volumes FAILED: {ex.Message}");
         }
         return containers;
     }
@@ -207,13 +207,13 @@ public static class CodeFolderScout
                 }
                 catch (Exception ex)
                 {
-                    FileLog.Write($"[CodeFolderScout] drive probe failed: {ex.Message}");
+                    FileLog.Write($"[CodeFolderScout] drive probe FAILED: {ex.Message}");
                 }
             }
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[CodeFolderScout] GetDrives failed: {ex.Message}");
+            FileLog.Write($"[CodeFolderScout] GetDrives FAILED: {ex.Message}");
         }
         return roots;
     }

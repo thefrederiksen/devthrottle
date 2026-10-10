@@ -120,6 +120,7 @@ public static class PromptArrival
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            // not-an-error: the agent is writing the file at the same moment; the next poll reads it
             FileLog.Write($"[PromptArrival] could not read {path} this time ({ex.GetType().Name}: {ex.Message}); looking again next poll");
             return null;
         }

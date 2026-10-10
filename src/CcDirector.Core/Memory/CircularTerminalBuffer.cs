@@ -154,7 +154,7 @@ public sealed class CircularTerminalBuffer : IDisposable
             try { handler(copy); }
             catch (Exception ex)
             {
-                FileLog.Write($"[CircularTerminalBuffer] OnBytesWritten handler threw: {ex.Message}");
+                FileLog.Write($"[CircularTerminalBuffer] OnBytesWritten handler FAILED: {ex.Message}");
             }
         }
     }

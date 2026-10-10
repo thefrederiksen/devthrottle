@@ -111,7 +111,7 @@ public class WorkflowStore
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[WorkflowStore] Failed to load template {file}: {ex.Message}");
+                FileLog.Write($"[WorkflowStore] Failed to load template {file} FAILED: {ex.Message}");
             }
         }
 
@@ -208,7 +208,7 @@ public class WorkflowStore
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[WorkflowStore] Failed to load run {file}: {ex.Message}");
+                FileLog.Write($"[WorkflowStore] Failed to load run {file} FAILED: {ex.Message}");
             }
         }
 

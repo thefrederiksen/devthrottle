@@ -113,6 +113,7 @@ public static class Program
         if (!createdNew)
         {
             FileLog.Write("[Program] CC Launcher already running in this session; exiting second instance.");
+            ErrorReporter.FlushBeforeExit(ErrorReporter.ExitFlushBudget);
             FileLog.Stop();
             return 0;
         }
@@ -153,7 +154,8 @@ public static class Program
             // userInterface=degraded so the difference is visible. This fallback is ONLY for
             // platform initialization failures (before any App code ran); a fault in the
             // running app still exits loudly below.
-            FileLog.Write($"[Program] User-interface platform failed to initialize: {ex.Message}");
+            FileLog.Write($"[Program] User-interface platform failed to initialize FAILED: {ex.Message}");
+            // not-an-error: the line above it is the report; this one only says what happens next
             FileLog.Write("[Program] DEGRADED: running HEADLESS (no tray icon) - Gateway stream + registration only");
             return RunHeadless();
         }
@@ -165,6 +167,9 @@ public static class Program
         finally
         {
             _shutdownCompleted = true;
+            // Every way out of the launcher passes here - a FATAL return 1, the headless run, a normal end - so an
+            // error logged in its last twenty seconds is sent, or kept for the next start (issue #3352).
+            ErrorReporter.FlushBeforeExit(ErrorReporter.ExitFlushBudget);
             FileLog.Write("[Program] CC Launcher exited");
             FileLog.Stop();
         }
@@ -201,7 +206,7 @@ public static class Program
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[Program] SIGTERM: could not ask the lifetime to shut down: {ex.Message}");
+                FileLog.Write($"[Program] SIGTERM FAILED: could not ask the lifetime to shut down: {ex.Message}");
             }
         });
 
@@ -217,6 +222,7 @@ public static class Program
                 await Task.Delay(250);
             }
             FileLog.Write("[Program] SIGTERM: shutdown did not complete in 25s - exiting anyway");
+            ErrorReporter.FlushBeforeExit(ErrorReporter.ExitFlushBudget);
             FileLog.Stop();
             Environment.Exit(0);
         });
@@ -372,6 +378,13 @@ public static class Program
 
         FileLog.Write($"[Program] self-update outcome={result.Outcome}: {result.Message}");
         foreach (var step in result.Steps) FileLog.Write($"[Program]   {step}");
+        // An outcome other than Updated is a failed update, and the outcome line above does not say so in the form
+        // the error reporter recognises - so a failed launcher self-update never reached the Gateway.
+        if (result.Outcome != SelfUpdateOutcome.Updated)
+            FileLog.Write($"[Program] ApplyUpdate FAILED: outcome={result.Outcome}, version={version}: {result.Message}");
+        // This helper returns the moment the update is decided, well inside the reporter's twenty-second send
+        // (issue #3352).
+        ErrorReporter.FlushBeforeExit(ErrorReporter.ExitFlushBudget);
         FileLog.Stop();
         return result.Outcome == SelfUpdateOutcome.Updated ? 0 : 1;
     }

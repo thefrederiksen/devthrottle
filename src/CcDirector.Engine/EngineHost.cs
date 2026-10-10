@@ -34,7 +34,7 @@ public sealed class EngineHost : IDisposable
         _scheduler.OnEvent += e =>
         {
             try { OnEvent?.Invoke(e); }
-            catch (Exception ex) { FileLog.Write($"[EngineHost] Event handler error: {ex.Message}"); }
+            catch (Exception ex) { FileLog.Write($"[EngineHost] Event handler ERROR: {ex.Message}"); }
         };
 
         _scheduler.Start();
@@ -78,11 +78,11 @@ public sealed class EngineHost : IDisposable
             }
             catch (TimeoutException)
             {
-                FileLog.Write("[EngineHost] Deferred dispatcher init did not complete within 2s during shutdown");
+                FileLog.Write("[EngineHost] Deferred dispatcher init FAILED: did not complete within 2s during shutdown");
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[EngineHost] Deferred dispatcher init error during shutdown: {ex.Message}");
+                FileLog.Write($"[EngineHost] Deferred dispatcher init error during shutdown FAILED: {ex.Message}");
             }
         }
 
@@ -116,7 +116,7 @@ public sealed class EngineHost : IDisposable
             dispatcher.OnEvent += e =>
             {
                 try { OnEvent?.Invoke(e); }
-                catch (Exception ex) { FileLog.Write($"[EngineHost] Event handler error: {ex.Message}"); }
+                catch (Exception ex) { FileLog.Write($"[EngineHost] Event handler ERROR: {ex.Message}"); }
             };
             dispatcher.Start();
             _dispatcher = dispatcher;
@@ -179,7 +179,7 @@ public sealed class EngineHost : IDisposable
     private void RaiseEvent(EngineEvent e)
     {
         try { OnEvent?.Invoke(e); }
-        catch (Exception ex) { FileLog.Write($"[EngineHost] Event handler error: {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[EngineHost] Event handler ERROR: {ex.Message}"); }
     }
 
     public void Dispose()

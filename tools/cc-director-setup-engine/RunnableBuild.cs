@@ -64,7 +64,7 @@ public static class RunnableBuild
         }
         catch (Exception ex)
         {
-            EngineLog.Write($"[RunnableBuild] could not set the execute bit on {path}: {ex.Message}");
+            EngineLog.Write($"[RunnableBuild] could not set the execute bit on {path} FAILED: {ex.Message}");
         }
     }
 }

@@ -129,7 +129,7 @@ public sealed class CcWorktreesPoolSlots
         {
             // A path this malformed is not one of ours, and the caller's own path handling will fail on
             // it in a place that can say more about it than this can.
-            FileLog.Write($"[CcWorktreesPoolSlots] HasSlotLayout: could not read {path}: {ex.Message}");
+            FileLog.Write($"[CcWorktreesPoolSlots] HasSlotLayout FAILED: could not read {path}: {ex.Message}");
             return false;
         }
     }

@@ -248,7 +248,7 @@ public static class BrowserHarnessInstaller
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[BrowserHarnessInstaller] ReadVersion failed (non-fatal): {ex.Message}");
+            FileLog.Write($"[BrowserHarnessInstaller] ReadVersion FAILED (non-fatal): {ex.Message}");
             return null;
         }
     }
@@ -349,7 +349,7 @@ public static class BrowserHarnessInstaller
             if (line is null) return;
             lock (output) output.AppendLine(line);
             try { onLine?.Invoke(line); }
-            catch (Exception ex) { FileLog.Write($"[BrowserHarnessInstaller] output handler threw: {ex.Message}"); }
+            catch (Exception ex) { FileLog.Write($"[BrowserHarnessInstaller] output handler FAILED: {ex.Message}"); }
         }
 
         process.OutputDataReceived += (_, e) => Collect(e.Data);
@@ -368,7 +368,7 @@ public static class BrowserHarnessInstaller
         catch (OperationCanceledException)
         {
             try { process.Kill(entireProcessTree: true); }
-            catch (Exception ex) { FileLog.Write($"[BrowserHarnessInstaller] could not kill {exe}: {ex.Message}"); }
+            catch (Exception ex) { FileLog.Write($"[BrowserHarnessInstaller] could not kill {exe} FAILED: {ex.Message}"); }
             // A cancellation the CALLER asked for is not a timeout - surface it as one.
             ct.ThrowIfCancellationRequested();
             lock (output) return (TimeoutExitCode, output.ToString());

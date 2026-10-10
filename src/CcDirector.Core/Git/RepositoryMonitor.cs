@@ -180,7 +180,7 @@ public sealed class RepositoryMonitor
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[RepositoryMonitor] LoadCache failed: {ex.Message}");
+            FileLog.Write($"[RepositoryMonitor] LoadCache FAILED: {ex.Message}");
         }
     }
 
@@ -200,7 +200,7 @@ public sealed class RepositoryMonitor
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[RepositoryMonitor] SaveCache failed: {ex.Message}");
+            FileLog.Write($"[RepositoryMonitor] SaveCache FAILED: {ex.Message}");
         }
     }
 
@@ -398,6 +398,7 @@ public sealed class RepositoryMonitor
         }
         catch (OperationCanceledException)
         {
+            // not-an-error: a newer rescan replaced this one, or the monitor stopped
             FileLog.Write("[RepositoryMonitor] rescan superseded/cancelled");
         }
         finally
@@ -833,6 +834,7 @@ public sealed class RepositoryMonitor
             }
             catch (OperationCanceledException)
             {
+                // not-an-error: the requester cancelled the recompute
                 FileLog.Write($"[RepositoryMonitor] deferred recompute cancelled by its requester: {request.Path}");
             }
             catch (Exception ex)

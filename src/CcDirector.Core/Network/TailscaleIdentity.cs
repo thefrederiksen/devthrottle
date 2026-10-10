@@ -104,7 +104,7 @@ public static class TailscaleIdentity
             if (_lastLocalApiError != ex.Message)
             {
                 _lastLocalApiError = ex.Message;
-                FileLog.Write($"[TailscaleIdentity] LocalAPI probe unavailable: {ex.Message}");
+                FileLog.Write($"[TailscaleIdentity] LocalAPI probe unavailable FAILED: {ex.Message}");
             }
             return null;
         }
@@ -178,7 +178,7 @@ public static class TailscaleIdentity
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[TailscaleIdentity] tailscale status failed: {ex.Message}");
+            FileLog.Write($"[TailscaleIdentity] tailscale status FAILED: {ex.Message}");
             return null;
         }
     }

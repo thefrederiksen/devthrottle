@@ -87,7 +87,7 @@ public sealed class GatewayRegistrationClient : IAsyncDisposable
             catch (OperationCanceledException) { return; }
             catch (Exception ex)
             {
-                FileLog.Write($"[GatewayRegistrationClient] RegisterLoop exception: {ex.Message}");
+                FileLog.Write($"[GatewayRegistrationClient] RegisterLoop exception FAILED: {ex.Message}");
             }
 
             try { await Task.Delay(delay, ct); }
@@ -169,7 +169,7 @@ public sealed class GatewayRegistrationClient : IAsyncDisposable
         catch (OperationCanceledException) { }
         catch (Exception ex)
         {
-            FileLog.Write($"[GatewayRegistrationClient] Heartbeat exception: {ex.Message}");
+            FileLog.Write($"[GatewayRegistrationClient] Heartbeat exception FAILED: {ex.Message}");
         }
     }
 

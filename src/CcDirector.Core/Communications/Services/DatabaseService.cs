@@ -395,7 +395,7 @@ public class DatabaseService : IDisposable
             {
                 item.Tags = JsonSerializer.Deserialize<List<string>>(tags, _jsonOptions);
             }
-            catch (JsonException ex) { FileLog.Write($"[DatabaseService] Tags JSON parse error: {ex.Message}"); }
+            catch (JsonException ex) { FileLog.Write($"[DatabaseService] Tags JSON parse ERROR: {ex.Message}"); }
         }
 
         var linkedIn = GetNullableString(reader, "linkedin_specific");
@@ -405,7 +405,7 @@ public class DatabaseService : IDisposable
             {
                 item.LinkedInSpecific = JsonSerializer.Deserialize<LinkedInSpecific>(linkedIn, _jsonOptions);
             }
-            catch (JsonException ex) { FileLog.Write($"[DatabaseService] LinkedInSpecific JSON parse error: {ex.Message}"); }
+            catch (JsonException ex) { FileLog.Write($"[DatabaseService] LinkedInSpecific JSON parse ERROR: {ex.Message}"); }
         }
 
         var twitter = GetNullableString(reader, "twitter_specific");
@@ -415,7 +415,7 @@ public class DatabaseService : IDisposable
             {
                 item.TwitterSpecific = JsonSerializer.Deserialize<TwitterSpecific>(twitter, _jsonOptions);
             }
-            catch (JsonException ex) { FileLog.Write($"[DatabaseService] TwitterSpecific JSON parse error: {ex.Message}"); }
+            catch (JsonException ex) { FileLog.Write($"[DatabaseService] TwitterSpecific JSON parse ERROR: {ex.Message}"); }
         }
 
         var reddit = GetNullableString(reader, "reddit_specific");
@@ -425,7 +425,7 @@ public class DatabaseService : IDisposable
             {
                 item.RedditSpecific = JsonSerializer.Deserialize<RedditSpecific>(reddit, _jsonOptions);
             }
-            catch (JsonException ex) { FileLog.Write($"[DatabaseService] RedditSpecific JSON parse error: {ex.Message}"); }
+            catch (JsonException ex) { FileLog.Write($"[DatabaseService] RedditSpecific JSON parse ERROR: {ex.Message}"); }
         }
 
         var email = GetNullableString(reader, "email_specific");
@@ -435,7 +435,7 @@ public class DatabaseService : IDisposable
             {
                 item.EmailSpecific = JsonSerializer.Deserialize<EmailSpecific>(email, _jsonOptions);
             }
-            catch (JsonException ex) { FileLog.Write($"[DatabaseService] EmailSpecific JSON parse error: {ex.Message}"); }
+            catch (JsonException ex) { FileLog.Write($"[DatabaseService] EmailSpecific JSON parse ERROR: {ex.Message}"); }
         }
 
         var article = GetNullableString(reader, "article_specific");
@@ -445,7 +445,7 @@ public class DatabaseService : IDisposable
             {
                 item.ArticleSpecific = JsonSerializer.Deserialize<ArticleSpecific>(article, _jsonOptions);
             }
-            catch (JsonException ex) { FileLog.Write($"[DatabaseService] ArticleSpecific JSON parse error: {ex.Message}"); }
+            catch (JsonException ex) { FileLog.Write($"[DatabaseService] ArticleSpecific JSON parse ERROR: {ex.Message}"); }
         }
 
         var facebook = GetNullableString(reader, "facebook_specific");
@@ -455,7 +455,7 @@ public class DatabaseService : IDisposable
             {
                 item.FacebookSpecific = JsonSerializer.Deserialize<FacebookSpecific>(facebook, _jsonOptions);
             }
-            catch (JsonException ex) { FileLog.Write($"[DatabaseService] FacebookSpecific JSON parse error: {ex.Message}"); }
+            catch (JsonException ex) { FileLog.Write($"[DatabaseService] FacebookSpecific JSON parse ERROR: {ex.Message}"); }
         }
 
         var whatsapp = GetNullableString(reader, "whatsapp_specific");
@@ -465,7 +465,7 @@ public class DatabaseService : IDisposable
             {
                 item.WhatsAppSpecific = JsonSerializer.Deserialize<WhatsAppSpecific>(whatsapp, _jsonOptions);
             }
-            catch (JsonException ex) { FileLog.Write($"[DatabaseService] WhatsAppSpecific JSON parse error: {ex.Message}"); }
+            catch (JsonException ex) { FileLog.Write($"[DatabaseService] WhatsAppSpecific JSON parse ERROR: {ex.Message}"); }
         }
 
         var youtube = GetNullableString(reader, "youtube_specific");
@@ -475,7 +475,7 @@ public class DatabaseService : IDisposable
             {
                 item.YouTubeSpecific = JsonSerializer.Deserialize<YouTubeSpecific>(youtube, _jsonOptions);
             }
-            catch (JsonException ex) { FileLog.Write($"[DatabaseService] YouTubeSpecific JSON parse error: {ex.Message}"); }
+            catch (JsonException ex) { FileLog.Write($"[DatabaseService] YouTubeSpecific JSON parse ERROR: {ex.Message}"); }
         }
 
         var recipient = GetNullableString(reader, "recipient");
@@ -485,7 +485,7 @@ public class DatabaseService : IDisposable
             {
                 item.Recipient = JsonSerializer.Deserialize<RecipientInfo>(recipient, _jsonOptions);
             }
-            catch (JsonException ex) { FileLog.Write($"[DatabaseService] Recipient JSON parse error: {ex.Message}"); }
+            catch (JsonException ex) { FileLog.Write($"[DatabaseService] Recipient JSON parse ERROR: {ex.Message}"); }
         }
 
         var threadContent = GetNullableString(reader, "thread_content");
@@ -495,7 +495,7 @@ public class DatabaseService : IDisposable
             {
                 item.ThreadContent = JsonSerializer.Deserialize<List<string>>(threadContent, _jsonOptions);
             }
-            catch (JsonException ex) { FileLog.Write($"[DatabaseService] ThreadContent JSON parse error: {ex.Message}"); }
+            catch (JsonException ex) { FileLog.Write($"[DatabaseService] ThreadContent JSON parse ERROR: {ex.Message}"); }
         }
 
         return item;

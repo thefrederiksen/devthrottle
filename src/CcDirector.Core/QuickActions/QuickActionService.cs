@@ -74,7 +74,7 @@ public sealed class QuickActionService
         catch (Exception ex)
         {
             FileLog.Write($"[QuickActionService] ExecuteAsync Claude call FAILED: {ex.GetType().Name}: {ex.Message}");
-            FileLog.Write($"[QuickActionService] ExecuteAsync stack: {ex.StackTrace}");
+            FileLog.Write($"[QuickActionService] ExecuteAsync stack FAILED: {ex.StackTrace}");
             throw;
         }
 

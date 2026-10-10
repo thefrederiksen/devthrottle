@@ -124,7 +124,7 @@ public static class BusyAction
                 // No surface was given and no owner to parent a dialog to. That is a wiring mistake at the
                 // call site rather than a user-facing condition, and it is logged as loudly as it gets
                 // BECAUSE the alternative is the silent failure this helper exists to abolish.
-                FileLog.Write($"[BusyAction] {origin}: NO FAILURE SURFACE was supplied, so the user was told "
+                FileLog.Write($"[BusyAction] {origin} FAILED: NO FAILURE SURFACE was supplied, so the user was told "
                     + $"nothing. Pass onFailure or owner. The failure was: {message}");
             }
 

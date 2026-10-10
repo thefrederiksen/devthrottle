@@ -134,7 +134,7 @@ internal static class HostedTeamSetup
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[HostedTeamSetup] RunAsync: enrolled, team NOT recorded: {ex.Message}");
+            FileLog.Write($"[HostedTeamSetup] RunAsync FAILED: enrolled, team NOT recorded: {ex.Message}");
             return OperationResult<MobileEnrollmentResponse>.Fail(JoinedButTeamNotRecorded(teamName, ex.Message));
         }
 

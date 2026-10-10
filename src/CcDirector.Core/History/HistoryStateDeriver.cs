@@ -127,7 +127,7 @@ public static class HistoryStateDeriver
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[HistoryStateDeriver] AnalyzeFile error for {jsonlPath}: {ex.Message}");
+            FileLog.Write($"[HistoryStateDeriver] AnalyzeFile error for {jsonlPath} FAILED: {ex.Message}");
             return HistoryAnalysis.Empty;
         }
     }

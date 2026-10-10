@@ -100,7 +100,7 @@ public sealed class ScreenshotCaptureWatcher
                 catch (Exception ex)
                 {
                     // One unwatchable root (permissions, a vanished folder) must not kill the probe.
-                    FileLog.Write($"[ScreenshotCaptureWatcher] cannot watch {root}: {ex.Message}");
+                    FileLog.Write($"[ScreenshotCaptureWatcher] cannot watch {root} FAILED: {ex.Message}");
                 }
             }
 

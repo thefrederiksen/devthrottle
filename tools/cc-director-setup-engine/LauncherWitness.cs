@@ -223,7 +223,7 @@ public sealed class LauncherWitness
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[LauncherWitness] could not list launcher processes: {ex.Message}");
+            FileLog.Write($"[LauncherWitness] could not list launcher processes FAILED: {ex.Message}");
             return "";
         }
     }

@@ -82,7 +82,7 @@ public sealed class TerminalSessionRecorder : IDisposable
             return;
         }
 
-        try { Directory.CreateDirectory(_root); } catch (Exception ex) { FileLog.Write($"[TerminalSessionRecorder] cannot create {_root}: {ex.Message}"); }
+        try { Directory.CreateDirectory(_root); } catch (Exception ex) { FileLog.Write($"[TerminalSessionRecorder] cannot create {_root} FAILED: {ex.Message}"); }
         FileLog.Write($"[TerminalSessionRecorder] Start (root={_root}, capPerSession={_maxBytesPerSession / (1024 * 1024)}MB)");
         _sessionManager.OnSessionCreated += OnSessionCreated;
         foreach (var s in _sessionManager.ListSessions())
@@ -132,7 +132,7 @@ public sealed class TerminalSessionRecorder : IDisposable
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[TerminalSessionRecorder] could NOT purge {dir}: {ex.Message}. "
+            FileLog.Write($"[TerminalSessionRecorder] could NOT purge {dir} FAILED: {ex.Message}. "
                           + "That session's recorded screens are still on disk.");
         }
     }
@@ -154,7 +154,7 @@ public sealed class TerminalSessionRecorder : IDisposable
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[TerminalSessionRecorder] startup sweep could not list {_root}: {ex.Message}");
+            FileLog.Write($"[TerminalSessionRecorder] startup sweep could not list {_root} FAILED: {ex.Message}");
             return;
         }
 
@@ -171,7 +171,7 @@ public sealed class TerminalSessionRecorder : IDisposable
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[TerminalSessionRecorder] startup sweep could NOT delete {dir}: {ex.Message}. "
+                FileLog.Write($"[TerminalSessionRecorder] startup sweep could NOT delete {dir} FAILED: {ex.Message}. "
                               + "That removed session's recorded screens are still on disk.");
             }
         }
@@ -228,7 +228,7 @@ public sealed class TerminalSessionRecorder : IDisposable
         public void Start()
         {
             try { Directory.CreateDirectory(Path.GetDirectoryName(_path)!); }
-            catch (Exception ex) { FileLog.Write($"[TerminalSessionRecorder] {_session.Id} cannot create dir: {ex.Message}"); return; }
+            catch (Exception ex) { FileLog.Write($"[TerminalSessionRecorder] {_session.Id} cannot create dir FAILED: {ex.Message}"); return; }
             _buffer.OnBytesWritten += _onBytes;
         }
 
@@ -266,7 +266,7 @@ public sealed class TerminalSessionRecorder : IDisposable
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[TerminalSessionRecorder] {_session.Id} record failed: {ex.Message}");
+                FileLog.Write($"[TerminalSessionRecorder] {_session.Id} record FAILED: {ex.Message}");
             }
         }
 

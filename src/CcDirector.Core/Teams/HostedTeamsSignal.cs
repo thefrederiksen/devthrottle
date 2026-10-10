@@ -60,7 +60,7 @@ public sealed class HealthzTeamsSignal : IHostedTeamsSignal
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
-            FileLog.Write($"[HealthzTeamsSignal] TeamsReleasedAsync: {gatewayUrl} unreachable: {ex.Message}");
+            FileLog.Write($"[HealthzTeamsSignal] TeamsReleasedAsync FAILED: {gatewayUrl} unreachable: {ex.Message}");
             return OperationResult<bool>.Fail(
                 $"Could not reach the Gateway at {gatewayUrl} to see whether it has teams. Please check your connection and try again.");
         }

@@ -67,6 +67,7 @@ public sealed class ProcessJob : IJob
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
+            // not-an-error: the scheduled job ran past the time limit its owner set; that is the job's outcome, not our program's
             FileLog.Write($"[ProcessJob] Timeout after {_timeoutSeconds}s: name={Name}");
             var stopped = KillAndConfirm(process);
             var stdout = await ReadSafe(stdoutTask);
@@ -81,6 +82,7 @@ public sealed class ProcessJob : IJob
             // The caller cancelled (a shutdown). The command must not outlive it: a command left
             // running while its run is ended would let another Director start it a second time.
             var stopped = KillAndConfirm(process);
+            // not-an-error: the job was cancelled on purpose
             FileLog.Write($"[ProcessJob] Cancelled: name={Name}, processTreeStopped={stopped}");
             throw new JobCancelledException(Name, stopped, cancellationToken);
         }

@@ -82,6 +82,7 @@ public sealed class ErrorReporter : IDisposable
     private DateTime _pausedUntilUtc = DateTime.MinValue;
     private long _dropped;
     private long _sent;
+    private int _inFlight;
     private bool _loggedNoGateway;
     private bool _tableFullLogged;
     private readonly bool _ownsHttp;
@@ -163,6 +164,14 @@ public sealed class ErrorReporter : IDisposable
         FileLog.Write($"{ErrorLine.ReporterTag} started: component={component}, version={reporter._productVersion}, os={reporter._os}, arch={reporter._arch}");
     }
 
+    /// <summary>The bound every deliberate exit gives <see cref="FlushBeforeExit"/>: long enough for one send,
+    /// short enough that nobody waits on a process that is leaving (issue #3352).</summary>
+    public static readonly TimeSpan ExitFlushBudget = TimeSpan.FromSeconds(3);
+
+    // How long past the budget the exit waits for a cancelled send to put its batch back, so that batch is kept
+    // on disk with the rest instead of leaving with the process.
+    internal static readonly TimeSpan ExitFlushGrace = TimeSpan.FromSeconds(1);
+
     /// <summary>
     /// The connection a self-hosted Gateway app reports under (issue #3643): this machine's connection when it is
     /// to the HOSTED Gateway - so the errors reach the account - and none otherwise, so they go through the
@@ -188,21 +197,74 @@ public sealed class ErrorReporter : IDisposable
            && a.Port == b.Port;
 
     /// <summary>
-    /// Try to send what is pending before the process dies - from a terminating unhandled-exception hook.
-    /// Bounded by <paramref name="budget"/>; never throws.
+    /// The last thing a process does with its errors before it ends - from a terminating unhandled-exception hook
+    /// AND from every deliberate exit (issue #3352): the reporter sends every twenty seconds, so an error logged
+    /// just before a normal exit used to leave with the process. Sends what is pending, bounded by
+    /// <paramref name="budget"/>, then keeps whatever did not reach the Gateway - because it was unreachable,
+    /// refused it, or the budget ran out - in the outbox on disk, which the next start of this program sends.
+    /// Nothing pending means nothing is sent. Never throws.
     /// </summary>
-    public static void FlushBeforeExit(TimeSpan budget)
+    public static void FlushBeforeExit(TimeSpan budget) => Current?.FlushAndKeep(budget);
+
+    /// <summary>
+    /// <see cref="FlushBeforeExit"/> for this reporter. Returns how many reports the Gateway accepted; what it did
+    /// not accept is on disk (or, for a reporter with no outbox, counted in <see cref="Dropped"/>) when this returns.
+    /// </summary>
+    internal int FlushAndKeep(TimeSpan budget)
     {
-        var reporter = Current;
-        if (reporter is null) return;
+        if (PendingCount == 0) return 0;
+        var delivered = 0;
         try
         {
             using var cts = new CancellationTokenSource(budget);
-            reporter.FlushAsync(cts.Token).Wait(budget);
+            var flush = FlushAsync(cts.Token);
+            if (flush.Wait(budget + ExitFlushGrace)) delivered = flush.Result;
         }
         catch (Exception ex)
         {
+            // A cancelled send ends here, with its batch already put back for KeepWhatIsLeft below. Not through
+            // FileLog: this can run inside a terminating hook, after the log has been told to stop.
             System.Diagnostics.Debug.WriteLine($"{ErrorLine.ReporterTag} flush before exit did not finish: {ex.Message}");
+        }
+        KeepWhatIsLeft();
+        return delivered;
+    }
+
+    /// <summary>
+    /// Move every report still in memory to the outbox on disk, from where the next start of this program sends it
+    /// with the device's credential. Without an outbox, or when the disk refuses, they are counted as dropped and a
+    /// line says how many - never lost without a word. A batch still in flight when the process leaves is named
+    /// too: whether it arrived cannot be known.
+    /// </summary>
+    private void KeepWhatIsLeft()
+    {
+        List<Pending> left;
+        lock (_lock)
+        {
+            left = _order.ToList();
+            _order.Clear();
+            _bySignature.Clear();
+        }
+        var inFlight = Volatile.Read(ref _inFlight);
+        if (inFlight > 0)
+            FileLog.Write($"{ErrorLine.ReporterTag} {inFlight} report(s) were still being sent when the process left; whether they arrived is not known");
+        if (left.Count == 0) return;
+
+        if (_preSignIn is null)
+        {
+            Drop(left.Count);
+            FileLog.Write($"{ErrorLine.ReporterTag} {left.Count} error(s) not sent before exit, and this reporter has no outbox; they stay in the local log only");
+            return;
+        }
+        try
+        {
+            _preSignIn.Keep(left.Select(ToItem).ToList());
+            FileLog.Write($"{ErrorLine.ReporterTag} {left.Count} error(s) not sent before exit are kept in {_preSignIn.FilePath}; the next start sends them");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Drop(left.Count);
+            FileLog.Write($"{ErrorLine.ReporterTag} {left.Count} error(s) not sent before exit could not be kept on disk ({ex.GetType().Name}): {ex.Message}; they stay in the local log only");
         }
     }
 
@@ -510,20 +572,25 @@ public sealed class ErrorReporter : IDisposable
         }
 
         HttpStatusCode status;
+        Interlocked.Add(ref _inFlight, batch.Count);
         try
         {
             status = await PostAsync(config, batch.Select(ToItem).ToList(), ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            Requeue(batch);
+            Requeue(batch, final);
             throw;
         }
         catch (Exception ex)
         {
             FileLog.Write($"{ErrorLine.ReporterTag} {batch.Count} report(s) not delivered ({ex.GetType().Name}): {ex.Message}");
-            Requeue(batch);
+            Requeue(batch, final);
             return 0;
+        }
+        finally
+        {
+            Interlocked.Add(ref _inFlight, -batch.Count);
         }
 
         var code = (int)status;
@@ -531,6 +598,15 @@ public sealed class ErrorReporter : IDisposable
         {
             RecordSent(now, batch.Count);
             return batch.Count;
+        }
+
+        if (final)
+        {
+            // The last send before exit is not the place to give up on a report: whatever the Gateway answered, it
+            // goes back for KeepWhatIsLeft, which puts it on disk for the next start.
+            FileLog.Write($"{ErrorLine.ReporterTag} the Gateway did not accept {batch.Count} report(s) before exit (HTTP {code}); kept for the next start");
+            Requeue(batch, final);
+            return 0;
         }
 
         if (status == HttpStatusCode.NotFound)
@@ -624,8 +700,9 @@ public sealed class ErrorReporter : IDisposable
         ErrorCode: p.Context.ErrorCode,
         SessionId: p.Context.SessionId);
 
-    /// <summary>Put a failed batch back at the front, except what has used up its attempts.</summary>
-    private void Requeue(List<Pending> batch)
+    /// <summary>Put a failed batch back at the front, except what has used up its attempts. On the last send
+    /// before exit (<paramref name="final"/>) nothing is given up: it all goes back, to be kept on disk.</summary>
+    private void Requeue(List<Pending> batch, bool final = false)
     {
         var givenUp = 0;
         lock (_lock)
@@ -641,7 +718,7 @@ public sealed class ErrorReporter : IDisposable
                     if (p.FirstSeenUtc < again.Value.FirstSeenUtc) again.Value.FirstSeenUtc = p.FirstSeenUtc;
                     continue;
                 }
-                if (p.Attempts >= MaxAttempts || _order.Count >= MaxPending)
+                if (!final && (p.Attempts >= MaxAttempts || _order.Count >= MaxPending))
                 {
                     givenUp++;
                     continue;

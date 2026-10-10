@@ -194,7 +194,7 @@ public sealed class GatewayTrayInstaller
                     p.WaitForExit(5000);
                     stopped++;
                 }
-                catch (Exception ex) { EngineLog.Write($"[GatewayTrayInstaller] stop {name} pid={p.Id}: {ex.Message}"); }
+                catch (Exception ex) { EngineLog.Write($"[GatewayTrayInstaller] stop {name} pid={p.Id} FAILED: {ex.Message}"); }
                 finally { p.Dispose(); }
             }
         }

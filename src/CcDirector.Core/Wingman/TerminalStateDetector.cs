@@ -524,7 +524,7 @@ public sealed class TerminalStateDetector : IDisposable
             {
                 // This runs on the PTY producer thread. An escaped exception would be
                 // unhandled and terminate the whole process. Log and swallow.
-                FileLog.Write($"[TerminalStateDetector] OnBytes failed session={_session.Id}: {ex.Message}");
+                FileLog.Write($"[TerminalStateDetector] OnBytes failed session={_session.Id} FAILED: {ex.Message}");
             }
         }
 
@@ -823,7 +823,7 @@ public sealed class TerminalStateDetector : IDisposable
             {
                 // A timer-thread exception would be unhandled and would take the process with it.
                 Volatile.Write(ref _lastCheckFault, ex.GetType().Name + ": " + ex.Message);
-                FileLog.Write($"[TerminalStateDetector] content check failed session={_session.Id}: {ex.Message}");
+                FileLog.Write($"[TerminalStateDetector] content check failed session={_session.Id} FAILED: {ex.Message}");
             }
         }
 
@@ -1147,7 +1147,7 @@ public sealed class TerminalStateDetector : IDisposable
                 // This runs on a System.Threading.Timer thread. An escaped exception
                 // would be unhandled and terminate the whole process (this was the
                 // ObjectDisposedException-on-disposed-buffer crash). Log and swallow.
-                FileLog.Write($"[TerminalStateDetector] OnQuiet failed session={_session.Id}: {ex.Message}");
+                FileLog.Write($"[TerminalStateDetector] OnQuiet failed session={_session.Id} FAILED: {ex.Message}");
             }
         }
 

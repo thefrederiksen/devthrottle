@@ -57,7 +57,7 @@ internal sealed class SkillLinkRecord
         {
             unreadable = $"The skill link record {path} could not be read ({ex.Message}) - treated as empty; it is " +
                          "information only and is rewritten when the next link is made";
-            FileLog.Write($"[SkillLinkRecord] {unreadable}");
+            FileLog.Write($"[SkillLinkRecord] read FAILED: {unreadable}");
             return new SkillLinkRecord(path, new List<Entry>());
         }
     }

@@ -596,7 +596,7 @@ public static class SkillDirectoryInstaller
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            FileLog.Write($"[SkillDirectoryInstaller] could not delete '{envelope}': {ex.Message} - left for the next " +
+            FileLog.Write($"[SkillDirectoryInstaller] could not delete '{envelope}' FAILED: {ex.Message} - left for the next " +
                           "reconcile, which removes it");
         }
     }
@@ -709,7 +709,7 @@ public static class SkillDirectoryInstaller
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                FileLog.Write($"[SkillDirectoryInstaller] could not resolve {next}: {ex.Message}");
+                FileLog.Write($"[SkillDirectoryInstaller] could not resolve {next} FAILED: {ex.Message}");
                 return null;
             }
             if (linkTarget is not null)
@@ -976,7 +976,7 @@ public static class SkillDirectoryInstaller
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[SkillDirectoryInstaller] could not link '{name}' into {linkRoot}: {ex.Message}");
+                FileLog.Write($"[SkillDirectoryInstaller] could not link '{name}' into {linkRoot} FAILED: {ex.Message}");
                 problems.Add(new SkillPlacementProblem(name, linkRoot, SkillPlacementFault.LinkFailed));
                 continue;
             }

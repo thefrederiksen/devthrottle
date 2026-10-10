@@ -120,7 +120,7 @@ public partial class WorkflowRunsDialog : Window
                         }
                         catch (Exception ex)
                         {
-                            FileLog.Write($"[WorkflowRunsDialog] Thumbnail load failed: {ex.Message}");
+                            FileLog.Write($"[WorkflowRunsDialog] Thumbnail load FAILED: {ex.Message}");
                         }
                     }
                 }

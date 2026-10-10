@@ -219,6 +219,7 @@ public sealed class ToolRunner
         catch (Exception ex)
         {
             // The tree raced us to exit - nothing left to kill. Logged so a real kill failure is visible.
+            // not-an-error: the process had already exited, which is what the kill wanted
             FileLog.Write($"[ToolRunner] KillTree: exe={exePath} already gone ({ex.Message})");
         }
     }

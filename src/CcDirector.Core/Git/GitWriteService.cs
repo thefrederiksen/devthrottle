@@ -116,7 +116,7 @@ public sealed class GitWriteService
         }
         catch (System.ComponentModel.Win32Exception ex)
         {
-            FileLog.Write($"[GitWriteService] git could not be started: {ex.Message}");
+            FileLog.Write($"[GitWriteService] git could not be started FAILED: {ex.Message}");
             return new GitWriteResult { Success = false, ExitCode = -1, Error = GitLaunchFailure.Describe(ex) };
         }
 

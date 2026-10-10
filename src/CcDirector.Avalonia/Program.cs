@@ -91,7 +91,10 @@ internal static class Program
         {
             try
             {
-                return UpdateInstaller.ApplyUpdate(args[1], int.Parse(args[2]), args.Length >= 4 ? args[3] : null);
+                var applied = UpdateInstaller.ApplyUpdate(args[1], int.Parse(args[2]), args.Length >= 4 ? args[3] : null);
+                // The relauncher ends the moment the swap is done; whatever it logged goes now (issue #3352).
+                ErrorReporter.FlushBeforeExit(ErrorReporter.ExitFlushBudget);
+                return applied;
             }
             catch (Exception ex)
             {
@@ -100,10 +103,15 @@ internal static class Program
                 // couple of these and boot the working version with its own notice.
                 FileLog.Write($"[Program] ApplyUpdate FAILED: {ex}");
                 WriteCrashFile("apply-update", ex);
+                // Sent while the person reads the message. On Windows the box used to keep the process alive long
+                // enough for the twenty-second send; on macOS and Linux there is no box, the process returned at
+                // once, and the error never left the machine (issue #3352).
+                var flush = Task.Run(() => ErrorReporter.FlushBeforeExit(ErrorReporter.ExitFlushBudget));
                 ShowStartupNotice(
                     $"Director could not apply an update:\n\n{ex.Message}\n\n" +
                     "It will continue on the current version.",
                     "Director - Update failed", MB_ICONWARNING);
+                flush.Wait(ErrorReporter.ExitFlushBudget + TimeSpan.FromSeconds(2));
                 FileLog.Stop();
                 return 1;
             }
@@ -151,6 +159,7 @@ internal static class Program
             if (TryRaiseExistingWindow())
             {
                 FileLog.Write("[Program] Second launch: raised the already-running window and exited.");
+                ErrorReporter.FlushBeforeExit(ErrorReporter.ExitFlushBudget);
                 return 0;
             }
 
@@ -163,6 +172,7 @@ internal static class Program
                 "running a second copy would collide with the existing one.";
             ShowStartupNotice(busyMessage, "Director", MB_ICONWARNING);
             FileLog.Write("[Program] Second launch refused: another instance holds this exe path.");
+            ErrorReporter.FlushBeforeExit(ErrorReporter.ExitFlushBudget);
             FileLog.Stop();
             return 1;
         }
@@ -204,6 +214,7 @@ internal static class Program
             {
                 FileLog.Write($"[Program] Relaunch after rollback FAILED: {ex.Message}");
             }
+            ErrorReporter.FlushBeforeExit(ErrorReporter.ExitFlushBudget);
             FileLog.Stop();
             return 0;
         }
@@ -222,7 +233,10 @@ internal static class Program
         // failed to apply too many times, we get a notice instead of looping forever
         // (issue #242) and continue booting the current build.
         if (UpdateInstaller.TryApplyStagedUpdateAtStartup(out var updateNotice))
+        {
+            ErrorReporter.FlushBeforeExit(ErrorReporter.ExitFlushBudget);
             return 0;
+        }
         if (updateNotice is not null)
             ShowStartupNotice(updateNotice, "Director - Update", MB_ICONWARNING);
 
@@ -239,6 +253,9 @@ internal static class Program
         try
         {
             BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+            // Normally unreached - the shutdown routine ends the process itself - but a lifetime that returns here
+            // is an exit like any other (issue #3352).
+            ErrorReporter.FlushBeforeExit(ErrorReporter.ExitFlushBudget);
             return 0;
         }
         catch (Exception ex)

@@ -129,7 +129,7 @@ public sealed class DirectorCrashJournal
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[DirectorCrashJournal] SweepExpired: could not remove {path}: {ex.Message}");
+                FileLog.Write($"[DirectorCrashJournal] SweepExpired FAILED: could not remove {path}: {ex.Message}");
             }
         }
         if (deleted > 0)
@@ -281,7 +281,7 @@ public sealed class DirectorCrashJournal
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[DirectorCrashJournal] ReadLiveRoster: cannot read {path}: {ex.Message}");
+            FileLog.Write($"[DirectorCrashJournal] ReadLiveRoster FAILED: cannot read {path}: {ex.Message}");
             return null;
         }
     }
@@ -313,7 +313,7 @@ public sealed class DirectorCrashJournal
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[DirectorCrashJournal] MarkClean failed for {FilePath}: {ex.Message}");
+                FileLog.Write($"[DirectorCrashJournal] MarkClean failed for {FilePath} FAILED: {ex.Message}");
             }
         }
     }
@@ -361,7 +361,7 @@ public sealed class DirectorCrashJournal
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[DirectorCrashJournal] DetectAndClaim: failed to inspect {path}: {ex.Message}");
+                FileLog.Write($"[DirectorCrashJournal] DetectAndClaim FAILED: failed to inspect {path}: {ex.Message}");
             }
         }
         return result;
@@ -389,7 +389,7 @@ public sealed class DirectorCrashJournal
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[DirectorCrashJournal] ListPendingRecoveries: failed to read {path}: {ex.Message}");
+                FileLog.Write($"[DirectorCrashJournal] ListPendingRecoveries FAILED: failed to read {path}: {ex.Message}");
             }
         }
         return result.OrderByDescending(d => d.LastUpdatedUtc).ToList();
@@ -413,7 +413,7 @@ public sealed class DirectorCrashJournal
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[DirectorCrashJournal] Dismiss failed for {path}: {ex.Message}");
+            FileLog.Write($"[DirectorCrashJournal] Dismiss failed for {path} FAILED: {ex.Message}");
             return false;
         }
     }
@@ -455,7 +455,7 @@ public sealed class DirectorCrashJournal
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[DirectorCrashJournal] RemoveSession failed for {path}: {ex.Message}");
+            FileLog.Write($"[DirectorCrashJournal] RemoveSession failed for {path} FAILED: {ex.Message}");
             return false;
         }
     }
@@ -475,6 +475,6 @@ public sealed class DirectorCrashJournal
     private static void TryDelete(string path)
     {
         try { File.Delete(path); }
-        catch (Exception ex) { FileLog.Write($"[DirectorCrashJournal] failed to delete {path}: {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[DirectorCrashJournal] failed to delete {path} FAILED: {ex.Message}"); }
     }
 }

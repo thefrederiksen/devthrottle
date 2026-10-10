@@ -121,7 +121,7 @@ public sealed class GatewayAccountCreditsClient
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[GatewayAccountCreditsClient] GetCreditsAsync: could not reach the Gateway: {ex.Message}");
+            FileLog.Write($"[GatewayAccountCreditsClient] GetCreditsAsync FAILED: could not reach the Gateway: {ex.Message}");
             return new GatewayAccountCredits(GatewayConfigured: true, Reachable: false, SignedIn: false,
                 BalanceMicros: null, Error: $"Could not reach the Gateway at {config.Url}.");
         }

@@ -329,7 +329,7 @@ public partial class ConnectionsView : UserControl
             }
             catch (Exception ex) when (ex is JsonException or IOException)
             {
-                FileLog.Write($"[ConnectionsView] GetDaemonPort: failed to read lock file: {ex.Message}");
+                FileLog.Write($"[ConnectionsView] GetDaemonPort FAILED: failed to read lock file: {ex.Message}");
             }
         }
         return 9280;
@@ -542,7 +542,7 @@ public partial class ConnectionsView : UserControl
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[ConnectionsView] CloseConnection: daemon call failed: {ex.Message}");
+            FileLog.Write($"[ConnectionsView] CloseConnection: daemon call FAILED: {ex.Message}");
         }
 
         item.ChromePid = null;

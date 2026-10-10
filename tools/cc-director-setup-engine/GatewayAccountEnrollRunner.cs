@@ -206,13 +206,14 @@ public sealed class GatewayAccountEnrollRunner
         }
         catch (OperationCanceledException)
         {
+            // not-an-error: the sign-in was cancelled before a credential arrived (the person or the closing window stopped it); nothing failed
             EngineLog.Write("[GatewayAccountEnrollRunner] VerifyAndSaveAsync: sign-in cancelled before a credential arrived");
             return OperationResult<MobileEnrollmentResponse>.Fail(
                 "Sign-in was cancelled.");
         }
         catch (Exception ex)
         {
-            EngineLog.Write($"[GatewayAccountEnrollRunner] VerifyAndSaveAsync: sign-in failed: {ex.Message}");
+            EngineLog.Write($"[GatewayAccountEnrollRunner] VerifyAndSaveAsync: sign-in FAILED: {ex.Message}");
             return OperationResult<MobileEnrollmentResponse>.Fail(
                 "Sign-in did not complete. Please return to your browser and finish signing in, then try again.");
         }
@@ -249,13 +250,14 @@ public sealed class GatewayAccountEnrollRunner
         }
         catch (OperationCanceledException)
         {
+            // not-an-error: the sign-in was cancelled before a credential arrived (the person or the closing window stopped it); nothing failed
             EngineLog.Write("[GatewayAccountEnrollRunner] SignInAndDiscoverGatewaysAsync: sign-in cancelled before a credential arrived");
             return OperationResult<IReadOnlyList<DiscoveredGateway>>.Fail(
                 "Sign-in was cancelled.");
         }
         catch (Exception ex)
         {
-            EngineLog.Write($"[GatewayAccountEnrollRunner] SignInAndDiscoverGatewaysAsync: sign-in failed: {ex.Message}");
+            EngineLog.Write($"[GatewayAccountEnrollRunner] SignInAndDiscoverGatewaysAsync: sign-in FAILED: {ex.Message}");
             return OperationResult<IReadOnlyList<DiscoveredGateway>>.Fail(
                 "Sign-in did not complete. Please return to your browser and finish signing in, then try again.");
         }
@@ -273,7 +275,7 @@ public sealed class GatewayAccountEnrollRunner
         }
         catch (Exception ex)
         {
-            EngineLog.Write($"[GatewayAccountEnrollRunner] SignInAndDiscoverGatewaysAsync: listing account devices failed: {ex.Message}");
+            EngineLog.Write($"[GatewayAccountEnrollRunner] SignInAndDiscoverGatewaysAsync: listing account devices FAILED: {ex.Message}");
             return OperationResult<IReadOnlyList<DiscoveredGateway>>.Fail(
                 "Signed in, but your DevThrottle account devices could not be read. Please check your connection and try again.");
         }
@@ -374,7 +376,7 @@ public sealed class GatewayAccountEnrollRunner
         }
         catch (Exception ex)
         {
-            EngineLog.Write($"[GatewayAccountEnrollRunner] SignInAndEnrollHostedAsync: hosted address unusable: {ex.Message}");
+            EngineLog.Write($"[GatewayAccountEnrollRunner] SignInAndEnrollHostedAsync FAILED: hosted address unusable: {ex.Message}");
             return OperationResult<MobileEnrollmentResponse>.Fail(ex.Message);
         }
 
@@ -387,13 +389,14 @@ public sealed class GatewayAccountEnrollRunner
         }
         catch (OperationCanceledException)
         {
+            // not-an-error: the sign-in was cancelled before a credential arrived (the person or the closing window stopped it); nothing failed
             EngineLog.Write("[GatewayAccountEnrollRunner] SignInAndEnrollHostedAsync: sign-in cancelled before a credential arrived");
             return OperationResult<MobileEnrollmentResponse>.Fail(
                 "Sign-in was cancelled.");
         }
         catch (Exception ex)
         {
-            EngineLog.Write($"[GatewayAccountEnrollRunner] SignInAndEnrollHostedAsync: sign-in failed: {ex.Message}");
+            EngineLog.Write($"[GatewayAccountEnrollRunner] SignInAndEnrollHostedAsync: sign-in FAILED: {ex.Message}");
             return OperationResult<MobileEnrollmentResponse>.Fail(
                 "Sign-in did not complete. Please return to your browser and finish signing in, then try again.");
         }
@@ -432,7 +435,7 @@ public sealed class GatewayAccountEnrollRunner
         }
         catch (Exception ex)
         {
-            EngineLog.Write($"[GatewayAccountEnrollRunner] EnrollWithHostedGatewayAsync: hosted address unusable: {ex.Message}");
+            EngineLog.Write($"[GatewayAccountEnrollRunner] EnrollWithHostedGatewayAsync FAILED: hosted address unusable: {ex.Message}");
             return OperationResult<MobileEnrollmentResponse>.Fail(ex.Message);
         }
 
@@ -515,7 +518,7 @@ public sealed class GatewayAccountEnrollRunner
         }
         catch (Exception ex)
         {
-            EngineLog.Write($"[GatewayAccountEnrollRunner] EnrollAtHostedGatewayAsync: could not read reply: {ex.Message}");
+            EngineLog.Write($"[GatewayAccountEnrollRunner] EnrollAtHostedGatewayAsync FAILED: could not read reply: {ex.Message}");
             return OperationResult<MobileEnrollmentResponse>.Fail(
                 "The DevThrottle hosted gateway accepted the sign-in but its reply could not be read.");
         }
@@ -773,7 +776,7 @@ public sealed class GatewayAccountEnrollRunner
         }
         catch (Exception ex)
         {
-            EngineLog.Write($"[GatewayAccountEnrollRunner] HostedTeamsReleasedAsync: hosted address unusable: {ex.Message}");
+            EngineLog.Write($"[GatewayAccountEnrollRunner] HostedTeamsReleasedAsync FAILED: hosted address unusable: {ex.Message}");
             return OperationResult<(string, bool)>.Fail(ex.Message);
         }
 
@@ -794,12 +797,13 @@ public sealed class GatewayAccountEnrollRunner
         }
         catch (OperationCanceledException)
         {
+            // not-an-error: the sign-in was cancelled before a credential arrived (the person or the closing window stopped it); nothing failed
             EngineLog.Write("[GatewayAccountEnrollRunner] SignInAsync: sign-in cancelled before a credential arrived");
             return OperationResult<string>.Fail("Sign-in was cancelled.");
         }
         catch (Exception ex)
         {
-            EngineLog.Write($"[GatewayAccountEnrollRunner] SignInAsync: sign-in failed: {ex.Message}");
+            EngineLog.Write($"[GatewayAccountEnrollRunner] SignInAsync: sign-in FAILED: {ex.Message}");
             return OperationResult<string>.Fail(
                 "Sign-in did not complete. Please return to your browser and finish signing in, then try again.");
         }
@@ -867,7 +871,7 @@ public sealed class GatewayAccountEnrollRunner
         }
         catch (JsonException ex)
         {
-            EngineLog.Write($"[GatewayAccountEnrollRunner] ReadJsonAsync: reply is not readable as {typeof(T).Name}: {ex.Message}");
+            EngineLog.Write($"[GatewayAccountEnrollRunner] ReadJsonAsync FAILED: reply is not readable as {typeof(T).Name}: {ex.Message}");
             return null;
         }
     }
@@ -972,7 +976,7 @@ public sealed class GatewayAccountEnrollRunner
         }
         catch (Exception ex)
         {
-            EngineLog.Write($"[GatewayAccountEnrollRunner] RegisterAndEnrollAsync: cloud device registration failed: {ex.Message}");
+            EngineLog.Write($"[GatewayAccountEnrollRunner] RegisterAndEnrollAsync: cloud device registration FAILED: {ex.Message}");
             return OperationResult<MobileEnrollmentResponse>.Fail(
                 "Signed in, but this workstation could not be registered on your DevThrottle account. Please check your connection and try again.");
         }
@@ -1051,7 +1055,7 @@ public sealed class GatewayAccountEnrollRunner
         }
         catch (Exception ex)
         {
-            EngineLog.Write($"[GatewayAccountEnrollRunner] EnrollAtGatewayAsync: could not read reply: {ex.Message}");
+            EngineLog.Write($"[GatewayAccountEnrollRunner] EnrollAtGatewayAsync FAILED: could not read reply: {ex.Message}");
             return OperationResult<MobileEnrollmentResponse>.Fail(
                 "The gateway accepted the sign-in but its reply could not be read.");
         }
@@ -1104,7 +1108,7 @@ public sealed class GatewayAccountEnrollRunner
             }
             catch (Exception ex)
             {
-                EngineLog.Write($"[GatewayAccountEnrollRunner] SignInViaBrowserAsync: Windows could not open a browser: {ex.Message}; waiting for the address on screen");
+                EngineLog.Write($"[GatewayAccountEnrollRunner] SignInViaBrowserAsync FAILED: Windows could not open a browser: {ex.Message}; waiting for the address on screen");
                 display.BrowserDidNotOpen(ex.Message);
             }
             return await WaitForBrowserHandBackAsync(listener, ct).ConfigureAwait(false);

@@ -61,7 +61,7 @@ public static class WorktreePoolSettings
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[WorktreePoolSettings] For: could not read config for repo={key}: {ex.Message}; using the default (off)");
+            FileLog.Write($"[WorktreePoolSettings] For FAILED: could not read config for repo={key}: {ex.Message}; using the default (off)");
             return Default;
         }
 

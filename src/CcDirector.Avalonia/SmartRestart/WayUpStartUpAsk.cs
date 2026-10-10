@@ -78,7 +78,7 @@ public sealed class WayUpStartUpAsk
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[WayUpStartUpAsk] The way up engine could not be asked, so nothing is shown: {ex}");
+            FileLog.Write($"[WayUpStartUpAsk] The way up engine could not be asked, so nothing is shown FAILED: {ex}");
             return;
         }
 

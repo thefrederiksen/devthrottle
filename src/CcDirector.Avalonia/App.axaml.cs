@@ -1069,12 +1069,16 @@ public partial class App : Application
             BackupCleaner?.Dispose();
             NulFileWatcher?.Dispose();
             SessionManager?.Dispose();
-
-            FileLog.Write("[CcDirector] Exiting");
-            FileLog.Stop();
         }
         finally
         {
+            // An error logged in the last twenty seconds - the shutdown steps above included - is sent now, or kept
+            // on disk for the next start, before the process is forced out (issue #3352). In the finally, so a
+            // shutdown step that throws does not take the errors with it.
+            CcDirector.Core.ErrorReports.ErrorReporter.FlushBeforeExit(CcDirector.Core.ErrorReports.ErrorReporter.ExitFlushBudget);
+            FileLog.Write("[CcDirector] Exiting");
+            FileLog.Stop();
+
             // Force-exit the process so the CLR doesn't linger waiting for
             // finalizers, GC, or stale timer callbacks to wind down.
             Environment.Exit(0);
@@ -1127,13 +1131,13 @@ public partial class App : Application
                         $"[App] STALE INSTANCE (abnormal termination): directorId={directorId}, " +
                         $"pid={pid}, startedAt={startedAt}, log={logPath ?? "<not found>"}, file={path}");
                     try { File.Delete(path); } catch (Exception ex) {
-                        FileLog.Write($"[App] DetectAbnormalTermination: failed to delete stale {path}: {ex.Message}");
+                        FileLog.Write($"[App] DetectAbnormalTermination FAILED: failed to delete stale {path}: {ex.Message}");
                     }
                     stale++;
                 }
                 catch (Exception ex)
                 {
-                    FileLog.Write($"[App] DetectAbnormalTermination: failed to inspect {path}: {ex.Message}");
+                    FileLog.Write($"[App] DetectAbnormalTermination FAILED: failed to inspect {path}: {ex.Message}");
                 }
             }
             FileLog.Write($"[App] DetectAbnormalTermination: scanned {instancesDir}, stale={stale}");
@@ -1183,7 +1187,7 @@ public partial class App : Application
             catch (ArgumentException) { }
             catch (Exception ex)
             {
-                FileLog.Write($"[App] Failed to force-kill process {pid}: {ex.Message}");
+                FileLog.Write($"[App] Failed to force-kill process {pid} FAILED: {ex.Message}");
             }
         }
     }

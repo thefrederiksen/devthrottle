@@ -97,7 +97,7 @@ public static class AgentPluginLoader
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[AgentPluginLoader] Failed to load {manifestPath}: {ex.Message}");
+                FileLog.Write($"[AgentPluginLoader] Failed to load {manifestPath} FAILED: {ex.Message}");
                 diagnostics.Add(AgentPluginLoadDiagnostic.Error(manifestPath, ex.Message));
             }
         }

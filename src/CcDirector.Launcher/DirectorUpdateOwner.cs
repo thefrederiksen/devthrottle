@@ -473,7 +473,7 @@ public sealed class DirectorUpdateOwner
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[DirectorUpdateOwner] cannot list {instancesRoot}: {ex.Message}");
+            FileLog.Write($"[DirectorUpdateOwner] cannot list {instancesRoot} FAILED: {ex.Message}");
             yield break;
         }
 
@@ -582,7 +582,7 @@ public sealed class DirectorUpdateOwner
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[DirectorUpdateOwner] cannot compare paths '{a}' and '{b}': {ex.Message}");
+            FileLog.Write($"[DirectorUpdateOwner] cannot compare paths '{a}' and '{b}' FAILED: {ex.Message}");
             return false;
         }
     }

@@ -168,7 +168,7 @@ public static class AutomationBrowserViewFold
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[AutomationBrowserViewFold] ReadAccount id={browser.Id} failed (non-fatal): {ex.Message}");
+            FileLog.Write($"[AutomationBrowserViewFold] ReadAccount id={browser.Id} FAILED (non-fatal): {ex.Message}");
             return null;
         }
     }

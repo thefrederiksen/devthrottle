@@ -99,7 +99,7 @@ public sealed class RepoStatePusher : IDisposable
         {
             // The loop itself dying is the one failure a per-cycle catch cannot cover, and it would silently
             // end the feed for the life of the process - so it is logged as loudly as anything here gets.
-            FileLog.Write($"[RepoStatePusher] the push loop ENDED unexpectedly; no further repo state will be reported until this Director restarts: {ex}");
+            FileLog.Write($"[RepoStatePusher] the push loop ENDED unexpectedly; no further repo state will be reported until this Director restarts FAILED: {ex}");
         }
     }
 

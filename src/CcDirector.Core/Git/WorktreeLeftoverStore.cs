@@ -47,7 +47,7 @@ public sealed class WorktreeLeftoverStore
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[WorktreeLeftoverStore] read failed: {ex.Message}");
+            FileLog.Write($"[WorktreeLeftoverStore] read FAILED: {ex.Message}");
             return Array.Empty<WorktreeLeftover>();
         }
     }
@@ -93,7 +93,7 @@ public sealed class WorktreeLeftoverStore
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[WorktreeLeftoverStore] write failed: {ex.Message}");
+            FileLog.Write($"[WorktreeLeftoverStore] write FAILED: {ex.Message}");
         }
     }
 }

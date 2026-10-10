@@ -114,7 +114,7 @@ public sealed class AccountSignInRunner
         }
         catch (Exception ex)
         {
-            EngineLog.Write($"[AccountSignInRunner] RunAsync: could not open the system browser: {ex.Message}");
+            EngineLog.Write($"[AccountSignInRunner] RunAsync FAILED: could not open the system browser: {ex.Message}");
             return new AccountSignInResult(AccountSignInOutcome.Failed,
                 "Could not open your web browser to sign in. Please check that you have a default browser set, then try again.");
         }
@@ -135,18 +135,20 @@ public sealed class AccountSignInRunner
         {
             if (timeoutSource.IsCancellationRequested && !ct.IsCancellationRequested)
             {
+                // not-an-error: the person did not finish signing in within the wait
                 EngineLog.Write("[AccountSignInRunner] RunAsync: timed out waiting for the browser hand-back");
                 return new AccountSignInResult(AccountSignInOutcome.TimedOut,
                     "Sign-in timed out. The browser sign-in was not completed in time - please try again.");
             }
 
+            // not-an-error: the sign-in was cancelled before a credential arrived (the person or the closing window stopped it); nothing failed
             EngineLog.Write("[AccountSignInRunner] RunAsync: sign-in cancelled before a credential arrived");
             return new AccountSignInResult(AccountSignInOutcome.Cancelled,
                 "Sign-in was cancelled. Run 'signin' again to retry.");
         }
         catch (Exception ex)
         {
-            EngineLog.Write($"[AccountSignInRunner] RunAsync: hand-back capture failed: {ex.Message}");
+            EngineLog.Write($"[AccountSignInRunner] RunAsync: hand-back capture FAILED: {ex.Message}");
             return new AccountSignInResult(AccountSignInOutcome.Failed,
                 "Sign-in did not complete. Please return to your browser and finish signing in, then try again.");
         }
@@ -170,7 +172,7 @@ public sealed class AccountSignInRunner
         }
         catch (Exception ex)
         {
-            EngineLog.Write($"[AccountSignInRunner] RunAsync: persisting the captured credential failed: {ex.Message}");
+            EngineLog.Write($"[AccountSignInRunner] RunAsync: persisting the captured credential FAILED: {ex.Message}");
             return new AccountSignInResult(AccountSignInOutcome.Failed,
                 "Signed in, but the sign-in could not be saved for the app. Please try again.");
         }

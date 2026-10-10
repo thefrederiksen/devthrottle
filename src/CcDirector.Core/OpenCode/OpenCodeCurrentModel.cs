@@ -44,7 +44,7 @@ public static class OpenCodeCurrentModel
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[OpenCodeCurrentModel] Read error for {databasePath}: {ex.Message}");
+            FileLog.Write($"[OpenCodeCurrentModel] Read error for {databasePath} FAILED: {ex.Message}");
             return null;
         }
     }

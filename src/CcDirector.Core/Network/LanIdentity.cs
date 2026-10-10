@@ -53,7 +53,7 @@ public static class LanIdentity
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[LanIdentity] TryGetPrimaryLanIpv4 failed: {ex.Message}");
+            FileLog.Write($"[LanIdentity] TryGetPrimaryLanIpv4 FAILED: {ex.Message}");
             return null;
         }
     }

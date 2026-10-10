@@ -330,6 +330,7 @@ public sealed class SmartShutdownCoordinator
         }
         catch (OperationCanceledException) when (stopChecking.IsCancellationRequested)
         {
+            // not-an-error: the person closed the dialog first, which stops the check
             FileLog.Write("[SmartShutdownCoordinator] CheckIntoAsync: stopped, the dialog closed first");
         }
         catch (Exception ex)

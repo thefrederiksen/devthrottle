@@ -30,7 +30,7 @@ public sealed class InstalledManifest
         }
         catch (Exception ex)
         {
-            EngineLog.Write($"[InstalledManifest] load failed ({path}): {ex.Message}; treating as empty");
+            EngineLog.Write($"[InstalledManifest] load FAILED ({path}): {ex.Message}; treating as empty");
             return Empty();
         }
     }

@@ -370,9 +370,9 @@ public sealed class ErrorReporterTests
         public GatewayConfig Config = new() { Url = "", Token = "" };
     }
 
-    private (ErrorReporter Reporter, StubHandler Handler, SignInState State, string Dir) NewReporterWithOutbox()
+    private (ErrorReporter Reporter, StubHandler Handler, SignInState State, string Dir) NewReporterWithOutbox(string? existingDir = null)
     {
-        var dir = Path.Combine(Path.GetTempPath(), "cc-reporter-test-" + Guid.NewGuid().ToString("N"));
+        var dir = existingDir ?? Path.Combine(Path.GetTempPath(), "cc-reporter-test-" + Guid.NewGuid().ToString("N"));
         var handler = new StubHandler();
         var state = new SignInState();
         var http = new HttpClient(handler);
@@ -460,6 +460,144 @@ public sealed class ErrorReporterTests
         {
             if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
         }
+    }
+
+    // ---- The last moment before a normal exit (issue #3352) ----
+
+    private static readonly GatewayConfig SignedIn = new() { Url = "https://gateway.example", Token = "device-key" };
+
+    [Fact]
+    public void FlushAndKeep_AnErrorLoggedJustBeforeExit_ReachesTheGateway()
+    {
+        var (reporter, handler, state, dir) = NewReporterWithOutbox();
+        try
+        {
+            state.Config = SignedIn;
+            reporter.OnLogLine("[Program] ApplyUpdate FAILED: outcome=RolledBack, version=2.15.0: the new build never came up");
+
+            Assert.Equal(1, reporter.FlushAndKeep(TimeSpan.FromSeconds(5)));
+
+            var request = Assert.Single(handler.Requests);
+            Assert.Equal("https://gateway.example/gateway/director-errors", request.Url);
+            Assert.Equal("Bearer device-key", request.Auth);
+            Assert.Contains("ApplyUpdate FAILED", Assert.Single(Sent(handler)).Message);
+            Assert.Equal(0, reporter.PendingCount);
+            Assert.Equal(0, reporter.Outbox!.Count);
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task FlushAndKeep_GatewayUnreachable_KeepsTheErrorInTheOutbox_AndTheNextStartSendsIt()
+    {
+        var (reporter, handler, state, dir) = NewReporterWithOutbox();
+        try
+        {
+            state.Config = SignedIn;
+            handler.Throw = new HttpRequestException("offline");
+            reporter.OnLogLine("[LauncherCore] Register FAILED: refused");
+
+            Assert.Equal(0, reporter.FlushAndKeep(TimeSpan.FromSeconds(5)));
+
+            // Not lost with the process, and not counted as dropped: it is on disk.
+            Assert.Equal(1, reporter.Outbox!.Count);
+            Assert.Equal(0, reporter.Dropped);
+            Assert.Contains("Register FAILED", File.ReadAllText(Path.Combine(dir, "launcher-before-sign-in.json")));
+
+            // The next start of the program, on the same storage, sends it with the device's credential.
+            var (next, nextHandler, nextState, _) = NewReporterWithOutbox(dir);
+            nextState.Config = SignedIn;
+            Assert.Equal(1, await next.SendPendingAsync(CancellationToken.None));
+            var request = Assert.Single(nextHandler.Requests);
+            Assert.Equal("Bearer device-key", request.Auth);
+            Assert.Equal("Register FAILED: refused", Assert.Single(Sent(nextHandler)).Message);
+            Assert.Equal(0, next.Outbox!.Count);
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.TooManyRequests)]
+    [InlineData(HttpStatusCode.NotFound)]
+    [InlineData(HttpStatusCode.InternalServerError)]
+    public void FlushAndKeep_GatewayDoesNotAccept_KeepsTheErrorInsteadOfDroppingIt(HttpStatusCode answer)
+    {
+        var (reporter, handler, state, dir) = NewReporterWithOutbox();
+        try
+        {
+            state.Config = SignedIn;
+            handler.Status = () => answer;
+            reporter.OnLogLine("[LauncherCore] Register FAILED: refused");
+
+            reporter.FlushAndKeep(TimeSpan.FromSeconds(5));
+
+            Assert.Equal(1, reporter.Outbox!.Count);
+            Assert.Equal(0, reporter.Dropped);
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void FlushAndKeep_MoreThanOneBatchPending_SendsOneAndKeepsTheRest()
+    {
+        var (reporter, handler, state, dir) = NewReporterWithOutbox();
+        try
+        {
+            state.Config = SignedIn;
+            var total = ErrorReportLimits.MaxReportsPerBatch + 5;
+            for (var i = 0; i < total; i++)
+                reporter.OnLogLine($"[C{i}] Distinct FAILED: kind {(char)('a' + i % 26)}");
+
+            Assert.Equal(ErrorReportLimits.MaxReportsPerBatch, reporter.FlushAndKeep(TimeSpan.FromSeconds(5)));
+
+            Assert.Equal(5, reporter.Outbox!.Count);
+            Assert.Equal(0, reporter.PendingCount);
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void FlushAndKeep_NothingPending_SendsNothing()
+    {
+        var (reporter, handler, state, dir) = NewReporterWithOutbox();
+        try
+        {
+            state.Config = SignedIn;
+
+            Assert.Equal(0, reporter.FlushAndKeep(TimeSpan.FromSeconds(5)));
+
+            Assert.Empty(handler.Requests);
+            Assert.False(File.Exists(Path.Combine(dir, "launcher-before-sign-in.json")));
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void FlushAndKeep_NoOutbox_CountsWhatItCouldNotSend()
+    {
+        var (reporter, handler) = NewReporter();
+        handler.Throw = new HttpRequestException("offline");
+        reporter.OnLogLine("[LauncherCore] Register FAILED: refused");
+
+        reporter.FlushAndKeep(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(1, reporter.Dropped);
+        Assert.Equal(0, reporter.PendingCount);
     }
 
     [Fact]

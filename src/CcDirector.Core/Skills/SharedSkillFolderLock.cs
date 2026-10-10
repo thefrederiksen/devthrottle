@@ -58,6 +58,7 @@ public sealed class SharedSkillFolderLock : IDisposable
             }
             catch (AbandonedMutexException)
             {
+                // not-an-error: evidence of an earlier crash, which that crash's own report covers; taking the lock over is the recovery
                 FileLog.Write($"[SharedSkillFolderLock] {name} was left held by a process that ended mid-reconcile; " +
                               "taken over - this reconciliation rebuilds what it owns");
                 got = true;

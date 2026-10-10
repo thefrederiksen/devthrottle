@@ -44,7 +44,7 @@ public static class SingleProcessStop
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[SingleProcessStop] polite stop of pid={pid} failed: {ex.Message}");
+                FileLog.Write($"[SingleProcessStop] polite stop of pid={pid} FAILED: {ex.Message}");
             }
 
             // The one kill, and the only place this argument is written for the swap path.
@@ -57,7 +57,7 @@ public static class SingleProcessStop
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SingleProcessStop] stopping pid={pid} failed: {ex.Message}");
+            FileLog.Write($"[SingleProcessStop] stopping pid={pid} FAILED: {ex.Message}");
             return false;
         }
     }

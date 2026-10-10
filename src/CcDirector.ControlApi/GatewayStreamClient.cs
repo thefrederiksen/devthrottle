@@ -536,6 +536,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
             // Terminal: the hosted subscription lapsed. Re-dialing would just get refused again forever, so stop
             // and let the connection status say why (the fix is to renew the subscription / re-enroll, which
             // restarts the client).
+            // not-an-error: the Gateway's answer about the account (no subscription), not a failure of our program; reconnecting stops
             FileLog.Write("[GatewayStreamClient] connect REFUSED (402, subscription required) - stopping reconnect");
             return ConnectOutcome.SubscriptionRequired;
         }
@@ -547,15 +548,17 @@ public sealed class GatewayStreamClient : IAsyncDisposable
             var refusal = GatewayKeyRefusal.FromUnauthorizedBody(_refusals.LastUnauthorizedBody, ReadTeamName());
             if (refusal is null)
             {
-                FileLog.Write("[GatewayStreamClient] connect failed with a 401 that is not the Gateway's credential answer - will retry");
+                FileLog.Write("[GatewayStreamClient] connect FAILED with a 401 that is not the Gateway's credential answer - will retry");
                 return ConnectOutcome.Retry;
             }
             _keyRefusal = refusal;
+            // not-an-error: the Gateway refused this credential (the device was removed from the account), so no report could be sent with it; reconnecting stops
             FileLog.Write($"[GatewayStreamClient] connect REFUSED (401, {refusal.Kind}) - stopping reconnect");
             return ConnectOutcome.KeyRefused;
         }
         catch (Exception ex)
         {
+            // not-an-error: a failed connect is retried with back-off; a machine that is offline is the network, not our program
             FileLog.Write($"[GatewayStreamClient] connect failed (will retry): {ex.Message}");
             return ConnectOutcome.Retry;
         }
@@ -849,7 +852,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
             // visible to the Director. Without a Hello the Gateway refuses every push on this connection, so
             // the roster is not attempted; the key leg still is, exactly as before.
             failure = ex.Message;
-            FileLog.Write($"[GatewayStreamClient] reseed failed at Hello (auto-reconnect will retry): {ex.Message}");
+            FileLog.Write($"[GatewayStreamClient] reseed failed at Hello (auto-reconnect will retry) FAILED: {ex.Message}");
         }
 
         // Remove-the-network-port phase 1b: re-register every live session's Gateway key, in its OWN
@@ -996,7 +999,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
                 // Director, and it is the one thing the Director would lose if this ever moved to a
                 // fire-and-forget send - so if that change is made, the surfacing has to be replaced, not dropped.
                 failure = ex.Message;
-                FileLog.Write($"[GatewayStreamClient] reseed failed (auto-reconnect will retry): {ex.Message}");
+                FileLog.Write($"[GatewayStreamClient] reseed FAILED (auto-reconnect will retry): {ex.Message}");
             }
         }
 
@@ -1018,7 +1021,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
                     }
                     catch (Exception ex)
                     {
-                        FileLog.Write($"[GatewayStreamClient] replayed revocation for {sessionId} failed: {ex.Message} - still owed");
+                        FileLog.Write($"[GatewayStreamClient] replayed revocation for {sessionId} FAILED: {ex.Message} - still owed");
                     }
                 }
                 if (owed.Count > 0)
@@ -1026,7 +1029,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[GatewayStreamClient] revocation replay incomplete: {ex.Message}");
+                FileLog.Write($"[GatewayStreamClient] revocation replay incomplete FAILED: {ex.Message}");
             }
         }
 
@@ -1043,6 +1046,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
             }
             catch (Exception ex)
             {
+                // not-an-error: an older Gateway has no repository reseed; nothing is wrong on this side
                 FileLog.Write($"[GatewayStreamClient] repository reseed skipped (older Gateway?): {ex.Message}");
             }
         }
@@ -1200,7 +1204,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[GatewayStreamClient] RevokeSessionKey({sessionId}) failed: {ex.Message} - still owed, and replayed on the next reseed");
+            FileLog.Write($"[GatewayStreamClient] RevokeSessionKey({sessionId}) FAILED: {ex.Message} - still owed, and replayed on the next reseed");
         }
     }
 
@@ -1217,7 +1221,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
     private static async Task SendAsync(Func<Task> send, string what)
     {
         try { await send(); }
-        catch (Exception ex) { FileLog.Write($"[GatewayStreamClient] {what} dropped (mid-reconnect?): {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[GatewayStreamClient] {what} dropped (mid-reconnect?) FAILED: {ex.Message}"); }
     }
 
     /// <summary>Force the outbound tunnel to bounce: stop the current connection so the supervise
@@ -1230,7 +1234,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         if (conn is null) return;
         FileLog.Write("[GatewayStreamClient] ReconnectAsync: bouncing tunnel on request");
         try { await conn.StopAsync(); }
-        catch (Exception ex) { FileLog.Write($"[GatewayStreamClient] ReconnectAsync stop error: {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[GatewayStreamClient] ReconnectAsync stop ERROR: {ex.Message}"); }
     }
 
     /// <summary>
@@ -1254,6 +1258,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         }
         catch (Exception ex)
         {
+            // not-an-error: an older Gateway has no farewell call, and the Director is leaving anyway
             FileLog.Write($"[GatewayStreamClient] DirectorStopping farewell not delivered (older Gateway?): {ex.Message}");
         }
     }
@@ -1273,7 +1278,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
             // call stamps nothing.
             await NotifyDirectorStoppingAsync();
             try { await _connection.StopAsync(); }
-            catch (Exception ex) { FileLog.Write($"[GatewayStreamClient] StopAsync error: {ex.Message}"); }
+            catch (Exception ex) { FileLog.Write($"[GatewayStreamClient] StopAsync ERROR: {ex.Message}"); }
         }
     }
 
@@ -1288,7 +1293,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         if (_connection is not null)
         {
             try { await _connection.DisposeAsync(); }
-            catch (Exception ex) { FileLog.Write($"[GatewayStreamClient] DisposeAsync error: {ex.Message}"); }
+            catch (Exception ex) { FileLog.Write($"[GatewayStreamClient] DisposeAsync ERROR: {ex.Message}"); }
             _connection = null;
         }
     }

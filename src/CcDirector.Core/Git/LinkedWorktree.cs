@@ -112,7 +112,7 @@ public static class LinkedWorktree
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[LinkedWorktree] ParentRepositoryOf: could not read the .git file of {worktreePath}: {ex.Message}");
+            FileLog.Write($"[LinkedWorktree] ParentRepositoryOf FAILED: could not read the .git file of {worktreePath}: {ex.Message}");
             return null;
         }
 

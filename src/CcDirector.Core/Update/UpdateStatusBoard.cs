@@ -132,7 +132,7 @@ public static class UpdateStatusBoard
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[UpdateStatusBoard] could not read the session count: {ex.Message}. Treating this Director "
+            FileLog.Write($"[UpdateStatusBoard] could not read the session count FAILED: {ex.Message}. Treating this Director "
                           + "as busy, so nothing offers to restart it.");
             return 1;
         }

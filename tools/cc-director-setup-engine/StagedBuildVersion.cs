@@ -68,7 +68,7 @@ public static class StagedBuildVersion
         }
         catch (Exception ex)
         {
-            EngineLog.Write($"[StagedBuildVersion] could not read {path}: {ex.Message}");
+            EngineLog.Write($"[StagedBuildVersion] could not read {path} FAILED: {ex.Message}");
             return null;
         }
     }
@@ -79,6 +79,6 @@ public static class StagedBuildVersion
         ArgumentException.ThrowIfNullOrWhiteSpace(stagedPath);
         var path = PathFor(stagedPath);
         try { if (File.Exists(path)) File.Delete(path); }
-        catch (Exception ex) { EngineLog.Write($"[StagedBuildVersion] could not remove {path}: {ex.Message}"); }
+        catch (Exception ex) { EngineLog.Write($"[StagedBuildVersion] could not remove {path} FAILED: {ex.Message}"); }
     }
 }

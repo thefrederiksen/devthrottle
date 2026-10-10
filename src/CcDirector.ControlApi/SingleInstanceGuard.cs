@@ -45,6 +45,7 @@ public sealed class SingleInstanceGuard : IDisposable
         catch (AbandonedMutexException)
         {
             // Prior holder crashed without releasing. The kernel hands us the mutex anyway.
+            // not-an-error: evidence of an earlier crash, which that crash's own report covers; claiming the mutex is the recovery
             FileLog.Write($"[SingleInstanceGuard] AbandonedMutex on {name} -- prior holder crashed, claiming");
             acquired = true;
         }

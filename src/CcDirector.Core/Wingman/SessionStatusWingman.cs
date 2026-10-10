@@ -167,7 +167,7 @@ public sealed class SessionStatusWingman : IDisposable
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[SessionStatusWingman] handler failed for {session.Id}: {ex.Message}");
+                FileLog.Write($"[SessionStatusWingman] handler failed for {session.Id} FAILED: {ex.Message}");
             }
         };
         _activityHandlers[session.Id] = handler;
@@ -357,7 +357,7 @@ internal sealed class PromptInjectionWatcher : IDisposable
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[PromptInjectionWatcher] tick failed session={_session.Id}: {ex.Message}");
+            FileLog.Write($"[PromptInjectionWatcher] tick failed session={_session.Id} FAILED: {ex.Message}");
         }
     }
 

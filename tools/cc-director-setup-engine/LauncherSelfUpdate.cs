@@ -255,7 +255,7 @@ public sealed class LauncherSelfUpdate
             m.Set(ComponentRegistry.Launcher.Id, version);
             m.Save(_layout);
         }
-        catch (Exception ex) { EngineLog.Write($"[LauncherSelfUpdate] record version failed: {ex.Message}"); }
+        catch (Exception ex) { EngineLog.Write($"[LauncherSelfUpdate] record version FAILED: {ex.Message}"); }
     }
 
     private void Pin(string version)
@@ -266,7 +266,7 @@ public sealed class LauncherSelfUpdate
             pins.Pin(ComponentRegistry.Launcher.Id, version);
             PinStore.Save(_layout, pins);
         }
-        catch (Exception ex) { EngineLog.Write($"[LauncherSelfUpdate] pin failed: {ex.Message}"); }
+        catch (Exception ex) { EngineLog.Write($"[LauncherSelfUpdate] pin FAILED: {ex.Message}"); }
     }
 
     private static SelfUpdateResult Fail(List<string> steps, string message)

@@ -80,7 +80,7 @@ public sealed class SessionLogWriter : IDisposable
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SessionLogWriter] Start failed for {_sessionId}: {ex.Message}");
+            FileLog.Write($"[SessionLogWriter] Start failed for {_sessionId} FAILED: {ex.Message}");
             return;
         }
 
@@ -150,7 +150,7 @@ public sealed class SessionLogWriter : IDisposable
         // and the foreach exits naturally when the channel is empty + completed.
         _channel.Writer.TryComplete();
         try { _writerTask?.Wait(TimeSpan.FromSeconds(2)); }
-        catch (Exception ex) { FileLog.Write($"[SessionLogWriter] writer drain failed for {_sessionId}: {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[SessionLogWriter] writer drain failed for {_sessionId} FAILED: {ex.Message}"); }
 
         try { _rawStream?.Dispose(); } catch { }
         try { _turnsStream?.Dispose(); } catch { }
@@ -193,13 +193,13 @@ public sealed class SessionLogWriter : IDisposable
                 try { WriteOne(entry); }
                 catch (Exception ex)
                 {
-                    FileLog.Write($"[SessionLogWriter] write failed for {_sessionId}: {ex.Message}");
+                    FileLog.Write($"[SessionLogWriter] write failed for {_sessionId} FAILED: {ex.Message}");
                 }
             }
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SessionLogWriter] writer loop crashed for {_sessionId}: {ex}");
+            FileLog.Write($"[SessionLogWriter] writer loop crashed for {_sessionId} FAILED: {ex}");
         }
     }
 

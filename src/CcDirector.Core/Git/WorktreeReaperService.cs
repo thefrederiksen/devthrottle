@@ -162,7 +162,7 @@ public sealed class WorktreeReaperService
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[WorktreeReaperService] ReapAsync aborted - could not confirm live sessions: {ex.Message}");
+                FileLog.Write($"[WorktreeReaperService] ReapAsync aborted - could not confirm live sessions FAILED: {ex.Message}");
                 return ReapResult.Failure($"could not confirm which worktrees are in use by live sessions - reap aborted: {ex.Message}");
             }
 
@@ -241,13 +241,14 @@ public sealed class WorktreeReaperService
                     // The caller superseded us. Preserve the record of what was already removed
                     // (inspection round 5) - a bare cancellation that discarded completed destructive
                     // deletes would hide them. Prune with a non-cancellable token so cleanup still runs.
+                    // not-an-error: the reap was cancelled on purpose
                     FileLog.Write($"[WorktreeReaperService] ReapAsync cancelled before re-confirming live sessions for {worktree.Path}");
                     await _git.RunAsync(repositoryPath, new[] { "worktree", "prune" }, CancellationToken.None);
                     return BuildResult($"reap cancelled after removing {outcomes.Count(o => o.Removed)} worktree(s)");
                 }
                 catch (Exception ex)
                 {
-                    FileLog.Write($"[WorktreeReaperService] ReapAsync aborted - could not re-confirm live sessions before removing {worktree.Path}: {ex.Message}");
+                    FileLog.Write($"[WorktreeReaperService] ReapAsync aborted - could not re-confirm live sessions before removing {worktree.Path} FAILED: {ex.Message}");
                     // Preserve what was already removed (inspection): prune, then report the outcomes
                     // so far plus the abort reason - never discard the record of a completed delete.
                     await _git.RunAsync(repositoryPath, new[] { "worktree", "prune" }, CancellationToken.None);
@@ -290,7 +291,7 @@ public sealed class WorktreeReaperService
                     }
                     catch (Exception ex)
                     {
-                        FileLog.Write($"[WorktreeReaperService] ReapAsync aborted - could not read live reservations before removing {worktree.Path}: {ex.Message}");
+                        FileLog.Write($"[WorktreeReaperService] ReapAsync aborted - could not read live reservations before removing {worktree.Path} FAILED: {ex.Message}");
                         await _git.RunAsync(repositoryPath, new[] { "worktree", "prune" }, CancellationToken.None);
                         return BuildResult($"reap aborted after removing {outcomes.Count(o => o.Removed)} worktree(s) - could not confirm live reservations before removing {worktree.Path}: {ex.Message}");
                     }
@@ -315,7 +316,7 @@ public sealed class WorktreeReaperService
                     }
                     catch (CcWorktreesStateUnreadableException ex)
                     {
-                        FileLog.Write($"[WorktreeReaperService] ReapAsync aborted - could not tell whether {worktree.Path} belongs to a cc-worktrees pool: {ex.Message}");
+                        FileLog.Write($"[WorktreeReaperService] ReapAsync aborted - could not tell whether {worktree.Path} belongs to a cc-worktrees pool FAILED: {ex.Message}");
                         await _git.RunAsync(repositoryPath, new[] { "worktree", "prune" }, CancellationToken.None);
                         return BuildResult($"reap aborted after removing {outcomes.Count(o => o.Removed)} worktree(s) - could not tell whether {worktree.Path} belongs to a cc-worktrees pool: {ex.Message}");
                     }
@@ -330,13 +331,14 @@ public sealed class WorktreeReaperService
                 }
                 catch (OperationCanceledException)
                 {
+                    // not-an-error: the reap was cancelled on purpose
                     FileLog.Write($"[WorktreeReaperService] ReapAsync cancelled around removing {worktree.Path}");
                     await _git.RunAsync(repositoryPath, new[] { "worktree", "prune" }, CancellationToken.None);
                     return BuildResult($"reap cancelled after removing {outcomes.Count(o => o.Removed)} worktree(s)");
                 }
                 catch (TimeoutException ex)
                 {
-                    FileLog.Write($"[WorktreeReaperService] ReapAsync aborted - could not acquire the worktree-reap lock before removing {worktree.Path}: {ex.Message}");
+                    FileLog.Write($"[WorktreeReaperService] ReapAsync aborted - could not acquire the worktree-reap lock before removing {worktree.Path} FAILED: {ex.Message}");
                     return BuildResult($"reap aborted after removing {outcomes.Count(o => o.Removed)} worktree(s) - could not acquire the worktree-reap lock before removing {worktree.Path}: {ex.Message}");
                 }
             }
@@ -355,6 +357,7 @@ public sealed class WorktreeReaperService
             // The caller superseded us before the removal loop (which catches its own cancellations), so no
             // worktree was removed. Answered as the loop answers one: a "reap cancelled" result, not a
             // failure report (#3668).
+            // not-an-error: the reap was cancelled on purpose
             FileLog.Write($"[WorktreeReaperService] ReapAsync cancelled before removing any worktree: repo={repositoryPath}");
             return ReapResult.Failure("reap cancelled before any worktree was removed");
         }
@@ -466,7 +469,7 @@ public sealed class WorktreeReaperService
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[WorktreeReaperService] could not stamp leftover marker in {folder}: {ex.Message}");
+            FileLog.Write($"[WorktreeReaperService] could not stamp leftover marker in {folder} FAILED: {ex.Message}");
         }
     }
 
@@ -499,7 +502,7 @@ public sealed class WorktreeReaperService
         try { crit = _reservations.EnterCriticalSection(); }
         catch (Exception ex)
         {
-            FileLog.Write($"[WorktreeReaperService] leftover retry skipped - could not acquire the reap lock: {ex.Message}");
+            FileLog.Write($"[WorktreeReaperService] leftover retry skipped - could not acquire the reap lock FAILED: {ex.Message}");
             return Task.CompletedTask;
         }
         using (crit)
@@ -508,7 +511,7 @@ public sealed class WorktreeReaperService
             try { reservedNow = _reservations.LiveReservedPaths(); }
             catch (Exception ex)
             {
-                FileLog.Write($"[WorktreeReaperService] leftover retry skipped - could not read live reservations: {ex.Message}");
+                FileLog.Write($"[WorktreeReaperService] leftover retry skipped - could not read live reservations FAILED: {ex.Message}");
                 return Task.CompletedTask;
             }
 
@@ -567,7 +570,7 @@ public sealed class WorktreeReaperService
         }
         catch (CcWorktreesStateUnreadableException ex)
         {
-            FileLog.Write($"[WorktreeReaperService] leftover {path} not deleted - could not tell whether it belongs to a cc-worktrees pool: {ex.Message}");
+            FileLog.Write($"[WorktreeReaperService] leftover {path} not deleted - could not tell whether it belongs to a cc-worktrees pool FAILED: {ex.Message}");
             return true;
         }
     }
@@ -581,7 +584,7 @@ public sealed class WorktreeReaperService
         catch (Exception ex)
         {
             // Best effort - locked files remain and are reported as a leftover, not swallowed as success.
-            FileLog.Write($"[WorktreeReaperService] physical delete incomplete for {path}: {ex.Message}");
+            FileLog.Write($"[WorktreeReaperService] physical delete incomplete for {path} FAILED: {ex.Message}");
         }
     }
 

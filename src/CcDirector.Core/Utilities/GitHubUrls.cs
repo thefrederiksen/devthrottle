@@ -66,7 +66,7 @@ public static class GitHubUrls
         {
             // A checkout with no origin, or one on a host we do not recognize, is an expected state, not a
             // failure to hide: it simply has no repo name and groups by its folder name instead. Recorded, "".
-            FileLog.Write($"[GitHubUrls] ResolveRepoNameCached: {repoPath} has no recognized remote repo name: {ex.Message}");
+            FileLog.Write($"[GitHubUrls] ResolveRepoNameCached FAILED: {repoPath} has no recognized remote repo name: {ex.Message}");
             return "";
         }
     }

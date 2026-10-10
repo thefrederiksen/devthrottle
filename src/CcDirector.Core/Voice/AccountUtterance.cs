@@ -120,7 +120,7 @@ public class AccountUtterance
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[AccountUtterance] fetch failed ({url}): {ex.Message}");
+            FileLog.Write($"[AccountUtterance] fetch FAILED ({url}): {ex.Message}");
             return AccountVoiceLookup.Unavailable("the Gateway could not be reached");
         }
     }

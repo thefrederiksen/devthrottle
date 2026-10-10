@@ -152,7 +152,7 @@ public sealed class GatewaySelfUpdate
             m.Set(ComponentRegistry.Gateway.Id, version);
             m.Save(_layout);
         }
-        catch (Exception ex) { EngineLog.Write($"[GatewaySelfUpdate] record version failed: {ex.Message}"); }
+        catch (Exception ex) { EngineLog.Write($"[GatewaySelfUpdate] record version FAILED: {ex.Message}"); }
     }
 
     private void Pin(string version)
@@ -163,7 +163,7 @@ public sealed class GatewaySelfUpdate
             pins.Pin(ComponentRegistry.Gateway.Id, version);
             PinStore.Save(_layout, pins);
         }
-        catch (Exception ex) { EngineLog.Write($"[GatewaySelfUpdate] pin failed: {ex.Message}"); }
+        catch (Exception ex) { EngineLog.Write($"[GatewaySelfUpdate] pin FAILED: {ex.Message}"); }
     }
 
     private static SelfUpdateResult Fail(List<string> steps, string message)

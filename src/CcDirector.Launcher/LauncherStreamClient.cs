@@ -348,6 +348,7 @@ public sealed class LauncherStreamClient : IAsyncDisposable
         }
         catch (Exception ex)
         {
+            // not-an-error: a failed connect is retried with back-off; a machine that is offline is the network, not our program
             FileLog.Write($"[LauncherStreamClient] connect failed (will retry): {ex.Message}");
             return false;
         }
@@ -447,7 +448,7 @@ public sealed class LauncherStreamClient : IAsyncDisposable
         if (_connection is not null)
         {
             try { await _connection.StopAsync(); }
-            catch (Exception ex) { FileLog.Write($"[LauncherStreamClient] StopAsync error: {ex.Message}"); }
+            catch (Exception ex) { FileLog.Write($"[LauncherStreamClient] StopAsync ERROR: {ex.Message}"); }
         }
     }
 
@@ -457,7 +458,7 @@ public sealed class LauncherStreamClient : IAsyncDisposable
         if (_connection is not null)
         {
             try { await _connection.DisposeAsync(); }
-            catch (Exception ex) { FileLog.Write($"[LauncherStreamClient] DisposeAsync error: {ex.Message}"); }
+            catch (Exception ex) { FileLog.Write($"[LauncherStreamClient] DisposeAsync ERROR: {ex.Message}"); }
             _connection = null;
         }
     }

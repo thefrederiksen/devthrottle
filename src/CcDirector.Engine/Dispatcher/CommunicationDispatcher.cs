@@ -76,7 +76,7 @@ public sealed class CommunicationDispatcher : IDisposable
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[CommunicationDispatcher] Poll error: {ex.Message}");
+            FileLog.Write($"[CommunicationDispatcher] Poll ERROR: {ex.Message}");
             RaiseEvent(new EngineEvent(EngineEventType.Error, Message: $"Dispatcher poll error: {ex.Message}"));
         }
         finally
@@ -152,7 +152,7 @@ public sealed class CommunicationDispatcher : IDisposable
         }
         catch (JsonException ex)
         {
-            FileLog.Write($"[CommunicationDispatcher] Failed to parse email_specific for ticket #{ticket}: {ex.Message}");
+            FileLog.Write($"[CommunicationDispatcher] Failed to parse email_specific for ticket #{ticket} FAILED: {ex.Message}");
             return null;
         }
     }
@@ -302,7 +302,7 @@ public sealed class CommunicationDispatcher : IDisposable
         catch (Exception ex)
         {
             MarkFailed(email.Id, ex.Message);
-            FileLog.Write($"[CommunicationDispatcher] Ticket #{email.TicketNumber} exception: {ex.Message}");
+            FileLog.Write($"[CommunicationDispatcher] Ticket #{email.TicketNumber} exception FAILED: {ex.Message}");
             return new QueueDispatchResult(QueueDispatchOutcome.SendFailed, email.Id,
                 email.TicketNumber, ItemStatus: "approved", Channel: route.ToolName, Error: ex.Message);
         }
@@ -428,7 +428,7 @@ public sealed class CommunicationDispatcher : IDisposable
     private void RaiseEvent(EngineEvent e)
     {
         try { OnEvent?.Invoke(e); }
-        catch (Exception ex) { FileLog.Write($"[CommunicationDispatcher] Event handler error: {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[CommunicationDispatcher] Event handler ERROR: {ex.Message}"); }
     }
 
     public void Dispose()

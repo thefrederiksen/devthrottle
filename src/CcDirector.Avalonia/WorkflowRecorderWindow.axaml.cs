@@ -237,7 +237,7 @@ public partial class WorkflowRecorderWindow : Window
             FileLog.Write($"[WorkflowRecorder] Copied screenshots to recording dir");
 
             try { Directory.Delete(_recordingTempDir, recursive: true); }
-            catch (Exception ex) { FileLog.Write($"[WorkflowRecorder] Temp dir cleanup failed: {ex.Message}"); }
+            catch (Exception ex) { FileLog.Write($"[WorkflowRecorder] Temp dir cleanup FAILED: {ex.Message}"); }
             _recordingTempDir = null;
         }
 

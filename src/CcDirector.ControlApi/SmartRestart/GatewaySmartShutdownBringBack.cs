@@ -196,7 +196,7 @@ public sealed class GatewaySmartShutdownBringBack
             catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
             {
                 readFailure = ex.Message;
-                FileLog.Write($"[GatewaySmartShutdownBringBack] BringBackAsync: the record could not be read: {ex.Message}");
+                FileLog.Write($"[GatewaySmartShutdownBringBack] BringBackAsync FAILED: the record could not be read: {ex.Message}");
             }
 
             var outcomes = Read(lastRead, seatSessionIds, askedAtUtc, final: _utcNow() >= until, readFailure);

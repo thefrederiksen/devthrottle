@@ -140,7 +140,7 @@ public sealed class ToolTestRunner
         catch (Exception ex)
         {
             sw.Stop();
-            FileLog.Write($"[ToolTestRunner] {tool.Name} [{test.Kind}] error: {ex.Message}");
+            FileLog.Write($"[ToolTestRunner] {tool.Name} [{test.Kind}] ERROR: {ex.Message}");
             return new ToolTestResult(
                 test.Kind, test.Label, false, sw.ElapsedMilliseconds, null,
                 stdout.ToString(), stderr.ToString(), $"launch error: {ex.Message}");

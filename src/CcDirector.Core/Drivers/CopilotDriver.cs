@@ -197,7 +197,7 @@ public sealed class CopilotDriver : IAgentDriver
         }
         catch (JsonException ex)
         {
-            FileLog.Write($"[CopilotDriver] TryCaptureSessionId: invalid JSON: {ex.Message}");
+            FileLog.Write($"[CopilotDriver] TryCaptureSessionId FAILED: invalid JSON: {ex.Message}");
             return null;
         }
     }
@@ -242,7 +242,7 @@ public sealed class CopilotDriver : IAgentDriver
         }
         catch (JsonException ex)
         {
-            FileLog.Write($"[CopilotDriver] ParseStreamLine: invalid JSON: {ex.Message}");
+            FileLog.Write($"[CopilotDriver] ParseStreamLine FAILED: invalid JSON: {ex.Message}");
             return null;
         }
     }

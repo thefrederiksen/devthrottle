@@ -76,7 +76,7 @@ internal static class ClaudeResponseParser
         }
         catch (JsonException ex)
         {
-            FileLog.Write($"[ClaudeResponseParser] ParseStreamLine: invalid JSON: {ex.Message}");
+            FileLog.Write($"[ClaudeResponseParser] ParseStreamLine FAILED: invalid JSON: {ex.Message}");
             return null;
         }
     }

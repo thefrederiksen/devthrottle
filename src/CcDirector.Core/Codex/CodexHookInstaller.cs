@@ -135,7 +135,7 @@ public static class CodexHookInstaller
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[CodexHookInstaller] EnsureInstalled failed: {ex.Message}");
+            FileLog.Write($"[CodexHookInstaller] EnsureInstalled FAILED: {ex.Message}");
             return false;
         }
     }

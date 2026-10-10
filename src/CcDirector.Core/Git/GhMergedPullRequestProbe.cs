@@ -55,6 +55,7 @@ public sealed class GhMergedPullRequestProbe : IMergedPullRequestProbe
         catch (Exception ex)
         {
             // gh not installed, or the process could not start - fall through to local git signals.
+            // not-an-error: the gh command line is optional; without it the local git signals decide
             FileLog.Write($"[GhMergedPullRequestProbe] gh could not run ({ex.Message}) - relying on local git signals");
             return false;
         }

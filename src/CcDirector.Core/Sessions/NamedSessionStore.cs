@@ -82,7 +82,7 @@ public class NamedSessionStore
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[NamedSessionStore] LoadAll: skipping corrupt file {Path.GetFileName(file)}: {ex.Message}");
+                FileLog.Write($"[NamedSessionStore] LoadAll FAILED: skipping corrupt file {Path.GetFileName(file)}: {ex.Message}");
             }
         }
 

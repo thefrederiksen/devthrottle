@@ -80,6 +80,7 @@ public sealed class DirectorTriggerRunner
         }
         catch (OperationCanceledException)
         {
+            // not-an-error: the runner was stopped on purpose
             FileLog.Write("[DirectorTriggerRunner] RunAsync: stopped");
         }
     }

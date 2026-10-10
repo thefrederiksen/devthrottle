@@ -166,7 +166,7 @@ public sealed class DirectorSmartShutdown : ISmartShutdown
             }
             catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
             {
-                FileLog.Write($"[DirectorSmartShutdown] CheckAsync: the Gateway could not be reached: {ex.Message}");
+                FileLog.Write($"[DirectorSmartShutdown] CheckAsync FAILED: the Gateway could not be reached: {ex.Message}");
                 refusal =
                     $"the Gateway could not be reached ({ex.Message}). A smart shutdown keeps its record on " +
                     "the Gateway so that the sessions can be brought back after this machine has been down, " +
@@ -344,7 +344,7 @@ public sealed class DirectorSmartShutdown : ISmartShutdown
             }
             catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
             {
-                FileLog.Write($"[DirectorSmartShutdown] ShutDownIgnoringAllAsync: the close times could not be saved: {ex.Message}");
+                FileLog.Write($"[DirectorSmartShutdown] ShutDownIgnoringAllAsync FAILED: the close times could not be saved: {ex.Message}");
             }
         }
 
@@ -420,7 +420,7 @@ public sealed class DirectorSmartShutdown : ISmartShutdown
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
-            FileLog.Write($"[DirectorSmartShutdown] the record ({what}) could not be written: {ex.Message}");
+            FileLog.Write($"[DirectorSmartShutdown] the record ({what}) could not be written FAILED: {ex.Message}");
             return (drain, null, $"the record of what was closed could not be written to the Gateway: {ex.Message}", null);
         }
     }
@@ -650,6 +650,7 @@ internal sealed class SmartShutdownRun : ISmartShutdownRun
         {
             // Another drain took the Director between Start's check and this run's first step. Nothing
             // was touched by this run.
+            // not-an-error: a drain already running is the answer to the request, and the caller is told it is refused
             FileLog.Write($"[SmartShutdownRun] RunAsync: refused, a drain is already running: {ex.Message}");
             Finish(SmartShutdownOutcome.Refused, null, ex.Message);
         }
@@ -795,7 +796,7 @@ internal sealed class SmartShutdownRun : ISmartShutdownRun
         foreach (var handler in handlers.GetInvocationList())
         {
             try { ((Action<SmartShutdownSnapshot>)handler)(snapshot); }
-            catch (Exception ex) { FileLog.Write($"[SmartShutdownRun] a Changed handler threw: {ex.Message}"); }
+            catch (Exception ex) { FileLog.Write($"[SmartShutdownRun] a Changed handler FAILED: {ex.Message}"); }
         }
     }
 }

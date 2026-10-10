@@ -62,7 +62,7 @@ public static class SessionPreambleFile
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SessionPreambleFile] could not delete {path}: {ex.Message}");
+            FileLog.Write($"[SessionPreambleFile] could not delete {path} FAILED: {ex.Message}");
         }
     }
 
@@ -98,7 +98,7 @@ public static class SessionPreambleFile
             // Inject NOTHING - never our text, which they turned off. This is the same answer the two
             // deleted routes gave (an empty body) and the same one Pi's file gives.
             FileLog.Write(
-                $"[SessionPreambleFile] the user's injected text is unavailable for {session.Id}, so NOTHING " +
+                $"[SessionPreambleFile] injected text read FAILED: the user's injected text is unavailable for {session.Id}, so NOTHING " +
                 $"is injected (the DevThrottle text is deliberately not substituted): {ex.Message}");
             // Except the owner's lessons (issue #3559): they are not our text, and a file error must not cost a
             // Fleet Manager the corrections it was given.

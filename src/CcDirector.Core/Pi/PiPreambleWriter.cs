@@ -72,7 +72,7 @@ public static class PiPreambleWriter
             // much ruder answer to the same situation. Note what is NOT done: substituting our text.
             // They turned ours off, and a file error is not consent to turn it back on.
             FileLog.Write(
-                $"[PiPreambleWriter] the user's injected text is unavailable for {sessionId}, so NOTHING " +
+                $"[PiPreambleWriter] injected text read FAILED: the user's injected text is unavailable for {sessionId}, so NOTHING " +
                 $"is injected (the DevThrottle text is deliberately not substituted): {ex.Message}");
             text = "";
         }

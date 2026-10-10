@@ -426,7 +426,7 @@ public sealed class LauncherTrayController : IDisposable
         _disposed = true;
         _lifetime.Cancel();
         try { _core?.StopAsync().GetAwaiter().GetResult(); }
-        catch (Exception ex) { FileLog.Write($"[LauncherTrayController] Dispose stop error: {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[LauncherTrayController] Dispose stop ERROR: {ex.Message}"); }
         _core = null;
         if (_trayIcon is not null) _trayIcon.IsVisible = false;
         _lifetime.Dispose();

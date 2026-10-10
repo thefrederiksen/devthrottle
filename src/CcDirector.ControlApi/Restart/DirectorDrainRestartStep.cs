@@ -115,6 +115,7 @@ public sealed class DirectorDrainRestartStep : IRestartCycleDrain
             // NOT AN ERROR, AN ANSWER. Another drain holds this Director - the desktop's, most likely - and
             // this one touched nothing, so there is no record of its own to name. The cycle stops on the
             // drain's own sentence, which names the drain that does hold it and the record it is writing.
+            // not-an-error: a drain already running is the answer to the request, and the caller is told it is blocked
             FileLog.Write($"[DirectorDrainRestartStep] RunAsync: request={order.RequestId}, verdict=Blocked (a drain is already running): {ex.Message}");
             return new RestartDrainOutcome(RestartDrainVerdict.Blocked, null, ex.Message);
         }

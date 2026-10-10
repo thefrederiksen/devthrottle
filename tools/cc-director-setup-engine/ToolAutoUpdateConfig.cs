@@ -38,7 +38,7 @@ public sealed record ToolAutoUpdateConfig(bool Enabled)
         }
         catch (Exception ex)
         {
-            EngineLog.Write($"[ToolAutoUpdateConfig] load failed ({layout.ConfigPath}): {ex.Message}; using defaults");
+            EngineLog.Write($"[ToolAutoUpdateConfig] load FAILED ({layout.ConfigPath}): {ex.Message}; using defaults");
             return Default;
         }
     }

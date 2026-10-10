@@ -80,7 +80,7 @@ public sealed partial class SkillToolLinker
 
             string text;
             try { text = File.ReadAllText(file); }
-            catch (Exception ex) { FileLog.Write($"[SkillToolLinker] read {file} failed: {ex.Message}"); continue; }
+            catch (Exception ex) { FileLog.Write($"[SkillToolLinker] read {file} FAILED: {ex.Message}"); continue; }
 
             // Count mentions of each known tool. "drives" when the tool is the skill's own
             // namesake, appears in the first 400 chars (the trigger/description region), or is
@@ -123,7 +123,7 @@ public sealed partial class SkillToolLinker
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SkillToolLinker] overrides load failed: {ex.Message}");
+            FileLog.Write($"[SkillToolLinker] overrides load FAILED: {ex.Message}");
             throw;
         }
 

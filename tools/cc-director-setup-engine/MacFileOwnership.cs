@@ -224,7 +224,7 @@ public static class MacFileOwnership
         {
             // The script holds nothing secret; a file left behind must not turn a repair that worked into a failure.
             try { File.Delete(scriptPath); }
-            catch (Exception ex) { EngineLog.Write($"[MacFileOwnership] could not remove {scriptPath}: {ex.Message}"); }
+            catch (Exception ex) { EngineLog.Write($"[MacFileOwnership] could not remove {scriptPath} FAILED: {ex.Message}"); }
         }
     }
 

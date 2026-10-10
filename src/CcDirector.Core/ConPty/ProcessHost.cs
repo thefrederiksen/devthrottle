@@ -266,7 +266,7 @@ public sealed class ProcessHost : IDisposable
             {
                 // OnExited runs subscriber code that may throw. Isolate it so a
                 // faulting subscriber cannot fault this background task.
-                FileLog.Write($"[ProcessHost] StartExitMonitor failed: {ex.Message}");
+                FileLog.Write($"[ProcessHost] StartExitMonitor FAILED: {ex.Message}");
             }
         });
     }

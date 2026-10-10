@@ -56,7 +56,7 @@ public sealed class InstallFailureReporter
         }
         catch (Exception ex)
         {
-            EngineLog.Write($"[InstallFailureReporter] {component}/{step} NOT delivered ({ex.GetType().Name}): {ex.Message}");
+            EngineLog.Write($"[InstallFailureReporter] {component}/{step} NOT delivered ({ex.GetType().Name}) FAILED: {ex.Message}");
             return false;
         }
     }

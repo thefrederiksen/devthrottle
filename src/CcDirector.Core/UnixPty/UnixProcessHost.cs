@@ -167,6 +167,7 @@ public sealed class UnixProcessHost : IDisposable
             catch (ObjectDisposedException) { /* console disposed during shutdown */ }
             catch (IOException ex)
             {
+                // not-an-error: reading a terminal whose program has exited ends with an input or output error; that is how the end arrives
                 FileLog.Write($"[UnixProcessHost] Drain loop ended: {ex.Message}");
             }
         });
@@ -212,7 +213,7 @@ public sealed class UnixProcessHost : IDisposable
         catch (Exception ex)
         {
             // OnExited runs subscriber code that may throw. Isolate it.
-            FileLog.Write($"[UnixProcessHost] OnExited handler threw: {ex.Message}");
+            FileLog.Write($"[UnixProcessHost] OnExited handler FAILED: {ex.Message}");
         }
     }
 

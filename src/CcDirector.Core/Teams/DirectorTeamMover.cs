@@ -199,12 +199,12 @@ public sealed class DirectorTeamMover
             }
             catch (NameChangedButNotRecordedException ex)
             {
-                FileLog.Write($"[DirectorTeamMover] MoveAsync: moved on the Gateway, name changed, its record NOT saved: {ex.InnerException?.Message}");
+                FileLog.Write($"[DirectorTeamMover] MoveAsync FAILED: moved on the Gateway, name changed, its record NOT saved: {ex.InnerException?.Message}");
                 renamedButNotRecorded = ex;
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[DirectorTeamMover] MoveAsync: moved on the Gateway, name NOT changed: {ex.Message}");
+                FileLog.Write($"[DirectorTeamMover] MoveAsync FAILED: moved on the Gateway, name NOT changed: {ex.Message}");
                 renameError = ex.Message;
             }
         }
@@ -226,7 +226,7 @@ public sealed class DirectorTeamMover
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[DirectorTeamMover] MoveAsync: moved on the Gateway, team NOT recorded: {ex.Message}");
+            FileLog.Write($"[DirectorTeamMover] MoveAsync FAILED: moved on the Gateway, team NOT recorded: {ex.Message}");
             return Failed(MovedButTeamNotRecorded(team.Name, ex.Message));
         }
 
@@ -236,7 +236,7 @@ public sealed class DirectorTeamMover
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[DirectorTeamMover] MoveAsync: moved on the Gateway, team recorded, key NOT saved: {ex.Message}");
+            FileLog.Write($"[DirectorTeamMover] MoveAsync FAILED: moved on the Gateway, team recorded, key NOT saved: {ex.Message}");
             return Failed(MovedButKeyNotSaved(team.Name, ex.Message));
         }
 

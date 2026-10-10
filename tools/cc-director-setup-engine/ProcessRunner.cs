@@ -73,7 +73,7 @@ internal static class ProcessRunner
             // Bounded wait expired: kill the whole tree (pip spawns child processes) and fail loud with
             // whatever output we have. Never silently hang - that is the root defect this guards against.
             EngineLog.Write($"[ProcessRunner] TIMEOUT after {timeout.TotalSeconds:F0}s, killing process tree: {exe} {arguments}");
-            try { p.Kill(entireProcessTree: true); } catch (Exception ex) { EngineLog.Write($"[ProcessRunner] kill after timeout failed: {ex.Message}"); }
+            try { p.Kill(entireProcessTree: true); } catch (Exception ex) { EngineLog.Write($"[ProcessRunner] kill after timeout FAILED: {ex.Message}"); }
             try { p.WaitForExit(5_000); } catch { /* best-effort drain after kill */ }
 
             var partial = Combine(stdoutBuf, stderrBuf);
@@ -90,6 +90,7 @@ internal static class ProcessRunner
             try { p.WaitForExitAsync(drain.Token).GetAwaiter().GetResult(); }
             catch (OperationCanceledException)
             {
+                // not-an-error: a child process kept the output pipe open; what was read is returned, and the run's own outcome decides
                 EngineLog.Write($"[ProcessRunner] output still open {PipeDrainTimeout.TotalSeconds:F0}s after exit (a child kept the pipe); returning what was read: {exe} {arguments}");
             }
         }

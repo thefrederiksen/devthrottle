@@ -140,11 +140,12 @@ public static class ClaudeProcess
         }
         catch (OperationCanceledException)
         {
-            FileLog.Write($"[ClaudeProcess] Process timed out, killing PID={process.Id}");
+            FileLog.Write($"[ClaudeProcess] Process FAILED: timed out, killing PID={process.Id}");
             try { process.Kill(entireProcessTree: true); }
             catch (InvalidOperationException ex)
             {
                 // Process already exited between timeout check and kill
+                // not-an-error: the process had already exited, which is what the kill wanted
                 FileLog.Write($"[ClaudeProcess] Kill after timeout failed (already exited): {ex.Message}");
             }
         }
@@ -203,7 +204,7 @@ public static class ClaudeProcess
         }
         catch (JsonException)
         {
-            FileLog.Write($"[ClaudeProcess] ExtractSessionId: invalid JSON: {jsonLine[..Math.Min(100, jsonLine.Length)]}");
+            FileLog.Write($"[ClaudeProcess] ExtractSessionId FAILED: invalid JSON, line length={jsonLine.Length} (the agent's output is not logged in an error line)");
         }
 
         return null;

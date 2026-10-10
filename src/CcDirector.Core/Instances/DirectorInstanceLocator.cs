@@ -355,7 +355,7 @@ public sealed class DirectorInstanceLocator
                     var reason = $"pid={dto.Pid} from {file} is alive and could not be asked when it started "
                                  + $"({ex.Message}), so it cannot be certified as the Director that wrote that "
                                  + "registration";
-                    FileLog.Write($"[DirectorInstanceLocator] {reason}. Not acted on, and NOT treated as absent.");
+                    FileLog.Write($"[DirectorInstanceLocator] registration check FAILED: {reason}. Not acted on, and NOT treated as absent.");
                     unreadable.Add(reason);
                     continue;
                 }
@@ -544,7 +544,7 @@ public sealed class DirectorInstanceLocator
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[DirectorInstanceLocator] pid={process.Id} would not say what image it is "
+                FileLog.Write($"[DirectorInstanceLocator] image read FAILED: pid={process.Id} would not say what image it is "
                               + $"running: {ex.Message}");
                 return "";
             }
@@ -571,7 +571,7 @@ public sealed class DirectorInstanceLocator
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[DirectorInstanceLocator] pid={process.Id} image path could not be read: {ex.Message}");
+            FileLog.Write($"[DirectorInstanceLocator] pid={process.Id} image path could not be read FAILED: {ex.Message}");
             return "";
         }
     }

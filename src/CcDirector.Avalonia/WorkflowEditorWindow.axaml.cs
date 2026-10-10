@@ -207,7 +207,7 @@ public partial class WorkflowEditorWindow : Window
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[WorkflowEditor] Screenshot load failed: {ex.Message}");
+                FileLog.Write($"[WorkflowEditor] Screenshot load FAILED: {ex.Message}");
             }
         }
 

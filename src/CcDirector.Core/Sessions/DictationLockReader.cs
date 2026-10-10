@@ -57,7 +57,7 @@ public static class DictationLockReader
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[DictationLockReader] enumerate {uploadsRoot} failed: {ex.Message}");
+            FileLog.Write($"[DictationLockReader] enumerate {uploadsRoot} FAILED: {ex.Message}");
             return false;
         }
 
@@ -110,7 +110,7 @@ public static class DictationLockReader
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[DictationLockReader] enumerate {uploadsRoot} failed: {ex.Message}");
+            FileLog.Write($"[DictationLockReader] enumerate {uploadsRoot} FAILED: {ex.Message}");
             return locked;
         }
 
@@ -200,7 +200,7 @@ public static class DictationLockReader
         catch (Exception ex)
         {
             // Not being able to memoize costs a re-read next tick, which is exactly the old behaviour.
-            FileLog.Write($"[DictationLockReader] stamp {markerPath} failed: {ex.Message}");
+            FileLog.Write($"[DictationLockReader] stamp {markerPath} FAILED: {ex.Message}");
         }
     }
 
@@ -245,7 +245,7 @@ public static class DictationLockReader
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[DictationLockReader] read {path} failed: {ex.Message}");
+            FileLog.Write($"[DictationLockReader] read {path} FAILED: {ex.Message}");
             return null;
         }
     }

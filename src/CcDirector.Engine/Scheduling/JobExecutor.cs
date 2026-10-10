@@ -123,7 +123,7 @@ public sealed class JobExecutor
             {
                 RecordFailure(run, stopwatch, reason);
                 _db.EndRunKeepingSchedule(run);
-                FileLog.Write($"[JobExecutor] Command not recorded, killed and stopped: name={job.Name}, run={run.Id}");
+                FileLog.Write($"[JobExecutor] Command not recorded, killed and stopped FAILED: name={job.Name}, run={run.Id}");
             }
             else
             {
@@ -137,6 +137,7 @@ public sealed class JobExecutor
             // next_run stays where it is, so the occurrence runs again - after, never alongside.
             RecordFailure(run, stopwatch, "Cancelled: the command's process tree was killed");
             _db.EndRunKeepingSchedule(run);
+            // not-an-error: the job was cancelled on purpose
             FileLog.Write($"[JobExecutor] Job cancelled, command stopped: name={job.Name}");
             throw;
         }

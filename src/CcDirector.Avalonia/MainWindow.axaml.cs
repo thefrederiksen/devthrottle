@@ -1625,7 +1625,7 @@ public partial class MainWindow : Window
             //
             // Not the no-Gateway verdict either: that is the benign accepted trade, and dressing a
             // live refusal in it would be worse than silence.
-            FileLog.Write($"[MainWindow] the Gateway did NOT accept this Director's session key: {ex.Message}");
+            FileLog.Write($"[MainWindow] the Gateway did NOT accept this Director's session key FAILED: {ex.Message}");
             _lastFleetToolCheck = new FleetToolCheck(
                 FleetToolVerdict.GatewayRefusedKey, null, OwnToolBinDir(),
                 "The Gateway is connected but did not accept this Director's session key, so every "
@@ -2720,7 +2720,7 @@ public partial class MainWindow : Window
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[MainWindow] CloseAllSessionsAsync: failed to kill {vm.Session.Id}: {ex.Message}");
+                FileLog.Write($"[MainWindow] CloseAllSessionsAsync FAILED: failed to kill {vm.Session.Id}: {ex.Message}");
             }
             // Off the user-interface thread: a session in a pooled worktree gives it back here, and
             // that runs cc-worktrees, which fetches the remote. Blocking the interface thread on a
@@ -5506,7 +5506,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[MainWindow] GetLiveSessionsOnThisMachineAsync fleet query failed, using local sessions: {ex.Message}");
+            FileLog.Write($"[MainWindow] GetLiveSessionsOnThisMachineAsync fleet query FAILED, using local sessions: {ex.Message}");
         }
 
         // No Gateway (or the fleet call failed): fall back to this Director's own sessions.

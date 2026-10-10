@@ -223,7 +223,7 @@ public static class TurnDetectionShadowLog
                 }
                 catch (Exception ex)
                 {
-                    FileLog.Write($"[TurnDetectionShadowLog] rollover failed for {Path.GetFileName(path)}: {ex.Message}; appending to the oversized file rather than losing the row");
+                    FileLog.Write($"[TurnDetectionShadowLog] rollover failed for {Path.GetFileName(path)} FAILED: {ex.Message}; appending to the oversized file rather than losing the row");
                 }
 
                 AppendLine(path, JsonSerializer.Serialize(record, Json) + "\n");
@@ -232,7 +232,7 @@ public static class TurnDetectionShadowLog
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[TurnDetectionShadowLog] append failed for {sessionId}: {ex.Message}");
+            FileLog.Write($"[TurnDetectionShadowLog] append failed for {sessionId} FAILED: {ex.Message}");
         }
     }
 
@@ -357,7 +357,7 @@ public static class TurnDetectionShadowLog
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[TurnDetectionShadowLog] retention: could not delete {file}: {ex.Message}");
+                FileLog.Write($"[TurnDetectionShadowLog] retention FAILED: could not delete {file}: {ex.Message}");
             }
         }
 
