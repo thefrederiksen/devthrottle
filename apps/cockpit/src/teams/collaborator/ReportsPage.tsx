@@ -12,7 +12,7 @@ import { EmptyState, ErrorBanner, LoadingState, PageHeader } from "../../compone
 import { OwnTeamReportView, ReceivedReportView } from "./TeamReportViews";
 import { shortDate, TEAM_REPORTS_POLL_MS } from "./teamReportFormat";
 import "./collaborator.css";
-import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 
 const SURFACE = "cockpit-team-reports";
 
@@ -56,9 +56,10 @@ function ReportLists({ teamId, open }: { teamId: string; open: (kind: "report" |
         setReceived(next);
         setOwn(next.showYourReports ? await getMyTeamReports(teamId, signal) : null);
         setError(null);
+        backgroundRecovered(SURFACE, "load the reports");
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return;
-        setError(describeAndReport(SURFACE, "load the reports", err));
+        setError(describeAndReport(SURFACE, "load the reports", err, { background: true }));
       }
     },
     [teamId],

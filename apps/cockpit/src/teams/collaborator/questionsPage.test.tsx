@@ -49,7 +49,8 @@ vi.mock("@devthrottle/client-core/teams/teamQuestionsClient", () => ({
 // The rail's count beside Questions is read again after an answer (review F8): recorded here, proven in the shell's tests.
 vi.mock("../useTeamPageCounts", () => ({ refreshTeamPageCounts: vi.fn() }));
 
-import { GatewayError } from "@devthrottle/client-core/api/client";
+import { GATEWAY_UNREACHABLE_MESSAGE, GatewayError } from "@devthrottle/client-core/api/client";
+import { resetReportingForTests, setReportingComponent } from "@devthrottle/client-core/errors/reportClientError";
 import { refreshTeamPageCounts } from "../useTeamPageCounts";
 import { answerQuestion, getMyQuestions } from "@devthrottle/client-core/teams/teamQuestionsClient";
 import { QuestionsPage } from "./QuestionsPage";
@@ -273,5 +274,52 @@ describe("nothing waiting, and what was answered", () => {
     renderPage();
 
     expect(await screen.findByText(/the Gateway fell over/)).toBeTruthy();
+  });
+});
+
+describe("the poll during an outage (the Error Logging mission, issue #3675, rulings R1 and R8)", () => {
+  // The page reads every few seconds while it is open. A failure that does not change is one report per outage, not
+  // one per round, and the page keeps the shared retrying line; a good read ends the outage, so the next failure is
+  // reported again.
+  const posted: string[] = [];
+
+  beforeEach(() => {
+    posted.length = 0;
+    resetReportingForTests();
+    setReportingComponent("cockpit");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: unknown, init?: RequestInit) => {
+        posted.push(String(init?.body));
+        return new Response(null, { status: 204 });
+      }),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    resetReportingForTests();
+  });
+
+  it("poll_SameFailureEveryRound_ReportedOncePerOutage_AndAgainAfterAGoodRead", async () => {
+    const outage = new GatewayError(502, "GET failed: 502");
+    vi.mocked(getMyQuestions).mockRejectedValue(outage);
+    renderPage();
+
+    expect(await screen.findByText(GATEWAY_UNREACHABLE_MESSAGE)).toBeTruthy();
+    await poll();
+    await poll();
+    await vi.waitFor(() => expect(posted).toHaveLength(1));
+    expect(JSON.parse(posted[0])).toMatchObject({ surface: "cockpit-team-questions", action: "load your questions", user_visible: true });
+
+    vi.mocked(getMyQuestions).mockResolvedValue(LIST);
+    await poll();
+    vi.mocked(getMyQuestions).mockRejectedValue(outage);
+    await poll();
+    await poll();
+
+    await vi.waitFor(() => expect(posted).toHaveLength(2));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(posted).toHaveLength(2);
   });
 });

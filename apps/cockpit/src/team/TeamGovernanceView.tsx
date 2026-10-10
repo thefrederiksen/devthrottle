@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { GatewayError } from "@devthrottle/client-core/api/client";
+import { GatewayError, gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import {
   changeTeamGovernance,
   getTeamGovernance,
@@ -41,7 +41,8 @@ export function TeamGovernanceView({ teamId }: { teamId: string }) {
     } catch (err) {
       if (signal?.aborted) return;
       // A 403 is the Gateway saying this role has no Governance tab; it is an answer, not a failure to retry.
-      if (err instanceof GatewayError && err.status === 403) setRefused(describeAndReport(SURFACE, "load the team's rules", err));
+      // error-report-exempt: the Gateway's answer that this role has no Governance tab - the person's role, not a failure (ruling R11); any other failure here is reported
+      if (err instanceof GatewayError && err.status === 403) setRefused(gatewayErrorMessage(err, "load the team's rules"));
       else setLoadError(describeAndReport(SURFACE, "load the team's rules", err));
     }
   }, [teamId]);

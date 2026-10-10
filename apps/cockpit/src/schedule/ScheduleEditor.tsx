@@ -158,6 +158,8 @@ export function ScheduleEditor({
   // machineErrors, because nothing failed - but a job pointed at it could not run either, so the picker
   // has to know about it too.
   const [directorReach, setDirectorReach] = useState<DirectorReachability[]>([]);
+  // Why the machine picker has nothing to offer when the read behind it failed; null when it was read.
+  const [machinesError, setMachinesError] = useState<string | null>(null);
   const [machineFilter, setMachineFilter] = useState("");
   const [showDirectorPicker, setShowDirectorPicker] = useState(false);
 
@@ -181,7 +183,7 @@ export function ScheduleEditor({
     getSeatChoices(abort.signal)
       .then(setSeatChoices)
       .catch((err: unknown) => {
-        if (!abort.signal.aborted) setSeatChoicesError(`Could not read the factories: ${gatewayErrorMessage(err)}`);
+        if (!abort.signal.aborted) setSeatChoicesError(`Could not read the factories: ${describeAndReport(SURFACE, "read the factories", err)}`);
       });
     return () => abort.abort();
   }, []);
@@ -194,8 +196,10 @@ export function ScheduleEditor({
       setSessions(env.sessions);
       setMachineErrors(env.machineErrors); // error-report-exempt: the list of unreachable machines, produced and held by the Gateway; nothing failed in the Cockpit
       setDirectorReach(env.directors);
-    } catch {
-      /* the picker degrades to "no machines known" rather than blocking the form */
+      setMachinesError(null);
+    } catch (err) {
+      // The rest of the form stays usable; the machine picker says why it has no machines to offer.
+      setMachinesError(describeAndReport(SURFACE, "read the machines for the picker", err));
     }
   }, []);
 
@@ -654,7 +658,11 @@ export function ScheduleEditor({
                 value={machineFilter}
                 onChange={(e) => setMachineFilter(e.target.value)}
               />
-              {machines.length === 0 ? (
+              {machinesError !== null ? (
+                <div className="sched-dpick-empty" role="alert">
+                  {machinesError}
+                </div>
+              ) : machines.length === 0 ? (
                 <div className="sched-dpick-empty">No machines known to this Gateway yet.</div>
               ) : (
                 <div className="sched-dpick">

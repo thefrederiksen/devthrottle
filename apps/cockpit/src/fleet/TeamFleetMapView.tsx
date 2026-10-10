@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { GatewayError } from "@devthrottle/client-core/api/client";
+import { GatewayError, gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import {
   getTeamFleetMap,
   type TeamFleetMap,
@@ -68,7 +68,8 @@ export function TeamFleetMapView({ team }: { team: TeamSummary }) {
         (err: unknown) => {
           if (!live || (err instanceof Error && err.name === "AbortError")) return;
           if (err instanceof GatewayError && err.status === 403) {
-            setLoad({ kind: "refused", reason: describeAndReport(SURFACE, "read the team's Fleet Map", err, { background: true }) });
+            // error-report-exempt: the Gateway's answer that this role has no team Fleet Map - the person's role, not a failure (ruling R11); any other failure here is reported
+            setLoad({ kind: "refused", reason: gatewayErrorMessage(err) });
             return;
           }
           const message = describeAndReport(SURFACE, "read the team's Fleet Map", err, { background: true });

@@ -16,7 +16,7 @@ import {
 import { Button, ErrorBanner, LoadingState } from "../../components";
 import { dateAndTime, TEAM_REPORTS_POLL_MS } from "./teamReportFormat";
 import "./collaborator.css";
-import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 
 const SURFACE = "cockpit-team-report";
 
@@ -86,6 +86,7 @@ export function ReceivedReportView({ teamId, reportId, onBack }: ViewProps) {
     async (signal: AbortSignal) => {
       try {
         const next = await getReportSentToMe(teamId, reportId, signal);
+        backgroundRecovered(SURFACE, "load the report sent to you");
         if (next === null) {
           setMissing(true);
           return;
@@ -94,7 +95,7 @@ export function ReceivedReportView({ teamId, reportId, onBack }: ViewProps) {
         setError(null);
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return;
-        setError(describeAndReport(SURFACE, "load the report", err));
+        setError(describeAndReport(SURFACE, "load the report sent to you", err, { background: true }));
       }
     },
     [teamId, reportId],
@@ -222,6 +223,7 @@ export function OwnTeamReportView({ teamId, reportId, onBack }: ViewProps) {
     async (signal: AbortSignal) => {
       try {
         const next = await getMyTeamReport(teamId, reportId, signal);
+        backgroundRecovered(SURFACE, "load your report");
         if (next === null) {
           setMissing(true);
           return;
@@ -230,7 +232,7 @@ export function OwnTeamReportView({ teamId, reportId, onBack }: ViewProps) {
         setError(null);
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return;
-        setError(describeAndReport(SURFACE, "load the report", err));
+        setError(describeAndReport(SURFACE, "load your report", err, { background: true }));
       }
     },
     [teamId, reportId],

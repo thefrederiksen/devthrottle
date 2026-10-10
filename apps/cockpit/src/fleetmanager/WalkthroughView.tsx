@@ -67,10 +67,11 @@ export function WalkthroughView({ deps }: WalkthroughViewProps) {
       roundRef.current = next.roundIds;
       setData(next);
       setLoadError(null);
+      backgroundRecovered(SURFACE, "read the walkthrough");
       return next;
     } catch (err) {
       if (signal?.aborted) return null;
-      setLoadError(describeAndReport(SURFACE, "read the walkthrough", err));
+      setLoadError(describeAndReport(SURFACE, "read the walkthrough", err, { background: true }));
       return null;
     }
   }, []);

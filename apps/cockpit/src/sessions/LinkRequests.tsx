@@ -6,7 +6,7 @@ import {
   requestedAmountWords,
   type MessageLinkRequest,
 } from "@devthrottle/client-core/fleet/messageLinksClient";
-import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 import { sessionLabel } from "./MessageLinkDialog";
 
 const SURFACE = "cockpit-link-requests";
@@ -57,9 +57,10 @@ export function LinkRequestsProvider({ sessions, children }: { sessions: Session
       const all = await listMessageLinkRequests();
       setRequests(all.filter((r) => r.status === "pending"));
       setListError(null);
+      backgroundRecovered(SURFACE, "load the requests for a message link");
     } catch (err) {
       // The last known requests stay on their sessions; the popover says the list could not be read.
-      setListError(describeAndReport(SURFACE, "load the requests for a message link", err));
+      setListError(describeAndReport(SURFACE, "load the requests for a message link", err, { background: true }));
     }
   }, []);
 

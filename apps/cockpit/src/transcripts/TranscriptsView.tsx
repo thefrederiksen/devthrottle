@@ -170,8 +170,9 @@ export function TranscriptsView() {
   // ---- copy path ----
   const copyPath = async (item: RecordingListItem) => {
     const path = item.transcriptPath ?? "";
-    // A blocked clipboard is not shown as an error: the path itself is shown instead, to copy by hand.
+    // A blocked clipboard is reported, and the path itself is shown instead, to copy by hand.
     const failure = await copyText(path);
+    if (failure !== null) describeAndReport(SURFACE, "copy the transcript path", new ClipboardRefusedError(failure));
     patchCard(item.recordingId, { copied: failure === null ? ` copied: ${path}` : ` ${path}` });
     clearLater(() => patchCard(item.recordingId, { copied: "" }), 6000);
   };

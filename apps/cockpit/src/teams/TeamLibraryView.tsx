@@ -76,7 +76,8 @@ export function TeamLibraryView({ team }: { team: TeamSummary }) {
     } catch (err) {
       if (signal?.aborted === true) return;
       if (err instanceof GatewayError && err.code === TEAM_REFUSAL_CODE && err.serverReason !== undefined) {
-        setRefusal(describeAndReport(SURFACE, "read the team's skills and workflows", err));
+        // error-report-exempt: the Gateway's answer that this role has no team skills and workflows - the person's role, not a failure (ruling R11); any other failure here is reported
+        setRefusal(err.serverReason);
         return;
       }
       setError(describeAndReport(SURFACE, "read the team's skills and workflows", err));

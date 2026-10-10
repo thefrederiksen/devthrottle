@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   deleteScreenshot,
   getScreenshots,
@@ -54,6 +54,9 @@ export function ScreenshotsPanel({ sessionId, onInsert }: ScreenshotsPanelProps)
   // unavailable" placeholder instead of the browser's broken-image glyph (issue #1254). A fresh
   // list load clears this back to NO_BROKEN_IMAGES so a re-appeared file gets a fresh chance.
   const [brokenImages, setBrokenImages] = useState<BrokenImageSet>(NO_BROKEN_IMAGES);
+  // Whether this list load has already reported a thumbnail that did not load: a folder whose files have gone breaks
+  // every thumbnail at once, and that is one failure, not one per image. A fresh list load resets it.
+  const brokenReported = useRef(false);
 
   const load = useCallback(
     async (signal?: AbortSignal) => {
@@ -66,6 +69,7 @@ export function ScreenshotsPanel({ sessionId, onInsert }: ScreenshotsPanelProps)
         setTotal(result.total > 0 ? result.total : result.items.length);
         setShown(INITIAL_SHOWN);
         setBrokenImages(NO_BROKEN_IMAGES);
+        brokenReported.current = false;
         setLoadedOnce(true);
       } catch (err) {
         if (signal?.aborted) return;
@@ -143,7 +147,10 @@ export function ScreenshotsPanel({ sessionId, onInsert }: ScreenshotsPanelProps)
                         alt={s.fileName}
                         loading="lazy"
                         onError={() => {
-                          reportShownError(SURFACE, "show the screenshot", IMAGE_UNAVAILABLE, { sessionId });
+                          if (!brokenReported.current) {
+                            brokenReported.current = true;
+                            reportShownError(SURFACE, "show the screenshot", IMAGE_UNAVAILABLE, { sessionId });
+                          }
                           setBrokenImages((prev) => markImageBroken(prev, s.fileName));
                         }}
                       />

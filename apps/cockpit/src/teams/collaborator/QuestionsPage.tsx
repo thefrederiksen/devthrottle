@@ -7,7 +7,7 @@ import { shortDate, TEAM_REPORTS_POLL_MS } from "./teamReportFormat";
 import { refreshTeamPageCounts } from "../useTeamPageCounts";
 import "../../team/team.css";
 import "./collaborator.css";
-import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 
 const SURFACE = "cockpit-team-questions";
 
@@ -35,10 +35,11 @@ function QuestionsView({ teamId }: { teamId: string }) {
     async (signal: AbortSignal) => {
       try {
         setQuestions(await getMyQuestions(teamId, signal));
+        backgroundRecovered(SURFACE, "load your questions");
         setError(null);
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return;
-        setError(describeAndReport(SURFACE, "load your questions", err));
+        setError(describeAndReport(SURFACE, "load your questions", err, { background: true }));
       }
     },
     [teamId],

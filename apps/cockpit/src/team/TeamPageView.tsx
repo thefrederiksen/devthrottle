@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { GatewayError } from "@devthrottle/client-core/api/client";
+import { GatewayError, gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import {
   changeMemberRole,
   getTeamPage,
@@ -56,7 +56,8 @@ export function TeamPageView({ teamId, section }: { teamId: string; section: "me
     } catch (err) {
       if (signal?.aborted) return;
       // A 403 is the Gateway saying this role has no Team page; it is an answer, not a failure to retry.
-      if (err instanceof GatewayError && err.status === 403) setRefused(describeAndReport(SURFACE, "load the Team page", err));
+      // error-report-exempt: the Gateway's answer that this role has no Team page - the person's role, not a failure (ruling R11); any other failure here is reported
+      if (err instanceof GatewayError && err.status === 403) setRefused(gatewayErrorMessage(err, "load the Team page"));
       else setLoadError(describeAndReport(SURFACE, "load the Team page", err));
     }
   }, [teamId]);

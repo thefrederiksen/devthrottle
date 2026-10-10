@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { sendTypedPrompt } from "@devthrottle/client-core/dictation/typedPromptDelivery";
-import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 import { useSessionChat } from "@devthrottle/client-core/history/useSessionChat";
 import { usePollingStore } from "@devthrottle/client-core/polling/usePollingStore";
 import { useVisiblePolling } from "@devthrottle/client-core/polling/useVisiblePolling";
@@ -68,8 +68,9 @@ function usePlacement() {
     try {
       setPlacement(await getFleetManagerPlacement());
       setError(null);
+      backgroundRecovered(SURFACE, "read where the Fleet Manager runs");
     } catch (err) {
-      setError(describeAndReport(SURFACE, "read where the Fleet Manager runs", err));
+      setError(describeAndReport(SURFACE, "read where the Fleet Manager runs", err, { background: true }));
     }
   }, []);
   useVisiblePolling(refresh, PLACEMENT_REFRESH_MS);
