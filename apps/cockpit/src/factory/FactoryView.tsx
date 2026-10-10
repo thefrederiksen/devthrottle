@@ -1,4 +1,4 @@
-import { Fragment, useState } from "react";
+import { Fragment, useCallback, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   getFactoryPage,
@@ -6,7 +6,10 @@ import {
   type FactoryPageView,
   type FactorySeatsView,
 } from "@devthrottle/client-core/factory/factoriesScreenClient";
-import { EmptyState, ErrorBanner, LoadingState } from "../components";
+import { getCronJob, type CronJob } from "@devthrottle/client-core/schedule/scheduleClient";
+import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
+import { Button, EmptyState, ErrorBanner, LoadingState } from "../components";
+import { ScheduleEditor, type ScheduleEditorRequest } from "../schedule/ScheduleEditor";
 import { ActivityTab, ReportsTab, useView } from "./FactoryActivityTabs";
 import { FailuresCard, useScrollToHash } from "./FactoryFailures";
 import { FactoryFloorPanel } from "./FactoryFloor";
@@ -114,7 +117,7 @@ export function FactoryView() {
         ) : seats.data === null ? (
           <LoadingState />
         ) : (
-          <SeatsTab view={seats.data} />
+          <SeatsTab view={seats.data} onChanged={seats.reload} />
         ))}
       {tab === "activity" && <ActivityTab fixedFactory={page.id} />}
       {tab === "reports" && <ReportsTab fixedFactory={page.id} />}
@@ -224,9 +227,47 @@ function Overview({
   );
 }
 
-function SeatsTab({ view: d }: { view: FactorySeatsView }) {
+// The Seats tab. Each seat's schedules carry an Edit that opens the same editor as the Schedule page, because a
+// factory's schedules are changed in the factory (the owner, 2026-10-09).
+function SeatsTab({ view: d, onChanged }: { view: FactorySeatsView; onChanged: () => void }) {
+  const [editor, setEditor] = useState<ScheduleEditorRequest | null>(null);
+  // The schedule being fetched for the editor, so its button says so while it loads.
+  const [opening, setOpening] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  // The Gateway's warning on a save that lands in a crowded hour; the schedule is saved either way.
+  const [loadWarning, setLoadWarning] = useState<string | null>(null);
+
+  const onSaved = useCallback(
+    (saved: CronJob) => {
+      setLoadWarning(saved.loadWarning ?? null);
+      onChanged();
+    },
+    [onChanged],
+  );
+
+  const openEditor = useCallback(async (jobId: string) => {
+    setError(null);
+    setOpening(jobId);
+    try {
+      setEditor({ kind: "edit", job: await getCronJob(jobId) });
+    } catch (err) {
+      setError(`Could not open the schedule: ${gatewayErrorMessage(err)}`);
+    } finally {
+      setOpening(null);
+    }
+  }, []);
+
   return (
     <div className="fa-tab-body">
+      {error !== null && <ErrorBanner message={error} />}
+      {loadWarning !== null && (
+        <div className="fa-warn" role="status">
+          Saved, but: {loadWarning}{" "}
+          <Button variant="secondary" onClick={() => setLoadWarning(null)}>
+            Dismiss
+          </Button>
+        </div>
+      )}
       <div className="fa-scroll">
         <table className="fa-table fa-seats" data-testid="fa-seats-table">
           <thead>
@@ -244,7 +285,24 @@ function SeatsTab({ view: d }: { view: FactorySeatsView }) {
                   <div className="fa-seat-name">{seat.name}</div>
                   <div className="fa-dim">{seat.role}</div>
                 </td>
-                <td>{seat.whenText}</td>
+                <td>
+                  {seat.schedules.length === 0
+                    ? seat.whenText
+                    : seat.schedules.map((s) => (
+                        <div className="fa-seat-schedule" key={s.jobId}>
+                          <span>{s.whenText}</span>
+                          {s.editLabel !== null && (
+                            <Button
+                              variant="secondary"
+                              disabled={opening !== null}
+                              onClick={() => void openEditor(s.jobId)}
+                            >
+                              {opening === s.jobId ? "Opening..." : s.editLabel}
+                            </Button>
+                          )}
+                        </div>
+                      ))}
+                </td>
                 <td>
                   <span className={`fa-lastrun fa-tone-${seat.lastRunTone}`}>{seat.lastRunText}</span>
                 </td>
@@ -258,6 +316,7 @@ function SeatsTab({ view: d }: { view: FactorySeatsView }) {
         </table>
       </div>
       <p className="fa-footnote">{d.note}</p>
+      {editor !== null && <ScheduleEditor request={editor} onClose={() => setEditor(null)} onSaved={onSaved} />}
     </div>
   );
 }

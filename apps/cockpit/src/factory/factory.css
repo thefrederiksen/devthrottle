@@ -1361,3 +1361,15 @@ a:focus .ff-bay rect {
   margin: 4px 0 0;
   font-size: 12px;
 }
+
+/* A seat's schedule on the Seats tab, with its Edit beside it (the owner, 2026-10-09). */
+.fa-seat-schedule {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.fa-seat-schedule + .fa-seat-schedule {
+  margin-top: 6px;
+}

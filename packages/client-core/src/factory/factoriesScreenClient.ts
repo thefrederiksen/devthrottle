@@ -247,6 +247,17 @@ export interface FactorySeatRow {
   lastRunTone: FactoryTone;
   computerText: string;
   talk: FactoryTalkTarget;
+  /** Every schedule the seat names, with its words and the button that edits it; empty when it has none. */
+  schedules: FactorySeatSchedule[];
+}
+
+/** One schedule of a seat on the Seats tab (the owner, 2026-10-09: a factory's schedules are edited in the factory). */
+export interface FactorySeatSchedule {
+  jobId: string;
+  /** "Daily 06:15", or "Schedule cj_x is missing". */
+  whenText: string;
+  /** "Edit schedule"; null for a schedule that no longer exists. */
+  editLabel: string | null;
 }
 
 export interface FactorySeatsView {

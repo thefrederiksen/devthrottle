@@ -13,7 +13,8 @@ import { GatewayError } from "@devthrottle/client-core/api/client";
 //   * a row opens its factory's page;
 //   * the factory page shows the header, the Overview cards and the tabs exactly as folded, and its computer is
 //     just the computer's name - no "change - coming" label;
-//   * the Seats tab lists the seats with their own Talk buttons;
+//   * the Seats tab lists the seats with their own Talk buttons, and each seat's schedule has an Edit that opens the
+//     Schedule page's own editor on it (the owner, 2026-10-09: a factory's schedules are changed in the factory);
 //   * Talk shows a busy state at once, opens the session the Gateway started, and shows the Gateway's own sentence
 //     when it refuses - never a button that does nothing silently;
 //   * every old /factory-agents address lands on its new equivalent;
@@ -40,6 +41,20 @@ const agentsClient = vi.hoisted(() => ({
   downloadFactoryCsv: vi.fn(),
 }));
 vi.mock("@devthrottle/client-core/factory/factoryAgentsClient", () => agentsClient);
+
+const cronClient = vi.hoisted(() => ({
+  getCronJob: vi.fn(),
+  createCronJob: vi.fn(),
+  updateCronJob: vi.fn(),
+}));
+vi.mock("@devthrottle/client-core/schedule/scheduleClient", () => cronClient);
+
+// The editor reads the machines for its picker as it opens; nothing here is about the picker.
+vi.mock("@devthrottle/client-core/fleet/fleetClient", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@devthrottle/client-core/fleet/fleetClient")>()),
+  getFleetDirectors: vi.fn(async () => []),
+  getSessionsEnvelope: vi.fn(async () => ({ sessions: [], machineErrors: [], directors: [] })),
+}));
 
 import { FactoriesView } from "./FactoriesView";
 import { FactoryView } from "./FactoryView";
@@ -332,6 +347,61 @@ describe("A factory's Seats tab (mockup 3)", () => {
     expect(within(within(table).getByTestId("fa-seat-value-hunter")).getByText("Not run yet")).toBeTruthy();
     expect(screen.getByText("Only seats the boss hired are listed.")).toBeTruthy();
     expect(screenClient.getFactorySeats).toHaveBeenCalledWith("warmforward", expect.anything());
+  });
+
+  it("edits a seat's schedule in the Schedule page's own editor, and shows the seats again after the save", async () => {
+    const boss = {
+      id: "cj_boss",
+      name: "WarmForward Factory - Nora Hale",
+      enabled: true,
+      scheduleKind: "recurring",
+      cronExpression: "15 6 * * *",
+      runAt: null,
+      timeZoneId: "America/Toronto",
+      target: { machine: "SOREN_NORTH" },
+      action: { repoPath: "D:\\ReposFred\\warmforward-factory", seed: "You are Nora Hale.", workListName: null },
+      preventOverlap: true,
+      notifyOn: "none",
+      notifyWebhookUrl: null,
+      factory: "warmforward",
+      seat: "nora-hale",
+    };
+    cronClient.getCronJob.mockResolvedValue(boss);
+    cronClient.updateCronJob.mockResolvedValue({ ...boss, loadWarning: "SOREN_NORTH has 7 sessions open at 06:00." });
+    renderAt("/factories/warmforward/seats");
+
+    const nora = await screen.findByTestId("fa-seat-nora-hale");
+    // A schedule that no longer exists is still told, and offers no Edit.
+    const hunter = screen.getByTestId("fa-seat-value-hunter");
+    expect(within(hunter).getByText("Schedule cj_value is missing")).toBeTruthy();
+    expect(within(hunter).queryByRole("button", { name: "Edit schedule" })).toBeNull();
+    fireEvent.click(within(nora).getByRole("button", { name: "Edit schedule" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Edit cron job" });
+    expect(cronClient.getCronJob).toHaveBeenCalledWith("cj_boss");
+    expect((within(dialog).getByDisplayValue("15 6 * * *") as HTMLInputElement).value).toBe("15 6 * * *");
+    fireEvent.change(within(dialog).getByDisplayValue("15 6 * * *"), { target: { value: "30 6 * * *" } });
+    const seatReads = screenClient.getFactorySeats.mock.calls.length;
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit cron job" })).toBeNull());
+    expect(cronClient.updateCronJob).toHaveBeenCalledWith(
+      "cj_boss",
+      expect.objectContaining({ cronExpression: "30 6 * * *", name: boss.name, enabled: true }),
+    );
+    await waitFor(() => expect(screenClient.getFactorySeats.mock.calls.length).toBeGreaterThan(seatReads));
+    // The Gateway's warning is shown here too, as on the Schedule page.
+    expect((await screen.findByText(/Saved, but:/)).textContent).toContain("SOREN_NORTH has 7 sessions open at 06:00.");
+  });
+
+  it("says so when the schedule cannot be read, instead of a button that does nothing", async () => {
+    cronClient.getCronJob.mockRejectedValue(new GatewayError(404, "GET /cron/jobs/cj_boss failed: no such cron job"));
+    renderAt("/factories/warmforward/seats");
+
+    fireEvent.click(within(await screen.findByTestId("fa-seat-nora-hale")).getByRole("button", { name: "Edit schedule" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("Could not open the schedule");
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("starts a talk with that seat", async () => {
