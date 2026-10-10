@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import {
   getFactoryWaiting,
   markFactoryItemHandled,
@@ -10,6 +9,9 @@ import {
 import { Button, EmptyState, ErrorBanner, LoadingState, PageHeader } from "../components";
 import { ToneChip } from "./FactoryParts";
 import "./factory.css";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-factory-waiting";
 
 // Waiting for you (Screen 4): every asked and escalated row nothing has corrected yet, as the Gateway folded it.
 // "I have handled it" appends a NEW row that corrects the escalation; the escalation itself is never edited.
@@ -25,7 +27,7 @@ export function FactoryWaitingView() {
     const ctrl = new AbortController();
     setError(null);
     getFactoryWaiting(factory, ctrl.signal).then(setView, (err: unknown) => {
-      if (!ctrl.signal.aborted) setError(gatewayErrorMessage(err, "load what is waiting for you"));
+      if (!ctrl.signal.aborted) setError(describeAndReport(SURFACE, "load what is waiting for you", err));
     });
     return () => ctrl.abort();
   }, [factory, nonce]);
@@ -87,7 +89,7 @@ export function WaitingItem({ item, onHandled }: { item: FactoryWaitingItem; onH
                 await markFactoryItemHandled(item.id);
                 onHandled();
               } catch (err) {
-                setError(gatewayErrorMessage(err, "mark it handled"));
+                setError(describeAndReport(SURFACE, "mark it handled", err));
               } finally {
                 setBusy(false);
               }

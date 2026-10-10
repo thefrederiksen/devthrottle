@@ -1,6 +1,10 @@
 import { useState } from "react";
 import type { InvitationLink } from "@devthrottle/client-core/teams/invitationsClient";
 import { Button } from "../components";
+import { ClipboardRefusedError } from "../components/clipboardFailure";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-team-invitation-link";
 
 // The accept link, shown ONCE to the person who just sent or resent an invitation (Teams v1, copy the invitation link),
 // so they can pass it on themselves while the invitation email cannot be sent. The link and the sentence beside it are
@@ -12,14 +16,17 @@ export interface InvitationLinkPanelProps {
 }
 
 export function InvitationLinkPanel({ link }: InvitationLinkPanelProps) {
-  const [copied, setCopied] = useState<"copied" | "failed" | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState<string | null>(null);
 
   const copy = async (url: string) => {
+    setCopied(false);
+    setCopyFailed(null);
     try {
       await navigator.clipboard.writeText(url);
-      setCopied("copied");
-    } catch {
-      setCopied("failed");
+      setCopied(true);
+    } catch (err) {
+      setCopyFailed(describeAndReport(SURFACE, "copy the invitation link", new ClipboardRefusedError(err)));
     }
   };
 
@@ -39,9 +46,9 @@ export function InvitationLinkPanel({ link }: InvitationLinkPanelProps) {
         </div>
       )}
       <p className="team-hint">{link.note}</p>
-      {copied === "copied" && <p className="team-ok" role="status">Copied. Paste it into a message to them.</p>}
-      {copied === "failed" && (
-        <p className="team-warn" role="alert">The browser would not copy it. Select the link above and copy it yourself.</p>
+      {copied && <p className="team-ok" role="status">Copied. Paste it into a message to them.</p>}
+      {copyFailed !== null && (
+        <p className="team-warn" role="alert">{copyFailed} Select the link above and copy it yourself.</p>
       )}
     </div>
   );

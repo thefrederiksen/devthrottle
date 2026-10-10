@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import {
   getFactoryActivity,
   getFactoryReports,
@@ -10,6 +9,9 @@ import {
 } from "@devthrottle/client-core/factory/factoryAgentsClient";
 import { EmptyState, ErrorBanner, LoadingState } from "../components";
 import { ActivityTable, ExportCsvButton, Faults, FilterBar, SaveReportControl } from "./FactoryParts";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-factory-activity";
 
 // The Activity and Reports tabs (Screens 3 and 5). They appear twice: on the Factories list, over every factory, and
 // on one factory's page, fixed to that factory. Everything shown is the Gateway's fold, rendered verbatim (rule 7);
@@ -28,7 +30,7 @@ export function useView<T>(load: (signal: AbortSignal) => Promise<T>, key: strin
     load(ctrl.signal).then(
       (d) => setData(d),
       (err: unknown) => {
-        if (!ctrl.signal.aborted) setError(gatewayErrorMessage(err, what));
+        if (!ctrl.signal.aborted) setError(describeAndReport(SURFACE, what, err));
       },
     );
     return () => ctrl.abort();

@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { rememberTeamOnThisBrowser } from "@devthrottle/client-core/teams/CurrentTeam";
-import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import {
   acceptInvitation,
   declineInvitation,
@@ -10,6 +9,9 @@ import {
 } from "@devthrottle/client-core/teams/invitationsClient";
 import { Button, ConfirmDialog, ErrorBanner, LoadingState } from "../components";
 import "./team.css";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-accept-invite";
 
 // Screen S3, "Accepting an invitation" (devthrottle_internal#2301). The link in the invitation email lands here:
 // <gateway>/invite/{token}. A browser with no account, or not signed in, never reaches this component - the Cockpit's
@@ -35,7 +37,7 @@ export function AcceptInviteView() {
     openInvitation(token, controller.signal)
       .then(setInvitation)
       .catch((err: unknown) => {
-        if (!controller.signal.aborted) setLoadError(gatewayErrorMessage(err, "open the invitation"));
+        if (!controller.signal.aborted) setLoadError(describeAndReport(SURFACE, "open the invitation", err));
       });
     return () => controller.abort();
   }, [token]);
@@ -50,7 +52,7 @@ export function AcceptInviteView() {
       rememberTeamOnThisBrowser(joined.teamId);
       setAnswered({ kind: "accepted", invitation: joined });
     } catch (err) {
-      setActionError(gatewayErrorMessage(err, "join the team"));
+      setActionError(describeAndReport(SURFACE, "join the team", err));
     } finally {
       setBusy(false);
     }

@@ -16,10 +16,12 @@ import {
 } from "@devthrottle/client-core/fleet/fleetClient";
 import { canStartSessionOn } from "@devthrottle/client-core/fleet/directorPresentation";
 import type { SessionDto } from "@devthrottle/client-core/api/client";
-import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import { classify, dotHex, stateLabel } from "@devthrottle/client-core/sessions/ordering";
 import { ConfirmDialog, useDismissOnBackdrop } from "../components";
 import { cronToEnglish } from "./scheduleFormat";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-schedule-editor";
 
 // The schedule editor: the large two-tab create/edit dialog (issue #1289), its machine picker (#495) and its
 // unsaved-changes guard. It is its own component so the Schedule page and a factory's Seats tab open the SAME editor
@@ -190,7 +192,7 @@ export function ScheduleEditor({
       const [dirs, env] = await Promise.all([getFleetDirectors(), getSessionsEnvelope()]);
       setDirectors(dirs);
       setSessions(env.sessions);
-      setMachineErrors(env.machineErrors);
+      setMachineErrors(env.machineErrors); // error-report-exempt: the Gateway's own list of unreachable machines, data it already holds, not a failure here
       setDirectorReach(env.directors);
     } catch {
       /* the picker degrades to "no machines known" rather than blocking the form */
@@ -287,7 +289,7 @@ export function ScheduleEditor({
       await onSaved(saved);
     } catch (err) {
       // Surface the Gateway's message (incl. a 400 for an invalid cron) inline in the form.
-      setFormError(gatewayErrorMessage(err));
+      setFormError(describeAndReport(SURFACE, "save the schedule", err));
     } finally {
       setSaving(false);
     }

@@ -7,9 +7,11 @@ import {
   setWorkflowEnabled,
   type WorkflowDefinition,
 } from "@devthrottle/client-core/workflows/workflowsClient";
-import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import { markdownToHtml } from "@devthrottle/client-core/history/historyMarkdown";
 import { Button, ConfirmDialog, ErrorBanner, LoadingState } from "../components";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-workflow-detail";
 
 // One workflow, in full (Workflows mission, phase 7). The list row answered "what exists"; this page
 // answers "what does it actually say": the metadata and step summary up top (the machine-readable
@@ -47,7 +49,7 @@ export function WorkflowDetail() {
         setError(null);
       } catch (err) {
         if (signal?.aborted === true || gen !== loadGen.current) return;
-        setError(gatewayErrorMessage(err));
+        setError(describeAndReport(SURFACE, "load the workflow", err));
       }
     },
     [id],
@@ -65,7 +67,7 @@ export function WorkflowDetail() {
     try {
       await setWorkflowEnabled(id, enabled, "cockpit");
     } catch (err) {
-      setError(gatewayErrorMessage(err));
+      setError(describeAndReport(SURFACE, enabled ? "turn the workflow on" : "turn the workflow off", err));
       return;
     }
     await load();
@@ -199,7 +201,7 @@ export function WorkflowDetail() {
             const clone = await cloneWorkflow(id, `${id}-copy`, "cockpit");
             navigate(`/workflows/${encodeURIComponent(clone.id)}`);
           } catch (err) {
-            setError(gatewayErrorMessage(err));
+            setError(describeAndReport(SURFACE, "clone the workflow", err));
           }
         }}
         onClose={() => setPendingClone(false)}

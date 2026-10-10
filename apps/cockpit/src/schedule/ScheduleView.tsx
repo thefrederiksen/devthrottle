@@ -13,7 +13,6 @@ import {
 } from "@devthrottle/client-core/schedule/scheduleClient";
 import { LoadStrip, machineShown, resolveHourPick } from "./LoadStrip";
 import { ScheduleEditor, type ScheduleEditorRequest } from "./ScheduleEditor";
-import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import { getGatewaySettings } from "@devthrottle/client-core/settings/settingsClient";
 import { useVisiblePolling } from "@devthrottle/client-core/polling/useVisiblePolling";
 import { clockLabel, relativeTime, repoBasename } from "../fleet/format";
@@ -43,6 +42,9 @@ import {
   scheduleListOf,
   type ScheduleList,
 } from "./scheduleFormat";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-schedule";
 
 // The Schedule page (issue #976, epic #967) - the React port of the Blazor Cockpit Schedule.razor
 // (issue #488). The human's window into cron jobs: a pure CLIENT of the Gateway's /cron/jobs surface
@@ -118,7 +120,7 @@ export function ScheduleView() {
       }
     } catch (err) {
       if (signal?.aborted === true) return;
-      setLastError(gatewayErrorMessage(err));
+      setLastError(describeAndReport(SURFACE, "read the schedules", err, { background: true }));
     }
   }, []);
 
@@ -133,7 +135,7 @@ export function ScheduleView() {
       setLoadError(null);
     } catch (err) {
       if (signal?.aborted === true) return;
-      setLoadError(gatewayErrorMessage(err));
+      setLoadError(describeAndReport(SURFACE, "read the schedule forecast", err, { background: true }));
     }
   }, []);
   useVisiblePolling(refreshLoad, LOAD_POLL_MS);
@@ -191,7 +193,7 @@ export function ScheduleView() {
         await refresh();
         setRuns(await getCronRuns(job.id));
       } catch (err) {
-        setActionError(`Run now failed: ${gatewayErrorMessage(err)}`);
+        setActionError(`Run now failed: ${describeAndReport(SURFACE, "run the schedule now", err)}`);
       }
     },
     [refresh],
@@ -226,7 +228,7 @@ export function ScheduleView() {
         await refresh();
         await refreshLoad();
       } catch (err) {
-        setActionError(`Toggle failed: ${gatewayErrorMessage(err)}`);
+        setActionError(`Toggle failed: ${describeAndReport(SURFACE, job.enabled ? "pause the schedule" : "resume the schedule", err)}`);
       }
     },
     [refresh, refreshLoad],

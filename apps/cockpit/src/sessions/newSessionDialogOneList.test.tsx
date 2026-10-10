@@ -30,7 +30,10 @@ vi.mock("@devthrottle/client-core/api/client", () => ({
   getAgents: () => Promise.resolve([]),
   createSession: (...args: unknown[]) => createSessionMock(...args),
   addRepo: (...args: unknown[]) => addRepoMock(...args),
-  gatewayErrorMessage: (err: unknown) => String(err),
+}));
+// describeAndReport is the one way an error reaches the screen (and the Gateway); here it only has to say the error.
+vi.mock("@devthrottle/client-core/errors/reportClientError", () => ({
+  describeAndReport: (_surface: string, _action: string, err: unknown) => String(err),
 }));
 
 import {

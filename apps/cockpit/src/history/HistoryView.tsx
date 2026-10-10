@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import { durationFromMs } from "@devthrottle/client-core/sessions/waiting";
 import {
   getWorkHistoryReport,
@@ -17,6 +16,9 @@ import {
   type LineageNode,
 } from "@devthrottle/client-core/history/lineage";
 import { ErrorBanner, LoadingState, PageHeader } from "../components";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-work-history";
 
 // The History page (issue #2194): "what have I been working on?" answered from the Gateway's durable
 // per-session record, over a range you pick, grouped by repository and day with the individual sessions
@@ -154,7 +156,7 @@ export function HistoryView() {
       setReport(result);
       setError(null);
     } catch (err) {
-      if (signal?.aborted !== true) setError(gatewayErrorMessage(err));
+      if (signal?.aborted !== true) setError(describeAndReport(SURFACE, "load the work history", err));
     }
   }, []);
 

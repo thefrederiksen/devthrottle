@@ -51,6 +51,9 @@ import { showsSupervision, showsTags, useDensity } from "@devthrottle/client-cor
 import { SessionMenu } from "./SessionMenu";
 import { CrewLine } from "./CrewLine";
 import { RestartRequestsPanel } from "@devthrottle/client-core/restart/RestartRequestsPanel";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-roster";
 
 // The fleet-wide session roster (issue #972) - the React port of the Blazor SessionRail. It lists
 // EVERY session the Gateway roster aggregation (GET /sessions) returns, across every Director, with
@@ -290,7 +293,7 @@ function VoiceAllButton({ sessions }: { sessions: SessionDto[] }) {
       const changedLabel = `${result.changed} ${result.changed === 1 ? "session" : "sessions"} ${enable ? "on" : "off"}`;
       setNote(result.skipped > 0 ? `${changedLabel}, ${result.skipped} skipped (computer offline)` : changedLabel);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not change voice mode for all sessions");
+      setError(describeAndReport(SURFACE, enable ? "turn voice mode on for all sessions" : "turn voice mode off for all sessions", err));
     } finally {
       setBusy(false);
     }

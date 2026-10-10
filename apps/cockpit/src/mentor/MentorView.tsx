@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import { useCurrentTeam } from "@devthrottle/client-core/teams/CurrentTeam";
 import {
   getMentorPage,
@@ -13,6 +12,9 @@ import {
 import { Button, EmptyState, ErrorBanner, LoadingState, PageHeader } from "../components";
 import { NotFound } from "../panes/NotFound";
 import "./mentor.css";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-mentor";
 
 // THE MENTOR'S WEEKLY PAGE for the current team (devthrottle_internal#2305, screens S6 and S7).
 //
@@ -103,7 +105,7 @@ function MentorWeekPage({ load }: { load: LoadWeek }) {
       },
       (err: unknown) => {
         if (controller.signal.aborted) return;
-        setRead({ state: "failed", message: gatewayErrorMessage(err, "read the Mentor page") });
+        setRead({ state: "failed", message: describeAndReport(SURFACE, "read the Mentor page", err) });
       },
     );
     return () => controller.abort();

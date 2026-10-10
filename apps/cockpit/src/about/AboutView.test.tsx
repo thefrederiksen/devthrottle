@@ -11,8 +11,9 @@ const getAboutMock = vi.fn();
 vi.mock("@devthrottle/client-core/about/aboutClient", () => ({
   getAbout: (...args: unknown[]) => getAboutMock(...args),
 }));
-vi.mock("@devthrottle/client-core/api/client", () => ({
-  gatewayErrorMessage: (e: unknown) => String(e),
+// describeAndReport is the one way an error reaches the screen (and the Gateway); here it only has to say the error.
+vi.mock("@devthrottle/client-core/errors/reportClientError", () => ({
+  describeAndReport: (_surface: string, _action: string, err: unknown) => String(err),
 }));
 
 import { AboutView, formatBundle, formatUptime } from "./AboutView";

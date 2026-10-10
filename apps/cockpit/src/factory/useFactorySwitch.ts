@@ -1,5 +1,10 @@
 import { useEffect, useState } from "react";
 import { getFactoryAgentsSwitch, type FactoryAgentsSwitch } from "@devthrottle/client-core/factory/factoryAgentsClient";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-factory-switch";
+const MISSING_HOW_TO_START =
+  "the Gateway says Factories is off, but did not say how to start it. This is a fault in the Gateway; please report it.";
 
 // Whether the Factory Agents area is on FOR THE SIGNED-IN ACCOUNT. The GATEWAY decides (its machine switch in
 // config.json, or this account's own switch set by an administrator) and tells the Cockpit; the Cockpit never
@@ -33,18 +38,27 @@ export function resetFactorySwitchCache(): void {
 
 // `enabled` false asks nothing (a Collaborator's three pages have no Factory Agents rail entry; devthrottle_internal
 // #2306, review finding F2).
-export function useFactorySwitch(enabled = true): { state: FactorySwitchState; howToStart: string | null; error: unknown } {
+// `error` is the sentence to show, already reported when the failure was caught - so a page that re-renders never
+// reports the same failure twice.
+export function useFactorySwitch(enabled = true): { state: FactorySwitchState; howToStart: string | null; error: string | null } {
   const [answer, setAnswer] = useState<FactoryAgentsSwitch | null>(null);
-  const [error, setError] = useState<unknown>(null);
+  const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (!enabled) return undefined;
     let live = true;
     load().then(
       (s) => {
-        if (live) setAnswer(s);
+        if (!live) return;
+        // The Gateway's contract is a sentence with every "off". Without one that is a fault in the Gateway the user
+        // is looking at, so it is shown as an error and reported like one.
+        if (!s.enabled && s.howToStart === null) {
+          setError(describeAndReport(SURFACE, "read how to start Factories", new Error(MISSING_HOW_TO_START)));
+          return;
+        }
+        setAnswer(s);
       },
       (err: unknown) => {
-        if (live) setError(err);
+        if (live) setError(describeAndReport(SURFACE, "ask the Gateway whether Factories is on", err));
       },
     );
     return () => {

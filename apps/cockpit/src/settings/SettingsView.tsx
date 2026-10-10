@@ -5,7 +5,7 @@ import { tabFromParam, type TabContext, type TabId } from "@devthrottle/client-c
 import { useAccounts } from "@devthrottle/client-core/auth/useAccounts";
 import { useCurrentTeam } from "@devthrottle/client-core/teams/CurrentTeam";
 import { getTeamPage } from "@devthrottle/client-core/teams/teamPageClient";
-import { GatewayError, gatewayErrorMessage } from "@devthrottle/client-core/api/client";
+import { GatewayError } from "@devthrottle/client-core/api/client";
 import { ErrorBanner, LoadingState } from "../components";
 import { InjectedTextTab } from "./InjectedTextTab";
 import { useSuggestionCount } from "../dictionary/useSuggestionCount";
@@ -18,6 +18,9 @@ import { TranscriptionHealthView } from "../transcription/TranscriptionHealthVie
 import { TeamPageView } from "../team/TeamPageView";
 import { InviteView } from "../team/InviteView";
 import { TeamGovernanceView } from "../team/TeamGovernanceView";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-settings";
 
 // The Cockpit Settings page (issue #1025, epic #967) - the React port of the retired Blazor
 // wwwroot/pages/settings.html.
@@ -72,7 +75,7 @@ function useTeamPlanAnswer(teamId: string | null): { answer: TeamPlanAnswer | nu
         setHeld({
           teamId,
           attempt,
-          answer: refused ? { kind: "not-offered" } : { kind: "unknown", error: gatewayErrorMessage(err, "read the team's plan") },
+          answer: refused ? { kind: "not-offered" } : { kind: "unknown", error: describeAndReport(SURFACE, "read the team's plan", err) },
         });
       },
     );

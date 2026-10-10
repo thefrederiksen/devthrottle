@@ -19,9 +19,11 @@ import {
   addMistranscriptionVariant,
   addVocabularyWord,
 } from "@devthrottle/client-core/dictation/dictionaryEdits";
-import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import { ConfirmDialog } from "../components";
 import { suggestionsChanged } from "./useSuggestionCount";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-dictionary";
 
 // The dictation Dictionary editor (issue #977, epic #967) - the React port of the Blazor Cockpit
 // Dictionary.razor (#183). The human edits the vocabulary chips and the common-mistranscriptions
@@ -106,8 +108,8 @@ export function DictionaryView() {
       try {
         const d = await getDictionary();
         if (!cancelled) setDict(d);
-      } catch {
-        if (!cancelled) setError("Failed to load. Is the Gateway running?");
+      } catch (err) {
+        if (!cancelled) setError(describeAndReport(SURFACE, "load the dictionary", err));
       }
     })();
     return () => {
@@ -123,7 +125,7 @@ export function DictionaryView() {
     setSuggestions(result.suggestions);
     setScannedAtUtc(result.scannedAtUtc);
     setScreeningOk(result.screeningOk);
-    setScreeningError(result.screeningError);
+    setScreeningError(result.screeningError); // error-report-exempt: the Gateway's own verdict on its screening step, carried in its answer; nothing failed here
     setSelected((prev) => {
       const next: Record<string, boolean> = {};
       for (const s of result.suggestions) next[s.term] = prev[s.term] ?? true;
@@ -272,7 +274,7 @@ export function DictionaryView() {
       applyScanResult(await scanSuggestions());
       setSuggestMsg("");
     } catch (err) {
-      setSuggestMsg(`scan failed: ${gatewayErrorMessage(err)}`);
+      setSuggestMsg(`scan failed: ${describeAndReport(SURFACE, "scan your recent dictations", err)}`);
     } finally {
       setScanning(false);
     }
@@ -300,7 +302,7 @@ export function DictionaryView() {
       if (clearMsgTimer.current !== null) window.clearTimeout(clearMsgTimer.current);
       clearMsgTimer.current = window.setTimeout(() => setSuggestMsg(""), 4000);
     } catch (err) {
-      setSuggestMsg(`add failed: ${gatewayErrorMessage(err)}`);
+      setSuggestMsg(`add failed: ${describeAndReport(SURFACE, "add the suggested words", err)}`);
     } finally {
       setSuggestBusy(false);
     }
@@ -315,7 +317,7 @@ export function DictionaryView() {
       suggestionsChanged();
       await Promise.all([refreshSuggestions(), refreshDismissed()]);
     } catch (err) {
-      setSuggestMsg(`dismiss failed: ${gatewayErrorMessage(err)}`);
+      setSuggestMsg(`dismiss failed: ${describeAndReport(SURFACE, "dismiss the suggestion", err)}`);
     } finally {
       setSuggestBusy(false);
     }
@@ -330,7 +332,7 @@ export function DictionaryView() {
       suggestionsChanged();
       await Promise.all([refreshSuggestions(), refreshDismissed()]);
     } catch (err) {
-      setSuggestMsg(`restore failed: ${gatewayErrorMessage(err)}`);
+      setSuggestMsg(`restore failed: ${describeAndReport(SURFACE, "restore the suggestion", err)}`);
     } finally {
       setSuggestBusy(false);
     }
@@ -350,7 +352,7 @@ export function DictionaryView() {
       if (clearMsgTimer.current !== null) window.clearTimeout(clearMsgTimer.current);
       clearMsgTimer.current = window.setTimeout(() => setSaveMsg((m) => (m === "Saved" ? "" : m)), 4000);
     } catch (err) {
-      setSaveMsg(`save failed: ${gatewayErrorMessage(err)}`);
+      setSaveMsg(`save failed: ${describeAndReport(SURFACE, "save the dictionary", err)}`);
     } finally {
       setSaving(false);
     }

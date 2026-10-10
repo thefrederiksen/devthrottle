@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import {
   cancelInvitation,
   getInviteOptions,
@@ -14,6 +13,9 @@ import {
 import { Button, ConfirmDialog, ErrorBanner, LoadingState, PageHeader } from "../components";
 import { InvitationLinkPanel } from "./InvitationLinkPanel";
 import "./team.css";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-team-invite";
 
 // Screen S2, "Invite someone" (devthrottle_internal#2301), with the team's waiting invitations beneath it so resending
 // is the one action the owner decided it should be.
@@ -60,7 +62,7 @@ export function InviteView({ teamId }: { teamId: string }) {
         ?? opts.roles.find((r) => r.allowed)?.role ?? null);
     } catch (err) {
       if (signal?.aborted) return;
-      setLoadError(gatewayErrorMessage(err, "load the invite form"));
+      setLoadError(describeAndReport(SURFACE, "load the invite form", err));
     }
   }, [teamId]);
 
@@ -81,7 +83,7 @@ export function InviteView({ teamId }: { teamId: string }) {
       setEmail("");
       setInvitations(await listInvitations(teamId));
     } catch (err) {
-      setSendError(gatewayErrorMessage(err, "send the invitation"));
+      setSendError(describeAndReport(SURFACE, "send the invitation", err));
     } finally {
       setSending(false);
     }
@@ -99,7 +101,7 @@ export function InviteView({ teamId }: { teamId: string }) {
       setRowLink(result.link);
       setInvitations(await listInvitations(teamId));
     } catch (err) {
-      setRowNote(gatewayErrorMessage(err, "resend the invitation"));
+      setRowNote(describeAndReport(SURFACE, "resend the invitation", err));
     } finally {
       setRowBusy(null);
     }

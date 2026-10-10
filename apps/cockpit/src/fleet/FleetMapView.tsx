@@ -54,6 +54,9 @@ import { CrewLine } from "../sessions/CrewLine";
 import { NewSessionDialog } from "../sessions/NewSessionDialog";
 import { useCurrentTeam } from "@devthrottle/client-core/teams/CurrentTeam";
 import { TeamFleetMapView } from "./TeamFleetMapView";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-fleet-map";
 
 // Per-Director reachability for the Online / Wobbly / Offline node rendering (issue #1215), provided at
 // the Fleet Map root and read by each NodeCard so the cards dim in place without prop-drilling.
@@ -366,7 +369,7 @@ function OwnFleetMapView() {
         // session on it, but it CANNOT show the empty ones - and a short list that looks complete is
         // exactly the kind of quiet wrong answer this screen was rebuilt to stop telling.
         if (cancelled) return;
-        setMissionsError(e instanceof Error ? e.message : "The mission list could not be loaded.");
+        setMissionsError(describeAndReport(SURFACE, "load the mission list", e));
       });
     return () => {
       cancelled = true;

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { GatewayError, gatewayErrorMessage } from "@devthrottle/client-core/api/client";
+import { GatewayError } from "@devthrottle/client-core/api/client";
 import {
   changeTeamGovernance,
   getTeamGovernance,
@@ -10,6 +10,9 @@ import {
 } from "@devthrottle/client-core/teams/governanceClient";
 import { Button, ErrorBanner, LoadingState, PageHeader } from "../components";
 import "./team.css";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-team-rules";
 
 // The team's Governance tab (Teams v1; owner, 8 Oct 2026: "under the team, we really need a new tab called Governance").
 // Six sections, as the approved mockup lays them out: Review, Required skills and workflows, Agents members may run, Who
@@ -38,8 +41,8 @@ export function TeamGovernanceView({ teamId }: { teamId: string }) {
     } catch (err) {
       if (signal?.aborted) return;
       // A 403 is the Gateway saying this role has no Governance tab; it is an answer, not a failure to retry.
-      if (err instanceof GatewayError && err.status === 403) setRefused(gatewayErrorMessage(err, "load the team's rules"));
-      else setLoadError(gatewayErrorMessage(err, "load the team's rules"));
+      if (err instanceof GatewayError && err.status === 403) setRefused(describeAndReport(SURFACE, "load the team's rules", err));
+      else setLoadError(describeAndReport(SURFACE, "load the team's rules", err));
     }
   }, [teamId]);
 
@@ -55,7 +58,7 @@ export function TeamGovernanceView({ teamId }: { teamId: string }) {
     try {
       setView(await changeTeamGovernance(teamId, change));
     } catch (err) {
-      setError(gatewayErrorMessage(err, "change the team's rules"));
+      setError(describeAndReport(SURFACE, "change the team's rules", err));
     } finally {
       setBusy(false);
     }

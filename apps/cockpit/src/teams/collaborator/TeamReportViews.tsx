@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import { DevReportViewer } from "@devthrottle/client-core/devreports/DevReportViewer";
 import { useVisiblePolling } from "@devthrottle/client-core/polling/useVisiblePolling";
 import {
@@ -17,6 +16,9 @@ import {
 import { Button, ErrorBanner, LoadingState } from "../../components";
 import { dateAndTime, TEAM_REPORTS_POLL_MS } from "./teamReportFormat";
 import "./collaborator.css";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-team-report";
 
 // ONE REPORT OPEN ON THE TEAM'S REPORTS PAGE (devthrottle_internal#2309). The report itself is the SAME viewer the
 // owner reads their reports in - the same frame host and the same trust rules (CONTRACT.md section 4) - fed from the
@@ -92,7 +94,7 @@ export function ReceivedReportView({ teamId, reportId, onBack }: ViewProps) {
         setError(null);
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return;
-        setError(gatewayErrorMessage(err, "load the report"));
+        setError(describeAndReport(SURFACE, "load the report", err));
       }
     },
     [teamId, reportId],
@@ -112,7 +114,7 @@ export function ReceivedReportView({ teamId, reportId, onBack }: ViewProps) {
       .then(() => {
         markedVersion.current = version;
       })
-      .catch((err: unknown) => setError(gatewayErrorMessage(err, "mark the report read")))
+      .catch((err: unknown) => setError(describeAndReport(SURFACE, "mark the report read", err)))
       .finally(() => {
         if (markingVersion.current === version) markingVersion.current = null;
       });
@@ -126,7 +128,7 @@ export function ReceivedReportView({ teamId, reportId, onBack }: ViewProps) {
       setDetail((d) => (d === null ? d : { ...d, comments: [...d.comments, comment] }));
       setDraft("");
     } catch (err) {
-      setSendError(gatewayErrorMessage(err, "send the comment"));
+      setSendError(describeAndReport(SURFACE, "send the comment", err));
       // The Gateway may have closed the comments since the page last read it (the author left the team, or can no
       // longer open their reports): read its answer again so the page says so and offers no box.
       void getReportSentToMe(teamId, reportId).then((next) => {
@@ -228,7 +230,7 @@ export function OwnTeamReportView({ teamId, reportId, onBack }: ViewProps) {
         setError(null);
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return;
-        setError(gatewayErrorMessage(err, "load the report"));
+        setError(describeAndReport(SURFACE, "load the report", err));
       }
     },
     [teamId, reportId],
@@ -250,7 +252,7 @@ export function OwnTeamReportView({ teamId, reportId, onBack }: ViewProps) {
       setDetail(await sendMyTeamReport(teamId, reportId, chosen, shownVersion));
       setChosen([]);
     } catch (err) {
-      setSendError(gatewayErrorMessage(err, "send the report"));
+      setSendError(describeAndReport(SURFACE, "send the report", err));
       void getMyTeamReport(teamId, reportId).then((next) => {
         if (next !== null) setDetail(next);
       });

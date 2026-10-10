@@ -177,7 +177,7 @@ function ScmHeaderBody({
   if (snapshot.status !== "ok") {
     // "git_failed" (or any future non-ok status): show the error detail, never a silent blank.
     return (
-      <div className="scm-state scm-state-error" role="alert">
+      <div className="scm-state scm-state-error" role="alert" /* error-report-exempt: git's own failure on the session's machine, carried in the Director's answer; nothing failed in the Cockpit */>
         <span className="scm-state-title">git failed</span>
         <span className="scm-state-detail">{snapshot.error ?? "git could not read this repository."}</span>
       </div>

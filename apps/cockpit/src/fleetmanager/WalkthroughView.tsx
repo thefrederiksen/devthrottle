@@ -9,12 +9,11 @@ import {
 } from "@devthrottle/client-core/fleetmanager/walkthroughClient";
 import {
   answerWalkthroughItem,
-  sentenceOf,
   snoozeWalkthroughItem,
   type WalkthroughActionDeps,
   type WalkthroughActResult,
 } from "@devthrottle/client-core/fleetmanager/walkthroughActions";
-import { errorFacts, reportClientError } from "@devthrottle/client-core/errors/reportClientError";
+import { describeAndReport, reportClientError } from "@devthrottle/client-core/errors/reportClientError";
 import { useVisiblePolling } from "@devthrottle/client-core/polling/useVisiblePolling";
 import { Button, ConfirmDialog } from "../components";
 import { OutcomeCard } from "./OutcomeCard";
@@ -71,8 +70,7 @@ export function WalkthroughView({ deps }: WalkthroughViewProps) {
       return next;
     } catch (err) {
       if (signal?.aborted) return null;
-      setLoadError(sentenceOf(err));
-      reportClientError({ surface: SURFACE, action: "read the walkthrough", message: sentenceOf(err), user_visible: true, ...errorFacts(err) });
+      setLoadError(describeAndReport(SURFACE, "read the walkthrough", err));
       return null;
     }
   }, []);
@@ -470,7 +468,7 @@ function SessionScreen({ sessionId, lines, loadingText, label }: { sessionId: st
           setText(await readSessionLines(sessionId, lines, signal));
           setError(null);
         } catch (err) {
-          if (!signal.aborted) setError(sentenceOf(err));
+          if (!signal.aborted) setError(describeAndReport(SURFACE, "read the session's screen", err, { sessionId, background: true }));
         }
       },
       [sessionId, lines],

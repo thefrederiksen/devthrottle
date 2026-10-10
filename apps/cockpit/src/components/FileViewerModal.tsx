@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { classifyFile, formatFileSize } from "@devthrottle/client-core/history/fileTypes";
 import type { FileViewerType } from "@devthrottle/client-core/history/fileTypes";
 import {
-  GatewayError,
   ensureGatewayCookie,
   fetchSessionFileSize,
   fetchSessionFileText,
@@ -11,6 +10,11 @@ import {
 import { markdownToHtml } from "@devthrottle/client-core/history/historyMarkdown";
 import { Button } from "./Button";
 import { useDismissOnBackdrop } from "./useDismissOnBackdrop";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-file-viewer";
+// An <img> that fails to load says nothing about why; the Gateway's answer is not readable from it.
+const IMAGE_DID_NOT_LOAD = "the image did not load. The file may be missing (404) or the session's machine offline.";
 
 // Local Files mission (Phase 2): the Cockpit file viewer. A clicked file path - in the Chat tab or in
 // the terminal - opens this modal, which renders the file IN PLACE by type, streamed from the owning
@@ -42,18 +46,6 @@ export interface FileViewerModalProps {
 function baseName(path: string): string {
   const segments = path.replace(/\\/g, "/").split("/");
   return segments[segments.length - 1] || path;
-}
-
-// Turn a file-load failure into a specific, human message. A 404 is a missing file; a 503 is the
-// owning session's machine being offline (the Gateway could not reach the Director). Anything else
-// shows its status so the failure is never mistaken for an empty file.
-function fileLoadMessage(err: unknown): string {
-  if (err instanceof GatewayError) {
-    if (err.status === 404) return "Could not load file: not found (404). It may have been moved or deleted.";
-    if (err.status === 503) return "Could not load file: the session's machine is offline (503).";
-    return `Could not load file: ${err.status}`;
-  }
-  return `Could not load file: ${err instanceof Error ? err.message : String(err)}`;
 }
 
 export function FileViewerModal({ sessionId, path, onClose }: FileViewerModalProps) {
@@ -113,7 +105,7 @@ function FileViewerContent(props: {
   const { type, url, name, sessionId, path } = props;
   switch (type) {
     case "image":
-      return <ImageFile url={url} name={name} />;
+      return <ImageFile sessionId={sessionId} url={url} name={name} />;
     case "pdf":
       return <iframe className="file-viewer-frame" src={url} title={name} />;
     case "html":
@@ -158,7 +150,7 @@ function DownloadPanel({
       .then((bytes) => setSize(bytes))
       .catch((err) => {
         if (controller.signal.aborted) return;
-        setError(fileLoadMessage(err));
+        setError(describeAndReport(SURFACE, "read the file's size", err, { sessionId }));
       });
     return () => controller.abort();
   }, [sessionId, path]);
@@ -178,18 +170,17 @@ function DownloadPanel({
 
 // An image renders directly from the Gateway URL. A failed load (missing file / offline machine) shows
 // a specific message rather than a broken-image icon, keeping the fail-loud contract for this mode too.
-function ImageFile({ url, name }: { url: string; name: string }) {
-  const [failed, setFailed] = useState(false);
-  if (failed) {
-    return (
-      <div className="file-viewer-error">
-        Could not load image. The file may be missing (404) or the session's machine offline.
-      </div>
-    );
-  }
+function ImageFile({ sessionId, url, name }: { sessionId: string; url: string; name: string }) {
+  const [failed, setFailed] = useState<string | null>(null);
+  if (failed !== null) return <div className="file-viewer-error">{failed}</div>;
   return (
     <div className="file-viewer-scroll">
-      <img className="file-viewer-image" src={url} alt={name} onError={() => setFailed(true)} />
+      <img
+        className="file-viewer-image"
+        src={url}
+        alt={name}
+        onError={() => setFailed(describeAndReport(SURFACE, "show the image", new Error(IMAGE_DID_NOT_LOAD), { sessionId }))}
+      />
     </div>
   );
 }
@@ -216,7 +207,7 @@ function TextFile({
       .then((t) => setText(t))
       .catch((err) => {
         if (controller.signal.aborted) return;
-        setError(fileLoadMessage(err));
+        setError(describeAndReport(SURFACE, "open the file", err, { sessionId }));
       });
     return () => controller.abort();
   }, [sessionId, path]);

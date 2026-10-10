@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import {
   deleteFactoryMemoryNote,
   FactoryMemoryRefusal,
@@ -13,6 +12,9 @@ import {
   type FactoryMemoryNote,
 } from "@devthrottle/client-core/factory/factoryMemoryClient";
 import { Button, ConfirmDialog, EmptyState, ErrorBanner, LoadingState } from "../components";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-factory-memory";
 
 // The factory page's Memory tab (Factory Memory mission, phase 3b, section 5.5). What the factory's sessions have
 // learned, as small named notes, and the owner's five things to do with them: read one, correct it, delete it,
@@ -90,7 +92,7 @@ export function FactoryMemoryTab({ factory }: FactoryMemoryTabProps) {
     const ctrl = new AbortController();
     setListError(null);
     listFactoryMemory(factory, ctrl.signal).then(setList, (err: unknown) => {
-      if (!ctrl.signal.aborted) setListError(gatewayErrorMessage(err, "read this factory's memory"));
+      if (!ctrl.signal.aborted) setListError(describeAndReport(SURFACE, "read this factory's memory", err));
     });
     return () => ctrl.abort();
   }, [factory, listNonce]);
@@ -102,7 +104,7 @@ export function FactoryMemoryTab({ factory }: FactoryMemoryTabProps) {
       try {
         setHistory(await getFactoryMemoryHistory(factory, name));
       } catch (err) {
-        setHistoryError(gatewayErrorMessage(err, "read this note's history"));
+        setHistoryError(describeAndReport(SURFACE, "read this note's history", err));
       }
     },
     [factory],
@@ -122,7 +124,7 @@ export function FactoryMemoryTab({ factory }: FactoryMemoryTabProps) {
         setNote(await getFactoryMemoryNote(factory, wanted));
       } catch (err) {
         setNote(null);
-        setNoteError(gatewayErrorMessage(err, `open the note '${wanted}'`));
+        setNoteError(describeAndReport(SURFACE, "open the note", err));
       } finally {
         setOpening(null);
       }
@@ -156,7 +158,7 @@ export function FactoryMemoryTab({ factory }: FactoryMemoryTabProps) {
           // it, and the next save is made against it only when he says so.
           setConflict(err.current);
         } else {
-          setSaveError(gatewayErrorMessage(err, "save this note"));
+          setSaveError(describeAndReport(SURFACE, "save this note", err));
         }
       } finally {
         setSaving(false);
@@ -291,7 +293,7 @@ export function FactoryMemoryTab({ factory }: FactoryMemoryTabProps) {
                     rows={12}
                   />
                   {conflict !== null && (
-                    <div className="fa-memory-conflict" role="alert" data-testid="fa-memory-conflict">
+                    <div className="fa-memory-conflict" role="alert" data-testid="fa-memory-conflict" /* error-report-exempt: someone else saved the note first; the newer text is shown beside the owner's, nothing failed */>
                       <p>
                         {conflict.deleted
                           ? `This note was deleted since you opened it: version ${conflict.version}, by ${authorText(conflict)}, ${writtenText(conflict.writtenAtUtc)}. Your text is still in the box. Saving brings the note back with it.`
