@@ -357,6 +357,9 @@ public static class SessionKeyGuard
                 case "gateway/director-errors":
                 // The same errors, one row per problem (issue #3675). The same account scoping as the list.
                 case "gateway/director-errors/groups":
+                // The machines that can receive a secret (the Secret Handoff mission, issue #2943): machine names and
+                // PUBLIC keys only, what `cc-secrets machines` and `cc-secrets request` read inside a session.
+                case "gateway/secrets/machines":
                     return true;
             }
 

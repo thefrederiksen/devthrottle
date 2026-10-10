@@ -81,8 +81,10 @@ public sealed class DirectorHub : Hub
         Messaging.FleetMessageLinkStore? messageLinks = null,
         Messaging.FleetMessageLinkRecord? messageLinkRecord = null,
         Fleet.FleetManagerLessonsObserver? fleetManagerLessons = null,
-        Teams.TeamCallerOwnership? teamOwnership = null)
+        Teams.TeamCallerOwnership? teamOwnership = null,
+        Secrets.SecretMachineRegistry? secretMachines = null)
     {
+        _secretMachines = secretMachines;
         _fleetManagerLessons = fleetManagerLessons;
         _teamOwnership = teamOwnership;
         _voiceAnswers = voiceAnswers;
@@ -158,6 +160,8 @@ public sealed class DirectorHub : Hub
     /// <summary>Which connected Directors send their conversations - learned here, from Hello.</summary>
     private readonly TurnPushCapabilityRegistry? _turnPushCapabilities;
     private readonly FleetManagerHomeCapabilityRegistry? _fleetManagerHomeCapabilities;
+    /// <summary>The machines that can receive a secret (the Secret Handoff mission) - learned here, from Hello.</summary>
+    private readonly Secrets.SecretMachineRegistry? _secretMachines;
 
     /// <summary>
     /// A full repository/worktree snapshot from the bound Director (repositories mission, #510
@@ -390,6 +394,7 @@ public sealed class DirectorHub : Hub
         // or a newer Director, and a stale answer here would put the wrong sentence on an empty Chat screen.
         _turnPushCapabilities?.Record(tenant, directorId, hello.PushesTurns, hello.ChecksIdleBeforeTyping);
         _fleetManagerHomeCapabilities?.Record(tenant, directorId, hello.CreatesFleetManagerHome, hello.ChangesOwnerIfExpected);
+        _secretMachines?.Record(tenant, directorId, hello.MachineName, hello.SecretTransferPublicKey, DateTime.UtcNow);
         FileLog.Write($"[DirectorHub] Hello: director={directorId} bound to conn={Short(Context.ConnectionId)} (version={hello.Version}, machine={hello.MachineName})");
         return CapabilitiesFor(tenant, directorId);
     }

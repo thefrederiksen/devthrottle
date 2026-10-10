@@ -1062,6 +1062,9 @@ public sealed class GatewayHost : IAsyncDisposable
     /// Director's Hello without connecting one.</summary>
     internal Streaming.TurnPushCapabilityRegistry TurnPushCapabilities => _turnPushCapabilities;
     private readonly Streaming.FleetManagerHomeCapabilityRegistry _fleetManagerHomeCapabilities = new();
+    /// <summary>The machines that can receive a secret (the Secret Handoff mission), from each Director's Hello.
+    /// Exposed for the host tests, which stand in for a Director's Hello without connecting one.</summary>
+    internal Secrets.SecretMachineRegistry SecretMachines { get; } = new();
     private readonly History.SessionHistoryRecorder _sessionHistoryRecorder;
     private History.SessionHistorySweep? _sessionHistorySweep;
     private System.Threading.Timer? _sessionHistoryTimer;
@@ -4063,6 +4066,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // Which Directors say they send conversations - recorded at Hello, read when Chat finds nothing stored.
         builder.Services.AddSingleton(_turnPushCapabilities);
         builder.Services.AddSingleton(_fleetManagerHomeCapabilities);
+        builder.Services.AddSingleton(SecretMachines);
         // Gateway Cleanup mission (Wave 4b): the Gateway-native mission store, so the mission endpoints and
         // spawn validation share the one instance.
         builder.Services.AddSingleton(Missions);
@@ -5285,6 +5289,13 @@ public sealed class GatewayHost : IAsyncDisposable
             record: MessageLinkRecord,
             findSession: (tenant, sid) => GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, sid),
             notify: notifyOfLink,
+            nowUtc: () => DateTime.UtcNow);
+
+        // The Secret Handoff routes (issue #2943): the machines that can receive a secret, from connected Directors only.
+        SecretTransferEndpoints.Map(_app,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            machines: SecretMachines,
+            isConnected: (tenant, directorId) => PushedSessions.GetActiveConnectionId(tenant, directorId) is not null,
             nowUtc: () => DateTime.UtcNow);
 
         // Requests for a message link (issue #3548): a session asks, the owner - or a raised session - answers. Asking is
