@@ -103,6 +103,23 @@ public sealed class ErrorContextTests
     }
 
     [Fact]
+    public async Task OnLogLine_ContextFields_HaveThisMachinesNameTakenOut()
+    {
+        var (reporter, handler) = NewReporter();
+        var machine = Environment.MachineName;
+
+        using (ErrorContext.Begin(surface: "terminal on " + machine, action: "send a prompt from " + machine))
+        {
+            reporter.OnLogLine("[X] Save FAILED: nope");
+        }
+        await reporter.SendPendingAsync(CancellationToken.None);
+
+        var item = Assert.Single(Sent(handler));
+        Assert.Equal("terminal on " + ErrorTextScrubber.MachinePlaceholder, item.Surface);
+        Assert.Equal("send a prompt from " + ErrorTextScrubber.MachinePlaceholder, item.Action);
+    }
+
+    [Fact]
     public void Begin_Nested_InnerWinsPerFieldAndOuterFieldsAreKept()
     {
         using var outer = ErrorContext.Begin(correlationId: "outer-id", sessionId: "session-a", surface: "phone chat");
