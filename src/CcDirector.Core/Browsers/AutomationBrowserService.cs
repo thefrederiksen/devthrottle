@@ -258,10 +258,31 @@ public static class AutomationBrowserService
         // the last cached probe is seen at the moment it matters.
         var found = BrowserLauncher.DetectBrowsers(forceProbe: true).FirstOrDefault(b => b.Kind == kind);
         if (found is null)
-            throw new InvalidOperationException(
-                $"{kind} is not installed on this machine, so a {kind} automation browser cannot be created.");
+            throw new InvalidOperationException(NotInstalledMessage(kind, BrowserLauncher.CandidatePathsFor(kind)));
         return found;
     }
+
+    /// <summary>
+    /// The "not installed" error, naming every location that was checked - so the person on a machine
+    /// where the browser IS installed can see at once that it lives somewhere we do not look, rather
+    /// than being told only that it is missing.
+    /// </summary>
+    internal static string NotInstalledMessage(BrowserKind kind, IReadOnlyList<string> checkedPaths)
+        => checkedPaths.Count == 0
+            ? $"{kind} cannot be found on this machine: no install locations are known for this operating system, so a {kind} automation browser cannot be created."
+            : $"{kind} is not installed on this machine, so a {kind} automation browser cannot be created. Checked: {string.Join(", ", checkedPaths)}.";
+
+    /// <summary>
+    /// On Linux a browser window needs a display server to draw on, and it finds one through the
+    /// environment it inherits from the Director: <c>DISPLAY</c> for X11, <c>WAYLAND_DISPLAY</c> for
+    /// Wayland. With neither, Chromium exits at once and the launch would otherwise surface only as a
+    /// debug port that never came up twenty seconds later. Returns the problem, or null when there is
+    /// a display to use. Windows and macOS always have one.
+    /// </summary>
+    internal static string? LinuxDisplayProblem(string? display, string? waylandDisplay)
+        => string.IsNullOrEmpty(display) && string.IsNullOrEmpty(waylandDisplay)
+            ? "No display is available to open a browser window: neither DISPLAY nor WAYLAND_DISPLAY is set in the Director's environment. Start the Director from a desktop session, or set DISPLAY to the desktop's display (for example :0)."
+            : null;
 
     /// <summary>
     /// Launch (or, when <paramref name="url"/> is set, open a tab in) the browser with its dedicated
@@ -272,6 +293,14 @@ public static class AutomationBrowserService
     private static void StartProcess(AutomationBrowser browser, string? url)
     {
         var exe = ResolveInstalled(browser.Kind).ExePath;
+        if (OperatingSystem.IsLinux())
+        {
+            var problem = LinuxDisplayProblem(
+                Environment.GetEnvironmentVariable("DISPLAY"),
+                Environment.GetEnvironmentVariable("WAYLAND_DISPLAY"));
+            if (problem is not null)
+                throw new InvalidOperationException($"Cannot start browser \"{browser.Name}\". {problem}");
+        }
         Directory.CreateDirectory(browser.UserDataDir);
 
         var startInfo = new ProcessStartInfo
