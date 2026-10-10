@@ -29,10 +29,11 @@ namespace CcDirector.Gateway.Tests;
 /// no restart, no second construction, no call of any kind. The store has to notice by itself.
 ///
 /// A NEGATIVE CONTROL RIDES ALONG, because "it became available" would also pass against a store that was
-/// never really broken: <see cref="AnObstructedStore_IsUnavailableToBeginWith_AndStaysSoThroughTwoAttempts"/>
-/// holds the obstruction in place and asserts the store stays unavailable and names UNREACHABLE. Delete the
-/// reopen and the claim fails while the control still passes - which is the shape that tells you the claim
-/// is measuring the reopen and not the weather.
+/// never really broken: <see cref="AnObstructedStore_IsUnavailableToBeginWith"/> holds the obstruction in
+/// place and asserts the store is unavailable and names UNREACHABLE, and it needs no loop to pass. Delete the
+/// reopen and the claim fails (and so does <see cref="WhileTheFaultStays_TheLoopKeepsTrying_AndInventsNothing"/>,
+/// which is about the loop) while the control still passes - which is the shape that tells you the claim is
+/// measuring the reopen and not the weather.
 ///
 /// THE CLOCK IS THE TEST'S. The backoff is seconds to a minute per step, and this file once slept through it:
 /// 55 seconds for four tests, the single slowest class in the assembly. The store now waits on an injected
@@ -109,13 +110,11 @@ public sealed class StatsStoreReopensAfterAnUnreachableStoreTests : IDisposable
     /// THE CONTROL. While the obstruction is in place the store is unavailable, and it says UNREACHABLE -
     /// a database problem, not a missing setting and not our own bug. Without this arm, the reopen test
     /// below could pass against a store that opened fine on the first attempt and never retried anything.
-    ///
-    /// AND IT STAYS THAT WAY WHILE THE FAULT STAYS, through two attempts on the clock: the retry must not invent
-    /// a store out of a fault that has not cleared, which is the one way a "it comes back" fix could be worse
-    /// than no fix - and a loop that stopped after the first failure would also be caught here.
+    /// It asks nothing of the loop, on purpose: a control that needs the reopen to pass cannot tell a deleted
+    /// reopen from a broken obstruction.
     /// </summary>
     [Fact]
-    public void AnObstructedStore_IsUnavailableToBeginWith_AndStaysSoThroughTwoAttempts()
+    public void AnObstructedStore_IsUnavailableToBeginWith()
     {
         Obstruct();
 
@@ -124,8 +123,25 @@ public sealed class StatsStoreReopensAfterAnUnreachableStoreTests : IDisposable
         Assert.False(store.Availability.IsAvailable);
         Assert.Null(store.Factory);
         Assert.Equal(StatsStoreUnavailableReason.Unreachable, store.Availability.Reason);
-        Assert.True(store.ReopenScheduled, "an unreachable store schedules its reopen");
         _out.WriteLine($"obstructed: {store.Availability.ReasonCode}: {store.Availability.Detail}");
+    }
+
+    /// <summary>
+    /// THE LOOP, WHILE THE FAULT STAYS. Through two attempts on the clock the store stays unavailable and
+    /// still says UNREACHABLE: the retry must not invent a store out of a fault that has not cleared, which is
+    /// the one way a "it comes back" fix could be worse than no fix. And after a failed attempt the loop is still
+    /// running - a loop that stopped after the first failure would reintroduce the incident for any outage longer
+    /// than one step, and it is caught here. This is about the loop, so unlike the control it fails when the
+    /// reopen is deleted.
+    /// </summary>
+    [Fact]
+    public void WhileTheFaultStays_TheLoopKeepsTrying_AndInventsNothing()
+    {
+        Obstruct();
+
+        using var store = new GatewayStatsStore(SelfHostChoice(), _clock);
+        Assert.False(store.Availability.IsAvailable);   // the precondition, not the claim
+        Assert.True(store.ReopenScheduled, "an unreachable store schedules its reopen");
 
         ReleaseTheNextAttempt(store, attempt: 0);
         Assert.False(store.Availability.IsAvailable);
@@ -184,8 +200,11 @@ public sealed class StatsStoreReopensAfterAnUnreachableStoreTests : IDisposable
     /// <summary>
     /// A store with NOTHING CONFIGURED is not retried, because there is nothing to retry: no setting names
     /// a database, and asking again produces no connection string. It must stay unavailable, keep saying so
-    /// with its own distinct reason, and never quietly become available. No loop is scheduled, so an hour on
-    /// the clock arms no wait and runs no attempt.
+    /// with its own distinct reason, and never quietly become available. The proof is that NO LOOP IS
+    /// SCHEDULED, read straight after construction, where the constructor sets it synchronously: there is no
+    /// clock to move, because a store that never starts the loop has nothing waiting on one. (Moving the clock
+    /// and reading zero attempts would prove less than it looks - a wrongly scheduled loop might not have armed
+    /// its timer before the advance, and the advance would be lost.)
     ///
     /// This matters beyond tidiness. NOT CONFIGURED and UNREACHABLE are the two states an operator acts on
     /// differently - one is a setting to fix, the other is a database to wait for - and a retry that
@@ -202,13 +221,6 @@ public sealed class StatsStoreReopensAfterAnUnreachableStoreTests : IDisposable
         Assert.False(store.Availability.IsAvailable);
         Assert.Equal(StatsStoreUnavailableReason.NotConfigured, store.Availability.Reason);
         Assert.False(store.ReopenScheduled, "nothing configured means nothing to retry");
-
-        _clock.Advance(TimeSpan.FromHours(1));
-
-        Assert.Equal(0, store.ReopenWaits);
-        Assert.Equal(0, store.ReopenAttempts);
-        Assert.False(store.Availability.IsAvailable);
-        Assert.Equal(StatsStoreUnavailableReason.NotConfigured, store.Availability.Reason);
         _out.WriteLine($"not configured, and left alone: {store.Availability.ReasonCode}");
     }
 
