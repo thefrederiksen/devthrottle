@@ -277,3 +277,54 @@ def test_Shortcut_OffWindows_SaysToRunUi(home, monkeypatch):
 
     assert result.exit_code == cli.EXIT_FAILED
     assert "cc-secrets ui" in result.output + (result.stderr if result.stderr_bytes is not None else "")
+
+
+# --- Second review round ---------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("typed_is_current", [False, True])
+def test_Edit_SecretToSetting_WithItsCurrentValue_IsRefused(store, actions, typed_is_current):
+    # Review of pull request 3732: switching Kind to Setting with the box empty (or filled by the eye) turned the
+    # stored password into a setting, which get prints and the scrubber never hides.
+    secret = add_entry(store, name="devlinux")
+
+    answer = actions.submit(_form(secret=secret if typed_is_current else "", setting=True), MODE_EDIT, "devlinux")
+
+    assert "cannot become a setting" in answer
+    assert store.get("devlinux").kind != KIND_SETTING
+
+
+def test_Edit_SecretToSetting_WithANewValue_IsSaved_AndAuditedAsAKindChange(store, actions):
+    add_entry(store, name="devlinux-host")
+
+    assert actions.submit(_form(name="devlinux-host", secret="devlinux.local", setting=True), MODE_EDIT,
+                          "devlinux-host") is None
+
+    assert store.get("devlinux-host").kind == KIND_SETTING
+    assert _audit_lines()[-1]["detail"].endswith("value changed; kind changed to setting")
+
+
+def test_Submit_InputErrors_AreNotWrittenToTheToolLog(store, actions):
+    # Review of pull request 3732: a password typed into the Name box by reflex was echoed by validate_name into
+    # the tool log.
+    typed = "Typed Into Name " + new_secret()
+
+    answer = actions.submit(_form(name=typed, secret=new_secret()), MODE_ADD)
+    actions.submit(_form(secret=new_secret(), domains="ftp://" + typed.split()[-1]), MODE_ADD)
+
+    assert typed in answer
+    assert actions.submit(_form(name="proof-the-log-is-read", secret=new_secret()), MODE_ADD) is None
+    logs = "".join(f.read_text(encoding="utf-8") for f in (paths.secrets_home() / "logs").glob("*.log"))
+    assert "put: name=proof-the-log-is-read" in logs  # the log was written, so its silence below means something
+    assert typed.split()[-1] not in logs
+
+
+def test_AddOverAnExistingEntry_KeepsItsVariableName(store, actions):
+    add_entry(store, name="devlinux")
+    entry = store.get("devlinux")
+    entry.env_name = "DEVLINUX_PASSWORD"
+    store.put(entry)
+
+    actions.submit(_form(secret=new_secret()), MODE_ADD)
+    assert actions.submit(_form(secret=new_secret()), MODE_ADD) is None
+
+    assert store.get("devlinux").env_name == "DEVLINUX_PASSWORD"

@@ -183,6 +183,10 @@ class WindowActions:
         is not lost. This is the form's Save handler, so every error ends here as a message."""
         try:
             return self._submit(form, mode, edit_name)
+        except CcSecretsError as exc:
+            # Not logged: these messages echo what was typed ("'<text>' is not a valid entry name"), and a password
+            # typed into the wrong box by reflex must not land in the tool log. It is shown in the form only.
+            return f"Not saved: {describe(exc)}"
         except Exception as exc:
             log_failure("submit", exc)
             return f"Not saved: {describe(exc)}"
@@ -201,11 +205,23 @@ class WindowActions:
                 return f"'{edit_name}' no longer exists. Close this and add it again."
             env_name = current.env_name
             kept = not secret or secret == current.secret.reveal()
+            if kept and not current.is_setting and form.kind_setting:
+                # A setting is printed by get and never hidden from output, so turning a stored password into one
+                # would publish it. The new kind needs its value typed.
+                return ("A secret cannot become a setting with its current value: a setting is printed by "
+                        "'cc-secrets get' and never hidden. Type the setting's value, or keep the kind Secret.")
             secret = secret or current.secret.reveal()
-            detail = f"{WINDOW_RECORD}; {'value kept' if kept else 'value changed'}"
-        elif form.name not in self._told_replaces and self._store.get(form.name) is not None:
-            self._told_replaces.add(form.name)
-            return replace_warning(form.name) + " Press Save again to replace it."
+            changes = ["value kept" if kept else "value changed"]
+            if current.is_setting != form.kind_setting:
+                changes.append(f"kind changed to {'setting' if form.kind_setting else 'secret'}")
+            detail = "; ".join([WINDOW_RECORD] + changes)
+        else:
+            existing = self._store.get(form.name)
+            if existing is not None and form.name not in self._told_replaces:
+                self._told_replaces.add(form.name)
+                return replace_warning(form.name) + " Press Save again to replace it."
+            if existing is not None and not env_name:
+                env_name = existing.env_name  # replacing keeps the variable run supplies it in
         domains = [d.strip() for d in form.domains.split(",") if d.strip()]
         save_entry(self._store, self._audit, form.name, form.username, secret, domains, form.notes,
                    form.agents_may_use, form.uses, env_name, form.kind_setting, command, detail, self._approval)
