@@ -80,6 +80,83 @@ public sealed class PreSignInOutboxTests : IDisposable
     }
 
     [Fact]
+    public void Keep_Full_ANewDistinctErrorTakesThePlaceOfTheMostRepeated_AndItsSourceIsCounted()
+    {
+        // Issue #3647: past the limit a new distinct error used to be only a number. Now the entry seen most often
+        // gives way (the oldest of those), and the occurrences it carried are counted under its source.
+        var (outbox, _) = NewOutbox();
+        var noisy = Item("Inventory FAILED: scan", count: 40, source: "WorktreeInventoryService");
+        outbox.Keep(new[] { noisy }.Concat(Enumerable.Range(1, PreSignInOutbox.MaxKept - 1)
+            .Select(i => Item($"Save FAILED: {i}", source: $"C{i}"))).ToList());
+
+        outbox.Keep(new[] { Item("Enroll FAILED: refused", source: "Enrollment") });
+
+        Assert.Equal(PreSignInOutbox.MaxKept, outbox.Count);
+        var text = File.ReadAllText(FilePath);
+        Assert.Contains("Enroll FAILED: refused", text);
+        Assert.DoesNotContain("Inventory FAILED: scan", text);
+        Assert.Contains("\"not_kept\":1", text);
+        Assert.Contains("\"not_kept_by_source\":{\"WorktreeInventoryService\":40}", text);
+    }
+
+    [Fact]
+    public void Keep_FullOfOneOffs_TheNewcomerIsTheOneCounted_UnderItsSource()
+    {
+        var (outbox, _) = NewOutbox();
+        outbox.Keep(Enumerable.Range(0, PreSignInOutbox.MaxKept).Select(i => Item($"Save FAILED: {i}", source: $"C{i}")).ToList());
+
+        outbox.Keep(new[] { Item("Load FAILED: late", source: "Store") });
+
+        Assert.DoesNotContain("Load FAILED: late", File.ReadAllText(FilePath));
+        Assert.Contains("\"not_kept_by_source\":{\"Store\":1}", File.ReadAllText(FilePath));
+    }
+
+    [Fact]
+    public void Tally_PastTheLimitOfNamedSources_AddsTheRestUpTogether()
+    {
+        var bySource = new Dictionary<string, long>(StringComparer.Ordinal);
+        for (var i = 0; i < PreSignInOutbox.MaxDroppedSources + 5; i++) PreSignInOutbox.Tally(bySource, $"S{i}", 2);
+
+        Assert.Equal(PreSignInOutbox.MaxDroppedSources + 1, bySource.Count);
+        Assert.Equal(10, bySource[PreSignInOutbox.OtherSources]);
+    }
+
+    [Fact]
+    public async Task SendBeforeSignIn_SaysWhichSourcesLostErrors_AndClearsTheCountOnceAccepted()
+    {
+        var (outbox, handler) = NewOutbox();
+        outbox.Keep(Enumerable.Range(0, PreSignInOutbox.MaxKept).Select(i => Item($"Save FAILED: {i}", source: $"C{i}")).ToList());
+        outbox.Keep(new[] { Item("Load FAILED: a", source: "Store"), Item("Load FAILED: b", source: "Store") });
+
+        await outbox.SendBeforeSignInAsync(final: true, CancellationToken.None);
+
+        Assert.Contains("2 further distinct error(s) were not kept because the queue on disk was full (by source: Store x2).",
+            Payload(handler).Message);
+        Assert.DoesNotContain("not_kept_by_source", File.ReadAllText(FilePath));
+        Assert.Contains("\"not_kept\":0", File.ReadAllText(FilePath));
+    }
+
+    [Fact]
+    public async Task SendSignedIn_TheDroppedCountTravelsAsAReportOfItsOwn_AndIsClearedWhenAccepted()
+    {
+        // Issue #3647: a signed-in machine never sends on the install route again, so the count must go to the
+        // account on the device route, or it would stay in the file for ever.
+        var (outbox, _) = NewOutbox();
+        outbox.Keep(Enumerable.Range(0, PreSignInOutbox.MaxKept).Select(i => Item($"Save FAILED: {i}", source: $"C{i}")).ToList());
+        outbox.Keep(new[] { Item("Load FAILED: late", source: "Store", count: 3) });
+
+        var handed = new List<ErrorReportItem>();
+        for (var tick = 0; tick < 100 && File.Exists(FilePath); tick++)
+            await outbox.SendSignedInAsync(ErrorReportLimits.MaxReportsPerBatch, items => { handed.AddRange(items); return Task.FromResult(true); });
+
+        Assert.Equal(PreSignInOutbox.MaxKept + 1, handed.Count);
+        var dropped = Assert.Single(handed, i => i.Kind == PreSignInOutbox.DroppedKind);
+        Assert.Contains("1 distinct error(s)", dropped.Message);
+        Assert.Contains("(by source: Store x3)", dropped.Message);
+        Assert.False(File.Exists(FilePath));
+    }
+
+    [Fact]
     public async Task SendBeforeSignIn_PostsOneInstallReportWithTheMachinesId_AndEmptiesTheFileWhenAccepted()
     {
         var (outbox, handler) = NewOutbox();
