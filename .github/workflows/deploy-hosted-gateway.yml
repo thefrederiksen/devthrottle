@@ -383,14 +383,16 @@ jobs:
           for dll in $ENTRIES; do
             name="contract-check-${{ github.run_id }}-${dll%.dll}"
             set +e
-            OUT=$(timeout 90 docker run --rm --name "$name" \
+            OUT=$(timeout -k 10 90 docker run --rm --name "$name" \
               -e CC_GATEWAY_HOSTED= -e CC_GATEWAY_NO_AUTH= -e CC_GATEWAY_AUTH= \
               -e CC_GATEWAY_PUBLIC_URL= -e CC_GATEWAY_DB_CONNECTION= \
               --entrypoint dotnet "$IMAGE" "$dll" --port 7999 2>&1)
             CODE=$?
             set -e
-            if [ "$CODE" -eq 124 ]; then
-              docker rm -f "$name" >/dev/null 2>&1 || true
+            # Killing the docker client does not stop the container, so remove it whatever happened.
+            docker rm -f "$name" >/dev/null 2>&1 || true
+            # 124: timed out and stopped; 137: timed out, ignored the stop, and was killed.
+            if [ "$CODE" -eq 124 ] || [ "$CODE" -eq 137 ]; then
               echo "ERROR: $dll did NOT fail closed: still running after 90 seconds with the hosted contract missing."
               echo "$OUT"
               exit 1
