@@ -100,7 +100,8 @@ export function scanErrorDisplaySites(roots: string[], root = repositoryRoot()):
   const texts = new Map(all.map((f) => [f, readFileSync(f, "utf8")]));
   const reporting = reportingFunctions([...texts.values()]);
   const producers = functionBodies([...texts.values()].join("\n"));
-  const sites = scanned.flatMap((f) => scanSource(relative(root, f).split(sep).join("/"), texts.get(f)!, reporting, producers));
+  const components = alertComponents([...texts.values()]);
+  const sites = scanned.flatMap((f) => scanSource(relative(root, f).split(sep).join("/"), texts.get(f)!, reporting, producers, components));
   return { filesRead: scanned.length, sites, reportingFunctions: reporting };
 }
 
@@ -112,7 +113,7 @@ export function unreportedSites(scan: ErrorDisplayScan): ErrorDisplaySite[] {
 /** One line per site, for a failure message: "apps/mobile/src/pages/Home.tsx:215 setError(err.message) - ...". */
 export function describeSite(site: ErrorDisplaySite): string {
   const value = site.value.length > 100 ? `${site.value.slice(0, 97)}...` : site.value;
-  const shown = site.kind === "alert" ? `role="alert" showing ${value}` : `${site.name}(${value})`;
+  const shown = site.kind === "alert" ? `${site.name === "role=alert" ? `role="alert"` : site.name} showing ${value}` : `${site.name}(${value})`;
   return `${site.file}:${site.line} [${site.kind}] ${shown}${site.problem ? ` - ${site.problem}` : ""}`;
 }
 
@@ -139,13 +140,15 @@ export function reportingFunctions(sources: string[]): Set<string> {
 
 /**
  * The sites in one source file. Exported so the scanner's own rules can be tested on small sources.
- * `producers` are the functions an error-reported-by marker may name (defaults to this file's own).
+ * `producers` are the functions an error-reported-by marker may name (defaults to this file's own), and
+ * `components` the presentational alert components whose uses are alerts (defaults to this file's own).
  */
 export function scanSource(
   file: string,
   src: string,
   reporting: Set<string>,
   producers: FunctionBody[] = functionBodies(src),
+  components: Map<string, AlertComponent> = alertComponents([src]),
 ): ErrorDisplaySite[] {
   const lines = src.split("\n");
   const lineOf = (at: number) => src.slice(0, at).split("\n").length;
@@ -176,7 +179,11 @@ export function scanSource(
   // Display setters: by name, and by being rendered inside an alert.
   // A setter whose state an alert reads only through members (`{load.message}`) shows text only when it is
   // given one of those members; `setLoad({ kind: "loading" })` shows nothing.
-  const alerts = alertElements(src);
+  // A presentational component's own alert shows what its callers hand it: the callers' uses are the sites.
+  const presenters = componentDefinitions(src).filter((d) => components.has(d.name));
+  const alerts = [...alertElements(src), ...componentUses(src, components)].filter(
+    (a) => !presenters.some((d) => a.at > d.start && a.at < d.end && shownProps(d, a.content).size > 0),
+  );
   const displaySetters = new Map<string, Set<string> | null>();
   for (const [value, setter] of states) {
     if (ERROR_SETTER.test(setter)) displaySetters.set(setter, null);
@@ -276,21 +283,25 @@ export function scanSource(
     if (a.roots.size > 0 && outside.length === 0) continue;
     const line = lineOf(a.at);
     const marker = markerFor(lines, line, a.content);
-    let reported = false;
+    // Reported where it is shown: `<ErrorBanner message={describeAndReport(...)} />`, or `message={shown}` just after
+    // `const shown = describeAndReport(...)`.
+    const whole = /^\s*\{\s*([A-Za-z_$][\w$]*)\s*\}\s*$/.exec(a.content)?.[1];
+    let reported = callsAny(a.content, reporting) || (whole !== undefined && lastAssignmentReports(assignments, whole, a.at));
     let problem: string | undefined;
-    if (marker?.kind === "reported-by") {
+    if (reported) problem = undefined;
+    else if (marker?.kind === "reported-by") {
       const producer = producers.find((p) => p.name === marker.text);
       if (!producer) problem = `error-reported-by names "${marker.text}", which is not a function in the scanned code`;
       else if (!callsAny(producer.body, reporting)) problem = `error-reported-by names "${marker.text}", which never calls ${REPORTING_ROOT}`;
       else reported = true;
     } else if (marker?.kind !== "exempt") {
-      problem = `this alert shows ${outside.length > 0 ? outside.join(", ") : "fixed text"}, not state set in this file; name the function that reports it with error-reported-by`;
+      problem = `this ${a.name ?? "alert"} shows ${outside.length > 0 ? outside.join(", ") : "fixed text"}, not state set in this file; report it where it is made, or name the function that reports it with error-reported-by`;
     }
     sites.set(a.at, {
       file,
       line,
       kind: "alert",
-      name: "role=alert",
+      name: a.name ?? "role=alert",
       value: collapse(a.content),
       reported,
       ...(marker?.kind === "exempt" ? { exemptReason: marker.text } : {}),
@@ -435,8 +446,148 @@ function useStatePairs(src: string): Map<string, string> {
   return out;
 }
 
+// ---- presentational alert components (the step 3 rulings, R3) -------------------------------------------
+//
+// `<ErrorBanner message={error} />` shows `error` in ErrorBanner's own role="alert". The component cannot know
+// whether its prop was reported; its CALLER can. So a component whose alert renders one of its props is followed
+// to its callers: each `<ErrorBanner message={...}>` is an alert site of its own, judged by the same rules as an
+// alert written inline, and the alert inside the component is not a site.
+
+/** A component whose role="alert" renders some of its own props. */
+export interface AlertComponent {
+  name: string;
+  /** The props the alert shows as text, by the name a caller writes. */
+  shown: Set<string>;
+}
+
+interface ComponentDefinition {
+  name: string;
+  /** Local name in the body -> prop name a caller writes. A prop with a default value is left out: it is a label
+   *  the component supplies (`retryLabel = "Try again"`), not the error a caller hands it. */
+  props: Map<string, string>;
+  start: number;
+  end: number;
+}
+
+/** Every function component in some source that destructures its props: `function Name({ a, b })` and
+ *  `const Name = ({ a, b }: Props) =>`. */
+function componentDefinitions(src: string): ComponentDefinition[] {
+  const out: ComponentDefinition[] = [];
+  for (const m of src.matchAll(/(?<![\w$])(?:function\s+([A-Z][\w$]*)\s*\(|(?:const|let)\s+([A-Z][\w$]*)\s*(?::[^=\n]+)?=\s*(?:\(|function\s*\())\s*\{/g)) {
+    const name = m[1] ?? m[2];
+    const open = m.index! + m[0].length - 1;
+    const close = matchingClose(src, open);
+    if (close < 0) continue;
+    const props = new Map<string, string>();
+    for (let i = open + 1; i < close; ) {
+      while (i < close && /[\s,]/.test(src[i])) i++;
+      if (i >= close) break;
+      const end = Math.min(expressionEnd(src, i), close);
+      const entry = /^([\w$]+)\s*(?::\s*([\w$]+))?\s*(=)?/.exec(src.slice(i, end).trim());
+      if (entry && !entry[3]) props.set(entry[2] ?? entry[1], entry[1]);
+      i = end + 1;
+    }
+    // The body: after an arrow's `=>` when one comes before the next `{`, otherwise the function's `{`.
+    const arrow = m[2] !== undefined ? src.indexOf("=>", close + 1) : -1;
+    const brace = src.indexOf("{", close + 1);
+    let at: number;
+    if (arrow >= 0 && (brace < 0 || arrow < brace)) at = arrow + 2 + src.slice(arrow + 2).search(/\S/);
+    else if (brace >= 0) at = brace;
+    else continue;
+    const bodyEnd = src[at] === "{" || src[at] === "(" ? matchingClose(src, at) : expressionEnd(src, at);
+    if (bodyEnd < 0) continue;
+    out.push({ name, props, start: m.index!, end: bodyEnd });
+  }
+  return out;
+}
+
+/** The props an alert in this component renders as text: `{message}`, `{message.text}`, or inside a template. */
+function shownProps(definition: ComponentDefinition, content: string): Set<string> {
+  const shown = new Set<string>();
+  for (const [local, prop] of definition.props) {
+    const name = escape(local);
+    // `(?<!=)`: `onClick={onRetry}` is an attribute, not text.
+    if (new RegExp(`(?<!=)\\{\\s*${name}(?:\\s*\\??\\.\\s*[\\w$]+)*\\s*\\}|\\$\\{\\s*${name}(?![\\w$])`).test(content)) shown.add(prop);
+  }
+  return shown;
+}
+
+/**
+ * Every presentational alert component in the given sources, followed through components that hand their own prop
+ * to one (`<Panel error={error} />` where Panel renders `<ErrorBanner message={error} />`) until nothing new is found.
+ */
+export function alertComponents(sources: string[]): Map<string, AlertComponent> {
+  const found = new Map<string, AlertComponent>();
+  const defined = sources.map((src) => ({ src, definitions: componentDefinitions(src), alerts: alertElements(src) }));
+  for (const { src, definitions, alerts } of defined) {
+    const lines = src.split("\n");
+    for (const d of definitions) {
+      for (const a of alerts) {
+        if (a.at < d.start || a.at > d.end) continue;
+        // An alert that already names its reporter, or is exempt, answers for every caller: nothing to follow.
+        if (markerFor(lines, src.slice(0, a.at).split("\n").length, a.content) !== null) continue;
+        const shown = shownProps(d, a.content);
+        if (shown.size === 0) continue;
+        const known = found.get(d.name);
+        found.set(d.name, { name: d.name, shown: new Set([...(known?.shown ?? []), ...shown]) });
+      }
+    }
+  }
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const { src, definitions } of defined) {
+      for (const d of definitions) {
+        for (const use of componentUses(src, found)) {
+          if (use.at < d.start || use.at > d.end) continue;
+          const shown = shownProps(d, use.content);
+          const known = found.get(d.name);
+          const added = [...shown].filter((p) => !known?.shown.has(p));
+          if (added.length === 0) continue;
+          found.set(d.name, { name: d.name, shown: new Set([...(known?.shown ?? []), ...added]) });
+          grew = true;
+        }
+      }
+    }
+  }
+  return found;
+}
+
+/** Each use of a presentational alert component, as an alert element whose content is the shown props' values:
+ *  `<ErrorBanner message={error} onRetry={retry} />` gives the content `{error}`. A use passing none of them is
+ *  not a display. */
+function componentUses(src: string, components: Map<string, AlertComponent>): AlertElement[] {
+  const out: AlertElement[] = [];
+  if (components.size === 0) return out;
+  const names = [...components.keys()].map(escape).join("|");
+  for (const m of src.matchAll(new RegExp(`<(${names})(?![\\w$.])`, "g"))) {
+    const end = jsxTagEnd(src, m.index!);
+    if (end < 0) continue;
+    const tag = src.slice(m.index!, end);
+    const values: string[] = [];
+    for (const prop of components.get(m[1])!.shown) {
+      const attr = new RegExp(`(?<![\\w$-])${escape(prop)}=(?=[{"'])`).exec(tag);
+      if (!attr) continue;
+      const at = attr.index + attr[0].length;
+      if (tag[at] === "{") {
+        const close = matchingClose(tag, at);
+        if (close > 0) values.push(tag.slice(at, close + 1));
+      } else {
+        const close = tag.indexOf(tag[at], at + 1);
+        if (close > 0) values.push(tag.slice(at + 1, close));
+      }
+    }
+    if (values.length === 0) continue;
+    const content = values.join("");
+    out.push({ at: m.index!, content, roots: jsxRoots(content), name: `<${m[1]}>` });
+  }
+  return out;
+}
+
 interface AlertElement {
   at: number;
+  /** The component a use was found through (`<ErrorBanner>`); absent for a role="alert" written here. */
+  name?: string;
   content: string;
   /** The root identifiers of every {expression} in the content, each with the members read from it, or null
    *  when it is used whole: `{manage.error}` gives manage -> {error}, `{error}` gives error -> null. */
@@ -721,8 +872,20 @@ function stripStringsAndComments(expr: string): string {
   for (let i = 0; i < expr.length; i++) {
     const c = expr[i];
     if (c === '"' || c === "'") i = skipQuoted(expr, i);
-    else if (c === "`") i = skipTemplate(expr, i);
-    else if (c === "/" && expr[i + 1] === "*") {
+    else if (c === "`") {
+      // A template's text goes; its ${...} expressions stay - `Could not load: ${error}` shows `error`.
+      const end = skipTemplate(expr, i);
+      for (let j = i + 1; j < end; j++) {
+        if (expr[j] === "\\") j++;
+        else if (expr[j] === "$" && expr[j + 1] === "{") {
+          const close = matchingClose(expr, j + 1);
+          if (close < 0 || close > end) break;
+          out += ` ${stripStringsAndComments(expr.slice(j + 2, close))} `;
+          j = close;
+        }
+      }
+      i = end;
+    } else if (c === "/" && expr[i + 1] === "*") {
       const end = expr.indexOf("*/", i + 2);
       i = end < 0 ? expr.length : end + 1;
     } else out += c;

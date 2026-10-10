@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { functionBodies, reportingFunctions, scanSource, type ErrorDisplaySite } from "./errorDisplaySites.testkit";
+import { alertComponents, functionBodies, reportingFunctions, scanSource, type ErrorDisplaySite } from "./errorDisplaySites.testkit";
 
 // The scanner's own rules, each on a small source. The shells' scan tests run it over the real code; these prove
 // that what it counts as a site, as reported and as exempt is what errorDisplaySites.testkit.ts says it is.
@@ -307,5 +307,82 @@ describe("errorDisplaySites scanner", () => {
     const lib = `function ImageFile() {\n  return (\n    <img onError={() => setFailed(describeAndReport("s", "a", e))} />\n  );\n}`;
 
     expect(reportingFunctions([lib]).has("ImageFile")).toBe(false);
+  });
+});
+
+describe("presentational alert components are followed to their callers (the step 3 rulings, R3)", () => {
+  const BANNER = [
+    `export function ErrorBanner({ message, onRetry, retryLabel = "Try again" }: ErrorBannerProps) {`,
+    `  return (`,
+    `    <div className="ui-error-banner" role="alert">`,
+    `      <span>{message}</span>`,
+    `      {onRetry !== undefined && <Button onClick={onRetry}>{retryLabel}</Button>}`,
+    `    </div>`,
+    `  );`,
+    `}`,
+  ].join("\n");
+  const components = alertComponents([BANNER]);
+  const scanWith = (src: string) => scanSource("fixture.tsx", src, REPORTING, functionBodies(src), components);
+
+  it("alertComponents_AlertRenderingAProp_FindsTheComponentAndOnlyTheTextProps", () => {
+    // onRetry is a handler and retryLabel has a default - a label the component supplies - so neither is the error.
+    expect([...components.get("ErrorBanner")!.shown]).toEqual(["message"]);
+  });
+
+  it("scanSource_TheComponentsOwnAlert_IsNotASite", () => {
+    expect(scanSource("ErrorBanner.tsx", BANNER, REPORTING, [], components)).toEqual([]);
+  });
+
+  it("scanSource_UseShowingSomethingNotReported_IsAFailingSite", () => {
+    const sites = scanWith(`return <ErrorBanner message={frame.error} onRetry={frame.reload} />;`);
+
+    expect(sites).toHaveLength(1);
+    expect(sites[0]).toMatchObject({ kind: "alert", name: "<ErrorBanner>", reported: false });
+    expect(sites[0].problem).toContain("frame");
+  });
+
+  it("scanSource_UseShowingStateInsideATemplate_MakesItsSetterTheSite", () => {
+    const src = [
+      `const [error, setError] = useState<string | null>(null);`,
+      `setError(describeAndReport("s", "a", err));`,
+      "return <ErrorBanner message={`Could not load your account: ${error}`} />;",
+    ].join("\n");
+
+    expect(scanWith(src)).toEqual([expect.objectContaining({ kind: "setter", name: "setError", reported: true })]);
+  });
+
+  it("scanSource_UseShowingFixedText_IsAFailingSite", () => {
+    expect(scanWith(`return <ErrorBanner message="The Gateway did not say how to start it." />;`)[0].reported).toBe(false);
+  });
+
+  it("scanSource_UseShowingAReportingCall_IsReported", () => {
+    expect(scanWith(`return <ErrorBanner message={describeAndReport("s", "a", err)} />;`)[0].reported).toBe(true);
+  });
+
+  it("scanSource_UseShowingLocalState_MakesItsSetterTheSite", () => {
+    const src = [
+      `const [actionError, setActionError] = useState<string | null>(null);`,
+      `setActionError(gatewayErrorMessage(err, "join the team"));`,
+      `return actionError !== null && <ErrorBanner message={actionError} />;`,
+    ].join("\n");
+
+    const sites = scanWith(src);
+    expect(sites).toHaveLength(1);
+    expect(sites[0]).toMatchObject({ kind: "setter", name: "setActionError", reported: false });
+  });
+
+  it("alertComponents_ComponentForwardingItsPropToABanner_IsFollowedToo", () => {
+    const panel = `function Panel({ error }: P) {\n  return <section><ErrorBanner message={error} /></section>;\n}`;
+    const both = alertComponents([BANNER, panel]);
+
+    expect([...both.get("Panel")!.shown]).toEqual(["error"]);
+    expect(scanSource("Panel.tsx", panel, REPORTING, [], both)).toEqual([]);
+    expect(scanSource("page.tsx", `<Panel error={load.error} />`, REPORTING, [], both)[0].reported).toBe(false);
+  });
+
+  it("alertComponents_AlertThatNamesItsReporter_IsNotFollowed", () => {
+    const bar = `function AppBar({ manage }: P) {\n  return <div role="alert">{/* error-reported-by: useManage */}{manage.error}</div>;\n}`;
+
+    expect(alertComponents([bar]).has("AppBar")).toBe(false);
   });
 });
