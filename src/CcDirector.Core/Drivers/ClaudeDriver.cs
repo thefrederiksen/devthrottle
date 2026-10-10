@@ -43,12 +43,22 @@ public sealed class ClaudeDriver : IAgentDriver
     private static readonly byte[] CtrlC = [0x03];
 
     private readonly ITranscriptReader _transcripts;
+    private readonly TimeSpan? _echoTimeout;
+    private readonly TimeSpan? _echoPollInterval;
+
+    /// <param name="transcripts">Where the conversation records are read from; the real files when null.</param>
+    /// <param name="echoTimeout">How long a submit waits for the typed text to echo; the shared production wait when
+    /// null. Passed through to <see cref="TerminalSubmit.SharedSubmitAsync"/>.</param>
+    /// <param name="echoPollInterval">How often a submit looks for that echo; the shared production interval when
+    /// null.</param>
     public ClaudeDriver(
         ITranscriptReader? transcripts = null,
         TimeSpan? echoTimeout = null,
         TimeSpan? echoPollInterval = null)
     {
         _transcripts = transcripts ?? new ClaudeTranscriptReader();
+        _echoTimeout = echoTimeout;
+        _echoPollInterval = echoPollInterval;
     }
 
     public AgentKind Kind => AgentKind.ClaudeCode;
@@ -214,7 +224,8 @@ public sealed class ClaudeDriver : IAgentDriver
     /// which the backend owns).
     /// </summary>
     public Task SubmitAsync(ISessionBackend backend, string text) =>
-        TerminalSubmit.SharedSubmitAsync(backend, text, "ClaudeDriver");
+        TerminalSubmit.SharedSubmitAsync(
+            backend, text, "ClaudeDriver", echoTimeout: _echoTimeout, pollInterval: _echoPollInterval);
 
     /// <summary>Drop ANSI escape sequences from a terminal chunk (delegates to the shared helper).</summary>
     public static string StripAnsi(string raw) => TerminalSubmit.StripAnsi(raw);
