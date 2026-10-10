@@ -491,3 +491,25 @@ describe("a terminal write's variable is resolved where it is written (the 3c re
     expect(bad(src).map((s) => s.line)).toEqual([7]);
   });
 });
+
+describe("a marker comment inside an object literal", () => {
+  it("scanSource_ExemptMarkerAboveAnErrorProperty_ExemptsTheSiteRatherThanHidingIt", () => {
+    const src = [
+      `publishDictationStatus({`,
+      `  phase: "held",`,
+      `  // error-report-exempt: the Gateway's own answer that it is still delivering - not a failure here`,
+      `  error: STILL_DELIVERING_MESSAGE,`,
+      `});`,
+    ].join("\n");
+
+    const sites = scan(src);
+    expect(sites).toHaveLength(1);
+    expect(sites[0].exemptReason).toContain("still delivering");
+  });
+
+  it("scanSource_PlainCommentAboveAnUnreportedErrorProperty_StillFails", () => {
+    const src = `publishDictationStatus({\n  phase: "failed",\n  // the Gateway's answer, shown as it came\n  error: err.message,\n});`;
+
+    expect(bad(src)).toHaveLength(1);
+  });
+});

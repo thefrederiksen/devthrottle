@@ -383,6 +383,18 @@ function objectProperties(src: string, open: number, close: number): { key: stri
   while (i < close) {
     while (i < close && /[\s,]/.test(src[i])) i++;
     if (i >= close) break;
+    // A comment between properties - an error-report-exempt marker above `error:` - is skipped, never parsed as a
+    // property: read as one, its apostrophes opened a string that swallowed the property it marks.
+    if (src.startsWith("//", i)) {
+      const end = src.indexOf("\n", i);
+      i = end < 0 ? close : end + 1;
+      continue;
+    }
+    if (src.startsWith("/*", i)) {
+      const end = src.indexOf("*/", i + 2);
+      i = end < 0 ? close : end + 2;
+      continue;
+    }
     if (src.startsWith("...", i)) {
       i = expressionEnd(src, i + 3) + 1;
       continue;
