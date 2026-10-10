@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { alertComponents, functionBodies, reportingFunctions, scanSource, type ErrorDisplaySite } from "./errorDisplaySites.testkit";
+import { alertComponents, duplicateReportingNames, functionBodies, reportingFunctions, scanSource, type ErrorDisplaySite } from "./errorDisplaySites.testkit";
 
 // The scanner's own rules, each on a small source. The shells' scan tests run it over the real code; these prove
 // that what it counts as a site, as reported and as exempt is what errorDisplaySites.testkit.ts says it is.
@@ -417,5 +417,26 @@ describe("text written into a terminal (the 3c review, finding 2)", () => {
     ].join("\n");
 
     expect(scan(src)).toEqual([]);
+  });
+});
+
+describe("reporting names defined more than once (the 3c review, finding 3)", () => {
+  it("duplicateReportingNames_OneReportingAndOnePlainDefinition_NamesBothFiles", () => {
+    const texts = new Map([
+      ["/repo/a/settings.tsx", `export function errText(e, action) { return describeAndReport("s", action, e); }`],
+      ["/repo/b/send.ts", `function errText(err) { return err.message; }`],
+    ]);
+    const reporting = reportingFunctions([...texts.values()]);
+
+    expect(duplicateReportingNames(texts, reporting, "/repo")).toEqual(["errText in a/settings.tsx, b/send.ts"]);
+  });
+
+  it("duplicateReportingNames_PlainHelperUnderAnotherName_IsClean", () => {
+    const texts = new Map([
+      ["/repo/a/settings.tsx", `export function errText(e, action) { return describeAndReport("s", action, e); }`],
+      ["/repo/b/send.ts", `function messageOf(err) { return err.message; }`],
+    ]);
+
+    expect(duplicateReportingNames(texts, reportingFunctions([...texts.values()]), "/repo")).toEqual([]);
   });
 });

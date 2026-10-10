@@ -108,7 +108,7 @@ export async function sendTypedPrompt(
     await saveHeldPrompt(rec);
   } catch (err) {
     // The device could not keep it. This page still reads the outcome; only a reload loses track of it.
-    reportDeliveryFailure(sessionId, `could not keep held typed message ${rec.deliveryId} on this device: ${errText(err)}`, false, err);
+    reportDeliveryFailure(sessionId, `could not keep held typed message ${rec.deliveryId} on this device: ${messageOf(err)}`, false, err);
     _unkept.set(rec.deliveryId, rec);
   }
   publishDelivering(rec);
@@ -192,7 +192,7 @@ export async function sendTypedPromptAnyway(deliveryId: string): Promise<void> {
       answer = await sendPrompt(rec.sessionId, rec.text, true, undefined, undefined, undefined, rec.deliveryId);
     } catch (err) {
       // Keep the record and the words on screen; the owner decides again. The failure is shown, so it is reported.
-      reportDeliveryFailure(rec.sessionId, `Send anyway failed for typed message ${rec.deliveryId}: ${errText(err)}`, true, err);
+      reportDeliveryFailure(rec.sessionId, `Send anyway failed for typed message ${rec.deliveryId}: ${messageOf(err)}`, true, err);
       publishShownBack(rec, SEND_ANYWAY_FAILED_MESSAGE);
       return;
     }
@@ -256,7 +256,7 @@ export async function sendTypedPromptAnyway(deliveryId: string): Promise<void> {
       try {
         await saveHeldPrompt(fresh);
       } catch (err) {
-        reportDeliveryFailure(fresh.sessionId, `could not keep held typed message ${fresh.deliveryId} on this device: ${errText(err)}`, false, err);
+        reportDeliveryFailure(fresh.sessionId, `could not keep held typed message ${fresh.deliveryId} on this device: ${messageOf(err)}`, false, err);
         _unkept.set(fresh.deliveryId, fresh);
       }
       publishDelivering(fresh);
@@ -321,7 +321,7 @@ async function keepHeld(rec: HeldPrompt): Promise<void> {
   try {
     await saveHeldPrompt(rec);
   } catch (err) {
-    reportDeliveryFailure(rec.sessionId, `could not keep typed message ${rec.deliveryId} on this device: ${errText(err)}`, false, err);
+    reportDeliveryFailure(rec.sessionId, `could not keep typed message ${rec.deliveryId} on this device: ${messageOf(err)}`, false, err);
     _unkept.set(rec.deliveryId, rec);
   }
 }
@@ -349,7 +349,7 @@ async function readHeld(rec: HeldPrompt): Promise<void> {
       read = await readPromptOutcome(rec.sessionId, rec.deliveryId);
     } catch (err) {
       // The read did not happen. The Gateway is still asking the Director; read again later.
-      console.warn(`[typedPromptDelivery] could not read the outcome of typed message ${rec.deliveryId}: ${errText(err)}`);
+      console.warn(`[typedPromptDelivery] could not read the outcome of typed message ${rec.deliveryId}: ${messageOf(err)}`);
       publishDelivering(rec);
       scheduleOutcomeRead(rec);
       return;
@@ -508,6 +508,6 @@ function publishFailed(rec: HeldPrompt, message: string): void {
   });
 }
 
-function errText(err: unknown): string {
+function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }

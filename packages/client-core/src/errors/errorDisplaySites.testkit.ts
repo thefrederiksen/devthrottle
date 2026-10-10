@@ -101,10 +101,28 @@ export function scanErrorDisplaySites(roots: string[], root = repositoryRoot()):
   const all = [...new Set([...scanned, ...library])];
   const texts = new Map(all.map((f) => [f, readFileSync(f, "utf8")]));
   const reporting = reportingFunctions([...texts.values()]);
+  const twice = duplicateReportingNames(texts, reporting, root);
+  if (twice.length > 0) {
+    throw new Error(`a reporting function is known by its name, and these names are defined more than once, so a call of the plain one would count as reported - rename one: ${twice.join("; ")}`);
+  }
   const producers = functionBodies([...texts.values()].join("\n"));
   const components = alertComponents([...texts.values()]);
   const sites = scanned.flatMap((f) => scanSource(relative(root, f).split(sep).join("/"), texts.get(f)!, reporting, producers, components));
   return { filesRead: scanned.length, sites, reportingFunctions: reporting };
+}
+
+/**
+ * Every reporting name defined in more than one place, as "name in fileA, fileB" (the 3c review, finding 3: one
+ * reporting errText and two plain ones made every errText call count as reported). Exported for unit tests.
+ */
+export function duplicateReportingNames(texts: Map<string, string>, reporting: Set<string>, root = repositoryRoot()): string[] {
+  const definedIn = new Map<string, string[]>();
+  for (const [file, text] of texts) {
+    for (const name of new Set(functionBodies(text).map((f) => f.name))) {
+      if (reporting.has(name)) definedIn.set(name, [...(definedIn.get(name) ?? []), relative(root, file).split(sep).join("/")]);
+    }
+  }
+  return [...definedIn].filter(([, files]) => files.length > 1).map(([name, files]) => `${name} in ${files.join(", ")}`);
 }
 
 /** The sites that neither report nor carry a written exemption. */

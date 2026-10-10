@@ -705,7 +705,7 @@ async function driveRecord(rec: PendingDictation, opts: DriveOptions): Promise<v
       try {
         read = await readDictationOutcome(rec.id);
       } catch (err) {
-        console.warn(`[backgroundSend] could not read the outcome of ${rec.id} before uploading it: ${errText(err)}`);
+        console.warn(`[backgroundSend] could not read the outcome of ${rec.id} before uploading it: ${messageOf(err)}`);
         publishHeld(rec, heldMessage(rec, undefined));
         scheduleNext(rec, opts.attempt, false);
         return;
@@ -926,7 +926,7 @@ async function markOwnedByGateway(rec: PendingDictation): Promise<void> {
   } catch (err) {
     // The store hiccuped. This page still only reads; a reload finds an unmarked record and reads it once
     // before any upload (resumePendingDictations), so the Gateway's ownership is still found.
-    console.error(`[backgroundSend] could not mark ${rec.id} as owned by the Gateway on disk: ${errText(err)}`);
+    console.error(`[backgroundSend] could not mark ${rec.id} as owned by the Gateway on disk: ${messageOf(err)}`);
   }
 }
 
@@ -943,7 +943,7 @@ async function readOwnedOutcome(rec: PendingDictation): Promise<void> {
     } catch (err) {
       // The read did not happen (no connection, a Gateway fault). The Gateway is still driving the delivery;
       // show its last known state and read again later.
-      console.warn(`[backgroundSend] could not read the outcome of ${rec.id}: ${errText(err)}`);
+      console.warn(`[backgroundSend] could not read the outcome of ${rec.id}: ${messageOf(err)}`);
       publishDelivering(rec);
       scheduleOutcomeRead(rec);
       return;
@@ -1017,7 +1017,7 @@ async function clearOwnedMark(rec: PendingDictation): Promise<PendingDictation> 
   } catch (err) {
     // The store hiccuped. The state below is still shown; a reload finds the mark and reads again, and the
     // handback answer is what it reads - so the copy is never stranded either way.
-    console.error(`[backgroundSend] could not clear the Gateway-owned mark of ${rec.id}: ${errText(err)}`);
+    console.error(`[backgroundSend] could not clear the Gateway-owned mark of ${rec.id}: ${messageOf(err)}`);
   }
   return handed;
 }
@@ -1085,7 +1085,7 @@ async function readOwnedOutcomeById(id: string): Promise<void> {
   await readOwnedOutcome(rec);
 }
 
-function errText(err: unknown): string {
+function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
