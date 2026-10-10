@@ -107,27 +107,6 @@ public class SessionEdgeCaseTests : IDisposable
         Assert.Equal(tempDir, session.WorkingDirectory);
     }
 
-    // Quarantined: spawns 5 REAL ConPty sessions (each launches a terminal) concurrently and
-    // asserts all 5 come up. On a busy CI runner ConPty creation races/throttles, so the count
-    // comes back short (observed 1/5) - environment flake, not a SessionManager defect. Re-enable
-    // with a fake/in-memory backend so the concurrency is exercised without real process spawns.
-    [Fact(Skip = "Flaky on CI: races real ConPty process spawns; needs a fake backend to test concurrency deterministically")]
-    public async Task ConcurrentSessionCreation_AllSucceed()
-    {
-        var tasks = Enumerable.Range(0, 5).Select(_ =>
-            Task.Run(() => _manager.CreateSession(Path.GetTempPath()))
-        ).ToArray();
-
-        var sessions = await Task.WhenAll(tasks);
-
-        Assert.Equal(5, sessions.Length);
-        Assert.Equal(5, _manager.ListSessions().Count);
-
-        // All should have unique IDs
-        var ids = sessions.Select(s => s.Id).ToHashSet();
-        Assert.Equal(5, ids.Count);
-    }
-
     [Fact]
     public void RegisterClaudeSession_ThenRemove_CleansMappingAndClaudeId()
     {

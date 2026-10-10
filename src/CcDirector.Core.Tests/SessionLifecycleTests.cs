@@ -65,25 +65,6 @@ public class SessionLifecycleTests : IDisposable
         Assert.Null(session.VerifiedFirstPrompt);
     }
 
-    // Skipped on CI (issue #1052): this races a real stand-in process spawn+kill - even the bounded wait
-    // below is not reliable under CI load, so the post-kill status can still be observed as Running. Kill
-    // behaviour is covered deterministically by KillSession_SetsActivityStateToExited (which waits on the
-    // activity state) and KillSession_AlreadyExited_DoesNotThrow.
-    [Fact(Skip = "Flaky on CI: races a real stand-in process spawn+kill; the post-kill status transition can lag even a bounded wait under load. Covered deterministically by the other kill tests.")]
-    public async Task KillSession_RunningSession_TransitionsToExited()
-    {
-        var session = _manager.CreateSession(Path.GetTempPath());
-        Assert.Equal(SessionStatus.Running, session.Status);
-
-        await _manager.KillSessionAsync(session.Id);
-
-        // Allow time for exit
-        for (int i = 0; i < 20 && session.Status != SessionStatus.Exited; i++)
-            await Task.Delay(100);
-
-        Assert.True(session.Status is SessionStatus.Exiting or SessionStatus.Exited);
-    }
-
     [Fact]
     public async Task KillSession_SetsActivityStateToExited()
     {
@@ -157,41 +138,6 @@ public class SessionLifecycleTests : IDisposable
     {
         // Should silently do nothing
         _manager.RemoveSession(Guid.NewGuid());
-    }
-
-    // This test spawns two REAL stand-in shell processes (cmd.exe / sh) and then
-    // asserts both report SessionStatus.Running immediately after creation, before
-    // killing them. That post-create assertion races the real process: under load on
-    // a continuous integration runner the stand-in can already have been observed as
-    // exited by the time the assertion runs (observed failure "Expected Running,
-    // Actual Exited"), even though the kill behavior under test is correct. There is
-    // no external dependency to probe here - it is an irreducible real-process timing
-    // race - so it is statically quarantined, matching the existing ConPty convention
-    // (see SessionEdgeCaseTests.ConcurrentSessionCreation_AllSucceed and
-    // NulFileWatcherTests). The deterministic kill/lifecycle behavior is still covered
-    // by KillSession_RunningSession_TransitionsToExited, KillSession_AlreadyExited_DoesNotThrow,
-    // and KillAllSessions_NoSessions_DoesNotThrow in this same file, plus Dispose_DisposesAllSessions.
-    [Fact(Skip = "Flaky on CI: races real stand-in process spawns; the post-create Running assertion can observe Exited under load (no external dependency to probe). Kill/lifecycle behavior is covered deterministically by the other KillSession tests in this file.")]
-    public async Task KillAllSessions_KillsAllRunning()
-    {
-        var s1 = _manager.CreateSession(Path.GetTempPath());
-        var s2 = _manager.CreateSession(Path.GetTempPath());
-
-        Assert.Equal(SessionStatus.Running, s1.Status);
-        Assert.Equal(SessionStatus.Running, s2.Status);
-
-        await _manager.KillAllSessionsAsync();
-
-        // Wait for exits
-        for (int i = 0; i < 20; i++)
-        {
-            if (s1.Status == SessionStatus.Exited && s2.Status == SessionStatus.Exited)
-                break;
-            await Task.Delay(100);
-        }
-
-        Assert.True(s1.Status is SessionStatus.Exiting or SessionStatus.Exited);
-        Assert.True(s2.Status is SessionStatus.Exiting or SessionStatus.Exited);
     }
 
     [Fact]

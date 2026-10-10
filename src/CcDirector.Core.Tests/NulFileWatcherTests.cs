@@ -27,61 +27,12 @@ public class NulFileWatcherTests : IDisposable
         Assert.Equal(@"\\?\D:\path\NUL", result);
     }
 
-    // Flaky: File.WriteAllText with the \\?\ prefix does not reliably create a real
-    // file named "NUL" on Windows 11 -- the kernel sometimes still routes writes to
-    // the NUL device, leaving no file for TryDeleteNulFile to find. Production code
-    // is exercised in the real app; unit-testing the deletion path requires Win32
-    // P/Invoke to force-create the file, which isn't worth the complexity here.
-    [Fact(Skip = "Flaky: cannot reliably create a real NUL file via .NET File API on Win11; see comment")]
-    public void TryDeleteNulFile_DeletesNulFile()
-    {
-        var nulPath = Path.Combine(_tempDir, "NUL");
-        var extendedPath = @"\\?\" + nulPath;
-
-        // Create a real NUL file using the extended-length prefix
-        File.WriteAllText(extendedPath, "test");
-        Assert.True(File.Exists(extendedPath), "NUL file should exist after creation");
-
-        var result = NulFileWatcher.TryDeleteNulFile(nulPath);
-
-        Assert.True(result, "TryDeleteNulFile should return true");
-        Assert.False(File.Exists(extendedPath), "NUL file should be deleted");
-    }
-
     [Fact]
     public void TryDeleteNulFile_ReturnsFalseWhenNoFile()
     {
         var nulPath = Path.Combine(_tempDir, "NUL");
         var result = NulFileWatcher.TryDeleteNulFile(nulPath);
         Assert.False(result);
-    }
-
-    // Flaky for the same reason as TryDeleteNulFile_DeletesNulFile: the setup writes
-    // to \\?\<dir>\NUL via File.WriteAllText, which sometimes hits the NUL device
-    // instead of creating a real file -- so FileSystemWatcher never fires and the
-    // test times out.
-    [Fact(Skip = "Flaky: cannot reliably create a real NUL file via .NET File API on Win11; see comment")]
-    public async Task Start_Watcher_DetectsNewNulFile()
-    {
-        var tcs = new TaskCompletionSource<string>();
-
-        using var watcher = new NulFileWatcher(_tempDir, msg => System.Diagnostics.Debug.WriteLine($"[Test] {msg}"));
-        watcher.OnNulFileDeleted = path => tcs.TrySetResult(path);
-        watcher.Start();
-
-        // Give the watcher a moment to initialize
-        await Task.Delay(200);
-
-        // Create a NUL file after the watcher has started
-        var nulPath = Path.Combine(_tempDir, "NUL");
-        var extendedPath = @"\\?\" + nulPath;
-        File.WriteAllText(extendedPath, "test");
-
-        var completed = await Task.WhenAny(tcs.Task, Task.Delay(10_000));
-        Assert.True(completed == tcs.Task, "Timed out waiting for watcher to detect NUL file");
-
-        var deletedPath = await tcs.Task;
-        Assert.Contains("NUL", deletedPath);
     }
 
     [Fact]

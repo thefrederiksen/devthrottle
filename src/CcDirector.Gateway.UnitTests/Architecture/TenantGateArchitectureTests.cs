@@ -29,8 +29,7 @@ namespace CcDirector.Gateway.Tests.Architecture;
 ///  - System-capability allowlist: the reserved <see cref="TenantId.System"/> scope is entered ONLY at the
 ///    sanctioned composition-root site, and every deliberate cross-tenant capability names itself on
 ///    <see cref="SystemCapabilityAllowlist"/>.
-///  - DT-TEN-3 (workers carry a tenant via TenantScopedSweep) is INCREMENT 2 - see the skipped placeholder
-///    at the bottom of this file.
+///  - DT-TEN-3 (workers carry a tenant via TenantScopedSweep) is INCREMENT 2 and not written yet - issue #3777.
 /// </summary>
 public sealed class TenantGateArchitectureTests
 {
@@ -330,27 +329,6 @@ public sealed class TenantGateArchitectureTests
             "composition-root startup-seeding site (GatewayHost.cs). A new cross-tenant/System reach must name " +
             "itself on SystemCapabilityAllowlist and be sanctioned here. Offending entries: " +
             string.Join(", ", offenders));
-    }
-
-    // ----------------------------------------------------------------------------------------------------
-    // DT-TEN-3: workers carry a tenant. INCREMENT 2 - not implemented here.
-    // ----------------------------------------------------------------------------------------------------
-
-    /// <summary>
-    /// DT-TEN-3 (design section 5.5): no <c>System.Threading.Timer</c> field, <c>IHostedService</c>, or
-    /// timer-callback method in the Gateway may reference a GatewayDatabase-backed store except through the
-    /// worker seam <c>CcDirector.Gateway.Tenancy.TenantScopedSweep</c>. That seam does not exist yet - it is
-    /// G8 INCREMENT 2 (design section 4.1). This rule cannot be written until the seam lands, so it is a
-    /// documented placeholder rather than a silently-absent rule.
-    ///
-    /// TODO(g8-increment-2): implement this rule against TenantScopedSweep once the worker seam is built, and
-    /// migrate the currently hosted-disabled sweeps onto it.
-    /// </summary>
-    [Fact(Skip = "DT-TEN-3 is G8 increment 2: it needs the TenantScopedSweep worker seam (design sections 4.1 / 5.5).")]
-    public void DT_TEN_3_background_workers_touch_stores_only_through_TenantScopedSweep()
-    {
-        // Intentionally empty - see the summary. The rule is defined; its subject (TenantScopedSweep) is not
-        // built in increment 1.
     }
 
     // ----------------------------------------------------------------------------------------------------

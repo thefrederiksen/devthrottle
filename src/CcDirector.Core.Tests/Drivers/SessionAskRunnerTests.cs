@@ -111,54 +111,6 @@ public class SessionAskRunnerTests : IDisposable
 
     // --------------------------------- per-driver: ClaudeCode + Pi answers
 
-    // This integration smoke test drives the REAL ClaudeDriver, which resolves and requires
-    // claude.exe on PATH (ClaudeDriver.ResolveExecutable throws FileNotFoundException when it
-    // is absent). GitHub continuous integration runners have no Claude Code install, so the
-    // test always throws there. xUnit version 2 (the version this project uses) has no clean
-    // runtime skip such as Assert.Skip, so it is statically skipped, matching the existing
-    // convention on the main branch (see NulFileWatcherTests and SessionEdgeCaseTests). The
-    // deterministic fake-backend tests in this same file keep the ask/parse coverage running
-    // everywhere. Developers with claude.exe on PATH can remove the Skip locally to run it.
-    [Fact(Skip = "Requires claude.exe on PATH; not available on CI runners")]
-    public async Task AskAsync_ClaudeCode_RealDriverWithFixtureTranscript_ReturnsParsedAnswer()
-    {
-        // Drive the REAL ClaudeDriver, feeding it a fixture transcript through the
-        // injectable ITranscriptReader seam - no profile, no network.
-        var backend = new FakeAskBackend();
-        var transcripts = new FakeAskTranscriptReader();
-        IAgentDriver driver = new ClaudeDriver(transcripts);
-
-        // The launch spec preassigns the session id; capture it so the fixture is keyed to it.
-        string capturedSessionId = "";
-        backend.OnRawWriteText = _ => { };
-
-        var runner = new SessionAskRunner(
-            driverFactory: _ => driver,
-            backendFactory: () => backend,
-            log: _ => { },
-            quietSeconds: 0.0,
-            startTimeoutSeconds: 2.0,
-            pollIntervalSeconds: 0.01,
-            replyStableSeconds: 0.05);
-
-        // When the prompt is submitted, the real ClaudeDriver echo-gates then writes Enter.
-        // We satisfy the echo by echoing typed bytes, then seed the fixture transcript.
-        backend.EchoTypedText = true;
-        backend.OnSubmitSeen = sid =>
-        {
-            capturedSessionId = sid;
-            transcripts.SetReply(sid, _workDir, Delimited("CLAUDE-FIXTURE-ANSWER"));
-        };
-        backend.SessionIdProvider = () => capturedSessionId;
-
-        // The session id is only known after BuildLaunchSpec runs inside AskAsync, so the
-        // backend learns it from the args it is Started with.
-        var result = await runner.AskAsync(
-            AgentKind.ClaudeCode, null, null, _workDir, "what is the answer?", TimeSpan.FromSeconds(2));
-
-        Assert.Equal("CLAUDE-FIXTURE-ANSWER", result.Answer);
-    }
-
     [Fact]
     public async Task AskAsync_Pi_TranscriptReadingDriverWithFixture_ReturnsParsedAnswer()
     {
