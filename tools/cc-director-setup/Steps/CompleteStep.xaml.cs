@@ -137,6 +137,7 @@ public partial class CompleteStep : UserControl
         catch (Exception ex)
         {
             SetupLog.Write($"[CompleteStep] OpenLogButton_Click FAILED: {ex.Message}");
+            _ = WizardProgressReport.Error("open-log", $"Windows setup wizard could not open the log folder: {ex.GetType().Name}: {ex.Message}", ex);
         }
     }
 
@@ -153,6 +154,7 @@ public partial class CompleteStep : UserControl
         catch (Exception ex)
         {
             SetupLog.Write($"[CompleteStep] ReportButton_Click FAILED: {ex.Message}");
+            _ = WizardProgressReport.Error("report-problem", $"Windows setup wizard could not open the browser to report a problem: {ex.GetType().Name}: {ex.Message}", ex);
             MessageBox.Show(
                 $"Could not open the browser. Please file an issue at {IssueReporter.NewIssueBase} and attach the log:\n{SetupLog.Path}",
                 "Report a problem", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -198,6 +200,7 @@ public partial class CompleteStep : UserControl
         }
         catch (Exception ex)
         {
+            // Not reported: the reason is written into the issue text the person is about to read and send.
             return $"(could not read log: {ex.Message})";
         }
     }
@@ -253,6 +256,7 @@ public partial class CompleteStep : UserControl
         catch (Exception ex)
         {
             SetupLog.Write($"[CompleteStep] OpenDirector FAILED: {ex.Message}");
+            _ = WizardProgressReport.Error("launch-director", $"Windows setup wizard could not open DevThrottle: {ex.GetType().Name}: {ex.Message}", ex);
             return false;
         }
     }
@@ -277,6 +281,7 @@ public partial class CompleteStep : UserControl
         catch (Exception ex)
         {
             SetupLog.Write($"[CompleteStep] GetFreshPath FAILED: {ex.Message}");
+            _ = WizardProgressReport.Error("fresh-path", $"Windows setup wizard could not read PATH from the registry: {ex.GetType().Name}: {ex.Message}", ex);
             return null;
         }
     }

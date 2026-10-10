@@ -35,6 +35,7 @@ public static class GatewayRefresh
         }
         catch (Exception ex)
         {
+            // Not reported: here. The outcome carries the failure, and MainWindow reports every failed outcome.
             return new GatewayRefreshOutcome(skippedBefore + 1, false, $"Gateway install error: {ex.Message}");
         }
     }

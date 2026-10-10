@@ -96,6 +96,7 @@ public sealed class GatewayTrayLauncher
         }
         catch
         {
+            // Not reported: a progress file read mid-write is read again from the same position on the next poll.
             return fromPos;
         }
     }

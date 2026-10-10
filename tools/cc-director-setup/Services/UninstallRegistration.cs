@@ -73,6 +73,7 @@ public static class UninstallRegistration
         {
             // Logged, not thrown. The install succeeded; only its discoverability in Settings did not.
             SetupLog.Write($"[UninstallRegistration] Register FAILED: {ex.Message}");
+            _ = WizardProgressReport.Error("register-uninstall", $"Windows setup wizard could not register DevThrottle in Settings > Apps: {ex.GetType().Name}: {ex.Message}", ex);
         }
     }
 
@@ -130,6 +131,7 @@ public static class UninstallRegistration
             // Could not stage a copy: carry on in place. The uninstall still works; only the
             // "also delete my data" wipe may leave this one executable behind.
             SetupLog.Write($"[UninstallRegistration] could not relaunch from temp, continuing in place: {ex.Message}");
+            _ = WizardProgressReport.Error("uninstall-relaunch", $"Windows uninstall could not relaunch from a temporary copy and continued in place: {ex.GetType().Name}: {ex.Message}", ex);
             return false;
         }
     }
@@ -180,7 +182,7 @@ public static class UninstallRegistration
             foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
             {
                 try { bytes += new FileInfo(file).Length; }
-                catch { /* a file that vanished mid-walk is not worth failing over */ }
+                catch { /* Not reported: a file that vanished mid-walk is not worth failing over */ }
             }
 
             // Windows stores EstimatedSize as a DWORD of kilobytes.
@@ -188,6 +190,7 @@ public static class UninstallRegistration
         }
         catch (Exception ex)
         {
+            // Not reported: the size is a hint Settings > Apps shows; the registration itself went ahead.
             SetupLog.Write($"[UninstallRegistration] could not measure the install size: {ex.Message}");
             return 0;
         }

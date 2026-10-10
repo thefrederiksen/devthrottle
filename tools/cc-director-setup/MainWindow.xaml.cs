@@ -171,6 +171,7 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             SetupLog.Write($"[MainWindow] FetchLatestVersionAsync FAILED: {ex.Message}");
+            _ = WizardProgressReport.Error("release-fetch", $"Windows setup wizard could not read the latest version for the welcome screen: {ex.GetType().Name}: {ex.Message}", ex);
         }
     }
 
@@ -567,7 +568,10 @@ public partial class MainWindow : Window
         // but a FAILURE must still reach the user in words - it is counted as a skip on the Complete
         // screen, and a counted failure nobody was told about is exactly what we are removing.
         if (!outcome.Success)
+        {
             _installStep?.SetStatus(outcome.Message);
+            _ = WizardProgressReport.Error("gateway", $"Windows setup wizard could not refresh the Gateway tray app: {outcome.Message}", null);
+        }
         SetupLog.Write($"[MainWindow] Gateway install success={outcome.Success}: {outcome.Message} (skipped now {_skippedCount})");
     }
 

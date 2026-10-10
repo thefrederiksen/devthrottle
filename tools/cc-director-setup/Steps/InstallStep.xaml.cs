@@ -26,7 +26,11 @@ public partial class InstallStep : UserControl
     {
         SetupLog.Write("[InstallStep] OpenLogButton_Click");
         try { Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{SetupLog.Path}\"") { UseShellExecute = true }); }
-        catch (Exception ex) { SetupLog.Write($"[InstallStep] OpenLogButton_Click FAILED: {ex.Message}"); }
+        catch (Exception ex)
+        {
+            SetupLog.Write($"[InstallStep] OpenLogButton_Click FAILED: {ex.Message}");
+            _ = WizardProgressReport.Error("open-log", $"Windows setup wizard could not open the log folder: {ex.GetType().Name}: {ex.Message}", ex);
+        }
     }
 
     private void ReportButton_Click(object sender, RoutedEventArgs e)
@@ -39,6 +43,7 @@ public partial class InstallStep : UserControl
         catch (Exception ex)
         {
             SetupLog.Write($"[InstallStep] ReportButton_Click FAILED: {ex.Message}");
+            _ = WizardProgressReport.Error("report-problem", $"Windows setup wizard could not open the browser to report a problem: {ex.GetType().Name}: {ex.Message}", ex);
             MessageBox.Show(
                 $"Could not open the browser. Please file an issue at {IssueReporter.NewIssueBase} and attach the log:\n{SetupLog.Path}",
                 "Report a problem", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -75,6 +80,7 @@ public partial class InstallStep : UserControl
         }
         catch (Exception ex)
         {
+            // Not reported: the reason is written into the issue text the person is about to read and send.
             return $"(could not read log: {ex.Message})";
         }
     }
