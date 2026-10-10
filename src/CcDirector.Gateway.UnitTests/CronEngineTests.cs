@@ -89,7 +89,12 @@ public sealed class CronEngineTests : IDisposable
 
         Assert.Empty(fired);
         Assert.Equal(0, starter.StartCount);
-        Assert.Empty(history.List(created.Id));
+        // Not started - but no longer skipped in silence: the run is recorded as one that did not run (Factory Control).
+        var skipped = Assert.Single(history.List(created.Id));
+        Assert.Null(skipped.SessionId);
+        Assert.Equal(CronRunResults.Problem, skipped.Result);
+        Assert.Equal(CronRunProblems.DidNotRun, skipped.Problem);
+        Assert.Equal(created.NextRunUtc, skipped.ScheduledUtc);
         var after = store.Get(created.Id)!;
         Assert.Equal(CronEngine.SkippedPastDeadline, after.LastStatus);
         Assert.Null(after.LastFiredUtc);

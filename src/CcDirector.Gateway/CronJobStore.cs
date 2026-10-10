@@ -345,10 +345,44 @@ public sealed class CronJobStore
 
         var now = DateTime.UtcNow;
         foreach (var entity in entities)
+        {
+            // A switched-on schedule whose next run passed while the Gateway was down missed it. Remember the first one
+            // it missed, so the engine records it as a run that did not run (Factory Control, step 1) instead of the
+            // recompute below moving on in silence.
+            if (entity.Enabled && entity.NextRunUtc is { } due && due <= now)
+                _missedOnLoad.Add(new MissedRun(entity.TenantId, entity.Id, DateTime.SpecifyKind(due, DateTimeKind.Utc), now));
             entity.NextRunUtc = CronSchedule.ComputeNextRunUtc(ToDto(entity), now);
+        }
 
         ctx.SaveChanges();
-        FileLog.Write($"[CronJobStore] Load: {entities.Count} job(s) present; next-run recomputed");
+        FileLog.Write($"[CronJobStore] Load: {entities.Count} job(s) present; next-run recomputed; missed while down={_missedOnLoad.Count}");
+    }
+
+    /// <summary>A run that fell due while the Gateway was down.</summary>
+    /// <param name="TenantId">The account the schedule belongs to.</param>
+    /// <param name="JobId">The schedule.</param>
+    /// <param name="DueUtc">The first run it missed.</param>
+    /// <param name="LoadedUtc">When the Gateway loaded again and moved the schedule on.</param>
+    public sealed record MissedRun(string TenantId, string JobId, DateTime DueUtc, DateTime LoadedUtc);
+
+    private readonly List<MissedRun> _missedOnLoad = new();
+
+    /// <summary>
+    /// Hand over, ONCE, the runs of <paramref name="tenant"/> that fell due while the Gateway was down. A second call
+    /// returns nothing, so each missed run is recorded exactly once.
+    /// </summary>
+    public IReadOnlyList<MissedRun> TakeMissedOnLoad(TenantId tenant)
+    {
+        lock (_gate)
+        {
+            var mine = _missedOnLoad.Where(m => string.Equals(m.TenantId, tenant.Value, StringComparison.Ordinal)).ToList();
+            if (mine.Count > 0)
+            {
+                _missedOnLoad.RemoveAll(m => string.Equals(m.TenantId, tenant.Value, StringComparison.Ordinal));
+                FileLog.Write($"[CronJobStore] TakeMissedOnLoad: tenant={tenant.ToLogString()}, runs={mine.Count}");
+            }
+            return mine;
+        }
     }
 
     /// <summary>Mint an id not already in use. Short and human-quotable, like <c>cj_7fa3b1</c>.</summary>

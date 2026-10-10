@@ -29,4 +29,34 @@ public sealed class CronRunEntity : GatewayMintedKeyEntity
     public string? SessionId { get; set; }
     public string InfraStatus { get; set; } = "";
     public string TaskStatus { get; set; } = "";
+
+    /// <summary>
+    /// How the run went (<see cref="Contracts.CronRunResults"/>; Factory Control, step 1). Rows recorded before results
+    /// existed read <c>untracked</c> - the migration's default - so no old run is condemned for not reporting.
+    /// </summary>
+    public string Result { get; set; } = Contracts.CronRunResults.Untracked;
+
+    /// <summary>The kind of problem (<see cref="Contracts.CronRunProblems"/>), when <see cref="Result"/> is a problem.</summary>
+    public string? Problem { get; set; }
+
+    /// <summary>The one line why.</summary>
+    public string? ResultReason { get; set; }
+
+    /// <summary>When the result was recorded.</summary>
+    public DateTime? ResultUtc { get; set; }
+
+    /// <summary>When someone resolved the problem by hand.</summary>
+    public DateTime? ResolvedUtc { get; set; }
+
+    /// <summary>Who resolved it.</summary>
+    public string? ResolvedBy { get; set; }
+
+    /// <summary>The reason they gave.</summary>
+    public string? ResolvedReason { get; set; }
+
+    /// <summary>
+    /// The factory activity row that recorded this run's problem, so resolving the problem can mark that row handled
+    /// (a correcting row) and the factory stops reading as failing. Null for a run in no factory.
+    /// </summary>
+    public Guid? ProblemActivityId { get; set; }
 }

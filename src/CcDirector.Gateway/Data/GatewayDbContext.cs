@@ -555,6 +555,16 @@ public sealed class GatewayDbContext : DbContext
             b.HasKey(e => e.Id);
             // Newest-first within a job is served by ordering on Sequence DESC; index the lookup+order path.
             b.HasIndex(e => new { e.JobId, e.Sequence });
+            // Factory Control, step 1: how the run went. Every row recorded before results existed is untracked, so
+            // no old run is condemned for not reporting.
+            b.Property(e => e.Result).HasMaxLength(32).HasDefaultValue(Contracts.CronRunResults.Untracked);
+            b.Property(e => e.Problem).HasMaxLength(32);
+            b.Property(e => e.ResultReason).HasMaxLength(500);
+            b.Property(e => e.ResolvedBy).HasMaxLength(256);
+            b.Property(e => e.ResolvedReason).HasMaxLength(500);
+            // The sweep reads the runs still waiting on a report; the session lookup finds a session's own run.
+            b.HasIndex(e => e.Result);
+            b.HasIndex(e => e.SessionId);
         });
 
         modelBuilder.Entity<WorkListEntity>(b =>

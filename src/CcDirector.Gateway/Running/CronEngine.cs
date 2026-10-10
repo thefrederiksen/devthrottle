@@ -49,6 +49,10 @@ public sealed class CronEngine
     private readonly IClock _clock;
     private readonly TimeSpan _catchUpThreshold;
     private readonly Func<TenantId?> _resolveTenant;
+    // Factory Control, step 1 and 6: told of every run the engine records WITH its result already on it (a fire that
+    // started no session, a due run that was skipped or missed), so the run's factory hears about it. Production passes
+    // CronRunResultService.Announce; a test that does not watch factory rows passes nothing.
+    private readonly Action<TenantId, CronJobDto, CronRunRecord>? _onResultRecorded;
 
     private readonly object _inFlightGate = new();
     // Overlap admission, PARTITIONED BY TENANT (audit MED, gap audit-e). A cron job's id is tenant-relative
@@ -85,8 +89,10 @@ public sealed class CronEngine
         ICronNotifier notifier,
         IClock clock,
         TimeSpan? catchUpThreshold = null,
-        Func<TenantId?>? resolveTenant = null)
+        Func<TenantId?>? resolveTenant = null,
+        Action<TenantId, CronJobDto, CronRunRecord>? onResultRecorded = null)
     {
+        _onResultRecorded = onResultRecorded;
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _history = history ?? throw new ArgumentNullException(nameof(history));
         _starter = starter ?? throw new ArgumentNullException(nameof(starter));
@@ -105,6 +111,7 @@ public sealed class CronEngine
     public async Task<IReadOnlyList<CronRunRecord>> EvaluateDueAsync(CancellationToken ct)
     {
         var now = _clock.UtcNow;
+        RecordMissedWhileDown(now);
         var due = _store.ListAll()
             .Where(j => j.Enabled && j.NextRunUtc is not null && j.NextRunUtc.Value <= now)
             .ToList();
@@ -124,6 +131,8 @@ public sealed class CronEngine
                     var next = CronSchedule.ComputeNextRunUtc(job, now);
                     _store.SkipRun(job.Id, SkippedPastDeadline, next);
                     FileLog.Write($"[CronEngine] skip past deadline: job={job.Id}, due={job.NextRunUtc:o}, deadline={deadline:o}, next={next:o}");
+                    RecordDidNotRun(job, job.NextRunUtc ?? now, now,
+                        $"it was reached only after its deadline ({deadline:yyyy-MM-dd HH:mm} UTC), so it was not started late");
                     continue;
                 }
                 var result = await FireAsync(job, job.NextRunUtc ?? now, isManual: false, ct);
@@ -215,6 +224,20 @@ public sealed class CronEngine
                 InfraStatus = infraStatus,
                 TaskStatus = TaskStatusUnknown,
             };
+            // How the run went (Factory Control, step 1). A started session owes its report. A fire that started
+            // nothing did not run. A work-list drain starts many sessions and records none, so no one session can
+            // report for it - it is untracked, as is a drain that found its list empty (nothing was due).
+            if (!started)
+            {
+                record.Result = CronRunResults.Problem;
+                record.Problem = CronRunProblems.DidNotRun;
+                record.ResultReason = DidNotStartReason(isWorkList, error);
+                record.ResultUtc = firedUtc;
+            }
+            else
+            {
+                record.Result = isWorkList ? CronRunResults.Untracked : CronRunResults.Pending;
+            }
             _history.Append(job.Id, record);
 
             if (isManual)
@@ -236,6 +259,10 @@ public sealed class CronEngine
                 var next = CronSchedule.ComputeNextRunUtc(job, firedUtc);
                 _store.MarkFired(job.Id, firedUtc, infraStatus, next, enabled: true);
             }
+
+            // Only once the schedule has moved on: a failure telling the factory must never leave the job due again.
+            if (!started)
+                _onResultRecorded?.Invoke(tenant, job, record);
 
             if (error is not null)
                 FileLog.Write($"[CronEngine] fire start error: job={job.Id}: {error}");
@@ -284,6 +311,73 @@ public sealed class CronEngine
         };
 
         await _notifier.NotifyRunCompletedAsync(job, directorId ?? "", payload, ct);
+    }
+
+    private static string DidNotStartReason(bool isWorkList, string? error) =>
+        string.IsNullOrWhiteSpace(error)
+            ? (isWorkList ? "its work list did not start" : "it did not start a session")
+            : (isWorkList ? $"its work list did not start: {error}" : $"it did not start a session: {error}");
+
+    /// <summary>
+    /// Record a due run that never fired as a run with the problem "did not run" (Factory Control, step 1), so it is
+    /// seen rather than silently skipped.
+    /// </summary>
+    private void RecordDidNotRun(CronJobDto job, DateTime dueUtc, DateTime nowUtc, string reason)
+    {
+        var tenant = _resolveTenant()
+            ?? throw new InvalidOperationException("A missed cron run was recorded with no tenant scope in effect.");
+        var record = new CronRunRecord
+        {
+            ScheduledUtc = dueUtc,
+            FiredUtc = nowUtc,
+            Machine = job.Target.Machine,
+            TargetDirectorId = "",
+            SessionId = null,
+            InfraStatus = DidNotRunStatus,
+            TaskStatus = TaskStatusUnknown,
+            Result = CronRunResults.Problem,
+            Problem = CronRunProblems.DidNotRun,
+            ResultReason = reason,
+            ResultUtc = nowUtc,
+        };
+        _history.Append(job.Id, record);
+        FileLog.Write($"[CronEngine] did not run: job={job.Id}, due={dueUtc:o}, reason={reason}");
+        _onResultRecorded?.Invoke(tenant, job, record);
+    }
+
+    /// <summary>The infrastructure status of a run that was due and never fired.</summary>
+    public const string DidNotRunStatus = "did-not-run";
+
+    /// <summary>
+    /// The runs that fell due while the Gateway was down. The store moves every schedule on from "now" when it loads,
+    /// so no fire is replayed - and before this, nothing said one had been missed. Each schedule whose next run had
+    /// already passed is recorded ONCE, for the first run it missed; the reason says later runs in the same outage
+    /// were missed too, rather than writing one problem per missed interval.
+    /// </summary>
+    private void RecordMissedWhileDown(DateTime nowUtc)
+    {
+        var tenant = _resolveTenant();
+        if (tenant is null) return;
+        foreach (var missed in _store.TakeMissedOnLoad(tenant.Value))
+        {
+            var job = _store.Get(missed.JobId);
+            if (job is null)
+            {
+                FileLog.Write($"[CronEngine] missed while down: job={missed.JobId} no longer exists, nothing recorded");
+                continue;
+            }
+            try
+            {
+                RecordDidNotRun(job, missed.DueUtc, nowUtc,
+                    $"the Gateway was not running when it was due (it started again at {missed.LoadedUtc:yyyy-MM-dd HH:mm} UTC); " +
+                    "any later run of this schedule before then was missed too");
+            }
+            catch (Exception ex)
+            {
+                // Timer boundary: one schedule's record failing must not stop the sweep firing the rest.
+                FileLog.Write($"[CronEngine] RecordMissedWhileDown FAILED: job={missed.JobId}: {ex.Message}");
+            }
+        }
     }
 
     private static string WorkListStatusSuffix(CronWorkListOutcome outcome) => outcome switch
