@@ -67,12 +67,11 @@ internal interface IFleetManagerPlacementEnvironment
 /// Who asked for a change to the Fleet Manager mark (the Fleet Manager Improvement mission, phase 1).
 /// </summary>
 /// <param name="Actor">Who, in the words the record carries: the owner's device, or the session.</param>
-/// <param name="IsOwnerDevice">True only for the owner's own signed-in phone or browser. Setting up the Fleet Manager
-/// RAISES the marked session only then - any session key can set the mark, and a session must never be able to raise
-/// itself, or another, by marking it.</param>
+/// <param name="IsOwnerDevice">True only for the owner's own signed-in phone or browser. It no longer decides whether the
+/// marked session is raised - the mark raises, whoever set it - and is kept so the record says who set it up.</param>
 internal sealed record FleetManagerCaller(string Actor, bool IsOwnerDevice)
 {
-    /// <summary>A caller nobody named: never the owner's device, so it raises nothing.</summary>
+    /// <summary>A caller nobody named: never the owner's device.</summary>
     public static readonly FleetManagerCaller Unnamed = new("unknown", false);
 }
 
@@ -194,7 +193,7 @@ internal sealed class FleetManagerPlacementService : IDisposable
     /// <summary>
     /// RAISED FOLLOWS THE MARK. The mark has just been set to <paramref name="markedSessionId"/> (or cleared, when
     /// null) by <paramref name="caller"/>. Every entry the mark had granted another session is removed, and the newly
-    /// marked session is raised only when the owner's own device set the mark. The raise is recorded BEFORE the list
+    /// marked session is raised, whoever set the mark. The raise is recorded BEFORE the list
     /// changes, so there is never a raised session with no record of who raised it.
     /// </summary>
     /// <summary>
@@ -215,9 +214,15 @@ internal sealed class FleetManagerPlacementService : IDisposable
     private void RaisedFollowsMark(TenantId tenant, string? markedSessionId, FleetManagerCaller caller, DateTime now)
     {
         if (_raised is null || _raisedRecord is null) return;
-        var raise = caller.IsOwnerDevice && markedSessionId is not null;
+        // EVERY MARK RAISES, whoever set it (the owner, 10 October 2026: the Fleet Manager "can do whatever you want").
+        // The marked session is raised by the mark itself (RaisedSessions.IsRaised); the entry and the record written
+        // here are so the list and the record say so, and name who set it up.
+        var raise = markedSessionId is not null;
         if (raise)
-            _raisedRecord.Raised(tenant, markedSessionId!, caller.Actor, "the owner set it up as the account's Fleet Manager");
+            _raisedRecord.Raised(tenant, markedSessionId!, caller.Actor,
+                caller.IsOwnerDevice
+                    ? "the owner set it up as the account's Fleet Manager"
+                    : "it was marked as the account's Fleet Manager, and the Fleet Manager is raised");
         var change = _raised.FollowMark(tenant, markedSessionId, raise, caller.Actor, now);
         foreach (var lowered in change.Lowered)
             _raisedRecord.Lowered(tenant, lowered, caller.Actor, "the Fleet Manager mark left it");
@@ -522,7 +527,7 @@ internal sealed class FleetManagerPlacementService : IDisposable
         {
             _settings.SetFleetManagerSessionId(tenant, session.SessionId, startedAt);
             _env.RecordMark(tenant, _settings.FleetManagerSessionId(tenant)!, startedAt);
-            // A plain start marks at once, so raised follows at once - and only the owner's own device raises it.
+            // A plain start marks at once, so raised follows at once.
             RaisedFollowsMark(tenant, _settings.FleetManagerSessionId(tenant), caller, startedAt);
             FileLog.Write($"[FleetManagerPlacementService] started Fleet Manager {session.SessionId} ({dto.Agent}) on " +
                           $"{placement.Machine}, director={directorId}; marked as the account's Fleet Manager");

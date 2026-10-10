@@ -223,24 +223,30 @@ public sealed class FleetManagerHandOverAuthorityHostTests : IAsyncLifetime
         Assert.Null(_rowsA[_ownedId].ControllerSessionId);
     }
 
+    /// <summary>The Fleet Manager has the owner's power over his sessions (the owner, 10 October 2026: "the fleet
+    /// manager is God and can do whatever you want"), so it takes a session another running session owns.</summary>
     [Fact]
-    public async Task The_Fleet_Manager_never_takes_a_session_another_running_session_owns()
+    public async Task The_Fleet_Manager_takes_a_session_another_running_session_owns()
     {
         var (status, body) = await HandOverAsync(_fleetManager, _workerId, "fleet-manager");
 
-        Assert.Equal(HttpStatusCode.Conflict, status);
-        Assert.Contains("which is still running, so it was not handed over", body.GetProperty("error").GetString());
-        Assert.Empty(_ownerChangesA);
-        Assert.Equal(_architectId, _rowsA[_workerId].ControllerSessionId);
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal(_fleetManagerId, body.GetProperty("ownerSessionId").GetString());
+        Assert.Equal(_architectId, body.GetProperty("previousOwnerSessionId").GetString());
+        Assert.Equal(_workerId, Assert.Single(_ownerChangesA).SessionId);
+        Assert.Equal(_fleetManagerId, _rowsA[_workerId].ControllerSessionId);
     }
 
+    /// <summary>And hands back to the owner a session another session owns, as the owner may from his own screens.</summary>
     [Fact]
-    public async Task The_Fleet_Manager_never_hands_back_a_session_it_does_not_own()
+    public async Task The_Fleet_Manager_hands_back_to_the_owner_a_session_another_session_owns()
     {
-        var (status, _) = await HandOverAsync(_fleetManager, _workerId, "owner");
+        var (status, body) = await HandOverAsync(_fleetManager, _workerId, "owner");
 
-        Assert.Equal(HttpStatusCode.Conflict, status);
-        Assert.Empty(_ownerChangesA);
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal(JsonValueKind.Null, body.GetProperty("ownerSessionId").ValueKind);
+        Assert.Equal(_workerId, Assert.Single(_ownerChangesA).SessionId);
+        Assert.Null(_rowsA[_workerId].ControllerSessionId);
     }
 
     [Fact]

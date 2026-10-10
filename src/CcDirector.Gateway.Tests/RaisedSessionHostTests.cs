@@ -289,6 +289,22 @@ public sealed class RaisedSessionHostTests : IAsyncLifetime
         Assert.Equal(_raisedId, record.GetProperty("sessionId").GetString());
     }
 
+    /// <summary>The owner pressing Lower on the Fleet Manager is refused with what does lower it, and no lowering is
+    /// recorded - the mark raises it, so lowering an entry would change nothing.</summary>
+    [Fact]
+    public async Task Lower_TheMarkedFleetManager_IsRefusedWithWhatDoesLowerIt_AndRecordsNothing()
+    {
+        Assert.Equal(HttpStatusCode.OK, (await Send(_ownerA, "PUT", "gateway/fleet-manager", new { sessionId = _raisedId })).Status);
+
+        var (status, body) = await Send(_ownerA, "POST", $"sessions/{_raisedId}/lower");
+
+        Assert.Equal(HttpStatusCode.Conflict, status);
+        Assert.Equal("fleet_manager_is_raised_by_its_mark", Root(body).GetProperty("code").GetString());
+        Assert.Contains("move or clear the Fleet Manager in Settings", Root(body).GetProperty("error").GetString());
+        Assert.True(_gateway.RaisedSessions.IsRaised(_tenantA, _raisedId));
+        Assert.Empty(await Records(GovernanceAuditEventType.SessionLowered, _raisedId));
+    }
+
     [Fact]
     public async Task RaiseAndLower_FromAnySessionKey_RaisedOrNot_AreRefusedByTheGuard_AndChangeNothing()
     {
@@ -571,27 +587,53 @@ public sealed class RaisedSessionHostTests : IAsyncLifetime
     }
 
     /// <summary>
-    /// THE HOLE THIS CLOSES. Any session key may set the mark (<c>fleet-manager set</c> marks the caller). If the mark
-    /// alone raised a session, any session could raise itself in one call. Only the owner's own device raises by
-    /// marking.
+    /// THE FLEET MANAGER IS RAISED HOWEVER ITS MARK WAS SET (the owner, 10 October 2026: "the fleet manager is God and
+    /// can do whatever you want"). A session marked with its own key - <c>fleet-manager set</c> - may type into and
+    /// message a session the owner started, as the owner may, and every one of those actions is on the record against
+    /// its session id. This is the path that failed him: a Fleet Manager whose stored entry was missing answered every
+    /// prompt with "An agent may type only into a session it owns" and every message with the relationship rule.
     /// </summary>
     [Fact]
-    public async Task MarkingItselfTheFleetManager_WithASessionKey_DoesNotRaiseTheSession()
+    public async Task MarkedTheFleetManager_WithASessionKey_TypesIntoAndMessagesASessionTheOwnerStarted_AndIsRecorded()
     {
-        var marked = await Send(_unraised, "PUT", "gateway/fleet-manager", new { sessionId = _unraisedId });
+        // BEFORE the mark: refused as any session is - the negative control, so the pass below is caused by the mark.
+        AssertRefusedByTheGuard(await Send(_unraised, "POST", $"sessions/{_workerId}/interrupt"));
+        var refusedMessage = await Send(_unraised, "POST", $"sessions/{_strangerId}/message", new { text = "before the mark" });
+        Assert.Equal(HttpStatusCode.Forbidden, refusedMessage.Status);
 
-        // POSITIVE CONTROL: the mark really was set - the route was reached and did its work.
+        var marked = await Send(_unraised, "PUT", "gateway/fleet-manager", new { sessionId = _unraisedId });
         Assert.Equal(HttpStatusCode.OK, marked.Status);
         Assert.Equal(_unraisedId, Root(marked.Body).GetProperty("sessionId").GetString());
 
-        Assert.False(_gateway.RaisedSessions.IsRaised(_tenantA, _unraisedId));
-        AssertRefusedByTheGuard(await Send(_unraised, "POST", $"sessions/{_workerId}/interrupt"));
-        AssertRefusedByTheGuard(await Send(_unraised, "GET", "gateway/fleet-manager/placement"));
-        Assert.Empty(await Records(GovernanceAuditEventType.SessionRaised, _unraisedId));
+        Assert.True(_gateway.RaisedSessions.IsRaised(_tenantA, _unraisedId));
+        var raisedRecord = Assert.Single(await Records(GovernanceAuditEventType.SessionRaised, _unraisedId));
+        Assert.Equal($"session {_unraisedId}", raisedRecord.GetProperty("actor").GetString());
+
+        // Typing: every typing route reaches the session the owner started, as the owner's own device does.
+        foreach (var (name, verb, path, body) in AgentInput(_workerId))
+        {
+            var answer = await Send(_unraised, verb, path, body);
+            Assert.True(answer.Status != HttpStatusCode.Forbidden && answer.Status != HttpStatusCode.Unauthorized,
+                $"{name}: the marked Fleet Manager was refused ({(int)answer.Status}): {answer.Body}");
+        }
+
+        // Messaging a session related to nobody, past both rates.
+        for (var i = 1; i <= 8; i++)
+        {
+            var sent = await Send(_unraised, "POST", $"sessions/{_strangerId}/message", new { text = $"note {i} from the Fleet Manager" });
+            Assert.Equal(HttpStatusCode.OK, sent.Status);
+            Assert.Equal("queued", Root(sent.Body).GetProperty("status").GetString());
+        }
+
+        // Recorded against the Fleet Manager's own session id: one per typing route, one per waived message.
+        var records = await Records(GovernanceAuditEventType.RaisedAction, _unraisedId);
+        Assert.All(records, r => Assert.Equal(_unraisedId, r.GetProperty("sessionId").GetString()));
+        Assert.All(records, r => Assert.Equal($"session {_unraisedId}", r.GetProperty("actor").GetString()));
+        Assert.Equal(AgentInput(_workerId).Length + 8, records.Count);
     }
 
     [Fact]
-    public async Task ASessionKeyMovingTheMarkAway_LowersTheFleetManagerTheOwnerSetUp_AndRaisesNobody()
+    public async Task ASessionKeyMovingTheMarkAway_LowersTheFleetManagerTheOwnerSetUp_AndRaisesTheNewlyMarkedOne()
     {
         await Send(_ownerA, "PUT", "gateway/fleet-manager", new { sessionId = _raisedId });
         Assert.True(_gateway.RaisedSessions.IsRaised(_tenantA, _raisedId));
@@ -600,8 +642,10 @@ public sealed class RaisedSessionHostTests : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.OK, moved.Status);
         Assert.False(_gateway.RaisedSessions.IsRaised(_tenantA, _raisedId));
-        Assert.False(_gateway.RaisedSessions.IsRaised(_tenantA, _unraisedId));
+        Assert.True(_gateway.RaisedSessions.IsRaised(_tenantA, _unraisedId));
+        AssertRefusedByTheGuard(await Send(_raised, "POST", $"sessions/{_workerId}/interrupt"));
         Assert.Single(await Records(GovernanceAuditEventType.SessionLowered, _raisedId));
+        Assert.Single(await Records(GovernanceAuditEventType.SessionRaised, _unraisedId));
     }
 
     // ---- an entry ends with its session ------------------------------------------------------------------

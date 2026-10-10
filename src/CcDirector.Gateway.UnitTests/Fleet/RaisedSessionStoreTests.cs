@@ -37,6 +37,27 @@ public sealed class RaisedSessionStoreTests : IDisposable
         Assert.Empty(Open().RaisedIds(TenantA));
     }
 
+    /// <summary>
+    /// THE MARKED FLEET MANAGER IS RAISED WITH NO ENTRY AT ALL (the owner, 10 October 2026). This is the regression
+    /// test for the Fleet Manager the owner started from his own Cockpit page that could not type into or message a
+    /// session he had started: its entry was missing, so it answered as an ordinary session. No entry is needed now.
+    /// </summary>
+    [Fact]
+    public void IsRaised_TheMarkedSession_WithNoEntry_IsRaised_AndIsInRaisedIds()
+    {
+        var store = Open();
+        _markA = First;
+
+        Assert.Empty(store.List(TenantA));
+        Assert.True(store.IsRaised(TenantA, First));
+        Assert.True(store.IsRaised(TenantA, First.ToUpperInvariant()));
+        Assert.False(store.IsRaised(TenantA, Second));
+        Assert.Equal(new[] { First }, store.RaisedIds(TenantA).ToArray());
+        // Tenant-bound: the same id is not raised in an account whose mark it is not.
+        Assert.False(store.IsRaised(TenantB, First));
+        Assert.Empty(store.RaisedIds(TenantB));
+    }
+
     [Fact]
     public void Raise_ByTheOwner_IsRaised_InThatAccountOnly_AndSurvivesARestartOfTheStore()
     {
@@ -125,10 +146,10 @@ public sealed class RaisedSessionStoreTests : IDisposable
     /// <summary>
     /// THE BACKSTOP. The mark is written in six places, and one of them may forget to tell this store. A mark entry
     /// counts only while its session IS the mark, so a writer that forgets leaves the old session NOT raised - the
-    /// row is still there, and it grants nothing.
+    /// row is still there, and it grants nothing. The newly marked session is raised by the mark itself.
     /// </summary>
     [Fact]
-    public void IsRaised_MarkMovedWithoutTellingTheStore_TheOldMarkEntryGrantsNothing()
+    public void IsRaised_MarkMovedWithoutTellingTheStore_TheOldMarkEntryGrantsNothing_AndTheNewMarkIsRaised()
     {
         var store = Open();
         _markA = First;
@@ -138,18 +159,17 @@ public sealed class RaisedSessionStoreTests : IDisposable
 
         Assert.Single(store.List(TenantA));
         Assert.False(store.IsRaised(TenantA, First));
-        Assert.False(store.IsRaised(TenantA, Second));
-        Assert.Empty(store.RaisedIds(TenantA));
+        Assert.True(store.IsRaised(TenantA, Second));
+        Assert.Equal(new[] { Second }, store.RaisedIds(TenantA).ToArray());
     }
 
     /// <summary>
-    /// A SESSION CANNOT RAISE ITSELF BY MARKING ITSELF. Any session key may set the mark; the caller passes
-    /// <c>raise: false</c> for every caller but the owner's own device, and then the newly marked session gets no
-    /// entry - and the entry the mark had granted the old one is removed, so marking the old one AGAIN later does not
-    /// bring it back to life.
+    /// <c>raise: false</c> WRITES NO ENTRY, and the entry the mark had granted the old session is removed. Whether a
+    /// session is raised no longer depends on that entry: the marked session is raised by the mark, and the session the
+    /// mark left is not.
     /// </summary>
     [Fact]
-    public void FollowMark_SetByASessionKey_RaisesNobody_AndAnOldEntryNeverComesBack()
+    public void FollowMark_RaiseFalse_WritesNoEntry_TheMarkStillRaises_AndTheOldOneIsLowered()
     {
         var store = Open();
         _markA = First;
@@ -159,13 +179,9 @@ public sealed class RaisedSessionStoreTests : IDisposable
         var moved = store.FollowMark(TenantA, Second, raise: false, "session " + Second, Now.AddMinutes(1));
         Assert.Null(moved.Raised);
         Assert.Equal(new[] { First }, moved.Lowered);
-        Assert.False(store.IsRaised(TenantA, Second));
-
-        _markA = First;
-        var back = store.FollowMark(TenantA, First, raise: false, "session " + First, Now.AddMinutes(2));
-        Assert.Null(back.Raised);
-        Assert.False(store.IsRaised(TenantA, First));
         Assert.Empty(store.List(TenantA));
+        Assert.True(store.IsRaised(TenantA, Second));
+        Assert.False(store.IsRaised(TenantA, First));
     }
 
     /// <summary>An entry the owner made himself does not depend on the mark, and the mark moving does not remove it.</summary>
@@ -207,14 +223,14 @@ public sealed class RaisedSessionStoreTests : IDisposable
     }
 
     [Fact]
-    public void CarryToSuccessor_FromAFleetManagerThatIsNotRaised_CarriesNothing()
+    public void CarryToSuccessor_FromASessionThatIsNotRaised_CarriesNothing()
     {
         var store = Open();
-        _markA = First;
+        // No mark and no entry: First is not raised, so there is nothing to carry.
+        _markA = null;
 
         Assert.False(store.CarryToSuccessor(TenantA, First, Second, Now));
 
-        _markA = Second;
         Assert.False(store.IsRaised(TenantA, Second));
         Assert.Empty(store.List(TenantA));
     }
@@ -232,7 +248,9 @@ public sealed class RaisedSessionStoreTests : IDisposable
 
         Assert.Empty(store.List(TenantA));
         Assert.False(store.IsRaised(TenantA, First));
-        Assert.False(store.IsRaised(TenantA, Second));
+        // The marked Fleet Manager stays raised with its entry gone: a Director reaping or re-keying the session used
+        // to delete the entry while the mark stayed, which is one way the owner's Fleet Manager lost its power.
+        Assert.True(store.IsRaised(TenantA, Second));
         Assert.False(store.EndWithSession(TenantA, First));
     }
 
@@ -242,7 +260,9 @@ public sealed class RaisedSessionStoreTests : IDisposable
     [InlineData(RaisedSessionSources.FleetManagerMark, First, true)]
     [InlineData(RaisedSessionSources.FleetManagerMark, Second, false)]
     [InlineData(RaisedSessionSources.FleetManagerMark, null, false)]
-    [InlineData("a-source-nobody-wrote", First, false)]
+    [InlineData("a-source-nobody-wrote", Second, false)]
+    // The marked session is raised whatever its entry says.
+    [InlineData("a-source-nobody-wrote", First, true)]
     public void IsRaised_TheOneAnswer(string source, string? marked, bool expected)
     {
         var entry = new RaisedSession(First, source, Owner, Now);
@@ -250,4 +270,12 @@ public sealed class RaisedSessionStoreTests : IDisposable
         Assert.Equal(expected, RaisedSessions.IsRaised(entry, marked));
         Assert.False(RaisedSessions.IsRaised(null, marked));
     }
+
+    [Theory]
+    [InlineData(First, First, true)]
+    [InlineData(First, null, false)]
+    [InlineData(First, Second, false)]
+    [InlineData(null, First, false)]
+    public void IsRaised_TheMarkWithNoEntry(string? sessionId, string? marked, bool expected)
+        => Assert.Equal(expected, RaisedSessions.IsRaised(sessionId, null, marked));
 }

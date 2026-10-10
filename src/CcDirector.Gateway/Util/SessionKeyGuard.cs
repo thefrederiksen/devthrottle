@@ -47,6 +47,11 @@ public static class AgentInputRefusal
         "To reach a session you started, or the session that started you, send a queued message: " +
         "cc-devthrottle message send <session> \"<text>\" - it is read when that session is free.";
 
+    /// <summary>Who is not bound by any of the refusals below, said once and appended to the ones about typing into
+    /// another session (the owner, 10 October 2026: the Fleet Manager "can do whatever you want").</summary>
+    public const string FleetManagerMay =
+        "The account's Fleet Manager is not bound by this: it may type into, interrupt and answer any session of the account.";
+
     /// <summary>What a session MAY type, said once and appended to the refusals of what it may not (Parent Control,
     /// fix 1).</summary>
     public const string OwnedMay =
@@ -59,12 +64,12 @@ public static class AgentInputRefusal
     /// not addressed to one session the caller owns.</summary>
     public const string Typing =
         "An agent may not interrupt or escape a session, fan a prompt out, or answer a judged stop: only the owner " +
-        "does that, from his own screens. " + OwnedMay + " " + Instead;
+        "does that, from his own screens. " + OwnedMay + " " + Instead + " " + FleetManagerMay;
 
     /// <summary>A session key asked to type into a session it does not own directly.</summary>
     public const string NotYourSession =
         "An agent may type only into a session it owns: this session is not owned by yours - the owner runs it, " +
-        "another session owns it, or it is owned by a session you own rather than by you. " + Instead;
+        "another session owns it, or it is owned by a session you own rather than by you. " + Instead + " " + FleetManagerMay;
 
     /// <summary>A session key asked to type into its own session.</summary>
     public const string Itself =

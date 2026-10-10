@@ -64,6 +64,27 @@ public sealed class RaisedSessionRosterFoldTests
         Assert.True(string.IsNullOrEmpty(ended.Label));
     }
 
+    /// <summary>
+    /// THE FLEET MANAGER'S ROW OFFERS NOTHING. The mark raises it, so a "Lower" button would change nothing and its
+    /// route would write a lowering that never happened. The row says why it is raised and how to lower it.
+    /// </summary>
+    [Fact]
+    public void Stamp_TheMarkedFleetManager_IsRaised_OffersNothing_AndSaysTheMarkRaisesIt()
+    {
+        var rows = new[] { Row(A), Row(B) };
+
+        RaisedSessionRosterFold.Stamp(rows, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { A }, A.ToUpperInvariant());
+
+        var fm = rows[0].Raise!;
+        Assert.True(fm.Raised);
+        Assert.Equal("Raised", fm.Mark);
+        Assert.Contains("Fleet Manager is always raised", fm.MarkTitle);
+        Assert.True(string.IsNullOrEmpty(fm.Offer));
+        Assert.True(string.IsNullOrEmpty(fm.Label));
+        // The other row is unaffected by the mark.
+        Assert.Equal(SessionRaiseDto.OfferRaise, rows[1].Raise!.Offer);
+    }
+
     [Fact]
     public void Stamp_OverwritesWhateverADirectorSent()
     {

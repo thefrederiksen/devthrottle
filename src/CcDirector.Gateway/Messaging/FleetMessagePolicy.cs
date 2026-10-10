@@ -267,7 +267,8 @@ public static class FleetMessagePolicy
                 {
                     return new(FleetMessageOutcome.RefusedNotRelated,
                         $"You may message only the session that started you and the sessions you started. " +
-                        $"{Short(recipient)} is neither, so nothing was queued. If the two of you need to talk, ask the " +
+                        $"{Short(recipient)} is neither, so nothing was queued. (The account's Fleet Manager may message any " +
+                        "session, with no limit.) If the two of you need to talk, ask the " +
                         $"user for a message link: cc-devthrottle message request {recipient} \"why you need to " +
                         $"talk\". The answer arrives in your inbox. {PutItInYourReport}");
                 }

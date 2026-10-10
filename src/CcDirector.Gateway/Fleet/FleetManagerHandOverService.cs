@@ -175,6 +175,14 @@ public sealed class FleetManagerHandOverService
             && RefuseUnlessFleetManager(roster, marked, callingSessionId, sid, callerOwnsIt) is { } notAllowed)
             return notAllowed;
 
+        // THE LIVE FLEET MANAGER HAS THE OWNER'S POWER OVER HIS SESSIONS (the owner, 10 October 2026: "the fleet manager
+        // is God and can do whatever you want"). So it hands back to the owner a session another session holds, and takes
+        // a session another live session owns - the two things only the owner could do. The no-ring check below still
+        // binds it: a ring silences the owner, so that check protects HIM, not a session from the Fleet Manager.
+        var callerIsFleetManager = callingSessionId is not null
+                                   && FleetManagerSessions.SameId(callingSessionId, marked)
+                                   && FleetManagerSessions.LiveFleetManager(roster.Select(r => r.Session), marked) is not null;
+
         var found = roster.FirstOrDefault(r => FleetManagerSessions.SameId(r.Session.SessionId, sid)
                                                && _env.IsHoldersRow(tenant, r.DirectorId, r.Session.SessionId));
         if (found.Session is null)
@@ -205,7 +213,7 @@ public sealed class FleetManagerHandOverService
                     $"The Fleet Manager (session {marked}) is not running as the Fleet Manager, so it cannot take {name}. Start it from Settings first.");
             if (FleetManagerSessions.IsOwnedBy(session, fleetManager.SessionId))
                 return FleetHandOverResult.Refused(409, $"{name} is already the Fleet Manager's.");
-            if (session.HasLiveSupervisor)
+            if (session.HasLiveSupervisor && !callerIsFleetManager)
                 return FleetHandOverResult.Refused(409,
                     $"{name} is owned by {OwnerName(roster, owner)}, which is still running, so it was not handed over. " +
                     "It reports to that session, not to you; taking it would take it from the session that started it.");
@@ -218,7 +226,7 @@ public sealed class FleetManagerHandOverService
                     $"{name} is the session asking. A session cannot take itself: it already answers to whoever owns it.");
             if (FleetManagerSessions.IsOwnedBy(session, callingSessionId!))
                 return FleetHandOverResult.Refused(409, $"{name} is already yours.");
-            if (session.HasLiveSupervisor)
+            if (session.HasLiveSupervisor && !callerIsFleetManager)
                 return FleetHandOverResult.Refused(409,
                     $"{name} is owned by {OwnerName(roster, owner)}, which is still running, so it was not taken. " +
                     "It reports to that session, not to the owner; taking it would take it from the session that started it.");
@@ -235,7 +243,7 @@ public sealed class FleetManagerHandOverService
             // because it is YOUR work you are giving away; releasing somebody else's worker is not a gift, it is
             // taking it from the session that started it - the same reason a take never reaches a session another
             // live session holds. A release by the session that owns it is the one the caller check let through.
-            if (callingSessionId is not null && !releasing)
+            if (callingSessionId is not null && !releasing && !callerIsFleetManager)
                 return FleetHandOverResult.Refused(409,
                     $"{name} is owned by {OwnerName(roster, owner)}, not by the session asking. A session hands back " +
                     "only a session it owns itself; the owner hands any session back from the Cockpit or the phone.");
@@ -281,10 +289,12 @@ public sealed class FleetManagerHandOverService
         var detail = taking
             ? $"taken by session {newOwner} on the owner's direction; owned before by {owner ?? "the owner"}"
             : newOwner is not null
-                ? $"handed to the Fleet Manager {newOwner}; owned before by {owner ?? "the owner"}"
+                ? $"handed to the Fleet Manager {newOwner}{(callerIsFleetManager ? " by the Fleet Manager itself" : "")}; owned before by {owner ?? "the owner"}"
                 : releasing
                     ? $"released to the owner by session {owner}, which owned it"
-                    : $"handed back to the owner; owned before by {(FleetManagerSessions.SameId(owner, marked) ? "the Fleet Manager " : "session ")}{owner}";
+                    : callerIsFleetManager
+                        ? $"handed back to the owner by the Fleet Manager {callingSessionId}; owned before by session {owner}"
+                        : $"handed back to the owner; owned before by {(FleetManagerSessions.SameId(owner, marked) ? "the Fleet Manager " : "session ")}{owner}";
         string? auditNote = null;
         try
         {
