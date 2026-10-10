@@ -23,6 +23,11 @@ public sealed class SecretMachineRegistry
     /// open: Hello comes about every ten seconds, so three missed ones mean it is not really there.</summary>
     public static readonly TimeSpan StaleAfter = TimeSpan.FromSeconds(45);
 
+    /// <summary>A Director not heard from in this long is dropped from memory altogether, so Director ids that are gone
+    /// for good do not pile up until the Gateway restarts. Far longer than <see cref="StaleAfter"/>: a Director that
+    /// comes back simply says its key again on its next Hello.</summary>
+    public static readonly TimeSpan ForgetAfter = TimeSpan.FromHours(1);
+
     private sealed record Said(string Machine, byte[] PublicKey, DateTime SeenUtc);
 
     private readonly ConcurrentDictionary<(TenantId Tenant, string DirectorId), Said> _said = new();
@@ -43,6 +48,7 @@ public sealed class SecretMachineRegistry
         }
         var previous = _said.TryGetValue((tenant, directorId), out var was) ? was : null;
         _said[(tenant, directorId)] = new Said(machineName.Trim(), key, nowUtc);
+        ForgetLongGone(nowUtc);
         if (previous is null || !previous.PublicKey.AsSpan().SequenceEqual(key))
             FileLog.Write($"[SecretMachineRegistry] Record: director={directorId}, machine={machineName.Trim()}, fingerprint={Fingerprint(key)[..16]}");
     }
@@ -52,6 +58,8 @@ public sealed class SecretMachineRegistry
     /// Directors that are connected now and said a key within <see cref="StaleAfter"/>.
     /// </summary>
     /// <param name="isConnected">Whether that account's Director id has an active stream connection now.</param>
+    /// <remarks>No entry or exit line: it is called on every list, and the endpoint that calls it logs the row count.
+    /// <see cref="Record"/> logs only when a key changes, because Hello arrives every ten seconds.</remarks>
     public List<SecretMachineDto> Machines(TenantId tenant, Func<string, bool> isConnected, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(isConnected);
@@ -82,6 +90,18 @@ public sealed class SecretMachineRegistry
             rows.Add(row);
         }
         return rows.OrderBy(r => r.Machine, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>How many Directors are held in memory (for tests).</summary>
+    internal int Count => _said.Count;
+
+    private void ForgetLongGone(DateTime nowUtc)
+    {
+        foreach (var pair in _said)
+        {
+            if (nowUtc - pair.Value.SeenUtc > ForgetAfter && _said.TryRemove(pair.Key, out _))
+                FileLog.Write($"[SecretMachineRegistry] ForgetLongGone: director={pair.Key.DirectorId}, last seen {pair.Value.SeenUtc:O}");
+        }
     }
 
     /// <summary>The fingerprint of a public key: lower-case hex of SHA-256 over the 32 key bytes. cc-secrets computes

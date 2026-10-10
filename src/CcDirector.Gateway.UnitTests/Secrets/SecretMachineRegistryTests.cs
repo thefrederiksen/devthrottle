@@ -34,28 +34,54 @@ public sealed class SecretMachineRegistryTests
         Assert.Null(row.Conflict);
     }
 
-    [Fact]
-    public void Machines_LeavesOut_ADirectorThatIsNotConnected_OrHasGoneQuiet_OrIsAnotherAccounts()
+    // Each exclusion below keeps one live Director of account A beside the one left out, so the proof is that exactly
+    // the live row remains - a registry that recorded nothing at all would fail it.
+    private static SecretMachineRegistry WithALiveNorth()
     {
         var registry = new SecretMachineRegistry();
+        registry.Record(AccountA, "live", "SOREN_NORTH", NewKey(), Now);
+        return registry;
+    }
+
+    private static void OnlyTheLiveNorth(List<CcDirector.Gateway.Contracts.SecretMachineDto> rows)
+        => Assert.Equal("SOREN_NORTH", Assert.Single(rows).Machine);
+
+    [Fact]
+    public void Machines_LeavesOut_ADirectorThatIsNotConnected()
+    {
+        var registry = WithALiveNorth();
         registry.Record(AccountA, "gone", "MAC-MINI", NewKey(), Now);
+
+        OnlyTheLiveNorth(registry.Machines(AccountA, id => id != "gone", Now));
+    }
+
+    [Fact]
+    public void Machines_LeavesOut_ADirectorThatHasGoneQuiet()
+    {
+        var registry = WithALiveNorth();
         registry.Record(AccountA, "quiet", "LINUX", NewKey(), Now - SecretMachineRegistry.StaleAfter - TimeSpan.FromSeconds(1));
+
+        OnlyTheLiveNorth(registry.Machines(AccountA, _ => true, Now));
+    }
+
+    [Fact]
+    public void Machines_LeavesOut_AnotherAccountsDirector()
+    {
+        var registry = WithALiveNorth();
         registry.Record(AccountB, "other", "THEIRS", NewKey(), Now);
 
-        var rows = registry.Machines(AccountA, id => id != "gone", Now);
-
-        Assert.Empty(rows);
+        OnlyTheLiveNorth(registry.Machines(AccountA, _ => true, Now));
     }
 
     [Fact]
     public void Record_WithNoKey_ForgetsAnEarlierKey_SoAnOlderBuildStopsBeingListed()
     {
-        var registry = new SecretMachineRegistry();
-        registry.Record(AccountA, "dir-1", "SOREN_NORTH", NewKey(), Now);
+        var registry = WithALiveNorth();
+        registry.Record(AccountA, "dir-1", "MAC-MINI", NewKey(), Now);
 
-        registry.Record(AccountA, "dir-1", "SOREN_NORTH", "", Now);
+        registry.Record(AccountA, "dir-1", "MAC-MINI", "", Now);
 
-        Assert.Empty(registry.Machines(AccountA, _ => true, Now));
+        OnlyTheLiveNorth(registry.Machines(AccountA, _ => true, Now));
     }
 
     [Theory]
@@ -63,11 +89,22 @@ public sealed class SecretMachineRegistryTests
     [InlineData("AAAA")]
     public void Record_AMalformedKey_IsNotListed(string key)
     {
-        var registry = new SecretMachineRegistry();
+        var registry = WithALiveNorth();
 
-        registry.Record(AccountA, "dir-1", "SOREN_NORTH", key, Now);
+        registry.Record(AccountA, "dir-1", "MAC-MINI", key, Now);
 
-        Assert.Empty(registry.Machines(AccountA, _ => true, Now));
+        OnlyTheLiveNorth(registry.Machines(AccountA, _ => true, Now));
+    }
+
+    [Fact]
+    public void Record_ForgetsADirectorLongGone_SoTheListDoesNotGrowForever()
+    {
+        var registry = WithALiveNorth();
+        registry.Record(AccountA, "long-gone", "OLD-LAPTOP", NewKey(), Now - SecretMachineRegistry.ForgetAfter - TimeSpan.FromSeconds(1));
+
+        registry.Record(AccountA, "live", "SOREN_NORTH", NewKey(), Now);
+
+        Assert.Equal(1, registry.Count);
     }
 
     [Fact]
