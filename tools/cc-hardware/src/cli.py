@@ -244,5 +244,13 @@ def battery(
     console.print()
 
 
+def tool_main() -> None:
+    """The console-script entry point. The tool runs through the shared failure reporter (issue #3642): a
+    failure is reported to the Gateway, and the exit code and the printed error stay exactly as they were."""
+    from cc_shared.tool_errors import run_tool
+
+    run_tool(app, "cc-hardware", app=app)
+
+
 if __name__ == "__main__":
-    app()
+    tool_main()

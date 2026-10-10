@@ -27,7 +27,7 @@ dev = [
 ]
 
 [project.scripts]
-cc-posthog = "cc_posthog.cli:app"
+cc-posthog = "cc_posthog.cli:tool_main"
 
 [tool.setuptools]
 # src/ installs as the unique import package so all tools share one venv.

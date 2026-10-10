@@ -6,7 +6,7 @@ requires-python = ">=3.11"
 dependencies = ["cc-shared"]
 
 [project.scripts]
-cc-worktrees = "cc_worktrees.cli:main"
+cc-worktrees = "cc_worktrees.cli:tool_main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]

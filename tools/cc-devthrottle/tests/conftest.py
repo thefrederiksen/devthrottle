@@ -85,3 +85,17 @@ def inside_a_session(monkeypatch):
     """
     monkeypatch.setenv("CC_GATEWAY_URL", "http://gateway.invalid")
     monkeypatch.setenv("CC_GATEWAY_SESSION_KEY", "test-session-key")
+
+
+@pytest.fixture(autouse=True)
+def tool_error_reports_stay_in_the_test(tmp_path_factory, monkeypatch):
+    """Keep every error report a test causes inside the test (issue #3642).
+
+    The tools report their failures, and these tests make them fail on purpose - here and in the
+    cc-worktrees processes the pool tests start, which inherit this environment. A report goes with
+    the session pair above (an address that does not exist) and is then kept in the outbox under the
+    storage root, so the root is the test's own: nothing reaches a real Gateway, and nothing is left in
+    this machine's real outbox for a later real failure to send.
+    """
+    monkeypatch.setenv("CC_DIRECTOR_ROOT", str(tmp_path_factory.mktemp("director-root")))
+    monkeypatch.setenv("DEVTHROTTLE_HOSTED_GATEWAY_URL", "http://127.0.0.1:0")

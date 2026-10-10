@@ -16,13 +16,14 @@ def main() -> None:
     else:
         # Running as script
         base_path = Path(__file__).parent
+        sys.path.insert(0, str(base_path.parent))  # tools/, so cc_shared imports as a package
         sys.path.insert(0, str(base_path))
         sys.path.insert(0, str(base_path / 'src'))
 
     # Import after path setup
-    from cli import app, _check_search_entity_mistake
+    from cli import tool_main, _check_search_entity_mistake
     _check_search_entity_mistake()
-    app()
+    tool_main()
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@ dependencies = [
 ]
 
 [project.scripts]
-cc-dev-reports = "cc_dev_reports.cli:app"
+cc-dev-reports = "cc_dev_reports.cli:tool_main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]

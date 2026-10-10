@@ -12,6 +12,7 @@ authors = [{name = "CC Director Contributors"}]
 requires-python = ">=3.11"
 keywords = ["facebook", "page", "cli", "graph-api", "social-media"]
 dependencies = [
+    "cc-shared",
     "typer>=0.9.0",
     "rich>=13.0.0",
     "httpx>=0.25.0",
@@ -22,7 +23,7 @@ dependencies = [
 dev = ["pytest>=7.0.0", "pyinstaller>=6.0.0"]
 
 [project.scripts]
-cc-facebook = "cc_facebook.cli:app"
+cc-facebook = "cc_facebook.cli:tool_main"
 
 [tool.setuptools]
 # src/ installs as the unique import package so all tools share one venv.

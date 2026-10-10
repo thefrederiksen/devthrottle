@@ -12,6 +12,7 @@ authors = [{name = "CC Director Contributors"}]
 requires-python = ">=3.11"
 keywords = ["vault", "personal", "cli", "tasks", "goals", "documents", "rag", "vector-search"]
 dependencies = [
+    "cc-shared",
     "typer>=0.9.0",
     "rich>=13.0.0",
     "openai>=1.0.0",
@@ -31,7 +32,7 @@ full = [
 dev = ["pytest>=7.0.0", "pyinstaller>=6.0.0"]
 
 [project.scripts]
-cc-vault = "cc_vault.cli:app"
+cc-vault = "cc_vault.cli:tool_main"
 
 [tool.setuptools]
 # src/ installs as the unique import package so all tools share one venv.

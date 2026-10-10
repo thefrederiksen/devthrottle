@@ -12,6 +12,7 @@ authors = [{name = "CC Director Contributors"}]
 requires-python = ">=3.11"
 keywords = ["twitter", "x", "cli", "tweepy", "api"]
 dependencies = [
+    "cc-shared",
     "typer>=0.9.0",
     "rich>=13.0.0",
     "tweepy>=4.14.0",
@@ -22,7 +23,7 @@ dependencies = [
 dev = ["pytest>=7.0.0", "pyinstaller>=6.0.0"]
 
 [project.scripts]
-cc-twitter = "cc_twitter.cli:app"
+cc-twitter = "cc_twitter.cli:tool_main"
 
 [tool.setuptools]
 # src/ installs as the unique import package so all tools share one venv.

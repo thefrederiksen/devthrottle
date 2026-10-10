@@ -24,7 +24,7 @@ dependencies = [
 dev = ["pytest>=7.0.0", "pyinstaller>=6.0.0"]
 
 [project.scripts]
-cc-outlook = "cc_outlook.cli:app"
+cc-outlook = "cc_outlook.cli:tool_main"
 
 [tool.setuptools]
 # src/ installs as the unique import package so all tools share one venv.

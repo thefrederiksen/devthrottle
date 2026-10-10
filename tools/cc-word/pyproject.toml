@@ -31,7 +31,7 @@ dev = [
 ]
 
 [project.scripts]
-cc-word = "cc_word.cli:app"
+cc-word = "cc_word.cli:tool_main"
 
 [tool.setuptools]
 # src/ installs as the unique import package so all tools share one venv.

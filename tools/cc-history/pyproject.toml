@@ -10,7 +10,7 @@ dependencies = [
 ]
 
 [project.scripts]
-cc-history = "cc_history.cli:app"
+cc-history = "cc_history.cli:tool_main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]

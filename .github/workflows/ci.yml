@@ -428,6 +428,11 @@ jobs:
       - name: Run the shared output helper tests
         run: python -m pytest tools/cc_shared/tests/test_axi_output.py -q
 
+      # Every cc-* tool reports its failures through one hook (issue #3642): the hook's own tests, and the
+      # scan that reads every tool's code for exits that would not reach it. Both need only what is installed above.
+      - name: Run the tool failure reporter tests and scan
+        run: python -m pytest tools/cc_shared/tests/test_tool_errors.py tools/test_tool_error_reporting.py -q -s
+
       # cc-devthrottle is itself a shipped tool and the fleet's command surface; its own tests were
       # equally unrun. Executed from the tool's directory because its tests import `src` directly.
       # FORCE_COLOR is set deliberately: the defect these tests carried only appears when Rich

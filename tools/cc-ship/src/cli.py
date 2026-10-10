@@ -159,6 +159,10 @@ def main(argv: list[str] | None = None) -> int:
             err = engine.as_ship_error(exc)
         else:
             err = engine.internal_error(exc)
+        # The entry hook reports the failure (issue #3642); the sentence is caught here, so name it.
+        from cc_shared.tool_errors import note_failure
+
+        note_failure(err.error, exc)
         # A refused command leaves the run as it was: report the run's real state.
         state = _run_state()
         if state is None:
@@ -171,5 +175,13 @@ def main(argv: list[str] | None = None) -> int:
     return EXIT_ERROR if run["state"] == runstore.FAILED else EXIT_OK
 
 
+def tool_main() -> None:
+    """The console-script entry point. The tool runs through the shared failure reporter (issue #3642): a
+    failure is reported to the Gateway, and the exit code and the printed error stay exactly as they were."""
+    from cc_shared.tool_errors import argparse_command_names, run_tool
+
+    run_tool(main, "cc-ship", command_names=argparse_command_names(build_parser()))
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    tool_main()

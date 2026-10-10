@@ -39,7 +39,7 @@ dev = [
 ]
 
 [project.scripts]
-cc-powerpoint = "cc_powerpoint.cli:app"
+cc-powerpoint = "cc_powerpoint.cli:tool_main"
 
 [tool.setuptools]
 # src/ installs as the unique import package so all tools share one venv.

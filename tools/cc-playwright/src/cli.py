@@ -1215,5 +1215,14 @@ def main() -> None:
         _err(f"{type(ex).__name__}: {ex}")
 
 
+def tool_main() -> None:
+    """The console-script entry point. The tool runs through the shared failure reporter (issue #3642): a
+    failure is reported to the Gateway, and the exit code and the printed error stay exactly as they were."""
+    from cc_shared.tool_errors import run_tool
+
+    commands = [name[len("cmd_"):].replace("_", "-") for name in globals() if name.startswith("cmd_")]
+    run_tool(main, "cc-playwright", command_names=commands)
+
+
 if __name__ == "__main__":
-    main()
+    tool_main()
