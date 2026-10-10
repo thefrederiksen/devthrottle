@@ -135,7 +135,9 @@ public static class PromptDeliveryFailures
         // the length, never the reason. The reason is a refusal's message, and a real one holds the prompt's first
         // characters, the composer's text and the terminal's tail - no prompt words in a report (issue #3675). The
         // reason is still written WHOLE, on the next line, which is not an error line (quoted, no marker in its head)
-        // and so stays in this machine's log, where the Prompt Delivery mission wanted it.
+        // and so stays in this machine's log, where the Prompt Delivery mission wanted it. Its first 300 characters do
+        // still leave the machine, by that mission's design, in the ledger above that rides the session row to the
+        // Cockpit and the phone - that is not an error report, and this change does not alter it.
         FileLog.Write($"[PromptDeliveryFailures] FAILED DELIVERY: session={sessionId}, source={source}, len={textLength}");
         FileLog.Write($"[PromptDeliveryFailures] why that delivery to session {sessionId} did not go, kept in this log only: \"{reason}\"");
     }
