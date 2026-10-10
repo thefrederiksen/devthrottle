@@ -31,6 +31,7 @@ vi.mock("@devthrottle/client-core/api/client", async (importOriginal) => {
 
 import { GatewayError } from "@devthrottle/client-core/api/client";
 import { SessionComposer } from "./SessionComposer";
+import { resetReportingForTests, setReportingComponent } from "@devthrottle/client-core/errors/reportClientError";
 
 const SESSION = "1af26bff-d812-474d-b07c-ed8a4baed226";
 
@@ -76,6 +77,9 @@ beforeEach(() => {
   fetchMock.mockReset();
   fetchMock.mockResolvedValue({ ok: true });
   vi.stubGlobal("fetch", fetchMock);
+  // The shell names itself at start-up (main.tsx); a test that mounts one screen does it here.
+  resetReportingForTests();
+  setReportingComponent("cockpit");
 });
 
 afterEach(() => {
@@ -113,7 +117,7 @@ describe("Cockpit composer: a failed Attach", () => {
         expect(reports.length).toBeGreaterThan(0);
         const body = JSON.parse((reports[0][1] as { body: string }).body) as Record<string, string>;
         expect(body.surface).toBe("cockpit-composer");
-        expect(body.message).toContain("attach the image");
+        expect(body.action).toBe("attach the image");
         expect(body.message).toContain("has not reported in for 26 seconds");
       },
       { timeout: 10000 },

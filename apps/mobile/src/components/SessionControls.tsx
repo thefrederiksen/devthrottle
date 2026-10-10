@@ -14,9 +14,11 @@ import {
 } from "@devthrottle/client-core/terminal/keys";
 import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 
-// The surface label on every client-error report from this view, so the Gateway log and
-// GET /client-errors/recent name where the user was standing (issue #2189).
+// The surface label on every client-error report from this view, so the stored report names where the
+// user was standing (issue #2189).
 const SURFACE = "mobile-session-controls";
+// What the user was doing when Send failed, as the stored report names it.
+const SEND_ACTION = "send prompt";
 
 // The ONE shared session control surface (issue #811): the full-width input row, the Send/Speak row
 // (Send first, Speak second, equal halves), the Enter/Esc/Stop row, and the arrow row, plus the
@@ -111,7 +113,9 @@ export function SessionControls({ sessionId, onFlash, onError, showKeyRows }: Se
       const outcome = await sendTypedPrompt(sessionId, text, { spokenSpans: provenanceRef.current.forSend().spans });
       if (outcome === "delivered") onFlash("Sent");
     } catch (err) {
-      onError(err instanceof Error ? err.message : "Send failed");
+      // The Send red box (the Error Logging mission's first fix, issue #3675): shown AND reported in one act,
+      // with the session and the Gateway's correlation id - never the words that were being sent.
+      onError(describeAndReport(SURFACE, SEND_ACTION, err, { sessionId }));
     }
   }, [sessionId, input, onFlash, onError]);
 
@@ -228,7 +232,7 @@ export function SessionControls({ sessionId, onFlash, onError, showKeyRows }: Se
         if (outcome === "delivered") onFlash("Sent");
       } catch (err) {
         setInput(combined); // restore so a failed send never loses the typed + dictated text
-        onError(err instanceof Error ? err.message : "Send failed");
+        onError(describeAndReport(SURFACE, SEND_ACTION, err, { sessionId }));
       }
     },
     [sessionId, input, onFlash, onError],

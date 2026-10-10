@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { reportClientError } from "@devthrottle/client-core/errors/reportClientError";
+import { errorFacts, reportClientError } from "@devthrottle/client-core/errors/reportClientError";
 import { retryDelayMs, useCurrentTeam } from "@devthrottle/client-core/teams/CurrentTeam";
 import { getMentorPage, getPersonalMentorPage } from "@devthrottle/client-core/teams/mentorClient";
 
@@ -50,13 +50,14 @@ export function useMentorEntry(): boolean {
         (err: unknown) => {
           if (controller.signal.aborted) return;
           failures += 1;
-          // The route the person is on when it failed, as the error log expects (review of the delta, D4).
-          reportClientError(
-            SURFACE,
-            window.location.pathname,
-            `read the Mentor page for ${teamId === OWN ? "the own account" : `team ${teamId}`} to decide the Mentor entry (failure ${failures}, asking again)`,
-            err,
-          );
+          // Not shown to the person: the entry stays offered and the read is asked again.
+          reportClientError({
+            surface: SURFACE,
+            action: "read the Mentor page",
+            message: `read the Mentor page for ${teamId === OWN ? "the own account" : `team ${teamId}`} to decide the Mentor entry (failure ${failures}, asking again)`,
+            user_visible: false,
+            ...errorFacts(err),
+          });
           setOffered({ teamId, offered: true });
           timer = window.setTimeout(ask, retryDelayMs(failures));
         },

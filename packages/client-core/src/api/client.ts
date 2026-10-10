@@ -390,7 +390,14 @@ export interface GatewayFailureDetail {
   code?: string;
   /** The server said this is worth retrying. */
   retryable?: boolean;
+  /** The id the Gateway gave this failure, from the X-Correlation-Id response header (the Error Logging
+   *  mission, issue #3675). It ties the browser's report to the Gateway's and the Director's rows for the
+   *  same failure. Absent when the Gateway sent none - it is optional, not something to guess. */
+  correlationId?: string;
 }
+
+/** The ONE place a Gateway error answer carries its correlation id (issue #3675). Read nowhere else. */
+export const CORRELATION_ID_HEADER = "X-Correlation-Id";
 
 export class GatewayError extends Error {
   readonly status: number;
@@ -400,12 +407,15 @@ export class GatewayError extends Error {
   readonly code?: string;
   /** True when retrying could plausibly succeed: the server said so, or the status class implies it. */
   readonly retryable: boolean;
+  /** The Gateway's id for this failure (the X-Correlation-Id header), when it sent one. */
+  readonly correlationId?: string;
   constructor(status: number, message: string, detail?: GatewayFailureDetail) {
     super(message);
     this.name = "GatewayError";
     this.status = status;
     this.serverReason = detail?.reason;
     this.code = detail?.code;
+    this.correlationId = detail?.correlationId;
     // A server `retryable` flag is authoritative. Absent one, the transport statuses that mean "the
     // request never reached a healthy backend" are retryable by definition; a 4xx is the caller's own
     // request being wrong and retrying it unchanged cannot help.
@@ -429,9 +439,15 @@ export class GatewayError extends Error {
    * `what` names the action in the user's terms ("attach the image"), never the method and path.
    */
   static async from(res: Response, what: string): Promise<GatewayError> {
-    const detail = await readFailureDetail(res);
+    const detail = { ...(await readFailureDetail(res)), correlationId: correlationIdOf(res) };
     return new GatewayError(res.status, detail.reason ?? `Could not ${what} (error ${res.status}).`, detail);
   }
+}
+
+/** The Gateway's correlation id for a failed response, read from its one header; undefined when absent. */
+export function correlationIdOf(res: Response): string | undefined {
+  const value = res.headers?.get(CORRELATION_ID_HEADER)?.trim();
+  return value ? value : undefined;
 }
 
 /** Pull the server's reason, code and retryable flag out of a failed response. Best-effort by
@@ -1026,7 +1042,7 @@ export async function sendVoicePrompt(
     signal,
   });
   if (!res.ok) {
-    throw new GatewayError(res.status, `POST prompt failed: ${res.status}`);
+    throw await GatewayError.from(res, "send that to the session");
   }
   const answer = (await res.json()) as {
     accepted?: boolean;

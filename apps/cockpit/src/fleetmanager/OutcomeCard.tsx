@@ -37,7 +37,7 @@ export function OutcomeCard({ card, onAnswered, deps }: OutcomeCardProps) {
       const result = await answerCard(card.id, words, deps);
       setBusy(null);
       if (result.kind === "refused") {
-        reportClientError(SURFACE, "fleet-manager", `answer ${card.id}: ${result.error}`);
+        reportClientError({ surface: SURFACE, action: "answer the card", message: `answer ${card.id}: ${result.error}`, user_visible: true });
         setError(result.error);
         return;
       }

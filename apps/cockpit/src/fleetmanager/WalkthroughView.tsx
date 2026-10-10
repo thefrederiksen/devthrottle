@@ -14,7 +14,7 @@ import {
   type WalkthroughActionDeps,
   type WalkthroughActResult,
 } from "@devthrottle/client-core/fleetmanager/walkthroughActions";
-import { reportClientError } from "@devthrottle/client-core/errors/reportClientError";
+import { errorFacts, reportClientError } from "@devthrottle/client-core/errors/reportClientError";
 import { useVisiblePolling } from "@devthrottle/client-core/polling/useVisiblePolling";
 import { Button, ConfirmDialog } from "../components";
 import { OutcomeCard } from "./OutcomeCard";
@@ -72,7 +72,7 @@ export function WalkthroughView({ deps }: WalkthroughViewProps) {
     } catch (err) {
       if (signal?.aborted) return null;
       setLoadError(sentenceOf(err));
-      reportClientError(SURFACE, "fleet-manager", `read the walkthrough: ${sentenceOf(err)}`);
+      reportClientError({ surface: SURFACE, action: "read the walkthrough", message: sentenceOf(err), user_visible: true, ...errorFacts(err) });
       return null;
     }
   }, []);
@@ -268,12 +268,12 @@ function WalkthroughItemPanel({ item, deps, onSettled, onSkip }: ItemPanelProps)
 
   const finish = (result: WalkthroughActResult, what: string) => {
     if (result.kind === "refused") {
-      reportClientError(SURFACE, "fleet-manager", `${what} ${item.id}: ${result.sentence}`);
+      reportClientError({ surface: SURFACE, action: what, message: `${what} ${item.id}: ${result.sentence}`, user_visible: true });
       setRefusal(result.sentence);
       return;
     }
     if (result.kind === "record-failed") {
-      reportClientError(SURFACE, "fleet-manager", `record ${what} ${item.id}: ${result.sentence}`);
+      reportClientError({ surface: SURFACE, action: `record ${what}`, message: `record ${what} ${item.id}: ${result.sentence}`, user_visible: true });
       setRecordFailed(result.sentence);
       return;
     }

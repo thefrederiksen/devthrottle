@@ -28,6 +28,11 @@ vi.mock("../api/client", () => ({
   stopWingmanVoice: vi.fn(async () => {}),
 }));
 
+// The show-and-report boundary (issue #3675): returns the error's own text, as the screen showed before.
+vi.mock("../errors/reportClientError", () => ({
+  describeAndReport: (_surface: string, _action: string, err: unknown) => (err instanceof Error ? err.message : String(err)),
+}));
+
 vi.mock("../dictation/backgroundSend", () => ({
   backgroundTranscribeAndSend: vi.fn(),
 }));

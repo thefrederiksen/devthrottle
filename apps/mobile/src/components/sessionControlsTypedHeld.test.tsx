@@ -9,10 +9,18 @@ import { render, screen, fireEvent, waitFor, within, cleanup } from "@testing-li
 
 const DELIVERY_ID = "0f0e0d0c0b0a09080706050403020100";
 
-const { sendPrompt, readPromptOutcome, disk } = vi.hoisted(() => ({
+const { sendPrompt, readPromptOutcome, disk, describeAndReport } = vi.hoisted(() => ({
   sendPrompt: vi.fn(),
   readPromptOutcome: vi.fn(),
   disk: new Map<string, unknown>(),
+  // The show-and-report boundary: returns the error's own text, so the red box reads as before.
+  describeAndReport: vi.fn((_surface: string, _action: string, err: unknown) => (err instanceof Error ? err.message : String(err))),
+}));
+
+vi.mock("@devthrottle/client-core/errors/reportClientError", () => ({
+  describeAndReport,
+  reportClientError: vi.fn(),
+  errorFacts: () => ({}),
 }));
 
 vi.mock("@devthrottle/client-core/api/client", () => ({
@@ -223,6 +231,8 @@ describe("phone: a 200 and a 502 behave exactly as before", () => {
     typeAndSend();
 
     await waitFor(() => expect(onError).toHaveBeenCalledWith("The session did not take that."));
+    // Shown AND reported, in one act, as the Send red box (issue #3675).
+    expect(describeAndReport).toHaveBeenCalledWith("mobile-session-controls", "send prompt", expect.any(Error), { sessionId: SID });
     expect(onFlash).not.toHaveBeenCalled();
     expect(document.querySelector(".dictate-strip")).toBeNull();
     expect(disk.size).toBe(0);

@@ -470,8 +470,12 @@ describe("Cockpit left rail", () => {
 
       await waitFor(() => expect(railLabels()).toContain("Mentor"));
       expect(reported.calls).toHaveLength(1);
-      expect(reported.calls[0][0]).toBe("cockpit-mentor-entry");
-      expect(reported.calls[0][3]).toBe(failure);
+      expect(reported.calls[0][0]).toMatchObject({
+        surface: "cockpit-mentor-entry",
+        action: "read the Mentor page",
+        user_visible: false,
+        exception_type: failure.name,
+      });
     });
 
     it("asks again on the shell's rhythm after a failure, and hides the entry when the Gateway then refuses", async () => {
@@ -499,13 +503,15 @@ describe("Cockpit left rail", () => {
       expect(railLabels()).toContain("Mentor");
     });
 
-    it("reports a failure under the route the person is on", async () => {
+    it("reports a failure with no page address - the owner's ruling keeps free text out of a report (issue #3675)", async () => {
       mentorRead.answers.set(TEAM.id, new GatewayError(500, "fault"));
       renderOn([TEAM], TEAM.id);
 
       await waitFor(() => expect(reported.calls).toHaveLength(1));
-      expect(reported.calls[0][1]).toBe(window.location.pathname);
-      expect(reported.calls[0][1]).not.toBe("rail");
+      const report = reported.calls[0][0] as Record<string, unknown>;
+      expect(report).not.toHaveProperty("page");
+      expect(report.http_status).toBe(500);
+      expect(Object.values(report)).not.toContain(window.location.pathname);
     });
 
     it("follows the team now on screen, not an answer for the team it left", async () => {

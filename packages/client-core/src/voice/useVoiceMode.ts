@@ -19,6 +19,7 @@ import { switchVoiceModeOn } from "./switchVoiceMode";
 import { speakLocally } from "../speech/localSpeech";
 import { utteranceFor } from "../speech/spokenUtterance";
 import { isWorking } from "../sessions/ordering";
+import { describeAndReport } from "../errors/reportClientError";
 
 // Session Voice mode (issue #850): the hands-free Wingman narration screen, the third session view
 // alongside Terminal (#817) and Chat (#811). A read-only Wingman narrates every completed turn as
@@ -703,7 +704,9 @@ export function useVoiceMode(
         setMenuBlocked(null);
         return true;
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Send failed");
+        // A failed spoken reply is a Send red box like the typed one: shown and reported in one act, with the
+        // session and the Gateway's correlation id - never the words (the Error Logging mission, issue #3675).
+        setError(describeAndReport("voice-mode", "send prompt", err, { sessionId: sid }));
         return false;
       }
     },

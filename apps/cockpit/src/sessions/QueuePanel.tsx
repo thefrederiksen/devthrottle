@@ -12,8 +12,8 @@ import { ConfirmDialog } from "../components";
 import { confirmThenApply } from "./queueActions";
 import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 
-// The surface label on every client-error report from this view, so the Gateway log and
-// GET /client-errors/recent name where the user was standing (issue #2189).
+// The surface label on every client-error report from this view, so the stored error
+// report names where the user was standing (issue #2189).
 const SURFACE = "cockpit-queue-panel";
 
 // The prompt queue panel (issue #972) - the React port of the Blazor Cockpit queue tab. Every verb

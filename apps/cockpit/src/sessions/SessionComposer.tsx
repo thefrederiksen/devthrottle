@@ -49,8 +49,8 @@ import { sendTypedPrompt } from "@devthrottle/client-core/dictation/typedPromptD
 // The composer text is owned by the parent (SessionDetail) so the queue's Pop and the screenshot
 // gallery's Insert can drop text into it. Send/Queue are disabled while empty or a call is in flight.
 
-// The surface label on every client-error report from this composer, so a report in the Gateway log
-// and in GET /client-errors/recent names where the user was standing (issue #2189).
+// The surface label on every client-error report from this composer, so the stored error
+// report names where the user was standing (issue #2189).
 const SURFACE = "cockpit-composer";
 
 // How long to wait before the single retry below. Long enough to outlast the observed hole (the Gateway

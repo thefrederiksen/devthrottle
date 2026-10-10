@@ -4288,41 +4288,6 @@ export interface paths {
                 path?: never;
                 cookie?: never;
             };
-            requestBody?: {
-                content: {
-                    "application/json": null | components["schemas"]["ClientErrorPost"];
-                };
-            };
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/client-errors/recent": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
             requestBody?: never;
             responses: {
                 /** @description OK */
@@ -4334,8 +4299,6 @@ export interface paths {
                 };
             };
         };
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -11974,13 +11937,6 @@ export interface components {
             contentSha256?: null | string;
             /** Format: int64 */
             contentLength?: null | number | string;
-        };
-        ClientErrorPost: {
-            surface?: string;
-            page?: string;
-            message?: string;
-            detail?: null | string;
-            stack?: null | string;
         };
         CompactContextRequest: {
             continuePrompt?: null | string;

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { GatewayError, gatewayErrorMessage } from "./client";
-import { describeAndReport, resetReportWindow } from "../errors/reportClientError";
+import { describeAndReport, resetReportingForTests, setReportingComponent } from "../errors/reportClientError";
 
 // Issue #2189: THE RULE - a number is not an error message.
 //
@@ -144,7 +144,8 @@ describe("describeAndReport: showing an error also records it", () => {
   const fetchMock = vi.fn();
 
   beforeEach(() => {
-    resetReportWindow();
+    resetReportingForTests();
+    setReportingComponent("cockpit");
     fetchMock.mockReset();
     fetchMock.mockResolvedValue({ ok: true });
     vi.stubGlobal("fetch", fetchMock);
@@ -166,10 +167,11 @@ describe("describeAndReport: showing an error also records it", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("/client-errors");
-    const body = JSON.parse((init as { body: string }).body) as Record<string, string>;
+    const body = JSON.parse((init as { body: string }).body) as Record<string, unknown>;
     expect(body.surface).toBe("cockpit-composer");
-    expect(body.message).toContain("attach the image");
-    expect(body.message).toContain("That machine is catching up.");
+    expect(body.action).toBe("attach the image");
+    expect(body.message).toBe(shown);
+    expect(body.user_visible).toBe(true);
   });
 
   it("still returns the sentence when reporting itself fails", () => {
@@ -177,9 +179,30 @@ describe("describeAndReport: showing an error also records it", () => {
     fetchMock.mockImplementation(() => {
       throw new Error("network down");
     });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
 
     const shown = describeAndReport("cockpit-composer", "attach the image", new GatewayError(500, "x"));
 
     expect(shown).toContain("attach the image");
+  });
+});
+
+describe("GatewayError.from: the correlation id comes from the one header", () => {
+  it("reads X-Correlation-Id into correlationId", async () => {
+    const res = new Response(JSON.stringify({ error: "owning director is not connected" }), {
+      status: 503,
+      headers: { "X-Correlation-Id": "7f3a9c" },
+    });
+
+    const err = await GatewayError.from(res, "send prompt");
+
+    expect(err.correlationId).toBe("7f3a9c");
+    expect(err.serverReason).toBe("owning director is not connected");
+  });
+
+  it("leaves it absent when the Gateway sent none - it is optional, never guessed", async () => {
+    const err = await GatewayError.from(new Response("", { status: 502 }), "send prompt");
+
+    expect(err.correlationId).toBeUndefined();
   });
 });
