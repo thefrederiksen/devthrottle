@@ -44,6 +44,14 @@ export interface ClientErrorReport {
 export interface ReportContext {
   /** The DevThrottle session the action concerned. */
   sessionId?: string;
+  /**
+   * A background poll, not something a person pressed (the step 3 ruling, issue #3675). The shown sentence is
+   * formatted WITHOUT the action, so a poll that cannot reach the Gateway keeps the shared "Can't reach the
+   * Gateway - retrying." line; the report still records the action. And it is reported only when the sentence
+   * it shows CHANGES for that surface and action, so a dead Gateway does not queue a report every few seconds.
+   * Call {@link backgroundRecovered} when the poll succeeds, so the next failure is reported again.
+   */
+  background?: true;
 }
 
 /** Client-side cap: at most this many reports leave the browser per minute; the rest wait in the queue. The
@@ -64,6 +72,9 @@ let flushing = false;
 
 let windowStartMs = 0;
 let reportsInWindow = 0;
+
+/** The sentence each background surface and action last showed and reported, keyed "surface|action". */
+const backgroundShown = new Map<string, string>();
 
 /** Decide whether one more report may leave the browser this minute. Exported for unit tests. */
 export function admitReport(nowMs: number): boolean {
@@ -87,6 +98,7 @@ export function resetReportingForTests(): void {
   lost = 0;
   flushing = false;
   globalInstalled = false;
+  backgroundShown.clear();
 }
 
 /** Name the shell once, at start-up. Every report carries it; the Gateway files it under that component. */
@@ -159,7 +171,12 @@ export function errorFacts(err: unknown): Pick<ClientErrorReport, "exception_typ
  * shapes the sentence AND labels the stored record.
  */
 export function describeAndReport(surface: string, action: string, err: unknown, context?: ReportContext): string {
-  const message = gatewayErrorMessage(err, action);
+  const message = gatewayErrorMessage(err, context?.background ? undefined : action);
+  if (context?.background) {
+    const key = backgroundKey(surface, action);
+    if (backgroundShown.get(key) === message) return message;
+    backgroundShown.set(key, message);
+  }
   reportClientError({
     surface,
     action,
@@ -169,6 +186,15 @@ export function describeAndReport(surface: string, action: string, err: unknown,
     ...(context?.sessionId ? { session_id: context.sessionId } : {}),
   });
   return message;
+}
+
+/** A background poll for this surface and action succeeded: its next failure is reported even if it reads the same. */
+export function backgroundRecovered(surface: string, action: string): void {
+  backgroundShown.delete(backgroundKey(surface, action));
+}
+
+function backgroundKey(surface: string, action: string): string {
+  return `${surface}|${action}`;
 }
 
 /**

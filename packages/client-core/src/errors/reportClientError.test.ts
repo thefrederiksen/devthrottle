@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   admitReport,
+  backgroundRecovered,
   describeAndReport,
   installGlobalErrorReporting,
   lostReportCount,
@@ -11,7 +12,7 @@ import {
   resetReportingForTests,
   setReportingComponent,
 } from "./reportClientError";
-import { GatewayError } from "../api/client";
+import { GATEWAY_UNREACHABLE_MESSAGE, GatewayError } from "../api/client";
 
 describe("client error report rate cap", () => {
   beforeEach(() => resetReportingForTests());
@@ -194,6 +195,61 @@ describe("reporting: what a report carries, and the queue", () => {
     // The rows behind it go out in the same drain, up to the client's per-minute cap.
     await vi.waitFor(() => expect(posted().filter((b) => b.action === "a").length).toBeGreaterThan(0));
     expect(posted()[0].action).toBe("report errors");
+  });
+
+  describe("a background poll (ReportContext.background)", () => {
+    const unreachable = () => new GatewayError(502, "x", { correlationId: "corr-poll" });
+
+    it("shows the shared line without the action, and the report still records the action", async () => {
+      const shown = describeAndReport("cockpit-session-list", "load the session list", unreachable(), { background: true });
+
+      expect(shown).toBe(GATEWAY_UNREACHABLE_MESSAGE);
+      await vi.waitFor(() => expect(posted()).toHaveLength(1));
+      expect(posted()[0]).toMatchObject({
+        surface: "cockpit-session-list",
+        action: "load the session list",
+        message: GATEWAY_UNREACHABLE_MESSAGE,
+        user_visible: true,
+        http_status: 502,
+        correlation_id: "corr-poll",
+      });
+    });
+
+    it("a person's action keeps the specific sentence", () => {
+      expect(describeAndReport("s", "load the session list", unreachable())).not.toBe(GATEWAY_UNREACHABLE_MESSAGE);
+    });
+
+    it("reports only when the shown sentence changes for that surface and action", async () => {
+      for (let i = 0; i < 5; i++) describeAndReport("poll", "load the session list", unreachable(), { background: true });
+      // The same surface, another action: its own key.
+      describeAndReport("poll", "load the voice queue", unreachable(), { background: true });
+      // The same key, a different sentence (the Gateway now gives a reason): reported.
+      describeAndReport("poll", "load the session list", new GatewayError(503, "x", { reason: "That machine is catching up." }), { background: true });
+      describeAndReport("poll", "load the session list", new GatewayError(503, "x", { reason: "That machine is catching up." }), { background: true });
+
+      await vi.waitFor(() => expect(posted()).toHaveLength(3));
+      await new Promise((r) => setTimeout(r, 20));
+      expect(posted().map((b) => [b.action, b.message])).toEqual([
+        ["load the session list", GATEWAY_UNREACHABLE_MESSAGE],
+        ["load the voice queue", GATEWAY_UNREACHABLE_MESSAGE],
+        ["load the session list", expect.stringContaining("That machine is catching up.")],
+      ]);
+    });
+
+    it("after the poll recovers, the same failure is reported again", async () => {
+      describeAndReport("poll", "load the session list", unreachable(), { background: true });
+      describeAndReport("poll", "load the session list", unreachable(), { background: true });
+      backgroundRecovered("poll", "load the session list");
+      describeAndReport("poll", "load the session list", unreachable(), { background: true });
+
+      await vi.waitFor(() => expect(posted()).toHaveLength(2));
+    });
+
+    it("a failure a person sees after pressing something is reported every time", async () => {
+      for (let i = 0; i < 3; i++) describeAndReport("s", "send prompt", unreachable());
+
+      await vi.waitFor(() => expect(posted()).toHaveLength(3));
+    });
   });
 
   it("the queue survives a page reload and goes out when the shell starts again", async () => {
