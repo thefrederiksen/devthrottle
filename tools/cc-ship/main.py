@@ -12,7 +12,9 @@ if sys.version_info < (3, 11):
     sys.exit("cc-ship needs Python 3.11 or newer (it reads the Codex settings with tomllib).")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+# tools/, so cc_shared imports as a package.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.cli import main  # noqa: E402
+from src.cli import tool_main  # noqa: E402
 
-sys.exit(main())
+tool_main()

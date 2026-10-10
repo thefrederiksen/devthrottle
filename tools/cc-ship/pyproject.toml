@@ -4,11 +4,12 @@ version = "0.1.0"
 description = "Take a finished change from a session to merged on main"
 requires-python = ">=3.11"
 dependencies = [
+    "cc-shared",
     "cc-storage",
 ]
 
 [project.scripts]
-cc-ship = "cc_ship.cli:main"
+cc-ship = "cc_ship.cli:tool_main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]

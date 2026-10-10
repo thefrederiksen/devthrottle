@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from src.cli import app  # noqa: E402
+from src.cli import tool_main  # noqa: E402
 
 if __name__ == "__main__":
-    app(prog_name="cc-dev-reports")
+    tool_main()

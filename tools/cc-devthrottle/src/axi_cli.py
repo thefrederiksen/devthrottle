@@ -55,6 +55,7 @@ if _tools_dir not in sys.path:
     sys.path.insert(0, _tools_dir)
 
 from cc_shared import axi_output  # noqa: E402
+from cc_shared.tool_errors import note_failure  # noqa: E402
 
 from . import usage_errors  # noqa: E402
 
@@ -153,6 +154,8 @@ def fail(message: str, next_commands: Sequence[str], *, label: str = "Error:") -
         ascii_text(f"{label} {message.strip()}"),
         axi_output.format_help(list(next_commands)),
     )
+    # The entry hook reports this failure with this sentence (issue #3642).
+    note_failure(message.strip())
     raise typer.Exit(1)
 
 

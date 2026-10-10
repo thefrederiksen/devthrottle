@@ -10,7 +10,7 @@ dependencies = [
 ]
 
 [project.scripts]
-cc-status = "cc_status.cli:app"
+cc-status = "cc_status.cli:tool_main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]

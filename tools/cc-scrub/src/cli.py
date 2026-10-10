@@ -1101,8 +1101,11 @@ def main(argv):
 
 
 def main_entry():
-    """Console-script entry point declared in pyproject.toml."""
-    sys.exit(main(sys.argv[1:]))
+    """The console-script entry point. The tool runs through the shared failure reporter (issue #3642): a
+    failure is reported to the Gateway, and the exit code and the printed error stay exactly as they were."""
+    from cc_shared.tool_errors import run_tool
+
+    run_tool(lambda: main(sys.argv[1:]), "cc-scrub")
 
 
 if __name__ == "__main__":

@@ -6,6 +6,29 @@ This is **not a CLI tool** - it is a Python library imported by all other cc-dir
 
 ## What It Provides
 
+### Tool Failure Reports (`tool_errors.py`)
+
+Every cc-* tool's console script (and its `main.py`) runs the tool through `run_tool`, which reports a
+failure to the Gateway as component `tool` and leaves the exit code and the printed error unchanged.
+A usage mistake (exit code 2, a Click usage error, Ctrl+C) is not reported. Command-line values are cut
+out of every message before it is scrubbed, so a path, a flag value or a prompt never leaves the machine.
+A shared fail helper names its sentence with `note_failure` before it exits.
+
+Credential, first that applies: the session key inside a session, the machine's own Gateway credential
+outside one, and the hosted Gateway's `POST /install-reports` before the machine has signed in. A report
+that cannot be sent is kept in `<machine root>/logs/error-outbox/tool/` and sent with the next failure;
+what happened to each report is in `<machine root>/logs/tool-error-reports.log`. Nothing in the send path can
+change how the tool ends. After a send that got no answer (the Gateway is down, the machine is offline),
+sending pauses for five minutes, so an outage costs one timeout rather than one per failing command.
+
+A test suite that makes a tool fail on purpose must keep the reports in the test: point
+`CC_DIRECTOR_ROOT` at a throwaway folder, remove the session pair, and set
+`DEVTHROTTLE_HOSTED_GATEWAY_URL` to an address that fails at once, in an autouse fixture named
+`tool_error_reports_stay_in_the_test` in the suite's `conftest.py` (see `tools/cc-secrets/tests/conftest.py`).
+`tools/test_tool_error_reporting.py` reads every tool's code and fails when an exit cannot reach the hook, when a
+tool with an entry point is not wired, and when a suite that starts a Python process or calls an entry point
+has no such fixture.
+
 ### Configuration Management (`config.py`)
 
 Centralized configuration for the entire cc-director suite. All Python tools import `get_config()` to access settings.

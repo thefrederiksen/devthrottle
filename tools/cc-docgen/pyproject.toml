@@ -23,6 +23,7 @@ classifiers = [
 ]
 
 dependencies = [
+    "cc-shared",
     "click>=8.1.0",
     "pyyaml>=6.0",
     "diagrams>=0.23.0",
@@ -36,7 +37,7 @@ dev = [
 ]
 
 [project.scripts]
-cc-docgen = "cc_docgen.cli:cli"
+cc-docgen = "cc_docgen.cli:tool_main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]

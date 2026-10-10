@@ -26,6 +26,7 @@ import typer
 
 from . import session_ops
 from .session_ops import gateway
+from cc_shared.tool_errors import note_failure  # noqa: E402
 
 PREFIX = "gateway/fleet-manager"
 
@@ -102,6 +103,7 @@ def _print_json(obj: Any) -> None:
 
 def _fail(message: str, code: int = 1) -> None:
     print(f"error: {message}", file=sys.stderr)
+    note_failure(message)
     raise typer.Exit(code)
 
 

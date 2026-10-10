@@ -29,7 +29,7 @@ dev = [
 ]
 
 [project.scripts]
-cc-html = "cc_html.cli:app"
+cc-html = "cc_html.cli:tool_main"
 
 [tool.setuptools]
 # src/ installs as the unique import package so all tools share one venv.

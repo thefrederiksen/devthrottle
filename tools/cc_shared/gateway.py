@@ -37,6 +37,9 @@ from typing import Any, Dict, List, Optional, Tuple
 FAULT_HEADER = "X-DevThrottle-Fault"
 FAULT_DIRECTOR = "director"
 
+#: Response header carrying the id the Gateway stored its own row for a refused request under (issue #3675).
+CORRELATION_HEADER = "X-Correlation-Id"
+
 #: The sentence every "there is no Gateway here" failure ends with. One wording, one place, because
 #: this is the mission's accepted cost and the user must always be told the same remedy.
 NO_GATEWAY_REMEDY = (
@@ -63,12 +66,18 @@ class GatewayError(RuntimeError):
     `body` is the parsed JSON of a refused answer, or None when there was no answer or it was not
     JSON. The sentence alone is not always everything a caller must show: a refused dev report
     carries a LIST of shape-check errors beside it, and the tool has to print every one.
+
+    `correlation_id` is the Gateway's X-Correlation-Id on a refused answer (issue #3675): the Gateway
+    stores its own row for the failure under that id, so a tool's error report that carries it reads as
+    the same incident. None when the answer carried no id or there was no answer.
     """
 
-    def __init__(self, message: str, status: Optional[int] = None, body: Any = None):
+    def __init__(self, message: str, status: Optional[int] = None, body: Any = None,
+                 correlation_id: Optional[str] = None):
         super().__init__(message)
         self.status = status
         self.body = body
+        self.correlation_id = correlation_id
 
 
 def gateway_base_url() -> str:
@@ -292,8 +301,10 @@ def _request(
         except OSError:
             detail = ""
         fault = ""
+        correlation_id = None
         try:
             fault = (err.headers.get(FAULT_HEADER) or "") if err.headers else ""
+            correlation_id = (err.headers.get(CORRELATION_HEADER) or None) if err.headers else None
         except AttributeError:
             fault = ""
         try:
@@ -304,6 +315,7 @@ def _request(
             _error_message(detail, err.code, fault_is_director=(fault == FAULT_DIRECTOR)),
             status=err.code,
             body=parsed,
+            correlation_id=correlation_id,
         ) from err
     except urllib.error.URLError as err:
         raise GatewayError(

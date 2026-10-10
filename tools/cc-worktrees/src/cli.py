@@ -12,6 +12,7 @@ from importlib import metadata
 from pathlib import Path
 
 from cc_shared import axi_output
+from cc_shared.tool_errors import note_failure, run_tool
 
 import pool
 from errors import EXIT_ERROR, EXIT_OK, EXIT_USAGE, ToolError
@@ -336,9 +337,17 @@ def main(argv: list[str] | None = None) -> int:
         _emit_error(as_json, ToolError("usage", str(ex), [f"{PROG} --help"], exit_code=EXIT_USAGE))
         return EXIT_USAGE
     except ToolError as ex:
+        note_failure(ex.message, ex)
         _emit_error(as_json, ex)
         return ex.exit_code
     except Exception as ex:  # the entry point: an unexpected failure is reported, never swallowed
+        note_failure(f"{type(ex).__name__}: {ex}", ex)
         _emit_error(as_json, ToolError("internal", f"{type(ex).__name__}: {ex}", [f"{PROG} --help"],
                                        exit_code=EXIT_ERROR))
         return EXIT_ERROR
+
+
+def tool_main() -> None:
+    """The console-script entry point. The tool runs through the shared failure reporter (issue #3642): a
+    failure is reported to the Gateway, and the exit code and the printed error stay exactly as they were."""
+    run_tool(main, "cc-worktrees", app=build_parser())

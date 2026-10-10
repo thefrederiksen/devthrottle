@@ -26,6 +26,7 @@ import typer
 from rich.console import Console
 
 from cc_shared import gateway
+from cc_shared.tool_errors import note_failure
 
 from . import session_ops
 
@@ -40,6 +41,7 @@ AMOUNTS = ("once", "once-with-reply", "ongoing")
 
 def _fail(message: str) -> None:
     console.print(f"[red]Error:[/red] {message}")
+    note_failure(message)
     raise typer.Exit(1)
 
 

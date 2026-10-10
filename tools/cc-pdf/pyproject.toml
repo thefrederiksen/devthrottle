@@ -29,7 +29,7 @@ dev = [
 ]
 
 [project.scripts]
-cc-pdf = "cc_pdf.cli:app"
+cc-pdf = "cc_pdf.cli:tool_main"
 
 [tool.setuptools]
 # The tool's code lives in src/ but installs as the unique import package "cc_pdf"

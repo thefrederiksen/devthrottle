@@ -11,7 +11,7 @@ dependencies = [
 ]
 
 [project.scripts]
-cc-secrets = "cc_secrets.cli:main"
+cc-secrets = "cc_secrets.cli:tool_main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]

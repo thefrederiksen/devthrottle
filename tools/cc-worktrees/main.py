@@ -11,6 +11,6 @@ sys.path.insert(0, str(HERE / "src"))
 # The shared AXI output helper lives in tools/cc_shared.
 sys.path.insert(0, str(HERE.parent))
 
-from cli import main  # noqa: E402
+from cli import tool_main  # noqa: E402
 
-sys.exit(main())
+tool_main()

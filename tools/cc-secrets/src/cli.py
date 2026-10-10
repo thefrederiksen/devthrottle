@@ -128,6 +128,11 @@ def _fail(command: str, name: str, label: str, exc: BaseException) -> NoReturn:
     _log_failure(command, exc)
     _audit().record(name, label, "failed", _describe(exc))
     _say(f"failed: {_describe(exc)}", err=True)
+    # The entry hook reports this failure (issue #3642). cc-secrets reports only the command and the exception
+    # type, so naming the exception here is what reaches the report; the message stays on this machine.
+    from cc_shared.tool_errors import note_failure
+
+    note_failure(f"{command} failed", exc)
     raise typer.Exit(EXIT_FAILED)
 
 
@@ -1041,5 +1046,14 @@ def main() -> None:
         raise SystemExit(EXIT_FAILED)
 
 
+def tool_main() -> None:
+    """The console-script entry point. The tool runs through the shared failure reporter (issue #3642): a
+    failure is reported to the Gateway, and the exit code and the printed error stay exactly as they were.
+    cc-secrets reports only the command and the exception type: its messages may quote what it guards."""
+    from cc_shared.tool_errors import run_tool
+
+    run_tool(main, "cc-secrets", app=app, report_message=False)
+
+
 if __name__ == "__main__":
-    main()
+    tool_main()
