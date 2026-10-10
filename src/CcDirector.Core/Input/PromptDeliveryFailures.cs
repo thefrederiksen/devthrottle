@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using CcDirector.Core.ErrorReports;
+using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
 
 namespace CcDirector.Core.Input;
@@ -73,6 +75,13 @@ public static class PromptDeliveryFailures
     /// <summary>Longest reason we keep. A stack-trace-length message is not a thing to render.</summary>
     internal const int MaxReasonChars = 300;
 
+    /// <summary>What the user was doing when a failed delivery is reported, in plain words (issue #3675).</summary>
+    public const string SendPromptAction = "send a prompt to the session";
+
+    /// <summary>Where a failed delivery is shown when the sender's own screen is not known: the alarm on the session's
+    /// row, which every surface draws (issue #3675).</summary>
+    public const string SessionRowSurface = "session row";
+
     private sealed class SessionLedger
     {
         public int FailedDeliveries;
@@ -131,12 +140,21 @@ public static class PromptDeliveryFailures
 
         Push(new PromptDeliveryFailure(at, sessionId, "failed-delivery", source, trimmed, textLength));
 
-        // The FAILED line is an error line, so it is REPORTED to the Gateway: it carries the session, the source and
-        // the length, never the reason. The reason is a refusal's message, and a real one holds the prompt's first
-        // characters, the composer's text and the terminal's tail - no prompt words in a report (issue #3675). The
+        // THE ROW THE USER SAW (the Error Logging mission, issue #3675): this failure is what puts the "not delivered"
+        // alarm on the session's row, on the desktop, the Cockpit and the phone - so of every error line one failed send
+        // writes, this one alone is marked user-visible. The others carry the same correlation id from the context the
+        // prompt path opened, so the incident reads as one.
+        var current = ErrorContext.Current;
+        using var shown = ErrorContext.Begin(
+            surface: current?.Surface is null ? SessionRowSurface : null,
+            action: current?.Action is null ? SendPromptAction : null,
+            userVisible: true);
+        // The FAILED line is an error line, so it is REPORTED to the Gateway: it carries the session, the source, the
+        // length and the previous send, never the reason. The reason is a refusal's message, and a real one holds the
+        // prompt's first characters, the composer's text and the terminal's tail - no prompt words in a report. The
         // reason is still written WHOLE, on the next line, which is not an error line (quoted, no marker in its head)
         // and so stays in this machine's log, where the Prompt Delivery mission wanted it.
-        FileLog.Write($"[PromptDeliveryFailures] FAILED DELIVERY: session={sessionId}, source={source}, len={textLength}");
+        FileLog.Write($"[PromptDeliveryFailures] FAILED DELIVERY: session={sessionId}, source={source}, len={textLength}, {PreviousSend.Describe(sessionId)}");
         FileLog.Write($"[PromptDeliveryFailures] why that delivery to session {sessionId} did not go, kept in this log only: \"{reason}\"");
     }
 

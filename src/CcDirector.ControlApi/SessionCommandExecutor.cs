@@ -6,6 +6,7 @@ using CcDirector.Core.Agents;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Drivers;
+using CcDirector.Core.ErrorReports;
 using CcDirector.Core.Git;
 using CcDirector.Core.Input;
 using CcDirector.Core.Sessions;
@@ -215,6 +216,18 @@ internal static class SessionCommandExecutor
 
         var clock = utcNow ?? DefaultUtcNow;
 
+        // ONE FAILED PROMPT IS ONE INCIDENT (issue #3675): every error line this send causes carries the command's id - set
+        // by the command handler - or, when no command carried it here, its delivery id; and the session, and the screen
+        // the prompt came from. A refusal also says how the send before this one ended, read from the delivery record.
+        using var errorContext = ErrorContext.Begin(
+            correlationId: ErrorContext.Current?.CorrelationId is null ? request.DeliveryId : null,
+            sessionId: session.Id.ToString(),
+            surface: SenderSurface(request.Surface),
+            action: PromptDeliveryFailures.SendPromptAction,
+            userVisible: false);
+        ErrorContext.WithholdPrompt(request.Text);
+        using var previousSend = PreviousSend.Begin(deliveries ?? DeliveryRecord.Shared, session.Id, request.DeliveryId);
+
         // NO SEND TIME = A GATEWAY OLDER THAN THE FIELD (Voice Delivery mission, phase 5, QA finding F6): version skew
         // between two separately shipped parts, not a second path - the prompt is typed as today, and this one line says so.
         if (request.SentAtUtc is null)
@@ -228,6 +241,16 @@ internal static class SessionCommandExecutor
 
         return await SendPromptCoreAsync(session, request, source, answerBudget, deliveries: null, clock);
     }
+
+    /// <summary>The screen a prompt came from, for its error reports: the phone or the Cockpit, by the device type the Gateway
+    /// stamped on it. Null when that is not known - the failed delivery then names the session row, which every surface
+    /// draws.</summary>
+    internal static string? SenderSurface(string? deviceType) => (deviceType ?? "").Trim().ToLowerInvariant() switch
+    {
+        "phone" => "phone",
+        "browser" => "cockpit",
+        _ => null,
+    };
 
     /// <summary>The Director machine's clock, the default of the age check's <c>utcNow</c> parameter.</summary>
     private static DateTime DefaultUtcNow() => DateTime.UtcNow;
@@ -1557,6 +1580,8 @@ internal static class SessionCommandExecutor
             var capturedSession = session;
             _ = Task.Run(async () =>
             {
+                // The create command's context flows in; this names the session it made (issue #3675).
+                using var errorContext = ErrorContext.Begin(sessionId: capturedSession.Id.ToString());
                 try
                 {
                     await capturedSession.DeliverPrePromptAsync(prePrompt, TimeSpan.FromMilliseconds(waitMs));

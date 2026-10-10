@@ -26,26 +26,71 @@ namespace CcDirector.Core.ErrorReports;
 ///
 /// Every value here is written by our own code - ids, a screen's name, a plain-words action. Never put text a
 /// person or a model wrote into it. The reporter scrubs and caps every text field all the same.
+///
+/// WITHHELD TEXT. Some error lines must carry what a screen showed - a refusal says what the composer held - and that
+/// can be the words a person typed. The owner's rule is that a report never carries a prompt's words. So the code that
+/// puts such text into a line also hands the exact same string to <see cref="Withhold"/>, and every report made inside
+/// the context has each withheld string replaced by <c>&lt;withheld: N characters&gt;</c> before anything else is done
+/// with it. The local log keeps the line whole. Withheld strings belong to the whole chain of nested scopes, so a line
+/// logged by an outer scope after an inner one ended (the command's own failure line) is covered too.
 /// </summary>
 public sealed class ErrorContext : IDisposable
 {
+    /// <summary>The most strings one chain of scopes withholds. Past this the chain is marked overflowed and each of
+    /// its reports keeps only the head of its line - the safe direction, never a line with text that was not withheld.</summary>
+    internal const int MaxWithheld = 256;
+
+    /// <summary>The prompt itself is withheld only from this length: a shorter one cannot be told from an ordinary word,
+    /// and replacing every "go" in a line would make the report unreadable. A screen string is withheld at any length,
+    /// as the exact token its line carries.</summary>
+    internal const int MinWithheldPromptChars = 4;
+
     private static readonly AsyncLocal<ErrorContext?> CurrentContext = new();
 
     private readonly ErrorContext? _outer;
+    private readonly WithheldTexts _withheld;
     private bool _disposed;
+
+    /// <summary>The strings one chain of scopes withholds, shared by every scope in it.</summary>
+    internal sealed class WithheldTexts
+    {
+        private readonly object _lock = new();
+        private readonly List<string> _texts = new();
+        private bool _overflowed;
+
+        public void Add(string text)
+        {
+            lock (_lock)
+            {
+                if (_texts.Contains(text, StringComparer.Ordinal)) return;
+                if (_texts.Count >= MaxWithheld) _overflowed = true;
+                else _texts.Add(text);
+            }
+        }
+
+        /// <summary>The strings, longest first so a string inside a longer one cannot break the longer one's match.</summary>
+        public (IReadOnlyList<string> Texts, bool Overflowed) Snapshot()
+        {
+            lock (_lock) return (_texts.OrderByDescending(t => t.Length).ToList(), _overflowed);
+        }
+    }
 
     private ErrorContext(ErrorContext? outer, string? correlationId, string? sessionId, string? surface,
         string? action, bool? userVisible, int? httpStatus, string? errorCode)
     {
         _outer = outer;
-        CorrelationId = correlationId ?? outer?.CorrelationId;
-        SessionId = sessionId ?? outer?.SessionId;
-        Surface = surface ?? outer?.Surface;
-        Action = action ?? outer?.Action;
+        _withheld = outer?._withheld ?? new WithheldTexts();
+        // An empty string is "not set", the same as null: a command's id defaults to "", and it must not hide the outer one.
+        CorrelationId = Pick(correlationId, outer?.CorrelationId);
+        SessionId = Pick(sessionId, outer?.SessionId);
+        Surface = Pick(surface, outer?.Surface);
+        Action = Pick(action, outer?.Action);
         UserVisible = userVisible ?? outer?.UserVisible;
         HttpStatus = httpStatus ?? outer?.HttpStatus;
-        ErrorCode = errorCode ?? outer?.ErrorCode;
+        ErrorCode = Pick(errorCode, outer?.ErrorCode);
     }
+
+    private static string? Pick(string? value, string? outer) => string.IsNullOrEmpty(value) ? outer : value;
 
     /// <summary>The context open on this flow of execution, with the outer scopes' fields merged in; null when none is.</summary>
     public static ErrorContext? Current
@@ -91,6 +136,39 @@ public sealed class ErrorContext : IDisposable
         var context = new ErrorContext(Current, correlationId, sessionId, surface, action, userVisible, httpStatus, errorCode);
         CurrentContext.Value = context;
         return context;
+    }
+
+    /// <summary>
+    /// Withhold <paramref name="text"/> - the exact string a line is about to carry from a screen or from a prompt - from
+    /// every report made inside the context open on this flow of execution. Nothing happens when no context is open or
+    /// the text is empty; the prompt path always opens one (<see cref="WithholdPrompt"/>).
+    /// </summary>
+    public static void Withhold(string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return;
+        Current?._withheld.Add(text);
+    }
+
+    /// <summary>Withhold a prompt's own words, from <see cref="MinWithheldPromptChars"/> characters.</summary>
+    public static void WithholdPrompt(string? prompt)
+    {
+        if (prompt is null || prompt.Length < MinWithheldPromptChars) return;
+        Withhold(prompt);
+    }
+
+    /// <summary>
+    /// <paramref name="text"/> with every string withheld in <paramref name="context"/>'s chain replaced. When the chain
+    /// overflowed, only the head of the line is kept (<see cref="ErrorLine.Head"/>), since a string past the cap was
+    /// never recorded and could be anywhere in it.
+    /// </summary>
+    internal static string ApplyWithheld(string text, ErrorContext? context)
+    {
+        if (context is null || string.IsNullOrEmpty(text)) return text;
+        var (texts, overflowed) = context._withheld.Snapshot();
+        if (overflowed) return ErrorLine.Head(text) + ": <withheld: this line may carry screen or prompt text>";
+        foreach (var withheld in texts)
+            text = text.Replace(withheld, $"<withheld: {withheld.Length} characters>", StringComparison.Ordinal);
+        return text;
     }
 
     /// <summary>Close the scope: lines logged after this carry the outer scope's fields, or none.</summary>

@@ -2481,6 +2481,9 @@ public sealed class Session : IDisposable
                 $"[Session] DeliverFirstPromptAsync: session={Id} runs {AgentKind} on {BackendType}; the first-prompt gate cannot read its composer.");
 
         FileLog.Write($"[Session] DeliverFirstPromptAsync: session={Id}, driver={Driver.Kind}, len={text.Length}, limit={limit.TotalSeconds:F0}s");
+        // The same as every send (issue #3675): its errors name the session, and what the screen showed is withheld.
+        using var errorContext = ErrorReports.ErrorContext.Begin(sessionId: Id.ToString());
+        ErrorReports.ErrorContext.WithholdPrompt(text);
         var gate = await Drivers.FirstPromptGate.WaitUntilAcceptingInputAsync(
             AgentKind,
             SnapshotLiveFrame,
@@ -4004,14 +4007,22 @@ public sealed class Session : IDisposable
         // hold the owner's unsent draft. The whole text is kept where it stays on this machine - the send's trail and the
         // Director log (TerminalSubmit's steps). The row's FAINT text - what Claude Code drew in grey and the reader left
         // out - is named separately, so a suggestion can be told from typed text at a glance (the Prompt Delivery mission).
+        // NEVER IN AN ERROR REPORT (issue #3675): each quoted screen value is withheld from the reports of this send, as the
+        // exact token the line carries, so the owner's error store never holds what the composer showed.
         static string Cut(string s) => s.Length > 80 ? s[..80] + "..." : s;
+        static string Quoted(string s)
+        {
+            var token = $"'{Cut(s)}'";
+            ErrorReports.ErrorContext.Withhold(token);
+            return token;
+        }
         var frame = SnapshotLiveFrame();
         var (rows, cursorRow, cursorCol, cursorVisible) = (frame.Rows, frame.CursorRow, frame.CursorCol, frame.CursorVisible);
         var row = cursorRow >= 0 && cursorRow < rows.Count ? rows[cursorRow] : "";
         var rowWithoutFaint = frame.RowsWithoutFaint is { } input && cursorRow >= 0 && cursorRow < input.Count ? input[cursorRow] : row;
-        var faint = rowWithoutFaint == row ? "" : $", rowWithoutFaint='{Cut(rowWithoutFaint)}' (the rest was drawn faint, not typed)";
-        return $"reading={reading}, text='{Cut(composerText)}', cursor={(cursorVisible ? $"{cursorRow},{cursorCol}" : "hidden")}, " +
-               $"row='{Cut(row)}'{faint}, screen={_screenCols}x{_screenRows}";
+        var faint = rowWithoutFaint == row ? "" : $", rowWithoutFaint={Quoted(rowWithoutFaint)} (the rest was drawn faint, not typed)";
+        return $"reading={reading}, text={Quoted(composerText)}, cursor={(cursorVisible ? $"{cursorRow},{cursorCol}" : "hidden")}, " +
+               $"row={Quoted(row)}{faint}, screen={_screenCols}x{_screenRows}";
     }
 
     /// <summary>
@@ -4198,6 +4209,10 @@ public sealed class Session : IDisposable
     /// keystroke; null when there is nothing to check.</summary>
     private async Task<TextSendOutcome> SubmitTextAsync(ISessionBackend target, string text, SubmissionProvenance provenance, SendSource source, InputOrigin? origin, bool allowBracketedPaste, DateTime? sentAtUtc)
     {
+        // EVERY ERROR THIS SEND LOGS NAMES ITS SESSION AND NEVER ITS WORDS (issue #3675). Inside the prompt verb this nests
+        // in the command's context and keeps its correlation id; a send typed on the desktop has this one alone.
+        using var errorContext = ErrorReports.ErrorContext.Begin(sessionId: Id.ToString());
+        ErrorReports.ErrorContext.WithholdPrompt(text);
         var outcome = TextSendOutcome.Delivered;
         long ownerTextBefore;
         lock (_inputLock) ownerTextBefore = _ownerTextCount;

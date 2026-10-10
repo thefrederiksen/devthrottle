@@ -39,6 +39,13 @@ public sealed class DeliveryRecordEntry
     /// and on a line written by a Director older than the field (the Prompt Delivery mission, 8 October 2026).</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<string>? Steps { get; set; }
+
+    /// <summary>The correlation id of the send that wrote this line - the command id it arrived with, from the
+    /// <see cref="ErrorReports.ErrorContext"/> open while it was written (the Error Logging mission, issue #3675). It is
+    /// what every error report that send caused carries, so a later refusal can name the earlier send by it
+    /// (<see cref="PreviousSend"/>). Null on a line written outside a context, and by a Director older than the field.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? CorrelationId { get; set; }
 }
 
 /// <summary>The Director process that began a delivery: its process id and when it started, in UTC. The pair names one
@@ -218,6 +225,29 @@ public sealed class DeliveryRecord
             var lookup = Latest(ReadEntries(sessionId), deliveryId);
             FileLog.Write($"[DeliveryRecord] Read: session={sessionId}, deliveryId={deliveryId}, state={DeliveryStates.Format(lookup.State)}");
             return lookup;
+        });
+    }
+
+    /// <summary>
+    /// The most recent line of this session's record for any delivery OTHER than <paramref name="exceptDeliveryId"/> -
+    /// how the send before this one ended, as far as this record knows (the Error Logging mission, issue #3675). Null
+    /// when there is none. <paramref name="exceptDeliveryId"/> null means the latest line of all. Throws
+    /// <see cref="DeliveryRecordUnreadableException"/> when the file exists and cannot be read.
+    /// </summary>
+    public DeliveryRecordEntry? LatestOtherThan(Guid sessionId, string? exceptDeliveryId)
+    {
+        FileLog.Write($"[DeliveryRecord] LatestOtherThan: session={sessionId}, except={exceptDeliveryId ?? "(none)"}");
+        return UnderSessionLock<DeliveryRecordEntry?>(sessionId, "a read of the previous send", () =>
+        {
+            var entries = ReadEntries(sessionId);
+            for (var i = entries.Count - 1; i >= 0; i--)
+            {
+                if (string.Equals(entries[i].Id, exceptDeliveryId, StringComparison.Ordinal)) continue;
+                FileLog.Write($"[DeliveryRecord] LatestOtherThan: session={sessionId}, deliveryId={entries[i].Id}, state={entries[i].State}");
+                return entries[i];
+            }
+            FileLog.Write($"[DeliveryRecord] LatestOtherThan: session={sessionId}: no other send in the record");
+            return null;
         });
     }
 
@@ -650,6 +680,7 @@ public sealed class DeliveryRecord
             OwnerProcessId = delivering ? _owner.ProcessId : null,
             OwnerStartedAt = delivering ? _owner.StartedAtUtc : null,
             Steps = steps is { Count: > 0 } ? steps.ToList() : null,
+            CorrelationId = ErrorReports.ErrorContext.Current?.CorrelationId,
         });
 
         Directory.CreateDirectory(_directory);

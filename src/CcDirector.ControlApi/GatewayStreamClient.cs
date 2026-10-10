@@ -57,6 +57,54 @@ public sealed class GatewayStreamClient : IAsyncDisposable
     /// </summary>
     private readonly DirectorUpStreamHandler? _upStreamHandler;
 
+    /// <summary>
+    /// The Gateway's "Command" call, whole: a stream verb to the up-stream handler, every other verb to the unary
+    /// dispatcher. A boundary, so it catches: a dispatcher fault becomes an Error result the Gateway can fall back on,
+    /// never a faulted hub invocation. A command that sends a prompt runs inside its error context
+    /// (<see cref="PromptPathErrorContext"/>), opened before the catch so the command's own failure line carries the
+    /// command id like every other line the failure caused (issue #3675).
+    /// </summary>
+    internal static async Task<DirectorCommandResult> HandleCommandAsync(DirectorCommand? cmd,
+        DirectorUpStreamHandler? upStreamHandler, Func<DirectorCommand, Task<DirectorCommandResult>>? commandDispatcher)
+    {
+        using var errorContext = PromptPathErrorContext.ForCommand(cmd);
+        try
+        {
+            if (cmd is null)
+                return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, "command is required");
+
+            // Gateway Cleanup Phase 0 (Architect ruling A): the four connection-bound stream verbs branch
+            // here - they need this live connection and the per-stream cancellation registry, so they are
+            // NOT in the unary verb-to-area dictionary. Everything else forwards to the unary dispatcher.
+            if (DirectorUpStreamHandler.IsStreamVerb(cmd.Verb))
+            {
+                if (upStreamHandler is null)
+                {
+                    FileLog.Write($"[GatewayStreamClient] stream verb declined (no up-stream handler): verb={cmd.Verb}, cmdId={cmd.CommandId}");
+                    return DirectorCommandResult.Fail(DirectorCommandStatus.Error, "director has no up-stream handler");
+                }
+                FileLog.Write($"[GatewayStreamClient] stream verb received: verb={cmd.Verb}, sid={cmd.SessionId}, cmdId={cmd.CommandId}");
+                var streamResult = upStreamHandler.Handle(cmd);
+                streamResult.CommandId = cmd.CommandId;
+                return streamResult;
+            }
+
+            if (commandDispatcher is null)
+            {
+                FileLog.Write($"[GatewayStreamClient] Command declined (no dispatcher): verb={cmd.Verb}, cmdId={cmd.CommandId}");
+                return DirectorCommandResult.Fail(DirectorCommandStatus.Error, "director has no command dispatcher");
+            }
+
+            FileLog.Write($"[GatewayStreamClient] Command received: verb={cmd.Verb}, sid={cmd.SessionId}, cmdId={cmd.CommandId}");
+            return await CommandAnswerTiming.AnswerAsync(cmd, () => commandDispatcher(cmd));
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayStreamClient] Command FAILED: verb={cmd?.Verb}, cmdId={cmd?.CommandId}, error={ex.Message}");
+            return DirectorCommandResult.Fail(DirectorCommandStatus.Error, ex.Message);
+        }
+    }
+
     // Gateway Cleanup mission (tunnel-only): the Hello now carries this Director's identity so the Gateway
     // registers it from the stream (HTTP register is gone). Captured once at construction.
     private readonly DateTime _startedAt = System.Diagnostics.Process.GetCurrentProcess().StartTime.ToUniversalTime();
@@ -450,45 +498,8 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         // DirectorCommand and awaits the DirectorCommandResult over the same connection (SignalR client
         // results). This handler is a boundary, so it catches: a dispatcher fault becomes an Error result
         // the Gateway can fall back on, never a faulted hub invocation.
-        _connection.On<DirectorCommand, DirectorCommandResult>("Command", async cmd =>
-        {
-            try
-            {
-                if (cmd is null)
-                    return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, "command is required");
-
-                // Gateway Cleanup Phase 0 (Architect ruling A): the four connection-bound stream verbs branch
-                // here - they need this live connection and the per-stream cancellation registry, so they are
-                // NOT in the unary verb-to-area dictionary. Everything else forwards to the unary dispatcher.
-                if (DirectorUpStreamHandler.IsStreamVerb(cmd.Verb))
-                {
-                    if (_upStreamHandler is null)
-                    {
-                        FileLog.Write($"[GatewayStreamClient] stream verb declined (no up-stream handler): verb={cmd.Verb}, cmdId={cmd.CommandId}");
-                        return DirectorCommandResult.Fail(DirectorCommandStatus.Error, "director has no up-stream handler");
-                    }
-                    FileLog.Write($"[GatewayStreamClient] stream verb received: verb={cmd.Verb}, sid={cmd.SessionId}, cmdId={cmd.CommandId}");
-                    var streamResult = _upStreamHandler.Handle(cmd);
-                    streamResult.CommandId = cmd.CommandId;
-                    return streamResult;
-                }
-
-                if (_commandDispatcher is null)
-                {
-                    FileLog.Write($"[GatewayStreamClient] Command declined (no dispatcher): verb={cmd.Verb}, cmdId={cmd.CommandId}");
-                    return DirectorCommandResult.Fail(DirectorCommandStatus.Error, "director has no command dispatcher");
-                }
-
-                FileLog.Write($"[GatewayStreamClient] Command received: verb={cmd.Verb}, sid={cmd.SessionId}, cmdId={cmd.CommandId}");
-                var dispatcher = _commandDispatcher;
-                return await CommandAnswerTiming.AnswerAsync(cmd, () => dispatcher(cmd));
-            }
-            catch (Exception ex)
-            {
-                FileLog.Write($"[GatewayStreamClient] Command FAILED: verb={cmd?.Verb}, cmdId={cmd?.CommandId}, error={ex.Message}");
-                return DirectorCommandResult.Fail(DirectorCommandStatus.Error, ex.Message);
-            }
-        });
+        _connection.On<DirectorCommand, DirectorCommandResult>("Command",
+            cmd => HandleCommandAsync(cmd, _upStreamHandler, _commandDispatcher));
 
         while (!_disposed)
         {
