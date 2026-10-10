@@ -37,6 +37,7 @@ WRAP = 470
 PREFS_FILE = "window.json"
 LIST_MIN_WIDTH = 760
 LIST_MIN_HEIGHT = 420
+TABLE_ROWS_WANTED = 4  # what the table asks for, not what it shows: it stretches to fill the window
 
 
 def _windows_desktop_visible() -> bool:
@@ -457,7 +458,10 @@ class ListWindow:
         card.grid(row=2, column=0, sticky="nsew")
         card.columnconfigure(0, weight=1)
         card.rowconfigure(0, weight=1)
-        self._tree = ttk.Treeview(card, columns=[c[0] for c in self.COLUMNS], show="headings", selectmode="browse")
+        # `height` is the table's REQUESTED rows, not its rows on screen: it stretches to fill the window. Left at
+        # Tk's default of ten it dictated the window's smallest useful height all by itself.
+        self._tree = ttk.Treeview(card, columns=[c[0] for c in self.COLUMNS], show="headings", selectmode="browse",
+                                  height=TABLE_ROWS_WANTED)
         for key, title, width, stretch in self.COLUMNS:
             self._tree.heading(key, text=title, anchor="w",
                                command=(lambda k=key: self._sort_by(k)) if key != "eye" else "")
@@ -765,13 +769,16 @@ def show_list(actions: WindowActions) -> None:
     root = open_root(f"cc-secrets - passwords and settings ({platform.node()})")
     window = ListWindow(root, actions, prefs)
     screens = monitors(root)
-    x, y, width, height = window_layout.list_geometry(prefs, screens, root.winfo_pointerxy())
+    pointer = root.winfo_pointerxy()
     root.update_idletasks()  # so the window can say how much room its own contents need
-    smallest = window_layout.minimum_size((root.winfo_reqwidth(), root.winfo_reqheight()),
-                                          (LIST_MIN_WIDTH, LIST_MIN_HEIGHT),
-                                          window_layout.monitor_at(x, y, screens))
+    needed = (root.winfo_reqwidth(), root.winfo_reqheight())
+    # Worked out BEFORE the window is placed and handed to list_geometry, so a list raised to its minimum is
+    # still placed on its monitor rather than being widened off the edge of it afterwards.
+    smallest = window_layout.minimum_size(needed, (LIST_MIN_WIDTH, LIST_MIN_HEIGHT),
+                                          window_layout.target_monitor(prefs, screens, pointer))
     root.minsize(*smallest)
-    root.geometry(f"{max(width, smallest[0])}x{max(height, smallest[1])}+{x}+{y}")
+    x, y, width, height = window_layout.list_geometry(prefs, screens, pointer, smallest)
+    root.geometry(f"{width}x{height}+{x}+{y}")
 
     def close() -> None:
         try:
@@ -791,6 +798,11 @@ def show_list(actions: WindowActions) -> None:
     placed_x, placed_y = root.winfo_x(), root.winfo_y()
     placed_width, placed_height = root.winfo_width(), root.winfo_height()
     monitor = window_layout.monitor_at(placed_x + placed_width // 2, placed_y + title_bar, screens)
+    # Now the title bar can be measured, the minimum can allow for it. On a monitor shorter than the window
+    # needs, a minimum as tall as the whole monitor left no room for the frame's title bar and nothing could
+    # trim it back. This can only lower the minimum, so it never resizes the window.
+    smallest = window_layout.minimum_size(needed, (LIST_MIN_WIDTH, LIST_MIN_HEIGHT), monitor, title_bar)
+    root.minsize(*smallest)
     fitted = window_layout.fit_height(placed_y, title_bar, placed_height, monitor, smallest[1])
     if fitted != placed_height:
         root.geometry(f"{placed_width}x{fitted}")

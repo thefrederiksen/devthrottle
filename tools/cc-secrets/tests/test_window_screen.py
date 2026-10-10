@@ -258,26 +258,57 @@ def test_ClosingTheList_RemembersWhereItWas(store):
     assert [prefs.x, prefs.y, prefs.width, prefs.height] == json.loads(moved[0][len("MOVED "):])
 
 
-def test_TheKeyLabelledDelete_AsksToDeleteTheEntry(window, monkeypatch):
+def test_TheDeleteKeys_AreTheOnesThisKeyboardHas(window, monkeypatch):
     """A Mac's main delete key sends BackSpace; Delete is forward delete, which only a full-size keyboard with a
-    numeric keypad has. Bound to Delete alone, the key the owner actually presses on a Mac did nothing."""
+    numeric keypad has. Bound to Delete alone, the key the owner actually presses on a Mac did nothing.
+
+    Both halves are asserted on every system, so this fails either way round: on a Mac if BackSpace stops
+    asking, and anywhere else if BackSpace starts asking - there the main delete key IS Delete, and a stray
+    BackSpace binding on the table would be a second, undocumented way to delete an entry.
+    """
     from tkinter import messagebox
 
     root, listing = window
     asked = []
     monkeypatch.setattr(messagebox, "askyesno", lambda title, message, **kw: asked.append(message) or False)
-    main_delete_key = "<BackSpace>" if sys.platform == "darwin" else "<Delete>"
     entry_window.bring_to_front(root)  # a key reaches a widget only while its window is up and has the focus
-    listing._tree.selection_set("devlinux")
-    listing._tree.focus("devlinux")
-    listing._tree.focus_set()
-    root.update()
 
-    listing._tree.event_generate(main_delete_key, when="now")
-    root.update()
+    def press(key):
+        asked.clear()
+        listing._tree.selection_set("devlinux")
+        listing._tree.focus("devlinux")
+        listing._tree.focus_set()
+        root.update()
+        listing._tree.event_generate(key, when="now")
+        root.update()
+        return list(asked)
 
-    assert asked == ["Delete devlinux?"]
+    assert press("<Delete>") == ["Delete devlinux?"], "forward delete must always ask"
+    assert press("<BackSpace>") == (["Delete devlinux?"] if sys.platform == "darwin" else [])
     assert any(row.name == "devlinux" for row in listing._actions.rows()), "answering no still deleted it"
+
+
+def test_BackSpaceInTheSearchBox_EditsTheTextAndNeverAsksToDelete(window, monkeypatch):
+    """The new binding is on the table alone. BackSpace is how anybody rubs out a character, so a window-wide
+    binding would have turned a typing mistake in the search box into a prompt to delete an entry."""
+    from tkinter import messagebox
+
+    root, listing = window
+    asked = []
+    monkeypatch.setattr(messagebox, "askyesno", lambda title, message, **kw: asked.append(message) or False)
+    entry_window.bring_to_front(root)
+    listing._tree.selection_set("devlinux")
+    listing._search.focus_set()
+    listing._hide_placeholder()
+    listing._query.set("dev")
+    listing._search.icursor("end")
+    root.update()
+
+    listing._search.event_generate("<BackSpace>", when="now")
+    root.update()
+
+    assert listing._query.get() == "de"
+    assert asked == []
 
 
 def test_NothingIsCutOff_AtAnySizeTheListAllows(window):
@@ -308,12 +339,20 @@ def test_TheListLeftLowOnTheScreen_IsNotTrimmedWhileItStillFits(store, tk_root):
     asked-for place instead, the trim shortened a window that was already wholly visible - and the shorter
     height was saved, so a list left low on the screen came back smaller every time, down to its minimum.
 
-    The remembered place is near the bottom of the screen, far enough down that the window cannot stay there,
-    but with enough of its title bar on screen to be worth going back to."""
+    The remembered place is as low as the tool will still go back to - its title bar exactly MIN_VISIBLE_HEIGHT
+    inside the bottom of the monitor, measured against the monitor rectangle the tool itself works from rather
+    than the screen height, so the list really is reopened down there on every system instead of falling
+    through to the mouse. Only a window system that MOVES the window can tell the two ways of measuring apart,
+    which is macOS; everywhere else this still holds the invariant, and the test asserts the place it got.
+    """
     prefs_path = paths.ensure_home() / entry_window.PREFS_FILE
     asked_height = 620
-    low = tk_root.winfo_screenheight() - window_layout.MIN_VISIBLE_HEIGHT * 2
-    window_layout.save_prefs(prefs_path, window_layout.ListPrefs(x=100, y=low, width=1060, height=asked_height))
+    screens = entry_window.monitors(tk_root)
+    monitor = window_layout.monitor_at(100, 100, screens)
+    low = monitor[3] - window_layout.MIN_VISIBLE_HEIGHT
+    prefs = window_layout.ListPrefs(x=100, y=low, width=1060, height=asked_height)
+    assert window_layout.still_visible(prefs.rect(), screens), "the tool would not go back to this place"
+    window_layout.save_prefs(prefs_path, prefs)
 
     placed = _open_the_list_and_report()
 
@@ -333,5 +372,7 @@ def test_TheListCannotBeOpenedSmallerThanItNeedsToDrawItself(store):
     placed = _open_the_list_and_report()
 
     assert placed["cut_off"] == [], placed
-    assert placed["width"] >= placed["needed"][0] and placed["height"] >= placed["needed"][1], placed
-    assert placed["minimum"] == placed["needed"], placed
+    assert placed["width"] >= placed["minimum"][0] and placed["height"] >= placed["minimum"][1], placed
+    assert tuple(placed["minimum"]) == window_layout.minimum_size(
+        tuple(placed["needed"]), (entry_window.LIST_MIN_WIDTH, entry_window.LIST_MIN_HEIGHT),
+        placed["monitor"], placed["title_bar"]), placed
