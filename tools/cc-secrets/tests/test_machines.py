@@ -8,7 +8,7 @@ import os
 import pytest
 from typer.testing import CliRunner
 
-from src import cli, gateway_link, known_machines, machine_key, machines
+from src import cli, gateway_link, known_machines, machine_key, machines, paths
 from src.errors import CcSecretsError
 from src.redact import SCRUBBER
 
@@ -184,3 +184,101 @@ def test_Resolve_NotSignedIn_IsRefusedWithTheReason(monkeypatch):
 
     with pytest.raises(CcSecretsError, match="not signed in to a Gateway"):
         gateway_link.resolve()
+
+
+def test_Resolve_OutsideASession_UsesThisMachinesCredential(monkeypatch, tmp_path):
+    from cc_shared import tool_errors
+
+    monkeypatch.delenv("CC_GATEWAY_URL", raising=False)
+    monkeypatch.delenv("CC_GATEWAY_SESSION_KEY", raising=False)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "config.json").write_text(
+        json.dumps({"gateway": {"url": "https://hosted.example/", "token": "machine-token"}}), encoding="utf-8")
+    monkeypatch.setattr(tool_errors, "machine_root", lambda: tmp_path)
+
+    link = gateway_link.resolve()
+
+    assert (link.kind, link.url, link.bearer) == ("machine", "https://hosted.example", "machine-token")
+
+
+def test_Get_AGatewayRefusal_BecomesOurOwnError(monkeypatch):
+    from cc_shared import gateway
+
+    def refuse(path, bearer=None, base_url=None):
+        raise gateway.GatewayError("The Gateway answered 403: not allowed.")
+
+    monkeypatch.setattr(gateway, "get_json", refuse)
+
+    with pytest.raises(CcSecretsError, match="answered 403"):
+        gateway_link.get("gateway/secrets/machines", gateway_link.Link("session", "https://g.example", "k"))
+
+
+def test_MachinesCommand_Json_GivesEachMachinesFacts(home, gateway):
+    own, _ = machine_key.load_or_create()
+    gateway["rows"] = [_row("SOREN_NORTH", own.public)]
+
+    result = runner.invoke(cli.app, ["machines", "--json"])
+
+    assert result.exit_code == 0, _text(result)
+    rows = json.loads(result.stdout)
+    row = rows[0] if isinstance(rows, list) else rows["machines"][0]
+    assert row["machine"] == "SOREN_NORTH"
+    assert row["fingerprint"] == own.fingerprint
+
+
+# --- Review findings ------------------------------------------------------------------------------------------
+
+def test_MachineKey_TwoProcessesRacing_BothEndWithTheOneKeyOnDisk(home, monkeypatch):
+    """The Director at Hello and a terminal command can both find no key. The one that loses must read the winner's
+    key rather than overwrite it: the Director may already have published the winner's public half."""
+    from src.storefile import UserOnlyFile
+
+    winner = {}
+    original_create = UserOnlyFile.create_new
+
+    def another_process_got_there_first(self, data):
+        if not winner:
+            # Simulate the other process: it makes and saves its own key between our check and our write.
+            monkeypatch.setattr(UserOnlyFile, "create_new", original_create)
+            other, created = machine_key.load_or_create()
+            winner["key"] = other
+            assert created
+        return original_create(self, data)
+
+    monkeypatch.setattr(UserOnlyFile, "create_new", another_process_got_there_first)
+
+    mine, created = machine_key.load_or_create()
+
+    assert created is False
+    assert mine.public == winner["key"].public
+    again, _ = machine_key.load_or_create()
+    assert again.public == winner["key"].public
+
+
+@pytest.mark.parametrize("document", [{"version": 1, "publicKey": "x"}, {"version": 1, "publicKey": "x", "privateKey": ""}])
+def test_MachineKey_AnEmptyPrivateKey_IsRefusedWithOurOwnReason(home, document):
+    document["version"] = machine_key.KEY_VERSION
+    paths.ensure_home()
+    (home / machine_key.KEY_FILE).write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(CcSecretsError, match="private key in .* cannot be read: it is empty"):
+        machine_key.load_or_create()
+
+
+def test_MachineKey_TheRawPrivateBytes_AreScrubbedToo(home):
+    machine_key.load_or_create()
+    document = json.loads((home / machine_key.KEY_FILE).read_text(encoding="utf-8"))
+    raw_hex = base64.b64decode(document["privateKey"]).hex()
+
+    assert raw_hex not in SCRUBBER.scrub(f"leaked {raw_hex}")
+
+
+@pytest.mark.parametrize("text", ["not json", "[]", '{"version": 1}', '{"version": 1, "machines": {"a": {"machine": "a"}}}'])
+def test_KnownMachines_AMalformedFile_IsAStoreFormatError(home, text):
+    from src.errors import StoreFormatError
+
+    paths.ensure_home()
+    (home / known_machines.FILE).write_text(text, encoding="utf-8")
+
+    with pytest.raises(StoreFormatError, match="not a list of known machines"):
+        known_machines.check("devthrottle-mac-mini", "ab" * 32)

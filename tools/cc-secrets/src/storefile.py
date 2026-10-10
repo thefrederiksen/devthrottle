@@ -87,3 +87,26 @@ class UserOnlyFile(StoreFile):
         if written != data:
             raise permissions.StorePermissionError(f"The store saved to {self._path} does not read back as written.")
         filelog.write(f"[UserOnlyFile] write: {len(data)} bytes to {self._path}, read back")
+
+    def create_new(self, data: bytes) -> bool:
+        """Write the file only if it does not exist yet, whole or not at all. Returns False, changing nothing, when
+        another process created it first. A hard link is refused when the name is taken, so two processes racing to
+        create the same file cannot both win, and the file appears already complete and private."""
+        paths.ensure_home()
+        temp = self._path.parent / f".{self._path.name}.{secrets.token_hex(8)}.tmp"
+        descriptor = permissions.create_private_file(temp)
+        try:
+            with os.fdopen(descriptor, "wb") as fh:
+                fh.write(data)
+                fh.flush()
+                os.fsync(fh.fileno())
+            try:
+                os.link(temp, self._path)
+            except FileExistsError:
+                filelog.write(f"[UserOnlyFile] create_new: {self._path} already exists, left as it is")
+                return False
+        finally:
+            if temp.exists():
+                temp.unlink()
+        filelog.write(f"[UserOnlyFile] create_new: {len(data)} bytes to {self._path}")
+        return True

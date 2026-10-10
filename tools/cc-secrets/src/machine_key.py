@@ -79,27 +79,41 @@ def load_or_create() -> Tuple[MachineKey, bool]:
     """This machine's key pair, made and saved the first time. Returns (key, created)."""
     file = _file()
     if file.exists():
-        document = json.loads(file.read().decode("utf-8"))
-        if not isinstance(document, dict) or document.get("version") != KEY_VERSION:
-            raise CcSecretsError(f"{file.location} is not a machine key this cc-secrets reads (version "
-                                 f"{document.get('version') if isinstance(document, dict) else None!r}).")
-        private_text = str(document.get("privateKey", ""))
-        SCRUBBER.add(private_text)
-        try:
-            private = X25519PrivateKey.from_private_bytes(base64.b64decode(private_text, validate=True))
-        except ValueError as exc:
-            raise CcSecretsError(f"The private key in {file.location} cannot be read.") from exc
-        key = MachineKey(private=private, public=_raw_public(private))
-        if str(document.get("publicKey", "")) != key.public_b64:
-            raise CcSecretsError(f"The public key in {file.location} does not belong to its private key.")
-        return key, False
+        return _load(file), False
     private = X25519PrivateKey.generate()
-    private_text = base64.b64encode(private.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw,
-                                                          serialization.NoEncryption())).decode("ascii")
+    raw = private.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw,
+                                serialization.NoEncryption())
+    private_text = base64.b64encode(raw).decode("ascii")
     SCRUBBER.add(private_text)
+    SCRUBBER.add(raw.hex())
     key = MachineKey(private=private, public=_raw_public(private))
     document = {"version": KEY_VERSION, "publicKey": key.public_b64, "privateKey": private_text,
                 "createdUtc": datetime.now(timezone.utc).isoformat(timespec="seconds")}
-    file.write((json.dumps(document, indent=2) + "\n").encode("utf-8"))
+    # Two processes can both find no key (the Director at Hello and a command in a terminal). Only one may make it:
+    # the other reads the winner's, because the Director may already have published the winner's public key and a
+    # secret sealed to an overwritten key could never be opened.
+    if not file.create_new((json.dumps(document, indent=2) + "\n").encode("utf-8")):
+        return _load(file), False
     filelog.write(f"[machine_key] made this machine's key pair, fingerprint {short_fingerprint(key.fingerprint)}")
     return key, True
+
+
+def _load(file: UserOnlyFile) -> MachineKey:
+    document = json.loads(file.read().decode("utf-8"))
+    if not isinstance(document, dict) or document.get("version") != KEY_VERSION:
+        raise CcSecretsError(f"{file.location} is not a machine key this cc-secrets reads (version "
+                             f"{document.get('version') if isinstance(document, dict) else None!r}).")
+    private_text = str(document.get("privateKey", ""))
+    if not private_text:
+        raise CcSecretsError(f"The private key in {file.location} cannot be read: it is empty.")
+    SCRUBBER.add(private_text)
+    try:
+        raw = base64.b64decode(private_text, validate=True)
+        SCRUBBER.add(raw.hex())
+        private = X25519PrivateKey.from_private_bytes(raw)
+    except ValueError as exc:
+        raise CcSecretsError(f"The private key in {file.location} cannot be read.") from exc
+    key = MachineKey(private=private, public=_raw_public(private))
+    if str(document.get("publicKey", "")) != key.public_b64:
+        raise CcSecretsError(f"The public key in {file.location} does not belong to its private key.")
+    return key

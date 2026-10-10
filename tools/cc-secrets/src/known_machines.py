@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from typing import Dict, Optional
 
 from . import filelog, paths
+from .errors import StoreFormatError
 from .storefile import UserOnlyFile
 
 FILE = "known-machines.json"
@@ -48,9 +49,13 @@ def _read() -> Dict[str, Pin]:
     file = _file()
     if not file.exists():
         return {}
-    document = json.loads(file.read().decode("utf-8"))
-    return {key: Pin(str(value["machine"]), str(value["fingerprint"]), str(value["pinnedUtc"]))
-            for key, value in document.get("machines", {}).items()}
+    try:
+        document = json.loads(file.read().decode("utf-8"))
+        return {key: Pin(str(value["machine"]), str(value["fingerprint"]), str(value["pinnedUtc"]))
+                for key, value in document["machines"].items()}
+    except (ValueError, KeyError, TypeError, AttributeError) as exc:
+        raise StoreFormatError(f"{file.location} is not a list of known machines this cc-secrets reads "
+                               f"({type(exc).__name__}). Move it aside and each machine is pinned again on next use.") from exc
 
 
 def check(machine: str, fingerprint: str) -> PinCheck:
