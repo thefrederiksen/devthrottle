@@ -440,3 +440,21 @@ describe("reporting names defined more than once (the 3c review, finding 3)", ()
     expect(duplicateReportingNames(texts, reportingFunctions([...texts.values()]), "/repo")).toEqual([]);
   });
 });
+
+describe("store writes and reporting wrappers (the 3c review, finding 4)", () => {
+  it("scanSource_PublishWithAnErrorField_IsASite", () => {
+    const sites = bad(`try { await save(); } catch (err) {\n  publishDictationStatus({ phase: "failed", error: err.message });\n}`);
+
+    expect(sites.some((s) => s.name === "publishDictationStatus({ error })")).toBe(true);
+  });
+
+  it("scanSource_PublishWithAReportedError_IsReported", () => {
+    expect(scan(`publishDictationStatus({ phase: "failed", error: describeAndReport("s", "a", err) });`)[0].reported).toBe(true);
+  });
+
+  it("reportingFunctions_WrapperReturningAVariableAssignedFromAReport_CountsAsReporting", () => {
+    const src = `function failIt(message) {\n  const shown = describeAndReport("s", "a", message);\n  publish({ error: shown });\n  return shown;\n}`;
+
+    expect(reportingFunctions([src]).has("failIt")).toBe(true);
+  });
+});

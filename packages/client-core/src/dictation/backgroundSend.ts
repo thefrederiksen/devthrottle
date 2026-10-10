@@ -538,9 +538,9 @@ export async function sendDroppedDictationAnyway(uploadId: string): Promise<void
       // Names the recording (rec.id IS its upload id - the dictation upload is registered under it), so the
       // Director can refuse these words if that recording already reached the session after all.
       answer = await sendPrompt(rec.sessionId, text, true, undefined, undefined, undefined, rec.id);
-    } catch {
+    } catch (err) {
       // Keep the record AND the sticky status - the words are still on the device and still on screen, and the
-      // owner decides again.
+      // owner decides again. The failed press is reported as the Send failure it is - the sentence, never the words.
       publishDictationStatus({
         sessionId: rec.sessionId,
         uploadId: rec.id,
@@ -548,7 +548,7 @@ export async function sendDroppedDictationAnyway(uploadId: string): Promise<void
         retryable: false,
         recoverableText: text,
         offerSendAnyway: true,
-        error: SEND_ANYWAY_FAILED_MESSAGE,
+        error: reportShownError("dictation", "send prompt", SEND_ANYWAY_FAILED_MESSAGE, { sessionId: rec.sessionId }, err),
       });
       return;
     }
@@ -1127,6 +1127,7 @@ function publishHeld(rec: PendingDictation, message: string): void {
     uploadId: rec.id,
     phase: "held",
     retryable: true,
+    // error-report-exempt: saved and still being sent - the driver keeps retrying, and the two ways it can end badly (failed, parked) report
     error: message,
   });
 }
@@ -1137,19 +1138,21 @@ function publishHeld(rec: PendingDictation, message: string): void {
 // failure, the same one a typed prompt reports (the step 3 rulings, R2). (A typed prompt's failures are published by
 // typedPromptDelivery and reported there.)
 function failDictation(sessionId: string, uploadId: string, message: string, cause?: unknown): string {
-  publishDictationStatus({ sessionId, uploadId, phase: "failed", retryable: false, error: message });
-  return reportShownError("dictation", "send prompt", message, { sessionId }, cause);
+  const shown = reportShownError("dictation", "send prompt", message, { sessionId }, cause);
+  publishDictationStatus({ sessionId, uploadId, phase: "failed", retryable: false, error: shown });
+  return shown;
 }
 
 // Publish the parked (permanent-failure) status: saved-and-retryable, with an explicit Retry (retryable
-// true) and no auto-loop behind it (issue #1184).
+// true) and no auto-loop behind it (issue #1184). The send has stopped for good, so it is reported as the Send failure
+// it is - a background report, because a parked clip is published again each time the page resumes it.
 function publishParked(rec: PendingDictation, reason: string): void {
   publishDictationStatus({
     sessionId: rec.sessionId,
     uploadId: rec.id,
     phase: "parked",
     retryable: true,
-    error: parkMessage(reason),
+    error: reportShownError("dictation", "send prompt", parkMessage(reason), { sessionId: rec.sessionId, background: true }),
   });
 }
 
@@ -1173,6 +1176,7 @@ function publishDropped(rec: PendingDictation): void {
     retryable: offer && words.length === 0,
     offerSendAnyway: offer,
     recoverableText: words,
+    // error-report-exempt: the Gateway's not-delivered verdict, held and decided by the Gateway (as NotDeliveredIndicator says)
     error: notSentMessage(rec.droppedReason, words.length > 0),
   });
 }
@@ -1186,6 +1190,7 @@ function publishDelivering(rec: PendingDictation): void {
     phase: "held",
     retryable: true,
     delivering: true,
+    // error-report-exempt: the Gateway's own 202 answer that it is still delivering the words - its verdict, not a failure here
     error: STILL_DELIVERING_MESSAGE,
   });
 }
@@ -1206,6 +1211,7 @@ function publishUnheard(rec: PendingDictation): void {
     uploadId: rec.id,
     phase: "unheard",
     retryable: false,
+    // error-report-exempt: the Gateway's verdict that the recording held no speech - not a failure, nothing to retry
     error: UNHEARD_MESSAGE,
   });
 }

@@ -12,7 +12,7 @@
 //   setter    A call of an error-state setter with a value: setError(...), setLoadError(...), any set...Error,
 //             set...Failure, set...Problem or set...Refusal. Also any setter whose state is rendered inside a
 //             role="alert" element in the same file (`const [note, setNote] = useState` and `{note}` in an
-//             alert make setNote a display setter). And a store's error field set through emit, set..., update...
+//             alert make setNote a display setter). And a store's error field set through emit, set..., update..., publish...
 //             or patch...: `emit({ phase: "idle", error: msg })`. Clearing calls - null, undefined, false, "" - are
 //             not sites.
 //   catch     Inside a catch block or a .catch(...) handler, a call of any setter whose value uses the caught
@@ -149,7 +149,14 @@ export function reportingFunctions(sources: string[]): Set<string> {
     grew = false;
     for (const f of functions) {
       if (found.has(f.name)) continue;
-      if (f.returned.some((r) => callsAny(r, found))) {
+      // `return describeAndReport(...)`, or `const shown = reportShownError(...); ...; return shown;`.
+      const reports = (r: string) => {
+        if (callsAny(r, found)) return true;
+        const name = /^\s*([A-Za-z_$][\w$]*)\s*$/.exec(r)?.[1];
+        const made = name && new RegExp(`(?:const|let)\\s+${escape(name)}\\s*(?::[^=]+)?=\\s*([^;]*)`).exec(f.body);
+        return Boolean(made) && callsAny(made![1], found);
+      };
+      if (f.returned.some(reports)) {
         found.add(f.name);
         grew = true;
       }
@@ -296,8 +303,9 @@ export function scanSource(
   }
 
   // A store's error field: `emit({ phase: "idle", error: msg })`, `setState({ ...s, error: mapError(err) })`. A call
-  // already counted whole by a rule above is not counted again. A store's own method counts too: `this.update({ ... })`.
-  for (const m of src.matchAll(/(?<![\w$])(emit|set[A-Z][\w$]*|update[A-Z]?[\w$]*|patch[A-Z]?[\w$]*)\s*\(\s*\{/g)) {
+  // already counted whole by a rule above is not counted again. A store's own method counts too: `this.update({ ... })`,
+  // and so does a publish to a shared status store: `publishDictationStatus({ phase: "failed", error })`.
+  for (const m of src.matchAll(/(?<![\w$])(emit|set[A-Z][\w$]*|update[A-Z]?[\w$]*|patch[A-Z]?[\w$]*|publish[A-Z][\w$]*)\s*\(\s*\{/g)) {
     if (sites.has(m.index!)) continue;
     const open = m.index! + m[0].length - 1;
     const close = matchingClose(src, open);
