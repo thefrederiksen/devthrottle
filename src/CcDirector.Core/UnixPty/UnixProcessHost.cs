@@ -363,21 +363,10 @@ public sealed class UnixProcessHost : IDisposable
     /// </summary>
     internal static string?[] BuildEnvironment(Dictionary<string, string>? overrides)
     {
-        var env = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (System.Collections.DictionaryEntry kv in Environment.GetEnvironmentVariables())
-        {
-            var key = (string)kv.Key;
-            if (key.Equals("CLAUDECODE", StringComparison.OrdinalIgnoreCase))
-                continue;
-            if (key.StartsWith("CLAUDE_CODE_", StringComparison.OrdinalIgnoreCase))
-                continue;
-            if (key.StartsWith("CODEX_", StringComparison.OrdinalIgnoreCase)
-                && !key.Equals("CODEX_HOME", StringComparison.OrdinalIgnoreCase))
-                continue;
-            if (key.Equals("GIT_EDITOR", StringComparison.OrdinalIgnoreCase))
-                continue;
-            env[key] = kv.Value?.ToString() ?? string.Empty;
-        }
+        // The Director's environment less what Sessions.InheritedSessionEnvironment strips: the parent
+        // agent's markers and the parent SESSION's variables (its factory's notes folder), which would
+        // otherwise be inherited by a session they do not describe.
+        var env = Sessions.InheritedSessionEnvironment.Inherited(StringComparer.Ordinal);
 
         env["TERM"] = "xterm-256color";
 

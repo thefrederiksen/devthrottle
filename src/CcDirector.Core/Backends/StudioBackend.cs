@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text;
 using CcDirector.Core.Claude;
 using CcDirector.Core.Memory;
+using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
 
 namespace CcDirector.Core.Backends;
@@ -146,6 +147,12 @@ public sealed class StudioBackend : ISessionBackend
                 StandardOutputEncoding = Encoding.UTF8,
                 StandardErrorEncoding = Encoding.UTF8,
             };
+
+            // ProcessStartInfo inherits the Director's whole environment; take out what no session may
+            // inherit (the parent agent's markers, the parent session's factory folder) before this
+            // session's own variables go on top. One rule for every backend: InheritedSessionEnvironment.
+            foreach (var inherited in psi.Environment.Keys.Where(InheritedSessionEnvironment.IsStripped).ToList())
+                psi.Environment.Remove(inherited);
 
             if (_environmentVars != null)
             {
