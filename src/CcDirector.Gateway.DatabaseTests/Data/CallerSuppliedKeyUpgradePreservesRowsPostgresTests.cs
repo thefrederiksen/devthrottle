@@ -21,10 +21,8 @@ namespace CcDirector.Gateway.Tests.Data;
 /// less to lose" is a reason to expect it to pass, not evidence that it does, and reasoning from the generated
 /// DDL is exactly what this test exists to replace.
 ///
-/// GATING. Like <see cref="PostgresProviderProofTests"/>, the whole class is gated on the
-/// <c>CC_GATEWAY_TEST_PG_CONNECTION</c> environment variable and reports SKIPPED when it is unset, so the
-/// ordinary SQLite test run is untouched. Skipped is not passed: with no server configured this test makes no
-/// claim at all rather than a false one. Point the variable at a throwaway Postgres to run it.
+/// GATING. [RequiresPostgresFact], the one rule for this project: it runs under scripts\test-database.ps1,
+/// against the throwaway PostgreSQL that run built, and reports SKIPPED anywhere else. Skipped is not passed.
 ///
 /// The test must start from a database with NO gateway schema, because it migrates forward from a specific
 /// earlier migration. It therefore drops first, and <see cref="GuardThrowawayDatabase"/> refuses to drop
@@ -40,19 +38,6 @@ public sealed class CallerSuppliedKeyUpgradePreservesRowsPostgresTests
 
     /// <summary>The change under test.</summary>
     private const string MigrationUnderTest = "CallerSuppliedKeysScopedByTenant";
-
-    /// <summary>A Fact that skips itself when <see cref="ConnectionEnvVar"/> is unset, so the default test run
-    /// (SQLite, no Postgres server) is unaffected. Setting Skip in the attribute reports the test as SKIPPED
-    /// rather than passed, so an unconfigured machine never mistakes absence for proof.</summary>
-    private sealed class RequiresPostgresFactAttribute : FactAttribute
-    {
-        public RequiresPostgresFactAttribute()
-        {
-            if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(ConnectionEnvVar)))
-                Skip = $"Set {ConnectionEnvVar} to a Postgres connection string to run the real-Postgres " +
-                       "pre-change-row upgrade proof.";
-        }
-    }
 
     // Per RUN, not per operator: PostgresProofDatabase appends a unique suffix to the supplied
     // database name so two concurrent runs cannot EnsureDeleted() each other's schema (issue #1156).

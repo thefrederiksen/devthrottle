@@ -14,8 +14,8 @@ namespace CcDirector.Gateway.Tests.Data;
 /// exist, deleting a request removes its trail (the foreign key cascades), and the migration's Down removes both
 /// tables again - the reversal the pull request names.
 ///
-/// GATING. Like the other PostgreSQL proofs, gated on <c>CC_GATEWAY_TEST_PG_CONNECTION</c>, which the parked run
-/// sets to a throwaway database it builds and destroys. It reports SKIPPED when unset. Skipped is not passed.
+/// GATING. [RequiresPostgresFact], the one rule for this project: it runs under scripts\test-database.ps1,
+/// against the throwaway PostgreSQL that run built, and reports SKIPPED anywhere else. Skipped is not passed.
 /// </summary>
 public sealed class AddTeamRequestsPostgresTests
 {
@@ -29,15 +29,6 @@ public sealed class AddTeamRequestsPostgresTests
     private const string StepOne = "33333333-3333-4333-8333-333333333333";
     private const string StepTwo = "44444444-4444-4444-8444-444444444444";
     private const string NoSuchRequest = "55555555-5555-4555-8555-555555555555";
-
-    private sealed class RequiresPostgresFactAttribute : FactAttribute
-    {
-        public RequiresPostgresFactAttribute()
-        {
-            if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(ConnectionEnvVar)))
-                Skip = $"Set {ConnectionEnvVar} to a Postgres connection string to run the real-Postgres team requests proof.";
-        }
-    }
 
     private static string Connection => PostgresProofDatabase.Connection;
 

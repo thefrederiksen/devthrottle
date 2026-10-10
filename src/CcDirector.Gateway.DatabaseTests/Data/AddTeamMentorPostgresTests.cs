@@ -14,23 +14,14 @@ namespace CcDirector.Gateway.Tests.Data;
 /// person column to session history without touching an existing row, and its Down removes all three tables and the
 /// column again - the reversal the pull request names.
 ///
-/// GATING. Like the other PostgreSQL proofs, gated on <c>CC_GATEWAY_TEST_PG_CONNECTION</c>, which the parked run sets to
-/// a throwaway database it builds and destroys. It reports SKIPPED when unset. Skipped is not passed.
+/// GATING. [RequiresPostgresFact], the one rule for this project: it runs under scripts\test-database.ps1,
+/// against the throwaway PostgreSQL that run built, and reports SKIPPED anywhere else. Skipped is not passed.
 /// </summary>
 public sealed class AddTeamMentorPostgresTests
 {
     private const string ConnectionEnvVar = "CC_GATEWAY_TEST_PG_CONNECTION";
     private const string MigrationBefore = "20261003233544_AddTeamInvitations";
     private const string MigrationUnderTest = "20261004214416_AddTeamMentor";
-
-    private sealed class RequiresPostgresFactAttribute : FactAttribute
-    {
-        public RequiresPostgresFactAttribute()
-        {
-            if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(ConnectionEnvVar)))
-                Skip = $"Set {ConnectionEnvVar} to a Postgres connection string to run the real-Postgres Mentor proof.";
-        }
-    }
 
     private static string Connection => PostgresProofDatabase.Connection;
 

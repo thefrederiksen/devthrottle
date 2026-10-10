@@ -61,18 +61,6 @@ public sealed class TheRejectedChainUpgradesToTipTests
     /// <summary>The round-three predicate, verbatim. It accepts U+00A0, which is the defect.</summary>
     private const string RejectedPredicate = "\"tenant\" ~ '[^[:space:]]'";
 
-    private static bool RigIsAbsent => string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(ConnectionEnvVar));
-
-    private sealed class RequiresPostgresStatsFactAttribute : FactAttribute
-    {
-        public RequiresPostgresStatsFactAttribute()
-        {
-            if (RigIsAbsent)
-                Skip = $"Set {ConnectionEnvVar} (scripts\\pg-stats-proof-rig.ps1 -Verb up) to prove the " +
-                       "rejected chain upgrades to tip.";
-        }
-    }
-
     private static string Connection =>
         Environment.GetEnvironmentVariable(ConnectionEnvVar)
         ?? throw new InvalidOperationException($"{ConnectionEnvVar} is not set.");
@@ -104,7 +92,7 @@ public sealed class TheRejectedChainUpgradesToTipTests
         cmd.ExecuteNonQuery();
     }
 
-    [RequiresPostgresStatsFact]
+    [RequiresPostgresFact]
     public void A_database_at_the_rejected_round_three_state_upgrades_to_tip_and_gains_the_allowlist()
     {
         var database = new NpgsqlConnectionStringBuilder(Connection).Database ?? "";

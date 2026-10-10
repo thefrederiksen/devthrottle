@@ -17,10 +17,8 @@ namespace CcDirector.Gateway.Tests.Data;
 /// real provider, driven the SAME way the runtime hosted Gateway is (<c>CC_GATEWAY_DB_CONNECTION</c> selects
 /// Postgres inside <see cref="GatewayDatabase"/>).
 ///
-/// GATING. The whole class is gated on <c>CC_GATEWAY_TEST_PG_CONNECTION</c> and reports SKIPPED when it is
-/// unset, so the ordinary SQLite test run is untouched. Skipped is not passed: with no server configured it
-/// makes no claim rather than a false one. Point the variable at a throwaway Postgres whose database name starts
-/// with <c>ccpg</c> to run it.
+/// GATING. [RequiresPostgresFact], the one rule for this project: it runs under scripts\test-database.ps1,
+/// against the throwaway PostgreSQL that run built, and reports SKIPPED anywhere else. Skipped is not passed.
 /// </summary>
 public sealed class DeviceCredentialImportPostgresTests
 {
@@ -29,16 +27,6 @@ public sealed class DeviceCredentialImportPostgresTests
     /// <summary>The env var <see cref="GatewayDatabase"/> reads to select Postgres over SQLite at runtime -
     /// the same switch the hosted Gateway uses, set here so the importer proof exercises the real wiring.</summary>
     private const string RuntimeConnectionEnvVar = "CC_GATEWAY_DB_CONNECTION";
-
-    private sealed class RequiresPostgresFactAttribute : FactAttribute
-    {
-        public RequiresPostgresFactAttribute()
-        {
-            if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(ConnectionEnvVar)))
-                Skip = $"Set {ConnectionEnvVar} to a Postgres connection string to run the real-Postgres " +
-                       "device-credential migration and import proof.";
-        }
-    }
 
     // Per RUN, not per operator: PostgresProofDatabase appends a unique suffix to the supplied
     // database name so two concurrent runs cannot EnsureDeleted() each other's schema (issue #1156).

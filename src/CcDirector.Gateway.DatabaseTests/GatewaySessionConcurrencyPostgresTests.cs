@@ -18,11 +18,8 @@ namespace CcDirector.Gateway.Tests;
 /// (which SQLite spells <c>MAX</c>), the <c>gateway_stats</c> schema qualification in every statement, how a
 /// UTC timestamp parameter is typed for a <c>timestamptz</c> column, and how the database orders text.
 ///
-/// GATING. The whole class is gated on <c>CC_GATEWAY_TEST_PG_STATS_CONNECTION</c> and reports SKIPPED when
-/// it is unset, so the ordinary test run and CI are unaffected and nothing here touches a database. Stand
-/// the server up with the per-caller rig, which hands out that variable:
-///
-///     powershell -NoProfile -File scripts\pg-stats-proof-rig.ps1 -Instance &lt;yours&gt; -Port &lt;yours&gt; -Verb up
+/// GATING. [RequiresPostgresFact], the one rule for this project: it runs under scripts\test-database.ps1,
+/// against the throwaway PostgreSQL that run built, and reports SKIPPED anywhere else. Skipped is not passed.
 ///
 /// The rig's login role holds exactly the hosted role's measured grants and no more, so a green here is a
 /// green under the privileges the hosted Gateway will actually have - not under a superuser that would let
@@ -31,18 +28,6 @@ namespace CcDirector.Gateway.Tests;
 public sealed class GatewaySessionConcurrencyPostgresTests : IDisposable
 {
     private const string ConnectionEnvVar = "CC_GATEWAY_TEST_PG_STATS_CONNECTION";
-
-    /// <summary>A Fact that skips itself when <see cref="ConnectionEnvVar"/> is unset, so the default test
-    /// run (SQLite, no Postgres server) is unaffected. Setting Skip in the attribute reports the test as
-    /// skipped rather than passed - a silent pass would be a green that proves nothing.</summary>
-    private sealed class RequiresPostgresStatsFactAttribute : FactAttribute
-    {
-        public RequiresPostgresStatsFactAttribute()
-        {
-            if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(ConnectionEnvVar)))
-                Skip = $"Set {ConnectionEnvVar} (scripts\\pg-stats-proof-rig.ps1 -Verb up) to run the concurrency store against real PostgreSQL.";
-        }
-    }
 
     private static string Connection =>
         Environment.GetEnvironmentVariable(ConnectionEnvVar)
@@ -91,7 +76,7 @@ public sealed class GatewaySessionConcurrencyPostgresTests : IDisposable
         return factory;
     }
 
-    [RequiresPostgresStatsFact]
+    [RequiresPostgresFact]
     public void TheThreeTables_LandInTheStatisticsSchema_NotInPublic()
     {
         var factory = FreshStore();
@@ -118,7 +103,7 @@ public sealed class GatewaySessionConcurrencyPostgresTests : IDisposable
         }
     }
 
-    [RequiresPostgresStatsFact]
+    [RequiresPostgresFact]
     public void Upsert_KeepsTheHigherMaximum_WhenTwoContainersRaceTheSameHourAndPeak()
     {
         var factory = FreshStore();
@@ -128,7 +113,7 @@ public sealed class GatewaySessionConcurrencyPostgresTests : IDisposable
             TenantId.Local);
     }
 
-    [RequiresPostgresStatsFact]
+    [RequiresPostgresFact]
     public void ReadModifyWrite_LosesTheHigherMaximum_WhichIsWhyTheStoreDoesNotUseIt()
     {
         var factory = FreshStore();
@@ -141,7 +126,7 @@ public sealed class GatewaySessionConcurrencyPostgresTests : IDisposable
         Assert.Contains("Actual:   7", failure.Message, StringComparison.Ordinal);
     }
 
-    [RequiresPostgresStatsFact]
+    [RequiresPostgresFact]
     public void ManyContainersHammeringOneHour_AllEndAtTheTrueMaximum()
     {
         // Genuine concurrency against a server that really does run these transactions at the same time,
@@ -181,21 +166,21 @@ public sealed class GatewaySessionConcurrencyPostgresTests : IDisposable
         Assert.Equal(trueMax, hour.MaxLive);
     }
 
-    [RequiresPostgresStatsFact]
+    [RequiresPostgresFact]
     public void RenderedSnapshot_IsIdentical_AcrossTheWholeFixture_AndAfterBothStoresRestart()
     {
         var factory = FreshStore();
         ConcurrencyStoreScenarios.AssertOutputParityAcrossTheFixture(() => factory, _jsonPath);
     }
 
-    [RequiresPostgresStatsFact]
+    [RequiresPostgresFact]
     public void RenderedSnapshot_IsIdentical_OnTheRetentionBoundary()
     {
         var factory = FreshStore();
         ConcurrencyStoreScenarios.AssertOutputParityOnTheRetentionBoundary(() => factory, _jsonPath, TenantId.Local);
     }
 
-    [RequiresPostgresStatsFact]
+    [RequiresPostgresFact]
     public void AnHourObservedAgainAfterALaterOne_MatchesTheFileStore()
     {
         var factory = FreshStore();
@@ -203,7 +188,7 @@ public sealed class GatewaySessionConcurrencyPostgresTests : IDisposable
             () => factory, _jsonPath, TenantId.Local);
     }
 
-    [RequiresPostgresStatsFact]
+    [RequiresPostgresFact]
     public void TheParityComparison_NoticesWhenTheTwoStoresDiverge()
     {
         var factory = FreshStore();

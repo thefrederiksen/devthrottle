@@ -1,0 +1,61 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- THE GATEWAY TESTS THAT NEED A REAL POSTGRESQL, AND NOTHING ELSE.
+       Every test here but the two rig checks carries [RequiresPostgresFact] or [RequiresPostgresTheory] (RequiresPostgresAttributes.cs)
+       and runs against the throwaway PostgreSQL that scripts\test-database.ps1 builds for the run and destroys
+       after it. That script is the ONLY thing that runs this project against a database. scripts\test-local.ps1
+       does not run it at all, so the everyday gate and the release gate start no database and need no Docker.
+
+       WHY A PROJECT OF ITS OWN. These tests used to live in CcDirector.Gateway.Tests and
+       CcDirector.Gateway.UnitTests, which made both assemblies need Docker under -Parked, and made the two
+       processes share one rig at the same time - one dropping the statistics schema while the other read it.
+       One project, one process, one test at a time (TestParallelization.cs), one database per run.
+
+       A plain `dotnet test` of the solution, and continuous integration, build no database: every test here then
+       reports SKIPPED with a reason naming scripts\test-database.ps1. That skip cannot be mistaken for a pass
+       inside a gate, because no gate counts this project except the script that always provides the database
+       and fails a run that skipped anything. -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- The moved tests keep the CcDirector.Gateway.Tests namespace, so a moved file needs no edit beyond the
+         move itself and still reads as part of the Gateway suite. -->
+    <RootNamespace>CcDirector.Gateway.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" />
+    <PackageReference Include="xunit" Version="2.*" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CcDirector.Core\CcDirector.Core.csproj" />
+    <ProjectReference Include="..\CcDirector.Gateway.Contracts\CcDirector.Gateway.Contracts.csproj" />
+    <ProjectReference Include="..\CcDirector.Gateway\CcDirector.Gateway.csproj" />
+    <!-- The Postgres migration assembly. EF resolves it BY NAME at runtime, so it must be in the output
+         directory; nothing calls into it, and it is load-bearing - do not remove it as unused. -->
+    <ProjectReference Include="..\CcDirector.Gateway.Migrations.Postgres\CcDirector.Gateway.Migrations.Postgres.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- SHARED SOURCE, NOT COPIES. The two module initializers that keep a test run off the owner's live data
+         (the storage root and the Director instance directory), and the helpers the moved tests use. Linked
+         so the assemblies can never drift into disagreeing about them. -->
+    <Compile Include="..\CcDirector.Gateway.Tests\TestStorageRootRedirect.cs" Link="TestStorageRootRedirect.cs" />
+    <Compile Include="..\CcDirector.Gateway.Tests\TestEnvironment.cs" Link="TestEnvironment.cs" />
+    <Compile Include="..\CcDirector.Gateway.Tests\ConcurrencyStoreScenarios.cs" Link="ConcurrencyStoreScenarios.cs" />
+    <Compile Include="..\CcDirector.Gateway.Tests\Data\GatewayDbEnvironmentGate.cs" Link="Data/GatewayDbEnvironmentGate.cs" />
+    <Compile Include="..\CcDirector.Gateway.Tests\Data\GatewayDbTestHarness.cs" Link="Data/GatewayDbTestHarness.cs" />
+  </ItemGroup>
+
+</Project>

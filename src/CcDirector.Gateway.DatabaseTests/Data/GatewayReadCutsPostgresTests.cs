@@ -14,20 +14,11 @@ namespace CcDirector.Gateway.Tests.Data;
 /// same on Postgres: the verdict snapshot's column projection and the conversation's tail read. (The history
 /// sweep's narrow read was the third; it went with the AI work-history summaries in October 2026.)
 ///
-/// GATING. Like the other proofs in this folder, the class is gated on <c>CC_GATEWAY_TEST_PG_CONNECTION</c> and
-/// reports SKIPPED when it is unset. Skipped is not passed.
+/// GATING. [RequiresPostgresFact], the one rule for this project: it runs under scripts\test-database.ps1,
+/// against the throwaway PostgreSQL that run built, and reports SKIPPED anywhere else. Skipped is not passed.
 /// </summary>
 public sealed class GatewayReadCutsPostgresTests
 {
-    private sealed class RequiresPostgresFactAttribute : FactAttribute
-    {
-        public RequiresPostgresFactAttribute()
-        {
-            if (!PostgresProofDatabase.IsConfigured)
-                Skip = $"Set {PostgresProofDatabase.ConnectionEnvVar} to a Postgres connection string to run the " +
-                       "real-Postgres proof of the narrowed Gateway reads.";
-        }
-    }
 
     /// <summary>Open the Gateway database on this run's own Postgres database, through the runtime constructor. The
     /// provider is chosen by a process-global variable, so it is set and put back while no other test is opening a

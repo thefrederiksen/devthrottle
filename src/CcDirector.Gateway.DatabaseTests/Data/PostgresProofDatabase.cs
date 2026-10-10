@@ -57,6 +57,21 @@ internal static class PostgresProofDatabase
     internal static string DatabaseName =>
         new NpgsqlConnectionStringBuilder(Connection).Database ?? "";
 
+    /// <summary>
+    /// A second database of this run's own, for a test that must not share the one the proof classes drop and
+    /// rebuild. The name is this run's database plus <paramref name="purpose"/>, so it carries the throwaway
+    /// prefix and is still nobody else's. The caller creates and drops it.
+    /// </summary>
+    internal static string ConnectionFor(string purpose)
+    {
+        if (string.IsNullOrWhiteSpace(purpose) || !purpose.All(c => c is >= 'a' and <= 'z'))
+            throw new ArgumentException("A purpose is lower-case letters only, so the name needs no quoting.", nameof(purpose));
+
+        var builder = new NpgsqlConnectionStringBuilder(Connection);
+        builder.Database = $"{builder.Database}_{purpose}";
+        return builder.ConnectionString;
+    }
+
     private static string? BuildConnection()
     {
         var supplied = Environment.GetEnvironmentVariable(ConnectionEnvVar);

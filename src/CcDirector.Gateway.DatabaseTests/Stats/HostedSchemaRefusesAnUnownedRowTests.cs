@@ -31,52 +31,14 @@ namespace CcDirector.Gateway.Tests.Stats;
 /// Unattributed is unattributed either way, so the database refuses both rather than making one of them
 /// merely harder.
 ///
-/// Gated on <c>CC_GATEWAY_TEST_PG_STATS_CONNECTION</c> - the restricted-role rig connection - because the
-/// constraint being proved is a PostgreSQL one and SQLite deliberately still has the default.
+/// It reads <c>CC_GATEWAY_TEST_PG_STATS_CONNECTION</c> - the restricted-role rig connection - because the
+/// constraint being proved is a PostgreSQL one and SQLite deliberately still has the default, and it is gated
+/// by [RequiresPostgresFact] and [RequiresPostgresTheory], decided at discovery: the constructor resets the
+/// schema, so a check inside a method would come too late.
 /// </summary>
 public sealed class HostedSchemaRefusesAnUnownedRowTests
 {
     private const string ConnectionEnvVar = "CC_GATEWAY_TEST_PG_STATS_CONNECTION";
-
-    private const string SkipReason =
-        "Set " + ConnectionEnvVar + " (scripts\\pg-stats-proof-rig.ps1 -Verb up) to prove the hosted schema " +
-        "refuses an unowned row.";
-
-    private static bool RigIsAbsent => string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(ConnectionEnvVar));
-
-    private sealed class RequiresPostgresStatsFactAttribute : FactAttribute
-    {
-        public RequiresPostgresStatsFactAttribute()
-        {
-            if (RigIsAbsent) Skip = SkipReason;
-        }
-    }
-
-    /// <summary>
-    /// THE THEORY EQUIVALENT, AND IT HAS TO EXIST RATHER THAN BE A RUNTIME CHECK INSIDE THE METHOD.
-    ///
-    /// The positive controls started life as a plain <c>[Theory]</c> with an early return at the top of the
-    /// method when the rig was absent. That does not work, and the way it fails is worth understanding
-    /// because it is not obvious from reading the method: xUnit does not construct a test class for a fact
-    /// it has already decided to SKIP, but a fact with no Skip is constructed before its body runs - and
-    /// this class's CONSTRUCTOR calls <c>Reset()</c>, which needs the connection. So the constructor threw
-    /// before the method could decline, and the three cases FAILED instead of skipping.
-    ///
-    /// That is not a private problem. It turns every ordinary Gateway run on this machine - every session,
-    /// not just this mission's - red by three tests, and it contradicts the contract the mission's own
-    /// baseline document records: the hosted database facts are OPTIONAL locally, and W1's stronger gate
-    /// separately requires them with the rig up.
-    ///
-    /// The gate therefore has to sit where the fixture cannot get in front of it: at DISCOVERY, in the
-    /// attribute, exactly like the Fact version above.
-    /// </summary>
-    private sealed class RequiresPostgresStatsTheoryAttribute : TheoryAttribute
-    {
-        public RequiresPostgresStatsTheoryAttribute()
-        {
-            if (RigIsAbsent) Skip = SkipReason;
-        }
-    }
 
     private static string Connection =>
         Environment.GetEnvironmentVariable(ConnectionEnvVar)
@@ -127,7 +89,7 @@ public sealed class HostedSchemaRefusesAnUnownedRowTests
 
     /// <summary>A row with every required column EXCEPT the tenant. Before this change the missing default
     /// filed it under Local; now there is no default and the column is NOT NULL, so the insert fails.</summary>
-    [RequiresPostgresStatsFact]
+    [RequiresPostgresFact]
     public void An_insert_that_omits_the_tenant_is_refused()
     {
         using var connection = Open();
@@ -147,7 +109,7 @@ public sealed class HostedSchemaRefusesAnUnownedRowTests
 
     /// <summary>The hole dropping the default does NOT close: the tenant is present and empty, which is
     /// what a forgotten assignment through the CLR model actually sends.</summary>
-    [RequiresPostgresStatsFact]
+    [RequiresPostgresFact]
     public void An_insert_whose_tenant_is_empty_is_refused()
     {
         using var connection = Open();
@@ -178,7 +140,7 @@ public sealed class HostedSchemaRefusesAnUnownedRowTests
     /// survived. This one exists because the fix is not "add btrim" - it is "assert the case that got
     /// through".
     /// </summary>
-    [RequiresPostgresStatsFact]
+    [RequiresPostgresFact]
     public void An_insert_whose_tenant_is_only_whitespace_is_refused()
     {
         using var connection = Open();
@@ -215,7 +177,7 @@ public sealed class HostedSchemaRefusesAnUnownedRowTests
     /// without anyone remembering to come back. The allowlist predicate refuses all of them as a side
     /// effect of not allowing them, which is why an allowlist is the right shape and a denylist never was.
     /// </summary>
-    [RequiresPostgresStatsFact]
+    [RequiresPostgresFact]
     public void Every_character_dotnet_calls_whitespace_is_refused_as_a_tenant()
     {
         var whitespace = Enumerable.Range(0, char.MaxValue + 1)
@@ -261,7 +223,7 @@ public sealed class HostedSchemaRefusesAnUnownedRowTests
     /// <summary>The same walk, for a whitespace character embedded in an otherwise plausible tenant - a
     /// value that CONTAINS a legal character would satisfy any predicate asking merely whether one exists,
     /// which is what the anchored allowlist is for.</summary>
-    [RequiresPostgresStatsFact]
+    [RequiresPostgresFact]
     public void A_tenant_with_whitespace_inside_an_otherwise_legal_value_is_refused()
     {
         using var connection = Open();
@@ -289,7 +251,7 @@ public sealed class HostedSchemaRefusesAnUnownedRowTests
     /// account, which is <c>Guid.NewGuid().ToString()</c> from TenantRegistry. An allowlist is only safe
     /// if it admits everything legitimate, so refusing one of these would be a far worse defect than the
     /// one being fixed - and this is the fact that would say so.</param>
-    [RequiresPostgresStatsTheory]
+    [RequiresPostgresTheory]
     [InlineData("local")]
     [InlineData("system")]
     [InlineData("9f2c1b7e-4d3a-4c5e-8b6f-0a1d2e3f4a5b")]

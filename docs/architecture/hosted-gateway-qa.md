@@ -236,6 +236,13 @@ log - the Gateway's Postgres path logs only a redacted host+database target.
 
 ### The proof (a real integration run)
 
+**Deleted 10 October 2026, kept here as the record of the run below.** `GatewayDatabaseLivePostgresProofTests`
+was skipped in all 59 recorded test runs after this one, because nothing in any gate sets
+`CC_GATEWAY_DB_CONNECTION`. Each of its four checks is made on the throwaway PostgreSQL by
+`PostgresProviderProofTests`, and the startup path through `GatewayDatabase` is proved there by
+`GatewayHostBootPostgresTests`. Both live in `src/CcDirector.Gateway.DatabaseTests`, run by
+`scripts/test-database.ps1`.
+
 `GatewayDatabaseLivePostgresProofTests` (new) drives the REAL runtime path: each fact constructs a
 `GatewayDatabase` (the same class the running Gateway uses), whose constructor reads
 `CC_GATEWAY_DB_CONNECTION`, selects Npgsql, and runs `Database.Migrate()` - applying the Postgres migration
@@ -357,12 +364,16 @@ Boot smoke test (`GatewayHostBootSmokeTests`):
   migration set by the assembly name the host wires (`GetMigrations()`, which does not connect) and asserts
   it contains `20260718120027_InitialPostgres`. This is the CI-safe half - it proves the separately-assembled
   set is resolvable by name, connecting to nothing.
-- `HostStartupPath_ResolvesAndAppliesPostgresMigrations_OnConfiguredPostgres` (env-gated by
-  CC_GATEWAY_DB_CONNECTION, skips when unset so CI touches nothing): constructs the real GatewayDatabase (the
-  hosted startup path), which runs Migrate(), and asserts `GetAppliedMigrations()` contains
-  `20260718120027_InitialPostgres`. Run against real Supabase: 2 passed (both facts), password never logged.
+- The database half was `HostStartupPath_ResolvesAndAppliesPostgresMigrations_OnConfiguredPostgres`, gated on
+  CC_GATEWAY_DB_CONNECTION, which nothing set: it was skipped in all 52 recorded runs. In October 2026 it was
+  deleted and replaced by `GatewayHostBootPostgresTests.HostStartupPath_AppliesEveryPostgresMigration_OnTheRig`
+  in `src/CcDirector.Gateway.DatabaseTests`, which `scripts/test-database.ps1` runs against the throwaway
+  PostgreSQL it builds. It constructs the real GatewayDatabase (the hosted startup path), which runs Migrate(),
+  and asserts the applied migrations are every migration in the set, not just the first one.
 
-Regression: the Gateway Data-namespace suite with no env var
+Regression at the time (October 2026 note: the Gateway Data-namespace database facts have since moved to
+`src/CcDirector.Gateway.DatabaseTests`, so this command now runs only the local path): the Gateway
+Data-namespace suite with no env var
 (`dotnet test src/CcDirector.Gateway.Tests/CcDirector.Gateway.Tests.csproj --filter FullyQualifiedName~CcDirector.Gateway.Tests.Data`)
 - 9 passed, 10 skipped. Every database/Supabase fact is among the 10 skips, so nothing connects to a server,
 and the SQLite/local path stays green and unchanged.

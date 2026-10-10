@@ -18,8 +18,8 @@ namespace CcDirector.Gateway.Tests.Data;
 /// real <see cref="FactoryRegistryStore"/> then lists, archives and restores through <see cref="GatewayDatabase"/> on
 /// PostgreSQL - the exact queries that failed in production - and its Down removes the columns again.
 ///
-/// GATING. Like the other PostgreSQL proofs, gated on <c>CC_GATEWAY_TEST_PG_CONNECTION</c>, which the parked run sets to
-/// a throwaway database it builds and destroys. It reports SKIPPED when unset. Skipped is not passed.
+/// GATING. [RequiresPostgresFact], the one rule for this project: it runs under scripts\test-database.ps1,
+/// against the throwaway PostgreSQL that run built, and reports SKIPPED anywhere else. Skipped is not passed.
 ///
 /// It sets the runtime selector <c>CC_GATEWAY_DB_CONNECTION</c> to drive GatewayDatabase down its real PostgreSQL path,
 /// so it joins the collection that never runs alongside another reader of that variable.
@@ -31,15 +31,6 @@ public sealed class ArchiveFactoriesPostgresTests
     private const string RuntimeConnectionEnvVar = "CC_GATEWAY_DB_CONNECTION";
     private const string MigrationBefore = "20261006171258_AddTeamQuestionAnswers";
     private const string MigrationUnderTest = "20261007052952_ArchiveFactories";
-
-    private sealed class RequiresPostgresFactAttribute : FactAttribute
-    {
-        public RequiresPostgresFactAttribute()
-        {
-            if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(ConnectionEnvVar)))
-                Skip = $"Set {ConnectionEnvVar} to a Postgres connection string to run the real-Postgres archive factories proof.";
-        }
-    }
 
     private static string Connection => PostgresProofDatabase.Connection;
 

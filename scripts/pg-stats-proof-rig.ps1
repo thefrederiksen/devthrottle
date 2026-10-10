@@ -93,13 +93,13 @@ param(
     [string] $RestrictedPassword = 'proof',
 
     # An EXTRA docker label to stamp on the container, so an automated caller can find and clean up the
-    # rigs it created without having to remember their instance names. scripts	est-local.ps1 passes its
+    # rigs it created without having to remember their instance names. scripts\test-database.ps1 passes its
     # own label and sweeps on it after a killed run (issue #2834). Empty for a hand-driven rig, which is
     # owned by the person who started it and is never swept.
     [ValidatePattern('^[a-z0-9][a-z0-9-]{0,39}$|^$')]
     [string] $Label = '',
 
-    # A second label in key=value form, so an automated caller can record WHO owns the rig. test-local.ps1
+    # A second label in key=value form, so an automated caller can record WHO owns the rig. test-database.ps1
     # stamps its own process id here; a later run removes a rig whose owning process is gone, which is a
     # positive test of disposability rather than a guess from the container's age.
     [ValidatePattern('^[a-z0-9][a-z0-9-]{0,39}=[A-Za-z0-9_.-]{1,64}$|^$')]
