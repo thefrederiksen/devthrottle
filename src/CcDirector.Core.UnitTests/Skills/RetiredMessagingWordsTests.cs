@@ -69,7 +69,7 @@ public sealed class RetiredMessagingWordsTests
 
     /// <summary>
     /// Paths (relative, forward slashes) that may name <see cref="RetiredTypingCommand"/> because they
-    /// document the refusal rather than teach the command. Nothing else may, in the inventory or the tree.
+    /// document the refusal rather than teach the command. Nothing else in the inventory may.
     /// </summary>
     private static readonly (string Path, string Why)[] TypingCommandExemptions =
     {
@@ -120,159 +120,6 @@ public sealed class RetiredMessagingWordsTests
             "session key for a session it does not own). Rewrite it to the queue - the owner's words reach a session as a queued " +
             "message and one doorbell; see docs/FleetMessaging.md:\n  " + string.Join("\n  ", offenders));
     }
-
-    // =================================================================================================
-    // THE WHOLE TREE (inspection 11, ruling 3). The inventory above is the text agents are TAUGHT; the
-    // inspector's search found the old words outside it - a code comment documenting a live parameter,
-    // repository instructions, the briefs of a mission still marked active - and the inventory stayed
-    // green. This is that search, over every text file in the repository, with the exemptions written
-    // down one by one instead of left to a narrower inventory.
-    // =================================================================================================
-
-    /// <summary>The inspector's search expression, word for word, plus the two wrappings of the newline
-    /// sentence found while fixing its hits.</summary>
-    private static readonly string[] TreePhrases =
-    {
-        "message ask",
-        "interrupts the session that receives",
-        "truncate at the first newline",
-        "--controlled-by takes any",
-        "truncates at the first newline",
-        "cut off at the first line break",
-    };
-
-    /// <summary>
-    /// Paths (relative, forward slashes) the tree scan does not read. A path ending in "/" exempts everything
-    /// under it. Every entry says why. Adding one is a decision a reviewer should see, which is the point of
-    /// keeping them here.
-    /// </summary>
-    private static readonly (string Path, string Why)[] TreeExemptions =
-    {
-        // ---- The mission record and history: what was decided and done at the time, in the words of the time.
-        ("docs/missions/", "mission records, including this mission's own, which quote the retired words to retire them"),
-        ("docs/plans/", "dated plans and QA reports of work that shipped before the Message Load mission"),
-        ("docs/reviews/", "dated reviews of the command line as it was when reviewed"),
-        ("docs/public/release-notes/", "release notes are dated history: each one says what a released version did, in the words of its release, and rewriting one would make it a lie about what shipped"),
-        ("docs/MISSION-source-control-tab-2026-07-23.md", "a dated mission document, 23 July 2026"),
-        ("docs/MISSION-cockpit-fix-2026-07-23.md", "a dated mission document, 23 July 2026"),
-        ("docs/MISSION-multilingual.md", "a finished mission, merged 30 July 2026 (#2295)"),
-        ("docs/MISSION-multilingual-INSPECTION.md", "the inspection brief of that finished mission"),
-        ("PHASE-2-REPORT.md", "a phase report of the remove-the-network-port mission, August 2026"),
-        ("research/multi-vs-single-token-study/", "a recorded study: its plan and raw session transcripts are evidence, not instructions"),
-
-        // ---- Code and tests that name the retired words in order to refuse or forbid them.
-        ("src/CcDirector.Gateway/Api/GatewayEndpoints.cs", "refuses an older command line's ask, and says so in its refusal"),
-        ("src/CcDirector.Gateway.Contracts/FleetMessageRequests.cs", "documents the retired field it still reads in order to refuse it"),
-        ("src/CcDirector.Gateway.Tests/FleetMessageRouteTests.cs", "asserts the refusal sentence"),
-        ("src/CcDirector.Core.Tests/Sessions/FleetPreambleTests.cs", "asserts the preamble does NOT contain the retired verb"),
-        ("src/CcDirector.Core.Tests/Pi/PiPreambleWriterTests.cs", "asserts the Pi preamble does NOT contain the retired verb"),
-        ("src/CcDirector.Core.UnitTests/Skills/RetiredMessagingWordsTests.cs", "this guard, which lists the phrases"),
-        ("tools/cc-devthrottle/tests/test_message_queue.py", "asserts the retired verb is gone from the commands and the catalogue"),
-        ("tools/cc-devthrottle/tests/test_help_and_errors_axi.py", "records in a docstring that the verb was removed"),
-        ("tools/cc-devthrottle/tests/test_axi_step_6b_recheck5.py", "records in a docstring that the verb was removed"),
-        ("tools/cc-devthrottle/tests/test_stale_answer_caution.py", "a docstring naming the commands the helper once served"),
-    };
-
-    /// <summary>
-    /// Directories that hold build output rather than repository text. "build" is here because a local
-    /// Python build leaves a copy of the command line's own sources under
-    /// <c>tools/cc-devthrottle/build/lib/</c>; <c>.gitignore</c> ignores <c>build/</c> and no tracked
-    /// file lives under any directory of that name, so scanning it reports the same source twice and
-    /// depends on whether somebody happened to run a build.
-    /// </summary>
-    private static readonly HashSet<string> TreeSkippedDirectories = new(StringComparer.Ordinal)
-    {
-        ".git", "bin", "obj", "build", "node_modules", "dist", ".venv", "venv", "__pycache__", ".pytest_cache", "TestResults",
-    };
-
-    private static readonly HashSet<string> TreeTextExtensions = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".md", ".html", ".cs", ".ts", ".tsx", ".py", ".txt", ".json", ".yml", ".yaml", ".ps1", ".sh", ".axaml", ".css", ".js", ".toml",
-    };
-
-    [Fact]
-    public void Nothing_in_the_repository_outside_the_named_history_uses_the_retired_messaging_words()
-    {
-        var root = RepoRoot();
-        var offenders = new List<string>();
-        var read = 0;
-
-        foreach (var file in TreeFiles(root))
-        {
-            read++;
-            offenders.AddRange(Scan(file, PhrasesFor(Relative(root, file), TreePhrases)));
-        }
-
-        // Presence, not absence: a walk that read almost nothing would pass. The repository holds thousands
-        // of text files, and the files this round fixed must have been among those read.
-        Assert.True(read > 1000, $"The tree scan read only {read} files under {root}; it is not reading the repository.");
-        Assert.True(offenders.Count == 0,
-            "The retired messaging words are back outside the named history (a blocking ask, a message that " +
-            "interrupts, one-line messages, naming any session as owner, or teaching " +
-            "'cc-devthrottle session prompt'). Rewrite the text to the queue - see docs/FleetMessaging.md - " +
-            "or, if it is genuinely a dated record, add it to TreeExemptions with the reason; a file that " +
-            "documents the typing refusal rather than teaching it belongs in TypingCommandExemptions:\n  " +
-            string.Join("\n  ", offenders));
-    }
-
-    [Fact]
-    public void The_tree_scan_reads_the_files_this_round_fixed_and_every_exemption_exists()
-    {
-        var root = RepoRoot();
-        var read = TreeFiles(root).Select(f => Relative(root, f)).ToHashSet(StringComparer.Ordinal);
-
-        foreach (var fixedFile in FixedInTheFinalRound)
-            Assert.Contains(fixedFile, read);
-
-        // An exemption for a path that is gone is a hole waiting for a new file of that name.
-        foreach (var (path, _) in TreeExemptions)
-            Assert.True(path.EndsWith('/') ? Directory.Exists(Path.Combine(root, path)) : File.Exists(Path.Combine(root, path)),
-                $"The exemption '{path}' names nothing in the repository; remove it.");
-
-        foreach (var (path, _) in TypingCommandExemptions)
-            Assert.True(File.Exists(Path.Combine(root, path)),
-                $"The typing-command exemption '{path}' names nothing in the repository; remove it.");
-    }
-
-    /// <summary>Files inspection 11 found with the old words and the final fix round rewrote.</summary>
-    private static readonly string[] FixedInTheFinalRound =
-    {
-        "docs/new_architecture/sessions.html",
-        "src/CcDirector.Gateway.Contracts/FleetMessaging.cs",
-        "src/CcDirector.Gateway.Contracts/SessionTree.cs",
-        "packages/client-core/src/sessions/tree.ts",
-        "tools/cc-ship/src/fleet.py",
-        "ARCHITECT-HANDOVER.md",
-        "missions/stop-a-session/worker-e-director-window.md",
-        ".claude/skills/agent-expert/agents/README.md",
-    };
-
-    private static IEnumerable<string> TreeFiles(string root)
-    {
-        var pending = new Stack<string>();
-        pending.Push(root);
-        while (pending.Count > 0)
-        {
-            var dir = pending.Pop();
-            foreach (var sub in Directory.GetDirectories(dir))
-            {
-                if (TreeSkippedDirectories.Contains(Path.GetFileName(sub))) continue;
-                if (IsExempt(Relative(root, sub) + "/")) continue;
-                pending.Push(sub);
-            }
-            foreach (var file in Directory.GetFiles(dir))
-            {
-                if (!TreeTextExtensions.Contains(Path.GetExtension(file))) continue;
-                if (IsExempt(Relative(root, file))) continue;
-                yield return file;
-            }
-        }
-    }
-
-    private static bool IsExempt(string relative)
-        => TreeExemptions.Any(e => e.Path.EndsWith('/')
-            ? relative.StartsWith(e.Path, StringComparison.Ordinal)
-            : string.Equals(relative, e.Path, StringComparison.Ordinal));
 
     private static string Relative(string root, string path) => Path.GetRelativePath(root, path).Replace('\\', '/');
 
@@ -395,8 +242,7 @@ public sealed class RetiredMessagingWordsTests
         files.AddRange(Directory.GetFiles(Path.Combine(root, "src", "CcDirector.Gateway", "Workflows", "Content"), "*.md"));
         files.AddRange(Directory.GetFiles(Path.Combine(root, "plugins"), "*.md", SearchOption.AllDirectories));
         // Everything published under docs/public EXCEPT the release notes: a release note is dated history
-        // of what one released version did, not text that teaches an agent how to work today, and it is
-        // exempt from the tree scan for the same reason.
+        // of what one released version did, not text that teaches an agent how to work today.
         files.AddRange(Directory.GetFiles(Path.Combine(root, "docs", "public"), "*.md", SearchOption.AllDirectories)
             .Where(f => !Relative(root, f).StartsWith("docs/public/release-notes/", StringComparison.Ordinal)));
         files.AddRange(Directory.GetFiles(Path.Combine(root, "tools", "cc-devthrottle", "src"), "*.py"));

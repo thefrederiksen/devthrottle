@@ -483,33 +483,6 @@ public sealed class RecordingIngestServiceTests : IDisposable
         Assert.Equal(1, status.ChunksTranscribed);
     }
 
-    // This test starts the REAL background worker (runWorker: true) - a timer-driven
-    // thread that drains the queue, transcribes, and persists status to disk - then
-    // polls for the "transcribed" state. The pass/fail depends on the background
-    // worker's tick plus filesystem write timing winning a race against the poll
-    // deadline; it has intermittently failed on continuous integration at
-    // RecordingIngestService.SaveStatus (observed on pull request #561 and on the
-    // post-merge main run, passing on a plain re-run). There is no external dependency
-    // to probe - it is an irreducible background-worker/IO timing race - so it is
-    // statically quarantined, matching the existing ConPty/NUL convention. The exact
-    // transcription + SaveStatus path is still covered deterministically by
-    // Complete_AssemblesCleansAndFiles and the other tests that drive
-    // ProcessRecordingAsync synchronously (no background worker); the queue-only
-    // enqueue behavior is covered by Complete_OnlyEnqueues_DoesNotTranscribeInline.
-    [Fact(Skip = "Flaky on CI: races the real background worker tick + status-file write against the poll deadline (fails at RecordingIngestService.SaveStatus; no external dependency to probe). The transcription/SaveStatus path is covered deterministically by the synchronous ProcessRecordingAsync tests in this file.")]
-    public async Task Worker_TranscribesQueuedRecording_EndToEnd()
-    {
-        // The real background worker (runWorker: true) must drain the queue with
-        // no further calls - this is the "upload and let go" path.
-        using var svc = NewService(new FakeTranscriber(), new FakeFiler(), runWorker: true);
-        await EnqueueOneChunk(svc, "rec1");
-
-        var transcribed = await WaitForStateAsync(svc, "rec1", "transcribed", TimeSpan.FromSeconds(10));
-
-        Assert.True(transcribed, "worker did not transcribe the queued recording in time");
-        Assert.NotNull(svc.LocalTranscriptPath("rec1"));
-    }
-
     [Fact]
     public async Task Promote_FilesTranscribedRecordingIntoVault()
     {
