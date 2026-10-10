@@ -20,6 +20,10 @@ public sealed class ToolReconcilerTests : IDisposable
     private readonly string _dir;
     private readonly InstallLayout _layout;
 
+    // This test's own heavy-repair lock. The production name is shared by every Director on the machine
+    // and every concurrent test run, and a held lock makes the reconciler skip the repair these tests count.
+    private readonly string _mutexName = @"Global\cc-director-tool-reconcile-test-" + Guid.NewGuid().ToString("N");
+
     public ToolReconcilerTests()
     {
         _dir = Path.Combine(Path.GetTempPath(), "cc-reconcile-" + Guid.NewGuid().ToString("N"));
@@ -125,7 +129,7 @@ public sealed class ToolReconcilerTests : IDisposable
         var before = Directory.GetFileSystemEntries(_layout.BinDir).OrderBy(p => p).ToArray();
         var heavy = new FakeHeavyRepair(success: true);
 
-        var result = await new ToolReconciler(_layout, heavy.InvokeAsync).ReconcileAsync();
+        var result = await new ToolReconciler(_layout, heavy.InvokeAsync, _mutexName).ReconcileAsync();
 
         Assert.Equal(ReconcileOutcome.InSync, result.Outcome);
         Assert.Empty(result.Actions);
@@ -145,7 +149,7 @@ public sealed class ToolReconcilerTests : IDisposable
         Assert.False(File.Exists(ShimPath("cc-pdf")));
         var heavy = new FakeHeavyRepair(success: true);
 
-        var result = await new ToolReconciler(_layout, heavy.InvokeAsync).ReconcileAsync();
+        var result = await new ToolReconciler(_layout, heavy.InvokeAsync, _mutexName).ReconcileAsync();
 
         Assert.Equal(ReconcileOutcome.Reconciled, result.Outcome);
         Assert.True(File.Exists(ShimPath("cc-pdf")), "the missing shim was not created");
@@ -170,7 +174,7 @@ public sealed class ToolReconcilerTests : IDisposable
         File.WriteAllText(legacy, PythonToolsInstaller.BuildWindowsShimBody("cc-send"));
         var heavy = new FakeHeavyRepair(success: true);
 
-        var result = await new ToolReconciler(_layout, heavy.InvokeAsync).ReconcileAsync();
+        var result = await new ToolReconciler(_layout, heavy.InvokeAsync, _mutexName).ReconcileAsync();
 
         Assert.Equal(ReconcileOutcome.Reconciled, result.Outcome);
         Assert.False(File.Exists(legacy), "the orphaned legacy alias shim was not purged");
@@ -186,7 +190,7 @@ public sealed class ToolReconcilerTests : IDisposable
         PlaceVenvScripts("cc-pdf");
         RecordExpectedScripts("cc-pdf");
         var heavy = new FakeHeavyRepair(success: true);
-        var reconciler = new ToolReconciler(_layout, heavy.InvokeAsync);
+        var reconciler = new ToolReconciler(_layout, heavy.InvokeAsync, _mutexName);
 
         var first = await reconciler.ReconcileAsync();
         Assert.Equal(ReconcileOutcome.Reconciled, first.Outcome); // first call fixed the missing shim
@@ -213,7 +217,7 @@ public sealed class ToolReconcilerTests : IDisposable
         File.WriteAllText(Path.Combine(_layout.BinDir, "cc-spawn.cmd"), "@echo off\r\n"); // retired alias
         var heavy = new FakeHeavyRepair(success: true);
 
-        var result = await new ToolReconciler(_layout, heavy.InvokeAsync).ReconcileAsync();
+        var result = await new ToolReconciler(_layout, heavy.InvokeAsync, _mutexName).ReconcileAsync();
 
         Assert.Equal(ReconcileOutcome.Reconciled, result.Outcome);
         Assert.Equal(0, heavy.Calls); // shim-only drift never escalates to the heavy rebuild
@@ -229,7 +233,7 @@ public sealed class ToolReconcilerTests : IDisposable
         PlaceVenvScripts("cc-pdf"); // cc-html missing -> venv unhealthy
         var heavy = new FakeHeavyRepair(success: true);
 
-        var result = await new ToolReconciler(_layout, heavy.InvokeAsync).ReconcileAsync();
+        var result = await new ToolReconciler(_layout, heavy.InvokeAsync, _mutexName).ReconcileAsync();
 
         Assert.Equal(ReconcileOutcome.Reconciled, result.Outcome);
         Assert.Equal(1, heavy.Calls); // the broken venv escalated to the heavy rebuild
@@ -243,7 +247,7 @@ public sealed class ToolReconcilerTests : IDisposable
         PlaceVenvScripts("cc-pdf"); // cc-html missing -> venv unhealthy
         var heavy = new FakeHeavyRepair(success: false);
 
-        var result = await new ToolReconciler(_layout, heavy.InvokeAsync).ReconcileAsync();
+        var result = await new ToolReconciler(_layout, heavy.InvokeAsync, _mutexName).ReconcileAsync();
 
         Assert.Equal(ReconcileOutcome.Failed, result.Outcome);
         Assert.Equal(1, heavy.Calls);
@@ -266,7 +270,7 @@ public sealed class ToolReconcilerTests : IDisposable
         using var release = new ManualResetEventSlim(false);
         var holderThread = new Thread(() =>
         {
-            using var holder = new Mutex(initiallyOwned: false, ToolReconciler.HeavyRepairMutexName, out _);
+            using var holder = new Mutex(initiallyOwned: false, _mutexName, out _);
             holder.WaitOne();
             acquired.Set();
             release.Wait();
@@ -276,7 +280,7 @@ public sealed class ToolReconcilerTests : IDisposable
         Assert.True(acquired.Wait(TimeSpan.FromSeconds(5)), "holder thread did not acquire the mutex");
         try
         {
-            var result = await new ToolReconciler(_layout, heavy.InvokeAsync).ReconcileAsync();
+            var result = await new ToolReconciler(_layout, heavy.InvokeAsync, _mutexName).ReconcileAsync();
 
             Assert.Equal(0, heavy.Calls); // did not force the rebuild while another holder owns the lock
             Assert.Contains(result.Actions, a => a.Contains("skipped", StringComparison.OrdinalIgnoreCase));
@@ -300,7 +304,7 @@ public sealed class ToolReconcilerTests : IDisposable
         // Nothing on disk at all: no PlaceVenvScripts, no RecordExpectedScripts, no RecordBundleInstalled.
         var heavy = new FakeHeavyRepair(success: true);
 
-        var result = await new ToolReconciler(_layout, heavy.InvokeAsync).ReconcileAsync();
+        var result = await new ToolReconciler(_layout, heavy.InvokeAsync, _mutexName).ReconcileAsync();
 
         Assert.Equal(1, heavy.Calls); // the empty state escalated to the from-nothing provision
         Assert.Equal(ReconcileOutcome.Reconciled, result.Outcome);
@@ -312,7 +316,7 @@ public sealed class ToolReconcilerTests : IDisposable
     {
         var heavy = new FakeHeavyRepair(success: false);
 
-        var result = await new ToolReconciler(_layout, heavy.InvokeAsync).ReconcileAsync();
+        var result = await new ToolReconciler(_layout, heavy.InvokeAsync, _mutexName).ReconcileAsync();
 
         Assert.Equal(1, heavy.Calls);
         Assert.Equal(ReconcileOutcome.Failed, result.Outcome);
@@ -330,7 +334,7 @@ public sealed class ToolReconcilerTests : IDisposable
         new PythonToolsInstaller(_layout).WriteShims(new[] { "cc-pdf" });
         var heavy = new FakeHeavyRepair(success: true);
 
-        var result = await new ToolReconciler(_layout, heavy.InvokeAsync).ReconcileAsync();
+        var result = await new ToolReconciler(_layout, heavy.InvokeAsync, _mutexName).ReconcileAsync();
 
         Assert.Equal(0, heavy.Calls); // already provisioned -> no from-nothing rebuild
         Assert.Equal(ReconcileOutcome.InSync, result.Outcome);
@@ -346,7 +350,7 @@ public sealed class ToolReconcilerTests : IDisposable
         using var release = new ManualResetEventSlim(false);
         var holderThread = new Thread(() =>
         {
-            using var holder = new Mutex(initiallyOwned: false, ToolReconciler.HeavyRepairMutexName, out _);
+            using var holder = new Mutex(initiallyOwned: false, _mutexName, out _);
             holder.WaitOne();
             acquired.Set();
             release.Wait();
@@ -356,7 +360,7 @@ public sealed class ToolReconcilerTests : IDisposable
         Assert.True(acquired.Wait(TimeSpan.FromSeconds(5)), "holder thread did not acquire the mutex");
         try
         {
-            var result = await new ToolReconciler(_layout, heavy.InvokeAsync).ReconcileAsync();
+            var result = await new ToolReconciler(_layout, heavy.InvokeAsync, _mutexName).ReconcileAsync();
 
             Assert.Equal(0, heavy.Calls); // did not force a provision while another first-launch Director holds the lock
             Assert.Contains(result.Actions, a => a.Contains("skipped", StringComparison.OrdinalIgnoreCase));
@@ -378,7 +382,7 @@ public sealed class ToolReconcilerTests : IDisposable
         PlaceVenvInterpreter(); // interpreter present, but no manifest and no sidecar (pip failed on first run)
         var heavy = new FakeHeavyRepair(success: true);
 
-        var result = await new ToolReconciler(_layout, heavy.InvokeAsync).ReconcileAsync();
+        var result = await new ToolReconciler(_layout, heavy.InvokeAsync, _mutexName).ReconcileAsync();
 
         Assert.Equal(1, heavy.Calls); // the partial interpreter did NOT suppress the retry
         Assert.Equal(ReconcileOutcome.Reconciled, result.Outcome);
@@ -394,17 +398,17 @@ public sealed class ToolReconcilerTests : IDisposable
         PlaceVenvInterpreter();
 
         var stillFailing = new FakeHeavyRepair(success: false);
-        var firstRetry = await new ToolReconciler(_layout, stillFailing.InvokeAsync).ReconcileAsync();
+        var firstRetry = await new ToolReconciler(_layout, stillFailing.InvokeAsync, _mutexName).ReconcileAsync();
         Assert.Equal(1, stillFailing.Calls);                 // retried despite the leftover interpreter
         Assert.Equal(ReconcileOutcome.Failed, firstRetry.Outcome);
 
         var recovering = new RecordingHeavyRepair(_layout, success: true);
-        var recovered = await new ToolReconciler(_layout, recovering.InvokeAsync).ReconcileAsync();
+        var recovered = await new ToolReconciler(_layout, recovering.InvokeAsync, _mutexName).ReconcileAsync();
         Assert.Equal(1, recovering.Calls);                   // retried AGAIN and this time succeeded
         Assert.Equal(ReconcileOutcome.Reconciled, recovered.Outcome);
 
         var afterRecovery = new RecordingHeavyRepair(_layout, success: true);
-        var steady = await new ToolReconciler(_layout, afterRecovery.InvokeAsync).ReconcileAsync();
+        var steady = await new ToolReconciler(_layout, afterRecovery.InvokeAsync, _mutexName).ReconcileAsync();
         Assert.Equal(0, afterRecovery.Calls);                // records now present -> no more re-provision
         Assert.Equal(ReconcileOutcome.InSync, steady.Outcome);
     }
@@ -528,7 +532,7 @@ public sealed class ToolReconcilerTests : IDisposable
         // Nothing on disk at all - the clean-install state, which escalates to the from-nothing provision.
         var heavy = new ForeignThreadHeavyRepair(_layout);
 
-        var result = await ReconcileOffContextAsync(new ToolReconciler(_layout, heavy.InvokeAsync));
+        var result = await ReconcileOffContextAsync(new ToolReconciler(_layout, heavy.InvokeAsync, _mutexName));
 
         Assert.Equal(1, heavy.Calls);
         Assert.NotEqual(heavy.EnteredOnThreadId, heavy.CompletedOnThreadId); // the hop really happened
@@ -545,7 +549,7 @@ public sealed class ToolReconcilerTests : IDisposable
         RecordExpectedScripts("cc-pdf");
         var heavy = new ForeignThreadHeavyRepair(_layout);
 
-        var result = await ReconcileOffContextAsync(new ToolReconciler(_layout, heavy.InvokeAsync));
+        var result = await ReconcileOffContextAsync(new ToolReconciler(_layout, heavy.InvokeAsync, _mutexName));
 
         Assert.Equal(1, heavy.Calls);
         Assert.NotEqual(heavy.EnteredOnThreadId, heavy.CompletedOnThreadId);
@@ -559,9 +563,9 @@ public sealed class ToolReconcilerTests : IDisposable
         // The release must actually happen, not merely not-throw: a mutex left held (or abandoned by a
         // failed release) would block or corrupt the next Director's reconcile.
         var heavy = new ForeignThreadHeavyRepair(_layout);
-        await ReconcileOffContextAsync(new ToolReconciler(_layout, heavy.InvokeAsync));
+        await ReconcileOffContextAsync(new ToolReconciler(_layout, heavy.InvokeAsync, _mutexName));
 
-        using var mutex = new Mutex(initiallyOwned: false, ToolReconciler.HeavyRepairMutexName, out _);
+        using var mutex = new Mutex(initiallyOwned: false, _mutexName, out _);
         var acquired = false;
         try
         {

@@ -3,6 +3,12 @@ using System.Text;
 
 namespace CcDirector.Setup.Engine;
 
+/// <summary>
+/// The shape of <see cref="ProcessRunner.Run(string, string, Action{string}?, TimeSpan)"/>, so a class that runs
+/// external programs can be handed a different runner by a test instead of starting real processes.
+/// </summary>
+internal delegate (int exit, string output) RunProcess(string exe, string arguments, Action<string>? onStdoutLine, TimeSpan timeout);
+
 /// <summary>Runs a short external command (sc.exe/reg.exe) and captures its exit code + output.</summary>
 internal static class ProcessRunner
 {

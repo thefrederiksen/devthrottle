@@ -70,10 +70,9 @@ public sealed class PythonToolsHealAndShimTests : IDisposable
     }
 
     /// <summary>
-    /// Stage a local release whose assets are real, SHA-matching zips that extract successfully, but whose
-    /// "python.exe" is a stub that cannot create a venv - so InstallAsync gets PAST download/extract and
-    /// fails at the venv-create step (the exact point after the venv dir + shims have been reset). This is
-    /// what exercises the no-stale-shim sequencing on a real rebuild failure (not a pre-venv download fail).
+    /// Stage a local release whose assets are real, SHA-matching zips that extract successfully. Its
+    /// "python.exe" is only a placeholder file: what running it answers is decided by the runner the test
+    /// hands the installer (<see cref="StdlibProbePassesVenvFails"/>), never by starting a real program.
     /// The tools bundle carries a minimal tools-manifest.json + wheelhouse so the manifest parse succeeds.
     /// </summary>
     private ResolvedRelease StageVenvFailRelease(string version, params string[] scripts)
@@ -82,13 +81,11 @@ public sealed class PythonToolsHealAndShimTests : IDisposable
         Directory.CreateDirectory(releaseDir);
         var work = Path.Combine(_dir, "work-" + Guid.NewGuid().ToString("N"));
 
-        // Python asset: a "python.exe" that is a REAL, runnable PE (a copy of cmd.exe) but is NOT a Python
-        // interpreter - so "python.exe -m venv ..." starts fine and exits non-zero, making InstallAsync fail
-        // at the venv-create step with a clean Fail result (not a Process.Start exception).
+        // Python asset: a placeholder "python.exe". The installer checks the file is there and then runs it
+        // through the injected runner, so its contents never matter.
         var pyStage = Path.Combine(work, "py");
         Directory.CreateDirectory(pyStage);
-        var realCmd = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe");
-        File.Copy(realCmd, Path.Combine(pyStage, "python.exe"));
+        File.WriteAllText(Path.Combine(pyStage, "python.exe"), "placeholder interpreter");
         var pyZip = Path.Combine(releaseDir, PythonToolsInstaller.PythonAsset);
         System.IO.Compression.ZipFile.CreateFromDirectory(pyStage, pyZip);
 
@@ -198,13 +195,33 @@ public sealed class PythonToolsHealAndShimTests : IDisposable
         File.WriteAllText(staleShim, "@echo off\r\n");
 
         var release = StageVenvFailRelease("9.9.9", "cc-pdf");
-        var result = await new PythonToolsInstaller(_layout).InstallAsync(release, new ReleaseSource());
+        var runs = new List<string>();
+        var installer = new PythonToolsInstaller(_layout, StdlibProbePassesVenvFails(runs));
+        var result = await installer.InstallAsync(release, new ReleaseSource());
 
-        Assert.False(result.Success); // venv create failed
+        Assert.False(result.Success);
+        // It failed AT the venv create, which is the step after the shims are removed - not earlier, where a
+        // surviving shim would say nothing about the sequencing this test exists to check.
+        Assert.Contains("venv creation failed", result.Message);
+        Assert.Contains(runs, r => r.StartsWith("-m venv", StringComparison.Ordinal));
         Assert.False(File.Exists(staleShim), "managed shim survived a failed venv rebuild (would point at a missing target)");
         // And the version was not recorded for a failed rebuild either.
         Assert.Null(InstalledManifest.Load(_layout).Get(PythonToolsInstaller.ComponentId));
     }
+
+    /// <summary>
+    /// A runner whose answers are fixed: the standard-library probe passes and the venv create fails. Every
+    /// argument string it is asked to run is recorded in <paramref name="runs"/>; anything else it is asked
+    /// to run fails the test, because an unexpected program would mean the install took a path this test
+    /// does not describe.
+    /// </summary>
+    private static RunProcess StdlibProbePassesVenvFails(List<string> runs) => (exe, arguments, _, _) =>
+    {
+        runs.Add(arguments);
+        if (arguments == PythonRuntimeProbe.ProbeArguments) return (0, "");
+        if (arguments.StartsWith("-m venv", StringComparison.Ordinal)) return (1, "venv create refused by the test runner");
+        throw new InvalidOperationException($"unexpected run of {exe} {arguments}");
+    };
 
     // --- Orphaned legacy alias shim purge (issue #823) --------------------------------------------
 

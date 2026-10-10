@@ -84,9 +84,22 @@ public sealed class PythonToolsInstaller
     public static readonly TimeSpan PipInstallTimeout = TimeSpan.FromMinutes(15);
 
     private readonly InstallLayout _layout;
+    private readonly RunProcess _run;
 
     public PythonToolsInstaller(InstallLayout layout)
-        => _layout = layout ?? throw new ArgumentNullException(nameof(layout));
+        : this(layout, ProcessRunner.Run)
+    {
+    }
+
+    /// <summary>
+    /// Run the interpreter, the venv create and pip through <paramref name="run"/> instead of starting real
+    /// processes, so a test can fix what each step answers.
+    /// </summary>
+    internal PythonToolsInstaller(InstallLayout layout, RunProcess run)
+    {
+        _layout = layout ?? throw new ArgumentNullException(nameof(layout));
+        _run = run ?? throw new ArgumentNullException(nameof(run));
+    }
 
     public async Task<PythonToolsResult> InstallAsync(
         ResolvedRelease release, ReleaseSource source,
@@ -204,7 +217,7 @@ public sealed class PythonToolsInstaller
             var installedBundle = installedAtStart.Get(ComponentId);
             var runtimeHealthy = File.Exists(venvPython)
                 && VenvHasAllTools(manifest.Scripts)
-                && PythonRuntimeProbe.CanImportStdlib(pythonExe);
+                && PythonRuntimeProbe.CanImportStdlib(pythonExe, _run);
             if (installedBundle == manifest.BundleVersion && runtimeHealthy)
             {
                 Step($"Python tools bundle {manifest.BundleVersion} already installed and healthy; skipping rebuild");
@@ -234,7 +247,7 @@ public sealed class PythonToolsInstaller
                     : Path.Combine(staged, "bin", "python3");
                 if (!File.Exists(stagedPythonExe))
                     return Fail(steps, $"staged Python is missing its interpreter at {stagedPythonExe}; the existing Python was left untouched.");
-                if (!PythonRuntimeProbe.CanImportStdlib(stagedPythonExe))
+                if (!PythonRuntimeProbe.CanImportStdlib(stagedPythonExe, _run))
                     return Fail(steps, "staged Python is incomplete - it cannot import its standard library (a partial extract). The existing Python was left untouched.");
 
                 Step("swapping in the verified Python");
@@ -258,7 +271,7 @@ public sealed class PythonToolsInstaller
             Step("creating the shared Python venv");
             RemoveManagedShims(manifest.Scripts);
             ResetDir(_layout.PyenvDir);
-            var (venvExit, venvOut) = ProcessRunner.Run(pythonExe, $"-m venv \"{_layout.PyenvDir}\"", onStdoutLine: null, VenvCreateTimeout);
+            var (venvExit, venvOut) = _run(pythonExe, $"-m venv \"{_layout.PyenvDir}\"", null, VenvCreateTimeout);
             if (venvExit != 0) return Fail(steps, $"venv creation failed ({venvExit}): {Trim(venvOut)}");
             // Guard: even on a zero exit, the venv must actually have produced its python. A venv whose
             // interpreter is missing means the create silently did nothing - fail loud now rather than throw
@@ -333,7 +346,7 @@ public sealed class PythonToolsInstaller
                 }
             });
 
-            var (pipExit, pipOut) = ProcessRunner.Run(venvPython, pipArgs, OnPipLine, PipInstallTimeout);
+            var (pipExit, pipOut) = _run(venvPython, pipArgs, OnPipLine, PipInstallTimeout);
             pollCts.Cancel();
             try { await pollTask; } catch { /* poller cancellation */ }
 

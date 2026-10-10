@@ -532,8 +532,21 @@ public class LauncherUpdateOwnerTests : IDisposable
         var stopped = new List<int>();
         var owner = Owner([InstalledLauncher()], newBuildIsCommandable: true, stopped: stopped);
 
-        using var heldByAnotherSwap = new Mutex(initiallyOwned: false, _swapLockName, out _);
-        Assert.True(heldByAnotherSwap.WaitOne(TimeSpan.FromSeconds(5)), "could not take the lock to set the test up");
+        // A mutex is owned by the thread that took it, and after the await below this method may resume
+        // on a different thread - which could then not release it. So the holder is its own thread, which
+        // takes the lock, waits to be told, and releases it itself.
+        using var acquired = new ManualResetEventSlim(false);
+        using var release = new ManualResetEventSlim(false);
+        var holderThread = new Thread(() =>
+        {
+            using var heldByAnotherSwap = new Mutex(initiallyOwned: false, _swapLockName, out _);
+            heldByAnotherSwap.WaitOne();
+            acquired.Set();
+            release.Wait();
+            heldByAnotherSwap.ReleaseMutex();
+        });
+        holderThread.Start();
+        Assert.True(acquired.Wait(TimeSpan.FromSeconds(5)), "could not take the lock to set the test up");
         try
         {
             var result = await owner.RunOnceAsync();
@@ -543,7 +556,11 @@ public class LauncherUpdateOwnerTests : IDisposable
             Assert.Empty(stopped);
             Assert.Equal("launcher-OLD", File.ReadAllText(_target));
         }
-        finally { heldByAnotherSwap.ReleaseMutex(); }
+        finally
+        {
+            release.Set();
+            holderThread.Join();
+        }
     }
 
     [Fact]
