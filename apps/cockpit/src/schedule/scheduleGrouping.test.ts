@@ -54,8 +54,10 @@ describe("compareScheduleGroups", () => {
     expect(keys).toEqual([NO_FACTORY_GROUP, "clickfunnels", "devthrottle", "warmforward"]);
   });
 
-  it("says a schedule with a factory runs in one, and one without does not", () => {
-    expect(isFactorySchedule(job({ factory: "clickfunnels", seat: "builder" }))).toBe(true);
+  it("treats a schedule as a factory one only when the Gateway gave it a factory page", () => {
+    expect(isFactorySchedule(job({ factory: "clickfunnels", factoryHref: "/factories/clickfunnels/seats" }))).toBe(true);
+    // Its factory is not registered: no page to edit it on, so it stays an ordinary row.
+    expect(isFactorySchedule(job({ factory: "gone", factoryHref: null }))).toBe(false);
     expect(isFactorySchedule(job({ factory: null }))).toBe(false);
   });
 });

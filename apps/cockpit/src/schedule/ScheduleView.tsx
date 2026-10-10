@@ -863,7 +863,7 @@ export function ScheduleView() {
     <div className="sched">
       <PageHeader
         title="Schedule"
-        subtitle={`${ownActive} of your own scheduled job${ownActive === 1 ? "" : "s"}, plus ${factoryActive} in factories.`}
+        subtitle={`${ownActive} active job${ownActive === 1 ? "" : "s"} of your own, plus ${factoryActive} in factories.`}
         actions={
           <Button variant="primary" onClick={openCreate}>
             New cron job
@@ -951,10 +951,14 @@ export function ScheduleView() {
           grouping={grouping}
           toolbarExtra={
             <>
-              <label className="sched-factoryswitch">
+              <label
+                className="sched-factoryswitch"
+                title={hourFilter !== null ? "A picked hour shows every schedule in it, factory ones included." : undefined}
+              >
                 <input
                   type="checkbox"
                   checked={showFactory}
+                  disabled={hourFilter !== null}
                   onChange={(e) => setShowFactory(e.target.checked)}
                 />
                 Show factory schedules ({factoryInList})
@@ -1458,9 +1462,9 @@ function formKind(kind: string): FormState["scheduleKind"] {
   return k === "recurring" ? "recurring" : k === "random" ? "random" : k === "window" ? "window" : "oneOff";
 }
 
-// The factory page a factory schedule is changed on.
+// The factory page a factory schedule is changed on, as the Gateway stamped it.
 function factoryHref(job: CronJob): string {
-  return `/factories/${encodeURIComponent(job.factory ?? "")}`;
+  return job.factoryHref ?? "";
 }
 
 // The switch's remembered position. Browser storage can be missing or refuse, so a failure means "off", the default.

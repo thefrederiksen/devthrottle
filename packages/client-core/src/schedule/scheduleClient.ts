@@ -70,6 +70,11 @@ export interface CronJob {
   seat?: string | null;
   /** The factory's registered title, stamped by the Gateway on a list read; null in no factory or unregistered. */
   factoryTitle?: string | null;
+  /**
+   * Where this schedule is changed: its factory's Seats page. Stamped by the Gateway on a list read; null in no
+   * factory and when the factory is not registered (that one keeps its own Edit and Delete on the Schedule page).
+   */
+  factoryHref?: string | null;
   /** The name without its leading factory segment, for under the factory's header. Folded by the Gateway. */
   shortName?: string | null;
   /**
