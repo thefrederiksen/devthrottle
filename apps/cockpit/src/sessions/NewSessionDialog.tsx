@@ -5,7 +5,6 @@ import {
   getAgents,
   getDirectors,
   getKnownRepositories,
-  gatewayErrorMessage,
   type AgentChoice,
   type DirectorInfo,
   type KnownRepoInfo,
@@ -15,6 +14,9 @@ import {
 import { directorPort } from "@devthrottle/client-core/fleet/directorEndpoint";
 import { durationLabel, useNow } from "@devthrottle/client-core/sessions/waiting";
 import { useDismissOnBackdrop } from "../components";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-new-session";
 
 // The desktop Cockpit "New session" dialog (issue #1023, QA sweep epic #967). The React Cockpit had
 // no way to start a session; this is the dedicated picker dialog the roster rail's "+ New session"
@@ -408,7 +410,7 @@ export function NewSessionDialog({ onClose, onCreated, initialDirectorId }: NewS
       })
       .catch((err) => {
         if (controller.signal.aborted) return;
-        setDirectorsError(gatewayErrorMessage(err));
+        setDirectorsError(describeAndReport(SURFACE, "load the machines", err));
       });
     return () => controller.abort();
   }, [initialDirectorId]);
@@ -431,7 +433,7 @@ export function NewSessionDialog({ onClose, onCreated, initialDirectorId }: NewS
       .catch((err) => {
         if (controller.signal.aborted || reqId !== reposReqRef.current) return;
         setRepos([]);
-        setReposError(gatewayErrorMessage(err));
+        setReposError(describeAndReport(SURFACE, "load the repositories", err));
       });
     return () => controller.abort();
   }, [selectedId]);
@@ -462,7 +464,7 @@ export function NewSessionDialog({ onClose, onCreated, initialDirectorId }: NewS
       .catch((err) => {
         if (controller.signal.aborted || reqId !== agentsReqRef.current) return;
         setAgents([]);
-        setAgentsStatus(`Could not load agents: ${gatewayErrorMessage(err)}`);
+        setAgentsStatus(`Could not load agents: ${describeAndReport(SURFACE, "load the agents", err)}`);
       });
     return () => controller.abort();
   }, [selectedId]);
@@ -512,18 +514,18 @@ export function NewSessionDialog({ onClose, onCreated, initialDirectorId }: NewS
     async (repoPath: string) => {
       if (creating) return; // a create is already in flight (guards a double-click)
       if (!selectedId) {
-        setCreateError("Pick a machine first.");
+        setCreateError("Pick a machine first."); // error-report-exempt: input check, the user has not picked a machine
         return;
       }
       const path = repoPath.trim();
       if (!path) {
-        setCreateError("Select a repository above, or enter a path below.");
+        setCreateError("Select a repository above, or enter a path below."); // error-report-exempt: input check, no repository given
         return;
       }
       // The agent is required when the machine offers a list; fall back to Claude Code only when the
       // list could not be loaded, so the dialog still works if the agents read failed.
       if (agents !== null && agents.length > 0 && !selectedAgentType) {
-        setCreateError("Pick an agent below.");
+        setCreateError("Pick an agent below."); // error-report-exempt: input check, no agent picked
         return;
       }
       const agentType = selectedAgentType ?? "ClaudeCode";
@@ -545,7 +547,7 @@ export function NewSessionDialog({ onClose, onCreated, initialDirectorId }: NewS
       } catch (err) {
         // Surface the Gateway's message (a bad repo path or an unreachable Director) inline, never a
         // raw thrown error.
-        setCreateError(gatewayErrorMessage(err));
+        setCreateError(describeAndReport(SURFACE, "start the session", err));
         setCreating(false);
       }
     },
@@ -557,12 +559,12 @@ export function NewSessionDialog({ onClose, onCreated, initialDirectorId }: NewS
   const addRepository = useCallback(async () => {
     if (adding || creating) return;
     if (!selectedId) {
-      setCreateError("Pick a machine first.");
+      setCreateError("Pick a machine first."); // error-report-exempt: input check, the user has not picked a machine
       return;
     }
     const path = manualPath.trim();
     if (path.length === 0) {
-      setCreateError("Enter the path of a repository on this machine, then add it.");
+      setCreateError("Enter the path of a repository on this machine, then add it."); // error-report-exempt: input check, no path typed
       pathInputRef.current?.focus();
       return;
     }
@@ -583,7 +585,7 @@ export function NewSessionDialog({ onClose, onCreated, initialDirectorId }: NewS
       const wanted = repositoryPathKey(result.path.trim() || path);
       setAddNote(addOutcome(result, list.some((r) => repositoryPathKey(r.path) === wanted)));
     } catch (err) {
-      setCreateError(gatewayErrorMessage(err));
+      setCreateError(describeAndReport(SURFACE, "add the repository", err));
     } finally {
       setAdding(false);
     }

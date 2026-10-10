@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import {
   restartDirectorIfEmpty,
   startDirector,
@@ -9,6 +8,9 @@ import {
   type FleetTone,
 } from "@devthrottle/client-core/fleet/machinesClient";
 import { ConfirmDialog } from "../components";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-machine-actions";
 
 // The update, restart and start buttons for one machine (fleet maintenance, devthrottle_internal#2021). Which
 // buttons exist and what they say comes from the Gateway's fold; this component only asks for a confirm, sends
@@ -54,7 +56,7 @@ export function MachineActions({
         onOutcome({ text: "The launcher was asked to start the Director.", tone: "ok" });
       }
     } catch (err) {
-      onOutcome({ text: gatewayErrorMessage(err, `${kind} the Director on ${machine.machine}`), tone: "bad" });
+      onOutcome({ text: describeAndReport(SURFACE, `${kind} the Director on ${machine.machine}`, err), tone: "bad" });
     } finally {
       setBusy(null);
     }

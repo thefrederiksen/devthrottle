@@ -5,7 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 import type { FleetManagerPlacement } from "@devthrottle/client-core/settings/fleetManagerClient";
 import type { FleetManagerPage } from "@devthrottle/client-core/fleetmanager/pageClient";
 import type { FleetStanding } from "@devthrottle/client-core/fleetmanager/standingClient";
-import { emptyPage, FM_SESSION, morningPage, standing } from "./fixtures";
+import { emptyPage, FM_SESSION, morningPage, placement, standing, startFresh } from "./fixtures";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -72,62 +72,6 @@ vi.mock("../sessions/SessionComposer", () => ({
 }));
 
 import { FleetManagerView } from "./FleetManagerView";
-
-function action(label: string, offered: boolean, note: string | null = null) {
-  return { offered, label, note, busyLabel: `${label} busy (fake)` };
-}
-
-function startFresh(offered: boolean) {
-  return {
-    ...action("Start fresh (fake)", offered),
-    confirmTitle: offered ? "Start a fresh one? (fake)" : null,
-    confirmMessage: offered ? "A brand new one starts and the old one closes (fake)." : null,
-  };
-}
-
-function placement(state: "running" | "not-running" | "unreachable", thinking = false): FleetManagerPlacement {
-  const running = state === "running";
-  // What the Gateway decides for the page in each state (fake words, so a test proves they are rendered as sent).
-  const page = {
-    where: "Claude Code on WORKSTATION-A",
-    changeLabel: "(change)",
-    composerUsable: running,
-    composerPlaceholder: "Tell the Fleet Manager (fake)...",
-    composerOffText: running ? null : "not running (fake off text)",
-    composerHint: "Enter sends (fake hint).",
-    quickPromptsUsable: running,
-    quickPromptBusyLabel: "Sending (fake)...",
-    thinkingShown: running && thinking,
-    notRunningBarShown: !running,
-    settingsLabel: "Move it in Settings",
-    startFresh: startFresh(running),
-  };
-  return {
-    agent: "ClaudeCode",
-    agentLabel: "Claude Code",
-    machine: "WORKSTATION-A",
-    isDefault: false,
-    agentNote: "",
-    agents: [],
-    machineNote: "",
-    machines: [],
-    save: action("Save", true),
-    generatedAtUtc: "2026-09-16T14:40:00Z",
-    status: {
-      state,
-      sentence: running ? "Running now (fake)." : "The Fleet Manager is not running. Start it where the setting says (fake).",
-      line: running ? (thinking ? "thinking, watching 2 sessions (fake)" : "idle, watching 2 sessions (fake)") : "not running (fake)",
-      thinking,
-      tone: running ? "ok" : state === "unreachable" ? "bad" : "idle",
-      sessionId: FM_SESSION,
-      watching: running ? 2 : 0,
-      open: action("Open it", running),
-      start: action("Start it", state === "not-running", state === "not-running" ? "Up to 90 seconds (fake)." : null),
-      restart: action("Restart it", running),
-      page,
-    },
-  };
-}
 
 function renderPage() {
   return render(

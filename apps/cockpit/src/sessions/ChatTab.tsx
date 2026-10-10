@@ -4,6 +4,10 @@ import { chatLinkLabel } from "@devthrottle/client-core/history/chatView";
 import type { RenderedBubble } from "@devthrottle/client-core/history/chatView";
 import { DENSITY_LABELS, filterFlagsFor, setDensity, useDensity } from "@devthrottle/client-core/sessions/density";
 import { FileViewerModal } from "../components/FileViewerModal";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+import { ClipboardRefusedError } from "../components/clipboardFailure";
+
+const SURFACE = "cockpit-chat";
 
 // The Cockpit Chat tab (issue #1213): a thin view over the SAME shared client-core hook the mobile Chat
 // page uses (useSessionChat), so the two apps render the cleaned conversation history from one source.
@@ -131,9 +135,9 @@ export function ChatTab({ sessionId }: { sessionId: string | undefined }) {
       setCopied(text);
       window.setTimeout(() => setCopied((cur) => (cur === text ? null : cur)), 1500);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Copy failed");
+      setError(describeAndReport(SURFACE, "copy the link", new ClipboardRefusedError(err), { sessionId }));
     }
-  }, []);
+  }, [sessionId]);
 
   // Copy one whole turn. The screen has had copy buttons for the links inside a message since Local
   // Files phase 2 and none for the message itself, which is the thing people actually want to lift out
@@ -144,9 +148,9 @@ export function ChatTab({ sessionId }: { sessionId: string | undefined }) {
       setCopiedTurn(index);
       window.setTimeout(() => setCopiedTurn((cur) => (cur === index ? null : cur)), 1500);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Copy failed");
+      setError(describeAndReport(SURFACE, "copy the message", new ClipboardRefusedError(err), { sessionId }));
     }
-  }, []);
+  }, [sessionId]);
 
   return (
     <div className="chat-tab">

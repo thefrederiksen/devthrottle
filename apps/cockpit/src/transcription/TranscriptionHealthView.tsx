@@ -9,6 +9,9 @@ import {
   type TranscriptionStats,
   type TermFrequency,
 } from "@devthrottle/client-core/transcription/transcriptionAnalysisClient";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-transcription-health";
 
 // The Transcription Health page: shows how fast and how well voice dictation is working on THIS
 // machine, read from the minimized local transcription history the Gateway records for every turn (nothing
@@ -44,22 +47,22 @@ export function TranscriptionHealthView() {
   const [days, setDays] = useState<number | undefined>(7);
   const [stats, setStats] = useState<TranscriptionStats | null>(null);
   const [terms, setTerms] = useState<TermFrequency[]>([]);
-  const [loadError, setLoadError] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [clearing, setClearing] = useState(false);
 
   const load = useCallback(async (window: number | undefined, signal?: AbortSignal) => {
     try {
-      setLoadError(false);
+      setLoadError(null);
       const [s, t] = await Promise.all([
         getTranscriptionStats(window, signal),
         getTranscriptionTerms(10, window, signal),
       ]);
       setStats(s);
       setTerms(t);
-    } catch {
+    } catch (err) {
       if (signal?.aborted) return;
-      setLoadError(true);
+      setLoadError(describeAndReport(SURFACE, "load the transcription data", err));
     }
   }, []);
 
@@ -86,8 +89,8 @@ export function TranscriptionHealthView() {
     try {
       await clearTranscriptionHistory();
       await load(days);
-    } catch {
-      setLoadError(true);
+    } catch (err) {
+      setLoadError(describeAndReport(SURFACE, "clear the transcription history", err));
     } finally {
       setClearing(false);
     }
@@ -139,9 +142,9 @@ export function TranscriptionHealthView() {
         ))}
       </div>
 
-      {loadError ? (
+      {loadError !== null ? (
         <div className="txh-error">
-          Couldn&apos;t load transcription data from the Gateway.
+          {loadError}
           <button type="button" className="txh-retry" onClick={() => void load(days)}>
             Retry
           </button>

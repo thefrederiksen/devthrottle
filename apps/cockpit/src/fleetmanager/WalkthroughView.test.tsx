@@ -24,8 +24,11 @@ vi.mock("@devthrottle/client-core/fleetmanager/walkthroughClient", () => ({
   recordWalkthroughAnswer: vi.fn(),
   recordWalkthroughSnooze: vi.fn(),
 }));
+const reported = vi.hoisted(() => vi.fn((_s: string, _a: string, message: string) => message));
 vi.mock("@devthrottle/client-core/errors/reportClientError", () => ({
   reportClientError: vi.fn(),
+  reportShownError: reported,
+  backgroundRecovered: vi.fn(),
   describeAndReport: (_s: string, _a: string, err: unknown) => (err instanceof Error ? err.message : String(err)),
   errorFacts: () => ({}),
 }));
@@ -138,9 +141,8 @@ describe("WalkthroughView", () => {
   });
 
   it("shows a refused answer verbatim, records nothing and stays on the item", async () => {
-    const deps = renderView(makeDeps({
-      answer: vi.fn(async () => Promise.reject(new Error("The session's screen changed since the Wingman read it, so nothing was sent."))),
-    }));
+    const refusal = new Error("The session's screen changed since the Wingman read it, so nothing was sent.");
+    const deps = renderView(makeDeps({ answer: vi.fn(async () => Promise.reject(refusal)) }));
 
     fireEvent.click(await screen.findByTestId("fmw-option-0"));
 
@@ -149,16 +151,19 @@ describe("WalkthroughView", () => {
     );
     expect(deps.recordAnswer).not.toHaveBeenCalled();
     expect(screen.getByTestId("fmw-item-rec-2")).toBeTruthy();
+    expect(reported).toHaveBeenCalledWith("cockpit-fleet-manager-walkthrough", "answer the item", refusal.message, expect.anything(), refusal);
   });
 
   it("says so when the session took the answer but the record was not updated", async () => {
-    renderView(makeDeps({ recordAnswer: vi.fn(async () => Promise.reject(new Error("outcome rec-2 was already answered"))) }));
+    const failure = new Error("outcome rec-2 was already answered");
+    renderView(makeDeps({ recordAnswer: vi.fn(async () => Promise.reject(failure)) }));
 
     fireEvent.click(await screen.findByTestId("fmw-option-1"));
 
     expect((await screen.findByRole("alert")).textContent).toBe(
       "The session took your answer, but the Fleet Manager's record was not updated: outcome rec-2 was already answered",
     );
+    expect(reported).toHaveBeenCalledWith("cockpit-fleet-manager-walkthrough", "record the answer", failure.message, expect.anything(), failure);
   });
 
   it("closes only through the confirmation window, then moves on", async () => {

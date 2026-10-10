@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { gatewayErrorMessage, getRepos, type RepoInfo, type SessionDto } from "@devthrottle/client-core/api/client";
+import { getRepos, type RepoInfo, type SessionDto } from "@devthrottle/client-core/api/client";
 import { dotHex, inDesktopOrder, stateLabel } from "@devthrottle/client-core/sessions/ordering";
 import { dotTitle } from "@devthrottle/client-core/sessions/sessionColours";
 import { useSessionColourLegend } from "@devthrottle/client-core/sessions/ColourLegend";
@@ -21,6 +21,9 @@ import { ConfirmDialog } from "../components";
 import { clockLabel, portLabel, relativeTime, repoBasename, uptime } from "./format";
 import { directorPrimaryLabel } from "./directorsFormat";
 import { DirectorUpdateCard } from "./DirectorUpdateCard";
+import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-director-detail";
 
 // The standalone Director page (issue #975) - the React port of the Blazor DirectorDetail.razor:
 // registration facts, health, the Director's live sessions, and the repositories it offers for new
@@ -103,6 +106,7 @@ export function DirectorDetailView() {
       setDirector(d);
       setNotFound(d === null);
       setRegistryError(null);
+      backgroundRecovered(SURFACE, "read the Director list");
       setLastRefresh(new Date());
 
       const tick = tickRef.current;
@@ -110,14 +114,15 @@ export function DirectorDetailView() {
         try {
           setRepos(await getRepos(directorId, signal));
           setReposError(null);
+          backgroundRecovered(SURFACE, "read the Director's repositories");
         } catch (err) {
-          if (signal?.aborted !== true) setReposError(gatewayErrorMessage(err));
+          if (signal?.aborted !== true) setReposError(describeAndReport(SURFACE, "read the Director's repositories", err, { background: true }));
         }
       }
       tickRef.current = tick + 1;
     } catch (err) {
       if (signal?.aborted === true) return;
-      setRegistryError(gatewayErrorMessage(err));
+      setRegistryError(describeAndReport(SURFACE, "read the Director list", err, { background: true }));
     }
   }, [directorId]);
 
@@ -383,7 +388,7 @@ function DirectorSettings({ directorId, reachable }: { directorId: string; reach
       setLoaded(true);
       setStatus("Loaded");
     } catch (err) {
-      setError(gatewayErrorMessage(err));
+      setError(describeAndReport(SURFACE, "load the Director's settings", err));
     } finally {
       setBusy(false);
     }
@@ -397,7 +402,7 @@ function DirectorSettings({ directorId, reachable }: { directorId: string; reach
     try {
       normalized = JSON.stringify(JSON.parse(text));
     } catch {
-      setError("Settings are not valid JSON - fix the text before saving.");
+      setError("Settings are not valid JSON - fix the text before saving."); // error-report-exempt: the user's own edit is not valid JSON; nothing failed
       return;
     }
     setBusy(true);
@@ -407,7 +412,7 @@ function DirectorSettings({ directorId, reachable }: { directorId: string; reach
       setBaseline(text);
       setStatus("Saved - the Director re-applied it live.");
     } catch (err) {
-      setError(gatewayErrorMessage(err));
+      setError(describeAndReport(SURFACE, "save the Director's settings", err));
     } finally {
       setBusy(false);
     }

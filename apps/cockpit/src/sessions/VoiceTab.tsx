@@ -36,6 +36,7 @@ export function VoiceTab({ sessionId }: { sessionId: string | undefined }) {
 
       <div className="voice-body">
         {v.error !== null && (
+          // error-reported-by: useVoiceMode
           <div className="composer-error" role="alert">{v.error}</div>
         )}
 
@@ -44,6 +45,7 @@ export function VoiceTab({ sessionId }: { sessionId: string | undefined }) {
             the trailing Enter would have confirmed whichever option happened to be highlighted. The
             person answers it in the session itself; voice cannot pick an option yet. */}
         {v.menuBlocked !== null && (
+          // error-report-exempt: not an error - the Gateway's sentence that a menu owns this session's screen, so the reply was held, not lost
           <div className="voice-menu-blocked" role="alert">
             <span className="voice-state voice-state-yellow">Waiting on a menu</span>
             <p className="voice-narr-body">{v.menuBlocked}</p>

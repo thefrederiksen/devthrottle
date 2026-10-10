@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { gatewayErrorMessage, type SessionDto } from "@devthrottle/client-core/api/client";
+import { type SessionDto } from "@devthrottle/client-core/api/client";
 import {
   getFleetDirectors,
   type DirectorReachability,
@@ -16,6 +16,9 @@ import { directorPrimaryLabel, directorStatus, epochOf, repoNamesOf } from "./di
 import { getFleetMachines, type FleetMachines } from "@devthrottle/client-core/fleet/machinesClient";
 import { MachinesPanel, VersionPill } from "./MachinesPanel";
 import { versionStateByDirector } from "./machinesFormat";
+import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-directors";
 
 // The Director registry table (issue #975; rebuilt on the shared DataTable in #1246) - the React view
 // over GET /directors, enriched with live session counts and unreachable flags from the roster
@@ -55,9 +58,10 @@ export function DirectorsView() {
     try {
       setMachines(await getFleetMachines(signal));
       setMachinesError(null);
+      backgroundRecovered(SURFACE, "read the machine list");
     } catch (err) {
       if (signal?.aborted === true) return;
-      setMachinesError(gatewayErrorMessage(err));
+      setMachinesError(describeAndReport(SURFACE, "read the machine list", err, { background: true }));
     }
   }, []);
   useVisiblePolling(refreshMachines, POLL_MS);
@@ -68,10 +72,11 @@ export function DirectorsView() {
       const ds = await getFleetDirectors(signal);
       setDirectors(ds);
       setRegistryError(null);
+      backgroundRecovered(SURFACE, "read the Director list");
       setLastRefresh(new Date());
     } catch (err) {
       if (signal?.aborted === true) return;
-      setRegistryError(gatewayErrorMessage(err));
+      setRegistryError(describeAndReport(SURFACE, "read the Director list", err, { background: true }));
     }
   }, []);
 

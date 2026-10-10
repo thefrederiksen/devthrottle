@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import { useCurrentTeam } from "@devthrottle/client-core/teams/CurrentTeam";
 import { createTeam, type TeamSummary } from "@devthrottle/client-core/teams/teamsClient";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-account-teams";
 
 // THE TEAMS SECTION OF SETTINGS, ACCOUNT (once the Account page) (Teams v1, devthrottle_internal#2098): the one place a person creates a team.
 // It lists the teams the person is in, each with THEIR role as the Gateway labels it - the same GET /teams answer the
@@ -46,7 +48,7 @@ export function TeamsSection() {
     try {
       team = await createTeam(name);
     } catch (err) {
-      setRefusal(gatewayErrorMessage(err, "create the team"));
+      setRefusal(describeAndReport(SURFACE, "create the team", err));
       inFlight.current = false;
       setCreating(false);
       return;
@@ -56,7 +58,7 @@ export function TeamsSection() {
     } catch (err) {
       // The team exists; only the list could not be read again. Say so, rather than suggest the create failed - a
       // second Create would make a second team.
-      setRefusal(`${team.name} was created, but your teams could not be read again: ${gatewayErrorMessage(err, "read your teams")} Reload the page to open it.`);
+      setRefusal(`${team.name} was created, but your teams could not be read again: ${describeAndReport(SURFACE, "read your teams", err)} Reload the page to open it.`);
       setName("");
       inFlight.current = false;
       setCreating(false);

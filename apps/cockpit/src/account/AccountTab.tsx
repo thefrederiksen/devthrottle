@@ -9,11 +9,13 @@ import {
   type AccountDevice,
   type AccountDevicesResponse,
 } from "@devthrottle/client-core/account/accountClient";
-import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import { useAccounts } from "@devthrottle/client-core/auth/useAccounts";
 import { Button, ErrorBanner, LoadingState, PageHeader } from "../components";
 import { SignOutDialog, accountName } from "../you/SignOutDialog";
 import { TeamsSection } from "./TeamsSection";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-account";
 
 // THE ACCOUNT TAB OF SETTINGS (owner, 8 Oct 2026) - what was the Account page (issue #978), reorganised the way ChatGPT
 // and Claude do it: Account is one tab of Settings, and it holds only YOU - your email, how you sign in, your devices,
@@ -95,7 +97,7 @@ export function AccountTab() {
       if (signal?.aborted) return;
       // No-fallback: a Gateway/cloud error surfaces as an explicit error state, never an empty list.
       setDevices(null);
-      setDevicesError(gatewayErrorMessage(err));
+      setDevicesError(describeAndReport(SURFACE, "load your devices", err));
     } finally {
       setDevicesLoading(false);
     }
@@ -110,7 +112,7 @@ export function AccountTab() {
         if (next.signedIn) await loadDevices(signal);
       } catch (err) {
         if (signal?.aborted) return;
-        setError(gatewayErrorMessage(err));
+        setError(describeAndReport(SURFACE, "read your account", err));
       }
     },
     [loadDevices],
@@ -137,7 +139,7 @@ export function AccountTab() {
       setDevicesError(null);
       setConfirmRemoveId(null);
     } catch (err) {
-      setError(gatewayErrorMessage(err));
+      setError(describeAndReport(SURFACE, "sign out", err));
     } finally {
       setBusy(false);
     }
@@ -163,7 +165,7 @@ export function AccountTab() {
       // Refresh from the source so the row disappears and the list reflects the account exactly.
       await loadDevices();
     } catch (err) {
-      setRemoveError(gatewayErrorMessage(err));
+      setRemoveError(describeAndReport(SURFACE, "remove the device", err));
     } finally {
       setRemoveBusy(false);
     }

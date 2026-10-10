@@ -7,7 +7,6 @@ import {
   type FactorySeatsView,
 } from "@devthrottle/client-core/factory/factoriesScreenClient";
 import { getCronJob, type CronJob } from "@devthrottle/client-core/schedule/scheduleClient";
-import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import { Button, EmptyState, ErrorBanner, LoadingState } from "../components";
 import { ScheduleEditor, type ScheduleEditorRequest } from "../schedule/ScheduleEditor";
 import { ActivityTab, ReportsTab, useView } from "./FactoryActivityTabs";
@@ -17,6 +16,9 @@ import { FactoryMemoryTab } from "./FactoryMemoryTab";
 import { OwnerActionButton, TalkButton, ToneChip } from "./FactoryParts";
 import { WaitingItem } from "./FactoryWaitingView";
 import "./factory.css";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-factory";
 
 // One factory's page (Factories screen mission, mockups 2 and 3): the header - name, status, the boss, seat count, the
 // computer it runs on, and Talk to the boss - then the tabs the Gateway offers: Overview, Seats (n), Activity,
@@ -49,6 +51,7 @@ export function FactoryView() {
 
   useScrollToHash(view.data !== null);
 
+  // error-reported-by: useView
   if (view.error !== null) return <ErrorBanner message={view.error} onRetry={view.reload} />;
   if (view.data === null) return <LoadingState />;
   const page = view.data;
@@ -113,6 +116,7 @@ export function FactoryView() {
       {tab === "floor" && <FactoryFloorPanel factory={page.id} full />}
       {tab === "seats" &&
         (seats.error !== null ? (
+          // error-reported-by: useView
           <ErrorBanner message={seats.error} onRetry={seats.reload} />
         ) : seats.data === null ? (
           <LoadingState />
@@ -251,7 +255,7 @@ function SeatsTab({ view: d, onChanged }: { view: FactorySeatsView; onChanged: (
     try {
       setEditor({ kind: "edit", job: await getCronJob(jobId) });
     } catch (err) {
-      setError(`Could not open the schedule: ${gatewayErrorMessage(err)}`);
+      setError(describeAndReport(SURFACE, "open the schedule", err));
     } finally {
       setOpening(null);
     }

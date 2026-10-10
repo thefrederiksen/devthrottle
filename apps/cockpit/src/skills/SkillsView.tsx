@@ -14,9 +14,11 @@ import {
   type SkillFile,
   type SkillVersionDetail,
 } from "@devthrottle/client-core/skills/skillsClient";
-import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import { markdownToHtml } from "@devthrottle/client-core/history/historyMarkdown";
 import { Button, ConfirmDialog, ErrorBanner, LoadingState, useDismissOnBackdrop } from "../components";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-skills";
 
 // The Skills REGISTER - the central skill library (devthrottle_internal issue 995). Built as the
 // Workflows register's twin and sharing its stylesheet on purpose: they are two lists on one shelf,
@@ -47,7 +49,7 @@ export function SkillsView() {
       setError(null);
     } catch (err) {
       if (signal?.aborted === true) return;
-      setError(gatewayErrorMessage(err));
+      setError(describeAndReport(SURFACE, "load the skills", err));
     }
   }, []);
 
@@ -63,7 +65,7 @@ export function SkillsView() {
     try {
       await setSkillEnabled(skill.id, enabled, "cockpit");
     } catch (err) {
-      setError(gatewayErrorMessage(err));
+      setError(describeAndReport(SURFACE, enabled ? "turn the skill on" : "turn the skill off", err));
       return;
     }
     await load();
@@ -200,7 +202,7 @@ export function SkillsView() {
             await cloneSkill(pendingClone.id, `${pendingClone.id}-copy`, "cockpit");
             await load();
           } catch (err) {
-            setError(gatewayErrorMessage(err));
+            setError(describeAndReport(SURFACE, "clone the skill", err));
           }
         }}
         onClose={() => setPendingClone(null)}
@@ -232,7 +234,7 @@ function SkillPreviewDialog({
     getSkillBody(skill.id, skill.version, ctrl.signal).then(
       (text) => setBody(text),
       (err) => {
-        if (!ctrl.signal.aborted) setError(gatewayErrorMessage(err));
+        if (!ctrl.signal.aborted) setError(describeAndReport(SURFACE, "read the skill", err));
       },
     );
     return () => ctrl.abort();
@@ -414,7 +416,7 @@ function SkillFilesDialog({
         setFiles(loaded.files);
         setBody(loaded.bodyMarkdown);
       } catch (err) {
-        if (!ctrl.signal.aborted) setError(gatewayErrorMessage(err));
+        if (!ctrl.signal.aborted) setError(describeAndReport(SURFACE, "open the skill's files", err));
       }
     })();
     return () => ctrl.abort();
@@ -447,7 +449,7 @@ function SkillFilesDialog({
       onSaved();
       onClose();
     } catch (err) {
-      setError(gatewayErrorMessage(err));
+      setError(describeAndReport(SURFACE, "save the skill's files", err));
     } finally {
       setBusy(false);
     }
@@ -657,7 +659,7 @@ function AddSkillDialog({ onClose, onCreated }: { onClose: () => void; onCreated
       setCreatedId(draft.skillId);
       onCreated();
     } catch (err) {
-      setError(gatewayErrorMessage(err));
+      setError(describeAndReport(SURFACE, "create the skill", err));
     } finally {
       setBusy(false);
     }

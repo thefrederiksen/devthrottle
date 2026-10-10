@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import {
   acceptRequest,
   declineRequest,
@@ -12,6 +11,9 @@ import {
 } from "@devthrottle/client-core/teams/requestsClient";
 import { Button, EmptyState, ErrorBanner, LoadingState, PageHeader } from "../components";
 import "./team.css";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-team-requests";
 
 // Screen S9, Requests (devthrottle_internal#2308). Two pages over one card:
 //
@@ -119,7 +121,7 @@ export function RequestsView({ teamId }: { teamId: string }) {
       setRequests(await listMyRequests(teamId, signal));
     } catch (err) {
       if (signal?.aborted) return;
-      setLoadError(gatewayErrorMessage(err, "load your requests"));
+      setLoadError(describeAndReport(SURFACE, "load your requests", err));
     }
   }, [teamId]);
 
@@ -139,7 +141,7 @@ export function RequestsView({ teamId }: { teamId: string }) {
       setSentNote("Sent. The team's Owner and Managers see it in their Requests list.");
       setRequests(await listMyRequests(teamId));
     } catch (err) {
-      setSendError(gatewayErrorMessage(err, "send the request"));
+      setSendError(describeAndReport(SURFACE, "send the request", err));
     } finally {
       setSending(false);
     }
@@ -192,7 +194,7 @@ export function TeamRequestsView({ teamId }: { teamId: string }) {
       setRequests(await listTeamRequests(teamId, signal));
     } catch (err) {
       if (signal?.aborted) return;
-      setLoadError(gatewayErrorMessage(err, "load the team's requests"));
+      setLoadError(describeAndReport(SURFACE, "load the team's requests", err));
     }
   }, [teamId]);
 
@@ -213,7 +215,7 @@ export function TeamRequestsView({ teamId }: { teamId: string }) {
       const updated = await act();
       setRequests((list) => (list ?? []).map((r) => (r.id === updated.id ? updated : r)));
     } catch (err) {
-      setActionError(gatewayErrorMessage(err, what));
+      setActionError(describeAndReport(SURFACE, what, err));
       await load();
     } finally {
       setBusy(null);

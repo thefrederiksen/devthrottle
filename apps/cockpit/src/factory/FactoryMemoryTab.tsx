@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import {
   deleteFactoryMemoryNote,
   FactoryMemoryRefusal,
@@ -13,6 +12,9 @@ import {
   type FactoryMemoryNote,
 } from "@devthrottle/client-core/factory/factoryMemoryClient";
 import { Button, ConfirmDialog, EmptyState, ErrorBanner, LoadingState } from "../components";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-factory-memory";
 
 // The factory page's Memory tab (Factory Memory mission, phase 3b, section 5.5). What the factory's sessions have
 // learned, as small named notes, and the owner's five things to do with them: read one, correct it, delete it,
@@ -74,7 +76,8 @@ export function FactoryMemoryTab({ factory }: FactoryMemoryTabProps) {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   // The newer note a stale save was refused with - what the owner merges against.
-  const [conflict, setConflict] = useState<FactoryMemoryNote | null>(null);
+  // A save that raced another writer: the version there now, and the reported sentence that leads the panel.
+  const [conflict, setConflict] = useState<{ current: FactoryMemoryNote; lead: string } | null>(null);
 
   const [history, setHistory] = useState<FactoryMemoryHistory | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -90,7 +93,7 @@ export function FactoryMemoryTab({ factory }: FactoryMemoryTabProps) {
     const ctrl = new AbortController();
     setListError(null);
     listFactoryMemory(factory, ctrl.signal).then(setList, (err: unknown) => {
-      if (!ctrl.signal.aborted) setListError(gatewayErrorMessage(err, "read this factory's memory"));
+      if (!ctrl.signal.aborted) setListError(describeAndReport(SURFACE, "read this factory's memory", err));
     });
     return () => ctrl.abort();
   }, [factory, listNonce]);
@@ -102,7 +105,7 @@ export function FactoryMemoryTab({ factory }: FactoryMemoryTabProps) {
       try {
         setHistory(await getFactoryMemoryHistory(factory, name));
       } catch (err) {
-        setHistoryError(gatewayErrorMessage(err, "read this note's history"));
+        setHistoryError(describeAndReport(SURFACE, "read this note's history", err));
       }
     },
     [factory],
@@ -122,7 +125,7 @@ export function FactoryMemoryTab({ factory }: FactoryMemoryTabProps) {
         setNote(await getFactoryMemoryNote(factory, wanted));
       } catch (err) {
         setNote(null);
-        setNoteError(gatewayErrorMessage(err, `open the note '${wanted}'`));
+        setNoteError(describeAndReport(SURFACE, "open the note", err));
       } finally {
         setOpening(null);
       }
@@ -154,9 +157,10 @@ export function FactoryMemoryTab({ factory }: FactoryMemoryTabProps) {
         if (err instanceof FactoryMemoryRefusal && err.outcome === "Stale" && err.current !== null) {
           // Someone wrote it since it was read. The owner's text stays in the box; the newer one is shown beside
           // it, and the next save is made against it only when he says so.
-          setConflict(err.current);
+          // The save failed and is reported like any other; the panel then offers the two ways on.
+          setConflict({ current: err.current, lead: describeAndReport(SURFACE, "save this note", err) });
         } else {
-          setSaveError(gatewayErrorMessage(err, "save this note"));
+          setSaveError(describeAndReport(SURFACE, "save this note", err));
         }
       } finally {
         setSaving(false);
@@ -167,8 +171,8 @@ export function FactoryMemoryTab({ factory }: FactoryMemoryTabProps) {
 
   const takeTheirs = useCallback(() => {
     if (conflict === null) return;
-    setDraft(conflict.text ?? "");
-    setBaseVersion(conflict.version);
+    setDraft(conflict.current.text ?? "");
+    setBaseVersion(conflict.current.version);
     setConflict(null);
   }, [conflict]);
 
@@ -291,20 +295,23 @@ export function FactoryMemoryTab({ factory }: FactoryMemoryTabProps) {
                     rows={12}
                   />
                   {conflict !== null && (
-                    <div className="fa-memory-conflict" role="alert" data-testid="fa-memory-conflict">
-                      <p>
-                        {conflict.deleted
-                          ? `This note was deleted since you opened it: version ${conflict.version}, by ${authorText(conflict)}, ${writtenText(conflict.writtenAtUtc)}. Your text is still in the box. Saving brings the note back with it.`
-                          : `This note changed since you opened it: version ${conflict.version}, by ${authorText(conflict)}, ${writtenText(conflict.writtenAtUtc)}. Your text is still in the box; the newer text is below. Merge what you need into the box, then save over version ${conflict.version}.`}
+                    <div className="fa-memory-conflict" data-testid="fa-memory-conflict">
+                      <p className="fa-memory-conflict-lead" role="alert">
+                        {conflict.lead}
                       </p>
-                      {!conflict.deleted && <pre className="fa-memory-text dt-private">{conflict.text}</pre>}
+                      <p>
+                        {conflict.current.deleted
+                          ? `This note was deleted since you opened it: version ${conflict.current.version}, by ${authorText(conflict.current)}, ${writtenText(conflict.current.writtenAtUtc)}. Your text is still in the box. Saving brings the note back with it.`
+                          : `This note changed since you opened it: version ${conflict.current.version}, by ${authorText(conflict.current)}, ${writtenText(conflict.current.writtenAtUtc)}. Your text is still in the box; the newer text is below. Merge what you need into the box, then save over version ${conflict.current.version}.`}
+                      </p>
+                      {!conflict.current.deleted && <pre className="fa-memory-text dt-private">{conflict.current.text}</pre>}
                       <div className="fa-inline-action">
-                        <Button variant="primary" disabled={saving} onClick={() => void save(conflict.version)}>
-                          {saving ? "Saving..." : `Save over version ${conflict.version}`}
+                        <Button variant="primary" disabled={saving} onClick={() => void save(conflict.current.version)}>
+                          {saving ? "Saving..." : `Save over version ${conflict.current.version}`}
                         </Button>
-                        {!conflict.deleted && (
+                        {!conflict.current.deleted && (
                           <Button disabled={saving} onClick={takeTheirs}>
-                            Take version {conflict.version} and drop my edit
+                            Take version {conflict.current.version} and drop my edit
                           </Button>
                         )}
                       </div>

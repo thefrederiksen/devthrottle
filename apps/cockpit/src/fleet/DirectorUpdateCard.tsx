@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import {
   getDirectorUpdateStatus,
   getFleetMachines,
@@ -12,6 +11,9 @@ import { relativeTime } from "./format";
 import { MachineActions, type ActionOutcome } from "./MachineActions";
 import { VersionPill } from "./MachinesPanel";
 import { machineOf, toneClass } from "./machinesFormat";
+import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-director-update";
 
 // The "Version and updates" card on the Director page (fleet maintenance, devthrottle_internal#2021, #2022): this
 // Director's version against the newest release, whether its machine has a newer build downloaded, what the
@@ -31,8 +33,9 @@ export function DirectorUpdateCard({ directorId, machineName }: { directorId: st
     try {
       setView(await getFleetMachines(signal));
       setViewError(null);
+      backgroundRecovered(SURFACE, "read the machine list");
     } catch (err) {
-      if (signal?.aborted !== true) setViewError(gatewayErrorMessage(err));
+      if (signal?.aborted !== true) setViewError(describeAndReport(SURFACE, "read the machine list", err, { background: true }));
     }
   }, []);
   useVisiblePolling(refreshMachines, MACHINES_POLL_MS);
@@ -48,8 +51,9 @@ export function DirectorUpdateCard({ directorId, machineName }: { directorId: st
     try {
       setStatus(await getDirectorUpdateStatus(machineName));
       setStatusError(null);
+      backgroundRecovered(SURFACE, "read the Director's update status");
     } catch (err) {
-      setStatusError(gatewayErrorMessage(err));
+      setStatusError(describeAndReport(SURFACE, "read the Director's update status", err, { background: true }));
     }
   }, [machineName, canReport]);
 

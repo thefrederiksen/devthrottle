@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import { ErrorBanner, LoadingState } from "../components";
 import { useFactorySwitch } from "./useFactorySwitch";
 
@@ -9,14 +8,11 @@ import { useFactorySwitch } from "./useFactorySwitch";
 // hosted one, so the Cockpit never writes it (rule 7).
 export function FactoryAreaGate({ children }: { children: ReactNode }) {
   const { state, howToStart, error } = useFactorySwitch();
-  if (error !== null) return <ErrorBanner message={gatewayErrorMessage(error, "ask the Gateway whether Factories is on")} />;
+  // error-reported-by: useFactorySwitch
+  if (error !== null) return <ErrorBanner message={error} />;
   if (state === "unknown") return <LoadingState />;
   if (state === "off") {
-    // The Gateway's contract is a sentence with every "off". Without one, say exactly that - in the page, as an error,
-    // rather than unmounting the whole app (the Cockpit has no error boundary).
-    if (howToStart === null) {
-      return <ErrorBanner message="The Gateway says Factories is off, but did not say how to start it. This is a fault in the Gateway; please report it." />;
-    }
+    // An "off" without the Gateway's sentence never reaches here: useFactorySwitch turns it into a reported error.
     return (
       <section className="pane" data-testid="factories-off">
         <h1 className="pane-title">Factories</h1>

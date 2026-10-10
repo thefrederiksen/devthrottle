@@ -5,7 +5,8 @@ import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/re
 // The three cards of the Fleet Manager page (step 6). Each renders the record's fields exactly as the Gateway sent
 // them, and a button is ONE Gateway call that answers the record; the Gateway passes the words to the Fleet Manager.
 
-vi.mock("@devthrottle/client-core/errors/reportClientError", () => ({ reportClientError: vi.fn() }));
+const reported = vi.hoisted(() => vi.fn((_s: string, _a: string, message: string) => message));
+vi.mock("@devthrottle/client-core/errors/reportClientError", () => ({ reportClientError: vi.fn(), reportShownError: reported }));
 
 import { OutcomeCard } from "./OutcomeCard";
 import { ANSWERED_CARD, DECISION_CARD, FINDING_CARD, READY_CARD } from "./fixtures";
@@ -122,7 +123,8 @@ describe("OutcomeCard", () => {
   });
 
   it("a refused answer is shown with the Gateway's words and the buttons stay", async () => {
-    const d = deps({ answer: vi.fn(async () => Promise.reject(new Error("outcome was already answered (fake Gateway)"))) });
+    const refusal = new Error("outcome was already answered (fake Gateway)");
+    const d = deps({ answer: vi.fn(async () => Promise.reject(refusal)) });
     const onAnswered = vi.fn();
     render(<OutcomeCard card={DECISION_CARD} onAnswered={onAnswered} deps={d} />);
 
@@ -130,6 +132,8 @@ describe("OutcomeCard", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toBe("Your answer was not recorded (fake): outcome was already answered (fake Gateway)");
+    // The sentence shown is the one reported, with the original error so the Gateway's own facts travel with it.
+    expect(reported).toHaveBeenCalledWith("cockpit-fleet-manager-card", "answer the card", "outcome was already answered (fake Gateway)", undefined, refusal);
     expect(onAnswered).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Always run both." })).toBeTruthy();
   });

@@ -4,7 +4,7 @@ import {
   type GitSnapshot,
   type GitChangeEntry,
 } from "@devthrottle/client-core/api/client";
-import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 
 // The surface label on every client-error report from this view, so the stored error
 // report names where the user was standing (issue #2189).
@@ -61,6 +61,8 @@ export function SourceControlTab({ sessionId, onInsertPath }: SourceControlTabPr
       busyRef.current = true;
       try {
         const snap = await getGitStatus(sessionId, signal);
+        backgroundRecovered(SURFACE, "read the repository status");
+        // error-report-exempt: the Director's repository snapshot; a git failure in it is the Director's own, reported by the Director's error reporting (step 4), and nothing failed in the Cockpit
         setSnapshot(snap);
         // A non-ok status ("not a git repository" / "git failed") is a normal rendered result, not a
         // transport error; clear the transport error so a recovered fetch stops showing the old banner.
@@ -68,7 +70,7 @@ export function SourceControlTab({ sessionId, onInsertPath }: SourceControlTabPr
       } catch (err) {
         if (signal?.aborted === true) return;
         // No silent failure: surface the transport error so the reader knows the state is not shown.
-        setError(describeAndReport(SURFACE, "read the repository status", err));
+        setError(describeAndReport(SURFACE, "read the repository status", err, { sessionId, background: true }));
       } finally {
         busyRef.current = false;
         setLoading(false);

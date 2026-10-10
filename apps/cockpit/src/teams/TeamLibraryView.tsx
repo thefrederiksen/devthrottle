@@ -15,9 +15,12 @@ import {
   type TeamLibraryItem,
 } from "@devthrottle/client-core/teams/teamLibraryClient";
 import { suggestSkillId } from "@devthrottle/client-core/skills/skillsClient";
-import { gatewayErrorMessage, GatewayError } from "@devthrottle/client-core/api/client";
+import { GatewayError } from "@devthrottle/client-core/api/client";
 import { Button, ConfirmDialog, ErrorBanner, LoadingState, useDismissOnBackdrop } from "../components";
 import "./teams.css";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-team-library";
 
 // THE TEAM'S SKILLS AND WORKFLOWS (Teams 6 - devthrottle_internal#2304, screen S5). With a team picked in the team
 // switcher, the Skills and the Workflows entries both open this page: one list of everything the team shares, which
@@ -73,10 +76,11 @@ export function TeamLibraryView({ team }: { team: TeamSummary }) {
     } catch (err) {
       if (signal?.aborted === true) return;
       if (err instanceof GatewayError && err.code === TEAM_REFUSAL_CODE && err.serverReason !== undefined) {
+        // error-report-exempt: the Gateway's answer that this role has no team skills and workflows - the person's role, not a failure (ruling R11); any other failure here is reported
         setRefusal(err.serverReason);
         return;
       }
-      setError(gatewayErrorMessage(err, "read the team's skills and workflows"));
+      setError(describeAndReport(SURFACE, "read the team's skills and workflows", err));
     }
   }, [team.id]);
 
@@ -199,7 +203,7 @@ function ViewDialog({ teamId, item, onClose }: { teamId: string; item: TeamLibra
   useEffect(() => {
     const ctrl = new AbortController();
     getTeamItemText(teamId, item, ctrl.signal).then(setText, (err: unknown) => {
-      if (!ctrl.signal.aborted) setError(gatewayErrorMessage(err, `read ${item.name}`));
+      if (!ctrl.signal.aborted) setError(describeAndReport(SURFACE, `read the team ${item.kind.toLowerCase()}`, err));
     });
     return () => ctrl.abort();
   }, [teamId, item]);
@@ -220,7 +224,7 @@ function ChangeDialog({ teamId, item, onClose, onDone }: { teamId: string; item:
   useEffect(() => {
     const ctrl = new AbortController();
     getTeamItemText(teamId, item, ctrl.signal).then(setText, (err: unknown) => {
-      if (!ctrl.signal.aborted) setError(gatewayErrorMessage(err, `read ${item.name}`));
+      if (!ctrl.signal.aborted) setError(describeAndReport(SURFACE, `read the team ${item.kind.toLowerCase()}`, err));
     });
     return () => ctrl.abort();
   }, [teamId, item]);
@@ -232,7 +236,7 @@ function ChangeDialog({ teamId, item, onClose, onDone }: { teamId: string; item:
       await changeTeamItem(teamId, item, { summary: summary.trim(), text: text ?? "" });
       onDone();
     } catch (err) {
-      setError(gatewayErrorMessage(err, `change ${item.name}`));
+      setError(describeAndReport(SURFACE, `change the team ${item.kind.toLowerCase()}`, err));
       setBusy(false);
     }
   };
@@ -278,7 +282,7 @@ function AddSkillDialog({ teamId, onClose, onDone }: { teamId: string; onClose: 
       onDone();
     } catch (err) {
       setCreatedId(progress.current.createdId);
-      setError(gatewayErrorMessage(err, `add ${name.trim()}`));
+      setError(describeAndReport(SURFACE, "add the skill", err));
       setBusy(false);
     }
   };
@@ -329,7 +333,7 @@ function AddWorkflowDialog({ teamId, onClose, onDone }: { teamId: string; onClos
         if (list.length > 0) setSource(list[0].id);
       },
       (err: unknown) => {
-        if (!ctrl.signal.aborted) setError(gatewayErrorMessage(err, "read the workflows to start from"));
+        if (!ctrl.signal.aborted) setError(describeAndReport(SURFACE, "read the workflows to start from", err));
       },
     );
     return () => ctrl.abort();
@@ -343,7 +347,7 @@ function AddWorkflowDialog({ teamId, onClose, onDone }: { teamId: string; onClos
       onDone();
     } catch (err) {
       setCreatedId(progress.current.createdId);
-      setError(gatewayErrorMessage(err, `add ${name.trim()}`));
+      setError(describeAndReport(SURFACE, "add the workflow", err));
       setBusy(false);
     }
   };

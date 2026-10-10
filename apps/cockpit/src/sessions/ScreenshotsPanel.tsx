@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   deleteScreenshot,
   getScreenshots,
@@ -24,11 +24,13 @@ import { ConfirmDialog } from "../components";
 // it full-size (new tab); Insert drops the Director-side path into the composer; Delete removes the
 // file from the Director's disk.
 const FETCH_COUNT = 60;
-import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+import { describeAndReport, reportShownError } from "@devthrottle/client-core/errors/reportClientError";
 
 // The surface label on every client-error report from this view, so the stored error
 // report names where the user was standing (issue #2189).
 const SURFACE = "cockpit-screenshots";
+// What the card shows in place of a thumbnail the browser could not load (the img element gives no reason).
+const IMAGE_UNAVAILABLE = "Image unavailable";
 const INITIAL_SHOWN = 12;
 const SHOW_MORE_STEP = 24;
 
@@ -52,6 +54,9 @@ export function ScreenshotsPanel({ sessionId, onInsert }: ScreenshotsPanelProps)
   // unavailable" placeholder instead of the browser's broken-image glyph (issue #1254). A fresh
   // list load clears this back to NO_BROKEN_IMAGES so a re-appeared file gets a fresh chance.
   const [brokenImages, setBrokenImages] = useState<BrokenImageSet>(NO_BROKEN_IMAGES);
+  // Whether this list load has already reported a thumbnail that did not load: a folder whose files have gone breaks
+  // every thumbnail at once, and that is one failure, not one per image. A fresh list load resets it.
+  const brokenReported = useRef(false);
 
   const load = useCallback(
     async (signal?: AbortSignal) => {
@@ -64,6 +69,7 @@ export function ScreenshotsPanel({ sessionId, onInsert }: ScreenshotsPanelProps)
         setTotal(result.total > 0 ? result.total : result.items.length);
         setShown(INITIAL_SHOWN);
         setBrokenImages(NO_BROKEN_IMAGES);
+        brokenReported.current = false;
         setLoadedOnce(true);
       } catch (err) {
         if (signal?.aborted) return;
@@ -131,7 +137,7 @@ export function ScreenshotsPanel({ sessionId, onInsert }: ScreenshotsPanelProps)
                 {sessionId &&
                   (isImageBroken(brokenImages, s.fileName) ? (
                     <div className="shot-thumb-missing" role="img" aria-label={`${s.fileName} (image unavailable)`}>
-                      Image unavailable
+                      {IMAGE_UNAVAILABLE}
                     </div>
                   ) : (
                     <a href={screenshotFileUrl(sessionId, s.fileName)} target="_blank" rel="noreferrer" title="View full size">
@@ -140,7 +146,13 @@ export function ScreenshotsPanel({ sessionId, onInsert }: ScreenshotsPanelProps)
                         src={screenshotFileUrl(sessionId, s.fileName)}
                         alt={s.fileName}
                         loading="lazy"
-                        onError={() => setBrokenImages((prev) => markImageBroken(prev, s.fileName))}
+                        onError={() => {
+                          if (!brokenReported.current) {
+                            brokenReported.current = true;
+                            reportShownError(SURFACE, "show the screenshot", IMAGE_UNAVAILABLE, { sessionId });
+                          }
+                          setBrokenImages((prev) => markImageBroken(prev, s.fileName));
+                        }}
                       />
                     </a>
                   ))}

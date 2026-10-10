@@ -4,8 +4,10 @@ import {
   setInjectedText,
   type InjectedText,
 } from "@devthrottle/client-core/settings/injectedText";
-import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import { bannerFor, fleetCommandsWarning, validateTemplate } from "./injectedTextState";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-injected-text";
 
 // The "Injected text" tab: the whole of what DevThrottle puts in front of an agent at the start of a
 // session, and the controls to read it, replace it, or go back to ours. The setting is GATEWAY-OWNED, so
@@ -53,7 +55,7 @@ export function InjectedTextTab() {
         setEditing(loaded.useYours);
         setDraft(loaded.yours ?? "");
       } catch (e) {
-        if (!controller.signal.aborted) setError(gatewayErrorMessage(e));
+        if (!controller.signal.aborted) setError(describeAndReport(SURFACE, "load the injected text", e));
       }
     })();
     return () => controller.abort();
@@ -94,7 +96,7 @@ export function InjectedTextTab() {
       setDraft(updated.yours ?? "");
       setMsg(note);
     } catch (e) {
-      setError(gatewayErrorMessage(e));
+      setError(describeAndReport(SURFACE, "save the injected text", e));
     } finally {
       setBusy(false);
     }
@@ -244,6 +246,7 @@ export function InjectedTextTab() {
           </p>
         )}
         {templateProblem !== null && (
+          // error-report-exempt: input check, the template the user is typing is not valid yet
           <p className="itx-problem" role="alert">
             {templateProblem}
           </p>

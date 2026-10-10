@@ -1,5 +1,4 @@
 import { useCallback, useState } from "react";
-import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import { useCurrentTeam } from "@devthrottle/client-core/teams/CurrentTeam";
 import { useVisiblePolling } from "@devthrottle/client-core/polling/useVisiblePolling";
 import { answerQuestion, getMyQuestions, type TeamQuestion, type TeamQuestions } from "@devthrottle/client-core/teams/teamQuestionsClient";
@@ -8,6 +7,9 @@ import { shortDate, TEAM_REPORTS_POLL_MS } from "./teamReportFormat";
 import { refreshTeamPageCounts } from "../useTeamPageCounts";
 import "../../team/team.css";
 import "./collaborator.css";
+import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-team-questions";
 
 // QUESTIONS (screen S8): the slot devthrottle_internal#2306 made, filled by devthrottle_internal#2307 - the questions
 // waiting on this person, in the team on screen. Each is in a dev report its author sent them; they answer by picking
@@ -33,10 +35,11 @@ function QuestionsView({ teamId }: { teamId: string }) {
     async (signal: AbortSignal) => {
       try {
         setQuestions(await getMyQuestions(teamId, signal));
+        backgroundRecovered(SURFACE, "load your questions");
         setError(null);
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return;
-        setError(gatewayErrorMessage(err, "load your questions"));
+        setError(describeAndReport(SURFACE, "load your questions", err, { background: true }));
       }
     },
     [teamId],
@@ -107,7 +110,7 @@ function QuestionCard({ teamId, question, onAnswered }: { teamId: string; questi
       refreshTeamPageCounts();
       onAnswered();
     } catch (err) {
-      setSendError(gatewayErrorMessage(err, "send your answer"));
+      setSendError(describeAndReport(SURFACE, "send your answer", err));
       onAnswered();
     } finally {
       setSending(false);

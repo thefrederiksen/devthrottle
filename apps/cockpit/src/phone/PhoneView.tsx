@@ -10,9 +10,11 @@
 // once it is there.
 import { useEffect, useState } from "react";
 import { PageHeader } from "../components";
-import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import { getMobileQrPng, mobileAppUrl } from "@devthrottle/client-core/account/mobileEntry";
 import "./phone.css";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-phone";
 
 export function PhoneView() {
   const url = mobileAppUrl();
@@ -35,7 +37,7 @@ export function PhoneView() {
         setQrProblem(null);
       })
       .catch((err) => {
-        if (!controller.signal.aborted) setQrProblem(gatewayErrorMessage(err));
+        if (!controller.signal.aborted) setQrProblem(describeAndReport(SURFACE, "load the phone sign-in code", err));
       });
 
     return () => {

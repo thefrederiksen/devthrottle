@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { getAbout, type AboutInfo, type BundleStamp } from "@devthrottle/client-core/about/aboutClient";
-import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-about";
 
 // The About page: the version of each of the three SERVER-SIDE products - this Gateway, the Cockpit
 // bundle it serves, and the mobile app bundle it serves - plus how the Gateway is reached, from
@@ -74,7 +76,7 @@ export function AboutView() {
         setAbout(await getAbout(controller.signal));
       } catch (err) {
         if (controller.signal.aborted) return;
-        setError(gatewayErrorMessage(err));
+        setError(describeAndReport(SURFACE, "read the versions this Gateway is serving", err));
       }
     })();
     return () => controller.abort();

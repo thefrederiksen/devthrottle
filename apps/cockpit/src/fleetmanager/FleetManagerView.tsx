@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { sendTypedPrompt } from "@devthrottle/client-core/dictation/typedPromptDelivery";
-import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 import { useSessionChat } from "@devthrottle/client-core/history/useSessionChat";
 import { usePollingStore } from "@devthrottle/client-core/polling/usePollingStore";
 import { useVisiblePolling } from "@devthrottle/client-core/polling/useVisiblePolling";
@@ -68,8 +68,9 @@ function usePlacement() {
     try {
       setPlacement(await getFleetManagerPlacement());
       setError(null);
+      backgroundRecovered(SURFACE, "read where the Fleet Manager runs");
     } catch (err) {
-      setError(describeAndReport(SURFACE, "read where the Fleet Manager runs", err));
+      setError(describeAndReport(SURFACE, "read where the Fleet Manager runs", err, { background: true }));
     }
   }, []);
   useVisiblePolling(refresh, PLACEMENT_REFRESH_MS);
@@ -205,6 +206,7 @@ export function FleetManagerView() {
               </>
             )}
             {placementError !== null && (
+              // error-reported-by: usePlacement
               <span className="fmp-inline-error" role="alert">
                 {" "}
                 {placementError}
@@ -281,6 +283,7 @@ export function FleetManagerView() {
         />
       )}
       {standingState.error !== null && (standingShown || mistakeOpen) && (
+        // error-reported-by: createPollingStore
         <div className="fmp-bar fmp-bar-bad" role="alert">
           {standingState.error}
         </div>
@@ -328,11 +331,13 @@ export function FleetManagerView() {
               </div>
             )}
             {chat.loadError !== null && (
+              // error-reported-by: useSessionChat
               <div className="fmp-region-error" role="alert">
                 {chat.loadError}
               </div>
             )}
             {page.error !== null && (
+              // error-reported-by: createPollingStore
               <div className="fmp-region-error" role="alert">
                 {page.error}
               </div>

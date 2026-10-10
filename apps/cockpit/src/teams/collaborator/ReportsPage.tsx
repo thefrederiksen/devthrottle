@@ -1,6 +1,5 @@
 import { useCallback, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import { useCurrentTeam } from "@devthrottle/client-core/teams/CurrentTeam";
 import { useVisiblePolling } from "@devthrottle/client-core/polling/useVisiblePolling";
 import {
@@ -13,6 +12,9 @@ import { EmptyState, ErrorBanner, LoadingState, PageHeader } from "../../compone
 import { OwnTeamReportView, ReceivedReportView } from "./TeamReportViews";
 import { shortDate, TEAM_REPORTS_POLL_MS } from "./teamReportFormat";
 import "./collaborator.css";
+import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-team-reports";
 
 // REPORTS (screen S10, devthrottle_internal#2309): the dev reports somebody on the team sent to this person, newest
 // first - from whom and when, new or read. Open one to read it and comment on it; a comment goes to the person who
@@ -54,9 +56,10 @@ function ReportLists({ teamId, open }: { teamId: string; open: (kind: "report" |
         setReceived(next);
         setOwn(next.showYourReports ? await getMyTeamReports(teamId, signal) : null);
         setError(null);
+        backgroundRecovered(SURFACE, "load the reports");
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return;
-        setError(gatewayErrorMessage(err, "load the reports"));
+        setError(describeAndReport(SURFACE, "load the reports", err, { background: true }));
       }
     },
     [teamId],

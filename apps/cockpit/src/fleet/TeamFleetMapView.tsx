@@ -10,6 +10,9 @@ import {
 } from "@devthrottle/client-core/teams/teamFleetMapClient";
 import type { TeamSummary } from "@devthrottle/client-core/teams/teamsClient";
 import "./teamFleetMap.css";
+import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-team-fleet-map";
 
 // THE FLEET MAP FOR ONE TEAM (devthrottle_internal#2312, screens D4 and D5). Shown in place of the person's own fleet
 // when a team is picked in the switcher.
@@ -58,15 +61,18 @@ export function TeamFleetMapView({ team }: { team: TeamSummary }) {
       controller = new AbortController();
       getTeamFleetMap(team.id, controller.signal).then(
         (map) => {
-          if (live) setLoad({ kind: "map", map, error: null });
+          if (!live) return;
+          setLoad({ kind: "map", map, error: null });
+          backgroundRecovered(SURFACE, "read the team's Fleet Map");
         },
         (err: unknown) => {
           if (!live || (err instanceof Error && err.name === "AbortError")) return;
           if (err instanceof GatewayError && err.status === 403) {
+            // error-report-exempt: the Gateway's answer that this role has no team Fleet Map - the person's role, not a failure (ruling R11); any other failure here is reported
             setLoad({ kind: "refused", reason: gatewayErrorMessage(err) });
             return;
           }
-          const message = gatewayErrorMessage(err, "read the team's Fleet Map");
+          const message = describeAndReport(SURFACE, "read the team's Fleet Map", err, { background: true });
           // Keep the last map on screen and say it could not be refreshed, rather than blanking it.
           setLoad((prev) => (prev.kind === "map" ? { ...prev, error: message } : { kind: "failed", error: message }));
         },

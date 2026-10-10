@@ -10,8 +10,11 @@ import {
   updateRecordingMeta,
   type RecordingListItem,
 } from "@devthrottle/client-core/recordings/recordingsClient";
-import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import { ConfirmDialog, EmptyState, ErrorBanner, LoadingState } from "../components";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+import { ClipboardRefusedError } from "../components/clipboardFailure";
+
+const SURFACE = "cockpit-transcripts";
 
 // The Voice Recorder page (issue #977, epic #967) - the React port of the Blazor Cockpit
 // Transcripts.razor(.css) (#183). Recordings are uploaded from the phone and transcribed on the
@@ -84,8 +87,8 @@ export function TranscriptsView() {
       try {
         const list = await getRecordings();
         if (!cancelled) setItems(list);
-      } catch {
-        if (!cancelled) setError("Failed to load. Is the Gateway running?");
+      } catch (err) {
+        if (!cancelled) setError(describeAndReport(SURFACE, "load the transcripts", err));
       }
     })();
     const timers = msgTimers.current;
@@ -167,8 +170,10 @@ export function TranscriptsView() {
   // ---- copy path ----
   const copyPath = async (item: RecordingListItem) => {
     const path = item.transcriptPath ?? "";
-    const ok = await copyText(path);
-    patchCard(item.recordingId, { copied: ok ? ` copied: ${path}` : ` ${path}` });
+    // A blocked clipboard is reported, and the path itself is shown instead, to copy by hand.
+    const failure = await copyText(path);
+    if (failure !== null) describeAndReport(SURFACE, "copy the transcript path", new ClipboardRefusedError(failure));
+    patchCard(item.recordingId, { copied: failure === null ? ` copied: ${path}` : ` ${path}` });
     clearLater(() => patchCard(item.recordingId, { copied: "" }), 6000);
   };
 
@@ -197,7 +202,7 @@ export function TranscriptsView() {
       patchCard(item.recordingId, { vaultMsg: " saved to vault" });
       clearLater(() => patchCard(item.recordingId, { vaultMsg: "" }), 5000);
     } catch (err) {
-      patchCard(item.recordingId, { vaultMsg: ` save failed: ${gatewayErrorMessage(err)}` });
+      patchCard(item.recordingId, { vaultMsg: ` save failed: ${describeAndReport(SURFACE, "save the transcript to the vault", err)}` });
     } finally {
       patchCard(item.recordingId, { promoting: false });
     }
@@ -218,7 +223,7 @@ export function TranscriptsView() {
       );
       patchCard(item.recordingId, { saveMsg: " saved" });
     } catch (err) {
-      patchCard(item.recordingId, { saveMsg: ` save failed: ${gatewayErrorMessage(err)}` });
+      patchCard(item.recordingId, { saveMsg: ` save failed: ${describeAndReport(SURFACE, "save the transcript details", err)}` });
     } finally {
       patchCard(item.recordingId, { saving: false });
       clearLater(() => patchCard(item.recordingId, { saveMsg: "" }), 5000);
@@ -230,10 +235,10 @@ export function TranscriptsView() {
     setAgentMsg(" building...");
     try {
       const text = await getAgentInfo();
-      const ok = await copyText(text);
-      setAgentMsg(ok ? " copied agent info to clipboard" : " clipboard blocked; see console");
+      const failure = await copyText(text);
+      setAgentMsg(failure === null ? " copied agent info to clipboard" : ` ${describeAndReport(SURFACE, "copy the agent information", new ClipboardRefusedError(failure))}`);
     } catch (err) {
-      setAgentMsg(` failed: ${gatewayErrorMessage(err)}`);
+      setAgentMsg(` failed: ${describeAndReport(SURFACE, "build the agent information", err)}`);
     }
     clearLater(() => setAgentMsg(""), 6000);
   };
@@ -415,14 +420,14 @@ export function TranscriptsView() {
   );
 }
 
-// Copy text to the system clipboard; false when the clipboard API is unavailable/blocked (a
-// non-secure context), matching the Blazor ccTools.copyText behavior.
-async function copyText(text: string): Promise<boolean> {
+// Copy text to the system clipboard. Answers null when it was copied, otherwise the browser's refusal (the
+// clipboard API is unavailable or blocked in a non-secure context), so the caller can say why.
+async function copyText(text: string): Promise<unknown> {
   try {
     await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    return false;
+    return null;
+  } catch (err) {
+    return err;
   }
 }
 

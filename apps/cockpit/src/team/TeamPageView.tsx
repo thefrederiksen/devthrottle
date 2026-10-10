@@ -14,6 +14,9 @@ import { InvitationLinkPanel } from "./InvitationLinkPanel";
 import { Button, ConfirmDialog, ErrorBanner, LoadingState, PageHeader } from "../components";
 import { TeamBillingSection } from "./TeamBillingSection";
 import "./team.css";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-team";
 
 // Screen S1, the Team page (devthrottle_internal#2303): the members with their roles and seats, the waiting
 // invitations with the day each expires, and invite, resend, cancel, change role and remove. Below them, for the Owner
@@ -53,8 +56,9 @@ export function TeamPageView({ teamId, section }: { teamId: string; section: "me
     } catch (err) {
       if (signal?.aborted) return;
       // A 403 is the Gateway saying this role has no Team page; it is an answer, not a failure to retry.
+      // error-report-exempt: the Gateway's answer that this role has no Team page - the person's role, not a failure (ruling R11); any other failure here is reported
       if (err instanceof GatewayError && err.status === 403) setRefused(gatewayErrorMessage(err, "load the Team page"));
-      else setLoadError(gatewayErrorMessage(err, "load the Team page"));
+      else setLoadError(describeAndReport(SURFACE, "load the Team page", err));
     }
   }, [teamId]);
 
@@ -73,7 +77,7 @@ export function TeamPageView({ teamId, section }: { teamId: string; section: "me
       setNote({ text: `${member.name} is now a ${role}.`, ok: true });
       await load();
     } catch (err) {
-      setNote({ text: gatewayErrorMessage(err, "change the role"), ok: false });
+      setNote({ text: describeAndReport(SURFACE, "change the role", err), ok: false });
     } finally {
       setBusy(null);
     }
@@ -99,7 +103,7 @@ export function TeamPageView({ teamId, section }: { teamId: string; section: "me
       setLink(result.link);
       await load();
     } catch (err) {
-      setNote({ text: gatewayErrorMessage(err, "resend the invitation"), ok: false });
+      setNote({ text: describeAndReport(SURFACE, "resend the invitation", err), ok: false });
     } finally {
       setBusy(null);
     }

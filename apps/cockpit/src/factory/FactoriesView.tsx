@@ -76,6 +76,7 @@ export function FactoriesView() {
           ))}
         </div>
       )}
+      {/* error-reported-by: useView */}
       {frame.error !== null && <ErrorBanner message={frame.error} onRetry={frame.reload} />}
       {frame.data === null && frame.error === null && <LoadingState />}
       {frame.data !== null && tab === "factories" && <FactoriesList view={frame.data} onChanged={frame.reload} />}

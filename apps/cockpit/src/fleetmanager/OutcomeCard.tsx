@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import type { FleetCardAction, FleetOutcomeCard } from "@devthrottle/client-core/fleetmanager/pageClient";
 import { answerCard, type CardAnswerDeps } from "@devthrottle/client-core/fleetmanager/answerCard";
-import { reportClientError } from "@devthrottle/client-core/errors/reportClientError";
+import { reportShownError } from "@devthrottle/client-core/errors/reportClientError";
 import { Button } from "../components";
 
 // One of the three cards - Ready for you, Finding, Decision - drawn from an outcome record (the Fleet Manager
@@ -30,15 +30,15 @@ export function OutcomeCard({ card, onAnswered, deps }: OutcomeCardProps) {
   const [asking, setAsking] = useState<FleetCardAction | null>(null);
   const [typed, setTyped] = useState("");
 
-  const send = useCallback(
+  const sendCardAnswer = useCallback(
     async (words: string, action: FleetCardAction) => {
       setBusy({ words, label: action.busyLabel });
       setError(null);
       const result = await answerCard(card.id, words, deps);
       setBusy(null);
       if (result.kind === "refused") {
-        reportClientError({ surface: SURFACE, action: "answer the card", message: `answer ${card.id}: ${result.error}`, user_visible: true });
-        setError(result.error);
+        // The Gateway's own sentence is shown, and reported with the original error's facts.
+        setError(reportShownError(SURFACE, "answer the card", result.error, undefined, result.cause));
         return;
       }
       setAsking(null);
@@ -54,7 +54,7 @@ export function OutcomeCard({ card, onAnswered, deps }: OutcomeCardProps) {
       setAsking(action);
       return;
     }
-    if (action.words) void send(action.words, action);
+    if (action.words) void sendCardAnswer(action.words, action);
   };
 
   return (
@@ -147,7 +147,7 @@ export function OutcomeCard({ card, onAnswered, deps }: OutcomeCardProps) {
             <Button
               variant="primary"
               disabled={busy !== null || typed.trim().length === 0}
-              onClick={() => void send(`${asking.wordsPrefix ?? ""}${typed}`, asking)}
+              onClick={() => void sendCardAnswer(`${asking.wordsPrefix ?? ""}${typed}`, asking)}
             >
               {busy !== null ? busy.label : asking.sendLabel ?? asking.label}
             </Button>
@@ -161,6 +161,7 @@ export function OutcomeCard({ card, onAnswered, deps }: OutcomeCardProps) {
       )}
 
       {error !== null && (
+        // error-reported-by: sendCardAnswer
         <div className="fmp-card-error" role="alert">
           {card.answerRefusedLead} {error}
         </div>

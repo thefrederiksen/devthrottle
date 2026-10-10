@@ -1,6 +1,5 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import {
   downloadFactoryCsv,
   saveFactoryReport,
@@ -21,6 +20,9 @@ import {
   type FactoryTalkTarget,
 } from "@devthrottle/client-core/factory/factoriesScreenClient";
 import { Button, ConfirmDialog } from "../components";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-factory";
 
 // The building blocks the Factory Agents pages share. Rule 7: every word, number and tone arrives finished from the
 // Gateway; these components lay it out and nothing else. The one mapping here is tone -> colour class.
@@ -142,6 +144,7 @@ export function ActivityTable({ rows, showFactory }: { rows: FactoryActivityLine
 export function Faults({ faults }: { faults: string[] }) {
   if (faults.length === 0) return null;
   return (
+    // error-report-exempt: a factory's fault lines, produced and held by the Gateway and carried in its answer; nothing failed in the Cockpit
     <div className="fa-faults" role="alert" data-testid="fa-faults">
       {faults.map((f) => (
         <div key={f} className="fa-fault">
@@ -264,7 +267,7 @@ export function ExportCsvButton({ href }: { href: string }) {
           try {
             await downloadFactoryCsv(href);
           } catch (err) {
-            setError(gatewayErrorMessage(err, "export the CSV"));
+            setError(describeAndReport(SURFACE, "export the CSV", err));
           } finally {
             setBusy(false);
           }
@@ -312,7 +315,7 @@ export function SaveReportControl({
       setName("");
       onSaved(saved);
     } catch (err) {
-      setError(gatewayErrorMessage(err, "save the report"));
+      setError(describeAndReport(SURFACE, "save the report", err));
     } finally {
       setBusy(false);
     }
@@ -363,7 +366,7 @@ export function PauseButton({
       await setFactoryPaused(pause.action, factory, agent);
       onDone();
     } catch (err) {
-      setError(gatewayErrorMessage(err, pause.label.toLowerCase()));
+      setError(describeAndReport(SURFACE, pause.label.toLowerCase(), err));
     } finally {
       setBusy(false);
     }
@@ -423,7 +426,7 @@ export function TalkButton({ talk, variant = "primary" }: { talk: FactoryTalkTar
             const started = await startFactoryTalk(talk);
             navigate(started.href);
           } catch (err) {
-            setError(gatewayErrorMessage(err, "start the talk"));
+            setError(describeAndReport(SURFACE, "start the talk", err));
             setBusy(false);
           }
         }}

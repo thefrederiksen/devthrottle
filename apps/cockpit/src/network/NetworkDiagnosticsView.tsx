@@ -14,6 +14,9 @@ import {
 } from "@devthrottle/client-core/api/client";
 import { useNetStatus } from "@devthrottle/client-core/net/useNetStatus";
 import "./network.css";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-network";
 
 // Network Diagnostics (Cockpit): the operator/agent view of network health. Its centerpiece is the
 // SERVER-SIDE Tailscale check (GET /diag/network) - per connected device, direct-vs-DERP-relay + latency,
@@ -28,7 +31,7 @@ type TestPhase = "idle" | "latency" | "download" | "upload" | "done";
 
 export function NetworkDiagnosticsView() {
   const [diag, setDiag] = useState<NetworkDiag | null>(null);
-  const [diagError, setDiagError] = useState(false);
+  const [diagError, setDiagError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const [results, setResults] = useState<NetDiagResult[]>([]);
@@ -43,12 +46,12 @@ export function NetworkDiagnosticsView() {
 
   const loadDiag = useCallback(async (signal?: AbortSignal) => {
     try {
-      setDiagError(false);
+      setDiagError(null);
       setRefreshing(true);
       const d = await getNetworkDiag(signal);
       setDiag(d);
-    } catch {
-      if (!signal?.aborted) setDiagError(true);
+    } catch (err) {
+      if (!signal?.aborted) setDiagError(describeAndReport(SURFACE, "read the network diagnostic", err));
     } finally {
       setRefreshing(false);
     }
@@ -243,8 +246,8 @@ export function NetworkDiagnosticsView() {
       </section>
 
       <section className="netdiag-section" aria-label="Network health">
-        {diagError ? (
-          <div className="netdiag-error">Could not read the network diagnostic from the Gateway.</div>
+        {diagError !== null ? (
+          <div className="netdiag-error">{diagError}</div>
         ) : diag === null ? (
           <div className="netdiag-muted">Loading...</div>
         ) : !diag.tailscaleAvailable ? (

@@ -5,7 +5,7 @@ import { tabFromParam, type TabContext, type TabId } from "@devthrottle/client-c
 import { useAccounts } from "@devthrottle/client-core/auth/useAccounts";
 import { useCurrentTeam } from "@devthrottle/client-core/teams/CurrentTeam";
 import { getTeamPage } from "@devthrottle/client-core/teams/teamPageClient";
-import { GatewayError, gatewayErrorMessage } from "@devthrottle/client-core/api/client";
+import { GatewayError } from "@devthrottle/client-core/api/client";
 import { ErrorBanner, LoadingState } from "../components";
 import { InjectedTextTab } from "./InjectedTextTab";
 import { useSuggestionCount } from "../dictionary/useSuggestionCount";
@@ -18,6 +18,9 @@ import { TranscriptionHealthView } from "../transcription/TranscriptionHealthVie
 import { TeamPageView } from "../team/TeamPageView";
 import { InviteView } from "../team/InviteView";
 import { TeamGovernanceView } from "../team/TeamGovernanceView";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-settings";
 
 // The Cockpit Settings page (issue #1025, epic #967) - the React port of the retired Blazor
 // wwwroot/pages/settings.html.
@@ -58,7 +61,13 @@ type TeamPlanAnswer = { kind: "offered" } | { kind: "not-offered" } | { kind: "u
 
 /** The Team plan answer for the team on screen; null while it is first read. `retry` reads it again, keeping the last
  *  answer on screen until the new one lands (`retrying`), so the tab does not drop out of the strip and come back. */
-function useTeamPlanAnswer(teamId: string | null): { answer: TeamPlanAnswer | null; retrying: boolean; retry: () => void } {
+interface TeamPlanRead {
+  answer: TeamPlanAnswer | null;
+  retrying: boolean;
+  retry: () => void;
+}
+
+function useTeamPlanAnswer(teamId: string | null): TeamPlanRead {
   const [held, setHeld] = useState<{ teamId: string; attempt: number; answer: TeamPlanAnswer } | null>(null);
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
@@ -72,7 +81,7 @@ function useTeamPlanAnswer(teamId: string | null): { answer: TeamPlanAnswer | nu
         setHeld({
           teamId,
           attempt,
-          answer: refused ? { kind: "not-offered" } : { kind: "unknown", error: gatewayErrorMessage(err, "read the team's plan") },
+          answer: refused ? { kind: "not-offered" } : { kind: "unknown", error: describeAndReport(SURFACE, "read the team's plan", err) },
         });
       },
     );
@@ -131,6 +140,7 @@ export function SettingsView() {
             plan.retrying ? (
               <LoadingState message="Reading the team's plan again..." />
             ) : (
+              // error-reported-by: useTeamPlanAnswer
               <ErrorBanner message={teamPlan.error} onRetry={plan.retry} />
             )
           ) : (

@@ -9,12 +9,11 @@ import {
 } from "@devthrottle/client-core/fleetmanager/walkthroughClient";
 import {
   answerWalkthroughItem,
-  sentenceOf,
   snoozeWalkthroughItem,
   type WalkthroughActionDeps,
   type WalkthroughActResult,
 } from "@devthrottle/client-core/fleetmanager/walkthroughActions";
-import { errorFacts, reportClientError } from "@devthrottle/client-core/errors/reportClientError";
+import { backgroundRecovered, describeAndReport, reportShownError } from "@devthrottle/client-core/errors/reportClientError";
 import { useVisiblePolling } from "@devthrottle/client-core/polling/useVisiblePolling";
 import { Button, ConfirmDialog } from "../components";
 import { OutcomeCard } from "./OutcomeCard";
@@ -68,11 +67,11 @@ export function WalkthroughView({ deps }: WalkthroughViewProps) {
       roundRef.current = next.roundIds;
       setData(next);
       setLoadError(null);
+      backgroundRecovered(SURFACE, "read the walkthrough");
       return next;
     } catch (err) {
       if (signal?.aborted) return null;
-      setLoadError(sentenceOf(err));
-      reportClientError({ surface: SURFACE, action: "read the walkthrough", message: sentenceOf(err), user_visible: true, ...errorFacts(err) });
+      setLoadError(describeAndReport(SURFACE, "read the walkthrough", err, { background: true }));
       return null;
     }
   }, []);
@@ -266,15 +265,14 @@ function WalkthroughItemPanel({ item, deps, onSettled, onSkip }: ItemPanelProps)
   const answer = item.answer ?? null;
   const sessionId = item.sessionId ?? "";
 
-  const finish = (result: WalkthroughActResult, what: string) => {
+  // The Gateway's own sentence is shown, and reported with the original error's facts.
+  const finishWalkthroughAct = (result: WalkthroughActResult, what: string) => {
     if (result.kind === "refused") {
-      reportClientError({ surface: SURFACE, action: what, message: `${what} ${item.id}: ${result.sentence}`, user_visible: true });
-      setRefusal(result.sentence);
+      setRefusal(reportShownError(SURFACE, `${what} the item`, result.sentence, { sessionId }, result.cause));
       return;
     }
     if (result.kind === "record-failed") {
-      reportClientError({ surface: SURFACE, action: `record ${what}`, message: `record ${what} ${item.id}: ${result.sentence}`, user_visible: true });
-      setRecordFailed(result.sentence);
+      setRecordFailed(reportShownError(SURFACE, `record the ${what}`, result.sentence, { sessionId }, result.cause));
       return;
     }
     onSettled(result.sentence.length > 0 ? result.sentence : null);
@@ -287,7 +285,7 @@ function WalkthroughItemPanel({ item, deps, onSettled, onSkip }: ItemPanelProps)
     setRecordFailed(null);
     const result = await answerWalkthroughItem(sessionId, item.id, answer.verdictId, indexes, deps);
     setBusy(false);
-    finish(result, "answer");
+    finishWalkthroughAct(result, "answer");
   };
 
   const snooze = async () => {
@@ -297,7 +295,7 @@ function WalkthroughItemPanel({ item, deps, onSettled, onSkip }: ItemPanelProps)
     setRecordFailed(null);
     const result = await snoozeWalkthroughItem(sessionId, item.id, item.snooze.minutes, deps);
     setBusy(false);
-    finish(result, "snooze");
+    finishWalkthroughAct(result, "snooze");
   };
 
   // Thrown errors stay in the confirmation window (ConfirmDialog shows them); a success closes it and moves on.
@@ -393,6 +391,7 @@ function WalkthroughItemPanel({ item, deps, onSettled, onSkip }: ItemPanelProps)
             </div>
           )}
           {recordFailed !== null && (
+            // error-reported-by: finishWalkthroughAct
             <div className="fmw-refusal" role="alert">
               {answer.recordFailedLead} {recordFailed}
             </div>
@@ -469,8 +468,9 @@ function SessionScreen({ sessionId, lines, loadingText, label }: { sessionId: st
         try {
           setText(await readSessionLines(sessionId, lines, signal));
           setError(null);
+          backgroundRecovered(SURFACE, "read the session's screen");
         } catch (err) {
-          if (!signal.aborted) setError(sentenceOf(err));
+          if (!signal.aborted) setError(describeAndReport(SURFACE, "read the session's screen", err, { sessionId, background: true }));
         }
       },
       [sessionId, lines],

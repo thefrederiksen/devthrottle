@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import {
   cancelTeamPlan,
   renewTeamPlan,
@@ -8,6 +7,9 @@ import {
   type TeamBill,
 } from "@devthrottle/client-core/teams/teamPageClient";
 import { Button, ConfirmDialog } from "../components";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-team-billing";
 
 // The Billing section of the Team page (Teams v1, the team bill without Stripe). The Owner starts the plan, renews it,
 // switches auto-renew and cancels; a Manager sees the same bill read-only; a Developer never gets this section (the
@@ -37,7 +39,7 @@ export function TeamBillingSection({ teamId, bill, onChanged }: TeamBillingSecti
       await setTeamPlanAutoRenew(teamId, !bill.autoRenew);
       await onChanged(bill.autoRenew ? "Auto-renew is off. The team plan ends at the end of this period." : "Auto-renew is on.");
     } catch (err) {
-      setError(gatewayErrorMessage(err, bill.autoRenew ? "switch auto-renew off" : "switch auto-renew on"));
+      setError(describeAndReport(SURFACE, bill.autoRenew ? "switch auto-renew off" : "switch auto-renew on", err));
     } finally {
       setBusy(false);
     }

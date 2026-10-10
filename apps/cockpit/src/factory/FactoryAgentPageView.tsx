@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import { getFactoryAgent, type FactoryAgentPage } from "@devthrottle/client-core/factory/factoryAgentsClient";
 import { ErrorBanner, LoadingState } from "../components";
 import { ActivityTable, NumberPill, PauseButton, ToneChip } from "./FactoryParts";
 import "./factory.css";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-factory-agent";
 
 // One factory agent (Screen 2). Read-only: the only controls are Pause / Resume and "Ask the Fleet Manager to
 // change it", which opens the Fleet Manager page with the request written and sends nothing by itself.
@@ -22,7 +24,7 @@ export function FactoryAgentPageView() {
     const ctrl = new AbortController();
     setError(null);
     getFactoryAgent(factory, agent, ctrl.signal).then(setPage, (err: unknown) => {
-      if (!ctrl.signal.aborted) setError(gatewayErrorMessage(err, "load this factory agent"));
+      if (!ctrl.signal.aborted) setError(describeAndReport(SURFACE, "load this factory agent", err));
     });
     return () => ctrl.abort();
   }, [factory, agent, nonce]);

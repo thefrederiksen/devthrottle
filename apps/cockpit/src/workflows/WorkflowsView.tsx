@@ -11,9 +11,14 @@ import {
   type WorkflowDefinition,
   type WorkflowRunSummary,
 } from "@devthrottle/client-core/workflows/workflowsClient";
-import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import { markdownToHtml } from "@devthrottle/client-core/history/historyMarkdown";
 import { Button, ConfirmDialog, ErrorBanner, LoadingState, useDismissOnBackdrop } from "../components";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+import { ClipboardRefusedError } from "../components/clipboardFailure";
+
+const SURFACE = "cockpit-workflows";
+// A page the browser does not trust has no clipboard at all; there is no error object to pass on.
+const NO_CLIPBOARD = "this page has no clipboard - the browser offers one only on a trusted address";
 
 // The Workflows REGISTER (register redesign, approved mockup direction A). Workflows are the rules
 // this fleet works by, and the page reads with that weight: a ledger, not cards. One row per
@@ -53,7 +58,7 @@ export function WorkflowsView() {
       }
     } catch (err) {
       if (signal?.aborted === true) return;
-      setError(gatewayErrorMessage(err));
+      setError(describeAndReport(SURFACE, "load the workflows", err));
     }
   }, []);
 
@@ -83,7 +88,7 @@ export function WorkflowsView() {
     try {
       await setWorkflowEnabled(workflow.id, enabled, "cockpit");
     } catch (err) {
-      setError(gatewayErrorMessage(err));
+      setError(describeAndReport(SURFACE, enabled ? "turn the workflow on" : "turn the workflow off", err));
       return;
     }
     await load();
@@ -213,7 +218,7 @@ export function WorkflowsView() {
             const clone = await cloneWorkflow(pendingClone.id, `${pendingClone.id}-copy`, "cockpit");
             navigate(`/workflows/${encodeURIComponent(clone.id)}`);
           } catch (err) {
-            setError(gatewayErrorMessage(err));
+            setError(describeAndReport(SURFACE, "clone the workflow", err));
           }
         }}
         onClose={() => setPendingClone(null)}
@@ -247,7 +252,7 @@ function WorkflowPreviewDialog({
     getWorkflowInstructions(workflow.id, workflow.version, ctrl.signal).then(
       (md) => setInstructions(md),
       (err) => {
-        if (!ctrl.signal.aborted) setError(gatewayErrorMessage(err));
+        if (!ctrl.signal.aborted) setError(describeAndReport(SURFACE, "read the workflow", err));
       },
     );
     return () => ctrl.abort();
@@ -459,7 +464,7 @@ function AddWorkflowDialog({ onClose, onCreated }: { onClose: () => void; onCrea
       setCreatedId(draft.workflowId);
       onCreated();
     } catch (err) {
-      setError(gatewayErrorMessage(err));
+      setError(describeAndReport(SURFACE, "create the workflow", err));
     } finally {
       setBusy(false);
     }
@@ -526,8 +531,11 @@ function AddWorkflowDialog({ onClose, onCreated }: { onClose: () => void; onCrea
                 onClick={() => {
                   navigator.clipboard?.writeText(handoff).then(
                     () => setCopied(true),
-                    () => setError("Copy failed - select the text above and copy it manually."),
-                  ) ?? setError("Copy is unavailable here - select the text above and copy it manually.");
+                    (err: unknown) => setError(`${describeAndReport(SURFACE, "copy the prompt", new ClipboardRefusedError(err))} Select the text above and copy it manually.`),
+                  ) ??
+                    setError(
+                      `${describeAndReport(SURFACE, "copy the prompt", new ClipboardRefusedError(NO_CLIPBOARD))} Select the text above and copy it manually.`,
+                    );
                 }}
               >
                 {copied ? "Copied" : "Copy prompt"}

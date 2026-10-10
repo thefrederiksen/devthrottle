@@ -13,12 +13,21 @@ const cronClient = vi.hoisted(() => ({
 }));
 vi.mock("@devthrottle/client-core/schedule/scheduleClient", () => cronClient);
 
-// The editor reads the machines for its machine picker as it opens; nothing here is about that picker.
+// The editor reads the machines for its machine picker as it opens; only the last describe block is about that picker.
+const fleet = vi.hoisted(() => ({ getFleetDirectors: vi.fn() }));
 vi.mock("@devthrottle/client-core/fleet/fleetClient", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@devthrottle/client-core/fleet/fleetClient")>()),
-  getFleetDirectors: vi.fn(async () => []),
+  getFleetDirectors: fleet.getFleetDirectors,
   getSessionsEnvelope: vi.fn(async () => ({ sessions: [], machineErrors: [], directors: [] })),
 }));
+
+// The real describeAndReport, watched: what the editor shows is its sentence, and the test can see what was reported.
+const reported = vi.hoisted(() => ({ describeAndReport: vi.fn() }));
+vi.mock("@devthrottle/client-core/errors/reportClientError", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@devthrottle/client-core/errors/reportClientError")>();
+  reported.describeAndReport.mockImplementation(actual.describeAndReport);
+  return { ...actual, describeAndReport: reported.describeAndReport };
+});
 
 import { ScheduleEditor } from "./ScheduleEditor";
 import type { CronJob } from "@devthrottle/client-core/schedule/scheduleClient";
@@ -70,6 +79,7 @@ beforeEach(() => {
   cleanup();
   vi.clearAllMocks();
   cronClient.getSeatChoices.mockResolvedValue(CHOICES);
+  fleet.getFleetDirectors.mockResolvedValue([]);
 });
 
 describe("ScheduleEditor factory and seat picker", () => {
@@ -141,7 +151,26 @@ describe("ScheduleEditor factory and seat picker", () => {
     const onSaved = openOn(personal);
 
     expect((await screen.findByText(/Could not read the factories/)).textContent).toContain("the registry could not be read");
+    expect(reported.describeAndReport).toHaveBeenCalledWith("cockpit-schedule-editor", "read the factories", expect.any(GatewayError));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
+  });
+});
+
+// The machine picker is filled from the Gateway's Directors and sessions as the editor opens. When that read fails,
+// the picker says why instead of "no machines known", and the failure is reported (the step 3 rulings, R12) - it is
+// never swallowed.
+describe("ScheduleEditor machine picker", () => {
+  it("loadDirectors_ReadFails_PickerSaysWhyAndTheFailureIsReported", async () => {
+    const failure = new GatewayError(500, "GET /fleet/directors failed", { reason: "the Gateway fell over (fake)" });
+    fleet.getFleetDirectors.mockRejectedValue(failure);
+    render(<ScheduleEditor request={{ kind: "create", timeZone: "UTC" }} onClose={vi.fn()} onSaved={vi.fn()} />);
+
+    fireEvent.click(await screen.findByText("Choose..."));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("the Gateway fell over (fake)");
+    expect(screen.queryByText("No machines known to this Gateway yet.")).toBeNull();
+    expect(reported.describeAndReport).toHaveBeenCalledWith("cockpit-schedule-editor", "read the machines for the picker", failure);
   });
 });

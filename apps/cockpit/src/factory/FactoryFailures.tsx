@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import {
   markFactoryFailureHandled,
   type FactoryFailureItem,
   type FactoryPageFailures,
 } from "@devthrottle/client-core/factory/factoriesScreenClient";
 import { Button } from "../components";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-factory-failures";
 
 // What is failing on a factory's page (Factories screen round 2): where the list's FAILING word links to
 // (#failing). Every word is the Gateway's (FactoriesScreenFold); "Handled" appends a NEW row that corrects the
@@ -62,7 +64,7 @@ function FailureItem({ factory, item, onHandled }: { factory: string; item: Fact
                 await markFactoryFailureHandled(factory, id);
                 onHandled();
               } catch (err) {
-                setError(gatewayErrorMessage(err, "mark it handled"));
+                setError(describeAndReport(SURFACE, "mark it handled", err));
               } finally {
                 setBusy(false);
               }

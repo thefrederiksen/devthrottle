@@ -5,6 +5,9 @@ import { dotColor, dotHex, effectiveColor, stateLabel } from "@devthrottle/clien
 import { setMissionWhy, type MissionDto } from "@devthrottle/client-core/missions/missions";
 import { repoBasename, relativeTime } from "../fleet/format";
 import { groupByMission, splitEmptyMissions, type MissionGroup } from "./missionGrouping";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-missions";
 
 // The Missions board (issue #1405): the same live fleet the Fleet Map draws, seen the way the owner
 // actually thinks about the work - grouped into MISSIONS rather than machines or repos. A mission is the
@@ -300,7 +303,7 @@ function WhySlot({ missionId, why, onSave }: WhySlotProps) {
       await onSave(missionId, draft);
       setEditing(false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not save the why");
+      setError(describeAndReport(SURFACE, "save the why", e));
     } finally {
       setSaving(false);
     }

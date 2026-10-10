@@ -24,10 +24,12 @@ import {
   type InputHour,
 } from "@devthrottle/client-core/stats/statsClient";
 import { ThrottleWindowSelector } from "@devthrottle/client-core/stats/ThrottleWindowSelector";
-import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import { ReposTab } from "./ReposTab";
 import { AgentsTab } from "./AgentsTab";
 import { TABS, DEFAULT_TAB, isThrottleTab, type ThrottleTab } from "./throttleTabs";
+import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "cockpit-throttle";
 
 // The "Your Throttle" page: the in-Cockpit view of how the owner drives the fleet - spoken vs typed, and
 // from phone vs desktop vs cockpit - over the GET /stats/data feed. Responsive (CodingStyle.md): renders
@@ -108,9 +110,10 @@ export function YourThrottleView() {
         if (controller.signal.aborted) return;
         setData(fresh);
         setError(null);
+        backgroundRecovered(SURFACE, "read your throttle");
       } catch (err) {
         if (controller.signal.aborted) return;
-        setError(gatewayErrorMessage(err));
+        setError(describeAndReport(SURFACE, "read your throttle", err, { background: true }));
       } finally {
         if (!controller.signal.aborted) timer = setTimeout(() => void tick(), REFRESH_MS);
       }

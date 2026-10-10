@@ -281,7 +281,9 @@ describe("the invite form (S2)", () => {
     fireEvent.change(await screen.findByLabelText("Email"), { target: { value: "rob@any-domain.io" } });
     fireEvent.click(screen.getByRole("button", { name: "Send invitation" }));
     fireEvent.click(await screen.findByRole("button", { name: "Copy invitation link" }));
-    expect(await screen.findByText("The browser would not copy it. Select the link above and copy it yourself.")).toBeTruthy();
+    // The refusal is reported (describeAndReport) and said in place, with the way round it.
+    const refusal = await screen.findByText(/Select the link above and copy it yourself\./);
+    expect(refusal.textContent).toContain("the browser did not allow copying to the clipboard");
 
     fireEvent.click(screen.getByRole("button", { name: "Resend" }));
     expect(await screen.findByText(noAddress)).toBeTruthy();
