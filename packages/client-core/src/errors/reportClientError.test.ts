@@ -178,6 +178,24 @@ describe("reporting: what a report carries, and the queue", () => {
     await vi.waitFor(() => expect(lostReportCount()).toBe(0));
   });
 
+  it("a lost-count row the Gateway refuses does not pin the queue: the count is dropped and the queue drains", async () => {
+    online = false;
+    for (let i = 0; i < MAX_QUEUED_REPORTS + 2; i++) {
+      reportClientError({ surface: "s", action: "a", message: `m${i}`, user_visible: false });
+    }
+    expect(lostReportCount()).toBe(2);
+
+    online = true;
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ error: "no account is bound to this request" }), { status: 403 }));
+    installGlobalErrorReporting("mobile");
+
+    await vi.waitFor(() => expect(lostReportCount()).toBe(0));
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining("the count of 2 lost error reports was refused"));
+    // The rows behind it go out in the same drain, up to the client's per-minute cap.
+    await vi.waitFor(() => expect(posted().filter((b) => b.action === "a").length).toBeGreaterThan(0));
+    expect(posted()[0].action).toBe("report errors");
+  });
+
   it("the queue survives a page reload and goes out when the shell starts again", async () => {
     online = false;
     reportClientError({ surface: "s", action: "a", message: "from before the reload", user_visible: true });

@@ -189,7 +189,10 @@ export async function flushQueue(): Promise<void> {
         message: `${count} error reports were lost before they could be sent`,
         user_visible: false,
       }, { queueOnFailure: false });
-      if (outcome !== "sent") return;
+      if (outcome === "retry") return;
+      // Sent, or refused for good - the same rule as every queued row, so a refused count cannot pin the queue
+      // behind it (review finding 4). A refusal is already on the console; the count goes with it.
+      if (outcome === "refused") console.error(`[client-errors] the count of ${count} lost error reports was refused and is dropped`);
       lost -= count;
       saveQueue();
     }
