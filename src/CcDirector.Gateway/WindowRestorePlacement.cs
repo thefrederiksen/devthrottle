@@ -48,7 +48,7 @@ internal static class WindowRestorePlacement
         if (WindowSchedule.Parse(job.CronExpression).Settings is null || CronSchedule.FindZone(job.TimeZoneId) is null)
         {
             FileLog.Write($"[WindowRestorePlacement] {job.Id} '{job.Name}': settings or time zone unreadable, not placed");
-            return $"'{job.Name}' is switched on but has no time to run: its window settings or time zone cannot be read. Edit it on the Schedule page.";
+            return $"'{job.Name}' is switched on but has no time to run: its window settings or time zone cannot be read. Edit it on its factory's Seats tab.";
         }
         var all = store.ListAll(tenant);
         var (expression, error) = WindowSchedule.PlaceAgain(job, all, runLengthsOf(all.Select(j => j.Id).ToList()), nowUtc);
