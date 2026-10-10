@@ -262,7 +262,7 @@ export function scanSource(
     const close = matchingClose(src, open);
     if (close < 0) continue;
     const value = src.slice(open + 1, close);
-    if (namesAFailure(value, src)) addCall(m.index!, "terminal", m[1], value);
+    if (namesAFailure(value, src, m.index!)) addCall(m.index!, "terminal", m[1], value);
   }
 
   // Any setter inside a catch that shows the caught error.
@@ -357,13 +357,16 @@ export function scanSource(
 const FAILURE_WORDS = /\b(?:cannot|can't|could not|failed|failure|error|lost|down|closed|refused|unreachable|offline|denied)\b/i;
 
 /** Whether a terminal write names a failure: its literal text says so, it shows a caught error's message, or a
- *  variable it writes was built from such text (`const shown = "cannot open stream: " + ...; statusLine(shown)`). */
-function namesAFailure(value: string, src: string): boolean {
+ *  variable it writes was built from such text (`const shown = "cannot open stream: " + ...; statusLine(shown)`).
+ *  The variable is the NEAREST declaration of that name before the write (`at`), not the first in the file - an
+ *  earlier `shown` of progress text must not hide a later one naming a failure (the 3c re-review, weakness H). */
+function namesAFailure(value: string, src: string, at: number): boolean {
   const literals = [...value.matchAll(/"((?:[^"\\\n]|\\.)*)"|'((?:[^'\\\n]|\\.)*)'|`((?:[^`\\]|\\.)*)`/g)].map((l) => l[1] ?? l[2] ?? l[3]);
   if (literals.some((l) => FAILURE_WORDS.test(l)) || /\.message\b/.test(value)) return true;
+  const before = src.slice(0, at);
   return [...value.matchAll(/(?<![\w$.])([A-Za-z_$][\w$]*)(?![\w$]*\s*\()/g)].some(([, name]) => {
-    const made = new RegExp(`(?:const|let|var)\\s+${escape(name)}\\s*(?::[^=]+)?=\\s*([^;]*)`).exec(src);
-    return made !== null && namesAFailure(made[1], "");
+    const made = [...before.matchAll(new RegExp(`(?:const|let|var)\\s+${escape(name)}\\s*(?::[^=]+)?=\\s*([^;]*)`, "g"))].pop();
+    return made !== undefined && namesAFailure(made[1], "", 0);
   });
 }
 

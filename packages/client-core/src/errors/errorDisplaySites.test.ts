@@ -480,3 +480,14 @@ describe("an updater carrying a variable into an error member (the 3c review, fi
     expect(scan(src)).toEqual([]);
   });
 });
+
+describe("a terminal write's variable is resolved where it is written (the 3c re-review, weakness H)", () => {
+  it("scanSource_LaterVariableNamingAFailure_IsASiteThoughAnEarlierOneIsProgress", () => {
+    const src = [
+      `function connect() {\n  const shown = "connecting via gateway...";\n  this.statusLine(shown);\n}`,
+      `function fail() {\n  const shown = "cannot open stream";\n  this.statusLine(shown);\n}`,
+    ].join("\n");
+
+    expect(bad(src).map((s) => s.line)).toEqual([7]);
+  });
+});

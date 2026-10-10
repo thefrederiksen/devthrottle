@@ -350,6 +350,55 @@ describe("the dictation Send red box is reported (the Error Logging mission, iss
   });
 });
 
+describe("a parked recording is reported where the park is decided (the 3c re-review)", () => {
+  // A park is a Send that stopped for good, and the person sees it. Every park is reported, each recording its own;
+  // showing a recorded park again on resume is not a new failure. (A background report under one key reported only
+  // the first park of each kind for the life of the page.)
+  const reportBodies = () =>
+    vi
+      .mocked(fetch)
+      .mock.calls.filter(([url]) => url === "/client-errors")
+      .map(([, init]) => JSON.parse(String((init as RequestInit).body)) as Record<string, unknown>);
+
+  beforeEach(() => {
+    resetReportingForTests();
+    setReportingComponent("mobile");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 202 })));
+    vi.mocked(uploadDictationToSession).mockResolvedValue(PERMANENT);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("two recordings parked for the same reason are two reports, one per session", async () => {
+    await backgroundTranscribeAndSend("session-A", captured);
+    await vi.advanceTimersByTimeAsync(1500);
+    await backgroundTranscribeAndSend("session-B", captured);
+    await vi.advanceTimersByTimeAsync(1500);
+
+    expect(allDictationStatuses().filter((s) => s.phase === "parked")).toHaveLength(2);
+    expect(reportBodies().map((r) => [r.action, r.session_id])).toEqual([
+      ["send prompt", "session-A"],
+      ["send prompt", "session-B"],
+    ]);
+  });
+
+  it("a parked recording shown again on resume is not reported again", async () => {
+    await backgroundTranscribeAndSend("session-A", captured);
+    await vi.advanceTimersByTimeAsync(1500);
+    const saved = vi.mocked(savePending).mock.calls[0][0];
+    vi.mocked(listPending).mockResolvedValue([{ ...saved, parkedReason: "audio-too-large" }]);
+    const before = reportBodies().length;
+
+    await resumePendingDictations();
+    await vi.advanceTimersByTimeAsync(1500);
+
+    expect(allDictationStatuses().find((s) => s.uploadId === saved.id)?.phase).toBe("parked");
+    expect(reportBodies()).toHaveLength(before);
+  });
+});
+
 describe("resumePendingDictations", () => {
   it("re-drives every pending clip from the durable copy with resumed=true, deleting delivered ones", async () => {
     const a = makeRecord("id-a");

@@ -401,7 +401,7 @@ export async function resumePendingDictations(): Promise<void> {
         return Promise.resolve();
       }
       if (rec.parkedReason) {
-        publishParked(rec, rec.parkedReason);
+        republishParked(rec, rec.parkedReason);
         return Promise.resolve();
       }
       if (!rec.abandoning) _readBeforeUpload.add(rec.id);
@@ -822,7 +822,7 @@ async function driveRecord(rec: PendingDictation, opts: DriveOptions): Promise<v
         // Persisting the parked flag failed (durable store hiccup): the in-memory return below still stops
         // THIS drive; a later trigger may re-attempt, which simply re-parks. We never re-drive in a tight loop.
       }
-      publishParked(rec, reason);
+      parkDictation(rec, reason);
       return;
     }
 
@@ -871,7 +871,7 @@ async function driveById(id: string, opts: DriveOptions): Promise<void> {
     // Parked between scheduling and firing (issue #1184): never auto-drive it. Defensive - a parked clip is
     // never given a timer, so this should not normally be reached.
     clearScheduled(id);
-    publishParked(rec, rec.parkedReason);
+    republishParked(rec, rec.parkedReason);
     return;
   }
   await driveRecord(rec, opts);
@@ -987,7 +987,7 @@ async function applyOwnedOutcome(rec: PendingDictation, read: DictationOutcomeRe
     // The clip can never be transcribed: the Gateway handed it back parked, exactly as the complete's 422
     // always did. The recording is kept on the device and only an explicit Retry re-drives it.
     const handed = await clearOwnedMark({ ...rec, parkedReason: read.reason });
-    publishParked(handed, read.reason);
+    parkDictation(handed, read.reason);
     return;
   }
   if (read.kind === "incomplete") {
@@ -1143,16 +1143,30 @@ function failDictation(sessionId: string, uploadId: string, message: string, cau
   return shown;
 }
 
-// Publish the parked (permanent-failure) status: saved-and-retryable, with an explicit Retry (retryable
-// true) and no auto-loop behind it (issue #1184). The send has stopped for good, so it is reported as the Send failure
-// it is - a background report, because a parked clip is published again each time the page resumes it.
-function publishParked(rec: PendingDictation, reason: string): void {
+// Park a dictation (issue #1184): the parked status is saved-and-retryable, with an explicit Retry (retryable true)
+// and no auto-loop behind it. This is where a park is DECIDED, so it is reported as the Send failure it is - every
+// park, each recording its own (the 3c re-review: a background report under one key reported only the first of each
+// kind for the life of the page).
+function parkDictation(rec: PendingDictation, reason: string): void {
   publishDictationStatus({
     sessionId: rec.sessionId,
     uploadId: rec.id,
     phase: "parked",
     retryable: true,
-    error: reportShownError("dictation", "send prompt", parkMessage(reason), { sessionId: rec.sessionId, background: true }),
+    error: reportShownError("dictation", "send prompt", parkMessage(reason), { sessionId: rec.sessionId }),
+  });
+}
+
+// Show a park decided earlier again - a resume after a page load, or the defensive guard on a fired timer. It was
+// reported when it was decided (parkDictation); showing it again is not a new failure.
+function republishParked(rec: PendingDictation, reason: string): void {
+  publishDictationStatus({
+    sessionId: rec.sessionId,
+    uploadId: rec.id,
+    phase: "parked",
+    retryable: true,
+    // error-report-exempt: a park decided and reported earlier (parkDictation), shown again on resume - not a new failure
+    error: parkMessage(reason),
   });
 }
 
