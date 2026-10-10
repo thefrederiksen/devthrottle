@@ -154,6 +154,22 @@ def test_scrub_escaped_and_network_home_paths_lose_the_name(text):
     assert "robert" not in scrubbed and "SOREN_NORTH" not in scrubbed and "~" in scrubbed
 
 
+def test_scrub_forward_slash_windows_home_becomes_tilde():
+    assert tool_errors.scrub_text("C:/Users/robert/AppData/Local/x") == "~/AppData/Local/x"
+
+
+def test_scrub_id_output_loses_the_names():
+    assert tool_errors.scrub_text("uid=501(robert) gid=20(staff) groups=20(staff),12(everyone)") == "uid=501 gid=20 groups=20,12"
+
+
+def test_scrub_on_this_machine_replaces_the_machine_and_user_names_first():
+    text = r"open C:\Users\Robert Smith\x.txt on ROBERT-PC FAILED"
+    assert tool_errors.scrub_on_this_machine(text, "Robert Smith", "ROBERT-PC") == r"open ~\x.txt on <machine> FAILED"
+    assert tool_errors.scrub_on_this_machine("Roberts-MacBook-Pro: robert denied", "robert", "Roberts-MacBook-Pro") \
+        == "<machine>: <user> denied"
+    assert tool_errors.scrub_on_this_machine("me and jo", "jo", "me") == "me and jo", "short names are not replaced"
+
+
 def test_clean_drops_control_characters_and_caps():
     assert tool_errors.clean_text("a\u0007b\nc\td-" + " ".join(["xx"] * 50), 10) == "ab\nc\td-xx"
 
@@ -387,7 +403,7 @@ def test_full_outbox_counts_what_it_could_not_keep(root, gw, monkeypatch):
     sent = tool_errors.flush(box, tool_errors.resolve_credential())
     batch = gw.requests[0]["body"]["reports"]
     assert len(batch) == tool_errors.MAX_REPORTS_PER_BATCH
-    assert batch[-1]["kind"] == "outbox-full" and batch[-1]["repeat_count"] == 3
+    assert batch[-1]["kind"] == "outbox-dropped" and batch[-1]["repeat_count"] == 3
     assert sent == tool_errors.MAX_REPORTS_PER_BATCH
     assert box.not_kept_markers() == []
 

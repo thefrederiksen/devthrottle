@@ -103,10 +103,15 @@ MIN_ARGUMENT_CHARS = 3
 
 # --- Scrubbing: a port of CcDirector.Core.ErrorReports.ErrorTextScrubber -------------------------
 
+# The same home folder written with forward slashes ("C:/Users/robert/..."), taken before the Mac rule.
+_WINDOWS_HOME_FORWARD = re.compile(r"[A-Za-z]:/{1,2}Users/{1,2}[^/\s\"']+", re.IGNORECASE)
 _MAC_HOME = re.compile(r"/Users/[^/\s\"']+")
 _LINUX_HOME = re.compile(r"/home/[^/\s\"']+")
 _WINDOWS_HOME = re.compile(r"[A-Za-z]:\\{1,2}Users\\{1,2}[^\\\s\"']+", re.IGNORECASE)
 _UNC_HOME = re.compile(r"\\{2,4}[^\\\s\"']+\\{1,2}(?:[A-Za-z]\$\\{1,2})?Users\\{1,2}[^\\\s\"']+", re.IGNORECASE)
+# The output of the Unix "id" command: uid=501(robert) gid=20(staff) - the names in brackets go.
+_ID_OUTPUT = re.compile(r"\b(?:uid|gid|euid|egid|groups)=\d+\([^)\r\n]*\)(?:,\d+\([^)\r\n]*\))*")
+_ID_NAME = re.compile(r"\([^)\r\n]*\)")
 _IDENTIFIER = re.compile(r"^[A-Z][a-z]+(?:[A-Z][a-z]+)*(?:_[A-Z][a-z]+(?:[A-Z][a-z]+)*)*$")
 _BEARER = re.compile(r"(?i)\bbearer\s+[^\s\"']+")
 _NAMED_SECRET = re.compile(r"(?i)\b(token|key|apikey|api_key|secret|password|pwd|authorization)(\s*[=:]\s*)[^\s\"'&,;]+")
@@ -138,10 +143,12 @@ def scrub_text(value: Optional[str]) -> str:
     """Home folders to "~" and credential-shaped values to <redacted>. No length cap."""
     if not value:
         return ""
-    s = _MAC_HOME.sub("~", value)
+    s = _WINDOWS_HOME_FORWARD.sub("~", value)
+    s = _MAC_HOME.sub("~", s)
     s = _LINUX_HOME.sub("~", s)
     s = _UNC_HOME.sub("~", s)
     s = _WINDOWS_HOME.sub("~", s)
+    s = _ID_OUTPUT.sub(lambda m: _ID_NAME.sub("", m.group(0)), s)
     s = _BEARER.sub("Bearer " + REDACTED, s)
     s = _NAMED_SECRET.sub(lambda m: m.group(1) + m.group(2) + REDACTED, s)
     text = s
@@ -151,12 +158,44 @@ def scrub_text(value: Optional[str]) -> str:
     )
 
 
+USER_PLACEHOLDER = "<user>"
+MACHINE_PLACEHOLDER = "<machine>"
+#: A user or machine name shorter than this is not replaced: a two-letter name as a whole word would take
+#: ordinary words out of every message (ErrorTextScrubber.MinNameLength).
+MIN_NAME_LENGTH = 3
+
+
+def _replace_whole_word(text: str, name: Optional[str], placeholder: str) -> str:
+    if not name or not name.strip() or len(name.strip()) < MIN_NAME_LENGTH:
+        return text
+    pattern = r"(?<![A-Za-z0-9_])" + re.escape(name.strip()) + r"(?![A-Za-z0-9_])"
+    return re.sub(pattern, placeholder, text, flags=re.IGNORECASE)
+
+
+def scrub_on_this_machine(value: Optional[str], user_name: Optional[str] = None,
+                          machine: Optional[str] = None) -> str:
+    """ErrorTextScrubber.ScrubOnThisMachine: this machine's name, then its user name, wherever they stand as
+    whole words, and then `scrub_text`. The names go first, so a home folder like "C:/Users/Robert Smith/..." is still
+    found whole before the path rule stops at the space. Only the sender knows these names."""
+    text = _replace_whole_word(value or "", machine if machine is not None else machine_name(), MACHINE_PLACEHOLDER)
+    text = _replace_whole_word(text, user_name if user_name is not None else _user_name(), USER_PLACEHOLDER)
+    return scrub_text(text)
+
+
+def _user_name() -> str:
+    """Environment.UserName: USERNAME on Windows, the login name elsewhere."""
+    import getpass
+
+    return getpass.getuser()
+
+
 def clean_text(value: Optional[str], limit: int) -> str:
-    """Scrub, drop control characters other than newline and tab, cap at `limit`, and trim."""
+    """Scrub as this machine's sender (`scrub_on_this_machine`), drop control characters other than newline
+    and tab, cap at `limit`, and trim."""
     if not value:
         return ""
     out: List[str] = []
-    for c in scrub_text(value):
+    for c in scrub_on_this_machine(value):
         if len(out) >= limit:
             break
         if unicodedata.category(c) == "Cc" and c not in "\n\t":
@@ -771,7 +810,7 @@ def install_id() -> str:
 def _not_kept_report(count: int, template: Dict[str, Any]) -> Dict[str, Any]:
     report = dict(template)
     report.update({
-        "kind": "outbox-full",
+        "kind": "outbox-dropped",
         "message": f"{count} cc-* tool error report(s) were not kept because the outbox on disk was full.",
         "exception_type": None,
         "stack": None,
