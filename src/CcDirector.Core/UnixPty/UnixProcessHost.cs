@@ -353,31 +353,20 @@ public sealed class UnixProcessHost : IDisposable
     }
 
     /// <summary>
-    /// Build the child environment: inherit the parent's, force TERM, apply any
-    /// caller overrides, and strip parent-agent variables (same list as the
-    /// Windows ProcessHost) so a Director that was itself launched from inside a
-    /// terminal agent does not poison its children. In particular an inherited
-    /// CLAUDE_CODE_CHILD_SESSION=1 makes interactive Claude Code treat itself as
-    /// a subagent and silently skip writing its session transcript, which broke
-    /// session history on macOS. Returns a null-terminated KEY=VALUE array.
+    /// Build the child environment: inherit the parent's less what no session may inherit (the one
+    /// rule in <see cref="Sessions.InheritedSessionEnvironment"/>, shared with the Windows ProcessHost),
+    /// force TERM, then apply the caller's overrides. The strip matters: an inherited
+    /// CLAUDE_CODE_CHILD_SESSION=1 makes interactive Claude Code treat itself as a subagent and silently
+    /// skip writing its session transcript, which broke session history on macOS, and an inherited
+    /// factory folder gave a session in no factory another factory's notes. Returns a null-terminated
+    /// KEY=VALUE array.
     /// </summary>
     internal static string?[] BuildEnvironment(Dictionary<string, string>? overrides)
     {
-        var env = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (System.Collections.DictionaryEntry kv in Environment.GetEnvironmentVariables())
-        {
-            var key = (string)kv.Key;
-            if (key.Equals("CLAUDECODE", StringComparison.OrdinalIgnoreCase))
-                continue;
-            if (key.StartsWith("CLAUDE_CODE_", StringComparison.OrdinalIgnoreCase))
-                continue;
-            if (key.StartsWith("CODEX_", StringComparison.OrdinalIgnoreCase)
-                && !key.Equals("CODEX_HOME", StringComparison.OrdinalIgnoreCase))
-                continue;
-            if (key.Equals("GIT_EDITOR", StringComparison.OrdinalIgnoreCase))
-                continue;
-            env[key] = kv.Value?.ToString() ?? string.Empty;
-        }
+        // The Director's environment less what Sessions.InheritedSessionEnvironment strips: the parent
+        // agent's markers and the parent SESSION's variables (its factory's notes folder), which would
+        // otherwise be inherited by a session they do not describe.
+        var env = Sessions.InheritedSessionEnvironment.Inherited(StringComparer.Ordinal);
 
         env["TERM"] = "xterm-256color";
 

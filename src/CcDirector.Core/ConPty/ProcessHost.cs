@@ -1,4 +1,3 @@
-using System.Collections;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -103,8 +102,8 @@ public sealed class ProcessHost : IDisposable
                 lpAttributeList = attributeList
             };
 
-            // Build a Unicode environment block with CLAUDECODE removed so that
-            // Claude Code launched inside the terminal does not see itself as nested.
+            // Build a Unicode environment block: the Director's environment less what no session may
+            // inherit (Sessions.InheritedSessionEnvironment), then this session's own variables.
             var envBlock = IntPtr.Zero;
             try
             {
@@ -161,50 +160,12 @@ public sealed class ProcessHost : IDisposable
     }
 
     /// <summary>
-    /// Build a Unicode environment block from the current process environment,
-    /// stripping variables that would cause child processes to malfunction
-    /// (e.g. CLAUDECODE which prevents Claude Code from starting).
+    /// Build a Unicode environment block for the child from <see cref="BuildEnvironment"/>.
     /// The returned IntPtr must be freed with Marshal.FreeHGlobal.
     /// </summary>
     private static IntPtr BuildEnvironmentBlock(Dictionary<string, string>? extraVars = null)
     {
-        var vars = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (DictionaryEntry entry in Environment.GetEnvironmentVariables())
-        {
-            var key = entry.Key as string;
-            var value = entry.Value as string;
-            if (key is null || value is null)
-                continue;
-            // Strip parent-agent environment variables to prevent nested
-            // detection and session/thread ID conflicts when Director is
-            // itself being driven from a terminal agent.
-            if (key.Equals("CLAUDECODE", StringComparison.OrdinalIgnoreCase))
-                continue;
-            if (key.StartsWith("CLAUDE_CODE_", StringComparison.OrdinalIgnoreCase))
-                continue;
-            if (key.StartsWith("CODEX_", StringComparison.OrdinalIgnoreCase)
-                && !key.Equals("CODEX_HOME", StringComparison.OrdinalIgnoreCase))
-                continue;
-            if (key.Equals("GIT_EDITOR", StringComparison.OrdinalIgnoreCase))
-                continue;
-            vars[key] = value;
-        }
-
-        // Enable 24-bit color output from CLI tools
-        vars["COLORTERM"] = "truecolor";
-
-        // Identify as a modern xterm-compatible terminal so CLI tools (notably
-        // Claude Code) take their full-featured rendering path rather than a
-        // minimal fallback that emits token-boundary artifacts into the byte stream.
-        vars["TERM"] = "xterm-256color";
-        vars["TERM_PROGRAM"] = "cc-director";
-
-        // Inject extra variables (e.g. CC_SESSION_ID)
-        if (extraVars != null)
-        {
-            foreach (var kvp in extraVars)
-                vars[kvp.Key] = kvp.Value;
-        }
+        var vars = BuildEnvironment(extraVars);
 
         // Format: KEY=VALUE\0KEY=VALUE\0\0  (double-null terminated)
         var sb = new StringBuilder();
@@ -219,6 +180,37 @@ public sealed class ProcessHost : IDisposable
         var ptr = Marshal.AllocHGlobal(byteCount);
         Marshal.Copy(block.ToCharArray(), 0, ptr, block.Length);
         return ptr;
+    }
+
+    /// <summary>
+    /// The variables the child is started with: the Director's environment with the variables
+    /// <see cref="Sessions.InheritedSessionEnvironment"/> strips removed, the terminal identity this host
+    /// always sets, then the caller's variables on top. Windows variable names are case-insensitive, so the
+    /// set is too: a caller's <c>Path</c> replaces the inherited <c>PATH</c> rather than sitting beside it.
+    /// </summary>
+    internal static SortedDictionary<string, string> BuildEnvironment(Dictionary<string, string>? extraVars = null)
+    {
+        var vars = new SortedDictionary<string, string>(
+            Sessions.InheritedSessionEnvironment.Inherited(StringComparer.OrdinalIgnoreCase),
+            StringComparer.OrdinalIgnoreCase);
+
+        // Enable 24-bit color output from CLI tools
+        vars["COLORTERM"] = "truecolor";
+
+        // Identify as a modern xterm-compatible terminal so CLI tools (notably
+        // Claude Code) take their full-featured rendering path rather than a
+        // minimal fallback that emits token-boundary artifacts into the byte stream.
+        vars["TERM"] = "xterm-256color";
+        vars["TERM_PROGRAM"] = "cc-director";
+
+        // The session's own variables: CC_SESSION_ID, a factory session's notes folder, an agent's credentials.
+        if (extraVars != null)
+        {
+            foreach (var kvp in extraVars)
+                vars[kvp.Key] = kvp.Value;
+        }
+
+        return vars;
     }
 
     /// <summary>
