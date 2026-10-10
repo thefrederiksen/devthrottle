@@ -21,19 +21,16 @@ internal static class PromptPathErrorContext
     public const string PromptVerb = "prompt";
     public const string CreateVerb = "create";
 
-    /// <summary>What the user was doing when a <c>create</c> command's first prompt failed.</summary>
-    public const string StartSessionAction = "start a session with its first prompt";
-
     /// <summary>
-    /// The context for <paramref name="command"/>, or null for a verb that sends no prompt. Every row it covers is marked
-    /// NOT user-visible: the one row a person sees, the failed delivery, marks itself
-    /// (<see cref="PromptDeliveryFailures.RecordFailedDelivery"/>).
+    /// The context for <paramref name="command"/>, or null for a verb that sends no prompt. It carries only the ids every
+    /// row shares. The one row a person sees, the failed delivery, adds its own screen, action and visibility on an
+    /// inner scope (<see cref="PromptDeliveryFailures.RecordFailedDelivery"/>): an inner scope cannot clear a field this
+    /// one sets, so a visibility set here would be stamped on every row of the command.
     /// </summary>
     public static ErrorContext? ForCommand(DirectorCommand? command) => command?.Verb switch
     {
-        PromptVerb => ErrorContext.Begin(correlationId: command.CommandId, sessionId: command.SessionId,
-            action: PromptDeliveryFailures.SendPromptAction, userVisible: false),
-        CreateVerb => ErrorContext.Begin(correlationId: command.CommandId, action: StartSessionAction, userVisible: false),
+        PromptVerb => ErrorContext.Begin(correlationId: command.CommandId, sessionId: command.SessionId),
+        CreateVerb => ErrorContext.Begin(correlationId: command.CommandId),
         _ => null,
     };
 }

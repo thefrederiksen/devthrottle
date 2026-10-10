@@ -141,7 +141,13 @@ public sealed class PromptIncidentErrorReportTests : IDisposable
         Assert.StartsWith("FAILED DELIVERY", shown.Message);
         Assert.Equal("phone", shown.Surface);
         Assert.Equal(PromptDeliveryFailures.SendPromptAction, shown.Action);
-        Assert.All(rows.Where(r => !ReferenceEquals(r, shown)), r => Assert.False(r.UserVisible));
+        // The path's own scopes carry only the ids: no other row names a screen, an action or a visibility.
+        Assert.All(rows.Where(r => !ReferenceEquals(r, shown)), r =>
+        {
+            Assert.Null(r.UserVisible);
+            Assert.Null(r.Surface);
+            Assert.Null(r.Action);
+        });
     }
 
     [Fact]

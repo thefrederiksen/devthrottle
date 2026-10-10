@@ -82,6 +82,29 @@ public static class PromptDeliveryFailures
     /// row, which every surface draws (issue #3675).</summary>
     public const string SessionRowSurface = "session row";
 
+    /// <summary>
+    /// The screen the send on this flow of execution came from ("phone", "cockpit"), for the one row the user sees.
+    /// Carried apart from <see cref="ErrorContext"/> on purpose: a context field is stamped on every row logged inside
+    /// it, and only the shown row may name a screen (issue #3675, the step 4 review, note 4).
+    /// </summary>
+    private static readonly AsyncLocal<string?> SenderSurface = new();
+
+    private sealed class SenderSurfaceScope(string? outer) : IDisposable
+    {
+        public void Dispose() => SenderSurface.Value = outer;
+    }
+
+    /// <summary>
+    /// For the send starting on this flow of execution: a failed delivery recorded inside it is shown as coming from
+    /// <paramref name="surface"/>. Null keeps <see cref="SessionRowSurface"/>. Dispose it when the send ends.
+    /// </summary>
+    public static IDisposable BeginSend(string? surface)
+    {
+        var scope = new SenderSurfaceScope(SenderSurface.Value);
+        SenderSurface.Value = surface;
+        return scope;
+    }
+
     private sealed class SessionLedger
     {
         public int FailedDeliveries;
@@ -143,11 +166,12 @@ public static class PromptDeliveryFailures
         // THE ROW THE USER SAW (the Error Logging mission, issue #3675): this failure is what puts the "not delivered"
         // alarm on the session's row, on the desktop, the Cockpit and the phone - so of every error line one failed send
         // writes, this one alone is marked user-visible. The others carry the same correlation id from the context the
-        // prompt path opened, so the incident reads as one.
-        var current = ErrorContext.Current;
+        // prompt path opened, so the incident reads as one. The screen, the action and the visibility go on this
+        // innermost scope only: the scopes around the whole send carry just the correlation and session id, because an
+        // inner scope cannot clear a field an outer one set, and every other row of the send would carry it too.
         using var shown = ErrorContext.Begin(
-            surface: current?.Surface is null ? SessionRowSurface : null,
-            action: current?.Action is null ? SendPromptAction : null,
+            surface: SenderSurface.Value ?? SessionRowSurface,
+            action: SendPromptAction,
             userVisible: true);
         // The FAILED line is an error line, so it is REPORTED to the Gateway: it carries the session, the source, the
         // length and the previous send, never the reason. The reason is a refusal's message, and a real one holds the

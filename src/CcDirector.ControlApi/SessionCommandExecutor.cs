@@ -218,13 +218,12 @@ internal static class SessionCommandExecutor
 
         // ONE FAILED PROMPT IS ONE INCIDENT (issue #3675): every error line this send causes carries the command's id - set
         // by the command handler - or, when no command carried it here, its delivery id; and the session, and the screen
-        // the prompt came from. A refusal also says how the send before this one ended, read from the delivery record.
+        // the prompt came from, which only the failed delivery - the one row the user sees - carries. A refusal also says
+        // how the send before this one ended, read from the delivery record.
         using var errorContext = ErrorContext.Begin(
             correlationId: ErrorContext.Current?.CorrelationId is null ? request.DeliveryId : null,
-            sessionId: session.Id.ToString(),
-            surface: SenderSurface(request.Surface),
-            action: PromptDeliveryFailures.SendPromptAction,
-            userVisible: false);
+            sessionId: session.Id.ToString());
+        using var sender = PromptDeliveryFailures.BeginSend(SenderSurface(request.Surface));
         ErrorContext.WithholdPrompt(request.Text);
         using var previousSend = PreviousSend.Begin(deliveries ?? DeliveryRecord.Shared, session.Id, request.DeliveryId);
 
