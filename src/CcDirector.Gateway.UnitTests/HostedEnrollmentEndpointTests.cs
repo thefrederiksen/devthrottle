@@ -24,20 +24,18 @@ public sealed class HostedEnrollmentEndpointTests : IDisposable
     private const string Issuer = "https://test.example.supabase.co/auth/v1";
 
     private readonly GatewayDbTestHarness _harness = new();
-    private readonly string _devPath = Path.Combine(Path.GetTempPath(), $"henr-dev-{Guid.NewGuid():N}.json");
     private readonly TestEs256Key _key = new();
 
     public void Dispose()
     {
         _harness.Dispose();
         _key.Dispose();
-        if (File.Exists(_devPath)) File.Delete(_devPath);
     }
 
     private (DeviceRegistry devices, TenantRegistry tenants, JwtAccessTokenValidator validator) Wire()
     {
         var db = _harness.Open();
-        var devices = new DeviceRegistry(_devPath);
+        var devices = new DeviceRegistry(db, _harness.LegacyPath("devices.json"));
         var tenants = new TenantRegistry(db);
         // ES256-only, exactly as production BuildAuthorizationValidator configures it - HS256 is refused.
         var validator = new JwtAccessTokenValidator(

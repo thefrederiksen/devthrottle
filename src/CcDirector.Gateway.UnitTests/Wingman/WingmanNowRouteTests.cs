@@ -61,15 +61,16 @@ public sealed class WingmanNowRouteTests : IDisposable
     private const string DirectorId = "director-now";
     private static readonly DateTime Stopped = new(2026, 9, 17, 11, 12, 0, DateTimeKind.Utc);
 
-    // The device registry lives in this test's own directory. The parameterless registry opens the default store,
-    // which every test class shares - two classes building it at once collide on its import marker.
+    // The device registry lives over this test's own harness database. The parameterless registry opens the default
+    // store, which every test class shares - two classes building it at once collide on its import marker - and a
+    // path-built one migrates a database of its own per test.
     private CcDirector.Gateway.Tenancy.HostedTenantBoundary SelfHostBoundary()
     {
         if (_devices is null)
         {
             var path = _harness.LegacyPath("devices.json");
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            _devices = new DeviceRegistry(path);
+            _devices = new DeviceRegistry(_harness.Open(), path);
         }
         return new(new SingleTenantContext(), _devices);
     }
@@ -534,7 +535,7 @@ public sealed class WingmanNowRouteTests : IDisposable
         var account = new TenantId("11111111-2222-3333-4444-555555555555");
         var devicesPath = _harness.LegacyPath("hosted-devices.json");
         Directory.CreateDirectory(Path.GetDirectoryName(devicesPath)!);
-        using var devices = new DeviceRegistry(devicesPath);
+        using var devices = new DeviceRegistry(_harness.Open(), devicesPath);
         var ambient = new AsyncLocalTenantContext();
         var boundary = new CcDirector.Gateway.Tenancy.HostedTenantBoundary(ambient, devices);
         Assert.True(boundary.IsHosted);   // the whole point: a no-op scope would prove nothing

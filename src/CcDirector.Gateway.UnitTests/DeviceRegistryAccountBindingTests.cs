@@ -1,5 +1,6 @@
 using CcDirector.Gateway.Pairing;
 using Xunit;
+using CcDirector.Gateway.Tests.Data;
 
 namespace CcDirector.Gateway.Tests;
 
@@ -12,18 +13,14 @@ namespace CcDirector.Gateway.Tests;
 /// </summary>
 public sealed class DeviceRegistryAccountBindingTests : IDisposable
 {
-    private readonly string _storePath =
-        Path.Combine(Path.GetTempPath(), $"devreg-bind-{Guid.NewGuid():N}.json");
+    private readonly GatewayDbTestHarness _harness = new();
 
-    public void Dispose()
-    {
-        if (File.Exists(_storePath)) File.Delete(_storePath);
-    }
+    public void Dispose() => _harness.Dispose();
 
     [Fact]
     public void TenantForKey_UnboundDevice_ReturnsNull()
     {
-        var registry = new DeviceRegistry(_storePath);
+        var registry = _harness.OpenDevices();
         var device = registry.Register("device-a", "MACHINE-A");
 
         // A freshly registered device has no account binding yet (the local single-tenant shape).
@@ -33,7 +30,7 @@ public sealed class DeviceRegistryAccountBindingTests : IDisposable
     [Fact]
     public void SetAccountBinding_ThenTenantForKey_ReturnsTheBoundTenant()
     {
-        var registry = new DeviceRegistry(_storePath);
+        var registry = _harness.OpenDevices();
         var device = registry.Register("device-a", "MACHINE-A");
 
         var bound = registry.SetAccountBinding("device-a", "sub-alice", "tenant-alice");
@@ -45,7 +42,7 @@ public sealed class DeviceRegistryAccountBindingTests : IDisposable
     [Fact]
     public void TenantForKey_WrongKey_ReturnsNull()
     {
-        var registry = new DeviceRegistry(_storePath);
+        var registry = _harness.OpenDevices();
         registry.Register("device-a", "MACHINE-A");
         registry.SetAccountBinding("device-a", "sub-alice", "tenant-alice");
 
@@ -55,7 +52,7 @@ public sealed class DeviceRegistryAccountBindingTests : IDisposable
     [Fact]
     public void TenantForKey_ResolvesEachDeviceToItsOwnTenant()
     {
-        var registry = new DeviceRegistry(_storePath);
+        var registry = _harness.OpenDevices();
         var a = registry.Register("device-a", "MACHINE-A");
         var b = registry.Register("device-b", "MACHINE-B");
         registry.SetAccountBinding("device-a", "sub-alice", "tenant-alice");
@@ -68,18 +65,18 @@ public sealed class DeviceRegistryAccountBindingTests : IDisposable
     [Fact]
     public void SetAccountBinding_PersistsAcrossReload()
     {
-        var device = new DeviceRegistry(_storePath).Register("device-a", "MACHINE-A");
-        new DeviceRegistry(_storePath).SetAccountBinding("device-a", "sub-alice", "tenant-alice");
+        var device = _harness.OpenDevices().Register("device-a", "MACHINE-A");
+        _harness.OpenDevices().SetAccountBinding("device-a", "sub-alice", "tenant-alice");
 
         // A fresh registry over the same store file (a Gateway restart) still resolves the binding.
-        var reloaded = new DeviceRegistry(_storePath);
+        var reloaded = _harness.OpenDevices();
         Assert.Equal("tenant-alice", reloaded.TenantForKey(device.DeviceKey));
     }
 
     [Fact]
     public void SetAccountBinding_UnknownDevice_ReturnsFalse()
     {
-        var registry = new DeviceRegistry(_storePath);
+        var registry = _harness.OpenDevices();
 
         Assert.False(registry.SetAccountBinding("device-missing", "sub-alice", "tenant-alice"));
     }

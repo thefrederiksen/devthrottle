@@ -44,14 +44,15 @@ public sealed class WingmanStopsWritePathTests : IDisposable
         _harness.Dispose();
     }
 
-    // This test's own device store: the parameterless registry opens the default one, which every test class shares.
+    // This test's own device store, over its harness database: the parameterless registry opens the default one, which
+    // every test class shares, and a path-built one migrates a database of its own per test.
     private DeviceRegistry Devices()
     {
         if (_devices is null)
         {
             var path = _harness.LegacyPath("devices.json");
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            _devices = new DeviceRegistry(path);
+            _devices = new DeviceRegistry(_harness.Open(), path);
         }
         return _devices;
     }

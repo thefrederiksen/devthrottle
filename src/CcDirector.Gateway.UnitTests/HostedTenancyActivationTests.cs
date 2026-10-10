@@ -28,7 +28,6 @@ namespace CcDirector.Gateway.Tests;
 public sealed class HostedTenancyActivationTests : IDisposable
 {
     private readonly GatewayDbTestHarness _harness = new();
-    private readonly string _devPath = Path.Combine(Path.GetTempPath(), $"htact-dev-{Guid.NewGuid():N}.json");
     private readonly string _tempDir = Path.Combine(Path.GetTempPath(), $"htact-{Guid.NewGuid():N}");
 
     public HostedTenancyActivationTests() => Directory.CreateDirectory(_tempDir);
@@ -36,7 +35,6 @@ public sealed class HostedTenancyActivationTests : IDisposable
     public void Dispose()
     {
         _harness.Dispose();
-        if (File.Exists(_devPath)) File.Delete(_devPath);
         try { Directory.Delete(_tempDir, recursive: true); } catch { /* best-effort */ }
     }
 
@@ -46,7 +44,7 @@ public sealed class HostedTenancyActivationTests : IDisposable
     public void Boundary_Hosted_ResolvesEachDeviceKeyToItsBoundTenant()
     {
         var ambient = new AsyncLocalTenantContext();
-        var devices = new DeviceRegistry(_devPath);
+        var devices = _harness.OpenDevices();
         var boundary = new HostedTenantBoundary(ambient, devices);
         Assert.True(boundary.IsHosted);
 
@@ -60,7 +58,7 @@ public sealed class HostedTenancyActivationTests : IDisposable
     public void Boundary_Hosted_DeviceKeyWithNoBoundTenant_ResolvesNull_DenyByDefault()
     {
         var ambient = new AsyncLocalTenantContext();
-        var devices = new DeviceRegistry(_devPath);
+        var devices = _harness.OpenDevices();
         var boundary = new HostedTenantBoundary(ambient, devices);
 
         // A registered-but-unbound device (e.g. a self-host-shaped enrollment) has no tenant -> a DENY, never
@@ -76,7 +74,7 @@ public sealed class HostedTenancyActivationTests : IDisposable
     public void Boundary_SelfHost_EveryAuthenticatedCallerIsLocal()
     {
         // Self-host: the context is the SingleTenantContext, so the boundary is inert and resolves Local.
-        var devices = new DeviceRegistry(_devPath);
+        var devices = _harness.OpenDevices();
         var boundary = new HostedTenantBoundary(new SingleTenantContext(), devices);
 
         Assert.False(boundary.IsHosted);
@@ -91,7 +89,7 @@ public sealed class HostedTenancyActivationTests : IDisposable
         var ambient = new AsyncLocalTenantContext();
         var db = _harness.Open(ambient);
         var tenants = new TenantRegistry(db);
-        var devices = new DeviceRegistry(_devPath);
+        var devices = _harness.OpenDevices();
         var boundary = new HostedTenantBoundary(ambient, devices);
 
         // Two accounts enroll: two subjects -> two DISTINCT tenant ids -> two devices, each bound to its tenant.
@@ -153,7 +151,7 @@ public sealed class HostedTenancyActivationTests : IDisposable
     public void DirectorHub_Hello_BindsTheTenantFromTheAuthenticatedKey_AndPushesIsolate()
     {
         var ambient = new AsyncLocalTenantContext();
-        var devices = new DeviceRegistry(_devPath);
+        var devices = _harness.OpenDevices();
         var boundary = new HostedTenantBoundary(ambient, devices);
         var store = new PushedSessionStore(() => DateTime.UtcNow);
 
@@ -183,7 +181,7 @@ public sealed class HostedTenancyActivationTests : IDisposable
     public void DirectorHub_Hello_Hosted_UnboundDeviceKey_IsDenied()
     {
         var ambient = new AsyncLocalTenantContext();
-        var devices = new DeviceRegistry(_devPath);
+        var devices = _harness.OpenDevices();
         var boundary = new HostedTenantBoundary(ambient, devices);
         var store = new PushedSessionStore(() => DateTime.UtcNow);
 

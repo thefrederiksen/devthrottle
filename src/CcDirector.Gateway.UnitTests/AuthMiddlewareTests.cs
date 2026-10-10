@@ -2,6 +2,7 @@ using CcDirector.Gateway.Pairing;
 using CcDirector.Gateway.Util;
 using Microsoft.AspNetCore.Http;
 using Xunit;
+using CcDirector.Gateway.Tests.Data;
 
 namespace CcDirector.Gateway.Tests;
 
@@ -11,12 +12,15 @@ namespace CcDirector.Gateway.Tests;
 /// stream - cannot set an Authorization header, so a phone authenticated by its own device key must be
 /// able to open the stream via the cookie exactly as it calls the Bearer-authenticated endpoints.
 /// </summary>
-public sealed class AuthMiddlewareTests
+public sealed class AuthMiddlewareTests : IDisposable
 {
     private const string SharedToken = "shared-machine-token";
 
-    private static DeviceRegistry TempRegistry() =>
-        new(Path.Combine(Path.GetTempPath(), "cc-authmw-" + Guid.NewGuid().ToString("N") + ".json"));
+    private readonly GatewayDbTestHarness _harness = new();
+
+    public void Dispose() => _harness.Dispose();
+
+    private DeviceRegistry TempRegistry() => _harness.OpenDevices();
 
     private static HttpContext WithCookie(string value)
     {
