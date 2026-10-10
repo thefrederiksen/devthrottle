@@ -190,6 +190,30 @@ export async function getCronJob(id: string, signal?: AbortSignal): Promise<Cron
   return (await res.json()) as CronJob;
 }
 
+/** The factories and seats a schedule may be linked to (GET /cron/seat-choices), folded by the Gateway. */
+export interface CronSeatChoices {
+  /** "No factory (Personal)". */
+  noneLabel: string;
+  factories: CronFactoryChoice[];
+}
+
+export interface CronFactoryChoice {
+  factory: string;
+  title: string;
+  seats: { id: string; label: string }[];
+}
+
+// GET /cron/seat-choices -> CronSeatChoicesDto: the schedule editor's factory and seat picker.
+export async function getSeatChoices(signal?: AbortSignal): Promise<CronSeatChoices> {
+  const res = await fetch("/cron/seat-choices", {
+    method: "GET",
+    headers: { Accept: "application/json", ...authHeaders() },
+    signal,
+  });
+  if (!res.ok) throw await gatewayErrorFrom(res, "GET /cron/seat-choices");
+  return (await res.json()) as CronSeatChoices;
+}
+
 // GET /cron/load -> CronLoadDto: each machine's next 24 hours, for the load strip.
 export async function getCronLoad(signal?: AbortSignal): Promise<CronLoad> {
   const res = await fetch("/cron/load", {

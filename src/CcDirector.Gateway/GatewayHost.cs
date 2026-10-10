@@ -5473,6 +5473,10 @@ public sealed class GatewayHost : IAsyncDisposable
                 ? FactoryRegistry.Find(tenant, factory)
                 : null,
             runRecords: cronRunRecords);
+        // The schedule editor's factory and seat picker (the owner, 2026-10-10): the same registry the write checks.
+        Api.CronSeatChoicesEndpoint.Map(_app, ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary) is { } tenant
+            ? FactoryRegistry.List(tenant)
+            : null);
 
         // Cron firing surface (epic #479, part 2 = #483): run-now and run-history over the engine.
         // Scheduled firing runs on the background sweep timer started below in StartAsync.
