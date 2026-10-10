@@ -168,10 +168,16 @@ function Acquire-GateLocks([string] $Commit) {
             (Format-GateLockHolder (Read-GateLockHolder $gatePath)) + ". Lock file: $gatePath. Wait for it to finish and run the soak again.")
         exit 6
     }
+    # The first lock is released if the second cannot be taken for ANY reason - a holder, or a setup fault
+    # that throws - so a soak that stops here never leaves the release-gate lock in a shell's hands.
     $suitePath = Get-GatewaySuiteLockPath
-    $suite = Enter-GateLock $suitePath $fields
+    $suite = $null
+    try {
+        $suite = Enter-GateLock $suitePath $fields
+    } finally {
+        if ($null -eq $suite) { Exit-GateLock $gate }
+    }
     if ($null -eq $suite) {
-        Exit-GateLock $gate
         Write-Step ("REFUSED: a run of CcDirector.Gateway.Tests is in progress on this machine. Holder: " +
             (Format-GateLockHolder (Read-GateLockHolder $suitePath)) + ". Lock file: $suitePath. Wait for it to finish and run the soak again.")
         exit 6
