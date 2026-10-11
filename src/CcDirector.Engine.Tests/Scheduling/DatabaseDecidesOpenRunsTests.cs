@@ -101,19 +101,18 @@ public sealed class DatabaseDecidesOpenRunsTests : IDisposable
         // The engine is restarted inside the same, live Director process: new database, executor, scheduler.
         var second = Director(1001, running: [1001]);
         var secondExecutor = new JobExecutor(second, jobs.Create, second.RecordRunChild);
+        // Its ticks are driven here, so "a tick while the command lives" and "a tick after it exited" are
+        // facts, not timings.
         using var scheduler = new Scheduler(second, secondExecutor, checkIntervalSeconds: 1, runRetentionDays: 30);
-        scheduler.Start();
         try
         {
-            await Task.Delay(1500);
+            await scheduler.TickAsync();
             Assert.False(jobs.LateCommand!.HasExited);
             Assert.Null(second.GetRun(held.Id)!.EndedAt);
             Assert.Equal(0, jobs.Quick);
 
             await jobs.LateCommand.WaitForExitAsync();
-            var sw = Stopwatch.StartNew();
-            while (jobs.Quick == 0 && sw.Elapsed < TimeSpan.FromSeconds(10))
-                await Task.Delay(100);
+            await scheduler.TickAsync();
 
             Assert.True(jobs.Quick == 1, "the restarted engine never released the claim after the command exited");
             Assert.NotNull(second.GetRun(held.Id)!.EndedAt);
@@ -121,7 +120,6 @@ public sealed class DatabaseDecidesOpenRunsTests : IDisposable
         }
         finally
         {
-            await scheduler.StopAsync(5);
             jobs.LateCommand?.Dispose();
         }
     }

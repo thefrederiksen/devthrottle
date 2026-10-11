@@ -127,18 +127,18 @@ public sealed class UnconfirmedStopTests : IDisposable
         });
         var jobs = new LateExitingThenQuickJobs();
         var executor = new JobExecutor(a, jobs.Create, a.RecordRunChild);
+        // The ticks are driven here: the first starts the job and returns once its execution has reported
+        // (the command is killed but not seen to exit, so the claim stays open); a tick while the command
+        // lives must leave it; a tick after it exits must release it.
         using var scheduler = new Scheduler(a, executor, checkIntervalSeconds: 1, runRetentionDays: 30);
-        scheduler.Start();
 
         try
         {
-            var sw = Stopwatch.StartNew();
-            while (jobs.LateCommand is null && sw.Elapsed < TimeSpan.FromSeconds(10))
-                await Task.Delay(50);
+            await scheduler.TickAsync();
             Assert.NotNull(jobs.LateCommand);
 
             // While the command lives the claim holds: one execution, the run open, the job unclaimable.
-            await Task.Delay(1500);
+            await scheduler.TickAsync();
             Assert.False(jobs.LateCommand.HasExited);
             Assert.Equal(1, jobs.Executions);
             var held = a.ListRuns(jobName: "late-exit").Single();
@@ -147,9 +147,7 @@ public sealed class UnconfirmedStopTests : IDisposable
 
             // After it exits, a tick releases the claim and the occurrence runs again.
             await jobs.LateCommand.WaitForExitAsync();
-            sw.Restart();
-            while (jobs.Executions < 2 && sw.Elapsed < TimeSpan.FromSeconds(10))
-                await Task.Delay(100);
+            await scheduler.TickAsync();
 
             Assert.Equal(2, jobs.Executions);
             var released = a.GetRun(held.Id)!;
@@ -159,7 +157,6 @@ public sealed class UnconfirmedStopTests : IDisposable
         }
         finally
         {
-            await scheduler.StopAsync(5);
             jobs.LateCommand?.Dispose();
         }
     }

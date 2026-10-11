@@ -29,6 +29,18 @@ public sealed class SharedEngineDatabaseTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// The two schedulers' ticks are driven by the test, not by their timers. A tick claims and starts its
+    /// job before it hands back its task, so in each round Director A claims and starts the occurrence, then
+    /// Director B ticks while that run is OPEN and must leave it alone (the open run is the claim), and once
+    /// the run has ended each ticks again alone and must find nothing due. Nothing here waits on a clock, so
+    /// a second run can only come from the product: a claim granted beside an open run, or a completed run
+    /// leaving the job due. The timer-driven form of this test went red four times on 7 and 8 October 2026
+    /// ("expected 1 runs in total, found 2") and the data could not tell a product double-run from a race in
+    /// the test's waits. Two claims arriving at the same instant are the other product-side way to a double
+    /// run; <c>EngineDatabaseSharedFileTests.TryClaimRun_TwoDirectorsOneFile_ManyRounds_ExactlyOneClaimPerOccurrence</c>
+    /// races two claims through a barrier for three hundred rounds and covers it.
+    /// </summary>
     [Fact]
     public async Task TwoSchedulers_OneFile_SameDueJob_RunsExactlyOncePerRound()
     {
@@ -52,37 +64,29 @@ public sealed class SharedEngineDatabaseTests : IDisposable
 
         using var schedulerA = new Scheduler(dbA, new JobExecutor(dbA), checkIntervalSeconds: 1, runRetentionDays: 30);
         using var schedulerB = new Scheduler(dbB, new JobExecutor(dbB), checkIntervalSeconds: 1, runRetentionDays: 30);
-        schedulerA.Start();
-        schedulerB.Start();
 
-        try
+        for (var round = 1; round <= rounds; round++)
         {
-            for (var round = 1; round <= rounds; round++)
-            {
-                dbA.UpdateNextRun(jobId, DateTime.UtcNow.AddSeconds(-1));
+            dbA.UpdateNextRun(jobId, DateTime.UtcNow.AddSeconds(-1));
 
-                // Wait for this round's run to finish, then give both loops two more ticks to run it
-                // a second time if they are going to.
-                var sw = System.Diagnostics.Stopwatch.StartNew();
-                while (sw.Elapsed < TimeSpan.FromSeconds(20))
-                {
-                    var runs = dbA.ListRuns(jobName: "shared-job", limit: 1000);
-                    if (runs.Count >= round && runs.All(r => r.EndedAt.HasValue))
-                        break;
-                    await Task.Delay(100);
-                }
-                await Task.Delay(2500);
+            // Director A claims and starts the occurrence (a tick does that before handing back its task);
+            // Director B then ticks beside the open run and must not claim it. Each tick completes when the
+            // run it started, if any, has ended.
+            await Task.WhenAll(schedulerA.TickAsync(), schedulerB.TickAsync());
 
-                var all = dbA.ListRuns(jobName: "shared-job", limit: 1000);
-                Assert.True(all.Count == round,
-                    $"round {round}: expected {round} runs in total, found {all.Count}");
-                Assert.All(all, r => Assert.Equal(0, r.ExitCode));
-            }
-        }
-        finally
-        {
-            await schedulerA.StopAsync(5);
-            await schedulerB.StopAsync(5);
+            var afterBothTicked = dbA.ListRuns(jobName: "shared-job", limit: 1000);
+            Assert.True(afterBothTicked.Count == round,
+                $"round {round}: expected {round} runs in total after Director A claimed and Director B ticked beside the open run, found {afterBothTicked.Count}");
+            Assert.All(afterBothTicked, r => Assert.True(r.EndedAt.HasValue, "a tick returned before its run had ended"));
+
+            // The run is over and next_run has moved on: a later tick on either Director finds nothing due.
+            await schedulerA.TickAsync();
+            await schedulerB.TickAsync();
+
+            var all = dbA.ListRuns(jobName: "shared-job", limit: 1000);
+            Assert.True(all.Count == round,
+                $"round {round}: expected {round} runs in total after each Director ticked again alone, found {all.Count}");
+            Assert.All(all, r => Assert.Equal(0, r.ExitCode));
         }
     }
 
