@@ -416,6 +416,15 @@ internal static class SessionCommandExecutor
             return TooOldAnswer(session, bufferCursor, reason);
         }
 
+        // CLAUDE CODE'S USAGE-LIMIT DIALOG (License Switching mission, trap 4): nothing automatic may type into it, and a
+        // prompt from the phone or the Cockpit is automatic - its sender may not see the dialog. The guard on the session
+        // drops every such write; this answers the sender a refusal it can show, instead of a success that typed nothing
+        // (fix-round review of pull request 3863). Checked before the send, and watched during it, for a dialog drawn
+        // while the send waits.
+        if (session.UsageLimitDialogMayShow())
+            return UsageLimitDialogAnswer(session, bufferCursor);
+        using var refusals = UsageLimitInputGuard.WatchRefusals();
+
         // DevThrottle Stats: build the origin for the Director's choke-point tally. Modality is voice for a
         // dictation delivery (SendSource.Delivery, set from the X-Dictation-Delivery marker) and typed
         // otherwise. Surface comes from the Gateway-authoritative request.Surface. Count when this is an
@@ -514,6 +523,8 @@ internal static class SessionCommandExecutor
                 // delivery record.
                 return TooOldAnswer(session, bufferCursor, outcome.Reason!);
             }
+            if (refusals.Refused)
+                return UsageLimitDialogAnswer(session, bufferCursor);
             if (!outcome.Confirmed)
             {
                 // STILL DELIVERING (review finding 3): the Enter was pressed and the text was not seen left in the composer,
@@ -534,6 +545,9 @@ internal static class SessionCommandExecutor
         }
         else
             session.SendInput(Encoding.UTF8.GetBytes(request.Text), origin, provenance);
+
+        if (refusals.Refused)
+            return UsageLimitDialogAnswer(session, bufferCursor);
 
         var response = new PromptResponse
         {
@@ -564,6 +578,31 @@ internal static class SessionCommandExecutor
             Error = reason,
             DeliveryState = DeliveryState.NotDelivered,
             DeliveryStateReason = reason,
+        }));
+    }
+
+    /// <summary>The sentence a prompt refused at Claude Code's usage-limit dialog is answered with.</summary>
+    internal const string UsageLimitDialogRefusal =
+        "The session is stopped at Claude Code's usage-limit dialog, which only a person at that machine's terminal may " +
+        "answer; nothing was typed.";
+
+    /// <summary>
+    /// THE VERB'S ANSWER TO A PROMPT REFUSED AT THE USAGE-LIMIT DIALOG (License Switching mission, trap 4): the same
+    /// not-delivered shape as <see cref="TooOldAnswer"/>, so the phone and the Cockpit show the reason and the words are
+    /// known NOT to be in the session.
+    /// </summary>
+    private static DirectorCommandResult UsageLimitDialogAnswer(Session session, long bufferCursor)
+    {
+        FileLog.Write($"[SessionCommandExecutor] SendPromptAsync: REFUSED session={session.Id}: the usage-limit dialog may be showing; nothing was typed");
+        return DirectorCommandResult.Success(Serialize(new PromptResponse
+        {
+            Accepted = false,
+            SentAt = DateTime.UtcNow,
+            BufferCursor = bufferCursor,
+            ActivityState = session.ActivityState.ToString(),
+            Error = UsageLimitDialogRefusal,
+            DeliveryState = DeliveryState.NotDelivered,
+            DeliveryStateReason = UsageLimitDialogRefusal,
         }));
     }
 

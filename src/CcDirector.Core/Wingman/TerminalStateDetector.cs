@@ -1175,6 +1175,11 @@ public sealed class TerminalStateDetector : IDisposable
             // apart from "blocked on a question"; a long silence means "needs you".
             _active = false;
 
+            // The License Switching mission, trap 4: Claude Code's usage-limit dialog waits for an answer, so it is a
+            // settled screen. The Director's only answer to it is Escape, sent once and logged; the session's input
+            // guard keeps every other automatic keystroke out of it.
+            _session.EscapeUsageLimitDialogIfShowing();
+
             // Capture the settled screen - the "before" side of every later comparison: the
             // evidence an unexplained wake records, and the screen the content rule asks whether
             // anything was added to.

@@ -33,10 +33,14 @@ internal static class ComposerRetention
 
     private static readonly ConditionalWeakTable<ISessionBackend, Mark> Marks = new();
 
-    /// <summary>A send guarded against other input writes through a wrapper; the mark belongs to the terminal under it,
-    /// so a guarded send and an ordinary one see the same mark.</summary>
-    private static ISessionBackend TerminalOf(ISessionBackend backend) =>
-        backend is Sessions.InputGuardedBackend guarded ? guarded.Inner : backend;
+    /// <summary>A send guarded against other input writes through a wrapper, and every terminal session's input passes
+    /// the usage-limit guard; the mark belongs to the terminal under them both, so every sender sees the same mark.</summary>
+    private static ISessionBackend TerminalOf(ISessionBackend backend) => backend switch
+    {
+        Sessions.InputGuardedBackend guarded => TerminalOf(guarded.Inner),
+        Sessions.UsageLimitInputGuard usageLimit => TerminalOf(usageLimit.Inner),
+        _ => backend,
+    };
 
     /// <summary>
     /// Record that a submit gave up without being able to prove the composer was clear, along with the
