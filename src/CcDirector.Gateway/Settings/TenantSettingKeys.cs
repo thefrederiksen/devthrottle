@@ -297,6 +297,22 @@ public static class TenantSettingKeys
     /// </summary>
     public const string FactoryEmailEnabled = "factory_email_enabled";
 
+    /// <summary>
+    /// WHICH SESSION IS THIS ACCOUNT'S FACTORY MANAGER (Factory Control, step 5): the one standing seat over all of the
+    /// account's factories, as a full session id. No row means none. It may resolve any problem of its account
+    /// (<c>CronRunResultEndpoints</c>) and is who a factory with no boss hands a problem to.
+    /// </summary>
+    public const string FactoryManagerSessionId = "factory_manager_session_id";
+
+    /// <summary>
+    /// WHERE THE FACTORY MANAGER RUNS: the computer, by machine name. Saved together with
+    /// <see cref="FactoryManagerFolder"/> the first time the owner starts it, and reused by every later start.
+    /// </summary>
+    public const string FactoryManagerMachine = "factory_manager_machine";
+
+    /// <summary>The folder the Factory Manager runs in, on <see cref="FactoryManagerMachine"/>. Saved with it.</summary>
+    public const string FactoryManagerFolder = "factory_manager_folder";
+
     /// <summary>Every key this resolver serves, for validation and enumeration.</summary>
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -314,6 +330,7 @@ public static class TenantSettingKeys
         FleetManagerReplacementStartingAt,
         FactoryReports, FactoryAgentsSwitch, FactoryMaps,
         SchedulesPaused,
+        FactoryManagerSessionId, FactoryManagerMachine, FactoryManagerFolder,
         GatewayInstanceId,
         DemoMode,
         FactoryEmailEnabled,

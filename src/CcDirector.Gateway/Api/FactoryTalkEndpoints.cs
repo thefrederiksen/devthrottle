@@ -42,8 +42,8 @@ namespace CcDirector.Gateway.Api;
 /// The same talk, under every rule above, opened with whoever <see cref="FactoryProblemHandoff"/> names - the boss -
 /// and seeded with <see cref="FactoryTalkSeed.ComposeForProblem"/>: the problem, which session to read, and to resolve
 /// it with <c>cc-devthrottle run resolve</c> once fixed. The problem is read from the one problems fold and must be
-/// open and this factory's. A factory with no boss is refused with the hand-over's own sentence, until the Factory
-/// Manager exists (step 5).
+/// open and this factory's. A factory with no boss hands it to the Factory Manager (step 5): a new Factory Manager
+/// talk, briefed in the same words, which becomes the account's bound Factory Manager.
 /// </summary>
 internal static class FactoryTalkEndpoints
 {
@@ -55,12 +55,17 @@ internal static class FactoryTalkEndpoints
     /// <param name="startOnDirector">Start a session on one Director, as a person's New Session does.</param>
     /// <param name="problems">One factory's open problems, from the one problems fold (<c>GET /cron/problems</c>).</param>
     /// <param name="timeZone">The account's time zone, the one the problems' shifts are counted in.</param>
+    /// <param name="factoryManager">The Factory Manager's facts (Factory Control, step 5): a factory with no boss hands
+    /// Handle the issue to it. REQUIRED, so a wiring line that forgot it fails to compile rather than refusing every
+    /// boss-less factory.</param>
     public static void Map(IEndpointRouteBuilder app, Factory.FactoryAgentsSwitch factorySwitch,
         Func<HttpContext, TenantId?> resolveTenant, FactoryRegistryStore registry,
         Func<TenantId, IEnumerable<DirectorDto>> listDirectors, Func<TenantId, string, CronJobDto?> schedule,
         Func<HttpContext, string, NewSessionRequest, Task<DirectorSpawnOutcome>> startOnDirector,
-        Func<TenantId, string, CronRunProblemsDto> problems, Func<TenantId, TimeZoneInfo> timeZone)
+        Func<TenantId, string, CronRunProblemsDto> problems, Func<TenantId, TimeZoneInfo> timeZone,
+        FactoryManagerSources factoryManager)
     {
+        ArgumentNullException.ThrowIfNull(factoryManager);
         ArgumentNullException.ThrowIfNull(factorySwitch);
         ArgumentNullException.ThrowIfNull(resolveTenant);
         ArgumentNullException.ThrowIfNull(registry);
@@ -102,10 +107,14 @@ internal static class FactoryTalkEndpoints
                     $"{registered.Title} has no open problem on run '{runId}'. It may have been resolved, or cleared by a later run that reported ok - reload the page.");
 
             var handoff = FactoryProblemHandoff.Route(registered);
-            if (!handoff.Available)
+            if (handoff.ToFactoryManager)
             {
-                FileLog.Write($"[FactoryTalkEndpoints] REFUSED handle the issue: {registered.Factory} has nobody to hand it to");
-                return Refused(StatusCodes.Status409Conflict, handoff.UnavailableText!);
+                // A factory with no boss: the Factory Manager, briefed in the boss's words (Factory Control, step 5).
+                FileLog.Write($"[FactoryTalkEndpoints] handle the issue: {registered.Factory} has no boss - handing it to the Factory Manager");
+                return await FactoryManagerEndpoints.StartAsync(ctx, tenant, factoryManager, body: null,
+                    FactoryManagerSeed.ProblemSessionName(registered, problem),
+                    FactoryManagerSeed.ComposeForProblem(FactoryManagerEndpoints.Live(factoryManager.Factories(tenant)),
+                        registered, problem, timeZone(tenant)));
             }
 
             var seated = handoff.Seat!;

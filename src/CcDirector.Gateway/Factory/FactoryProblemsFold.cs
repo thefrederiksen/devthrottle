@@ -33,7 +33,8 @@ public static class FactoryProblemsFold
         {
             Heading = "Open problems",
             Note = "A problem stays here until the next run of the same schedule reports ok, or someone resolves it with a " +
-                   "one-line reason. Handle the issue opens a talk with the boss, already told about it.",
+                   "one-line reason. Handle the issue opens a talk with the boss, already told about it - or, for a factory with no " +
+                   "boss, with the Factory Manager.",
             Items = items,
             EmptyText = items.Count == 0 ? "No open problems." : null,
         };
@@ -64,7 +65,7 @@ public static class FactoryProblemsFold
             Handle = new FactoryProblemHandleDto
             {
                 Label = HandleLabel,
-                BusyLabel = "Starting the talk with the boss...",
+                BusyLabel = handoff.BusyLabel,
                 FactoryId = factory.Factory,
                 RunId = p.RunId,
                 Available = handoff.Available,

@@ -117,13 +117,14 @@ public sealed class FactoryProblemsFoldTests
     }
 
     [Fact]
-    public void Card_AFactoryWithNoBoss_ShowsTheButtonUnavailableWithPlainWords()
+    public void Card_AFactoryWithNoBoss_OffersHandleTheIssue_WithTheFactoryManager()
     {
         var handle = Assert.Single(FactoryProblemsFold.Card(Factory(null), Answer(Problem())).Items).Handle;
 
-        Assert.False(handle.Available);
-        Assert.Equal("Tallyhand has no boss, so this goes to the Factory Manager, which is not built yet. " +
-                     "Read the run's session, fix it, then Resolve it here with a reason.", handle.UnavailableText);
+        Assert.True(handle.Available);
+        Assert.Null(handle.UnavailableText);
+        Assert.Equal("Handle the issue", handle.Label);
+        Assert.Equal("Starting the talk with the Factory Manager...", handle.BusyLabel);
     }
 
     // ---- who it goes to ----------------------------------------------------------------------------------------
@@ -142,8 +143,9 @@ public sealed class FactoryProblemsFoldTests
     {
         var target = FactoryProblemHandoff.Route(Factory("ceo"));
 
-        Assert.False(target.Available);
-        Assert.Equal(FactoryProblemHandoff.FactoryManager(Factory(null)).UnavailableText, target.UnavailableText);
+        Assert.True(target.Available);
+        Assert.True(target.ToFactoryManager);
+        Assert.Null(target.Seat);
     }
 
     // ---- the briefing ------------------------------------------------------------------------------------------

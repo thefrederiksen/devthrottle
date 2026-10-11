@@ -19,7 +19,9 @@ namespace CcDirector.Gateway.Api;
 /// The result route takes no run id: the run is the one whose session is the CALLER, read off the session key, so a
 /// session can only ever report on its own run. Resolving is limited the way acting on a schedule is
 /// (<see cref="FactoryNaming.TryAct"/>): a factory's problem may be resolved by a person, the account's own machine
-/// token, or a session of that factory - its boss among them.
+/// token, or a session of that factory - its boss among them. The account's bound Factory Manager (Factory Control,
+/// step 5) is in no factory and may resolve ANY problem of its account; its reason is kept like anyone's, and the
+/// resolver is recorded as the Factory Manager.
 /// </summary>
 internal static class CronRunResultEndpoints
 {
@@ -30,8 +32,12 @@ internal static class CronRunResultEndpoints
     public static void Map(IEndpointRouteBuilder app, CronRunResultService service,
         Func<HttpContext, TenantId?> resolveTenant,
         Func<string, History.SessionFactoryLookup> sessionFactoryOf,
-        Func<TenantId, Guid, CronRunHistoryStore.JobRun?> findRun)
+        Func<TenantId, Guid, CronRunHistoryStore.JobRun?> findRun,
+        // The account's bound Factory Manager session id, or null. REQUIRED, so a wiring line that forgot it fails to
+        // compile rather than refusing the seat every resolve.
+        Func<TenantId, string?> factoryManagerOf)
     {
+        ArgumentNullException.ThrowIfNull(factoryManagerOf);
         ArgumentNullException.ThrowIfNull(service);
         ArgumentNullException.ThrowIfNull(resolveTenant);
         ArgumentNullException.ThrowIfNull(sessionFactoryOf);
@@ -39,7 +45,7 @@ internal static class CronRunResultEndpoints
 
         app.MapPost(ResultRoute, (HttpContext ctx, CronRunResultRequest? body) => Result(ctx, body, service, resolveTenant));
         app.MapPost(ResolveRoute, (string runId, HttpContext ctx, CronRunResolveRequest? body) =>
-            Resolve(ctx, runId, body, service, resolveTenant, sessionFactoryOf, findRun));
+            Resolve(ctx, runId, body, service, resolveTenant, sessionFactoryOf, findRun, factoryManagerOf));
         app.MapGet(ProblemsRoute, (HttpContext ctx, string? factory, string? state, string? asOf) =>
             ListProblems(ctx, factory, state, service, resolveTenant, asOf));
 
@@ -59,18 +65,27 @@ internal static class CronRunResultEndpoints
     /// <summary>POST /cron/runs/{runId}/resolve: resolve a run's problem with a one-line reason.</summary>
     internal static IResult Resolve(HttpContext ctx, string runId, CronRunResolveRequest? body, CronRunResultService service,
         Func<HttpContext, TenantId?> resolveTenant,
-        Func<string, History.SessionFactoryLookup> sessionFactoryOf, Func<TenantId, Guid, CronRunHistoryStore.JobRun?> findRun)
+        Func<string, History.SessionFactoryLookup> sessionFactoryOf, Func<TenantId, Guid, CronRunHistoryStore.JobRun?> findRun,
+        Func<TenantId, string?> factoryManagerOf)
     {
         if (resolveTenant(ctx) is not { } tenant)
             return NoAccount(ResolveRoute);
         var route = $"POST /cron/runs/{runId}/resolve";
+        var caller = AuthMiddleware.CallingSession(ctx)?.SessionId.ToString();
+        // The account's bound Factory Manager may resolve any of its account's problems; the problem and the reason are
+        // still the service's to check.
+        var bound = factoryManagerOf(tenant);
+        if (caller is not null && bound is not null && string.Equals(caller, bound, StringComparison.OrdinalIgnoreCase))
+        {
+            FileLog.Write($"[CronRunResultEndpoints] {route}: the Factory Manager {caller} resolves it");
+            return Answer(service.Resolve(tenant, runId, $"the Factory Manager (session {caller})", body?.Reason), route);
+        }
         // Who may resolve it is decided by the factory the RUN was in - fixed on the run when it was created, so deleting
         // or moving the schedule cannot open its problem to another factory. Read the run first. An unknown id falls through
         // to the service, which refuses it in its own words.
         if (Guid.TryParse(runId?.Trim(), out var id) && findRun(tenant, id) is { } found
             && !FactoryNaming.TryAct(ctx, sessionFactoryOf, found.Run.Factory, "run", route, out var actError))
             return actError!;
-        var caller = AuthMiddleware.CallingSession(ctx)?.SessionId.ToString();
         var by = caller is null ? CronRunResultService.ResolvedByYou : $"session {caller}";
         return Answer(service.Resolve(tenant, runId, by, body?.Reason), route);
     }

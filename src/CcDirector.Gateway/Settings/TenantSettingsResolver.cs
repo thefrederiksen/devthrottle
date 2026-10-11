@@ -431,6 +431,50 @@ public sealed class TenantSettingsResolver
     public string? FleetManagerSessionId(TenantId tenant)
         => _store.Get(tenant, TenantSettingKeys.FleetManagerSessionId);
 
+    /// <summary>The session this account has bound as its Factory Manager, or null (Factory Control, step 5).</summary>
+    public string? FactoryManagerSessionId(TenantId tenant)
+        => _store.Get(tenant, TenantSettingKeys.FactoryManagerSessionId);
+
+    /// <summary>The computer and folder this account saved for its Factory Manager, or null when it saved none.</summary>
+    public (string Machine, string Folder)? FactoryManagerPlacement(TenantId tenant)
+    {
+        var machine = _store.Get(tenant, TenantSettingKeys.FactoryManagerMachine);
+        var folder = _store.Get(tenant, TenantSettingKeys.FactoryManagerFolder);
+        if (machine is null && folder is null) return null;
+        // Both are written in one save, so one without the other is a defect to find, never a half placement to use.
+        if (machine is null || folder is null)
+            throw new InvalidOperationException(
+                $"The Factory Manager placement of account {tenant.ToLogString()} is half stored (computer={machine ?? "none"}, folder={folder ?? "none"}).");
+        return (machine, folder);
+    }
+
+    /// <summary>Bind <paramref name="sessionId"/> as this account's Factory Manager, or clear the binding with null.</summary>
+    /// <exception cref="ArgumentException">The id is not a session id.</exception>
+    public void SetFactoryManagerSessionId(TenantId tenant, string? sessionId, DateTime nowUtc)
+    {
+        if (sessionId is null)
+        {
+            _store.Apply(tenant, new Dictionary<string, string?> { [TenantSettingKeys.FactoryManagerSessionId] = null }, nowUtc);
+            return;
+        }
+        if (!Guid.TryParse(sessionId, out var parsed))
+            throw new ArgumentException($"'{sessionId}' is not a session id.", nameof(sessionId));
+        _store.Set(tenant, TenantSettingKeys.FactoryManagerSessionId, parsed.ToString("D"), nowUtc);
+    }
+
+    /// <summary>Save where this account's Factory Manager runs: both values in one save.</summary>
+    /// <exception cref="ArgumentException">The computer or the folder is blank.</exception>
+    public void SetFactoryManagerPlacement(TenantId tenant, string machine, string folder, DateTime nowUtc)
+    {
+        if (string.IsNullOrWhiteSpace(machine)) throw new ArgumentException("A computer is required.", nameof(machine));
+        if (string.IsNullOrWhiteSpace(folder)) throw new ArgumentException("A folder is required.", nameof(folder));
+        _store.Apply(tenant, new Dictionary<string, string?>
+        {
+            [TenantSettingKeys.FactoryManagerMachine] = machine.Trim(),
+            [TenantSettingKeys.FactoryManagerFolder] = folder.Trim(),
+        }, nowUtc);
+    }
+
     /// <summary>The agent this account saved for its Fleet Manager, or null when it saved none (the default
     /// applies, and is worked out by the placement fold, not here).</summary>
     public string? FleetManagerAgent(TenantId tenant)

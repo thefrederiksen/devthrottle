@@ -347,6 +347,10 @@ public static class SessionKeyGuard
                 // the route is only mapped while the factory agents switch is on.
                 case "gateway/factory/registry":
                 case "gateway/factory/goal-numbers":
+                // The name check (Factory Control, step 5): which seats say CEO or carry a person's name instead of a
+                // role word. `cc-devthrottle factory name-check`, which the Factory Manager reads. Account data, folded
+                // from the registry above; the route is only reachable while the factory agents switch is on.
+                case "gateway/factory/name-check":
                 // The Factories screen's list (issue #3685): the status word of every factory in the account, as the
                 // owner sees it. A factory's boss reads it with `factory status`, so it sees FAILING the moment the
                 // owner does and can act. Account data; the route is only mapped while the factory agents switch is on.
@@ -995,6 +999,11 @@ public static class SessionKeyGuard
         // whether it mails the account its own factories' report - and admits nobody: the email can only ever go to
         // the account's own address, resolved by the account service. The rollout switches it on from a session.
         "gateway/factory-email" => true,
+        // Which session is the account's Factory Manager (Factory Control, step 5) - the same kind of mark as the
+        // Fleet Manager's, with the same reason: it names a session already inside the account and admits nobody.
+        // `cc-devthrottle factory-manager show|set|clear`. What the mark GRANTS - resolving any of the account's
+        // problems - is decided by the resolve route, which reads the mark; the guard admits only the setting.
+        "gateway/factory-manager" => true,
         _ => false,
     };
 
