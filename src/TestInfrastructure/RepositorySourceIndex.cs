@@ -23,10 +23,9 @@ namespace CcDirector.TestInfrastructure;
 /// WHAT IT IS. The files git knows about - tracked, plus new files not yet added and not ignored - under the
 /// repository root, as absolute paths with the platform's separators, listed by one `git ls-files` the first
 /// time anything asks and held for the rest of the process. That is the definition the guards actually want:
-/// a build output, a node_modules tree, a stale untracked project and another checkout parked under
-/// .claude/worktrees are all ignored by git and are not the repository, while a file a developer wrote a
-/// minute ago and has not yet committed IS, and a guard that could not see it would pass the one change it
-/// exists to catch. A tracked file deleted from disk but not yet staged is left out, because there is nothing
+/// a build output, a node_modules tree, a stale untracked project and another checkout parked in an ignored
+/// folder are all ignored by git and are not the repository, while a file a developer wrote a minute ago and
+/// has not yet committed IS, and a guard that could not see it would pass the one change it exists to catch. A tracked file deleted from disk but not yet staged is left out, because there is nothing
 /// to read.
 ///
 /// THE ROOT is the directory holding cc-director.sln above the test assembly, found once. Every guard used to
