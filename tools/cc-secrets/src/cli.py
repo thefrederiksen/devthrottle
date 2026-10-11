@@ -28,6 +28,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 import traceback
 import warnings
 from pathlib import Path
@@ -39,7 +40,7 @@ from rich.console import Console
 from rich.table import Table
 
 from . import _console  # noqa: F401  (installs the ASCII-only output patches)
-from . import __version__, entry_window, filelog, gateway_link, machine_key, machines, paths, transfers
+from . import __version__, entry_window, filelog, gateway_link, known_machines, machine_key, machines, paths, sealing, transfer, transfers
 from .audit import AuditLog, OwnerApproval
 from .browser_login import OUTCOME_LOGGED_IN, OUTCOME_REFUSED, login as browser_login
 from .errors import CcSecretsError, InputError, describe
@@ -1169,6 +1170,194 @@ def deny_command(
 ):
     """Deny a secret transfer that is waiting. Nothing is moved."""
     _answer("deny", transfer_id, False, None, json_output)
+
+
+# --- Moving an entry between machines ----------------------------------------------------------------------------
+
+EXIT_DENIED = 4
+EXIT_EXPIRED = 5
+POLL_SECONDS = 3.0
+FINAL_STATES = ("delivered", "failed", "denied", "expired")
+
+
+def _half(command: str, transfer_id: str, run) -> None:
+    """Run one half of a transfer for the Director: facts in on standard input, ONE JSON line out. A refusal is
+    {ok: false, reason} with exit 2. A fault prints nothing on standard output, so the Director reports it as a fault
+    without passing on any text."""
+    try:
+        payload = json.loads(sys.stdin.read() or "null")
+    except ValueError:
+        payload = None
+    try:
+        answer = run(payload)
+    except (transfer.TransferRefused, sealing.EnvelopeError) as exc:
+        filelog.write(f"[cli] {command} refused: {type(exc).__name__}")
+        sys.stdout.write(json.dumps({"ok": False, "reason": str(exc)}) + "\n")
+        raise typer.Exit(EXIT_REFUSED)
+    except Exception as exc:
+        _log_failure(command, exc)
+        _say(f"failed: {_describe(exc)}", err=True)
+        from cc_shared.tool_errors import note_failure
+
+        note_failure(f"{command} failed", exc)
+        raise typer.Exit(EXIT_FAILED)
+    sys.stdout.write(json.dumps(answer) + "\n")
+
+
+@app.command("transfer-send")
+def transfer_send_command(transfer_id: str = typer.Argument(..., help="The transfer's id.")):
+    """Run by the Director on the machine that holds the entry, once the owner approved: reads the approved transfer
+    on standard input and prints the sealed entry. Never prints the secret."""
+    _half("transfer-send", transfer_id, lambda payload: transfer.send_half(payload, transfer_id, _store(), _audit()))
+
+
+@app.command("transfer-receive")
+def transfer_receive_command(transfer_id: str = typer.Argument(..., help="The transfer's id.")):
+    """Run by the Director on the receiving machine: reads the sealed entry on standard input, opens it and stores it.
+    Never prints the secret."""
+    _half("transfer-receive", transfer_id, lambda payload: transfer.receive_half(payload, transfer_id, _store(), _audit()))
+
+
+@app.command("trust-machine")
+def trust_machine_command(
+    machine: str = typer.Argument(..., help="The machine whose new key to trust."),
+    owner_approved: Optional[str] = typer.Option(None, "--owner-approved", help=OWNER_APPROVED_HELP),
+):
+    """Trust a machine's NEW key after it changed (a reinstalled machine). An owner command."""
+    approval = _owner_command("trust-machine", f"machine {machine}", owner_approved)
+    try:
+        own, _ = machine_key.load_or_create()
+        found = machines.find(machines.listed(own), machine)
+        known_machines.pin(found.name, found.fingerprint)
+    except Exception as exc:
+        _fail("trust-machine", f"machine {machine}", "trust-machine", exc)
+    _audit().record(f"machine {found.name}", "trust-machine", "ok", f"pinned {found.fingerprint[:16]}", approval)
+    _say(f"Trusted the key of {found.name} ({machine_key.short_fingerprint(found.fingerprint)}).")
+
+
+def _wait_for_answer(t: "transfers.Transfer", link, json_output: bool) -> "transfers.Transfer":
+    """Wait for the transfer to end: one line while it waits, nothing more until it does."""
+    if t.state not in FINAL_STATES:
+        if not json_output:
+            _say(_visible_ascii(f"Waiting for the owner's answer (until {t.expires_utc}). They can answer on the phone, "
+                                f"in the Cockpit, in the cc-secrets window, or with: cc-secrets approve {t.transfer_id}"),
+                 err=True)
+        deadline = time.monotonic() + transfers.WAIT_LIMIT_SECONDS
+        while t.state not in FINAL_STATES and time.monotonic() < deadline:
+            time.sleep(POLL_SECONDS)
+            t = transfers.find(t.transfer_id, link)
+    return t
+
+
+def _ended(t: "transfers.Transfer", json_output: bool) -> None:
+    outcome = {"delivered": "stored", "failed": "failed", "denied": "denied", "expired": "expired"}.get(t.state, "waiting")
+    code = {"stored": 0, "failed": EXIT_FAILED, "denied": EXIT_DENIED, "expired": EXIT_EXPIRED}.get(outcome, EXIT_FAILED)
+    if json_output:
+        _say_json({"outcome": outcome, "transfer": _transfer_json(t)})
+    elif outcome == "stored":
+        _say(_visible_ascii(f"stored {t.target_name} on {t.to_machine}"))
+    elif outcome in ("denied", "expired"):
+        _say(_visible_ascii(f"{outcome}: {t.outcome or t.status_text}"))
+    else:
+        _say(_visible_ascii(f"{outcome}: {t.outcome or t.status_text}"), err=outcome != "stored")
+    if code:
+        raise typer.Exit(code)
+
+
+def _ask(command: str, entry: str, from_machine: Optional[str], to_machine: Optional[str], target: Optional[str],
+         replace: bool, reason: Optional[str], owner_approved: Optional[str], accept_new_key: bool,
+         json_output: bool) -> None:
+    """Ask the Gateway for one transfer and wait for it to end. `send` gives the receiving machine, `request` the
+    holding one; the other is this machine."""
+    try:
+        link = gateway_link.resolve()
+        own, _ = machine_key.load_or_create()
+        listed = machines.listed(own, link)
+        here = machines.this_machine(listed)
+        source = here if from_machine is None else machines.find(listed, from_machine)
+        destination = here if to_machine is None else machines.find(listed, to_machine)
+        in_session = link.kind == gateway_link.KIND_SESSION
+        if source.this_machine and _store().get(entry) is None:
+            _say(f"refused: No entry named '{entry}' is on this machine. Nothing was asked.", err=True)
+            raise typer.Exit(EXIT_REFUSED)
+        if accept_new_key and in_session:
+            _say("refused: a session cannot accept a changed machine key. The owner does that in the cc-secrets window "
+                 "or their own terminal.", err=True)
+            raise typer.Exit(EXIT_REFUSED)
+        body = {"entry": entry, "targetName": target or entry, "fromMachine": source.name, "toMachine": destination.name,
+                "replace": replace, "reason": reason or ""}
+        if owner_approved is not None:
+            body["ownerApproved"] = owner_approved
+        if accept_new_key:
+            body["acceptReceiverFingerprint"] = destination.fingerprint
+        if not in_session and owner_approved is None and _stdin_is_tty():
+            # The owner's own terminal: they are asking, so they approve here, by typing yes to exactly this.
+            summary = f"{entry} from {source.name} to {destination.name}" + (f" as {target}" if target and target != entry else "")
+            _say(_visible_ascii(f"Move {summary}?"))
+            if replace:
+                _say(_visible_ascii(f"This replaces the entry already on {destination.name}."))
+            if destination.pin.state == known_machines.CHANGED and not destination.this_machine:
+                _say(_visible_ascii(f"WARNING: the key of {destination.name} changed since it was pinned."))
+            typed = typer.prompt("Type yes to approve", default="", show_default=False)
+            if typed.strip().lower() != "yes":
+                _audit().record(entry, command, "cancelled", "the owner did not type yes")
+                _say("cancelled: nothing was asked or moved.")
+                raise typer.Exit(EXIT_CANCELLED)
+            body["approvedHere"] = "terminal"
+            body["askedOn"] = here.name
+        t = transfers.create(body, link)
+        approval = OwnerApproval(text=owner_approved.strip(), session_name="") if owner_approved else None
+        _audit().record(entry, command, "asked", f"transfer {t.transfer_id}: {t.summary}", approval)
+        t = _wait_for_answer(t, link, json_output)
+    except typer.Exit:
+        raise
+    except gateway_link.GatewayRefusal as exc:
+        _transfer_refused(command, entry, exc, json_output)
+    except Exception as exc:
+        _fail(command, entry, command, exc)
+    _ended(t, json_output)
+
+
+@app.command("send")
+def send_command(
+    entry: str = typer.Argument(..., help="The entry on this machine to send."),
+    to: str = typer.Option(..., "--to", help="The machine to send it to (see 'cc-secrets machines')."),
+    as_name: Optional[str] = typer.Option(None, "--as", help="Store it under another name there."),
+    replace: bool = typer.Option(False, "--replace", help="Replace an entry of that name already on that machine."),
+    reason: Optional[str] = typer.Option(None, "--reason", help="Why it is needed there. Required inside a session."),
+    owner_approved: Optional[str] = typer.Option(None, "--owner-approved",
+        help="Inside a session: the owner's approval of THIS transfer, in their words, verbatim, from this session's chat."),
+    accept_new_key: bool = typer.Option(False, "--accept-new-key",
+        help="Owner only: send although the receiving machine's key changed since it was pinned."),
+    json_output: bool = typer.Option(False, "--json", help="Print JSON."),
+):
+    """Send an entry from this machine to another, once the owner approves. In the owner's own terminal you approve it
+    here by typing yes; inside a session it waits for the owner's answer, or goes at once with --owner-approved. The
+    secret travels sealed to the receiving machine and is never shown. Exit codes: 0 stored on the receiving machine;
+    1 failed (the reason is printed); 2 refused before anything was asked or moved; 3 cancelled at the yes prompt;
+    4 denied by the owner; 5 expired with no answer."""
+    _ask("send", entry, None, to, as_name, replace, reason, owner_approved, accept_new_key, json_output)
+
+
+
+@app.command("request")
+def request_command(
+    entry: str = typer.Argument(..., help="The entry to get, as it is named on the other machine."),
+    from_machine: str = typer.Option(..., "--from", help="The machine that holds it (see 'cc-secrets machines')."),
+    as_name: Optional[str] = typer.Option(None, "--as", help="Store it under another name here."),
+    replace: bool = typer.Option(False, "--replace", help="Replace an entry of that name already on this machine."),
+    reason: Optional[str] = typer.Option(None, "--reason", help="Why it is needed here. Required inside a session."),
+    owner_approved: Optional[str] = typer.Option(None, "--owner-approved",
+        help="Inside a session: the owner's approval of THIS transfer, in their words, verbatim, from this session's chat."),
+    json_output: bool = typer.Option(False, "--json", help="Print JSON."),
+):
+    """Get an entry from another machine onto this one, once the owner approves. This is how an agent asks for a
+    credential it does not have here: it waits for the owner's answer (phone, Cockpit, the cc-secrets window, or the
+    owner's words with --owner-approved), then prints 'stored NAME on MACHINE'. Exit codes: 0 stored on this machine;
+    1 failed (the reason is printed); 2 refused before anything was asked or moved; 4 denied by the owner; 5 expired
+    with no answer."""
+    _ask("request", entry, from_machine, None, as_name, replace, reason, owner_approved, False, json_output)
+
 
 
 @app.command("log")
