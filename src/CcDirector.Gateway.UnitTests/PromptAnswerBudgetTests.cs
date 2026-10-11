@@ -78,10 +78,11 @@ public sealed class PromptAnswerBudgetTests : IDisposable
             session, Prompt(text), answerBudget: budget));
         var answeredAfter = _clock.GetUtcNow() - sentAt;
 
-        // Assert: answered at the budget - after it, and before the echo the send is still waiting for - accepted,
-        // "delivering", and on the wire as that word.
+        // Assert: answered AT the budget - not before it, and no later than the one virtual-time step the clock
+        // moves in, far short of the echo the send is still waiting for - accepted, "delivering", and on the wire
+        // as that word. A bound of "before the echo" would pass a budget six times too long.
         var response = Body(result);
-        Assert.InRange(answeredAfter, budget, echo);
+        Assert.InRange(answeredAfter, budget, budget + VirtualTime.Step);
         Assert.True(response.Accepted);
         Assert.Equal(DeliveryState.Delivering, response.DeliveryState);
         Assert.Contains("\"deliveryState\":\"delivering\"", result.BodyJson);
