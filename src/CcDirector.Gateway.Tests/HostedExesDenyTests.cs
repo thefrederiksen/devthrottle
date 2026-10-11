@@ -65,12 +65,6 @@ public sealed class HostedExesDenyTests : IDisposable
     private readonly string _instances =
         Path.Combine(Path.GetTempPath(), "cc-hosted-exes-" + Guid.NewGuid().ToString("N"));
 
-    public HostedExesDenyTests()
-    {
-        // EXPLICIT, not ambient: this class asserts hosted behaviour, so it states hosted mode itself and
-        // proves the statement took, rather than inheriting whatever the runner happened to leave set.
-    }
-
     public void Dispose()
     {
         try { if (Directory.Exists(_instances)) Directory.Delete(_instances, true); } catch (Exception) { /* best effort */ }
@@ -217,10 +211,6 @@ public sealed class HostedExesGroupFilterTests : IDisposable
 {
     private readonly string _instances =
         Path.Combine(Path.GetTempPath(), "cc-exes-group-" + Guid.NewGuid().ToString("N"));
-
-    public HostedExesGroupFilterTests()
-    {
-    }
 
     public void Dispose()
     {

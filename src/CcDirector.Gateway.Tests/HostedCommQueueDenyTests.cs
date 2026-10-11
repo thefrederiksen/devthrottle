@@ -73,9 +73,6 @@ public sealed class HostedCommQueueDenyTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        // EXPLICIT, not ambient: this class asserts hosted behaviour, so it states hosted mode itself
-        // and proves the statement took, rather than inheriting whatever the runner left set.
-
         // The operator's queue holds a real pending draft, so a read that (wrongly) got through would
         // have something to hand back.
         await CommQueueTestSeed.SeedAsync(_root);

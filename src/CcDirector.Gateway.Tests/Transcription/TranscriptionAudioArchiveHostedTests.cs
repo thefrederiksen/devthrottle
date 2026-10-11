@@ -18,10 +18,6 @@ public sealed class TranscriptionAudioArchiveHostedTests : IDisposable
     private readonly string _dir = Path.Combine(
         Path.GetTempPath(), "cc-audio-archive-hosted-tests", Guid.NewGuid().ToString("N"));
 
-    public TranscriptionAudioArchiveHostedTests()
-    {
-    }
-
     public void Dispose()
     {
         try { if (Directory.Exists(_dir)) Directory.Delete(_dir, recursive: true); }

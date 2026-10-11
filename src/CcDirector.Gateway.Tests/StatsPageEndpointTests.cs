@@ -36,9 +36,6 @@ public sealed class StatsPageEndpointTests : IDisposable
     {
         _dir = Path.Combine(Path.GetTempPath(), "cc-stats-ep-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_dir);
-        // Declared, not assumed: this class is the self-host contract, so the process must actually be in
-        // self-host mode while it runs - a leaked hosted toggle from another fixture would turn these into
-        // tests of something else.
     }
 
     public void Dispose()

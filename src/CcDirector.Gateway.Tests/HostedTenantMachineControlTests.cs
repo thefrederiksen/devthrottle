@@ -92,9 +92,8 @@ public sealed class HostedTenantMachineControlTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        // EXPLICIT, not ambient: this class asserts HOSTED behaviour, so it states hosted mode itself rather
-        // than inheriting whatever the runner happened to leave set, and proves the statement took.
-
+        // EXPLICIT, not ambient: this class asserts HOSTED behaviour, so it states hosted mode on the host it builds
+        // rather than inheriting whatever the runner happened to leave set.
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: Token, authEnabled: true,
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),

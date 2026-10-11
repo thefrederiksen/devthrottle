@@ -113,9 +113,6 @@ public sealed class HostedVaultDenyTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        // EXPLICIT, not ambient: this class asserts hosted behaviour, so it states hosted mode itself and
-        // proves the statement took, rather than inheriting whatever the runner happened to leave set.
-
         // A real secret already in the vault, so a read that (wrongly) got through would have something to
         // hand back. A deny tested against an empty vault proves nothing.
         new KeyVault(_vaultPath).Set(SecretName, SecretValue);
@@ -666,9 +663,8 @@ public sealed class SelfHostVaultControlTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        // Hosted mode explicitly OFF and PROVEN off - set here rather than assumed, so a value leaked by
-        // another test cannot turn this control silently into a second hosted run.
-
+        // Hosted mode explicitly OFF on the host built below - stated rather than assumed, so this control
+        // cannot silently turn into a second hosted run.
         new KeyVault(_vaultPath).Set(SecretName, SecretValue);
 
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: Token, authEnabled: true,

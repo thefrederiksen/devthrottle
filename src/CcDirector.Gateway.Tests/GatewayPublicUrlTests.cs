@@ -127,9 +127,8 @@ public class GatewayPublicUrlTests
     // ---- LIVE WRAPPER: ResolveCockpit(hosted) reads the configured base from the real environment ----
     // These prove the wrapper is actually WIRED to the pure resolver (not stubbed or hardcoded). They drive
     // ResolveCockpit(hosted) for BOTH modes; the mode is passed in, the configured base still comes from the env.
-    // Replacing ResolveCockpit(hosted) with a hardcoded
-    // constant reddens the hosted case (it pins the exact fake-base value) and would break the self-host
-    // case's independence from the hosted var. Assembly runs sequentially; env saved/restored in finally.
+    // Replacing ResolveCockpit(hosted) with a hardcoded constant reddens the hosted case (it pins the exact
+    // fake-base value). Assembly runs sequentially; the public base variable is saved and restored in finally.
 
     [Fact]
     public void ResolveCockpit_LiveWrapper_Hosted_DerivesFromConfiguredBase()
