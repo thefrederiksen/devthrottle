@@ -158,15 +158,20 @@ public sealed class AtomicFileReplaceTests : IDisposable
     }
 
     /// <summary>
-    /// The real Windows write, with a rename that fails: the temporary file it created through a real handle
-    /// is gone afterwards - for an immediate failure and for a veto that outlasts the deadline.
+    /// The real Windows write, with a rename that fails at once: the temporary file it created through a
+    /// real handle is gone afterwards.
     /// </summary>
-    [Theory]
-    [InlineData(1)]
-    [InlineData(5)]
-    public void WriteOnWindows_RenameFails_TheTemporaryIsRemovedWithTheHandle(int renameError)
+    [WindowsOnlyFact("the one-handle write and its delete-on-close disposition are the Windows path; WriteThenMove is the path everywhere else")]
+    public void WriteOnWindows_RenameFailsAtOnce_TheTemporaryIsRemovedWithTheHandle()
+        => AssertWindowsRenameFailureLeavesNothing(renameError: 1);
+
+    /// <summary>The same, for a veto that outlasts the deadline.</summary>
+    [WindowsOnlyFact("the one-handle write and its delete-on-close disposition are the Windows path; WriteThenMove is the path everywhere else")]
+    public void WriteOnWindows_VetoOutlastsTheDeadline_TheTemporaryIsRemovedWithTheHandle()
+        => AssertWindowsRenameFailureLeavesNothing(renameError: 5);
+
+    private void AssertWindowsRenameFailureLeavesNothing(int renameError)
     {
-        if (!OperatingSystem.IsWindows()) return;
         var destination = Path.Combine(_dir, "list.json");
         var temporary = Path.Combine(_dir, ".list.json.test.tmp");
         var clock = new FakeTimeProvider();
@@ -176,6 +181,53 @@ public sealed class AtomicFileReplaceTests : IDisposable
 
         Assert.Equal(renameError, ex.NativeErrorCode);
         Assert.Empty(Directory.GetFiles(_dir));
+    }
+
+    /// <summary>
+    /// The path used off Windows, run on every platform: a move that fails takes the temporary file with
+    /// it, and the move's own failure is the one reported.
+    /// </summary>
+    [Fact]
+    public void WriteThenMove_MoveFails_TheTemporaryIsRemovedAndTheMoveFailureIsReported()
+    {
+        var temporary = Path.Combine(_dir, ".list.json.test.tmp");
+        var moveFailure = new IOException("the move was refused");
+
+        var ex = Assert.Throws<IOException>(() => AtomicFileReplace.WriteThenMove(temporary,
+            Path.Combine(_dir, "list.json"), new byte[] { 1, 2, 3 }, (_, _) => throw moveFailure));
+
+        Assert.Same(moveFailure, ex);
+        Assert.Empty(Directory.GetFiles(_dir));
+    }
+
+    /// <summary>
+    /// When the temporary cannot be removed either, both failures come back together - the move's and the
+    /// delete's - and neither is dropped. The move holds the file open with no sharing, which blocks the
+    /// delete; that blocking is how Windows treats an open file, so this one runs there.
+    /// </summary>
+    [WindowsOnlyFact("an open handle blocks a delete only on Windows; elsewhere unlink succeeds and there is no second failure to report")]
+    public void WriteThenMove_MoveAndCleanupBothFail_BothFailuresAreReported()
+    {
+        var temporary = Path.Combine(_dir, ".list.json.test.tmp");
+        var moveFailure = new IOException("the move was refused");
+        FileStream? held = null;
+        try
+        {
+            var ex = Assert.Throws<AggregateException>(() => AtomicFileReplace.WriteThenMove(temporary,
+                Path.Combine(_dir, "list.json"), new byte[] { 1, 2, 3 }, (from, _) =>
+                {
+                    held = new FileStream(from, FileMode.Open, FileAccess.Read, FileShare.None);
+                    throw moveFailure;
+                }));
+
+            Assert.Equal(2, ex.InnerExceptions.Count);
+            Assert.Same(moveFailure, ex.InnerExceptions[0]);
+            Assert.Contains("delete it by hand", ex.Message);
+        }
+        finally
+        {
+            held?.Dispose();
+        }
     }
 
     private static readonly DateTimeOffset FakeStart = new FakeTimeProvider().GetUtcNow();

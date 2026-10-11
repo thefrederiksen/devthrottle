@@ -75,17 +75,7 @@ public static class AtomicFileReplace
         if (!OperatingSystem.IsWindows())
         {
             // rename(2): already atomic, and already indifferent to readers holding the old file.
-            try
-            {
-                File.WriteAllBytes(temporary, bytes);
-                File.Move(temporary, fullDestination, overwrite: true);
-            }
-            catch (Exception failure)
-            {
-                // Nothing may be left beside the destination - whether the write or the move failed.
-                DeleteTemporaryAfterFailure(temporary, failure);
-                throw;
-            }
+            WriteThenMove(temporary, fullDestination, bytes, (from, to) => File.Move(from, to, overwrite: true));
             return;
         }
 
@@ -126,6 +116,25 @@ public static class AtomicFileReplace
                     $"[AtomicFileReplace] writing {destination} failed, and the temporary file {temporary} could not be " +
                     $"removed ({Describe(cleanupError)}); delete it by hand. The write failure is the inner exception.", failure);
             }
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// The write used off Windows: the bytes into the temporary file, then one move over the destination.
+    /// The move is given, so a test on any platform can make it fail and watch the cleanup run.
+    /// </summary>
+    internal static void WriteThenMove(string temporary, string destination, byte[] bytes, Action<string, string> move)
+    {
+        try
+        {
+            File.WriteAllBytes(temporary, bytes);
+            move(temporary, destination);
+        }
+        catch (Exception failure)
+        {
+            // Nothing may be left beside the destination - whether the write or the move failed.
+            DeleteTemporaryAfterFailure(temporary, failure);
             throw;
         }
     }
