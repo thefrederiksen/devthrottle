@@ -15,6 +15,7 @@ namespace CcDirector.Core.Tests;
 ///                          ran in a real session and is now deleted (issue #1564).
 ///   #5 PTY resize       -> Resize no-ops on an unchanged size (the repaint-loop guard).
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class SessionInteractiveTests
 {
     private static Session NewSession(RecordingBackend backend, ActivityState initial)

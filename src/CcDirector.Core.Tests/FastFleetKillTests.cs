@@ -12,6 +12,7 @@ namespace CcDirector.Core.Tests;
 /// <see cref="AgentOptions.GracefulShutdownTimeoutSeconds"/> window. A spy backend records the graceful
 /// window each kill passes, so the behavior is asserted deterministically (no timing).
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class FastFleetKillTests
 {
     // A backend that never spawns a process and records the graceful-shutdown window it was asked to wait.

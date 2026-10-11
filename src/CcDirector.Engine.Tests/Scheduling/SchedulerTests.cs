@@ -6,6 +6,7 @@ using Xunit;
 
 namespace CcDirector.Engine.Tests.Scheduling;
 
+[Collection("RealProcesses")]
 public sealed class SchedulerTests : IDisposable
 {
     private readonly string _dbPath;

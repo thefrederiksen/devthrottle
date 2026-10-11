@@ -11,6 +11,7 @@ namespace CcDirector.Core.Tests;
 /// Uses real .jsonl files from the current user's Claude sessions to verify
 /// that the matching pipeline (extract prompts -> build terminal text -> match) works end-to-end.
 /// </summary>
+[Collection("ProcessWideState")]
 public class TerminalVerificationIntegrationTests
 {
     private readonly ITestOutputHelper _output;

@@ -15,6 +15,7 @@ namespace CcDirector.Core.Tests;
 /// a schedule or an agent moved nothing, and the repository list was ordered by a signal that had
 /// never seen most of the work done on the machine.
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class RepositoryUsageRecorderTests : IDisposable
 {
     private readonly string _tempDir;
@@ -180,6 +181,7 @@ public sealed class RepositoryUsageRecorderTests : IDisposable
 /// The one rule both catalogues resolve the repository with - the Director's own registry and the
 /// Gateway's known-repository store.
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class RepositoryUsageTests
 {
     [Fact]

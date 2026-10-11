@@ -14,6 +14,7 @@ namespace CcDirector.Core.Tests.Sessions;
 /// what is under test is the handler the Director actually runs - not a refresh called by hand, which
 /// would stay green if the subscription were deleted.
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class PendingInteractionWatcherTests : IDisposable
 {
     private readonly string _directory =

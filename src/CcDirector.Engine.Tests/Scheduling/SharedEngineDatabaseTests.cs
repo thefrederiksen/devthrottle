@@ -11,6 +11,7 @@ namespace CcDirector.Engine.Tests.Scheduling;
 /// another live Director's run. In the double-run test each simulated Director has its own owner
 /// identity, as two real Director processes do.
 /// </summary>
+[Collection("RealProcesses")]
 public sealed class SharedEngineDatabaseTests : IDisposable
 {
     private readonly string _dbPath;

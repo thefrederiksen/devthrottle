@@ -8,6 +8,7 @@ namespace CcDirector.Core.Tests.Utilities;
 /// seam that makes "every error the Director logs reaches the Gateway" true without any call site having to
 /// remember to report. It lives in this sequential assembly because it swaps FileLog's process-wide state.
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class FileLogErrorObserverTests
 {
     [Fact]

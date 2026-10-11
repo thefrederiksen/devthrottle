@@ -21,6 +21,7 @@ namespace CcDirector.Core.Tests;
 /// So these pin the SIGNAL, not the value: does the fact announce itself, once, on real changes only.
 /// Found by independent review of pull request 1598, not by the mission.
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class GatewayResolvedRoleSignalTests
 {
     private static Session NewSession()

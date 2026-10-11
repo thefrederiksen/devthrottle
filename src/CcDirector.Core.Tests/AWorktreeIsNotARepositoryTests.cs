@@ -22,6 +22,7 @@ namespace CcDirector.Core.Tests;
 /// schedule, an agent spawning a worker, and a restore after a Director restart. A session announced
 /// here stands for every one of them.</para>
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class AWorktreeIsNotARepositoryTests : IDisposable
 {
     private readonly string _root;

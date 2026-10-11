@@ -10,6 +10,7 @@ namespace CcDirector.Core.Tests;
 /// the derived <see cref="Session.VoiceMode"/> / <see cref="Session.MobileMode"/> flags must track
 /// <see cref="Session.ViewMode"/> exactly.
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class SessionViewModeTests
 {
     private static Session NewSession() => new Session(

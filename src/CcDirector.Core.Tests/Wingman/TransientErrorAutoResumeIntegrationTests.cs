@@ -16,6 +16,7 @@ namespace CcDirector.Core.Tests.Wingman;
 /// behavior (arm/continue vs zero) is what is asserted, not the wall-clock spacing (that is the
 /// deterministic job of <see cref="AutoResumeLoopTests"/>).
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class TransientErrorAutoResumeIntegrationTests
 {
     // The verbatim field-seen transient error (Screenshot 2026-06-16 133011.png).

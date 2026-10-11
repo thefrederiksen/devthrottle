@@ -9,6 +9,7 @@ namespace CcDirector.Core.Tests;
 /// TerminalVerificationExhausted lets the screen thread skip building the terminal text for a
 /// verification that would return at once.
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class SessionTerminalVerificationExhaustedTests
 {
     [Fact]

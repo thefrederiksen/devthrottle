@@ -11,6 +11,7 @@ namespace CcDirector.Core.Tests.Agents;
 /// (AC1), the launch-spec contract (AC2), executable/path resolution (AC3), and auth-token
 /// resolution (AC10).
 /// </summary>
+[Collection("ProcessWideState")]
 public class CopilotAgentTests
 {
     // ---------------------------------------------------------------- AC1

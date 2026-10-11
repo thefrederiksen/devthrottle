@@ -11,6 +11,7 @@ namespace CcDirector.Engine.Tests.Scheduling;
 /// and a revoked owner's late completion changes nothing. These use only API that existed at the
 /// reviewed head 3823c55c5, so this file runs red against it.
 /// </summary>
+[Collection("RealProcesses")]
 public sealed class ClaimCoversTheCommandTests : IDisposable
 {
     private readonly string _dbPath;

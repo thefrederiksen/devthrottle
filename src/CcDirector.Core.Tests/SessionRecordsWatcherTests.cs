@@ -16,6 +16,7 @@ namespace CcDirector.Core.Tests;
 /// cannot answer (no NotSupportedException as control flow). The token PARSING itself lives in
 /// SessionTokenUsageTests; these cover the wire.
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class SessionRecordsWatcherTests
 {
     [Fact]

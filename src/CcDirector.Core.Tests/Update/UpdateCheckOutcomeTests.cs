@@ -19,6 +19,7 @@ namespace CcDirector.Core.Tests.Update;
 /// These run on every platform that has a published Director build, using that platform's own download
 /// name, so they are not only proved on Windows.
 /// </summary>
+[Collection("ProcessWideState")]
 public class UpdateCheckOutcomeTests
 {
     /// <summary>The download name for the machine running the tests, or null when none is published.</summary>

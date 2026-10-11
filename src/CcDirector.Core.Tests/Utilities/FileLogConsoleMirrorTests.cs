@@ -13,6 +13,7 @@ namespace CcDirector.Core.Tests.Utilities;
 //   2. UseUniqueInstanceId installs the caller-selected directory before Start(), and
 //      REFUSES to run after Start() instead of splitting one process record across files.
 // =====================================================================================
+[Collection("ProcessWideState")]
 public sealed class FileLogConsoleMirrorTests
 {
     [Fact]

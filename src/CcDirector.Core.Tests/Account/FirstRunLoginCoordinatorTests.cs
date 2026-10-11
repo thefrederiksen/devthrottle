@@ -9,6 +9,7 @@ namespace CcDirector.Core.Tests.Account;
 /// credential service (issue #583). The browser launch and the loopback hand-back are injected so the
 /// flow is provable without a real browser or a real backend.
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class FirstRunLoginCoordinatorTests
 {
     private static DevThrottleAccountService MakeAccount(InMemoryTokenStore store) =>

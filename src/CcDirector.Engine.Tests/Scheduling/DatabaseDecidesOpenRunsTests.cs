@@ -13,6 +13,7 @@ namespace CcDirector.Engine.Tests.Scheduling;
 /// the run's stored deadline plus the margin - never earlier, never held forever (EN-F6, EN-F7). These use
 /// only API that existed at the reviewed head b369273b4, so this file runs red against it.
 /// </summary>
+[Collection("RealProcesses")]
 public sealed class DatabaseDecidesOpenRunsTests : IDisposable
 {
     private readonly string _dbPath;

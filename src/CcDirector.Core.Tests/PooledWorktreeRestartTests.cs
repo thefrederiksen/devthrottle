@@ -16,6 +16,7 @@ namespace CcDirector.Core.Tests;
 /// that was watched failing on the untouched tree: a session in a slot saved everything about itself
 /// EXCEPT the lease, so the next Director had nothing to give the slot back with.
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class PooledWorktreeRestartTests : IDisposable
 {
     private readonly string _root;

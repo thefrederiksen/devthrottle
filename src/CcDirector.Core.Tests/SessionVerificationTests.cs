@@ -9,6 +9,7 @@ namespace CcDirector.Core.Tests;
 /// <summary>
 /// Tests for Session.VerifyClaudeSession and the SessionVerificationStatus enum.
 /// </summary>
+[Collection("ProcessWideState")]
 public class SessionVerificationTests : IDisposable
 {
     private readonly SessionManager _manager;

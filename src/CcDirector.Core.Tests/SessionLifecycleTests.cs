@@ -9,6 +9,7 @@ namespace CcDirector.Core.Tests;
 /// Tests for session lifecycle: create, run, kill, dispose, and state transitions.
 /// Uses cmd.exe (Windows) or /bin/sh (Unix) as a lightweight stand-in for claude.exe.
 /// </summary>
+[Collection("ProcessWideState")]
 public class SessionLifecycleTests : IDisposable
 {
     private readonly SessionManager _manager;

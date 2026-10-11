@@ -11,6 +11,7 @@ namespace CcDirector.Core.Tests;
 /// used to get no key at all and was listed to the Gateway with none - a colleague's Director could key it first.
 /// It now gets a key like any other session, minted before it joins the roster.
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class GitHubActionsSessionKeyTests
 {
     private static RemoteSessionConfig NewIssueConfig() => new()

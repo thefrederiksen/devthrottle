@@ -5,6 +5,7 @@ using Xunit;
 
 namespace CcDirector.Core.Tests;
 
+[Collection("ProcessWideState")]
 public class SessionManagerTests : IDisposable
 {
     private readonly SessionManager _manager;

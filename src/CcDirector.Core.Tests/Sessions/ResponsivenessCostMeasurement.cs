@@ -26,6 +26,7 @@ namespace CcDirector.Core.Tests.Sessions;
 /// count on this machine, then this machine cannot observe the defect and nothing measured here about
 /// its removal would mean anything.
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class ResponsivenessCostMeasurement
 {
     private readonly ITestOutputHelper _out;

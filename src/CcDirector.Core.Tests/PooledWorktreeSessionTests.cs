@@ -16,6 +16,7 @@ namespace CcDirector.Core.Tests;
 /// proven in that tool's own suite, and repeating it here would be a second copy of it that could
 /// drift from the real one.
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class PooledWorktreeSessionTests : IDisposable
 {
     private readonly string _root;

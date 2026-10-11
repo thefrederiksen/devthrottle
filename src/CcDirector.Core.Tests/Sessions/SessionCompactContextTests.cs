@@ -18,6 +18,7 @@ namespace CcDirector.Core.Tests.Sessions;
 /// give that signal is refused rather than guessed at, and a compaction that never reports finishing
 /// fails loudly instead of quietly reporting success.
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class SessionCompactContextTests
 {
     private static readonly TimeSpan ShortWait = TimeSpan.FromMilliseconds(600);

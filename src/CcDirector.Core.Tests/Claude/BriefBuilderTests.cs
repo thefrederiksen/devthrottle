@@ -11,6 +11,7 @@ namespace CcDirector.Core.Tests.Claude;
 /// needs-you is never shown), and cache staleness. The hosted condensation itself is
 /// covered by the live E2E (docs/plans/cockpit-brief-view.md Phase 3), not unit tests.
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class BriefBuilderTests
 {
     private static TurnWidgetDto User(string content) => new() { Kind = "UserMessage", Content = content };
@@ -227,6 +228,7 @@ public sealed class BriefBuilderTests
 }
 
 /// <summary>Cache staleness: an entry is only current for its exact turn count.</summary>
+[Collection("ProcessWideState")]
 public sealed class BriefCacheTests
 {
     private static BriefCache.Entry Entry(int turnCount) => new()

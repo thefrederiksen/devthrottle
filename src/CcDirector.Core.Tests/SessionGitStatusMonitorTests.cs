@@ -17,6 +17,7 @@ namespace CcDirector.Core.Tests;
 /// tell" render identically to a reader that collapses them, so the monitor publishes only counts a probe
 /// actually produced, and leaves the last known value alone otherwise.
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class SessionGitStatusMonitorTests
 {
     [Fact]
