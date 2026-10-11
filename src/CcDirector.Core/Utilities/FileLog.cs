@@ -195,11 +195,15 @@ public static class FileLog
     /// <summary>Log a message with a timestamp prefix.</summary>
     public static void Write(string message)
     {
-        if (_started == 0) return;
-        var line = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} {message}";
-        _writer.Enqueue(line);
-        if (MirrorToConsole) Console.Out.WriteLine(line);
-        System.Diagnostics.Debug.WriteLine(line);
+        if (_started != 0)
+        {
+            var line = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} {message}";
+            _writer.Enqueue(line);
+            if (MirrorToConsole) Console.Out.WriteLine(line);
+            System.Diagnostics.Debug.WriteLine(line);
+        }
+        // An error line reaches the reporter whether or not the file writer is running: reporting does not depend on
+        // the file, and a unit test can watch the real error path without writing to the machine's log folder.
         if (ErrorObserver is { } observer && ErrorReports.ErrorLine.IsError(message))
             observer(message);
     }

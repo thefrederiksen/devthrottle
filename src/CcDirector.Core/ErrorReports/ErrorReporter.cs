@@ -321,6 +321,9 @@ public sealed class ErrorReporter : IDisposable
         try
         {
             if (!ErrorLine.IsError(message)) return;
+            // Withheld text first, on the whole line: a cut below could otherwise split a withheld string and leave a
+            // piece of it (issue #3675 - a report never carries a prompt's words).
+            message = ErrorContext.ApplyWithheld(message, ErrorContext.Current);
             // Cap BEFORE parsing and scrubbing: an unhandled-exception dump can run to many kilobytes, and
             // everything past this is cut by the field caps anyway. Keeps the work on the logging thread small.
             if (message.Length > MaxLineChars) message = message[..MaxLineChars];
@@ -362,7 +365,8 @@ public sealed class ErrorReporter : IDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(kind);
         ArgumentException.ThrowIfNullOrWhiteSpace(message);
         if (kind.Length > 40) throw new ArgumentException("kind must be at most 40 characters", nameof(kind));
-        Add(source, kind, message, "", detail ?? "");
+        var context = ErrorContext.Current;
+        Add(source, kind, ErrorContext.ApplyWithheld(message, context), "", ErrorContext.ApplyWithheld(detail ?? "", context));
         FileLog.Write($"{ErrorLine.ReporterTag} outcome queued for the Gateway: source={source}, kind={kind}");
     }
 
