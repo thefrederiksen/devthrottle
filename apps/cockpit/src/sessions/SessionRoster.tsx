@@ -26,6 +26,8 @@ import {
 } from "@devthrottle/client-core/sessions/tree";
 import { changesBadge, changesTitle } from "@devthrottle/client-core/sessions/changes";
 import { RosterLinkBadge, RosterLinkLine } from "./LinkRequests";
+import { RosterSecretBadge } from "./SecretTransferChip";
+import { SecretTransfersPanel } from "@devthrottle/client-core/secrets/SecretTransfers";
 import { splitPinned, type PinnedSplit } from "@devthrottle/client-core/sessions/pinning";
 import {
   DELIVERY_BADGE_TEXT,
@@ -151,6 +153,10 @@ export function SessionRoster({ sessions, directors, portByDirector, selectedId,
           roster where "Needs you" lives. The same shared component the phone mounts; this shell only
           tunes its layout. Renders nothing while no request exists. */}
       <RestartRequestsPanel />
+
+      {/* A secret transfer waiting for the owner's one approval (Secret Handoff, issue #2943): the same shared card
+          the phone mounts, answered here "in the Cockpit". Renders nothing while none waits. */}
+      <SecretTransfersPanel where="cockpit" />
 
       {error !== null && (
         // error-reported-by: createPollingStore
@@ -533,6 +539,8 @@ function RosterRow({
             <span className={named ? "roster-name-text" : "roster-name-text dt-private"}>{name}</span>
             {/* This session asked to talk to another (issue #3631): the amber phone, apart from the red queue dot. */}
             <RosterLinkBadge sessionId={sid} />
+            {/* This session asked for a secret from another machine (issue #2943): the amber key. */}
+            <RosterSecretBadge sessionId={sid} />
             {session.pin && (
               <span className="roster-pin-mark" title={session.pin.title}>
                 {session.pin.mark}

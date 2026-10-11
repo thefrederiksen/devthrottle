@@ -20,6 +20,10 @@ vi.mock("@devthrottle/client-core/api/client", async (importOriginal) => ({
   }),
 }));
 
+vi.mock("@devthrottle/client-core/secrets/SecretTransfers", () => ({
+  SecretTransfersProvider: ({ children }: { children: unknown }) => children,
+  SecretTransfersPanel: () => null,
+}));
 vi.mock("@devthrottle/client-core/restart/RestartRequestsPanel", () => ({
   RestartRequestsPanel: () => null,
 }));

@@ -14,6 +14,7 @@ import { Diagnostics } from "./pages/Diagnostics";
 import { YourThrottle } from "./pages/YourThrottle";
 import { Repos } from "./pages/Repos";
 import { Account } from "./pages/Account";
+import { SecretTransfers } from "./pages/SecretTransfers";
 import { SignIn } from "@devthrottle/client-core/auth/SignIn";
 import { DeviceCallback } from "@devthrottle/client-core/auth/DeviceCallback";
 import { RequireDeviceKey } from "./components/RequireDeviceKey";
@@ -143,6 +144,8 @@ export const MOBILE_ROUTES: RouteObject[] = [
           // between logins, adding one, and signing out. Mirrors the Cockpit's Account destination -
           // the phone had none, which is why it had no way to sign out either.
           { path: "/account", element: <Account /> },
+          // A secret transfer waiting for the owner's approval (issue #2943): where its push notification lands.
+          { path: "/secret-transfers", element: <SecretTransfers /> },
           { path: "/about", element: <About /> },
           // Diagnostics (auto-network-switching mission): a phone-side connection tester - route
           // (direct LAN vs Tailscale relay), latency, and download/upload throughput, with a verdict.
