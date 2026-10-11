@@ -72,13 +72,27 @@ ROLE_ACTIVE = "active"
 ROLE_SPARE = "spare"
 
 
+#: Why a switch was refused or failed, in the words of the Director and Gateway contract
+#: (missions/license-switching/contract.md, section 3.4). The Director passes them on unchanged.
+REASON_SWITCH_IN_PROGRESS = "switch-in-progress"
+REASON_ACTIVE_ACCOUNT_CHANGED = "active-account-changed"
+REASON_SPARE_NOT_HELD = "spare-not-held"
+REASON_EXCHANGE_FAILED_RESTORED = "exchange-failed-restored"
+REASON_EXCHANGE_FAILED_UNKNOWN = "exchange-failed-unknown"
+REASON_VERIFY_FAILED = "verify-failed"
+
+
 class LicenseStoreError(Exception):
     """An operation could not be done. The message names what failed and never carries a key value;
-    ``next_steps`` names what to run or check next."""
+    ``next_steps`` names what to run or check next. ``reason_code`` is one of the REASON_ words when the
+    failure is one the contract names, else None. ``previous_active`` is the active account's email read
+    before a switch began, when the switch got that far."""
 
-    def __init__(self, message: str, next_steps: Sequence[str]):
+    def __init__(self, message: str, next_steps: Sequence[str], reason_code: Optional[str] = None):
         super().__init__(message)
         self.next_steps = list(next_steps)
+        self.reason_code = reason_code
+        self.previous_active: Optional[str] = None
 
 
 class _StepFailed(Exception):
@@ -431,6 +445,7 @@ class _StoreLock:
                 raise LicenseStoreError(
                     f"another license operation is running on this store (lock {self._path})",
                     ["Wait for it to finish, then run the command again"],
+                    reason_code=REASON_SWITCH_IN_PROGRESS,
                 ) from None
             self._handle = handle
         self._depth += 1
@@ -490,12 +505,16 @@ class HeldAccount:
 
 @dataclass(frozen=True)
 class SwitchResult:
-    """What a switch did. ``changed`` is False when the account was already active."""
+    """What a switch did. ``changed`` is False when the account was already active. ``exchange_milliseconds``
+    times the exchange step alone (0 when it was not reached); the times are UTC."""
 
     active: str
     previous: Optional[str]
     previous_kept_in: Optional[str]
     changed: bool
+    started_at: _dt.datetime
+    finished_at: _dt.datetime
+    exchange_milliseconds: int
 
 
 Checkpoint = Callable[[str], None]
@@ -676,16 +695,25 @@ class LicenseStore:
                 raise LicenseStoreError(
                     f"the {journal['operation']} of {journal['account']} could not finish and was rolled back: {exc}",
                     ["cc-devthrottle license list"],
+                    reason_code=REASON_EXCHANGE_FAILED_RESTORED,
                 ) from None
             journal["done"] += 1
             self._write_journal(journal)
         self._clear_journal()
 
     def _roll_back(self, journal: dict, reason: str) -> None:
-        """Undo the copies already made, newest first, each only where its source still holds the same key.
-        When that cannot be proven, stop with everything left in place and the journal kept."""
+        """Undo the steps already done, newest first. A step's undo is its own ``undo`` when the journal names
+        one (bringing a spare into the default folder is undone by copying the old active sign-in back from
+        where the first step put it), otherwise dropping the copy where its source still holds the same key.
+        Progress is recorded, so a crash during the roll back resumes it. When an undo cannot be proven safe,
+        stop with everything left in place and the journal kept."""
+        if not journal.get("rollingBack"):
+            journal["rollingBack"] = True
+            journal["undone"] = 0
+            journal["rollbackReason"] = reason
+            self._write_journal(journal)
         done_steps = journal["steps"][: journal["done"]]
-        for step in reversed(done_steps):
+        for step in list(reversed(done_steps))[journal["undone"]:]:
             if step["op"] != "copy":
                 self._log("rollback-impossible", operation=journal["operation"], account=journal["account"],
                           reason=reason)
@@ -694,9 +722,13 @@ class LicenseStore:
                     f"removed, and cannot be rolled back automatically ({reason}). Nothing more was changed; the "
                     f"journal is kept at {self._journal_path}.",
                     [f"Read {self._journal_path} and {self._log_path}", "cc-devthrottle license list"],
+                    reason_code=REASON_EXCHANGE_FAILED_UNKNOWN,
                 )
+            undo = step.get("undo") or {"op": "drop", "folder": step["to"], "keptIn": step["from"]}
             try:
-                self._step_drop(step["to"], kept_in=step["from"])
+                self._do_step(undo)
+                journal["undone"] += 1
+                self._write_journal(journal)
             except _StepFailed as exc:
                 self._log("rollback-impossible", operation=journal["operation"], account=journal["account"],
                           reason=str(exc))
@@ -704,6 +736,7 @@ class LicenseStore:
                     f"the {journal['operation']} of {journal['account']} could neither finish nor roll back "
                     f"({exc}). Nothing more was changed; the journal is kept at {self._journal_path}.",
                     [f"Read {self._journal_path} and {self._log_path}", "cc-devthrottle license list"],
+                    reason_code=REASON_EXCHANGE_FAILED_UNKNOWN,
                 ) from None
         self._clear_journal()
         self._log("rolled-back", operation=journal["operation"], account=journal["account"], reason=reason)
@@ -719,10 +752,27 @@ class LicenseStore:
                 raise LicenseStoreError(
                     f"the journal {self._journal_path} is not one this tool wrote; nothing was changed",
                     [f"Read {self._journal_path} and {self._log_path}"],
+                    reason_code=REASON_EXCHANGE_FAILED_UNKNOWN,
                 )
             self._log("recovery-started", operation=journal.get("operation"), account=journal.get("account"),
                       done=journal["done"], steps=len(journal["steps"]))
             try:
+                if journal.get("rollingBack"):
+                    if not isinstance(journal.get("undone"), int):
+                        raise LicenseStoreError(
+                            f"the journal {self._journal_path} is part way through a roll back but does not say how "
+                            "far; nothing was changed",
+                            [f"Read {self._journal_path} and {self._log_path}"],
+                            reason_code=REASON_EXCHANGE_FAILED_UNKNOWN,
+                        )
+                    reason = str(journal.get("rollbackReason") or "an earlier failure")
+                    self._roll_back(journal, reason)
+                    raise LicenseStoreError(
+                        f"the {journal.get('operation')} of {journal.get('account')} could not finish and was rolled "
+                        f"back: {reason}",
+                        ["cc-devthrottle license list"],
+                        reason_code=REASON_EXCHANGE_FAILED_RESTORED,
+                    )
                 self._run_journal(journal)
             except LicenseStoreError as exc:
                 self.last_recovery = f"an unfinished {journal.get('operation')} was found: {exc}"
@@ -818,41 +868,100 @@ class LicenseStore:
             self._log("remove-finished", account=account.email)
             return account
 
-    def switch(self, email: str) -> SwitchResult:
+    def active_account_email(self) -> Optional[str]:
+        """The email of the account in the default folder, read now without the lock; None when it holds no key
+        or no account block. For reporting what is there after a refusal - never a reason to act."""
+        if not self.backend.exists(self.default_config_dir):
+            return None
+        return _email_of(read_oauth_account(self.default_config_dir))
+
+    def switch(self, email: str, expect_active: Optional[str] = None) -> SwitchResult:
         """EXCHANGE the active sign-in with the spare for ``email``: the active key and account block go to the
-        old account's spare folder, and the spare's come into the default folder. Verified by reading back."""
+        old account's spare folder, and the spare's come into the default folder. Verified by reading back.
+
+        The checks run in the contract's order (contract.md section 3.3): already active, then
+        ``expect_active`` (when given, the active account must be that one, else active-account-changed), then
+        the spare must be held. Every failure carries its reason code and the active account read before."""
+        started = _dt.datetime.now(_dt.timezone.utc)
         with self._lock:
-            self.recover()
-            target = self._find(email)
-            if target is None:
-                raise LicenseStoreError(f"{email} is not held here", ["cc-devthrottle license list"])
-            if target.role == ROLE_ACTIVE:
-                self._log("switch-unchanged", account=target.email)
-                return SwitchResult(active=target.email, previous=None, previous_kept_in=None, changed=False)
-            steps: list[dict] = []
-            previous = previous_folder = None
-            if self.backend.exists(self.default_config_dir):
-                previous = _email_of(read_oauth_account(self.default_config_dir))
-                if previous is None:
-                    raise LicenseStoreError(
-                        f"the default folder holds a key but {account_file_for(self.default_config_dir)} has no "
-                        "oauthAccount email, so the key's account is unknown and it cannot be put away",
-                        ["claude auth status", "claude auth login"],
-                    )
-                previous_folder = self.spare_folder(previous)
-                if self.backend.exists(previous_folder):
-                    raise LicenseStoreError(
-                        f"{previous} is active and a spare for it is held too ({previous_folder}); putting the active "
-                        "key away would overwrite that sign-in",
-                        [f"cc-devthrottle license remove {previous}", "cc-devthrottle license list"],
-                    )
-                steps.append({"op": "copy", "from": self.default_config_dir, "to": previous_folder})
-            steps.append({"op": "copy", "from": target.config_dir, "to": self.default_config_dir})
-            steps.append({"op": "drop", "folder": target.config_dir, "keptIn": self.default_config_dir})
+            previous: Optional[str] = None
+            try:
+                self.recover()
+                previous = self.active_account_email()
+                return self._switch(email, expect_active, previous, started)
+            except LicenseStoreError as exc:
+                exc.previous_active = previous
+                raise
+
+    def _switch(self, email: str, expect_active: Optional[str], previous: Optional[str],
+                started: _dt.datetime) -> SwitchResult:
+        if previous is not None and previous.lower() == email.strip().lower():
+            self._log("switch-unchanged", account=previous)
+            return SwitchResult(active=previous, previous=previous, previous_kept_in=None, changed=False,
+                                started_at=started, finished_at=_dt.datetime.now(_dt.timezone.utc),
+                                exchange_milliseconds=0)
+        if expect_active is not None and (previous or "").lower() != expect_active.strip().lower():
+            self._log("switch-refused", account=email, reason=REASON_ACTIVE_ACCOUNT_CHANGED,
+                      expected=expect_active, active=previous)
+            raise LicenseStoreError(
+                f"the active account is {previous or 'none'}, not {expect_active} as expected; nothing was changed",
+                ["cc-devthrottle license list"],
+                reason_code=REASON_ACTIVE_ACCOUNT_CHANGED,
+            )
+        target = self._find(email)
+        if target is None or target.role != ROLE_SPARE:
+            self._log("switch-refused", account=email, reason=REASON_SPARE_NOT_HELD)
+            raise LicenseStoreError(f"{email} is not held here as a spare", ["cc-devthrottle license list"],
+                                    reason_code=REASON_SPARE_NOT_HELD)
+        steps: list[dict] = []
+        previous_folder = None
+        if self.backend.exists(self.default_config_dir):
+            if previous is None:
+                raise LicenseStoreError(
+                    f"the default folder holds a key but {account_file_for(self.default_config_dir)} has no "
+                    "oauthAccount email, so the key's account is unknown and it cannot be put away; nothing was "
+                    "changed",
+                    ["claude auth status", "claude auth login"],
+                    reason_code=REASON_EXCHANGE_FAILED_RESTORED,
+                )
+            previous_folder = self.spare_folder(previous)
+            if self.backend.exists(previous_folder):
+                raise LicenseStoreError(
+                    f"{previous} is active and a spare for it is held too ({previous_folder}); putting the active "
+                    "key away would overwrite that sign-in, so nothing was changed",
+                    [f"cc-devthrottle license remove {previous}", "cc-devthrottle license list"],
+                    reason_code=REASON_EXCHANGE_FAILED_RESTORED,
+                )
+            steps.append({"op": "copy", "from": self.default_config_dir, "to": previous_folder})
+        bring_in = {"op": "copy", "from": target.config_dir, "to": self.default_config_dir}
+        if previous_folder is not None:
+            # Undone by putting the old active sign-in back, never by emptying the default folder: an empty
+            # default folder would sign the machine out.
+            bring_in["undo"] = {"op": "copy", "from": previous_folder, "to": self.default_config_dir}
+        steps.append(bring_in)
+        steps.append({"op": "drop", "folder": target.config_dir, "keptIn": self.default_config_dir})
+        exchange_started = _dt.datetime.now(_dt.timezone.utc)
+        try:
             self._start("switch", target.email, steps)
-            self._verify_switch(target.email, previous, previous_folder, target.config_dir)
-            self._log("switch-finished", account=target.email, previous=previous)
-            return SwitchResult(active=target.email, previous=previous, previous_kept_in=previous_folder, changed=True)
+        except OSError as exc:
+            # A disk or Keychain failure part way. The journal says how far it got; finishing or rolling back
+            # now means the caller learns the real outcome instead of leaving it to the next run.
+            self._log("switch-interrupted", account=target.email, error=type(exc).__name__)
+            try:
+                self.recover()
+            except OSError:
+                raise LicenseStoreError(
+                    f"the switch to {target.email} stopped part way ({type(exc).__name__}) and could not be "
+                    f"finished or rolled back yet; the journal is kept at {self._journal_path} for the next run",
+                    [f"Read {self._log_path}", "cc-devthrottle license list"],
+                    reason_code=REASON_EXCHANGE_FAILED_UNKNOWN,
+                ) from None
+        exchange_ms = int((_dt.datetime.now(_dt.timezone.utc) - exchange_started).total_seconds() * 1000)
+        self._verify_switch(target.email, previous, previous_folder, target.config_dir)
+        self._log("switch-finished", account=target.email, previous=previous, exchange_milliseconds=exchange_ms)
+        return SwitchResult(active=target.email, previous=previous, previous_kept_in=previous_folder, changed=True,
+                            started_at=started, finished_at=_dt.datetime.now(_dt.timezone.utc),
+                            exchange_milliseconds=exchange_ms)
 
     def _verify_switch(self, email: str, previous: Optional[str], previous_folder: Optional[str], spare: str) -> None:
         problems = []
@@ -870,6 +979,7 @@ class LicenseStore:
             raise LicenseStoreError(
                 "the switch finished but did not read back correctly: " + "; ".join(problems),
                 ["cc-devthrottle license list", f"Read {self._log_path}"],
+                reason_code=REASON_VERIFY_FAILED,
             )
 
     def store_refreshed_key(self, email: str, credentials_json: str) -> None:

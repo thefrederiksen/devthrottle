@@ -252,10 +252,174 @@ def test_exchange_DefaultFolderSignedOut_SpareMovesIn(world):
     world.assert_each_signin_in_exactly_one_place()
 
 
-def test_exchange_UnknownAccount_IsRefused(world):
+def test_exchange_UnknownAccount_IsRefusedAsSpareNotHeld(world):
     _machine_with_active_and_spare(world)
-    with pytest.raises(LicenseStoreError, match="not held here"):
+    with pytest.raises(LicenseStoreError, match="not held here") as refused:
         world.store().switch(ACCOUNT_C)
+    assert refused.value.reason_code == "spare-not-held"
+    assert refused.value.previous_active == ACCOUNT_A
+
+
+# ===== the contract's switch vocabulary (missions/license-switching/contract.md, sections 3.3 and 3.4) =====
+
+
+def test_contract_ExpectActiveMatches_Switches(world):
+    _machine_with_active_and_spare(world)
+    result = world.store().switch(ACCOUNT_B, expect_active=ACCOUNT_A)
+    assert result.changed and result.active == ACCOUNT_B
+    assert result.exchange_milliseconds >= 0 and result.finished_at >= result.started_at
+
+
+def test_contract_ExpectActiveDiffers_IsActiveAccountChangedAndNothingMoves(world):
+    _machine_with_active_and_spare(world)
+    before = world.snapshot()
+    with pytest.raises(LicenseStoreError) as refused:
+        world.store().switch(ACCOUNT_B, expect_active=ACCOUNT_C)
+    assert refused.value.reason_code == "active-account-changed"
+    assert world.snapshot() == before
+
+
+def test_contract_AlreadyActive_IsCheckedBeforeExpectActive(world):
+    # Contract step 6 comes before step 7: a target that is already active is "already-active", whatever
+    # the Gateway expected.
+    _machine_with_active_and_spare(world)
+    result = world.store().switch(ACCOUNT_A, expect_active=ACCOUNT_C)
+    assert result.changed is False and result.exchange_milliseconds == 0
+
+
+def test_contract_ExpectActiveIsCheckedBeforeTheSpare(world):
+    _machine_with_active_and_spare(world)
+    with pytest.raises(LicenseStoreError) as refused:
+        world.store().switch(ACCOUNT_C, expect_active=ACCOUNT_B)
+    assert refused.value.reason_code == "active-account-changed"
+
+
+def test_contract_AnotherOperationRunning_IsSwitchInProgress(world):
+    _machine_with_active_and_spare(world)
+    holder = world.store()
+    with holder._lock:
+        with pytest.raises(LicenseStoreError) as refused:
+            world.store().switch(ACCOUNT_B)
+    assert refused.value.reason_code == "switch-in-progress"
+
+
+def test_contract_ReadBackWrong_IsVerifyFailed(world):
+    # A running Claude Code rewrites its account file whenever it likes. If it puts an older account block
+    # back just after the exchange, the read-back must say so rather than report a clean switch.
+    _machine_with_active_and_spare(world)
+    store = world.store()
+    real_clear = store._clear_journal
+
+    def clear_then_another_writer_rewrites(*args):
+        real_clear(*args)
+        path = Path(world.default) / ".claude.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["oauthAccount"]["emailAddress"] = ACCOUNT_A
+        path.write_text(json.dumps(data), encoding="utf-8")
+
+    store._clear_journal = clear_then_another_writer_rewrites
+    with pytest.raises(LicenseStoreError) as refused:
+        store.switch(ACCOUNT_B)
+    assert refused.value.reason_code == "verify-failed"
+
+
+def test_contract_RollBackAfterTheSpareCameIn_PutsTheOldActiveSigninBack(world, tmp_path):
+    # The last step (deleting the spare's copy) cannot be proven safe, so the switch is rolled back. Undoing
+    # "bring the spare in" must restore the old active sign-in to the default folder, not leave it empty.
+    probe = World(tmp_path / "probe", world.kind)
+    probe.removed = set()
+    _machine_with_active_and_spare(probe)
+    labels = []
+    probe.store(checkpoint=labels.append).switch(ACCOUNT_B)
+    after_second_step = [i for i, label in enumerate(labels) if label == "journal"][2] + 2
+
+    _machine_with_active_and_spare(world)
+    key_a = world.key_at(world.default)
+    assert _run_with_crash_at(world, after_second_step, _switch)
+    spare_b = world.store().spare_folder(ACCOUNT_B)
+    assert world.key_at(world.default) == world.key_at(spare_b), "the crash came before step 2 finished"
+    # The spare's copy changes before recovery (a refresh wrote a new key), so dropping it is not provable.
+    del world.secrets[world.key_at(spare_b)]
+    world.sign_in(spare_b, ACCOUNT_B)
+
+    with pytest.raises(LicenseStoreError, match="rolled back") as refused:
+        world.store().recover()
+
+    assert refused.value.reason_code == "exchange-failed-restored"
+    assert world.key_at(world.default) == key_a and world.email_at(world.default) == ACCOUNT_A
+    assert _held(world) == {ACCOUNT_A: "active", ACCOUNT_B: "spare"}
+    world.assert_each_signin_in_exactly_one_place()
+
+
+@pytest.mark.parametrize("kind", ["file", "keychain"])
+def test_contract_CrashDuringTheRollBack_TheNextRunResumesIt(tmp_path, kind):
+    probe = World(tmp_path / "probe", kind)
+    probe.removed = set()
+    _machine_with_active_and_spare(probe)
+    labels = []
+    probe.store(checkpoint=labels.append).switch(ACCOUNT_B)
+    after_second_step = [i for i, label in enumerate(labels) if label == "journal"][2] + 2
+
+    def make(tag):
+        w = World(tmp_path / tag, kind)
+        w.removed = set()
+        _machine_with_active_and_spare(w)
+        assert _run_with_crash_at(w, after_second_step, _switch)
+        spare_b = w.store().spare_folder(ACCOUNT_B)
+        del w.secrets[w.key_at(spare_b)]
+        w.sign_in(spare_b, ACCOUNT_B)
+        return w
+
+    rollback_labels = []
+    first = make("count")
+    with pytest.raises(LicenseStoreError):
+        first.store(checkpoint=rollback_labels.append).recover()
+    assert len(rollback_labels) >= 4
+
+    for n in range(1, len(rollback_labels) + 1):
+        w = make(f"rb{n}")
+        key_a = w.key_at(w.store().spare_folder(ACCOUNT_A))
+        assert _run_with_crash_at(w, n, lambda store: store.recover()), f"no crash at {rollback_labels[n - 1]}"
+        try:
+            w.store().recover()
+        except LicenseStoreError as exc:
+            assert exc.reason_code == "exchange-failed-restored", f"crash at {rollback_labels[n - 1]}: {exc}"
+        assert _held(w) == {ACCOUNT_A: "active", ACCOUNT_B: "spare"}, f"crash at {rollback_labels[n - 1]}"
+        assert w.key_at(w.default) == key_a
+        w.assert_each_signin_in_exactly_one_place()
+
+
+def test_contract_DiskErrorOnceMidExchange_IsFinishedAtOnce(world):
+    _machine_with_active_and_spare(world)
+    calls = {"n": 0}
+
+    def fail_once(label):
+        calls["n"] += 1
+        if calls["n"] == 5:  # inside the second step, bringing the spare in
+            raise OSError("disk hiccup")
+
+    result = world.store(checkpoint=fail_once).switch(ACCOUNT_B)
+
+    assert result.changed and _held(world) == {ACCOUNT_B: "active", ACCOUNT_A: "spare"}
+    world.assert_each_signin_in_exactly_one_place()
+
+
+def test_contract_DiskErrorThatPersists_IsExchangeFailedUnknown_AndTheNextRunRecovers(world):
+    _machine_with_active_and_spare(world)
+    calls = {"n": 0}
+
+    def fail_from_five(label):
+        calls["n"] += 1
+        if calls["n"] >= 5:
+            raise OSError("disk gone")
+
+    with pytest.raises(LicenseStoreError) as refused:
+        world.store(checkpoint=fail_from_five).switch(ACCOUNT_B)
+    assert refused.value.reason_code == "exchange-failed-unknown"
+    assert (Path(world.store_dir) / "journal.json").exists()
+
+    world.store().held_accounts()
+    world.assert_each_signin_in_exactly_one_place()
 
 
 def test_exchange_ActiveAccountAlsoHeldAsSpare_IsRefusedRatherThanOverwritingASignin(world):
@@ -456,8 +620,9 @@ def test_recovery_SpareVanishedMidSwitch_RollsBackAndKeepsTheActiveSignin(world,
     world.backend().delete(world.store().spare_folder(ACCOUNT_B))  # the spare disappears before recovery
     world.removed.add(ACCOUNT_B)
 
-    with pytest.raises(LicenseStoreError, match="rolled back"):
+    with pytest.raises(LicenseStoreError, match="rolled back") as refused:
         world.store().recover()
+    assert refused.value.reason_code == "exchange-failed-restored"
 
     assert world.key_at(world.default) == key_a
     assert world.key_at(world.store().spare_folder(ACCOUNT_A)) is None, "the put-away copy was left behind"
@@ -473,8 +638,9 @@ def test_recovery_WhenRollingBackCannotBeProven_NothingIsDeleted(world, tmp_path
     world.sign_in(world.default, ACCOUNT_C)  # and the default no longer holds the key that was put away
     before = world.snapshot()
 
-    with pytest.raises(LicenseStoreError, match="neither finish nor roll back"):
+    with pytest.raises(LicenseStoreError, match="neither finish nor roll back") as refused:
         world.store().recover()
+    assert refused.value.reason_code == "exchange-failed-unknown"
 
     assert world.snapshot() == before
     assert (Path(world.store_dir) / "journal.json").exists()

@@ -12,6 +12,7 @@ The folders are always resolvable without a running Director:
 
 from __future__ import annotations
 
+import datetime as _dt
 import json
 import os
 import sys
@@ -104,28 +105,66 @@ def list_accounts(default_config_dir: Optional[str], store_dir: Optional[str], f
     axi_cli.print_next(next_steps + ["cc-devthrottle license add <account-folder>", f"{LIST} --json"])
 
 
-def switch_account(email: str, default_config_dir: Optional[str], store_dir: Optional[str], json_output: bool) -> None:
+def _utc(moment: _dt.datetime) -> str:
+    return moment.astimezone(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _switch_json(outcome: str, reason_code: Optional[str], message: str, previous: Optional[str],
+                 after: Optional[str], started: _dt.datetime, finished: _dt.datetime, exchange_ms: int,
+                 previous_kept_in: Optional[str], recovered: Optional[str]) -> str:
+    """The `--json` answer, in the field names of LicenseSwitchResult (missions/license-switching/contract.md,
+    section 3.4). The Director adds what only it knows: the switch id, the usage read, replay."""
+    return json.dumps({
+        "outcome": outcome,
+        "reasonCode": reason_code,
+        "message": message,
+        "previousActiveAccountEmail": previous or "",
+        "activeAccountEmailAfter": after or "",
+        "startedAtUtc": _utc(started),
+        "finishedAtUtc": _utc(finished),
+        "exchangeMilliseconds": exchange_ms,
+        "previousKeptIn": previous_kept_in,
+        "recovered": recovered,
+    }, indent=2)
+
+
+def switch_account(email: str, expect_active: Optional[str], default_config_dir: Optional[str],
+                   store_dir: Optional[str], json_output: bool) -> None:
+    started = _dt.datetime.now(_dt.timezone.utc)
     store = _open(default_config_dir, store_dir)
-    result = _run(store, lambda: store.switch(email))
+    try:
+        result = store.switch(email, expect_active=expect_active)
+    except LicenseStoreError as exc:
+        _report_recovery(store)
+        # Read what is there now, so a refusal reports the real state, as the contract asks.
+        try:
+            after = store.active_account_email()
+        except LicenseStoreError:
+            after = None
+        previous = exc.previous_active if exc.previous_active is not None else after
+        message = str(exc)
+        if json_output:
+            print(_switch_json("failed", exc.reason_code, message, previous, after, started,
+                               _dt.datetime.now(_dt.timezone.utc), 0, None, store.last_recovery))
+        reason = f" (reason: {exc.reason_code})" if exc.reason_code else ""
+        axi_cli.fail(f"{message}{reason}", exc.next_steps)
     _report_recovery(store)
+    if not result.changed:
+        message = f"{result.active} is already the active account."
+    elif result.previous:
+        message = f"Switched from {result.previous} to {result.active}."
+    else:
+        message = f"Switched to {result.active}; the default folder held no sign-in before."
     if json_output:
-        print(json.dumps({
-            "switched": result.changed,
-            "active": result.active,
-            "previous": result.previous,
-            "previousKeptIn": result.previous_kept_in,
-            "verified": True,
-            "recovered": store.last_recovery,
-        }, indent=2))
+        print(_switch_json("switched" if result.changed else "already-active", None, message, result.previous,
+                           result.active, result.started_at, result.finished_at, result.exchange_milliseconds,
+                           result.previous_kept_in, store.last_recovery))
         return
     if not result.changed:
-        axi_cli.write_lines(f"Unchanged: {result.active} is already the active account.")
-    elif result.previous:
-        axi_cli.write_lines(f"Switched: {result.active} is now the active account, read back and verified. "
-                            f"{result.previous} is kept as a spare.")
+        axi_cli.write_lines(f"Unchanged: {message}")
     else:
-        axi_cli.write_lines(f"Switched: {result.active} is now the active account, read back and verified. "
-                            "The default folder held no sign-in before.")
+        kept = f" {result.previous} is kept as a spare." if result.previous else ""
+        axi_cli.write_lines(f"{message} Read back and verified: {result.active} is now the active account.{kept}")
     axi_cli.print_next([LIST])
 
 

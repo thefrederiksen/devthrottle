@@ -1703,12 +1703,19 @@ def license_list(
 @license_app.command("switch")
 def license_switch(
     account: str = typer.Argument(..., help="The email of a spare account."),
+    expect_active: str = typer.Option(
+        None, "--expect-active",
+        help="Refuse (reason active-account-changed) unless this email is the active account now.",
+    ),
     default_config_dir: str = typer.Option(None, "--default-config-dir", help=_LICENSE_DEFAULT_DIR_HELP),
     store_dir: str = typer.Option(None, "--store-dir", help=_LICENSE_STORE_DIR_HELP),
-    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
+    json_output: bool = typer.Option(
+        False, "--json", "-j",
+        help="Output as JSON in the switch result's field names (outcome, reasonCode, ...), on failure too.",
+    ),
 ) -> None:
     """Exchange the active sign-in with a spare's, then read it back to verify."""
-    license_ops.switch_account(account, default_config_dir, store_dir, json_output)
+    license_ops.switch_account(account, expect_active, default_config_dir, store_dir, json_output)
 
 
 @license_app.command("add")

@@ -127,17 +127,63 @@ def test_switch_ExchangesAndReportsVerified(machine):
     result = _run("switch", ACCOUNT_B)
 
     assert result.exit_code == 0
-    assert result.stdout.startswith(f"Switched: {ACCOUNT_B} is now the active account, read back and verified.")
+    assert result.stdout.startswith(f"Switched from {ACCOUNT_A} to {ACCOUNT_B}. Read back and verified:")
     data = json.loads(_run("list", "--json").stdout)
     assert {a["email"]: a["role"] for a in data["accounts"]} == {ACCOUNT_B: "active", ACCOUNT_A: "spare"}
 
 
-def test_switch_Json(machine):
+#: The LicenseSwitchResult fields this command answers (missions/license-switching/contract.md, section 3.4),
+#: plus two of its own. switchId, verifiedByUsageRead and replayed are the Director's to add.
+CONTRACT_FIELDS = {"outcome", "reasonCode", "message", "previousActiveAccountEmail", "activeAccountEmailAfter",
+                   "startedAtUtc", "finishedAtUtc", "exchangeMilliseconds", "previousKeptIn", "recovered"}
+
+
+def test_switch_Json_SpeaksTheContract(machine):
     _with_active_and_spare(machine)
-    data = json.loads(_run("switch", ACCOUNT_B, "--json").stdout)
-    assert data == {"switched": True, "active": ACCOUNT_B, "previous": ACCOUNT_A,
-                    "previousKeptIn": data["previousKeptIn"], "verified": True, "recovered": None}
+    result = _run("switch", ACCOUNT_B, "--expect-active", ACCOUNT_A, "--json")
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert set(data) == CONTRACT_FIELDS
+    assert (data["outcome"], data["reasonCode"]) == ("switched", None)
+    assert (data["previousActiveAccountEmail"], data["activeAccountEmailAfter"]) == (ACCOUNT_A, ACCOUNT_B)
+    assert data["message"] == f"Switched from {ACCOUNT_A} to {ACCOUNT_B}."
+    assert isinstance(data["exchangeMilliseconds"], int) and data["exchangeMilliseconds"] >= 0
+    assert data["startedAtUtc"].endswith("Z") and data["finishedAtUtc"].endswith("Z")
     assert data["previousKeptIn"].startswith(str(machine["store"]))
+
+
+def test_switch_Json_AlreadyActive(machine):
+    _with_active_and_spare(machine)
+    data = json.loads(_run("switch", ACCOUNT_A, "--json").stdout)
+    assert (data["outcome"], data["reasonCode"], data["exchangeMilliseconds"]) == ("already-active", None, 0)
+    assert data["activeAccountEmailAfter"] == ACCOUNT_A
+
+
+@pytest.mark.parametrize("args, reason", [
+    (["nobody@example.com"], "spare-not-held"),
+    ([ACCOUNT_B, "--expect-active", "someone-else@example.com"], "active-account-changed"),
+])
+def test_switch_Json_Refusal_CarriesTheReasonCodeAndTheRealState(machine, args, reason):
+    _with_active_and_spare(machine)
+    result = _run("switch", *args, "--json")
+    assert result.exit_code == 1
+    data = json.loads(result.stdout)
+    assert set(data) == CONTRACT_FIELDS
+    assert (data["outcome"], data["reasonCode"], data["exchangeMilliseconds"]) == ("failed", reason, 0)
+    assert data["previousActiveAccountEmail"] == ACCOUNT_A and data["activeAccountEmailAfter"] == ACCOUNT_A
+    assert f"(reason: {reason})" in result.stderr
+    assert {a["email"]: a["role"] for a in json.loads(_run("list", "--json").stdout)["accounts"]} == {
+        ACCOUNT_A: "active", ACCOUNT_B: "spare"}
+
+
+def test_switch_Json_AnotherOperationRunning_IsSwitchInProgress(machine):
+    _with_active_and_spare(machine)
+    from src.license_store import LicenseStore
+    holder = LicenseStore(machine["default"], machine["store"], FileKeyBackend())
+    with holder._lock:
+        result = _run("switch", ACCOUNT_B, "--json")
+    assert result.exit_code == 1
+    assert json.loads(result.stdout)["reasonCode"] == "switch-in-progress"
 
 
 def test_switch_AlreadyActive_SaysUnchanged(machine):
@@ -150,7 +196,7 @@ def test_switch_UnknownAccount_ExitsOneWithANextStep(machine):
     _with_active_and_spare(machine)
     result = _run("switch", "nobody@example.com")
     assert result.exit_code == 1
-    assert result.stderr.startswith("Error: nobody@example.com is not held here")
+    assert result.stderr.startswith("Error: nobody@example.com is not held here as a spare (reason: spare-not-held)")
     assert "cc-devthrottle license list" in result.stderr
 
 
