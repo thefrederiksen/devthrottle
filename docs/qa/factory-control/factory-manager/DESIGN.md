@@ -147,3 +147,11 @@ The Factory Manager card sits on the Factories list. It is folded on the Gateway
 - **Events pushed to the Factory Manager** in the way the Fleet Manager has them. The seat reads
   `run problems` when the owner talks to it; it is not woken by new problems.
 - **Narrowing who may set the mark.** This is the same gap the Fleet Manager has, stated in section 1.
+
+## A behaviour to know
+
+Handle the issue on a factory with no boss always starts a NEW Factory Manager session, briefed on that one problem,
+and binds it - even while an earlier Factory Manager talk is still running. That is deliberate: the problem talk must
+hold the binding to resolve the problem (it is in no factory), and there is one Factory Manager per account. The
+earlier session keeps running but is no longer the Factory Manager, so it can no longer resolve problems; the QA rig
+shows exactly that refusal (screenshot 6). The card's button then opens the newest one.
