@@ -77,7 +77,8 @@
     exit 3 means zero tests were collected anywhere, exit 4 means a project exited zero without writing a
     result file, exit 5 means part of the filter matched nothing (or -ExpectTests was not met), exit 6
     means another run holding the Gateway suite is in progress and this one was refused before building
-    (and exit 2, as for a bad argument, means the lock's own location is broken), and exit 9 means a
+    (and exit 2, as for a bad argument, means the lock's own location is broken), exit 7 means a -Parked
+    or -Gateway run was refused before building because the disk is too full to finish it, and exit 9 means a
     suite NEVER RAN or did not finish: it executed zero tests with no filter, its result file says the
     run was aborted, or its outcome is one of the unfinished ones. None of them is a test failure
     (exit 1) and none of them is ever evidence.
@@ -92,6 +93,11 @@
     in the run folder, and its host is killed, which turns "the release gate is slow" into "test X hung".
     A crashed host leaves a dump the same way. The default run does not need it - its ceiling is two
     minutes and the kill is already here.
+
+    EVERY TEST PROCESS WRITES ITS TEMPORARY FILES INSIDE THE RUN FOLDER, AND THEY ARE DELETED WHEN THE RUN
+    ENDS, green or red. Test runs had left tens of thousands of folders in the user's TEMP and filled the
+    disk under the v2.18.0 gate; see $tempRoot below. A -Parked or -Gateway run also refuses to start
+    (exit 7) when the disk is too full to finish it.
 
     EVERY RUN WRITES A TRX FILE AND PRINTS ITS OUTCOME AND TEST COUNT. That pair, not the console
     "Passed!" line, is the verdict - see the comment above the run loop for why. A green with a collapsed
@@ -300,6 +306,24 @@ $treeClean = ($dirtyFiles.Count -eq 0)
 $logDir = Join-Path ([System.IO.Path]::GetTempPath()) ("cc-test-local-" + [Guid]::NewGuid().ToString("N").Substring(0,8))
 New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 
+# EVERY TEST PROCESS GETS ITS OWN TEMPORARY FOLDER INSIDE THE RUN FOLDER, AND IT IS DELETED WHEN THE RUN
+# ENDS - green or red. The result files and logs sit beside it and are kept as before.
+#
+# WHY. Thousands of tests create a folder under Path.GetTempPath() and never remove it. Measured on
+# 2026-10-11: one run of Gateway.UnitTests alone left 263 folders and 83 MB behind, the user's TEMP held
+# 35,849 folders, and 20,505 of them - 44 GB - had been written in the previous 24 hours. During the
+# v2.18.0 release gate drive C: filled: all 1,675 Gateway.UnitTests failures and all 45 Core.Tests
+# failures in that run were "not enough space on the disk", and the "SQLite Error 10: disk I/O error"
+# failures (issue #3880) are very likely the same thing. A gate that fills the disk fails for a reason
+# that has nothing to do with the code, which is exactly the kind of red this gate must never produce.
+#
+# TEMP and TMP are set for each child, so Path.GetTempPath() inside the test host lands here. The locks
+# do not move with it: gate-lock.ps1 and GatewayTestSuiteLock.cs derive their paths from the local
+# application data folder precisely so that a changed TEMP cannot split them. The folder names are kept
+# SHORT (t\0, t\1, ...) because tests build deep paths under it and Windows still has a 260-character
+# limit in places; run.json maps each number to its suite.
+$tempRoot = Join-Path $logDir "t"
+
 $runRecord = [ordered]@{
     commit        = $commit
     treeClean     = $treeClean
@@ -318,8 +342,52 @@ $runRecord = [ordered]@{
     finishedUtc   = $null
     exitCode      = $null
     verdict       = "RUNNING"
+    tempLeftBehind = $null
     suites        = @()
 }
+# What each suite left in its temporary folder, measured just before the folder is deleted, keyed by
+# suite name. Recorded per suite in run.json and the runs log, so the free-space floor below can be set
+# from real runs instead of from one measurement.
+$tempUsage = @{}
+
+# Measures and deletes the run's temporary folders. Called on every path that ends a run. rd with the
+# \\?\ prefix, because Remove-Item in Windows PowerShell 5.1 fails on paths over 260 characters and tests
+# do build paths that deep. A folder that survives is NAMED, never ignored: it means a process the run
+# started is still alive and holding a file, which the person running the gate needs to know.
+function Remove-RunTemp {
+    if (-not (Test-Path $tempRoot)) { return }
+    foreach ($dir in @(Get-ChildItem -Path $tempRoot -Directory)) {
+        $files = 0; $bytes = [long] 0
+        foreach ($f in [System.IO.Directory]::EnumerateFiles($dir.FullName, "*", [System.IO.SearchOption]::AllDirectories)) {
+            $files++
+            $bytes += (New-Object System.IO.FileInfo $f).Length
+        }
+        $suite = $dir.Name
+        if ($null -ne $running) {
+            $match = @($running | Where-Object { $_.TempName -eq $dir.Name })
+            if ($match.Count -eq 1) { $suite = $match[0].Name }
+        }
+        $tempUsage[$suite] = [ordered]@{ files = $files; megabytes = [Math]::Round($bytes / 1MB, 1) }
+    }
+    if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
+        & $env:ComSpec /d /c "rd /s /q `"\\?\$tempRoot`" >nul 2>&1"
+    } else {
+        Remove-Item -Recurse -Force $tempRoot
+    }
+    if (Test-Path $tempRoot) {
+        $left = @(Get-ChildItem -Path $tempRoot -Recurse -Force -ErrorAction SilentlyContinue).Count
+        Write-Host ("ERROR: the run's temporary folder could not be fully deleted - {0} item(s) remain in {1}." -f $left, $tempRoot)
+        Write-Host "  A process this run started is still alive and holding a file. Find it (a testhost or dotnet process"
+        Write-Host "  whose working files are under that folder), end it, and delete the folder by hand."
+        $runRecord.tempLeftBehind = $left
+    } else {
+        $total = 0.0
+        foreach ($v in $tempUsage.Values) { $total += $v.megabytes }
+        Write-Host ("Temporary folders deleted: the test processes had left {0} MB in them." -f [Math]::Round($total, 1))
+        $runRecord.tempLeftBehind = 0
+    }
+}
+
 function Write-RunRecord {
     if (Test-Path $logDir) {
         $runRecord | ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $logDir "run.json") -Encoding Ascii
@@ -341,6 +409,7 @@ Write-RunRecord
 # that file is what scripts\assert-gated.ps1 reads, and it outlives the run folder. "exit" here flows
 # through the finally block below, so the release-gate lock is released as on every other path.
 function Stop-Gate([int] $Code, [string] $Verdict) {
+    Remove-RunTemp
     $runRecord.finishedUtc = (Get-Date).ToUniversalTime().ToString("o")
     $runRecord.exitCode = $Code
     $runRecord.verdict = $Verdict
@@ -352,6 +421,7 @@ function Stop-Gate([int] $Code, [string] $Verdict) {
                 total    = $(if ($null -ne $_.PSObject.Properties["Total"]) { [int] $_.Total } else { 0 })
                 executed = $(if ($null -ne $_.PSObject.Properties["Executed"]) { [int] $_.Executed } else { 0 })
                 exitCode = $_.Process.ExitCode
+                temp     = $tempUsage[$_.Name]
             }
         })
     }
@@ -389,6 +459,41 @@ function Stop-Gate([int] $Code, [string] $Verdict) {
 # minutes would then find its child queued behind that run. The release-gate lock is TAKEN and held
 # until this script ends, in the finally block below - held in a variable, not in a scope, so that a
 # script run from an interactive shell (whose process survives "exit") releases it too.
+# A RELEASE GATE DOES NOT START ON A DISK THAT IS ABOUT TO FILL. The v2.18.0 gate ran drive C: out of
+# space part way through and every failure after that was the disk, not the code - hours of run that
+# certified nothing. So a -Parked or -Gateway run checks first and refuses with exit 7, before taking a
+# lock or building anything.
+#
+# THE NUMBERS, AND WHERE THEY COME FROM. The temporary folders and the run folder live on the TEMP drive;
+# the build output lives on the repository's drive. Measured 2026-10-11: a Release build of the solution
+# is 3.8 GB; one Gateway.UnitTests run left 83 MB in its temporary folder, and the Gateway.Tests suite,
+# which writes a SQLite database per test, leaves several times that; a crash or hang dump of a test host
+# is hundreds of megabytes. 15 GB on the TEMP drive and 10 GB on the repository drive leaves a wide
+# margin over all of that. Every run now records what each suite actually left (run.json, "temp"), so
+# tune these from those records, not by guessing.
+$MinFreeTempGB = 15
+$MinFreeRepoGB = 10
+if ($Parked -or $Gateway) {
+    $short = @()
+    foreach ($check in @(@{ Path = $logDir; Min = $MinFreeTempGB; What = "the TEMP drive (run folder and test temporary folders)" },
+                         @{ Path = $repoRoot; Min = $MinFreeRepoGB; What = "the repository drive (build output)" })) {
+        $drive = New-Object System.IO.DriveInfo ([System.IO.Path]::GetPathRoot($check.Path))
+        $freeGB = [Math]::Round($drive.AvailableFreeSpace / 1GB, 1)
+        if ($freeGB -lt $check.Min) { $short += ("  {0} {1}: {2} GB free, at least {3} GB needed" -f $drive.Name, $check.What, $freeGB, $check.Min) }
+    }
+    if ($short.Count -gt 0) {
+        Write-Host ""
+        Write-Host "RESULT: REFUSED - NOT ENOUGH FREE DISK SPACE for a release gate. Nothing was built and nothing was started."
+        foreach ($s in $short) { Write-Host $s }
+        Write-Host ""
+        Write-Host "A gate that fills the disk fails for a reason that has nothing to do with the code. Free space first -"
+        Write-Host "old cc-test-local-* and other test folders in TEMP are the usual culprit (the reclaim-disk skill) -"
+        Write-Host "and run this again."
+        Remove-Item $logDir -Recurse -Force
+        exit 7
+    }
+}
+
 $gateLock = $null
 if ($toRun -contains $gatewayProject) {
     $command = "test-local.ps1"
@@ -501,14 +606,30 @@ try {
     # the console line. scripts/test-qualification.ps1 already judges its soak this way.
     $running = @()
     $deadline = (Get-Date).AddSeconds($BudgetSeconds)
+    # The child inherits this script's environment at Start-Process, so TEMP and TMP are pointed at the
+    # suite's own folder just for the launch and put back straight after (see $tempRoot above).
+    $savedTemp = $env:TEMP
+    $savedTmp = $env:TMP
+    $suiteIndex = 0
     foreach ($proj in $toRun) {
         $name = Split-Path -Leaf ([System.IO.Path]::GetDirectoryName((Join-Path $repoRoot $proj)))
         $out = Join-Path $logDir "$name.log"
         $trx = Join-Path $logDir "$name.trx"
+        $tempName = [string] $suiteIndex
+        $suiteIndex++
+        $suiteTemp = Join-Path $tempRoot $tempName
+        New-Item -ItemType Directory -Force $suiteTemp | Out-Null
         $args = @("test", (Join-Path $repoRoot $proj), "--no-build", "-c", $Configuration, "--nologo", "-v", "q",
                   "--logger", "trx;LogFileName=$name.trx", "--results-directory", $logDir) + $filterArgs + $blameArgs
-        $p = Start-Process -FilePath "dotnet" -ArgumentList $args -NoNewWindow -PassThru `
-                           -RedirectStandardOutput $out -RedirectStandardError "$out.err"
+        try {
+            $env:TEMP = $suiteTemp
+            $env:TMP = $suiteTemp
+            $p = Start-Process -FilePath "dotnet" -ArgumentList $args -NoNewWindow -PassThru `
+                               -RedirectStandardOutput $out -RedirectStandardError "$out.err"
+        } finally {
+            $env:TEMP = $savedTemp
+            $env:TMP = $savedTmp
+        }
 
         # Touching .Handle keeps the process handle OPEN, which is the only reason ExitCode is readable
         # after the process ends. Without it Start-Process -PassThru hands back an object whose ExitCode
@@ -524,7 +645,7 @@ try {
         $null = $p.Handle
 
 
-        $running += [pscustomobject]@{ Name = $name; Process = $p; Log = $out; Trx = $trx }
+        $running += [pscustomobject]@{ Name = $name; Process = $p; Log = $out; Trx = $trx; TempName = $tempName }
         Write-Host "  started $name"
     }
 
@@ -919,6 +1040,7 @@ try {
     # A run that ends by exception or Ctrl+C never reached Stop-Gate, and its run.json would say RUNNING
     # forever - exactly the shape a reader mistakes for a live run. Stamp it as stopped without a verdict.
     if ($null -eq $runRecord.exitCode) {
+        Remove-RunTemp
         $runRecord.verdict = "STOPPED BEFORE A VERDICT"
         $runRecord.finishedUtc = (Get-Date).ToUniversalTime().ToString("o")
         Write-RunRecord
