@@ -113,23 +113,40 @@ public sealed class SecretMachineRegistry
     }
 
     /// <summary>
-    /// THE MACHINE A CREDENTIAL BELONGS TO, by the name the machine list uses: the machine its live Directors report
-    /// when they say Hello with that SAME credential. A device's enrollment name can differ from the name its
-    /// Director reports (a Mac enrolled as "Sorens-Mac-mini" whose Director calls it "devthrottle-mac-mini"), and a
-    /// transfer names machines as the list does - so the credential is matched through its Directors, never by name.
-    /// Null when no live Director that can take part said Hello with it, or when its Directors name different
-    /// machines (the Gateway will not guess between them). Spelled as the most recently heard Director spells it, as the
-    /// machine list does.
+    /// THE MACHINE A CREDENTIAL BELONGS TO, by the name the machine list uses. A transfer names machines as the list
+    /// does - by the name their Directors report - and two things on a real machine make that differ from the device:
+    /// a device's enrollment name can differ from the name its Director reports (a Mac enrolled as "Sorens-Mac-mini"
+    /// whose Director calls it "devthrottle-mac-mini"), and one machine can hold two device credentials (SOREN_NORTH's
+    /// cc-secrets reads the machine's own config.json while its Directors use their instance's, a different device
+    /// enrolled under the same name).
+    ///
+    /// So the answer is the machine reported by the live Directors that say Hello with this SAME credential, or with a
+    /// credential whose device is enrolled under the same machine name as this one's. The enrollment name was already
+    /// what the Gateway trusted before this; it is only ever compared within the caller's own account. Null when no
+    /// such live Director that can take part is connected, or when they name different machines (the Gateway will not
+    /// guess between them). Spelled as the most recently heard Director spells it, as the machine list does.
     /// </summary>
-    public string? MachineOfCredential(TenantId tenant, string credential, Func<string, bool> isConnected, DateTime nowUtc)
+    /// <param name="enrolledMachineOf">The machine name a credential's device is enrolled under, or null when it has
+    /// none (not a device credential, or no such device).</param>
+    public string? MachineOfCredential(TenantId tenant, string credential, Func<string, string?> enrolledMachineOf,
+        Func<string, bool> isConnected, DateTime nowUtc)
     {
+        ArgumentNullException.ThrowIfNull(enrolledMachineOf);
         ArgumentNullException.ThrowIfNull(isConnected);
         if (string.IsNullOrEmpty(credential)) return null;
+        var enrolled = new Dictionary<string, string?>(StringComparer.Ordinal);   // one device lookup per credential
+        string? EnrolledAs(string c) => enrolled.TryGetValue(c, out var n) ? n : enrolled[c] = enrolledMachineOf(c);
+        var enrolledAs = EnrolledAs(credential);
+        bool SameMachine(string? other) =>
+            other is not null
+            && (string.Equals(other, credential, StringComparison.Ordinal)
+                || (!string.IsNullOrWhiteSpace(enrolledAs)
+                    && string.Equals(EnrolledAs(other)?.Trim(), enrolledAs.Trim(), StringComparison.OrdinalIgnoreCase)));
         var names = _said
             .Where(pair => pair.Key.Tenant.Equals(tenant)
-                           && string.Equals(pair.Value.Credential, credential, StringComparison.Ordinal)
                            && nowUtc - pair.Value.SeenUtc <= StaleAfter
-                           && isConnected(pair.Key.DirectorId))
+                           && isConnected(pair.Key.DirectorId)
+                           && SameMachine(pair.Value.Credential))
             .OrderByDescending(pair => pair.Value.SeenUtc)
             .Select(pair => pair.Value.Machine)
             .Distinct(StringComparer.OrdinalIgnoreCase)

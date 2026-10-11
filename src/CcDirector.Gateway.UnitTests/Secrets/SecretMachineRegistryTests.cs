@@ -139,6 +139,47 @@ public sealed class SecretMachineRegistryTests
     // reports "devthrottle-mac-mini". A transfer names machines as the list does, so the credential must resolve to the
     // name its own Directors report - by name it was refused as a third machine on its own Mac.
 
+    private static readonly Func<string, string?> NoEnrollment = _ => null;
+
+    // SOREN_NORTH holds two device credentials (found in the same QA run): cc-secrets reads the machine's own config.json,
+    // its Directors their instance's - two devices, both enrolled as SOREN_NORTH. The window's credential has no Director
+    // of its own, and must still be SOREN_NORTH.
+    private static readonly Func<string, string?> Enrolled = credential => credential switch
+    {
+        "device:north-tools" => "SOREN_NORTH",
+        "device:north-director" => "soren_north",
+        "device:mac-device" => "Sorens-Mac-mini",
+        "device:mac-tools" => "Sorens-Mac-mini",
+        "device:other-machine" => "SOMEWHERE_ELSE",
+        _ => null,
+    };
+
+    [Fact]
+    public void MachineOfCredential_ADeviceWithNoDirector_IsTheMachineOfTheDirectorsEnrolledUnderItsName()
+    {
+        var registry = new SecretMachineRegistry();
+        registry.Record(AccountA, "dir-north", "SOREN_NORTH", NewKey(), Now, "device:north-director");
+        registry.Record(AccountA, "dir-mac", "devthrottle-mac-mini", NewKey(), Now, "device:mac-device");
+
+        Assert.Equal("SOREN_NORTH", registry.MachineOfCredential(AccountA, "device:north-tools", Enrolled, _ => true, Now));
+        Assert.Equal("devthrottle-mac-mini", registry.MachineOfCredential(AccountA, "device:mac-tools", Enrolled, _ => true, Now));
+        // Enrolled under a name no live Director's device carries, or not enrolled at all: no machine.
+        Assert.Null(registry.MachineOfCredential(AccountA, "device:other-machine", Enrolled, _ => true, Now));
+        Assert.Null(registry.MachineOfCredential(AccountA, "device:unenrolled", Enrolled, _ => true, Now));
+        // The same name in ANOTHER account never answers for this one.
+        Assert.Null(registry.MachineOfCredential(AccountB, "device:north-tools", Enrolled, _ => true, Now));
+    }
+
+    [Fact]
+    public void MachineOfCredential_TwoMachinesEnrolledUnderOneName_IsNull()
+    {
+        var registry = new SecretMachineRegistry();
+        registry.Record(AccountA, "dir-north", "SOREN_NORTH", NewKey(), Now, "device:north-director");
+        registry.Record(AccountA, "dir-copy", "ANOTHER_BOX", NewKey(), Now, "device:north-tools");
+
+        Assert.Null(registry.MachineOfCredential(AccountA, "device:north-tools", Enrolled, _ => true, Now));
+    }
+
     [Fact]
     public void MachineOfCredential_IsTheNameItsOwnDirectorReports_NotTheEnrollmentName()
     {
@@ -146,8 +187,8 @@ public sealed class SecretMachineRegistryTests
         registry.Record(AccountA, "dir-mac", "devthrottle-mac-mini", NewKey(), Now, "device:mac-device");
         registry.Record(AccountA, "dir-north", "SOREN_NORTH", NewKey(), Now, "device:north-device");
 
-        Assert.Equal("devthrottle-mac-mini", registry.MachineOfCredential(AccountA, "device:mac-device", _ => true, Now));
-        Assert.Equal("SOREN_NORTH", registry.MachineOfCredential(AccountA, "device:north-device", _ => true, Now));
+        Assert.Equal("devthrottle-mac-mini", registry.MachineOfCredential(AccountA, "device:mac-device", NoEnrollment, _ => true, Now));
+        Assert.Equal("SOREN_NORTH", registry.MachineOfCredential(AccountA, "device:north-device", NoEnrollment, _ => true, Now));
     }
 
     [Fact]
@@ -158,7 +199,7 @@ public sealed class SecretMachineRegistryTests
         registry.Record(AccountA, "dir-slot-5", "DEVTHROTTLE-MAC-MINI", NewKey(), Now, "device:mac-device");
 
         Assert.Equal("devthrottle-mac-mini",
-            registry.MachineOfCredential(AccountA, "device:mac-device", _ => true, Now), StringComparer.OrdinalIgnoreCase);
+            registry.MachineOfCredential(AccountA, "device:mac-device", NoEnrollment, _ => true, Now), StringComparer.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -175,12 +216,12 @@ public sealed class SecretMachineRegistryTests
         registry.Record(AccountB, "dir-other", "machine-f", NewKey(), Now, "device:other-account");
 
         Func<string, bool> connected = id => id != "dir-gone";
-        Assert.Null(registry.MachineOfCredential(AccountA, "device:shared", connected, Now));
-        Assert.Null(registry.MachineOfCredential(AccountA, "device:stale", connected, Now));
-        Assert.Null(registry.MachineOfCredential(AccountA, "device:disconnected", connected, Now));
-        Assert.Null(registry.MachineOfCredential(AccountA, "device:no-key", connected, Now));
-        Assert.Null(registry.MachineOfCredential(AccountA, "device:other-account", connected, Now));
-        Assert.Null(registry.MachineOfCredential(AccountA, "device:never-seen", connected, Now));
-        Assert.Equal("machine-f", registry.MachineOfCredential(AccountB, "device:other-account", _ => true, Now));
+        Assert.Null(registry.MachineOfCredential(AccountA, "device:shared", NoEnrollment, connected, Now));
+        Assert.Null(registry.MachineOfCredential(AccountA, "device:stale", NoEnrollment, connected, Now));
+        Assert.Null(registry.MachineOfCredential(AccountA, "device:disconnected", NoEnrollment, connected, Now));
+        Assert.Null(registry.MachineOfCredential(AccountA, "device:no-key", NoEnrollment, connected, Now));
+        Assert.Null(registry.MachineOfCredential(AccountA, "device:other-account", NoEnrollment, connected, Now));
+        Assert.Null(registry.MachineOfCredential(AccountA, "device:never-seen", NoEnrollment, connected, Now));
+        Assert.Equal("machine-f", registry.MachineOfCredential(AccountB, "device:other-account", NoEnrollment, _ => true, Now));
     }
 }
