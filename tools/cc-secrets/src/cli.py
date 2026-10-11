@@ -1259,7 +1259,7 @@ def _ended(t: "transfers.Transfer", json_output: bool) -> None:
     elif outcome in ("denied", "expired"):
         _say(_visible_ascii(f"{outcome}: {t.outcome or t.status_text}"))
     else:
-        _say(_visible_ascii(f"{outcome}: {t.outcome or t.status_text}"), err=outcome != "stored")
+        _say(_visible_ascii(f"{outcome}: {t.outcome or t.status_text}"), err=True)
     if code:
         raise typer.Exit(code)
 
@@ -1278,36 +1278,35 @@ def _ask(command: str, entry: str, from_machine: Optional[str], to_machine: Opti
         destination = here if to_machine is None else machines.find(listed, to_machine)
         in_session = link.kind == gateway_link.KIND_SESSION
         if source.this_machine and _store().get(entry) is None:
-            _say(f"refused: No entry named '{entry}' is on this machine. Nothing was asked.", err=True)
-            raise typer.Exit(EXIT_REFUSED)
+            _local_refusal(command, entry, f"No entry named '{entry}' is on this machine. Nothing was asked.", json_output)
         if accept_new_key and in_session:
-            _say("refused: a session cannot accept a changed machine key. The owner does that in the cc-secrets window "
-                 "or their own terminal.", err=True)
-            raise typer.Exit(EXIT_REFUSED)
+            _local_refusal(command, entry, "a session cannot accept a changed machine key. The owner does that in the "
+                                           "cc-secrets window or their own terminal.", json_output)
+        if owner_approved is not None and not in_session:
+            _local_refusal(command, entry, "--owner-approved is how a session reports the owner's words from its chat. "
+                                           "In your own terminal you approve by typing yes; leave it out.", json_output)
         body = {"entry": entry, "targetName": target or entry, "fromMachine": source.name, "toMachine": destination.name,
                 "replace": replace, "reason": reason or ""}
         if owner_approved is not None:
             body["ownerApproved"] = owner_approved
         if accept_new_key:
             body["acceptReceiverFingerprint"] = destination.fingerprint
-        if not in_session and owner_approved is None and _stdin_is_tty():
+        if not in_session and _someone_at_the_keyboard():
             # The owner's own terminal: they are asking, so they approve here, by typing yes to exactly this.
             summary = f"{entry} from {source.name} to {destination.name}" + (f" as {target}" if target and target != entry else "")
-            _say(_visible_ascii(f"Move {summary}?"))
+            _say(_visible_ascii(f"Move {summary}?"), err=json_output)
             if replace:
-                _say(_visible_ascii(f"This replaces the entry already on {destination.name}."))
+                _say(_visible_ascii(f"This replaces the entry already on {destination.name}."), err=json_output)
             if destination.pin.state == known_machines.CHANGED and not destination.this_machine:
-                _say(_visible_ascii(f"WARNING: the key of {destination.name} changed since it was pinned."))
-            typed = typer.prompt("Type yes to approve", default="", show_default=False)
+                _say(_visible_ascii(f"WARNING: the key of {destination.name} changed since it was pinned."), err=json_output)
+            typed = typer.prompt("Type yes to approve", default="", show_default=False, err=json_output)
             if typed.strip().lower() != "yes":
-                _audit().record(entry, command, "cancelled", "the owner did not type yes")
-                _say("cancelled: nothing was asked or moved.")
-                raise typer.Exit(EXIT_CANCELLED)
+                _local_refusal(command, entry, "you did not type yes, so nothing was asked or moved.", json_output,
+                               EXIT_CANCELLED)
             body["approvedHere"] = "terminal"
             body["askedOn"] = here.name
         t = transfers.create(body, link)
-        approval = OwnerApproval(text=owner_approved.strip(), session_name="") if owner_approved else None
-        _audit().record(entry, command, "asked", f"transfer {t.transfer_id}: {t.summary}", approval)
+        _audit().record(entry, command, "asked", f"transfer {t.transfer_id}: {t.summary}", _session_approval(owner_approved))
         t = _wait_for_answer(t, link, json_output)
     except typer.Exit:
         raise

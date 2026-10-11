@@ -418,3 +418,40 @@ def test_Send_TheGatewayRefuses_ExitsTwoWithItsSentence(gateway, plain):
 
     assert result.exit_code == cli.EXIT_REFUSED
     assert "devthrottle-mac-mini is not connected." in plain(result.output)
+
+
+def test_Send_InTheOwnersTerminal_WithOwnerApproved_IsRefused(gateway, monkeypatch):
+    gateway["kind"] = "machine"
+    monkeypatch.setattr(cli, "_stdin_is_tty", lambda: True)
+
+    result = runner.invoke(cli.app, ["send", "qa-handoff-one", "--to", "devthrottle-mac-mini", "--owner-approved", "yes"],
+                           input="yes\n")
+
+    assert result.exit_code == cli.EXIT_REFUSED
+    assert gateway["posted"] == []
+
+
+def test_Send_InAGitBashWindow_AsksForYes(gateway, monkeypatch):
+    gateway["kind"] = "machine"
+    gateway["states"] = ["approved", "delivered"]
+    monkeypatch.setattr(cli, "_stdin_is_tty", lambda: False)
+    monkeypatch.setattr(cli, "_stdin_is_mintty", lambda: True)
+
+    result = runner.invoke(cli.app, ["send", "qa-handoff-one", "--to", "devthrottle-mac-mini"], input="yes\n")
+
+    assert result.exit_code == 0, result.output
+    assert gateway["posted"][0][1]["approvedHere"] == "terminal"
+
+
+def test_Send_Json_ARefusalBeforeAsking_IsJson(gateway):
+    result = runner.invoke(cli.app, ["send", "qa-handoff-missing", "--to", "devthrottle-mac-mini", "--reason", "r", "--json"])
+
+    assert result.exit_code == cli.EXIT_REFUSED
+    assert json.loads(result.stdout)["outcome"] == "refused"
+
+
+def test_Send_Json_Stored_IsJson(gateway):
+    result = runner.invoke(cli.app, ["send", "qa-handoff-one", "--to", "devthrottle-mac-mini", "--reason", "r", "--json"])
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["outcome"] == "stored"
