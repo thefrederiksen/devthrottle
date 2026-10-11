@@ -1,6 +1,7 @@
 using System.Text.Json;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
+using CcDirector.Gateway.Running;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -39,11 +40,16 @@ internal static class CronJobEndpoints
         // Whether each schedule's sessions close themselves (the owner, 2026-10-09), folded onto every listed job.
         // REQUIRED for the same reason as the two above: a wiring line that forgot it would list every schedule with
         // no run record and fail nothing.
-        Running.CronRunRecordReader runRecords)
+        Running.CronRunRecordReader runRecords,
+        // Factory Control, step 3: the calling account's display time zone, which a schedule's shifts are counted in.
+        // Null when the request has no account to read it from; the schedules are then answered without shifts.
+        // REQUIRED for the same reason as the three above.
+        Func<HttpContext, TimeZoneInfo?> accountZoneOf)
     {
         ArgumentNullException.ThrowIfNull(sessionFactoryOf);
         ArgumentNullException.ThrowIfNull(findFactory);
         ArgumentNullException.ThrowIfNull(runRecords);
+        ArgumentNullException.ThrowIfNull(accountZoneOf);
         app.MapPost("/cron/jobs", async (HttpContext ctx) =>
         {
             CronJobDto? job;
@@ -84,6 +90,7 @@ internal static class CronJobEndpoints
             var created = store.Create(job);
             var stamped = Describe(CronSchedule.StampDisplay(created, DateTime.UtcNow));
             stamped.LoadWarning = LoadWarningFor(stamped);
+            StampShifts(ctx, new[] { stamped }, DateTime.UtcNow);
             return Results.Json(stamped, statusCode: StatusCodes.Status201Created);
         });
 
@@ -119,6 +126,7 @@ internal static class CronJobEndpoints
                 job.FactoryHref = FactoryHrefOf(job.Factory, registered);
                 job.ShortName = CronDisplayName.ShortName(job.Name, job.Factory, job.FactoryTitle);
             }
+            StampShifts(ctx, jobs, now);
             return Results.Json(new { jobs });
         });
 
@@ -220,6 +228,28 @@ internal static class CronJobEndpoints
             return job;
         }
 
+        // THE SHIFTS OF EACH SCHEDULE AND THE SHIFT-END WARNING (Factory Control, step 3), folded by ScheduleShifts in
+        // the account's time zone from the schedule's next 7 days of runs and its typical run length. The rule is in
+        // ScheduleShifts' comment and, in words, in ShiftRule beside every warning.
+        void StampShifts(HttpContext ctx, IReadOnlyList<CronJobDto> jobs, DateTime now)
+        {
+            if (accountZoneOf(ctx) is not { } zone)
+            {
+                FileLog.Write($"[CronJobEndpoints] shifts: no account time zone for this caller, {jobs.Count} schedule(s) answered without shifts");
+                return;
+            }
+            var lengths = runRecords.RunLengthsOf(jobs.Select(j => j.Id).ToList());
+            foreach (var job in jobs)
+            {
+                var fires = ScheduleShifts.NextFires(job, now);
+                job.Shifts = ScheduleShifts.ShiftsOf(fires, zone).ToList();
+                job.ShiftText = ScheduleShifts.Text(job.Shifts);
+                job.ShiftWarning = ScheduleShifts.WarningFor(fires, zone, lengths.TryGetValue(job.Id, out var l) ? l : null);
+                job.ShiftRule = job.ShiftWarning is null ? null : ScheduleShifts.RuleText;
+            }
+            FileLog.Write($"[CronJobEndpoints] shifts: schedules={jobs.Count}, zone={zone.Id}, warned={jobs.Count(j => j.ShiftWarning is not null)}");
+        }
+
         static string? JoinWarnings(string? first, string? second) =>
             first is null ? second : second is null ? first : $"{first} {second}";
 
@@ -232,12 +262,15 @@ internal static class CronJobEndpoints
             return Results.Json(load);
         });
 
-        app.MapGet("/cron/jobs/{id}", (string id) =>
+        app.MapGet("/cron/jobs/{id}", (string id, HttpContext ctx) =>
         {
             var job = store.Get(id);
-            return job is null
-                ? Results.NotFound(new { error = "no such cron job", id })
-                : Results.Json(Describe(CronSchedule.StampDisplay(job, DateTime.UtcNow)));
+            if (job is null)
+                return Results.NotFound(new { error = "no such cron job", id });
+            var now = DateTime.UtcNow;
+            var stamped = Describe(CronSchedule.StampDisplay(job, now));
+            StampShifts(ctx, new[] { stamped }, now);
+            return Results.Json(stamped);
         });
 
         // The planned fires of a random schedule (issue #3622). The plan is derived from the job id, the date and
@@ -332,6 +365,7 @@ internal static class CronJobEndpoints
             var followers = RePlaceDependents(id);
             var stamped = Describe(CronSchedule.StampDisplay(updated, DateTime.UtcNow));
             stamped.LoadWarning = JoinWarnings(LoadWarningFor(stamped), followers);
+            StampShifts(ctx, new[] { stamped }, DateTime.UtcNow);
             return Results.Json(stamped);
         });
 

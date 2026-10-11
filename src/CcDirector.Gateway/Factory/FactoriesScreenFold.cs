@@ -360,36 +360,77 @@ public static class FactoriesScreenFold
     {
         ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(input);
-        var rows = factory.Seats
+        var a = input.Activity;
+        var seats = factory.Seats
             .OrderBy(s => SameId(s.Id, factory.BossSeat ?? "") ? 0 : 1)
-            .Select(s => SeatRow(factory, s, input))
+            .Select(s => (Seat: s, Shifts: ShiftsBySchedule(s, input)))
             .ToList();
+
+        // GROUPED BY SHIFT (Factory Control, step 3). A seat that works in two shifts is listed in each, and its row
+        // there carries only that shift's schedules. Shown once with both shifts, the reader would have to work out
+        // which schedule is which shift; a group answers "who works this shift", and only the name repeats.
+        var groups = new List<FactorySeatGroupDto>();
+        foreach (var shift in ScheduleShifts.Order)
+        {
+            var rows = seats.Where(s => s.Shifts.Values.Any(v => v.Contains(shift)))
+                .Select(s => SeatRow(factory, s.Seat, input, s.Shifts,
+                    s.Shifts.Where(kv => kv.Value.Contains(shift)).Select(kv => kv.Key).ToHashSet(StringComparer.Ordinal)))
+                .ToList();
+            if (rows.Count > 0)
+                groups.Add(new FactorySeatGroupDto { Shift = shift, Title = ScheduleShifts.Heading(shift), Rows = rows });
+        }
+        var idle = seats.Where(s => !s.Shifts.Values.Any(v => v.Count > 0))
+            .Select(s => SeatRow(factory, s.Seat, input, s.Shifts, only: null))
+            .ToList();
+        if (idle.Count > 0)
+            groups.Add(new FactorySeatGroupDto { Shift = "none", Title = ScheduleShifts.Text(Array.Empty<string>()), Rows = idle });
+
         return new FactorySeatsViewDto
         {
             FactoryId = factory.Factory,
             Title = factory.Title,
             Crumb = $"Factories / {factory.Title} / Seats",
             Columns = new() { "Seat", "When it runs", "Last run", "Computer" },
-            Rows = rows,
-            Note = "Only seats the boss hired are listed. Sessions that only wrote activity rows are not seats and do not appear.",
+            Rows = seats.Select(s => SeatRow(factory, s.Seat, input, s.Shifts, only: null)).ToList(),
+            Groups = groups,
+            Note = "Only seats the boss hired are listed. Sessions that only wrote activity rows are not seats and do not appear. "
+                + $"Shifts are counted in {a.Zone.Id}. A seat that works in two shifts is listed under each, with that shift's schedules.",
         };
     }
 
-    private static FactorySeatRowDto SeatRow(RegisteredFactoryDto f, RegisteredFactorySeatDto seat, FactoriesScreenInputs input)
+    // The shifts each of a seat's schedules starts runs in over the next 7 days (ScheduleShifts), by schedule id. A
+    // schedule the store no longer has starts nothing, so it has no shift.
+    private static Dictionary<string, IReadOnlyList<string>> ShiftsBySchedule(RegisteredFactorySeatDto seat, FactoriesScreenInputs input)
+    {
+        var a = input.Activity;
+        var schedules = SchedulesOf(seat, input.Schedules);
+        return seat.Schedules.Distinct(StringComparer.Ordinal).ToDictionary(
+            id => id,
+            id => schedules.FirstOrDefault(j => j.Id == id) is { } job
+                ? ScheduleShifts.ShiftsOf(ScheduleShifts.NextFires(job, a.NowUtc), a.Zone)
+                : (IReadOnlyList<string>)Array.Empty<string>(),
+            StringComparer.Ordinal);
+    }
+
+    // One seat's row. `only` narrows its schedules to one shift's; null lists them all.
+    private static FactorySeatRowDto SeatRow(RegisteredFactoryDto f, RegisteredFactorySeatDto seat, FactoriesScreenInputs input,
+        IReadOnlyDictionary<string, IReadOnlyList<string>> shifts, IReadOnlySet<string>? only)
     {
         var a = input.Activity;
         var schedules = SchedulesOf(seat, input.Schedules);
         var clock = SeatClock(schedules, a.Zone);
         var (lastText, lastTone) = LastRun(f, seat, schedules, a, clock);
         var closing = SeatClosing(seat, input);
+        var listed = seat.Schedules.Where(id => only is null || only.Contains(id)).ToList();
+        var seatShifts = ScheduleShifts.Order.Where(s => shifts.Values.Any(v => v.Contains(s))).ToList();
         return new FactorySeatRowDto
         {
             SeatId = seat.Id,
             Name = seat.Name,
             Role = seat.Role,
-            WhenText = seat.Schedules.Count == 0
+            WhenText = listed.Count == 0
                 ? "Not scheduled"
-                : string.Join("; ", seat.Schedules.Select(id =>
+                : string.Join("; ", listed.Select(id =>
                     schedules.FirstOrDefault(j => j.Id == id) is { } job
                         ? FactoryScheduleText.Describe(job, a.Zone)
                         : $"Schedule {id} is missing")),
@@ -398,9 +439,10 @@ public static class FactoriesScreenFold
             ComputerText = seat.Computer,
             ClosingText = closing.Text,
             ClosingTone = ClosingTone(closing.Verdict),
+            ShiftText = ScheduleShifts.Text(seatShifts),
             // One per schedule the seat names, in its order, each with its Edit (the owner, 2026-10-09: edited in the
             // factory). A missing one keeps its sentence on screen and offers nothing to edit.
-            Schedules = seat.Schedules
+            Schedules = listed
                 .Select(id => schedules.FirstOrDefault(j => j.Id == id) is { } job
                     ? new FactorySeatScheduleDto
                     {
@@ -412,8 +454,15 @@ public static class FactoriesScreenFold
                         ToggleLabel = CronSchedule.LifecycleOf(job) == CronLifecycle.Spent
                             ? null
                             : CronSchedule.ToggleLabelOf(job.Enabled),
+                        ShiftText = ScheduleShifts.Text(shifts[id]),
                     }
-                    : new FactorySeatScheduleDto { JobId = id, WhenText = $"Schedule {id} is missing", EditLabel = null })
+                    : new FactorySeatScheduleDto
+                    {
+                        JobId = id,
+                        WhenText = $"Schedule {id} is missing",
+                        EditLabel = null,
+                        ShiftText = ScheduleShifts.Text(Array.Empty<string>()),
+                    })
                 .ToList(),
             Talk = new FactoryTalkDto
             {

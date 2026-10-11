@@ -183,8 +183,8 @@ public sealed class FactoryMembershipThroughTheCallersTests : IDisposable
             findFactory: (_, id) => id == TheFactory
                 ? new RegisteredFactoryDto { Factory = TheFactory, Title = "Website Factory", Seats = { new RegisteredFactorySeatDto { Id = "scout" } } }
                 : null,
-            runRecords: new CcDirector.Gateway.Running.CronRunRecordReader(runs, _history.EndingsOf));
-        CronRunEndpoints.Map(app, engine, new CcDirector.Gateway.Running.CronRunRecordReader(runs, _history.EndingsOf), jobById: id => _schedules.Get(id), sessionFactoryOf: _history.FactoryOf);
+            runRecords: new CcDirector.Gateway.Running.CronRunRecordReader(runs, _history.EndingsOf), accountZoneOf: _ => TimeZoneInfo.Utc);
+        CronRunEndpoints.Map(app, engine, new CcDirector.Gateway.Running.CronRunRecordReader(runs, _history.EndingsOf), jobById: id => _schedules.Get(id), sessionFactoryOf: _history.FactoryOf, accountZoneOf: _ => TimeZoneInfo.Utc);
 
         _triggers = new TriggerService(new TriggerStore(_db.Open()), new FactoryActivityRecord(_db.Open()),
             (_, _, _) => Task.FromResult(TriggerStartAttempt.Failed("no machine in this test")),

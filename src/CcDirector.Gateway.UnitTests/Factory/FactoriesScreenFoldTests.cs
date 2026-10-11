@@ -660,4 +660,84 @@ public sealed class FactoriesScreenFoldTests
         var job = new CronJobDto { Id = "j", ScheduleKind = CronSchedule.KindRecurring, CronExpression = "0 6 * * *", TimeZoneId = "Europe/Copenhagen", Enabled = false };
         Assert.Equal("Daily 06:00 (Europe/Copenhagen) (paused)", FactoryScheduleText.Describe(job, TimeZoneInfo.Utc));
     }
+
+    // ---------- the Seats tab grouped by shift (Factory Control, step 3) ----------
+
+    /// <summary>A schedule that validates, so it has runs to come (the shifts are read from those).</summary>
+    private static CronJobDto Fires(string id, string cron)
+    {
+        var job = Job(id, cron);
+        job.Target = new CronJobTarget { Machine = "SOREN_NORTH" };
+        job.Action = new CronJobAction { RepoPath = @"D:epo", Seed = "/help" };
+        return job;
+    }
+
+    [Fact]
+    public void Seats_Groups_FollowTheDaysOrder_AndASeatInTwoShiftsIsInEach_WithOnlyThatShiftsSchedules()
+    {
+        var f = Factory("x", "X", "boss",
+            Seat("boss", "Boss", "Boss", "cj_boss"),
+            Seat("scout", "Scout", "Scout", "cj_night", "cj_evening"),
+            Seat("idle", "Idle", "Idle"));
+        var jobs = new[] { Fires("cj_boss", "0 9 * * *"), Fires("cj_night", "0 2 * * *"), Fires("cj_evening", "0 18 * * *") };
+
+        var view = FactoriesScreenFold.Seats(f, Inputs(new[] { f }, jobs: jobs));
+
+        Assert.Equal(new[] { "night", "morning", "evening", "none" }, view.Groups.Select(g => g.Shift));
+        Assert.Equal(new[] { "Night shift, 00:00-08:00", "Morning shift, 08:00-16:00", "Evening shift, 16:00-24:00", "No run in the next 7 days" },
+            view.Groups.Select(g => g.Title));
+        var night = view.Groups[0].Rows.Single();
+        var evening = view.Groups[2].Rows.Single();
+        Assert.Equal("scout", night.SeatId);
+        Assert.Equal(new[] { "cj_night" }, night.Schedules.Select(s => s.JobId));
+        Assert.Equal("Daily 02:00", night.WhenText);
+        Assert.Equal(new[] { "cj_evening" }, evening.Schedules.Select(s => s.JobId));
+        // Each row still says every shift the seat works in.
+        Assert.Equal("Night and evening shifts", night.ShiftText);
+        Assert.Equal("Night and evening shifts", evening.ShiftText);
+        Assert.Equal("Evening shift", evening.Schedules.Single().ShiftText);
+        Assert.Equal("boss", view.Groups[1].Rows.Single().SeatId);
+        Assert.Equal("idle", view.Groups[3].Rows.Single().SeatId);
+        Assert.Equal("No run in the next 7 days", view.Groups[3].Rows.Single().ShiftText);
+    }
+
+    [Fact]
+    public void Seats_AShiftNoSeatWorksIn_HasNoGroup_AndTheBossLeadsItsGroup()
+    {
+        var f = Factory("x", "X", "boss", Seat("worker", "Worker", "Worker", "cj_w"), Seat("boss", "Boss", "Boss", "cj_b"));
+        var jobs = new[] { Fires("cj_w", "0 10 * * *"), Fires("cj_b", "30 11 * * *") };
+
+        var view = FactoriesScreenFold.Seats(f, Inputs(new[] { f }, jobs: jobs));
+
+        Assert.Equal(new[] { "morning" }, view.Groups.Select(g => g.Shift));
+        Assert.Equal(new[] { "boss", "worker" }, view.Groups[0].Rows.Select(r => r.SeatId));
+    }
+
+    [Fact]
+    public void Seats_ShiftsAreCountedInTheAccountsZone()
+    {
+        // 03:00 UTC is the night shift in UTC, and 23:00 the evening before in Toronto: the evening shift there.
+        var f = Factory("x", "X", null, Seat("s", "S", "S", "cj_s"));
+        var jobs = new[] { Fires("cj_s", "0 3 * * *") };
+
+        var utc = FactoriesScreenFold.Seats(f, Inputs(new[] { f }, jobs: jobs));
+        var toronto = FactoriesScreenFold.Seats(f, Inputs(new[] { f }, jobs: jobs,
+            accountZone: TimeZoneInfo.FindSystemTimeZoneById(Toronto)));
+
+        Assert.Equal("night", utc.Groups.Single().Shift);
+        Assert.Equal("evening", toronto.Groups.Single().Shift);
+        Assert.Contains("America/Toronto", toronto.Note);
+    }
+
+    [Fact]
+    public void Seats_AMissingSchedule_HasNoShift()
+    {
+        var f = Factory("x", "X", null, Seat("s", "S", "S", "cj_gone"));
+
+        var view = FactoriesScreenFold.Seats(f, Inputs(new[] { f }));
+
+        var group = view.Groups.Single();
+        Assert.Equal("none", group.Shift);
+        Assert.Equal("No run in the next 7 days", group.Rows.Single().Schedules.Single().ShiftText);
+    }
 }

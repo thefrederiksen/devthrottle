@@ -46,7 +46,7 @@ public sealed class WindowScheduleWiringTests : IAsyncLifetime
         _app.Urls.Add("http://127.0.0.1:0");
         var runRecords = new CronRunRecordReader(history, new CcDirector.Gateway.History.SessionHistoryStore(db).EndingsOf);
         CronJobEndpoints.Map(_app, _store, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown,
-            findFactory: (_, _) => null, runRecords: runRecords);
+            findFactory: (_, _) => null, runRecords: runRecords, accountZoneOf: _ => TimeZoneInfo.Utc);
         await _app.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri(_app.Urls.First() + "/") };
     }

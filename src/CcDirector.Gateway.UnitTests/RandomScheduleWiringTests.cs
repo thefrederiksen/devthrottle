@@ -45,11 +45,11 @@ public sealed class RandomScheduleWiringTests : IAsyncLifetime
         _app.Urls.Add("http://127.0.0.1:0");
         var runRecords = new CcDirector.Gateway.Running.CronRunRecordReader(_history, new CcDirector.Gateway.History.SessionHistoryStore(_db).EndingsOf);
         CronJobEndpoints.Map(_app, _store, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown,
-            findFactory: (_, _) => null, runRecords: runRecords);
+            findFactory: (_, _) => null, runRecords: runRecords, accountZoneOf: _ => TimeZoneInfo.Utc);
         var engine = new CronEngine(_store, _history, new RecordingStarter(), new UnusedWorkListRunner(),
             new NullCronNotifier(), new FakeClock(DateTime.UtcNow));
         CronRunEndpoints.Map(_app, engine, runRecords, jobById: _store.Get,
-            sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown);
+            sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown, accountZoneOf: _ => TimeZoneInfo.Utc);
         await _app.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri(_app.Urls.First() + "/") };
     }
