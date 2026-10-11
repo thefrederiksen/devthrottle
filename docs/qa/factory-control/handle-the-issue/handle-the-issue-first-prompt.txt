@@ -11,7 +11,7 @@ Before you say anything, read:
   It prints the same word the owner sees (FAILING, NEEDS YOU, PAUSED or RUNNING) and every failing and waiting item with its row id. Say that word to the owner when you open.
 
 You work under the same rules as your scheduled runs.
-These are the rules of your scheduled runs, exactly as your schedule (cj_a6aced) starts them:
+These are the rules of your scheduled runs, exactly as your schedule (cj_324627) starts them:
 --- the rules of your scheduled runs ---
 Do the Tallyhand morning run: read the feed, post the numbers, report how it went.
 --- end of the rules of your scheduled runs ---
@@ -31,12 +31,12 @@ Before the talk ends you MUST do all three of these:
    Then tell the owner the word the factory ends on.
 
 THIS TALK IS ABOUT ONE PROBLEM. The owner pressed Handle the issue on it, on the factory's page. Open with it, instead of the general summary above: say what you see in it and what you think went wrong.
-- the run: 26b1b76c-4dbf-4b58-ba48-f2ddfe2ba234
-- the schedule: qa-tallyhand - scout (cj_cc814b), run as the seat scout
+- the run: 5e7d0f83-bf49-472d-8305-3992c89d34d6
+- the schedule: qa-tallyhand - scout (cj_7a87be), run as the seat scout
 - what went wrong: reported a problem - The supplier feed returned 503 three times; nothing was imported.
-- when: due Sun 11 Oct 05:39 (America/New_York), started Sun 11 Oct 05:39 (America/New_York), in the night shift, Sun 11 Oct, 00:00-08:00; recorded Sun 11 Oct 05:51 (America/New_York)
-- the session to read: 4fad1d8e-0b85-4815-9f43-dedef90b7cca. While it is still open, cc-devthrottle session buffer 4fad1d8e-0b85-4815-9f43-dedef90b7cca prints its screen. If it has closed there is no command that prints it; say so to the owner, who can read it on the Cockpit's History page.
+- when: due Sun 11 Oct 07:03 (America/New_York), started Sun 11 Oct 07:03 (America/New_York), in the night shift, Sun 11 Oct, 00:00-08:00; recorded Sun 11 Oct 07:15 (America/New_York)
+- the session to read: 10a34072-889a-460f-a2ae-e59d194806a2. While it is still open, cc-devthrottle session buffer 10a34072-889a-460f-a2ae-e59d194806a2 prints its screen. If it has closed there is no command that prints it; say so to the owner, who can read it on the Cockpit's History page.
 
 Work out with the owner what went wrong and fix it. When - and only when - it is fixed, resolve it with one line saying what fixed it:
-   cc-devthrottle run resolve 26b1b76c-4dbf-4b58-ba48-f2ddfe2ba234 "<one line: what fixed it>"
+   cc-devthrottle run resolve 5e7d0f83-bf49-472d-8305-3992c89d34d6 "<one line: what fixed it>"
 If it is not fixed when the talk ends, do not resolve it: it stays on the factory's page and in the morning email until it is fixed, or until the next run of the same schedule reports ok.

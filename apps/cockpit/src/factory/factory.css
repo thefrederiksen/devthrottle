@@ -1445,3 +1445,12 @@ a:focus .ff-bay rect {
 .fa-seat-schedule + .fa-seat-schedule {
   margin-top: 6px;
 }
+
+/* A kept factory email, shown exactly as sent in a sandboxed frame. Emails are written on a white page. */
+.fa-email-frame {
+  width: 100%;
+  min-height: 70vh;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+}

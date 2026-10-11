@@ -187,4 +187,27 @@ public sealed class FactoryProblemsFoldTests
         Assert.Equal("Tallyhand - Boss - handle the issue (Tallyhand - Scout - daily scan)",
             FactoryTalkSeed.ProblemSessionName(f, f.Seats[0], Problem()));
     }
+
+    // ---- a seat is named by its role, never its id -----------------------------------------------------------
+
+    [Fact]
+    public void Card_AProblemOfASeatWithNoRole_IsRefusedNotNamedByItsId()
+    {
+        var f = Factory("boss");
+        f.Seats[1].Role = " ";
+
+        var ex = Assert.Throws<InvalidOperationException>(() => FactoryProblemsFold.Card(f, Answer(Problem()), TimeZoneInfo.Utc, Now));
+        Assert.Contains("has no role", ex.Message);
+    }
+
+    [Fact]
+    public void Card_AProblemOfASeatTheFactoryNoLongerHas_SaysSoWithoutTheOldId()
+    {
+        var f = Factory("boss");
+        f.Seats.RemoveAt(1);
+
+        var item = Assert.Single(FactoryProblemsFold.Card(f, Answer(Problem()), TimeZoneInfo.Utc, Now).Items);
+
+        Assert.Equal("A seat no longer on this factory - Tallyhand - Scout - daily scan", item.SeatText);
+    }
 }

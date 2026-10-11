@@ -287,6 +287,10 @@ public sealed class FactoryPageViewDto
     /// fold, each with Handle the issue and Resolve. Null when the view was folded without them (the floor).</summary>
     public FactoryPageProblemsDto? Problems { get; set; }
 
+    /// <summary>The factory emails the account was sent that covered this factory, newest first, each readable again
+    /// as sent (Factory Control, step 1b on brief 5's store). Null when the view was folded without them (the floor).</summary>
+    public FactoryPageEmailsDto? Emails { get; set; }
+
     public FactoryPageWaitingDto Waiting { get; set; } = new();
     public FactoryBossLatestDto BossLatest { get; set; } = new();
     public FactoryLastTalkDto LastTalk { get; set; } = new();
@@ -520,6 +524,50 @@ public sealed class FactorySeatScheduleDto
     /// that is paused. Null for a schedule the store no longer has, and for a one-off that has already run.
     /// </summary>
     public string? ToggleLabel { get; set; }
+}
+
+/// <summary>
+/// The factory emails the account was sent that covered one factory, on its page (Factory Control, step 1b on brief 5's
+/// store). Every word here is the Gateway's (FactoryEmailsFold).
+/// </summary>
+public sealed class FactoryPageEmailsDto
+{
+    /// <summary>"Reports emailed to you".</summary>
+    public string Heading { get; set; } = "";
+
+    /// <summary>What is kept and for how long.</summary>
+    public string Note { get; set; } = "";
+
+    /// <summary>Newest first.</summary>
+    public List<FactoryPageEmailItemDto> Items { get; set; } = new();
+
+    /// <summary>Set when no kept email covered this factory.</summary>
+    public string? EmptyText { get; set; }
+}
+
+/// <summary>One kept factory email, in the Gateway's words.</summary>
+public sealed class FactoryPageEmailItemDto
+{
+    /// <summary>The kept email's id, as <c>GET /gateway/factory-emails/{id}</c> takes it.</summary>
+    public string Id { get; set; } = "";
+
+    /// <summary>Its subject line, as sent.</summary>
+    public string Title { get; set; } = "";
+
+    /// <summary>"Morning report" or "Shift check".</summary>
+    public string KindText { get; set; } = "";
+
+    /// <summary>"Sent today 08:00".</summary>
+    public string WhenText { get; set; } = "";
+
+    /// <summary>"3 problems listed".</summary>
+    public string ProblemText { get; set; } = "";
+
+    /// <summary>"Read".</summary>
+    public string ReadLabel { get; set; } = "";
+
+    /// <summary>The Cockpit page that shows it as sent.</summary>
+    public string Href { get; set; } = "";
 }
 
 /// <summary>

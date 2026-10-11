@@ -29,6 +29,7 @@ const screenClient = vi.hoisted(() => ({
   runFactoryOwnerAction: vi.fn(),
   startProblemTalk: vi.fn(),
   resolveRunProblem: vi.fn(),
+  getFactoryEmail: vi.fn(),
 }));
 vi.mock("@devthrottle/client-core/factory/factoriesScreenClient", () => screenClient);
 
@@ -67,6 +68,7 @@ vi.mock("@devthrottle/client-core/fleet/fleetClient", async (importOriginal) => 
 
 import { FactoriesView } from "./FactoriesView";
 import { FactoryView } from "./FactoryView";
+import { FactoryEmailView } from "./FactoryEmails";
 import {
   OldFactoriesListRedirect,
   OldFactoryAgentRedirect,
@@ -99,6 +101,7 @@ function renderAt(path: string) {
         <Route path="/factories/:factory" element={<FactoryView />} />
         <Route path="/factories/:factory/:tab" element={<FactoryView />} />
         <Route path="/factories/:factory/agents/:agent" element={<Where />} />
+        <Route path="/factories/:factory/emails/:id" element={<FactoryEmailView />} />
         <Route path="/session/:id" element={<Where />} />
         <Route path="/factory-agents" element={<OldFactoriesListRedirect />} />
         <Route path="/factory-agents/waiting" element={<OldFactoryWaitingRedirect />} />
@@ -922,5 +925,53 @@ describe("Open problems on a factory's page (Factory Control, step 1b)", () => {
     expect(await within(item).findByTestId("fa-problem-error")).toBeTruthy();
     expect(within(item).getByTestId("fa-problem-error").textContent).toContain("needs a one-line reason");
     expect(screenClient.resolveRunProblem).toHaveBeenCalledWith(PROBLEM.runId, "");
+  });
+});
+
+describe("Reports emailed to you, on a factory's page (Factory Control, brief 5's store)", () => {
+  const EMAIL = FACTORY_PAGE.emails!.items[0];
+
+  it("lists each kept email verbatim, in the Gateway's words", async () => {
+    renderAt("/factories/warmforward");
+
+    const card = await screen.findByTestId("fa-page-emails");
+    expect(within(card).getByText("Reports emailed to you (fixture)")).toBeTruthy();
+    const item = within(card).getByTestId(`fa-email-${EMAIL.id}`);
+    expect(within(item).getByText("Morning report (fixture)")).toBeTruthy();
+    expect(within(item).getByText("Sent today 08:00 (fixture)")).toBeTruthy();
+    expect(within(item).getByText("Factories: 2 open problems (fixture)")).toBeTruthy();
+    expect(within(item).getByText("2 problems listed (fixture)")).toBeTruthy();
+    expect(within(item).getByTestId("fa-email-read").getAttribute("href")).toBe(EMAIL.href);
+  });
+
+  it("says so when no kept email covered the factory", async () => {
+    screenClient.getFactoryPage.mockResolvedValue({
+      ...FACTORY_PAGE,
+      emails: { ...FACTORY_PAGE.emails!, items: [], emptyText: "No report has covered this factory yet. (fixture)" },
+    });
+    renderAt("/factories/warmforward");
+
+    expect((await screen.findByTestId("fa-emails-empty")).textContent).toBe("No report has covered this factory yet. (fixture)");
+  });
+
+  it("Read opens the email exactly as it was sent, in a sandboxed frame", async () => {
+    screenClient.getFactoryEmail.mockResolvedValue({ id: EMAIL.id, title: "Factories: 2 open problems (fixture)", html: "<p>as sent</p>" });
+    renderAt("/factories/warmforward");
+
+    fireEvent.click(await screen.findByTestId("fa-email-read"));
+
+    const body = await screen.findByTestId("fa-email-body");
+    expect(screenClient.getFactoryEmail).toHaveBeenCalledWith(EMAIL.id, expect.anything());
+    expect(body.getAttribute("srcdoc")).toBe("<p>as sent</p>");
+    expect(body.getAttribute("sandbox")).toBe("");
+    expect(screen.getByRole("heading", { name: "Factories: 2 open problems (fixture)" })).toBeTruthy();
+  });
+
+  it("a refused read shows the Gateway's sentence", async () => {
+    const refusal = "there is no factory email e1a2b3c4-0000-4000-8000-000000000001 in this account.";
+    screenClient.getFactoryEmail.mockRejectedValue(new GatewayError(404, refusal, { reason: refusal }));
+    renderAt(EMAIL.href);
+
+    expect(await screen.findByText(/there is no factory email/)).toBeTruthy();
   });
 });

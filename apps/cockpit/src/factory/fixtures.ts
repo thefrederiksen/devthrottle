@@ -384,6 +384,22 @@ export const FACTORY_PAGE: FactoryPageView = {
     linkLabel: "How it is measured",
     emptyText: null,
   },
+  emails: {
+    heading: "Reports emailed to you (fixture)",
+    note: "Kept for 30 days (fixture).",
+    emptyText: null,
+    items: [
+      {
+        id: "e1a2b3c4-0000-4000-8000-000000000001",
+        title: "Factories: 2 open problems (fixture)",
+        kindText: "Morning report (fixture)",
+        whenText: "Sent today 08:00 (fixture)",
+        problemText: "2 problems listed (fixture)",
+        readLabel: "Read (fixture)",
+        href: "/factories/warmforward/emails/e1a2b3c4-0000-4000-8000-000000000001",
+      },
+    ],
+  },
   problems: {
     heading: "Open problems (fixture)",
     note: "A problem stays here until the next run reports ok, or someone resolves it (fixture).",

@@ -5094,7 +5094,8 @@ public sealed class GatewayHost : IAsyncDisposable
         // from the registry, the record and the schedules.
         var factoriesScreenSources = new Api.FactoriesScreenSources(FactoryAgentsViewSources(), FactoryRegistry, tenant => _cronJobs.ListAll(tenant),
             (tenant, ids, now) => Running.CronRunRecordReader.RecentRunsOf(_cronRuns, _sessionHistory, tenant, ids, now),
-            (tenant, factory) => _cronRunResults.Problems(tenant, factory, includeClosed: false));
+            (tenant, factory) => _cronRunResults.Problems(tenant, factory, includeClosed: false),
+            (tenant, factory) => FactoryEmailReports!.List(tenant, factory, kind: null, Factory.FactoryEmailsFold.Shown, allStates: false));
         Api.FactoriesScreenEndpoints.Map(factoryGate,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             sources: factoriesScreenSources);

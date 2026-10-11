@@ -44,12 +44,16 @@ public static class FactoryProblemsFold
     private static FactoryProblemItemDto Item(RegisteredFactoryDto factory, CronRunProblemDto p,
         FactoryProblemHandoff.Target handoff, TimeZoneInfo zone, DateTime nowUtc)
     {
+        // A seat is named by its role word, never its id. A run of a seat the factory no longer has says so in words
+        // rather than showing the old id.
         var seat = p.Seat is null ? null : factory.Seats.FirstOrDefault(s => string.Equals(s.Id, p.Seat, StringComparison.OrdinalIgnoreCase));
-        var seatWord = seat is null ? p.Seat : string.IsNullOrWhiteSpace(seat.Role) ? seat.Id : seat.Role.Trim();
+        var seatText = p.Seat is null ? p.JobName
+            : seat is null ? $"A seat no longer on this factory - {p.JobName}"
+            : $"{SeatWord(seat)} - {p.JobName}";
         return new FactoryProblemItemDto
         {
             RunId = p.RunId,
-            SeatText = seatWord is null ? p.JobName : $"{seatWord} - {p.JobName}",
+            SeatText = seatText,
             What = string.IsNullOrWhiteSpace(p.Reason) ? p.KindText : $"{p.KindText} - {p.Reason.Trim()}",
             WhenText = p.StartedUtc is { } started
                 ? $"Started {FactoriesScreenFold.When(started, zone, nowUtc, capital: false)}"
@@ -73,5 +77,16 @@ public static class FactoryProblemsFold
             ResolveConfirmLabel = "Resolve with this reason",
             ResolveBusyLabel = "Resolving...",
         };
+    }
+
+    /// <summary>A seat by its role word. The registry requires a role on every seat, so a seat without one broke that
+    /// rule somewhere, and its id - which can be a person's name - must never stand in. It throws instead.</summary>
+    private static string SeatWord(RegisteredFactorySeatDto seat)
+    {
+        if (string.IsNullOrWhiteSpace(seat.Role))
+            throw new InvalidOperationException(
+                $"Seat '{seat.Id}' has no role. The factory registry requires one for every seat, so this seat was " +
+                "stored or built without going through it.");
+        return seat.Role.Trim();
     }
 }

@@ -183,6 +183,42 @@ export interface FactoryFailureItem {
   note: string | null;
 }
 
+/** The factory emails that covered a factory, kept for 30 days. Every word is the Gateway's. */
+export interface FactoryPageEmails {
+  /** "Reports emailed to you". */
+  heading: string;
+  note: string;
+  /** Newest first. */
+  items: FactoryPageEmailItem[];
+  emptyText: string | null;
+}
+
+/** One kept factory email. */
+export interface FactoryPageEmailItem {
+  /** As GET /gateway/factory-emails/{id} takes it. */
+  id: string;
+  /** Its subject line, as sent. */
+  title: string;
+  /** "Morning report" or "Shift check". */
+  kindText: string;
+  /** "Sent today 08:00". */
+  whenText: string;
+  /** "3 problems listed". */
+  problemText: string;
+  /** "Read". */
+  readLabel: string;
+  /** The Cockpit page that shows it as sent. */
+  href: string;
+}
+
+/** One kept factory email with its HTML exactly as sent (GET /gateway/factory-emails/{id}). */
+export interface FactoryEmail {
+  id: string;
+  title: string;
+  /** The email's body, exactly as it was sent. */
+  html: string;
+}
+
 /** A factory's open problems, from the one problems fold. Every word is the Gateway's. */
 export interface FactoryPageProblems {
   /** "Open problems". */
@@ -291,6 +327,9 @@ export interface FactoryPageView {
   /** The open problems of this factory's scheduled runs, each with Handle the issue and Resolve (Factory Control,
    *  step 1b); null when the view was folded without them. */
   problems: FactoryPageProblems | null;
+  /** The factory emails sent to the account that covered this factory, newest first, each readable again as sent;
+   *  null when the view was folded without them. */
+  emails: FactoryPageEmails | null;
   waiting: FactoryPageWaiting;
   bossLatest: FactoryBossLatest;
   lastTalk: FactoryLastTalk;
@@ -574,6 +613,14 @@ export async function resolveRunProblem(runId: string, reason: string, signal?: 
   });
   if (!res.ok) throw await GatewayError.from(res, "resolve it");
   assertJson(res);
+}
+
+/**
+ * One kept factory email, with its HTML exactly as sent. A refusal (no such email in this account, a malformed id)
+ * throws a GatewayError carrying the Gateway's own sentence.
+ */
+export async function getFactoryEmail(id: string, signal?: AbortSignal): Promise<FactoryEmail> {
+  return getJson<FactoryEmail>(`/gateway/factory-emails/${encodeURIComponent(id)}`, "load the report", signal);
 }
 
 const OWNER_ACTION_PATH: Record<FactoryOwnerAction["action"], string> = {

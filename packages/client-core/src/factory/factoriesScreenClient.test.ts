@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { gatewayErrorMessage, GatewayError } from "../api/client";
 import {
   getFactoriesList,
+  getFactoryEmail,
   resolveRunProblem,
   runFactoryOwnerAction,
   startProblemTalk,
@@ -173,5 +174,26 @@ describe("resolveRunProblem", () => {
     const err = await resolveRunProblem(HANDLE.runId, "").catch((e: unknown) => e);
     expect(JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string)).toEqual({ reason: "" });
     expect(gatewayErrorMessage(err, "resolve it")).toContain("needs a one-line reason");
+  });
+});
+
+describe("getFactoryEmail", () => {
+  it("reads one kept email by id, with its HTML as sent", async () => {
+    answer(200, JSON.stringify({ id: "e1", title: "Factories: 2 open problems", html: "<p>as sent</p>" }));
+    const email = await getFactoryEmail("e1");
+    expect(vi.mocked(fetch).mock.calls[0][0]).toBe("/gateway/factory-emails/e1");
+    expect(email.html).toBe("<p>as sent</p>");
+  });
+
+  it("shows the Gateway's refusal for an email the account does not have", async () => {
+    answer(404, JSON.stringify({ error: "there is no factory email e1 in this account." }));
+    const err = await getFactoryEmail("e1").catch((e: unknown) => e);
+    expect(gatewayErrorMessage(err, "load the report")).toContain("there is no factory email e1");
+  });
+
+  it("refuses a 2XX that is not JSON, as on every other read", async () => {
+    answer(200, "<!doctype html><html></html>", "text/html");
+    const err = await getFactoryEmail("e1").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(GatewayError);
   });
 });

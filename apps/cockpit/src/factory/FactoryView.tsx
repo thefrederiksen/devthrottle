@@ -13,6 +13,7 @@ import { PausedBanner, useSchedulerPause } from "../schedule/SchedulerPause";
 import { ActivityTab, ReportsTab, useView } from "./FactoryActivityTabs";
 import { FailuresCard, useScrollToHash } from "./FactoryFailures";
 import { ProblemsCard } from "./FactoryProblems";
+import { EmailsCard } from "./FactoryEmails";
 import { FactoryFloorPanel } from "./FactoryFloor";
 import { FactoryMemoryTab } from "./FactoryMemoryTab";
 import { OwnerActionButton, TalkButton, ToneChip } from "./FactoryParts";
@@ -162,11 +163,12 @@ function Overview({
   onChanged: () => void;
   onDone: (resultText: string) => void;
 }) {
-  const { goal, goalNumber, failures, problems, waiting, bossLatest, lastTalk } = page;
+  const { goal, goalNumber, failures, problems, emails, waiting, bossLatest, lastTalk } = page;
   return (
     <div className="fa-overview" data-testid="fa-overview">
       {problems !== null && <ProblemsCard problems={problems} onChanged={onChanged} />}
       {failures !== null && <FailuresCard factory={page.id} failures={failures} onChanged={onChanged} />}
+      {emails !== null && <EmailsCard emails={emails} />}
 
       <section className="fa-panel" data-testid="fa-goal">
         <h2 className="fa-section-title">{goal.heading}</h2>

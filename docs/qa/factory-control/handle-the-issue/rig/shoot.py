@@ -154,6 +154,44 @@ def seed_problem(db, run_id, job_id, hours_ago, problem, reason, session=True):
     print(f"problem {run_id} on {job_id}: {problem}")
 
 
+EMAIL_ID = "e1a2b3c4-0000-4000-8000-000000000001"
+EMAIL_HTML = (
+    "<html><body style='font-family:Segoe UI,sans-serif;margin:24px;color:#222'>"
+    "<h2>Good morning - 2 problems are open</h2>"
+    "<h3>Tallyhand (QA)</h3><ul>"
+    "<li><b>Scout</b> - reported a problem - The supplier feed returned 503 three times; nothing was imported.</li>"
+    "<li><b>Sender</b> - did not run - it was due and never started a session.</li></ul>"
+    "<h3>The last 24 hours</h3><p>Tallyhand (QA): 3 runs, 2 problems.</p>"
+    "<p style='color:#888'>QA rig stand-in for a kept morning report.</p></body></html>")
+
+
+def seed_email(db, job_id, factories):
+    """One SENT morning report kept in factory_email_reports, as the email sweep keeps what it sends."""
+    c = sqlite3.connect(db)
+    info = list(c.execute("PRAGMA table_info(factory_email_reports)"))
+    if not info:
+        raise SystemExit("factory_email_reports does not exist in the rig database")
+    tenant = c.execute("SELECT tenant_id FROM cron_jobs WHERE Id = ?", (job_id,)).fetchone()[0]
+    sent = NOW.replace(hour=8, minute=0, second=0, microsecond=0)
+    stamp = lambda t: t.strftime("%Y-%m-%d %H:%M:%S")
+    row = {
+        "Id": EMAIL_ID.upper(), "tenant_id": tenant, "SlotKey": sent.strftime("%Y-%m-%d-%H"), "Kind": "morning-report",
+        "BoundaryUtc": stamp(sent), "ComposedAtUtc": stamp(sent), "State": "sent", "Detail": None,
+        "Subject": "Factories: 2 open problems, Sun 11 Oct", "Html": EMAIL_HTML, "Text": "Good morning - 2 problems are open.",
+        "FactoriesJson": json.dumps(factories), "ProblemCount": 2, "Attempts": 1, "SentAtUtc": stamp(sent),
+        "ProviderId": "qa-rig",
+    }
+    cols = [r[1] for r in info]
+    missing = [k for k in row if k not in cols]
+    unfilled = [r[1] for r in info if r[3] and r[4] is None and r[1] not in row]
+    if missing or unfilled:
+        raise SystemExit(f"factory_email_reports: no column(s) {missing}; required but not filled {unfilled}")
+    c.execute(f"INSERT INTO factory_email_reports ({', '.join(row)}) VALUES ({', '.join('?' for _ in row)})", list(row.values()))
+    c.commit()
+    c.close()
+    print(f"kept email {EMAIL_ID}: morning report covering {factories}")
+
+
 # The rig Gateway runs with auth on; the Cockpit holds the rig's browser key as its signed-in account.
 def prepare(page):
     page.goto(UI)
@@ -218,6 +256,7 @@ def main():
         seed_problem(db, SCOUT_PROBLEM, scout_job, 5, "reported",
                      "The supplier feed returned 503 three times; nothing was imported.")
         seed_problem(db, SENDER_PROBLEM, sender_job, 9, "did-not-run", "it was due and never started a session", session=False)
+        seed_email(db, scout_job, ["qa-tallyhand"])
         seed_problem(db, WRITER_PROBLEM, writer_job, 3, "did-not-report",
                      "its session ended without reporting how the run went (stopped by you after 12 min)")
 
@@ -301,6 +340,20 @@ def main():
             # 5. A factory with no boss.
             go(page, "/factories/qa-warmforward", "fa-problem-unavailable")
             shot(page, "5-factory-with-no-boss")
+
+            # 6. The reports emailed about a factory, kept and listed on its page.
+            go(page, "/factories/qa-tallyhand", f"fa-email-{EMAIL_ID}")
+            page.locator("[data-testid='fa-page-emails']").scroll_into_view_if_needed()
+            shot(page, "6-reports-emailed-to-you")
+
+            # 7. Read opens one exactly as it was sent.
+            page.locator(f"[data-testid='fa-email-{EMAIL_ID}'] [data-testid='fa-email-read']").click()
+            page.wait_for_selector("[data-testid='fa-email-body']", timeout=30000)
+            shot(page, "7-a-report-read-as-sent")
+
+            # 8. A factory no kept report covered says so.
+            go(page, "/factories/qa-warmforward", "fa-emails-empty")
+            shot(page, "8-factory-with-no-kept-report")
             browser.close()
 
         after = check(requests.get(f"{GW}/cron/problems?state=all", headers=AUTH), "GET /cron/problems?state=all").json()
