@@ -1,3 +1,4 @@
+using CcDirector.TestInfrastructure;
 using System.Text.RegularExpressions;
 using Xunit;
 
@@ -176,15 +177,14 @@ public sealed class MobileViewportContractTests
     [Fact]
     public void NoScreen_ReintroducesItsOwnPrivateViewportHeightVariable()
     {
-        var root = GetRepoRoot();
-        var mobileSrc = Path.Combine(root, "apps", "mobile", "src");
+        var root = RepositorySourceIndex.Root;
         var offenders = new List<string>();
 
         // One mechanism. Car Mode used to own a private --car-vh and Chat/Terminal/Voice trusted dvh;
         // that split is exactly how a fix lands on one screen and the bug survives on the others.
         var privateVar = new Regex(@"--(?!app-vh)[a-z0-9-]*-vh\b");
 
-        foreach (var file in Directory.EnumerateFiles(mobileSrc, "*.*", SearchOption.AllDirectories))
+        foreach (var file in RepositorySourceIndex.Under("apps/mobile/src"))
         {
             var ext = Path.GetExtension(file);
             if (ext is not (".ts" or ".tsx" or ".css")) continue;
@@ -369,12 +369,5 @@ public sealed class MobileViewportContractTests
 
     private static string StripComments(string css) => Regex.Replace(css, @"/\*.*?\*/", "", RegexOptions.Singleline);
 
-    private static string GetRepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "cc-director.sln")))
-            dir = dir.Parent;
-        Assert.NotNull(dir);
-        return dir!.FullName;
-    }
+    private static string GetRepoRoot() => RepositorySourceIndex.Root;
 }

@@ -1,3 +1,4 @@
+using CcDirector.TestInfrastructure;
 using System.Reflection;
 using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Data;
@@ -307,7 +308,7 @@ public sealed class TenantGateArchitectureTests
         var gatewaySrc = LocateGatewaySource();
         var offenders = new List<string>();
 
-        foreach (var file in Directory.EnumerateFiles(gatewaySrc, "*.cs", SearchOption.AllDirectories))
+        foreach (var file in RepositorySourceIndex.Under(gatewaySrc, ".cs"))
         {
             if (Path.GetFileName(file) == "GatewayHost.cs") continue; // the sanctioned startup-seeding site
 
@@ -410,15 +411,5 @@ public sealed class TenantGateArchitectureTests
         catch (ReflectionTypeLoadException ex) { return ex.Types.Where(t => t is not null)!; }
     }
 
-    private static string LocateGatewaySource()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            var candidate = Path.Combine(dir.FullName, "src", "CcDirector.Gateway");
-            if (Directory.Exists(candidate)) return candidate;
-            dir = dir.Parent;
-        }
-        throw new DirectoryNotFoundException("Could not locate src/CcDirector.Gateway from " + AppContext.BaseDirectory);
-    }
+    private static string LocateGatewaySource() => Path.Combine(RepositorySourceIndex.Root, "src", "CcDirector.Gateway");
 }

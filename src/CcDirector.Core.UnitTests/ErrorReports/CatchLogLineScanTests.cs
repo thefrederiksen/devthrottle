@@ -1,3 +1,4 @@
+using CcDirector.TestInfrastructure;
 using System.Text.RegularExpressions;
 using CcDirector.Core.ErrorReports;
 using Microsoft.CodeAnalysis;
@@ -66,14 +67,7 @@ public sealed class CatchLogLineScanTests
     internal sealed record Site(string File, int Line, string Rendered, bool IsError, string? OptOutReason,
         IReadOnlyList<string> WordsHoles);
 
-    internal static string RepositoryRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !Directory.Exists(Path.Combine(dir.FullName, "src", "CcDirector.Core")))
-            dir = dir.Parent;
-        return dir?.FullName ?? throw new InvalidOperationException(
-            $"could not find the repository root above {AppContext.BaseDirectory}; this test reads the source tree");
-    }
+    internal static string RepositoryRoot() => RepositorySourceIndex.Root;
 
     /// <summary>Every project directory the reporting executables load, followed through project references.</summary>
     internal static IReadOnlyList<string> ReportingProjects(string root)
@@ -211,12 +205,10 @@ public sealed class CatchLogLineScanTests
         projects = ReportingProjects(root);
         var sites = new List<Site>();
         filesRead = 0;
-        var sep = Path.DirectorySeparatorChar;
         foreach (var dir in projects)
         {
-            foreach (var file in Directory.EnumerateFiles(dir, "*.cs", SearchOption.AllDirectories))
+            foreach (var file in RepositorySourceIndex.Under(dir, ".cs"))
             {
-                if (file.Contains($"{sep}obj{sep}") || file.Contains($"{sep}bin{sep}")) continue;
                 filesRead++;
                 var rel = Path.GetRelativePath(root, file).Replace('\\', '/');
                 sites.AddRange(SitesIn(rel, File.ReadAllText(file)));

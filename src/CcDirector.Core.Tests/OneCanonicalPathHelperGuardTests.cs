@@ -1,3 +1,4 @@
+using CcDirector.TestInfrastructure;
 using Xunit;
 
 namespace CcDirector.Core.Tests;
@@ -54,13 +55,12 @@ public class OneCanonicalPathHelperGuardTests
     [Fact]
     public void NoTestFile_ResolvesLinksWhileWalkingUpThePath()
     {
-        var root = GetRepoRoot();
+        var root = RepositorySourceIndex.Root;
         var offenders = new List<string>();
 
-        foreach (var file in Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories))
+        foreach (var file in RepositorySourceIndex.CSharpFiles)
         {
             var rel = Relative(root, file);
-            if (rel.Contains("/bin/") || rel.Contains("/obj/")) continue;
             if (!TestProjectPath.IsTestProject(rel)) continue;   // production code is not this rule's business
             if (rel == TheSharedHelper || rel == ThisGuard) continue;
 
@@ -160,13 +160,4 @@ public class OneCanonicalPathHelperGuardTests
 
     private static string Relative(string root, string full)
         => Path.GetRelativePath(root, full).Replace('\\', '/');
-
-    private static string GetRepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "cc-director.sln")))
-            dir = dir.Parent;
-        Assert.NotNull(dir);
-        return dir!.FullName;
-    }
 }

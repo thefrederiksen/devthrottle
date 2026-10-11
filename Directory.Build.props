@@ -59,4 +59,19 @@
   <ItemGroup Condition="'$(MSBuildProjectName)' == 'CcDirector.Core.Tests'">
     <Compile Include="$(MSBuildThisFileDirectory)src\TestInfrastructure\MutationProofPinGuardTests.cs" Link="TestInfrastructure\MutationProofPinGuardTests.cs" />
   </ItemGroup>
+  <!--
+    THE SHARED REPOSITORY SOURCE INDEX, linked into every test assembly: every project whose name ends in
+    "Tests" - the ".Tests" projects, the ".UnitTests" ones and "Gateway.DatabaseTests", the last two of which
+    the pin guard's condition above does not reach. That is the same rule TestProjectPath applies to a path,
+    so a test project added next year is covered without anybody remembering. It lists the repository's files
+    once per test process so that every guard which reads the source tree shares one list instead of walking
+    every build output tree itself. Its behavioural tests build a real git repository, so they are compiled
+    into Core.UnitTests only - the fast suite the default gate always runs.
+  -->
+  <ItemGroup Condition="$(MSBuildProjectName.EndsWith('Tests'))">
+    <Compile Include="$(MSBuildThisFileDirectory)src\TestInfrastructure\RepositorySourceIndex.cs" Link="TestInfrastructure\RepositorySourceIndex.cs" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(MSBuildProjectName)' == 'CcDirector.Core.UnitTests'">
+    <Compile Include="$(MSBuildThisFileDirectory)src\TestInfrastructure\RepositorySourceIndexTests.cs" Link="TestInfrastructure\RepositorySourceIndexTests.cs" />
+  </ItemGroup>
 </Project>

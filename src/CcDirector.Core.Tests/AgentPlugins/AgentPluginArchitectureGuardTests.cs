@@ -1,3 +1,4 @@
+using CcDirector.TestInfrastructure;
 using System.Text.RegularExpressions;
 using CcDirector.Core.AgentPlugins;
 using CcDirector.Core.Agents;
@@ -36,11 +37,10 @@ public sealed class AgentPluginArchitectureGuardTests
     [Fact]
     public void ProductionCodeCreatesConcreteCliAgentsOnlyInsideAgentPlugins()
     {
-        var root = FindRepoRoot();
-        var src = Path.Combine(root, "src");
+        var root = RepositorySourceIndex.Root;
         var offenders = new List<string>();
 
-        foreach (var path in Directory.EnumerateFiles(src, "*.cs", SearchOption.AllDirectories))
+        foreach (var path in RepositorySourceIndex.Under("src", ".cs"))
         {
             var normalized = path.Replace('\\', '/');
             // Repository-RELATIVE, which is the documented contract: an absolute path would let a
@@ -77,22 +77,9 @@ public sealed class AgentPluginArchitectureGuardTests
     [Fact]
     public void LegacyBuiltInAgentPluginAdapterDoesNotExist()
     {
-        var root = FindRepoRoot();
+        var root = RepositorySourceIndex.Root;
         var adapterPath = Path.Combine(root, "src", "CcDirector.Core", "AgentPlugins", "BuiltInAgentPlugin.cs");
 
         Assert.False(File.Exists(adapterPath), "BuiltInAgentPlugin would allow new built-ins to bypass concrete plugin classes.");
-    }
-
-    private static string FindRepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            if (File.Exists(Path.Combine(dir.FullName, "cc-director.sln")))
-                return dir.FullName;
-            dir = dir.Parent;
-        }
-
-        throw new InvalidOperationException("Could not locate repository root from test output directory.");
     }
 }

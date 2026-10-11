@@ -1,3 +1,4 @@
+using CcDirector.TestInfrastructure;
 using Xunit;
 
 namespace CcDirector.Core.UnitTests.Background;
@@ -22,13 +23,12 @@ public sealed class NoUnreadUsagePollTests
     [Fact]
     public void NoDirectorSource_NamesTheProvidersUsageEndpoint()
     {
-        var src = FindSourceRoot();
+        var src = Path.Combine(RepositorySourceIndex.Root, "src");
         var directorProjects = new[] { "CcDirector.Core", "CcDirector.Avalonia", "CcDirector.ControlApi", "CcDirector.Engine" };
         var files = directorProjects
             .Select(p => Path.Combine(src, p))
             .Where(Directory.Exists)
-            .SelectMany(d => Directory.EnumerateFiles(d, "*.cs", SearchOption.AllDirectories))
-            .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}"))
+            .SelectMany(d => RepositorySourceIndex.Under(d, ".cs"))
             .ToList();
 
         // The scan read the real tree: the file that used to start the poll, and the account store
@@ -40,17 +40,5 @@ public sealed class NoUnreadUsagePollTests
         var offenders = files.Where(f => File.ReadAllText(f).Contains(RetiredEndpoint, StringComparison.Ordinal)).ToList();
         Assert.True(offenders.Count == 0,
             "the Director must not poll the provider's usage endpoint; found it in:\n" + string.Join("\n", offenders));
-    }
-
-    private static string FindSourceRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            var candidate = Path.Combine(dir.FullName, "src", "CcDirector.Core");
-            if (Directory.Exists(candidate)) return Path.Combine(dir.FullName, "src");
-            dir = dir.Parent;
-        }
-        throw new DirectoryNotFoundException("could not find the repository's src folder above " + AppContext.BaseDirectory);
     }
 }

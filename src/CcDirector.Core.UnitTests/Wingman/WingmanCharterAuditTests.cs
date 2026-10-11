@@ -1,3 +1,4 @@
+using CcDirector.TestInfrastructure;
 using System.Text.RegularExpressions;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Wingman;
@@ -103,8 +104,7 @@ public sealed class WingmanCharterAuditTests
     [Fact]
     public void No_cheap_model_literal_in_any_wingman_source_file()
     {
-        var dir = ResolveWingmanSourceDir();
-        var files = Directory.GetFiles(dir, "*.cs", SearchOption.AllDirectories);
+        var files = RepositorySourceIndex.Under("src/CcDirector.Core/Wingman", ".cs").ToArray();
         Assert.NotEmpty(files);
 
         var offenders = new List<string>();
@@ -128,8 +128,7 @@ public sealed class WingmanCharterAuditTests
     [Fact]
     public void Every_allowedTools_argument_is_read_only()
     {
-        var dir = ResolveWingmanSourceDir();
-        var files = Directory.GetFiles(dir, "*.cs", SearchOption.AllDirectories);
+        var files = RepositorySourceIndex.Under("src/CcDirector.Core/Wingman", ".cs").ToArray();
 
         // Matches named-argument call sites like:  allowedTools: "Read Grep Glob"
         var rx = new Regex("allowedTools\\s*:\\s*\"([^\"]*)\"", RegexOptions.None);
@@ -166,8 +165,7 @@ public sealed class WingmanCharterAuditTests
     [Fact]
     public void Only_the_executor_writes_to_a_session()
     {
-        var dir = ResolveWingmanSourceDir();
-        var files = Directory.GetFiles(dir, "*.cs", SearchOption.AllDirectories);
+        var files = RepositorySourceIndex.Under("src/CcDirector.Core/Wingman", ".cs").ToArray();
         Assert.NotEmpty(files);
 
         var offenders = new List<string>();
@@ -205,8 +203,7 @@ public sealed class WingmanCharterAuditTests
     [Fact]
     public void Wingman_core_never_triggers_its_own_actuation()
     {
-        var dir = ResolveWingmanSourceDir();
-        var files = Directory.GetFiles(dir, "*.cs", SearchOption.AllDirectories);
+        var files = RepositorySourceIndex.Under("src/CcDirector.Core/Wingman", ".cs").ToArray();
         Assert.NotEmpty(files);
 
         var offenders = files
@@ -233,18 +230,5 @@ public sealed class WingmanCharterAuditTests
         }
         throw new FileNotFoundException(
             "Could not locate docs/wingman/WINGMAN.md by walking up from " + AppContext.BaseDirectory);
-    }
-
-    private static string ResolveWingmanSourceDir()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            var candidate = Path.Combine(dir.FullName, "src", "CcDirector.Core", "Wingman");
-            if (Directory.Exists(candidate)) return candidate;
-            dir = dir.Parent;
-        }
-        throw new DirectoryNotFoundException(
-            "Could not locate src/CcDirector.Core/Wingman by walking up from " + AppContext.BaseDirectory);
     }
 }

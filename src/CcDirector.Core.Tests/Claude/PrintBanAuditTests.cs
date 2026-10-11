@@ -1,3 +1,4 @@
+using CcDirector.TestInfrastructure;
 using System.Text.RegularExpressions;
 using Xunit;
 using Xunit.Abstractions;
@@ -97,8 +98,7 @@ public sealed class PrintBanAuditTests
     [Fact]
     public void No_in_scope_side_call_emits_print_or_p()
     {
-        var coreDir = ResolveCoreSourceDir();
-        var files = Directory.GetFiles(coreDir, "*.cs", SearchOption.AllDirectories);
+        var files = RepositorySourceIndex.Under("src/CcDirector.Core", ".cs").ToArray();
         Assert.NotEmpty(files);
 
         var offenders = new List<string>();
@@ -131,8 +131,7 @@ public sealed class PrintBanAuditTests
         // A guard on the guard: if an exempt file is renamed or deleted, the allowlist entry
         // is dead weight that would silently let a future -p slip into a file with the same
         // name. Fail loudly so the exemption list stays an accurate single source of truth.
-        var coreDir = ResolveCoreSourceDir();
-        var names = Directory.GetFiles(coreDir, "*.cs", SearchOption.AllDirectories)
+        var names = RepositorySourceIndex.Under("src/CcDirector.Core", ".cs")
             .Select(Path.GetFileName)
             .ToHashSet(StringComparer.Ordinal);
 
@@ -154,18 +153,5 @@ public sealed class PrintBanAuditTests
                 return true;
 
         return false;
-    }
-
-    private static string ResolveCoreSourceDir()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            var candidate = Path.Combine(dir.FullName, "src", "CcDirector.Core");
-            if (Directory.Exists(candidate)) return candidate;
-            dir = dir.Parent;
-        }
-        throw new DirectoryNotFoundException(
-            "Could not locate src/CcDirector.Core by walking up from " + AppContext.BaseDirectory);
     }
 }

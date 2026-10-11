@@ -1,3 +1,4 @@
+using CcDirector.TestInfrastructure;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using CcDirector.Core.Tenancy;
@@ -92,10 +93,8 @@ public sealed class DisplayFoldTraceMatchesPushTests
     [Fact]
     public void Only_the_display_fold_calls_the_push_fold_so_no_caller_can_name_its_own_inputs()
     {
-        var gateway = Path.Combine(RepoRoot(), "src", "CcDirector.Gateway");
-        var callers = Directory.EnumerateFiles(gateway, "*.cs", SearchOption.AllDirectories)
-            .Where(f => !f.Contains(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar)
-                     && !f.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar))
+        var gateway = Path.Combine(RepositorySourceIndex.Root, "src", "CcDirector.Gateway");
+        var callers = RepositorySourceIndex.Under(gateway, ".cs")
             .SelectMany(f => File.ReadLines(f)
                 .Where(line => Regex.IsMatch(line, @"\bEnrichVoiceThenFoldForPush\(")
                             && !line.TrimStart().StartsWith("///")
