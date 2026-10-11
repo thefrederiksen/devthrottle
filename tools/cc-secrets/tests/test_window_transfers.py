@@ -10,6 +10,12 @@ from src.window_transfers import Destination, Waiting, WindowTransfers, ended_se
 from test_transfer import TID, _dto, two  # noqa: F401  (the two-machine fixture)
 
 
+@pytest.fixture(autouse=True)
+def own_secrets_folder(home):
+    """Every test here, the screen tests included, writes any log line into its own folder, never the owner's."""
+    yield home
+
+
 @pytest.fixture
 def gw(two, monkeypatch):
     """NORTH's window: the Gateway lists both machines; records what was posted."""
