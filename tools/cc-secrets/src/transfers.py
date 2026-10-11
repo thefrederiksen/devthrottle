@@ -21,6 +21,10 @@ ID_SHAPE = re.compile(r"^[0-9a-f]{32}$")
 
 WAITING = "waiting"
 
+# How long `send` and `request` wait for a transfer to end: the fifteen minutes it can wait for an answer, and two
+# more for the delivery that follows an approval given at the last moment.
+WAIT_LIMIT_SECONDS = 17 * 60
+
 
 @dataclass(frozen=True)
 class Transfer:
@@ -64,6 +68,12 @@ def listed(link: Optional[gateway_link.Link] = None) -> List[Transfer]:
     if not isinstance(rows, list):
         raise gateway_link.GatewayShapeError("the Gateway's list of transfers has no 'transfers' list")
     return [Transfer.from_dto(row) for row in rows if isinstance(row, dict)]
+
+
+def create(body: dict, link: Optional[gateway_link.Link] = None) -> Transfer:
+    """Ask for a transfer. The Gateway answers with it waiting, or already approved when the owner's approval came
+    with the asking."""
+    return _one(gateway_link.post(ROUTE, body, link))
 
 
 def find(transfer_id: str, link: Optional[gateway_link.Link] = None) -> Transfer:
