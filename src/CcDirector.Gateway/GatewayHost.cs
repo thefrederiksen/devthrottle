@@ -6950,6 +6950,16 @@ public sealed class GatewayHost : IAsyncDisposable
         // root undeletable, and 9,000 temporary folders, each holding exactly that file, leaked in two days.
         try { StatsStore.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] statistics store dispose error: {ex.Message}"); }
 
+        // The input-statistics aggregator opened on self-host owns a GatewayStatsDatabase with an OPEN raw
+        // connection to the same file, which no pool clearing can release - an open connection is kept, not
+        // pooled. It too was handed to the container as an instance and never disposed. Self-host only: on hosted
+        // the handle resolves its aggregator from the statistics store's context factory on first use, owns no
+        // file, and asking it here would start that resolution during shutdown.
+        if (!Hosted)
+        {
+            try { InputStatsHandle.Aggregator?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] input statistics dispose error: {ex.Message}"); }
+        }
+
         // Nothing can push any more: write anything that arrived after the early save, so a clean shutdown loses nothing.
         SaveRepoHistoryAtShutdown();
     }

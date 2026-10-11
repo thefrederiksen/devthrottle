@@ -42,7 +42,8 @@ public sealed class WorktreeSizeMeasurementTests : IDisposable
 
     public void Dispose()
     {
-        try { Directory.Delete(_dir, recursive: true); } catch { }
+        // Loud: the folder is created in the constructor and holds plain files; a delete that fails is a defect.
+        Directory.Delete(_dir, recursive: true);
     }
 
     [Fact]
@@ -112,7 +113,7 @@ public sealed class WorktreeSizeMeasurementTests : IDisposable
         }
         finally
         {
-            try { Directory.Delete(goneDir, recursive: true); } catch { }
+            if (Directory.Exists(goneDir)) Directory.Delete(goneDir, recursive: true);
         }
     }
 }

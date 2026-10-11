@@ -539,6 +539,10 @@ public sealed class GatewayStatsStore : IDisposable
     /// </summary>
     private async Task ReopenLoop(StatsConnectionChoice choice)
     {
+        // Read once. Dispose cancels and then disposes the source, and the Token getter of a disposed source
+        // throws ObjectDisposedException - outside every catch below, on the iteration after an attempt that was
+        // mid-flight at stop time. A token already in hand keeps working after its source is disposed.
+        var stop = _stop.Token;
         for (var attempt = 0; ; attempt++)
         {
             var wait = ReopenBackoff[Math.Min(attempt, ReopenBackoff.Count - 1)];
@@ -546,7 +550,7 @@ public sealed class GatewayStatsStore : IDisposable
             {
                 // On the injected clock. The timer is armed when Task.Delay returns, and only then is the wait
                 // counted - see ReopenWaits for why that order is load-bearing.
-                var waiting = Task.Delay(wait, _time, _stop.Token);
+                var waiting = Task.Delay(wait, _time, stop);
                 Interlocked.Increment(ref _reopenWaits);
                 await waiting.ConfigureAwait(false);
             }
