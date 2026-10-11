@@ -22,20 +22,28 @@ public sealed class LicenseMessagesCarryNoKeyTests
 
     // Every member that could carry a value: static and instance properties of any visibility, and instance fields.
     // Static fields are left out on purpose - they are the vocabulary words and numbers (LicenseSwitchReasonCodes.NotKeyHolder),
-    // which are never sent as a member of a message.
+    // which are never sent as a member of a message. Each is read one type at a time (DeclaredOnly) so that MemberNames can
+    // walk the base types and interfaces itself: GetProperties without DeclaredOnly still hides a base type's private members.
     private const BindingFlags EveryProperty =
         BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
 
     private const BindingFlags InstanceFields =
         BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly;
 
+    private const string ContractsNamespace = "CcDirector.Gateway.Contracts";
+
+    /// <summary>The types the rule is about: every License* type in the contracts assembly.</summary>
+    private static List<Type> LicenseTypes() =>
+        LicenseTypes(typeof(LicenseUsageReport).Assembly.GetTypes(), ContractsNamespace);
+
     /// <summary>
-    /// Every License* type in the contracts namespace, whatever its declaration form - class, struct, record, abstract,
-    /// static or interface - and every type nested inside one. Nothing is filtered by kind, so a new value type cannot
-    /// slip past the rule the way a sealed-class-only scan let it.
+    /// Every License* type among the candidates in the given namespace, whatever its declaration form - class, struct,
+    /// record, abstract, static or interface - and every type nested inside one. Nothing is filtered by kind, so a new
+    /// value type cannot slip past the rule the way a sealed-class-only scan let it. It takes the candidates as a
+    /// parameter so the probe test below goes through this same discovery: a kind filter added here turns that test red.
     /// </summary>
-    private static List<Type> LicenseTypes() => typeof(LicenseUsageReport).Assembly.GetTypes()
-        .Where(t => t.Namespace == "CcDirector.Gateway.Contracts" && IsOrIsInsideLicenseType(t))
+    private static List<Type> LicenseTypes(IEnumerable<Type> candidates, string ns) => candidates
+        .Where(t => t.Namespace == ns && IsOrIsInsideLicenseType(t))
         .ToList();
 
     private static bool IsOrIsInsideLicenseType(Type type)
@@ -46,10 +54,27 @@ public sealed class LicenseMessagesCarryNoKeyTests
         return false;
     }
 
+    /// <summary>
+    /// The names of every property and instance field the type carries, its own and inherited: each base type is walked,
+    /// whatever its name, and so is every interface it implements or extends. A License* message whose forbidden member
+    /// comes from a base type named anything else is still reported under the message's own name.
+    /// </summary>
     private static IEnumerable<(Type Type, string Name)> MemberNames(Type type) =>
-        type.GetProperties(EveryProperty).Select(p => (type, p.Name))
-            .Concat(type.GetFields(InstanceFields).Where(f => !f.IsDefined(typeof(System.Runtime.CompilerServices.CompilerGeneratedAttribute)))
-                .Select(f => (type, f.Name)));
+        SelfAndAncestors(type)
+            .SelectMany(t => t.GetProperties(EveryProperty).Select(p => p.Name)
+                .Concat(t.GetFields(InstanceFields)
+                    .Where(f => !f.IsDefined(typeof(System.Runtime.CompilerServices.CompilerGeneratedAttribute)))
+                    .Select(f => f.Name)))
+            .Distinct()
+            .Select(name => (type, name));
+
+    private static IEnumerable<Type> SelfAndAncestors(Type type)
+    {
+        for (var t = type; t is not null; t = t.BaseType)
+            yield return t;
+        foreach (var i in type.GetInterfaces())
+            yield return i;
+    }
 
     private static List<string> Offenders(IEnumerable<Type> types) => types
         .SelectMany(MemberNames)
@@ -94,25 +119,31 @@ public sealed class LicenseMessagesCarryNoKeyTests
     }
 
     [Fact]
-    public void Offenders_EveryDeclarationForm_IsCaught()
+    public void Scan_EveryDeclarationFormAndInheritedMember_IsCaught()
     {
-        // The scan's own check: each form the first version missed is caught when handed to it.
-        var offenders = Offenders(new[]
-        {
-            typeof(LicenseProbeStruct), typeof(LicenseProbeAbstract), typeof(LicenseProbeRecord),
-            typeof(LicenseProbeStatic), typeof(LicenseProbeField),
-        });
+        // The scan's own check, end to end: the probes go through the same discovery as the real types, then through
+        // Offenders. Each form the first version missed must be found, and so must the members LicenseProbeInherited
+        // only inherits from ProbeBaseWithKey, and the property LicenseProbeInterface only inherits from the interface
+        // IProbeWithKey - candidates the discovery itself leaves out, because of their names, so their members can be
+        // reported only through the inheritance walk, under the name of the License* type.
+        var probes = typeof(LicenseMessagesCarryNoKeyTests).GetNestedTypes(BindingFlags.NonPublic)
+            .Append(typeof(ProbeBaseWithKey))
+            .Append(typeof(IProbeWithKey));
+
+        var offenders = Offenders(LicenseTypes(probes, typeof(LicenseMessagesCarryNoKeyTests).Namespace!));
 
         Assert.Equal(
             new[]
             {
-                "LicenseProbeStruct.AccessToken", "LicenseProbeAbstract.RefreshToken", "LicenseProbeRecord.ClientSecret",
-                "LicenseProbeStatic.AuthorizeCode", "LicenseProbeField.ApiKey",
+                "LicenseProbeAbstract.RefreshToken", "LicenseProbeField.ApiKey", "LicenseProbeInherited.InheritedSecret",
+                "LicenseProbeInherited.InheritedToken", "LicenseProbeInterface.InterfaceToken", "LicenseProbeRecord.ClientSecret",
+                "LicenseProbeStatic.AuthorizeCode", "LicenseProbeStruct.AccessToken",
             },
-            offenders);
+            offenders.Order(StringComparer.Ordinal));
     }
 
-    // Probes for Offenders_EveryDeclarationForm_IsCaught. They live in the test assembly, so the real scan never sees them.
+    // Probes for Scan_EveryDeclarationFormAndInheritedMember_IsCaught. They live in the test assembly, so the real scan
+    // never sees them.
     private readonly struct LicenseProbeStruct
     {
         public string? AccessToken { get; init; }
@@ -135,6 +166,16 @@ public sealed class LicenseMessagesCarryNoKeyTests
 #pragma warning disable CS0649 // never assigned: only its name is read
         public string? ApiKey;
 #pragma warning restore CS0649
+    }
+
+    private sealed class LicenseProbeInherited : ProbeBaseWithKey
+    {
+        public string? Label { get; init; }
+    }
+
+    private interface LicenseProbeInterface : IProbeWithKey
+    {
+        string? Label { get; }
     }
 
     [Fact]
@@ -182,4 +223,20 @@ public sealed class LicenseMessagesCarryNoKeyTests
         Assert.Equal("PushLicenseUsage", LicenseContract.PushUsageHubMethod);
         Assert.Equal("license-switch", LicenseContract.SwitchVerb);
     }
+}
+
+// Probe base types for LicenseMessagesCarryNoKeyTests.Scan_EveryDeclarationFormAndInheritedMember_IsCaught. They sit outside
+// the test class on purpose: nested inside it, they would count as inside a License* type and be found directly.
+internal interface IProbeWithKey
+{
+    string? InterfaceToken { get; }
+}
+
+internal abstract class ProbeBaseWithKey
+{
+    public string? InheritedToken { get; init; }
+
+#pragma warning disable CS0169 // never used: only its name is read
+    private string? InheritedSecret;
+#pragma warning restore CS0169
 }
