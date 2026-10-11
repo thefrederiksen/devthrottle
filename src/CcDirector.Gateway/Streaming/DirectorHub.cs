@@ -394,7 +394,8 @@ public sealed class DirectorHub : Hub
         // or a newer Director, and a stale answer here would put the wrong sentence on an empty Chat screen.
         _turnPushCapabilities?.Record(tenant, directorId, hello.PushesTurns, hello.ChecksIdleBeforeTyping);
         _fleetManagerHomeCapabilities?.Record(tenant, directorId, hello.CreatesFleetManagerHome, hello.ChangesOwnerIfExpected);
-        _secretMachines?.Record(tenant, directorId, hello.MachineName, hello.SecretTransferPublicKey, DateTime.UtcNow);
+        _secretMachines?.Record(tenant, directorId, hello.MachineName, hello.SecretTransferPublicKey, DateTime.UtcNow,
+            registeringCredential);
         FileLog.Write($"[DirectorHub] Hello: director={directorId} bound to conn={Short(Context.ConnectionId)} (version={hello.Version}, machine={hello.MachineName})");
         return CapabilitiesFor(tenant, directorId);
     }

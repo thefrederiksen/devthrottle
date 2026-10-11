@@ -28,7 +28,7 @@ public sealed class SecretMachineRegistry
     /// comes back simply says its key again on its next Hello.</summary>
     public static readonly TimeSpan ForgetAfter = TimeSpan.FromHours(1);
 
-    private sealed record Said(string Machine, byte[] PublicKey, DateTime SeenUtc);
+    private sealed record Said(string Machine, byte[] PublicKey, DateTime SeenUtc, string? Credential);
 
     private readonly ConcurrentDictionary<(TenantId Tenant, string DirectorId), Said> _said = new();
 
@@ -36,7 +36,10 @@ public sealed class SecretMachineRegistry
     /// Record what a Director said on Hello. An empty or malformed key means the Director cannot take part, and any
     /// earlier key it said is forgotten - a Director that comes back as an older build must stop being listed.
     /// </summary>
-    public void Record(TenantId tenant, string directorId, string machineName, string? publicKeyBase64, DateTime nowUtc)
+    /// <param name="credential">The credential the Hello authenticated with ("device:&lt;id&gt;"), so a call made later with
+    /// that same credential can be told which machine it comes from (<see cref="MachineOfCredential"/>).</param>
+    public void Record(TenantId tenant, string directorId, string machineName, string? publicKeyBase64, DateTime nowUtc,
+        string? credential = null)
     {
         if (string.IsNullOrEmpty(directorId)) return;
         var key = Decode(publicKeyBase64);
@@ -47,7 +50,7 @@ public sealed class SecretMachineRegistry
             return;
         }
         var previous = _said.TryGetValue((tenant, directorId), out var was) ? was : null;
-        _said[(tenant, directorId)] = new Said(machineName.Trim(), key, nowUtc);
+        _said[(tenant, directorId)] = new Said(machineName.Trim(), key, nowUtc, credential);
         ForgetLongGone(nowUtc);
         if (previous is null || !previous.PublicKey.AsSpan().SequenceEqual(key))
             FileLog.Write($"[SecretMachineRegistry] Record: director={directorId}, machine={machineName.Trim()}, fingerprint={Fingerprint(key)[..16]}");
@@ -107,6 +110,29 @@ public sealed class SecretMachineRegistry
             .OrderByDescending(pair => pair.Value.SeenUtc)
             .Select(pair => pair.Key.DirectorId)
             .FirstOrDefault();
+    }
+
+    /// <summary>
+    /// THE MACHINE A CREDENTIAL BELONGS TO, by the name the machine list uses: the machine its live Directors report
+    /// when they say Hello with that SAME credential. A device's enrollment name can differ from the name its
+    /// Director reports (a Mac enrolled as "Sorens-Mac-mini" whose Director calls it "devthrottle-mac-mini"), and a
+    /// transfer names machines as the list does - so the credential is matched through its Directors, never by name.
+    /// Null when no live Director that can take part said Hello with it, or when its Directors name different
+    /// machines (the Gateway will not guess between them).
+    /// </summary>
+    public string? MachineOfCredential(TenantId tenant, string credential, Func<string, bool> isConnected, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(isConnected);
+        if (string.IsNullOrEmpty(credential)) return null;
+        var names = _said
+            .Where(pair => pair.Key.Tenant.Equals(tenant)
+                           && string.Equals(pair.Value.Credential, credential, StringComparison.Ordinal)
+                           && nowUtc - pair.Value.SeenUtc <= StaleAfter
+                           && isConnected(pair.Key.DirectorId))
+            .Select(pair => pair.Value.Machine)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        return names.Count == 1 ? names[0] : null;
     }
 
     /// <summary>How many Directors are held in memory (for tests).</summary>

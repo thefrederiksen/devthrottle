@@ -134,4 +134,53 @@ public sealed class SecretMachineRegistryTests
         Assert.Equal("", row.Fingerprint);
         Assert.Contains("2 different keys", row.Conflict);
     }
+
+    // THE MACHINE OF A CREDENTIAL (found in the live QA on 2026-10-11): a Mac enrolled as "Sorens-Mac-mini" whose Director
+    // reports "devthrottle-mac-mini". A transfer names machines as the list does, so the credential must resolve to the
+    // name its own Directors report - by name it was refused as a third machine on its own Mac.
+
+    [Fact]
+    public void MachineOfCredential_IsTheNameItsOwnDirectorReports_NotTheEnrollmentName()
+    {
+        var registry = new SecretMachineRegistry();
+        registry.Record(AccountA, "dir-mac", "devthrottle-mac-mini", NewKey(), Now, "device:mac-device");
+        registry.Record(AccountA, "dir-north", "SOREN_NORTH", NewKey(), Now, "device:north-device");
+
+        Assert.Equal("devthrottle-mac-mini", registry.MachineOfCredential(AccountA, "device:mac-device", _ => true, Now));
+        Assert.Equal("SOREN_NORTH", registry.MachineOfCredential(AccountA, "device:north-device", _ => true, Now));
+    }
+
+    [Fact]
+    public void MachineOfCredential_TwoDirectorsOfOneCredentialOnOneMachine_IsThatMachine()
+    {
+        var registry = new SecretMachineRegistry();
+        registry.Record(AccountA, "dir-installed", "devthrottle-mac-mini", NewKey(), Now, "device:mac-device");
+        registry.Record(AccountA, "dir-slot-5", "DEVTHROTTLE-MAC-MINI", NewKey(), Now, "device:mac-device");
+
+        Assert.Equal("devthrottle-mac-mini",
+            registry.MachineOfCredential(AccountA, "device:mac-device", _ => true, Now), StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void MachineOfCredential_IsNull_WhenItCannotBeTold()
+    {
+        var registry = new SecretMachineRegistry();
+        registry.Record(AccountA, "dir-a", "machine-a", NewKey(), Now, "device:shared");
+        registry.Record(AccountA, "dir-b", "machine-b", NewKey(), Now, "device:shared");     // two machines: no guess
+        registry.Record(AccountA, "dir-old", "machine-c", NewKey(), Now - SecretMachineRegistry.StaleAfter - TimeSpan.FromSeconds(1),
+            "device:stale");
+        registry.Record(AccountA, "dir-gone", "machine-d", NewKey(), Now, "device:disconnected");
+        registry.Record(AccountA, "dir-nokey", "machine-e", NewKey(), Now, "device:no-key");
+        registry.Record(AccountA, "dir-nokey", "machine-e", null, Now, "device:no-key");      // an older build: no key now
+        registry.Record(AccountB, "dir-other", "machine-f", NewKey(), Now, "device:other-account");
+
+        Func<string, bool> connected = id => id != "dir-gone";
+        Assert.Null(registry.MachineOfCredential(AccountA, "device:shared", connected, Now));
+        Assert.Null(registry.MachineOfCredential(AccountA, "device:stale", connected, Now));
+        Assert.Null(registry.MachineOfCredential(AccountA, "device:disconnected", connected, Now));
+        Assert.Null(registry.MachineOfCredential(AccountA, "device:no-key", connected, Now));
+        Assert.Null(registry.MachineOfCredential(AccountA, "device:other-account", connected, Now));
+        Assert.Null(registry.MachineOfCredential(AccountA, "device:never-seen", connected, Now));
+        Assert.Equal("machine-f", registry.MachineOfCredential(AccountB, "device:other-account", _ => true, Now));
+    }
 }
