@@ -163,7 +163,8 @@ def run_migration(dry_run: bool = True) -> None:
     old_director = os.path.join(local, "CcDirector") if local else ""
     new_director_cfg = os.path.join(base, "config", "director")
     if old_director:
-        rules.append(("accounts.json", os.path.join(old_director, "accounts.json"), os.path.join(new_director_cfg, "accounts.json"), False))
+        # The retired account store's file (accounts.json) is not carried forward: it holds sign-in tokens, and a copy
+        # would be a second holder of them (License Switching, contract 1.1). It is left where it is.
         rules.append(("root-directories.json", os.path.join(old_director, "root-directories.json"), os.path.join(new_director_cfg, "root-directories.json"), False))
         rules.append(("whisper-models", os.path.join(old_director, "whisper-models"), os.path.join(base, "models", "whisper"), True))
 
