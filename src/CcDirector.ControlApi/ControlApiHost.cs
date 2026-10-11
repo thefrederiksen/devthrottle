@@ -118,6 +118,19 @@ public sealed class ControlApiHost : IAsyncDisposable
     public SessionColourLegendCache ColourLegend { get; }
 
     /// <summary>
+    /// The seam the desktop reads and answers sessions' requests to talk to another session through (issue #3851).
+    /// Backed by the live <see cref="GatewayClient"/>; null while no Gateway is configured.
+    /// </summary>
+    public IGatewayLinkRequests? GatewayLinkRequests => _gatewayClient;
+
+    /// <summary>
+    /// The desktop's last-known list of waiting requests to talk to another session (issue #3851): the amber phone
+    /// badge on the asking session's rail row and the chip in its header read this. Read on connect and every 20
+    /// seconds while connected, the Cockpit's cadence.
+    /// </summary>
+    public LinkRequestsCache LinkRequests { get; }
+
+    /// <summary>
     /// End a session through the Gateway's one stop route (mission "Stop a session", Ruling 5). The
     /// Director window's Stop control calls this; so do the command line, the Cockpit and the phone, by
     /// their own routes to the same place. The Gateway records the reason, has the owning Director end
@@ -381,6 +394,9 @@ public sealed class ControlApiHost : IAsyncDisposable
         // opened later reads words that are already here.
         ColourLegend = new SessionColourLegendCache(() => GatewayColourLegend);
         ColourLegend.AttachTo(GatewayMonitor);
+
+        LinkRequests = new LinkRequestsCache(() => GatewayLinkRequests);
+        LinkRequests.AttachTo(GatewayMonitor);
 
         // The injected text is Gateway-owned too (Cockpit -> Injected text): download it when the
         // Gateway connection goes green so a session launched later injects the user's current choice
@@ -1966,6 +1982,7 @@ public sealed class ControlApiHost : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        LinkRequests.Dispose();
         await StopAsync();
     }
 }

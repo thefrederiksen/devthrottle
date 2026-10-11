@@ -527,7 +527,7 @@
                                     <!-- LINE 1: the title sits in the star column, so
                                          TextTrimming actually engages and a long name
                                          can never run under the kebab menu. -->
-                                    <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                                    <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
                                         <!-- Live status indicator. Binds StatusColorBrush, which folds
                                              ControlEndpoints.Map(Session) through
                                              SessionOrdering.EffectiveColor - the SAME fold the phone and
@@ -573,8 +573,45 @@
                                                        VerticalAlignment="Center"
                                                        TextTrimming="CharacterEllipsis" />
                                         </Grid>
-                                        <!-- Queue count badge (click to preview queued prompts) -->
+                                        <!-- A REQUEST TO TALK TO ANOTHER SESSION (issue #3851): an amber phone and a
+                                             count on the session that ASKED. Amber, never red - the red badge beside it
+                                             means prompts wait in the queue. Click to approve or deny. -->
                                         <Button Grid.Column="2"
+                                                IsVisible="{Binding HasLinkAsks}"
+                                                Click="LinkAsk_Click"
+                                                Focusable="False"
+                                                Background="Transparent"
+                                                BorderThickness="0"
+                                                Padding="0"
+                                                Margin="4,0,2,0"
+                                                VerticalAlignment="Center"
+                                                Cursor="Hand"
+                                                ToolTip.Tip="{Binding LinkAskTip}">
+                                            <Border Background="#3A2C0B"
+                                                    BorderBrush="#F59E0B"
+                                                    BorderThickness="1"
+                                                    CornerRadius="9"
+                                                    Height="18"
+                                                    Padding="5,0"
+                                                    VerticalAlignment="Center">
+                                                <StackPanel Orientation="Horizontal" Spacing="3" VerticalAlignment="Center">
+                                                    <Viewbox Width="11" Height="11" VerticalAlignment="Center">
+                                                        <Canvas Width="24" Height="24">
+                                                            <Path Stroke="#F59E0B" StrokeThickness="2.4"
+                                                                  StrokeLineCap="Round" StrokeJoin="Round"
+                                                                  Data="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z" />
+                                                        </Canvas>
+                                                    </Viewbox>
+                                                    <TextBlock Text="{Binding LinkAskCount}"
+                                                               Foreground="#F59E0B"
+                                                               FontSize="11"
+                                                               FontWeight="Bold"
+                                                               VerticalAlignment="Center" />
+                                                </StackPanel>
+                                            </Border>
+                                        </Button>
+                                        <!-- Queue count badge (click to preview queued prompts) -->
+                                        <Button Grid.Column="3"
                                                 IsVisible="{Binding HasQueuedItems}"
                                                 Click="QueuePreview_Click"
                                                 Background="Transparent"
@@ -597,7 +634,7 @@
                                                            VerticalAlignment="Center" />
                                             </Border>
                                         </Button>
-                                        <Button Grid.Column="3"
+                                        <Button Grid.Column="4"
                                                 Content="..."
                                                 Click="SessionMenuButton_Click"
                                                 Focusable="False"
@@ -614,6 +651,14 @@
                                                 ToolTip.Tip="Session options"
                                                 Classes="sessionMenuBtn" />
                                     </Grid>
+                                    <!-- The request's own line, under the title, only while one waits (issue #3851). -->
+                                    <TextBlock Text="{Binding LinkAskLine}"
+                                               IsVisible="{Binding HasLinkAsks}"
+                                               ToolTip.Tip="{Binding LinkAskLine}"
+                                               Foreground="#F59E0B"
+                                               FontSize="11"
+                                               Margin="20,2,0,0"
+                                               TextTrimming="CharacterEllipsis" />
                                     <!-- LINE 2: identity badges only - the wide items.
                                          Alone on their own line they always fit. -->
                                     <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
@@ -1013,6 +1058,26 @@
                                    FontSize="11"
                                    FontWeight="SemiBold" />
                     </Border>
+                    <!-- A request from this session to talk to another (issue #3851): an amber chip that
+                         opens Approve / Deny. Filled in code-behind beside the name, like the badges here. -->
+                    <Button x:Name="HeaderLinkAskChip"
+                            Click="HeaderLinkAsk_Click"
+                            Focusable="False"
+                            Background="#3A2C0B"
+                            BorderBrush="#F59E0B"
+                            BorderThickness="1"
+                            CornerRadius="4"
+                            Padding="8,2"
+                            Margin="8,0,0,0"
+                            VerticalAlignment="Center"
+                            Cursor="Hand"
+                            IsVisible="False">
+                        <TextBlock x:Name="HeaderLinkAskText"
+                                   Text=""
+                                   Foreground="#F59E0B"
+                                   FontSize="11"
+                                   FontWeight="SemiBold" />
+                    </Button>
                     <!-- Message count badge -->
                     <Border x:Name="HeaderMessageCountBadge"
                             Background="#1E40AF"

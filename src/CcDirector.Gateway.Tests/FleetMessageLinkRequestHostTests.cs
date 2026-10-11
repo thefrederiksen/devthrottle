@@ -358,6 +358,32 @@ public sealed class FleetMessageLinkRequestHostTests : IAsyncLifetime
         Assert.Equal($"session {_fleetManagerId}", Root(body).GetProperty("request").GetProperty("answeredBy").GetString());
     }
 
+    // ---- the owner's own Director answers too (issue #3851) ----------------------------------------------
+
+    [Fact]
+    public async Task The_owners_Director_lists_and_approves_a_request_on_its_own_key()
+    {
+        var requestId = RequestIdOf((await Ask(_investigator, _coordinatorId)).Body);
+
+        var waiting = Assert.Single(await Requests(_directorA));
+        Assert.Equal("pending", waiting.GetProperty("status").GetString());
+        // The Director knows only its own sessions' names; the list names the session asked for.
+        Assert.Equal("Cube Coordinator", waiting.GetProperty("targetSessionName").GetString());
+        var (status, body) = await Answer(_directorA, requestId, new { approve = true });
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal("allowed", Root(body).GetProperty("request").GetProperty("status").GetString());
+        Assert.StartsWith("device workstation", Root(body).GetProperty("request").GetProperty("answeredBy").GetString());
+        Assert.Equal(HttpStatusCode.OK, (await Message(_investigator, _coordinatorId, "the cube refresh?")).Status);
+    }
+
+    [Fact]
+    public async Task The_owners_Director_still_may_not_set_up_a_link_unasked()
+    {
+        var (status, _) = await SetUp(_directorA, _investigatorId, _thirdId, "once");
+        Assert.Equal(HttpStatusCode.Forbidden, status);
+        Assert.Empty(Root((await Send(_ownerA, "GET", "fleet/links")).Body).GetProperty("links").EnumerateArray());
+    }
+
     [Fact]
     public async Task Only_a_session_asks()
     {

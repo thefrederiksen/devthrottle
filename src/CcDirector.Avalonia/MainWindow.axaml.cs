@@ -894,6 +894,10 @@ public partial class MainWindow : Window
         // seconds AFTER these rows are on screen. Without this, every hover would show the Gateway's
         // stamped label alone until some unrelated event repainted the row. Same shape as the connection
         // change below: this window owns the subscription and repaints every row from here.
+        // A session's request to talk to another (issue #3851) shows on the row of the session that ASKED and in its
+        // header. The list is read off this thread every 20 seconds; this window stamps every row when it changes.
+        host.LinkRequests.Changed += () => Dispatcher.UIThread.Post(ApplyLinkRequests);
+
         host.ColourLegend.Changed += () => Dispatcher.UIThread.Post(() =>
         {
             try
@@ -3588,6 +3592,66 @@ public partial class MainWindow : Window
 
 
         UpdateHeaderVerification(_activeSession);
+        UpdateHeaderLinkAsk();
+    }
+
+    // ===== A session's request to talk to another session (issue #3851) =====
+
+    /// <summary>Stamp every row with its own waiting requests, then the header. Runs on the user-interface thread.</summary>
+    private void ApplyLinkRequests()
+    {
+        try
+        {
+            var cache = (global::Avalonia.Application.Current as App)?.ControlApiHost?.LinkRequests;
+            if (cache is null) return;
+            foreach (var vm in _sessions)
+                vm.ApplyLinkAsks(cache.From(vm.Session.Id.ToString()), LocalSessionName);
+            UpdateHeaderLinkAsk();
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] ApplyLinkRequests FAILED: {ex}");
+        }
+    }
+
+    /// <summary>This Director's own name for a session, or null when it is not one of ours.</summary>
+    private string? LocalSessionName(string sessionId)
+        => _sessions.FirstOrDefault(s => string.Equals(s.Session.Id.ToString(), sessionId, StringComparison.OrdinalIgnoreCase))?.DisplayName;
+
+    private void UpdateHeaderLinkAsk()
+    {
+        var vm = _activeSession;
+        var show = vm is not null && vm.HasLinkAsks;
+        HeaderLinkAskChip.IsVisible = show;
+        if (!show) return;
+        HeaderLinkAskText.Text = vm!.LinkAskChip;
+        ToolTip.SetTip(HeaderLinkAskChip, vm.LinkAskTip);
+    }
+
+    private void LinkAsk_Click(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control control && control.DataContext is SessionViewModel vm)
+            ShowLinkAsk(control, vm);
+    }
+
+    private void HeaderLinkAsk_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_activeSession is { } vm)
+            ShowLinkAsk(HeaderLinkAskChip, vm);
+    }
+
+    private void ShowLinkAsk(Control anchor, SessionViewModel vm)
+    {
+        try
+        {
+            var cache = (global::Avalonia.Application.Current as App)?.ControlApiHost?.LinkRequests;
+            if (cache is null) return;
+            LinkAskFlyout.ShowAt(anchor, vm, cache, LocalSessionName);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] ShowLinkAsk FAILED: {ex}");
+        }
     }
 
     private static readonly ISolidColorBrush VerifiedBadgeBrush = new SolidColorBrush(Color.FromRgb(0x22, 0xC5, 0x5E));
@@ -5207,6 +5271,9 @@ public partial class MainWindow : Window
     {
         _sessionListVersion++;
         RebuildRail();
+        // A row added after the request list was read still gets its badge (issue #3851): the list only raises
+        // Changed when IT changes, so a new or restored row is stamped here from what is already known.
+        ApplyLinkRequests();
         if (!_sessionListWindowWired) return;
 
         // Keep group brackets/headers (issue #225) correct after any add/remove/restore.

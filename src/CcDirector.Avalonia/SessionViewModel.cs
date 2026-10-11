@@ -1244,6 +1244,44 @@ public class SessionViewModel : INotifyPropertyChanged
 
     public bool HasQueuedItems => _queueCount > 0;
 
+    // ===== A request from this session to talk to another (issue #3851) =====
+    // Shown on the session that ASKED: an amber phone badge and a "wants to talk to" line on its rail row, and a chip
+    // in its header that opens Approve / Deny. Amber, never red: the red badge already means prompts wait in its queue.
+    // The window stamps these from the Gateway's waiting list (LinkRequestsCache) every time that list changes.
+
+    private IReadOnlyList<FleetMessageLinkRequestDto> _linkAsks = Array.Empty<FleetMessageLinkRequestDto>();
+    private string _linkAskLine = "";
+    private string _linkAskChip = "";
+
+    /// <summary>The waiting requests this session made.</summary>
+    public IReadOnlyList<FleetMessageLinkRequestDto> LinkAsks => _linkAsks;
+    public bool HasLinkAsks => _linkAsks.Count > 0;
+    public int LinkAskCount => _linkAsks.Count;
+    public string LinkAskLine => _linkAskLine;
+    public string LinkAskChip => _linkAskChip;
+    public string LinkAskTip => _linkAsks.Count == 1
+        ? "Wants to talk to another session - click to approve or deny"
+        : $"Wants to talk to {_linkAsks.Count} other sessions - click to approve or deny";
+
+    /// <summary>Stamp this session's waiting requests. Raises change notifications only when something changed.</summary>
+    public void ApplyLinkAsks(IReadOnlyList<FleetMessageLinkRequestDto> mine, Func<string, string?> localName)
+    {
+        var line = LinkAskWords.Line(mine, localName);
+        var chip = LinkAskWords.Chip(mine, localName);
+        var sameIds = mine.Select(r => r.RequestId).SequenceEqual(_linkAsks.Select(r => r.RequestId));
+        if (sameIds && line == _linkAskLine && chip == _linkAskChip) return;
+
+        _linkAsks = mine;
+        _linkAskLine = line;
+        _linkAskChip = chip;
+        OnPropertyChanged(nameof(LinkAsks));
+        OnPropertyChanged(nameof(HasLinkAsks));
+        OnPropertyChanged(nameof(LinkAskCount));
+        OnPropertyChanged(nameof(LinkAskLine));
+        OnPropertyChanged(nameof(LinkAskChip));
+        OnPropertyChanged(nameof(LinkAskTip));
+    }
+
     public void Rename(string? newName, string? color = null)
     {
         Session.CustomName = newName;

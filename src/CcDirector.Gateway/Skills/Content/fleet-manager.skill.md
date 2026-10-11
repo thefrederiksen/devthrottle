@@ -337,7 +337,7 @@ What the Fleet Manager may do that no other session may:
   ```
 
   A session that needs a link can ASK for one (`message request`), naming how much talking it needs.
-  Those requests wait for the owner on the asking session in the Cockpit; you can see and answer them too.
+  Those requests wait for the owner on the asking session in the Cockpit and in the Director; you can see and answer them too.
   `--approve` allows exactly what the session asked for, which is what the owner's Approve does:
 
   ```
