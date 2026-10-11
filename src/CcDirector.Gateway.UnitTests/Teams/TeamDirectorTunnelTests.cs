@@ -66,7 +66,7 @@ public sealed class TeamDirectorTunnelTests : IDisposable
         _tenants = new TenantRegistry(_db);
         _teams = new TeamRegistry(_db, _tenants);
         _devices = new DeviceRegistry(_db, _harness.LegacyPath("devices.json"), isHosted: true, teamsReleased: true);
-        _boundary = new HostedTenantBoundary(_tenantContext, _devices);
+        _boundary = new HostedTenantBoundary(_tenantContext, _devices, hosted: false);
         _directors = new DirectorRegistry(_harness.LegacyPath("instances"));
         _inputStats = new GatewayInputStatsAggregator(_harness.LegacyPath("stats.db"));
         _validator = new JwtAccessTokenValidator(

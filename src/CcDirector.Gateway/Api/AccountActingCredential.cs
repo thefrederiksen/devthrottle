@@ -58,9 +58,10 @@ internal static class AccountActingCredential
     /// <summary>
     /// Resolves the acting verdict for one request. On HOSTED this never touches
     /// <paramref name="account"/> - the hosted Gateway's own credential is meaningless to the caller, so
-    /// asking about it can only produce a wrong answer. Gated on <see cref="GatewayHostedMode.IsHosted"/>
-    /// itself, NOT on whether a boundary was passed in: selecting the hosted path from the optional argument
-    /// FAILS OPEN, letting a one-word wiring mistake drop a hosted Gateway back onto the self-host answer -
+    /// asking about it can only produce a wrong answer. Gated on the REQUIRED <paramref name="hosted"/> value
+    /// (read once at startup into <c>GatewayHostOptions</c>), NOT on whether a boundary was passed in: selecting
+    /// the hosted path from an optional argument would FAIL OPEN, letting a one-word wiring mistake drop a
+    /// hosted Gateway back onto the self-host answer -
     /// the exact defect this type exists to stop. A hosted Gateway with no boundary FAILS CLOSED instead.
     /// </summary>
     /// <param name="operation">What the calling route is trying to do, for the finished message.</param>
@@ -72,6 +73,7 @@ internal static class AccountActingCredential
     public static async Task<AccountActingVerdict> ResolveAsync(
         AccountOperation operation,
         HttpContext ctx,
+        bool hosted,
         DevThrottleAccountService? account,
         Tenancy.HostedTenantBoundary? boundary,
         Tenancy.TenantRegistry? tenants,
@@ -80,7 +82,7 @@ internal static class AccountActingCredential
         if (operation is null) throw new ArgumentNullException(nameof(operation));
         if (ctx is null) throw new ArgumentNullException(nameof(ctx));
 
-        if (GatewayHostedMode.IsHosted)
+        if (hosted)
             return Hosted(operation, ctx, boundary, tenants);
 
         return await SelfHostAsync(operation, account, ct).ConfigureAwait(false);

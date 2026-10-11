@@ -44,7 +44,7 @@ public sealed class TranscriptionAudioArchiveHostedTests : IDisposable
         // one archive directory nor let one tenant's clip prune the other's. Both saves are refused and the
         // directory stays empty - there is nothing to mix and nothing to prune.
         Environment.SetEnvironmentVariable(GatewayHostedMode.HostedEnvVar, "1");
-        var archive = new TranscriptionAudioArchive(_dir);
+        var archive = new TranscriptionAudioArchive(true, _dir);
 
         var tenantAClip = archive.TrySave("tenant-a-turn", Clip(0x0A), "audio/wav");
         var tenantBClip = archive.TrySave("tenant-b-turn", Clip(0x0B), "audio/wav");
@@ -63,7 +63,7 @@ public sealed class TranscriptionAudioArchiveHostedTests : IDisposable
         // single-tenant, the archive is the diagnostic that catches a transcription that silently drops
         // half the speech, and it must keep working exactly as before. CC_GATEWAY_HOSTED explicitly not "1".
         Environment.SetEnvironmentVariable(GatewayHostedMode.HostedEnvVar, "0");
-        var archive = new TranscriptionAudioArchive(_dir);
+        var archive = new TranscriptionAudioArchive(false, _dir);
 
         var saved = archive.TrySave("self-host-turn", Clip(), "audio/wav");
 

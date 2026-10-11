@@ -65,7 +65,7 @@ public sealed class StreamOwnershipTests : IDisposable
         // on anything below. A boundary that silently came up self-host would make every account Local and
         // this whole test would prove nothing.
         var devices = _harness.OpenDevices();
-        var boundary = new HostedTenantBoundary(new AsyncLocalTenantContext(), devices);
+        var boundary = new HostedTenantBoundary(new AsyncLocalTenantContext(), devices, hosted: false);
         Assert.True(boundary.IsHosted);
 
         // Two accounts, two tenants, two authenticated device keys - exactly the production enrollment shape.
@@ -137,7 +137,7 @@ public sealed class StreamOwnershipTests : IDisposable
         const string sharedDirectorId = "dir-shared";
 
         var devices = _harness.OpenDevices();
-        var boundary = new HostedTenantBoundary(new AsyncLocalTenantContext(), devices);
+        var boundary = new HostedTenantBoundary(new AsyncLocalTenantContext(), devices, hosted: false);
         Assert.True(boundary.IsHosted);
 
         var tenantA = new TenantId(Guid.NewGuid().ToString());
@@ -193,7 +193,7 @@ public sealed class StreamOwnershipTests : IDisposable
         // Assert the mode took effect - this is the control that says the fix costs the self-host install
         // nothing, and it is worthless if the boundary silently came up hosted.
         var devices = _harness.OpenDevices();
-        var boundary = new HostedTenantBoundary(new SingleTenantContext(), devices);
+        var boundary = new HostedTenantBoundary(new SingleTenantContext(), devices, hosted: false);
         Assert.False(boundary.IsHosted);
 
         var store = new PushedSessionStore(() => DateTime.UtcNow);

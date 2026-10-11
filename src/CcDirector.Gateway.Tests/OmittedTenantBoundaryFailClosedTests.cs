@@ -50,8 +50,9 @@ namespace CcDirector.Gateway.Tests;
 ///      Local now THROWS at construction, and at resolution when hosted mode appeared after construction.
 ///
 /// Phase 5a (inspection finding I1-01) extends the census to the sites that still carried an OPTIONAL
-/// nullable boundary defaulting to null, and whose resolvers decided on the ARGUMENT rather than on
-/// <see cref="GatewayHostedMode.IsHosted"/>:
+/// nullable boundary defaulting to null, and whose resolvers decided on the ARGUMENT rather than on the
+/// deployment mode (then the process switch; now the host's value, with a missing boundary a refusal in every
+/// mode):
 ///
 ///   7. <c>SessionWsProxyEndpoints.ResolveTenantOrDenyAsync</c> - the widest per-session surface (terminal
 ///      stream, file read, screenshot legs, the catch-all session verbs, director backfill). Probed at
@@ -149,7 +150,7 @@ public sealed class OmittedTenantBoundaryFailClosedTests : IAsyncLifetime
             DateTime.UtcNow, TenantId.Local);
 
         await using (var unwired = await Host.StartAsync(_tenant,
-            app => GatewayEndpoints.Map(app, unwiredRegistry, "test", "test-token", tenantBoundary: null!, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown)))
+            app => GatewayEndpoints.Map(app, true, unwiredRegistry, "test", "test-token", tenantBoundary: null!, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown)))
         {
             var (status, body) = await Get(unwired.Http, "/directors");
             AssertRefusal(status, body);
@@ -166,7 +167,7 @@ public sealed class OmittedTenantBoundaryFailClosedTests : IAsyncLifetime
             DateTime.UtcNow, _tenant);
 
         await using var wired = await Host.StartAsync(_tenant,
-            app => GatewayEndpoints.Map(app, wiredRegistry, "test", "test-token", tenantBoundary: WiredBoundary(), sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown));
+            app => GatewayEndpoints.Map(app, true, wiredRegistry, "test", "test-token", tenantBoundary: WiredBoundary(), sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown));
         var (wiredStatus, wiredBody) = await Get(wired.Http, "/directors");
         Assert.Equal(HttpStatusCode.OK, wiredStatus);
         Assert.Contains("own-director", wiredBody, StringComparison.Ordinal);
@@ -190,7 +191,7 @@ public sealed class OmittedTenantBoundaryFailClosedTests : IAsyncLifetime
         });
 
         await using (var unwired = await Host.StartAsync(_tenant,
-            app => MachineEndpoints.Map(app, unwiredLaunchers, Spawner(), boundary: null!, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown)))
+            app => MachineEndpoints.Map(app, true, unwiredLaunchers, Spawner(), boundary: null!, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown)))
         {
             var (status, body) = await Get(unwired.Http, "/launchers");
             AssertRefusal(status, body);
@@ -207,7 +208,7 @@ public sealed class OmittedTenantBoundaryFailClosedTests : IAsyncLifetime
         });
 
         await using var wired = await Host.StartAsync(_tenant,
-            app => MachineEndpoints.Map(app, wiredLaunchers, Spawner(), boundary: WiredBoundary(), sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown));
+            app => MachineEndpoints.Map(app, true, wiredLaunchers, Spawner(), boundary: WiredBoundary(), sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown));
         var (wiredStatus, wiredBody) = await Get(wired.Http, "/launchers");
         Assert.Equal(HttpStatusCode.OK, wiredStatus);
         Assert.Equal(JsonValueKind.Array, JsonDocument.Parse(wiredBody).RootElement.ValueKind);
@@ -233,7 +234,7 @@ public sealed class OmittedTenantBoundaryFailClosedTests : IAsyncLifetime
         var ambient = new AsyncLocalTenantContext();
         var store = new ActivityEventStore(wiredDb.Open(ambient));
         await using var wired = await Host.StartAsync(_tenant,
-            app => ActivityEventEndpoints.Map(app, store, new HostedTenantBoundary(ambient, new DeviceRegistry())));
+            app => ActivityEventEndpoints.Map(app, store, new HostedTenantBoundary(ambient, new DeviceRegistry(), hosted: true)));
         var (wiredStatus, wiredBody) = await Get(wired.Http, "/activity-events");
         Assert.Equal(HttpStatusCode.OK, wiredStatus);
         Assert.Equal(0, JsonDocument.Parse(wiredBody).RootElement.GetProperty("count").GetInt32());
@@ -256,7 +257,7 @@ public sealed class OmittedTenantBoundaryFailClosedTests : IAsyncLifetime
         var ambient = new AsyncLocalTenantContext();
         var store = new SessionHistoryStore(wiredDb.Open(ambient));
         await using var wired = await Host.StartAsync(_tenant,
-            app => HistoryEndpoints.Map(app, store, new HostedTenantBoundary(ambient, new DeviceRegistry())));
+            app => HistoryEndpoints.Map(app, store, new HostedTenantBoundary(ambient, new DeviceRegistry(), hosted: true)));
         var (wiredStatus, wiredBody) = await Get(wired.Http, "/history/sessions");
         Assert.Equal(HttpStatusCode.OK, wiredStatus);
         Assert.Equal(0, JsonDocument.Parse(wiredBody).RootElement.GetProperty("count").GetInt32());
@@ -316,27 +317,8 @@ public sealed class OmittedTenantBoundaryFailClosedTests : IAsyncLifetime
         // positive companion is every wired harness in this class: the same construction over the
         // AsyncLocalTenantContext, under the same hosted mode, succeeds.
         var ex = Assert.Throws<InvalidOperationException>(
-            () => new HostedTenantBoundary(new SingleTenantContext(), new DeviceRegistry()));
+            () => new HostedTenantBoundary(new SingleTenantContext(), new DeviceRegistry(), hosted: true));
         Assert.Contains("hosted", ex.Message, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void Boundary_resolution_throws_when_hosted_mode_appeared_after_construction()
-    {
-        // The one path the constructor guard cannot see: built while the process was NOT hosted (legal -
-        // that is every self-host boundary), resolved after hosted mode turned on. Resolving Local there
-        // is the same silent collapse, so resolution refuses too.
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", null);
-        var boundary = new HostedTenantBoundary(new SingleTenantContext(), new DeviceRegistry());
-
-        // Control first, while still self-host: the same boundary resolves Local - so the throws below are
-        // the hosted flip, not a boundary that cannot resolve at all.
-        Assert.True(boundary.ResolveForDeviceKey("any-key")!.Value.IsLocal);
-
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-        Assert.Throws<InvalidOperationException>(() => boundary.ResolveForDeviceKey("any-key"));
-        Assert.Throws<InvalidOperationException>(
-            () => boundary.ResolveRequestTenant(new Microsoft.AspNetCore.Http.DefaultHttpContext()));
     }
 
     // ===== site 7: SessionWsProxyEndpoints, probed at GET /sessions/{sid}/screenshots ===============
@@ -445,7 +427,7 @@ public sealed class OmittedTenantBoundaryFailClosedTests : IAsyncLifetime
         var ambient = new AsyncLocalTenantContext();
         await using var wired = await Host.StartAsync(_tenant,
             app => RepoStateEndpoints.Map(app, new RepoStateStore(wiredDb.Open(ambient)),
-                tenantBoundary: new HostedTenantBoundary(ambient, new DeviceRegistry())));
+                tenantBoundary: new HostedTenantBoundary(ambient, new DeviceRegistry(), hosted: true)));
         var (wiredStatus, wiredBody) = await Post(wired.Http, RepoStateEndpoints.Path, pushBody);
         Assert.Equal(HttpStatusCode.OK, wiredStatus);
         Assert.Equal(0, JsonDocument.Parse(wiredBody).RootElement.GetProperty("stored").GetInt32());
@@ -468,7 +450,7 @@ public sealed class OmittedTenantBoundaryFailClosedTests : IAsyncLifetime
         var ambient = new AsyncLocalTenantContext();
         await using var wired = await Host.StartAsync(_tenant,
             app => SkillPlacementEndpoints.Map(app, new SkillPlacementStore(wiredDb.Open(ambient)),
-                tenantBoundary: new HostedTenantBoundary(ambient, new DeviceRegistry())));
+                tenantBoundary: new HostedTenantBoundary(ambient, new DeviceRegistry(), hosted: true)));
         var (wiredStatus, wiredBody) = await Get(wired.Http, SkillPlacementEndpoints.Path);
         Assert.Equal(HttpStatusCode.OK, wiredStatus);
         Assert.Equal(JsonValueKind.Object, JsonDocument.Parse(wiredBody).RootElement.ValueKind);
@@ -561,7 +543,7 @@ public sealed class OmittedTenantBoundaryFailClosedTests : IAsyncLifetime
         wiredDevices.SetAccountBinding("launcher-device", "sub-own", _tenant.Value);
         var wiredRegistry = new LauncherConnectionRegistry();
         var (wiredHub, wiredCtx) = NewLauncherHub("conn-launcher-wired",
-            new HostedTenantBoundary(new AsyncLocalTenantContext(), wiredDevices), wiredRegistry, key);
+            new HostedTenantBoundary(new AsyncLocalTenantContext(), wiredDevices, hosted: true), wiredRegistry, key);
 
         wiredHub.Hello(new LauncherStreamHello { MachineName = "own-machine", Version = "t" });
 
@@ -595,7 +577,7 @@ public sealed class OmittedTenantBoundaryFailClosedTests : IAsyncLifetime
     /// context instead, exactly as production does.
     /// </summary>
     private static HostedTenantBoundary WiredBoundary()
-        => new(new AsyncLocalTenantContext(), new DeviceRegistry());
+        => new(new AsyncLocalTenantContext(), new DeviceRegistry(), hosted: true);
 
     /// <summary>A spawner whose resolver refuses to be used - GET /launchers never spawns anything.</summary>
     private static MachineSessionSpawner Spawner()

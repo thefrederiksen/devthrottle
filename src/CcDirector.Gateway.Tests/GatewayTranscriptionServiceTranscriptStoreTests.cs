@@ -65,7 +65,7 @@ public sealed class GatewayTranscriptionServiceTranscriptStoreTests : IDisposabl
         => new(
             new KeyVault(_vaultPath),
             http: new HttpClient(new StatusHandler(HttpStatusCode.OK, "{\"text\":\"" + okText + "\"}")),
-            audioArchive: new TranscriptionAudioArchive(Path.Combine(_root, "archive-scratch")),
+            audioArchive: new TranscriptionAudioArchive(false, Path.Combine(_root, "archive-scratch")),
             transcripts: transcripts);
 
     [Fact]
@@ -126,7 +126,7 @@ public sealed class GatewayTranscriptionServiceTranscriptStoreTests : IDisposabl
         var service = new GatewayTranscriptionService(
             new KeyVault(_vaultPath),
             http: new HttpClient(new StatusHandler(HttpStatusCode.PaymentRequired, body)),
-            audioArchive: new TranscriptionAudioArchive(Path.Combine(_root, "archive-scratch")),
+            audioArchive: new TranscriptionAudioArchive(false, Path.Combine(_root, "archive-scratch")),
             transcripts: store);
 
         var result = await service.TranscribeAsync(
@@ -174,7 +174,7 @@ public sealed class GatewayTranscriptionServiceTranscriptStoreTests : IDisposabl
         var service = new GatewayTranscriptionService(
             new KeyVault(_vaultPath),
             http: new HttpClient(new StatusHandler(HttpStatusCode.OK, body)),
-            audioArchive: new TranscriptionAudioArchive(Path.Combine(_root, "archive-scratch")),
+            audioArchive: new TranscriptionAudioArchive(false, Path.Combine(_root, "archive-scratch")),
             transcripts: store);
 
         var result = await service.TranscribeAsync(

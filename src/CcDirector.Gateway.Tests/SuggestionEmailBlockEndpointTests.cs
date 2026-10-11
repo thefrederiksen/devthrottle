@@ -63,9 +63,9 @@ public sealed class SuggestionEmailBlockEndpointTests : IDisposable
         app.Urls.Add(bindUrl);
         // The boundary is required and non-nullable now (finding I1-01). This is a self-host harness, so it
         // gets the REAL self-host boundary: built over the SingleTenantContext, it always resolves Local.
-        RecordingEndpoints.Map(app,
+        RecordingEndpoints.Map(app, false,
             tenantBoundary: new CcDirector.Gateway.Tenancy.HostedTenantBoundary(
-                new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry()),
+                new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: false),
             keyVault: null, history: null, audioArchive: null,
             suggestions: suggestions, dismissals: dismissals, emailComposer: composer);
         await app.StartAsync();
@@ -144,9 +144,9 @@ public sealed class SuggestionEmailBlockEndpointTests : IDisposable
         var app = builder.Build();
         app.Urls.Add(bindUrl);
         // Real self-host boundary, same reasoning as the harness above (finding I1-01).
-        RecordingEndpoints.Map(app,
+        RecordingEndpoints.Map(app, false,
             tenantBoundary: new CcDirector.Gateway.Tenancy.HostedTenantBoundary(
-                new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry()),
+                new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: false),
             keyVault: null, history: null, audioArchive: null,
             suggestions: suggestions, dismissals: dismissals, emailComposer: composer);
         await app.StartAsync();

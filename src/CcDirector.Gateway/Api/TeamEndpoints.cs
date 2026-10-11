@@ -403,19 +403,14 @@ internal static class TeamEndpoints
     /// </summary>
     internal static (string? Subject, IResult? Denial) ResolveCaller(HttpContext ctx, HostedTenantBoundary boundary, TenantRegistry tenants)
     {
-        if (!GatewayHostedMode.IsHosted)
+        if (!boundary.Hosted)
         {
             FileLog.Write("[TeamEndpoints] ResolveCaller: self-hosted Gateway - teams are not available here");
             return (null, Results.NotFound(new { error = SelfHostedRefusal }));
         }
 
-        if (!boundary.IsHosted)
-        {
-            FileLog.Write("[TeamEndpoints] ResolveCaller: MISWIRED - hosted mode with no hosted tenant boundary; refusing");
-            return (null, Results.Json(new { error = "This hosted DevThrottle Gateway cannot tell which account is calling, so it will not answer. This is a fault in the Gateway deployment, not a problem with your account." },
-                statusCode: StatusCodes.Status503ServiceUnavailable));
-        }
-
+        // A hosted boundary is built over the ambient tenant context - its constructor refuses anything else - so
+        // the miswired case this method once answered with a 503 (hosted mode, no hosted boundary) cannot be built.
         if (boundary.ResolveRequestTenant(ctx) is not { } tenant)
         {
             FileLog.Write("[TeamEndpoints] ResolveCaller: DENIED - no account is bound to this request");

@@ -92,7 +92,7 @@ public sealed class BrowserDeviceEnrollmentTests
         Environment.SetEnvironmentVariable(GatewayAccountFactory.SigningSecretEnvVar, GatewayTestJwt.SigningSecret);
         try
         {
-            var service = GatewayAccountFactory.Build(new InMemoryTokenStore());
+            var service = GatewayAccountFactory.Build(new InMemoryTokenStore(), hosted: false);
             service.StoreTokens(new DevThrottleTokens(GatewayTestJwt.Create(DateTime.UtcNow.AddHours(1)), "refresh-1088"));
             return service;
         }
@@ -122,7 +122,7 @@ public sealed class BrowserDeviceEnrollmentTests
         ctx.Response.Body = new MemoryStream();
 
         var allowed = false;
-        var cfg = new AuthMiddleware.RequireToken { Token = GatewayToken, Devices = devices };
+        var cfg = new AuthMiddleware.RequireToken { Hosted = false, Token = GatewayToken, Devices = devices };
         await AuthMiddleware.Run(ctx, cfg, () => { allowed = true; return Task.CompletedTask; });
         return (allowed, ctx.Response.StatusCode);
     }

@@ -282,20 +282,20 @@ public static class StatsPageEndpoint
 
     /// <summary>Convenience for callers that already hold a settled aggregator - the self-host probe hosts
     /// and the unit tests. Production passes the handle, because on hosted the answer can change.</summary>
-    public static RouteGroupBuilder Map(IEndpointRouteBuilder outer, GatewayInputStatsAggregator aggregator,
+    public static RouteGroupBuilder Map(IEndpointRouteBuilder outer, bool hosted, GatewayInputStatsAggregator aggregator,
         Tenancy.HostedTenantBoundary tenantBoundary,
         ThrottleLedgerReader throttle,
         ISessionConcurrencyRecorder? concurrency = null,
         Settings.TenantSettingsResolver? tenantSettings = null,
         History.SessionHistoryStore? sessionHistory = null) =>
-        Map(outer, InputStatsHandle.Available(aggregator), tenantBoundary, throttle, () => concurrency, tenantSettings,
+        Map(outer, hosted, InputStatsHandle.Available(aggregator), tenantBoundary, throttle, () => concurrency, tenantSettings,
             sessionHistory);
 
     /// <summary>
     /// Maps the two stats routes. Returns the group builder they were mapped through (kept for callers that
     /// compose onto it).
     /// </summary>
-    public static RouteGroupBuilder Map(IEndpointRouteBuilder outer, InputStatsHandle statistics,
+    public static RouteGroupBuilder Map(IEndpointRouteBuilder outer, bool hosted, InputStatsHandle statistics,
         // The tenant boundary the data route resolves the CALLER's tenant through. REQUIRED AND NON-NULLABLE
         // (finding I1-01), and moved AHEAD of the optional tail so it cannot sit in a defaulted position: a
         // forgotten boundary must be a compile error, never a silent default. Self-host callers construct it
@@ -322,7 +322,7 @@ public static class StatsPageEndpoint
     {
         ArgumentNullException.ThrowIfNull(tenantBoundary);
         ArgumentNullException.ThrowIfNull(throttle);
-        FileLog.Write($"[StatsPageEndpoint] mapping /stats (redirect to /your-throttle) and /stats/data; hosted={GatewayHostedMode.IsHosted} - turn figures come from the submission ledger; a self-hosted Gateway answers available=false");
+        FileLog.Write($"[StatsPageEndpoint] mapping /stats (redirect to /your-throttle) and /stats/data; hosted={hosted} - turn figures come from the submission ledger; a self-hosted Gateway answers available=false");
         // The empty prefix keeps the route paths written out in full, exactly as before.
         var app = outer.MapGroup("");
 
@@ -330,7 +330,7 @@ public static class StatsPageEndpoint
         {
             // Ruling R1: hosted only. Ruling R6: say so in one sentence, on a 200 the page renders - the
             // absence of a figure is a fact about this Gateway, not an error in the request.
-            if (!GatewayHostedMode.IsHosted)
+            if (!hosted)
                 return Results.Json(new { available = false, reason = SelfHostReason });
 
             // Serve the CALLER's own tenant. On the hosted Gateway the tenant comes from the authenticated

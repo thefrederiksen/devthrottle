@@ -15,7 +15,7 @@ public sealed class VoiceTurnArchiveTests : IDisposable
     private readonly string _root = Path.Combine(Path.GetTempPath(), "cc-archive-" + Guid.NewGuid().ToString("N"));
     private readonly VoiceTurnArchive _archive;
 
-    public VoiceTurnArchiveTests() => _archive = new VoiceTurnArchive(_root);
+    public VoiceTurnArchiveTests() => _archive = new VoiceTurnArchive(false, _root);
 
     public void Dispose()
     {

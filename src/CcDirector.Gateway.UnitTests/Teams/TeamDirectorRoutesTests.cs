@@ -50,7 +50,7 @@ public sealed class TeamDirectorRoutesTests : IDisposable
         _devices = new DeviceRegistry(_db, _harness.LegacyPath("devices.json"), isHosted: true, teamsReleased: true);
         _directors = new DirectorRegistry(_harness.LegacyPath("instances"));
         _keys = new SessionKeyRegistry(_db, isHosted: true);
-        var boundary = new HostedTenantBoundary(new AsyncLocalTenantContext(), _devices);
+        var boundary = new HostedTenantBoundary(new AsyncLocalTenantContext(), _devices, hosted: false);
         _ownership = new TeamCallerOwnership(_directors, _sessions, _devices, new CcDirector.Gateway.History.SessionTurnStore(_db), boundary, _keys,
             numberDirector: _numbers.DirectorFor);
         _gate = new TeamEndpointGate(new TeamAccess(_teams), _teams, _tenants, boundary, _ownership);

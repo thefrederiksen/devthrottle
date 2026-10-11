@@ -64,10 +64,10 @@ public sealed class VoiceUploadLimitsTests : IDisposable
 
         var voice = new WingmanVoiceService(
             (_, _, _, _) => throw new InvalidOperationException("the brain must not be reached by an upload-size test"),
-            vault, tenantSettings, persistPath);
+            vault, tenantSettings, false, persistPath);
 
         GatewayWingmanVoiceEndpoint.Map(
-            app,
+            app, false,
             new DirectorRegistry(Path.Combine(Path.GetTempPath(), "cc-voice-limits-inst-" + Guid.NewGuid().ToString("N"))),
             (_, _, _, _) => throw new InvalidOperationException("the brain must not be reached by an upload-size test"),
             vault,
@@ -76,7 +76,7 @@ public sealed class VoiceUploadLimitsTests : IDisposable
             // The boundary is required and non-nullable now (finding I1-01). Self-host harness, so the REAL
             // self-host boundary: built over the SingleTenantContext, it always resolves Local.
             new CcDirector.Gateway.Tenancy.HostedTenantBoundary(
-                new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry()));
+                new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: false));
 
         await app.StartAsync();
         return (app, new HttpClient { BaseAddress = new Uri(app.Urls.First()) });

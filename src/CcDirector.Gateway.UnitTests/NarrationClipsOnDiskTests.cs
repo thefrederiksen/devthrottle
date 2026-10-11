@@ -43,7 +43,7 @@ public sealed class NarrationClipsOnDiskTests : IDisposable
     {
         Func<TenantId, WingmanModelRole, string, CancellationToken, Task<IAgentBrain>> brain =
             (_, _, _, _) => throw new InvalidOperationException("brain must not be called");
-        var svc = new WingmanVoiceService(brain, new KeyVault(Path.Combine(_root, "test.vault")), Settings, PersistPath);
+        var svc = new WingmanVoiceService(brain, new KeyVault(Path.Combine(_root, "test.vault")), Settings, false, PersistPath);
         Assert.True(svc.ReadyAudioWarmup.Wait(TimeSpan.FromSeconds(30)), "the ready-audio warm load did not finish");
         return svc;
     }

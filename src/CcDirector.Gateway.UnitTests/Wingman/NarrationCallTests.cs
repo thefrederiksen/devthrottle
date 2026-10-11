@@ -91,7 +91,7 @@ public sealed class NarrationCallTests : IDisposable
         var verdicts = new TurnVerdictService(env);
         var speech = new CountingSpeech();
         var translator = new CountingBrain(() => "a translation nobody should have asked for");
-        var voice = new WingmanVoiceService((_, _, _, _) => Task.FromResult<IAgentBrain>(translator), vault, settings,
+        var voice = new WingmanVoiceService((_, _, _, _) => Task.FromResult<IAgentBrain>(translator), vault, settings, false,
             Path.Combine(_dir, "voice-sessions.json"), ttsHttpClient: new HttpClient(speech), turnVerdicts: verdicts);
         env.VoiceSession = sid => voice.IsVoiceSession(Tenant, sid);
         return new Rig(voice, verdicts, env, speech);

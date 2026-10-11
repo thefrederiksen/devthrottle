@@ -50,9 +50,9 @@ internal static class StatsGroupProbeHost
         // The boundary is required and non-nullable now (finding I1-01). This probe host is used by the
         // SELF-HOST control tests only, so it gets the REAL self-host boundary: built over the
         // SingleTenantContext, it always resolves the single Local tenant.
-        var group = StatsPageEndpoint.Map(app, aggregator,
+        var group = StatsPageEndpoint.Map(app, false, aggregator,
             new CcDirector.Gateway.Tenancy.HostedTenantBoundary(
-                new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry()),
+                new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: false),
             throttle);
         mapIntoGroup?.Invoke(group);
         mapOutsideGroup?.Invoke(app);

@@ -1104,21 +1104,14 @@ public sealed class DirectorHub : Hub
     /// </summary>
     private TenantId? ResolveConnectionTenant()
     {
-        // GATED ON GatewayHostedMode.IsHosted ITSELF, never on whether a boundary was wired (finding I1-01,
-        // the same shape GatewayEndpoints.ResolveReadTenant carries). Deciding on the field fails OPEN: a
-        // hosted process whose hub was constructed without a boundary would resolve TenantId.Local and bind
-        // the Director's whole push stream into the shared partition. On hosted, a missing or
-        // non-hosted-wired boundary resolves to null, and null is a REFUSAL - Hello aborts the connection.
-        // The second defence is the required non-nullable constructor parameter.
-        if (!GatewayHostedMode.IsHosted)
-        {
-            if (_tenantBoundary is null)
-                return TenantId.Local;
-            var selfHostContext = Context.GetHttpContext();
-            return selfHostContext is null ? null : _tenantBoundary.ResolveRequestTenant(selfHostContext);
-        }
-
-        if (_tenantBoundary is null || !_tenantBoundary.IsHosted)
+        // The boundary decides, by the tenant context it was built over: over the ambient context (hosted) it
+        // answers the key's bound tenant or null, over the single-tenant context (self-host) it answers Local, and
+        // its constructor guarantees a hosted Gateway's boundary is the former. NO BOUNDARY IS A REFUSAL, in every
+        // mode (finding I1-01, the same shape
+        // GatewayEndpoints.ResolveReadTenant carries): a hub constructed without one has nothing to resolve a tenant
+        // with, and answering Local would bind the Director's whole push stream into the shared partition. Hello
+        // aborts the connection. The second defence is the required non-nullable constructor parameter.
+        if (_tenantBoundary is null)
             return null;
         var httpContext = Context.GetHttpContext();
         return httpContext is null ? null : _tenantBoundary.ResolveRequestTenant(httpContext);

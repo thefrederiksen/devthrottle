@@ -57,7 +57,7 @@ public sealed class RemoteSignInLiveProof
         int statusCode;
         try
         {
-            var account = GatewayAccountFactory.Build(new InMemoryTokenStore());
+            var account = GatewayAccountFactory.Build(new InMemoryTokenStore(), hosted: false);
 
             gateway = new GatewayHost(
                 port: GatewayHost.OperatingSystemAssignedPort,

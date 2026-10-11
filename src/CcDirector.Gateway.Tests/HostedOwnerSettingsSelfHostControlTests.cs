@@ -610,7 +610,7 @@ public sealed class HostedOwnerSettingsSelfHostProbeTests : IAsyncLifetime
         Func<IEndpointRouteBuilder, HostedDenyGroup> map = family switch
         {
             "settings" => routes => Api.SettingsEndpoints.Map(routes, _gateway),
-            "models" => routes => Api.AiModelsEndpoint.Map(routes, new Core.KeyVault(Path.Combine(_root, "vault.json")), _gateway.TenantSettingsResolver, _gateway.TenantBoundary),
+            "models" => routes => Api.AiModelsEndpoint.Map(routes, _gateway.Hosted, new Core.KeyVault(Path.Combine(_root, "vault.json")), _gateway.TenantSettingsResolver, _gateway.TenantBoundary),
             _ => throw new ArgumentOutOfRangeException(nameof(family), family, "unknown owner-settings family"),
         };
 

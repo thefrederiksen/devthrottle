@@ -33,7 +33,7 @@ public sealed class TenantScopedSweepTests : IDisposable
     {
         var ctx = new SingleTenantContext();
         var registry = new TenantRegistry(_harness.Open(ctx));
-        var boundary = new HostedTenantBoundary(ctx, new DeviceRegistry());
+        var boundary = new HostedTenantBoundary(ctx, new DeviceRegistry(), hosted: false);
         // Even with tenants in the census, self-host must fire ONCE under Local, never enumerate them.
         registry.MintOrLookupBySubject("sub-a", "a@example.com");
         registry.MintOrLookupBySubject("sub-b", "b@example.com");
@@ -51,7 +51,7 @@ public sealed class TenantScopedSweepTests : IDisposable
     {
         var ambient = new AsyncLocalTenantContext();
         var registry = new TenantRegistry(_harness.Open(ambient));
-        var boundary = new HostedTenantBoundary(ambient, new DeviceRegistry());
+        var boundary = new HostedTenantBoundary(ambient, new DeviceRegistry(), hosted: false);
         var tA = registry.MintOrLookupBySubject("sub-a", "a@example.com").Value;
         var tB = registry.MintOrLookupBySubject("sub-b", "b@example.com").Value;
 
@@ -73,7 +73,7 @@ public sealed class TenantScopedSweepTests : IDisposable
     {
         var ambient = new AsyncLocalTenantContext();
         var registry = new TenantRegistry(_harness.Open(ambient));
-        var boundary = new HostedTenantBoundary(ambient, new DeviceRegistry());
+        var boundary = new HostedTenantBoundary(ambient, new DeviceRegistry(), hosted: false);
         var tA = registry.MintOrLookupBySubject("sub-a", "a@example.com").Value;
         var tB = registry.MintOrLookupBySubject("sub-b", "b@example.com").Value;
         var tC = registry.MintOrLookupBySubject("sub-c", "c@example.com").Value;
@@ -98,7 +98,7 @@ public sealed class TenantScopedSweepTests : IDisposable
     {
         var ambient = new AsyncLocalTenantContext();
         var registry = new TenantRegistry(_harness.Open(ambient));
-        var boundary = new HostedTenantBoundary(ambient, new DeviceRegistry());
+        var boundary = new HostedTenantBoundary(ambient, new DeviceRegistry(), hosted: false);
 
         var count = 0;
         await new ProbeSweep(boundary, registry, () => { count++; return Task.CompletedTask; }).RunAsync();

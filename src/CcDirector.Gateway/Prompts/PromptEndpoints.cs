@@ -158,14 +158,9 @@ public static class PromptEndpoints
     /// </summary>
     private static TenantId? ResolveTenant(HttpContext ctx, Tenancy.HostedTenantBoundary? boundary)
     {
-        // Finding CR-7: gated on GatewayHostedMode.IsHosted itself, never on whether a boundary was passed
-        // in - deciding on the argument fails open. On hosted a missing or non-hosted-wired boundary
-        // resolves null, a refusal. Self-host is Local exactly as before.
-        if (!GatewayHostedMode.IsHosted)
-            return boundary is null ? TenantId.Local : boundary.ResolveRequestTenant(ctx);
-        if (boundary is null || !boundary.IsHosted)
-            return null;
-        return boundary.ResolveRequestTenant(ctx);
+        // The boundary decides, by the tenant context it was built over (ambient on hosted, single-tenant on
+        // self-host); NO BOUNDARY IS A DENY, in every mode (finding CR-7 - see GatewayEndpoints.ResolveReadTenant).
+        return boundary?.ResolveRequestTenant(ctx);
     }
 
     /// <summary>Enter the resolved tenant's ambient scope for a database-writing side effect (the

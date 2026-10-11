@@ -92,12 +92,12 @@ public static class GatewayAccountFactory
     /// before the live browser sign-in exists.
     /// </summary>
     [SupportedOSPlatform("windows")]
-    public static DevThrottleAccountService CreateForWindows()
+    public static DevThrottleAccountService CreateForWindows(bool hosted)
     {
         FileLog.Write("[GatewayAccountFactory] CreateForWindows: building the Gateway-hosted credential service");
 
         var store = new WindowsProtectedTokenStore(CcStorage.GatewayDevThrottleCredentialBlob());
-        var service = Build(store);
+        var service = Build(store, hosted);
         SeedTestCredentialIfRequested(service);
         return service;
     }
@@ -109,12 +109,12 @@ public static class GatewayAccountFactory
     /// the whole point of the shared <see cref="IProtectedTokenStore"/> interface.
     /// </summary>
     [SupportedOSPlatform("macos")]
-    public static DevThrottleAccountService CreateForMac()
+    public static DevThrottleAccountService CreateForMac(bool hosted)
     {
         FileLog.Write("[GatewayAccountFactory] CreateForMac: building the Gateway-hosted credential service");
 
         var store = new MacKeychainProtectedTokenStore();
-        var service = Build(store);
+        var service = Build(store, hosted);
         SeedTestCredentialIfRequested(service);
         return service;
     }
@@ -126,7 +126,10 @@ public static class GatewayAccountFactory
     /// the test credential - callers that want the seed seam exercised use
     /// <see cref="SeedTestCredentialIfRequested"/> explicitly.
     /// </summary>
-    public static DevThrottleAccountService Build(IProtectedTokenStore store)
+    /// <param name="store">The credential store.</param>
+    /// <param name="hosted">The owning host's deployment signal (<see cref="GatewayHost.Hosted"/>): on hosted the
+    /// validator refuses symmetric HS256 tokens. REQUIRED - see <see cref="GatewayHostOptions"/>.</param>
+    public static DevThrottleAccountService Build(IProtectedTokenStore store, bool hosted)
     {
         if (store is null)
             throw new ArgumentNullException(nameof(store));
@@ -140,7 +143,7 @@ public static class GatewayAccountFactory
             // signing secret. Self-host is unaffected (HS256 stays allowed) so legacy non-hosted behavior does
             // not change. The audience/issuer are unset here (this is the membership validator, not the
             // authorization-mode enrollment validator), so this only hardens the signature-algorithm surface.
-            allowSymmetricHs256: !GatewayHostedMode.IsHosted);
+            allowSymmetricHs256: !hosted);
         // Issue #640 / #876: the real Gateway-owned token refresher. It exchanges the cached refresh
         // token for a fresh pair against the embedded production backend (environment override for
         // tests, see DevThrottleAuthBackend). An unreachable backend keeps the cached credential; a

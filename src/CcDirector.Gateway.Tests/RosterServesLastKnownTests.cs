@@ -394,7 +394,7 @@ public sealed class RosterServesLastKnownTests
             registry.RegisterFromStream(DirectorId, Machine, "soren", "1.0", 4242, DateTime.UtcNow, TenantId.Local);
 
             GatewayEndpoints.Map(
-                app,
+                app, false,
                 registry,
                 version: "test",
                 token: "test-token",
@@ -402,7 +402,7 @@ public sealed class RosterServesLastKnownTests
                 // it gets the REAL self-host boundary: built over the SingleTenantContext, it always
                 // resolves Local - behaviour identical to the null it used to state.
                 tenantBoundary: new CcDirector.Gateway.Tenancy.HostedTenantBoundary(
-                    new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry()),
+                    new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: false),
                 owners: owners,
                 pushedSessions: store,
                 streamStaleAfter: StaleAfter,

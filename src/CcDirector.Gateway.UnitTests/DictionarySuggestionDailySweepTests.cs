@@ -95,7 +95,7 @@ public sealed class DictionarySuggestionDailySweepTests
         using var h = new GatewayDbTestHarness();
         var ctx = new SingleTenantContext();
         var registry = new TenantRegistry(h.Open(ctx));
-        var boundary = new HostedTenantBoundary(ctx, new DeviceRegistry());
+        var boundary = new HostedTenantBoundary(ctx, new DeviceRegistry(), hosted: false);
 
         var transcripts = new TranscriptStore(h.Open(ctx));
         var scans = new DictionarySuggestionScanStore(h.Open(ctx));

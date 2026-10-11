@@ -37,7 +37,10 @@ internal static class DeviceCookieEndpoint
 
     /// <summary>Maps <c>POST</c> (adopt) and <c>DELETE</c> (drop) on <c>/account/device-cookie</c>.</summary>
     /// <param name="app">The route builder.</param>
-    public static void Map(IEndpointRouteBuilder app)
+    /// <param name="app">The route builder.</param>
+    /// <param name="hosted">The owning host's deployment signal (<see cref="GatewayHost.Hosted"/>), which the cookie
+    /// writer needs for the Secure flag. REQUIRED - see <see cref="GatewayHostOptions"/>.</param>
+    public static void Map(IEndpointRouteBuilder app, bool hosted)
     {
         // ADOPT. Called by a browser right after it makes another enrolled account active, so the cookie
         // channel follows the Bearer instead of lagging on the previous account.
@@ -57,7 +60,7 @@ internal static class DeviceCookieEndpoint
                     statusCode: StatusCodes.Status401Unauthorized);
             }
 
-            GatewayTokenCookie.Set(ctx, credential);
+            GatewayTokenCookie.Set(ctx, credential, hosted);
             FileLog.Write("[DeviceCookieEndpoint] POST /account/device-cookie: cookie moved onto the calling credential");
             return Results.NoContent();
         });
@@ -66,7 +69,7 @@ internal static class DeviceCookieEndpoint
         // authenticated to be accepted, so the order matters and is the client's responsibility.
         app.MapDelete(Path, (HttpContext ctx) =>
         {
-            GatewayTokenCookie.Delete(ctx);
+            GatewayTokenCookie.Delete(ctx, hosted);
             FileLog.Write("[DeviceCookieEndpoint] DELETE /account/device-cookie: cookie cleared");
             return Results.NoContent();
         });

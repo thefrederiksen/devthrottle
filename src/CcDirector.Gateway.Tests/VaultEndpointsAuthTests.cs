@@ -61,12 +61,13 @@ public sealed class VaultEndpointsAuthTests
 
         var requireToken = new AuthMiddleware.RequireToken
         {
+            Hosted = false,
             Token = GatewayToken,
             Devices = new DeviceRegistry(Path.Combine(Path.GetTempPath(), "cc-vault-auth-devices-" + Guid.NewGuid().ToString("N") + ".json")),
         };
         app.Use(async (ctx, next) => await AuthMiddleware.Run(ctx, requireToken, next));
 
-        VaultEndpoints.Map(app, vault);
+        VaultEndpoints.Map(app, false, vault);
         await app.StartAsync();
 
         var http = new HttpClient { BaseAddress = new Uri(app.Urls.First()) };

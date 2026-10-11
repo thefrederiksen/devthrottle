@@ -45,7 +45,7 @@ public sealed class HostedTenancyActivationTests : IDisposable
     {
         var ambient = new AsyncLocalTenantContext();
         var devices = _harness.OpenDevices();
-        var boundary = new HostedTenantBoundary(ambient, devices);
+        var boundary = new HostedTenantBoundary(ambient, devices, hosted: false);
         Assert.True(boundary.IsHosted);
 
         var keyA = devices.Register("dev-a", "MA").DeviceKey;
@@ -59,7 +59,7 @@ public sealed class HostedTenancyActivationTests : IDisposable
     {
         var ambient = new AsyncLocalTenantContext();
         var devices = _harness.OpenDevices();
-        var boundary = new HostedTenantBoundary(ambient, devices);
+        var boundary = new HostedTenantBoundary(ambient, devices, hosted: false);
 
         // A registered-but-unbound device (e.g. a self-host-shaped enrollment) has no tenant -> a DENY, never
         // a fall-back to local or SYSTEM.
@@ -75,7 +75,7 @@ public sealed class HostedTenancyActivationTests : IDisposable
     {
         // Self-host: the context is the SingleTenantContext, so the boundary is inert and resolves Local.
         var devices = _harness.OpenDevices();
-        var boundary = new HostedTenantBoundary(new SingleTenantContext(), devices);
+        var boundary = new HostedTenantBoundary(new SingleTenantContext(), devices, hosted: false);
 
         Assert.False(boundary.IsHosted);
         Assert.True(boundary.ResolveForDeviceKey("anything")!.Value.IsLocal);
@@ -90,7 +90,7 @@ public sealed class HostedTenancyActivationTests : IDisposable
         var db = _harness.Open(ambient);
         var tenants = new TenantRegistry(db);
         var devices = _harness.OpenDevices();
-        var boundary = new HostedTenantBoundary(ambient, devices);
+        var boundary = new HostedTenantBoundary(ambient, devices, hosted: false);
 
         // Two accounts enroll: two subjects -> two DISTINCT tenant ids -> two devices, each bound to its tenant.
         var tenantA = tenants.MintOrLookupBySubject("sub-alice", "alice@example.com");
@@ -152,7 +152,7 @@ public sealed class HostedTenancyActivationTests : IDisposable
     {
         var ambient = new AsyncLocalTenantContext();
         var devices = _harness.OpenDevices();
-        var boundary = new HostedTenantBoundary(ambient, devices);
+        var boundary = new HostedTenantBoundary(ambient, devices, hosted: false);
         var store = new PushedSessionStore(() => DateTime.UtcNow);
 
         var tenantA = new TenantId(Guid.NewGuid().ToString());
@@ -182,7 +182,7 @@ public sealed class HostedTenancyActivationTests : IDisposable
     {
         var ambient = new AsyncLocalTenantContext();
         var devices = _harness.OpenDevices();
-        var boundary = new HostedTenantBoundary(ambient, devices);
+        var boundary = new HostedTenantBoundary(ambient, devices, hosted: false);
         var store = new PushedSessionStore(() => DateTime.UtcNow);
 
         // An authenticated device key with NO tenant binding must be denied (deny-by-default), not defaulted.

@@ -151,7 +151,7 @@ public sealed class NoRedFrameBeforeTheWingmanReadsTests : IDisposable
     };
 
     private static CcDirector.Gateway.Tenancy.HostedTenantBoundary SelfHostBoundary() =>
-        new(new SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry());
+        new(new SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: false);
 
     // ================================================================= the four the plan names
 

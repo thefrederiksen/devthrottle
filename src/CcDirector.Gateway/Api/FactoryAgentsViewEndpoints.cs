@@ -79,7 +79,7 @@ internal static class FactoryAgentsViewEndpoints
     /// gate test the routes use, so the Factories pages show the area exactly when the routes answer, and say how to
     /// start (<see cref="HowToStart"/>) when they do not.
     /// </summary>
-    public static void MapSwitch(IEndpointRouteBuilder app, Factory.FactoryAgentsSwitch factorySwitch,
+    public static void MapSwitch(IEndpointRouteBuilder app, bool hosted, Factory.FactoryAgentsSwitch factorySwitch,
         Func<HttpContext, TenantId?> resolveTenant)
     {
         ArgumentNullException.ThrowIfNull(factorySwitch);
@@ -88,7 +88,7 @@ internal static class FactoryAgentsViewEndpoints
         {
             var enabled = FactoryAgentsGate.IsOnFor(ctx, factorySwitch, resolveTenant, out var why);
             FileLog.Write($"[FactoryAgentsViewEndpoints] GET switch: enabled={enabled} ({why})");
-            return Results.Json(new FactoryAgentsSwitchDto { Enabled = enabled, HowToStart = HowToStart(enabled, GatewayHostedMode.IsHosted) });
+            return Results.Json(new FactoryAgentsSwitchDto { Enabled = enabled, HowToStart = HowToStart(enabled, hosted) });
         });
         FileLog.Write($"[FactoryAgentsViewEndpoints] mapped {Prefix}/switch (machine switch={(factorySwitch.MachineWide ? "on" : "off")}, per account otherwise)");
     }

@@ -33,7 +33,7 @@ public sealed class SessionKeyAuthTests : IDisposable
     private SessionKeyRegistry Registry() => new(_harness.Open());
 
     private AuthMiddleware.RequireToken Config(SessionKeyRegistry sessions)
-        => new() { Token = SharedToken, Devices = null, Sessions = sessions };
+        => new() { Hosted = false, Token = SharedToken, Devices = null, Sessions = sessions };
 
     private static HttpContext Request(string method, string path, string? bearer = null)
     {
@@ -191,7 +191,7 @@ public sealed class SessionKeyAuthTests : IDisposable
         var ctx = Request("GET", "/sessions", key);
 
         var (continued, _) = await RunAsync(
-            ctx, new AuthMiddleware.RequireToken { Token = SharedToken, Devices = null, Sessions = null });
+            ctx, new AuthMiddleware.RequireToken { Hosted = false, Token = SharedToken, Devices = null, Sessions = null });
 
         Assert.False(continued);
         Assert.Equal(StatusCodes.Status401Unauthorized, ctx.Response.StatusCode);
@@ -207,7 +207,7 @@ public sealed class SessionKeyAuthTests : IDisposable
         var (_, _, key) = LiveSession();
         var ctx = Request("GET", "/sessions", key);
 
-        Assert.False(AuthMiddleware.HasValidToken(ctx, SharedToken, devices: null));
+        Assert.False(AuthMiddleware.HasValidToken(ctx, SharedToken, devices: null, rejectSharedToken: false));
     }
 
     [Fact]

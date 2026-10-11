@@ -77,7 +77,7 @@ internal static class AdminTrialEndpoint
         [property: JsonPropertyName("reason")] string? Reason,
         [property: JsonPropertyName("member_email")] string? MemberEmail);
 
-    public static void Map(IEndpointRouteBuilder app, TrialRegistry trials, Func<DateTime>? nowUtc = null)
+    public static void Map(IEndpointRouteBuilder app, bool hosted, TrialRegistry trials, Func<DateTime>? nowUtc = null)
     {
         ArgumentNullException.ThrowIfNull(trials);
         var clock = nowUtc ?? (() => DateTime.UtcNow);
@@ -110,7 +110,7 @@ internal static class AdminTrialEndpoint
                     return Results.BadRequest(new { error = "the request body is not readable JSON" });
                 }
 
-                return Handle(ctx, body, trials, clock());
+                return Handle(ctx, body, trials, clock(), hosted);
             }
             catch (Exception ex)
             {
@@ -140,13 +140,13 @@ internal static class AdminTrialEndpoint
 
     /// <summary>Internal (not private) so the authorization and every refusal can be unit-tested directly
     /// through InternalsVisibleTo, without standing a Kestrel host up per case.</summary>
-    internal static IResult Handle(HttpContext ctx, ExtendRequest? body, TrialRegistry trials, DateTime now)
+    internal static IResult Handle(HttpContext ctx, ExtendRequest? body, TrialRegistry trials, DateTime now, bool hosted)
     {
         if (ServiceTokenDenial(ctx) is { } denial) return denial;
 
         // SELF-HOST REFUSES, and it refuses AFTER the token check so an unauthenticated caller cannot use the
         // difference in replies to learn which mode an install is running in.
-        if (!GatewayHostedMode.IsHosted)
+        if (!hosted)
         {
             FileLog.Write("[AdminTrialEndpoint] DENIED: this is a self-hosted Gateway - a trial belongs to an account on the hosted Gateway");
             return Results.Json(

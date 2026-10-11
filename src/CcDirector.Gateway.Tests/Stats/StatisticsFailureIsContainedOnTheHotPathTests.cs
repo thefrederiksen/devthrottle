@@ -288,7 +288,7 @@ public sealed class StatisticsFailureIsContainedOnTheHotPathTests : IDisposable
         var ctx = new FakeHubCallerContext("conn-hub");
         var hub = new DirectorHub(gateway.PushedSessions, gateway.Registry, gateway.InputStatsHandle,
             new GatewayStreamRegistry(),
-            new HostedTenantBoundary(new SingleTenantContext(), new DeviceRegistry())) { Context = ctx };
+            new HostedTenantBoundary(new SingleTenantContext(), new DeviceRegistry(), hosted: false)) { Context = ctx };
 
         hub.Hello(new DirectorStreamHello { DirectorId = DirectorId, Version = "test" });
         // A push first, so the session HAS a high-water row. Forget on a session the store never recorded
@@ -339,7 +339,7 @@ public sealed class StatisticsFailureIsContainedOnTheHotPathTests : IDisposable
         var ctx = new FakeHubCallerContext("conn-push");
         var hub = new DirectorHub(gateway.PushedSessions, gateway.Registry, gateway.InputStatsHandle,
             new GatewayStreamRegistry(),
-            new HostedTenantBoundary(new SingleTenantContext(), new DeviceRegistry())) { Context = ctx };
+            new HostedTenantBoundary(new SingleTenantContext(), new DeviceRegistry(), hosted: false)) { Context = ctx };
 
         hub.Hello(new DirectorStreamHello { DirectorId = DirectorId, Version = "test" });
         hub.PushDelta(1, SessionWithATally("s-push", turns: 2));

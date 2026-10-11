@@ -56,7 +56,7 @@ internal static class AccountLogoutEndpoint
     /// Gateway does NOT fall back to the self-host answer - the hosted path fails closed. Ignored off hosted.
     /// </param>
     /// <param name="tenants">The tenant registry, read on hosted for the caller's display email.</param>
-    public static void Map(IEndpointRouteBuilder app, DevThrottleAccountService? account,
+    public static void Map(IEndpointRouteBuilder app, bool hosted, DevThrottleAccountService? account,
         // REQUIRED AND NON-NULLABLE (finding I1-01), and moved AHEAD of the optional hook so it cannot sit
         // in a defaulted tail: a forgotten boundary must be a compile error, never a silent default.
         // Self-host callers construct it over the SingleTenantContext.
@@ -69,10 +69,10 @@ internal static class AccountLogoutEndpoint
             // signedIn=false claims an action that did not happen. Ruled on once in the fold and rendered
             // verbatim; gated on hosted MODE, not on the boundary argument, so a hosted Gateway can never
             // silently take the self-host path.
-            if (GatewayHostedMode.IsHosted)
+            if (hosted)
             {
                 var hostedVerdict = await AccountActingCredential
-                    .ResolveAsync(AccountOperations.Logout, ctx, account, tenantBoundary, tenants, ctx.RequestAborted)
+                    .ResolveAsync(AccountOperations.Logout, ctx, hosted, account, tenantBoundary, tenants, ctx.RequestAborted)
                     .ConfigureAwait(false);
                 FileLog.Write($"[AccountLogoutEndpoint] POST /account/logout (hosted): refusing ({hostedVerdict.State}) -> {hostedVerdict.StatusCode}; nothing was cleared and nothing is claimed to have been");
                 return Results.Json(new { error = hostedVerdict.Message }, statusCode: hostedVerdict.StatusCode);

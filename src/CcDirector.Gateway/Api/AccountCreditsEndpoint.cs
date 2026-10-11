@@ -55,7 +55,7 @@ internal static class AccountCreditsEndpoint
     /// answer - the hosted path fails closed. Ignored off hosted mode.
     /// </param>
     /// <param name="tenants">The tenant registry, read on hosted for the caller's display email.</param>
-    public static void Map(IEndpointRouteBuilder app, DevThrottleAccountService? account, AccountCreditsClient credits,
+    public static void Map(IEndpointRouteBuilder app, bool hosted, DevThrottleAccountService? account, AccountCreditsClient credits,
         // REQUIRED AND NON-NULLABLE (finding I1-01): a forgotten boundary must be a compile error, never a
         // silent default. Self-host callers construct it over the SingleTenantContext.
         Tenancy.HostedTenantBoundary tenantBoundary, Tenancy.TenantRegistry? tenants = null)
@@ -68,7 +68,7 @@ internal static class AccountCreditsEndpoint
             // state this request is in is ruled on once, in the fold, and rendered verbatim - this route
             // does not decide for itself what an absent token means (issue #984).
             var verdict = await AccountActingCredential
-                .ResolveAsync(AccountOperations.Credits, ctx, account, tenantBoundary, tenants, ctx.RequestAborted)
+                .ResolveAsync(AccountOperations.Credits, ctx, hosted, account, tenantBoundary, tenants, ctx.RequestAborted)
                 .ConfigureAwait(false);
 
             if (!verdict.IsReady)

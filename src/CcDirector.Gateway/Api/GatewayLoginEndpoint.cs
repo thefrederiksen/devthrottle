@@ -18,8 +18,8 @@ namespace CcDirector.Gateway.Api;
 /// bind-broken on hosted: both <c>GET /login</c> (the form) and <c>POST /login</c> (the mint) return 404,
 /// exactly as if the route did not exist, so per-device enrollment is the only way in. Self-host is unchanged:
 /// single-owner, the shared token remains its credential, and <c>/login</c> stays the reachable break-glass.
-/// <see cref="GatewayHostedMode.IsHosted"/> is fixed at startup (<see cref="HostedStartupContract"/>), so the
-/// hosted/self-host branch is stable for the process lifetime.
+/// The mode is fixed at startup (<see cref="HostedStartupContract"/>; read once into <c>GatewayHostOptions</c>
+/// and passed to <see cref="Map"/>), so the hosted/self-host branch is stable for the process lifetime.
 /// </summary>
 internal static class GatewayLoginEndpoint
 {
@@ -30,11 +30,11 @@ internal static class GatewayLoginEndpoint
     /// Map the login/logout routes. <paramref name="token"/> is the shared machine token the self-host form
     /// checks against and mirrors into the cookie.
     /// </summary>
-    public static void Map(IEndpointRouteBuilder app, string token)
+    public static void Map(IEndpointRouteBuilder app, bool hosted, string token)
     {
         app.MapGet(Path, (HttpContext ctx) =>
         {
-            if (GatewayHostedMode.IsHosted)
+            if (hosted)
                 return Results.NotFound();
 
             var next = ctx.Request.Query["next"].ToString();
@@ -47,7 +47,7 @@ internal static class GatewayLoginEndpoint
 
         app.MapPost(Path, async (HttpContext ctx) =>
         {
-            if (GatewayHostedMode.IsHosted)
+            if (hosted)
             {
                 // Bind-break the shared-token mint on hosted: no cookie is ever written here.
                 ctx.Response.StatusCode = StatusCodes.Status404NotFound;
@@ -73,7 +73,7 @@ internal static class GatewayLoginEndpoint
             // MH-2: route the cookie write through the single GatewayTokenCookie helper so /login can never
             // write a non-Secure cookie - it sets HttpOnly/SameSite and Secure=IsHosted consistently with
             // every other credential-cookie write. (Self-host only, so Secure is off here as before.)
-            GatewayTokenCookie.Set(ctx, token);
+            GatewayTokenCookie.Set(ctx, token, hosted);
             ctx.Response.Redirect(IsSafeRedirect(next) ? next : "/");
         });
 
@@ -82,7 +82,7 @@ internal static class GatewayLoginEndpoint
             // MH-2: clear the cookie through the single GatewayTokenCookie helper so the expiring Set-Cookie
             // carries the same options as the write - including Secure=IsHosted - and no response-cookie mutation
             // escapes the centralized policy. A bare Cookies.Delete() would emit a default (non-Secure) header.
-            GatewayTokenCookie.Delete(ctx);
+            GatewayTokenCookie.Delete(ctx, hosted);
             return Results.Redirect(Path);
         });
     }

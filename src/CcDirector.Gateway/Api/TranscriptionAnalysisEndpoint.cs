@@ -40,15 +40,16 @@ internal static class TranscriptionAnalysisEndpoint
 
     public static void Map(
         IEndpointRouteBuilder outer,
+        bool hosted,
         // REQUIRED AND NON-NULLABLE (finding I1-01): a forgotten boundary must be a compile error, never a
         // silent default. Self-host callers construct it over the SingleTenantContext.
         Tenancy.HostedTenantBoundary tenantBoundary,
         TranscriptionHistoryReader? reader = null,
         TranscriptionAudioArchive? audioArchive = null)
     {
-        FileLog.Write($"[TranscriptionAnalysisEndpoint] mapping {Prefix} history PER-TENANT (issue #2059); hosted={GatewayHostedMode.IsHosted} - each route resolves the caller's tenant, 403 when unresolved");
+        FileLog.Write($"[TranscriptionAnalysisEndpoint] mapping {Prefix} history PER-TENANT (issue #2059); hosted={hosted} - each route resolves the caller's tenant, 403 when unresolved");
         var app = outer.MapGroup(Prefix);
-        MapRoutes(app, tenantBoundary, reader, audioArchive);
+        MapRoutes(app, hosted, tenantBoundary, reader, audioArchive);
     }
 
     // The reader/audio for the CALLER's tenant. A test-supplied reader (self-host fixtures) is used verbatim;
@@ -56,11 +57,12 @@ internal static class TranscriptionAnalysisEndpoint
     private static TranscriptionHistoryReader ReaderFor(TenantId tenant, TranscriptionHistoryReader? overrideReader)
         => overrideReader ?? new TranscriptionHistoryReader(TranscriptionHistoryLog.DirectoryFor(tenant));
 
-    private static TranscriptionAudioArchive AudioFor(TenantId tenant, TranscriptionAudioArchive? overrideArchive)
-        => overrideArchive ?? new TranscriptionAudioArchive(TranscriptionAudioArchive.DirectoryFor(tenant));
+    private static TranscriptionAudioArchive AudioFor(bool hosted, TenantId tenant, TranscriptionAudioArchive? overrideArchive)
+        => overrideArchive ?? new TranscriptionAudioArchive(hosted, TranscriptionAudioArchive.DirectoryFor(tenant));
 
     private static void MapRoutes(
         IEndpointRouteBuilder app,
+        bool hosted,
         Tenancy.HostedTenantBoundary tenantBoundary,
         TranscriptionHistoryReader? reader,
         TranscriptionAudioArchive? audioArchive)
@@ -95,7 +97,7 @@ internal static class TranscriptionAnalysisEndpoint
             return Results.Json(new
             {
                 removedFiles = ReaderFor(t.Value, reader).Clear(),
-                removedAudioClips = AudioFor(t.Value, audioArchive).Clear(),
+                removedAudioClips = AudioFor(hosted, t.Value, audioArchive).Clear(),
             });
         });
     }

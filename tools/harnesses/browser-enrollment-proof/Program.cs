@@ -73,7 +73,8 @@ var shutdownRequested = new TaskCompletionSource();
 // An HS256 test token (the GatewayTestJwt shape) signed with the secret above, so the Gateway is
 // genuinely signed in and the enroll verify carries a real Bearer to the fixture cloud.
 var accessToken = MintHs256Jwt(SigningSecret, subject: "proof-account-1088", expiresAtUtc: DateTime.UtcNow.AddHours(8));
-var account = GatewayAccountFactory.Build(new InMemoryTokenStore());
+// A self-host proof: the harness runs the enrollment against a self-host Gateway, so the validator keeps HS256.
+var account = GatewayAccountFactory.Build(new InMemoryTokenStore(), hosted: false);
 account.StoreTokens(new DevThrottleTokens(accessToken, "proof-refresh-1088"));
 
 // ---- Stage the built React Cockpit into this host's web root ------------------------------------
