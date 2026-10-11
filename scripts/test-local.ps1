@@ -350,7 +350,6 @@ $runRecord = [ordered]@{
 # from real runs instead of from one measurement.
 $tempUsage = @{}
 $running = $null
-$targetedRuns = @()
 
 # Deletes a folder tree and returns how many items are left in it (0: it is gone). rd with the \\?\ prefix,
 # because Remove-Item in Windows PowerShell 5.1 fails on paths over 260 characters and tests do build
@@ -366,38 +365,35 @@ function Remove-FolderTree([string] $Path) {
     return [Math]::Max(1, @(Get-ChildItem -LiteralPath $Path -Recurse -Force -ErrorAction SilentlyContinue).Count)
 }
 
-# Measures what a folder holds. This is a MEASUREMENT for run.json, never part of the verdict, so a
-# folder it cannot read is reported in the measurement ("error") instead of ending the run: under
-# "Stop" a throw here would skip Stop-Gate's records and exit code entirely. It walks with the \\?\
-# prefix (deep paths) and does not follow junctions or symbolic links, which tests create and which
-# can be broken or loop.
+# Measures what a folder holds. This is a MEASUREMENT for run.json, never part of the verdict, so it
+# must not throw: under "Stop" a throw here would skip Stop-Gate's records and exit code entirely. Windows
+# PowerShell 5.1 refuses the \\?\ long-path prefix in System.IO ("Illegal characters in path"), so a
+# folder too deep to read - or a junction a test left broken, or one deleted mid-walk - is COUNTED as
+# unreadable, never silently treated as empty. Junctions and symbolic links are not followed.
 function Measure-FolderTree([string] $Path) {
-    $files = 0; $bytes = [long] 0; $problem = $null
-    try {
-        $rootPath = $Path
-        if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) { $rootPath = "\\?\" + $Path }
-        $stack = New-Object System.Collections.Stack
-        $stack.Push((New-Object System.IO.DirectoryInfo $rootPath))
-        while ($stack.Count -gt 0) {
-            $d = $stack.Pop()
+    $files = 0; $bytes = [long] 0; $unreadable = 0
+    $stack = New-Object System.Collections.Stack
+    $stack.Push($Path)
+    while ($stack.Count -gt 0) {
+        $dirPath = [string] $stack.Pop()
+        try {
+            $d = New-Object System.IO.DirectoryInfo $dirPath
             foreach ($f in $d.GetFiles()) { $files++; $bytes += $f.Length }
             foreach ($sub in $d.GetDirectories()) {
-                if (($sub.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) { $stack.Push($sub) }
+                if (($sub.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) { $stack.Push($sub.FullName) }
             }
+        } catch {
+            $unreadable++
         }
-    } catch {
-        $problem = "could not measure all of it: " + $_.Exception.Message
     }
-    $m = [ordered]@{ files = $files; bytes = $bytes; megabytes = [Math]::Round($bytes / 1MB, 1) }
-    if ($null -ne $problem) { $m.error = $problem }
-    return $m
+    return [ordered]@{ files = $files; bytes = $bytes; megabytes = [Math]::Round($bytes / 1MB, 1); unreadableFolders = $unreadable }
 }
 
 # Ends every test process this run started that is still alive, with its whole tree. Only reached when
 # the run is stopped before its verdict (Ctrl+C, an exception): deleting the temporary folders under a
 # live test host would pull files out from under it. Only processes THIS run started are touched.
 function Stop-RunProcesses {
-    foreach ($r in @(@($running) + @($targetedRuns))) {
+    foreach ($r in @($running)) {
         if ($null -eq $r -or $null -eq $r.Process -or $r.Process.HasExited) { continue }
         if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
             & $env:ComSpec /d /c "taskkill /T /F /PID $($r.Process.Id) >nul 2>&1"
@@ -416,14 +412,8 @@ function Remove-RunTemp {
     foreach ($dir in @(Get-ChildItem -LiteralPath $tempRoot -Directory)) {
         $m = Measure-FolderTree $dir.FullName
         $suite = $dir.Name
-        $match = @(@($running) + @($targetedRuns) | Where-Object { $null -ne $_ -and $_.TempName -eq $dir.Name })
+        $match = @(@($running) | Where-Object { $null -ne $_ -and $_.TempName -eq $dir.Name })
         if ($match.Count -eq 1) { $suite = $match[0].Name }
-        # A targeted run starts one suite several times; its passes add up under the one suite name.
-        if ($tempUsage.Contains($suite)) {
-            $m.files += $tempUsage[$suite].files
-            $m.bytes += [long] ($tempUsage[$suite].bytes)
-            $m.megabytes = [Math]::Round($m.bytes / 1MB, 1)
-        }
         $tempUsage[$suite] = $m
     }
     $left = Remove-FolderTree $tempRoot
@@ -433,9 +423,13 @@ function Remove-RunTemp {
         Write-Host "  A process this run started is still alive and holding a file. Find it (a testhost or dotnet process"
         Write-Host "  whose working files are under that folder), end it, and delete the folder by hand."
     } else {
-        $total = 0.0
-        foreach ($v in $tempUsage.Values) { $total += $v.megabytes }
-        Write-Host ("Temporary folders deleted: the test processes had left {0} MB in them." -f [Math]::Round($total, 1))
+        $total = 0.0; $unreadable = 0
+        foreach ($v in $tempUsage.Values) { $total += $v.megabytes; $unreadable += $v.unreadableFolders }
+        if ($unreadable -gt 0) {
+            Write-Host ("Temporary folders deleted: the test processes had left at least {0} MB in them; {1} folder(s) were too deep or broken to measure." -f [Math]::Round($total, 1), $unreadable)
+        } else {
+            Write-Host ("Temporary folders deleted: the test processes had left {0} MB in them." -f [Math]::Round($total, 1))
+        }
     }
 }
 
@@ -1096,18 +1090,23 @@ try {
     Write-Host "Logs kept in $logDir"
     Stop-Gate 1 "FAILED"
 } finally {
-    # Released here on EVERY path - a normal end, every exit code above, an exception, Ctrl+C. The next
-    # run on this machine is refused only while a live process holds the handle, so the handle must not
-    # outlive the run.
-    if ($null -ne $gateLock) { Exit-GateLock $gateLock }
-    # A run that ends by exception or Ctrl+C never reached Stop-Gate, and its run.json would say RUNNING
-    # forever - exactly the shape a reader mistakes for a live run. Stamp it as stopped without a verdict.
-    if ($null -eq $runRecord.exitCode) {
-        Stop-RunProcesses
-        Remove-RunTemp
-        $runRecord.verdict = "STOPPED BEFORE A VERDICT"
-        $runRecord.finishedUtc = (Get-Date).ToUniversalTime().ToString("o")
-        Write-RunRecord
-        Write-RunsLog
+    try {
+        # A run that ends by exception or Ctrl+C never reached Stop-Gate, and its run.json would say RUNNING
+        # forever - exactly the shape a reader mistakes for a live run. Stamp it as stopped without a verdict,
+        # after ending the test processes it started, so nothing is deleted from under a live test host.
+        if ($null -eq $runRecord.exitCode) {
+            Stop-RunProcesses
+            Remove-RunTemp
+            $runRecord.verdict = "STOPPED BEFORE A VERDICT"
+            $runRecord.finishedUtc = (Get-Date).ToUniversalTime().ToString("o")
+            Write-RunRecord
+            Write-RunsLog
+        }
+    } finally {
+        # Released here on EVERY path - a normal end, every exit code above, an exception, Ctrl+C - and
+        # LAST, after this run's processes are ended and its folders deleted, so a second gate cannot start
+        # while this one's test hosts are still being stopped. The next run on this machine is refused only
+        # while a live process holds the handle, so the handle must not outlive the run.
+        if ($null -ne $gateLock) { Exit-GateLock $gateLock }
     }
 }
