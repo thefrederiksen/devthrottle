@@ -71,6 +71,7 @@ from cc_shared import gateway  # noqa: E402
 from cc_shared import axi_output  # noqa: E402
 from . import axi_cli  # noqa: E402
 from . import usage_errors  # noqa: E402
+from . import secret_guard  # noqa: E402
 
 from .repo_ops import is_windows_path, matches_repo  # noqa: E402
 
@@ -1750,6 +1751,8 @@ def send_message(
             "--reply-wanted asks one session for a reply, so it needs one session id, not 'all'. "
             'Send the question to each worker with cc-devthrottle message send <session-id> "<message>" --reply-wanted.',
         )
+    # Last of the checks, so a message refused for a plainer reason is never handed to cc-secrets at all.
+    secret_guard.refuse_if_it_carries_a_secret(message, "message")
 
     if is_broadcast:
         # No sender field: the Gateway takes it from the session key that authenticated the call, so
@@ -1816,6 +1819,7 @@ def send_reply(reply_id: str, text: str) -> None:
             "the reply is blank. "
             'Pass the answer: cc-devthrottle message reply <correlation-id> "<answer>"',
         )
+    secret_guard.refuse_if_it_carries_a_secret(text, "reply")
     try:
         resp = gateway.post_json("fleet/reply", {"id": reply_id.strip(), "text": text})
     except gateway.GatewayError as err:

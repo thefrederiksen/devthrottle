@@ -480,3 +480,33 @@ def test_AcceptedList_WithAMalformedTime_IsARefusalWithTheReason_NotACrash(two):
 
         with pytest.raises(transfer.TransferRefused, match="cannot be read"):
             transfer._accepted(datetime.now(timezone.utc))
+
+
+# --- The guardrail (phase 6) ---------------------------------------------------------------------------------------
+
+def test_CheckText_SaysYesForAStoredSecret_AndNeverWhichEntry(two):
+    with on(two["north"], two["mp"]):
+        found = runner.invoke(cli.app, ["check-text"], input=f"here it is: {SECRET} ok")
+        clean = runner.invoke(cli.app, ["check-text"], input="nothing secret in here")
+
+    assert (found.exit_code, clean.exit_code) == (0, 0)
+    assert json.loads(found.stdout) == {"containsSecret": True}
+    assert json.loads(clean.stdout) == {"containsSecret": False}
+    assert "qa-handoff-one" not in found.output and SECRET not in found.output
+
+
+def test_Send_AReasonCarryingAStoredValue_IsRefusedBeforeAsking(gateway):
+    result = runner.invoke(cli.app, ["send", "qa-handoff-one", "--to", "devthrottle-mac-mini", "--reason",
+                                     f"use {SECRET} there"])
+
+    assert result.exit_code == cli.EXIT_REFUSED
+    assert gateway["posted"] == []
+    assert SECRET not in result.output
+
+
+def test_Request_OwnerWordsCarryingAStoredValue_AreRefused(gateway):
+    result = runner.invoke(cli.app, ["request", "qa-handoff-one", "--from", "devthrottle-mac-mini", "--reason", "r",
+                                     "--owner-approved", f"yes {SECRET}"])
+
+    assert result.exit_code == cli.EXIT_REFUSED
+    assert gateway["posted"] == []

@@ -105,6 +105,8 @@ cc-secrets list
 cc-secrets run devlinux -- sudo -S apt-get update
 cc-secrets login github-work --browser center-consulting
 cc-secrets log
+cc-secrets request github-token --from SOREN_NORTH --reason "push the tag"   # get it from another machine; you approve
+cc-secrets send github-token --to devthrottle-mac-mini                       # or send it, typing yes
 ```
 
 - `ui` opens the cc-secrets window (on Windows also from the Start menu, after `cc-secrets shortcut`): every entry with a search box, Add / Edit / Delete, settings shown in full and each secret behind an eye that shows it until you click it again. There is no Copy button. Every reveal is written to the audit log. A session may open the window to put it in front of you; only a click on the eye shows a secret.
@@ -112,6 +114,7 @@ cc-secrets log
 - `add`, `import`, `edit` and `remove` are for you and are refused inside a DevThrottle session unless you approved that exact command in the session's chat (`--owner-approved`). Every entry is available to your agents on the machine that holds it; what limits it is what it is used for (`run`, `login`). `add` reads the password from a hidden prompt or from a pipe, never from an argument. Git Bash cannot hide typing, so a typed password is refused there; piping works.
 - `run` supplies the password on standard input (the default), in one environment variable (`--via env`), or through an askpass helper (`--via askpass`), and returns the output with the password removed.
 - `login` fills and submits the login form in a Director-owned browser profile, only on an address the entry allows, and only inside a DevThrottle session.
+- `request` and `send` move an entry between your machines, once, with your approval. You answer wherever you are - the phone, the Cockpit, the session's badge, a pop-up from the cc-secrets window on the machine that holds it, your own terminal, or by saying yes in the agent's chat - and the first answer wins. The password is sealed for the receiving machine's own key: the Gateway passes it on without storing it, and it never appears in a transcript, log or message. Replacing an entry that is already there must be asked for. A fleet message that contains a stored password is refused.
 - `log` shows the audit log: time, entry, session, command, outcome and detail (`--json` adds the machine). Never a password.
 - The store is a plain JSON file private to your user: `%LOCALAPPDATA%\cc-director\secrets` on Windows, `~/.cc-director/secrets` on Linux. On macOS the store is not supported yet, so no entry can be added or used there.
 
