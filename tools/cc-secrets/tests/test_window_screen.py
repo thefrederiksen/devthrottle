@@ -131,7 +131,11 @@ def _open_the_list_and_report():
     """)
     tool = Path(entry_window.__file__).resolve().parent.parent
     done = subprocess.run([sys.executable, "-c", script, str(tool)], capture_output=True, text=True, timeout=60,
-                          env=dict(os.environ, CC_SECRETS_HOME=str(paths.secrets_home())))
+                          env=dict(os.environ, CC_SECRETS_HOME=str(paths.secrets_home()),
+                                   # Its own machine root: a test never reaches the live Gateway with this machine's
+                                   # real credential. Not signed in there, the list says so in its status line.
+                                   CC_DIRECTOR_ROOT=str(paths.secrets_home() / "machine-root"),
+                                   CC_GATEWAY_URL="", CC_GATEWAY_SESSION_KEY=""))
     assert done.returncode == 0, done.stderr[-2000:]
     reported = [line for line in done.stdout.splitlines() if line.startswith("PLACED ")]
     assert len(reported) == 1, done.stdout
@@ -249,7 +253,11 @@ def test_ClosingTheList_RemembersWhereItWas(store):
     """)
     tool = Path(entry_window.__file__).resolve().parent.parent
     done = subprocess.run([sys.executable, "-c", script, str(tool)], capture_output=True, text=True, timeout=60,
-                          env=dict(os.environ, CC_SECRETS_HOME=str(paths.secrets_home())))
+                          env=dict(os.environ, CC_SECRETS_HOME=str(paths.secrets_home()),
+                                   # Its own machine root: a test never reaches the live Gateway with this machine's
+                                   # real credential. Not signed in there, the list says so in its status line.
+                                   CC_DIRECTOR_ROOT=str(paths.secrets_home() / "machine-root"),
+                                   CC_GATEWAY_URL="", CC_GATEWAY_SESSION_KEY=""))
 
     assert done.returncode == 0, done.stderr[-2000:]
     moved = [line for line in done.stdout.splitlines() if line.startswith("MOVED ")]

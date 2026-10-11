@@ -67,6 +67,22 @@ def resolve() -> Link:
     return Link(credential.kind, credential.url, credential.bearer)
 
 
+def resolve_machine() -> Link:
+    """This machine's own credential, even when the process was started from inside a session: the cc-secrets window
+    is the owner's surface, so it never answers with a session's key. Refused when the machine is not signed in. The
+    session variables are never touched, so the window's worker threads can resolve at the same time."""
+    from cc_shared.tool_errors import machine_credential
+
+    try:
+        credential = machine_credential()
+    except ValueError as exc:
+        raise CcSecretsError(f"This machine's Gateway settings cannot be read: {exc}") from exc
+    if credential.kind != KIND_MACHINE or not credential.bearer:
+        raise NotSignedIn("This machine is not signed in to a Gateway, so a secret cannot be moved to or from it. "
+                          "Sign the Director on this machine in to your account first.")
+    return Link(credential.kind, credential.url, credential.bearer)
+
+
 def get(path: str, link: Optional[Link] = None) -> Any:
     from cc_shared import gateway
 

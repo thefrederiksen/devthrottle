@@ -658,7 +658,15 @@ def resolve_credential() -> Credential:
         return Credential("session", url.rstrip("/"), key)
     if url or key:
         _log("a session holds only one of CC_GATEWAY_URL and CC_GATEWAY_SESSION_KEY; using the machine's credential")
+    return machine_credential()
 
+
+def machine_credential() -> Credential:
+    """This machine's own credential from its config.json, whatever session variables the process carries; the
+    'before-sign-in' credential when the machine is not signed in. Reads nothing from the environment, so threads may
+    call it at the same time.
+
+    Raises ValueError when the machine's config.json cannot be read."""
     config = machine_root() / "config" / "config.json"
     if config.exists():
         try:
