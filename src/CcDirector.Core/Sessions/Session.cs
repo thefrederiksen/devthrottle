@@ -2295,7 +2295,7 @@ public sealed class Session : IDisposable
         // The License Switching mission, trap 4: every keystroke the Director sends a terminal session passes the
         // usage-limit guard. Only a terminal session can show Claude Code's dialog, and only its screen can be read.
         _backend = backendType == SessionBackendType.ConPty
-            ? new UsageLimitInputGuard(backend, id, UsageLimitDialogShowing)
+            ? new UsageLimitInputGuard(backend, id, UsageLimitDialogMayShow)
             : backend;
         BackendType = backendType;
         CreatedAt = createdAt ?? DateTimeOffset.UtcNow;
@@ -3020,13 +3020,15 @@ public sealed class Session : IDisposable
     }
 
     /// <summary>
-    /// Writes raw terminal input. Input with a TYPED origin is a person's own keystrokes at a terminal they are looking
-    /// at (the desktop, the Cockpit or the phone terminal view), and is the one kind that reaches Claude Code's
-    /// usage-limit dialog (<see cref="UsageLimitInputGuard"/>): that person can see it and choose.
+    /// Writes raw terminal input. Only keystrokes typed on THIS machine's own terminal (typed, on the desktop surface - the
+    /// desktop terminal control is the one sender of those) count as a person at the terminal, and are the one kind
+    /// that reaches Claude Code's usage-limit dialog (<see cref="UsageLimitInputGuard"/>). Typed input from the phone
+    /// or a Cockpit browser arrives through the Gateway as a prompt, and its sender may not be looking at the dialog at
+    /// all - it is refused like any other automatic input (review of pull request 3863, finding 1).
     /// </summary>
     private void WriteRawInput(byte[] data, InputOrigin? origin)
     {
-        if (origin is not { Modality: InputModality.Typed })
+        if (origin is not { Modality: InputModality.Typed, Surface: InputSurface.Desktop })
         {
             _backend.Write(data);
             return;
@@ -3037,26 +3039,34 @@ public sealed class Session : IDisposable
 
     /// <summary>Where the usage-limit verdict was last taken: the screen's byte count then, and what it said.</summary>
     private long _usageLimitCheckedAtBytes = -1;
+    private bool _usageLimitDialogMayShow;
     private bool _usageLimitDialogShowing;
     private bool _usageLimitEscapeSent;
 
     /// <summary>
-    /// The License Switching mission, trap 4: whether the visible screen shows Claude Code's usage-limit dialog. Read
-    /// again only when the screen has changed since the last answer, so the guard can ask on every write. False for a
-    /// session with no screen to read.
+    /// The License Switching mission, trap 4: what the visible screen says about Claude Code's usage-limit dialog -
+    /// whether it MAY be showing (the input guard blocks on this, leaning to blocking) and whether it certainly IS
+    /// (only then is Escape sent). Read again only when the screen has changed since the last answer, so the guard can
+    /// ask on every write. Both false for a session with no screen to read.
     /// </summary>
-    internal bool UsageLimitDialogShowing()
+    private (bool MayShow, bool Showing) ReadUsageLimitDialog()
     {
-        if (_screenParser is null) return false;
+        if (_screenParser is null) return (false, false);
         lock (_screenLock)
         {
-            if (_screenBytesReflected == _usageLimitCheckedAtBytes) return _usageLimitDialogShowing;
-            var (rows, _, _) = _screenParser.SnapshotActiveRows();
-            _usageLimitDialogShowing = UsageLimitDialog.IsShowing(rows);
-            _usageLimitCheckedAtBytes = _screenBytesReflected;
-            return _usageLimitDialogShowing;
+            if (_screenBytesReflected != _usageLimitCheckedAtBytes)
+            {
+                var (rows, _, _) = _screenParser.SnapshotActiveRows();
+                _usageLimitDialogShowing = UsageLimitDialog.IsShowing(rows);
+                _usageLimitDialogMayShow = _usageLimitDialogShowing || UsageLimitDialog.MayBeShowing(rows);
+                _usageLimitCheckedAtBytes = _screenBytesReflected;
+            }
+            return (_usageLimitDialogMayShow, _usageLimitDialogShowing);
         }
     }
+
+    /// <summary>Whether the usage-limit dialog may be on screen. The input guard refuses automatic input while it is.</summary>
+    internal bool UsageLimitDialogMayShow() => ReadUsageLimitDialog().MayShow;
 
     /// <summary>
     /// The License Switching mission, trap 4: when the usage-limit dialog shows, send it Escape - once for each time it
@@ -3065,7 +3075,7 @@ public sealed class Session : IDisposable
     /// </summary>
     internal bool EscapeUsageLimitDialogIfShowing()
     {
-        if (!UsageLimitDialogShowing())
+        if (!ReadUsageLimitDialog().Showing)
         {
             _usageLimitEscapeSent = false;
             return false;

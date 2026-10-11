@@ -14,8 +14,11 @@ namespace CcDirector.Core.Sessions;
 /// every one of those shapes, in the dialog's own SHAPE:
 ///
 ///   - the cancel hint, "Esc to cancel", in the lower half of the screen, where Claude Code draws an open menu; and
-///   - the numbered first option, "1. Stop and wait for limit to reset", on that row or at most
-///     <see cref="OptionRowsAboveHint"/> rows above it.
+///   - the numbered first option, "1. Stop and wait for limit to reset", before it and at most
+///     <see cref="OptionRowsAboveHint"/> rows above it, read across row breaks.
+///
+/// That is the CERTAIN check, and the only one the Director answers with Escape. The input guard blocks on a wider
+/// one, <see cref="MayBeShowing"/>, so a dialog drawn in a shape nobody has captured yet still gets no keystroke.
 ///
 /// The shape is what keeps a session that merely SHOWS these words - an agent reading this file, or quoting the
 /// dialog in a report - from being taken for one stuck in it: there the words are not a numbered option sitting on top
@@ -27,25 +30,61 @@ namespace CcDirector.Core.Sessions;
 /// </summary>
 public static class UsageLimitDialog
 {
-    /// <summary>How far above the cancel hint the first option may be. The real screens measured 0 to 3.</summary>
+    /// <summary>How far above the cancel hint the first option may start. The real screens measured 0 to 3.</summary>
     public const int OptionRowsAboveHint = 6;
 
     private const string CancelHint = "esctocancel";
+    private const string ConfirmHint = "entertoconfirm";
     private const string FirstOption = "1stopandwaitforlimittoreset";
 
-    /// <summary>True when the visible screen shows the usage-limit dialog open and waiting.</summary>
+    /// <summary>
+    /// Words that belong to a usage limit. Any one of them inside an open menu at the bottom of the screen is enough
+    /// for <see cref="MayBeShowing"/>: a reworded option, a reordered menu or a half-drawn one still carries several.
+    /// </summary>
+    private static readonly string[] LimitWords =
+    {
+        "stopandwait", "limittoreset", "usagecredits", "extrausage", "addfunds", "ratelimitoptions",
+        "spendlimit", "sessionlimit", "weeklylimit", "usagelimit", "hityourlimit",
+    };
+
+    /// <summary>
+    /// True when the screen CERTAINLY shows the usage-limit dialog open and waiting: the numbered first option, then
+    /// the cancel hint, in the lower half of the screen, the option starting at most <see cref="OptionRowsAboveHint"/>
+    /// rows above the end of the hint. The rows are read JOINED, so an option or hint wrapped over two rows of a narrow
+    /// terminal still matches (review of pull request 3863, finding 2). This is what the Director answers with Escape.
+    /// </summary>
     public static bool IsShowing(IReadOnlyList<string> visibleRows)
     {
-        ArgumentNullException.ThrowIfNull(visibleRows);
-        var rows = visibleRows.Select(Squash).Where(r => r.Length > 0).ToList();
-        for (var hint = rows.Count - 1; hint >= rows.Count / 2; hint--)
+        var rows = SquashedRows(visibleRows);
+        for (var end = rows.Count - 1; end >= rows.Count / 2; end--)
         {
-            if (!rows[hint].Contains(CancelHint, StringComparison.Ordinal)) continue;
-            for (var option = hint; option >= Math.Max(0, hint - OptionRowsAboveHint); option--)
-                if (rows[option].Contains(FirstOption, StringComparison.Ordinal))
-                    return true;
+            var window = string.Concat(rows.Skip(Math.Max(0, end - OptionRowsAboveHint)).Take(end - Math.Max(0, end - OptionRowsAboveHint) + 1));
+            var option = window.IndexOf(FirstOption, StringComparison.Ordinal);
+            if (option >= 0 && window.IndexOf(CancelHint, option + FirstOption.Length, StringComparison.Ordinal) >= 0)
+                return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// True when the screen MAY show the dialog: an open menu (its cancel or confirm hint) at the bottom of the screen,
+    /// with any word of a usage limit near it. The input guard blocks on this, because a dialog the certain check does
+    /// not recognise - a changed label, a changed order, a partial drawing - must not let a keystroke through: when the
+    /// screen looks like the dialog and is not recognised with certainty, the guard leans to blocking (finding 2). The
+    /// cost is that a menu shown next to a limit notice is not answered automatically either, which is the safe side.
+    /// </summary>
+    public static bool MayBeShowing(IReadOnlyList<string> visibleRows)
+    {
+        var rows = SquashedRows(visibleRows);
+        var region = string.Concat(rows.Skip(Math.Max(0, rows.Count / 2 - OptionRowsAboveHint)));
+        var menuOpen = region.Contains(CancelHint, StringComparison.Ordinal) || region.Contains(ConfirmHint, StringComparison.Ordinal);
+        return menuOpen && LimitWords.Any(w => region.Contains(w, StringComparison.Ordinal));
+    }
+
+    private static List<string> SquashedRows(IReadOnlyList<string> visibleRows)
+    {
+        ArgumentNullException.ThrowIfNull(visibleRows);
+        return visibleRows.Select(Squash).Where(r => r.Length > 0).ToList();
     }
 
     /// <summary>The text in lower case with everything but ASCII letters and digits removed.</summary>

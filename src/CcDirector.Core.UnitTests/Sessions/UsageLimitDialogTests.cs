@@ -226,6 +226,110 @@ public sealed class UsageLimitDialogTests
         Assert.True(UsageLimitDialog.IsShowing(Screen(screen)));
     }
 
+    [Theory]
+    [MemberData(nameof(RealDialogs))]
+    public void MayBeShowing_RealDialogScreen_IsTrue(string screen)
+    {
+        Assert.True(UsageLimitDialog.MayBeShowing(Screen(screen)));
+    }
+
+    /// <summary>The bottom of a real dialog with its option row split in two, as a narrow terminal wraps it.</summary>
+    private static string[] WrappedOption(string[] screen)
+    {
+        var rows = screen.ToList();
+        var i = rows.FindIndex(r => r.Contains("1. Stop and wait", StringComparison.Ordinal));
+        var cut = rows[i].IndexOf("for li", StringComparison.Ordinal) + "for li".Length;
+        var (head, tail) = (rows[i][..cut], rows[i][cut..]);
+        rows[i] = head;
+        rows.Insert(i + 1, tail);
+        return rows.ToArray();
+    }
+
+    [Theory]
+    [MemberData(nameof(RealDialogs))]
+    public void IsShowing_FirstOptionWrappedOverTwoRows_IsStillTrue(string screen)
+    {
+        // Review of pull request 3863, finding 2: rows were read one at a time, so a wrapped label matched nowhere.
+        var wrapped = WrappedOption(Screen(screen));
+
+        Assert.True(UsageLimitDialog.IsShowing(wrapped));
+        Assert.True(UsageLimitDialog.MayBeShowing(wrapped));
+    }
+
+    /// <summary>A dialog in shapes nobody has captured yet: the guard must still block (finding 2).</summary>
+    public static TheoryData<string> UnrecognisedDialogs() => new()
+    {
+        "changed label", "reordered options", "half drawn",
+    };
+
+    private static string[] Unrecognised(string shape) => shape switch
+    {
+        "changed label" => new[]
+        {
+            "  ⎿  You've hit your session limit · resets 9am (UTC)",
+            "  What do you want to do?",
+            "  ❯ 1. Wait until your limit resets",
+            "    2. Add funds to continue with usage credits",
+            "  Enter to confirm · Esc to cancel",
+        },
+        "reordered options" => new[]
+        {
+            "  What do you want to do?",
+            "  ❯ 1. Add funds to continue with usage credits",
+            "    2. Stop and wait for limit to reset",
+            "  Enter to confirm · Esc to cancel",
+        },
+        "half drawn" => new[]
+        {
+            "❯ /rate-limit-options",
+            "  What do you want to do?",
+            "  Enter to confirm",
+        },
+        _ => throw new ArgumentOutOfRangeException(nameof(shape)),
+    };
+
+    [Theory]
+    [MemberData(nameof(UnrecognisedDialogs))]
+    public void MayBeShowing_DialogInAnUncapturedShape_IsTrueButItIsNotEscaped(string shape)
+    {
+        var rows = Unrecognised(shape);
+
+        Assert.True(UsageLimitDialog.MayBeShowing(rows));
+        Assert.False(UsageLimitDialog.IsShowing(rows));   // not certain, so no Escape is sent to it
+    }
+
+    [Theory]
+    [MemberData(nameof(UnrecognisedDialogs))]
+    public void Session_DialogInAnUncapturedShape_AutomaticInputRefusedAndNoEscape(string shape)
+    {
+        var backend = new RecordingBackend(withScreen: true);
+        var session = NewTerminalSession(backend);
+        backend.Show(Unrecognised(shape));
+
+        session.SendInput(new byte[] { 0x0D });
+        session.SendInput(System.Text.Encoding.ASCII.GetBytes("2"));
+
+        Assert.False(session.EscapeUsageLimitDialogIfShowing());
+        Assert.Empty(backend.Writes);
+    }
+
+    [Theory]
+    [InlineData(InputSurface.Phone)]
+    [InlineData(InputSurface.Cockpit)]
+    [InlineData(InputSurface.Unknown)]
+    public void Session_TypedInputFromAnotherSurfaceWhileTheDialogShows_IsRefused(InputSurface surface)
+    {
+        // Review of pull request 3863, finding 1: a phone or browser prompt sent without Enter arrives as typed raw
+        // input. Its sender is not at this terminal and may not see the dialog, so it is refused like any automatic key.
+        var backend = new RecordingBackend(withScreen: true);
+        var session = NewTerminalSession(backend);
+        backend.Show(RowsIntact);
+
+        session.SendInput(new byte[] { 0x1B, 0x5B, 0x42, 0x0D }, InputOrigin.Typed(surface));
+
+        Assert.Empty(backend.Writes);
+    }
+
     [Fact]
     public void IsShowing_AfterEscapeOnlyTheLimitNoticeRemains_IsFalse()
     {
@@ -258,6 +362,7 @@ public sealed class UsageLimitDialogTests
         };
 
         Assert.False(UsageLimitDialog.IsShowing(rows));
+        Assert.False(UsageLimitDialog.MayBeShowing(rows));   // an ordinary menu is still answered
     }
 
     [Fact]
