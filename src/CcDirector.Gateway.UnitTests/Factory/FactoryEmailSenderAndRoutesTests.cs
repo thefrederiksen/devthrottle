@@ -176,26 +176,37 @@ public sealed class FactoryEmailSenderAndRoutesTests : IDisposable
     }
 
     [Theory]
-    [InlineData("weekly", null)]
-    [InlineData(null, 0)]
-    [InlineData(null, 101)]
-    public void ListReports_ABadKindOrLimit_IsRefused(string? kind, int? limit)
+    [InlineData("weekly", null, null)]
+    [InlineData(null, 0, null)]
+    [InlineData(null, 101, null)]
+    [InlineData(null, null, "failed")]
+    public void ListEmails_ABadKindLimitOrState_IsRefused(string? kind, int? limit, string? state)
     {
         var store = new FactoryEmailStore(_h.Open());
 
-        var result = FactoryEmailEndpoints.ListReports(new DefaultHttpContext(), kind, limit, null, _ => TenantId.Local, store);
+        var result = FactoryEmailEndpoints.ListEmails(new DefaultHttpContext(), null, kind, limit, state, _ => TenantId.Local, store);
 
         Assert.Equal(400, Status(result));
     }
 
     [Fact]
-    public void ListReports_NothingKept_IsCountZero()
+    public void ListEmails_NothingKept_IsCountZero()
     {
         var store = new FactoryEmailStore(_h.Open());
 
-        var result = FactoryEmailEndpoints.ListReports(new DefaultHttpContext(), null, null, null, _ => TenantId.Local, store);
+        var result = FactoryEmailEndpoints.ListEmails(new DefaultHttpContext(), "outreach", null, null, null, _ => TenantId.Local, store);
 
-        var json = Assert.IsType<JsonHttpResult<Contracts.FactoryEmailReportsDto>>(result);
-        Assert.Equal(0, json.Value!.Count);
+        var json = Assert.IsType<JsonHttpResult<Contracts.FactoryEmailsDto>>(result);
+        Assert.Equal((0, "outreach"), (json.Value!.Count, json.Value.Factory));
+    }
+
+    [Theory]
+    [InlineData("not-an-id", 400)]
+    [InlineData("4b0f0c6e-0000-4000-8000-000000000001", 404)]
+    public void GetEmail_ABadOrUnknownId_SaysWhich(string id, int status)
+    {
+        var store = new FactoryEmailStore(_h.Open());
+
+        Assert.Equal(status, Status(FactoryEmailEndpoints.GetEmail(new DefaultHttpContext(), id, _ => TenantId.Local, store)));
     }
 }

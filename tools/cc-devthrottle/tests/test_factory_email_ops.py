@@ -1,4 +1,4 @@
-"""`cc-devthrottle factory email status|on|off|reports` (Factory Control, step 4).
+"""`cc-devthrottle factory email status|on|off|list|show` (Factory Control, step 4).
 
 These answer from a REAL local HTTP server, so the shared transport and its error mapping run as they do against a
 Gateway. What matters: the switch is only ever reported from a boolean the Gateway gave, a switch the Gateway did
@@ -77,10 +77,10 @@ def gateway_answering(monkeypatch):
 
 
 KEPT = {
-    "slotKey": "2026-10-11T08", "kind": "morning-report", "boundaryUtc": "2026-10-11T12:00:00Z",
-    "composedAtUtc": "2026-10-11T12:05:00Z", "state": "sent", "detail": None,
-    "subject": "Factories: 1 problem still open - Sunday 11 October", "html": None, "problemCount": 1,
-    "sentAtUtc": "2026-10-11T12:05:02Z",
+    "id": "4b0f0c6e-0000-4000-8000-000000000001", "slotKey": "2026-10-11T08", "slot": "08:00", "kind": "morning-report",
+    "boundaryUtc": "2026-10-11T12:00:00Z", "state": "sent", "sentUtc": "2026-10-11T12:05:02Z",
+    "title": "Factories: 1 problem still open - Sunday 11 October", "factories": ["outreach", "research"],
+    "problemCount": 1, "detail": None, "html": None,
 }
 
 
@@ -133,52 +133,72 @@ def test_on_AnOlderGateway_SaysSo(gateway_answering):
     assert "older than this command" in result.output
 
 
-def test_reports_Empty_SaysCountZero(gateway_answering):
-    gateway_answering(200, {"count": 0, "reports": []})
+def test_list_Empty_SaysCountZero(gateway_answering):
+    gateway_answering(200, {"count": 0, "factory": None, "emails": []})
 
-    result = runner.invoke(app, ["factory", "email", "reports"])
+    result = runner.invoke(app, ["factory", "email", "list"])
 
     assert result.exit_code == 0, result.output
     assert "count: 0" in result.stdout
 
 
-def test_reports_FiltersReachTheGatewayInJson(gateway_answering):
-    answer = {"count": 1, "reports": [KEPT]}
+def test_list_FiltersReachTheGatewayInJson(gateway_answering):
+    answer = {"count": 1, "factory": "research", "emails": [KEPT]}
     gw = gateway_answering(200, answer)
 
-    result = runner.invoke(app, ["factory", "email", "reports", "--kind", "morning-report", "-n", "5", "--json"])
+    result = runner.invoke(app, ["factory", "email", "list", "--factory", "research", "--kind", "morning-report",
+                                 "-n", "5", "--all", "--json"])
 
     assert result.exit_code == 0, result.output
-    assert gw.calls[0]["path"] == "/gateway/factory-email/reports?kind=morning-report&limit=5"
+    assert gw.calls[0]["path"] == "/gateway/factory-emails?factory=research&kind=morning-report&limit=5&state=all"
     assert json.loads(result.stdout) == answer
 
 
-def test_reports_ListsEachSlotWhole(gateway_answering):
-    gateway_answering(200, {"count": 1, "reports": [KEPT]})
+def test_list_ShowsTheWholeIdAndTheFactoriesCovered(gateway_answering):
+    gateway_answering(200, {"count": 1, "factory": None, "emails": [KEPT]})
 
-    result = runner.invoke(app, ["factory", "email", "reports"])
+    result = runner.invoke(app, ["factory", "email", "list"])
 
     assert result.exit_code == 0, result.output
-    assert "2026-10-11T08" in result.stdout
+    assert "4b0f0c6e-0000-4000-8000-000000000001" in result.stdout
+    assert "outreach,research" in result.stdout
     assert "Factories: 1 problem still open - Sunday 11 October" in result.stdout
 
 
-def test_reports_AnAnswerWithNoList_FailsRatherThanSayingNone(gateway_answering):
+def test_list_AnAnswerWithNoList_FailsRatherThanSayingNone(gateway_answering):
     gateway_answering(200, {"count": 0})
 
-    result = runner.invoke(app, ["factory", "email", "reports"])
+    result = runner.invoke(app, ["factory", "email", "list"])
 
     assert result.exit_code != 0
 
 
 @pytest.mark.parametrize("args", [["--kind", "weekly"], ["-n", "0"], ["--count", "101"], ["--nope"]])
-def test_reports_BadArguments_AreRefusedBeforeAnyCall(gateway_answering, args):
-    gw = gateway_answering(200, {"count": 0, "reports": []})
+def test_list_BadArguments_AreRefusedBeforeAnyCall(gateway_answering, args):
+    gw = gateway_answering(200, {"count": 0, "emails": []})
 
-    result = runner.invoke(app, ["factory", "email", "reports", *args])
+    result = runner.invoke(app, ["factory", "email", "list", *args])
 
     assert result.exit_code != 0
     assert gw.calls == []
+
+
+def test_show_GetsOneEmailById_AndPrintsItsHtml(gateway_answering):
+    gw = gateway_answering(200, dict(KEPT, html="<!doctype html><p>report</p>"))
+
+    result = runner.invoke(app, ["factory", "email", "show", "4b0f0c6e-0000-4000-8000-000000000001"])
+
+    assert result.exit_code == 0, result.output
+    assert gw.calls[0]["path"] == "/gateway/factory-emails/4b0f0c6e-0000-4000-8000-000000000001"
+    assert "<!doctype html><p>report</p>" in result.stdout
+
+
+def test_show_AnAnswerWithoutTheBody_Fails(gateway_answering):
+    gateway_answering(200, KEPT)
+
+    result = runner.invoke(app, ["factory", "email", "show", "4b0f0c6e-0000-4000-8000-000000000001"])
+
+    assert result.exit_code != 0
 
 
 def test_actions_ListTheFactoryEmailVerbs():
@@ -186,4 +206,4 @@ def test_actions_ListTheFactoryEmailVerbs():
 
     assert result.exit_code == 0
     ids = {action["id"] for action in json.loads(result.output)["actions"]}
-    assert {"factory-email-status", "factory-email-on", "factory-email-off", "factory-email-reports"} <= ids
+    assert {"factory-email-status", "factory-email-on", "factory-email-off", "factory-email-list", "factory-email-show"} <= ids

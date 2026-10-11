@@ -1926,7 +1926,8 @@ involved - to the account that set up the factories, never a fixed address.
 USAGE: cc-devthrottle factory email status [--json]
        cc-devthrottle factory email on [--json]
        cc-devthrottle factory email off [--json]
-       cc-devthrottle factory email reports [--kind morning-report|check] [--count N] [--html] [--json]
+       cc-devthrottle factory email list [--factory ID] [--kind morning-report|check] [--count N] [--all] [--json]
+       cc-devthrottle factory email show <id> [--json]
 ```
 
 It ships OFF. Switched on, the account is sent:
@@ -1941,10 +1942,13 @@ The times are the account's own time zone. Each slot is sent once, whatever rest
 again for two hours, then the slot is closed. A team account is told it is not supported yet - the email is
 not sent, and no address is guessed.
 
-`factory email reports` lists the kept emails, newest first: the slot (local date and hour), its kind, what
-became of it (`sent`, `nothing-to-send`, `failed`, `not-supported`), its subject and how many problems it
-listed. A slot that had nothing to send is listed too. `--html` adds each body exactly as composed; `--kind`
-and `--count` apply to `--json` too. Nothing kept prints `count: 0`. The factory page reads the same list.
+`factory email list` lists the kept emails that were sent, newest first: the id, the slot (local date and
+hour), when it was sent, its title, the factories it covered and how many problems it listed. `--factory`
+narrows to the emails that covered one factory; `--all` adds the slots that had nothing to send or whose send
+failed or was not supported, with the reason. Every filter applies to `--json` too. Nothing kept prints
+`count: 0`. `factory email show <id>` prints one email with its HTML exactly as sent. The factory page reads
+the same two routes: `GET /gateway/factory-emails?factory=&kind=&limit=&state=all` and
+`GET /gateway/factory-emails/{id}`.
 
 ### Trigger
 

@@ -14,7 +14,11 @@ namespace CcDirector.Gateway.Api;
 ///
 ///   GET /gateway/factory-email                     -> FactoryEmailSwitchDto   - is this account sent the factory email
 ///   PUT /gateway/factory-email  { enabled: bool }  -> FactoryEmailSwitchDto   - switch it on or off
-///   GET /gateway/factory-email/reports?kind=&amp;limit=&amp;html=true -> FactoryEmailReportsDto - the kept emails, newest first
+///   GET /gateway/factory-emails?factory=&amp;kind=&amp;limit=N&amp;state=all -> FactoryEmailsDto - the kept emails, newest first
+///   GET /gateway/factory-emails/{id}               -> FactoryEmailDto         - one kept email, with its HTML as sent
+///
+/// The kept emails are "factory-emails", not "reports": the Factory Agents Reports tab already owns a "reports" route
+/// (saved filters, <c>FactoryReportStore</c>), and the two must never be confused.
 ///
 /// The email ships OFF. A PUT whose body has no boolean <c>enabled</c> is refused, never read as either answer: one guess
 /// mails an account that did not ask, the other silences one that did.
@@ -22,7 +26,8 @@ namespace CcDirector.Gateway.Api;
 internal static class FactoryEmailEndpoints
 {
     public const string SwitchRoute = "/gateway/factory-email";
-    public const string ReportsRoute = "/gateway/factory-email/reports";
+    public const string EmailsRoute = "/gateway/factory-emails";
+    public const string EmailRoute = "/gateway/factory-emails/{id}";
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -36,10 +41,11 @@ internal static class FactoryEmailEndpoints
 
         app.MapGet(SwitchRoute, (HttpContext ctx) => GetSwitch(ctx, resolveTenant, isEnabled));
         app.MapPut(SwitchRoute, async (HttpContext ctx) => await PutSwitchAsync(ctx, resolveTenant, setEnabled));
-        app.MapGet(ReportsRoute, (HttpContext ctx, string? kind, int? limit, bool? html) =>
-            ListReports(ctx, kind, limit, html, resolveTenant, store));
+        app.MapGet(EmailsRoute, (HttpContext ctx, string? factory, string? kind, int? limit, string? state) =>
+            ListEmails(ctx, factory, kind, limit, state, resolveTenant, store));
+        app.MapGet(EmailRoute, (HttpContext ctx, string id) => GetEmail(ctx, id, resolveTenant, store));
 
-        FileLog.Write($"[FactoryEmailEndpoints] mapped {SwitchRoute} (GET, PUT), {ReportsRoute}");
+        FileLog.Write($"[FactoryEmailEndpoints] mapped {SwitchRoute} (GET, PUT), {EmailsRoute}, {EmailRoute}");
     }
 
     /// <summary>GET /gateway/factory-email: is this account sent the factory email.</summary>
@@ -70,11 +76,11 @@ internal static class FactoryEmailEndpoints
         }
     }
 
-    /// <summary>GET /gateway/factory-email/reports: the account's kept factory emails, newest first.</summary>
-    internal static IResult ListReports(HttpContext ctx, string? kind, int? limit, bool? html,
+    /// <summary>GET /gateway/factory-emails: the kept emails, newest first - sent ones only unless state=all.</summary>
+    internal static IResult ListEmails(HttpContext ctx, string? factory, string? kind, int? limit, string? state,
         Func<HttpContext, TenantId?> resolveTenant, FactoryEmailStore store)
     {
-        if (resolveTenant(ctx) is not { } tenant) return NoAccount(ReportsRoute);
+        if (resolveTenant(ctx) is not { } tenant) return NoAccount(EmailsRoute);
         var wanted = string.IsNullOrWhiteSpace(kind) ? null : kind.Trim().ToLowerInvariant();
         if (wanted is not (null or FactoryEmailKinds.Morning or FactoryEmailKinds.Check))
             return Results.Json(new { error = $"'{kind}' is not a factory email kind. Use '{FactoryEmailKinds.Morning}' or '{FactoryEmailKinds.Check}'." },
@@ -82,9 +88,28 @@ internal static class FactoryEmailEndpoints
         if (limit is < 1 or > FactoryEmailStore.MaxList)
             return Results.Json(new { error = $"limit must be between 1 and {FactoryEmailStore.MaxList}." },
                 statusCode: StatusCodes.Status400BadRequest);
-        var list = store.List(tenant, wanted, limit ?? 20, html ?? false);
-        FileLog.Write($"[FactoryEmailEndpoints] GET {ReportsRoute}: tenant={tenant.ToLogString()}, kind={wanted ?? "-"}, count={list.Count}");
+        var states = string.IsNullOrWhiteSpace(state) ? FactoryEmailStates.Sent : state.Trim().ToLowerInvariant();
+        if (states is not (FactoryEmailStates.Sent or "all"))
+            return Results.Json(new { error = $"'{state}' is not a state to list. Use 'sent' (the default) or 'all'." },
+                statusCode: StatusCodes.Status400BadRequest);
+        var list = store.List(tenant, factory, wanted, limit ?? 20, allStates: states == "all");
+        FileLog.Write($"[FactoryEmailEndpoints] GET {EmailsRoute}: tenant={tenant.ToLogString()}, factory={list.Factory ?? "-"}, kind={wanted ?? "-"}, state={states}, count={list.Count}");
         return Results.Json(list);
+    }
+
+    /// <summary>GET /gateway/factory-emails/{id}: one kept email with its HTML exactly as sent.</summary>
+    internal static IResult GetEmail(HttpContext ctx, string id, Func<HttpContext, TenantId?> resolveTenant, FactoryEmailStore store)
+    {
+        if (resolveTenant(ctx) is not { } tenant) return NoAccount(EmailRoute);
+        if (!Guid.TryParse(id?.Trim(), out var guid))
+            return Results.Json(new { error = $"'{id}' is not a factory email id." }, statusCode: StatusCodes.Status400BadRequest);
+        var email = store.Get(tenant, guid);
+        if (email is null)
+        {
+            FileLog.Write($"[FactoryEmailEndpoints] GET {EmailsRoute}/{guid}: not found, tenant={tenant.ToLogString()}");
+            return Results.Json(new { error = $"there is no factory email {guid} in this account." }, statusCode: StatusCodes.Status404NotFound);
+        }
+        return Results.Json(email);
     }
 
     private static IResult NoAccount(string route)

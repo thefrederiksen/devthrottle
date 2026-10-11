@@ -389,22 +389,36 @@ public sealed class FactoryEmailTests : IDisposable
     }
 
     [Fact]
-    public async Task List_KeptReports_AreNewestFirst_WithTheBodyOnlyWhenAsked()
+    public async Task List_AFactory_IsItsSentEmailsNewestFirst_AndGetHasTheHtmlAsSent()
     {
         Job("cj_scan", "Night scan", "research", "scout");
+        Job("cj_send", "Morning send", "outreach", "sender");
         Runs.Append("cj_scan", Run(null, TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.DidNotRun, "offline"));
         var sender = new FakeSender();
         _now = TorontoTime(2026, 10, 11, 8, 5);
-        await Sweep(sender).SweepTenantAsync(TenantId.Local);
+        await Sweep(sender).SweepTenantAsync(TenantId.Local);        // sent, covers outreach and research
         _now = TorontoTime(2026, 10, 11, 16, 5);
-        await Sweep(sender).SweepTenantAsync(TenantId.Local);
+        await Sweep(sender).SweepTenantAsync(TenantId.Local);        // nothing new: kept, not sent
+        Runs.Append("cj_send", Run("s9", TorontoTime(2026, 10, 11, 18), CronRunResults.Problem, CronRunProblems.Reported, "bounced",
+            resultUtc: TorontoTime(2026, 10, 11, 18, 30)));
+        _now = TorontoTime(2026, 10, 12, 0, 5);
+        await Sweep(sender).SweepTenantAsync(TenantId.Local);        // sent, covers outreach only
 
-        var bare = Store.List(TenantId.Local, kind: null, limit: 10, includeHtml: false);
-        var full = Store.List(TenantId.Local, FactoryEmailKinds.Morning, limit: 10, includeHtml: true);
+        var research = Store.List(TenantId.Local, "research", kind: null, limit: 10, allStates: false);
+        var outreach = Store.List(TenantId.Local, "Outreach", kind: null, limit: 10, allStates: false);
+        var everything = Store.List(TenantId.Local, factory: null, kind: null, limit: 10, allStates: true);
 
-        Assert.Equal(new[] { "2026-10-11T16", "2026-10-11T08" }, bare.Reports.Select(r => r.SlotKey));
-        Assert.All(bare.Reports, r => Assert.Null(r.Html));
-        Assert.Contains("Night scan", Assert.Single(full.Reports).Html);
+        var only = Assert.Single(research.Emails);
+        Assert.Equal(("2026-10-11T08", "08:00", "Factories: 1 problem still open - Sunday 11 October"), (only.SlotKey, only.Slot, only.Title));
+        Assert.Equal(new[] { "outreach", "research" }, only.Factories);
+        Assert.NotNull(only.SentUtc);
+        Assert.Null(only.Html);
+        Assert.Equal(new[] { "2026-10-12T00", "2026-10-11T08" }, outreach.Emails.Select(e => e.SlotKey));
+        Assert.Equal(new[] { "2026-10-12T00", "2026-10-11T16", "2026-10-11T08" }, everything.Emails.Select(e => e.SlotKey));
+
+        var full = Store.Get(TenantId.Local, Guid.Parse(only.Id))!;
+        Assert.Equal(sender.Sent[0].Html, full.Html);
+        Assert.Null(Store.Get(TenantId.Local, Guid.NewGuid()));
     }
 
     // ---- the approved mockup, rendered from a fixture ----------------------------------------------------------------

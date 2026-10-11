@@ -38,6 +38,9 @@ public sealed class FactoryEmailReportEntity : GatewayMintedKeyEntity
     /// <summary>The same body as plain text.</summary>
     public string Text { get; set; } = "";
 
+    /// <summary>The ids of the factories it covers, as a JSON list of strings; <c>[]</c> when there was nothing to send.</summary>
+    public string FactoriesJson { get; set; } = "[]";
+
     /// <summary>How many problems it lists.</summary>
     public int ProblemCount { get; set; }
 

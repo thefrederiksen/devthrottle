@@ -2,8 +2,9 @@
 
 - `factory email status` - is this account sent the factory email (the 08:00 report, and the 16:00 / midnight checks).
 - `factory email on` / `factory email off` - switch it. It ships off.
-- `factory email reports [--kind morning-report|check] [--count N] [--html] [--json]` - the kept emails, newest
-  first, each as it was composed: the factory page reads the same list to show yesterday's report again.
+- `factory email list [--factory ID] [--kind morning-report|check] [--count N] [--all] [--json]` - the kept emails,
+  newest first (sent ones; every slot with --all); the factory page reads the same list.
+- `factory email show <id> [--json]` - one kept email with its HTML exactly as sent.
 
 Nothing here decides anything. When an email is sent, what it says and whether a slot had anything to send are
 the Gateway's.
@@ -26,7 +27,7 @@ from cc_shared import axi_output, gateway  # noqa: E402
 from . import axi_cli  # noqa: E402
 
 SWITCH_ROUTE = "gateway/factory-email"
-REPORTS_ROUTE = "gateway/factory-email/reports"
+EMAILS_ROUTE = "gateway/factory-emails"
 KINDS = ("morning-report", "check")
 
 #: What a 404 with no words of its own means here: a Gateway older than this command.
@@ -34,8 +35,8 @@ OLD_GATEWAY = "the Gateway does not know the factory email yet (it answered 404 
 
 _EMAIL = "cc-devthrottle factory email"
 _STATUS = "cc-devthrottle factory email status"
-_REPORTS = "cc-devthrottle factory email reports"
-_FIELDS = ["slot", "kind", "state", "subject", "problems", "sent", "detail"]
+_LIST = "cc-devthrottle factory email list"
+_FIELDS = ["id", "slot", "state", "sent", "title", "factories", "problems", "detail"]
 
 
 def _text(value: Any) -> str:
@@ -66,7 +67,7 @@ def _print_switch(enabled: bool, changed: Optional[str], json_output: bool) -> N
     lines.append(f"factory email: {'on' if enabled else 'off'}")
     lines.append("sent at 08:00 every day, and at 16:00 and midnight only when something went wrong, to the account "
                  "that set up the factories" if enabled else "nothing is sent to this account")
-    next_commands = [f"{_EMAIL} off" if enabled else f"{_EMAIL} on", _REPORTS]
+    next_commands = [f"{_EMAIL} off" if enabled else f"{_EMAIL} on", _LIST]
     axi_output.write_blocks(sys.stdout, "\n".join(lines), axi_output.format_help(next_commands))
 
 
@@ -94,9 +95,12 @@ def switch(state: Optional[str], json_output: bool) -> None:
     _print_switch(enabled, f"Switched the factory email {wanted}.", json_output)
 
 
-def reports(kind: Optional[str], count: Optional[int], html: bool, json_output: bool) -> None:
-    """The account's kept factory emails, newest first."""
+def list_emails(factory: Optional[str], kind: Optional[str], count: Optional[int], all_states: bool,
+                json_output: bool) -> None:
+    """The kept factory emails, newest first: sent ones, or every slot with --all."""
     query: Dict[str, str] = {}
+    if factory is not None and factory.strip():
+        query["factory"] = factory.strip()
     if kind is not None:
         if kind.strip().lower() not in KINDS:
             axi_cli.usage_error(f"'{kind}' is not a factory email kind. Use: {', '.join(KINDS)}.")
@@ -105,15 +109,15 @@ def reports(kind: Optional[str], count: Optional[int], html: bool, json_output: 
         if count < 1 or count > 100:
             axi_cli.usage_error("--count must be between 1 and 100.")
         query["limit"] = str(count)
-    if html:
-        query["html"] = "true"
-    route = REPORTS_ROUTE + (f"?{urllib.parse.urlencode(query)}" if query else "")
+    if all_states:
+        query["state"] = "all"
+    route = EMAILS_ROUTE + (f"?{urllib.parse.urlencode(query)}" if query else "")
     try:
         answer = gateway.get_json(route)
     except gateway.GatewayError as exc:
         axi_cli.fail(_reason(exc), [axi_cli.CHECK_GATEWAY])
 
-    rows = answer.get("reports") if isinstance(answer, dict) else None
+    rows = answer.get("emails") if isinstance(answer, dict) else None
     if not isinstance(rows, list) or not isinstance(answer.get("count"), int):
         # Absent is not empty: an answer with no list must never read as "nothing kept".
         axi_cli.fail("the Gateway answered with no list of kept emails; this command will not report that as none.",
@@ -124,22 +128,43 @@ def reports(kind: Optional[str], count: Optional[int], html: bool, json_output: 
 
     records = [
         {
+            "id": r.get("id"),
             "slot": r.get("slotKey"),
-            "kind": r.get("kind"),
             "state": r.get("state"),
-            "subject": r.get("subject") or "-",
+            "sent": r.get("sentUtc") or "-",
+            "title": r.get("title") or "-",
+            "factories": ",".join(r.get("factories") or []) or "-",
             "problems": r.get("problemCount"),
-            "sent": r.get("sentAtUtc") or "-",
             "detail": r.get("detail") or "-",
         }
         for r in rows
     ]
     blocks = [axi_output.format_count(len(records))]
     if records:
-        blocks.append(axi_output.render_list("reports", _FIELDS, records))
-    if html:
-        for r in rows:
-            if r.get("html"):
-                blocks.append(f"html of {_text(r.get('slotKey'))}:\n{r.get('html')}")
-    blocks.append(axi_output.format_help([f"{_REPORTS} --html --count 1", _STATUS]))
+        blocks.append(axi_output.render_list("emails", _FIELDS, records))
+    next_commands = [f"{_EMAIL} show <id>"] if records else [f"{_LIST} --all", _STATUS]
+    blocks.append(axi_output.format_help(next_commands))
     axi_output.write_blocks(sys.stdout, *blocks)
+
+
+def show(email_id: str, json_output: bool) -> None:
+    """One kept factory email, with its HTML exactly as sent."""
+    if not (email_id or "").strip():
+        axi_cli.usage_error(f"name the email to show: {_EMAIL} show <id> (the ids are in {_LIST}).")
+    try:
+        answer = gateway.get_json(f"{EMAILS_ROUTE}/{urllib.parse.quote(email_id.strip(), safe='')}")
+    except gateway.GatewayError as exc:
+        axi_cli.fail(_reason(exc), [_LIST])
+    if not isinstance(answer, dict) or not isinstance(answer.get("html"), str):
+        axi_cli.fail("the Gateway answered without the email's body, so there is nothing to show.", [_LIST])
+    if json_output:
+        print(json.dumps(answer, indent=2))
+        return
+    lines = [
+        f"id: {_text(answer.get('id'))}",
+        f"slot: {_text(answer.get('slotKey'))}",
+        f"state: {_text(answer.get('state'))}",
+        f"title: {_text(answer.get('title')) or '-'}",
+        f"factories: {_text(','.join(answer.get('factories') or [])) or '-'}",
+    ]
+    axi_output.write_blocks(sys.stdout, "\n".join(lines), "html:\n" + answer["html"], axi_output.format_help([_LIST]))

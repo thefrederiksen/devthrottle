@@ -149,6 +149,7 @@ public sealed class FactoryEmailSweep : TenantScopedSweep
         r.Html = email.Html;
         r.Text = email.Text;
         r.ProblemCount = email.ProblemCount;
+        r.FactoriesJson = System.Text.Json.JsonSerializer.Serialize(email.Factories);
     }
 
     private static string Cap(string s, int max) => s.Length <= max ? s : s[..max];

@@ -459,9 +459,9 @@ public static class SessionKeyGuard
             if (IsHandoverRead(s)) return true;
 
             // The account's kept factory emails (Factory Control, step 4): the 08:00 reports and 16:00 / midnight
-            // checks as they were sent, which a factory's boss and the Factory Manager read. The same facts as
-            // /cron/problems above, rendered; reading them changes nothing.
-            if (s.Length == 3 && s[0] == "gateway" && s[1] == "factory-email" && s[2] == "reports") return true;
+            // checks as they were sent - the list and one email by id - which a factory's boss and the Factory Manager
+            // read. The same facts as /cron/problems, rendered; reading them changes nothing.
+            if (s.Length is 2 or 3 && s[0] == "gateway" && s[1] == "factory-emails") return true;
 
             return false;
         }

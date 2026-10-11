@@ -560,7 +560,8 @@ public sealed class SessionKeyGuardTests
     // The factory email (Factory Control, step 4): read and set its switch, and read the kept reports.
     [InlineData("GET", "/gateway/factory-email")]
     [InlineData("PUT", "/gateway/factory-email")]
-    [InlineData("GET", "/gateway/factory-email/reports")]
+    [InlineData("GET", "/gateway/factory-emails")]
+    [InlineData("GET", "/gateway/factory-emails/4b0f0c6e-0000-4000-8000-000000000001")]
     // Handovers: list, read one, write one, remove one. Moving a session needs the first three.
     [InlineData("GET", "/directors/d-1/handovers")]
     [InlineData("GET", "/directors/d-1/handovers/content")]
@@ -691,9 +692,10 @@ public sealed class SessionKeyGuardTests
     // The factory email's switch is GET and PUT only; its kept reports are read-only.
     [InlineData("POST", "/gateway/factory-email")]
     [InlineData("DELETE", "/gateway/factory-email")]
-    [InlineData("PUT", "/gateway/factory-email/reports")]
-    [InlineData("DELETE", "/gateway/factory-email/reports")]
-    [InlineData("GET", "/gateway/factory-email/reports/anything")]
+    [InlineData("PUT", "/gateway/factory-emails")]
+    [InlineData("DELETE", "/gateway/factory-emails/4b0f0c6e-0000-4000-8000-000000000001")]
+    [InlineData("GET", "/gateway/factory-emails/4b0f0c6e-0000-4000-8000-000000000001/html")]
+    [InlineData("GET", "/gateway/factory-email/reports")]
     // And nothing hung off a verdict path later is reachable by accident - the allow matches a length
     // of exactly three segments.
     [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict/options")]

@@ -216,7 +216,7 @@ Built as designed, with these names:
 | The send, through the owner-email primitive (hosted: by tenant; self-host: account token; team: not supported) | `Factory/Email/FactoryEmailSender.cs` |
 | The per-account sweep, every 2 minutes | `Factory/Email/FactoryEmailSweep.cs`, wired in `GatewayHost.cs` |
 | The switch, off unless set | tenant setting `factory_email_enabled`; `GET`/`PUT /gateway/factory-email`; `cc-devthrottle factory email status`, `on`, `off` |
-| The read side for the factory page | `GET /gateway/factory-email/reports?kind=&limit=&html=true`; `cc-devthrottle factory email reports` |
+| The read side for the factory page (agreed with the Implementation Lead) | `GET /gateway/factory-emails?factory=&kind=&limit=N&state=all` (sent emails, newest first: id, slot, sent time, title, factories covered); `GET /gateway/factory-emails/{id}` (one email's HTML as sent); `cc-devthrottle factory email list`, `show <id>`. Named "factory-emails", never "reports", because the Factory Agents Reports tab already owns a "reports" route |
 | Added to the ONE problems fold (no second fold) | `CronRunProblemDto.Sentence`; `CronRunResultFold.FactoryDays`; `CronRunResultService.ProblemsAndFactoryDays` |
 
 "New" at a check means: open, and recorded after the previous slot's cut-off (its boundary plus 5 minutes) and by

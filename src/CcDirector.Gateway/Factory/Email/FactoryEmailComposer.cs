@@ -32,7 +32,10 @@ public sealed record FactoryEmailInput(
 /// <param name="Html">The body as email-safe HTML: inline styles, tables, no scripts, ASCII only.</param>
 /// <param name="Text">The same body as plain text.</param>
 /// <param name="ProblemCount">How many problems the email lists.</param>
-public sealed record FactoryEmail(bool Send, string? NotSentReason, string Subject, string Html, string Text, int ProblemCount);
+/// <param name="Factories">The ids of the factories the email covers - every factory it names - so the factory page can
+/// list the emails that speak about it.</param>
+public sealed record FactoryEmail(bool Send, string? NotSentReason, string Subject, string Html, string Text, int ProblemCount,
+    IReadOnlyList<string> Factories);
 
 /// <summary>
 /// THE FACTORY EMAIL (Factory Control, step 4), composed exactly to the mockups the owner approved on 10 October 2026
@@ -134,7 +137,7 @@ public static class FactoryEmailComposer
         }
         text.AppendLine(footer.ToString());
 
-        return new FactoryEmail(true, null, subject, html.ToString(), text.ToString(), problems.Count);
+        return new FactoryEmail(true, null, subject, html.ToString(), text.ToString(), problems.Count, Covered(problems, days));
     }
 
     // ------------------------------------------------------------------------------------------------------------
@@ -191,7 +194,8 @@ public static class FactoryEmailComposer
         if (olderLine is not null) text.AppendLine().AppendLine(olderLine);
         text.AppendLine().AppendLine(footer);
 
-        return new FactoryEmail(true, null, subject, html.ToString(), text.ToString(), fresh.Count);
+        return new FactoryEmail(true, null, subject, html.ToString(), text.ToString(), fresh.Count,
+            Covered(fresh, Array.Empty<CronFactoryDayDto>()));
     }
 
     /// <summary>A problem is NEW at a check when it was recorded after the previous slot's cut-off and by this one's.</summary>
@@ -205,7 +209,13 @@ public static class FactoryEmailComposer
     // ------------------------------------------------------------------------------------------------------------
     // Pieces
 
-    private static FactoryEmail NotSent(string reason) => new(false, reason, "", "", "", 0);
+    private static FactoryEmail NotSent(string reason) => new(false, reason, "", "", "", 0, Array.Empty<string>());
+
+    // Every factory an email names, by id, once each, sorted.
+    private static IReadOnlyList<string> Covered(IEnumerable<CronRunProblemDto> problems, IEnumerable<CronFactoryDayDto> days) =>
+        problems.Select(p => p.Factory).Concat(days.Select(d => d.Factory))
+            .Where(f => !string.IsNullOrWhiteSpace(f)).Select(f => f!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(f => f, StringComparer.Ordinal).ToList();
 
     private static void Open(StringBuilder html, string subject, string headerLine)
     {

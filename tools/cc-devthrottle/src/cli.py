@@ -1071,11 +1071,19 @@ _ACTIONS = [
         "args": [],
     },
     {
-        "id": "factory-email-reports",
-        "description": "List the kept factory emails, newest first: each slot, what became of it, its subject, and with --html the body as composed.",
-        "command": "cc-devthrottle factory email reports [--kind <morning-report|check>] [--count <n>] [--html]",
+        "id": "factory-email-list",
+        "description": "List the kept factory emails, newest first: id, slot, when sent, title and the factories covered (--all adds slots with nothing sent).",
+        "command": "cc-devthrottle factory email list [--factory <id>] [--kind <morning-report|check>] [--count <n>] [--all]",
         "mutatesState": False,
-        "args": [{"name": "kind", "required": False}, {"name": "count", "required": False}, {"name": "html", "required": False}],
+        "args": [{"name": "factory", "required": False}, {"name": "kind", "required": False},
+                 {"name": "count", "required": False}, {"name": "all", "required": False}],
+    },
+    {
+        "id": "factory-email-show",
+        "description": "Show one kept factory email with its HTML exactly as sent.",
+        "command": "cc-devthrottle factory email show <id>",
+        "mutatesState": False,
+        "args": [{"name": "id", "required": True}],
     },
     {
         "id": "factory-goal-number-post",
@@ -4131,20 +4139,28 @@ def factory_email_off(
     factory_email_ops.switch("off", json_output)
 
 
-@factory_email_app.command("reports")
-def factory_email_reports(
+@factory_email_app.command("list")
+def factory_email_list(
+    factory: Optional[str] = typer.Option(None, "--factory", help="Only the emails that covered this factory."),
     kind: Optional[str] = typer.Option(None, "--kind", help="Only one kind: morning-report or check."),
     count: Optional[int] = typer.Option(None, "--count", "-n", help="Largest number of emails to show (1-100, default 20)."),
-    html: bool = typer.Option(False, "--html", help="Also print each email's HTML exactly as it was composed."),
+    all_states: bool = typer.Option(False, "--all", help="Every slot, also those with nothing to send or a failed send."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
 ) -> None:
     """List the kept factory emails, newest first.
 
-    Each slot is listed with what became of it and its subject.
-
-    A slot that had nothing to send is listed too, so a check that found nothing is told apart from one that failed.
+    Each sent email is listed with its id, slot, when it was sent, its title and the factories it covered.
     """
-    factory_email_ops.reports(kind, count, html, json_output)
+    factory_email_ops.list_emails(factory, kind, count, all_states, json_output)
+
+
+@factory_email_app.command("show")
+def factory_email_show(
+    email_id: str = typer.Argument(..., help="The email's id, from 'factory email list'."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Show one kept factory email with its HTML exactly as sent."""
+    factory_email_ops.show(email_id, json_output)
 
 
 @factory_memory_app.command("list")
