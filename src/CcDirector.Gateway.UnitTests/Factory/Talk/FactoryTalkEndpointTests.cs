@@ -53,6 +53,29 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
     /// <summary>Every create the route dispatched to a Director, with the Director it went to.</summary>
     private readonly List<(string DirectorId, NewSessionRequest Request)> _sent = new();
 
+    /// <summary>The problems the one problems fold answers with, for the account; Handle the issue reads these.</summary>
+    private readonly List<CronRunProblemDto> _problems = new();
+
+    /// <summary>One open problem of the boss's schedule, as the problems fold lists it.</summary>
+    private static CronRunProblemDto ScoutProblem(string runId = "3f1c2b7a-0000-4000-8000-0000000000a1", string factory = "warmforward") => new()
+    {
+        RunId = runId,
+        JobId = "cj_a721e6",
+        JobName = "WarmForward Factory - Boss - morning run",
+        Factory = factory,
+        Seat = "nora-hale",
+        ScheduledUtc = new DateTime(2026, 10, 11, 10, 15, 0, DateTimeKind.Utc),
+        StartedUtc = new DateTime(2026, 10, 11, 10, 16, 0, DateTimeKind.Utc),
+        Shift = "morning",
+        ShiftText = "morning shift, Sun 11 Oct, 08:00-16:00",
+        Kind = CronRunProblems.DidNotReport,
+        KindText = "did not report",
+        Reason = "its session ended without reporting how the run went (stopped by you after 12 min)",
+        RecordedUtc = new DateTime(2026, 10, 11, 10, 30, 0, DateTimeKind.Utc),
+        SessionId = "5b0e9d1c-0000-4000-8000-0000000000b2",
+        State = CronRunProblemStates.Open,
+    };
+
     public async ValueTask DisposeAsync()
     {
         _http?.Dispose();
@@ -84,7 +107,7 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
     public enum Caller { OwnerBrowser, OwnerPhone, DirectorDeviceKey, MachineToken }
 
     private async Task StartAsync(bool switchOn = true, bool northStopped = false, Caller caller = Caller.OwnerBrowser,
-        string northVersion = "2.16.0")
+        string northVersion = "2.16.0", bool bossless = false)
     {
         Directory.CreateDirectory(_dir);
         var builder = WebApplication.CreateBuilder();
@@ -122,7 +145,9 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
         _registry = new FactoryRegistryStore(Db);
         // The CEO is run by cj_a721e6, linked first: a seat's schedules are the ones that point at it (issue #3650).
         ScheduleLinkSeed.Link(Db, TenantId.Local, "warmforward", "nora-hale", "cj_a721e6");
-        _registry.Register(TenantId.Local, WarmForward(), "the owner (test)", DateTime.UtcNow);
+        var manifest = WarmForward();
+        if (bossless) manifest.BossSeat = null;
+        _registry.Register(TenantId.Local, manifest, "the owner (test)", DateTime.UtcNow);
 
         var schedules = new Dictionary<string, CronJobDto>
         {
@@ -151,7 +176,13 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
             registry: _registry,
             listDirectors: tenant => directors.ListDirectors(tenant),
             schedule: (_, id) => schedules.TryGetValue(id, out var job) ? job : null,
-            startOnDirector: (ctx, directorId, request) => GatewayEndpoints.StartSessionOnDirectorAsync(ctx, directorId, request, door));
+            startOnDirector: (ctx, directorId, request) => GatewayEndpoints.StartSessionOnDirectorAsync(ctx, directorId, request, door),
+            problems: (_, factory) => new CronRunProblemsDto
+            {
+                Factory = factory,
+                Problems = _problems.Where(p => string.Equals(p.Factory, factory, StringComparison.OrdinalIgnoreCase)).ToList(),
+            },
+            timeZone: _ => TimeZoneInfo.Utc);
 
         await app.StartAsync();
         _app = app;
@@ -160,6 +191,9 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
 
     private Task<HttpResponseMessage> Talk(string factory, string seat) =>
         _http!.PostAsync($"gateway/factory-agents/factories/{factory}/seats/{seat}/talk", content: null);
+
+    private Task<HttpResponseMessage> Handle(string factory, string runId) =>
+        _http!.PostAsync($"gateway/factory-agents/factories/{factory}/problems/{runId}/handle", content: null);
 
     private static async Task<string> ErrorOf(HttpResponseMessage response)
         => (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("error").GetString() ?? "";
@@ -359,4 +393,102 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
     public void Talk_ASessionsOwnKey_NeverReachesTheRoute()
         => Assert.False(SessionKeyGuard.Check("POST", "/gateway/factory-agents/factories/warmforward/seats/nora-hale/talk").Allowed,
             "a talk is the owner's own session; a session must not be able to start one");
+
+    // ---- Handle the issue (Factory Control, step 1b) ----------------------------------------------------------
+
+    [Fact]
+    public async Task Handle_AnOpenProblem_OpensATalkWithTheBoss_BriefedOnTheProblem()
+    {
+        await StartAsync();
+        var problem = ScoutProblem();
+        _problems.Add(problem);
+
+        var response = await Handle("warmforward", problem.RunId);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var (directorId, sent) = Assert.Single(_sent);
+        Assert.Equal(NorthDirector, directorId);
+        // The person's own top-level session, in the factory, seated as the boss, like any talk.
+        Assert.Null(sent.ControllerSessionId);
+        Assert.Null(sent.ParentSessionId);
+        Assert.Equal("warmforward", sent.Factory);
+        Assert.Equal("WarmForward - Boss - handle the issue (WarmForward Factory - Boss - morning run)", sent.Name);
+        Assert.StartsWith("You are the boss of WarmForward", sent.PrePrompt);
+        // Under the same rules as the boss's scheduled runs.
+        Assert.Contains(MorningRun, sent.PrePrompt);
+        // Told which run, what went wrong, when, and which session to read - and how to resolve it.
+        Assert.Contains(problem.RunId, sent.PrePrompt);
+        Assert.Contains("did not report - its session ended without reporting how the run went", sent.PrePrompt);
+        Assert.Contains("morning shift, Sun 11 Oct, 08:00-16:00", sent.PrePrompt);
+        Assert.Contains("cc-devthrottle session buffer " + problem.SessionId, sent.PrePrompt);
+        Assert.Contains($"cc-devthrottle run resolve {problem.RunId} \"<one line: what fixed it>\"", sent.PrePrompt);
+    }
+
+    [Fact]
+    public async Task Handle_AFactoryWithNoBoss_Is409WithTheHandOversSentence_AndNothingIsStarted()
+    {
+        await StartAsync(bossless: true);
+        var problem = ScoutProblem();
+        _problems.Add(problem);
+
+        var response = await Handle("warmforward", problem.RunId);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal(CcDirector.Gateway.Factory.Talk.FactoryProblemHandoff.FactoryManager(
+            new RegisteredFactoryDto { Title = "WarmForward" }).UnavailableText, await ErrorOf(response));
+        Assert.Empty(_sent);
+    }
+
+    [Fact]
+    public async Task Handle_ARunThatIsNoOpenProblemOfThisFactory_Is404_AndNothingIsStarted()
+    {
+        await StartAsync();
+        var resolved = ScoutProblem();
+        resolved.State = CronRunProblemStates.Resolved;
+        _problems.Add(resolved);
+        var elsewhere = ScoutProblem(runId: "3f1c2b7a-0000-4000-8000-0000000000a2", factory: "tallyhand");
+        _problems.Add(elsewhere);
+
+        var notOpen = await Handle("warmforward", resolved.RunId);
+        var notThisFactory = await Handle("warmforward", elsewhere.RunId);
+
+        Assert.Equal(HttpStatusCode.NotFound, notOpen.StatusCode);
+        Assert.Contains("has no open problem on run", await ErrorOf(notOpen));
+        Assert.Equal(HttpStatusCode.NotFound, notThisFactory.StatusCode);
+        Assert.Empty(_sent);
+    }
+
+    [Theory]
+    [InlineData(Caller.DirectorDeviceKey)]
+    [InlineData(Caller.MachineToken)]
+    public async Task Handle_ACredentialThatIsNotTheOwnersBrowserOrPhone_Is403_AndNothingIsStarted(Caller caller)
+    {
+        await StartAsync(caller: caller);
+        var problem = ScoutProblem();
+        _problems.Add(problem);
+
+        var response = await Handle("warmforward", problem.RunId);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Empty(_sent);
+    }
+
+    [Fact]
+    public async Task Handle_TheFactorySwitchOff_Is404WithASentence_AndNothingIsStarted()
+    {
+        await StartAsync(switchOn: false);
+        var problem = ScoutProblem();
+        _problems.Add(problem);
+
+        var response = await Handle("warmforward", problem.RunId);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Contains("switched off", await ErrorOf(response));
+        Assert.Empty(_sent);
+    }
+
+    [Fact]
+    public void Handle_ASessionsOwnKey_NeverReachesTheRoute()
+        => Assert.False(SessionKeyGuard.Check("POST", "/gateway/factory-agents/factories/warmforward/problems/x/handle").Allowed,
+            "Handle the issue opens the owner's own talk; a session must not be able to start one");
 }

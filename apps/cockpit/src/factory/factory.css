@@ -717,6 +717,51 @@ a.fa-left-open {
   cursor: auto;
 }
 
+/* A factory's open problems (Factory Control, step 1b): the run, what went wrong, when, and its two actions. */
+.fa-problem-open {
+  color: var(--warn);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.fa-problem-what {
+  overflow-wrap: anywhere;
+}
+
+.fa-problem-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.fa-problem-resolve {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.fa-problem-resolve-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 220px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.fa-problem-reason {
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
 .fa-factory-head {
   display: flex;
   justify-content: space-between;

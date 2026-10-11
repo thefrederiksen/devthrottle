@@ -183,6 +183,61 @@ export interface FactoryFailureItem {
   note: string | null;
 }
 
+/** A factory's open problems, from the one problems fold. Every word is the Gateway's. */
+export interface FactoryPageProblems {
+  /** "Open problems". */
+  heading: string;
+  /** How a problem stops being open. */
+  note: string;
+  /** Newest first. */
+  items: FactoryProblemItem[];
+  /** "No open problems." when there are none. */
+  emptyText: string | null;
+}
+
+/** One open problem of one scheduled run. */
+export interface FactoryProblemItem {
+  /** The run, as `cc-devthrottle run resolve` names it. */
+  runId: string;
+  /** "Scout - Tallyhand - Scout - daily scan". */
+  seatText: string;
+  /** "did not report - its session ended without reporting how the run went". */
+  what: string;
+  /** "Started today 06:15", or "Due today 06:15, never started". */
+  whenText: string;
+  /** "morning shift, Sun 11 Oct, 08:00-16:00". */
+  shiftText: string;
+  /** "open 3h 12m". */
+  openForText: string;
+  sessionId: string | null;
+  sessionLabel: string | null;
+  /** Set when the run never started a session. */
+  noSessionText: string | null;
+  handle: FactoryProblemHandle;
+  /** "Resolve". */
+  resolveLabel: string;
+  /** "Why is it resolved? One line." */
+  resolvePrompt: string;
+  /** "Resolve with this reason". */
+  resolveConfirmLabel: string;
+  /** "Resolving...". */
+  resolveBusyLabel: string;
+}
+
+/** Handle the issue: opens a talk with the factory's boss, briefed on the problem - or, for a factory with no boss,
+ *  is drawn unavailable with the Gateway's sentence saying why. */
+export interface FactoryProblemHandle {
+  /** "Handle the issue". */
+  label: string;
+  /** "Starting the talk with the boss...". */
+  busyLabel: string;
+  factoryId: string;
+  runId: string;
+  available: boolean;
+  /** Why it cannot, when available is false. */
+  unavailableText: string | null;
+}
+
 export interface FactoryPageFailures {
   /** "Failing". */
   heading: string;
@@ -233,6 +288,9 @@ export interface FactoryPageView {
   goalNumber: FactoryGoalNumberCard;
   /** What is failing now (where FAILING links to); null when nothing is. */
   failures: FactoryPageFailures | null;
+  /** The open problems of this factory's scheduled runs, each with Handle the issue and Resolve (Factory Control,
+   *  step 1b); null when the view was folded without them. */
+  problems: FactoryPageProblems | null;
   waiting: FactoryPageWaiting;
   bossLatest: FactoryBossLatest;
   lastTalk: FactoryLastTalk;
@@ -487,6 +545,35 @@ export async function startFactoryTalk(target: FactoryTalkTarget, signal?: Abort
   }
   assertJson(res);
   return (await res.json()) as FactoryTalkStarted;
+}
+
+/**
+ * Handle the issue: the Gateway opens a talk with the factory's boss, already told about the problem, as the person's
+ * own session. A refusal (no boss yet, the problem already resolved, no Director on the boss's computer) throws a
+ * GatewayError carrying the Gateway's own sentence.
+ */
+export async function startProblemTalk(handle: FactoryProblemHandle, signal?: AbortSignal): Promise<FactoryTalkStarted> {
+  const path = `${TALK_PREFIX}/${encodeURIComponent(handle.factoryId)}/problems/${encodeURIComponent(handle.runId)}/handle`;
+  const res = await fetch(path, { method: "POST", headers: { Accept: "application/json", ...authHeaders() }, signal });
+  if (!res.ok) throw await GatewayError.from(res, "start the talk");
+  assertJson(res);
+  return (await res.json()) as FactoryTalkStarted;
+}
+
+/**
+ * Resolve a run's problem with a one-line reason - the same route `cc-devthrottle run resolve` calls. The reason is
+ * sent as typed: the Gateway decides whether it is acceptable, and a refusal (no reason, several lines, already
+ * resolved) throws a GatewayError carrying its own sentence.
+ */
+export async function resolveRunProblem(runId: string, reason: string, signal?: AbortSignal): Promise<void> {
+  const res = await fetch(`/cron/runs/${encodeURIComponent(runId)}/resolve`, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ reason }),
+    signal,
+  });
+  if (!res.ok) throw await GatewayError.from(res, "resolve it");
+  assertJson(res);
 }
 
 const OWNER_ACTION_PATH: Record<FactoryOwnerAction["action"], string> = {
