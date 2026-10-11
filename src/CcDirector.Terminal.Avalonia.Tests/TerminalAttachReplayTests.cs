@@ -8,7 +8,6 @@ using CcDirector.Core.Memory;
 using CcDirector.Core.Sessions;
 using CcDirector.Terminal.Core;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace CcDirector.Terminal.Avalonia.Tests;
 
@@ -20,10 +19,6 @@ namespace CcDirector.Terminal.Avalonia.Tests;
 /// </summary>
 public sealed class TerminalAttachReplayTests
 {
-    private readonly ITestOutputHelper _output;
-
-    public TerminalAttachReplayTests(ITestOutputHelper output) => _output = output;
-
     /// <summary>
     /// A backend whose Resize records the resize mark in its ring, as the real ConPty and Unix backends do, so a
     /// resize made while a replay is pending lands in the buffer exactly where it would in production.
@@ -161,29 +156,30 @@ public sealed class TerminalAttachReplayTests
         return count;
     }
 
+    /// <summary>
+    /// Attach must not replay the history on the screen thread. Decided by order, not by the clock: the
+    /// replay is held at its gate, and Attach has to return while it is held. A replay run inside Attach
+    /// would sit at the gate until its 60-second guard, come back with a parser, and fail the assertions
+    /// below with that story - never pass on a fast machine. (The earlier version asserted that Attach
+    /// returned within 50 ms, a number the screen thread cannot promise under a parallel test load.)
+    /// </summary>
     [AvaloniaFact]
-    public void Attach_WrappedTwoMegabyteBuffer_ReturnsInUnder50Ms_AndTheHandoverGridEqualsASynchronousReplay()
+    public void Attach_WrappedTwoMegabyteBuffer_ReturnsWhileTheReplayIsStillHeld_AndTheHandoverGridEqualsASynchronousReplay()
     {
         var (terminal, _) = ShownTerminal();
 
-        // Warm the path once so the timing below measures the attach, not first-call compilation.
         terminal.Attach(NewSession(new BufferBackend()));
         WaitForHandover(terminal);
 
         var session = WrappedSession("A");
-        var stopwatch = Stopwatch.StartNew();
+        using var gate = HoldReplays(terminal);
         terminal.Attach(session);
-        stopwatch.Stop();
-        _output.WriteLine($"Attach returned after {stopwatch.Elapsed.TotalMilliseconds:F1} ms on a {session.Buffer!.TotalBytesWritten} byte history");
 
-        Assert.True(stopwatch.ElapsedMilliseconds < 50,
-            $"Attach held the screen thread for {stopwatch.Elapsed.TotalMilliseconds:F0} ms on a wrapped two megabyte buffer");
         Assert.True(terminal.HarnessReplayPending, "the replay must still be running when Attach returns");
         Assert.Null(terminal.HarnessParser);
 
-        var waited = Stopwatch.StartNew();
+        gate.Set();
         WaitForHandover(terminal);
-        _output.WriteLine($"Handover after a further {waited.Elapsed.TotalMilliseconds:F0} ms");
 
         Assert.NotNull(terminal.HarnessParser);
         string expected = SynchronousReplayText(session.Buffer!, terminal.HarnessCols, terminal.HarnessRows);

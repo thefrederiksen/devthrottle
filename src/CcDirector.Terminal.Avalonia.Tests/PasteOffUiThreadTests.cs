@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Diagnostics;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using Xunit;
@@ -15,65 +14,91 @@ namespace CcDirector.Terminal.Avalonia.Tests;
 /// idle machine. The fix runs the pacing loop on the thread pool (Task.Run + ConfigureAwait(false)),
 /// so paste speed no longer depends on UI-thread availability.
 ///
-/// These tests reproduce the exact condition - a fully blocked UI thread - and assert that the real
-/// production pacing (<see cref="TerminalControl.HarnessPaceChunksAsync"/>) sails through it, whereas
-/// the old naive UI-thread-resuming loop stalls for the whole block. The contrast is the point: if a
-/// change makes the production pacing resume on the UI thread again, the first assertion fails.
+/// These tests reproduce the exact condition - a fully blocked UI thread - and decide the outcome by
+/// ORDER, never by the clock. The UI thread is pinned until a signal the test controls, not for a
+/// number of milliseconds: the production pacing (<see cref="TerminalControl.HarnessPaceChunksAsync"/>)
+/// must finish the whole paste while the pin is still held, whereas the old naive UI-thread-resuming
+/// loop cannot send its second chunk until the pin is released. The contrast is the point: if a change
+/// makes the production pacing resume on the UI thread again, the first test fails - and it fails by
+/// its hang guard, naming the cause, rather than passing on a fast machine. (The earlier version of
+/// this file measured the span in milliseconds and read red under load: 1343 ms against a 1000 ms
+/// limit on 10 October 2026, with the fix intact.)
 /// </summary>
 public sealed class PasteOffUiThreadTests
 {
     // The paste that bit the user: a 92-character single-line code, no newlines.
     private const int PasteLen = 92;
 
-    // How long the "render storm" pins the UI thread. Far longer than the ~180ms a 92-char paste
-    // needs when it is not blocked, so the stall - if present - is unmistakable.
-    private static readonly TimeSpan BlockDuration = TimeSpan.FromMilliseconds(2500);
+    /// <summary>
+    /// How long a pin may be held before the test is called hung. This is a hang guard, not an
+    /// assertion: it can only turn a test that would never finish into one that fails with a cause.
+    /// </summary>
+    private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
 
     [AvaloniaFact]
-    public async Task Production_pacing_does_not_stall_while_ui_thread_is_blocked()
+    public async Task Production_pacing_finishes_the_whole_paste_while_the_ui_thread_is_pinned()
     {
         var terminal = new TerminalControl();
         var text = new string('x', PasteLen);
 
-        var stamps = new ConcurrentQueue<double>();
-        var clock = Stopwatch.StartNew();
+        var chunks = new ConcurrentQueue<byte[]>();
+        using var pasteDone = new ManualResetEventSlim(false);
 
-        // Pin the UI thread for the whole block, then run the REAL pacing. Because it runs on the
-        // thread pool, its chunks land during the block instead of waiting for it to end.
-        var block = BlockUiThread(BlockDuration);
-        await terminal.HarnessPaceChunksAsync(text, _ => stamps.Enqueue(clock.Elapsed.TotalMilliseconds));
-        await block;
+        // Pin the UI thread until the paste reports done, then run the REAL pacing. Because the pacing
+        // runs on the thread pool, it finishes while the pin is held. If it ever resumed on the UI
+        // thread it could not finish until the pin was released, and the pin is released only when it
+        // finishes - so the guard is what ends the pin, and the test fails naming that.
+        var pin = PinUiThreadUntil(pasteDone);
+        var paste = terminal.HarnessPaceChunksAsync(text, chunks.Enqueue);
+        _ = paste.ContinueWith(_ => pasteDone.Set(), TaskScheduler.Default);
 
-        var (span, maxGap, count) = Analyze(stamps);
+        var endedBy = await pin;
+        await paste;
 
-        Assert.True(count > 1, $"expected multiple chunks, got {count}");
-        Assert.True(span < 1000,
-            $"paste should finish well before the {BlockDuration.TotalMilliseconds}ms UI-thread block; took {span:F0}ms");
-        Assert.True(maxGap < 500,
-            $"no chunk should stall behind the blocked UI thread; largest gap was {maxGap:F0}ms");
+        Assert.Equal(PinEnd.Signal, endedBy);
+        Assert.True(chunks.Count > 1, $"expected the paste to go out in several chunks, got {chunks.Count}");
+        Assert.Equal(PasteLen, chunks.Sum(c => c.Length));
     }
 
     [AvaloniaFact]
-    public async Task Naive_ui_thread_pacing_DOES_stall_while_ui_thread_is_blocked()
+    public async Task Naive_ui_thread_pacing_cannot_send_a_second_chunk_until_the_ui_thread_is_released()
     {
         // This is the OLD behavior, inlined: await Task.Delay with no ConfigureAwait(false) and no
-        // Task.Run, so every continuation resumes on the (blocked) UI thread. Asserting that THIS
-        // stalls proves the block above genuinely saturates the UI thread - otherwise the first
-        // test would pass for the wrong reason (a block that never actually bit).
+        // Task.Run, so every continuation resumes on the (pinned) UI thread. Showing that THIS cannot
+        // get past its first chunk until the pin is released proves the pin genuinely saturates the UI
+        // thread - otherwise the first test would pass for the wrong reason (a pin that never bit).
         var text = new string('x', PasteLen);
-        var stamps = new ConcurrentQueue<double>();
-        var clock = Stopwatch.StartNew();
 
-        var block = BlockUiThread(BlockDuration);
-        await NaiveUiThreadPace(text, _ => stamps.Enqueue(clock.Elapsed.TotalMilliseconds));
-        await block;
+        using var release = new ManualResetEventSlim(false);
+        using var pinning = new ManualResetEventSlim(false);
+        using var firstChunkSent = new ManualResetEventSlim(false);
+        var sentWhilePinned = new ConcurrentQueue<bool>();
 
-        var (span, _, count) = Analyze(stamps);
+        var pin = PinUiThreadUntil(release, pinning);
 
-        Assert.True(count > 1, $"expected multiple chunks, got {count}");
-        Assert.True(span > BlockDuration.TotalMilliseconds - 500,
-            $"naive UI-thread pacing should be held off for ~the whole {BlockDuration.TotalMilliseconds}ms block; " +
-            $"span was only {span:F0}ms");
+        // The releaser runs off the UI thread: it opens the pin only once the pin is really held AND the
+        // first chunk has gone out, so the second chunk's continuation has a pinned UI thread to wait on.
+        var releaser = Task.Run(() =>
+        {
+            if (!pinning.Wait(HangGuard)) throw new TimeoutException("the UI thread was never pinned");
+            if (!firstChunkSent.Wait(HangGuard)) throw new TimeoutException("the first chunk was never sent");
+            release.Set();
+        });
+
+        await NaiveUiThreadPace(text, _ =>
+        {
+            sentWhilePinned.Enqueue(!release.IsSet);
+            firstChunkSent.Set();
+        });
+
+        Assert.Equal(PinEnd.Signal, await pin);
+        await releaser;
+
+        var sent = sentWhilePinned.ToArray();
+        Assert.True(sent.Length > 1, $"expected the paste to go out in several chunks, got {sent.Length}");
+        Assert.True(sent[0], "the first chunk goes out synchronously, before the pacing ever awaits");
+        Assert.All(sent.Skip(1), pinned => Assert.False(pinned,
+            "a chunk after the first was sent while the UI thread was still pinned - the naive pacing did not need the UI thread, so the pin is not saturating it"));
     }
 
     /// <summary>The naive loop the fix replaced: chunked, but resuming on the UI thread.</summary>
@@ -87,28 +112,28 @@ public sealed class PasteOffUiThreadTests
         }
     }
 
-    /// <summary>Post a job that spins the UI thread for <paramref name="d"/>, blocking the dispatcher
-    /// completely. Returns a task that completes when the block ends.</summary>
-    private static Task BlockUiThread(TimeSpan d)
+    private enum PinEnd { Signal, HangGuard }
+
+    /// <summary>
+    /// Post a job that spins the UI thread until <paramref name="until"/> is set, blocking the dispatcher
+    /// completely. <paramref name="pinning"/>, when given, is set the moment the spin begins. The task
+    /// says what ended the pin: the signal, or the hang guard.
+    /// </summary>
+    private static Task<PinEnd> PinUiThreadUntil(ManualResetEventSlim until, ManualResetEventSlim? pinning = null)
     {
-        var tcs = new TaskCompletionSource();
+        var tcs = new TaskCompletionSource<PinEnd>();
         Dispatcher.UIThread.Post(() =>
         {
-            var until = Stopwatch.GetTimestamp() + (long)(d.TotalSeconds * Stopwatch.Frequency);
-            while (Stopwatch.GetTimestamp() < until) { /* pin the UI thread */ }
-            tcs.SetResult();
+            pinning?.Set();
+            var deadline = Environment.TickCount64 + (long)HangGuard.TotalMilliseconds;
+            var ended = PinEnd.HangGuard;
+            while (Environment.TickCount64 < deadline)
+            {
+                if (until.IsSet) { ended = PinEnd.Signal; break; }
+                // Pin the UI thread: no wait, no yield.
+            }
+            tcs.SetResult(ended);
         }, DispatcherPriority.Normal);
         return tcs.Task;
-    }
-
-    private static (double span, double maxGap, int count) Analyze(ConcurrentQueue<double> stamps)
-    {
-        var times = stamps.ToArray();
-        Array.Sort(times);
-        double maxGap = 0;
-        for (int i = 1; i < times.Length; i++)
-            maxGap = Math.Max(maxGap, times[i] - times[i - 1]);
-        double span = times.Length == 0 ? 0 : times[^1] - times[0];
-        return (span, maxGap, times.Length);
     }
 }
