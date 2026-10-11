@@ -408,15 +408,16 @@ jobs:
 
       - name: Install test dependencies (latest)
         if: matrix.dependencies == 'latest'
-        run: python -m pip install --upgrade pip pytest typer rich requests
+        run: python -m pip install --upgrade pip pytest typer rich requests cryptography
 
       # Click 8.2.1 is the first release whose CliRunner always captures stderr separately and
       # flushes it (8.2.0 captured it but could return it empty); the tests read result.stderr.
       # Typer 0.16.1 is the first release that supports Click 8.2 without printing extra output
       # for no_args_is_help, which cc-devthrottle's command groups use.
+      # cryptography 42.0.0 is the floor tools/cc-secrets/pyproject.toml declares; the cc-secrets tests need it.
       - name: Install test dependencies (declared floor)
         if: matrix.dependencies == 'floor'
-        run: python -m pip install --upgrade pip pytest "typer==0.16.1" "click==8.2.1" "rich==13.0.0" "requests==2.31.0"
+        run: python -m pip install --upgrade pip pytest "typer==0.16.1" "click==8.2.1" "rich==13.0.0" "requests==2.31.0" "cryptography==42.0.0"
 
       # The shipped-tool contract: registry/pyproject name agreement, console-script entry points,
       # ASCII-only shipped source, and the Rich ASCII patches.
@@ -444,7 +445,7 @@ jobs:
         run: python -m pytest tests/ -q
 
       # cc-secrets holds the owner's passwords, so its leak test and its permission checks run on every
-      # change. websockets is its one dependency beyond the ones installed above.
+      # change. websockets is its one dependency beyond the ones installed above (cryptography is installed there).
       - name: Run the cc-secrets tests
         working-directory: tools/cc-secrets
         env:
