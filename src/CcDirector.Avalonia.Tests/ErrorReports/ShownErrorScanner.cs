@@ -55,6 +55,12 @@ namespace CcDirector.Avalonia.Tests.ErrorReports;
 /// The reason is required, and "reported above" is checked: an earlier statement in the same block must call the
 /// helper. An exemption comment that no site uses is itself a finding, so they cannot pile up.
 ///
+/// THE NAME LISTS ARE KEPT BY HAND: the failure names, the flag argument names (error, isError, failed, success, ok,
+/// succeeded, isSuccess), the outcome members (Message, Detail, Reason, Summary, Text, Explanation) and the success
+/// names (Ok, Succeeded, Found, IsAvailable, Passed, Sent, Removed ...). They were derived from the sites in the tree;
+/// a new wrapper with a flag named <c>fail:</c> or a result with <c>IsHealthy</c> is outside them until it is added. The
+/// sentinels in the main test catch a rule that stops matching, not a name that was never in a list.
+///
 /// WHAT IT CANNOT SEE: error text that crosses a method or class boundary under a name that does not say failure
 /// (<c>PathFaultProgress.Text = repair.Detail</c>, where only <c>repair</c>'s producer knows it failed). Within one
 /// method or class it follows locals and fields; across them it relies on names.
@@ -149,9 +155,20 @@ public sealed class ShownErrorScanner
                 // Every overload must report, or the name does not count: a call cannot say which one it hits.
                 if (group.All(CallsHelper)) reportingMethods.Add($"{cls}.{group.Key}");
 
+        // Which argument of a display method is its TEXT: the first string parameter, when every method of that name
+        // in the scanned source agrees (SetIncomplete(int started, int total, string detail) shows its third).
+        var textParameter = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var group in methodsByClass.Values.SelectMany(m => m).GroupBy(m => m.Identifier.Text))
+        {
+            var indexes = group.Select(m => m.ParameterList.Parameters.ToList()
+                    .FindIndex(p => p.Type?.ToString() is "string" or "string?"))
+                .Distinct().ToList();
+            if (indexes.Count == 1 && indexes[0] >= 0) textParameter[group.Key] = indexes[0];
+        }
+
         var usedExemptions = new HashSet<(string, int)>();
         foreach (var (path, root) in trees)
-            ScanTree(path, root, boundNames, reportingMethods, result, usedExemptions);
+            ScanTree(path, root, boundNames, reportingMethods, textParameter, result, usedExemptions);
 
         // Exemption comments no site used: stale, or on the wrong line.
         foreach (var (path, root) in trees)
@@ -170,7 +187,7 @@ public sealed class ShownErrorScanner
     }
 
     private void ScanTree(string path, CompilationUnitSyntax root, HashSet<string> boundNames,
-        HashSet<string> reportingMethods, Result result, HashSet<(string, int)> usedExemptions)
+        HashSet<string> reportingMethods, Dictionary<string, int> textParameter, Result result, HashSet<(string, int)> usedExemptions)
     {
         var siteNodes = new List<(SyntaxNode Node, string Kind)>();
         foreach (var node in root.DescendantNodes())
@@ -192,9 +209,8 @@ public sealed class ShownErrorScanner
         {
             var line = node.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
             var text = Squash(node.ToString());
-            if (node.DescendantNodesAndSelf().OfType<InvocationExpressionSyntax>().Any(IsHelperCall)
-                || ShowsAReportedLocal(node)
-                || ShowsAReportedField(node)
+            if ((node is InvocationExpressionSyntax self && IsHelperCall(self))
+                || ShowsAReportedValue(node, kind, textParameter)
                 || InsideReportingCall(node, reportingMethods)
                 || IsReportingCall(node, reportingMethods))
             {
@@ -302,7 +318,8 @@ public sealed class ShownErrorScanner
     /// <summary>
     /// Rule (e): <c>x.Message</c> (or Detail, Reason, Summary, Text) where the same method tests whether x succeeded
     /// - <c>!x.Succeeded</c>, <c>x.Ok == false</c>, <c>x.Found is false</c> - is the outcome's own account of itself, and
-    /// in the branch that failed it is the failure. Read without branches: a method that tests x's success and shows
+    /// in the branch that failed it is the failure. A positive test that chooses between the two (<c>x.Ok ? a : b</c>,
+    /// <c>if (x.Ok) .. else ..</c>) counts too. Read without branches: a method that tests x's success and shows
     /// x's text is a site, and a success-path display of the same text is exempted as not an error.
     /// </summary>
     private static bool IsOutcomeText(MemberAccessExpressionSyntax m)
@@ -320,6 +337,10 @@ public sealed class ShownErrorScanner
                 (IsFlagOfOwner(b.Left) && b.Right.IsKind(SyntaxKind.FalseLiteralExpression))
                 || (IsFlagOfOwner(b.Right) && b.Left.IsKind(SyntaxKind.FalseLiteralExpression)),
             IsPatternExpressionSyntax ip => IsFlagOfOwner(ip.Expression) && ip.Pattern.ToString() is "false" or "not true",
+            // A positive test that chooses between success and failure (review of #3737, round 3, S2):
+            // x.Ok ? a : b, and if (x.Ok) ... else ....
+            ConditionalExpressionSyntax c => IsFlagOfOwner(Strip(c.Condition)),
+            IfStatementSyntax i when i.Else is not null => IsFlagOfOwner(Strip(i.Condition)),
             _ => false,
         });
     }
@@ -414,10 +435,11 @@ public sealed class ShownErrorScanner
         }
     }
 
-    /// <summary><c>StatusLevel.Error</c>, <c>RunState.Failed</c>: a value of an enumeration, which names a state rather
+    /// <summary><c>StatusLevel.Error</c>, <c>NativeNotice.Kind.Error</c>, <c>RunState.Failed</c>: a value of an enumeration, which names a state rather
     /// than carrying the text of a failure.</summary>
     private static bool IsEnumValue(MemberAccessExpressionSyntax m)
-        => m.Expression is IdentifierNameSyntax owner && char.IsUpper(owner.Identifier.Text[0])
+        => m.Expression is IdentifierNameSyntax or MemberAccessExpressionSyntax
+           && LastName(m.Expression) is { Length: > 0 } owner && char.IsUpper(owner[0])
            && m.Name.Identifier.Text is "Error" or "Failed" or "Failure" or "Fault" or "Problem";
 
     private static bool IsCallOnAType(ExpressionSyntax callee) => callee is MemberAccessExpressionSyntax ma
@@ -507,61 +529,196 @@ public sealed class ShownErrorScanner
     private static bool IsHelperCall(InvocationExpressionSyntax call)
         => call.Expression is MemberAccessExpressionSyntax ma && LastName(ma.Expression) is { } owner && HelperClasses.Contains(owner);
 
-    /// <summary>The site shows a local whose value came from the helper: <c>var notice = ShownError.Report(...);</c>
-    /// then, later in the same method, <c>NativeNotice.Show(notice, ...)</c> - for a site that must report before it
-    /// does something else (start a flush) and only then show.</summary>
-    private static bool ShowsAReportedLocal(SyntaxNode node)
+    /// <summary>
+    /// ON THE HELPER means the value the site SHOWS is reported - not that a helper call appears somewhere inside it
+    /// (review of #3737, round 3, S1: <c>ok ? ShownError.Report(..) : message</c> with <c>error: !ok</c> shows the raw
+    /// message on failure, and <c>ShowStatus(message, ShownError.Report(.. "title"), error: !ok)</c> reports a title
+    /// nobody sees as an error). What is shown:
+    ///   - an assignment: its right side;
+    ///   - a call: every argument that carries error text and is not a plain literal (a fixed title such as
+    ///     "Startup error" is not the error), and - when the call is a site because of its name or its error or success
+    ///     flag - its text: the method's first string parameter, read from its declaration, or else the first argument;
+    ///   - when that leaves nothing (only a literal carries error text, or a message box with none), at least one of the
+    ///     arguments shown must be reported.
+    /// </summary>
+    private static bool ShowsAReportedValue(SyntaxNode node, string kind, Dictionary<string, int> textParameter)
     {
-        var body = node.Ancestors().FirstOrDefault(a => a is BaseMethodDeclarationSyntax or LocalFunctionStatementSyntax or AccessorDeclarationSyntax);
-        if (body is null) return false;
-        var reportedLocals = body.DescendantNodes().OfType<VariableDeclaratorSyntax>()
-            .Where(v => v.Initializer?.Value is InvocationExpressionSyntax call && IsHelperCall(call))
-            .Select(v => v.Identifier.Text)
-            .ToHashSet(StringComparer.Ordinal);
-        if (reportedLocals.Count == 0) return false;
-        var shown = node switch
+        switch (node)
         {
-            AssignmentExpressionSyntax a => (SyntaxNode)a.Right,
-            InvocationExpressionSyntax i => i.ArgumentList,
-            ObjectCreationExpressionSyntax o => o.ArgumentList,
-            _ => null,
-        };
-        return shown is not null && shown.DescendantNodesAndSelf().OfType<IdentifierNameSyntax>().Any(id => reportedLocals.Contains(id.Identifier.Text));
-    }
-
-    /// <summary>The site shows a field that only ever holds reported text: every assignment to it anywhere in its
-    /// class is either the helper's return or a clearing value (<c>_browsersError = ShownError.Report(...)</c>, later
-    /// <c>BrowsersErrorText.Text = _browsersError ?? ""</c>). One assignment of anything else, and it does not count.</summary>
-    private static bool ShowsAReportedField(SyntaxNode node)
-    {
-        var type = node.Ancestors().OfType<TypeDeclarationSyntax>().FirstOrDefault();
-        if (type is null) return false;
-        var fields = type.Members.OfType<FieldDeclarationSyntax>()
-            .SelectMany(f => f.Declaration.Variables)
-            .Where(v => v.Initializer is null || IsClearing(v.Initializer.Value))
-            .Select(v => v.Identifier.Text)
-            .ToHashSet(StringComparer.Ordinal);
-        if (fields.Count == 0) return false;
-        var shown = node switch
-        {
-            AssignmentExpressionSyntax a => (SyntaxNode)a.Right,
-            InvocationExpressionSyntax i => i.ArgumentList,
-            ObjectCreationExpressionSyntax o => o.ArgumentList,
-            _ => null,
-        };
-        if (shown is null) return false;
-        var assignments = type.DescendantNodes().OfType<AssignmentExpressionSyntax>().ToList();
-        foreach (var id in shown.DescendantNodesAndSelf().OfType<IdentifierNameSyntax>())
-        {
-            var name = id.Identifier.Text;
-            if (!fields.Contains(name)) continue;
-            var writes = assignments.Where(a => LastName(a.Left) == name).ToList();
-            if (writes.Count > 0 && writes.All(a => IsClearing(a.Right)
-                    || (a.Right is InvocationExpressionSyntax call && IsHelperCall(call)))
-                && writes.Any(a => !IsClearing(a.Right)))
-                return true;
+            case AssignmentExpressionSyntax assign:
+                return IsReported(assign.Right, null);
+            case InvocationExpressionSyntax or BaseObjectCreationExpressionSyntax:
+            {
+                var call = node as InvocationExpressionSyntax;
+                var args = (call?.ArgumentList ?? ((BaseObjectCreationExpressionSyntax)node).ArgumentList)?.Arguments.ToList() ?? new();
+                var shown = args.Where(a => !IsFlagArgument(a)).ToList();
+                if (shown.Count == 0) return false;
+                var required = shown.Where(a => !IsPlainStringLiteral(a.Expression) && CarriesErrorText(a.Expression)).ToList();
+                var name = call is null ? null : CalleeName(call.Expression);
+                if (name == "Invoke" && call is not null) name = InvokedName(call.Expression) ?? name;
+                var byNameOrFlag = call is not null && name is not null
+                    && ((ErrorName.IsMatch(name) && ErrorCallName.IsMatch(name)) || FailureCallName.IsMatch(name) || SaysError(call));
+                if (byNameOrFlag)
+                {
+                    var positional = args.Where(a => a.NameColon is null).ToList();
+                    var text = textParameter.TryGetValue(name!, out var index) && index < positional.Count
+                        ? positional[index]
+                        : shown.FirstOrDefault(a => a.NameColon is null && !a.Expression.IsKind(SyntaxKind.ThisExpression)) ?? shown[0];
+                    if (!required.Contains(text)) required.Add(text);
+                }
+                if (required.Count > 0) return required.All(a => IsReported(a.Expression, call));
+                return shown.Any(a => IsReported(a.Expression, call));
+            }
         }
         return false;
+    }
+
+    private static bool IsFlagArgument(ArgumentSyntax a)
+        => a.NameColon?.Name.Identifier.Text is "error" or "isError" or "failed" or "success" or "ok" or "succeeded"
+            or "isSuccess" or "neutral" or "isNeutral";
+
+    /// <summary>
+    /// The value is what the helper returned: the helper call itself; a local the helper initialised; a field that only
+    /// ever holds the helper's result; <c>reported ?? ""</c>; text built around a reported part with nothing else in it
+    /// that is error text; or a conditional whose FAILURE branch is reported (see <see cref="FailureBranch"/>) - and when
+    /// the failure branch cannot be told, every branch that is not a clean literal.
+    /// </summary>
+    private static bool IsReported(ExpressionSyntax value, InvocationExpressionSyntax? call)
+    {
+        switch (value)
+        {
+            case ParenthesizedExpressionSyntax p:
+                return IsReported(p.Expression, call);
+            case InvocationExpressionSyntax i when IsHelperCall(i):
+                return true;
+            case IdentifierNameSyntax id:
+                return IsReportedLocal(id) || IsReportedField(id);
+            case ConditionalExpressionSyntax c:
+                if (FailureBranch(c, call) is { } failure) return IsReported(failure, call);
+                return new[] { c.WhenTrue, c.WhenFalse }.All(b => IsReported(b, call) || IsCleanLiteral(b));
+            case BinaryExpressionSyntax b when b.IsKind(SyntaxKind.CoalesceExpression):
+                return IsReported(b.Left, call) && (IsReported(b.Right, call) || !CarriesErrorText(b.Right));
+            case BinaryExpressionSyntax b when b.IsKind(SyntaxKind.AddExpression):
+                return PartsReported(new[] { b.Left, b.Right }, call);
+            case InterpolatedStringExpressionSyntax interpolated:
+                if (interpolated.Contents.OfType<InterpolatedStringTextSyntax>().Any(t => FailureWord.IsMatch(t.TextToken.ValueText)))
+                    return false;
+                return PartsReported(interpolated.Contents.OfType<InterpolationSyntax>().Select(x => x.Expression).ToArray(), call);
+        }
+        return false;
+    }
+
+    private static bool PartsReported(IReadOnlyList<ExpressionSyntax> parts, InvocationExpressionSyntax? call)
+        => parts.Any(p => IsReported(p, call))
+           && parts.All(p => IsReported(p, call) || !CarriesErrorText(p));
+
+    private static bool IsPlainStringLiteral(ExpressionSyntax value)
+        => value is LiteralExpressionSyntax l && l.IsKind(SyntaxKind.StringLiteralExpression);
+
+    private static bool IsCleanLiteral(ExpressionSyntax value)
+        => value is LiteralExpressionSyntax && !CarriesErrorText(value);
+
+    private static readonly HashSet<string> SuccessNames = new(StringComparer.Ordinal)
+        { "ok", "Ok", "IsOk", "success", "Success", "IsSuccess", "succeeded", "Succeeded", "Found", "found",
+          "IsAvailable", "Available", "available", "Passed", "passed", "healthy", "Healthy", "IsHealthy",
+          "Sent", "sent", "Removed", "removed", "Delivered", "Installed" };
+
+    /// <summary>
+    /// The branch of <c>cond ? a : b</c> that is shown when the thing FAILED: <c>b</c> when the condition says success
+    /// (<c>ok</c>, <c>result.Ok</c>, <c>repair.Succeeded</c>), <c>a</c> when it says failure (<c>!ok</c>,
+    /// <c>failed</c>, <c>x.Error is not null</c> is not read - only names). Failing that, the call's own flag decides:
+    /// <c>success: S</c> with the condition S, or <c>error: E</c> with the condition E or its negation. Null when it
+    /// cannot be told.
+    /// </summary>
+    private static ExpressionSyntax? FailureBranch(ConditionalExpressionSyntax c, InvocationExpressionSyntax? call)
+    {
+        var polarity = SuccessPolarity(c.Condition);
+        if (polarity == 0 && call is not null)
+        {
+            var condition = Strip(c.Condition).ToString();
+            foreach (var a in call.ArgumentList.Arguments)
+            {
+                var flag = a.NameColon?.Name.Identifier.Text;
+                var given = Strip(a.Expression);
+                var negated = given is PrefixUnaryExpressionSyntax pu && pu.IsKind(SyntaxKind.LogicalNotExpression) ? Strip(pu.Operand).ToString() : null;
+                if (flag is "success" or "ok" or "succeeded" or "isSuccess")
+                    polarity = given.ToString() == condition ? 1 : negated == condition ? -1 : 0;
+                else if (flag is "error" or "isError" or "failed")
+                    polarity = given.ToString() == condition ? -1 : negated == condition ? 1 : 0;
+                if (polarity != 0) break;
+            }
+        }
+        return polarity switch { 1 => c.WhenFalse, -1 => c.WhenTrue, _ => null };
+    }
+
+    /// <summary>+1 when the condition is true on success, -1 when it is true on failure, 0 when its name does not say.</summary>
+    private static int SuccessPolarity(ExpressionSyntax condition)
+    {
+        var e = Strip(condition);
+        if (e is PrefixUnaryExpressionSyntax not && not.IsKind(SyntaxKind.LogicalNotExpression))
+            return -SuccessPolarity(not.Operand);
+        if (e is BinaryExpressionSyntax b)
+        {
+            var left = SuccessPolarity(b.Left);
+            var right = SuccessPolarity(b.Right);
+            // a && failed: true only when the failure term is true. a && ok && b: true only on success.
+            if (b.IsKind(SyntaxKind.LogicalAndExpression))
+                return left == -1 || right == -1 ? -1 : left == 1 && right == 1 ? 1 : 0;
+            if (b.IsKind(SyntaxKind.LogicalOrExpression))
+                return left == -1 && right == -1 ? -1 : 0;
+            // failed > 0, errors.Count != 0, error != null: true on failure; == 0 and == null the other way.
+            var named = FailureNamed(b.Left) || FailureNamed(b.Right);
+            if (!named) return 0;
+            var zeroOrNull = IsZeroOrNull(b.Left) || IsZeroOrNull(b.Right);
+            if (b.IsKind(SyntaxKind.GreaterThanExpression) || b.IsKind(SyntaxKind.NotEqualsExpression)) return zeroOrNull ? -1 : 0;
+            if (b.IsKind(SyntaxKind.EqualsExpression)) return zeroOrNull ? 1 : 0;
+            return 0;
+        }
+        var name = LastName(e);
+        if (name is null) return 0;
+        if (SuccessNames.Contains(name)) return 1;
+        if (FailureValueName.IsMatch(name) || name is "IsError" or "HasError" or "isError" or "hasError" or "IsFailed") return -1;
+        return 0;
+    }
+
+    private static bool FailureNamed(ExpressionSyntax e)
+    {
+        var x = Strip(e);
+        if (x is MemberAccessExpressionSyntax { Name.Identifier.Text: "Count" or "Length" } count) x = count.Expression;
+        return LastName(x) is { } n && FailureValueName.IsMatch(n);
+    }
+
+    private static bool IsZeroOrNull(ExpressionSyntax e)
+        => Strip(e) is LiteralExpressionSyntax l && (l.IsKind(SyntaxKind.NullLiteralExpression) || l.Token.ValueText == "0");
+
+    private static ExpressionSyntax Strip(ExpressionSyntax e)
+        => e is ParenthesizedExpressionSyntax p ? Strip(p.Expression) : e;
+
+    /// <summary>A local of the enclosing method that the helper initialised: <c>var notice = ShownError.Report(...);</c>
+    /// then, later, <c>NativeNotice.Show(notice, ...)</c> - for a site that must report before it does something else
+    /// (start a flush) and only then show.</summary>
+    private static bool IsReportedLocal(IdentifierNameSyntax id)
+    {
+        var body = id.Ancestors().FirstOrDefault(a => a is BaseMethodDeclarationSyntax or LocalFunctionStatementSyntax or AccessorDeclarationSyntax);
+        return body is not null && body.DescendantNodes().OfType<VariableDeclaratorSyntax>()
+            .Any(v => v.Identifier.Text == id.Identifier.Text && v.Initializer?.Value is InvocationExpressionSyntax call && IsHelperCall(call));
+    }
+
+    /// <summary>A field that only ever holds reported text: every assignment to it anywhere in its class is either the
+    /// helper's return or a clearing value (<c>_browsersError = ShownError.Report(...)</c>, later
+    /// <c>BrowsersErrorText.Text = _browsersError ?? ""</c>). One assignment of anything else, and it does not count.</summary>
+    private static bool IsReportedField(IdentifierNameSyntax id)
+    {
+        var type = id.Ancestors().OfType<TypeDeclarationSyntax>().FirstOrDefault();
+        if (type is null) return false;
+        var name = id.Identifier.Text;
+        var isField = type.Members.OfType<FieldDeclarationSyntax>().SelectMany(f => f.Declaration.Variables)
+            .Any(v => v.Identifier.Text == name && (v.Initializer is null || IsClearing(v.Initializer.Value)));
+        if (!isField) return false;
+        var writes = type.DescendantNodes().OfType<AssignmentExpressionSyntax>().Where(a => LastName(a.Left) == name).ToList();
+        return writes.Count > 0
+               && writes.All(a => IsClearing(a.Right) || (a.Right is InvocationExpressionSyntax call && IsHelperCall(call)))
+               && writes.Any(a => !IsClearing(a.Right));
     }
 
     private static bool AnEarlierStatementReports(SyntaxNode node)
