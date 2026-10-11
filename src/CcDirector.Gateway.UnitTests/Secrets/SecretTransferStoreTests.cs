@@ -105,6 +105,20 @@ public sealed class SecretTransferStoreTests : IDisposable
     }
 
     [Fact]
+    public void AnApprovedTransferAStoppedGatewayOrphaned_Fails_SayingItIsNotKnownWhetherItWasStored()
+    {
+        var store = Open();
+        var approved = store.Create(TenantA, Ask(), Phone(), T0)!;
+
+        var stillMoving = store.Find(TenantA, approved.TransferId, T0 + TimeSpan.FromMinutes(9))!;
+        var orphaned = store.Find(TenantA, approved.TransferId, T0 + SecretTransferStore.ApprovedOrphanedAfter)!;
+
+        Assert.Equal(SecretTransferStates.Approved, stillMoving.State);
+        Assert.Equal((SecretTransferStates.Failed, SecretTransferStore.OrphanedOutcome), (orphaned.State, orphaned.Outcome));
+        Assert.False(store.TryFinish(TenantA, approved.TransferId, delivered: true, "late", T0 + TimeSpan.FromMinutes(11)));
+    }
+
+    [Fact]
     public void TryFinish_EndsOnlyAnApprovedTransfer()
     {
         var store = Open();

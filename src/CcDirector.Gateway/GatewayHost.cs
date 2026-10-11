@@ -383,6 +383,9 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>The secret transfers and their approvals (the Secret Handoff mission) - never a value.</summary>
     internal Secrets.SecretTransferStore SecretTransfers { get; }
 
+    /// <summary>Moves an approved secret transfer between the two machines' Directors (the Secret Handoff mission).</summary>
+    internal Secrets.SecretTransferDelivery SecretDelivery { get; }
+
     /// <summary>The record of every message link set up and stopped, and every message a link carried, in the
     /// governance audit trail.</summary>
     internal Messaging.FleetMessageLinkRecord MessageLinkRecord { get; }
@@ -2202,6 +2205,11 @@ public sealed class GatewayHost : IAsyncDisposable
         MessageLinks = new Messaging.FleetMessageLinkStore(_gatewayDb);
         MessageLinkRequests = new Messaging.FleetMessageLinkRequestStore(_gatewayDb);
         SecretTransfers = new Secrets.SecretTransferStore(_gatewayDb);
+        SecretDelivery = new Secrets.SecretTransferDelivery(SecretTransfers, SecretMachines,
+            isConnected: (tenant, directorId) => PushedSessions.GetActiveConnectionId(tenant, directorId) is not null,
+            send: SendCommandAsync,
+            enterScope: tenant => _tenantBoundary.EnterScope(tenant),
+            nowUtc: () => DateTime.UtcNow);
         MessageLinkRecord = new Messaging.FleetMessageLinkRecord(_governanceAudit, tenant => _tenantBoundary.EnterScope(tenant));
         // Per-tenant dictation transcript store (issue #509): every transcribed turn's raw and cleaned text
         // lands in the caller tenant's partition of the dictation_transcripts table, write-only, for later
@@ -5304,10 +5312,7 @@ public sealed class GatewayHost : IAsyncDisposable
             transfers: SecretTransfers,
             findSession: (tenant, sid) => GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, sid),
             machineOfDevice: deviceId => Devices.DisplayOfDevice(deviceId)?.MachineName,
-            // Phase 3 records approvals; moving the envelope between the machines arrives in phase 4. Until then an
-            // approved transfer ends at once, saying so, rather than sitting "approved" with nothing behind it.
-            startDelivery: (tenant, transferId) => SecretTransfers.TryFinish(tenant, transferId, delivered: false,
-                "Approved, but this Gateway cannot move a secret between machines yet. Nothing was moved.", DateTime.UtcNow),
+            startDelivery: (tenant, transferId) => SecretDelivery.Start(tenant, transferId),
             nowUtc: () => DateTime.UtcNow);
 
         // Requests for a message link (issue #3548): a session asks, the owner - or a raised session - answers. Asking is
