@@ -261,11 +261,29 @@ public sealed class SecretTransferStore
         return changed;
     }
 
-    /// <summary>Move every waiting transfer past its expiry to expired (or just the one with <paramref name="onlyId"/>).</summary>
+    /// <summary>An approved transfer still not finished this long after its approval was orphaned: a delivery takes two
+    /// Director commands of at most 90 seconds each, so only a Gateway that stopped mid-delivery leaves one this old.</summary>
+    public static readonly TimeSpan ApprovedOrphanedAfter = TimeSpan.FromMinutes(10);
+
+    public const string OrphanedOutcome = "The Gateway stopped while moving it, so whether it was stored is not known. "
+                                          + "Check 'cc-secrets list' on the receiving machine before asking again.";
+
+    /// <summary>Move every waiting transfer past its expiry to expired, and end every approved transfer a stopped Gateway
+    /// orphaned (or just the one with <paramref name="onlyId"/>).</summary>
     private void ExpireOverdue(TenantId tenant, DateTime nowUtc, string? onlyId)
     {
         var now = Utc(nowUtc);
         using var ctx = _db.CreateContext(tenant);
+        var orphanedBefore = now - ApprovedOrphanedAfter;
+        var orphans = ctx.SecretTransfers.Where(t => t.State == SecretTransferStates.Approved
+                                                     && t.AnsweredAtUtc != null && t.AnsweredAtUtc <= orphanedBefore);
+        if (onlyId is not null) orphans = orphans.Where(t => t.TransferId == onlyId);
+        var orphaned = orphans.ExecuteUpdate(u => u
+            .SetProperty(t => t.State, SecretTransferStates.Failed)
+            .SetProperty(t => t.Outcome, OrphanedOutcome)
+            .SetProperty(t => t.FinishedAtUtc, now));
+        if (orphaned > 0)
+            FileLog.Write($"[SecretTransferStore] ExpireOverdue: tenant={tenant.ToLogString()}, orphaned={orphaned}");
         var query = ctx.SecretTransfers.Where(t => t.State == SecretTransferStates.Waiting && t.ExpiresAtUtc <= now);
         if (onlyId is not null) query = query.Where(t => t.TransferId == onlyId);
         var expired = query.ExecuteUpdate(u => u

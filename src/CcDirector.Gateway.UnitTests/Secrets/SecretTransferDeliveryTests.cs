@@ -139,6 +139,20 @@ public sealed class SecretTransferDeliveryTests : IDisposable
     }
 
     [Fact]
+    public async Task DeliverAsync_TheReceivingDirectorFailsAfterItHadTheEnvelope_SaysItIsNotKnownWhetherItWasStored()
+    {
+        // Its own 60-second limit, or cc-secrets ending after the store was written: the write may have happened.
+        var delivery = Delivery(c => c.Verb == SecretTransferDelivery.SendVerb ? Sealed()
+            : DirectorCommandResult.Fail(DirectorCommandStatus.Error, "cc-secrets transfer-receive did not finish within 60 seconds."));
+        var id = Approved();
+
+        await delivery.DeliverAsync(Tenant, id, CancellationToken.None);
+
+        Assert.Contains("whether it was stored is not known", Row(id).Outcome);
+        Assert.DoesNotContain("Nothing was stored", Row(id).Outcome);
+    }
+
+    [Fact]
     public async Task DeliverAsync_TheReceiverIsNotConnected_SendsNothing()
     {
         var delivery = Delivery(_ => Sealed(), macConnected: false);

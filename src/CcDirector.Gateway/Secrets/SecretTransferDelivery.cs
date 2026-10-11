@@ -131,11 +131,13 @@ internal sealed class SecretTransferDelivery
             SenderFingerprint = from.Fingerprint, ReceiverFingerprint = to.Fingerprint, Envelope = sealedEntry.Envelope,
             ApprovedWhere = row.AnsweredWhere ?? "", ApprovalWords = row.ApprovalWords,
         }, ct, CommandTimeout, row.ToMachine);
-        if (receiveResult is { Status: DirectorCommandStatus.Timeout or DirectorCommandStatus.TunnelDropped })
-            return Failed($"{row.ToMachine} did not answer in time, so whether it was stored is not known. Check "
-                          + $"'cc-secrets list' on {row.ToMachine} before asking again.");
-        if (Refused(receiveResult, row.ToMachine, "store it") is { } receiveRefusal)
-            return Failed(receiveRefusal + " Nothing was stored.");
+        // Once the receiving Director has the command, any end other than its own answer may come after the write:
+        // its 60-second limit, a crash after the store was saved, a dropped tunnel. Only "not connected" is certain.
+        if (receiveResult is null)
+            return Failed($"The Director on {row.ToMachine} is not connected, so it could not store it. Nothing was stored.");
+        if (receiveResult.Status != DirectorCommandStatus.Ok)
+            return Failed($"{row.ToMachine} did not finish storing it ({receiveResult.Error}), so whether it was stored "
+                          + $"is not known. Check 'cc-secrets list' on {row.ToMachine} before asking again.");
         var stored = Read<ReceiveAnswer>(receiveResult!);
         if (stored is null)
             return Failed($"The Director on {row.ToMachine} answered in a shape the Gateway does not read. Check "
