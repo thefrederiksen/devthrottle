@@ -36,6 +36,37 @@ dials the Director.
   strings, not enums, so a JSON body never carries a bare number and an older side reading a newer
   value sees a word it can log.
 
+### 1.1 What the Director already has, and how this relates to it
+
+**`src/CcDirector.Core/Claude/ClaudeAccountStore.cs`** (with `ClaudeAccount.cs` beside it) is the
+Director's existing account list: `accounts.json` under `CcStorage.ToolConfig("director")`, filled by
+the Accounts dialog (`src/CcDirector.Avalonia/AccountsDialog.axaml.cs`) and loaded at start-up in
+`App.axaml.cs`. Two parts of it are reused and one part must not be:
+
+- **Reused:** `ParseCredentialsJson` already reads `subscriptionType` and `rateLimitTier` from a
+  `.credentials.json`; those two words are the report's `Plan` and `RateLimitTier` (section 2.2).
+  `GetDefaultCredentialsPath` is the Windows and Linux active key's location.
+- **Must not be reused as the key store:** each `ClaudeAccount` holds its own `AccessToken` and
+  `RefreshToken`, and `CaptureFromCredentials` / `RefreshActiveTokenFromCredentials` write the ACTIVE
+  sign-in's tokens into `accounts.json` beside the live `.credentials.json`. That is two places holding
+  one sign-in - exactly the copy `MISSION.md` trap 2 forbids (a refresh in one may cancel the other).
+  The license key store (phase 1) keeps each sign-in in exactly one place, and the report's holdings
+  come from that store, never from `accounts.json`. Whether phase 1 retires `ClaudeAccountStore` and
+  the Accounts dialog or makes them stop copying the active sign-in is phase 1's call, recorded in its
+  pull request; this contract only requires that after phase 1 no second copy of a sign-in is written
+  anywhere.
+
+**The retired usage poll.** Until 22 September 2026 the Director read the provider's usage endpoint
+once a minute for every stored account and raised an event nothing subscribed to; it was deleted, and
+`src/CcDirector.Core.UnitTests/Background/NoUnreadUsagePollTests.cs` now fails if any Director source
+names `api/oauth/usage`. That rule was "a call whose result nothing reads is deleted". **The usage
+report replaces that retired poll for a reader that now exists: the Gateway's decision engine and the
+Licenses page.** Phase 1 therefore changes that test rather than deleting it: it allows the endpoint in
+exactly one file - the license usage reader - and asserts, as a presence, that the reader's result
+reaches `PushLicenseUsage`, so an unread poll cannot come back under cover of this one. The new reader
+is also cheaper than the old one: the active account every 2 minutes and each spare at most every 10,
+against every account every minute.
+
 **Where the types live.** One new file, `src/CcDirector.Gateway.Contracts/LicenseMessages.cs`, holding
 every class and constant named below. Both sides reference that project already.
 
@@ -102,8 +133,9 @@ how old the numbers are (section 5.2). It never sees a zero standing in for "unk
 
 The account email comes from the `oauthAccount` block the Director keeps with each holding (the active
 one in the default config's `.claude.json`; a spare in its own folder). `Plan` and `RateLimitTier` come
-from the sign-in's own `subscriptionType` and `rateLimitTier` fields - those two words are copied, and
-nothing else from that file is.
+from the sign-in's own `subscriptionType` and `rateLimitTier` fields, read with the existing
+`ClaudeAccountStore.ParseCredentialsJson` (section 1.1) - those two words are copied, and nothing else
+from that file is.
 
 ### 2.3 How often
 
