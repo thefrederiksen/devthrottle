@@ -467,7 +467,8 @@ def test_TransferReceiveCommand_ReadsStandardInputAsUtf8_SoAnAccentedNameIsNotCh
     monkeypatch.setattr(transfer, "receive_half", capture)
     raw = json.dumps({"transferId": TID, "entry": "qa-handoff-caf\u00e9"}, ensure_ascii=False).encode("utf-8")
     with on(two["mac"], two["mp"]):
-        result = runner.invoke(cli.app, ["transfer-receive", TID], input=raw)
+        # Standard input decoded with a Windows console code page, as the Director's child gets it.
+        result = CliRunner(charset="cp1252").invoke(cli.app, ["transfer-receive", TID], input=raw)
 
     assert result.exit_code == 0
     assert seen["entry"] == "qa-handoff-caf\u00e9"
