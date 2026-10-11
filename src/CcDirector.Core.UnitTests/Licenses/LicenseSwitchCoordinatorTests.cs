@@ -143,6 +143,72 @@ public sealed class LicenseSwitchCoordinatorTests : IDisposable
     }
 
     [Fact]
+    public async Task SwitchAsync_RefusedWhileAnotherRunsThenReplayedAfterIt_CarriesTheAccountActiveAtEachMoment()
+    {
+        // Fix-round review of 3868, the reviewer's sequence: A is active while S1 to B runs; S2 is refused and its answer
+        // is lost; S1 finishes, so B is active; the Gateway retries S2. The replay must say B - never an empty account,
+        // and never the A of the moment it was refused, either of which would undo what the after-switch report said.
+        _tool.SwitchGate = new TaskCompletionSource();
+        var coordinator = NewCoordinator();
+        var s1 = coordinator.SwitchAsync(Request(), CancellationToken.None);
+        while (_tool.SwitchCalls.Count == 0) await Task.Delay(5);
+
+        var refused = await coordinator.SwitchAsync(Request(id: OtherSwitchId), CancellationToken.None);
+        _tool.SwitchGate.SetResult();
+        Assert.Equal(LicenseSwitchOutcomes.Switched, (await s1).Outcome);
+        var retried = await coordinator.SwitchAsync(Request(id: OtherSwitchId), CancellationToken.None);
+
+        Assert.Equal(LicenseSwitchReasonCodes.SwitchInProgress, refused.ReasonCode);
+        Assert.Equal(AccountA, refused.ActiveAccountEmailAfter);    // active when it was refused
+        Assert.True(retried.Replayed);
+        Assert.Equal(LicenseSwitchReasonCodes.SwitchInProgress, retried.ReasonCode);
+        Assert.Equal(AccountB, retried.ActiveAccountEmailAfter);    // active when it was replayed
+        Assert.Equal(AccountB, retried.PreviousActiveAccountEmail);
+        Assert.Single(_tool.SwitchCalls);
+    }
+
+    [Fact]
+    public async Task SwitchAsync_StoredRefusalReplayedWhenTheToolCannotList_LastReadAccountAndSaysSo()
+    {
+        var coordinator = NewCoordinator();
+        var refused = await coordinator.SwitchAsync(Request(target: "account-c@example.com"), CancellationToken.None);
+        Assert.Equal(LicenseSwitchReasonCodes.SpareNotHeld, refused.ReasonCode);
+
+        _tool.FailWith = "cc-devthrottle is not installed";
+        var replayed = await coordinator.SwitchAsync(Request(target: "account-c@example.com"), CancellationToken.None);
+
+        Assert.True(replayed.Replayed);
+        Assert.Equal(AccountA, replayed.ActiveAccountEmailAfter);
+        Assert.EndsWith(LicenseSwitchCoordinator.ActiveNotReadSentence, replayed.Message);
+        Assert.DoesNotContain("not installed", replayed.Message);
+    }
+
+    [Fact]
+    public async Task SwitchAsync_StoredRefusalReplayedByARestartedDirectorThatCannotList_ThrowsRatherThanAnEmptyAccount()
+    {
+        await NewCoordinator().SwitchAsync(Request(target: "account-c@example.com"), CancellationToken.None);
+        _tool.FailWith = "cc-devthrottle is not installed";
+
+        await Assert.ThrowsAsync<LicenseCommandLineException>(() =>
+            NewCoordinator().SwitchAsync(Request(target: "account-c@example.com"), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task SwitchAsync_StoredSwitchReplayed_KeepsItsOwnReadBack()
+    {
+        // A switch that ran answers its own read-back on replay, as contract 3.6 says; only refusals are read again.
+        var first = await NewCoordinator().SwitchAsync(Request(), CancellationToken.None);
+        _tool.Held[0] = (AccountA, true);
+        _tool.Held[1] = (AccountB, false);
+
+        var again = await NewCoordinator().SwitchAsync(Request(), CancellationToken.None);
+
+        Assert.True(again.Replayed);
+        Assert.Equal(first.ActiveAccountEmailAfter, again.ActiveAccountEmailAfter);
+        Assert.Equal(AccountB, again.ActiveAccountEmailAfter);
+    }
+
+    [Fact]
     public async Task SwitchAsync_NotTheKeyHolderThenRetriedOnTheHolder_Runs()
     {
         // "Not the key holder" stays unstored: the results folder is shared, and the holder must run the same id.

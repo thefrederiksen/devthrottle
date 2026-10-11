@@ -28,6 +28,21 @@ public sealed class LicenseSwitchCoordinator
     private readonly object _gate = new();
     private (string SwitchId, Task<LicenseSwitchResult> Run)? _running;
 
+    /// <summary>The active account the last successful listing named; null before the first one.</summary>
+    private volatile string? _lastReadActive;
+
+    /// <summary>Reason codes for a switch refused before anything was exchanged. Their result says what is active NOW,
+    /// so a replay reads it again rather than repeating a value that may since have changed.</summary>
+    private static readonly HashSet<string> RefusedBeforeTheExchange = new(StringComparer.Ordinal)
+    {
+        LicenseSwitchReasonCodes.SwitchInProgress, LicenseSwitchReasonCodes.Expired, LicenseSwitchReasonCodes.ActiveAccountChanged,
+        LicenseSwitchReasonCodes.SpareNotHeld, LicenseSwitchReasonCodes.SpareNotUsable,
+    };
+
+    /// <summary>Added to a refusal's message when the active account could not be read at that moment.</summary>
+    internal const string ActiveNotReadSentence =
+        " The active account could not be read just now, so this is the one the last successful read named.";
+
     public LicenseSwitchCoordinator(ILicenseCommandLine tool, LicenseKeyHolderLock holder, LicenseSwitchResultStore results,
         LicenseUsageReporter reporter, Func<DateTime> utcNow, bool enabled)
     {
@@ -57,11 +72,18 @@ public sealed class LicenseSwitchCoordinator
             return Build(request, _utcNow(), LicenseSwitchOutcomes.Failed, LicenseSwitchReasonCodes.NotKeyHolder, "", "", false, 0, TurnedOffMessage);
         }
 
-        // Step 2: a switch that already finished here is answered from the store and never run again.
+        // Step 2: a switch that already finished here is answered from the store and never run again. A stored
+        // refusal says what was active THEN; the active account is read again, so a late replay never undoes what a
+        // report since told the Gateway (fix-round review of 3868).
         var stored = _results.Find(request.SwitchId);
         if (stored is not null)
         {
             FileLog.Write($"[LicenseSwitchCoordinator] SwitchAsync: switchId={request.SwitchId} already finished ({stored.Outcome}), replaying");
+            if (stored.ReasonCode is { } code && RefusedBeforeTheExchange.Contains(code))
+            {
+                var (now, notRead) = await ReadActiveNowAsync(request.SwitchId, cancellationToken);
+                return Replay(stored, now, notRead);
+            }
             return Replay(stored);
         }
 
@@ -72,29 +94,31 @@ public sealed class LicenseSwitchCoordinator
             return Refuse(request, started, LicenseSwitchReasonCodes.NotKeyHolder, "", "This Director is not the one that holds this machine's sign-ins.");
 
         // Step 4: one switch at a time. The same SwitchId waits for the run under way and answers its result.
-        Task<LicenseSwitchResult> run;
+        Task<LicenseSwitchResult>? run = null;
         Task<LicenseSwitchResult>? alreadyRunning = null;
         lock (_gate)
         {
             if (_running is { } current)
             {
-                if (current.SwitchId != request.SwitchId)
-                {
-                    // A finished result for THIS SwitchId (contract 3.6): stored, so a retry of the same id after the
-                    // other switch ends replays the refusal instead of running a decision the Gateway already saw refused.
-                    var refused = Refuse(request, started, LicenseSwitchReasonCodes.SwitchInProgress, "",
-                        "Another switch is running on this machine.");
-                    _results.Save(refused);
-                    return refused;
-                }
-                alreadyRunning = current.Run;
-                run = current.Run;
+                if (current.SwitchId == request.SwitchId)
+                    alreadyRunning = current.Run;
             }
             else
             {
                 run = RunAsync(request, started, cancellationToken);
                 _running = (request.SwitchId, run);
             }
+        }
+        if (run is null && alreadyRunning is null)
+        {
+            // A finished result for THIS SwitchId (contract 3.6): stored, so a retry of the same id after the other
+            // switch ends replays the refusal instead of running a decision the Gateway already saw refused. It carries
+            // the active account as it is now (contract 3.4), read outside the lock.
+            var (active, notRead) = await ReadActiveNowAsync(request.SwitchId, cancellationToken);
+            var refused = Refuse(request, started, LicenseSwitchReasonCodes.SwitchInProgress, active,
+                "Another switch is running on this machine." + notRead);
+            _results.Save(refused);
+            return refused;
         }
         if (alreadyRunning is not null)
         {
@@ -104,7 +128,7 @@ public sealed class LicenseSwitchCoordinator
 
         try
         {
-            return await run;
+            return await run!;
         }
         finally
         {
@@ -146,6 +170,7 @@ public sealed class LicenseSwitchCoordinator
         // stored, so the same SwitchId sent again runs.
         var holdings = await _tool.ListAsync(cancellationToken);
         var active = holdings.FirstOrDefault(h => h.IsActive)?.AccountEmail ?? "";
+        _lastReadActive = active;
 
         // Step 6: already where the Gateway wants it.
         if (active == target)
@@ -188,6 +213,7 @@ public sealed class LicenseSwitchCoordinator
 
         // Step 11: the read back must name the target, and the new sign-in is read once.
         var after = answer.ActiveAccountEmailAfter;
+        _lastReadActive = after;
         if (after != target)
             return Finish(request, started, LicenseSwitchOutcomes.Failed, LicenseSwitchReasonCodes.VerifyFailed, active, after, false, exchangeMs,
                 $"After the exchange the active account reads {Display(after)}, not {target}.");
@@ -214,6 +240,30 @@ public sealed class LicenseSwitchCoordinator
         {
             FileLog.Write($"[LicenseSwitchCoordinator] switchId={switchId} verify read FAILED: {ex.Message}");
             return false;
+        }
+    }
+
+    /// <summary>
+    /// The active account as it is now, for a refusal (contract 3.4: "or now, on a refusal"). When the tool cannot list
+    /// the holdings, the last successful read stands, and the second value is a sentence saying so for the message.
+    /// With nothing read yet there is no honest answer: it throws, the tunnel answers Error, and nothing is stored -
+    /// never an empty account, which the Gateway would take as the machine's state.
+    /// </summary>
+    private async Task<(string Active, string NotReadSentence)> ReadActiveNowAsync(string switchId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var holdings = await _tool.ListAsync(cancellationToken);
+            var active = holdings.FirstOrDefault(h => h.IsActive)?.AccountEmail ?? "";
+            _lastReadActive = active;
+            return (active, "");
+        }
+        catch (LicenseCommandLineException ex)
+        {
+            var known = _lastReadActive;
+            FileLog.Write($"[LicenseSwitchCoordinator] switchId={switchId} ReadActiveNowAsync FAILED: {ex.Message}; last read={known ?? "none"}");
+            if (known is null) throw;
+            return (known, ActiveNotReadSentence);
         }
     }
 
@@ -254,14 +304,19 @@ public sealed class LicenseSwitchCoordinator
         Replayed = false,
     };
 
-    private static LicenseSwitchResult Replay(LicenseSwitchResult stored) => new()
+    private static LicenseSwitchResult Replay(LicenseSwitchResult stored) =>
+        Replay(stored, null, "");
+
+    /// <summary>A stored result answered again. <paramref name="activeNow"/>, when given, replaces both accounts: a
+    /// refusal changed nothing, so before and after are both what is active now.</summary>
+    private static LicenseSwitchResult Replay(LicenseSwitchResult stored, string? activeNow, string notReadSentence) => new()
     {
         SwitchId = stored.SwitchId,
         Outcome = stored.Outcome,
         ReasonCode = stored.ReasonCode,
-        Message = stored.Message,
-        PreviousActiveAccountEmail = stored.PreviousActiveAccountEmail,
-        ActiveAccountEmailAfter = stored.ActiveAccountEmailAfter,
+        Message = stored.Message + notReadSentence,
+        PreviousActiveAccountEmail = activeNow ?? stored.PreviousActiveAccountEmail,
+        ActiveAccountEmailAfter = activeNow ?? stored.ActiveAccountEmailAfter,
         VerifiedByUsageRead = stored.VerifiedByUsageRead,
         StartedAtUtc = stored.StartedAtUtc,
         FinishedAtUtc = stored.FinishedAtUtc,
