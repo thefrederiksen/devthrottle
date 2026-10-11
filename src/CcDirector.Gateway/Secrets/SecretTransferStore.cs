@@ -48,8 +48,8 @@ public static class SecretTransferPlaces
         Phone => "on the phone",
         Cockpit => "in the Cockpit",
         Badge => "from the session's badge in the Cockpit",
-        Window => "in the cc-secrets window",
-        Terminal => "in a terminal",
+        Window => "in the cc-secrets window (by that machine's own credential)",
+        Terminal => "in a terminal (by that machine's own credential)",
         Chat => "in an agent's chat",
         _ => "somewhere unknown",
     };

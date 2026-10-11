@@ -5303,6 +5303,7 @@ public sealed class GatewayHost : IAsyncDisposable
             isConnected: (tenant, directorId) => PushedSessions.GetActiveConnectionId(tenant, directorId) is not null,
             transfers: SecretTransfers,
             findSession: (tenant, sid) => GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, sid),
+            machineOfDevice: deviceId => Devices.DisplayOfDevice(deviceId)?.MachineName,
             // Phase 3 records approvals; moving the envelope between the machines arrives in phase 4. Until then an
             // approved transfer ends at once, saying so, rather than sitting "approved" with nothing behind it.
             startDelivery: (tenant, transferId) => SecretTransfers.TryFinish(tenant, transferId, delivered: false,

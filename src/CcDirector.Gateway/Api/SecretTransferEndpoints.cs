@@ -53,13 +53,17 @@ public static class SecretTransferEndpoints
 
     /// <summary>Who is calling: a session (cc-secrets inside a session), the owner's own phone or browser, or a
     /// machine's own credential (cc-secrets in the owner's terminal or window, which reads the machine's credential).</summary>
-    internal sealed record SecretCaller(string Kind, string? SessionId, string? Surface, string Actor);
+    /// <param name="Machine">For a machine's own credential: the machine its device row was enrolled for, or null
+    /// when the credential names none (the self-host shared token).</param>
+    internal sealed record SecretCaller(string Kind, string? SessionId, string? Surface, string Actor, string? Machine = null);
 
     public static void Map(IEndpointRouteBuilder app, Func<HttpContext, TenantId?> resolveTenant,
         SecretMachineRegistry machines, Func<TenantId, string, bool> isConnected, SecretTransferStore transfers,
-        Func<TenantId, string, SessionDto?> findSession, Action<TenantId, string> startDelivery, Func<DateTime> nowUtc)
+        Func<TenantId, string, SessionDto?> findSession, Func<string, string?> machineOfDevice,
+        Action<TenantId, string> startDelivery, Func<DateTime> nowUtc)
     {
         ArgumentNullException.ThrowIfNull(resolveTenant);
+        ArgumentNullException.ThrowIfNull(machineOfDevice);
         ArgumentNullException.ThrowIfNull(machines);
         ArgumentNullException.ThrowIfNull(isConnected);
         ArgumentNullException.ThrowIfNull(transfers);
@@ -71,11 +75,11 @@ public static class SecretTransferEndpoints
         // The return types are stated on purpose: an async lambda whose only parameter is HttpContext also fits
         // RequestDelegate, which would throw the IResult away and answer an empty 200 (found in #3549).
         app.MapPost(TransfersRoute, async Task<IResult> (HttpContext ctx) =>
-            await CreateAsync(ctx, resolveTenant, machines, isConnected, transfers, findSession, startDelivery, nowUtc));
+            await CreateAsync(ctx, resolveTenant, machines, isConnected, transfers, findSession, machineOfDevice, startDelivery, nowUtc));
         app.MapGet(TransfersRoute, (HttpContext ctx) => List(ctx, resolveTenant, transfers, nowUtc));
         app.MapGet(TransferRoute, (HttpContext ctx, string id) => Get(ctx, id, resolveTenant, transfers, nowUtc));
         app.MapPost(AnswerRoute, async Task<IResult> (HttpContext ctx, string id) =>
-            await AnswerAsync(ctx, id, resolveTenant, transfers, startDelivery, nowUtc));
+            await AnswerAsync(ctx, id, resolveTenant, transfers, machineOfDevice, startDelivery, nowUtc));
         FileLog.Write($"[SecretTransferEndpoints] mapped GET {MachinesRoute}, POST/GET {TransfersRoute}, GET {TransferRoute}, POST {AnswerRoute}");
     }
 
@@ -100,14 +104,15 @@ public static class SecretTransferEndpoints
 
     internal static async Task<IResult> CreateAsync(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant,
         SecretMachineRegistry machines, Func<TenantId, string, bool> isConnected, SecretTransferStore transfers,
-        Func<TenantId, string, SessionDto?> findSession, Action<TenantId, string> startDelivery, Func<DateTime> nowUtc)
+        Func<TenantId, string, SessionDto?> findSession, Func<string, string?> machineOfDevice,
+        Action<TenantId, string> startDelivery, Func<DateTime> nowUtc)
     {
         FileLog.Write("[SecretTransferEndpoints] POST transfer");
         try
         {
             if (resolveTenant(ctx) is not { } tenant)
                 return Refuse(StatusCodes.Status403Forbidden, "no_account", "no account is bound to this request");
-            var caller = Classify(ctx);
+            var caller = Classify(ctx, machineOfDevice);
 
             SecretTransferCreateRequest? body;
             try
@@ -159,14 +164,20 @@ public static class SecretTransferEndpoints
             if (row.State == SecretTransferStates.Approved)
                 startDelivery(tenant, row.TransferId);
             var now = nowUtc();
+            // Read again: starting the delivery may already have moved it on, and the answer must say what the row
+            // holds now, not what it held before.
+            row = transfers.Find(tenant, row.TransferId, now) ?? row;
             FileLog.Write($"[SecretTransferEndpoints] POST transfer: transfer={row.TransferId}, state={row.State}, by={caller.Actor}");
             return Results.Json(new SecretTransferResponse
             {
                 Transfer = ToDto(row, now),
-                Note = row.State == SecretTransferStates.Approved
-                    ? "Approved. Delivering now; read this transfer to see how it ends."
-                    : "Waiting for the owner's answer - on the phone, in the Cockpit, in the cc-secrets window on "
-                      + $"{from.Machine}, or with cc-secrets approve {row.TransferId}. It expires in 15 minutes.",
+                Note = row.State switch
+                {
+                    SecretTransferStates.Waiting => "Waiting for the owner's answer - on the phone, in the Cockpit, in the "
+                        + $"cc-secrets window on {from.Machine}, or with cc-secrets approve {row.TransferId}. It expires in 15 minutes.",
+                    SecretTransferStates.Approved => "Approved. Delivering now; read this transfer to see how it ends.",
+                    _ => row.Outcome ?? row.State,
+                },
             }, statusCode: StatusCodes.Status201Created);
         }
         catch (Exception ex)
@@ -220,14 +231,15 @@ public static class SecretTransferEndpoints
     }
 
     internal static async Task<IResult> AnswerAsync(HttpContext ctx, string id, Func<HttpContext, TenantId?> resolveTenant,
-        SecretTransferStore transfers, Action<TenantId, string> startDelivery, Func<DateTime> nowUtc)
+        SecretTransferStore transfers, Func<string, string?> machineOfDevice, Action<TenantId, string> startDelivery,
+        Func<DateTime> nowUtc)
     {
         FileLog.Write($"[SecretTransferEndpoints] POST answer: id={id}");
         try
         {
             if (resolveTenant(ctx) is not { } tenant)
                 return Refuse(StatusCodes.Status403Forbidden, "no_account", "no account is bound to this request");
-            var caller = Classify(ctx);
+            var caller = Classify(ctx, machineOfDevice);
 
             SecretTransferAnswerRequest? body;
             try
@@ -247,19 +259,24 @@ public static class SecretTransferEndpoints
             if (row is null)
                 return Refuse(StatusCodes.Status404NotFound, "transfer_not_found", $"No transfer {id} is known in this account.");
 
-            var answer = GivenAnswer(caller, body, out var refusal);
+            var answer = GivenAnswer(caller, body, row, out var refusal);
             if (answer is null) return refusal!;
             if (!transfers.TryAnswer(tenant, row.TransferId, answer, now))
                 return AlreadyAnswered(transfers.Find(tenant, row.TransferId, now)!);
 
             if (answer.Approve)
                 startDelivery(tenant, row.TransferId);
-            var after = transfers.Find(tenant, row.TransferId, now)!;
+            var after = transfers.Find(tenant, row.TransferId, nowUtc())!;
             FileLog.Write($"[SecretTransferEndpoints] POST answer: transfer={row.TransferId}, approve={answer.Approve}, where={answer.Where}, by={caller.Actor}");
             return Results.Json(new SecretTransferResponse
             {
                 Transfer = ToDto(after, now),
-                Note = answer.Approve ? "Approved. Delivering now." : "Denied. Nothing was moved.",
+                Note = after.State switch
+                {
+                    SecretTransferStates.Approved => "Approved. Delivering now.",
+                    SecretTransferStates.Denied => "Denied. Nothing was moved.",
+                    _ => after.Outcome ?? after.State,
+                },
             });
         }
         catch (Exception ex)
@@ -271,7 +288,7 @@ public static class SecretTransferEndpoints
 
     // ---- the rules -------------------------------------------------------------------------------------------
 
-    internal static SecretCaller Classify(HttpContext ctx)
+    internal static SecretCaller Classify(HttpContext ctx, Func<string, string?> machineOfDevice)
     {
         if (AuthMiddleware.CallingSession(ctx) is { } session)
         {
@@ -282,8 +299,13 @@ public static class SecretTransferEndpoints
         var surface = SessionOriginSurfaces.FromDeviceType(device?.DeviceType);
         if (device is not null && surface != SessionOriginSurfaces.Unknown)
             return new SecretCaller(KindOwnerDevice, null, surface, $"the owner's {surface} ({device.DeviceId})");
-        var credential = AuthMiddleware.RegisteringCredential(ctx) ?? "unknown credential";
-        return new SecretCaller(KindMachine, null, null, $"a machine's own credential ({credential})");
+        // A machine's own credential. Every process of the owner's account on that machine can read it - the window,
+        // a terminal, and the agents running there - so the record says which credential answered and on which
+        // machine, and never claims that it was the owner's own hand.
+        var machine = device is null ? null : machineOfDevice(device.DeviceId);
+        if (string.IsNullOrWhiteSpace(machine))
+            return new SecretCaller(KindMachine, null, null, "a machine credential that names no machine", null);
+        return new SecretCaller(KindMachine, null, null, $"the own credential of {machine.Trim()}", machine.Trim());
     }
 
     /// <summary>The answer a new transfer is born with, or null when it must wait; <paramref name="refusal"/> when the
@@ -304,7 +326,7 @@ public static class SecretTransferEndpoints
                 refusal = Refuse(StatusCodes.Status403Forbidden, "session_cannot_approve_here",
                     "A session cannot say the owner approved in the window or a terminal, or accept a changed machine "
                     + "key. Pass the owner's own words from this session's chat with --owner-approved, or let the transfer "
-                    + "wait for his answer.");
+                    + "wait for the owner's answer.");
                 return null;
             }
             if (hasWords && words.Length == 0)
@@ -353,13 +375,13 @@ public static class SecretTransferEndpoints
                 "approvedHere is 'window' or 'terminal' - where the owner approved it on this machine.");
             return null;
         }
+        if (!OnOneOfTheTwo(caller, fromMachine, toMachine, out refusal))
+            return null;
         var askedOn = (body.AskedOn ?? "").Trim();
-        if (!string.Equals(askedOn, fromMachine, StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(askedOn, toMachine, StringComparison.OrdinalIgnoreCase))
+        if (askedOn.Length > 0 && !string.Equals(askedOn, caller.Machine, StringComparison.OrdinalIgnoreCase))
         {
             refusal = Refuse(StatusCodes.Status400BadRequest, "asked_on_another_machine",
-                "The owner approves a transfer in the window or terminal of one of its two machines; askedOn must name "
-                + $"{fromMachine} or {toMachine}.");
+                $"This credential belongs to {caller.Machine}, so it cannot say the owner approved on {askedOn}.");
             return null;
         }
         if (accept.Length > 0 && !FingerprintShape.IsMatch(accept))
@@ -372,7 +394,8 @@ public static class SecretTransferEndpoints
     }
 
     /// <summary>The answer a caller gives to a waiting transfer, or null with <paramref name="refusal"/>.</summary>
-    private static SecretTransferAnswer? GivenAnswer(SecretCaller caller, SecretTransferAnswerRequest body, out IResult? refusal)
+    private static SecretTransferAnswer? GivenAnswer(SecretCaller caller, SecretTransferAnswerRequest body,
+        SecretTransferEntity row, out IResult? refusal)
     {
         refusal = null;
         var words = (body.OwnerApproved ?? "").Trim();
@@ -381,6 +404,15 @@ public static class SecretTransferEndpoints
 
         if (caller.Kind == KindSession)
         {
+            // A session answers only the transfer it asked for: the owner's yes in one session's chat is about that
+            // session's request, and no session may approve or deny another's.
+            if (!string.Equals(row.AskedBySessionId, caller.SessionId, StringComparison.OrdinalIgnoreCase))
+            {
+                refusal = Refuse(StatusCodes.Status403Forbidden, "not_your_transfer",
+                    "A session answers only a transfer it asked for itself. The owner answers this one on the phone, in "
+                    + "the Cockpit or in the cc-secrets window.");
+                return null;
+            }
             if (accept.Length > 0)
             {
                 refusal = Refuse(StatusCodes.Status403Forbidden, "session_cannot_accept_key",
@@ -438,6 +470,8 @@ public static class SecretTransferEndpoints
                 "From a machine's own credential the answer is given in the 'window' or a 'terminal'.");
             return null;
         }
+        if (!OnOneOfTheTwo(caller, row.FromMachine, row.ToMachine, out refusal))
+            return null;
         if (accept.Length > 0 && !FingerprintShape.IsMatch(accept))
         {
             refusal = Refuse(StatusCodes.Status400BadRequest, "invalid_fingerprint",
@@ -445,6 +479,28 @@ public static class SecretTransferEndpoints
             return null;
         }
         return new SecretTransferAnswer(body.Approve, where, caller.Actor, null, accept.Length > 0 ? accept : null);
+    }
+
+    /// <summary>A machine credential answers only for a transfer between its own machine and another.</summary>
+    private static bool OnOneOfTheTwo(SecretCaller caller, string fromMachine, string toMachine, out IResult? refusal)
+    {
+        refusal = null;
+        if (caller.Machine is null)
+        {
+            refusal = Refuse(StatusCodes.Status403Forbidden, "credential_names_no_machine",
+                "This credential does not belong to one machine, so it cannot answer for the window or a terminal. "
+                + "Answer on the phone or in the Cockpit.");
+            return false;
+        }
+        if (!string.Equals(caller.Machine, fromMachine, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(caller.Machine, toMachine, StringComparison.OrdinalIgnoreCase))
+        {
+            refusal = Refuse(StatusCodes.Status403Forbidden, "not_one_of_the_two_machines",
+                $"This credential belongs to {caller.Machine}, which is neither {fromMachine} nor {toMachine}. The window or "
+                + "a terminal answers only on one of the two machines.");
+            return false;
+        }
+        return true;
     }
 
     private static SecretMachineDto? Listed(List<SecretMachineDto> listed, string? name, out IResult? refusal)
@@ -480,8 +536,9 @@ public static class SecretTransferEndpoints
         }
         if (caller.Kind == KindOwnerDevice)
             return $"You, on the {caller.Surface}";
-        var machine = string.IsNullOrWhiteSpace(askedOn) ? $"{fromMachine} or {toMachine}" : askedOn.Trim();
-        return $"You, in the cc-secrets window or a terminal on {machine}";
+        return caller.Machine is null
+            ? "A machine credential that names no machine"
+            : $"The cc-secrets window or a terminal on {caller.Machine}";
     }
 
     private static IResult AlreadyAnswered(SecretTransferEntity row) => Refuse(StatusCodes.Status409Conflict, "already_answered",

@@ -146,6 +146,8 @@ public sealed class SecretTransferHostTests : IAsyncLifetime
     public async Task Machines_ADirectorThatDisconnected_IsNoLongerListed()
     {
         Connect(_tenantA, DirectorMac, "devthrottle-mac-mini");
+        var (_, before) = await Get(_sessionA, "gateway/secrets/machines");
+        Assert.Equal(new[] { "devthrottle-mac-mini" }, Machines(before).Select(r => r.GetProperty("machine").GetString()));
         _gateway.PushedSessions.UnregisterConnection(_tenantA, DirectorMac, "conn-" + DirectorMac);
 
         var (status, body) = await Get(_sessionA, "gateway/secrets/machines");
@@ -269,5 +271,94 @@ public sealed class SecretTransferHostTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.NotFound, answer);
         var (_, mine) = await Get(_ownerA, $"gateway/secrets/transfers/{id}");
         Assert.Contains("\"state\":\"waiting\"", mine);
+    }
+
+    // ---- who may answer (the phase 3 review) --------------------------------------------------------------------
+
+    private HttpClient MachineCredentialOf(string machine)
+    {
+        var device = _gateway.Devices.RegisterForTenant(_tenantA, $"sub-secrets-a-{_runId}", $"dev-secrets-{machine}-{_runId}", machine);
+        return Client(device.DeviceKey);
+    }
+
+    [Fact]
+    public async Task Answer_TheMachinesOwnCredential_WinsAWaitingTransfer_AndTheRecordNamesThatCredential()
+    {
+        BothMachines();
+        var (_, waiting) = await Post(_sessionA, "gateway/secrets/transfers", Ask());
+
+        var (status, body) = await Post(_machineA, $"gateway/secrets/transfers/{Id(waiting)}/answer", new { approve = true, where = "window" });
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        var transfer = body.GetProperty("transfer");
+        Assert.Equal("window", transfer.GetProperty("answeredWhere").GetString());
+        Assert.Equal("the own credential of SOREN_NORTH", transfer.GetProperty("answeredBy").GetString());
+    }
+
+    [Fact]
+    public async Task Answer_AThirdMachinesCredential_IsRefused_OnTheAskAndOnTheAnswer()
+    {
+        BothMachines();
+        using var third = MachineCredentialOf("THIRD-MACHINE");
+
+        var (asked, a) = await Post(third, "gateway/secrets/transfers", Ask(reason: null, approvedHere: "window", askedOn: "SOREN_NORTH"));
+        Assert.Equal((HttpStatusCode.Forbidden, "not_one_of_the_two_machines"), (asked, Code(a)));
+
+        var (_, waiting) = await Post(_sessionA, "gateway/secrets/transfers", Ask());
+        var (answered, b) = await Post(third, $"gateway/secrets/transfers/{Id(waiting)}/answer", new { approve = true, where = "window" });
+        Assert.Equal((HttpStatusCode.Forbidden, "not_one_of_the_two_machines"), (answered, Code(b)));
+    }
+
+    [Fact]
+    public async Task Ask_AMachinesCredential_CannotSayTheOwnerApprovedOnTheOtherMachine()
+    {
+        BothMachines();
+
+        var (status, body) = await Post(_machineA, "gateway/secrets/transfers",
+            Ask(reason: null, approvedHere: "window", askedOn: "devthrottle-mac-mini"));
+
+        Assert.Equal((HttpStatusCode.BadRequest, "asked_on_another_machine"), (status, Code(body)));
+    }
+
+    [Fact]
+    public async Task Answer_ASession_CannotAnswerAnotherSessionsTransfer_ButMayWithdrawItsOwn()
+    {
+        BothMachines();
+        using var other = Client(SessionKey(_tenantA, DirectorNorth, Guid.NewGuid().ToString()));
+        var (_, mine) = await Post(_sessionA, "gateway/secrets/transfers", Ask());
+
+        var (approve, a) = await Post(other, $"gateway/secrets/transfers/{Id(mine)}/answer", new { approve = true, ownerApproved = "yes" });
+        var (deny, d) = await Post(other, $"gateway/secrets/transfers/{Id(mine)}/answer", new { deny = true });
+        Assert.Equal((HttpStatusCode.Forbidden, "not_your_transfer"), (approve, Code(a)));
+        Assert.Equal((HttpStatusCode.Forbidden, "not_your_transfer"), (deny, Code(d)));
+
+        var (withdrawn, w) = await Post(_sessionA, $"gateway/secrets/transfers/{Id(mine)}/answer", new { deny = true });
+        Assert.Equal(HttpStatusCode.OK, withdrawn);
+        Assert.Equal("denied", State(w));
+    }
+
+    [Fact]
+    public async Task Answer_ASessionNamingTheWindow_IsRecordedAsTheChat()
+    {
+        BothMachines();
+        var (_, mine) = await Post(_sessionA, "gateway/secrets/transfers", Ask());
+
+        var (status, body) = await Post(_sessionA, $"gateway/secrets/transfers/{Id(mine)}/answer",
+            new { approve = true, where = "window", ownerApproved = "yes, send it" });
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal("chat", body.GetProperty("transfer").GetProperty("answeredWhere").GetString());
+    }
+
+    [Fact]
+    public async Task Ask_BornApproved_AnswersWithTheStateTheRowHoldsNow()
+    {
+        BothMachines();
+
+        var (_, body) = await Post(_sessionA, "gateway/secrets/transfers", Ask(ownerApproved: "yes, send it"));
+
+        // Phase 3 cannot deliver, so starting the delivery ends it at once; the answer must say so, not "approved".
+        Assert.Equal("failed", State(body));
+        Assert.Contains("Nothing was moved", body.GetProperty("note").GetString());
     }
 }
