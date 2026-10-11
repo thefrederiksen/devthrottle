@@ -25,7 +25,7 @@ namespace CcDirector.TestInfrastructure;
 /// time anything asks and held for the rest of the process. That is the definition the guards actually want:
 /// a build output, a node_modules tree, a stale untracked project and another checkout parked in an ignored
 /// folder are all ignored by git and are not the repository, while a file a developer wrote a minute ago and
-/// has not yet added IS, and a guard that could not see it would pass the one change it exists to catch.
+/// has not yet added to git IS, and a guard that could not see it would pass the one change it exists to catch.
 /// A tracked file deleted from disk but not yet staged is left out, because there is nothing to read.
 ///
 /// One edge follows from taking git's answer: a NEW file inside a folder that an ignore pattern covers - the
@@ -124,7 +124,7 @@ public static class RepositorySourceIndex
         catch (System.ComponentModel.Win32Exception ex)
         {
             throw new InvalidOperationException(
-                "git was not found on the PATH; the repository source index lists the tree with git ls-files", ex);
+                "git could not be started (not on the PATH, or not runnable from here); the repository source index lists the tree with git ls-files", ex);
         }
         using var git = started
             ?? throw new InvalidOperationException("git did not start; the repository source index needs git on the PATH");
