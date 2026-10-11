@@ -177,8 +177,10 @@ public static class PromptDeliveryFailures
         // length and how the send before this one ended, never the reason. The reason is a refusal's message, and a
         // real one holds the prompt's first characters, the composer's text and the terminal's tail - no prompt words
         // in a report. The reason is still written WHOLE, on the next line, which is not an error line (quoted, no
-        // marker in its head) and so stays in this machine's log, where the Prompt Delivery mission wanted it. The
-        // previous send is read only when the send opened a PreviousSend scope: outside one, nothing is read.
+        // marker in its head) and so stays in this machine's log, where the Prompt Delivery mission wanted it. Its first
+        // 300 characters do still leave the machine, by that mission's design, in the ledger above that rides the
+        // session row to the Cockpit and the phone - that is not an error report, and this change does not alter it.
+        // The previous send is read only when the send opened a PreviousSend scope: outside one, nothing is read.
         var previousSend = PreviousSend.Describe(sessionId);
         FileLog.Write($"[PromptDeliveryFailures] FAILED DELIVERY: session={sessionId}, source={source}, len={textLength}" +
                       (previousSend is null ? "" : ", " + previousSend));

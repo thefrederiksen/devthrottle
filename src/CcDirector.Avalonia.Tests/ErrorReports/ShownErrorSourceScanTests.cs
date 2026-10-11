@@ -99,6 +99,11 @@ public sealed class ShownErrorSourceScanTests
         AssertRead(result, "SaveWorkspaceDialog.axaml.cs", "TxtWarning.Text = _existingIdsProblem", "control text", "a field named for a failure (rule b)");
         AssertRead(result, "AgentEditorDialog.axaml.cs", "SetQuickCheckResult(result.Ok", "error call", "a success flag that is not a literal (rule d)");
         AssertRead(result, "ToolsView.axaml.cs", "repair.Detail", "control text", "the text of an outcome whose success the method tests (rule e)");
+        AssertRead(result, "FirstRunWizardDialog.axaml.cs", "The repair did not succeed", "control text", "a positive if/else test of an outcome (rule e, S2)");
+        // S1 (only the value shown counts as reported) has no sentinel here: its lax direction - a swapped branch
+        // passing - has no real site by design. Its guard is the unit tests below (shapes A, B, C and the flag and
+        // count tests); its strict direction is loud on its own, because a reported site it stopped reading goes
+        // NOT REPORTED.
         Assert.True(result.Findings.Count == 0, string.Join("\n", result.Findings));
         Assert.True(violations.Count == 0,
             $"{violations.Count} place(s) show the user an error that is never reported. Show it through " +
@@ -353,6 +358,94 @@ public sealed class ShownErrorSourceScanTests
         // CommManagerViewModel: ShowErrorCallback(...) is the site the hand-built error window depends on.
         var r = ScanOne(Head + "async Task M(Exception ex){ if (ShowErrorCallback != null) await ShowErrorCallback($\"Could not post: {ex.Message}\"); } }");
         Assert.Single(r.Violations);
+    }
+
+    // ----- review of #3737, round 3: the reviewer's out-of-tree probe shapes, as tests -----
+
+    [Fact]
+    public void Scan_S1_ShapeA_TheFailureBranchReported_IsOnTheHelper()
+    {
+        var r = ScanOne(Head + "void M(bool ok, string message){ ShowFirewallStatus(ok ? message : ShownError.Report(\"settings\", \"x\", message), error: !ok); } }");
+        Assert.Equal("on the helper", Assert.Single(r.Sites).Status);
+    }
+
+    [Fact]
+    public void Scan_S1_ShapeB_TheBranchesSwapped_IsNotReported()
+    {
+        // The SUCCESS branch reported and the failure branch shown raw.
+        var r = ScanOne(Head + "void M(bool ok, string message){ ShowFirewallStatus(ok ? ShownError.Report(\"settings\", \"x\", message) : message, error: !ok); } }");
+        Assert.Single(r.Violations);
+    }
+
+    [Fact]
+    public void Scan_S1_ShapeC_AHelperCallInAnArgumentThatIsNotTheShownText_IsNotReported()
+    {
+        var r = ScanOne(Head + "void M(bool ok, string message){ ShowStatus(message, ShownError.Report(\"settings\", \"x\", \"title\"), error: !ok); } }");
+        Assert.Single(r.Violations);
+    }
+
+    [Fact]
+    public void Scan_S1_TheFailureBranch_IsToldByTheFlagWhenTheConditionsNameDoesNot()
+    {
+        // The condition `answer` says nothing; the flag `success: answer` makes WhenFalse the failure.
+        const string good = "void M(bool answer, string m){ SetResult(answer ? m : ShownError.Report(\"s\", \"a\", m), success: answer); } }";
+        Assert.Empty(ScanOne(Head + good).Violations);
+        const string bad = "void M(bool answer, string m){ SetResult(answer ? ShownError.Report(\"s\", \"a\", m) : m, success: answer); } }";
+        Assert.Single(ScanOne(Head + bad).Violations);
+    }
+
+    [Fact]
+    public void Scan_S1_ACountOfFailures_TellsTheFailureBranch()
+    {
+        // CommManagerViewModel: StatusMessage-style `failed > 0 ? Report(..) : summary`.
+        const string good = "void M(int failed, string summary){ StatusText.Text = failed > 0 ? ShownError.Report(\"s\", \"a\", $\"{failed} failed\") : summary; } }";
+        Assert.Empty(ScanOne(Head + good).Violations);
+        const string bad = "void M(int failed, string summary){ StatusText.Text = failed > 0 ? $\"{failed} failed\" : ShownError.Report(\"s\", \"a\", summary); } }";
+        Assert.Single(ScanOne(Head + bad).Violations);
+    }
+
+    [Fact]
+    public void Scan_S1_AFixedTitleLiteral_IsNotTheShownError()
+    {
+        // App: NativeNotice.Show(notice, "Director - Startup error", ...) with notice reported.
+        var r = ScanOne(Head + "void M(Exception ex){ var notice = ShownError.Report(\"s\", \"a\", ex.Message, ex); NativeNotice.Show(notice, \"Director - Startup error\", NativeNotice.Kind.Error); } }");
+        Assert.Equal("on the helper", Assert.Single(r.Sites, s => s.Kind == "message box").Status);
+    }
+
+    [Fact]
+    public void Scan_S1_TheTextArgument_IsReadFromTheMethodsDeclaration()
+    {
+        // SetIncomplete(int started, int total, string detail): the text is the third argument.
+        const string decl = " void SetIncomplete(int started, int total, string detail){ } }";
+        Assert.Empty(ScanOne(Head + "void M(int s, int t, string d){ SetIncomplete(s, t, ShownError.Report(\"s\", \"a\", d)); }" + decl).Violations);
+        Assert.Single(ScanOne(Head + "void M(int s, int t, string d){ SetIncomplete(s, t, d); }" + decl).Violations);
+    }
+
+    [Fact]
+    public void Scan_F1_AFailureNamedPropertyAtTheEndOfAValueChain_IsErrorText_ButAnEnumValueIsNot()
+    {
+        // run.Outcome.Error starts at a value: a property, shown unreported. NativeNotice.Kind.Error starts at a type.
+        Assert.Equal("control text", Assert.Single(ScanOne(Head + "void M(Run run){ StatusText.Text = run.Outcome.Error; } }").Violations).Kind);
+        Assert.Single(ScanOne(Head + "void M(Vm _vm){ StatusText.Text = _vm.Result.Failure; } }").Violations);
+        var notice = ScanOne(Head + "void M(Exception ex){ var notice = ShownError.Report(\"s\", \"a\", ex.Message, ex); NativeNotice.Show(notice, \"Title\", NativeNotice.Kind.Error); } }");
+        Assert.Empty(notice.Violations);
+    }
+
+    [Fact]
+    public void Scan_S2_ShapeD_APositiveTestOfTheOutcome_MakesItsTextErrorText()
+    {
+        var conditional = ScanOne(Head + "void M(){ var result = Run(); StatusText.Text = result.Ok ? result.Message : result.Message; } }");
+        Assert.Equal("control text", Assert.Single(conditional.Violations).Kind);
+        var ifElse = ScanOne(Head + "void M(){ var result = Run(); if (result.Ok) { Go(); } else { StatusText.Text = result.Message; } } }");
+        Assert.Equal("control text", Assert.Single(ifElse.Violations).Kind);
+    }
+
+    [Fact]
+    public void Scan_S2_APositiveTestWithNoElse_DoesNotMakeTheTextErrorText()
+    {
+        // if (x.Ok) alone chooses nothing - the text shown under it is the success's own account.
+        var r = ScanOne(Head + "void M(){ var result = Run(); if (result.Ok) StatusText.Text = result.Message; } }");
+        Assert.Empty(r.Sites);
     }
 
     [Fact]
