@@ -1273,6 +1273,35 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// The License Switching mission: a usage report can go up now - the tunnel is connected and the Gateway on the
+    /// other end has <c>PushLicenseUsage</c>. False against an older Gateway, so nothing is sent (contract 6.5).
+    /// </summary>
+    public bool CanPushLicenseUsage
+    {
+        get
+        {
+            var conn = _connection;
+            return conn is not null && conn.State == HubConnectionState.Connected
+                && GatewaySupports(LicenseContract.PushUsageHubMethod);
+        }
+    }
+
+    /// <summary>
+    /// The License Switching mission: send one complete usage report, with this connection's next sequence number,
+    /// the way <c>PushRepoSnapshot</c> is sent. Awaited, so the reporter knows whether it went; throws when the tunnel
+    /// is not connected or the send fails, and the reporter's loop logs it and sends again at the next report.
+    /// </summary>
+    public async Task PushLicenseUsageAsync(LicenseUsageReport report, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        var conn = _connection;
+        if (conn is null || conn.State != HubConnectionState.Connected)
+            throw new InvalidOperationException("the Gateway stream is not connected");
+        var seq = Interlocked.Increment(ref _sequence);
+        await conn.InvokeAsync(LicenseContract.PushUsageHubMethod, seq, report, cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>Push a session removal. Fire-and-forget; a drop is reconciled by the next snapshot.</summary>
     public void NotifyRemove(string sessionId)
     {

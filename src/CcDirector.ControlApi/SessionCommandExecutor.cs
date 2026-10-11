@@ -61,6 +61,13 @@ internal sealed class SessionCommandServices
     /// refuses a gateway patch outright rather than writing settings that never take effect.
     /// </summary>
     public Func<Task>? ReapplyGatewayAsync { get; init; }
+
+    /// <summary>
+    /// The License Switching mission: this process's license switching (the key holder lock, the switch and its stored
+    /// results), for the <c>license-switch</c> verb. One per process, never per host, because the lock is held for the
+    /// life of the process.
+    /// </summary>
+    public CcDirector.Core.Licenses.LicenseSwitching? Licenses { get; init; }
 }
 
 /// <summary>
@@ -112,6 +119,9 @@ internal static class SessionCommandExecutor
         // The Secret Handoff mission, phase 4: sealing a secret on the machine that holds it and opening it on the
         // machine that receives it, each by running the machine's cc-secrets with the payload on standard input.
         new SecretTransferExecutor(),
+        // The License Switching mission: exchanging this machine's active Claude sign-in with a spare, decided by the
+        // Gateway. Only the key holder carries it out; it touches the key store and types into no session.
+        new LicenseSwitchExecutor(),
     };
 
     /// <summary>

@@ -860,6 +860,11 @@ public partial class App : Application
             // Clean semver on the wire (gateway registration / status surfaces).
             var version = AppVersion.Semver;
 
+            // The License Switching mission: this Director competes for the machine's key holder lock and, holding it,
+            // reports usage and carries out switches. Started once for the life of the process; the host below only
+            // points it at the Gateway tunnel.
+            CcDirector.Core.Licenses.LicenseSwitching.Shared.Start();
+
             ControlApiHost = new ControlApiHost(SessionManager, version, RequestShutdownAsync,
                 repositoryRegistry: RepositoryRegistry,
                 // Repositories mission (#510 phase C): the monitor feeds the Gateway push and the

@@ -700,6 +700,7 @@ public sealed class ControlApiHost : IAsyncDisposable
         }
         _turnPusher = BuildTurnPusher(gatewayConfig);
         _streamClient = BuildStreamClient(gatewayConfig);
+        AttachLicenseReporting(_streamClient);
         _streamClient?.Start();
         _turnPusher?.Start();
         WireDoorbellPush();
@@ -1090,6 +1091,22 @@ public sealed class ControlApiHost : IAsyncDisposable
         };
     }
 
+    /// <summary>Set on a new tunnel connection, cleared by the Hello that follows it (License Switching contract 2.3).</summary>
+    private int _licenseReportOnNextHello;
+
+    /// <summary>
+    /// The License Switching mission: point this process's usage reporter at this host's tunnel. A host with no tunnel
+    /// detaches it, so a Director whose Gateway was turned off stops reporting rather than reporting into a dead
+    /// connection. The reporter's loop is started by the Director application, never by a host - a host stood up by a
+    /// test must not run the license tool.
+    /// </summary>
+    private static void AttachLicenseReporting(GatewayStreamClient? streamClient)
+    {
+        var licenses = Core.Licenses.LicenseSwitching.Shared;
+        licenses.Reporter.AttachSink(streamClient is null ? null : new GatewayLicenseReportSink(streamClient));
+        FileLog.Write($"[ControlApiHost] AttachLicenseReporting: tunnel={(streamClient is null ? "none" : "attached")}");
+    }
+
     private GatewayClient BuildGatewayClient(GatewayConfig gatewayConfig)
         => new(gatewayConfig, DirectorId, _version, SnapshotSessionStates, GatewayMonitor);
 
@@ -1121,6 +1138,11 @@ public sealed class ControlApiHost : IAsyncDisposable
             onHello: capabilities =>
             {
                 if (capabilities.TurnWatermarksKnown) _turnPusher?.SeedWatermarks(capabilities.TurnWatermarks);
+                // License Switching contract 2.3: the first Hello on a new connection is answered with a "connected"
+                // usage report, so a restarted Gateway has the facts within seconds rather than two minutes. After
+                // the Hello, because only then does the Director know the Gateway has PushLicenseUsage at all.
+                if (Interlocked.Exchange(ref _licenseReportOnNextHello, 0) == 1)
+                    Core.Licenses.LicenseSwitching.Shared.Reporter.RequestReport(Gateway.Contracts.LicenseReportTriggers.Connected);
             },
             // Issue #3559: on a NEW connection (never on the ten-second re-push) every session drops the Fleet Manager
             // lessons it was given. While the tunnel was down the lessons may have been removed, or the mark moved to
@@ -1128,6 +1150,7 @@ public sealed class ControlApiHost : IAsyncDisposable
             // connection's first snapshot makes the Gateway stamp the marked Fleet Manager again, as the lessons are now.
             onNewConnection: () =>
             {
+                Interlocked.Exchange(ref _licenseReportOnNextHello, 1);
                 foreach (var session in _sessionManager.ListSessions())
                     session.SetFleetManagerLessons(null);
             },
@@ -1248,7 +1271,7 @@ public sealed class ControlApiHost : IAsyncDisposable
         }
 
         return SessionCommandExecutor.DispatchAsync(_sessionManager, DirectorId, cmd,
-            new SessionCommandServices { ProactiveExplain = _proactiveExplain, TurnSummaryCache = _turnSummaryCache, DirectorVersion = _version, Repositories = _repositoryRegistry, ReapplyGatewayAsync = ReapplyGatewayAsync });
+            new SessionCommandServices { ProactiveExplain = _proactiveExplain, TurnSummaryCache = _turnSummaryCache, DirectorVersion = _version, Repositories = _repositoryRegistry, ReapplyGatewayAsync = ReapplyGatewayAsync, Licenses = Core.Licenses.LicenseSwitching.Shared });
     }
 
     /// <summary>
@@ -1927,6 +1950,7 @@ public sealed class ControlApiHost : IAsyncDisposable
         // Issue #1176 (Phase 1a): stop the push stream on host shutdown.
         if (_streamClient is not null)
         {
+            Core.Licenses.LicenseSwitching.Shared.Reporter.AttachSink(null);
             try { await _streamClient.StopAsync(); }
             catch (Exception ex) { FileLog.Write($"[ControlApiHost] GatewayStreamClient.StopAsync ERROR: {ex.Message}"); }
             await _streamClient.DisposeAsync();

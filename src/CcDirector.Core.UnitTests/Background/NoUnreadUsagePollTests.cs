@@ -15,6 +15,15 @@ namespace CcDirector.Core.UnitTests.Background;
 /// Presence, not absence (skill checks-that-fail-open): the scan proves it read the Director's own
 /// sources by finding the file that used to start the poll and one that still makes a real outbound
 /// call, so a scan that found nothing cannot pass.
+///
+/// CHANGED ON PURPOSE BY THE LICENSE SWITCHING MISSION (contract section 1.1). Usage is read again, because a
+/// reader now exists: the Gateway's switch decision and the Licenses page. The reading itself is done by the
+/// Python license tool, so the Director's C# still names no usage endpoint and the absence check stays as it was.
+/// What is ADDED is the presence the old rule was really about - "a call whose result nothing reads is deleted":
+/// <see cref="LicenseUsageReader_ResultReachesPushLicenseUsage"/> follows the reader's result, link by link, to the
+/// hub method that carries it to the Gateway, so an unread poll cannot come back under cover of this one. The
+/// behaviour of each link is tested in LicenseUsageReporterTests; this test proves the links are connected in the
+/// product, where a test of the parts cannot see.
 /// </summary>
 public sealed class NoUnreadUsagePollTests
 {
@@ -40,5 +49,30 @@ public sealed class NoUnreadUsagePollTests
         var offenders = files.Where(f => File.ReadAllText(f).Contains(RetiredEndpoint, StringComparison.Ordinal)).ToList();
         Assert.True(offenders.Count == 0,
             "the Director must not poll the provider's usage endpoint; found it in:\n" + string.Join("\n", offenders));
+    }
+
+    [Fact]
+    public void LicenseUsageReader_ResultReachesPushLicenseUsage()
+    {
+        var src = Path.Combine(RepositorySourceIndex.Root, "src");
+        string Read(params string[] parts) => File.ReadAllText(Path.Combine(new[] { src }.Concat(parts).ToArray()));
+
+        // 1. The reporter reads usage through the license tool and hands the report it builds to its sink.
+        var reporter = Read("CcDirector.Core", "Licenses", "LicenseUsageReporter.cs");
+        Assert.Contains("_tool.ReadUsageAsync(", reporter, StringComparison.Ordinal);
+        Assert.Contains("await sink.SendAsync(report, cancellationToken);", reporter, StringComparison.Ordinal);
+
+        // 2. The sink in the product is the Gateway tunnel's PushLicenseUsage.
+        var sink = Read("CcDirector.ControlApi", "GatewayLicenseReportSink.cs");
+        Assert.Contains("_client.PushLicenseUsageAsync(report, cancellationToken)", sink, StringComparison.Ordinal);
+        var stream = Read("CcDirector.ControlApi", "GatewayStreamClient.cs");
+        Assert.Contains("conn.InvokeAsync(LicenseContract.PushUsageHubMethod, seq, report", stream, StringComparison.Ordinal);
+
+        // 3. The host attaches that sink, and the Director application starts the reporter's loop.
+        var host = Read("CcDirector.ControlApi", "ControlApiHost.cs");
+        Assert.Contains("AttachSink(streamClient is null ? null : new GatewayLicenseReportSink(streamClient))", host, StringComparison.Ordinal);
+        Assert.Contains("AttachLicenseReporting(_streamClient);", host, StringComparison.Ordinal);
+        var app = Read("CcDirector.Avalonia", "App.axaml.cs");
+        Assert.Contains("LicenseSwitching.Shared.Start();", app, StringComparison.Ordinal);
     }
 }
