@@ -505,7 +505,11 @@ class ListWindow:
         self._status_label = ttk.Label(status, textvariable=self._status, style="Faint.TLabel")
         self._status_label.grid(row=0, column=0, sticky="w")
         self._counts = tk.StringVar(value="")
-        ttk.Label(status, textvariable=self._counts, style="Faint.TLabel").grid(row=0, column=1, sticky="e")
+        counts_label = ttk.Label(status, textvariable=self._counts, style="Faint.TLabel")
+        counts_label.grid(row=0, column=1, sticky="e")
+        # A long status line (a transfer's reason, say) wraps inside the window instead of widening it.
+        status.bind("<Configure>", lambda e: self._status_label.configure(
+            wraplength=max(200, e.width - counts_label.winfo_reqwidth() - 16)))
 
         command_key = "Command" if sys.platform == "darwin" else "Control"
         root.bind(f"<{command_key}-f>", lambda _e: self._search.focus_set())
