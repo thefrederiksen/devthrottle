@@ -202,6 +202,73 @@ public static class CronRunResultFold
         record.JobName = job.Name;
     }
 
+    /// <summary>
+    /// Each factory's last day of runs, for the 08:00 email (Factory Control, step 4): runs done and runs that did not
+    /// run in <c>[fromUtc, toUtc)</c>, seats whose run session is still open now, and open problems. Only factories
+    /// with at least one schedule are listed, by factory id.
+    /// </summary>
+    /// <param name="runsByJob">Every run of the account, by schedule id, newest first.</param>
+    /// <param name="jobs">The account's schedules, by id.</param>
+    /// <param name="endingOf">How a run's session ended (<see cref="CronRunEndingFold.EndingOf"/>).</param>
+    /// <param name="openProblems">The account's open problems, from <see cref="Problems"/>.</param>
+    /// <param name="fromUtc">The start of the window.</param>
+    /// <param name="toUtc">The end of the window (exclusive).</param>
+    public static IReadOnlyList<CronFactoryDayDto> FactoryDays(
+        IReadOnlyDictionary<string, IReadOnlyList<CronRunRecord>> runsByJob,
+        IReadOnlyDictionary<string, CronJobDto> jobs,
+        Func<CronRunRecord, string> endingOf,
+        IReadOnlyList<CronRunProblemDto> openProblems,
+        DateTime fromUtc,
+        DateTime toUtc)
+    {
+        ArgumentNullException.ThrowIfNull(runsByJob);
+        ArgumentNullException.ThrowIfNull(jobs);
+        ArgumentNullException.ThrowIfNull(endingOf);
+        ArgumentNullException.ThrowIfNull(openProblems);
+
+        var days = new Dictionary<string, CronFactoryDayDto>(StringComparer.OrdinalIgnoreCase);
+        var openSeats = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var job in jobs.Values)
+        {
+            if (string.IsNullOrWhiteSpace(job.Factory)) continue;
+            var factory = job.Factory.Trim();
+            if (!days.TryGetValue(factory, out var day))
+            {
+                day = new CronFactoryDayDto { Factory = factory };
+                days[factory] = day;
+                openSeats[factory] = new HashSet<string>(StringComparer.Ordinal);
+            }
+            if (!runsByJob.TryGetValue(job.Id, out var runs)) continue;
+
+            foreach (var run in runs)
+            {
+                if (run.Result == CronRunResults.Ok && InWindow(run.FiredUtc, fromUtc, toUtc))
+                    day.Done++;
+                if (run.Problem == CronRunProblems.DidNotRun && InWindow(run.ScheduledUtc, fromUtc, toUtc))
+                    day.DidNotRun++;
+                if (!string.IsNullOrWhiteSpace(run.SessionId) && endingOf(run) == CronRunEndings.StillOpen)
+                    openSeats[factory].Add(string.IsNullOrWhiteSpace(job.Seat) ? job.Id : job.Seat);
+            }
+        }
+
+        foreach (var problem in openProblems)
+        {
+            if (problem.State != CronRunProblemStates.Open || string.IsNullOrWhiteSpace(problem.Factory)) continue;
+            if (days.TryGetValue(problem.Factory.Trim(), out var day))
+                day.OpenProblems++;
+        }
+        foreach (var (factory, seats) in openSeats)
+            days[factory].LeftOpen = seats.Count;
+
+        return days.Values.OrderBy(d => d.Factory, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private static bool InWindow(DateTime utc, DateTime fromUtc, DateTime toUtc)
+    {
+        var at = DateTime.SpecifyKind(utc, DateTimeKind.Utc);
+        return at >= fromUtc && at < toUtc;
+    }
+
     /// <summary>When the run's shift is counted from: its start, or when it was due if it never started a session.</summary>
     public static DateTime ShiftInstantOf(CronRunRecord run)
     {

@@ -167,3 +167,26 @@ public sealed class CronRunResolveRequest
     /// <summary>The one-line reason the problem is resolved. Required.</summary>
     public string? Reason { get; set; }
 }
+
+/// <summary>
+/// One factory's last day of scheduled runs, for the 08:00 email's one line per factory (Factory Control, step 4).
+/// Folded by <c>CronRunResultFold.FactoryDays</c>; the email renders the numbers verbatim.
+/// </summary>
+public sealed class CronFactoryDayDto
+{
+    /// <summary>The factory's id, as its schedules name it.</summary>
+    public string Factory { get; set; } = "";
+
+    /// <summary>Runs that started in the window and reported ok.</summary>
+    public int Done { get; set; }
+
+    /// <summary>Runs that were due in the window and never started (problem kind <c>did-not-run</c>).</summary>
+    public int DidNotRun { get; set; }
+
+    /// <summary>The factory's seats with a run whose session is still open now, whatever the run's age - the same fact
+    /// the Factories list's "stayed open" marker shows.</summary>
+    public int LeftOpen { get; set; }
+
+    /// <summary>How many of the factory's problems are still open.</summary>
+    public int OpenProblems { get; set; }
+}

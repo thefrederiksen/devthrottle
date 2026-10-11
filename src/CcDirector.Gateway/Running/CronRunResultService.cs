@@ -337,6 +337,31 @@ public sealed class CronRunResultService
         return dto;
     }
 
+    /// <summary>
+    /// The account's open problems and each factory's last day of runs, read together from ONE read of the run history
+    /// (Factory Control, step 4: the factory email). Both come from this fold, so the email's problem list and its one
+    /// line per factory can never disagree about the same runs.
+    /// </summary>
+    /// <param name="tenant">The account. The schedules and the work history are read in the ambient scope.</param>
+    /// <param name="fromUtc">The start of the day's window.</param>
+    /// <param name="toUtc">The end of the day's window (exclusive).</param>
+    public (CronRunProblemsDto Problems, IReadOnlyList<CronFactoryDayDto> Days) ProblemsAndFactoryDays(TenantId tenant, DateTime fromUtc, DateTime toUtc)
+    {
+        var jobs = _allJobs().ToDictionary(j => j.Id, StringComparer.Ordinal);
+        var runsByJob = _runs.AllByJob(tenant);
+        var problems = CronRunResultFold.Problems(runsByJob, jobs, _zoneOf(tenant), factory: null, includeClosed: false);
+
+        var sessionIds = runsByJob.Values.SelectMany(r => r).Select(r => r.SessionId)
+            .Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s!).Distinct(StringComparer.Ordinal).ToList();
+        var endings = sessionIds.Count == 0
+            ? new Dictionary<string, SessionEndingFact>(StringComparer.Ordinal)
+            : _endingsOf(sessionIds);
+        var days = CronRunResultFold.FactoryDays(runsByJob, jobs, run => CronRunEndingFold.EndingOf(run, endings).Ending,
+            problems.Problems, fromUtc, toUtc);
+        FileLog.Write($"[CronRunResultService] ProblemsAndFactoryDays: tenant={tenant.ToLogString()}, open={problems.Count}, factories={days.Count}");
+        return (problems, days);
+    }
+
     private CronRunProblemDto ProblemOf(TenantId tenant, string jobId, Guid runId)
     {
         var all = _runs.AllByJob(tenant);

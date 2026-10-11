@@ -385,6 +385,7 @@ public sealed class GatewayDbContext : DbContext
 
     /// <summary>Every check of every trigger, whatever it came to - at least the newest 500 per trigger.</summary>
     public DbSet<TriggerRunEntity> TriggerRuns => Set<TriggerRunEntity>();
+    public DbSet<FactoryEmailReportEntity> FactoryEmailReports => Set<FactoryEmailReportEntity>();
     /// <summary>The events about sessions a Fleet Manager owns (<c>fleet_manager_events</c>, step 4): one stop or
     /// death per row, kept until the Fleet Manager acknowledges it.</summary>
     public DbSet<FleetManagerEventEntity> FleetManagerEvents => Set<FleetManagerEventEntity>();
@@ -1093,6 +1094,22 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.LastReason).HasMaxLength(1024);
             // One trigger per name per account. The store also refuses a name that differs only in case.
             b.HasIndex(e => new { e.TenantId, e.Name }).IsUnique();
+        });
+
+        // The factory email (Factory Control, step 4): one row per account and slot - the record that the slot was
+        // handled, and the composed report kept for the factory page.
+        modelBuilder.Entity<FactoryEmailReportEntity>(b =>
+        {
+            b.ToTable("factory_email_reports");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.SlotKey).HasMaxLength(16);
+            b.Property(e => e.Kind).HasMaxLength(16);
+            b.Property(e => e.State).HasMaxLength(16);
+            b.Property(e => e.Detail).HasMaxLength(1024);
+            b.Property(e => e.Subject).HasMaxLength(300);
+            b.Property(e => e.ProviderId).HasMaxLength(128);
+            b.HasIndex(e => new { e.TenantId, e.SlotKey }).IsUnique();
+            b.HasIndex(e => new { e.TenantId, e.BoundaryUtc });
         });
 
         modelBuilder.Entity<TriggerRunEntity>(b =>
@@ -2048,6 +2065,7 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<LicenseBarEntity>(modelBuilder);
         ApplyTenantScope<TriggerEntity>(modelBuilder);
         ApplyTenantScope<TriggerRunEntity>(modelBuilder);
+        ApplyTenantScope<FactoryEmailReportEntity>(modelBuilder);
         ApplyTenantScope<FleetManagerEventEntity>(modelBuilder);
         ApplyTenantScope<FleetManagerOwnedSessionEntity>(modelBuilder);
         ApplyTenantScope<TeamRequestEntity>(modelBuilder);
@@ -2188,6 +2206,10 @@ public sealed class GatewayDbContext : DbContext
             modelBuilder.Entity<TriggerEntity>().Property(e => e.Name).UseCollation("C");
             modelBuilder.Entity<TriggerEntity>().Property(e => e.Machine).UseCollation("C");
             modelBuilder.Entity<TriggerRunEntity>().Property(e => e.Outcome).UseCollation("C");
+            // factory_email_reports: the slot key, the kind and the state are exact keys.
+            modelBuilder.Entity<FactoryEmailReportEntity>().Property(e => e.SlotKey).UseCollation("C");
+            modelBuilder.Entity<FactoryEmailReportEntity>().Property(e => e.Kind).UseCollation("C");
+            modelBuilder.Entity<FactoryEmailReportEntity>().Property(e => e.State).UseCollation("C");
             // fleet_manager_events: the kind and the session ids are compared byte-ordinally for the same reason.
             modelBuilder.Entity<FleetManagerEventEntity>().Property(e => e.Kind).UseCollation("C");
             modelBuilder.Entity<FleetManagerEventEntity>().Property(e => e.SessionId).UseCollation("C");
