@@ -174,3 +174,119 @@ def test_GatewayLink_A4xxWithACode_IsARefusal_AndAnythingElseIsAFailure(monkeypa
     with pytest.raises(gateway_link.CcSecretsError) as failed:
         gateway_link.get("gateway/secrets/transfers", link)
     assert not isinstance(failed.value, gateway_link.GatewayRefusal)
+
+
+def _json_part(stdout: str) -> str:
+    """The test runner echoes typed input onto standard output, which a real terminal does not; skip that echo."""
+    return stdout[stdout.index("{"):]
+
+
+# --- The phase 3 review -------------------------------------------------------------------------------------------
+
+def test_Approve_InTheOwnersTerminal_WithOwnerApproved_IsRefusedBeforeAskingForYes(gateway, monkeypatch, plain):
+    gateway["kind"] = "machine"
+    monkeypatch.setattr(cli, "_stdin_is_tty", lambda: True)
+
+    result = runner.invoke(cli.app, ["approve", TID, "--owner-approved", "yes"], input="yes\n")
+
+    assert result.exit_code == cli.EXIT_REFUSED
+    assert gateway["posted"] == []
+    text = plain(_text(result))
+    assert "--owner-approved is how a session reports" in text and "Type yes" not in text
+
+
+def test_Approve_InAGitBashWindow_CountsAsSomeoneAtTheKeyboard(gateway, monkeypatch):
+    gateway["kind"] = "machine"
+    monkeypatch.setattr(cli, "_stdin_is_tty", lambda: False)
+    monkeypatch.setattr(cli, "_stdin_is_mintty", lambda: True)
+
+    result = runner.invoke(cli.app, ["approve", TID], input="yes\n")
+
+    assert result.exit_code == 0, _text(result)
+    assert gateway["posted"][0][1]["where"] == "terminal"
+
+
+@pytest.mark.parametrize("tty,typed,code", [(False, "", 2), (True, "no\n", 3)])
+def test_Approve_Json_KeepsItsShape_OnALocalRefusalOrCancel(gateway, monkeypatch, tty, typed, code):
+    gateway["kind"] = "machine"
+    monkeypatch.setattr(cli, "_stdin_is_tty", lambda: tty)
+    monkeypatch.setattr(cli, "_stdin_is_mintty", lambda: False)
+
+    result = runner.invoke(cli.app, ["approve", TID, "--json"], input=typed)
+
+    assert result.exit_code == code
+    answer = json.loads(_json_part(result.stdout))
+    assert answer["outcome"] == ("refused" if code == 2 else "cancelled")
+
+
+def test_Approve_Json_WithYes_PrintsOnlyJsonOnStandardOutput(gateway, monkeypatch):
+    gateway["kind"] = "machine"
+    monkeypatch.setattr(cli, "_stdin_is_tty", lambda: True)
+
+    result = runner.invoke(cli.app, ["approve", TID, "--json"], input="yes\n")
+
+    assert result.exit_code == 0, _text(result)
+    assert json.loads(_json_part(result.stdout))["outcome"] == "approved"
+
+
+@pytest.mark.parametrize("typed", ["../machines", "not-an-id", "ABC"])
+def test_Approve_AnIdThatIsNotOne_IsRefusedLocally_AndNothingIsAsked(gateway, typed):
+    asked = []
+    gateway_link.get, original = (lambda path, link=None: asked.append(path) or {}), gateway_link.get
+    try:
+        result = runner.invoke(cli.app, ["approve", typed])
+    finally:
+        gateway_link.get = original
+
+    assert result.exit_code == cli.EXIT_REFUSED
+    assert asked == [] and gateway["posted"] == []
+
+
+def test_Find_AsksForTheIdThatWasTyped(monkeypatch, home):
+    from src import transfers
+
+    asked = []
+    monkeypatch.setattr(gateway_link, "get", lambda path, link=None: asked.append(path) or {"transfer": _dto()})
+
+    transfers.find(TID, gateway_link.Link("session", "https://g.example", "k"))
+
+    assert asked == [f"gateway/secrets/transfers/{TID}"]
+
+
+def test_Approve_InASession_AuditsTheSessionsName(gateway, monkeypatch, home):
+    monkeypatch.setenv("CC_SESSION_ID", "aaaaaaaa-0000-0000-0000-000000000001")
+    monkeypatch.setattr(cli, "_session_name", lambda sid: "Session 104 tests")
+
+    runner.invoke(cli.app, ["approve", TID, "--owner-approved", "yes, send it"])
+
+    line = json.loads((home / "secrets-audit.log").read_text(encoding="utf-8").splitlines()[-1])
+    assert "Session 104 tests" in json.dumps(line)
+
+
+def test_Approvals_NotSignedIn_IsARefusal_NotAFault(monkeypatch, home, plain):
+    def not_signed_in():
+        raise gateway_link.NotSignedIn("This machine is not signed in to a Gateway.")
+
+    monkeypatch.setattr(gateway_link, "resolve", not_signed_in)
+
+    result = runner.invoke(cli.app, ["approvals"])
+
+    assert result.exit_code == cli.EXIT_REFUSED
+    assert "refused: This machine is not signed in" in plain(_text(result))
+
+
+def test_Approvals_NothingWaiting_SaysSo(gateway, plain):
+    gateway["rows"] = []
+
+    result = runner.invoke(cli.app, ["approvals"])
+
+    assert result.exit_code == 0
+    assert "No secret transfer is waiting" in plain(_text(result))
+
+
+def test_Approvals_AShapeTheToolDoesNotRead_IsAFailure(gateway, monkeypatch):
+    monkeypatch.setattr(gateway_link, "get", lambda path, link=None: {"unexpected": True})
+
+    result = runner.invoke(cli.app, ["approvals"])
+
+    assert result.exit_code == cli.EXIT_FAILED

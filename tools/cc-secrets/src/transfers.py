@@ -8,12 +8,16 @@ means.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import List, Optional
 
 from . import gateway_link
 
 ROUTE = "gateway/secrets/transfers"
+
+# A transfer id as the Gateway mints it. Anything else is refused before it is put into a path.
+ID_SHAPE = re.compile(r"^[0-9a-f]{32}$")
 
 WAITING = "waiting"
 
@@ -63,7 +67,7 @@ def listed(link: Optional[gateway_link.Link] = None) -> List[Transfer]:
 
 
 def find(transfer_id: str, link: Optional[gateway_link.Link] = None) -> Transfer:
-    return _one(gateway_link.get(f"{ROUTE}/{transfer_id}", link))
+    return _one(gateway_link.get(f"{ROUTE}/{_segment(transfer_id)}", link))
 
 
 def answer(transfer_id: str, approve: bool, where: Optional[str], owner_approved: Optional[str],
@@ -75,8 +79,14 @@ def answer(transfer_id: str, approve: bool, where: Optional[str], owner_approved
         body["where"] = where
     if owner_approved is not None:
         body["ownerApproved"] = owner_approved
-    response = gateway_link.post(f"{ROUTE}/{transfer_id}/answer", body, link)
+    response = gateway_link.post(f"{ROUTE}/{_segment(transfer_id)}/answer", body, link)
     return _one(response), str(response.get("note") or "")
+
+
+def _segment(transfer_id: str) -> str:
+    from cc_shared.gateway import path_segment
+
+    return path_segment(transfer_id)
 
 
 def _one(response) -> Transfer:

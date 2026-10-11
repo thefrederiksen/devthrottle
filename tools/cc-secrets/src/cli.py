@@ -989,6 +989,8 @@ def machines_command(
     try:
         own, _ = machine_key.load_or_create()
         found = machines.listed(own)
+    except gateway_link.GatewayRefusal as exc:
+        _transfer_refused("machines", "(machines)", exc, json_output)
     except Exception as exc:
         _fail("machines", "(machines)", "machines", exc)
     if json_output:
@@ -1019,11 +1021,11 @@ def machines_command(
                             f"last seen {m.last_seen_utc}"))
 
 
-def _transfer_refused(command: str, transfer_id: str, exc: gateway_link.GatewayRefusal,
+def _transfer_refused(command: str, subject: str, exc: gateway_link.GatewayRefusal,
                       json_output: bool = False) -> NoReturn:
     """The Gateway said no: nothing was done. Audited and shown in its words, never reported as a fault."""
     filelog.write(f"[cli] {command} refused by the Gateway: {exc.code}")
-    _audit().record(f"transfer {transfer_id}", command, "refused", f"{exc.code}: {exc}")
+    _audit().record(subject, command, "refused", f"{exc.code}: {exc}")
     if json_output:
         _say_json({"outcome": "refused", "code": exc.code, "reason": str(exc)})
     else:
@@ -1058,7 +1060,7 @@ def approvals_command(
     try:
         found = transfers.listed()
     except gateway_link.GatewayRefusal as exc:
-        _transfer_refused("approvals", "(all)", exc, json_output)
+        _transfer_refused("approvals", "(transfers)", exc, json_output)
     except Exception as exc:
         _fail("approvals", "(approvals)", "approvals", exc)
     if json_output:
@@ -1080,37 +1082,66 @@ def approvals_command(
                 _say(line)
 
 
+def _someone_at_the_keyboard() -> bool:
+    """A console, or a Git Bash (mintty) window, whose standard input is a pipe but shows every key typed."""
+    return _stdin_is_tty() or _stdin_is_mintty()
+
+
+def _local_refusal(command: str, subject: str, reason: str, json_output: bool, code: int = EXIT_REFUSED) -> NoReturn:
+    """A refusal or cancellation decided here, before anything was sent: audited, and printed in the shape asked for."""
+    outcome = "cancelled" if code == EXIT_CANCELLED else "refused"
+    _audit().record(subject, command, outcome, reason)
+    if json_output:
+        _say_json({"outcome": outcome, "reason": reason})
+    else:
+        _say(f"{outcome}: {reason}", err=code != EXIT_CANCELLED)
+    raise typer.Exit(code)
+
+
+def _session_approval(owner_approved: Optional[str]) -> Optional[OwnerApproval]:
+    if not owner_approved:
+        return None
+    session_id = os.environ.get("CC_SESSION_ID", "")
+    return OwnerApproval(text=owner_approved.strip(), session_name=_session_name(session_id) if session_id else "")
+
+
 def _answer(command: str, transfer_id: str, approve: bool, owner_approved: Optional[str], json_output: bool) -> None:
     transfer_id = transfer_id.strip().lower()
+    subject = f"transfer {transfer_id}"
+    if not transfers.ID_SHAPE.match(transfer_id):
+        _local_refusal(command, subject, f"'{transfer_id}' is not a transfer id (32 hex characters, from "
+                                         "'cc-secrets approvals').", json_output)
     try:
         link = gateway_link.resolve()
-        where = None if link.kind == gateway_link.KIND_SESSION else "terminal"
-        if approve and link.kind != gateway_link.KIND_SESSION:
+        in_session = link.kind == gateway_link.KIND_SESSION
+        if owner_approved is not None and not in_session:
+            _local_refusal(command, subject, "--owner-approved is how a session reports the owner's words from its chat. "
+                                             "In your own terminal you approve by typing yes; leave it out.", json_output)
+        where = None if in_session else "terminal"
+        if approve and not in_session:
             # The owner's own terminal: show exactly what is being approved and have it confirmed by typing yes, so
             # a stray approve on the wrong id cannot move anything.
             t = transfers.find(transfer_id, link)
-            for line in _transfer_lines(t):
-                _say(line)
             if not t.can_answer:
-                _say(f"refused: {t.status_text}", err=True)
-                raise typer.Exit(EXIT_REFUSED)
-            if not _stdin_is_tty():
-                _say("refused: approving in a terminal needs someone at the keyboard to type yes. Approve it on the "
-                     "phone, in the Cockpit or in the cc-secrets window instead.", err=True)
-                raise typer.Exit(EXIT_REFUSED)
-            typed = typer.prompt("Type yes to approve this transfer", default="", show_default=False)
+                _local_refusal(command, subject, t.status_text, json_output)
+            if not _someone_at_the_keyboard():
+                _local_refusal(command, subject, "approving in a terminal needs someone at the keyboard to type yes. "
+                                                 "Approve it on the phone, in the Cockpit or in the cc-secrets window "
+                                                 "instead.", json_output)
+            for line in _transfer_lines(t):
+                _say(line, err=json_output)
+            typed = typer.prompt("Type yes to approve this transfer", default="", show_default=False, err=json_output)
             if typed.strip().lower() != "yes":
-                _audit().record(f"transfer {transfer_id}", command, "cancelled", "the owner did not type yes")
-                _say("cancelled: nothing was approved.")
-                raise typer.Exit(EXIT_CANCELLED)
+                _local_refusal(command, subject, "you did not type yes, so nothing was approved.", json_output,
+                               EXIT_CANCELLED)
         t, note = transfers.answer(transfer_id, approve, where, owner_approved, link)
     except typer.Exit:
         raise
     except gateway_link.GatewayRefusal as exc:
-        _transfer_refused(command, transfer_id, exc, json_output)
+        _transfer_refused(command, subject, exc, json_output)
     except Exception as exc:
-        _fail(command, f"transfer {transfer_id}", command, exc)
-    approval = OwnerApproval(text=(owner_approved or "").strip(), session_name="") if owner_approved else None
+        _fail(command, subject, command, exc)
+    approval = _session_approval(owner_approved)
     _audit().record(f"transfer {transfer_id}", command, "ok", t.summary, approval)
     if json_output:
         _say_json({"outcome": "approved" if approve else "denied", "note": note, "transfer": _transfer_json(t)})

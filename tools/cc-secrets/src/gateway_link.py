@@ -36,6 +36,13 @@ class GatewayRefusal(CcSecretsError):
         self.code = code
 
 
+class NotSignedIn(GatewayRefusal):
+    """This machine holds no Gateway credential: a refusal with the way out, not a fault."""
+
+    def __init__(self, sentence: str) -> None:
+        super().__init__(0, "not_signed_in", sentence)
+
+
 class GatewayShapeError(CcSecretsError):
     """The Gateway's answer was not the shape this cc-secrets reads."""
 
@@ -55,8 +62,8 @@ def resolve() -> Link:
     except ValueError as exc:
         raise CcSecretsError(f"This machine's Gateway settings cannot be read: {exc}") from exc
     if credential.kind not in (KIND_SESSION, KIND_MACHINE) or not credential.bearer:
-        raise CcSecretsError("This machine is not signed in to a Gateway, so a secret cannot be moved to or from it. "
-                             "Sign the Director on this machine in to your account first.")
+        raise NotSignedIn("This machine is not signed in to a Gateway, so a secret cannot be moved to or from it. "
+                          "Sign the Director on this machine in to your account first.")
     return Link(credential.kind, credential.url, credential.bearer)
 
 
