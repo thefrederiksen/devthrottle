@@ -116,6 +116,9 @@ internal static class RecordingEndpoints
         // null, a forgotten argument compiled cleanly and the resolver behind it decided on the argument. A
         // self-host caller constructs the boundary over the SingleTenantContext, which always resolves Local.
         Tenancy.HostedTenantBoundary tenantBoundary,
+        // Whether a tenant's plan includes dictation (Pricing Change mission, B1): the Notes transcriber and the
+        // dictionary "Scan now" both call a model. REQUIRED, like the boundary.
+        Tenancy.TenantAiGate aiGate,
         KeyVault? keyVault = null,
         TranscriptionHistoryLog? history = null,
         TranscriptionAudioArchive? audioArchive = null,
@@ -130,7 +133,7 @@ internal static class RecordingEndpoints
         // resolves the caller's tenant and dispatches to that tenant's own recording store / glossary.
         var app = outer.MapGroup(Prefix);
         // The archive carries the mode it writes under, so a mapper that was handed none builds one for its own mode.
-        MapRoutes(app, tenantBoundary, keyVault, history, audioArchive ?? new TranscriptionAudioArchive(hosted), suggestions, dismissals, emailComposer);
+        MapRoutes(app, tenantBoundary, aiGate, keyVault, history, audioArchive ?? new TranscriptionAudioArchive(hosted), suggestions, dismissals, emailComposer);
     }
 
     /// <summary>
@@ -142,6 +145,7 @@ internal static class RecordingEndpoints
     private static void MapRoutes(
         IEndpointRouteBuilder app,
         Tenancy.HostedTenantBoundary tenantBoundary,
+        Tenancy.TenantAiGate aiGate,
         KeyVault? keyVault,
         TranscriptionHistoryLog? history,
         TranscriptionAudioArchive audioArchive,
@@ -166,7 +170,7 @@ internal static class RecordingEndpoints
         // never sent to the speech-to-text provider - it is applied to the finished transcript; issue 2481.)
         var services = new System.Collections.Concurrent.ConcurrentDictionary<string, RecordingIngestService>(StringComparer.Ordinal);
         RecordingIngestService ServiceFor(TenantId tenant)
-            => services.GetOrAdd(tenant.Value, _ => BuildService(tenant, keyVault, history, audioArchive));
+            => services.GetOrAdd(tenant.Value, _ => BuildService(tenant, aiGate, keyVault, history, audioArchive));
 
         app.MapPost("/recording", async (HttpContext ctx) =>
         {
@@ -380,7 +384,7 @@ internal static class RecordingEndpoints
         // test harnesses map neither and simply do not expose these routes). Same tenant idiom as every /ingest
         // route: resolve the caller's tenant, 403 when none resolves, never the Local partition on hosted.
         if (suggestions is not null && dismissals is not null)
-            MapSuggestionRoutes(app, tenantBoundary, suggestions, dismissals);
+            MapSuggestionRoutes(app, tenantBoundary, aiGate, suggestions, dismissals);
 
         // The daily-email block, mapped on its own condition because it depends on the composer rather than on
         // the dismissal store - a harness that wires one need not wire the other.
@@ -507,6 +511,7 @@ internal static class RecordingEndpoints
     private static void MapSuggestionRoutes(
         IEndpointRouteBuilder app,
         Tenancy.HostedTenantBoundary? tenantBoundary,
+        Tenancy.TenantAiGate aiGate,
         DictionarySuggestionService suggestions,
         DictionarySuggestionDismissalStore dismissals)
     {
@@ -531,6 +536,14 @@ internal static class RecordingEndpoints
         {
             var t = GatewayEndpoints.ResolveReadTenant(ctx, tenantBoundary);
             if (t is null) return TenantRequired();
+            // The scan screens candidates with a model, so it is on the plan (Pricing Change mission, B1): a plan
+            // without dictation is answered 402 before anything is mined or asked.
+            var plan = aiGate.ForRequest(ctx, t.Value, Tenancy.EntitlementScopes.Dictation);
+            if (!plan.IsAllowed)
+            {
+                FileLog.Write($"[RecordingEndpoints] POST /dictionary/suggestions/scan REFUSED by the plan: verdict={plan.Verdict} - no model call");
+                return HostedAi.HostedAiHttp.TenantAiRefusal(plan);
+            }
             var result = await suggestions.RunScanAsync(t.Value, ctx.RequestAborted);
             return Results.Json(ToSuggestionsResponse(result));
         });
@@ -827,6 +840,7 @@ internal static class RecordingEndpoints
 
     private static RecordingIngestService BuildService(
         TenantId tenant,
+        Tenancy.TenantAiGate aiGate,
         KeyVault? keyVault,
         TranscriptionHistoryLog? history,
         TranscriptionAudioArchive audioArchive)
@@ -874,6 +888,7 @@ internal static class RecordingEndpoints
                 new GatewayTranscriptionService(
                     keyVault ?? new KeyVault(),
                     audioArchive,
+                    aiGate,
                     history: tenantHistory),
                 tenant),
             filer,

@@ -1,5 +1,7 @@
 using CcDirector.Core.Tenancy;
+using CcDirector.Gateway.Teams;
 using CcDirector.Gateway.Teams.Mentor;
+using CcDirector.Gateway.Tenancy;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests.Teams.Mentor;
@@ -13,6 +15,46 @@ public sealed class TeamMentorWriterTests : IDisposable
     private readonly MentorRig _rig = new();
 
     public void Dispose() => _rig.Dispose();
+
+    // ---- Pricing Change mission, B1: the Mentor is a Wingman model call, asked per member --------------------------
+
+    private TenantAiGate HostedGate()
+    {
+        var entitlements = new EntitlementRegistry(_rig.Db, requireLivemode: true, trials: new TrialRegistry(_rig.Db));
+        return new TenantAiGate(entitlements, _rig.Tenants, new TeamMemberEntitlement(_rig.Teams, entitlements));
+    }
+
+    [Fact]
+    public async Task WriteWeekAsync_ATeamWhoseBillGrantsNothing_SkipsEveryMember_AndCallsNoModel()
+    {
+        // A background job SKIPS a member whose seat has no Wingman - the team has no bill, so Rob sits on the free tier -
+        // records why, and never asks the model. The week is still marked run: nothing is left to retry.
+        _rig.SessionOf(MentorRig.Rob, MentorRig.InWeek(1), "s-rob");
+        _rig.PromptOf(MentorRig.Rob, MentorRig.InWeek(1, 9), "fix the signup thing");
+        _rig.Brain.Answer = _ => FakeBrain.GoodWeek();
+
+        var run = await _rig.Writer(aiGate: HostedGate()).WriteWeekAsync(_rig.Team, MentorRig.Week, MentorRig.Zone);
+
+        Assert.Empty(_rig.Brain.Asked);
+        Assert.Equal(0, run.BlocksWritten);
+        Assert.Contains(run.Outcomes, o => o.PersonSubject == MentorRig.Rob && o.Outcome == MentorOutcomes.NotOnPlan);
+        Assert.True(_rig.Store.HasRun(_rig.Team, MentorRig.Week));
+    }
+
+    [Fact]
+    public async Task WriteWeekAsync_ATeamWhoseBillGrants_WritesTheMembersBlock()
+    {
+        // The control: the same week on a paid team bill is a team seat, which includes the Wingman.
+        TeamBillSeed.Put(_rig.Db, _rig.Team.Value, EntitlementRegistry.StatusActive, seats: 5, autoRenew: true);
+        _rig.SessionOf(MentorRig.Rob, MentorRig.InWeek(1), "s-rob");
+        _rig.PromptOf(MentorRig.Rob, MentorRig.InWeek(1, 9), "fix the signup thing");
+        _rig.Brain.Answer = _ => FakeBrain.GoodWeek();
+
+        var run = await _rig.Writer(aiGate: HostedGate()).WriteWeekAsync(_rig.Team, MentorRig.Week, MentorRig.Zone);
+
+        Assert.Single(_rig.Brain.Asked);
+        Assert.Equal(1, run.BlocksWritten);
+    }
 
     // ---- devthrottle_internal#2305, test 2: every quoted prompt is the person's own, from that week ------------------
 

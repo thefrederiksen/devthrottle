@@ -68,8 +68,9 @@ internal sealed class MentorRig : IDisposable
         Now = Week.UtcBounds(Zone).ToUtc.AddHours(2);
     }
 
-    public TeamMentorWriter Writer(TeamMentorWriter.MentorBrainFactory? brains = null) =>
-        new(Teams, Store, Sessions, Prompts, brains ?? ((_, _) => Task.FromResult<(IAgentBrain, string)>((Brain, "fake-model"))), () => Now);
+    public TeamMentorWriter Writer(TeamMentorWriter.MentorBrainFactory? brains = null, TenantAiGate? aiGate = null) =>
+        new(Teams, Store, Sessions, Prompts, brains ?? ((_, _) => Task.FromResult<(IAgentBrain, string)>((Brain, "fake-model"))),
+            aiGate ?? TenantAiGate.SelfHost, () => Now);
 
     /// <summary>A session of <paramref name="person"/> in the team, alive at <paramref name="atUtc"/>.</summary>
     public void SessionOf(string person, DateTime atUtc, string sessionId, TenantId? tenant = null)

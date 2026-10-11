@@ -34,6 +34,7 @@ public sealed class DictionarySuggestionDailySweep : TenantScopedSweep
     private readonly ITenantContext _tenantContext;
     private readonly DictionarySuggestionService _suggestions;
     private readonly TenantSettingsResolver _settings;
+    private readonly TenantAiGate _aiGate;
     private readonly Func<DateTime> _now;
 
     /// <param name="boundary">The hosted tenant boundary (the seam's scope mechanism). Required.</param>
@@ -42,6 +43,8 @@ public sealed class DictionarySuggestionDailySweep : TenantScopedSweep
     /// entered from here (the seam's sanctioned pattern). Required.</param>
     /// <param name="suggestions">The scan engine. Required.</param>
     /// <param name="settings">The per-tenant settings resolver the time zone is read from. Required.</param>
+    /// <param name="aiGate">Whether a tenant's plan includes dictation (Pricing Change mission, B1). The scan screens
+    /// candidates with a model, so a tenant without it is skipped. Required.</param>
     /// <param name="now">Clock, injected so tests are deterministic; <see cref="DateTime.UtcNow"/> when null.</param>
     public DictionarySuggestionDailySweep(
         HostedTenantBoundary boundary,
@@ -49,12 +52,14 @@ public sealed class DictionarySuggestionDailySweep : TenantScopedSweep
         ITenantContext tenantContext,
         DictionarySuggestionService suggestions,
         TenantSettingsResolver settings,
+        TenantAiGate aiGate,
         Func<DateTime>? now = null)
         : base(boundary, tenants)
     {
         _tenantContext = tenantContext ?? throw new ArgumentNullException(nameof(tenantContext));
         _suggestions = suggestions ?? throw new ArgumentNullException(nameof(suggestions));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        _aiGate = aiGate ?? throw new ArgumentNullException(nameof(aiGate));
         _now = now ?? (() => DateTime.UtcNow);
     }
 
@@ -68,6 +73,16 @@ public sealed class DictionarySuggestionDailySweep : TenantScopedSweep
             var zone = ResolveZone(tenant);
             if (!IsDue(stored?.ScannedAtUtc, zone, _now().ToUniversalTime()))
                 return;
+
+            // THE PLAN (Pricing Change mission, B1): a tenant whose plan has no dictation - or whose plan could not be
+            // read - is skipped and logged. Nothing is mined, no model is asked, and the stored marker is not moved, so
+            // the scan runs on the first tick after the plan allows it.
+            var plan = _aiGate.ForTenant(tenant, EntitlementScopes.Dictation);
+            if (!plan.IsAllowed)
+            {
+                FileLog.Write($"[SuggestionDailySweep] daily scan SKIPPED: tenant={tenant.ToLogString()} - dictation is not on the plan ({plan.Verdict}); no model call");
+                return;
+            }
 
             FileLog.Write($"[SuggestionDailySweep] daily scan due: tenant={tenant.ToLogString()} zone={zone.Id}");
             await _suggestions.RunScanAsync(tenant, ct).ConfigureAwait(false);

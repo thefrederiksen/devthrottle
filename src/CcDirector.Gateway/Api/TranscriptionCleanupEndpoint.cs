@@ -31,7 +31,10 @@ internal static class TranscriptionCleanupEndpoint
     /// <param name="vault">Holds the deployment credential the judge needs. Without one this route
     /// can still answer, but it can never apply an unlisted correction - so it is threaded here rather
     /// than left to default, which is how this endpoint silently became a successful no-op once before.</param>
-    public static void Map(IEndpointRouteBuilder app, KeyVault vault)
+    /// <param name="tenantBoundary">Resolves the caller's tenant, whose plan the judge is charged to.</param>
+    /// <param name="aiGate">Whether that plan includes dictation (Pricing Change mission, B1): the judge is a model
+    /// call, so a plan without it is answered 402 before anything is asked.</param>
+    public static void Map(IEndpointRouteBuilder app, KeyVault vault, Tenancy.HostedTenantBoundary tenantBoundary, Tenancy.TenantAiGate aiGate)
     {
         app.MapPost("/transcription/cleanup", async (HttpContext ctx) =>
         {
@@ -41,6 +44,16 @@ internal static class TranscriptionCleanupEndpoint
 
             if (req is null || string.IsNullOrWhiteSpace(req.Text))
                 return Results.BadRequest(new { error = "field 'text' is required" });
+
+            var tenant = GatewayEndpoints.ResolveReadTenant(ctx, tenantBoundary);
+            if (tenant is null)
+                return Results.Json(new { error = "a tenant could not be resolved for this request" }, statusCode: StatusCodes.Status403Forbidden);
+            var plan = aiGate.ForRequest(ctx, tenant.Value, Tenancy.EntitlementScopes.Dictation);
+            if (!plan.IsAllowed)
+            {
+                FileLog.Write($"[TranscriptionCleanupEndpoint] REFUSED by the plan: verdict={plan.Verdict} - no model call");
+                return HostedAi.HostedAiHttp.TenantAiRefusal(plan);
+            }
 
             var terms = (req.Terms ?? Array.Empty<string>())
                 .Where(t => !string.IsNullOrWhiteSpace(t)).ToArray();
@@ -68,7 +81,7 @@ internal static class TranscriptionCleanupEndpoint
             // evaluation surface unable to evaluate. Live dictation keeps whatever the deployment says.
             var outcome = await new CleanupOrchestrator(
                     judge: DictationJudgeFactory.FromVault(vault,
-                        new CcDirector.Core.HostedAi.AiCallTag(CcDirector.Core.HostedAi.AiFeature.DictationJudgeEvaluation)),
+                        HostedAi.GatewayAiCallTags.For(tenant.Value, CcDirector.Core.HostedAi.AiFeature.DictationJudgeEvaluation)),
                     mode: UnlistedCorrectionMode.Enforce)
                 .CleanAsync(req.Text, dictionary, "default", ctx.RequestAborted);
 

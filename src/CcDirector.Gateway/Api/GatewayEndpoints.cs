@@ -99,6 +99,10 @@ internal static partial class GatewayEndpoints
         // its factory for life and no test went red. A harness that genuinely cannot read membership says so
         // with an explicit reader, `_ => SessionFactoryLookup.NotKnown`.
         Func<string, History.SessionFactoryLookup> sessionFactoryOf,
+        // Whether a tenant's plan includes dictation, for the phone Notes transcriber and the dictionary scan
+        // (Pricing Change mission, B1). REQUIRED for the same reason as the two above: the hosted Gateway passes its
+        // gate, a self-hosted one or a harness passes Tenancy.TenantAiGate.SelfHost.
+        Tenancy.TenantAiGate aiGate,
         bool authEnabled = false, Func<bool>? requestShutdown = null,
         Action<string, string, string>? onSessionState = null,
         Func<TenantId, string, bool>? voiceGeneratingFor = null,
@@ -716,7 +720,7 @@ internal static partial class GatewayEndpoints
         var logoutVisibility = authEnabled ? "" : "style=\"display:none\"";
 
         // Phone recorder ingest (offline-recorded audio -> transcription -> vault).
-        RecordingEndpoints.Map(app, hosted, tenantBoundary, recordingKeyVault, transcriptionHistory, transcriptionAudioArchive,
+        RecordingEndpoints.Map(app, hosted, tenantBoundary, aiGate, recordingKeyVault, transcriptionHistory, transcriptionAudioArchive,
             dictionarySuggestions, dictionaryDismissals, suggestionEmailComposer);
 
         // Read-only view of the Communication Manager approval queue (see the phone's

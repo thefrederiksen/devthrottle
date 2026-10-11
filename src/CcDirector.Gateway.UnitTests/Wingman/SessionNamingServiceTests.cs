@@ -88,6 +88,20 @@ public sealed class SessionNamingServiceTests
     }
 
     [Theory]
+    [InlineData(NarrationPlan.NeedsPro)]
+    [InlineData(NarrationPlan.Unknown)]
+    public async Task NameIfUnnamedAsync_WingmanNotOnThePlan_MakesNoNamingCall(NarrationPlan plan)
+    {
+        // Pricing Change mission, B1: naming is a Wingman model call. A plan without the Wingman (Free, Remote), or a
+        // plan that could not be read, names nothing and asks the model nothing.
+        var env = new FakeNamingEnvironment { Reply = "A Name", Plan = plan };
+        var sut = new SessionNamingService(env);
+
+        Assert.Null(await sut.NameIfUnnamedAsync(Tenant, Sid, Director));
+        Assert.Empty(env.Prompts);
+    }
+
+    [Theory]
     [InlineData("Codex")]
     [InlineData("Copilot")]
     [InlineData("OpenCode")]
@@ -324,6 +338,10 @@ public sealed class SessionNamingServiceTests
         public TurnVerdictSessionState ReadSessionState(TenantId tenant, string sessionId) => new(Facts, Held);
 
         public bool JudgeEnabled(TenantId tenant) => Judge;
+
+        public NarrationPlan Plan { get; set; } = NarrationPlan.Allowed;
+
+        public NarrationPlan PlanForNarration(TenantId tenant, string sid) => Plan;
 
         public Task<TurnsResponse?> ReadTurnsAsync(TenantId tenant, string directorId, string sessionId, CancellationToken ct)
         {

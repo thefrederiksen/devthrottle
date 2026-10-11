@@ -855,6 +855,13 @@ public sealed class GatewayHost : IAsyncDisposable
     public Teams.TeamMemberEntitlement TeamMemberEntitlement { get; }
 
     /// <summary>
+    /// Whether a tenant's plan includes an AI feature (Pricing Change mission, B1): asked before every model call this
+    /// Gateway makes on a tenant's behalf. On the hosted Gateway it reads the entitlement registry; on a self-hosted
+    /// one it is <see cref="Tenancy.TenantAiGate.SelfHost"/> and allows everything (decision D5).
+    /// </summary>
+    public Tenancy.TenantAiGate AiGate { get; }
+
+    /// <summary>
     /// The team bills this Gateway owns (Teams v1, the team bill without Stripe): the one writer of every team's bill.
     /// Built on every Gateway, like <see cref="TeamRegistry"/>; only a Gateway with Teams released serves its routes.
     /// </summary>
@@ -1964,6 +1971,16 @@ public sealed class GatewayHost : IAsyncDisposable
         // and a dark Gateway are not governed and keep the first row.
         PushedSessions.UseHolderRule(new Teams.TeamSessionHolderRule(
             tenant => TeamsReleased && TeamMemberEntitlement.IsTeam(tenant), TeamCallerOwnership));
+        // THE AI GATE (Pricing Change mission, B1). The hosted Gateway checks each tenant's plan before every model call
+        // it makes for that tenant, through the SAME entitlement registry the enrolment gate and the access lease read,
+        // and the team path only where Teams is released - so the three can never disagree about a plan. A self-hosted
+        // Gateway is not gated at all.
+        AiGate = Hosted
+            ? new Tenancy.TenantAiGate(EntitlementRegistry, TenantRegistry,
+                teams: TeamsReleased ? TeamMemberEntitlement : null,
+                personOfSession: TeamCallerOwnership.PersonOfSession,
+                personOfCredential: TeamCallerOwnership.PersonOf)
+            : Tenancy.TenantAiGate.SelfHost;
         TeamGate =new Teams.TeamEndpointGate(TeamAccess, TeamRegistry, TenantRegistry, _tenantBoundary, TeamCallerOwnership);
         TeamRequests = new Teams.TeamRequestStore(_gatewayDb, TeamRegistry);
         // Removing a person from a team, or making them a Collaborator, cuts their Directors off that team: their keys
@@ -2258,6 +2275,10 @@ public sealed class GatewayHost : IAsyncDisposable
                 // fast model was measured approving inflection clusters like "issue heard as issues" on the
                 // owner's real corpus - judgment quality decides this feature, and a nightly background scan
                 // does not care about speed), with a longer per-call deadline than a voice turn.
+                // The screening is a model call on the dictation feature, so it is on the plan (Pricing Change mission,
+                // B1). The daily sweep and the scan route ask the gate first and skip or refuse; this refuses to build
+                // the client for any caller that did not.
+                AiGate.EnsureAllowedForTenant(tenant, Tenancy.EntitlementScopes.Dictation);
                 var mode = Core.Configuration.TranscriptionModeConfig.Get();
                 var ep = Core.Configuration.TranscriptionEndpointResolver.ResolveWingman(mode);
                 var key = _keyVault.Get(ep.KeyName) ?? "";
@@ -2407,7 +2428,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // per-tenant body reads the tenant the seam entered from _tenantContext (the seam's sanctioned
         // pattern) and the tenant's time zone from the settings resolver.
         _suggestionDailySweep = new Transcription.DictionarySuggestionDailySweep(
-            _tenantBoundary, TenantRegistry, _tenantContext, _dictionarySuggestions, _tenantSettingsResolver);
+            _tenantBoundary, TenantRegistry, _tenantContext, _dictionarySuggestions, _tenantSettingsResolver, AiGate);
 
         // Work history (issue #2194): the durable session record and its observers. The summariser's
         // brain is the tenant's FAST wingman model over the same hosted inference path Wingman speaks
@@ -2440,7 +2461,8 @@ public sealed class GatewayHost : IAsyncDisposable
                         thinkingOff: true, maxTokens: Teams.Mentor.MentorBrief.MaxOutputTokens,
                         tag: HostedAi.GatewayAiCallTags.For(tenant, Core.HostedAi.AiFeature.TeamMentor));
                     return Task.FromResult((brain, model.Value));
-                });
+                },
+                AiGate);
             _teamMentorSweep = new Teams.Mentor.TeamMentorWeeklySweep(
                 enabled: true, _tenantBoundary, TenantRegistry, _tenantContext, TeamRegistry, TeamMentorStore,
                 TeamMentorWriter, _tenantSettingsResolver.TimeZone);
@@ -3344,6 +3366,10 @@ public sealed class GatewayHost : IAsyncDisposable
     /// together with the account it is for (<see cref="HostedAi.GatewayAiCallTags"/>).</param>
     private Task<CcDirector.AgentBrain.IAgentBrain> WingmanBrainAsync(TenantId tenant, Core.Configuration.WingmanModelRole role, string feature, CancellationToken ct)
     {
+        // Every Wingman model call is on the plan (Pricing Change mission, B1): no client is built for a tenant whose
+        // plan does not include the Wingman. A request route asks the gate first and answers 402; a background caller
+        // catches the refusal, logs it and makes no call.
+        AiGate.EnsureAllowedForTenant(tenant, Tenancy.EntitlementScopes.Wingman);
         var mode = Core.Configuration.TranscriptionModeConfig.Get();
         var ep = Core.Configuration.TranscriptionEndpointResolver.ResolveWingman(mode);
         var key = _keyVault.Get(ep.KeyName) ?? "";
@@ -3425,6 +3451,10 @@ public sealed class GatewayHost : IAsyncDisposable
             conversation: ReadStoredConversation,
             judgeBrain: (tenant, settings, feature, callA) =>
             {
+                // The judge, the narration and the namer are Wingman model calls (Pricing Change mission, B1). The seat
+                // asks the plan per session before it reads anything; this refuses to build the client for any path
+                // that did not.
+                AiGate.EnsureAllowedForTenant(tenant, Tenancy.EntitlementScopes.Wingman);
                 var mode = Core.Configuration.TranscriptionModeConfig.Get();
                 var ep = Core.Configuration.TranscriptionEndpointResolver.ResolveWingman(mode);
                 var key = _keyVault.Get(ep.KeyName) ?? "";
@@ -3491,45 +3521,21 @@ public sealed class GatewayHost : IAsyncDisposable
     }
 
     /// <summary>
-    /// Whether this account's plan includes the Wingman's narration: the account subject its tenant maps to, that
-    /// subject's entitlement, and <see cref="Wingman.NarrationPlanRule"/> for the answer. A read that throws is a
-    /// read that could not be made - Unknown, never "needs Pro", so a paying account is never told it must upgrade
-    /// because the database hiccuped.
-    ///
-    /// IN A TEAM'S TENANT, where Teams is released (devthrottle_internal#2311, Gateway step 2): the person is the
-    /// session's owner (<see cref="Teams.TeamCallerOwnership.PersonOfSession"/>) and the answer is theirs in that team -
-    /// the team's bill and their role there (<see cref="Teams.TeamMemberEntitlement"/>), never their own plan. A session
-    /// that is nobody's, or whose owner is not a member, is Unknown: no call is made, and nothing is said about a plan.
+    /// Whether this account's plan includes the Wingman's narration of session <paramref name="sid"/>: the one AI gate's
+    /// answer for that session (Pricing Change mission, B1) - in a personal tenant the account's plan, in a team's
+    /// tenant the session owner's seat there. A plan without the Wingman is "needs Pro"; a plan that could not be read,
+    /// or a team session that is nobody's, is Unknown - no call is made and nothing is said about a plan.
     /// </summary>
     internal Wingman.NarrationPlan ResolveNarrationPlan(TenantId tenant, string sid)
     {
-        if (!Hosted)
-            return Wingman.NarrationPlanRule.Decide(hosted: false, subject: null, decision: null);
-        try
+        var decision = AiGate.ForSession(tenant, sid, Tenancy.EntitlementScopes.Wingman);
+        var plan = decision.Verdict switch
         {
-            if (TeamsReleased && TeamMemberEntitlement.IsTeam(tenant))
-                return ResolveTeamNarrationPlan(tenant, sid);
-
-            var subject = TenantRegistry.SubjectForTenant(tenant);
-            var decision = string.IsNullOrWhiteSpace(subject) ? null : EntitlementRegistry.Evaluate(subject, DateTime.UtcNow);
-            var plan = Wingman.NarrationPlanRule.Decide(hosted: true, subject, decision);
-            FileLog.Write($"[GatewayHost] ResolveNarrationPlan: tenant={tenant.ToLogString()} outcome={decision?.Outcome.ToString() ?? "no subject"} tier={decision?.Tier ?? "none"} plan={plan}");
-            return plan;
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[GatewayHost] ResolveNarrationPlan FAILED: tenant={tenant.ToLogString()}: {ex.GetType().Name}: {ex.Message} - the plan is Unknown");
-            return Wingman.NarrationPlan.Unknown;
-        }
-    }
-
-    private Wingman.NarrationPlan ResolveTeamNarrationPlan(TenantId tenant, string sid)
-    {
-        var owner = TeamCallerOwnership.PersonOfSession(tenant, sid);
-        var decision = owner is null ? null : TeamMemberEntitlement.DecideOrUnknown(tenant, owner, DateTime.UtcNow);
-        var plan = Wingman.NarrationPlanRule.DecideForTeamSession(owner, decision);
-        FileLog.Write($"[GatewayHost] ResolveNarrationPlan: team {tenant.ToLogString()} session {sid} owner={(owner is null ? "nobody" : "known")} " +
-                      $"member={decision?.IsMember.ToString() ?? "not known"} tier={decision?.Entitlement?.Tier ?? "none"} plan={plan}");
+            Tenancy.TenantAiVerdict.Allowed => Wingman.NarrationPlan.Allowed,
+            Tenancy.TenantAiVerdict.Refused => Wingman.NarrationPlan.NeedsPro,
+            _ => Wingman.NarrationPlan.Unknown,
+        };
+        FileLog.Write($"[GatewayHost] ResolveNarrationPlan: tenant={tenant.ToLogString()} sid={sid} verdict={decision.Verdict} tier={decision.Tier ?? "none"} plan={plan}");
         return plan;
     }
 
@@ -3711,7 +3717,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // from THIS record by SpokenForEar at assembly - it is no longer written by the model, which got
         // it wrong (the cited FidelityPrompt is the legacy translator path and has no production caller).
         // Push-store read - no dial. See ResolveSessionTitle.
-        _voiceService ??= new Wingman.WingmanVoiceService(WingmanBrainAsync, _keyVault, _tenantSettingsResolver, Hosted,
+        _voiceService ??= new Wingman.WingmanVoiceService(WingmanBrainAsync, _keyVault, _tenantSettingsResolver, Hosted, AiGate,
             instructionsProvider: () => _instructionsStore.ActiveContent,
             sessionTitleResolver: ResolveSessionTitle,
             // The narration's words now come from the Gateway's own store (turn-push mission, phase 3), not
@@ -4495,6 +4501,7 @@ public sealed class GatewayHost : IAsyncDisposable
             // survives a Gateway restart, and a check reading the roster would exile any child spawned in the
             // seconds after one from its parent's factory for life. REQUIRED: forgetting it is a compile error.
             _sessionHistory.FactoryOf,
+            AiGate,
             AuthEnabled,
             netDiagRollup: _netDiagRollup,
             // Issue #2017: the snooze-default consumer at POST /sessions/{sid}/hold reads the caller tenant's
@@ -4855,7 +4862,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // from THIS record by SpokenForEar at assembly - it is no longer written by the model, which got
         // it wrong (the cited FidelityPrompt is the legacy translator path and has no production caller).
         // Push-store read - no dial. See ResolveSessionTitle.
-        _voiceService ??= new Wingman.WingmanVoiceService(WingmanBrainAsync, _keyVault, _tenantSettingsResolver, Hosted,
+        _voiceService ??= new Wingman.WingmanVoiceService(WingmanBrainAsync, _keyVault, _tenantSettingsResolver, Hosted, AiGate,
             instructionsProvider: () => _instructionsStore.ActiveContent,
             sessionTitleResolver: ResolveSessionTitle,
             // The narration's words now come from the Gateway's own store (turn-push mission, phase 3), not
@@ -4891,6 +4898,7 @@ public sealed class GatewayHost : IAsyncDisposable
             history: _transcriptionHistory,
             audioArchive: _transcriptionAudioArchive,
             tenantBoundary: _tenantBoundary,
+            aiGate: AiGate,
             transcripts: _transcripts);
 
         // Editable/versioned wingman instructions settings surface (issue #537), incl. A/B test
@@ -4907,7 +4915,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // in resumable chunks and the Gateway assembles → transcribes → injects the turn into the
         // owning session itself, so a refresh / dropped connection cannot lose a recorded utterance.
         GatewayDictationEndpoint.Map(_app, Hosted, Registry, SessionOwners, Token,
-            _dictationTranscription ?? new Transcription.GatewayTranscriptionService(_keyVault, history: _transcriptionHistory, audioArchive: _transcriptionAudioArchive, transcripts: _transcripts), _transcribingSessions, new Api.DictationTenantGate(_dictationUploads, _tenantBoundary), Devices,
+            _dictationTranscription ?? new Transcription.GatewayTranscriptionService(_keyVault, history: _transcriptionHistory, audioArchive: _transcriptionAudioArchive, aiGate: AiGate, transcripts: _transcripts), _transcribingSessions, new Api.DictationTenantGate(_dictationUploads, _tenantBoundary), Devices,
             pushedSessions: PushedSessions,
             sendCommand: SendCommandAsync,
             clock: DeliveryClock,
@@ -5494,7 +5502,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // through this one endpoint - it resolves the mode + key and runs the right provider (in-process
         // Whisper, or the resolved provider-compatible batch endpoint). Optional ?correct=true also runs
         // the validated dictionary correction, keeping that out of the callers too.
-        TranscriptionBatchEndpoint.Map(_app, Hosted, _keyVault, _tenantBoundary, _transcriptionHistory, _transcriptionAudioArchive, _transcripts);
+        TranscriptionBatchEndpoint.Map(_app, Hosted, _keyVault, _tenantBoundary, AiGate, _transcriptionHistory, _transcriptionAudioArchive, _transcripts);
 
         // Read-only analysis over the LOCAL minimized transcription history: latency percentiles, cleanup
         // behaviour, most-corrected terms, and word frequencies, so any agent can query the Gateway to
@@ -5508,7 +5516,7 @@ public sealed class GatewayHost : IAsyncDisposable
         Api.VoiceTestEndpoint.Map(
             _app,
             _dictationTranscription ?? new Transcription.GatewayTranscriptionService(
-                _keyVault, history: _transcriptionHistory, audioArchive: _transcriptionAudioArchive, transcripts: _transcripts),
+                _keyVault, history: _transcriptionHistory, audioArchive: _transcriptionAudioArchive, aiGate: AiGate, transcripts: _transcripts),
             _tenantBoundary);
 
         // Background microphone-quality monitoring: the browser measures every dictation it sends and
@@ -5519,7 +5527,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // Text-in / text-out cleanup: run ONLY dictionary correction over supplied
         // text + a supplied term list (no audio). The engine the multilingual eval harness drives, and
         // a way for any agent to test cleanup on arbitrary text/terms.
-        Api.TranscriptionCleanupEndpoint.Map(_app, _keyVault);
+        Api.TranscriptionCleanupEndpoint.Map(_app, _keyVault, _tenantBoundary, AiGate);
 
         // Named work lists (issue #273, child of #270): an ordered list of structured item refs
         // { source, id, area? } + a single-consumer claim, the object the product skill writes to,

@@ -86,7 +86,7 @@ public sealed class TenantGlossaryDictationCleanupTests : IDisposable
             new KeyVault(_vaultPath),
             http: new HttpClient(new StatusHandler(HttpStatusCode.OK, "{\"text\":\"" + RawTranscript + "\"}")),
             history: new TranscriptionHistoryLog(Path.Combine(_root, "history-scratch")),
-            audioArchive: new TranscriptionAudioArchive(false, Path.Combine(_root, "archive-scratch")));
+            audioArchive: new TranscriptionAudioArchive(false, Path.Combine(_root, "archive-scratch")), aiGate: CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost);
 
     private sealed class StatusHandler : HttpMessageHandler
     {

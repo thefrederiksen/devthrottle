@@ -112,7 +112,7 @@ public sealed class RecordingCompletenessGateHttpTests
         // self-host boundary: built over the SingleTenantContext, it always resolves Local.
         RecordingEndpoints.Map(app, false,
             new CcDirector.Gateway.Tenancy.HostedTenantBoundary(
-                new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: false));
+                new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: false), aiGate: CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost);
         await app.StartAsync();
         var baseUrl = $"http://127.0.0.1:{BoundPort.Of(app)}";
         try

@@ -124,6 +124,7 @@ public sealed class DictionarySuggestionDailySweepTests
         var sweep = new DictionarySuggestionDailySweep(
             boundary, registry, ctx, service,
             new TenantSettingsResolver(new TenantSettingsStore(h.Open(ctx))),
+            TenantAiGate.SelfHost,
             now: () => clock);
 
         // No stored scan: the first sweep is due immediately and seeds the stored result.

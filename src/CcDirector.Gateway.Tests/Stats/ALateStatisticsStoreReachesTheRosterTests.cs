@@ -100,7 +100,7 @@ public sealed class ALateStatisticsStoreReachesTheRosterTests : IDisposable
             tenantBoundary: new HostedTenantBoundary(new SingleTenantContext(), new DeviceRegistry(), hosted: false),
             pushedSessions: pushed,
             inputStats: () => aggregator,
-            concurrency: () => concurrency, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown);
+            concurrency: () => concurrency, aiGate: CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown);
 
         await app.StartAsync();
         try

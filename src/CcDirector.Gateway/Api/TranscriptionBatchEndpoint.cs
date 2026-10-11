@@ -40,6 +40,8 @@ internal static class TranscriptionBatchEndpoint
         // in a defaulted position: a forgotten boundary must be a compile error, never a silent default.
         // Self-host callers construct it over the SingleTenantContext.
         Tenancy.HostedTenantBoundary tenantBoundary,
+        // Whether the caller's plan includes dictation (Pricing Change mission, B1). REQUIRED, like the boundary.
+        Tenancy.TenantAiGate aiGate,
         TranscriptionHistoryLog? history = null,
         TranscriptionAudioArchive? audioArchive = null,
         TranscriptStore? transcripts = null)
@@ -69,7 +71,7 @@ internal static class TranscriptionBatchEndpoint
 
             FileLog.Write($"[TranscriptionBatchEndpoint] POST /transcription: bytes={audio.Length}, contentType={contentType}, correct={correct}");
 
-            var service = new GatewayTranscriptionService(vault, audioArchive ?? new TranscriptionAudioArchive(hosted), history: history, transcripts: transcripts);
+            var service = new GatewayTranscriptionService(vault, audioArchive ?? new TranscriptionAudioArchive(hosted), aiGate, history: history, transcripts: transcripts);
             var result = await service.TranscribeAsync(audio, fileName, contentType, correct, ctx.RequestAborted, tenant: reqTenant.Value, source: "batch");
 
             return result.Outcome switch
