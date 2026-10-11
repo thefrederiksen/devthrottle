@@ -105,7 +105,7 @@ public sealed class WingmanStopsWritePathTests : IDisposable
         ctx.Items[CcDirector.Gateway.Util.AuthMiddleware.AuthenticatedDeviceItemKey] =
             new DeviceCredentialIdentity("device-1", null, "phone", "active");
         var result = GatewayEndpoints.ReadWingmanStops(ctx, Sid, null,
-            new CcDirector.Gateway.Tenancy.HostedTenantBoundary(new SingleTenantContext(), Devices()), rig.Store, rig.Pushed);
+            new CcDirector.Gateway.Tenancy.HostedTenantBoundary(new SingleTenantContext(), Devices(), hosted: false), rig.Store, rig.Pushed);
         return Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.JsonHttpResult<WingmanStopsResponse>>(result).Value!;
     }
 

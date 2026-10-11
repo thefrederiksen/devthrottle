@@ -295,7 +295,7 @@ public sealed class DeliveryIdGatewayTests : IDisposable
         modeProvider: () => TranscriptionMode.DevThrottle,
         http: new HttpClient(_handler, disposeHandler: false),
         history: new TranscriptionHistoryLog(Path.Combine(_root, "history")),
-        audioArchive: new TranscriptionAudioArchive(Path.Combine(_root, "archive")));
+        audioArchive: new TranscriptionAudioArchive(false, Path.Combine(_root, "archive")));
 
     private sealed class FixedTranscriptHandler : HttpMessageHandler
     {

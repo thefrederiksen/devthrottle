@@ -48,7 +48,7 @@ public sealed class VoiceAnswerObserverTests : IDisposable
         Func<TenantId, Core.Configuration.WingmanModelRole, string, CancellationToken, Task<IAgentBrain>> brain =
             (_, _, _, _) => Task.FromResult<IAgentBrain>(null!);
         var settings = new TenantSettingsResolver(new TenantSettingsStore(_settingsData.Open()));
-        return new WingmanVoiceService(brain, new KeyVault(Path.Combine(_dir, "vault.json")), settings, Path.Combine(_dir, "voice-sessions.json"));
+        return new WingmanVoiceService(brain, new KeyVault(Path.Combine(_dir, "vault.json")), settings, false, Path.Combine(_dir, "voice-sessions.json"));
     }
 
     /// <summary>The completed-turn count the session stands at while it sits at the stop under test.</summary>
@@ -274,7 +274,7 @@ public sealed class VoiceAnswerObserverTests : IDisposable
         {
             var store = new PushedSessionStore(() => OwnerTurn2);
             var stats = new GatewayInputStatsAggregator(Path.Combine(_dir, "gateway-stats.db"));
-            var boundary = new CcDirector.Gateway.Tenancy.HostedTenantBoundary(new SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry());
+            var boundary = new CcDirector.Gateway.Tenancy.HostedTenantBoundary(new SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: false);
             var hub = new DirectorHub(store, registry, InputStatsHandle.Available(stats), new GatewayStreamRegistry(), boundary,
                 voiceAnswers: observer) { Context = new FakeHubCallerContext("conn-1") };
             hub.Hello(new DirectorStreamHello { DirectorId = "dir-A", Version = "test" });

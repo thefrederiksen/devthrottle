@@ -51,7 +51,7 @@ public sealed class VoiceQualityEndpointTests : IDisposable
         // self-host boundary: built over the SingleTenantContext, it always resolves Local.
         VoiceQualityEndpoint.Map(app,
             tenantBoundary: new CcDirector.Gateway.Tenancy.HostedTenantBoundary(
-                new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry()),
+                new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: false),
             logOverride: log);
 
         await app.StartAsync();

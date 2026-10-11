@@ -116,7 +116,7 @@ public sealed class RepositoriesEndpointServeFoldTests
             app = builder.Build();
             registry = new DirectorRegistry(instancesDirectory);
             GatewayEndpoints.Map(
-                app,
+                app, false,
                 registry,
                 version: "test",
                 token: "test-token",
@@ -124,7 +124,7 @@ public sealed class RepositoriesEndpointServeFoldTests
                 // it gets the REAL self-host boundary: built over the SingleTenantContext, it always
                 // resolves Local - behaviour identical to the null it used to state.
                 tenantBoundary: new CcDirector.Gateway.Tenancy.HostedTenantBoundary(
-                    new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry()),
+                    new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: false),
                 pushedRepositories: store, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown);
             await app.StartAsync();
             var port = BoundPort.Of(app);

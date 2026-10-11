@@ -51,7 +51,7 @@ public sealed class SessionKeyLaunchWindowTests : IDisposable
     private SessionKeyRegistry Registry() => new(_harness.Open());
 
     private static AuthMiddleware.RequireToken Config(SessionKeyRegistry sessions)
-        => new() { Token = SharedToken, Devices = null, Sessions = sessions };
+        => new() { Hosted = false, Token = SharedToken, Devices = null, Sessions = sessions };
 
     private static HttpContext Request(string path, string bearer)
     {

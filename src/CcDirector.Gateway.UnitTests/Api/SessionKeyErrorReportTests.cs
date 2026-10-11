@@ -58,11 +58,11 @@ public sealed class SessionKeyErrorReportTests : IAsyncDisposable
         builder.Logging.ClearProviders();
         var app = builder.Build();
         app.Urls.Add("http://127.0.0.1:0");
-        var config = new AuthMiddleware.RequireToken { Token = "shared-machine-token", Devices = null, Sessions = sessions };
+        var config = new AuthMiddleware.RequireToken { Hosted = false, Token = "shared-machine-token", Devices = null, Sessions = sessions };
         app.Use(async (ctx, next) => await AuthMiddleware.Run(ctx, config, next));
 
         _store = new ErrorReportStore(_root);
-        DirectorErrorEndpoints.Map(app, _store, new HostedTenantBoundary(new AsyncLocalTenantContext(), new DeviceRegistry()), tenants: null);
+        DirectorErrorEndpoints.Map(app, _store, new HostedTenantBoundary(new AsyncLocalTenantContext(), new DeviceRegistry(), hosted: false), tenants: null);
         await app.StartAsync();
         _app = app;
         _http = new HttpClient { BaseAddress = new Uri(app.Urls.First() + "/") };

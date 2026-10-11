@@ -37,12 +37,17 @@ public sealed class VoiceTurnArchive
     private static readonly JsonSerializerOptions JsonOpts = new() { WriteIndented = true };
 
     private readonly string _root;
+    // The owning host's deployment signal, fixed at construction (see GatewayHostOptions).
+    private readonly bool _hosted;
 
-    public VoiceTurnArchive() : this(CcStorage.VoiceTurnArchive()) { }
+    public VoiceTurnArchive(bool hosted) : this(hosted, CcStorage.VoiceTurnArchive()) { }
 
     /// <summary>Test seam: archive under an explicit root instead of the shared storage dir.</summary>
-    public VoiceTurnArchive(string root)
+    /// <param name="hosted">The owning host's deployment signal (<see cref="GatewayHost.Hosted"/>). REQUIRED.</param>
+    /// <param name="root">The archive root.</param>
+    public VoiceTurnArchive(bool hosted, string root)
     {
+        _hosted = hosted;
         _root = root;
         Directory.CreateDirectory(_root);
         MigrateLegacyUnpartitionedTurns();
@@ -88,8 +93,9 @@ public sealed class VoiceTurnArchive
 
     /// <summary>
     /// Deal, once, with turns archived BEFORE this store was partitioned - they sit directly under the root
-    /// with no tenant recorded anywhere. The mode is read from <see cref="GatewayHostedMode.IsHosted"/>
-    /// DIRECTLY, never from an argument a caller could omit (an omitted argument would fail open into "keep").
+    /// with no tenant recorded anywhere. The mode is the REQUIRED <c>hosted</c> constructor argument (read once
+    /// at startup into <c>GatewayHostOptions</c>), never an optional one a caller could omit (an omitted
+    /// argument would fail open into "keep").
     ///
     ///  - HOSTED: DELETE them. A turn whose owning account cannot be established must not be handed to a
     ///    guess; a lost turn is the cheap outcome, a mis-attributed transcript is a disclosure.
@@ -104,7 +110,7 @@ public sealed class VoiceTurnArchive
                 .ToList();
             if (legacy.Count == 0) return;
 
-            if (GatewayHostedMode.IsHosted)
+            if (_hosted)
             {
                 foreach (var dir in legacy) Directory.Delete(dir, recursive: true);
                 FileLog.Write($"[VoiceTurnArchive] hosted: deleted {legacy.Count} pre-partition turn(s) - they carry no tenant, and a turn whose owner cannot be established is deleted rather than guessed");

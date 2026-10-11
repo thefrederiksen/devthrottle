@@ -184,7 +184,7 @@ public sealed class TeamEndpointsTests : IDisposable
     {
         // The unit test process is not hosted (CC_GATEWAY_HOSTED is unset), which is the self-hosted Gateway.
         Assert.False(GatewayHostedMode.IsHosted);
-        var boundary = new HostedTenantBoundary(new SingleTenantContext(), new DeviceRegistry(_db));
+        var boundary = new HostedTenantBoundary(new SingleTenantContext(), new DeviceRegistry(_db), hosted: false);
 
         var (subject, denial) = TeamEndpoints.ResolveCaller(new DefaultHttpContext(), boundary, _tenants);
 
@@ -210,7 +210,7 @@ public sealed class TeamEndpointsTests : IDisposable
     {
         var devices = new DeviceRegistry(_db);
         return new TeamCallerOwnership(directors, new Streaming.PushedSessionStore(), devices, new CcDirector.Gateway.History.SessionTurnStore(_db),
-            new HostedTenantBoundary(new SingleTenantContext(), devices), new SessionKeyRegistry(_db));
+            new HostedTenantBoundary(new SingleTenantContext(), devices, hosted: false), new SessionKeyRegistry(_db));
     }
 
     private TeamFleetMap NewFleetMap(out Discovery.DirectorRegistry directors)

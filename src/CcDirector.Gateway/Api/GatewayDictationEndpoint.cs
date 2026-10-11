@@ -174,8 +174,10 @@ internal static class GatewayDictationEndpoint
     /// Resolve the request's tenant from the AUTHENTICATED device key the auth layer stashed - the same seam
     /// the prompt log and the cockpit read path use. Null means DENY.
     ///
-    /// GATED ON <see cref="GatewayHostedMode.IsHosted"/> ITSELF, never on whether a boundary was passed in.
-    /// Deciding on the argument fails OPEN, and this is the fail-open that matters most on this endpoint: the
+    /// The mode rides on the boundary (<c>HostedTenantBoundary.Hosted</c>, a required value fixed once at
+    /// startup), and a MISSING boundary is a refusal in every mode - never a fall-through to Local. Letting an
+    /// absent argument mean "self-host" would fail OPEN, and that is the fail-open that matters most on this
+    /// endpoint: the
     /// boundary is a SECURITY argument, so a hosted call site, test, or future rewire that does not supply one
     /// would be answered <see cref="TenantId.Local"/>, and every leg below would then operate on the shared
     /// self-host root - reopening transcript reads, chunk overwrite, ack, abandon, and completion-cache
@@ -193,11 +195,9 @@ internal static class GatewayDictationEndpoint
     /// </summary>
     internal static TenantId? ResolveTenant(HttpContext ctx, Tenancy.HostedTenantBoundary? boundary)
     {
-        if (!GatewayHostedMode.IsHosted)
-            return boundary is null ? TenantId.Local : boundary.ResolveRequestTenant(ctx);
-        if (boundary is null || !boundary.IsHosted)
-            return null;
-        return boundary.ResolveRequestTenant(ctx);
+        // The boundary carries the deployment mode it was built under, so the whole decision is the boundary's;
+        // NO BOUNDARY IS A DENY, in every mode (finding CR-7 - see GatewayEndpoints.ResolveReadTenant).
+        return boundary?.ResolveRequestTenant(ctx);
     }
 
     internal static IResult NoTenantResult()
@@ -210,7 +210,7 @@ internal static class GatewayDictationEndpoint
     /// <see cref="VoiceUploadStore"/>, so there is no unscoped store in scope anywhere in this file to
     /// accidentally use.
     /// </param>
-    public static void Map(IEndpointRouteBuilder app, DirectorRegistry registry,
+    public static void Map(IEndpointRouteBuilder app, bool hosted, DirectorRegistry registry,
         SessionOwnerCache? owners, string token, GatewayTranscriptionService transcription,
         TranscribingSessions transcribingSessions, DictationTenantGate gate, Pairing.DeviceRegistry devices,
         Streaming.PushedSessionStore? pushedSessions = null,
@@ -233,7 +233,7 @@ internal static class GatewayDictationEndpoint
         heldDeliveries?.Attach(delivery);
         app.MapPost("/dictation/upload", async (DictationUploadRequest? body, HttpContext ctx) =>
         {
-            if (!AuthMiddleware.HasValidToken(ctx, token, devices))
+            if (!AuthMiddleware.HasValidToken(ctx, token, devices, hosted))
                 return Results.Json(new { error = "missing or invalid token" }, statusCode: StatusCodes.Status401Unauthorized);
             // Authorize the UPLOAD, not just the device (issue #1884): everything below runs inside this
             // request's own tenant partition, so an upload id from another account is simply not present.
@@ -301,7 +301,7 @@ internal static class GatewayDictationEndpoint
 
         app.MapPut("/dictation/{uploadId}/chunk/{index:int}", async (string uploadId, int index, HttpContext ctx) =>
         {
-            if (!AuthMiddleware.HasValidToken(ctx, token, devices))
+            if (!AuthMiddleware.HasValidToken(ctx, token, devices, hosted))
                 return Results.Json(new { error = "missing or invalid token" }, statusCode: StatusCodes.Status401Unauthorized);
             // Issue #1884: an upload id that belongs to another account does not exist in this partition, so
             // the existing unknown-id guard becomes the authorization - the caller cannot overwrite, extend,
@@ -331,7 +331,7 @@ internal static class GatewayDictationEndpoint
 
         app.MapPost("/dictation/{uploadId}/complete", async (string uploadId, DictationCompleteRequest? req, HttpContext ctx) =>
         {
-            if (!AuthMiddleware.HasValidToken(ctx, token, devices))
+            if (!AuthMiddleware.HasValidToken(ctx, token, devices, hosted))
                 return Results.Json(new { error = "missing or invalid token" }, statusCode: StatusCodes.Status401Unauthorized);
             // Issue #1884: resolve and authorize the tenant BEFORE anything touches the store or the static
             // single-flight cache, so a caller who does not own this upload id can neither read its record
@@ -475,7 +475,7 @@ internal static class GatewayDictationEndpoint
         // a real client ack, never by age.
         app.MapPost("/dictation/{uploadId}/ack", (string uploadId, HttpContext ctx) =>
         {
-            if (!AuthMiddleware.HasValidToken(ctx, token, devices))
+            if (!AuthMiddleware.HasValidToken(ctx, token, devices, hosted))
                 return Results.Json(new { error = "missing or invalid token" }, statusCode: StatusCodes.Status401Unauthorized);
             // Issue #1884: an ack RETIRES a record - it deletes state. Scoped to the caller's own partition,
             // so acking an id another account owns finds nothing and reports retired=false, leaving that
@@ -499,7 +499,7 @@ internal static class GatewayDictationEndpoint
         // account's staged audio or resolve its pending record.
         app.MapPost("/dictation/{uploadId}/abandon", (string uploadId, HttpContext ctx) =>
         {
-            if (!AuthMiddleware.HasValidToken(ctx, token, devices))
+            if (!AuthMiddleware.HasValidToken(ctx, token, devices, hosted))
                 return Results.Json(new { error = "missing or invalid token" }, statusCode: StatusCodes.Status401Unauthorized);
             if (!gate.TryOpen(ctx, out var store, out var tenant, out var deny)) return deny;
 
@@ -546,7 +546,7 @@ internal static class GatewayDictationEndpoint
         // included from the record either.
         app.MapGet("/dictation/{uploadId}/decisions", (string uploadId, HttpContext ctx) =>
         {
-            if (!AuthMiddleware.HasValidToken(ctx, token, devices))
+            if (!AuthMiddleware.HasValidToken(ctx, token, devices, hosted))
                 return Results.Json(new { error = "missing or invalid token" }, statusCode: StatusCodes.Status401Unauthorized);
             if (!gate.TryOpen(ctx, out var store, out _, out var deny)) return deny;
             var log = store.ReadDecisions(uploadId);
@@ -574,7 +574,7 @@ internal static class GatewayDictationEndpoint
         // Scoped to the caller's own partition like every other leg, so another account's upload id is simply not found.
         app.MapGet("/dictation/{uploadId}/outcome", (string uploadId, HttpContext ctx) =>
         {
-            if (!AuthMiddleware.HasValidToken(ctx, token, devices))
+            if (!AuthMiddleware.HasValidToken(ctx, token, devices, hosted))
                 return Results.Json(new { error = "missing or invalid token" }, statusCode: StatusCodes.Status401Unauthorized);
             if (!gate.TryOpen(ctx, out var store, out _, out var deny)) return deny;
             return OutcomeOf(store, uploadId);

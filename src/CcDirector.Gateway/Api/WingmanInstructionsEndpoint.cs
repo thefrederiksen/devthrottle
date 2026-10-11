@@ -37,7 +37,8 @@ internal static class WingmanInstructionsEndpoint
     /// The hosted refusal for the whole wingman-instructions group (issue #1853), or null on self-host
     /// where nothing changes.
     ///
-    /// Gated on <see cref="GatewayHostedMode.IsHosted"/> - the INDEPENDENT deployment signal - and NOT on a
+    /// Gated on the REQUIRED <c>hosted</c> argument - the deployment signal read once at startup into
+    /// <c>GatewayHostOptions</c> - and NOT on a
     /// boundary or tenant argument being passed in. A security branch that depends on an optional argument
     /// fails OPEN when a caller omits it, which is exactly how the hosted account-status fix nearly shipped
     /// a hole: omit the argument and a hosted Gateway silently takes the self-host path. Asking hosted mode
@@ -76,9 +77,9 @@ internal static class WingmanInstructionsEndpoint
     /// Validated on construction, so a blank field fails the Gateway at startup rather than serving a refusal
     /// a caller cannot act on. 404 rather than 403: on hosted these routes do not exist as a concept - there
     /// is no per-tenant wingman prompt - so "not here" is the truthful answer; 403 would imply the right
-    /// credential could reach them, and none can. Driven off <see cref="GatewayHostedMode.IsHosted"/> inside
-    /// the primitive - the INDEPENDENT deployment signal, not an optional argument a caller can omit and
-    /// thereby fail OPEN.
+    /// credential could reach them, and none can. Driven off the REQUIRED <c>hosted</c> argument handed to
+    /// the primitive - the deployment signal read once at startup, not an optional argument a caller can omit
+    /// and thereby fail OPEN.
     /// </summary>
     private static HostedDenial Denial() => new(
         family: "wingman-instructions",
@@ -102,12 +103,12 @@ internal static class WingmanInstructionsEndpoint
     /// maps a brand-new route through the returned handle and shows the refusal already covers routes nobody
     /// has written yet.
     /// </summary>
-    public static HostedDenyGroup Map(IEndpointRouteBuilder outer, WingmanInstructionsStore store,
+    public static HostedDenyGroup Map(IEndpointRouteBuilder outer, bool hosted, WingmanInstructionsStore store,
         Func<TenantId, WingmanModelRole, string, CancellationToken, Task<IAgentBrain>> brainProvider)
     {
-        FileLog.Write($"[WingmanInstructionsEndpoint] mapping {Prefix}; hosted={GatewayHostedMode.IsHosted} - on hosted the whole group is refused via the shared refusal primitive (issue #1853)");
+        FileLog.Write($"[WingmanInstructionsEndpoint] mapping {Prefix}; hosted={hosted} - on hosted the whole group is refused via the shared refusal primitive (issue #1853)");
 
-        var group = HostedRouteDeny.ExclusiveGroup(outer, Prefix, Denial());
+        var group = HostedRouteDeny.ExclusiveGroup(outer, Prefix, Denial(), hosted);
         MapRoutes(group, store);
         return group;
     }

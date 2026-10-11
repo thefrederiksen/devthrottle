@@ -42,7 +42,7 @@ public sealed class TeamInvitationGateTests : IDisposable
         _tenants = new TenantRegistry(_db);
         _teams = new TeamRegistry(_db, _tenants);
         _gate = new TeamEndpointGate(new TeamAccess(_teams), _teams, _tenants,
-            new HostedTenantBoundary(new AsyncLocalTenantContext(), _devices));
+            new HostedTenantBoundary(new AsyncLocalTenantContext(), _devices, hosted: false));
         _team = _teams.CreateTeam(Owner, "Acme").Team!.TeamId;
         Assert.True(_teams.AddMember(_team, Manager, TeamRole.Manager).IsDone);
         Assert.True(_teams.AddMember(_team, Developer, TeamRole.Developer).IsDone);

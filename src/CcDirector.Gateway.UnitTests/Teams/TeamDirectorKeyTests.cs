@@ -276,7 +276,7 @@ public sealed class TeamDirectorKeyTests : IDisposable
     {
         var keyA = TeamKey(_team, Developer, "director-a");
         var keyB = TeamKey(_otherTeam, Developer, "director-b");
-        var boundary = new HostedTenantBoundary(new AsyncLocalTenantContext(), _devices);
+        var boundary = new HostedTenantBoundary(new AsyncLocalTenantContext(), _devices, hosted: false);
 
         var tenantA = boundary.ResolveForDeviceKey(keyA);
         var tenantB = boundary.ResolveForDeviceKey(keyB);

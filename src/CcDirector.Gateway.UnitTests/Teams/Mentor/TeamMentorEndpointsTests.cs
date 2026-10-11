@@ -34,7 +34,7 @@ public sealed class TeamMentorEndpointsTests : IDisposable
     {
         _access = new TeamAccess(_rig.Teams);
         _gate = new TeamEndpointGate(_access, _rig.Teams, _rig.Tenants,
-            new HostedTenantBoundary(new AsyncLocalTenantContext(), new DeviceRegistry()));
+            new HostedTenantBoundary(new AsyncLocalTenantContext(), new DeviceRegistry(), hosted: false));
         _teamId = _rig.Team.Value;
     }
 

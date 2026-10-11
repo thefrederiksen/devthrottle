@@ -52,7 +52,7 @@ public sealed class WingmanStopsRouteTests : IDisposable
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             _devices = new DeviceRegistry(_harness.Open(), path);
         }
-        return new(new SingleTenantContext(), _devices);
+        return new(new SingleTenantContext(), _devices, hosted: false);
     }
 
     // A JSON result with no explicit status is a 200: the framework writes the default when none is set.

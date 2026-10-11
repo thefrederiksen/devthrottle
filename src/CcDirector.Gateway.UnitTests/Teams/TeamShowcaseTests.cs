@@ -89,7 +89,7 @@ public sealed class TeamShowcaseTests : IDisposable
             var ctx = new DefaultHttpContext();
             if (authorization is not null) ctx.Request.Headers.Authorization = authorization;
 
-            var result = AdminTeamShowcaseEndpoint.Handle(ctx, Body(), Showcase(), remove);
+            var result = AdminTeamShowcaseEndpoint.Handle(ctx, Body(), Showcase(), remove, hosted: false);
 
             Assert.True(StatusOf(result) is StatusCodes.Status401Unauthorized or StatusCodes.Status403Forbidden,
                 $"expected a refusal, got {StatusOf(result)}");
@@ -104,7 +104,7 @@ public sealed class TeamShowcaseTests : IDisposable
         // Public in AuthMiddleware (no device key) - the endpoint's own gate is the whole authorization, so the gate must run
         // even when the caller sends a well-formed body.
         var ctx = new DefaultHttpContext();
-        Assert.NotEqual(StatusCodes.Status200OK, StatusOf(AdminTeamShowcaseEndpoint.Handle(ctx, Body(), Showcase(), remove: false)));
+        Assert.NotEqual(StatusCodes.Status200OK, StatusOf(AdminTeamShowcaseEndpoint.Handle(ctx, Body(), Showcase(), remove: false, hosted: false)));
     }
 
     // ---- every row carries the tag --------------------------------------------------------------------------------

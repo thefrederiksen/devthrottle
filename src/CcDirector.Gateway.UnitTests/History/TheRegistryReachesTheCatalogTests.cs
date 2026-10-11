@@ -64,7 +64,7 @@ public sealed class TheRegistryReachesTheCatalogTests : IDisposable
     }
 
     private static CcDirector.Gateway.Tenancy.HostedTenantBoundary SelfHostBoundary() =>
-        new(new SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry());
+        new(new SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: false);
 
     /// <summary>A bound hub with all three observers on the accepted push, as GatewayHost wires them.</summary>
     private DirectorHub NewBoundHub()

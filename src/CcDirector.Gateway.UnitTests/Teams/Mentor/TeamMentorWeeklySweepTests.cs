@@ -18,7 +18,7 @@ public sealed class TeamMentorWeeklySweepTests : IDisposable
     private TeamMentorWeeklySweep Sweep(bool enabled)
     {
         var ambient = new AsyncLocalTenantContext();
-        var boundary = new HostedTenantBoundary(ambient, new CcDirector.Gateway.Pairing.DeviceRegistry());
+        var boundary = new HostedTenantBoundary(ambient, new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: false);
         return new TeamMentorWeeklySweep(enabled, boundary, _rig.Tenants, ambient, _rig.Teams, _rig.Store, _rig.Writer(),
             _ => "UTC", () => _rig.Now);
     }

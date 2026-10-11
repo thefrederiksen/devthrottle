@@ -456,16 +456,17 @@ public sealed class DictationOmittedTenantBoundaryTests : IAsyncLifetime
             app.Urls.Add("http://127.0.0.1:0");
 
             var transcription = new GatewayTranscriptionService(
-                new KeyVault(Path.Combine(storageRoot, name, "keyvault.json")));
+                new KeyVault(Path.Combine(storageRoot, name, "keyvault.json")), new TranscriptionAudioArchive(true, Path.Combine(storageRoot, name, "audio")));
 
             // The ONE argument under test. The unwired case has to be forced through with null! because the
             // parameter is REQUIRED - the compile-time half of the fix - so the accidental version of this
             // miswire cannot be written at all.
             HostedTenantBoundary? boundary = wireBoundary
-                ? new HostedTenantBoundary(new AsyncLocalTenantContext(), devices)
+                ? new HostedTenantBoundary(new AsyncLocalTenantContext(), devices, hosted: true)
                 : null;
 
             GatewayDictationEndpoint.Map(app,
+                true,
                 new DirectorRegistry(Path.Combine(storageRoot, name, "instances")),
                 owners: null,
                 token: GatewayToken,

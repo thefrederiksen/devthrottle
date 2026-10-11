@@ -246,6 +246,8 @@ public sealed class WingmanVoiceService
     /// <summary>The turn-verdict seat a narration takes its words from (the Wingman-on-every-turn mission,
     /// slice C). Null only in tests that never generate; any generation without it fails loud.</summary>
     private readonly TurnVerdictService? _verdicts;
+    // The owning host's deployment signal, fixed at construction (see GatewayHostOptions).
+    private readonly bool _hosted;
 
     /// <summary>Which narration each voice session is on and whether it was played - the half of voice mode
     /// auto-off only the player can report (see <see cref="VoiceListeningLedger"/>). Every narration this service
@@ -441,10 +443,13 @@ public sealed class WingmanVoiceService
     /// first so a listener knows which session is talking. The host wires this to the pushed-session
     /// store; a null resolver (or one returning null for an unknown session) simply means no title is
     /// spoken, which is the correct degrade - a narration with no title is worth far more than none.</param>
+    /// <param name="hosted">The owning host's deployment signal (<see cref="GatewayHost.Hosted"/>), which decides what
+    /// happens to pre-partition voice state. REQUIRED - see <see cref="GatewayHostOptions"/>.</param>
     public WingmanVoiceService(
         Func<TenantId, Core.Configuration.WingmanModelRole, string, CancellationToken, Task<IAgentBrain>> brainProvider,
         KeyVault vault,
         TenantSettingsResolver tenantSettings,
+        bool hosted,
         string? persistPath = null,
         Func<string>? instructionsProvider = null,
         HttpClient? ttsHttpClient = null,
@@ -453,6 +458,7 @@ public sealed class WingmanVoiceService
         Func<TenantId, string, bool>? directorCannotSendConversation = null,
         TurnVerdictService? turnVerdicts = null)
     {
+        _hosted = hosted;
         _verdicts = turnVerdicts;
         _conversationReader = conversationReader;
         _directorCannotSendConversation = directorCannotSendConversation;
@@ -490,8 +496,9 @@ public sealed class WingmanVoiceService
     /// Deal, once, with the voice state that was written BEFORE this store was partitioned: a single
     /// voice-sessions.json and a single voice-audio folder shared by whoever happened to be using the
     /// Gateway. It has no tenant recorded anywhere, so the two deployment modes get OPPOSITE treatment, and
-    /// the mode is read from <see cref="GatewayHostedMode.IsHosted"/> DIRECTLY - never from an argument a
-    /// caller could omit, because an omitted argument would fail open into "keep it".
+    /// the mode is the REQUIRED <c>hosted</c> constructor argument (read once at startup into
+    /// <c>GatewayHostOptions</c>) - never an optional one a caller could omit, because an omitted argument
+    /// would fail open into "keep it".
     ///
     ///  - HOSTED: DELETE it. The clip cannot be attributed to an account - the Director that made it may be
     ///    long gone - and guessing an owner would hand one customer another customer's narration. A cached
@@ -508,7 +515,7 @@ public sealed class WingmanVoiceService
         var hasLegacy = File.Exists(_legacyPersistPath) || Directory.Exists(legacyAudioDir);
         if (!hasLegacy) return;
 
-        if (GatewayHostedMode.IsHosted)
+        if (_hosted)
         {
             try
             {

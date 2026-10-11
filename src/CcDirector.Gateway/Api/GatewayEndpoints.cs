@@ -79,7 +79,7 @@ internal static partial class GatewayEndpoints
     /// <param name="turnJobs">Issue #376: the async voice-turn job store (singleton owned by
     /// <see cref="GatewayHost"/>). When present, the submit/poll routes are mapped via
     /// <see cref="GatewayVoiceTurnEndpoint"/>; null (old callers) maps nothing.</param>
-    public static void Map(IEndpointRouteBuilder app, DirectorRegistry registry, string version, string token,
+    public static void Map(IEndpointRouteBuilder app, bool hosted, DirectorRegistry registry, string version, string token,
         // Hosted Multi-Tenancy (session-serving PR1): the auth-boundary tenant binder. On the hosted Gateway
         // the request-scoped reads resolve the caller's tenant from its authenticated device key and DENY
         // (403) when it has none - never falling back to Local. REQUIRED AND NON-NULLABLE (tenant-boundary
@@ -697,7 +697,7 @@ internal static partial class GatewayEndpoints
         // handler and never binds it, while off hosted maps the real handler byte-identically to before.
         // ExclusiveGroup because /shutdown owns its prefix outright, so the one catch-all also covers any
         // process-control route added beneath it later without a fresh deny.
-        var shutdownGroup = Tenancy.HostedRouteDeny.ExclusiveGroup(app, "/shutdown", ShutdownHostedDenial());
+        var shutdownGroup = Tenancy.HostedRouteDeny.ExclusiveGroup(app, "/shutdown", ShutdownHostedDenial(), hosted);
         shutdownGroup.MapPost("", () =>
         {
             FileLog.Write("[GatewayEndpoints] POST /shutdown");
@@ -716,7 +716,7 @@ internal static partial class GatewayEndpoints
         var logoutVisibility = authEnabled ? "" : "style=\"display:none\"";
 
         // Phone recorder ingest (offline-recorded audio -> transcription -> vault).
-        RecordingEndpoints.Map(app, tenantBoundary, recordingKeyVault, transcriptionHistory, transcriptionAudioArchive,
+        RecordingEndpoints.Map(app, hosted, tenantBoundary, recordingKeyVault, transcriptionHistory, transcriptionAudioArchive,
             dictionarySuggestions, dictionaryDismissals, suggestionEmailComposer);
 
         // Read-only view of the Communication Manager approval queue (see the phone's
@@ -724,7 +724,7 @@ internal static partial class GatewayEndpoints
         // HOSTED DENY (CR-6): the queue is one process-global SQLite with no tenant anywhere, so on
         // hosted the whole /comm-queue family is refused through the shared refusal primitive
         // (HostedRouteDeny.ExclusiveGroup, inside CommQueueEndpoints.Map); self-host is untouched.
-        CommQueueEndpoints.Map(app);
+        CommQueueEndpoints.Map(app, hosted);
 
         // Local-machine exe/slot management (the "Exes" page). Defect 6: it gets the snooze registry so its
         // fleet pass applies the SAME expired-snooze override the roster applies - without it the page says
@@ -733,7 +733,7 @@ internal static partial class GatewayEndpoints
         // powershell.exe scripts/local-build-avalonia.ps1 against a local_builds directory, which
         // exists only on a Windows dev box. Off Windows the routes are simply not mapped.
         if (OperatingSystem.IsWindows())
-            ExesEndpoints.Map(app, registry, pushedSessions, streamStaleResolved, snoozeRegistry);
+            ExesEndpoints.Map(app, hosted, registry, pushedSessions, streamStaleResolved, snoozeRegistry);
 
         // ===== HTML pages =====
         // The Gateway serves NO UI pages anymore (docs/plans/one-url-cockpit.md): "/" and every
@@ -741,7 +741,7 @@ internal static partial class GatewayEndpoints
         // login/logout pair remains (it guards the Gateway itself when auth is enabled). It lives in
         // GatewayLoginEndpoint, which bind-breaks the whole /login surface on hosted (MH-2) and routes the
         // self-host cookie write through the single GatewayTokenCookie helper.
-        GatewayLoginEndpoint.Map(app, token);
+        GatewayLoginEndpoint.Map(app, hosted, token);
 
         // ===== REST =====
         app.MapGet("/healthz", () =>
@@ -793,7 +793,7 @@ internal static partial class GatewayEndpoints
             //
             // Gated on the PROCESS-level hosted flag, never on the nullable boundary argument: a caller
             // passing a literal null! boundary on a hosted process must not reopen the aggregate.
-            if (GatewayHostedMode.IsHosted)
+            if (hosted)
             {
                 // Directors/Sessions left NULL, which OMITS them from the JSON (HealthDto). Leaving them to
                 // serialize as 0 would state a fleet of zero to every probe on hosted - false rather than
@@ -886,7 +886,7 @@ internal static partial class GatewayEndpoints
         var connectionVerdicts = new NetworkConnectionVerdictFold();
         app.MapGet("/diag/network", async (HttpContext ctx) =>
         {
-            if (GatewayHostedMode.IsHosted)
+            if (hosted)
                 return Results.Json(TailscaleDiagnostics.HostedConnection());
 
             var collector = collectNetworkDiagnostic ?? TailscaleDiagnostics.Collect;
@@ -1012,14 +1012,14 @@ internal static partial class GatewayEndpoints
                 Cockpit = BundleStamp.Read(CockpitReactApp.WebRoot),
                 Mobile = BundleStamp.Read(MobileApp.WebRoot),
                 // Folded here, not in the client (CLAUDE.md rule 7).
-                Deployment = GatewayHostedMode.IsHosted ? "Hosted service" : "Self-hosted",
-                Address = GatewayPublicUrl.ResolveBase(),
-                CockpitUrl = GatewayPublicUrl.ResolveCockpit(),
+                Deployment = hosted ? "Hosted service" : "Self-hosted",
+                Address = GatewayPublicUrl.ResolveBase(hosted),
+                CockpitUrl = GatewayPublicUrl.ResolveCockpit(hosted),
                 // The internal listen port is meaningful ONLY self-hosted. On hosted, callers reach this
                 // Gateway through Address on 443 and the platform forwards to the container's internal
                 // port; printing that number beside an https address reads as a reachable port and is not
                 // one. So it is omitted there - the Gateway decides, the client renders.
-                Port = GatewayHostedMode.IsHosted ? null : gatewayPort?.Invoke(),
+                Port = hosted ? null : gatewayPort?.Invoke(),
                 UptimeSeconds = gatewayStartedAtUtc is { } startedAt ? (long)(DateTime.UtcNow - startedAt).TotalSeconds : 0,
                 ServerTime = DateTime.UtcNow,
             });
@@ -1054,8 +1054,8 @@ internal static partial class GatewayEndpoints
             return Results.Json(new CockpitInfoDto
             {
                 Url = sessionId is null
-                    ? GatewayPublicUrl.ResolveCockpit()
-                    : GatewayPublicUrl.ResolveCockpitSession(sessionId),
+                    ? GatewayPublicUrl.ResolveCockpit(hosted)
+                    : GatewayPublicUrl.ResolveCockpitSession(hosted, sessionId),
                 Port = ctx.Connection.LocalPort,
                 Up = true,
             });
@@ -1093,7 +1093,7 @@ internal static partial class GatewayEndpoints
             // never be created; self-host is unchanged. Gated on the PROCESS-level hosted flag, never on
             // the nullable boundary argument, so a null! boundary on a hosted process cannot reopen the
             // plane (the same discipline as HostedRouteDeny).
-            if (GatewayHostedMode.IsHosted)
+            if (hosted)
                 return LegacyDiscoveryPlaneUnavailable();
             if (req is null || string.IsNullOrEmpty(req.DirectorId))
                 return Results.BadRequest(new { error = "directorId is required" });
@@ -1115,7 +1115,7 @@ internal static partial class GatewayEndpoints
             // (see /directors/register). This also replaces the pre-fix 410 that an unbound hosted request got
             // here with the correct 403 for a plane that does not serve hosted accounts. Gated on the
             // process-level hosted flag so a null! boundary cannot reopen it (see /directors/register).
-            if (GatewayHostedMode.IsHosted)
+            if (hosted)
                 return LegacyDiscoveryPlaneUnavailable();
             var ok = registry.Heartbeat(id);
             if (!ok)
@@ -1162,7 +1162,7 @@ internal static partial class GatewayEndpoints
             // inject into a bare-id event ring. On self-host its entries are always keyed to the Local tenant
             // (see DirectorRegistry.Upsert), so it resolves within Local and records under Local. Gated on
             // the process-level hosted flag so a null! boundary cannot reopen it (see /directors/register).
-            if (GatewayHostedMode.IsHosted)
+            if (hosted)
                 return LegacyDiscoveryPlaneUnavailable();
             if (registry.Get(TenantId.Local, id) is null)
                 return Results.StatusCode(StatusCodes.Status410Gone);
@@ -1208,7 +1208,7 @@ internal static partial class GatewayEndpoints
             // (see /directors/register). Left open, an unbound hosted caller holding the shared machine token
             // could remove a Local registration; on hosted there is no such plane to unregister from. Gated
             // on the process-level hosted flag so a null! boundary cannot reopen it (see /directors/register).
-            if (GatewayHostedMode.IsHosted)
+            if (hosted)
                 return LegacyDiscoveryPlaneUnavailable();
             FileLog.Write($"[GatewayEndpoints] DELETE /directors/{id}/registration");
             var removed = registry.Remove(id);
@@ -1354,7 +1354,7 @@ internal static partial class GatewayEndpoints
             // registered-but-unpushed Director still surfaces (unchanged).
             // Gated on the process-level hosted flag (never the nullable boundary argument): with a null!
             // boundary on a hosted process this filter must still apply.
-            if (GatewayHostedMode.IsHosted && pushedSessions is not null)
+            if (hosted && pushedSessions is not null)
             {
                 var mine = new HashSet<string>(pushedSessions.DirectorIdsFor(reqTenant.Value), StringComparer.OrdinalIgnoreCase);
                 directors = directors.Where(d => mine.Contains(d.DirectorId)).ToList();
@@ -5113,7 +5113,7 @@ internal static partial class GatewayEndpoints
                 // stop a hosted caller gets; there is no host-local process for the Gateway to reach on their
                 // behalf. 404 (not 403) for the same reason as POST /shutdown: on hosted this action does not exist
                 // as a concept - no credential could ever make killing a host process by client pid safe.
-                if (GatewayHostedMode.IsHosted)
+                if (hosted)
                 {
                     FileLog.Write($"[GatewayEndpoints] DELETE director FORCE-KILL REFUSED on hosted: id={id} pid={director.Pid} client={caller}");
                     return Results.Json(new
@@ -5166,7 +5166,7 @@ internal static partial class GatewayEndpoints
         // the route stays gated even when the host-wide auth middleware is off.
         app.MapGet("/sessions/{sid}/git", async (string sid, HttpContext ctx) =>
         {
-            if (!AuthMiddleware.HasValidToken(ctx, token, devices))
+            if (!AuthMiddleware.HasValidToken(ctx, token, devices, hosted))
                 return Results.Json(new { error = "missing or invalid token" }, statusCode: StatusCodes.Status401Unauthorized);
             // Issue #1240: pass the owner cache so a warm session is resolved with ONE Director probe
             // instead of a full fleet fan-out (the same fast path every other per-session route now uses).
@@ -5827,7 +5827,7 @@ internal static partial class GatewayEndpoints
             // verb-less HostedRouteDeny primitive because the tenant-scoped GET /directors list shares this exact
             // path, and that primitive refuses EVERY verb on a path - it would take the list route off the air on
             // hosted too. Self-host reaches the launch below byte-identically to before.
-            if (GatewayHostedMode.IsHosted)
+            if (hosted)
             {
                 FileLog.Write("[GatewayEndpoints] POST /directors REFUSED on hosted (host-local process launch)");
                 return Results.Json(new
@@ -5945,8 +5945,9 @@ internal static partial class GatewayEndpoints
 
     /// <summary>
     /// The hosted refusal payload for POST /shutdown (production-readiness B2). Validated on construction, so a
-    /// blank field fails the Gateway at startup. The primitive reads <see cref="GatewayHostedMode.IsHosted"/>
-    /// DIRECTLY, never an optional argument that fails OPEN when a caller forgets it. 404 rather than 403: on
+    /// blank field fails the Gateway at startup. The primitive takes the mode as a REQUIRED argument (read once
+    /// at startup into <c>GatewayHostOptions</c>), never an optional one that fails OPEN when a caller forgets
+    /// it. 404 rather than 403: on
     /// hosted this route does not exist as a concept, and 403 would imply some credential could reach it - none
     /// can, because a process-wide shutdown of shared infrastructure has no per-tenant meaning.
     /// </summary>
@@ -6144,9 +6145,11 @@ internal static partial class GatewayEndpoints
     /// bound tenant is refused, NEVER served the Local partition (which would be a wrong-tenant read waiting to
     /// happen). Self-host is always Local - behavior unchanged.
     ///
-    /// GATED ON <see cref="GatewayHostedMode.IsHosted"/> ITSELF, never on whether a boundary was passed in
-    /// (tenant-boundary hardening, release 2026-07-31, finding CR-7 - the same shape
-    /// <c>GatewayDictationEndpoint.ResolveTenant</c> already carries). Deciding on the argument fails OPEN:
+    /// The mode rides on the boundary (<c>HostedTenantBoundary.Hosted</c>, a required value fixed once at
+    /// startup), and a MISSING boundary is a refusal in every mode (tenant-boundary hardening, release
+    /// 2026-07-31, finding CR-7, revised when the mode became a value - the same shape
+    /// <c>GatewayDictationEndpoint.ResolveTenant</c> already carries). Letting an absent argument mean
+    /// "self-host" would fail OPEN:
     /// the boundary is a SECURITY argument, and this resolver used to answer <see cref="TenantId.Local"/>
     /// whenever it was absent, so ONE forgotten argument at any of the dozens of call sites that thread it
     /// silently collapsed every hosted tenant into the Local partition - with nothing failing loud to say so.
@@ -6156,11 +6159,14 @@ internal static partial class GatewayEndpoints
     /// </summary>
     internal static TenantId? ResolveReadTenant(HttpContext ctx, Tenancy.HostedTenantBoundary? boundary)
     {
-        if (!GatewayHostedMode.IsHosted)
-            return boundary is null ? TenantId.Local : boundary.ResolveRequestTenant(ctx);
-        if (boundary is null || !boundary.IsHosted)
-            return null;
-        return boundary.ResolveRequestTenant(ctx);
+        // The boundary carries the deployment mode it was built under (HostedTenantBoundary.Hosted, the owning
+        // host's value fixed at construction), so the whole decision is the boundary's: a hosted boundary answers
+        // the key's bound tenant or null, a self-host boundary answers Local. NO BOUNDARY IS A DENY, in every mode:
+        // a mapper handed none has nothing to resolve a tenant with, and answering Local would be the fail-open
+        // (finding CR-7) this resolver exists to refuse. Before GatewayHostOptions the mode was the PROCESS
+        // environment and a null boundary could still be read against it; the mode is now the host's, and the
+        // boundary is how the host hands it to a request.
+        return boundary?.ResolveRequestTenant(ctx);
     }
 
     /// <summary>

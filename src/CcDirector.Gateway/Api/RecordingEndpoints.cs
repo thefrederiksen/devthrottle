@@ -111,6 +111,7 @@ internal static class RecordingEndpoints
     /// </summary>
     public static void Map(
         IEndpointRouteBuilder outer,
+        bool hosted,
         // The auth-boundary tenant binder. REQUIRED AND NON-NULLABLE (finding I1-01): when this defaulted to
         // null, a forgotten argument compiled cleanly and the resolver behind it decided on the argument. A
         // self-host caller constructs the boundary over the SingleTenantContext, which always resolves Local.
@@ -122,13 +123,14 @@ internal static class RecordingEndpoints
         DictionarySuggestionDismissalStore? dismissals = null,
         SuggestionEmailComposer? emailComposer = null)
     {
-        FileLog.Write($"[RecordingEndpoints] mapping {Prefix} recording + dictionary routes PER-TENANT (issues #2058/#2060); hosted={GatewayHostedMode.IsHosted} - each route resolves the caller's tenant and answers 403 when none resolves");
+        FileLog.Write($"[RecordingEndpoints] mapping {Prefix} recording + dictionary routes PER-TENANT (issues #2058/#2060); hosted={hosted} - each route resolves the caller's tenant and answers 403 when none resolves");
 
         // Un-denied (issues #2058/#2060): the routes SERVE per-tenant instead of the whole /ingest prefix
         // being refused on hosted. They map under the same prefix on the ungrouped builder; each handler
         // resolves the caller's tenant and dispatches to that tenant's own recording store / glossary.
         var app = outer.MapGroup(Prefix);
-        MapRoutes(app, tenantBoundary, keyVault, history, audioArchive, suggestions, dismissals, emailComposer);
+        // The archive carries the mode it writes under, so a mapper that was handed none builds one for its own mode.
+        MapRoutes(app, tenantBoundary, keyVault, history, audioArchive ?? new TranscriptionAudioArchive(hosted), suggestions, dismissals, emailComposer);
     }
 
     /// <summary>
@@ -142,7 +144,7 @@ internal static class RecordingEndpoints
         Tenancy.HostedTenantBoundary tenantBoundary,
         KeyVault? keyVault,
         TranscriptionHistoryLog? history,
-        TranscriptionAudioArchive? audioArchive,
+        TranscriptionAudioArchive audioArchive,
         DictionarySuggestionService? suggestions = null,
         DictionarySuggestionDismissalStore? dismissals = null,
         SuggestionEmailComposer? emailComposer = null)
@@ -827,7 +829,7 @@ internal static class RecordingEndpoints
         TenantId tenant,
         KeyVault? keyVault,
         TranscriptionHistoryLog? history,
-        TranscriptionAudioArchive? audioArchive)
+        TranscriptionAudioArchive audioArchive)
     {
         // Local transient store for transcripts (audio + markdown), per tenant. Transcripts
         // are NOT auto-filed into the vault; the user promotes the keepers.
@@ -871,8 +873,8 @@ internal static class RecordingEndpoints
             transcriberFactory: () => new GatewayServiceRecordingTranscriber(
                 new GatewayTranscriptionService(
                     keyVault ?? new KeyVault(),
-                    history: tenantHistory,
-                    audioArchive: audioArchive),
+                    audioArchive,
+                    history: tenantHistory),
                 tenant),
             filer,
             collectionDir);

@@ -95,9 +95,10 @@ public sealed class EntitlementRegistry
     /// it is keyed by account subject and is read BEFORE any tenant exists, so scoping it to a tenant would
     /// be circular - the same reason the tenant mapping table is unscoped.</param>
     /// <param name="requireLivemode">
-    /// Whether a live-mode subscription is required. Defaults to the hosted deployment signal, so production
-    /// hosted demands real money and nothing else has to remember to. A test may pass false to exercise the
-    /// rest of the policy without a live row.
+    /// Whether a live-mode subscription is required. The host passes its own deployment signal
+    /// (<see cref="GatewayHost.Hosted"/>), so production hosted demands real money. REQUIRED - it no longer defaults
+    /// to the process environment (see <see cref="GatewayHostOptions"/>); a test passes false to exercise the rest of
+    /// the policy without a live row.
     /// </param>
     /// <param name="trials">
     /// The free-trial ledger (issue #2117). NULL means no trial concept at all - the behaviour before trials
@@ -105,10 +106,10 @@ public sealed class EntitlementRegistry
     /// with no valid PAID entitlement is entitled while its trial is running, at Pro tier and expiring at the
     /// trial's end instant.
     /// </param>
-    public EntitlementRegistry(GatewayDatabase db, bool? requireLivemode = null, TrialRegistry? trials = null)
+    public EntitlementRegistry(GatewayDatabase db, bool requireLivemode, TrialRegistry? trials = null)
     {
         _db = db ?? throw new ArgumentNullException(nameof(db));
-        _requireLivemode = requireLivemode ?? GatewayHostedMode.IsHosted;
+        _requireLivemode = requireLivemode;
         _trials = trials;
     }
 

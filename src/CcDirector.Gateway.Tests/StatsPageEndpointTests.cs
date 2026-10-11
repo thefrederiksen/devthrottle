@@ -63,6 +63,7 @@ public sealed class StatsPageEndpointTests : IDisposable
         {
             var requireToken = new AuthMiddleware.RequireToken
             {
+                Hosted = false,
                 Token = GatewayToken,
                 Devices = new DeviceRegistry(Path.Combine(_dir, "devices-" + Guid.NewGuid().ToString("N") + ".json")),
             };
@@ -72,8 +73,8 @@ public sealed class StatsPageEndpointTests : IDisposable
         // The REAL self-host boundary (built over the SingleTenantContext) and a real ledger reader over a
         // throwaway database, exactly as the Gateway wires them; the point is that neither is consulted on
         // self-host, because the route answers before it gets to them.
-        StatsPageEndpoint.Map(app, new GatewayInputStatsAggregator(Path.Combine(_dir, "s.db")),
-            new CcDirector.Gateway.Tenancy.HostedTenantBoundary(new CcDirector.Core.Tenancy.SingleTenantContext(), new DeviceRegistry()),
+        StatsPageEndpoint.Map(app, false, new GatewayInputStatsAggregator(Path.Combine(_dir, "s.db")),
+            new CcDirector.Gateway.Tenancy.HostedTenantBoundary(new CcDirector.Core.Tenancy.SingleTenantContext(), new DeviceRegistry(), hosted: false),
             new ThrottleLedgerReader(_harness.Open()));
         await app.StartAsync();
         var http = new HttpClient { BaseAddress = new Uri(app.Urls.First()) };

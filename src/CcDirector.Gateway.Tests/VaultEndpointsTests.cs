@@ -34,7 +34,7 @@ public sealed class VaultEndpointsTests : IAsyncLifetime
         builder.Logging.ClearProviders();
         _app = builder.Build();
         _app.Urls.Add(bindUrl);
-        VaultEndpoints.Map(_app, new KeyVault(_vaultPath));
+        VaultEndpoints.Map(_app, false, new KeyVault(_vaultPath));
         await _app.StartAsync();
         var baseUrl = $"http://127.0.0.1:{BoundPort.Of(_app)}";
 

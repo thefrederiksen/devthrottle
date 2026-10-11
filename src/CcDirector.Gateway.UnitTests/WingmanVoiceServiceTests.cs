@@ -65,7 +65,7 @@ public sealed class WingmanVoiceServiceTests : IDisposable
         Func<TenantId, WingmanModelRole, string, CancellationToken, Task<IAgentBrain>> brain =
             (_, _, _, _) => throw new InvalidOperationException("brain must not be called for flag state");
         var vaultPath = Path.Combine(Path.GetTempPath(), "wmvs-" + Guid.NewGuid().ToString("N") + ".vault");
-        return new WingmanVoiceService(brain, new KeyVault(vaultPath), Settings, TempPersist(),
+        return new WingmanVoiceService(brain, new KeyVault(vaultPath), Settings, false, TempPersist(),
             conversationReader: conversationReader);
     }
 
@@ -206,7 +206,7 @@ public sealed class WingmanVoiceServiceTests : IDisposable
         Func<TenantId, WingmanModelRole, string, CancellationToken, Task<IAgentBrain>> brain =
             (_, _, _, _) => throw new InvalidOperationException("brain must not be called");
         var vaultPath = Path.Combine(Path.GetTempPath(), "wmvs-" + Guid.NewGuid().ToString("N") + ".vault");
-        return Warmed(new WingmanVoiceService(brain, new KeyVault(vaultPath), Settings, persistPath));
+        return Warmed(new WingmanVoiceService(brain, new KeyVault(vaultPath), Settings, false, persistPath));
     }
 
     /// <summary>Remove the whole per-test directory. It deletes the DIRECTORY rather than picking out the
@@ -782,7 +782,7 @@ public sealed class WingmanVoiceServiceTests : IDisposable
         vault.Set("OPENAI_API_KEY", "sk-test");
         vault.Set("DEVTHROTTLE_API_KEY", "dt_live_test");
         var http = new HttpClient(new TtsStubHandler(HttpStatusCode.OK, "", audio));
-        return new WingmanVoiceService((_, _, _, _) => Task.FromResult(brain), vault, Settings, persistPath,
+        return new WingmanVoiceService((_, _, _, _) => Task.FromResult(brain), vault, Settings, false, persistPath,
             ttsHttpClient: http, conversationReader: conversationReader,
             directorCannotSendConversation: directorCannotSendConversation,
             turnVerdicts: VerdictsOver(brain, conversationReader));
@@ -798,7 +798,7 @@ public sealed class WingmanVoiceServiceTests : IDisposable
         vault.Set("OPENAI_API_KEY", "sk-test");
         vault.Set("DEVTHROTTLE_API_KEY", "dt_live_test");
         var http = new HttpClient(handler);
-        return new WingmanVoiceService((_, _, _, _) => Task.FromResult(brain), vault, Settings, persistPath,
+        return new WingmanVoiceService((_, _, _, _) => Task.FromResult(brain), vault, Settings, false, persistPath,
             ttsHttpClient: http, conversationReader: conversationReader,
             turnVerdicts: VerdictsOver(brain, conversationReader));
     }
@@ -1058,7 +1058,7 @@ public sealed class WingmanVoiceServiceTests : IDisposable
         vault.Set("OPENAI_API_KEY", "sk-test");
         vault.Set("DEVTHROTTLE_API_KEY", "dt_live_test");
         var http = new HttpClient(new TtsStubHandler(status, body, audio));
-        return new WingmanVoiceService(brain, vault, Settings, persistPath, ttsHttpClient: http);
+        return new WingmanVoiceService(brain, vault, Settings, false, persistPath, ttsHttpClient: http);
     }
 
     [Fact]
@@ -1142,7 +1142,7 @@ public sealed class WingmanVoiceServiceTests : IDisposable
         var vault = new KeyVault(vaultPath);
         vault.Set("OPENAI_API_KEY", "sk-test");
         vault.Set("DEVTHROTTLE_API_KEY", "dt_live_test");
-        return new WingmanVoiceService(brain, vault, Settings, persistPath, ttsHttpClient: new HttpClient(handler));
+        return new WingmanVoiceService(brain, vault, Settings, false, persistPath, ttsHttpClient: new HttpClient(handler));
     }
 
     [Fact]
@@ -1500,7 +1500,7 @@ public sealed class WingmanVoiceServiceTests : IDisposable
         var vault = new KeyVault(vaultPath);
         vault.Set("OPENAI_API_KEY", "sk-test");
         vault.Set("DEVTHROTTLE_API_KEY", "dt_live_test");
-        var svc = new WingmanVoiceService((_, _, _, _) => Task.FromResult(brain), vault, Settings, persistPath,
+        var svc = new WingmanVoiceService((_, _, _, _) => Task.FromResult(brain), vault, Settings, false, persistPath,
             ttsHttpClient: new HttpClient(handler), conversationReader: conversationReader,
             turnVerdicts: VerdictsOver(brain, conversationReader));
         svc.UseClockForTest(() => clock.Now);
@@ -1804,7 +1804,7 @@ public sealed class WingmanVoiceServiceTests : IDisposable
             vault.Set("OPENAI_API_KEY", "sk-test");
             vault.Set("DEVTHROTTLE_API_KEY", "dt_live_test");
             var handler = new TtsAlwaysFailsHandler(HttpStatusCode.InternalServerError);
-            var svc = new WingmanVoiceService((_, _, _, _) => Task.FromResult<IAgentBrain>(brain), vault, Settings,
+            var svc = new WingmanVoiceService((_, _, _, _) => Task.FromResult<IAgentBrain>(brain), vault, Settings, false,
                 Path.Combine(dir, "voice-sessions.json"), ttsHttpClient: new HttpClient(handler),
                 conversationReader: conversation.Reader, turnVerdicts: verdicts);
 

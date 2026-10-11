@@ -54,7 +54,7 @@ public sealed class WingmanVoiceSidPathTraversalTests : IDisposable
         Func<TenantId, Core.Configuration.WingmanModelRole, string, CancellationToken, Task<IAgentBrain>> brain =
             (_, _, _, _) => Task.FromResult<IAgentBrain>(null!);
         var vault = new KeyVault(Path.Combine(baseDir, "vault.json"));
-        return new WingmanVoiceService(brain, vault, Settings, Path.Combine(baseDir, "voice-sessions.json"));
+        return new WingmanVoiceService(brain, vault, Settings, false, Path.Combine(baseDir, "voice-sessions.json"));
     }
 
     /// <summary>

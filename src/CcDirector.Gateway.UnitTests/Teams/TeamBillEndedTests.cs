@@ -145,7 +145,7 @@ public sealed class TeamBillEndedTests : IDisposable
         // The Owner is named by account subject, never by address: the website reads the address itself.
         Assert.Equal(Owner, body["owner_subject"]!.GetValue<string>());
         Assert.Equal(_team, body["team_id"]!.GetValue<string>());
-        Assert.Equal(new EntitlementRegistry(_db).ReadTeamBill(_team).Fingerprint, body["bill_fingerprint"]!.GetValue<string>());
+        Assert.Equal(new EntitlementRegistry(_db, requireLivemode: false).ReadTeamBill(_team).Fingerprint, body["bill_fingerprint"]!.GetValue<string>());
         Assert.Equal(Token, call.ServiceToken);
     }
 

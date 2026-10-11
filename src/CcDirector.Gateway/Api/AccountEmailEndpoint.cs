@@ -59,7 +59,7 @@ internal static class AccountEmailEndpoint
     /// account token exists. Null disables the hosted send, and the route then reports the truthful refusal
     /// - never a fabricated success and never a fabricated sign-out.
     /// </param>
-    public static void Map(IEndpointRouteBuilder app, DevThrottleAccountService? account, AccountNotifyClient notify,
+    public static void Map(IEndpointRouteBuilder app, bool hosted, DevThrottleAccountService? account, AccountNotifyClient notify,
         // REQUIRED AND NON-NULLABLE (finding I1-01): a forgotten boundary must be a compile error, never a
         // silent default. Self-host callers construct it over the SingleTenantContext.
         Tenancy.HostedTenantBoundary tenantBoundary, Tenancy.TenantRegistry? tenants = null,
@@ -78,7 +78,7 @@ internal static class AccountEmailEndpoint
             // conditional is what turned "this hosted Gateway holds no credential of yours" into "you are not
             // signed in - sign in from the Gateway tray", told to a user who plainly was signed in.
             var verdict = await AccountActingCredential
-                .ResolveAsync(AccountOperations.Email, http, account, tenantBoundary, tenants, http.RequestAborted)
+                .ResolveAsync(AccountOperations.Email, http, hosted, account, tenantBoundary, tenants, http.RequestAborted)
                 .ConfigureAwait(false);
             // HOSTED SEND (devthrottle_internal #986). The caller IS signed in and this Gateway holds no
             // account token for them - and now does not need one. It names their TENANT, resolved from their

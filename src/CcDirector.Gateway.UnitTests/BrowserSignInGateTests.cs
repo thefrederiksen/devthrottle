@@ -43,7 +43,7 @@ public sealed class BrowserSignInGateTests : IDisposable
         ctx.Response.Body = new MemoryStream();
 
         var allowed = false;
-        var cfg = new AuthMiddleware.RequireToken { Token = SharedToken, Devices = TempRegistry() };
+        var cfg = new AuthMiddleware.RequireToken { Hosted = false, Token = SharedToken, Devices = TempRegistry() };
         await AuthMiddleware.Run(ctx, cfg, () => { allowed = true; return Task.CompletedTask; });
 
         return (allowed, ctx.Response.StatusCode, ctx.Response.Headers.Location.ToString() is { Length: > 0 } loc ? loc : null);

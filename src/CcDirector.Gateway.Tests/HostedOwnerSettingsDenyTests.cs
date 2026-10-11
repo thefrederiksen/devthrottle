@@ -408,7 +408,7 @@ public sealed class HostedOwnerSettingsGroupFilterTests : IAsyncLifetime
     internal Func<IEndpointRouteBuilder, HostedDenyGroup> Family(string name) => name switch
     {
         "settings" => routes => SettingsEndpoints.Map(routes, _gateway),
-        "models" => routes => AiModelsEndpoint.Map(routes, new KeyVault(Path.Combine(_root, "vault.json")), _gateway.TenantSettingsResolver, _gateway.TenantBoundary),
+        "models" => routes => AiModelsEndpoint.Map(routes, _gateway.Hosted, new KeyVault(Path.Combine(_root, "vault.json")), _gateway.TenantSettingsResolver, _gateway.TenantBoundary),
         _ => throw new ArgumentOutOfRangeException(nameof(name), name, "unknown owner-settings family"),
     };
 

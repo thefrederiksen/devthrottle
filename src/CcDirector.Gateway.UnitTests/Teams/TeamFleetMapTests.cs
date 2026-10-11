@@ -59,7 +59,7 @@ public sealed class TeamFleetMapTests : IDisposable
         _directors = new DirectorRegistry(_instancesDir);
         _devices = new DeviceRegistry(_db, _harness.LegacyPath("devices.json"), isHosted: true, teamsReleased: true);
         _ownership = new TeamCallerOwnership(_directors, _sessions, _devices, new CcDirector.Gateway.History.SessionTurnStore(_db),
-            new HostedTenantBoundary(new AsyncLocalTenantContext(), _devices), new SessionKeyRegistry(_db, isHosted: true));
+            new HostedTenantBoundary(new AsyncLocalTenantContext(), _devices, hosted: false), new SessionKeyRegistry(_db, isHosted: true));
         _map = new TeamFleetMap(_teams, _access, _directors, _ownership, _sessions);
 
         _team = _teams.CreateTeam(Owner, "DevThrottle").Team!.TeamId;

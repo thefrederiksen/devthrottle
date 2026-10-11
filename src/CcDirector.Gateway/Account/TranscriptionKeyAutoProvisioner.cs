@@ -46,14 +46,20 @@ public sealed class TranscriptionKeyAutoProvisioner
     /// </summary>
     private readonly SemaphoreSlim _ensureGate = new(1, 1);
 
+    // The owning host's deployment signal, fixed at construction (see GatewayHostOptions).
+    private readonly bool _hosted;
+
     /// <param name="vault">The Gateway key vault - where the transcription owner reads the hosted key.</param>
     /// <param name="accessTokenProvider">Supplies the signed-in account JWT (or null when not signed in);
     /// invoked fresh each call so it always reflects the current credential.</param>
     /// <param name="minter">Mints an inference key for the account.</param>
+    /// <param name="hosted">The owning host's deployment signal (<see cref="GatewayHost.Hosted"/>): on hosted the
+    /// provisioner is inert. REQUIRED - see <see cref="GatewayHostOptions"/>.</param>
     /// <param name="label">A recognisable name for the minted key (defaults to the machine name).</param>
     public TranscriptionKeyAutoProvisioner(
-        KeyVault vault, Func<string?> accessTokenProvider, IInferenceKeyMinter minter, string? label = null)
+        KeyVault vault, Func<string?> accessTokenProvider, IInferenceKeyMinter minter, bool hosted, string? label = null)
     {
+        _hosted = hosted;
         _vault = vault ?? throw new ArgumentNullException(nameof(vault));
         _accessTokenProvider = accessTokenProvider ?? throw new ArgumentNullException(nameof(accessTokenProvider));
         _minter = minter ?? throw new ArgumentNullException(nameof(minter));
@@ -72,7 +78,7 @@ public sealed class TranscriptionKeyAutoProvisioner
         // vault on every sign-in and at startup, by a path that never touches the denied routes. On hosted it
         // is inert. The gate reads the deployment signal directly, so it cannot fail open by a caller omitting
         // an argument.
-        if (GatewayHostedMode.IsHosted)
+        if (_hosted)
         {
             FileLog.Write("[TranscriptionKeyAutoProvisioner] EnsureAsync: hosted - the global vault is denied on hosted, provisioning is inert");
             return false;
@@ -159,7 +165,7 @@ public sealed class TranscriptionKeyAutoProvisioner
         // HOSTED-GATED, for symmetry with EnsureAsync: on hosted this provisioner never minted or stored a
         // key (Ensure is inert), so there is nothing of ours in the global vault to revoke or clear. Return
         // early rather than issue Deletes against the hosted global vault.
-        if (GatewayHostedMode.IsHosted)
+        if (_hosted)
         {
             FileLog.Write("[TranscriptionKeyAutoProvisioner] RevokeMintedKeyAsync: hosted - provisioning is inert, nothing minted to revoke");
             return false;

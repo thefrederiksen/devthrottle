@@ -279,7 +279,7 @@ public sealed class HostedRefusalRouteSpaceTests
         // is rejected where it is declared, not left to slip the route-space check.
         var outer = NewBuilder();
 
-        var error = Assert.Throws<ArgumentException>(() => HostedRouteDeny.ExclusiveGroup(outer, prefix, Denial));
+        var error = Assert.Throws<ArgumentException>(() => HostedRouteDeny.ExclusiveGroup(outer, prefix, Denial, hosted: true));
         Assert.Contains("route parameter", error.Message);
     }
 

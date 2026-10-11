@@ -135,11 +135,11 @@ internal static class VaultEndpoints
     /// written yet - the one property that distinguishes an exclusive-prefix deny from a guard repeated in
     /// each handler.
     /// </summary>
-    public static HostedDenyGroup Map(IEndpointRouteBuilder outer, KeyVault vault)
+    public static HostedDenyGroup Map(IEndpointRouteBuilder outer, bool hosted, KeyVault vault)
     {
-        FileLog.Write($"[VaultEndpoints] mapping {Prefix}; hosted={GatewayHostedMode.IsHosted} - on hosted the whole group is refused via the shared refusal primitive");
+        FileLog.Write($"[VaultEndpoints] mapping {Prefix}; hosted={hosted} - on hosted the whole group is refused via the shared refusal primitive");
 
-        var group = HostedRouteDeny.ExclusiveGroup(outer, Prefix, Denial());
+        var group = HostedRouteDeny.ExclusiveGroup(outer, Prefix, Denial(), hosted);
         MapRoutes(group, vault);
         return group;
     }

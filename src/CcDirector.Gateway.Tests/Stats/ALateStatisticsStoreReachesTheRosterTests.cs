@@ -96,8 +96,8 @@ public sealed class ALateStatisticsStoreReachesTheRosterTests : IDisposable
 
         // MAPPED WHILE THERE IS NOTHING. If these were captured rather than resolved, the roster would be
         // wired to null for the life of the process and the assertion below could never pass.
-        GatewayEndpoints.Map(app, registry, version: "test", token: Token,
-            tenantBoundary: new HostedTenantBoundary(new SingleTenantContext(), new DeviceRegistry()),
+        GatewayEndpoints.Map(app, false, registry, version: "test", token: Token,
+            tenantBoundary: new HostedTenantBoundary(new SingleTenantContext(), new DeviceRegistry(), hosted: false),
             pushedSessions: pushed,
             inputStats: () => aggregator,
             concurrency: () => concurrency, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown);

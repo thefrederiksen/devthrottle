@@ -32,10 +32,10 @@ public sealed class GatewayTokenCookieTests
         public void Dispose() => Environment.SetEnvironmentVariable(_name, _prior);
     }
 
-    private static string SetCookieHeader()
+    private static string SetCookieHeader(bool hosted)
     {
         var ctx = new DefaultHttpContext();
-        GatewayTokenCookie.Set(ctx, "dtd_test_device_key");
+        GatewayTokenCookie.Set(ctx, "dtd_test_device_key", hosted);
         var header = ctx.Response.Headers["Set-Cookie"].FirstOrDefault(
             c => c is not null && c.StartsWith(Util.AuthMiddleware.CookieName + "=", StringComparison.Ordinal));
         Assert.False(string.IsNullOrEmpty(header));
@@ -49,7 +49,7 @@ public sealed class GatewayTokenCookieTests
     public void Hosted_SetsSecure()
     {
         using var _ = new EnvScope("CC_GATEWAY_HOSTED", "1");
-        var header = SetCookieHeader();
+        var header = SetCookieHeader(hosted: true);
         Assert.True(HasAttribute(header, "secure"));
         // The rest of the agreed options are unchanged.
         Assert.True(HasAttribute(header, "httponly"));
@@ -60,7 +60,7 @@ public sealed class GatewayTokenCookieTests
     public void SelfHost_DoesNotSetSecure_SoCookieSurvivesHttp()
     {
         using var _ = new EnvScope("CC_GATEWAY_HOSTED", null);
-        var header = SetCookieHeader();
+        var header = SetCookieHeader(hosted: false);
         Assert.False(HasAttribute(header, "secure"));   // must survive plain-HTTP loopback/tailnet
         // Everything else the self-host path relies on is still set.
         Assert.True(HasAttribute(header, "httponly"));

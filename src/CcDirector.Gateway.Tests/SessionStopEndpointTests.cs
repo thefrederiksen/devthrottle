@@ -925,12 +925,12 @@ public sealed class SessionStopEndpointTests : IDisposable
             registry.RegisterFromStream(DirectorId, Machine, "soren", "1.0", 4242, DateTime.UtcNow, TenantId.Local);
 
             GatewayEndpoints.Map(
-                app,
+                app, false,
                 registry,
                 version: "test",
                 token: "test-token",
                 tenantBoundary: new CcDirector.Gateway.Tenancy.HostedTenantBoundary(
-                    new SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry()),
+                    new SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: false),
                 pushedSessions: store,
                 streamStaleAfter: TimeSpan.FromSeconds(20),
                 // A Director that answers at once with a fixed result, unless the test supplies its own

@@ -131,7 +131,7 @@ public sealed class TranscriptionKeyAutoProvisionerTests : IDisposable
         var vault = new KeyVault(_vaultPath);
         vault.Set(TranscriptionEndpointResolver.DevThrottleKeyName, "dt_live_manual_or_reused");
         var minter = new FakeMinter("dt_live_should_not_be_used");
-        var sut = new TranscriptionKeyAutoProvisioner(vault, () => "jwt", minter);
+        var sut = new TranscriptionKeyAutoProvisioner(vault, () => "jwt", minter, hosted: false);
 
         var minted = await sut.EnsureAsync();
 
@@ -145,7 +145,7 @@ public sealed class TranscriptionKeyAutoProvisionerTests : IDisposable
     {
         var vault = new KeyVault(_vaultPath);
         var minter = new FakeMinter("dt_live_x");
-        var sut = new TranscriptionKeyAutoProvisioner(vault, () => null, minter);
+        var sut = new TranscriptionKeyAutoProvisioner(vault, () => null, minter, hosted: false);
 
         var minted = await sut.EnsureAsync();
 
@@ -158,7 +158,7 @@ public sealed class TranscriptionKeyAutoProvisionerTests : IDisposable
     {
         var vault = new KeyVault(_vaultPath);
         var minter = new FakeMinter("dt_live_freshly_minted", id: "minted-key-id");
-        var sut = new TranscriptionKeyAutoProvisioner(vault, () => "the.jwt", minter);
+        var sut = new TranscriptionKeyAutoProvisioner(vault, () => "the.jwt", minter, hosted: false);
 
         var minted = await sut.EnsureAsync();
 
@@ -192,7 +192,7 @@ public sealed class TranscriptionKeyAutoProvisionerTests : IDisposable
             // Signed in with an empty vault - the exact case that mints on self-host
             // (EnsureAsync_SignedIn_EmptyVault_MintsAndStoresKeyAndId). On hosted it must not.
             var minter = new FakeMinter("dt_live_should_never_be_minted_on_hosted", id: "should-not-store");
-            var sut = new TranscriptionKeyAutoProvisioner(vault, () => "the.jwt", minter);
+            var sut = new TranscriptionKeyAutoProvisioner(vault, () => "the.jwt", minter, hosted: true);
 
             var minted = await sut.EnsureAsync();
 
@@ -223,7 +223,7 @@ public sealed class TranscriptionKeyAutoProvisionerTests : IDisposable
 
             var vault = new KeyVault(_vaultPath);
             var minter = new FakeMinter("dt_live_x", id: "the-id");
-            var sut = new TranscriptionKeyAutoProvisioner(vault, () => "the.jwt", minter);
+            var sut = new TranscriptionKeyAutoProvisioner(vault, () => "the.jwt", minter, hosted: true);
 
             var revoked = await sut.RevokeMintedKeyAsync();
 
@@ -243,7 +243,7 @@ public sealed class TranscriptionKeyAutoProvisionerTests : IDisposable
     {
         var vault = new KeyVault(_vaultPath);
         var minter = new FakeMinter("dt_live_x", id: "the-id");
-        var sut = new TranscriptionKeyAutoProvisioner(vault, () => "the.jwt", minter);
+        var sut = new TranscriptionKeyAutoProvisioner(vault, () => "the.jwt", minter, hosted: false);
         await sut.EnsureAsync(); // mints + records the id
 
         var revoked = await sut.RevokeMintedKeyAsync();
@@ -263,7 +263,7 @@ public sealed class TranscriptionKeyAutoProvisionerTests : IDisposable
         var vault = new KeyVault(_vaultPath);
         vault.Set(TranscriptionEndpointResolver.DevThrottleKeyName, "dt_live_manual");
         var minter = new FakeMinter("dt_live_unused");
-        var sut = new TranscriptionKeyAutoProvisioner(vault, () => "the.jwt", minter);
+        var sut = new TranscriptionKeyAutoProvisioner(vault, () => "the.jwt", minter, hosted: false);
 
         var revoked = await sut.RevokeMintedKeyAsync();
 
@@ -277,7 +277,7 @@ public sealed class TranscriptionKeyAutoProvisionerTests : IDisposable
     {
         var vault = new KeyVault(_vaultPath);
         var minter = new FakeMinter(null);
-        var sut = new TranscriptionKeyAutoProvisioner(vault, () => "the.jwt", minter);
+        var sut = new TranscriptionKeyAutoProvisioner(vault, () => "the.jwt", minter, hosted: false);
 
         var minted = await sut.EnsureAsync();
 
@@ -316,7 +316,7 @@ public sealed class TranscriptionKeyAutoProvisionerTests : IDisposable
     {
         var vault = new KeyVault(_vaultPath);
         var minter = new UniqueSlowMinter(TimeSpan.FromMilliseconds(50));
-        var sut = new TranscriptionKeyAutoProvisioner(vault, () => "the.jwt", minter);
+        var sut = new TranscriptionKeyAutoProvisioner(vault, () => "the.jwt", minter, hosted: false);
 
         // Fire the ensure from several callers at once (the sign-in hook and the startup task racing).
         var results = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => sut.EnsureAsync()));
@@ -355,7 +355,7 @@ public sealed class TranscriptionKeyAutoProvisionerTests : IDisposable
     {
         var vault = new KeyVault(_vaultPath);
         var minter = new RaceLosingMinter(vault);
-        var sut = new TranscriptionKeyAutoProvisioner(vault, () => "the.jwt", minter);
+        var sut = new TranscriptionKeyAutoProvisioner(vault, () => "the.jwt", minter, hosted: false);
 
         var stored = await sut.EnsureAsync();
 
@@ -391,7 +391,7 @@ public sealed class TranscriptionKeyAutoProvisionerTests : IDisposable
         // residual cloud key can be revoked from the website.
         var vault = new KeyVault(_vaultPath);
         var minter = new RevokeFailingMinter("dt_live_x", "the-id");
-        var sut = new TranscriptionKeyAutoProvisioner(vault, () => "the.jwt", minter);
+        var sut = new TranscriptionKeyAutoProvisioner(vault, () => "the.jwt", minter, hosted: false);
         await sut.EnsureAsync(); // mints + records the id
 
         var revoked = await sut.RevokeMintedKeyAsync();

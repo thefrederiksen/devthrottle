@@ -92,9 +92,10 @@ public sealed class LauncherHub : Hub
     /// On self-host this is <see cref="TenantId.Local"/>; on hosted a key with no bound tenant returns null
     /// and the connection is aborted.
     ///
-    /// GATED ON <see cref="GatewayHostedMode.IsHosted"/> ITSELF, never on whether a boundary was wired
-    /// (finding I1-01, the same shape <c>GatewayEndpoints.ResolveReadTenant</c> carries). Deciding on the
-    /// field fails OPEN: a hosted process whose hub was constructed without a boundary would resolve
+    /// A hub constructed WITHOUT a boundary refuses every connection in every mode, and the boundary carries
+    /// the mode itself (<c>HostedTenantBoundary.Hosted</c>, a required value fixed once at startup) - finding
+    /// I1-01, revised, the same shape <c>GatewayEndpoints.ResolveReadTenant</c> carries. Letting the absent
+    /// field mean "self-host" would fail OPEN: a hosted process whose hub was constructed without a boundary would resolve
     /// <see cref="TenantId.Local"/> and register the launcher into the shared partition. On hosted, a missing
     /// or non-hosted-wired boundary resolves to null, and null is a REFUSAL - Hello aborts the connection.
     /// The second defence is the required non-nullable constructor parameter.</summary>
@@ -103,9 +104,9 @@ public sealed class LauncherHub : Hub
         var key = Context.GetHttpContext()?.Items.TryGetValue(AuthMiddleware.DeviceKeyItemKey, out var value) == true
             ? value as string
             : null;
-        if (!GatewayHostedMode.IsHosted)
-            return _tenantBoundary is null ? TenantId.Local : _tenantBoundary.ResolveForDeviceKey(key);
-        if (_tenantBoundary is null || !_tenantBoundary.IsHosted)
+        // The boundary carries the deployment mode it was built under, so the decision is the boundary's; NO
+        // BOUNDARY IS A REFUSAL in every mode (see DirectorHub.ResolveConnectionTenant for the reasoning).
+        if (_tenantBoundary is null)
             return null;
         return _tenantBoundary.ResolveForDeviceKey(key);
     }
