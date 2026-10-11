@@ -303,6 +303,8 @@ public sealed class SecretTransferHostTests : IAsyncLifetime
 
         var (asked, a) = await Post(third, "gateway/secrets/transfers", Ask(reason: null, approvedHere: "window", askedOn: "SOREN_NORTH"));
         Assert.Equal((HttpStatusCode.Forbidden, "not_one_of_the_two_machines"), (asked, Code(a)));
+        var (askedOnly, o) = await Post(third, "gateway/secrets/transfers", Ask(reason: null));
+        Assert.Equal((HttpStatusCode.Forbidden, "not_one_of_the_two_machines"), (askedOnly, Code(o)));
 
         var (_, waiting) = await Post(_sessionA, "gateway/secrets/transfers", Ask());
         var (answered, b) = await Post(third, $"gateway/secrets/transfers/{Id(waiting)}/answer", new { approve = true, where = "window" });

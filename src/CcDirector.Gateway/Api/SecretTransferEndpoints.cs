@@ -158,7 +158,7 @@ public static class SecretTransferEndpoints
                 answer, nowUtc());
             if (row is null)
                 return Refuse(StatusCodes.Status429TooManyRequests, "too_many_waiting",
-                    $"You already have {SecretTransferStore.MaxWaitingPerSession} transfers waiting for the owner. Nothing "
+                    $"{SecretTransferStore.MaxWaitingPerSession} transfers you asked for are already waiting for the owner. Nothing "
                     + "was asked. Wait for an answer.");
 
             if (row.State == SecretTransferStates.Approved)
@@ -358,7 +358,10 @@ public static class SecretTransferEndpoints
             return null;
         }
 
-        // A machine's own credential: cc-secrets in the owner's terminal or window on one of the two machines.
+        // A machine's own credential: cc-secrets in the owner's terminal or window on one of the two machines. It asks
+        // only for a transfer that involves its own machine, whether or not it also approves it.
+        if (!OnOneOfTheTwo(caller, fromMachine, toMachine, out refusal))
+            return null;
         if (here.Length == 0)
         {
             if (accept.Length > 0)
@@ -375,8 +378,6 @@ public static class SecretTransferEndpoints
                 "approvedHere is 'window' or 'terminal' - where the owner approved it on this machine.");
             return null;
         }
-        if (!OnOneOfTheTwo(caller, fromMachine, toMachine, out refusal))
-            return null;
         var askedOn = (body.AskedOn ?? "").Trim();
         if (askedOn.Length > 0 && !string.Equals(askedOn, caller.Machine, StringComparison.OrdinalIgnoreCase))
         {

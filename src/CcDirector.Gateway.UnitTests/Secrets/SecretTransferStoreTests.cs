@@ -128,6 +128,16 @@ public sealed class SecretTransferStoreTests : IDisposable
     }
 
     [Fact]
+    public void Create_AnyAskerWithThreeWaiting_IsRefused_NotOnlyASession()
+    {
+        var store = Open();
+        for (var i = 0; i < SecretTransferStore.MaxWaitingPerSession; i++)
+            Assert.NotNull(store.Create(TenantA, Ask($"entry-{i}", asker: null), null, T0));
+
+        Assert.Null(store.Create(TenantA, Ask("one-more", asker: null), null, T0));
+    }
+
+    [Fact]
     public void AnotherAccount_NeverSeesOrAnswersATransfer()
     {
         var store = Open();

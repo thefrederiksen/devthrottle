@@ -119,13 +119,19 @@ public sealed class SecretTransferStore
         {
             var now = Utc(nowUtc);
             using var ctx = _db.CreateContext(tenant);
-            if (ask.AskedBySessionId is { } asker && answer is null)
+            if (answer is null)
             {
-                var waiting = ctx.SecretTransfers.AsNoTracking()
-                    .Count(t => t.AskedBySessionId == asker && t.State == SecretTransferStates.Waiting && t.ExpiresAtUtc > now);
+                // At most three waiting per asker - a session by its id, anyone else by who they are - so no caller
+                // can fill the owner's phone with requests.
+                var waiting = ask.AskedBySessionId is { } asker
+                    ? ctx.SecretTransfers.AsNoTracking()
+                        .Count(t => t.AskedBySessionId == asker && t.State == SecretTransferStates.Waiting && t.ExpiresAtUtc > now)
+                    : ctx.SecretTransfers.AsNoTracking()
+                        .Count(t => t.AskedBySessionId == null && t.AskedBy == ask.AskedBy
+                                    && t.State == SecretTransferStates.Waiting && t.ExpiresAtUtc > now);
                 if (waiting >= MaxWaitingPerSession)
                 {
-                    FileLog.Write($"[SecretTransferStore] Create: REFUSED, session {asker} already has {waiting} waiting");
+                    FileLog.Write($"[SecretTransferStore] Create: REFUSED, {ask.AskedBySessionId ?? ask.AskedBy} already has {waiting} waiting");
                     return null;
                 }
             }
