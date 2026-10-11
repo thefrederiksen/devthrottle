@@ -6954,8 +6954,9 @@ public sealed class GatewayHost : IAsyncDisposable
         // connection to the same file, which no pool clearing can release - an open connection is kept, not
         // pooled. It too was handed to the container as an instance and never disposed. Self-host only: on hosted
         // the handle resolves its aggregator from the statistics store's context factory on first use, owns no
-        // file, and asking it here would start that resolution during shutdown.
-        if (!Hosted)
+        // file, and asking it here would start that resolution during shutdown. The same predicate as OpenInputStats,
+        // so the path that opened a file is exactly the path that closes one.
+        if (!(Hosted || GatewayHostedMode.IsHostedImage))
         {
             try { InputStatsHandle.Aggregator?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] input statistics dispose error: {ex.Message}"); }
         }

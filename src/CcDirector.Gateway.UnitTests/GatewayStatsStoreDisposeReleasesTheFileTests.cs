@@ -1,3 +1,4 @@
+using CcDirector.Core.Tests;
 using CcDirector.Gateway.Stats.Data;
 using CcDirector.Gateway.Tests.Data;
 using Microsoft.EntityFrameworkCore;
@@ -15,6 +16,9 @@ namespace CcDirector.Gateway.Tests;
 /// In the pool-isolation collection: the observation is a pooled connection holding a file, and dozens of
 /// classes in this assembly call ClearAllPools on dispose, which reclaims that connection from under a test
 /// running beside them (issue #3393). Alone, the premise holds; in parallel, it is somebody else's cleanup.
+///
+/// Windows only: the observation is that a held file blocks the folder delete, which Unix does not do - there a
+/// deleted file simply disappears from the directory while the handle lives on, and there is nothing to observe.
 /// </summary>
 [Collection(SqlitePoolIsolationCollection.Name)]
 public sealed class GatewayStatsStoreDisposeReleasesTheFileTests
@@ -29,7 +33,7 @@ public sealed class GatewayStatsStoreDisposeReleasesTheFileTests
         Assert.True(context.Database.CanConnect());
     }
 
-    [Fact]
+    [WindowsOnlyFact]
     public void Dispose_ReleasesTheSelfHostFile_SoItsFolderCanBeDeleted()
     {
         var dir = Path.Combine(Path.GetTempPath(), "cc-stats-store-dispose-" + Guid.NewGuid().ToString("N"));
@@ -50,7 +54,7 @@ public sealed class GatewayStatsStoreDisposeReleasesTheFileTests
         Assert.False(Directory.Exists(dir));
     }
 
-    [Fact]
+    [WindowsOnlyFact]
     public void Dispose_ReleasesOnlyItsOwnFile_AnotherStoresPooledConnectionIsLeftAlone()
     {
         // Two stores over two files in one process: a running Gateway next to a test, or two tests side by side.
