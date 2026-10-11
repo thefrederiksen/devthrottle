@@ -389,12 +389,18 @@ class ListWindow:
     HINT = ("Double-click or press Enter to edit. Show reveals a password until you hide it, and every Show is "
             "written to the audit log.")
 
-    def __init__(self, root, actions: WindowActions, prefs: window_layout.ListPrefs) -> None:
+    def __init__(self, root, actions: WindowActions, prefs: window_layout.ListPrefs, transfers=None) -> None:
+        """`transfers` (a WindowTransfers) adds Send and Get and the approval pop-up; left out, the list is as it was
+        before machines could share an entry."""
         import tkinter as tk
         from tkinter import ttk
 
         self._root = root
         self._actions = actions
+        self._transfers = transfers
+        self._worker = None
+        self.watcher = None
+        self.dialog = None
         self._prefs = prefs
         self._rows: List[Row] = []
         self._revealed: Dict[str, str] = {}
@@ -412,8 +418,13 @@ class ListWindow:
         ttk.Label(header, text="Passwords and settings", style="Title.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(header, text=f"Stored on {platform.node()}, for you and your agents.",
                   style="Muted.TLabel").grid(row=1, column=0, sticky="w", pady=(2, 0))
-        ttk.Button(header, text="+ Add", style="Accent.TButton", command=self._add).grid(
-            row=0, column=1, rowspan=2, sticky="e")
+        header_buttons = ttk.Frame(header)
+        header_buttons.grid(row=0, column=1, rowspan=2, sticky="e")
+        if transfers is not None:
+            ttk.Button(header_buttons, text="Send to another machine", command=self._send).grid(row=0, column=0)
+            ttk.Button(header_buttons, text="Get from another machine", command=self._get).grid(
+                row=0, column=1, padx=(6, 12))
+        ttk.Button(header_buttons, text="+ Add", style="Accent.TButton", command=self._add).grid(row=0, column=2)
 
         bar = ttk.Frame(frame)
         bar.grid(row=1, column=0, sticky="we", pady=(16, 10))
@@ -501,6 +512,11 @@ class ListWindow:
         root.bind(f"<{command_key}-n>", lambda _e: self._add())
         self.reload()
         self._tree.focus_set()
+        if transfers is not None:
+            from .transfer_window import ApprovalWatcher, Worker
+
+            self._worker = Worker(root)
+            self.watcher = ApprovalWatcher(root, self._worker, transfers, self._status.set)
 
     # --- Data ---------------------------------------------------------------------------------------------------
 
@@ -736,6 +752,21 @@ class ListWindow:
         self.reload()
         self._status.set(f"Deleted {name}.")
 
+    def _send(self) -> None:
+        from .transfer_window import TransferDialog
+
+        name = self._selected_name()
+        if name is None:
+            self._status.set("Select the entry to send first.")
+            return
+        self.dialog = TransferDialog(self._root, self._worker, self._transfers, "send", name, self._status.set)
+
+    def _get(self) -> None:
+        from .transfer_window import TransferDialog
+
+        self.dialog = TransferDialog(self._root, self._worker, self._transfers, "get", "",
+                                     lambda sentence: (self._status.set(sentence), self.reload()))
+
     def _fail(self, what: str, exc: BaseException) -> None:
         from tkinter import messagebox
 
@@ -761,7 +792,9 @@ def show_list(actions: WindowActions) -> None:
     prefs_path = _prefs_path()
     prefs = window_layout.load_prefs(prefs_path)
     root = open_root(f"cc-secrets - passwords and settings ({platform.node()})")
-    window = ListWindow(root, actions, prefs)
+    from .window_transfers import WindowTransfers
+
+    window = ListWindow(root, actions, prefs, WindowTransfers(actions.store))
     screens = monitors(root)
     pointer = root.winfo_pointerxy()
     root.update_idletasks()  # so the window can say how much room its own contents need

@@ -192,6 +192,10 @@ class WindowActions:
         self._told_replaces: Set[str] = set()
         self.saved_name: Optional[str] = None
 
+    @property
+    def store(self) -> SecretStore:
+        return self._store
+
     def told_about(self, name: str) -> None:
         """The form already shows that saving `name` replaces it."""
         self._told_replaces.add(name)
