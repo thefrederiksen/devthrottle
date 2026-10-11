@@ -1,0 +1,8 @@
+# MSBuild reads this file for every build started in this repository: dotnet build, dotnet test,
+# dotnet publish and msbuild, from a script or by hand, for any project or solution below this folder.
+#
+# Node reuse is OFF here. With it on (the MSBuild default) each build leaves its worker nodes running
+# to serve a next build. Agents build this repository from many worktrees at once, the next build
+# rarely reuses the same nodes, and the idle ones piled up into gigabytes on the build machine.
+# The measured cost is about 2.6 seconds on a multi-project build after a one-file change.
+-nodeReuse:false
