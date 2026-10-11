@@ -281,6 +281,7 @@ public partial class McpServersDialog : Window
             if (_servers.Any(s => string.IsNullOrWhiteSpace(s.Name)))
             {
                 FileLog.Write("[McpServersDialog] Empty server name");
+                // shown-error-exempt (user input): the user left a server's name empty
                 StatusText.Text = "Server name cannot be empty";
                 return;
             }

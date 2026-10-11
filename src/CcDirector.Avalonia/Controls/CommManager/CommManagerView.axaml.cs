@@ -227,6 +227,11 @@ public partial class CommManagerView : UserControl
         return result;
     }
 
+    /// <summary>
+    /// The error box the view model calls through <c>ShowErrorCallback</c>. Error report decision (issue #3675): this
+    /// window reports nothing itself. Every call of the callback is a site the scan reads (an error-named call) and
+    /// must be given text the helper already reported - which is how the scan keeps a future unreported caller out.
+    /// </summary>
     private async Task ShowErrorAsync(string message)
     {
         var dialog = new Window

@@ -15,6 +15,7 @@ using CcDirector.Core.Sessions;
 using CcDirector.Core.Settings;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia;
 
@@ -780,8 +781,14 @@ public partial class NewSessionDialog : Window
             }
 
             // The local list built in the constructor stays on screen; only the sentence changes.
-            RepoSourceNoticeText.Text =
-                NewSessionRepositoryList.FallbackNotice(answer.Outcome, answer.Reason);
+            // Served returned above, so there is always a sentence. No Gateway at all is this machine's choice, not a
+            // failure; every other outcome is a list the user asked the Gateway for and did not get.
+            var notice = NewSessionRepositoryList.FallbackNotice(answer.Outcome, answer.Reason)
+                         ?? throw new InvalidOperationException($"no notice for repository list outcome {answer.Outcome}");
+            RepoSourceNoticeText.Text = answer.Outcome == KnownRepositoryListOutcome.NotConfigured
+                ? notice
+                : ShownError.Report("new session dialog", "list the repositories from the Gateway", notice,
+                    reported: $"the Gateway did not serve the repository list: outcome={answer.Outcome}, reason={answer.Reason ?? "(none)"}");
             RepoSourceNotice.IsVisible = true;
         }
         catch (OperationCanceledException) when (_closing.IsCancellationRequested)
@@ -791,11 +798,15 @@ public partial class NewSessionDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[NewSessionDialog] LoadGatewayRepositoriesAsync FAILED: {ex.Message}");
-            if (_closing.IsCancellationRequested) return;
+            if (_closing.IsCancellationRequested)
+            {
+                FileLog.Write($"[NewSessionDialog] LoadGatewayRepositoriesAsync FAILED after the dialog closed: {ex.Message}");
+                return;
+            }
 
-            RepoSourceNoticeText.Text = NewSessionRepositoryList.FallbackNotice(
-                KnownRepositoryListOutcome.Refused, "the repository list could not be read");
+            var refused = NewSessionRepositoryList.FallbackNotice(KnownRepositoryListOutcome.Refused, "the repository list could not be read")
+                          ?? throw new InvalidOperationException("no notice for a refused repository list");
+            RepoSourceNoticeText.Text = ShownError.Report("new session dialog", "list the repositories from the Gateway", refused, ex);
             RepoSourceNotice.IsVisible = true;
         }
     }
@@ -972,8 +983,8 @@ public partial class NewSessionDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[NewSessionDialog] BtnDeleteNamedSession_Click FAILED: {ex.Message}");
-            await MessageBox.ShowAsync(this, "Error", "Could not delete the named session. Please try again.");
+            await ShownErrorBox.ShowAsync(this, "new session dialog", "delete the named session",
+                "Error", "Could not delete the named session. Please try again.", ex);
         }
     }
 
@@ -1004,7 +1015,7 @@ public partial class NewSessionDialog : Window
             if (string.IsNullOrWhiteSpace(definition.RepoPath) || !Directory.Exists(definition.RepoPath))
             {
                 FileLog.Write($"[NewSessionDialog] BtnLaunchNamedSession_Click: repo missing ({definition.RepoPath}); refusing to launch");
-                await MessageBox.ShowAsync(this,
+                await ShownErrorBox.ShowAsync(this, "new session dialog", "launch the named session",
                     "Repository not found",
                     $"The repository folder saved for \"{definition.Name}\" no longer exists:\n\n"
                     + $"{definition.RepoPath}\n\n"
@@ -1016,7 +1027,7 @@ public partial class NewSessionDialog : Window
             if (option is null)
             {
                 FileLog.Write($"[NewSessionDialog] BtnLaunchNamedSession_Click: agent {definition.AgentId} not registered; refusing to launch");
-                await MessageBox.ShowAsync(this,
+                await ShownErrorBox.ShowAsync(this, "new session dialog", "launch the named session",
                     "Agent not available",
                     $"The agent saved for \"{definition.Name}\" is no longer registered.\n\n"
                     + "Add it back in Settings > Agents, or delete this named session.");
@@ -1040,8 +1051,8 @@ public partial class NewSessionDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[NewSessionDialog] BtnLaunchNamedSession_Click FAILED: {ex.Message}");
-            await MessageBox.ShowAsync(this, "Error", "Could not launch the named session. Please try again.");
+            await ShownErrorBox.ShowAsync(this, "new session dialog", "launch the named session",
+                "Error", "Could not launch the named session. Please try again.", ex);
         }
     }
 
@@ -1092,9 +1103,8 @@ public partial class NewSessionDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[NewSessionDialog] LoadSessionHistoryAsync FAILED: {ex.Message}");
             LoadingText.IsVisible = false;
-            NoSessionsText.Text = "Error loading sessions";
+            NoSessionsText.Text = ShownError.Report("new session dialog", "load the session history", "Error loading sessions", ex);
             NoSessionsText.IsVisible = true;
         }
     }
@@ -1566,9 +1576,8 @@ public partial class NewSessionDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[NewSessionDialog] LoadHandoversAsync FAILED: {ex.Message}");
             HandoverLoadingText.IsVisible = false;
-            NoHandoversText.Text = "Error loading handovers";
+            NoHandoversText.Text = ShownError.Report("new session dialog", "load the handovers", "Error loading handovers", ex);
             NoHandoversText.IsVisible = true;
         }
     }

@@ -10,6 +10,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using CcDirector.Core.Git;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia.Controls;
 
@@ -215,8 +216,7 @@ public partial class WorktreesView : UserControl
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[WorktreesView] RefreshAsync FAILED: {ex.Message}");
-            StatusText.Text = $"Could not refresh: {ex.Message}";
+            StatusText.Text = ShownError.Report("worktrees", "refresh the worktree", $"Could not refresh: {ex.Message}", ex);
             StatusText.IsVisible = true;
             return;
         }
@@ -228,7 +228,7 @@ public partial class WorktreesView : UserControl
     {
         if (!inventory.Success)
         {
-            StatusText.Text = $"Could not read worktrees: {inventory.Error}";
+            StatusText.Text = ShownError.Report("worktrees", "read the worktrees", $"Could not read worktrees: {inventory.Error}");
             StatusText.IsVisible = true;
             ContentScroller.IsVisible = false;
             SetOrphanedCount(0);
@@ -350,9 +350,9 @@ public partial class WorktreesView : UserControl
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[WorktreesView] RunReapAsync FAILED: {ex.Message}");
+            var failure = ShownError.Report("worktrees", "remove the finished worktrees", $"Reap failed: {ex.Message}", ex);
             await RefreshAsync();
-            ShowBanner($"Reap failed: {ex.Message}");
+            ShowBanner(failure);
         }
         finally
         {
@@ -365,7 +365,7 @@ public partial class WorktreesView : UserControl
     {
         if (!string.IsNullOrEmpty(result.Error))
         {
-            ShowBanner($"Reap failed: {result.Error}");
+            ShowBanner(ShownError.Report("worktrees", "remove the finished worktrees", $"Reap failed: {result.Error}"));
             return;
         }
 
@@ -374,7 +374,9 @@ public partial class WorktreesView : UserControl
             parts.Add($"Skipped {result.Skipped.Count} in use by a live session.");
         if (result.Leftovers.Count > 0)
         {
-            parts.Add($"Could NOT fully delete {result.Leftovers.Count} folder(s) (files locked); they remain and will be retried on the next cleanup once the lock is released:");
+            // A partial failure of the removal: reported once, with the count; the folder paths stay on the screen.
+            parts.Add(ShownError.Report("worktrees", "remove the finished worktrees",
+                $"Could NOT fully delete {result.Leftovers.Count} folder(s) (files locked); they remain and will be retried on the next cleanup once the lock is released:"));
             parts.AddRange(result.Leftovers);
         }
 

@@ -5,6 +5,7 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia;
 
@@ -176,13 +177,12 @@ public partial class StopSessionDialog : Window
         catch (Exception ex)
         {
             if (_closed) return;
-            FileLog.Write($"[StopSessionDialog] StopNowAsync FAILED: session={_sessionId}: {ex.Message}");
 
             // The failure, in words, above the button it explains, carrying whatever sentence came with
             // it. The window stays open with the note still in the box, so a retry does not begin by
             // making the owner write it again. The rail row is untouched, which on a failure is exactly
             // right: the session may well still be running.
-            TxtFailure.Text = $"{OutcomeUnknownPrefix} {ex.Message}";
+            TxtFailure.Text = ShownError.Report("stop session", $"stop session {_sessionId}", $"{OutcomeUnknownPrefix} {ex.Message}", ex);
             PnlFailure.IsVisible = true;
         }
         finally

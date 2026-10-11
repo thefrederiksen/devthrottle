@@ -4,6 +4,7 @@ using Avalonia.Interactivity;
 using Avalonia.Threading;
 using CcDirector.Core.Instances;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia;
 
@@ -46,6 +47,7 @@ public partial class RenameDirectorDialog : Window
         var name = (NameInput.Text ?? "").Trim();
         if (string.IsNullOrWhiteSpace(name))
         {
+            // shown-error-exempt (user input): the user left the display name empty
             ErrorText.Text = "Enter a display name.";
             ErrorText.IsVisible = true;
             return;
@@ -59,8 +61,7 @@ public partial class RenameDirectorDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[RenameDirectorDialog] Rename FAILED: {ex.Message}");
-            ErrorText.Text = $"Could not rename: {ex.Message}";
+            ErrorText.Text = ShownError.Report("rename Director", "rename this Director", $"Could not rename: {ex.Message}", ex);
             ErrorText.IsVisible = true;
         }
     }

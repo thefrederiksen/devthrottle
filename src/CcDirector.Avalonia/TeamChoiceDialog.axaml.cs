@@ -64,6 +64,7 @@ public partial class TeamChoiceDialog : Window
     {
         if (string.IsNullOrWhiteSpace(DirectorName))
         {
+            // shown-error-exempt (user input): the user left the Director's name empty
             ErrorText.Text = "Give this Director a name.";
             ErrorText.IsVisible = true;
             return null;

@@ -260,6 +260,7 @@
                                    FontSize="14"
                                    FontWeight="SemiBold"
                                    Margin="0,0,0,6" />
+                        <!-- shown-error-exempt (not an error): a warning before the user confirms a delete; nothing has failed -->
                         <TextBlock DockPanel.Dock="Top"
                                    Text="This deletes these folders from your disk. Their work is already on origin/main, so nothing should be lost - but please check no one is still working in them first. This cannot be undone."
                                    Foreground="#E0B0A0"

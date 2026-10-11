@@ -6,6 +6,7 @@ using CcDirector.Core.Backends;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Memory;
 using CcDirector.Core.Sessions;
+using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 using Xunit;
 
@@ -334,6 +335,8 @@ public sealed class ComposerSendRouteTests
     private sealed class RefusingBackend : ISessionBackend
     {
         public const string Refusal = "[ClaudeCode] ResolveRetainedComposer: the composer cannot be read after it was cleared, so nothing was typed";
+        /// <summary>Model and terminal text, as a real refusal carries it in "Readable buffer tail:".</summary>
+        public const string ScreenTail = "the model wrote: the staging database password is in the vault";
         public int ProcessId => 1;
         public string Status => "Test";
         public bool IsRunning => true;
@@ -345,7 +348,12 @@ public sealed class ComposerSendRouteTests
 #pragma warning restore CS0067
         public void Start(string executable, string args, string workingDir, short cols, short rows, Dictionary<string, string>? environmentVars = null) { }
         public void Write(byte[] data) { }
-        public Task SendTextAsync(string text) => Task.FromException(new CcDirector.Core.Drivers.ComposerNotAcceptingInputException(Refusal));
+        // Shaped like the real throws, built from the words actually sent: SubmitVerifier's label is the prompt's first
+        // 60 characters, ResolveRetainedComposer's "what it read" is the composer's text (Session.DescribeComposer), and
+        // EchoVerifiedSubmit adds the terminal's readable tail and the prompt's last 16 characters as a needle.
+        public Task SendTextAsync(string text) => Task.FromException(new CcDirector.Core.Drivers.ComposerNotAcceptingInputException(
+            $"{Refusal}; prompt '{text[..Math.Min(60, text.Length)]}'; what it read: text='{text}' row='> {text}'. " +
+            $"Readable buffer tail: {ScreenTail} tailNeedle=\"{text[Math.Max(0, text.Length - 16)..]}\""));
         public Task SendEnterAsync() => Task.CompletedTask;
         public void Resize(short cols, short rows) { }
         public Task GracefulShutdownAsync(int timeoutMs = 5000) => Task.CompletedTask;
@@ -391,6 +399,82 @@ public sealed class ComposerSendRouteTests
         {
             TaskScheduler.UnobservedTaskException -= onUnobserved;
         }
+    }
+
+    /// <summary>
+    /// THE OWNER'S RULE: no prompt-send path ever passes the prompt's words into a report (issue #3675). A refused send
+    /// is reported through the display helper, and its FAILED line is what reaches the Gateway. Read off the real log
+    /// on the real route: the line is there (so the absence below is about a line that was written), it names what
+    /// failed and carries the refusal exception, and the words - typed or dictated - are in no error line at all.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SendPromptCoreAsync_Refused_NoErrorLineCarriesTheWords(bool dictated)
+    {
+        // Arrange
+        using var rig = new Rig(backend: () => new RefusingBackend());
+        rig.Window.SendRefusedShownForTests = (_, _) => { };
+        var lines = new List<string>();
+        Action<string> capture = line => { lock (lines) lines.Add(line); };
+        using var log = FileLog.RedirectForTests(); // the log writes nothing until started, and this owns it for the test
+        if (dictated) rig.Dictate(Words); else rig.Type(Words);
+        FileLog.ErrorObserver += capture;
+        try
+        {
+            // Act
+            await rig.Window.SendPromptCoreAsync();
+            Dispatcher.UIThread.RunJobs();
+        }
+        finally
+        {
+            FileLog.ErrorObserver -= capture;
+        }
+
+        // Assert
+        string[] seen;
+        lock (lines) seen = lines.ToArray();
+        var reported = Assert.Single(seen, l => l.Contains($"could not send a prompt to session {rig.Sessions[0].Id}"));
+        Assert.Contains("Exception: (message withheld)", reported); // the refusal's type and stack ride on the line
+        Assert.All(seen, l => Assert.DoesNotContain("deploy the gateway", l));
+        Assert.All(seen, l => Assert.DoesNotContain("tell me when it is up", l));
+        Assert.All(seen, l => Assert.DoesNotContain(RefusingBackend.ScreenTail, l));
+    }
+
+    /// <summary>
+    /// The same rule on the failed background dictation: the window is handed the refusal's message - which a real
+    /// refusal fills with the prompt and the screen - and shows it, and its report carries none of it.
+    /// </summary>
+    [AvaloniaFact]
+    public void OnDictationFailed_ARefusalCarryingTheWordsAndTheScreen_ReportsNoneOfThem()
+    {
+        // Arrange
+        using var rig = new Rig();
+        var shown = new List<(string Title, string Message)>();
+        rig.Window.SendRefusedShownForTests = (title, message) => shown.Add((title, message));
+        var lines = new List<string>();
+        Action<string> capture = line => { lock (lines) lines.Add(line); };
+        using var log = FileLog.RedirectForTests();
+        var refusal = $"{RefusingBackend.Refusal}; what it read: text='{Words}'. Readable buffer tail: {RefusingBackend.ScreenTail}";
+        FileLog.ErrorObserver += capture;
+        try
+        {
+            // Act
+            rig.Window.OnDictationFailed(rig.Sessions[0], composerText: "", composedText: Words, error: refusal, spokenAlone: true);
+            Dispatcher.UIThread.RunJobs();
+        }
+        finally
+        {
+            FileLog.ErrorObserver -= capture;
+        }
+
+        // Assert: the box may show the refusal - the screen is the owner's - and the report may not.
+        Assert.Contains(RefusingBackend.ScreenTail, Assert.Single(shown).Message);
+        string[] seen;
+        lock (lines) seen = lines.ToArray();
+        Assert.Single(seen, l => l.Contains($"could not send the dictation to session {rig.Sessions[0].Id}"));
+        Assert.All(seen, l => Assert.DoesNotContain("deploy the gateway", l));
+        Assert.All(seen, l => Assert.DoesNotContain(RefusingBackend.ScreenTail, l));
     }
 
     [AvaloniaFact]

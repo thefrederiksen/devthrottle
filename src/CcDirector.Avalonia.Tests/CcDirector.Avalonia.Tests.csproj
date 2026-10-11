@@ -17,6 +17,9 @@
          OnboardingWizardDialog Skip seam. -->
     <PackageReference Include="Avalonia.Headless.XUnit" Version="11.*" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.*" />
+    <!-- Issue #3675 step 4a: ShownErrorSourceScanTests reads the desktop source as a syntax tree, so a display
+         site split over lines, or a string with a brace in it, cannot hide from the scan. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.11.0" />
   </ItemGroup>
 
   <ItemGroup>

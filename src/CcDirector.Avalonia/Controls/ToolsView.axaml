@@ -42,6 +42,7 @@
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <TextBlock Text="(!)" Foreground="#FF8A8A" FontSize="13" FontWeight="Bold"
                                VerticalAlignment="Center" />
+                    <!-- shown-error-reported-by: RenderFleetToolStatus -->
                     <TextBlock Text="Sessions cannot reach this Director"
                                Foreground="#FFDADA" FontSize="13" FontWeight="SemiBold"
                                VerticalAlignment="Center" />

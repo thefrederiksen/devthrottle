@@ -101,16 +101,15 @@ internal static class Program
                 // A failed apply must NOT be silent (issue #242): show the user why and
                 // exit non-zero. The old build's bounded-apply logic will give up after a
                 // couple of these and boot the working version with its own notice.
-                FileLog.Write($"[Program] ApplyUpdate FAILED: {ex}");
+                var notice = ShownError.Report("start-up", "apply an update",
+                    $"Director could not apply an update:\n\n{ex.Message}\n\n" +
+                    "It will continue on the current version.", ex);
                 WriteCrashFile("apply-update", ex);
                 // Sent while the person reads the message. On Windows the box used to keep the process alive long
                 // enough for the twenty-second send; on macOS and Linux there is no box, the process returned at
                 // once, and the error never left the machine (issue #3352).
                 var flush = Task.Run(() => ErrorReporter.FlushBeforeExit(ErrorReporter.ExitFlushBudget));
-                ShowStartupNotice(
-                    $"Director could not apply an update:\n\n{ex.Message}\n\n" +
-                    "It will continue on the current version.",
-                    "Director - Update failed", MB_ICONWARNING);
+                ShowStartupNotice(notice, "Director - Update failed", MB_ICONWARNING);
                 flush.Wait(ErrorReporter.ExitFlushBudget + TimeSpan.FromSeconds(2));
                 FileLog.Stop();
                 return 1;
@@ -260,15 +259,15 @@ internal static class Program
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[Program] FATAL startup error: {ex}");
             var crashPath = WriteCrashFile("startup", ex);
-            // The FATAL line above is an error line, so it is already queued for DevThrottle; send it while the
-            // person reads the message, because the process ends the moment they dismiss it (issue #3311, B2).
-            var flush = Task.Run(() => ErrorReporter.FlushBeforeExit(TimeSpan.FromSeconds(5)));
-            ShowStartupNotice(
+            var notice = ShownError.Report("start-up", "start the Director",
                 $"Director failed to start:\n\n{ex.Message}\n\n" +
                 (crashPath is null ? "" : $"Details written to:\n{crashPath}"),
-                "Director - Startup error", MB_ICONERROR);
+                ex, fatal: true);
+            // The FATAL line just written is an error line, so it is already queued for DevThrottle; send it while
+            // the person reads the message, because the process ends the moment they dismiss it (issue #3311, B2).
+            var flush = Task.Run(() => ErrorReporter.FlushBeforeExit(TimeSpan.FromSeconds(5)));
+            ShowStartupNotice(notice, "Director - Startup error", MB_ICONERROR);
             flush.Wait(TimeSpan.FromSeconds(5));
             return 1;
         }

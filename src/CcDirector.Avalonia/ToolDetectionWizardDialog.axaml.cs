@@ -10,6 +10,7 @@ using CcDirector.Core.Agents;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Settings;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia;
 
@@ -92,8 +93,7 @@ public partial class ToolDetectionWizardDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[ToolDetectionWizardDialog] ScanAsync FAILED: {ex.Message}");
-            ScanStatusText.Text = $"Tool scan failed: {ex.Message}";
+            ScanStatusText.Text = ShownError.Report("tool detection", "scan this machine for agent tools", $"Tool scan failed: {ex.Message}", ex);
             ScanStatusText.Foreground = Brushes.IndianRed;
         }
     }
@@ -217,6 +217,7 @@ public partial class ToolDetectionWizardDialog : Window
 
             if (selections.Count == 0)
             {
+                // shown-error-exempt (user input): the user pressed Add with no tool selected
                 ShowResult("Select at least one tool, or click Skip for now.", error: true);
                 AcceptButton.IsEnabled = true;
                 return;
@@ -230,8 +231,7 @@ public partial class ToolDetectionWizardDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[ToolDetectionWizardDialog] BtnAccept_Click FAILED: {ex.Message}");
-            ShowResult($"Could not save the selected tools: {ex.Message}", error: true);
+            ShowResult(ShownError.Report("tool detection", "save the selected tools", $"Could not save the selected tools: {ex.Message}", ex), error: true);
             AcceptButton.IsEnabled = true;
         }
     }

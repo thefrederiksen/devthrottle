@@ -9,6 +9,7 @@ using Avalonia.Media;
 using CcDirector.ControlApi;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia;
 
@@ -55,7 +56,9 @@ public partial class SaveWorkspaceDialog : Window
         InitializeComponent();
 
         _catalog = catalog;
-        _importProblem = importProblem;
+        // Reported here, where it is shown, once per dialog (issue #3675).
+        if (importProblem is not null)
+            _importProblem = ShownError.Report("save workspace dialog", "import the workspaces saved on this machine before they moved to the Gateway", importProblem);
         _items = sessions.Select((s, i) => new SaveSessionItem
         {
             IsSelected = true,
@@ -82,8 +85,7 @@ public partial class SaveWorkspaceDialog : Window
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[SaveWorkspaceDialog] Loaded FAILED: {ex.Message}");
-                TxtWarning.Text = ex.Message;
+                TxtWarning.Text = ShownError.Report("save workspace", "read the workspaces already saved", ex.Message, ex);
                 TxtWarning.IsVisible = true;
             }
         };
@@ -123,10 +125,9 @@ public partial class SaveWorkspaceDialog : Window
             // SAY that the check could not be made. A null set with nothing on screen means the user
             // types a name that IS already taken, sees no warning, and overwrites a workspace - the
             // warning being absent looks exactly like the name being free.
-            FileLog.Write($"[SaveWorkspaceDialog] LoadExistingIdsAsync FAILED: {ex.Message}");
-            _existingIdsProblem =
+            _existingIdsProblem = ShownError.Report("save workspace dialog", "read the workspaces already on the Gateway",
                 "Could not read the workspaces already on the Gateway, so you will not be warned if this " +
-                $"name is already taken and would be overwritten: {ex.Message}";
+                $"name is already taken and would be overwritten: {ex.Message}", ex);
         }
 
         OnNameChanged();
@@ -288,8 +289,7 @@ public partial class SaveWorkspaceDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SaveWorkspaceDialog] BtnSave_Click FAILED: {ex.Message}");
-            TxtWarning.Text = ex.Message;
+            TxtWarning.Text = ShownError.Report("save workspace", "save the workspace", ex.Message, ex);
             TxtWarning.IsVisible = true;
             BtnSave.IsEnabled = true;
         }

@@ -148,8 +148,8 @@ private async void BtnSendPrompt_Click(object sender, RoutedEventArgs e)
     }
     catch (Exception ex)
     {
-        FileLog.Write($"[MainWindow] Send prompt FAILED: {ex}");
-        ShowError("Failed to send prompt. Please try again.");
+        // One call shows the error and writes its FAILED line - see "Errors Shown to the User" below
+        ShowError(ShownError.Report("main window", "send the prompt", "Failed to send prompt. Please try again.", ex));
     }
 }
 
@@ -160,6 +160,36 @@ private async Task SendPromptAsync()
     await _activeSession.SendTextAsync(text);  // Throws if fails
 }
 ```
+
+### Errors Shown to the User
+
+An error the user sees on the desktop - a message box, a dialog, error text in a panel or on a status line - is
+shown and reported in ONE call, so the report says the user saw it and what they were trying to do:
+
+```csharp
+// Text in a panel or status line: Report writes the FAILED line and returns the text to show
+StatusText.Text = ShownError.Report("turn reviews", "load the turn reviews", $"Could not load reviews: {ex.Message}", ex);
+
+// A message box or dialog
+await ShownErrorBox.ShowAsync(this, "settings", "save the settings", "Save Failed", ex.Message, ex);
+```
+
+- `surface` names where the user saw it; `action` completes "could not ...".
+- Do not also write a FAILED line for the same failure - the helper writes it, and two lines are two reports.
+- When the shown text carries the user's own words (a prompt, a dictation), pass `reported:` with what failed
+  instead. Prompt, transcript, terminal and model text never go in a report.
+- A button whose click can fail goes through `BusyAction.RunAsync(button, surface, action, ...)`, which reports.
+
+`ShownErrorSourceScanTests` finds every place the code shows error text and fails on one that is not on the
+helper. The only way past it is a written reason on the line above, in one of three kinds:
+
+```csharp
+// shown-error-exempt (user input): the address the user typed is not a valid Gateway address
+// shown-error-exempt (not an error): nothing found is an answer, not a failure
+// shown-error-exempt (reported above): the failure was reported by the ShownError call above
+```
+
+In `.axaml`, fixed error text needs `<!-- shown-error-reported-by: MethodThatReportsIt -->` or an exempt comment.
 
 ### Result Objects for Expected Failures
 
@@ -317,9 +347,8 @@ private async void BtnNewSession_Click(object sender, RoutedEventArgs e)
     }
     catch (Exception ex)
     {
-        FileLog.Write($"[MainWindow] New Session FAILED: {ex}");
-        MessageBox.Show($"Failed to create session:\n{ex.Message}",
-            "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        await ShownErrorBox.ShowAsync(this, "main window", "create a session",
+            "Error", $"Failed to create session:\n{ex.Message}", ex);
     }
 }
 ```

@@ -8,6 +8,7 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using CcDirector.Core.Browsers;
+using CcDirector.Core.ErrorReports;
 using CcDirector.Core.Utilities;
 
 namespace CcDirector.Avalonia.Controls;
@@ -115,8 +116,7 @@ public partial class BrowserSettingsView : UserControl
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[BrowserSettingsView] RefreshAsync FAILED: {ex.Message}");
-            StatusText.Text = $"Could not read the browsers list: {ex.Message}";
+            StatusText.Text = ShownError.Report("browser settings", "read the browsers list", $"Could not read the browsers list: {ex.Message}", ex);
             return;
         }
         finally
@@ -233,22 +233,23 @@ public partial class BrowserSettingsView : UserControl
             var progress = new Progress<string>(line => StatusText.Text = line);
             var result = await Task.Run(() => BrowserHarnessInstaller.InstallAsync(progress));
 
-            StatusText.Text = result.Message;
             if (!result.Success)
             {
                 // Say what went wrong and offer the manual page. Never re-check and never continue as
                 // though it had worked (CLAUDE.md rule 3).
-                FileLog.Write($"[BrowserSettingsView] BtnInstallHarness_Click FAILED: {result.Message}");
+                StatusText.Text = ShownError.Report("browser settings", "install Browser Harness", result.Message);
                 HarnessManualLink.IsVisible = true;
                 return;
             }
+
+            // shown-error-exempt (not an error): the install succeeded; the failure returned above, reported
+            StatusText.Text = result.Message;
 
             await RefreshAsync();
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[BrowserSettingsView] BtnInstallHarness_Click FAILED: {ex.Message}");
-            StatusText.Text = $"Could not install Browser Harness: {ex.Message}";
+            StatusText.Text = ShownError.Report("browser settings", "install Browser Harness", $"Could not install Browser Harness: {ex.Message}", ex);
             HarnessManualLink.IsVisible = true;
         }
         finally
@@ -268,8 +269,7 @@ public partial class BrowserSettingsView : UserControl
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[BrowserSettingsView] BtnHarnessInstallPage_Click FAILED: {ex.Message}");
-            StatusText.Text = $"Could not open the install guide: {ex.Message}";
+            StatusText.Text = ShownError.Report("browser settings", "open the Browser Harness install guide", $"Could not open the install guide: {ex.Message}", ex);
         }
     }
 
@@ -315,16 +315,15 @@ public partial class BrowserSettingsView : UserControl
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[BrowserSettingsView] BtnCreate_Click: sign-in after create FAILED: {ex.Message}");
-                StatusText.Text = $"Created \"{name}\", but it could not be opened for sign-in: {ex.Message}";
+                StatusText.Text = ShownError.Report("browser settings", "open the new browser profile for sign-in",
+                    $"Created \"{name}\", but it could not be opened for sign-in: {ex.Message}", ex);
             }
 
             await RefreshAndNotifyAsync();
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[BrowserSettingsView] BtnCreate_Click FAILED: {ex.Message}");
-            CreateError.Text = ex.Message;
+            CreateError.Text = ShownError.Report("browser settings", "create the browser profile", ex.Message, ex);
             CreateError.IsVisible = true;
         }
     }
@@ -369,9 +368,8 @@ public partial class BrowserSettingsView : UserControl
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[BrowserSettingsView] BtnStart_Click FAILED: id={card.Id}, {ex.Message}");
             card.IsBusy = false;
-            StatusText.Text = ex.Message;
+            StatusText.Text = ShownError.Report("browser settings", "start the browser", ex.Message, ex);
         }
     }
 
@@ -391,9 +389,8 @@ public partial class BrowserSettingsView : UserControl
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[BrowserSettingsView] BtnStop_Click FAILED: id={card.Id}, {ex.Message}");
             card.IsBusy = false;
-            StatusText.Text = ex.Message;
+            StatusText.Text = ShownError.Report("browser settings", "stop the browser", ex.Message, ex);
         }
     }
 
@@ -413,9 +410,8 @@ public partial class BrowserSettingsView : UserControl
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[BrowserSettingsView] BtnSignIn_Click FAILED: id={card.Id}, {ex.Message}");
             card.IsBusy = false;
-            StatusText.Text = ex.Message;
+            StatusText.Text = ShownError.Report("browser settings", "open the browser for sign-in", ex.Message, ex);
         }
     }
 
@@ -435,8 +431,7 @@ public partial class BrowserSettingsView : UserControl
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[BrowserSettingsView] BtnAttach_Click FAILED: id={card.Id}, {ex.Message}");
-            StatusText.Text = ex.Message;
+            StatusText.Text = ShownError.Report("browser settings", "copy the attach command", ex.Message, ex);
         }
     }
 
@@ -475,8 +470,7 @@ public partial class BrowserSettingsView : UserControl
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[BrowserSettingsView] BtnRenameSave_Click FAILED: id={card.Id}, {ex.Message}");
-            StatusText.Text = ex.Message;
+            StatusText.Text = ShownError.Report("browser settings", "rename the browser profile", ex.Message, ex);
         }
     }
 
@@ -511,9 +505,8 @@ public partial class BrowserSettingsView : UserControl
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[BrowserSettingsView] BtnRemove_Click FAILED: id={card.Id}, {ex.Message}");
             card.IsBusy = false;
-            StatusText.Text = ex.Message;
+            StatusText.Text = ShownError.Report("browser settings", "remove the browser profile", ex.Message, ex);
         }
     }
 

@@ -9,6 +9,7 @@ using CcDirector.Core.Configuration;
 using CcDirector.Core.Dictation.Models;
 using CcDirector.Core.Utilities;
 using CcDirector.Core.Voice;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia.Voice;
 
@@ -98,6 +99,7 @@ public partial class WakeWordTestDialog : Window
         }
         catch (ArgumentException ex)
         {
+            // shown-error-exempt (user input): the wake word the user typed is not one the engine can listen for
             AppendLog($"ERROR: invalid wake word: {ex.Message}");
             return;
         }
@@ -153,8 +155,7 @@ public partial class WakeWordTestDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[WakeWordTestDialog] StartAsync FAILED: {ex.Message}");
-            AppendLog($"ERROR: could not start microphone: {ex.Message}");
+            AppendLog(ShownError.Report("wake word test", "start the microphone", $"ERROR: could not start microphone: {ex.Message}", ex));
             if (recorder is not null)
             {
                 recorder.OnAudioBands -= OnAudioBands;
@@ -201,8 +202,7 @@ public partial class WakeWordTestDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[WakeWordTestDialog] stop/transcribe FAILED: {ex.Message}");
-            AppendLog($"ERROR: transcription failed: {ex.Message}");
+            AppendLog(ShownError.Report("wake word test", "transcribe what was heard", $"ERROR: transcription failed: {ex.Message}", ex));
         }
         ParkBars();
         StopButton.IsEnabled = false;
@@ -311,6 +311,7 @@ public partial class WakeWordTestDialog : Window
         }
         catch (ArgumentException ex)
         {
+            // shown-error-exempt (user input): the wake word the user typed is not one the engine can listen for
             AppendLog($"ERROR: invalid wake word: {ex.Message}");
             return;
         }

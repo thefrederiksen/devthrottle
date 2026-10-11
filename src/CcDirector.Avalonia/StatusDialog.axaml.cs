@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia;
 
@@ -44,10 +45,13 @@ public partial class StatusDialog : Window
         }
         else
         {
-            AccountNameText.Text = "(unable to read)";
-            EmailText.Text = "(unable to read)";
-            InstallMethodText.Text = "(unable to read)";
-            StartupsText.Text = "(unable to read)";
+            // Four fields, one failure: reported once, as the first of them is shown.
+            var unreadable = ShownError.Report("Claude status", "read the Claude configuration", "(unable to read)",
+                reported: "the Claude configuration file could not be read, so the account fields show (unable to read)");
+            AccountNameText.Text = unreadable;
+            EmailText.Text = unreadable;
+            InstallMethodText.Text = unreadable;
+            StartupsText.Text = unreadable;
         }
 
         LoadingText.IsVisible = false;

@@ -11,6 +11,7 @@ using Avalonia.Media.Imaging;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Feedback;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia;
 
@@ -77,8 +78,7 @@ public partial class FeedbackDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[FeedbackDialog] BtnAttachScreenshot_Click FAILED: {ex}");
-            ShowStatus($"Could not capture screenshot: {ex.Message}", isError: true);
+            ShowStatus(ShownError.Report("feedback", "capture a screenshot", $"Could not capture screenshot: {ex.Message}", ex), isError: true);
         }
     }
 
@@ -99,6 +99,7 @@ public partial class FeedbackDialog : Window
         var title = TitleBox.Text?.Trim() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(title))
         {
+            // shown-error-exempt (user input): the user pressed Submit with the title empty
             ShowStatus("Please enter a title before submitting.", isError: true);
             return;
         }
@@ -125,8 +126,7 @@ public partial class FeedbackDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[FeedbackDialog] BtnSubmit_Click FAILED: {ex}");
-            ShowStatus($"Could not submit feedback: {ex.Message}", isError: true);
+            ShowStatus(ShownError.Report("feedback", "submit the feedback", $"Could not submit feedback: {ex.Message}", ex), isError: true);
             SetBusy(false);
         }
     }

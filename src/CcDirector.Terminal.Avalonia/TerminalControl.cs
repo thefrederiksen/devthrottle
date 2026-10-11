@@ -15,6 +15,7 @@ using CcDirector.Core.Utilities;
 using CcDirector.Terminal.Avalonia.Rendering;
 using CcDirector.Terminal.Core;
 using CcDirector.Terminal.Core.Rendering;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Terminal.Avalonia;
 
@@ -1324,11 +1325,14 @@ public class TerminalControl : Control
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[TerminalControl] Render FAILED ({_renderer.Name}): {ex.Message}");
+            // Shown and reported in one call (issue #3675). A persistent fault repaints every frame; the reporter's
+            // fingerprint and rate limit fold those into one row with a count.
+            var shown = ShownError.Report("session terminal", $"draw the terminal with the {_renderer.Name} renderer",
+                $"Renderer error ({_renderer.Name}): {ex.Message}", ex);
             var errorBrush = new SolidColorBrush(Color.FromRgb(30, 30, 30));
             context.DrawRectangle(errorBrush, null, new Rect(0, 0, Bounds.Width, Bounds.Height));
             var errorText = new FormattedText(
-                $"Renderer error ({_renderer.Name}): {ex.Message}",
+                shown,
                 CultureInfo.InvariantCulture,
                 FlowDirection.LeftToRight,
                 _typefaceNormal,

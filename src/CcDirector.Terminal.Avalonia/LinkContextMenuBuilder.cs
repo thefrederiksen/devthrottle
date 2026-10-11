@@ -225,7 +225,7 @@ public static class LinkContextMenuBuilder
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[LinkContextMenuBuilder] ChooseBrowserAsync FAILED: {ex.Message}");
+            LogBrowserFailure(context, nameof(ChooseBrowserAsync), ex);
             context.OnBrowserError?.Invoke($"Could not open the browser picker.\n\n{ex.Message}");
         }
     }
@@ -251,8 +251,8 @@ public static class LinkContextMenuBuilder
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[LinkContextMenuBuilder] ApplyChoice FAILED: {ex.Message}");
             var where = choice.Browser?.DisplayName ?? "the system default browser";
+            LogBrowserFailure(context, nameof(ApplyChoice), ex);
             context.OnBrowserError?.Invoke($"Could not open in {where}.\n\n{ex.Message}");
         }
     }
@@ -321,9 +321,22 @@ public static class LinkContextMenuBuilder
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[LinkContextMenuBuilder] OpenInBrowserDefault FAILED: {ex.Message}");
+            LogBrowserFailure(context, nameof(OpenInBrowserDefault), ex);
             context.OnBrowserError?.Invoke($"Could not open in browser.\n\n{ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Log a browser failure before it goes to the owner. The owner's box reports what it shows (issue #3675), so
+    /// with an owner this writes no FAILED line - one failure is one report - but keeps the exception and its stack
+    /// in the log. With no owner, nothing shows or reports it, so then it is a FAILED line here.
+    /// </summary>
+    private static void LogBrowserFailure(LinkMenuContext context, string method, Exception ex)
+    {
+        if (context.OnBrowserError is null)
+            FileLog.Write($"[LinkContextMenuBuilder] {method} FAILED, and nothing shows it: {ex}");
+        else
+            FileLog.Write($"[LinkContextMenuBuilder] {method}: handed to the owner, which shows and reports it: {ex}");
     }
 
     private static string ResolvePath(LinkMenuContext context, string path)

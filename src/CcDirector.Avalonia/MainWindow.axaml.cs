@@ -34,6 +34,7 @@ using CcDirector.Core.Skills;
 using CcDirector.Core.Teams;
 using CcDirector.Core.Tools;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.ErrorReports;
 using FileViewerControls = CcDirector.Avalonia.Controls;
 
 namespace CcDirector.Avalonia;
@@ -745,9 +746,9 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[MainWindow] RefreshDirectorTeamAsync FAILED: {ex.Message}");
             DirectorTeamChip.Show(null);
-            ShowNotification($"Could not read which team this Director works for: {ex.Message}");
+            ShowNotification(ShownError.Report("main window", "read which team this Director works for",
+                $"Could not read which team this Director works for: {ex.Message}", ex));
         }
     }
 
@@ -787,8 +788,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[MainWindow] BtnCopyDirectorInfo_Click FAILED: {ex.Message}");
-            ShowNotification($"Copy failed: {ex.Message}");
+            ShowNotification(ShownError.Report("main window", "copy this Director's details", $"Copy failed: {ex.Message}", ex));
         }
     }
 
@@ -925,8 +925,8 @@ public partial class MainWindow : Window
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[MainWindow] Gateway monitor change handling FAILED: {ex}");
-                ShowNotification("Gateway status could not be refreshed. Open Gateway settings for details.");
+                ShowNotification(ShownError.Report("main window", "refresh the Gateway status",
+                    "Gateway status could not be refreshed. Open Gateway settings for details.", ex));
             }
         });
 
@@ -1882,7 +1882,9 @@ public partial class MainWindow : Window
                 // is what stops an agent - and the owner - blaming the network for an hour.
                 if (_lastFleetToolCheck is { Verdict: FleetToolVerdict.CannotReachGateway } fleetFault)
                 {
-                    ToolsIndicatorLabel.Text = "Sessions cannot reach the fleet";
+                    ToolsIndicatorLabel.Text = ShownError.Report("main window", "reach the fleet from the sessions' command line",
+                        "Sessions cannot reach the fleet",
+                        reported: $"Sessions cannot reach the fleet: different install={fleetFault.IsDifferentInstall}, {fleetFault.Detail}");
                     ToolsIndicatorSub.Text = fleetFault.IsDifferentInstall
                         ? "the command line on your PATH is from another install"
                         : fleetFault.Detail;
@@ -2123,10 +2125,9 @@ public partial class MainWindow : Window
             }
             else
             {
-                progress.SetIncomplete(started, total, string.Join("  |  ", failed));
-                FileLog.Write(
-                    $"[MainWindow] LoadWorkspaceAsync: workspace '{workspace.Name}' INCOMPLETE - " +
-                    $"{started}/{total} started; failures: {string.Join("; ", failed)}");
+                progress.SetIncomplete(started, total, ShownError.Report("workspace progress",
+                    $"start every session in workspace '{workspace.Name}'", string.Join("  |  ", failed),
+                    reported: $"only {started} of {total} sessions started: {string.Join("; ", failed)}"));
 
                 // Held open, because the fleet that was there is gone and this is the only place the
                 // user is told which seats did not replace it.
@@ -2203,7 +2204,10 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[MainWindow] ImportLegacyWorkspacesAsync FAILED: {ex.Message}");
+            // Not a FAILED line: the workspace dialog that shows the sentence below reports it, and one failure is
+            // one report. The exception and its stack stay in the log here.
+            // not-an-error: the workspace dialog that shows this failure reports it through ShownError
+            FileLog.Write($"[MainWindow] ImportLegacyWorkspacesAsync: the import threw, and the dialog reports it: {ex}");
             return "The workspaces saved on this machine before they moved to the Gateway could not " +
                    $"be imported: {ex.Message} They are still on disk and will be tried again.";
         }
@@ -2449,10 +2453,9 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[MainWindow] CreateRemoteSessionAsync FAILED: {ex.Message}");
-            await MessageBox.ShowAsync(this,
+            await ShownErrorBox.ShowAsync(this, "main window", "start a remote session",
                 "Could not start remote session",
-                "Director could not start the GitHub Actions session.\n\n" + ex.Message);
+                "Director could not start the GitHub Actions session.\n\n" + ex.Message, ex);
         }
     }
 
@@ -2903,8 +2906,7 @@ public partial class MainWindow : Window
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[MainWindow] Copy Handover Info FAILED: {ex.Message}");
-                ShowNotification("Copy failed");
+                ShowNotification(ShownError.Report("main window", "copy the session's handover details", "Copy failed", ex));
             }
         };
 
@@ -2922,8 +2924,7 @@ public partial class MainWindow : Window
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[MainWindow] Save as named session FAILED: {ex.Message}");
-                ShowNotification("Could not save the named session");
+                ShowNotification(ShownError.Report("main window", "save the session as a named session", "Could not save the named session", ex));
             }
         };
 
@@ -2946,8 +2947,7 @@ public partial class MainWindow : Window
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[MainWindow] Stop Session FAILED: {ex.Message}");
-                ShowNotification($"Could not open the stop dialog - {ex.Message}");
+                ShowNotification(ShownError.Report("main window", "open the stop dialog", $"Could not open the stop dialog - {ex.Message}", ex));
             }
         };
 
@@ -2998,6 +2998,7 @@ public partial class MainWindow : Window
         // A preset with this name already exists - confirm before overwriting it.
         if (store.Exists(slug))
         {
+            // shown-error-exempt (not an error): a question before overwriting a named session; nothing has failed
             var overwrite = await MessageBox.ShowConfirmAsync(this,
                 "Named session exists",
                 $"A named session called \"{name}\" already exists. Overwrite it?",
@@ -3034,7 +3035,7 @@ public partial class MainWindow : Window
         }
         else
         {
-            ShowNotification("Could not save the named session");
+            ShowNotification(ShownError.Report("main window", "save the session as a named session", "Could not save the named session"));
         }
     }
 
@@ -3082,8 +3083,7 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             // Fail loud: no local OnHold set, so nothing diverges from the Gateway's truth.
-            FileLog.Write($"[MainWindow] SetSessionHold FAILED: session={vm.Session.Id}: {ex.Message}");
-            ShowNotification($"Could not snooze {vm.DisplayName} - {ex.Message}");
+            ShowNotification(ShownError.Report("main window", $"snooze session {vm.Session.Id}", $"Could not snooze {vm.DisplayName} - {ex.Message}", ex));
         }
     }
 
@@ -3363,7 +3363,7 @@ public partial class MainWindow : Window
     private async void BtnCockpit_Click(object? sender, RoutedEventArgs e)
     {
         if (sender is not Control button) return;
-        await BusyAction.RunAsync(button, () => OpenCockpitWithFeedbackAsync(sessionId: null), "Opening...",
+        await BusyAction.RunAsync(button, "main window", "open the Cockpit", () => OpenCockpitWithFeedbackAsync(sessionId: null), "Opening...",
             owner: this, failureTitle: "Cannot Open Cockpit");
     }
 
@@ -3388,7 +3388,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        await BusyAction.RunAsync(button, () => OpenCockpitWithFeedbackAsync(sessionId), "Opening...",
+        await BusyAction.RunAsync(button, "session tab bar", "open the session's Cockpit screen", () => OpenCockpitWithFeedbackAsync(sessionId), "Opening...",
             owner: this, failureTitle: "Cannot Open Cockpit");
     }
 
@@ -3428,12 +3428,11 @@ public partial class MainWindow : Window
             if (url is null)
             {
                 FileLog.Write($"[MainWindow] BtnCockpit_Click: gateway at {baseUrl} returned no Tailscale URL (Tailscale unavailable); opened nothing. cc-director never opens a localhost URL.");
-                await new MessageDialog(
+                await ShownErrorBox.ShowDialogAsync(this, "main window", "open the Cockpit",
                     "Cannot Open Cockpit",
                     "Tailscale is unavailable on this machine, so there is no tailnet URL for the " +
                     "Cockpit. Bring Tailscale up and try again. Director never opens a localhost " +
-                    "URL because it would only work on this one machine.")
-                    .ShowDialog<bool?>(this);
+                    "URL because it would only work on this one machine.");
             }
 
             return false;
@@ -3845,8 +3844,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[MainWindow] BtnSpeak_Click FAILED: {ex.Message}");
-            ShowNotification($"Dictation failed: {ex.Message}");
+            ShowNotification(ShownError.Report("main window", "dictate a prompt", $"Dictation failed: {ex.Message}", ex));
         }
         finally
         {
@@ -3959,7 +3957,7 @@ public partial class MainWindow : Window
     /// submit failed; null when the failure happened before a transcript existed, in which case only the
     /// typed <paramref name="composerText"/> can be restored. Runs on the UI thread.
     /// </summary>
-    private async void OnDictationFailed(Session target, string composerText, string? composedText, string error, bool spokenAlone)
+    internal void OnDictationFailed(Session target, string composerText, string? composedText, string error, bool spokenAlone)
     {
         try
         {
@@ -3988,8 +3986,13 @@ public partial class MainWindow : Window
             var whatSurvived = composedText is not null
                 ? "The transcribed text has been put in the message box - review it and press Send when you are ready."
                 : "Any text you had typed has been put back - dictate again when you are ready.";
-            await MessageBox.ShowAsync(this, "Dictation not sent",
-                $"Your dictation was not sent: {error}\n\nNothing was queued. {whatSurvived}");
+            // The box shows the error; the report never carries it. It is the refusal's or the transcriber's message,
+            // and a refusal's message holds the prompt's first characters and the terminal's tail.
+            ReportSendRefused("Dictation not sent", $"Your dictation was not sent: {error}\n\nNothing was queued. {whatSurvived}",
+                $"send the dictation to session {target.Id}",
+                composedText is null
+                    ? "the dictation could not be transcribed, so nothing was sent"
+                    : $"the session refused the transcribed dictation; {restore.Length} characters were put back");
         }
         catch (Exception ex)
         {
@@ -4022,12 +4025,19 @@ public partial class MainWindow : Window
 
     /// <summary>Show a refused send's modal without making the send wait on it; a failure to show it is logged, never
     /// thrown into the UI thread.</summary>
-    private async void ReportSendRefused(string title, string message)
+    /// <param name="message">What the box shows. It may carry the refusal's own text - the screen is the owner's.</param>
+    /// <param name="reported">What the report says instead: built from the refusal's type, the session id and lengths,
+    /// never from its message. A real refusal's message carries the first characters of the prompt, the composer's
+    /// text and the terminal's tail (SubmitVerifier, TerminalSubmit), so no part of it may reach a report.</param>
+    /// <param name="refusal">The refusal, for its type and stack; the helper withholds its message.</param>
+    private async void ReportSendRefused(string title, string message, string action, string reported, Exception? refusal = null)
     {
         try
         {
-            if (SendRefusedShownForTests is { } seam) { seam(title, message); return; }
-            await MessageBox.ShowAsync(this, title, message);
+            // Reported before the seam, so a test that stops at the seam still exercised it.
+            var shown = ShownError.Report("main window", action, message, refusal, reported: reported);
+            if (SendRefusedShownForTests is { } seam) { seam(title, shown); return; }
+            await MessageBox.ShowAsync(this, title, shown);
         }
         catch (Exception ex)
         {
@@ -4118,7 +4128,7 @@ public partial class MainWindow : Window
         FileLog.Write($"[MainWindow] OnTerminalBrowserLaunchFailed: {message}");
         try
         {
-            await MessageBox.ShowAsync(this, "Open in Browser", message);
+            await ShownErrorBox.ShowAsync(this, "main window", "open a terminal link in a browser", "Open in Browser", message);
         }
         catch (Exception ex)
         {
@@ -4416,8 +4426,8 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[MainWindow] ColourLegend_Click FAILED: {ex}");
-            ShowNotification("What the colours mean could not be opened. See the log for details.");
+            ShowNotification(ShownError.Report("main window", "open the colour legend",
+                "What the colours mean could not be opened. See the log for details.", ex));
         }
     }
 
@@ -4555,6 +4565,7 @@ public partial class MainWindow : Window
         if (selectedEntry is null)
         {
             FileLog.Write("[MainWindow] ShowNewSessionDialog: no agent entry selected (none configured); aborting");
+            // shown-error-exempt (user input): the user has no agent enabled; the box says where to add one
             await MessageBox.ShowAsync(this,
                 "No agent configured",
                 "There are no enabled agents to launch.\n\nAdd one in Settings > Agents, then try again.");
@@ -4637,16 +4648,15 @@ public partial class MainWindow : Window
                     + $"could not be found.\n\nLooked for: {agentExe}\n\n{installHint}\n\n"
                     + "If it is installed in a non-standard location, set its path in config.json.";
             }
-            FileLog.Write($"[MainWindow] ShowNewSessionDialog: agent {agentKind} executable '{agentExe}' not found on PATH; aborting launch");
-            await MessageBox.ShowAsync(this, errorTitle, errorBody);
+            await ShownErrorBox.ShowAsync(this, "main window", $"start a {agentKind} session", errorTitle, errorBody,
+                reported: $"the {agentKind} executable '{agentExe}' was not found on PATH");
             return;
         }
 
         var vm = CreateSession(dialog.SelectedPath, resumeSessionId, agentArgs, agent);
         if (vm == null)
         {
-            FileLog.Write("[MainWindow] ShowNewSessionDialog: CreateSession returned null; showing failure dialog");
-            await MessageBox.ShowAsync(this,
+            await ShownErrorBox.ShowAsync(this, "main window", "start the session",
                 "Could not start session",
                 "Director could not start the session.\n\n"
                 + (_lastSessionCreateError ?? "See the Director log for details."));
@@ -5000,8 +5010,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[MainWindow] SendLogsToDevThrottle FAILED: {ex}");
-            ShowNotification($"The log could not be sent: {ex.Message}");
+            ShowNotification(ShownError.Report("main window", "send the log to DevThrottle", $"The log could not be sent: {ex.Message}", ex));
         }
     }
 
@@ -5991,12 +6000,13 @@ public partial class MainWindow : Window
             // handler, was reported a second time by the finalizer as an unobserved task, and took the owner's words
             // with it. The session has already counted the failed delivery; here the words go back in the box and
             // the refusal is shown, exactly as a failed background dictation is.
-            FileLog.Write($"[MainWindow] SendPrompt FAILED: session={target.Id}: {ex.Message}");
             var spokenAlone = origin.Modality == InputModality.Voice;
             RestoreUnsentWords(target, boxText, spokenAlone);
             ReportSendRefused(spokenAlone ? "Dictation not sent" : "Prompt not sent",
                 $"Your {(spokenAlone ? "dictation" : "prompt")} was not sent: {ex.Message}\n\n" +
-                "Nothing was queued. The text has been put back in the message box - press Send when you are ready.");
+                "Nothing was queued. The text has been put back in the message box - press Send when you are ready.",
+                $"send a prompt to session {target.Id}",
+                $"the session refused it ({ex.GetType().Name}); {boxText.Length} characters were put back in the box", ex);
             return;
         }
 
@@ -6199,8 +6209,8 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             // A refused send ends in a message, never an unhandled UI-thread exception (issue 3481).
-            FileLog.Write($"[MainWindow] BtnHandover_Click FAILED: session={target.Id}: {ex.Message}");
-            ReportSendRefused("Handover not sent", $"/handover was not sent: {ex.Message}");
+            ReportSendRefused("Handover not sent", $"/handover was not sent: {ex.Message}",
+                $"send /handover to session {target.Id}", $"the session refused /handover ({ex.GetType().Name})", ex);
             return;
         }
         FileLog.Write($"[MainWindow] BtnHandover_Click: sent /handover to session {target.Id}");
@@ -6354,6 +6364,9 @@ public partial class MainWindow : Window
             UpdateIndicatorIcon.Fill = Brush.Parse(status.Accent);
             UpdateIndicator.Background = Brush.Parse(status.Background);
             UpdateIndicator.BorderBrush = Brush.Parse(status.Border);
+            // Error report decision (issue #3675): NOT reported here. "UPDATE INSTALL FAILED" re-displays the launcher's
+            // failure from the updater state; the launcher reports it with its own FAILED lines (DirectorUpdateOwner),
+            // and reporting it again here would be a second row, on every refresh, for one failed install.
             UpdateIndicatorLabel.Text = status.Headline;
             UpdateIndicatorLabel.Foreground = Brush.Parse(status.Accent);
             UpdateIndicatorSub.Text = status.Detail;
@@ -6452,7 +6465,9 @@ public partial class MainWindow : Window
                     var result = await CcDirector.Core.Update.LauncherRestartClient.RequestRestartAsync();
                     Dispatcher.UIThread.Post(() =>
                     {
-                        ShowNotification(result.Message);
+                        ShowNotification(result.Ok
+                            ? result.Message
+                            : ShownError.Report("main window", "ask the launcher to install the update and restart", result.Message));
                         RefreshUpdateStatus();
                     });
                 });
@@ -6788,8 +6803,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[MainWindow] BtnClearScreenshots_Click FAILED: {ex.Message}");
-            await new MessageDialog("Cannot Clear Screenshots", ex.Message).ShowDialog<bool?>(this);
+            await ShownErrorBox.ShowDialogAsync(this, "screenshots", "clear the screenshots", "Cannot Clear Screenshots", ex.Message, ex);
         }
     }
 
@@ -6852,8 +6866,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[MainWindow] ScreenshotCopy_Click FAILED: {ex.Message}");
-            ShowNotification($"Copy failed: {ex.Message}");
+            ShowNotification(ShownError.Report("screenshots", "copy the screenshot", $"Copy failed: {ex.Message}", ex));
         }
     }
 
@@ -6874,7 +6887,7 @@ public partial class MainWindow : Window
         // Issue #1107, item 6. The OwnedWindows check below guards owned WINDOWS; it does not guard the
         // async gap around the Task.Run further down, so two clicks opened two browser tabs. Minor in
         // consequence, identical in shape to the Cockpit bug.
-        await BusyAction.RunAsync(btn, () => CreateIssueFromScreenshotAsync(filePath), "Opening...",
+        await BusyAction.RunAsync(btn, "screenshots", "create a GitHub issue from the screenshot", () => CreateIssueFromScreenshotAsync(filePath), "Opening...",
             owner: this, failureTitle: "Cannot Create GitHub Issue");
     }
 
@@ -6893,6 +6906,7 @@ public partial class MainWindow : Window
             var session = _activeSession;
             if (session == null)
             {
+                // shown-error-exempt (user input): the user asked for an issue with no session selected
                 await new MessageDialog(
                     "Select a Session First",
                     "The GitHub issue is created in the repository of the active session. " +
@@ -6920,8 +6934,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[MainWindow] ScreenshotCreateIssue_Click FAILED: {ex.Message}");
-            await new MessageDialog("Cannot Create GitHub Issue", ex.Message).ShowDialog<bool?>(this);
+            await ShownErrorBox.ShowDialogAsync(this, "screenshots", "create a GitHub issue from the screenshot", "Cannot Create GitHub Issue", ex.Message, ex);
         }
     }
 
@@ -7177,9 +7190,10 @@ public partial class MainWindow : Window
         {
             // Nobody awaits this task (the caller discards it), so a refusal that escaped here was an unobserved task and
             // the owner never heard the handover did not go in (issue 3481). It is reported instead.
-            FileLog.Write($"[MainWindow] InjectHandoverPromptAsync FAILED: session={session.Id}: {ex.Message}");
             Dispatcher.UIThread.Post(() => ReportSendRefused("Handover not sent",
-                $"The handover prompt was not sent to the new session: {ex.Message}\n\nThe handover document is {handoverPath}."));
+                $"The handover prompt was not sent to the new session: {ex.Message}\n\nThe handover document is {handoverPath}.",
+                $"send the handover prompt to session {session.Id}",
+                $"the session refused the handover prompt ({ex.GetType().Name})", ex));
             return;
         }
         FileLog.Write($"[MainWindow] InjectHandoverPromptAsync: sent handover prompt for session {session.Id}");
@@ -7364,8 +7378,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[MainWindow] LoadDocumentContentInBackground FAILED: {ex.Message}");
-            viewer.ShowLoadError(ex.Message);
+            viewer.ShowLoadError(ShownError.Report("document viewer", "open the file", ex.Message, ex));
         }
     }
 

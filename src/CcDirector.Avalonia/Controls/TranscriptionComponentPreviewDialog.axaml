@@ -55,6 +55,7 @@
             <Button Content="Transcribing" Margin="0,0,8,8" Click="StateTranscribing_Click" />
             <Button Content="Review (Hold)" Margin="0,0,8,8" Click="StateReview_Click" />
             <Button Content="Used" Margin="0,0,8,8" Click="StateUsed_Click" />
+            <!-- shown-error-exempt (not an error): a button that previews the error state of the component -->
             <Button Content="Error" Margin="0,0,8,8" Click="StateError_Click" />
         </WrapPanel>
 

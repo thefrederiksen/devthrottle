@@ -9,6 +9,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using CcDirector.Core.Browsers;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Terminal.Avalonia;
 
@@ -294,7 +295,7 @@ public sealed class BrowserPickerDialog : Window
         {
             _optionsPanel.Children.Add(new TextBlock
             {
-                Text = $"Could not read the installed browsers: {error}",
+                Text = ShownError.Report("browser picker", "read the installed browsers", $"Could not read the installed browsers: {error}"),
                 Foreground = Brush.Parse("#F59E0B"),
                 FontSize = 11,
                 TextWrapping = TextWrapping.Wrap,

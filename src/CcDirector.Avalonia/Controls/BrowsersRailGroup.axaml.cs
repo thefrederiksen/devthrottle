@@ -7,6 +7,7 @@ using Avalonia.Interactivity;
 using Avalonia.Threading;
 using CcDirector.Core.Browsers;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia.Controls;
 
@@ -93,8 +94,7 @@ public partial class BrowsersRailGroup : UserControl
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[BrowsersRailGroup] RefreshAsync FAILED: {ex.Message}");
-            Notified?.Invoke(this, $"Could not read the browsers list: {ex.Message}");
+            Notified?.Invoke(this, ShownError.Report("browsers rail", "read the browsers list", $"Could not read the browsers list: {ex.Message}", ex));
             return;
         }
         finally

@@ -11,6 +11,7 @@ using CcDirector.Core.Configuration;
 using CcDirector.Core.Drivers;
 using CcDirector.Core.Settings;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia;
 
@@ -491,14 +492,14 @@ public partial class AgentEditorDialog : Window
             {
                 // Detect failed: reveal the manual Executable/Browse/Quick-check area (AC8).
                 ManualPathPanel.IsVisible = true;
-                SetDetectResult($"{result.Message} Enter the executable below or use Browse.", success: false);
+                SetDetectResult(ShownError.Report("agent editor", $"find the {LabelFor(type)} executable",
+                    $"{result.Message} Enter the executable below or use Browse."), success: false);
             }
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[AgentEditorDialog] BtnDetect_Click FAILED: {ex.Message}");
             ManualPathPanel.IsVisible = true;
-            SetDetectResult($"Detection failed: {ex.Message}", success: false);
+            SetDetectResult(ShownError.Report("agent editor", "detect the agent's executable", $"Detection failed: {ex.Message}", ex), success: false);
         }
         finally
         {
@@ -526,7 +527,12 @@ public partial class AgentEditorDialog : Window
         try
         {
             var result = await _toolDetector.TestToolAsync(type, path);
-            SetQuickCheckResult(result.Message, success: result.Ok);
+            // A failed check is reported without the message: it can carry 500 characters of the tool's own output.
+            SetQuickCheckResult(result.Ok
+                    ? result.Message
+                    : ShownError.Report("agent editor", $"run the {LabelFor(type)} quick check", result.Message,
+                        reported: $"the {LabelFor(type)} executable did not pass the quick check"),
+                success: result.Ok);
             await Task.Run(() => CcDirectorConfigService.MergePatch(ToolDetectionService.BuildValidationPatch(result)));
             FileLog.Write($"[AgentEditorDialog] RunQuickCheckAsync: persisted validation type={type}, ok={result.Ok}");
 
@@ -535,9 +541,8 @@ public partial class AgentEditorDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[AgentEditorDialog] RunQuickCheckAsync FAILED: {ex.Message}");
             ManualPathPanel.IsVisible = true;
-            SetQuickCheckResult($"Test failed: {ex.Message}", success: false);
+            SetQuickCheckResult(ShownError.Report("agent editor", "run the agent's quick check", $"Test failed: {ex.Message}", ex), success: false);
         }
         finally
         {
@@ -575,8 +580,7 @@ public partial class AgentEditorDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[AgentEditorDialog] BtnBrowse_Click FAILED: {ex.Message}");
-            ShowStatus($"Browse failed: {ex.Message}", error: true);
+            ShowStatus(ShownError.Report("agent editor", "browse for the agent's executable", $"Browse failed: {ex.Message}", ex), error: true);
         }
     }
 
@@ -591,6 +595,7 @@ public partial class AgentEditorDialog : Window
                 exe = ToolDetectionService.GetConfiguredPath(type, _options);
             if (string.IsNullOrWhiteSpace(exe))
             {
+                // shown-error-exempt (user input): the user asked for a launch preview before choosing an executable
                 ShowStatus("Set the executable first (Detect or Browse), then try Launch preview again.", error: true);
                 return;
             }
@@ -611,8 +616,7 @@ public partial class AgentEditorDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[AgentEditorDialog] BtnLaunchPreview_Click FAILED: {ex.Message}");
-            ShowStatus($"Launch preview failed: {ex.Message}", error: true);
+            ShowStatus(ShownError.Report("agent editor", "show the launch preview", $"Launch preview failed: {ex.Message}", ex), error: true);
         }
     }
 

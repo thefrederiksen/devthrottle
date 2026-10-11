@@ -19,6 +19,7 @@ using CcDirector.Core.GatewayConnection;
 using CcDirector.Core.Network;
 using CcDirector.Core.Utilities;
 using CcDirector.Setup.Engine;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia.Controls;
 
@@ -666,7 +667,8 @@ public partial class GatewayConnectionPanel : UserControl, ISignInAddressDisplay
         var host = (global::Avalonia.Application.Current as App)?.ControlApiHost;
         if (host is null)
         {
-            DiagnosticsVerdict.Text = "The Control API is not running yet, so diagnostics cannot run.";
+            DiagnosticsVerdict.Text = ShownError.Report("Gateway connection", "run the connection diagnostics",
+                "The Control API is not running yet, so diagnostics cannot run.");
             return;
         }
 
@@ -704,8 +706,7 @@ public partial class GatewayConnectionPanel : UserControl, ISignInAddressDisplay
         catch (OperationCanceledException) { /* panel left or re-run superseded */ }
         catch (Exception ex)
         {
-            FileLog.Write($"[GatewayConnectionPanel] diagnostics FAILED: {ex.Message}");
-            DiagnosticsVerdict.Text = $"Diagnostics failed to run: {ex.Message}";
+            DiagnosticsVerdict.Text = ShownError.Report("Gateway connection", "run the connection diagnostics", $"Diagnostics failed to run: {ex.Message}", ex);
         }
         finally
         {
@@ -1081,6 +1082,7 @@ public partial class GatewayConnectionPanel : UserControl, ISignInAddressDisplay
         var raw = ManualUrlBox.Text ?? string.Empty;
         if (!GatewayAddress.TryNormalize(raw, out var url, out var error))
         {
+            // shown-error-exempt (user input): the address the user typed is not a valid Gateway address
             ManualErrorText.Text = error ?? "That is not a valid address.";
             ManualErrorText.IsVisible = true;
             return;
@@ -1119,7 +1121,7 @@ public partial class GatewayConnectionPanel : UserControl, ISignInAddressDisplay
         var host = (global::Avalonia.Application.Current as App)?.ControlApiHost;
         if (host is null)
         {
-            ShowFailure("The Control API is not running yet, so this Director cannot connect.",
+            ShowFailure("connect to the Gateway", "The Control API is not running yet, so this Director cannot connect.",
                 "Wait for the Director to finish starting, then try again.");
             return;
         }
@@ -1161,8 +1163,7 @@ public partial class GatewayConnectionPanel : UserControl, ISignInAddressDisplay
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[GatewayConnectionPanel] ConnectTo FAILED to start: {ex.Message}");
-            ShowFailure($"Could not start connecting: {ex.Message}", null);
+            ShowFailure("start connecting to the Gateway", $"Could not start connecting: {ex.Message}", null, ex);
         }
     }
 
@@ -1184,7 +1185,7 @@ public partial class GatewayConnectionPanel : UserControl, ISignInAddressDisplay
         var directorId = DirectorIdOverride ?? host?.DirectorId;
         if (directorId is null)
         {
-            ShowFailure("The Control API is not running yet, so this Director cannot connect.",
+            ShowFailure("connect to the Gateway", "The Control API is not running yet, so this Director cannot connect.",
                 "Wait for the Director to finish starting, then try again.");
             return;
         }
@@ -1209,8 +1210,7 @@ public partial class GatewayConnectionPanel : UserControl, ISignInAddressDisplay
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[GatewayConnectionPanel] remote enroll ERROR: {ex.Message}");
-            ShowFailure($"Could not sign in and join the Gateway: {ex.Message}", null);
+            ShowFailure("sign in and join the Gateway", $"Could not sign in and join the Gateway: {ex.Message}", null, ex);
             return;
         }
 
@@ -1220,7 +1220,7 @@ public partial class GatewayConnectionPanel : UserControl, ISignInAddressDisplay
         {
             // Verification failed: the runner persisted nothing, so the previously-saved connection is
             // untouched. Surface the reason only.
-            ShowFailure(result.ErrorMessage ?? "Could not join the Gateway.", null);
+            ShowFailure("join the Gateway", result.ErrorMessage ?? "Could not join the Gateway.", null);
             return;
         }
 
@@ -1232,7 +1232,7 @@ public partial class GatewayConnectionPanel : UserControl, ISignInAddressDisplay
         var reapply = ReapplyGatewaySeam ?? (host is not null ? host.ReapplyGatewayAsync : null);
         if (reapply is null)
         {
-            ShowFailure("The Control API is not running yet, so this Director cannot finish connecting.", null);
+            ShowFailure("finish connecting to the Gateway", "The Control API is not running yet, so this Director cannot finish connecting.", null);
             return;
         }
         // OBSERVE the re-apply. The verified credential is ALREADY persisted, so if reapply faults the awaited
@@ -1245,10 +1245,9 @@ public partial class GatewayConnectionPanel : UserControl, ISignInAddressDisplay
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[GatewayConnectionPanel] remote enroll: re-apply after enroll FAILED: {ex.Message}");
-            ShowFailure(
+            ShowFailure("apply the new Gateway connection",
                 "Signed in and enrolled with the Gateway, but this Director could not apply the new connection right now.",
-                "Try again, or restart the Director to finish connecting.");
+                "Try again, or restart the Director to finish connecting.", ex);
             return;
         }
         _ = TimeoutAsync(attempt);
@@ -1294,7 +1293,7 @@ public partial class GatewayConnectionPanel : UserControl, ISignInAddressDisplay
         var directorId = DirectorIdOverride ?? host?.DirectorId;
         if (directorId is null)
         {
-            ShowFailure("The Control API is not running yet, so this Director cannot connect.",
+            ShowFailure("connect to the Gateway", "The Control API is not running yet, so this Director cannot connect.",
                 "Wait for the Director to finish starting, then try again.");
             return;
         }
@@ -1319,8 +1318,7 @@ public partial class GatewayConnectionPanel : UserControl, ISignInAddressDisplay
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[GatewayConnectionPanel] hosted enroll ERROR: {ex.Message}");
-            ShowFailure($"Could not sign in and join the hosted Gateway: {ex.Message}", null);
+            ShowFailure("sign in and join the hosted Gateway", $"Could not sign in and join the hosted Gateway: {ex.Message}", null, ex);
             return;
         }
 
@@ -1330,7 +1328,7 @@ public partial class GatewayConnectionPanel : UserControl, ISignInAddressDisplay
         {
             // Enrollment failed: the runner persisted nothing, so any previously-saved connection is
             // untouched. Surface the reason inline - never a silent no-op.
-            ShowFailure(result.ErrorMessage ?? "Could not join the hosted Gateway.", null);
+            ShowFailure("join the hosted Gateway", result.ErrorMessage ?? "Could not join the hosted Gateway.", null);
             return;
         }
 
@@ -1342,7 +1340,7 @@ public partial class GatewayConnectionPanel : UserControl, ISignInAddressDisplay
         var reapply = ReapplyGatewaySeam ?? (host is not null ? host.ReapplyGatewayAsync : null);
         if (reapply is null)
         {
-            ShowFailure("The Control API is not running yet, so this Director cannot finish connecting.", null);
+            ShowFailure("finish connecting to the Gateway", "The Control API is not running yet, so this Director cannot finish connecting.", null);
             return;
         }
         // OBSERVE the re-apply. The hosted credential is ALREADY persisted at this point, so if reapply faults
@@ -1355,10 +1353,9 @@ public partial class GatewayConnectionPanel : UserControl, ISignInAddressDisplay
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[GatewayConnectionPanel] hosted enroll: re-apply after enroll FAILED: {ex.Message}");
-            ShowFailure(
+            ShowFailure("apply the new hosted Gateway connection",
                 "Signed in and enrolled with the hosted Gateway, but this Director could not apply the new connection right now.",
-                "Try again, or restart the Director to finish connecting.");
+                "Try again, or restart the Director to finish connecting.", ex);
             return;
         }
         _ = TimeoutAsync(attempt);
@@ -1418,8 +1415,7 @@ public partial class GatewayConnectionPanel : UserControl, ISignInAddressDisplay
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[GatewayConnectionPanel] CopySignInAddress_Click FAILED: {ex.Message}");
-            ShowSignInAddressStatus($"Could not copy the address: {ex.Message}. Select it above and copy it by hand.");
+            ShowSignInAddressStatus(ShownError.Report("Gateway connection", "copy the sign-in address", $"Could not copy the address: {ex.Message}. Select it above and copy it by hand.", ex));
         }
     }
 
@@ -1433,8 +1429,7 @@ public partial class GatewayConnectionPanel : UserControl, ISignInAddressDisplay
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[GatewayConnectionPanel] OpenSignInAddress_Click FAILED: {ex.Message}");
-            ShowSignInAddressStatus($"Could not open a browser: {ex.Message}. Copy the address instead.");
+            ShowSignInAddressStatus(ShownError.Report("Gateway connection", "open the sign-in address in a browser", $"Could not open a browser: {ex.Message}. Copy the address instead.", ex));
         }
     }
 
@@ -1527,7 +1522,7 @@ public partial class GatewayConnectionPanel : UserControl, ISignInAddressDisplay
                 }
                 else
                 {
-                    ShowFailure(monitor.FailureSummary ?? "The connection could not be completed.", DeriveFix(monitor));
+                    ShowFailure("connect to the Gateway", monitor.FailureSummary ?? "The connection could not be completed.", DeriveFix(monitor));
                 }
                 break;
             case GatewayConnectionStatus.KeyRefused:
@@ -1558,7 +1553,7 @@ public partial class GatewayConnectionPanel : UserControl, ISignInAddressDisplay
         }
 
         FileLog.Write("[GatewayConnectionPanel] connect timed out awaiting a handshake verdict");
-        ShowFailure(
+        ShowFailure("finish the two-way connection with the Gateway",
             "The Gateway did not finish the two-way connection in time. It may be unreachable, or it could "
             + "not reach this Director back (the callback leg).",
             "Check that the Gateway is running and reachable, or set the Director public URL under Advanced.");
@@ -1633,8 +1628,7 @@ public partial class GatewayConnectionPanel : UserControl, ISignInAddressDisplay
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[GatewayConnectionPanel] sign-in launch FAILED: {ex.Message}");
-            ShowSignInError("Could not open the sign-in page. " + ex.Message);
+            ShowSignInError(ShownError.Report("Gateway connection", "open the sign-in page", "Could not open the sign-in page. " + ex.Message, ex));
             return;
         }
 
@@ -1828,8 +1822,7 @@ public partial class GatewayConnectionPanel : UserControl, ISignInAddressDisplay
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[GatewayConnectionPanel] ChangeGateway FAILED: {ex.Message}");
-            ShowFailure($"Could not disconnect from the Gateway: {ex.Message}", null);
+            ShowFailure("disconnect from the Gateway", $"Could not disconnect from the Gateway: {ex.Message}", null, ex);
         }
     }
 
@@ -1883,10 +1876,12 @@ public partial class GatewayConnectionPanel : UserControl, ISignInAddressDisplay
         return status.SignedIn ? GatewayAccountSignInState.SignedIn : GatewayAccountSignInState.SignedOut;
     }
 
-    private void ShowFailure(string summary, string? fix)
+    /// <summary>Show a named connection failure, and report it (issue #3675): the caller says what the user was
+    /// trying to do, and passes the exception when there is one.</summary>
+    private void ShowFailure(string action, string summary, string? fix, Exception? ex = null)
     {
         _connecting = false;
-        FailureSummaryText.Text = summary;
+        FailureSummaryText.Text = ShownError.Report("Gateway connection", action, summary, ex);
         if (string.IsNullOrWhiteSpace(fix))
         {
             FailureFixText.IsVisible = false;
@@ -1897,7 +1892,6 @@ public partial class GatewayConnectionPanel : UserControl, ISignInAddressDisplay
             FailureFixText.IsVisible = true;
         }
         ShowOnly(FailedPanel);
-        FileLog.Write($"[GatewayConnectionPanel] connect failed: {summary}");
     }
 
     private void TryAgain_Click(object? sender, RoutedEventArgs e)

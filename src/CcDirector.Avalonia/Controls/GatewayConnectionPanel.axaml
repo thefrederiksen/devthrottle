@@ -324,9 +324,11 @@
 
         <!-- STEP 1e: named failure -->
         <StackPanel x:Name="FailedPanel" Spacing="8" VerticalAlignment="Top" IsVisible="False">
+            <!-- shown-error-reported-by: ShowFailure -->
             <TextBlock Classes="title" Text="Could not finish connecting" />
             <Border Background="#241616" BorderBrush="#8B3A3A" BorderThickness="1" CornerRadius="3" Padding="16">
                 <StackPanel Spacing="6">
+                    <!-- shown-error-reported-by: ShowFailure -->
                     <TextBlock x:Name="FailureSummaryText" FontSize="13" Foreground="#E8C0C0"
                                TextWrapping="Wrap" Text="The connection could not be completed." />
                     <TextBlock x:Name="FailureFixText" FontSize="12" Foreground="#C79A9A"

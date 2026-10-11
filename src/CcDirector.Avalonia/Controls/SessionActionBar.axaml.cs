@@ -8,6 +8,7 @@ using CcDirector.Core.Drivers;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia.Controls;
 
@@ -158,7 +159,7 @@ public partial class SessionActionBar : UserControl
         var session = _session;
         if (session is null || sender is not Control button) return;
 
-        await BusyAction.RunAsync(button, async () =>
+        await BusyAction.RunAsync(button, "session action bar", "stop the session's turn", async () =>
         {
             FileLog.Write($"[SessionActionBar] Stop clicked: session={session.Id}");
             ShowStatus("stopping...");
@@ -172,7 +173,7 @@ public partial class SessionActionBar : UserControl
         var session = _session;
         if (session is null || sender is not Control button) return;
 
-        await BusyAction.RunAsync(button, async () =>
+        await BusyAction.RunAsync(button, "session action bar", "interrupt the session", async () =>
         {
             FileLog.Write($"[SessionActionBar] Interrupt clicked: session={session.Id}");
             ShowStatus("interrupting...");
@@ -243,7 +244,7 @@ public partial class SessionActionBar : UserControl
     private async void BtnCompact_Click(object? sender, RoutedEventArgs e)
     {
         if (sender is not Control button) return;
-        await BusyAction.RunAsync(button, CompactContextWithConfirmationAsync, "Compacting...",
+        await BusyAction.RunAsync(button, "session action bar", "compact the session's context", CompactContextWithConfirmationAsync, "Compacting...",
             onFailure: message => ShowStatus($"compact failed: {message}"));
     }
 
@@ -275,8 +276,7 @@ public partial class SessionActionBar : UserControl
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SessionActionBar] Compact confirmation FAILED: {ex.Message}");
-            ShowStatus($"compact failed: {ex.Message}");
+            ShowStatus(ShownError.Report("session action bar", "ask before compacting the session's context", $"compact failed: {ex.Message}", ex));
             return;
         }
 
@@ -300,15 +300,14 @@ public partial class SessionActionBar : UserControl
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SessionActionBar] Compact FAILED: {ex.Message}");
-            ShowStatus($"compact failed: {ex.Message}");
+            ShowStatus(ShownError.Report("session action bar", "compact the session's context", $"compact failed: {ex.Message}", ex));
         }
     }
 
     private async void BtnClearContext_Click(object? sender, RoutedEventArgs e)
     {
         if (sender is not Control button) return;
-        await BusyAction.RunAsync(button, ClearContextWithConfirmationAsync, "Clearing...",
+        await BusyAction.RunAsync(button, "session action bar", "clear the session's context", ClearContextWithConfirmationAsync, "Clearing...",
             onFailure: message => ShowStatus($"clear failed: {message}"));
     }
 
@@ -335,8 +334,7 @@ public partial class SessionActionBar : UserControl
         catch (Exception ex)
         {
             // A confirmation that cannot be shown is not permission to proceed.
-            FileLog.Write($"[SessionActionBar] Clear context confirmation FAILED: {ex.Message}");
-            ShowStatus($"clear failed: {ex.Message}");
+            ShowStatus(ShownError.Report("session action bar", "ask before clearing the session's context", $"clear failed: {ex.Message}", ex));
             return;
         }
 
@@ -357,8 +355,7 @@ public partial class SessionActionBar : UserControl
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SessionActionBar] Clear context FAILED: {ex.Message}");
-            ShowStatus($"clear failed: {ex.Message}");
+            ShowStatus(ShownError.Report("session action bar", "clear the session's context", $"clear failed: {ex.Message}", ex));
         }
     }
 
@@ -374,8 +371,7 @@ public partial class SessionActionBar : UserControl
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SessionActionBar] History FAILED: {ex.Message}");
-            ShowStatus($"history failed: {ex.Message}");
+            ShowStatus(ShownError.Report("session action bar", "open the session's history picker", $"history failed: {ex.Message}", ex));
         }
     }
 

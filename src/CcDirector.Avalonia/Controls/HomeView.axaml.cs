@@ -6,6 +6,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using CcDirector.Core.Home;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia.Controls;
 
@@ -79,6 +80,8 @@ public partial class HomeView : UserControl
 
         // Gateway trouble is surfaced here too (its glanceable light is in the rail), so the
         // status screen is a single place to see and fix everything that is wrong.
+        // Error report decision (issue #3675): NOT reported here. This row re-displays the Gateway connection's own
+        // failure, which the connection reports where it happens (GatewayConnectionPanel, the monitor's FAILED lines).
         if (gatewayError)
             HomeStatusRows.Children.Add(BuildProblemRow(
                 "Gateway not connected",
@@ -96,8 +99,14 @@ public partial class HomeView : UserControl
                 HomeCheckAction.RepairTools => () => RepairToolsRequested?.Invoke(this, EventArgs.Empty),
                 _ => null,
             };
+            // Error report decision (issue #3675): a red (Bad) row is a failure the user sees, so it is reported here,
+            // on every render - the reporter's fingerprint and rate limit fold the repaints into one row with a count.
+            // Amber (Warn) and blue (Busy) rows are not failures: a warning and work still running.
+            var detail = check.Level == HomeCheckLevel.Bad
+                ? ShownError.Report("home screen", $"pass the check \"{check.Title}\"", check.Detail)
+                : check.Detail;
             HomeStatusRows.Children.Add(BuildProblemRow(
-                check.Title, check.Detail, fix is null ? null : "Fix", fix,
+                check.Title, detail, fix is null ? null : "Fix", fix,
                 warn: check.Level == HomeCheckLevel.Warn,
                 busy: check.Level == HomeCheckLevel.Busy));
         }

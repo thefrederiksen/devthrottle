@@ -5,6 +5,7 @@ using CcDirector.Core.Dictation;
 using CcDirector.Core.Memory;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Transcription;
+using CcDirector.Core.Utilities;
 using Xunit;
 
 namespace CcDirector.Avalonia.Tests;
@@ -60,6 +61,31 @@ public sealed class BackgroundDictationSendTests : IDisposable
         public void Start(string executable, string args, string workingDir, short cols, short rows, Dictionary<string, string>? environmentVars = null) { }
         public void Write(byte[] data) { }
         public Task SendTextAsync(string text) => Task.CompletedTask;
+        public Task SendEnterAsync() => Task.CompletedTask;
+        public void Resize(short cols, short rows) { }
+        public Task GracefulShutdownAsync(int timeoutMs = 5000) => Task.CompletedTask;
+        public void Dispose() { }
+    }
+
+    /// <summary>A terminal that refuses every prompt, as a composer that cannot be read does.</summary>
+    private sealed class RefusingBackend : ISessionBackend
+    {
+        public int ProcessId => 1;
+        public string Status => "Test";
+        public bool IsRunning => true;
+        public bool HasExited => false;
+        public CircularTerminalBuffer? Buffer => null;
+#pragma warning disable CS0067
+        public event Action<string>? StatusChanged;
+        public event Action<int>? ProcessExited;
+#pragma warning restore CS0067
+        public void Start(string executable, string args, string workingDir, short cols, short rows, Dictionary<string, string>? environmentVars = null) { }
+        public void Write(byte[] data) { }
+        // Shaped like the real throws: the prompt's first characters, the composer's text and the terminal's tail.
+        public Task SendTextAsync(string text) => Task.FromException(new CcDirector.Core.Drivers.ComposerNotAcceptingInputException(
+            $"the composer cannot be read, so nothing was typed; prompt '{text[..Math.Min(60, text.Length)]}'; " +
+            $"what it read: text='{text}'. Readable buffer tail: {ScreenTail}"));
+        public const string ScreenTail = "the model wrote: the staging database password is in the vault";
         public Task SendEnterAsync() => Task.CompletedTask;
         public void Resize(short cols, short rows) { }
         public Task GracefulShutdownAsync(int timeoutMs = 5000) => Task.CompletedTask;
@@ -145,6 +171,64 @@ public sealed class BackgroundDictationSendTests : IDisposable
 
         Assert.Equal("the words", failedComposed); // the words survive as restorable text...
         Assert.Empty(SavedRecordings()); // ...so the audio copy is not needed and does not pile up
+    }
+
+    /// <summary>
+    /// THE OWNER'S RULE: no prompt-send path ever passes the prompt's words into a report (issue #3675). A dictation
+    /// refused by a real session: the words go back to the box through onFailed, and the error handed to onFailed -
+    /// which the window reports as "the dictation was not sent: {error}" - and every error line written on the way
+    /// carry none of them. The submit line is checked to be there, so the absence is about a line that was written.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task SubmitRefusedBySession_NoErrorLineCarriesTheWordsOrTheScreen(bool withCallback)
+    {
+        // Arrange
+        const string spoken = "transfer the budget to the marketing account";
+        var recorder = await NewRecordingRecorderAsync(new byte[] { 1, 2, 3, 4 });
+        var session = new Session(Guid.NewGuid(), @"C:\test\repo", @"C:\test\repo", null, new RefusingBackend(),
+            "claude-test", ActivityState.Idle, DateTimeOffset.UtcNow, null, null);
+        string? failedError = null;
+        string? restored = null;
+        var lines = new List<string>();
+        Action<string> capture = line => { lock (lines) lines.Add(line); };
+        using var log = FileLog.RedirectForTests(); // the log writes nothing until started, and this owns it for the test
+        FileLog.ErrorObserver += capture;
+        try
+        {
+            // Act
+            await BackgroundDictationSend.RunAsync(
+                recorder, prefix: "", session,
+                new FakeTranscriber { Text = spoken },
+                submit: (text, origin, provenance) => session.SendTextAsync(text, provenance, origin: origin),
+                onFailed: withCallback ? (err, composed) => { failedError = err; restored = composed; } : null,
+                recordingsDirectory: _dir);
+        }
+        finally
+        {
+            FileLog.ErrorObserver -= capture;
+        }
+
+        // Assert
+        string[] seen;
+        lock (lines) seen = lines.ToArray();
+        if (withCallback)
+        {
+            // The words went back to the box, and the refusal goes to the window, which shows it and reports it
+            // without it (ComposerSendRouteTests.OnDictationFailed_...). Nothing here is a second report.
+            Assert.Equal(spoken, restored);
+            Assert.NotNull(failedError);
+            Assert.DoesNotContain(seen, l => l.Contains("[BackgroundDictationSend]"));
+        }
+        else
+        {
+            // Nobody else reports it, so this is the FAILED line - with the type and the length, nothing else.
+            var line = Assert.Single(seen, l => l.Contains($"submit FAILED for session {session.Id}"));
+            Assert.Contains("ComposerNotAcceptingInputException", line);
+        }
+        Assert.All(seen, l => Assert.DoesNotContain("marketing", l));
+        Assert.All(seen, l => Assert.DoesNotContain(RefusingBackend.ScreenTail, l));
     }
 
     [Fact]

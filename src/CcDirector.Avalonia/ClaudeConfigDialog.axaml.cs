@@ -12,6 +12,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia;
 
@@ -146,11 +147,11 @@ public partial class ClaudeConfigDialog : Window
         if (!_controlsReflectTheFile)
         {
             SaveStatusText.Foreground = new SolidColorBrush(Color.Parse("#EF4444"));
-            SaveStatusText.Text = $"{Path.GetFileName(_settingsJsonPath)} {settingsRead.Problem}. "
-                                  + "The fields below are EMPTY because it could not be read, not because "
-                                  + "it is empty. Fix or move that file and press Reload - saving is "
-                                  + "refused until a reload succeeds, so these blanks cannot overwrite it.";
-            FileLog.Write($"[ClaudeConfigDialog] LoadConfig: settings file unreadable - {settingsRead.Problem}");
+            SaveStatusText.Text = ShownError.Report("Claude configuration", "read the Claude settings file",
+                $"{Path.GetFileName(_settingsJsonPath)} {settingsRead.Problem}. "
+                + "The fields below are EMPTY because it could not be read, not because "
+                + "it is empty. Fix or move that file and press Reload - saving is "
+                + "refused until a reload succeeds, so these blanks cannot overwrite it.");
         }
         else
         {
@@ -298,10 +299,10 @@ public partial class ClaudeConfigDialog : Window
             // question is not "can the file be read?" but "do these controls describe it?", and the
             // answer was settled at load time and has not changed since.
             SaveStatusText.Foreground = new SolidColorBrush(Color.Parse("#EF4444"));
-            SaveStatusText.Text = $"NOT saved - {Path.GetFileName(_settingsJsonPath)} could not be read when "
-                                  + "this window opened, so the fields shown never described it. Press Reload "
-                                  + "first; saving now would overwrite the file with blanks.";
-            FileLog.Write("[ClaudeConfigDialog] SaveConfig: REFUSED, controls never reflected the settings file");
+            SaveStatusText.Text = ShownError.Report("Claude configuration", "save the Claude settings",
+                $"NOT saved - {Path.GetFileName(_settingsJsonPath)} could not be read when "
+                + "this window opened, so the fields shown never described it. Press Reload "
+                + "first; saving now would overwrite the file with blanks.");
             return;
         }
 
@@ -317,8 +318,9 @@ public partial class ClaudeConfigDialog : Window
                 ? "Fix or move that file, then reopen this window."
                 : "Your settings were not changed.";
             SaveStatusText.Foreground = new SolidColorBrush(Color.Parse("#EF4444"));
-            SaveStatusText.Text = $"NOT saved - {Path.GetFileName(_settingsJsonPath)} {settings.Problem}. {advice}";
-            FileLog.Write($"[ClaudeConfigDialog] SaveConfig: ABORTED, outcome={settings.Kind}");
+            SaveStatusText.Text = ShownError.Report("Claude configuration", "save the Claude settings",
+                $"NOT saved - {Path.GetFileName(_settingsJsonPath)} {settings.Problem}. {advice}",
+                reported: $"NOT saved - {Path.GetFileName(_settingsJsonPath)} {settings.Problem} (outcome {settings.Kind})");
             return;
         }
 
@@ -462,10 +464,10 @@ public partial class ClaudeConfigDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[ClaudeConfigDialog] BtnReload_Click FAILED: {ex}");
             SaveStatusText.Foreground = new SolidColorBrush(Color.Parse("#EF4444"));
-            SaveStatusText.Text = $"Reload FAILED - {ex.Message}. The fields shown may be incomplete, "
-                                  + "so saving is refused until a reload succeeds.";
+            SaveStatusText.Text = ShownError.Report("Claude configuration", "reload the Claude settings",
+                $"Reload FAILED - {ex.Message}. The fields shown may be incomplete, "
+                + "so saving is refused until a reload succeeds.", ex);
         }
     }
     private void BtnSave_Click(object? sender, RoutedEventArgs e)
@@ -480,9 +482,8 @@ public partial class ClaudeConfigDialog : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[ClaudeConfigDialog] BtnSave_Click FAILED: {ex}");
             SaveStatusText.Foreground = new SolidColorBrush(Color.Parse("#EF4444"));
-            SaveStatusText.Text = $"NOT saved - {ex.Message}";
+            SaveStatusText.Text = ShownError.Report("Claude configuration", "save the Claude settings", $"NOT saved - {ex.Message}", ex);
         }
     }
     private void BtnClose_Click(object? sender, RoutedEventArgs e) => Close();

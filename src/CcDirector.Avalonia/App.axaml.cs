@@ -20,6 +20,7 @@ using CcDirector.Core.Storage;
 using CcDirector.Core.Update;
 using CcDirector.Core.Utilities;
 using CcDirector.Engine;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Avalonia;
 
@@ -922,8 +923,15 @@ public partial class App : Application
     /// </summary>
     private static void HandleFatalStartupError(IClassicDesktopStyleApplicationLifetime desktop, SplashScreen splash, Exception ex)
     {
-        FileLog.Write($"[CcDirector] FATAL startup error: {ex}");
         var crashPath = WriteStartupCrashFile(ex);
+        var logPath = FileLog.CurrentLogPath ?? "(log path unavailable)";
+        // Reported as the user is shown it: one FATAL line, with the exception, before anything else can fail.
+        var notice = ShownError.Report("start-up", "start the Director",
+            "Director failed to start:\n\n" +
+            $"{ex.Message}\n\n" +
+            $"Log file:\n{logPath}\n\n" +
+            (crashPath is null ? "" : $"Crash details:\n{crashPath}"),
+            ex, fatal: true);
 
         try { splash.Close(); } catch (Exception closeEx) { FileLog.Write($"[CcDirector] Splash close after fatal error FAILED: {closeEx.Message}"); }
 
@@ -933,13 +941,7 @@ public partial class App : Application
 
         // NativeNotice, not MessageBoxW: MessageBoxW exists only on Windows. On a Mac it threw, the throw was
         // taken as handled, and the Director was left running with no window and no message (issue #3311, B2).
-        var logPath = FileLog.CurrentLogPath ?? "(log path unavailable)";
-        NativeNotice.Show(
-            "Director failed to start:\n\n" +
-            $"{ex.Message}\n\n" +
-            $"Log file:\n{logPath}\n\n" +
-            (crashPath is null ? "" : $"Crash details:\n{crashPath}"),
-            "Director - Startup error", NativeNotice.Kind.Error);
+        NativeNotice.Show(notice, "Director - Startup error", NativeNotice.Kind.Error);
 
         flush.Wait(TimeSpan.FromSeconds(5));
         desktop.Shutdown(1);
