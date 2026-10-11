@@ -221,7 +221,7 @@ public sealed class GatewayStatsStore : IDisposable
     public static GatewayStatsStore FromEnvironment(bool hosted, string? sqlitePath = null)
     {
         var path = string.IsNullOrWhiteSpace(sqlitePath)
-            ? Path.Combine(CcStorage.Root(), "gateway-stats.db")
+            ? CcStorage.GatewayStatsDb()
             : sqlitePath!;
 
         // Hosted is read from BOTH signals, and either one is enough. The host's hosted flag comes from a runtime

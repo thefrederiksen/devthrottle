@@ -48,7 +48,7 @@ public sealed class DeviceRegistryImporter
     {
         _db = db ?? throw new ArgumentNullException(nameof(db));
         _storePath = string.IsNullOrWhiteSpace(storePath)
-            ? Path.Combine(CcStorage.Config(), "director", "devices.json")
+            ? DeviceRegistry.StorePathUnder(CcStorage.Root())
             : storePath;
     }
 

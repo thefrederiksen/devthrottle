@@ -108,7 +108,7 @@ public sealed class GatewayStatsDatabase : IDisposable
 
         _targetVersion = targetVersion;
         _path = string.IsNullOrWhiteSpace(path)
-            ? System.IO.Path.Combine(CcStorage.Root(), "gateway-stats.db")
+            ? CcStorage.GatewayStatsDb()
             : path!;
 
         FileLog.Write($"[GatewayStatsDatabase] Open: path={_path}");

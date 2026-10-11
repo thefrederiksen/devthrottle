@@ -88,10 +88,13 @@ public sealed class GatewaySessionConcurrencyStats : ISessionConcurrencyRecorder
     public GatewaySessionConcurrencyStats(string? path = null)
     {
         _path = string.IsNullOrWhiteSpace(path)
-            ? Path.Combine(CcStorage.Root(), "gateway-concurrency-stats.json")
+            ? PathUnder(CcStorage.Root())
             : path!;
         Load();
     }
+
+    /// <summary>The store file under <paramref name="storageRoot"/>: what a host whose root that is uses.</summary>
+    public static string PathUnder(string storageRoot) => Path.Combine(storageRoot, "gateway-concurrency-stats.json");
 
     private static string HourKey(DateTime utc) =>
         utc.ToUniversalTime().ToString(HourFormat, CultureInfo.InvariantCulture);

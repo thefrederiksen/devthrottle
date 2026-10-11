@@ -28,7 +28,10 @@ public sealed class GatewayInstallId
     public const string FileName = "gateway-install-id.txt";
 
     /// <summary>The default on-disk path of the install-id file under the config root.</summary>
-    public static string DefaultPath => Path.Combine(CcStorage.Config(), "director", FileName);
+    public static string DefaultPath => PathUnder(CcStorage.Root());
+
+    /// <summary>The install-id file under <paramref name="storageRoot"/>: what a host whose root that is uses.</summary>
+    public static string PathUnder(string storageRoot) => Path.Combine(CcStorage.Config(storageRoot), "director", FileName);
 
     private readonly string _path;
 

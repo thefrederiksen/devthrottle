@@ -31,9 +31,13 @@ public sealed class GatewayDeviceKeyStore
     public GatewayDeviceKeyStore(string? storePath)
     {
         _storePath = string.IsNullOrWhiteSpace(storePath)
-            ? Path.Combine(CcStorage.Config(), "director", "account-device-key.json")
+            ? PathUnder(CcStorage.Root())
             : storePath;
     }
+
+    /// <summary>The store file under <paramref name="storageRoot"/>: what a host whose root that is uses.</summary>
+    public static string PathUnder(string storageRoot) =>
+        Path.Combine(CcStorage.Config(storageRoot), "director", "account-device-key.json");
 
     /// <summary>The on-disk store file path.</summary>
     public string StorePath => _storePath;

@@ -1041,8 +1041,13 @@ public sealed class DeviceRegistry : IDisposable
 
     private static string ResolveStorePath(string? storePath)
         => string.IsNullOrWhiteSpace(storePath)
-            ? Path.Combine(CcStorage.Config(), "director", "devices.json")
+            ? StorePathUnder(CcStorage.Root())
             : Path.GetFullPath(storePath);
+
+    /// <summary>The legacy <c>devices.json</c> under <paramref name="storageRoot"/>: what a host whose root that is
+    /// uses, and the file the <see cref="DeviceRegistryImporter"/> migrates from.</summary>
+    public static string StorePathUnder(string storageRoot) =>
+        Path.Combine(CcStorage.Config(storageRoot), "director", "devices.json");
 
     private static RegisteredDeviceDto ToDto(DeviceCredentialEntity row)
         => new()

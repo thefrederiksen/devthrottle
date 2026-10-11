@@ -92,11 +92,16 @@ public static class GatewayAccountFactory
     /// before the live browser sign-in exists.
     /// </summary>
     [SupportedOSPlatform("windows")]
-    public static DevThrottleAccountService CreateForWindows(bool hosted)
+    /// <param name="hosted">The owning host's deployment signal.</param>
+    /// <param name="credentialBlobPath">The protected credential blob, under the owning host's storage root
+    /// (<see cref="CcStorage.GatewayDevThrottleCredentialBlob(string)"/>). REQUIRED, so the file follows the host.</param>
+    public static DevThrottleAccountService CreateForWindows(bool hosted, string credentialBlobPath)
     {
+        if (string.IsNullOrWhiteSpace(credentialBlobPath))
+            throw new ArgumentException("The credential blob path is required.", nameof(credentialBlobPath));
         FileLog.Write("[GatewayAccountFactory] CreateForWindows: building the Gateway-hosted credential service");
 
-        var store = new WindowsProtectedTokenStore(CcStorage.GatewayDevThrottleCredentialBlob());
+        var store = new WindowsProtectedTokenStore(credentialBlobPath);
         var service = Build(store, hosted);
         SeedTestCredentialIfRequested(service);
         return service;

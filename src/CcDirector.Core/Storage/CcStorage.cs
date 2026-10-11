@@ -24,7 +24,16 @@ public static class CcStorage
 {
     // -- Root categories --
 
-    /// <summary>Root directory for all cc-director storage.</summary>
+    /// <summary>
+    /// Root directory for all cc-director storage: the process root, which is <c>CC_DIRECTOR_ROOT</c> when set.
+    ///
+    /// THE ROOT-TAKING OVERLOADS. Several members below have a second form that takes a <c>root</c> and composes
+    /// the same path under it. They exist for the Gateway, whose host carries its storage root as a value
+    /// (<c>GatewayHostOptions.StorageRoot</c>) read once when the host is built, so that two hosts in one process
+    /// can keep their files apart and a test can state a host's root without touching the process environment.
+    /// The parameterless member is always the root-taking one applied to this process's root, so the two cannot
+    /// disagree about where a file lives. A new member that the Gateway host needs gets both forms.
+    /// </summary>
     public static string Root() => Base();
 
     /// <summary>
@@ -35,7 +44,10 @@ public static class CcStorage
     /// else can compose does not exist. <see cref="KeyVault"/> resolves its default through this
     /// method, which keeps the two from drifting apart.
     /// </summary>
-    public static string KeyVaultFile() => Path.Combine(Root(), "keyvault.json");
+    public static string KeyVaultFile() => KeyVaultFile(Root());
+
+    /// <summary>The same path under <paramref name="root"/> rather than this process's root (see <see cref="Root"/>).</summary>
+    public static string KeyVaultFile(string root) => Path.Combine(root, "keyvault.json");
 
     /// <summary>
     /// The MACHINE root: the one folder on this computer that holds the INSTALLED product - the tool
@@ -135,7 +147,19 @@ public static class CcStorage
     /// onto the EF data layer (Hosted Gateway mission, Step 1b). Resolved through the root so
     /// CC_DIRECTOR_ROOT redirects it - callers must ask here rather than composing the path themselves.
     /// </summary>
-    public static string GatewayDb() => Path.Combine(Root(), "gateway.db");
+    public static string GatewayDb() => GatewayDb(Root());
+
+    /// <summary>The same path under <paramref name="root"/> rather than this process's root (see <see cref="Root"/>).</summary>
+    public static string GatewayDb(string root) => Path.Combine(root, "gateway.db");
+
+    /// <summary>
+    /// The self-host statistics database (<c>gateway-stats.db</c>), beside <see cref="GatewayDb()"/>. Named here so
+    /// the statistics store and the statistics database agree on the file.
+    /// </summary>
+    public static string GatewayStatsDb() => GatewayStatsDb(Root());
+
+    /// <summary>The same path under <paramref name="root"/> rather than this process's root (see <see cref="Root"/>).</summary>
+    public static string GatewayStatsDb(string root) => Path.Combine(root, "gateway-stats.db");
 
     /// <summary>
     /// The root this machine uses when NOTHING overrides it: the platform's per-user data directory plus
@@ -243,7 +267,10 @@ public static class CcStorage
     }
 
     /// <summary>Tool settings, OAuth tokens, credentials, app state.</summary>
-    public static string Config() => Path.Combine(Base(), "config");
+    public static string Config() => Config(Base());
+
+    /// <summary>The same path under <paramref name="root"/> rather than this process's root (see <see cref="Root"/>).</summary>
+    public static string Config(string root) => Path.Combine(root, "config");
 
     /// <summary>
     /// DevThrottle's OWN automation-browser root: browsers/. Holds the registry.json describing each
@@ -269,8 +296,14 @@ public static class CcStorage
         if (!string.IsNullOrEmpty(overridePath))
             return overridePath;
 
-        return Path.Combine(Config(), "director", "instances");
+        return DirectorInstances(Base());
     }
+
+    /// <summary>
+    /// The instances directory under <paramref name="root"/> rather than this process's root (see <see cref="Root"/>).
+    /// Pure: the <c>CC_DIRECTOR_INSTANCES_DIR</c> override applies only to the parameterless form.
+    /// </summary>
+    public static string DirectorInstances(string root) => Path.Combine(Config(root), "director", "instances");
 
     /// <summary>
     /// Generated files: PDFs, reports, transcripts, exports. Lives in the user's Documents folder by
@@ -302,7 +335,10 @@ public static class CcStorage
     /// reach it would eventually delete the corpus for tidiness. Composes the path without touching disk -
     /// a Gateway with capture switched off leaves no directory behind.
     /// </summary>
-    public static string TurnLog() => Path.Combine(Base(), "turn-log");
+    public static string TurnLog() => TurnLog(Base());
+
+    /// <summary>The same path under <paramref name="root"/> rather than this process's root (see <see cref="Root"/>).</summary>
+    public static string TurnLog(string root) => Path.Combine(root, "turn-log");
 
     /// <summary>
     /// Durable activity-state transition logs: base/state-changes/&lt;sessionId&gt;.jsonl. The caller creates
@@ -371,7 +407,10 @@ public static class CcStorage
     /// removed by the Gateway's voice-turn upload sweep once nothing has written to it for hours, so
     /// abandoned recorded audio has a retention ceiling. Owned by the Gateway.
     /// </summary>
-    public static string VoiceTurnUploads() => Ensure(Path.Combine(Base(), "voice-turn-uploads"));
+    public static string VoiceTurnUploads() => VoiceTurnUploads(Base());
+
+    /// <summary>The same path under <paramref name="root"/> rather than this process's root (see <see cref="Root"/>).</summary>
+    public static string VoiceTurnUploads(string root) => Ensure(Path.Combine(root, "voice-turn-uploads"));
 
     /// <summary>
     /// Resumable upload staging for durable dictation (issue #1006): base/dictation-uploads/&lt;uploadId&gt;/.
@@ -382,7 +421,10 @@ public static class CcStorage
     /// delivery record, its chunks are retained while it is undelivered, and the record is retired only by
     /// the client's acknowledgment. Owned by the Gateway.
     /// </summary>
-    public static string DictationUploads() => Ensure(Path.Combine(Base(), "dictation-uploads"));
+    public static string DictationUploads() => DictationUploads(Base());
+
+    /// <summary>The same path under <paramref name="root"/> rather than this process's root (see <see cref="Root"/>).</summary>
+    public static string DictationUploads(string root) => Ensure(Path.Combine(root, "dictation-uploads"));
 
     /// <summary>
     /// Held TYPED prompts (Voice Delivery mission, phase 5): base/typed-prompts/&lt;deliveryId&gt;/. A typed prompt the
@@ -390,7 +432,10 @@ public static class CcStorage
     /// shown back, and a decision log - so the Gateway can ask what became of it after a restart. Retired by the same
     /// thirty-day rule as the dictation records. Owned by the Gateway.
     /// </summary>
-    public static string TypedPrompts() => Ensure(Path.Combine(Base(), "typed-prompts"));
+    public static string TypedPrompts() => TypedPrompts(Base());
+
+    /// <summary>The same path under <paramref name="root"/> rather than this process's root (see <see cref="Root"/>).</summary>
+    public static string TypedPrompts(string root) => Ensure(Path.Combine(root, "typed-prompts"));
 
     /// <summary>
     /// "This brief is wrong" reports (TURN_BRIEFING.md D7): base/brief-feedback/. Each report
@@ -565,15 +610,24 @@ public static class CcStorage
     public static string Transcripts() => Path.Combine(Base(), "transcripts");
 
     /// <summary>The Gateway's durable prompt + reply record: base/prompt-log/.</summary>
-    public static string PromptLog() => Path.Combine(Base(), "prompt-log");
+    public static string PromptLog() => PromptLog(Base());
+
+    /// <summary>The same path under <paramref name="root"/> rather than this process's root (see <see cref="Root"/>).</summary>
+    public static string PromptLog(string root) => Path.Combine(root, "prompt-log");
 
     /// <summary>Bounded local history behind Transcription Health: base/transcription-history/.</summary>
-    public static string TranscriptionHistory() => Path.Combine(Base(), "transcription-history");
+    public static string TranscriptionHistory() => TranscriptionHistory(Base());
+
+    /// <summary>The same path under <paramref name="root"/> rather than this process's root (see <see cref="Root"/>).</summary>
+    public static string TranscriptionHistory(string root) => Path.Combine(root, "transcription-history");
 
     /// <summary>Rolling archive of the audio behind each transcription, keyed by the history turn id.
     /// Bounded by age and count by its owner (TranscriptionAudioArchive); sits beside TranscriptionHistory()
     /// so a suspicious transcript line leads straight to the clip that produced it.</summary>
-    public static string TranscriptionAudio() => Path.Combine(Base(), "transcription-audio");
+    public static string TranscriptionAudio() => TranscriptionAudio(Base());
+
+    /// <summary>The same path under <paramref name="root"/> rather than this process's root (see <see cref="Root"/>).</summary>
+    public static string TranscriptionAudio(string root) => Path.Combine(root, "transcription-audio");
 
     /// <summary>Clips from the Test microphone / Test transcription checks, kept per tenant for later
     /// analysis: base/voice-test-clips/. Deliberately NOT the same directory as TranscriptionAudio():
@@ -602,7 +656,10 @@ public static class CcStorage
     public static string WebView2Card() => Path.Combine(Base(), "webview2-card");
 
     /// <summary>Config directory for a specific tool: config/{tool}/</summary>
-    public static string ToolConfig(string tool) => Path.Combine(Config(), tool);
+    public static string ToolConfig(string tool) => ToolConfig(Base(), tool);
+
+    /// <summary>The same path under <paramref name="root"/> rather than this process's root (see <see cref="Root"/>).</summary>
+    public static string ToolConfig(string root, string tool) => Path.Combine(Config(root), tool);
 
     /// <summary>Output directory for a specific tool: output/{tool}/</summary>
     public static string ToolOutput(string tool) => Path.Combine(Output(), tool);
@@ -720,8 +777,11 @@ public static class CcStorage
     /// (<see cref="DevThrottleCredentialBlob"/>) under config/director - the account moves onto the Gateway
     /// so each Director no longer holds its own copy.
     /// </summary>
-    public static string GatewayDevThrottleCredentialBlob() =>
-        Path.Combine(ToolConfig("gateway"), "devthrottle-credential.bin");
+    public static string GatewayDevThrottleCredentialBlob() => GatewayDevThrottleCredentialBlob(Base());
+
+    /// <summary>The same path under <paramref name="root"/> rather than this process's root (see <see cref="Root"/>).</summary>
+    public static string GatewayDevThrottleCredentialBlob(string root) =>
+        Path.Combine(ToolConfig(root, "gateway"), "devthrottle-credential.bin");
 
     // -- Life Operating System coaching directories --
 

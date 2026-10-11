@@ -17,8 +17,11 @@ namespace CcDirector.Gateway.Util;
 public sealed class GatewayAuth
 {
     /// <summary>The default on-disk token path. A pure path - resolving it never reads or writes a token.</summary>
-    public static string DefaultTokenFile { get; } =
-        Path.Combine(CcStorage.Config(), "director", "gateway-token.txt");
+    public static string DefaultTokenFile { get; } = TokenFileUnder(CcStorage.Root());
+
+    /// <summary>The token file under <paramref name="storageRoot"/>: what a host whose root that is uses.</summary>
+    public static string TokenFileUnder(string storageRoot) =>
+        Path.Combine(CcStorage.Config(storageRoot), "director", "gateway-token.txt");
 
     /// <summary>This store's token file path.</summary>
     public string TokenFile { get; }

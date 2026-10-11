@@ -35,12 +35,16 @@ public sealed class WebPushVapidStore
 
     public WebPushVapidStore() : this(null) { }
 
+    /// <summary>The key file under <paramref name="storageRoot"/>: what a host whose root that is uses.</summary>
+    public static string PathUnder(string storageRoot) =>
+        Path.Combine(CcStorage.ToolConfig(storageRoot, "gateway"), "webpush-vapid.json");
+
     /// <param name="storePath">Override the key file (tests pass an isolated temp path); production
     /// omits it for the shared default under the gateway config root.</param>
     public WebPushVapidStore(string? storePath)
     {
         _storePath = string.IsNullOrWhiteSpace(storePath)
-            ? Path.Combine(CcStorage.ToolConfig("gateway"), "webpush-vapid.json")
+            ? PathUnder(CcStorage.Root())
             : storePath;
 
         var loaded = Load();

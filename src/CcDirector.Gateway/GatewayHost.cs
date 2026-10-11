@@ -261,6 +261,14 @@ public sealed class GatewayHost : IAsyncDisposable
     public bool Hosted => Options.Hosted;
 
     /// <summary>
+    /// The directory THIS host keeps its files under, taken from <see cref="Options"/> once at construction. Every
+    /// store the host builds composes its path from here (through the root-taking overloads on
+    /// <see cref="CcStorage"/>), never from <see cref="CcStorage.Root()"/> at call time, so two hosts in one
+    /// process keep their files apart.
+    /// </summary>
+    public string StorageRoot => Options.StorageRoot;
+
+    /// <summary>
     /// Whether the factory agents area is on FOR ONE ACCOUNT: the machine switch above, or that account's own
     /// recorded decision. Every factory route - the activity record at <see cref="Api.FactoryActivityEndpoints.Route"/>,
     /// the triggers at <c>/triggers</c>, the Director's <c>/directors/{id}/triggers</c>, and the owner's pages - sits
@@ -1435,8 +1443,7 @@ public sealed class GatewayHost : IAsyncDisposable
     // partition on the author's behalf. This is the BASE handle only: the dictation endpoint re-scopes it
     // with ForTenant to the tenant it resolved from the authenticated device key, and does its work solely
     // inside that partition. Naming Local here reproduces exactly the path this store has always used.
-    private readonly Voice.VoiceUploadStore _dictationUploads =
-        new(CcDirector.Core.Storage.CcStorage.DictationUploads(), CcDirector.Core.Tenancy.TenantId.Local);
+    private readonly Voice.VoiceUploadStore _dictationUploads;
     // Voice Delivery phase 5, contract section 7: the held TYPED prompts - a typed prompt the Director did not answer as
     // delivered, kept (per tenant, like the dictation staging) so the Gateway can ask what became of it, after a restart
     // too. Built on first use rather than here, because it is judged by DeliveryClock, which a test sets after
@@ -1445,7 +1452,7 @@ public sealed class GatewayHost : IAsyncDisposable
 
     /// <summary>The held typed prompt store (base handle, local partition): the prompt route writes it, the driver drives it.</summary>
     internal Prompts.TypedPromptStore TypedPrompts
-        => _typedPrompts ??= new Prompts.TypedPromptStore(CcDirector.Core.Storage.CcStorage.TypedPrompts(),
+        => _typedPrompts ??= new Prompts.TypedPromptStore(CcStorage.TypedPrompts(StorageRoot),
             CcDirector.Core.Tenancy.TenantId.Local, DeliveryClock);
 
     private Api.TypedPromptDelivery? _typedPromptDriver;
@@ -1465,7 +1472,7 @@ public sealed class GatewayHost : IAsyncDisposable
     // the retired statics; no behavior change. The voice-turn upload store (VoiceTurnUploads root) is
     // distinct from _dictationUploads above (DictationUploads root) - two roots, two subsystems.
     private readonly Prompts.GatewayPromptLog _promptLog;
-    private readonly Transcription.TranscriptionHistoryLog _transcriptionHistory = new();
+    private readonly Transcription.TranscriptionHistoryLog _transcriptionHistory;
     // Built in the constructor, after the options are read: the archive carries the host's deployment mode.
     private readonly Transcription.TranscriptionAudioArchive _transcriptionAudioArchive;
     private readonly Transcription.TranscriptStore _transcripts;
@@ -1482,14 +1489,13 @@ public sealed class GatewayHost : IAsyncDisposable
     // for the duration of one turn and then deletes it; it writes no delivery record and performs no
     // cross-request lookup by upload id, so it is unchanged by the dictation partition work. Per-tenant
     // scoping of the voice-turn path itself is a separate piece of work and is NOT claimed here.
-    private readonly Voice.VoiceUploadStore _voiceTurnUploads =
-        new(CcDirector.Core.Storage.CcStorage.VoiceTurnUploads(), CcDirector.Core.Tenancy.TenantId.Local);
+    private readonly Voice.VoiceUploadStore _voiceTurnUploads;
     // The Gateway's stable per-machine install identity (issue #857), owned by the host and handed to the
     // device-registration service instead of the retired static GatewayInstallId.LoadOrCreate.
-    private readonly Account.GatewayInstallId _installIdStore = new();
+    private readonly Account.GatewayInstallId _installIdStore;
     // The Gateway bearer token store, owned by the host and used to resolve the token below instead of the
     // retired static GatewayAuth.LoadOrCreate. The tray's read-only path stays on GatewayAuth.DefaultTokenFile.
-    private readonly Util.GatewayAuth _gatewayAuth = new();
+    private readonly Util.GatewayAuth _gatewayAuth;
 
     /// <summary>
     /// THE PRODUCER of the dictation phase label - the three facts that decide whether a session paints
@@ -1572,12 +1578,12 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <param name="missionsPath">
     /// Override the Gateway-native mission store file (Gateway Cleanup mission, Wave 4b). Tests pass an
     /// isolated temp path; production omits it for the shared default at
-    /// <c>CcStorage.Root()\missions.json</c>.
+    /// <c>missions.json</c> under the host's storage root.
     /// </param>
     /// <param name="missionNotesPath">
     /// Override the mission-WHY store file (Mission Screen mission, Phase 1b, issue #1405). Tests pass an
     /// isolated temp path; production omits it for the shared default at
-    /// <c>CcStorage.Root()\mission-notes.json</c>.
+    /// <c>mission-notes.json</c> under the host's storage root.
     /// </param>
     /// <param name="dictationTranscription">
     /// Override the transcription owner the DICTATION endpoint uses (Lost Dictations mission, issue #1593).
@@ -1654,8 +1660,19 @@ public sealed class GatewayHost : IAsyncDisposable
     {
         // Read ONCE, before anything below asks which mode this host is in. See GatewayHostOptions.
         Options = options ?? GatewayHostOptions.FromEnvironment();
-        FileLog.Write($"[GatewayHost] options: hosted={Options.Hosted} ({(options is null ? "from the environment" : "explicit")})");
-        _transcriptionAudioArchive = new Transcription.TranscriptionAudioArchive(Hosted);
+        if (string.IsNullOrWhiteSpace(Options.StorageRoot))
+            throw new InvalidOperationException(
+                "GatewayHostOptions.StorageRoot is empty. A host must be told the directory it keeps its files under; " +
+                "production takes it from StorageRoot in GatewayHostOptions.FromEnvironment, a test states one.");
+        FileLog.Write($"[GatewayHost] options: hosted={Options.Hosted} storageRoot={Options.StorageRoot} ({(options is null ? "from the environment" : "explicit")})");
+        // The stores whose only configuration is a path under the storage root, built here so they take THIS host's
+        // root rather than the process root at the moment a field initialiser happened to run.
+        _gatewayAuth = new Util.GatewayAuth(Util.GatewayAuth.TokenFileUnder(StorageRoot));
+        _installIdStore = new Account.GatewayInstallId(CcDirector.Gateway.Account.GatewayInstallId.PathUnder(StorageRoot));
+        _dictationUploads = new Voice.VoiceUploadStore(CcStorage.DictationUploads(StorageRoot), TenantId.Local);
+        _voiceTurnUploads = new Voice.VoiceUploadStore(CcStorage.VoiceTurnUploads(StorageRoot), TenantId.Local);
+        _transcriptionHistory = new Transcription.TranscriptionHistoryLog(CcStorage.TranscriptionHistory(StorageRoot));
+        _transcriptionAudioArchive = new Transcription.TranscriptionAudioArchive(Hosted, CcStorage.TranscriptionAudio(StorageRoot));
         var retiredFilesRemoved = Core.Configuration.LegacyPrivacyDataCleanup.Run();
         if (retiredFilesRemoved > 0)
             FileLog.Write($"[GatewayHost] Removed {retiredFilesRemoved} retired local tracking file(s).");
@@ -1681,7 +1698,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // day; a zero or negative value in config.json is refused by the loader and the default stands, so a
         // typo cannot quietly restore the deleting roster.
         var gatewayConfig = Core.Configuration.GatewayConfig.Load();
-        Registry = new DirectorRegistry(instancesDirectory)
+        Registry = new DirectorRegistry(instancesDirectory ?? CcStorage.DirectorInstances(StorageRoot))
         {
             EvictionHorizon = TimeSpan.FromHours(gatewayConfig.DirectorEvictionHorizonHours),
         };
@@ -1715,9 +1732,9 @@ public sealed class GatewayHost : IAsyncDisposable
         PushedRepositories = new Streaming.PushedRepositoryStore();
         // Repositories mission (#510 phase D): the daily repository history behind the weekly report.
         // File-backed v1 (see the store's remarks); Postgres is a follow-up that changes persistence, not shape.
-        RepoHistory = new Streaming.RepoHistoryStore(Path.Combine(CcStorage.Root(), "repo-history.jsonl"));
+        RepoHistory = new Streaming.RepoHistoryStore(Path.Combine(StorageRoot, "repo-history.jsonl"));
         // Gateway Cleanup mission (Wave 4b): the Gateway-native mission store, at a Gateway-side file path
-        // (CcStorage.Root(), the same location the cron and snooze stores use), NOT the Director's tool-config
+        // (the host's storage root, the same location the cron and snooze stores use), NOT the Director's tool-config
         // missions.json. Reuses Core.Sessions.MissionStore unchanged.
         //
         // #1039: the store is partitioned by tenant, and the answer for rows written BEFORE it was differs by
@@ -1726,7 +1743,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // cannot be attributed after the fact and is quarantined - readable by nobody, left on disk. Decided
         // from Options.Hosted, the same signal that picks the tenant context below.
         Missions = new Core.Sessions.MissionStore(
-            missionsPath ?? Path.Combine(CcStorage.Root(), "missions.json"),
+            missionsPath ?? Path.Combine(StorageRoot, "missions.json"),
             adoptUnattributedAs: Hosted ? null : Core.Tenancy.TenantId.Local);
         StreamRegistry = new Streaming.GatewayStreamRegistry();
         // The statistics store's failure-domain boundary. Constructed HERE, on its own, deliberately OUTSIDE
@@ -1740,7 +1757,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // them could only ever hand them nothing - which is exactly the state this ordering fixes: the store
         // opened PostgreSQL and migrated it successfully, and the observers that should have used it had
         // already decided, two lines earlier, that hosted means no statistics.
-        StatsStore = Stats.Data.GatewayStatsStore.FromEnvironment(Hosted);
+        StatsStore = Stats.Data.GatewayStatsStore.FromEnvironment(Hosted, CcStorage.GatewayStatsDb(StorageRoot));
         if (!StatsStore.IsAvailable)
             FileLog.Write(
                 $"[GatewayHost] statistics are UNAVAILABLE ({StatsStore.Availability.ReasonCode}): " +
@@ -1756,14 +1773,14 @@ public sealed class GatewayHost : IAsyncDisposable
             ? new Stats.LateStatsObservers(StatsStore)
             : null;
         InputStatsHandle = OpenInputStats(inputStatsPath, _hostedStatsObservers, Hosted);
-        _promptLog = new Prompts.GatewayPromptLog(promptLogPath);
+        _promptLog = new Prompts.GatewayPromptLog(promptLogPath ?? CcStorage.PromptLog(StorageRoot));
         // The self-host fleet concurrency record, which is the only one constructed eagerly. A hosted
         // Gateway never constructs it, so gateway-concurrency-stats.json is never written on that path -
         // see the SessionConcurrency property for the incident that makes writing it there unacceptable -
         // and reads its recorder from the hosted resolver instead.
         _selfHostConcurrency = Hosted || GatewayHostedMode.IsHostedImage
             ? null
-            : new Stats.GatewaySessionConcurrencyStats();
+            : new Stats.GatewaySessionConcurrencyStats(Stats.GatewaySessionConcurrencyStats.PathUnder(StorageRoot));
         // Epic #1159 step A: when a machine passes the eviction horizon (or unregisters gracefully), forget
         // what it pushed. The pushed store keeps a Director's sessions across a disconnect on purpose - that
         // is what lets the roster serve a machine whose tunnel is down - so this is the one place those
@@ -1822,7 +1839,7 @@ public sealed class GatewayHost : IAsyncDisposable
         Brain = new BrainSupervisor(
             new HostedAgentOptions
             {
-                WorkingDirectory = Path.Combine(CcStorage.Root(), "brain"),
+                WorkingDirectory = Path.Combine(StorageRoot, "brain"),
                 // Headless: the brain has no human to answer a permission prompt, so it takes the
                 // full bypass rather than the interactive automatic default (see ClaudeDriver).
                 AgentArgs = $"{ClaudeDriver.HeadlessDefaultArgs} --model {BrainModel}",
@@ -1839,7 +1856,7 @@ public sealed class GatewayHost : IAsyncDisposable
         BrainRestartAction = ct => Brain.RestartAsync(ct);
         // Production omits keyVaultPath for the shared default; tests pass an isolated path so
         // they never touch the real %LOCALAPPDATA% key store.
-        _keyVault = new KeyVault(keyVaultPath);
+        _keyVault = new KeyVault(keyVaultPath ?? CcStorage.KeyVaultFile(StorageRoot));
         _dictationTranscription = dictationTranscription;
         // The EF data layer (Hosted Gateway mission, Step 1b): one gateway.db under the storage root,
         // migrated on open, fail-loud (no JSON fallback). The structured stores that have moved off JSON
@@ -1870,7 +1887,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // down the healthy container serving beside it. That is the 2 and 12 August 2026 outages (#2383,
         // #2585), and shortening the wait only ever made it less likely. StartAsync opens it immediately
         // after the bind; configuration faults still throw here, because waiting cannot fix those.
-        _gatewayDb = new Data.GatewayDatabase(_tenantContext, deferOpen: true);
+        _gatewayDb = new Data.GatewayDatabase(_tenantContext, dbPath: CcStorage.GatewayDb(StorageRoot), deferOpen: true);
         // MTR-14B: the shared EF database is now the device registry authority. The legacy JSON path is
         // supplied only to the one-time importer; no runtime authentication or mutation reads or writes it.
         // deferInitialize: establishing the credential authority READS the database, and that read used to
@@ -1878,7 +1895,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // and the readiness gate refuses everything but /healthz until it has.
         // teamsReleased: only where Teams is released may a hosted key be bound to a team's tenant
         // (devthrottle_internal#2311); dark, every key is judged exactly as before.
-        Devices = new Pairing.DeviceRegistry(_gatewayDb, devicesPath, Hosted,
+        Devices = new Pairing.DeviceRegistry(_gatewayDb, devicesPath ?? Pairing.DeviceRegistry.StorePathUnder(StorageRoot), Hosted,
             deferInitialize: true, teamsReleased: TeamsReleased);
         // Remove-the-network-port phase 1b: the per-session credential registry. A Director registers one key
         // per session over the tunnel it already holds, and an agent inside that session authenticates as the
@@ -1995,7 +2012,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // Named work lists persist across a Gateway restart (issue #301) in the worklists table (stale
         // claims released on load). The path argument is the LEGACY worklists.json, imported once on first
         // upgrade then renamed aside. Tests MUST pass an isolated path so they never touch the real legacy file.
-        _workLists = new WorkListStore(_gatewayDb, workListsPath ?? Path.Combine(CcStorage.Root(), "worklists.json"), deferInitialize: true);
+        _workLists = new WorkListStore(_gatewayDb, workListsPath ?? Path.Combine(StorageRoot, "worklists.json"), deferInitialize: true);
         // The workflow catalog (Workflows mission, phase 1): persisted in the workflows tables, the
         // shipped built-ins seeded/upgraded at construction. No legacy JSON - the previous catalog was
         // compiled-in C# literals, so there is nothing on disk to import.
@@ -2059,11 +2076,11 @@ public sealed class GatewayHost : IAsyncDisposable
         // evidence of why sessions enter/leave Working and why snoozes end, retained 30 days. Constructed
         // before the snooze registry because the registry appends its lifecycle decisions to it.
         _activityEvents = new Activity.ActivityEventStore(_gatewayDb);
-        _snoozeRegistry = new Snooze.SnoozeRegistry(_gatewayDb, snoozePath ?? Path.Combine(CcStorage.Root(), "snooze.json"), _activityEvents);
+        _snoozeRegistry = new Snooze.SnoozeRegistry(_gatewayDb, snoozePath ?? Path.Combine(StorageRoot, "snooze.json"), _activityEvents);
         // Editable/versioned wingman instructions (issue #537) now persist in the wingman_instructions table
         // of the EF data layer. The path argument is the LEGACY wingman-instructions.json, imported once on
         // first upgrade then renamed aside. Tests MUST pass an isolated path so they never touch the real file.
-        _instructionsStore = new Wingman.WingmanInstructionsStore(_gatewayDb, wingmanInstructionsPath ?? Path.Combine(CcStorage.Root(), "wingman-instructions.json"), deferInitialize: true);
+        _instructionsStore = new Wingman.WingmanInstructionsStore(_gatewayDb, wingmanInstructionsPath ?? Path.Combine(StorageRoot, "wingman-instructions.json"), deferInitialize: true);
         // THE SNOOZE CLEAR ON EVICTION IS DELETED, and of the three deletions this is the one that mattered
         // most (inspection 2, finding 1).
         //
@@ -2191,13 +2208,13 @@ public sealed class GatewayHost : IAsyncDisposable
             currentScopeKey: () => _tenantPass.Current?.Value,
             mayReceive: (directorId, sessionId) => IsTeamSessionOfDirector(_tenantPass.Current, directorId, sessionId, isRemoval: false));
         // Mission Screen mission (Phase 1b, issue #1405): the mission-WHY store, at a Gateway-side file
-        // (CcStorage.Root(), the same location the snooze and cron stores use). Loaded here so a Gateway
+        // (the host's storage root, the same location the snooze and cron stores use). Loaded here so a Gateway
         // restart re-serves every WHY. Tests MUST pass an isolated path so they never touch the real store.
         // Mission WHY notes now persist in the mission_notes table of the EF data layer. The path argument is
         // the LEGACY mission-notes.json, imported once on first upgrade (quarantine-on-corrupt, boot empty -
         // a cosmetic store must not block boot) then renamed aside. Tests MUST pass an isolated path so they
         // never touch the real legacy file.
-        _missionNotes = new MissionNotes.MissionNoteStore(_gatewayDb, missionNotesPath ?? Path.Combine(CcStorage.Root(), "mission-notes.json"));
+        _missionNotes = new MissionNotes.MissionNoteStore(_gatewayDb, missionNotesPath ?? Path.Combine(StorageRoot, "mission-notes.json"));
         // The WHY moved ONTO the Mission record (keyed by mission id) - see Mission.Why. Adopt whatever the
         // old name-keyed note store still holds, once, so no owner loses a WHY they wrote. Idempotent and
         // non-overwriting, so it is safe to run on every boot and safe to run after somebody has already set
@@ -2277,12 +2294,12 @@ public sealed class GatewayHost : IAsyncDisposable
         // (next-run times recomputed on load). The path argument is the LEGACY cronjobs.json, imported once
         // on first upgrade then renamed aside. Tests MUST pass an isolated path so they never touch the real
         // legacy file.
-        _cronJobs = new CronJobStore(_gatewayDb, cronJobsPath ?? Path.Combine(CcStorage.Root(), "cronjobs.json"), deferInitialize: true);
+        _cronJobs = new CronJobStore(_gatewayDb, cronJobsPath ?? Path.Combine(StorageRoot, "cronjobs.json"), deferInitialize: true);
         // Cron run history + the firing engine (epic #479, #483). The engine resolves each due job's
         // target Director from the registry and starts a session over the shared client (the same
         // path the work-list runner uses). The background sweep timer is started in StartAsync. The path
         // argument is the LEGACY cronruns.json, imported once then renamed aside.
-        _cronRuns = new CronRunHistoryStore(_gatewayDb, cronRunsPath ?? Path.Combine(CcStorage.Root(), "cronruns.json"));
+        _cronRuns = new CronRunHistoryStore(_gatewayDb, cronRunsPath ?? Path.Combine(StorageRoot, "cronruns.json"));
         }
         finally
         {
@@ -2299,7 +2316,7 @@ public sealed class GatewayHost : IAsyncDisposable
         if (account is not null)
             Account = account;
         else if (OperatingSystem.IsWindows())
-            Account = CcDirector.Gateway.Account.GatewayAccountFactory.CreateForWindows(Hosted);
+            Account = CcDirector.Gateway.Account.GatewayAccountFactory.CreateForWindows(Hosted, CcStorage.GatewayDevThrottleCredentialBlob(StorageRoot));
         else if (OperatingSystem.IsMacOS())
             Account = CcDirector.Gateway.Account.GatewayAccountFactory.CreateForMac(Hosted);
         else
@@ -2544,11 +2561,11 @@ public sealed class GatewayHost : IAsyncDisposable
         // Web Push (mobile app-icon "needs you" dot): load (or generate on first run) the VAPID key
         // pair and the set of subscribed devices. The notifier that fans out to these is built and
         // started in StartAsync, once this Gateway's own /sessions endpoint is reachable on loopback.
-        _vapidStore = new Push.WebPushVapidStore();
+        _vapidStore = new Push.WebPushVapidStore(Push.WebPushVapidStore.PathUnder(StorageRoot));
         // Web Push subscriptions now persist in the push_subscriptions table of the EF data layer. The path
         // argument is the LEGACY push-subscriptions.json, imported once on first upgrade then renamed aside.
         // Tests MUST pass an isolated path so they never touch the real legacy file.
-        _pushSubscriptions = new Push.PushSubscriptionStore(_gatewayDb, pushSubscriptionsPath ?? Path.Combine(CcStorage.ToolConfig("gateway"), "push-subscriptions.json"));
+        _pushSubscriptions = new Push.PushSubscriptionStore(_gatewayDb, pushSubscriptionsPath ?? Path.Combine(CcStorage.ToolConfig(StorageRoot, "gateway"), "push-subscriptions.json"));
         // The Secret Handoff push (issue #2943, phase 5): a transfer waiting for the owner is pushed to the same phones, over
         // its own VAPID sender so its lifetime does not hang on the needs-you sweep starting.
         _secretTransferPush = new Push.SecretTransferPushNotifier(_pushSubscriptions,
@@ -2607,7 +2624,7 @@ public sealed class GatewayHost : IAsyncDisposable
             _deviceRegistration = new Account.GatewayDeviceRegistrationService(
                 Account,
                 deviceRegistryClient,
-                new Account.GatewayDeviceKeyStore(),
+                new Account.GatewayDeviceKeyStore(CcDirector.Gateway.Account.GatewayDeviceKeyStore.PathUnder(StorageRoot)),
                 machineName: Environment.MachineName,
                 platform: ResolvePlatform(),
                 appVersion: AppVersion.Semver,
@@ -3747,7 +3764,7 @@ public sealed class GatewayHost : IAsyncDisposable
         _turnLogSwitches.Start();
         _turnLogRecorder ??= new TurnLog.TurnLogRecorder(new TurnLog.GatewayTurnLogEnvironment(
             switches: _turnLogSwitches,
-            writer: new TurnLog.TurnLogWriter(Core.Storage.CcStorage.TurnLog()),
+            writer: new TurnLog.TurnLogWriter(CcStorage.TurnLog(StorageRoot)),
             route: (tenant, directorId) =>
             {
                 var director = Registry.Get(tenant, directorId);
@@ -3777,7 +3794,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // and both sides of every conversation, for every account capture was switched on for, on a shared
         // file system behind a management endpoint. Anything worth keeping has already been pulled daily,
         // so a bounded window costs nothing and turns an unbounded exposure into a bounded one.
-        var turnLogRetention = new TurnLog.TurnLogRetention(Core.Storage.CcStorage.TurnLog());
+        var turnLogRetention = new TurnLog.TurnLogRetention(CcStorage.TurnLog(StorageRoot));
         _turnLogRetentionTimer = new Timer(_ =>
         {
             try { turnLogRetention.Sweep(); }
@@ -4185,7 +4202,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // readiness gate: every request gets its correlation id here, every answer of 400 or more carries it, and any
         // failure logged while the request is served is stored under it. The store lives on the durable storage root
         // (on hosted, the share a deploy does not touch), the same store Director errors go to.
-        _errorReports = new ErrorReportStore(Path.Combine(CcDirector.Core.Storage.CcStorage.Root(), "error-reports"));
+        _errorReports = new ErrorReportStore(Path.Combine(StorageRoot, "error-reports"));
         _errorSink = new Api.GatewayErrorSink(_errorReports);
         _errorSink.Start();
         Api.GatewayRequestErrors.Use(_app, _errorSink);
@@ -4438,7 +4455,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // Network Diagnostics mission (P1): the shared hourly quality rollup - POST /diag/result folds
         // client results into it, and the monitor (started below) folds its per-tick observations into the
         // same instance, so both writers share one thread-safe in-memory state + file.
-        _netDiagRollup = new Api.NetDiagRollupStore(Path.Combine(CcStorage.Root(), "netdiag-rollup.json"));
+        _netDiagRollup = new Api.NetDiagRollupStore(Path.Combine(StorageRoot, "netdiag-rollup.json"));
 
         // Gateway Cleanup mission: the cut removed the DirectorEndpointClient argument (_client) - the
         // Gateway no longer dials Directors over HTTP, so Map no longer takes an HTTP client. The
@@ -5228,7 +5245,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // the same store, filed by the website's server under the account it verified. Behind a token this Gateway
         // mints and keeps only the hash of, because the hosted Gateway's settings take no secret but the deploy's.
         WebsiteErrorEndpoints.Map(_app, errorReports,
-            new WebsiteErrorTokenStore(Path.Combine(CcDirector.Core.Storage.CcStorage.Root(), "website-error-token")),
+            new WebsiteErrorTokenStore(Path.Combine(StorageRoot, "website-error-token")),
             TenantRegistry);
         // The corrections the Wingman's verdicts were given (the Wingman-on-every-turn mission, slice G). The
         // labelled corpus lives in another repository and is pulled by a job holding no account credential, so
@@ -6113,7 +6130,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // image does not bundle, so every poll would throw. A hosted Gateway has no tailnet to diagnose.
         if (!Hosted)
         {
-            var netDiagDeviceStore = new Api.NetDiagDeviceStore(Path.Combine(CcStorage.Root(), "netdiag-devices.json"));
+            var netDiagDeviceStore = new Api.NetDiagDeviceStore(Path.Combine(StorageRoot, "netdiag-devices.json"));
             // P5: deliver the monitor's drift/resolve to the doorbell + owner email. The alert service owns the
             // 401-explicit "not signed in" path, the daily email cap, and one-email-per-episode; the monitor
             // just hands it the device name on the machine's rising/falling edges.

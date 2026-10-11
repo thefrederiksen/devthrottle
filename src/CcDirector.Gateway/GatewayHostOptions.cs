@@ -1,3 +1,5 @@
+using CcDirector.Core.Storage;
+
 namespace CcDirector.Gateway;
 
 /// <summary>
@@ -38,6 +40,20 @@ public sealed record GatewayHostOptions
     public bool Hosted { get; init; }
 
     /// <summary>
+    /// The directory this host keeps its files under: the database, the key vault, the token file, the stores
+    /// that used to compose their paths from <see cref="CcStorage.Root"/> at call time. Production takes it from
+    /// <see cref="CcStorage.Root"/>, the <c>CC_DIRECTOR_ROOT</c> setting a Director points at its own home; a test
+    /// states an isolated directory.
+    ///
+    /// WHY IT HAS AN INITIALISER. The initial value is this process's root, so an explicit record that omits it
+    /// runs where the host ran before this property existed - the Gateway test assembly redirects that root once
+    /// for the whole run. Every test that builds a host is being moved to state the root (gateway-tests.md section
+    /// 3.3, step 1); when the last one has, this initialiser goes and the property becomes required, so that a
+    /// forgotten root is a compile error rather than a shared directory.
+    /// </summary>
+    public string StorageRoot { get; init; } = CcStorage.Root();
+
+    /// <summary>
     /// The ONE place production reads the host's options from the process environment. Called by the
     /// <see cref="GatewayHost"/> constructor when a caller passes no options, which is what the production entry
     /// points do. Everything a test used to set through <c>Environment.SetEnvironmentVariable</c> is a property on
@@ -46,5 +62,6 @@ public sealed record GatewayHostOptions
     public static GatewayHostOptions FromEnvironment() => new()
     {
         Hosted = GatewayHostedMode.IsHosted,
+        StorageRoot = CcStorage.Root(),
     };
 }
