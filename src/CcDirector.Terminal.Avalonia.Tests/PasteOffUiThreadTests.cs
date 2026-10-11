@@ -42,22 +42,35 @@ public sealed class PasteOffUiThreadTests
         var text = new string('x', PasteLen);
 
         var chunks = new ConcurrentQueue<byte[]>();
+        var sentOnUiThread = new ConcurrentQueue<bool>();
         using var pasteDone = new ManualResetEventSlim(false);
 
         // Pin the UI thread until the paste reports done, then run the REAL pacing. Because the pacing
         // runs on the thread pool, it finishes while the pin is held. If it ever resumed on the UI
         // thread it could not finish until the pin was released, and the pin is released only when it
         // finishes - so the guard is what ends the pin, and the test fails naming that.
+        //
+        // Order alone does not prove the paste stayed OFF the UI thread: a paste done synchronously on the
+        // UI thread finishes before the queued pin even runs, and the pin then finds its signal already set
+        // (the review ran exactly that mutation and this test passed it). So every chunk also records the
+        // thread it was sent from, and none may be the UI thread.
         var pin = PinUiThreadUntil(pasteDone);
-        var paste = terminal.HarnessPaceChunksAsync(text, chunks.Enqueue);
+        var paste = terminal.HarnessPaceChunksAsync(text, bytes =>
+        {
+            sentOnUiThread.Enqueue(Dispatcher.UIThread.CheckAccess());
+            chunks.Enqueue(bytes);
+        });
         _ = paste.ContinueWith(_ => pasteDone.Set(), TaskScheduler.Default);
 
         var endedBy = await pin;
-        await paste;
+        // Bounded like the pin: a paste that never finishes fails here, naming itself, instead of hanging.
+        await paste.WaitAsync(HangGuard);
 
         Assert.Equal(PinEnd.Signal, endedBy);
         Assert.True(chunks.Count > 1, $"expected the paste to go out in several chunks, got {chunks.Count}");
         Assert.Equal(PasteLen, chunks.Sum(c => c.Length));
+        Assert.All(sentOnUiThread, onUi => Assert.False(onUi,
+            "a chunk was sent from the UI thread - the pacing must run on the thread pool"));
     }
 
     [AvaloniaFact]
