@@ -20,6 +20,7 @@ from . import factory_status_ops
 from . import fleet_manager_ops
 from . import fleet_ops
 from . import license_ops
+from . import license_usage_ops
 from . import link_ops
 from . import mission_ops
 from . import schedule_ops
@@ -214,7 +215,8 @@ license_app = typer.Typer(
     help=(
         "List, add, remove and switch the Claude accounts this machine holds.\n\n"
         "The active sign-in is in the default config folder; each spare has a folder of its own in the store. "
-        "A switch exchanges the active sign-in with a spare's. Never prints a key."
+        "A switch exchanges the active sign-in with a spare's. 'usage' reads each account's limits, and "
+        "'refresh' keeps a spare's sign-in fresh. Never prints a key."
     ),
     add_completion=False,
     no_args_is_help=True,
@@ -1739,6 +1741,49 @@ def license_remove(
 ) -> None:
     """Delete a spare's sign-in from this machine."""
     license_ops.remove_account(account, yes, default_config_dir, store_dir, json_output)
+
+
+@license_app.command("usage")
+def license_usage(
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output JSON: {count, total, defaultConfigDir, storeDir, recovered, accounts}. A failed read "
+        "has readError set and null numbers; the Director keeps the last good ones."
+    ),
+    fields: Optional[str] = typer.Option(
+        None,
+        "--fields",
+        help="Fields to show, comma separated. Default: account,state,five-hour,week,five-hour-resets,"
+        "week-resets,extra-usage. Valid: account, state, five-hour, week, five-hour-resets, week-resets, "
+        "extra-usage, active, plan, tier, detail, read-at, sign-in-expires, folder.",
+    ),
+    active: bool = typer.Option(False, "--active", help="Read only the active account. Applies to --json too."),
+    refresh: bool = typer.Option(
+        False, "--refresh", help="First renew each spare whose key has under an hour left (as license refresh)."
+    ),
+    default_config_dir: Optional[str] = typer.Option(None, "--default-config-dir", help=_LICENSE_DEFAULT_DIR_HELP),
+    store_dir: Optional[str] = typer.Option(None, "--store-dir", help=_LICENSE_STORE_DIR_HELP),
+) -> None:
+    """Each held account's 5-hour and weekly use, reset times and extra-usage state."""
+    license_usage_ops.usage(json_output, fields, default_config_dir, store_dir, active_only=active,
+                            refresh_due=refresh)
+
+
+@license_app.command("refresh")
+def license_refresh(
+    account: Optional[str] = typer.Argument(None, help="The spare account's email. Default: every spare."),
+    force: bool = typer.Option(False, "--force", help="Refresh even when the key has over an hour left."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output JSON: every field, a bare array."),
+    fields: Optional[str] = typer.Option(
+        None,
+        "--fields",
+        help="Fields to show, comma separated. Default: account,result,expires-at,refresh-token-rotated. "
+        "Valid: account, result, expires-at, refresh-token-rotated, sign-in-expires, detail, folder.",
+    ),
+    default_config_dir: Optional[str] = typer.Option(None, "--default-config-dir", help=_LICENSE_DEFAULT_DIR_HELP),
+    store_dir: Optional[str] = typer.Option(None, "--store-dir", help=_LICENSE_STORE_DIR_HELP),
+) -> None:
+    """Renew a spare account's sign-in key in its own folder when it is due."""
+    license_usage_ops.refresh(account, force, json_output, fields, default_config_dir, store_dir)
 
 
 @app.callback()
