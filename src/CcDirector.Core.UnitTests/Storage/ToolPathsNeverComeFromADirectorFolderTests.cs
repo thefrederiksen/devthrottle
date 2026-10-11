@@ -135,6 +135,8 @@ public sealed class ToolPathsNeverComeFromADirectorFolderTests
 
         foreach (var area in new[] { "src", "tools" })
         {
+            if (!Directory.Exists(Path.Combine(root, area))) continue;
+
             foreach (var file in RepositorySourceIndex.Under(area, ".cs"))
             {
                 var relative = Path.GetRelativePath(root, file).Replace('\\', '/');

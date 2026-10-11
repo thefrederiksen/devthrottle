@@ -119,13 +119,4 @@ public sealed class GatewayHttpFailureLineShapeTests(ITestOutputHelper output)
     }
 
     private static string Excerpt(string text) => text.Length > 30 ? text[..30] : text;
-
-    private static string RepoRoot([CallerFilePath] string thisFile = "")
-    {
-        // this file: <repo>/src/CcDirector.Gateway.UnitTests/Api/GatewayHttpFailureLineShapeTests.cs
-        var root = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(thisFile)!, "..", "..", ".."));
-        var marker = Path.Combine(root, "src", "CcDirector.Gateway", "CcDirector.Gateway.csproj");
-        Assert.True(File.Exists(marker), $"Resolved the repository root to {root}, but it has no {marker}. Run the suite from a checkout.");
-        return root;
-    }
 }

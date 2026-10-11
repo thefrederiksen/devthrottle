@@ -26,7 +26,9 @@ public sealed class NoUnreadUsagePollTests
         var src = Path.Combine(RepositorySourceIndex.Root, "src");
         var directorProjects = new[] { "CcDirector.Core", "CcDirector.Avalonia", "CcDirector.ControlApi", "CcDirector.Engine" };
         var files = directorProjects
-            .SelectMany(p => RepositorySourceIndex.Under(Path.Combine(src, p), ".cs"))
+            .Select(p => Path.Combine(src, p))
+            .Where(Directory.Exists)
+            .SelectMany(d => RepositorySourceIndex.Under(d, ".cs"))
             .ToList();
 
         // The scan read the real tree: the file that used to start the poll, and the account store

@@ -32,6 +32,7 @@ public sealed class RepositorySourceIndexTests
             Git(root, "init", "-q");
             Git(root, "config", "user.email", "test@example.com");
             Git(root, "config", "user.name", "Test");
+            Git(root, "config", "commit.gpgsign", "false");
             File.WriteAllText(Path.Combine(root, ".gitignore"), "bin/\n");
             Directory.CreateDirectory(Path.Combine(root, "src", "bin"));
             File.WriteAllText(Path.Combine(root, "src", "tracked.cs"), "// tracked and committed");
@@ -80,9 +81,10 @@ public sealed class RepositorySourceIndexTests
     }
 
     [Fact]
-    public void Under_a_directory_that_does_not_exist_yields_nothing()
+    public void Under_a_directory_that_does_not_exist_throws_so_a_guard_cannot_pass_by_scanning_nothing()
     {
-        Assert.Empty(RepositorySourceIndex.Under("src/No.Such.Project", ".cs"));
+        var ex = Assert.Throws<DirectoryNotFoundException>(() => RepositorySourceIndex.Under("src/No.Such.Project", ".cs").ToList());
+        Assert.Contains("No.Such.Project", ex.Message);
     }
 
     [Fact]

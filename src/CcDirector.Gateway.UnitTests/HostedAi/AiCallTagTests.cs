@@ -228,13 +228,4 @@ public sealed class AiCallTagTests : IDisposable
         }
         return text[openIndex..];
     }
-
-    private static string RepoRoot([CallerFilePath] string thisFile = "")
-    {
-        var dir = Path.GetDirectoryName(thisFile)!;
-        while (dir is not null && !File.Exists(Path.Combine(dir, "src", "CcDirector.Core", "HostedAi", "AiCallTag.cs")))
-            dir = Path.GetDirectoryName(dir);
-        Assert.True(dir is not null, "could not find the repository root from " + thisFile);
-        return dir!;
-    }
 }

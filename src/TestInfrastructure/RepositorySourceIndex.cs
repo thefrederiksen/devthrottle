@@ -25,8 +25,13 @@ namespace CcDirector.TestInfrastructure;
 /// time anything asks and held for the rest of the process. That is the definition the guards actually want:
 /// a build output, a node_modules tree, a stale untracked project and another checkout parked in an ignored
 /// folder are all ignored by git and are not the repository, while a file a developer wrote a minute ago and
-/// has not yet committed IS, and a guard that could not see it would pass the one change it exists to catch. A tracked file deleted from disk but not yet staged is left out, because there is nothing
-/// to read.
+/// has not yet added IS, and a guard that could not see it would pass the one change it exists to catch.
+/// A tracked file deleted from disk but not yet staged is left out, because there is nothing to read.
+///
+/// One edge follows from taking git's answer: a NEW file inside a folder that an ignore pattern covers - the
+/// pattern `release/` also matches the tracked folder src/CcDirector.Core.UnitTests/Release on a
+/// case-insensitive file system - is left out until it is added, exactly as `git add` would leave it out. It
+/// cannot reach main unseen: adding it is what makes it tracked, and a tracked file is always listed.
 ///
 /// THE ROOT is the directory holding cc-director.sln above the test assembly, found once. Every guard used to
 /// carry its own copy of that walk too, in six spellings.
@@ -58,13 +63,17 @@ public static class RepositorySourceIndex
     /// <summary>
     /// Every file in <paramref name="directory"/> or below it, optionally only those with
     /// <paramref name="extension"/>. The directory is repository-relative with either separator
-    /// ("src/CcDirector.Gateway") or absolute. A directory that does not exist yields nothing.
+    /// ("src/CcDirector.Gateway") or absolute. A directory that does not exist THROWS: a guard that scanned
+    /// nothing because its directory moved would otherwise pass, and a check whose pass condition is an
+    /// absence is not a check. A caller that genuinely tolerates an absent area asks Directory.Exists first.
     /// </summary>
     public static IEnumerable<string> Under(string directory, string? extension = null)
     {
         var full = Path.IsPathRooted(directory)
             ? Path.GetFullPath(directory)
             : Path.GetFullPath(Path.Combine(Root, directory.Replace('/', Path.DirectorySeparatorChar)));
+        if (!Directory.Exists(full))
+            throw new DirectoryNotFoundException($"The repository source index was asked for files under {full}, which does not exist.");
         var prefix = full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
         return Files.Where(f => f.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
                                 && (extension is null || HasExtension(f, extension)));
@@ -107,7 +116,17 @@ public static class RepositorySourceIndex
         foreach (var argument in new[] { "ls-files", "--cached", "--others", "--exclude-standard", "-z" })
             startInfo.ArgumentList.Add(argument);
 
-        using var git = Process.Start(startInfo)
+        Process? started;
+        try
+        {
+            started = Process.Start(startInfo);
+        }
+        catch (System.ComponentModel.Win32Exception ex)
+        {
+            throw new InvalidOperationException(
+                "git was not found on the PATH; the repository source index lists the tree with git ls-files", ex);
+        }
+        using var git = started
             ?? throw new InvalidOperationException("git did not start; the repository source index needs git on the PATH");
         var errorText = git.StandardError.ReadToEndAsync();
         var output = git.StandardOutput.ReadToEnd();
