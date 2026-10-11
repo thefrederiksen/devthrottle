@@ -59,10 +59,10 @@ public sealed class MorningReportEndpointTests : IDisposable
     private GatewayDatabase Db => _h.Open(new AsyncLocalTenantContext());
 
     private HostedTenantBoundary HostedBoundary() =>
-        new(new AsyncLocalTenantContext(), new DeviceRegistry(_devPath));
+        new(new AsyncLocalTenantContext(), new DeviceRegistry(_devPath), hosted: false);
 
     private HostedTenantBoundary SelfHostBoundary() =>
-        new(new SingleTenantContext(), new DeviceRegistry(_devPath));
+        new(new SingleTenantContext(), new DeviceRegistry(_devPath), hosted: false);
 
     /// <summary>The services a minimal-API <c>IResult</c> needs to write itself out (JSON options +
     /// logging). Built once: these tests execute the real result objects rather than inspecting them, so
@@ -149,7 +149,7 @@ public sealed class MorningReportEndpointTests : IDisposable
         // exemption every 07:00 call is a 401 and the email silently stops. Asserted through the middleware
         // itself, not by peeking at a set - the claim is "a credential-less request reaches the endpoint".
         var devices = new DeviceRegistry(_devPath);
-        var cfg = new AuthMiddleware.RequireToken { Token = "shared-machine-token", Devices = devices };
+        var cfg = new AuthMiddleware.RequireToken { Hosted = false, Token = "shared-machine-token", Devices = devices };
 
         var ctx = new DefaultHttpContext();
         ctx.Request.Path = MorningReportEndpoint.Path;
@@ -168,7 +168,7 @@ public sealed class MorningReportEndpointTests : IDisposable
         // The exemption is EXACT-MATCH, not a prefix. If it were a prefix, adding any future
         // /gateway/reports/* route would silently publish it - so prove a sibling path still 401s.
         var devices = new DeviceRegistry(_devPath);
-        var cfg = new AuthMiddleware.RequireToken { Token = "shared-machine-token", Devices = devices };
+        var cfg = new AuthMiddleware.RequireToken { Hosted = false, Token = "shared-machine-token", Devices = devices };
 
         var ctx = new DefaultHttpContext();
         ctx.Request.Path = MorningReportEndpoint.Path + "/everything";

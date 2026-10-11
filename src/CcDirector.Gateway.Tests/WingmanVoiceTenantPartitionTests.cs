@@ -257,12 +257,12 @@ public sealed class WingmanVoiceTenantPartitionTests : IDisposable
         return dir;
     }
 
-    private WingmanVoiceService ServiceAt(string baseDir)
+    private WingmanVoiceService ServiceAt(string baseDir, bool hosted)
     {
         Func<TenantId, Core.Configuration.WingmanModelRole, string, CancellationToken, Task<IAgentBrain>> brain =
             (_, _, _, _) => Task.FromResult<IAgentBrain>(null!);
         var vault = new KeyVault(Path.Combine(baseDir, "vault.json"));
-        return Warmed(new WingmanVoiceService(brain, vault, Settings, Path.Combine(baseDir, "voice-sessions.json")));
+        return Warmed(new WingmanVoiceService(brain, vault, Settings, hosted, Path.Combine(baseDir, "voice-sessions.json")));
     }
 
     // ===== cross-tenant isolation, each with its same-tenant control =========================
@@ -270,7 +270,7 @@ public sealed class WingmanVoiceTenantPartitionTests : IDisposable
     [Fact]
     public void Ready_audio_stored_for_one_tenant_is_invisible_to_another()
     {
-        var svc = ServiceAt(NewBaseDir());
+        var svc = ServiceAt(NewBaseDir(), hosted: false);
         svc.StoreReadyAudioForTest(TenantA, "s1", "spoken A", "reply A", Mp3("A"));
 
         // The DISTINGUISHING assertions come FIRST: the other tenant names the SAME session id and gets
@@ -297,7 +297,7 @@ public sealed class WingmanVoiceTenantPartitionTests : IDisposable
     [Fact]
     public void Voice_session_marking_is_per_tenant()
     {
-        var svc = ServiceAt(NewBaseDir());
+        var svc = ServiceAt(NewBaseDir(), hosted: false);
         svc.Mark(TenantA, "s1");
 
         Assert.True(svc.IsVoiceSession(TenantA, "s1"));            // control
@@ -309,7 +309,7 @@ public sealed class WingmanVoiceTenantPartitionTests : IDisposable
     [Fact]
     public void Generating_unavailable_and_nothing_to_narrate_are_per_tenant()
     {
-        var svc = ServiceAt(NewBaseDir());
+        var svc = ServiceAt(NewBaseDir(), hosted: false);
         svc.BeginGenerating(TenantA, "s1");
         svc.NoteUnavailableForTest(TenantA, "s1", CcDirector.Core.HostedAi.HostedAiState.Retrying);
         svc.SetNothingToNarrate(TenantA, "s1", true);
@@ -326,7 +326,7 @@ public sealed class WingmanVoiceTenantPartitionTests : IDisposable
     [Fact]
     public void Served_via_fallback_is_per_tenant()
     {
-        var svc = ServiceAt(NewBaseDir());
+        var svc = ServiceAt(NewBaseDir(), hosted: false);
         svc.StoreReadyAudioForTest(TenantA, "s1", "spoken", "reply", Mp3("A"), servedViaFallback: true);
 
         Assert.True(svc.ServedViaFallbackFor(TenantA, "s1"));       // control
@@ -336,7 +336,7 @@ public sealed class WingmanVoiceTenantPartitionTests : IDisposable
     [Fact]
     public void Clearing_one_tenants_session_leaves_the_other_tenants_identically_named_session_intact()
     {
-        var svc = ServiceAt(NewBaseDir());
+        var svc = ServiceAt(NewBaseDir(), hosted: false);
         svc.StoreReadyAudioForTest(TenantA, "s1", "spoken A", "reply A", Mp3("A"));
         svc.StoreReadyAudioForTest(TenantB, "s1", "spoken B", "reply B", Mp3("B"));
 
@@ -353,7 +353,7 @@ public sealed class WingmanVoiceTenantPartitionTests : IDisposable
     [Fact]
     public void Regeneration_decision_reads_only_the_asking_tenants_cached_reply()
     {
-        var svc = ServiceAt(NewBaseDir());
+        var svc = ServiceAt(NewBaseDir(), hosted: false);
         svc.StoreReadyAudioForTest(TenantA, "s1", "spoken A", "the same reply", Mp3("A"));
 
         // CONTROL: the owning tenant sees its own cached reply and stays quiet.
@@ -378,7 +378,7 @@ public sealed class WingmanVoiceTenantPartitionTests : IDisposable
     public void Each_tenants_clips_live_in_its_own_directory()
     {
         var baseDir = NewBaseDir();
-        var svc = ServiceAt(baseDir);
+        var svc = ServiceAt(baseDir, hosted: false);
         svc.StoreReadyAudioForTest(TenantA, "s1", "spoken A", "reply A", Mp3("A"));
         svc.StoreReadyAudioForTest(TenantB, "s1", "spoken B", "reply B", Mp3("B"));
 
@@ -404,11 +404,11 @@ public sealed class WingmanVoiceTenantPartitionTests : IDisposable
     public void Clips_reload_into_the_tenant_that_owned_them()
     {
         var baseDir = NewBaseDir();
-        var svc = ServiceAt(baseDir);
+        var svc = ServiceAt(baseDir, hosted: false);
         svc.StoreReadyAudioForTest(TenantA, "s1", "spoken A", "reply A", Mp3("A"));
         svc.StoreReadyAudioForTest(TenantB, "s1", "spoken B", "reply B", Mp3("B"));
 
-        var reloaded = ServiceAt(baseDir);
+        var reloaded = ServiceAt(baseDir, hosted: false);
         // Byte comparisons first: a null or a wrong-tenant clip both fail as a plain assertion, never as a
         // dereference of null.
         Assert.Equal(Mp3("A"), reloaded.GetAudio(TenantA, "s1"));
@@ -426,10 +426,10 @@ public sealed class WingmanVoiceTenantPartitionTests : IDisposable
     public void Voice_session_set_reloads_into_the_tenant_that_owned_it()
     {
         var baseDir = NewBaseDir();
-        var svc = ServiceAt(baseDir);
+        var svc = ServiceAt(baseDir, hosted: false);
         svc.Mark(TenantA, "s1");
 
-        var reloaded = ServiceAt(baseDir);
+        var reloaded = ServiceAt(baseDir, hosted: false);
         Assert.True(reloaded.IsVoiceSession(TenantA, "s1"));        // control
         Assert.False(reloaded.IsVoiceSession(TenantB, "s1"));
     }
@@ -439,7 +439,7 @@ public sealed class WingmanVoiceTenantPartitionTests : IDisposable
     [Fact]
     public void Traversal_tenant_is_refused_rather_than_resolved_to_the_parent_partition()
     {
-        var svc = ServiceAt(NewBaseDir());
+        var svc = ServiceAt(NewBaseDir(), hosted: false);
         Assert.Throws<ArgumentException>(() => svc.PartitionDirectoryFor(new TenantId("..")));
         Assert.Throws<ArgumentException>(() => svc.HasVoice(new TenantId(".."), "s1"));
         Assert.Throws<ArgumentException>(() => svc.PartitionDirectoryFor(new TenantId("../local")));
@@ -448,7 +448,7 @@ public sealed class WingmanVoiceTenantPartitionTests : IDisposable
     [Fact]
     public void Case_variant_of_a_minted_tenant_is_refused_rather_than_aliased_to_the_same_partition()
     {
-        var svc = ServiceAt(NewBaseDir());
+        var svc = ServiceAt(NewBaseDir(), hosted: false);
         var upper = new TenantId(TenantA.Value.ToUpperInvariant());
         Assert.Throws<ArgumentException>(() => svc.PartitionDirectoryFor(upper));
         Assert.Throws<ArgumentException>(() => svc.HasVoice(upper, "s1"));
@@ -457,7 +457,7 @@ public sealed class WingmanVoiceTenantPartitionTests : IDisposable
     [Fact]
     public void System_tenant_is_refused_a_voice_partition()
     {
-        var svc = ServiceAt(NewBaseDir());
+        var svc = ServiceAt(NewBaseDir(), hosted: false);
         Assert.Throws<ArgumentException>(() => svc.PartitionDirectoryFor(TenantId.System));
         Assert.Throws<ArgumentException>(() => svc.Mark(TenantId.System, "s1"));
     }
@@ -465,7 +465,7 @@ public sealed class WingmanVoiceTenantPartitionTests : IDisposable
     [Fact]
     public void An_unresolved_tenant_is_denied_never_defaulted()
     {
-        var svc = ServiceAt(NewBaseDir());
+        var svc = ServiceAt(NewBaseDir(), hosted: false);
         Assert.Throws<ArgumentException>(() => svc.HasVoice(default, "s1"));
     }
 
@@ -491,7 +491,7 @@ public sealed class WingmanVoiceTenantPartitionTests : IDisposable
         Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
         try
         {
-            var svc = ServiceAt(baseDir);
+            var svc = ServiceAt(baseDir, hosted: true);
             // The clip is GONE from disk - not merely unreachable, actually deleted.
             Assert.False(File.Exists(Path.Combine(baseDir, "voice-sessions.json")));
             Assert.False(Directory.Exists(Path.Combine(baseDir, "voice-audio")));
@@ -513,7 +513,7 @@ public sealed class WingmanVoiceTenantPartitionTests : IDisposable
         Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", null);
         try
         {
-            var svc = ServiceAt(baseDir);
+            var svc = ServiceAt(baseDir, hosted: false);
             // ARRIVED is asserted FIRST, deliberately, and this ordering is load-bearing. Its twin above
             // asserts the opposite outcome (the clip is GONE). If both tests led with "gone from the old
             // location", then deleting the whole migration would fail BOTH on the same assertion for the
@@ -540,7 +540,7 @@ public sealed class WingmanVoiceTenantPartitionTests : IDisposable
     public void Turn_archive_is_partitioned_and_a_turn_id_alone_does_not_read_it()
     {
         var root = NewBaseDir();
-        var archive = new VoiceTurnArchive(root);
+        var archive = new VoiceTurnArchive(false, root);
         var turnId = Guid.NewGuid().ToString();
         archive.Save(TenantA, new VoiceTurnArchiveRecord
         {
@@ -573,7 +573,7 @@ public sealed class WingmanVoiceTenantPartitionTests : IDisposable
     [Fact]
     public void Turn_archive_refuses_a_traversal_tenant()
     {
-        var archive = new VoiceTurnArchive(NewBaseDir());
+        var archive = new VoiceTurnArchive(false, NewBaseDir());
         Assert.Throws<ArgumentException>(() => archive.PartitionDirectoryFor(new TenantId("..")));
         Assert.Throws<ArgumentException>(() => archive.Get(new TenantId(".."), Guid.NewGuid().ToString()));
         Assert.Throws<ArgumentException>(() => archive.PartitionDirectoryFor(new TenantId(TenantA.Value.ToUpperInvariant())));
@@ -607,7 +607,7 @@ public sealed class WingmanVoiceTenantPartitionTests : IDisposable
         Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
         try
         {
-            _ = new VoiceTurnArchive(root);
+            _ = new VoiceTurnArchive(true, root);
             Assert.False(Directory.Exists(legacyTurn));
         }
         finally { Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", prior); }
@@ -627,7 +627,7 @@ public sealed class WingmanVoiceTenantPartitionTests : IDisposable
         Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", null);
         try
         {
-            var archive = new VoiceTurnArchive(root);
+            var archive = new VoiceTurnArchive(false, root);
             // ARRIVED first, for the same reason as the voice-state twin above: leading with the
             // direction-specific claim keeps this test distinguishable from its hosted opposite when the
             // whole migration is deleted in a revert run.

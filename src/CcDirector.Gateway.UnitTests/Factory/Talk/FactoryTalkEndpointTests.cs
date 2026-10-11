@@ -140,7 +140,7 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
             return Task.FromResult<DirectorCommandResult?>(null);
         };
 
-        var boundary = new HostedTenantBoundary(new SingleTenantContext(), new DeviceRegistry());
+        var boundary = new HostedTenantBoundary(new SingleTenantContext(), new DeviceRegistry(), hosted: false);
         var door = new DirectorSpawnDoor(boundary, _directors, _ => SessionFactoryLookup.InNoFactory, send,
             Missions: null, WorkflowRuns: null, Workspaces: null);
 

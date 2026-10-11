@@ -929,7 +929,7 @@ public sealed class HeldDeliveryDriverTests : IDisposable
         modeProvider: () => TranscriptionMode.DevThrottle,
         http: new HttpClient(_transcriber, disposeHandler: false),
         history: new TranscriptionHistoryLog(Path.Combine(_root, "history")),
-        audioArchive: new TranscriptionAudioArchive(Path.Combine(_root, "archive")));
+        audioArchive: new TranscriptionAudioArchive(false, Path.Combine(_root, "archive")));
 
     /// <summary>The real clock moved ahead by <see cref="Ahead"/>, or pinned to <see cref="Fixed"/> when a boundary must be
     /// exact: every limit is judged by it.</summary>

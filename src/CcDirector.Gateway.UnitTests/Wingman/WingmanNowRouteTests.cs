@@ -72,7 +72,7 @@ public sealed class WingmanNowRouteTests : IDisposable
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             _devices = new DeviceRegistry(_harness.Open(), path);
         }
-        return new(new SingleTenantContext(), _devices);
+        return new(new SingleTenantContext(), _devices, hosted: false);
     }
 
     // A JSON result with no explicit status is a 200: the framework writes the default when none is set.
@@ -537,7 +537,7 @@ public sealed class WingmanNowRouteTests : IDisposable
         Directory.CreateDirectory(Path.GetDirectoryName(devicesPath)!);
         using var devices = new DeviceRegistry(_harness.Open(), devicesPath);
         var ambient = new AsyncLocalTenantContext();
-        var boundary = new CcDirector.Gateway.Tenancy.HostedTenantBoundary(ambient, devices);
+        var boundary = new CcDirector.Gateway.Tenancy.HostedTenantBoundary(ambient, devices, hosted: false);
         Assert.True(boundary.IsHosted);   // the whole point: a no-op scope would prove nothing
 
         var ctx = new DefaultHttpContext();

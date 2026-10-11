@@ -52,7 +52,7 @@ public sealed class TurnVerdictAnswerRouteExitTests : IDisposable
     }
 
     private static CcDirector.Gateway.Tenancy.HostedTenantBoundary SelfHostBoundary() =>
-        new(new SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry());
+        new(new SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: false);
 
     private static int Status(IResult result) => Assert.IsAssignableFrom<IStatusCodeHttpResult>(result).StatusCode!.Value;
 

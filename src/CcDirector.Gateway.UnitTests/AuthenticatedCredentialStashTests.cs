@@ -38,7 +38,7 @@ public sealed class AuthenticatedCredentialStashTests : IDisposable
         => ctx.Items.TryGetValue(AuthMiddleware.AuthenticatedCredentialItemKey, out var v) ? v as string : null;
 
     private bool Authenticate(HttpContext ctx)
-        => AuthMiddleware.HasValidToken(ctx, SharedToken, _devices);
+        => AuthMiddleware.HasValidToken(ctx, SharedToken, _devices, rejectSharedToken: false);
 
     private static HttpContext WithBearer(string value)
     {

@@ -8,6 +8,11 @@ namespace CcDirector.Gateway;
 /// <c>CC_GATEWAY_HOSTED=1</c> to enable it. Fail-safe: any missing or other value is NOT hosted, so the
 /// desktop/local behavior is byte-identical to today.
 ///
+/// <see cref="IsHosted"/> is read in exactly two places: <see cref="GatewayHostOptions.FromEnvironment"/>, which
+/// fixes the mode for a <see cref="GatewayHost"/> when it is constructed, and <see cref="GatewayEntryPoint"/>, which
+/// picks the listen port. Everything else takes the mode from the host as a required value, so two hosts in one
+/// process (the test suite) can run in different modes at once. An architecture test keeps it that way.
+///
 /// When hosted:
 ///  - Tailscale Serve auto-provisioning (<see cref="Tailscale.TailscaleServeProvisioner"/>) and the
 ///    tailscale-shelling network-diagnostics monitor (<see cref="Api.NetDiagMonitor"/>) are NOT started. A

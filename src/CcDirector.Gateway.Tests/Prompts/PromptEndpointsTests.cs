@@ -30,9 +30,12 @@ public sealed class PromptEndpointsTests : IAsyncLifetime
         _app = builder.Build();
         _app.Urls.Add("http://127.0.0.1:0");
 
-        // Self-host-only harness: this host never runs hosted, so there is no boundary to pass. The
-        // parameter is required (finding CR-7), so the absence is stated rather than defaulted.
-        PromptEndpoints.Map(_app, new GatewayPromptLog(_dir), tenantBoundary: null);
+        // Self-host harness: the REAL self-host boundary, built over the SingleTenantContext, which always
+        // resolves Local. A null boundary is a refusal in every mode now that the mode is a value the host
+        // hands over rather than the process environment, so the absence is no longer a self-host form.
+        PromptEndpoints.Map(_app, new GatewayPromptLog(_dir),
+            tenantBoundary: new CcDirector.Gateway.Tenancy.HostedTenantBoundary(
+                new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: false));
         await _app.StartAsync();
 
         _client = new HttpClient { BaseAddress = new Uri(_app.Urls.First()) };

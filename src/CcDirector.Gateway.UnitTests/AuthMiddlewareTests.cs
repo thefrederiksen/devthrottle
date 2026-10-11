@@ -48,21 +48,21 @@ public sealed class AuthMiddlewareTests : IDisposable
     {
         var devices = TempRegistry();
         var key = devices.Register("phone-1", "PHONE").DeviceKey;
-        Assert.True(AuthMiddleware.HasValidToken(WithCookie(key), SharedToken, devices));
+        Assert.True(AuthMiddleware.HasValidToken(WithCookie(key), SharedToken, devices, rejectSharedToken: false));
     }
 
     [Fact]
     public void Cookie_with_the_shared_token_is_still_accepted()
     {
         var devices = TempRegistry();
-        Assert.True(AuthMiddleware.HasValidToken(WithCookie(SharedToken), SharedToken, devices));
+        Assert.True(AuthMiddleware.HasValidToken(WithCookie(SharedToken), SharedToken, devices, rejectSharedToken: false));
     }
 
     [Fact]
     public void Cookie_with_an_unknown_value_is_rejected()
     {
         var devices = TempRegistry();
-        Assert.False(AuthMiddleware.HasValidToken(WithCookie("not-a-real-key"), SharedToken, devices));
+        Assert.False(AuthMiddleware.HasValidToken(WithCookie("not-a-real-key"), SharedToken, devices, rejectSharedToken: false));
     }
 
     [Fact]
@@ -72,7 +72,7 @@ public sealed class AuthMiddlewareTests : IDisposable
         var key = devices.Register("browser-1088", "Chrome on Windows", "browser", "browser").DeviceKey;
         var ctx = WithRawCookieHeader($"{AuthMiddleware.CookieName}=stale-login-cookie; {AuthMiddleware.CookieName}={key}");
 
-        Assert.True(AuthMiddleware.HasValidToken(ctx, SharedToken, devices));
+        Assert.True(AuthMiddleware.HasValidToken(ctx, SharedToken, devices, rejectSharedToken: false));
     }
 
     [Fact]
@@ -83,7 +83,7 @@ public sealed class AuthMiddlewareTests : IDisposable
         var encoded = Uri.EscapeDataString(key);
         var ctx = WithRawCookieHeader($"{AuthMiddleware.CookieName}=stale-login-cookie; other=1; {AuthMiddleware.CookieName}={encoded}");
 
-        Assert.True(AuthMiddleware.HasValidToken(ctx, SharedToken, devices));
+        Assert.True(AuthMiddleware.HasValidToken(ctx, SharedToken, devices, rejectSharedToken: false));
     }
 
     [Fact]
@@ -92,7 +92,7 @@ public sealed class AuthMiddlewareTests : IDisposable
         var devices = TempRegistry();
         var key = devices.Register("phone-2", "PHONE").DeviceKey;
         // A null registry disables per-device-key auth, so the same cookie no longer validates.
-        Assert.False(AuthMiddleware.HasValidToken(WithCookie(key), SharedToken, null));
+        Assert.False(AuthMiddleware.HasValidToken(WithCookie(key), SharedToken, null, rejectSharedToken: false));
     }
 
     [Fact]
@@ -100,7 +100,7 @@ public sealed class AuthMiddlewareTests : IDisposable
     {
         var devices = TempRegistry();
         var key = devices.Register("phone-3", "PHONE").DeviceKey;
-        Assert.True(AuthMiddleware.HasValidToken(WithBearer(key), SharedToken, devices));
+        Assert.True(AuthMiddleware.HasValidToken(WithBearer(key), SharedToken, devices, rejectSharedToken: false));
     }
 
     // ===== Production-readiness MH-2: the shared machine token is REJECTED on hosted =====
@@ -175,7 +175,7 @@ public sealed class AuthMiddlewareTests : IDisposable
         var passedThrough = false;
         await AuthMiddleware.Run(
             ctx,
-            new AuthMiddleware.RequireToken { Token = SharedToken, Devices = TempRegistry() },
+            new AuthMiddleware.RequireToken { Hosted = false, Token = SharedToken, Devices = TempRegistry() },
             () => { passedThrough = true; return Task.CompletedTask; });
 
         Assert.True(passedThrough, "a token-less enroll-signed-in must reach the endpoint (it self-guards loopback + signed-in)");
@@ -200,7 +200,7 @@ public sealed class AuthMiddlewareTests : IDisposable
         var passedThrough = false;
         await AuthMiddleware.Run(
             ctx,
-            new AuthMiddleware.RequireToken { Token = SharedToken, Devices = TempRegistry() },
+            new AuthMiddleware.RequireToken { Hosted = false, Token = SharedToken, Devices = TempRegistry() },
             () => { passedThrough = true; return Task.CompletedTask; });
 
         Assert.True(passedThrough, $"{path} must reach its own token check; the device gate must not answer for it");
@@ -218,7 +218,7 @@ public sealed class AuthMiddlewareTests : IDisposable
         var passedThrough = false;
         await AuthMiddleware.Run(
             ctx,
-            new AuthMiddleware.RequireToken { Token = SharedToken, Devices = TempRegistry() },
+            new AuthMiddleware.RequireToken { Hosted = false, Token = SharedToken, Devices = TempRegistry() },
             () => { passedThrough = true; return Task.CompletedTask; });
 
         Assert.False(passedThrough);
@@ -240,7 +240,7 @@ public sealed class AuthMiddlewareTests : IDisposable
         var passedThrough = false;
         await AuthMiddleware.Run(
             ctx,
-            new AuthMiddleware.RequireToken { Token = SharedToken, Devices = TempRegistry() },
+            new AuthMiddleware.RequireToken { Hosted = false, Token = SharedToken, Devices = TempRegistry() },
             () => { passedThrough = true; return Task.CompletedTask; });
 
         Assert.True(passedThrough, "a hosted enroll must reach the handler; it carries its own account-token validation");
@@ -261,7 +261,7 @@ public sealed class AuthMiddlewareTests : IDisposable
         var passedThrough = false;
         await AuthMiddleware.Run(
             ctx,
-            new AuthMiddleware.RequireToken { Token = SharedToken, Devices = TempRegistry() },
+            new AuthMiddleware.RequireToken { Hosted = false, Token = SharedToken, Devices = TempRegistry() },
             () => { passedThrough = true; return Task.CompletedTask; });
 
         Assert.True(passedThrough, "the account Bearer token must NOT be rejected by the gateway-token/device-key gate");
@@ -284,7 +284,7 @@ public sealed class AuthMiddlewareTests : IDisposable
         var passedThrough = false;
         await AuthMiddleware.Run(
             ctx,
-            new AuthMiddleware.RequireToken { Token = SharedToken, Devices = TempRegistry() },
+            new AuthMiddleware.RequireToken { Hosted = false, Token = SharedToken, Devices = TempRegistry() },
             () => { passedThrough = true; return Task.CompletedTask; });
 
         Assert.True(passedThrough, $"{method} {path} must reach its handler; it validates the account token itself");
@@ -302,7 +302,7 @@ public sealed class AuthMiddlewareTests : IDisposable
         var passedThrough = false;
         await AuthMiddleware.Run(
             ctx,
-            new AuthMiddleware.RequireToken { Token = SharedToken, Devices = TempRegistry() },
+            new AuthMiddleware.RequireToken { Hosted = false, Token = SharedToken, Devices = TempRegistry() },
             () => { passedThrough = true; return Task.CompletedTask; });
 
         Assert.False(passedThrough);
@@ -331,7 +331,7 @@ public sealed class AuthMiddlewareTests : IDisposable
         var passedThrough = false;
         await AuthMiddleware.Run(
             ctx,
-            new AuthMiddleware.RequireToken { Token = SharedToken, Devices = TempRegistry() },
+            new AuthMiddleware.RequireToken { Hosted = false, Token = SharedToken, Devices = TempRegistry() },
             () => { passedThrough = true; return Task.CompletedTask; });
 
         Assert.True(passedThrough, $"{method} {path} must reach past the gate without a credential");
@@ -354,7 +354,7 @@ public sealed class AuthMiddlewareTests : IDisposable
         var passedThrough = false;
         await AuthMiddleware.Run(
             ctx,
-            new AuthMiddleware.RequireToken { Token = SharedToken, Devices = TempRegistry() },
+            new AuthMiddleware.RequireToken { Hosted = false, Token = SharedToken, Devices = TempRegistry() },
             () => { passedThrough = true; return Task.CompletedTask; });
 
         Assert.False(passedThrough, $"{path} only resembles the mobile mount and must stay credential-gated");
@@ -373,7 +373,7 @@ public sealed class AuthMiddlewareTests : IDisposable
         var passedThrough = false;
         await AuthMiddleware.Run(
             ctx,
-            new AuthMiddleware.RequireToken { Token = SharedToken, Devices = TempRegistry() },
+            new AuthMiddleware.RequireToken { Hosted = false, Token = SharedToken, Devices = TempRegistry() },
             () => { passedThrough = true; return Task.CompletedTask; });
 
         Assert.False(passedThrough, "account status must not be reachable without a credential");

@@ -298,6 +298,7 @@ internal static class VaultGroupProbeHost
 {
     public static async Task<(WebApplication app, HttpClient http)> StartAsync(
         KeyVault vault,
+        bool hosted,
         Action<HostedDenyGroup>? mapIntoGroup = null,
         Action<IEndpointRouteBuilder>? mapOutsideGroup = null)
     {
@@ -306,7 +307,7 @@ internal static class VaultGroupProbeHost
         var app = builder.Build();
         app.Urls.Add("http://127.0.0.1:0");
 
-        var group = VaultEndpoints.Map(app, vault);
+        var group = VaultEndpoints.Map(app, hosted, vault);
         mapIntoGroup?.Invoke(group);
         mapOutsideGroup?.Invoke(app);
 
@@ -393,7 +394,7 @@ public sealed class HostedVaultGroupFilterTests : IDisposable
     public async Task A_route_added_to_the_group_later_is_refused_on_hosted_with_no_deny_of_its_own()
     {
         var (app, http) = await VaultGroupProbeHost.StartAsync(
-            SeededVault(),
+            SeededVault(), hosted: true,
             mapIntoGroup: group => group.MapGet("/added-after-the-deny-was-written",
                 () => Results.Json(new { probe = ProbePayloadSentinel })));
         try
@@ -421,7 +422,7 @@ public sealed class HostedVaultGroupFilterTests : IDisposable
         string method, string path, string? body)
     {
         var vault = SeededVault();
-        var (app, http) = await VaultGroupProbeHost.StartAsync(vault);
+        var (app, http) = await VaultGroupProbeHost.StartAsync(vault, hosted: true);
         try
         {
             var req = new HttpRequestMessage(new HttpMethod(method), path);
@@ -445,7 +446,7 @@ public sealed class HostedVaultGroupFilterTests : IDisposable
     public async Task A_route_outside_the_group_still_serves_on_hosted()
     {
         var (app, http) = await VaultGroupProbeHost.StartAsync(
-            SeededVault(),
+            SeededVault(), hosted: true,
             mapOutsideGroup: routes => routes.MapGet("/not-a-vault-route", () => Results.Json(new { ok = true })));
         try
         {
@@ -535,7 +536,7 @@ public sealed class SelfHostVaultGroupControlTests : IDisposable
     {
         DeclareSelfHost(hostedValue);
 
-        var (app, http) = await VaultGroupProbeHost.StartAsync(SeededVault());
+        var (app, http) = await VaultGroupProbeHost.StartAsync(SeededVault(), hosted: false);
         try
         {
             var resp = await http.GetAsync("/vault/keys");
@@ -557,7 +558,7 @@ public sealed class SelfHostVaultGroupControlTests : IDisposable
     {
         DeclareSelfHost(hostedValue);
 
-        var (app, http) = await VaultGroupProbeHost.StartAsync(SeededVault());
+        var (app, http) = await VaultGroupProbeHost.StartAsync(SeededVault(), hosted: false);
         try
         {
             var resp = await http.GetAsync("/vault/keys/" + SecretName);
@@ -584,7 +585,7 @@ public sealed class SelfHostVaultGroupControlTests : IDisposable
         DeclareSelfHost(hostedValue);
 
         var vault = SeededVault();
-        var (app, http) = await VaultGroupProbeHost.StartAsync(vault);
+        var (app, http) = await VaultGroupProbeHost.StartAsync(vault, hosted: false);
         try
         {
             var resp = await http.PutAsync("/vault/keys/" + SecretName,
@@ -615,7 +616,7 @@ public sealed class SelfHostVaultGroupControlTests : IDisposable
         DeclareSelfHost(hostedValue);
 
         var vault = SeededVault();
-        var (app, http) = await VaultGroupProbeHost.StartAsync(vault);
+        var (app, http) = await VaultGroupProbeHost.StartAsync(vault, hosted: false);
         try
         {
             var resp = await http.DeleteAsync("/vault/keys/" + SecretName);
@@ -649,7 +650,7 @@ public sealed class SelfHostVaultGroupControlTests : IDisposable
         DeclareSelfHost(hostedValue);
 
         var (app, http) = await VaultGroupProbeHost.StartAsync(
-            SeededVault(),
+            SeededVault(), hosted: false,
             mapIntoGroup: group => group.MapGet("/added-after-the-deny-was-written",
                 () => Results.Json(new { probe = "served" })));
         try

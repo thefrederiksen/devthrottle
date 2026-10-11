@@ -51,7 +51,7 @@ public sealed class TeamCallerOwnershipTests : IDisposable
         _teams = new TeamRegistry(_db, _tenants);
         _devices = new DeviceRegistry(_db, _harness.LegacyPath("devices.json"), isHosted: true, teamsReleased: true);
         _directors = new DirectorRegistry(_harness.LegacyPath("instances"));
-        var boundary = new HostedTenantBoundary(new AsyncLocalTenantContext(), _devices);
+        var boundary = new HostedTenantBoundary(new AsyncLocalTenantContext(), _devices, hosted: false);
         _ownership = new TeamCallerOwnership(_directors, _sessions, _devices, new CcDirector.Gateway.History.SessionTurnStore(_db), boundary, Keys());
         _gate = new TeamEndpointGate(new TeamAccess(_teams), _teams, _tenants, boundary, _ownership);
 
@@ -69,7 +69,7 @@ public sealed class TeamCallerOwnershipTests : IDisposable
 
     private SessionKeyRegistry Keys() => new(_db, isHosted: true);
 
-    private HostedTenantBoundary Boundary() => new(new AsyncLocalTenantContext(), _devices);
+    private HostedTenantBoundary Boundary() => new(new AsyncLocalTenantContext(), _devices, hosted: false);
 
     public void Dispose()
     {

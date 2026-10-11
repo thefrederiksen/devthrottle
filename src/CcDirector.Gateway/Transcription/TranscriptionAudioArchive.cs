@@ -57,9 +57,14 @@ public sealed class TranscriptionAudioArchive
     /// </summary>
     private readonly string? _directoryOverride;
 
+    // The owning host's deployment signal, fixed at construction (see GatewayHostOptions). On hosted nothing is written.
+    private readonly bool _hosted;
+
+    /// <param name="hosted">The owning host's deployment signal (<see cref="GatewayHost.Hosted"/>). REQUIRED.</param>
     /// <param name="directory">Override the archive directory (tests). Defaults to the per-user location.</param>
-    public TranscriptionAudioArchive(string? directory = null)
+    public TranscriptionAudioArchive(bool hosted, string? directory = null)
     {
+        _hosted = hosted;
         _directoryOverride = string.IsNullOrWhiteSpace(directory) ? null : directory;
     }
 
@@ -109,7 +114,7 @@ public sealed class TranscriptionAudioArchive
         // there is nothing on hosted to serve it. This is the exact reasoning, and the exact fix, applied
         // to the local history that sits beside it (GatewayTranscriptionService.RecordHistory, issue
         // #1897): stop the write on hosted. Self-host is single-tenant and byte-identical to today.
-        if (GatewayHostedMode.IsHosted)
+        if (_hosted)
         {
             FileLog.Write($"[TranscriptionAudioArchive] TrySave SKIPPED on hosted for turn {turnId}: the archive has no tenant partition and no reader on hosted (MTR-10 Gap A; mirrors the local-history guard)");
             return null;

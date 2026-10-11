@@ -140,9 +140,9 @@ public sealed class AccountActingCredentialSelfHostTests
         // The boundary is required and non-nullable now (finding I1-01). This is a self-host harness, so it
         // gets the REAL self-host boundary: built over the SingleTenantContext, it always resolves Local.
         var boundary = new CcDirector.Gateway.Tenancy.HostedTenantBoundary(
-            new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry());
-        AccountStatusEndpoint.Map(app, account, boundary);
-        AccountEmailEndpoint.Map(app, account, new AccountNotifyClient(new HttpClient(cloud)), boundary);
+            new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: false);
+        AccountStatusEndpoint.Map(app, false, account, boundary);
+        AccountEmailEndpoint.Map(app, false, account, new AccountNotifyClient(new HttpClient(cloud)), boundary);
         await app.StartAsync();
 
         return (app, new HttpClient { BaseAddress = new Uri(app.Urls.First()) }, cloud);

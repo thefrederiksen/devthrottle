@@ -34,6 +34,7 @@ internal static class TranscriptionBatchEndpoint
 {
     public static void Map(
         IEndpointRouteBuilder app,
+        bool hosted,
         KeyVault vault,
         // REQUIRED AND NON-NULLABLE (finding I1-01), and moved AHEAD of the optional tail so it cannot sit
         // in a defaulted position: a forgotten boundary must be a compile error, never a silent default.
@@ -68,7 +69,7 @@ internal static class TranscriptionBatchEndpoint
 
             FileLog.Write($"[TranscriptionBatchEndpoint] POST /transcription: bytes={audio.Length}, contentType={contentType}, correct={correct}");
 
-            var service = new GatewayTranscriptionService(vault, history: history, audioArchive: audioArchive, transcripts: transcripts);
+            var service = new GatewayTranscriptionService(vault, audioArchive ?? new TranscriptionAudioArchive(hosted), history: history, transcripts: transcripts);
             var result = await service.TranscribeAsync(audio, fileName, contentType, correct, ctx.RequestAborted, tenant: reqTenant.Value, source: "batch");
 
             return result.Outcome switch

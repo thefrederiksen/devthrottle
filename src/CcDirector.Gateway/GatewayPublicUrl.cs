@@ -11,7 +11,7 @@ namespace CcDirector.Gateway;
 /// hosted and local alike. The client is dumb: it opens whatever URL it is handed, so the whole hosted-vs-self-host
 /// verdict AND the surface path are decided HERE, once, on the Gateway (CLAUDE.md rule 7).
 ///
-/// Two modes, one gated on the hosted signal (<see cref="GatewayHostedMode.IsHosted"/>):
+/// Two modes, one gated on the hosted signal (the <c>hosted</c> argument every caller passes, read once at startup):
 ///  - HOSTED (<c>CC_GATEWAY_HOSTED=1</c>): a container reached by its public URL, with no tailscale in the
 ///    image. The public base URL is configuration, read once from <see cref="PublicBaseUrlEnvVar"/>
 ///    (set to <c>https://gateway.devthrottle.com</c> on the App Service). There is NO fallback: a hosted
@@ -52,7 +52,7 @@ public static class GatewayPublicUrl
     /// environment: the configured public base in hosted mode, the tailnet front door otherwise.
     /// </summary>
     /// <returns>The full Cockpit URL, or null in self-host mode when Tailscale is down.</returns>
-    public static string? ResolveCockpit() => Resolve(CockpitPath);
+    public static string? ResolveCockpit(bool hosted) => Resolve(hosted, CockpitPath);
 
     /// <summary>
     /// Cockpit live wrapper with the self-host front-door source injected, so the self-host branch can be
@@ -62,8 +62,8 @@ public static class GatewayPublicUrl
     /// <see cref="TailscaleIdentity.TryGetFrontDoorBaseUrl"/>. A self-host-only hardcode reddens the
     /// injected-front-door test because the result is no longer exactly <c>{frontDoor}/cockpit</c>.
     /// </summary>
-    internal static string? ResolveCockpit(Func<string?> frontDoorProvider)
-        => Resolve(CockpitPath, frontDoorProvider);
+    internal static string? ResolveCockpit(bool hosted, Func<string?> frontDoorProvider)
+        => Resolve(hosted, CockpitPath, frontDoorProvider);
 
     /// <summary>
     /// Resolve the full public URL for ONE session's Cockpit screen (<c>{base}/session/{session id}</c>)
@@ -81,21 +81,21 @@ public static class GatewayPublicUrl
     /// <exception cref="ArgumentException">The session id is missing or blank. There is no session screen
     /// without a session, and silently handing back the front door instead would send the caller somewhere
     /// it did not ask for.</exception>
-    public static string? ResolveCockpitSession(string sessionId)
-        => ResolveCockpitSession(sessionId, TailscaleIdentity.TryGetFrontDoorBaseUrl);
+    public static string? ResolveCockpitSession(bool hosted, string sessionId)
+        => ResolveCockpitSession(hosted, sessionId, TailscaleIdentity.TryGetFrontDoorBaseUrl);
 
     /// <summary>
     /// Session-screen resolver with the self-host front-door source injected, so the self-host branch can
     /// be driven against a KNOWN front door - the same seam, and for the same reason, as
     /// <see cref="ResolveCockpit(Func{string?})"/>.
     /// </summary>
-    internal static string? ResolveCockpitSession(string sessionId, Func<string?> frontDoorProvider)
+    internal static string? ResolveCockpitSession(bool hosted, string sessionId, Func<string?> frontDoorProvider)
     {
         if (string.IsNullOrWhiteSpace(sessionId))
             throw new ArgumentException(
                 "A session id is required to resolve the Cockpit's session screen.", nameof(sessionId));
 
-        return Resolve($"{SessionPathPrefix}/{Uri.EscapeDataString(sessionId.Trim())}", frontDoorProvider);
+        return Resolve(hosted, $"{SessionPathPrefix}/{Uri.EscapeDataString(sessionId.Trim())}", frontDoorProvider);
     }
 
     /// <summary>
@@ -110,7 +110,7 @@ public static class GatewayPublicUrl
     /// first consumer lands with whatever feature needs to hand a phone its URL.
     /// </summary>
     /// <returns>The full mobile URL, or null in self-host mode when Tailscale is down.</returns>
-    public static string? ResolveMobile() => Resolve(MobilePath);
+    public static string? ResolveMobile(bool hosted) => Resolve(hosted, MobilePath);
 
     /// <summary>
     /// The public BASE address of this Gateway (no surface path appended), or null in self-host when
@@ -118,9 +118,9 @@ public static class GatewayPublicUrl
     /// addressing is retired (issue #2022) - the same one derivation as every surface URL, with the surface
     /// path stripped so it reads as a host address rather than a page link.
     /// </summary>
-    public static string? ResolveBase()
+    public static string? ResolveBase(bool hosted)
     {
-        var cockpit = ResolveCockpit();
+        var cockpit = ResolveCockpit(hosted);
         if (cockpit is null) return null;
         return cockpit.EndsWith(CockpitPath, StringComparison.Ordinal)
             ? cockpit[..^CockpitPath.Length]
@@ -134,8 +134,8 @@ public static class GatewayPublicUrl
     /// </summary>
     /// <param name="surfacePath">The surface path, e.g. <see cref="CockpitPath"/> or <see cref="MobilePath"/>.</param>
     /// <returns>The full URL (base + path), or null in self-host mode when Tailscale is down.</returns>
-    public static string? Resolve(string surfacePath)
-        => Resolve(surfacePath, TailscaleIdentity.TryGetFrontDoorBaseUrl);
+    public static string? Resolve(bool hosted, string surfacePath)
+        => Resolve(hosted, surfacePath, TailscaleIdentity.TryGetFrontDoorBaseUrl);
 
     /// <summary>
     /// Live surface resolver with the self-host front-door source injected. Hosted mode reads the
@@ -145,15 +145,15 @@ public static class GatewayPublicUrl
     /// provider on the self-host branch (never in hosted mode). The seam exists so a test can drive the
     /// self-host LIVE path with a KNOWN front door and assert the exact <c>{frontDoor}{path}</c> result.
     /// </summary>
-    internal static string? Resolve(string surfacePath, Func<string?> frontDoorProvider)
-        => GatewayHostedMode.IsHosted
+    internal static string? Resolve(bool hosted, string surfacePath, Func<string?> frontDoorProvider)
+        => hosted
             ? Resolve(true, Environment.GetEnvironmentVariable(PublicBaseUrlEnvVar), selfHostFrontDoor: null, surfacePath)
             : Resolve(false, hostedConfiguredBase: null, frontDoorProvider(), surfacePath);
 
     /// <summary>
     /// Pure resolver - fully unit-testable without touching the real environment or shelling tailscale.
     /// </summary>
-    /// <param name="isHosted"><see cref="GatewayHostedMode.IsHosted"/>.</param>
+    /// <param name="isHosted">The Gateway's hosted mode, from <c>GatewayHostOptions.Hosted</c>.</param>
     /// <param name="hostedConfiguredBase">The <see cref="PublicBaseUrlEnvVar"/> value; may be null or blank.</param>
     /// <param name="selfHostFrontDoor">The self-host front door from
     /// <see cref="TailscaleIdentity.TryGetFrontDoorBaseUrl"/>; null when Tailscale is down.</param>

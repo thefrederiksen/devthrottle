@@ -331,7 +331,7 @@ public sealed class DictationExitedSessionTests : IDisposable
         modeProvider: () => TranscriptionMode.DevThrottle,
         http: new HttpClient(_handler, disposeHandler: false),
         history: new TranscriptionHistoryLog(Path.Combine(_root, "history")),
-        audioArchive: new TranscriptionAudioArchive(Path.Combine(_root, "archive")));
+        audioArchive: new TranscriptionAudioArchive(false, Path.Combine(_root, "archive")));
 
     /// <summary>
     /// Answers the transcription POST with a fixed transcript AND COUNTS THE CALLS. The count is the whole

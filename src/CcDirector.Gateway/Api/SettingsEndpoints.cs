@@ -105,8 +105,9 @@ internal static class SettingsEndpoints
     /// construction, so a blank field fails the Gateway at startup rather than serving a refusal a caller
     /// cannot act on.
     ///
-    /// The primitive reads <see cref="GatewayHostedMode.IsHosted"/> DIRECTLY, never an optional argument a
-    /// caller can omit - a security branch that depends on an argument fails OPEN the moment somebody forgets
+    /// The primitive takes the mode as a REQUIRED argument (the host's <c>GatewayHostOptions.Hosted</c>, read
+    /// once at startup), never an optional one a caller can omit - a security branch that depends on an
+    /// OPTIONAL argument fails OPEN the moment somebody forgets
     /// it, which is how the hosted account-status fix nearly shipped a hole. 404 rather than 403: on hosted
     /// "the owner's settings" does not exist as a concept, so "not here" is the truthful answer; 403 would
     /// imply the right credential could reach it, and none can.
@@ -141,9 +142,9 @@ internal static class SettingsEndpoints
     /// </summary>
     public static HostedDenyGroup Map(IEndpointRouteBuilder outer, GatewayHost host)
     {
-        FileLog.Write($"[SettingsEndpoints] mapping the owner settings; hosted={GatewayHostedMode.IsHosted} - per-account routes serve; machine/global routes are refused via the shared refusal primitive (issues #1863, #2022)");
+        FileLog.Write($"[SettingsEndpoints] mapping the owner settings; hosted={host.Hosted} - per-account routes serve; machine/global routes are refused via the shared refusal primitive (issues #1863, #2022)");
 
-        var group = HostedRouteDeny.Group(outer, "", Denial());
+        var group = HostedRouteDeny.Group(outer, "", Denial(), host.Hosted);
 
         // The per-account routes serve on hosted (issue #2022). They take the ungrouped builder because they
         // are NOT denied; their fail-closed is ResolveReadTenant (403 on an unresolved tenant), not a deny.
@@ -921,7 +922,7 @@ internal static class SettingsEndpoints
             // scoped per account. The AI tab reads this Gateway-owned flag (never guess from the
             // surface) to disable model browsing + Test on hosted and show a concise explanation, rather than
             // offer a control that would fail. On self-host the catalog is available.
-            catalogAvailable = !GatewayHostedMode.IsHosted,
+            catalogAvailable = !host.Hosted,
         };
     }
 

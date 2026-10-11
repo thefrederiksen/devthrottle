@@ -403,7 +403,7 @@ internal static class TeamEndpoints
     /// </summary>
     internal static (string? Subject, IResult? Denial) ResolveCaller(HttpContext ctx, HostedTenantBoundary boundary, TenantRegistry tenants)
     {
-        if (!GatewayHostedMode.IsHosted)
+        if (!boundary.Hosted)
         {
             FileLog.Write("[TeamEndpoints] ResolveCaller: self-hosted Gateway - teams are not available here");
             return (null, Results.NotFound(new { error = SelfHostedRefusal }));

@@ -30,7 +30,9 @@ public sealed class DirectorErrorEndToEndTests : IDisposable
         builder.Logging.ClearProviders();
         var app = builder.Build();
         app.Urls.Add("http://127.0.0.1:0");
-        DirectorErrorEndpoints.Map(app, store, tenantBoundary: null, tenants: null);
+        // The REAL self-host boundary: a null boundary is a refusal in every mode.
+        DirectorErrorEndpoints.Map(app, store, tenantBoundary: new CcDirector.Gateway.Tenancy.HostedTenantBoundary(
+                new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: false), tenants: null);
         await app.StartAsync();
         return (app, app.Urls.First());
     }

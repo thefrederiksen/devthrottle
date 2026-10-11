@@ -44,14 +44,14 @@ public sealed class GatewayLoginEndpointTests
         public void Dispose() => Environment.SetEnvironmentVariable(_name, _prior);
     }
 
-    private static async Task<(WebApplication app, HttpClient http)> StartAsync()
+    private static async Task<(WebApplication app, HttpClient http)> StartAsync(bool hosted)
     {
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
         var app = builder.Build();
         app.Urls.Add("http://127.0.0.1:0");
 
-        GatewayLoginEndpoint.Map(app, SharedToken);
+        GatewayLoginEndpoint.Map(app, hosted, SharedToken);
         await app.StartAsync();
 
         // Do NOT auto-follow redirects: the self-host success path is a 302 whose Set-Cookie we must observe.
@@ -75,7 +75,7 @@ public sealed class GatewayLoginEndpointTests
     public async Task Hosted_GET_login_is_404()
     {
         using var _ = new EnvScope(GatewayHostedMode.HostedEnvVar, "1");
-        var (app, http) = await StartAsync();
+        var (app, http) = await StartAsync(hosted: true);
         try
         {
             var resp = await http.GetAsync("/login");
@@ -88,7 +88,7 @@ public sealed class GatewayLoginEndpointTests
     public async Task Hosted_POST_login_with_the_correct_token_is_404_and_writes_no_cookie()
     {
         using var _ = new EnvScope(GatewayHostedMode.HostedEnvVar, "1");
-        var (app, http) = await StartAsync();
+        var (app, http) = await StartAsync(hosted: true);
         try
         {
             var body = new FormUrlEncodedContent(new Dictionary<string, string> { ["token"] = SharedToken });
@@ -107,7 +107,7 @@ public sealed class GatewayLoginEndpointTests
     public async Task SelfHost_GET_login_serves_the_form()
     {
         using var _ = new EnvScope(GatewayHostedMode.HostedEnvVar, null);
-        var (app, http) = await StartAsync();
+        var (app, http) = await StartAsync(hosted: false);
         try
         {
             var resp = await http.GetAsync("/login");
@@ -120,7 +120,7 @@ public sealed class GatewayLoginEndpointTests
     public async Task SelfHost_POST_login_with_the_correct_token_redirects_and_writes_the_cookie_through_the_helper()
     {
         using var _ = new EnvScope(GatewayHostedMode.HostedEnvVar, null);
-        var (app, http) = await StartAsync();
+        var (app, http) = await StartAsync(hosted: false);
         try
         {
             var body = new FormUrlEncodedContent(new Dictionary<string, string>
@@ -148,7 +148,7 @@ public sealed class GatewayLoginEndpointTests
     public async Task SelfHost_POST_login_with_a_wrong_token_is_401_and_writes_no_cookie()
     {
         using var _ = new EnvScope(GatewayHostedMode.HostedEnvVar, null);
-        var (app, http) = await StartAsync();
+        var (app, http) = await StartAsync(hosted: false);
         try
         {
             var body = new FormUrlEncodedContent(new Dictionary<string, string> { ["token"] = "not-the-token" });
@@ -166,7 +166,7 @@ public sealed class GatewayLoginEndpointTests
     public async Task Hosted_GET_logout_clears_the_cookie_with_a_Secure_header()
     {
         using var _ = new EnvScope(GatewayHostedMode.HostedEnvVar, "1");
-        var (app, http) = await StartAsync();
+        var (app, http) = await StartAsync(hosted: true);
         try
         {
             var resp = await http.GetAsync("/logout");
@@ -189,7 +189,7 @@ public sealed class GatewayLoginEndpointTests
     public async Task SelfHost_GET_logout_clears_the_cookie_with_an_HTTP_usable_header()
     {
         using var _ = new EnvScope(GatewayHostedMode.HostedEnvVar, null);
-        var (app, http) = await StartAsync();
+        var (app, http) = await StartAsync(hosted: false);
         try
         {
             var resp = await http.GetAsync("/logout");

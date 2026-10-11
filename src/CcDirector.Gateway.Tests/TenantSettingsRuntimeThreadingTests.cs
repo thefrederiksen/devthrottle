@@ -109,7 +109,7 @@ public sealed class TenantSettingsRuntimeThreadingTests : IAsyncLifetime
         var service = new WingmanVoiceService(
             unusedBrain,
             vault,
-            settings,
+            settings, false,
             Path.Combine(_root, "voice-sessions.json"),
             ttsHttpClient: new HttpClient(handler));
 

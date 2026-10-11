@@ -147,7 +147,7 @@ public sealed class HostedNetworkDiagEndpointTests
             });
             registry = new DirectorRegistry(instancesDirectory);
             GatewayEndpoints.Map(
-                app,
+                app, hosted,
                 registry,
                 version: "test",
                 token: "test-token",
@@ -157,9 +157,9 @@ public sealed class HostedNetworkDiagEndpointTests
                 // the self-host arm gets the SingleTenantContext, which always resolves Local.
                 tenantBoundary: hosted
                     ? new CcDirector.Gateway.Tenancy.HostedTenantBoundary(
-                        new CcDirector.Core.Tenancy.AsyncLocalTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry())
+                        new CcDirector.Core.Tenancy.AsyncLocalTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: hosted)
                     : new CcDirector.Gateway.Tenancy.HostedTenantBoundary(
-                        new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry()),
+                        new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: hosted),
                 collectNetworkDiagnostic: collectNetworkDiagnostic, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown);
             await app.StartAsync();
             var port = BoundPort.Of(app);

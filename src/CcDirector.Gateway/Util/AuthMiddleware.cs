@@ -341,7 +341,7 @@ internal static class AuthMiddleware
             return;
         }
 
-        var authentication = AuthenticateRequest(ctx, cfg.Token, cfg.Devices, GatewayHostedMode.IsHosted, cfg.Sessions, cfg.IsRaised);
+        var authentication = AuthenticateRequest(ctx, cfg.Token, cfg.Devices, cfg.Hosted, cfg.Sessions, cfg.IsRaised);
         if (authentication == AuthenticationResultKind.Authenticated)
         {
             // MTR-15 cancellation cutoff: on hosted, an authenticated device-key request must still belong to
@@ -469,33 +469,26 @@ internal static class AuthMiddleware
     /// <c>null</c> for <paramref name="devices"/> ONLY when per-device-key auth is genuinely
     /// inapplicable (there is no registry on this host).
     ///
-    /// Production-readiness MH-2: on a HOSTED Gateway (<see cref="GatewayHostedMode.IsHosted"/>) the shared
-    /// machine token is NOT accepted here. A hosted deployment serves many tenants, and the shared token
-    /// authenticates with NO device - so no tenant - which would reach every tenant-blind route with zero
-    /// scoping. On hosted the per-device key issued at enrollment is therefore the ONLY accepted credential
-    /// (it carries the tenant), so a shared-token Bearer or cookie is rejected. Self-host is untouched: it is
-    /// single-owner, the shared token remains its credential, and this overload reads
-    /// <see cref="GatewayHostedMode.IsHosted"/> (false off hosted) so behavior there is byte-identical.
+    /// Production-readiness MH-2: on a HOSTED Gateway the shared machine token is NOT accepted here. A hosted
+    /// deployment serves many tenants, and the shared token authenticates with NO device - so no tenant - which
+    /// would reach every tenant-blind route with zero scoping. On hosted the per-device key issued at enrollment
+    /// is therefore the ONLY accepted credential (it carries the tenant), so a shared-token Bearer or cookie is
+    /// rejected. Self-host is untouched: it is single-owner and the shared token remains its credential.
+    ///
+    /// The hosted policy is <paramref name="rejectSharedToken"/>, passed explicitly by every caller from the
+    /// host's <see cref="GatewayHostOptions.Hosted"/> (read once at startup). There is no overload that reads the
+    /// process environment at call time, so two Gateways in one process cannot share a verdict, and a test drives
+    /// both paths deterministically. When true (hosted), only an active per-device key authenticates. When false
+    /// (self-host), the shared token is accepted exactly as before.
     /// </summary>
     /// <remarks>
-    /// Session keys (Remove-the-network-port phase 1b) are deliberately NOT accepted through this overload:
+    /// Session keys (Remove-the-network-port phase 1b) are deliberately NOT accepted through this method:
     /// it takes no session registry, so a route gated by it directly refuses a session key. That is the safe
     /// direction. Routes an agent must reach are gated by the host-wide middleware, which does pass the
     /// registry; a route that gates itself is one that stays credential-gated even when the global gate is
     /// off, and those are exactly the routes an agent has no business on.
     /// </remarks>
-    public static bool HasValidToken(HttpContext ctx, string token, DeviceRegistry? devices)
-        => HasValidToken(ctx, token, devices, GatewayHostedMode.IsHosted);
-
-    /// <summary>
-    /// Testable core of <see cref="HasValidToken(HttpContext, string, DeviceRegistry?)"/> with the hosted
-    /// policy passed explicitly. When <paramref name="rejectSharedToken"/> is true (hosted), the shared
-    /// machine <paramref name="token"/> is not accepted on Bearer or cookie - only an active per-device key
-    /// authenticates. When false (self-host), the shared token is accepted exactly as before. The seam lets a
-    /// test drive both the hosted-rejection and the self-host-accept paths deterministically, without touching
-    /// the process environment.
-    /// </summary>
-    internal static bool HasValidToken(HttpContext ctx, string token, DeviceRegistry? devices, bool rejectSharedToken)
+    public static bool HasValidToken(HttpContext ctx, string token, DeviceRegistry? devices, bool rejectSharedToken)
         => AuthenticateRequest(ctx, token, devices, rejectSharedToken) == AuthenticationResultKind.Authenticated;
 
     internal static AuthenticationResultKind AuthenticateRequest(
@@ -853,6 +846,13 @@ internal static class AuthMiddleware
     public sealed class RequireToken
     {
         public string Token { get; init; } = "";
+
+        /// <summary>
+        /// Whether the owning Gateway is hosted (<see cref="GatewayHost.Hosted"/>). On hosted the shared machine token
+        /// is NOT accepted (production-readiness MH-2) - only a per-device key that carries a tenant. REQUIRED so a
+        /// gate cannot be built without saying which mode it enforces; see <see cref="GatewayHostOptions"/>.
+        /// </summary>
+        public required bool Hosted { get; init; }
 
         /// <summary>
         /// Issue #469: the per-device-key registry, so an enrolled Director's own key is accepted

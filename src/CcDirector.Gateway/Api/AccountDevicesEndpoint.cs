@@ -27,9 +27,10 @@ namespace CcDirector.Gateway.Api;
 /// its authenticated device key and serve that tenant's own devices from the local device registry (the
 /// database authority since the #2020 cutover), returning 403 when no tenant is bound - NEVER the Local
 /// partition, and NEVER a signedIn=false envelope to an authenticated tenant. This mirrors exactly what
-/// <c>/account/status</c> and the tenant-scoped <c>/devices</c> listing already do. Gated on
-/// <see cref="GatewayHostedMode.IsHosted"/> (not on the boundary having been wired) so a hosted Gateway can
-/// never silently fall through to the self-host answer; a missing boundary FAILS CLOSED with a 503.
+/// <c>/account/status</c> and the tenant-scoped <c>/devices</c> listing already do. Gated on the required
+/// <c>hosted</c> argument (read once at startup into <c>GatewayHostOptions</c>; not on the boundary having been
+/// wired) so a hosted Gateway can never silently fall through to the self-host answer; a missing boundary
+/// FAILS CLOSED with a 503.
 ///
 /// Security (carries DT-05): the raw account token NEVER appears in the Cockpit-facing response (the DTOs
 /// have no token field) and is never written to the log on any path. On the hosted path no account token
@@ -70,7 +71,7 @@ internal static class AccountDevicesEndpoint
     /// authenticated device key; omitting it on a hosted Gateway does NOT fall back to the self-host answer -
     /// the hosted path FAILS CLOSED with a 503. Ignored off hosted mode.
     /// </param>
-    public static void Map(IEndpointRouteBuilder app, DevThrottleAccountService? account, DeviceRegistryClient devices, string thisDeviceName,
+    public static void Map(IEndpointRouteBuilder app, bool hosted, DevThrottleAccountService? account, DeviceRegistryClient devices, string thisDeviceName,
         // REQUIRED AND NON-NULLABLE (finding I1-01): a forgotten boundary must be a compile error, never a
         // silent default. Self-host callers construct it over the SingleTenantContext.
         Pairing.DeviceRegistry localDevices, Tenancy.HostedTenantBoundary tenantBoundary)
@@ -85,7 +86,7 @@ internal static class AccountDevicesEndpoint
             // credential. Gated on hosted MODE, not on the boundary being wired, so a hosted Gateway can never
             // silently take the self-host path and report a false signedIn=false; a missing boundary fails
             // closed inside HostedDevices.
-            if (GatewayHostedMode.IsHosted)
+            if (hosted)
                 return HostedDevices(ctx, tenantBoundary, localDevices, thisDeviceName);
 
             // Entry point: the delegate is the boundary, so the only try-catch lives here. A signed-out
@@ -124,7 +125,7 @@ internal static class AccountDevicesEndpoint
 
             // Issue #1856: on HOSTED, revoke only the caller tenant's OWN device from the local registry. Same
             // hosted-mode gate and fail-closed rule as the GET.
-            if (GatewayHostedMode.IsHosted)
+            if (hosted)
                 return HostedRevoke(ctx, id, tenantBoundary, localDevices);
 
             // Entry point: same boundary rule as the GET above.

@@ -143,13 +143,16 @@ internal static class MachineEndpoints
     /// it would keep hosted tenants locked out of their own machines, which the tenant-device-control
     /// principle forbids.
     /// </summary>
-    public static void Map(IEndpointRouteBuilder outer, LauncherRegistry launchers,
+    public static void Map(IEndpointRouteBuilder outer, bool hosted, LauncherRegistry launchers,
         MachineSessionSpawner spawner,
         // The tenant boundary. Every launcher-registry read/write and every relay is scoped to the CALLING
         // tenant, resolved from the authenticated device key (never the machine name in the path or body).
         // REQUIRED, not defaulted (tenant-boundary hardening, release 2026-07-31, finding CR-7): the boundary
         // is a security argument, and when it was optional a forgotten argument silently served the Local
-        // partition on hosted. A self-host-only caller must state the absence with an explicit null.
+        // partition on hosted. A self-host caller passes a self-host boundary (one over the SingleTenantContext,
+        // which answers Local). A null boundary is a refusal in EVERY mode: the mode is a value the host hands
+        // over rather than the process environment, so a mapper with no boundary has nothing to resolve a
+        // tenant with, and answering Local would be the fail-open this argument exists to close.
         HostedTenantBoundary? boundary,
         // Factory Memory mission (phase 1): reads the CALLING session's own factory from its history row, so
         // the spawn door can settle the new session's factory from the credential instead of the body.
@@ -193,15 +196,15 @@ internal static class MachineEndpoints
         if (spawner is null) throw new ArgumentNullException(nameof(spawner));
         ArgumentNullException.ThrowIfNull(sessionFactoryOf);
 
-        FileLog.Write($"[MachineEndpoints] mapping {LauncherPrefix} + {MachinePrefix}; hosted={GatewayHostedMode.IsHosted} - every route authorizes against the CALLING tenant, resolved from the authenticated device key");
+        FileLog.Write($"[MachineEndpoints] mapping {LauncherPrefix} + {MachinePrefix}; hosted={hosted} - every route authorizes against the CALLING tenant, resolved from the authenticated device key");
 
         MapLauncherRoutes(outer.MapGroup(LauncherPrefix), launchers, boundary);
-        MapMachineRoutes(outer.MapGroup(MachinePrefix), launchers, spawner, sendLauncherCommand, missions, workflowRuns, boundary, launcherConnections,
+        MapMachineRoutes(outer.MapGroup(MachinePrefix), hosted, launchers, spawner, sendLauncherCommand, missions, workflowRuns, boundary, launcherConnections,
             directors, pushedSessions, newestRelease, sessionFactoryOf);
     }
 
     /// <summary>The calling tenant, resolved from the authenticated device key. Null means no tenant is
-    /// bound (hosted with an unbound key) - the caller must refuse with 403.</summary>
+    /// bound (an unbound key on hosted, or no boundary at all) - the caller must refuse with 403.</summary>
     private static TenantId? ReqTenant(HttpContext ctx, HostedTenantBoundary? boundary)
         => GatewayEndpoints.ResolveReadTenant(ctx, boundary);
 
@@ -275,7 +278,7 @@ internal static class MachineEndpoints
     /// <c>/machines/{machine}/...</c>. Every one of them resolves the calling tenant first and refuses with
     /// 403 when none is bound.
     /// </summary>
-    private static void MapMachineRoutes(IEndpointRouteBuilder app, LauncherRegistry launchers,
+    private static void MapMachineRoutes(IEndpointRouteBuilder app, bool hosted, LauncherRegistry launchers,
         MachineSessionSpawner spawner,
         LauncherCommandRouter.SendLauncherCommandAsync? sendLauncherCommand,
         Core.Sessions.MissionStore? missions,
@@ -567,7 +570,7 @@ internal static class MachineEndpoints
             // an omitted property and carries nothing from the caller either way.
             var suppliedArgs = body?.Args is not null;
             var suppliedCwd = body?.Cwd is not null;
-            if (GatewayHostedMode.IsHosted && (suppliedArgs || suppliedCwd))
+            if (hosted && (suppliedArgs || suppliedCwd))
             {
                 var supplied = suppliedArgs && suppliedCwd
                     ? "arguments and a working directory"

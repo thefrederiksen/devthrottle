@@ -93,7 +93,7 @@ public sealed class PromptAttributionIsGatewayAuthoritativeTests : IAsyncLifetim
         var transcription = new GatewayTranscriptionService(
             new KeyVault(vaultPath),
             http: new HttpClient(new FixedTranscriptHandler()),
-            audioArchive: new TranscriptionAudioArchive(Path.Combine(_root, "archive")));
+            audioArchive: new TranscriptionAudioArchive(false, Path.Combine(_root, "archive")));
 
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: Token, authEnabled: true,
             instancesDirectory: _instancesDir,

@@ -217,7 +217,7 @@ public sealed class NetDiagMonitor : IDisposable
                 // MEASURED path). The monitor has no throughput numbers, so down/up are null. Best-effort.
                 //
                 // TENANT: explicitly Local, and that is correct HERE and only here. This monitor is
-                // constructed by GatewayHost inside `if (!GatewayHostedMode.IsHosted)` - it shells out to the
+                // constructed by GatewayHost inside `if (!Hosted)` (the mode read once into its options) - it shells out to the
                 // tailscale command-line tool, which the hosted container image does not carry, and a hosted
                 // Gateway has no tailnet to diagnose. On self-host, Local is the only tenant there is. If this
                 // monitor is ever constructed on hosted, this line becomes wrong and the owning tenant must be

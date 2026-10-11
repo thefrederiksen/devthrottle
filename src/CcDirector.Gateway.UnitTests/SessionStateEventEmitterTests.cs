@@ -26,7 +26,7 @@ public sealed class SessionStateEventEmitterTests : IDisposable
     private (SessionStateEventEmitter Emitter, GovernanceEventLedger Ledger) New()
     {
         var ledger = new GovernanceEventLedger(_h.Open());
-        var boundary = new HostedTenantBoundary(new SingleTenantContext(), new DeviceRegistry());
+        var boundary = new HostedTenantBoundary(new SingleTenantContext(), new DeviceRegistry(), hosted: false);
         return (new SessionStateEventEmitter(ledger, boundary), ledger);
     }
 
@@ -122,7 +122,7 @@ public sealed class SessionStateEventEmitterTests : IDisposable
         // each ledger write to its owning tenant. One database file, two tenants, one shared raw session id.
         var ctx = new AsyncLocalTenantContext();
         var writeLedger = new GovernanceEventLedger(_h.Open(ctx));
-        var boundary = new HostedTenantBoundary(ctx, new DeviceRegistry());
+        var boundary = new HostedTenantBoundary(ctx, new DeviceRegistry(), hosted: false);
         var emitter = new SessionStateEventEmitter(writeLedger, boundary);
 
         var alpha = new TenantId("alpha");
@@ -153,7 +153,7 @@ public sealed class SessionStateEventEmitterTests : IDisposable
     {
         var ctx = new AsyncLocalTenantContext();
         var writeLedger = new GovernanceEventLedger(_h.Open(ctx));
-        var boundary = new HostedTenantBoundary(ctx, new DeviceRegistry());
+        var boundary = new HostedTenantBoundary(ctx, new DeviceRegistry(), hosted: false);
         var emitter = new SessionStateEventEmitter(writeLedger, boundary);
 
         var alpha = new TenantId("alpha");

@@ -86,7 +86,7 @@ public sealed class TeamLibraryEndpointsTests : IDisposable
     public async Task AdmitIntoTeam_SelfHostedGateway_RefusesWithTheSelfHostedReason_EvenWhenTheGateAllowed()
     {
         Assert.False(GatewayHostedMode.IsHosted);
-        var boundary = new HostedTenantBoundary(new SingleTenantContext(), _devices);
+        var boundary = new HostedTenantBoundary(new SingleTenantContext(), _devices, hosted: false);
 
         var (team, subject, denial) = TeamLibraryEndpoints.AdmitIntoTeam(Request("team-a", "team-a"), boundary, _tenants);
 

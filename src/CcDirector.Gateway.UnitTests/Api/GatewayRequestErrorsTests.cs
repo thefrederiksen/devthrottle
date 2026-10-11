@@ -215,8 +215,8 @@ public sealed class GatewayRequestErrorsTests : IAsyncDisposable
         var caller = Guid.NewGuid();
         var target = "7d2c0e4e-0000-4000-8000-00000000c0de";
         await StartAsync(
-            app => GatewayEndpoints.Map(app, registry, version: "test", token: "test-token",
-                tenantBoundary: new HostedTenantBoundary(new AsyncLocalTenantContext(), new DeviceRegistry()),
+            app => GatewayEndpoints.Map(app, false, registry, version: "test", token: "test-token",
+                tenantBoundary: new HostedTenantBoundary(new AsyncLocalTenantContext(), new DeviceRegistry(), hosted: false),
                 sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown),
             beforeRouting: app => app.Use(async (ctx, next) =>
             {

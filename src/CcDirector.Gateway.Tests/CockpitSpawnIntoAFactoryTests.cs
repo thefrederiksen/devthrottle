@@ -88,9 +88,9 @@ public sealed class CockpitSpawnIntoAFactoryTests : IAsyncDisposable
             return Task.FromResult<DirectorCommandResult?>(null);
         };
 
-        var boundary = new HostedTenantBoundary(new SingleTenantContext(), new DeviceRegistry());
+        var boundary = new HostedTenantBoundary(new SingleTenantContext(), new DeviceRegistry(), hosted: false);
         var lookup = callerFactory ?? SessionFactoryLookup.InNoFactory;
-        GatewayEndpoints.Map(app, _registry, version: "test", token: "test-token",
+        GatewayEndpoints.Map(app, false, _registry, version: "test", token: "test-token",
             tenantBoundary: boundary, sendCommand: send, sessionFactoryOf: _ => lookup);
 
         await app.StartAsync();

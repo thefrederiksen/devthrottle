@@ -53,7 +53,7 @@ public sealed class GatewayAccountServiceTests : IDisposable
         try
         {
             var store = new WindowsProtectedTokenStore(_blobPath);
-            return GatewayAccountFactory.Build(store);
+            return GatewayAccountFactory.Build(store, hosted: false);
         }
         finally
         {
@@ -171,7 +171,7 @@ public sealed class GatewayAccountServiceTests : IDisposable
         try
         {
             var store = new WindowsProtectedTokenStore(_blobPath);
-            var service = GatewayAccountFactory.Build(store);
+            var service = GatewayAccountFactory.Build(store, hosted: false);
 
             GatewayAccountFactory.SeedTestCredentialIfRequested(service);
 

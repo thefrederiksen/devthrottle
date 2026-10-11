@@ -27,7 +27,7 @@ public sealed class AuthMiddlewareDatabaseFailureTests : IDisposable
 
         await AuthMiddleware.Run(
             context,
-            new AuthMiddleware.RequireToken { Token = "shared-token", Devices = devices },
+            new AuthMiddleware.RequireToken { Hosted = false, Token = "shared-token", Devices = devices },
             () =>
             {
                 continued = true;

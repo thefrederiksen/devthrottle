@@ -168,7 +168,7 @@ public sealed class ChildDeviceMirrorTests
         Environment.SetEnvironmentVariable(GatewayAccountFactory.SigningSecretEnvVar, GatewayTestJwt.SigningSecret);
         try
         {
-            var service = GatewayAccountFactory.Build(new InMemoryTokenStore());
+            var service = GatewayAccountFactory.Build(new InMemoryTokenStore(), hosted: false);
             if (signedIn)
                 service.StoreTokens(new DevThrottleTokens(GatewayTestJwt.Create(DateTime.UtcNow.AddHours(1)), "refresh-875"));
             return service;

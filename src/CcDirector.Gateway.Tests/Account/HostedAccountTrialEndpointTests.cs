@@ -187,11 +187,11 @@ public sealed class HostedAccountTrialEndpointTests : IAsyncLifetime
         // Driven through the real fold with a real boundary over the real device registry; only the request is
         // synthetic, because a request with no authenticated device is exactly the condition under test.
         var boundary = new CcDirector.Gateway.Tenancy.HostedTenantBoundary(
-            new CcDirector.Core.Tenancy.AsyncLocalTenantContext(), _gateway.Devices);
+            new CcDirector.Core.Tenancy.AsyncLocalTenantContext(), _gateway.Devices, hosted: true);
         var ctx = new Microsoft.AspNetCore.Http.DefaultHttpContext();
 
         var (dto, status) = await CcDirector.Gateway.Api.AccountTrialEndpoint.ResolveAsync(
-            ctx, _gateway.TrialRegistry, boundary, _gateway.TenantRegistry, DateTime.UtcNow);
+            ctx, true, _gateway.TrialRegistry, boundary, _gateway.TenantRegistry, DateTime.UtcNow);
 
         Assert.Equal(403, status);
         Assert.Equal(CcDirector.Gateway.Contracts.AccountTrialDto.StateUnknown, dto.State);

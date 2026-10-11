@@ -22,8 +22,9 @@ namespace CcDirector.Gateway;
 ///
 /// THE HOSTED CONTRACT (all must hold, checked here at startup):
 ///  1. Hosted mode ON       - <c>CC_GATEWAY_HOSTED=1</c>. This is what drives the async tenant boundary AND
-///     live-entitlement enforcement (<see cref="Tenancy.EntitlementRegistry"/> requires live-mode when
-///     <see cref="GatewayHostedMode.IsHosted"/> is true), so requiring it here transitively guarantees both.
+///     live-entitlement enforcement (<see cref="GatewayHost"/> builds its <see cref="Tenancy.EntitlementRegistry"/>
+///     with live-mode required exactly when the mode it read once at startup is hosted), so requiring it here
+///     transitively guarantees both.
 ///  2. Auth ENABLED         - the auth-disable debug flags (<c>CC_GATEWAY_NO_AUTH=1</c>, <c>CC_GATEWAY_AUTH=0</c>)
 ///     are REJECTED: they must not be honorable in production, so their presence is a contract violation.
 ///  3. Public HTTPS URL     - <c>CC_GATEWAY_PUBLIC_URL</c> is set to an <c>https://</c> URL.
@@ -98,7 +99,7 @@ public static class HostedStartupContract
         var violations = new List<string>();
 
         // 1. Hosted mode ON. This single check also guarantees live-entitlement enforcement, because the
-        //    EntitlementRegistry requires live-mode exactly when GatewayHostedMode.IsHosted is true.
+        //    GatewayHost builds the EntitlementRegistry with live-mode required exactly when its options say hosted.
         if (!string.Equals(hosted, "1", StringComparison.Ordinal))
             violations.Add(
                 $"{GatewayHostedMode.HostedEnvVar} must be \"1\" (hosted mode drives the tenant boundary and " +

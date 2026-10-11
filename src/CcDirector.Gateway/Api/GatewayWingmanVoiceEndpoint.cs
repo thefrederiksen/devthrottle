@@ -154,6 +154,7 @@ internal static class GatewayWingmanVoiceEndpoint
 
     public static void Map(
         IEndpointRouteBuilder app,
+        bool hosted,
         DirectorRegistry registry,
         Func<TenantId, WingmanModelRole, string, CancellationToken, Task<IAgentBrain>> brainProvider,
         KeyVault vault,
@@ -227,7 +228,8 @@ internal static class GatewayWingmanVoiceEndpoint
         // (the resumable /wingman/utterance/complete and the one-shot /wingman/transcribe) go through
         // it, so they resolve the mode + key and pick the hosted endpoint exactly the same way every
         // other batch caller does - no second resolver.
-        var transcription = transcriptionService ?? new Transcription.GatewayTranscriptionService(vault, history: history, audioArchive: audioArchive, transcripts: transcripts);
+        var transcription = transcriptionService ?? new Transcription.GatewayTranscriptionService(vault,
+            audioArchive ?? new Transcription.TranscriptionAudioArchive(hosted), history: history, transcripts: transcripts);
 
         // Which voice sessions have a ready, playable spoken summary right now (the phone's list
         // shows a play button on these and can play without entering).

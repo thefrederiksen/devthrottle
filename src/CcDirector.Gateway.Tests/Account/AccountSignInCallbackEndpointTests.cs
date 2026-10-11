@@ -43,7 +43,7 @@ public sealed class AccountSignInCallbackEndpointTests
         Environment.SetEnvironmentVariable(GatewayAccountFactory.SigningSecretEnvVar, GatewayTestJwt.SigningSecret);
         try
         {
-            return GatewayAccountFactory.Build(new InMemoryTokenStore());
+            return GatewayAccountFactory.Build(new InMemoryTokenStore(), hosted: false);
         }
         finally
         {

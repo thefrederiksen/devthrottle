@@ -39,7 +39,7 @@ public sealed class VoiceNarrationPlayedTests : IDisposable
         Func<TenantId, Core.Configuration.WingmanModelRole, string, CancellationToken, Task<IAgentBrain>> brain =
             (_, _, _, _) => Task.FromResult<IAgentBrain>(null!);
         var settings = new TenantSettingsResolver(new TenantSettingsStore(_settingsData.Open()));
-        return new WingmanVoiceService(brain, new KeyVault(Path.Combine(_dir, "vault.json")), settings, Path.Combine(_dir, "voice-sessions.json"));
+        return new WingmanVoiceService(brain, new KeyVault(Path.Combine(_dir, "vault.json")), settings, false, Path.Combine(_dir, "voice-sessions.json"));
     }
 
     private static byte[] Mp3(string marker) => Encoding.ASCII.GetBytes("ID3" + marker);

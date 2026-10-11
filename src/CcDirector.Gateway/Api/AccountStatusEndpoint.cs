@@ -32,8 +32,9 @@ namespace CcDirector.Gateway.Api;
 /// account and can report it. The hosted Gateway holds no credential by design - it is one shared
 /// multi-tenant Gateway and identity arrives per device - so on hosted the verdict is folded from the
 /// CALLER'S own authenticated device-key binding instead (see <see cref="HostedStatus"/>). Which path runs
-/// is decided by <see cref="GatewayHostedMode.IsHosted"/>, NOT by whether a boundary was passed in, so a
-/// hosted Gateway can never fall through to the self-host answer; a hosted host missing its boundary fails
+/// is decided by the required <c>hosted</c> argument (read once at startup into <c>GatewayHostOptions</c>), NOT
+/// by whether a boundary was passed in, so a hosted Gateway can never fall through to the self-host answer; a
+/// hosted host missing its boundary fails
 /// CLOSED. Self-host behaviour is completely unchanged: off hosted mode this endpoint runs exactly the path
 /// it always did.
 ///
@@ -70,7 +71,7 @@ internal static class AccountStatusEndpoint
     /// Null disables that lookup, which yields a signed-in answer with the identity absent - never a
     /// signed-out one.
     /// </param>
-    public static void Map(IEndpointRouteBuilder app, DevThrottleAccountService? account,
+    public static void Map(IEndpointRouteBuilder app, bool hosted, DevThrottleAccountService? account,
         // REQUIRED AND NON-NULLABLE (finding I1-01), and moved AHEAD of the optional nickname client so it
         // cannot sit in a defaulted tail: a forgotten boundary must be a compile error, never a silent
         // default. Self-host callers construct it over the SingleTenantContext.
@@ -108,7 +109,7 @@ internal static class AccountStatusEndpoint
             // this endpoint exists to stop, restored by miswiring and with no test to catch it. Asking the
             // independent hosted-mode signal instead means a hosted Gateway can never silently take the
             // self-host answer; if the boundary is missing it FAILS CLOSED inside HostedStatus.
-            if (GatewayHostedMode.IsHosted)
+            if (hosted)
                 return HostedStatus(ctx, tenantBoundary, tenants);
 
             // No credential service on this host (a non-Windows host where the operating-system

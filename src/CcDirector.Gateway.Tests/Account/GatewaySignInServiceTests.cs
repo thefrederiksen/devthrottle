@@ -53,7 +53,7 @@ public sealed class GatewaySignInServiceTests : IDisposable
         try
         {
             var store = new WindowsProtectedTokenStore(_blobPath);
-            return GatewayAccountFactory.Build(store);
+            return GatewayAccountFactory.Build(store, hosted: false);
         }
         finally
         {

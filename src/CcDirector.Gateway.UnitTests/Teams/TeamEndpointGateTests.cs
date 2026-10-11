@@ -48,7 +48,7 @@ public sealed class TeamEndpointGateTests : IDisposable
         _tenants = new TenantRegistry(_db);
         _teams = new TeamRegistry(_db, _tenants);
         _gate = new TeamEndpointGate(new TeamAccess(_teams), _teams, _tenants,
-            new HostedTenantBoundary(new AsyncLocalTenantContext(), _devices));
+            new HostedTenantBoundary(new AsyncLocalTenantContext(), _devices, hosted: false));
         _team = _teams.CreateTeam(Owner, "Acme").Team!.TeamId;
         _teamTenant = new TenantId(_team);
         Assert.True(_teams.AddMember(_team, Manager, TeamRole.Manager).IsDone);
@@ -370,7 +370,7 @@ public sealed class TeamEndpointGateTests : IDisposable
     [Fact]
     public void Constructor_NullArguments_Throw()
     {
-        var boundary = new HostedTenantBoundary(new AsyncLocalTenantContext(), _devices);
+        var boundary = new HostedTenantBoundary(new AsyncLocalTenantContext(), _devices, hosted: false);
         var access = new TeamAccess(_teams);
         Assert.Throws<ArgumentNullException>(() => new TeamEndpointGate(null!, _teams, _tenants, boundary));
         Assert.Throws<ArgumentNullException>(() => new TeamEndpointGate(access, null!, _tenants, boundary));

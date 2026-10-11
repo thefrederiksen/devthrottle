@@ -160,7 +160,7 @@ public sealed class GatewayDeviceRegistrationTests
         Environment.SetEnvironmentVariable(GatewayAccountFactory.SigningSecretEnvVar, GatewayTestJwt.SigningSecret);
         try
         {
-            var service = GatewayAccountFactory.Build(new InMemoryTokenStore());
+            var service = GatewayAccountFactory.Build(new InMemoryTokenStore(), hosted: false);
             if (signedIn)
                 service.StoreTokens(new DevThrottleTokens(GatewayTestJwt.Create(DateTime.UtcNow.AddHours(1)), "refresh-857"));
             return service;

@@ -82,7 +82,7 @@ public sealed class RevokeDownEnforcedGatewayProofTests : IAsyncLifetime
         Environment.SetEnvironmentVariable(GatewayAccountFactory.SigningSecretEnvVar, GatewayTestJwt.SigningSecret);
         try
         {
-            var service = GatewayAccountFactory.Build(new InMemoryTokenStore());
+            var service = GatewayAccountFactory.Build(new InMemoryTokenStore(), hosted: false);
             service.StoreTokens(new DevThrottleTokens(GatewayTestJwt.Create(DateTime.UtcNow.AddHours(1)), "refresh-924"));
             return service;
         }

@@ -246,6 +246,21 @@ public sealed class GatewayHost : IAsyncDisposable
     public bool TeamsReleased { get; }
 
     /// <summary>
+    /// The options this host was built with - read ONCE, at construction, and fixed for the host's life. Production
+    /// passes none and gets <see cref="GatewayHostOptions.FromEnvironment"/>; a test passes an explicit record and
+    /// sets no environment variable. See <see cref="GatewayHostOptions"/> for why nothing in the Gateway reads the
+    /// environment after this point.
+    /// </summary>
+    public GatewayHostOptions Options { get; }
+
+    /// <summary>
+    /// Whether THIS host is a hosted, multi-tenant deployment. This is the deployment signal every hosted gate in the
+    /// Gateway reads, taken from <see cref="Options"/> - never from the process environment at call time, so two hosts
+    /// in one process hold their own modes and a run cannot change mode underneath a live host.
+    /// </summary>
+    public bool Hosted => Options.Hosted;
+
+    /// <summary>
     /// Whether the factory agents area is on FOR ONE ACCOUNT: the machine switch above, or that account's own
     /// recorded decision. Every factory route - the activity record at <see cref="Api.FactoryActivityEndpoints.Route"/>,
     /// the triggers at <c>/triggers</c>, the Director's <c>/directors/{id}/triggers</c>, and the owner's pages - sits
@@ -568,7 +583,7 @@ public sealed class GatewayHost : IAsyncDisposable
     // local install every row is the "local" tenant (SingleTenantContext), so behavior is unchanged.
     // Hosted Multi-Tenancy increment 1: the tenant context GatewayDatabase reads. On the hosted Gateway it is
     // the AsyncLocalTenantContext (per-account, fail-closed, set at the auth boundary); on self-host it is the
-    // SingleTenantContext (always Local). Assigned in the constructor from GatewayHostedMode.IsHosted.
+    // SingleTenantContext (always Local). Assigned in the constructor from Options.Hosted.
     private readonly Core.Tenancy.ITenantContext _tenantContext;
     // The concrete ambient context - non-null ONLY on the hosted Gateway - the object the auth boundaries
     // enter per-account (and the reserved SYSTEM) scopes on. Null on self-host (Local is the ambient answer,
@@ -634,7 +649,7 @@ public sealed class GatewayHost : IAsyncDisposable
             // HERE and not in the constructor: it reads the database, which is not open until the listener has
             // bound (#2383, #2585). Straight after the device authority loads and before readiness opens, so a
             // reinstated Director's next knock is simply accepted. Idempotent, so a repeat call here is safe.
-            if (GatewayHostedMode.IsHosted)
+            if (Hosted)
                 ReinstatedAtStartup = Tenancy.PreFreeTierKeyReinstatement.Run(
                     Devices, TenantRegistry, EntitlementRegistry, DateTime.UtcNow,
                     teams: TeamsReleased ? TeamMemberEntitlement : null);
@@ -1448,7 +1463,8 @@ public sealed class GatewayHost : IAsyncDisposable
     // distinct from _dictationUploads above (DictationUploads root) - two roots, two subsystems.
     private readonly Prompts.GatewayPromptLog _promptLog;
     private readonly Transcription.TranscriptionHistoryLog _transcriptionHistory = new();
-    private readonly Transcription.TranscriptionAudioArchive _transcriptionAudioArchive = new();
+    // Built in the constructor, after the options are read: the archive carries the host's deployment mode.
+    private readonly Transcription.TranscriptionAudioArchive _transcriptionAudioArchive;
     private readonly Transcription.TranscriptStore _transcripts;
     // devthrottle #2075: the dismissed-suggestions store and the suggestions engine that mines the stored
     // transcripts per tenant. Both are tenant-scoped and constructed after _transcripts / _gatewayDb below.
@@ -1597,9 +1613,9 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <param name="statsStore">The already-constructed statistics store boundary. On hosted it carries
     /// either the pooled PostgreSQL factory to build over, or the named reason there is not one - which is
     /// the SAME reason this returns, rather than a second spelling of it invented here.</param>
-    private static Stats.InputStatsHandle OpenInputStats(string? inputStatsPath, Stats.LateStatsObservers? hostedObservers)
+    private static Stats.InputStatsHandle OpenInputStats(string? inputStatsPath, Stats.LateStatsObservers? hostedObservers, bool hosted)
     {
-        if (GatewayHostedMode.IsHosted || GatewayHostedMode.IsHostedImage)
+        if (hosted || GatewayHostedMode.IsHostedImage)
         {
             // DEFERRED, not decided. The statistics store is allowed to publish its context factory AFTER
             // the startup deadline, and reading that factory once here - which is what the first version of
@@ -1630,8 +1646,12 @@ public sealed class GatewayHost : IAsyncDisposable
 
     private readonly TimeSpan? _directorLaunchTimeout;
 
-    public GatewayHost(int port = DefaultPort, string? token = null, bool? authEnabled = null, string? instancesDirectory = null, string? turnBriefDirectory = null, string? keyVaultPath = null, string? workListsPath = null, string? cronJobsPath = null, string? cronRunsPath = null, string? devicesPath = null, Core.Account.DevThrottleAccountService? account = null, bool? streamMode = null, string? inputStatsPath = null, string? promptLogPath = null, string? snoozePath = null, string? pushSubscriptionsPath = null, string? wingmanInstructionsPath = null, string? missionsPath = null, string? missionNotesPath = null, Transcription.GatewayTranscriptionService? dictationTranscription = null, Core.Agents.AgentKind? brainTool = null, TimeSpan? directorLaunchTimeout = null, bool? factoryAgentsEnabled = null, bool? teamsReleased = null)
+    public GatewayHost(int port = DefaultPort, string? token = null, bool? authEnabled = null, string? instancesDirectory = null, string? turnBriefDirectory = null, string? keyVaultPath = null, string? workListsPath = null, string? cronJobsPath = null, string? cronRunsPath = null, string? devicesPath = null, Core.Account.DevThrottleAccountService? account = null, bool? streamMode = null, string? inputStatsPath = null, string? promptLogPath = null, string? snoozePath = null, string? pushSubscriptionsPath = null, string? wingmanInstructionsPath = null, string? missionsPath = null, string? missionNotesPath = null, Transcription.GatewayTranscriptionService? dictationTranscription = null, Core.Agents.AgentKind? brainTool = null, TimeSpan? directorLaunchTimeout = null, bool? factoryAgentsEnabled = null, bool? teamsReleased = null, GatewayHostOptions? options = null)
     {
+        // Read ONCE, before anything below asks which mode this host is in. See GatewayHostOptions.
+        Options = options ?? GatewayHostOptions.FromEnvironment();
+        FileLog.Write($"[GatewayHost] options: hosted={Options.Hosted} ({(options is null ? "from the environment" : "explicit")})");
+        _transcriptionAudioArchive = new Transcription.TranscriptionAudioArchive(Hosted);
         var retiredFilesRemoved = Core.Configuration.LegacyPrivacyDataCleanup.Run();
         if (retiredFilesRemoved > 0)
             FileLog.Write($"[GatewayHost] Removed {retiredFilesRemoved} retired local tracking file(s).");
@@ -1700,10 +1720,10 @@ public sealed class GatewayHost : IAsyncDisposable
         // deployment. Self-host has exactly one tenant, so its existing missions are Local's and it keeps
         // listing them unchanged. Hosted shares this one file across every account, so an unattributed row
         // cannot be attributed after the fact and is quarantined - readable by nobody, left on disk. Decided
-        // from GatewayHostedMode.IsHosted, the same signal that picks the tenant context below.
+        // from Options.Hosted, the same signal that picks the tenant context below.
         Missions = new Core.Sessions.MissionStore(
             missionsPath ?? Path.Combine(CcStorage.Root(), "missions.json"),
-            adoptUnattributedAs: GatewayHostedMode.IsHosted ? null : Core.Tenancy.TenantId.Local);
+            adoptUnattributedAs: Hosted ? null : Core.Tenancy.TenantId.Local);
         StreamRegistry = new Streaming.GatewayStreamRegistry();
         // The statistics store's failure-domain boundary. Constructed HERE, on its own, deliberately OUTSIDE
         // the main database's construction and outside anything that gates startup: its migration and its
@@ -1716,7 +1736,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // them could only ever hand them nothing - which is exactly the state this ordering fixes: the store
         // opened PostgreSQL and migrated it successfully, and the observers that should have used it had
         // already decided, two lines earlier, that hosted means no statistics.
-        StatsStore = Stats.Data.GatewayStatsStore.FromEnvironment();
+        StatsStore = Stats.Data.GatewayStatsStore.FromEnvironment(Hosted);
         if (!StatsStore.IsAvailable)
             FileLog.Write(
                 $"[GatewayHost] statistics are UNAVAILABLE ({StatsStore.Availability.ReasonCode}): " +
@@ -1728,16 +1748,16 @@ public sealed class GatewayHost : IAsyncDisposable
         // The hosted resolver, which owns BOTH hosted observers and builds them together the first time
         // anything asks and the store has a factory. Null on self-host, which has no late-arrival problem
         // because its file either opened in the constructor or did not.
-        _hostedStatsObservers = GatewayHostedMode.IsHosted || GatewayHostedMode.IsHostedImage
+        _hostedStatsObservers = Hosted || GatewayHostedMode.IsHostedImage
             ? new Stats.LateStatsObservers(StatsStore)
             : null;
-        InputStatsHandle = OpenInputStats(inputStatsPath, _hostedStatsObservers);
+        InputStatsHandle = OpenInputStats(inputStatsPath, _hostedStatsObservers, Hosted);
         _promptLog = new Prompts.GatewayPromptLog(promptLogPath);
         // The self-host fleet concurrency record, which is the only one constructed eagerly. A hosted
         // Gateway never constructs it, so gateway-concurrency-stats.json is never written on that path -
         // see the SessionConcurrency property for the incident that makes writing it there unacceptable -
         // and reads its recorder from the hosted resolver instead.
-        _selfHostConcurrency = GatewayHostedMode.IsHosted || GatewayHostedMode.IsHostedImage
+        _selfHostConcurrency = Hosted || GatewayHostedMode.IsHostedImage
             ? null
             : new Stats.GatewaySessionConcurrencyStats();
         // Epic #1159 step A: when a machine passes the eviction horizon (or unregisters gracefully), forget
@@ -1826,7 +1846,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // local); self-host -> the SingleTenantContext (always Local, unchanged). The same instance is handed
         // to GatewayDatabase (below) and registered in DI, so a scope entered at an auth boundary is exactly
         // what the stores read.
-        if (GatewayHostedMode.IsHosted)
+        if (Hosted)
         {
             _hostedTenant = new Core.Tenancy.AsyncLocalTenantContext();
             _tenantContext = _hostedTenant;
@@ -1854,13 +1874,13 @@ public sealed class GatewayHost : IAsyncDisposable
         // and the readiness gate refuses everything but /healthz until it has.
         // teamsReleased: only where Teams is released may a hosted key be bound to a team's tenant
         // (devthrottle_internal#2311); dark, every key is judged exactly as before.
-        Devices = new Pairing.DeviceRegistry(_gatewayDb, devicesPath, GatewayHostedMode.IsHosted,
+        Devices = new Pairing.DeviceRegistry(_gatewayDb, devicesPath, Hosted,
             deferInitialize: true, teamsReleased: TeamsReleased);
         // Remove-the-network-port phase 1b: the per-session credential registry. A Director registers one key
         // per session over the tunnel it already holds, and an agent inside that session authenticates as the
         // session rather than with its Director's account-wide key. Same database and the same stored-hash
         // shape as the device registry above, because it is the same kind of credential one hop further in.
-        SessionKeys = new Pairing.SessionKeyRegistry(_gatewayDb, GatewayHostedMode.IsHosted);
+        SessionKeys = new Pairing.SessionKeyRegistry(_gatewayDb, Hosted);
         FleetManagerMarks = new Fleet.FleetManagerMarkHistory(_gatewayDb);
         // The account-to-tenant resolver (Hosted Multi-Tenancy increment 1): owns the tenants mapping table
         // and mints/looks up a tenant from a verified account subject. Built over the EF database; wired into
@@ -1873,7 +1893,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // decision and can never disagree about whether an account may use hosted today - which is also what
         // makes the trial EXPIRE on the request path instead of only at enrollment.
         TrialRegistry = new Tenancy.TrialRegistry(_gatewayDb);
-        EntitlementRegistry = new Tenancy.EntitlementRegistry(_gatewayDb, trials: TrialRegistry);
+        EntitlementRegistry = new Tenancy.EntitlementRegistry(_gatewayDb, requireLivemode: Hosted, trials: TrialRegistry);
         // Teams (devthrottle_internal#2300): told about new teams through the tenant registry, so the census every
         // background sweep walks includes each team's tenant. The team's bill is the Gateway's own (Teams v1, the team
         // bill without Stripe): one store writes it, the entitlement registry is its one reader, and nothing is sent to
@@ -1886,9 +1906,9 @@ public sealed class GatewayHost : IAsyncDisposable
         TeamGovernance = new Teams.TeamGovernanceStore(_gatewayDb);
         TeamRegistry = new Teams.TeamRegistry(_gatewayDb, TenantRegistry, bills: TeamBills,
             readTeamBill: EntitlementRegistry.ReadTeamBill,
-            billEndedNotice: GatewayHostedMode.IsHosted && TeamsReleased ? new Teams.TeamBillEndedNotice(teamMailer) : null,
+            billEndedNotice: Hosted && TeamsReleased ? new Teams.TeamBillEndedNotice(teamMailer) : null,
             governance: TeamGovernance);
-        if (GatewayHostedMode.IsHosted && TeamsReleased)
+        if (Hosted && TeamsReleased)
         {
             TeamSeatConvergence = new Teams.TeamSeatConvergence(_gatewayDb, TeamBills);
             TeamBillRenewal = new Teams.TeamBillRenewal(TeamBills);
@@ -1900,7 +1920,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // MTR-15 cancellation cutoff, hosted-only. Reuses the SAME EntitlementRegistry as the enrollment gate
         // so the enrollment check and the ongoing check cannot drift. The revoker calls MTR-14B's tenant-wide
         // device tombstone; the lease is the O(1) hot-path check; the monitor is the 60s sweep.
-        if (GatewayHostedMode.IsHosted)
+        if (Hosted)
         {
             _accessRevoker = new Tenancy.TenantAccessRevoker(Devices, _directorConnections);
             _accessLeases = new Tenancy.HostedAccessLeaseService(EntitlementRegistry, TenantRegistry, _accessRevoker,
@@ -1918,7 +1938,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // device-key HTTP middleware resolve a tenant from the AUTHENTICATED device key through this, and
         // enter the scope the stores read. Inert on self-host. Built over the same _tenantContext instance
         // the stores read (so a scope it enters is what they resolve) and the device registry.
-        _tenantBoundary = new Tenancy.HostedTenantBoundary(_tenantContext, Devices);
+        _tenantBoundary = new Tenancy.HostedTenantBoundary(_tenantContext, Devices, Hosted);
         TeamAccess = new Teams.TeamAccess(TeamRegistry);
         // The stored conversations. Built here, before the team gate, because whose a session is in a team also asks
         // who wrote its stored conversation (devthrottle_internal#2311) - and it must be THIS one store, whose cache the
@@ -2243,7 +2263,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // composes the daily report renders the answer rather than deciding for itself (rule 7). It is handed
         // the READ of the stored scan, never the service, so it can never trigger a scan of its own.
         _suggestionEmailComposer = new Transcription.SuggestionEmailComposer(
-            _dictionarySuggestions.GetSuggestions, _tenantSettingsResolver, GatewayPublicUrl.ResolveBase);
+            _dictionarySuggestions.GetSuggestions, _tenantSettingsResolver, () => GatewayPublicUrl.ResolveBase(Hosted));
         // Cron-job definitions persist across a Gateway restart (epic #479, #482) in the cron_jobs table
         // (next-run times recomputed on load). The path argument is the LEGACY cronjobs.json, imported once
         // on first upgrade then renamed aside. Tests MUST pass an isolated path so they never touch the real
@@ -2270,9 +2290,9 @@ public sealed class GatewayHost : IAsyncDisposable
         if (account is not null)
             Account = account;
         else if (OperatingSystem.IsWindows())
-            Account = CcDirector.Gateway.Account.GatewayAccountFactory.CreateForWindows();
+            Account = CcDirector.Gateway.Account.GatewayAccountFactory.CreateForWindows(Hosted);
         else if (OperatingSystem.IsMacOS())
-            Account = CcDirector.Gateway.Account.GatewayAccountFactory.CreateForMac();
+            Account = CcDirector.Gateway.Account.GatewayAccountFactory.CreateForMac(Hosted);
         else
             FileLog.Write("[GatewayHost] DevThrottle credential service not built: no local operating-system credential store on this platform (Linux); Account stays null");
 
@@ -2612,7 +2632,8 @@ public sealed class GatewayHost : IAsyncDisposable
             _transcriptionKeyProvisioner = new Account.TranscriptionKeyAutoProvisioner(
                 _keyVault,
                 accessTokenProvider: Account.GetAccessTokenForForwarding,
-                minter: new Account.AccountInferenceKeyProvisioner());
+                minter: new Account.AccountInferenceKeyProvisioner(),
+                hosted: Hosted);
 
             SignIn = new Account.GatewaySignInService(
                 Account,
@@ -2822,7 +2843,7 @@ public sealed class GatewayHost : IAsyncDisposable
             return;
 
         FileLog.Write($"[GatewayHost] team Mentor switched on with NO key '{keyName}' - refusing to start");
-        var whereItComesFrom = GatewayHostedMode.IsHosted
+        var whereItComesFrom = Hosted
             ? $"On the hosted Gateway nothing fills it: place '{keyName}' in the hosted Gateway's key vault before setting the switch."
             : $"On this Gateway it comes from signing in to DevThrottle, or from the '{keyName}' environment variable, which is copied into the vault at start.";
         throw new InvalidOperationException(
@@ -2835,7 +2856,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // read route alone is not enough: this writer would keep depositing key material behind the deny. On
         // hosted there is no per-account vault to seed into, so it no-ops. The gate reads the deployment
         // signal directly rather than an argument, so it cannot fail open by a caller omitting one.
-        if (GatewayHostedMode.IsHosted)
+        if (Hosted)
         {
             FileLog.Write("[GatewayHost] hosted: NOT seeding the key vault from the environment - the global vault is denied on hosted");
             return;
@@ -3469,7 +3490,7 @@ public sealed class GatewayHost : IAsyncDisposable
     /// </summary>
     internal Wingman.NarrationPlan ResolveNarrationPlan(TenantId tenant, string sid)
     {
-        if (!GatewayHostedMode.IsHosted)
+        if (!Hosted)
             return Wingman.NarrationPlanRule.Decide(hosted: false, subject: null, decision: null);
         try
         {
@@ -3613,7 +3634,7 @@ public sealed class GatewayHost : IAsyncDisposable
         HeldDeliveries = new Api.HeldDeliveryDriver(_dictationUploads,
             tenant => _tenantBoundary.EnterScope(tenant),
             (tenant, sessionId) => PushedSessions.TryLocateIgnoringFreshness(tenant, sessionId)?.DirectorId,
-            GatewayHostedMode.IsHosted)
+            Hosted)
         {
             TickInterval = HeldDeliveryTickInterval,
         };
@@ -3645,7 +3666,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // gets an HTTPS mapping without anyone re-running a script. Skipped when HOSTED: a
         // hosted Gateway is reached by its public URL, not a tailnet, and the image bundles
         // no tailscale binary, so provisioning would only produce noise.
-        if (!GatewayHostedMode.IsHosted)
+        if (!Hosted)
             _serveProvisioner.Start();
         Registry.Start();
 
@@ -3658,7 +3679,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // while the Gateway was down (orphans -> 502 from a phone), and sweep any leaked
         // ephemeral-port mappings (issue #179). The provisioner repeats this on a timer.
         // Skipped when HOSTED (no tailnet, no tailscale binary).
-        if (!GatewayHostedMode.IsHosted)
+        if (!Hosted)
             _serveProvisioner.Reconcile();
 
         // Gateway Cleanup mission (post-cut): the advertised-endpoint re-verification monitor (issue #325)
@@ -3677,7 +3698,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // from THIS record by SpokenForEar at assembly - it is no longer written by the model, which got
         // it wrong (the cited FidelityPrompt is the legacy translator path and has no production caller).
         // Push-store read - no dial. See ResolveSessionTitle.
-        _voiceService ??= new Wingman.WingmanVoiceService(WingmanBrainAsync, _keyVault, _tenantSettingsResolver,
+        _voiceService ??= new Wingman.WingmanVoiceService(WingmanBrainAsync, _keyVault, _tenantSettingsResolver, Hosted,
             instructionsProvider: () => _instructionsStore.ActiveContent,
             sessionTitleResolver: ResolveSessionTitle,
             // The narration's words now come from the Gateway's own store (turn-push mission, phase 3), not
@@ -4275,7 +4296,7 @@ public sealed class GatewayHost : IAsyncDisposable
             // sign-in - see SignedInEnrollmentEndpoint).
             var requireToken = new AuthMiddleware.RequireToken
             {
-                Token = Token, Devices = Devices, Leases = _accessLeases, Boundary = _tenantBoundary, Sessions = SessionKeys,
+                Hosted = Hosted, Token = Token, Devices = Devices, Leases = _accessLeases, Boundary = _tenantBoundary, Sessions = SessionKeys,
                 // Who a request in a team's tenant is from, for the lease: the one resolver (devthrottle_internal#2311).
                 TeamPerson = TeamCallerOwnership.PersonOf,
                 // The Fleet Manager Improvement mission, phase 1: a raised session passes two refusals no other session
@@ -4452,7 +4473,7 @@ public sealed class GatewayHost : IAsyncDisposable
         };
         SessionStateSink.Bind(onSessionState);
 
-        GatewayEndpoints.Map(_app, Registry, version, Token,
+        GatewayEndpoints.Map(_app, Hosted, Registry, version, Token,
             // The auth-boundary tenant binder - REQUIRED (finding CR-7): request-scoped reads resolve the
             // caller's tenant through it, and on hosted a request with no bound tenant is denied, never Local.
             _tenantBoundary,
@@ -4530,7 +4551,7 @@ public sealed class GatewayHost : IAsyncDisposable
             databaseReady: () => _gatewayDb.IsOpen,
             // The one "Teams released" signal on /healthz (devthrottle_internal#2311): true exactly where the team
             // enrollment routes are mapped - the hosted enrollment routes exist only on hosted.
-            teamsOffered: GatewayHostedMode.IsHosted && TeamsReleased,
+            teamsOffered: Hosted && TeamsReleased,
             // GET /sessions in a team serves the caller's own sessions only (devthrottle_internal#2311, live proof F1).
             teamCaller: TeamCallerFor,
             // Per-subsystem readiness on /healthz, so a deploy can tell "the process is up" apart from
@@ -4544,7 +4565,7 @@ public sealed class GatewayHost : IAsyncDisposable
                 ["statistics"] = InputStatsHandle.IsAvailable ? "available" : "unavailable",
                 // A hosted Gateway without the service credential cannot make an AI call for any account, so a
                 // deploy that lost the setting must fail here, not per call.
-                ["ai-attribution"] = HostedAi.GatewayAiCallTags.AttributionReady(GatewayHostedMode.IsHosted)
+                ["ai-attribution"] = HostedAi.GatewayAiCallTags.AttributionReady(Hosted)
                     ? "available" : "unavailable",
             },
             knownRepositories: _knownRepositories,
@@ -4785,7 +4806,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // keeps every entry point on its self-host path. Building the account-token validator here once means
         // both share the identical signature/audience/issuer configuration - there is no second place that
         // validates an account token.
-        Api.HostedEnrollDependencies? hostedEnrollDeps = GatewayHostedMode.IsHosted
+        Api.HostedEnrollDependencies? hostedEnrollDeps = Hosted
             ? new Api.HostedEnrollDependencies(
                 Devices, TenantRegistry,
                 CcDirector.Gateway.Account.GatewayAccountFactory.BuildAuthorizationValidator(),
@@ -4821,7 +4842,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // from THIS record by SpokenForEar at assembly - it is no longer written by the model, which got
         // it wrong (the cited FidelityPrompt is the legacy translator path and has no production caller).
         // Push-store read - no dial. See ResolveSessionTitle.
-        _voiceService ??= new Wingman.WingmanVoiceService(WingmanBrainAsync, _keyVault, _tenantSettingsResolver,
+        _voiceService ??= new Wingman.WingmanVoiceService(WingmanBrainAsync, _keyVault, _tenantSettingsResolver, Hosted,
             instructionsProvider: () => _instructionsStore.ActiveContent,
             sessionTitleResolver: ResolveSessionTitle,
             // The narration's words now come from the Gateway's own store (turn-push mission, phase 3), not
@@ -4838,7 +4859,7 @@ public sealed class GatewayHost : IAsyncDisposable
         Api.SessionConversationEndpoint.Map(_app, _sessionTurns, PushedSessions, _turnPushCapabilities,
             _streamStaleAfter, _tenantBoundary);
 
-        GatewayWingmanVoiceEndpoint.Map(_app, Registry, WingmanBrainAsync, _keyVault, _voiceService, _tenantSettingsResolver,
+        GatewayWingmanVoiceEndpoint.Map(_app, Hosted, Registry, WingmanBrainAsync, _keyVault, _voiceService, _tenantSettingsResolver,
             // The manual "generate the narration now" route reads the stored conversation too, through the
             // same reader the automatic path uses - one source for both, which is the point of the mission.
             conversationReader: ReadStoredConversation,
@@ -4861,7 +4882,7 @@ public sealed class GatewayHost : IAsyncDisposable
 
         // Editable/versioned wingman instructions settings surface (issue #537), incl. A/B test
         // over saved training sessions (reads the shared training store; uses the hosted wingman brain).
-        WingmanInstructionsEndpoint.Map(_app, _instructionsStore, WingmanBrainAsync);
+        WingmanInstructionsEndpoint.Map(_app, Hosted, _instructionsStore, WingmanBrainAsync);
         // The gateway OWNS keeping voice sessions' summaries pre-built (issue #531): a gentle
         // background sweep regenerates voice for any idle voice session that is missing it, so the
         // list shows it ready BEFORE you enter - including after a gateway restart (the voice-session
@@ -4872,7 +4893,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // Durable, server-owned dictation upload (issue #1006): the phone streams recorded audio here
         // in resumable chunks and the Gateway assembles → transcribes → injects the turn into the
         // owning session itself, so a refresh / dropped connection cannot lose a recorded utterance.
-        GatewayDictationEndpoint.Map(_app, Registry, SessionOwners, Token,
+        GatewayDictationEndpoint.Map(_app, Hosted, Registry, SessionOwners, Token,
             _dictationTranscription ?? new Transcription.GatewayTranscriptionService(_keyVault, history: _transcriptionHistory, audioArchive: _transcriptionAudioArchive, transcripts: _transcripts), _transcribingSessions, new Api.DictationTenantGate(_dictationUploads, _tenantBoundary), Devices,
             pushedSessions: PushedSessions,
             sendCommand: SendCommandAsync,
@@ -4895,11 +4916,11 @@ public sealed class GatewayHost : IAsyncDisposable
         // Central key vault (docs/architecture/gateway/GATEWAY_KEY_VAULT.md): set keys once
         // here (via the Cockpit Keys page); Directors pull them on demand. Inherits the
         // host-wide token middleware above.
-        VaultEndpoints.Map(_app, _keyVault);
+        VaultEndpoints.Map(_app, Hosted, _keyVault);
 
         // The AI model catalog + test surface for the Settings AI tab (list the selected provider's
         // models, test a chat model, save the chosen wingman/speech model). Uses the vault credential.
-        Api.AiModelsEndpoint.Map(_app, _keyVault, _tenantSettingsResolver, _tenantBoundary);
+        Api.AiModelsEndpoint.Map(_app, Hosted, _keyVault, _tenantSettingsResolver, _tenantBoundary);
 
         // The workflow catalog (issue #1617; persisted by the Workflows mission): the shapes of work
         // the fleet knows how to run - Mission, Standalone, Standalone with review, plus user-defined
@@ -4963,7 +4984,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // Behind the factory agents switch PER ACCOUNT: every route is mapped into the gate's group, which answers 404
         // (as if unmapped) for an account the switch is not on for. The Cockpit asks the switch whether to show the
         // Factory Agents area at all, so that one route is outside the gate and answers for the calling account.
-        Api.FactoryAgentsViewEndpoints.MapSwitch(_app, FactoryAgentsSwitch,
+        Api.FactoryAgentsViewEndpoints.MapSwitch(_app, Hosted, FactoryAgentsSwitch,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary));
         var factoryGate = Api.FactoryAgentsGate.Group(_app, FactoryAgentsSwitch,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary));
@@ -5043,7 +5064,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // Issue #1856: the boundary and the tenant registry make this endpoint tenant-bearing on hosted, where
         // it must answer about the CALLER's enrollment rather than about a Gateway credential hosted does not
         // hold. On self-host the boundary reports not-hosted and the endpoint behaves exactly as before.
-        AccountStatusEndpoint.Map(_app, Account, _tenantBoundary,
+        AccountStatusEndpoint.Map(_app, Hosted, Account, _tenantBoundary,
             nickname: new Core.Account.AccountNicknameClient(new HttpClient { Timeout = TimeSpan.FromSeconds(10) }),
             tenants: TenantRegistry);
 
@@ -5059,7 +5080,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // cookie channel silently stayed on the previous account, so the WebSockets and bare image/iframe
         // loads that authenticate by cookie kept running as an account the person had left or signed out
         // of. The cookie is set to the credential the gate already accepted, so this grants nothing new.
-        DeviceCookieEndpoint.Map(_app);
+        DeviceCookieEndpoint.Map(_app, Hosted);
 
         // Gateway Centralization Phase 3 (issue #648): POST /account/logout CLEARS the Gateway-hosted
         // DevThrottle credential through the same reused DevThrottleAccountService (Account). The account
@@ -5074,7 +5095,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // is left untouched. Best-effort - never blocks logout.
         // Issue #984: on hosted there is no Gateway credential to clear, so the tenant boundary is passed in
         // and the route refuses truthfully instead of reporting a sign-out that never happened.
-        AccountLogoutEndpoint.Map(_app, Account,
+        AccountLogoutEndpoint.Map(_app, Hosted, Account,
             onBeforeLogout: _transcriptionKeyProvisioner is null ? null : ct => _transcriptionKeyProvisioner.RevokeMintedKeyAsync(ct),
             tenantBoundary: _tenantBoundary, tenants: TenantRegistry);
 
@@ -5090,7 +5111,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // registry GET /devices (issue #469), which is left unchanged. Inherits the host-wide token
         // middleware above, exactly like the other /account routes.
         var accountDevicesClient = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
-        AccountDevicesEndpoint.Map(_app, Account, new Core.Account.DeviceRegistryClient(accountDevicesClient), Environment.MachineName,
+        AccountDevicesEndpoint.Map(_app, Hosted, Account, new Core.Account.DeviceRegistryClient(accountDevicesClient), Environment.MachineName,
             Devices, _tenantBoundary);
 
         // Account credit-balance proxy (issue #884): GET /account/credits. Same proxy shape as the device
@@ -5101,7 +5122,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // in, because it reported "this Gateway holds no credential" as a fact about the caller. The tenant
         // boundary is passed in so the hosted path answers about the CALLER: signed in, balance unreadable
         // here, account and balance unaffected.
-        AccountCreditsEndpoint.Map(_app, Account, new Core.Account.AccountCreditsClient(new HttpClient { Timeout = TimeSpan.FromSeconds(10) }),
+        AccountCreditsEndpoint.Map(_app, Hosted, Account, new Core.Account.AccountCreditsClient(new HttpClient { Timeout = TimeSpan.FromSeconds(10) }),
             tenantBoundary: _tenantBoundary, tenants: TenantRegistry);
 
         // The free Pro trial read (issue #1243): GET /account/trial. NOT a proxy - unlike the two routes above
@@ -5110,7 +5131,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // could ask about it, so no screen ever said a trial was running. This is that read path. Every
         // answer, including the denials, carries a three-way state so no surface has to decide for itself
         // what a missing answer means. Inherits the host-wide token middleware like the other /account routes.
-        AccountTrialEndpoint.Map(_app, TrialRegistry, tenantBoundary: _tenantBoundary, tenants: TenantRegistry);
+        AccountTrialEndpoint.Map(_app, Hosted, TrialRegistry, tenantBoundary: _tenantBoundary, tenants: TenantRegistry);
 
         // Teams (devthrottle_internal#2300, #2312): GET /teams, POST /teams, GET /teams/{teamId}/members and
         // GET /teams/{teamId}/fleet-map. The caller is the account behind their own device key; a self-hosted Gateway
@@ -5121,7 +5142,7 @@ public sealed class GatewayHost : IAsyncDisposable
             TeamEndpoints.Map(_app, TeamRegistry, _tenantBoundary, TenantRegistry,
                 new Teams.TeamFleetMap(TeamRegistry, TeamAccess, Registry, TeamCallerOwnership, PushedSessions), Devices);
             // Invitations by email that expire (devthrottle_internal#2301), behind the same switch - no second one.
-            TeamInvitationEndpoints.Map(_app, TeamRegistry, _tenantBoundary, TenantRegistry, TeamInvitationMailer, GatewayPublicUrl.ResolveBase);
+            TeamInvitationEndpoints.Map(_app, TeamRegistry, _tenantBoundary, TenantRegistry, TeamInvitationMailer, () => GatewayPublicUrl.ResolveBase(Hosted));
             // Requests to the Owner and Managers (devthrottle_internal#2308), behind the same switch. People only - a request
             // is never readable with a session key or a Director's key.
             TeamRequestEndpoints.Map(_app, TeamRequests, _tenantBoundary, TenantRegistry);
@@ -5141,7 +5162,7 @@ public sealed class GatewayHost : IAsyncDisposable
             PersonalMentorEndpoints.Map(_app, TeamMentorStore, _tenantBoundary, TenantRegistry, _tenantSettingsResolver.TimeZone);
             // The administrator routes that fill one team so it can be shown as it is, and empty it again by one tag
             // (owner, 8 Oct 2026). Same admin service token as the factory switch; exact-match public in AuthMiddleware.
-            AdminTeamShowcaseEndpoint.Map(_app, new Teams.TeamShowcase(_gatewayDb, TeamRegistry, TenantRegistry,
+            AdminTeamShowcaseEndpoint.Map(_app, Hosted, new Teams.TeamShowcase(_gatewayDb, TeamRegistry, TenantRegistry,
                 _tenantSettingsResolver.TimeZone));
             // A dev report sent to a member of the team, and that member's Reports page (devthrottle_internal#2309).
             // Dark with the rest of Teams.
@@ -5170,7 +5191,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // removes it. Does NOT inherit the host-wide token middleware - the caller is a SERVER holding no
         // device key - and carries its own bearer service token (ADMIN_SERVICE_TOKEN), deliberately a
         // different secret from the read-only report token.
-        AdminTrialEndpoint.Map(_app, TrialRegistry);
+        AdminTrialEndpoint.Map(_app, Hosted, TrialRegistry);
         // The turn-log switch. The store is created here if the turn-end wiring has not run yet, so the
         // route is never mapped against a null - a switch screen that answers 503 because the routes were
         // mapped in the wrong order would read as a broken feature rather than as an ordering mistake.
@@ -5420,7 +5441,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // caller's TENANT and the cloud resolves the recipient. Wired unconditionally - the route decides by
         // hosted state, and the client itself fails closed when NOTIFY_OWNER_SERVICE_TOKEN is unset rather
         // than calling the service unauthenticated.
-        AccountEmailEndpoint.Map(_app, Account, new Core.Account.AccountNotifyClient(new HttpClient { Timeout = TimeSpan.FromSeconds(30) }),
+        AccountEmailEndpoint.Map(_app, Hosted, Account, new Core.Account.AccountNotifyClient(new HttpClient { Timeout = TimeSpan.FromSeconds(30) }),
             tenantBoundary: _tenantBoundary, tenants: TenantRegistry,
             byTenant: new Core.Account.AccountNotifyByTenantClient(new HttpClient { Timeout = TimeSpan.FromSeconds(30) }));
 
@@ -5451,12 +5472,12 @@ public sealed class GatewayHost : IAsyncDisposable
         // through this one endpoint - it resolves the mode + key and runs the right provider (in-process
         // Whisper, or the resolved provider-compatible batch endpoint). Optional ?correct=true also runs
         // the validated dictionary correction, keeping that out of the callers too.
-        TranscriptionBatchEndpoint.Map(_app, _keyVault, _tenantBoundary, _transcriptionHistory, _transcriptionAudioArchive, _transcripts);
+        TranscriptionBatchEndpoint.Map(_app, Hosted, _keyVault, _tenantBoundary, _transcriptionHistory, _transcriptionAudioArchive, _transcripts);
 
         // Read-only analysis over the LOCAL minimized transcription history: latency percentiles, cleanup
         // behaviour, most-corrected terms, and word frequencies, so any agent can query the Gateway to
         // see how fast and how good transcription is - all from data on this machine, never a server.
-        Api.TranscriptionAnalysisEndpoint.Map(_app, _tenantBoundary);
+        Api.TranscriptionAnalysisEndpoint.Map(_app, Hosted, _tenantBoundary);
 
         // The Test microphone / Test transcription checks: a user records a passage we put on screen,
         // hears it back, and sees how much of it came back correctly. The clips are kept per tenant so
@@ -5559,7 +5580,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // launcher-persistent-join: the stream-send hook is the ONLY delivery path (phase 6 of the
         // remove-the-network-port mission deleted the REST fallback along with the launcher's listener) -
         // a null from it is reported to the caller as the launcher being offline, never dialed around.
-        MachineEndpoints.Map(_app, Launchers, _machineSessionSpawner,
+        MachineEndpoints.Map(_app, Hosted, Launchers, _machineSessionSpawner,
             // Tenant boundary - REQUIRED (finding CR-7): every launcher-registry read/write and relay is
             // scoped to the calling tenant, and on hosted an unbound request is denied, never Local.
             _tenantBoundary,
@@ -5659,7 +5680,7 @@ public sealed class GatewayHost : IAsyncDisposable
         var mobileEnrollmentClient = new Core.Account.DeviceRegistryClient(new HttpClient { Timeout = TimeSpan.FromSeconds(10) });
         // On a HOSTED Gateway (hostedEnrollDeps non-null) /mobile/enroll takes a human's account access token
         // in the Bearer header and runs the ONE hosted mint; self-host (null) keeps the cloud-device-key-in-body path.
-        Api.MobileEnrollmentEndpoint.Map(_app, new Account.MobileDeviceEnrollmentService(Account, mobileEnrollmentClient, Devices), hostedEnrollDeps);
+        Api.MobileEnrollmentEndpoint.Map(_app, Hosted, new Account.MobileDeviceEnrollmentService(Account, mobileEnrollmentClient, Devices), hostedEnrollDeps);
 
         // DevThrottle Stats: the always-available private dashboard (/stats) and its JSON (/stats/data).
         // A self-contained embedded page, so it works even on a plain dev build with no React wwwroot.
@@ -5682,7 +5703,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // in Throttle.ThrottleDefinition (mission "Clean up Your Throttle", ruling R9); the reader below is
         // the only thing that feeds it from the store. The statistics handle still supplies what counts no
         // turn - concurrency, token spend, the per-model split - and is asked per request as before.
-        Stats.StatsPageEndpoint.Map(_app, InputStatsHandle, _tenantBoundary,
+        Stats.StatsPageEndpoint.Map(_app, Hosted, InputStatsHandle, _tenantBoundary,
             new Throttle.ThrottleLedgerReader(_gatewayDb), () => SessionConcurrency,
             _tenantSettingsResolver, _sessionHistory);
 
@@ -5798,7 +5819,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // scope before reading, so the sweep runs ON hosted (tenant-isolated) instead of being disabled. On
         // self-host the seam fires once under Local - the same single fire as before.
         _cronTimer = new System.Threading.Timer(_ => SweepCron(), null, CronSweepInterval, CronSweepInterval);
-        FileLog.Write($"[GatewayHost] cron sweep started: every {CronSweepInterval.TotalSeconds:0}s ({(GatewayHostedMode.IsHosted ? "hosted, per-tenant via TenantScopedSweep" : "self-host, single Local tenant")})");
+        FileLog.Write($"[GatewayHost] cron sweep started: every {CronSweepInterval.TotalSeconds:0}s ({(Hosted ? "hosted, per-tenant via TenantScopedSweep" : "self-host, single Local tenant")})");
 
         // The activity ledger's 30-day retention purge. A daily window enforced a few times a day is ample;
         // the first pass is delayed so startup work is never contended by a bulk delete.
@@ -5826,7 +5847,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // resolves from the deployment mode - hosted is always the product default; self-host may override
         // via the environment (a malformed override throws HERE, loudly, at startup, not mid-sweep).
         _promptRetentionSweep = new Prompts.PromptLogRetentionSweep(_promptLog,
-            Prompts.PromptLogRetentionSweep.ResolveRetention(GatewayHostedMode.IsHosted,
+            Prompts.PromptLogRetentionSweep.ResolveRetention(Hosted,
                 Environment.GetEnvironmentVariable(Prompts.PromptLogRetentionSweep.RetentionDaysEnvVar)));
         _promptRetentionTimer = new System.Threading.Timer(_ => SweepPromptRetention(), null,
             PromptRetentionStartupDelay, PromptRetentionInterval);
@@ -5866,7 +5887,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // MTR-15 cancellation cutoff: the hosted active-tenant entitlement sweep. Forces a fresh entitlement
         // read for every tenant with a live lease every ~60s and revokes any that has become NotEntitled, so a
         // cancelled tenant loses access within roughly one sweep cycle (never past the paid period end).
-        if (GatewayHostedMode.IsHosted && _leaseMonitor is not null)
+        if (Hosted && _leaseMonitor is not null)
         {
             _leaseSweepTimer = new System.Threading.Timer(_ => SweepEntitlementLeases(), null, LeaseSweepInterval, LeaseSweepInterval);
             FileLog.Write($"[GatewayHost] entitlement lease sweep started: every {LeaseSweepInterval.TotalSeconds:0}s (hosted cancellation cutoff)");
@@ -5899,7 +5920,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // durable PENDING projection, or any base-handle read) ever treats them as live. It MOVES, never
         // deletes, and is idempotent/re-entrant, so it is safe under restart and concurrent workers. Self-host
         // legitimately keeps its uploads at the root, so this runs only on hosted.
-        if (GatewayHostedMode.IsHosted)
+        if (Hosted)
         {
             var quarantinedDictation = _dictationUploads.QuarantineLegacyUploads();
             var quarantinedVoiceTurn = _voiceTurnUploads.QuarantineLegacyUploads();
@@ -6025,7 +6046,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // Skipped when HOSTED (Hosted Multi-Tenancy): mirroring writes the tenant-scoped account_hosted_ai_spend
         // store, which has no ambient tenant on a background timer and would fail closed. Per-tenant/account
         // spend mirroring lands in the session-serving increment.
-        if (!GatewayHostedMode.IsHosted)
+        if (!Hosted)
         {
             _hostedAiSpendSweep = new Governance.HostedAiSpendSweep(
                 accessToken: () => Account?.GetAccessTokenForForwarding(),
@@ -6069,7 +6090,7 @@ public sealed class GatewayHost : IAsyncDisposable
         //
         // Skipped when HOSTED: the monitor's collector shells out to the tailscale CLI, which the container
         // image does not bundle, so every poll would throw. A hosted Gateway has no tailnet to diagnose.
-        if (!GatewayHostedMode.IsHosted)
+        if (!Hosted)
         {
             var netDiagDeviceStore = new Api.NetDiagDeviceStore(Path.Combine(CcStorage.Root(), "netdiag-devices.json"));
             // P5: deliver the monitor's drift/resolve to the doorbell + owner email. The alert service owns the
