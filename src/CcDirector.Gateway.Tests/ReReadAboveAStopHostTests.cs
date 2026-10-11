@@ -29,7 +29,6 @@ public sealed class ReReadAboveAStopHostTests : IAsyncLifetime
     private readonly string _runId = Guid.NewGuid().ToString("N")[..12];
     private readonly string _root = Path.Combine(Path.GetTempPath(), "cc-reread-root-" + Guid.NewGuid().ToString("N"));
     private readonly string _instancesDir = Path.Combine(Path.GetTempPath(), "cc-reread-" + Guid.NewGuid().ToString("N"));
-    private string? _priorHosted;
     private string? _priorRoot;
     private bool _priorSweep;
 
@@ -45,9 +44,7 @@ public sealed class ReReadAboveAStopHostTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
         _priorRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _root);
         _priorSweep = FleetManagerEventSweep.Enabled;
         FleetManagerEventSweep.Enabled = false;
@@ -55,7 +52,8 @@ public sealed class ReReadAboveAStopHostTests : IAsyncLifetime
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: SharedToken, authEnabled: true,
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
         var director = HostedTestEnrollment.Enroll(_gateway, $"sub-reread-{_runId}", $"reread-{_runId}@example.com",
             $"dev-reread-dir-{_runId}", "MRRD");
@@ -86,7 +84,6 @@ public sealed class ReReadAboveAStopHostTests : IAsyncLifetime
     {
         await _gateway.StopAsync();
         FleetManagerEventSweep.Enabled = _priorSweep;
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
         foreach (var dir in new[] { _instancesDir, _root })
             try { if (Directory.Exists(dir)) Directory.Delete(dir, true); } catch { /* best effort */ }

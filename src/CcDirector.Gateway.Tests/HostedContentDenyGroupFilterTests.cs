@@ -51,9 +51,8 @@ namespace CcDirector.Gateway.Tests;
 ///                         WRONG MEDIA TYPE (answered by its own 415), and - the load-bearing one - a
 ///                         NO-BINDING sentinel proving NO handler-bound code ran behind the refusal on any
 ///                         shape. Each carries that family's refusal and nothing else.
-///   2. SELF-HOST        - the SAME body-bound route still BINDS and SERVES, over BOTH non-hosted forms that
-///                         occur in practice (the variable absent, and the variable present but "0"), and the
-///                         custom binder is proven to have actually run.
+///   2. SELF-HOST        - the SAME body-bound route still BINDS and SERVES, and the custom binder is proven
+///                         to have actually run.
 ///   3. SCOPING CONTROL  - a route mapped OUTSIDE the group still SERVES on hosted.
 ///
 /// All three are needed and none is redundant. Without (2) a filter that refused everything unconditionally -
@@ -62,14 +61,11 @@ namespace CcDirector.Gateway.Tests;
 /// you only push on it from one side. Without (3) the hosted passes could be the host refusing everything
 /// rather than the primitive doing its job.
 ///
-/// The self-host legs also assert <see cref="GatewayHostedMode.IsHosted"/> is genuinely false rather than
-/// trusting the environment variable to have taken effect, so no leg can silently run in the mode it
-/// believes it is not in.
+/// Every leg states its mode: the rig takes <c>hosted</c> as a required argument, so no leg can silently run
+/// in the mode it believes it is not in.
 /// </summary>
-[Collection("DirectorRoot")]   // serialized: every leg mutates the process-wide CC_GATEWAY_HOSTED and
-                              // CC_DIRECTOR_ROOT, so running beside another collection would let one
-                              // test's mode leak into another's - the exact silent-wrong-mode failure
-                              // the IsHosted assertions above exist to catch.
+[Collection("DirectorRoot")]   // serialized: every leg mutates the process-wide CC_DIRECTOR_ROOT, so running
+                              // beside another collection would redirect another test's storage mid-run.
 public sealed class HostedContentDenyGroupFilterTests
 {
     private const string ProbeBody = "probe-served-zqxjv";
@@ -131,9 +127,6 @@ public sealed class HostedContentDenyGroupFilterTests
     [MemberData(nameof(Families))]
     public async Task A_malformed_body_on_a_route_added_later_meets_the_refusal_on_hosted(string family)
     {
-        using var env = new HostedEnv("1");
-        Assert.True(GatewayHostedMode.IsHosted, "the hosted leg must actually be in hosted mode");
-
         await using var rig = await Rig.StartAsync(family, hosted: true);
 
         // Malformed JSON is a shape an earlier boundary let the framework answer with its own 400 instead of
@@ -147,9 +140,6 @@ public sealed class HostedContentDenyGroupFilterTests
     [MemberData(nameof(Families))]
     public async Task A_wrong_media_type_on_a_route_added_later_meets_the_refusal_on_hosted(string family)
     {
-        using var env = new HostedEnv("1");
-        Assert.True(GatewayHostedMode.IsHosted, "the hosted leg must actually be in hosted mode");
-
         await using var rig = await Rig.StartAsync(family, hosted: true);
 
         // A body parameter makes the framework infer a media-type constraint that endpoint SELECTION enforces
@@ -164,9 +154,6 @@ public sealed class HostedContentDenyGroupFilterTests
     [MemberData(nameof(Families))]
     public async Task No_argument_binder_runs_behind_the_refusal_on_hosted(string family)
     {
-        using var env = new HostedEnv("1");
-        Assert.True(GatewayHostedMode.IsHosted, "the hosted leg must actually be in hosted mode");
-
         ProbeBinding.Reset();
         await using var rig = await Rig.StartAsync(family, hosted: true);
 
@@ -181,17 +168,12 @@ public sealed class HostedContentDenyGroupFilterTests
         Assert.Equal(0, ProbeBinding.Count);
     }
 
-    // ===== 2. SELF-HOST: the same body-bound route still BINDS and SERVES, over BOTH non-hosted forms =====
+    // ===== 2. SELF-HOST: the same body-bound route still BINDS and SERVES =====
 
     [Theory]
-    [InlineData("instructions", null)]
-    [InlineData("instructions", "0")]
-    public async Task A_route_added_to_the_group_still_binds_and_serves_on_self_host(string family, string? hostedValue)
+    [InlineData("instructions")]
+    public async Task A_route_added_to_the_group_still_binds_and_serves_on_self_host(string family)
     {
-        using var env = new HostedEnv(hostedValue);
-        Assert.False(GatewayHostedMode.IsHosted,
-            $"the self-host leg must actually be in self-host mode (CC_GATEWAY_HOSTED={hostedValue ?? "absent"})");
-
         ProbeBinding.Reset();
         await using var rig = await Rig.StartAsync(family, hosted: false);
 
@@ -214,9 +196,6 @@ public sealed class HostedContentDenyGroupFilterTests
     [MemberData(nameof(Families))]
     public async Task A_route_outside_the_group_still_serves_on_hosted(string family)
     {
-        using var env = new HostedEnv("1");
-        Assert.True(GatewayHostedMode.IsHosted, "the hosted leg must actually be in hosted mode");
-
         await using var rig = await Rig.StartAsync(family, hosted: true);
 
         // Mapped on the application, NOT on the guarded group. If this were refused, the hosted passes
@@ -226,20 +205,6 @@ public sealed class HostedContentDenyGroupFilterTests
 
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
         Assert.Equal(ProbeBody, body);
-    }
-
-    /// <summary>Sets CC_GATEWAY_HOSTED for one test and restores whatever was there before.</summary>
-    private sealed class HostedEnv : IDisposable
-    {
-        private readonly string? _prior;
-
-        public HostedEnv(string? value)
-        {
-            _prior = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-            Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", value);
-        }
-
-        public void Dispose() => Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _prior);
     }
 
     /// <summary>

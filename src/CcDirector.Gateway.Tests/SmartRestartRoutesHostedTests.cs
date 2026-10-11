@@ -49,7 +49,6 @@ public sealed class SmartRestartRoutesHostedTests : IAsyncLifetime
     private readonly string _sessionId = Guid.NewGuid().ToString("D");
     private readonly ConcurrentQueue<DirectorCommand> _asked = new();
 
-    private string? _priorHosted;
     private GatewayHost _gateway = null!;
     private FakeTunnelDirector _director = null!;
     private string _deviceKeyOwner = "";
@@ -64,13 +63,11 @@ public sealed class SmartRestartRoutesHostedTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: SharedToken, authEnabled: true,
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
 
         var owner = HostedTestEnrollment.Enroll(_gateway, $"sub-sr-a-{_runId}", $"sr-a-{_runId}@example.com", $"dev-sra-{_runId}", "MSRA");
@@ -94,7 +91,6 @@ public sealed class SmartRestartRoutesHostedTests : IAsyncLifetime
     {
         await _director.DisposeAsync();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); } catch { /* best effort */ }
     }
 

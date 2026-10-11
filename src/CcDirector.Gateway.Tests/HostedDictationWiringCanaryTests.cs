@@ -50,8 +50,8 @@ namespace CcDirector.Gateway.Tests;
 ///      timer) run. Revert it to the base handle (<c>_voiceTurnUploads.SweepAbandoned(...)</c>) and neither
 ///      aged upload is ever swept, because the base sweep does not descend into the partition container.
 ///
-/// The assembly runs sequentially, so toggling CC_GATEWAY_HOSTED, CC_DIRECTOR_ROOT and the static sweep
-/// schedule here is safe; all three are restored in DisposeAsync.
+/// The assembly runs sequentially, so toggling CC_DIRECTOR_ROOT and the static sweep schedule here is safe;
+/// both are restored in DisposeAsync.
 /// </summary>
 public sealed class HostedDictationWiringCanaryTests : IAsyncLifetime
 {
@@ -71,7 +71,6 @@ public sealed class HostedDictationWiringCanaryTests : IAsyncLifetime
     private TenantId _tenantA;
     private TenantId _tenantB;
 
-    private string? _priorHosted;
     private string? _priorRoot;
     private TimeSpan? _priorSweepSchedule;
 
@@ -82,8 +81,6 @@ public sealed class HostedDictationWiringCanaryTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
         // Isolate the storage root BEFORE the Gateway starts so its upload stores bind the temp root, never the
         // developer's real one - and so a store constructed here reads the SAME on-disk root the Gateway does.
         _priorRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
@@ -99,7 +96,8 @@ public sealed class HostedDictationWiringCanaryTests : IAsyncLifetime
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
 
         // Two accounts: two device keys, each bound to its OWN minted tenant. The tenants are minted by the
@@ -133,7 +131,6 @@ public sealed class HostedDictationWiringCanaryTests : IAsyncLifetime
         await _dirA.DisposeAsync();
         await _dirB.DisposeAsync();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
         GatewayHost.VoiceTurnUploadSweepScheduleForTests = _priorSweepSchedule;
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); } catch { /* cleanup */ }

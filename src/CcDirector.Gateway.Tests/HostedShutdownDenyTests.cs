@@ -33,9 +33,6 @@ namespace CcDirector.Gateway.Tests;
 /// Self-host is the control: <see cref="Selfhost_shutdown_still_reaches_the_handler"/> proves the deny is about
 /// the hosted branch and not about /shutdown being broken - off hosted the shared token still drives a real
 /// shutdown request through to the handler.
-///
-/// The assembly runs sequentially (TestParallelization), so toggling CC_GATEWAY_HOSTED here is safe; it is reset
-/// in the finally of each probe.
 /// </summary>
 public sealed class HostedShutdownDenyTests
 {
@@ -66,7 +63,7 @@ public sealed class HostedShutdownDenyTests
     public async Task Selfhost_shutdown_still_reaches_the_handler()
     {
         // The control, and the self-host-untouched proof: identical arrangement, the ONLY difference being
-        // CC_GATEWAY_HOSTED, and the self-update helper's POST /shutdown still drives a real shutdown request
+        // the hosted value, and the self-update helper's POST /shutdown still drives a real shutdown request
         // through to the handler with the shared token (self-host's credential).
         var probe = await RunShutdownProbe(hosted: false, useDeviceKey: false);
 
@@ -81,14 +78,13 @@ public sealed class HostedShutdownDenyTests
 
     private static async Task<ShutdownProbeResult> RunShutdownProbe(bool hosted, bool useDeviceKey)
     {
-        var prior = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", hosted ? "1" : null);
         var instancesDir = Path.Combine(Path.GetTempPath(), "cc-shutdown-b2-" + Guid.NewGuid().ToString("N"));
         var gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: Token, authEnabled: true,
             instancesDirectory: instancesDir,
             workListsPath: Path.Combine(instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(instancesDir, "snooze", "snooze.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = hosted });
         try
         {
             await gateway.StartAsync();
@@ -121,7 +117,6 @@ public sealed class HostedShutdownDenyTests
         finally
         {
             await gateway.StopAsync();
-            Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", prior);
             // Deliberately NOT deleting instancesDir - a background watcher delete event can land after teardown
             // and reach a disposed store (see HealthzTenantLeakTests). The path is a unique temp dir the OS
             // reclaims.

@@ -26,8 +26,8 @@ namespace CcDirector.Gateway.Tests.Activity;
 /// oracle, and no cross-tenant "duplicate" acknowledgement that would silently swallow one account's
 /// evidence.
 ///
-/// The assembly runs sequentially (TestParallelization), so toggling CC_GATEWAY_HOSTED and the storage root
-/// here is safe; both are restored in DisposeAsync.
+/// The assembly runs sequentially (TestParallelization), so toggling the storage root here is safe; it is
+/// restored in DisposeAsync.
 /// </summary>
 public sealed class ActivityLedgerTenantIsolationTests : IAsyncLifetime
 {
@@ -43,7 +43,6 @@ public sealed class ActivityLedgerTenantIsolationTests : IAsyncLifetime
     private string _keyB = "";
     private string _keyUnbound = "";
 
-    private string? _priorHosted;
     private string? _priorRoot;
 
     private readonly string _storageRoot =
@@ -53,8 +52,6 @@ public sealed class ActivityLedgerTenantIsolationTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
         // Isolate the storage root BEFORE the Gateway starts so its database binds the temp root, never the
         // developer's real one.
         _priorRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
@@ -64,7 +61,8 @@ public sealed class ActivityLedgerTenantIsolationTests : IAsyncLifetime
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            promptLogPath: Path.Combine(_instancesDir, "prompt-log"));
+            promptLogPath: Path.Combine(_instancesDir, "prompt-log"),
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
 
@@ -83,7 +81,6 @@ public sealed class ActivityLedgerTenantIsolationTests : IAsyncLifetime
     {
         _http.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
         try { if (Directory.Exists(_storageRoot)) Directory.Delete(_storageRoot, true); } catch { /* best-effort */ }
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); } catch { /* best-effort */ }

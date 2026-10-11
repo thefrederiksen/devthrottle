@@ -57,7 +57,6 @@ public sealed class DevReportLinkRouteTests : IAsyncLifetime
     private readonly string _sessionThatLeft = Guid.NewGuid().ToString("D");
     private readonly string _directorId;
 
-    private string? _priorHosted;
     private GatewayHost _gateway = null!;
     private FakeTunnelDirector? _director;
     private string _deviceKeyA = "";
@@ -75,13 +74,11 @@ public sealed class DevReportLinkRouteTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: SharedToken, authEnabled: true,
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
 
         var a = HostedTestEnrollment.Enroll(_gateway, $"sub-dl-a-{_runId}", $"dl-a-{_runId}@example.com", $"dev-dla-{_runId}", "MDLA");
@@ -107,7 +104,6 @@ public sealed class DevReportLinkRouteTests : IAsyncLifetime
     {
         if (_director is not null) await _director.DisposeAsync();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); } catch { /* best effort */ }
     }
 

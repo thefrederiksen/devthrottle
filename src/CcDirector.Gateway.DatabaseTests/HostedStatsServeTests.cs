@@ -63,7 +63,7 @@ namespace CcDirector.Gateway.Tests;
 ///
 /// Self-host is unchanged and is the control in <see cref="HostedStatsSelfHostControlTests"/> below.
 /// </summary>
-[Collection("GatewayHostedMode")]
+[Collection("DirectorRoot")]
 public sealed class HostedStatsServeTests : IAsyncLifetime
 {
     private const string Token = "test-token-stats-serve";
@@ -77,7 +77,6 @@ public sealed class HostedStatsServeTests : IAsyncLifetime
 
     private readonly string _root;
     private string? _priorRoot;
-    private string? _priorHosted;
     private string? _priorStatsConnection;
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-stats-serve-" + Guid.NewGuid().ToString("N"));
@@ -97,10 +96,10 @@ public sealed class HostedStatsServeTests : IAsyncLifetime
     {
         // The process-wide variables are set HERE, not in the constructor, so that every failure after the
         // first one is set is answered by the restore below. xunit 2 does not call DisposeAsync when
-        // InitializeAsync throws, so a broken rig or a Gateway that fails to start would otherwise leave
-        // CC_GATEWAY_HOSTED=1 set for every class that runs after this one in the same test process.
+        // InitializeAsync throws, so a broken rig or a Gateway that fails to start would otherwise leave the
+        // storage root and the statistics connection pointed at this rig for every class that runs after
+        // this one in the same test process.
         _priorRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
         _priorStatsConnection = Environment.GetEnvironmentVariable(StatsConnectionSelection.StatsConnectionEnvVar);
         try
         {
@@ -117,9 +116,6 @@ public sealed class HostedStatsServeTests : IAsyncLifetime
     {
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _root);
 
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-        Assert.True(GatewayHostedMode.IsHosted);
-
         // Point the SHIPPED selector at the rig, by the same environment variable a hosted deployment sets.
         // Nothing here constructs a store by hand: the Gateway resolves, opens and migrates it on its own
         // startup path, which is the path under test.
@@ -131,7 +127,8 @@ public sealed class HostedStatsServeTests : IAsyncLifetime
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
 
         _httpA = Enrolled("dev-a", "sub-alice", "alice@example.com", out _tenantA);
@@ -184,8 +181,8 @@ public sealed class HostedStatsServeTests : IAsyncLifetime
         _httpA?.Dispose();
         _httpB?.Dispose();
         _httpUnbound?.Dispose();
-        // The process-wide variables are restored in a finally: a stop that throws must not leave
-        // CC_GATEWAY_HOSTED=1 set for every class that runs after this one in the same test process.
+        // The process-wide variables are restored in a finally: a stop that throws must not leave them
+        // pointed at this rig for every class that runs after this one in the same test process.
         try
         {
             if (_gateway is not null) await _gateway.StopAsync();
@@ -201,7 +198,6 @@ public sealed class HostedStatsServeTests : IAsyncLifetime
     private void RestoreEnvironment()
     {
         Environment.SetEnvironmentVariable(StatsConnectionSelection.StatsConnectionEnvVar, _priorStatsConnection);
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
     }
 

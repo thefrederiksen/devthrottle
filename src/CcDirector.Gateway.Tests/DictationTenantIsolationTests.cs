@@ -49,8 +49,8 @@ namespace CcDirector.Gateway.Tests;
 ///   - <c>VoiceUploadStore.PartitionRootFor</c>, which is what makes all of the above structural rather than
 ///     conventional.
 ///
-/// The assembly runs sequentially (TestParallelization), so toggling CC_GATEWAY_HOSTED and the storage root
-/// here is safe; both are restored in DisposeAsync.
+/// The assembly runs sequentially (TestParallelization), so toggling the storage root here is safe; it is
+/// restored in DisposeAsync.
 /// </summary>
 public sealed class DictationTenantIsolationTests : IAsyncLifetime
 {
@@ -70,7 +70,6 @@ public sealed class DictationTenantIsolationTests : IAsyncLifetime
     private TenantId _tenantA;
     private TenantId _tenantB;
 
-    private string? _priorHosted;
     private string? _priorRoot;
 
     private readonly string _storageRoot =
@@ -80,8 +79,6 @@ public sealed class DictationTenantIsolationTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
         // Isolate the storage root BEFORE the Gateway starts so its dictation upload store binds the temp
         // root, never the developer's real one.
         _priorRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
@@ -91,7 +88,8 @@ public sealed class DictationTenantIsolationTests : IAsyncLifetime
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            promptLogPath: Path.Combine(_instancesDir, "prompt-log"));
+            promptLogPath: Path.Combine(_instancesDir, "prompt-log"),
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
 
         // Two accounts: two device keys, each bound to its OWN tenant, plus one registered-but-unbound key.
@@ -117,7 +115,6 @@ public sealed class DictationTenantIsolationTests : IAsyncLifetime
         _httpB.Dispose();
         _httpUnbound.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); } catch { /* cleanup */ }
         try { if (Directory.Exists(_storageRoot)) Directory.Delete(_storageRoot, true); } catch { /* cleanup */ }

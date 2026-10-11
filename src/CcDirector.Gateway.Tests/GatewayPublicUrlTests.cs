@@ -134,7 +134,7 @@ public class GatewayPublicUrlTests
     [Fact]
     public void ResolveCockpit_LiveWrapper_Hosted_DerivesFromConfiguredBase()
     {
-        WithEnv(hosted: "1", publicBase: PublicBase, () =>
+        WithPublicBase(PublicBase, () =>
         {
             // Deterministic: hosted needs no tailnet. The wrapper must return {configured base}/cockpit, the
             // NON-production value - so a hardcoded ResolveCockpit() constant (prod or otherwise) reddens.
@@ -145,7 +145,7 @@ public class GatewayPublicUrlTests
     [Fact]
     public void ResolveCockpit_LiveWrapper_SelfHost_DerivesExactlyFromInjectedFrontDoor()
     {
-        WithEnv(hosted: null, publicBase: PublicBase, () =>
+        WithPublicBase(PublicBase, () =>
         {
             // The self-host LIVE path, driven with a KNOWN front door. The real tailnet provider is null on
             // a build host, so this injected-provider seam is the ONLY way to pin the self-host live wrapper
@@ -164,7 +164,7 @@ public class GatewayPublicUrlTests
     [Fact]
     public void ResolveCockpit_LiveWrapper_SelfHost_IgnoresStrayHostedBase()
     {
-        WithEnv(hosted: null, publicBase: PublicBase, () =>
+        WithPublicBase(PublicBase, () =>
         {
             // Not hosted: the wrapper takes the self-host branch, which reads the tailnet front door (null on
             // a build host with no tailnet) and NEVER the hosted env var. So the result is either null or a
@@ -199,7 +199,7 @@ public class GatewayPublicUrlTests
         // composes nothing. If this ever became {base}/cockpit/session/{id}, it would point at a route the
         // Cockpit does not have - the Cockpit is served at the site root, so /session/{id} is a sibling of
         // /cockpit, not a child.
-        WithEnv("1", PublicBase, () =>
+        WithPublicBase(PublicBase, () =>
         {
             var result = GatewayPublicUrl.ResolveCockpitSession(hosted: true, "2d0955fe-ed31-40c1-a519-72676b4499c5");
 
@@ -211,7 +211,7 @@ public class GatewayPublicUrlTests
     public void ResolveCockpitSession_SelfHostWithFrontDoor_IsTheFrontDoorPlusTheSessionPath()
     {
         // Self-host takes the tailnet front door as its base, exactly as the front-door resolver does.
-        WithEnv(null, null, () =>
+        WithPublicBase(null, () =>
         {
             var result = GatewayPublicUrl.ResolveCockpitSession(
                 hosted: false,
@@ -227,7 +227,7 @@ public class GatewayPublicUrlTests
     {
         // No front door means no address to hand out. Null, which the caller surfaces - never a localhost
         // substitute that would work on one machine only.
-        WithEnv(null, null, () =>
+        WithPublicBase(null, () =>
         {
             var result = GatewayPublicUrl.ResolveCockpitSession(
                 hosted: false,
@@ -243,7 +243,7 @@ public class GatewayPublicUrlTests
     {
         // An id carrying a character that is not path-safe cannot change the shape of the URL by adding a
         // segment or a query of its own.
-        WithEnv("1", PublicBase, () =>
+        WithPublicBase(PublicBase, () =>
         {
             var result = GatewayPublicUrl.ResolveCockpitSession(hosted: true, "a b/../c?d");
 
@@ -256,18 +256,16 @@ public class GatewayPublicUrlTests
     {
         // There is no session screen without a session. Handing back the front door instead would send the
         // caller somewhere it did not ask for, and it would look like it worked.
-        WithEnv("1", PublicBase, () =>
+        WithPublicBase(PublicBase, () =>
         {
             Assert.Throws<ArgumentException>(() => GatewayPublicUrl.ResolveCockpitSession(hosted: true, "  "));
         });
     }
 
-    // Save/restore the two process-global env vars the resolver reads, then run body under the given values.
-    private static void WithEnv(string? hosted, string? publicBase, Action body)
+    // Save/restore the process-wide public base variable the resolver reads, then run body under the given value.
+    private static void WithPublicBase(string? publicBase, Action body)
     {
-        var priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
         var priorBase = Environment.GetEnvironmentVariable(GatewayPublicUrl.PublicBaseUrlEnvVar);
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", hosted);
         Environment.SetEnvironmentVariable(GatewayPublicUrl.PublicBaseUrlEnvVar, publicBase);
         try
         {
@@ -275,7 +273,6 @@ public class GatewayPublicUrlTests
         }
         finally
         {
-            Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", priorHosted);
             Environment.SetEnvironmentVariable(GatewayPublicUrl.PublicBaseUrlEnvVar, priorBase);
         }
     }

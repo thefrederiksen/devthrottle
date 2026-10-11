@@ -50,7 +50,6 @@ public abstract class HostedTeamDirectorRoutesNoTeamTestsBase : IAsyncLifetime
     private string _secondKey = "";
     private string _teamId = "";
     private string? _teamKey;
-    private string? _priorHosted;
     private string? _priorRoot;
 
     protected HostedTeamDirectorRoutesNoTeamTestsBase(ITestOutputHelper output) => _out = output;
@@ -60,8 +59,6 @@ public abstract class HostedTeamDirectorRoutesNoTeamTestsBase : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
         _priorRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _instancesDir);
 
@@ -69,7 +66,8 @@ public abstract class HostedTeamDirectorRoutesNoTeamTestsBase : IAsyncLifetime
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            streamMode: true, teamsReleased: TeamsReleased);
+            streamMode: true, teamsReleased: TeamsReleased,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/"), Timeout = TimeSpan.FromMinutes(2) };
 
@@ -104,7 +102,6 @@ public abstract class HostedTeamDirectorRoutesNoTeamTestsBase : IAsyncLifetime
                 await director.DisposeAsync();
         _http.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
         catch { /* best-effort */ }
@@ -215,7 +212,7 @@ public abstract class HostedTeamDirectorRoutesNoTeamTestsBase : IAsyncLifetime
 }
 
 /// <summary>The no-team run on a Gateway where Teams is released.</summary>
-[Collection("GatewayHostedMode")]
+[Collection("DirectorRoot")]
 public sealed class HostedTeamDirectorRoutesNoTeamReleasedTests : HostedTeamDirectorRoutesNoTeamTestsBase
 {
     public HostedTeamDirectorRoutesNoTeamReleasedTests(ITestOutputHelper output) : base(output) { }
@@ -224,7 +221,7 @@ public sealed class HostedTeamDirectorRoutesNoTeamReleasedTests : HostedTeamDire
 }
 
 /// <summary>The no-team run on a dark Gateway (CC_GATEWAY_TEAMS off).</summary>
-[Collection("GatewayHostedMode")]
+[Collection("DirectorRoot")]
 public sealed class HostedTeamDirectorRoutesNoTeamDarkTests : HostedTeamDirectorRoutesNoTeamTestsBase
 {
     public HostedTeamDirectorRoutesNoTeamDarkTests(ITestOutputHelper output) : base(output) { }

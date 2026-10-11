@@ -25,14 +25,12 @@ namespace CcDirector.Gateway.Tests;
 /// which is what proves the hosted assertion is about the tenancy branch and not about a Gateway that simply
 /// has no Directors registered.
 ///
-/// Revert-prove: delete the <c>GatewayHostedMode.IsHosted</c> branch from the <c>/healthz</c> handler in
+/// Revert-prove: delete the hosted branch from the <c>/healthz</c> handler in
 /// <c>GatewayEndpoints.Map</c> and <see cref="Hosted_healthz_reports_no_fleet_counts"/> goes RED - the hosted
 /// probe reports the registered Director again. (The branch gated on the nullable <c>tenantBoundary</c>
 /// argument until the 2026-07-31 tenant-boundary hardening; it now gates on the process-level hosted flag so
 /// a null! boundary cannot reopen the aggregate - <see cref="NullBoundaryHostedGateFailClosedTests"/> pins
 /// that direction.)
-///
-/// The assembly runs sequentially (TestParallelization), so toggling CC_GATEWAY_HOSTED here is safe.
 /// </summary>
 public sealed class HealthzTenantLeakTests
 {
@@ -64,7 +62,7 @@ public sealed class HealthzTenantLeakTests
     public async Task Selfhost_healthz_still_reports_its_fleet_counts()
     {
         // POSITIVE CONTROL for the test above, and the self-host-untouched proof: identical arrangement, the
-        // ONLY difference being CC_GATEWAY_HOSTED, and the counts are still served. This one deliberately does
+        // ONLY difference being the hosted value, and the counts are still served. This one deliberately does
         // NOT pin the changed line - it exists to prove the hosted assertion above is about the tenancy branch
         // and not about a Gateway that simply has no Directors to count.
         var (health, _) = await ProbeHealthz(hosted: false);
@@ -75,14 +73,13 @@ public sealed class HealthzTenantLeakTests
 
     private static async Task<(HealthDto Health, string RawJson)> ProbeHealthz(bool hosted)
     {
-        var prior = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", hosted ? "1" : null);
         var instancesDir = Path.Combine(Path.GetTempPath(), "cc-hz-" + Guid.NewGuid().ToString("N"));
         var gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: Token, authEnabled: true,
             instancesDirectory: instancesDir,
             workListsPath: Path.Combine(instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(instancesDir, "snooze", "snooze.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = hosted });
         try
         {
             await gateway.StartAsync();
@@ -109,7 +106,6 @@ public sealed class HealthzTenantLeakTests
         finally
         {
             await gateway.StopAsync();
-            Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", prior);
             // Deliberately NOT deleting instancesDir. Registering a Director writes a discovery file there, and
             // deleting the directory raises a FileSystemWatcher delete event on a thread-pool thread that can
             // land AFTER the host is torn down - reaching a disposed database and killing the whole test

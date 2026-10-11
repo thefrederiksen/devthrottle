@@ -29,7 +29,7 @@ namespace CcDirector.Gateway.Tests;
 /// here starts a second thread or attempts to interleave one. Said plainly because the difference is easy to
 /// lose: a passing seam test is evidence about sequence, not about concurrency.
 /// </summary>
-[Collection("GatewayHostedMode")]
+[Collection("DirectorRoot")]
 public sealed class EvictionRaceAndCompositionTests : IDisposable
 {
     private const string DirectorId = "dir-north";

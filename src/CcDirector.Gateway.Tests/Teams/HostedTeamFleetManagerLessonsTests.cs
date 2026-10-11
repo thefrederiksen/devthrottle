@@ -27,7 +27,7 @@ namespace CcDirector.Gateway.Tests.Teams;
 ///
 /// And the personal tenant, where nothing changes: the one Director that lists the marked session is sent the lessons.
 /// </summary>
-[Collection("GatewayHostedMode")]
+[Collection("DirectorRoot")]
 public sealed class HostedTeamFleetManagerLessonsTests : IAsyncLifetime
 {
     private const string Token = "test-token";
@@ -45,13 +45,10 @@ public sealed class HostedTeamFleetManagerLessonsTests : IAsyncLifetime
     private FakeTunnelDirector _bobDirector = null!;
     private string _bobKey = null!;
     private TenantId _team;
-    private string? _priorHosted;
     private string? _priorRoot;
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
         _priorRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _instancesDir);
 
@@ -59,7 +56,8 @@ public sealed class HostedTeamFleetManagerLessonsTests : IAsyncLifetime
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            streamMode: true, teamsReleased: true);
+            streamMode: true, teamsReleased: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
 
         var teamId = _gateway.TeamRegistry.CreateTeam(_teamOwner, "A").Team!.TeamId;
@@ -85,7 +83,6 @@ public sealed class HostedTeamFleetManagerLessonsTests : IAsyncLifetime
         await _aliceDirector.DisposeAsync();
         await _bobDirector.DisposeAsync();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
         catch { /* best-effort */ }

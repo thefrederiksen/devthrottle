@@ -60,18 +60,15 @@ public sealed class AdminTrialExtendTests : IDisposable
     private readonly GatewayDbTestHarness _h = new();
     private readonly string _devPath = Path.Combine(Path.GetTempPath(), $"admin-trial-dev-{Guid.NewGuid():N}.json");
     private readonly string? _savedToken = Environment.GetEnvironmentVariable(AdminTrialEndpoint.ServiceTokenEnvVar);
-    private readonly string? _savedHosted = Environment.GetEnvironmentVariable(GatewayHostedMode.HostedEnvVar);
 
     public AdminTrialExtendTests()
     {
         Environment.SetEnvironmentVariable(AdminTrialEndpoint.ServiceTokenEnvVar, Token);
-        Environment.SetEnvironmentVariable(GatewayHostedMode.HostedEnvVar, "1");
     }
 
     public void Dispose()
     {
         Environment.SetEnvironmentVariable(AdminTrialEndpoint.ServiceTokenEnvVar, _savedToken);
-        Environment.SetEnvironmentVariable(GatewayHostedMode.HostedEnvVar, _savedHosted);
         _h.Dispose();
         if (File.Exists(_devPath)) File.Delete(_devPath);
     }
@@ -273,7 +270,6 @@ public sealed class AdminTrialExtendTests : IDisposable
     [Fact]
     public async Task A_self_hosted_gateway_refuses_and_does_so_only_after_the_token_check()
     {
-        Environment.SetEnvironmentVariable(GatewayHostedMode.HostedEnvVar, null);
         var db = Db;
         SeedTrial(db, Subject, Started, Expires);
 

@@ -27,8 +27,8 @@ namespace CcDirector.Gateway.Tests.Throttle;
 /// other; the window is stated and honoured; and the repository split and the session-origin block read
 /// the caller's own session history. A body that merely has the right shape would satisfy none of it.
 ///
-/// The assembly runs sequentially (TestParallelization), so toggling CC_GATEWAY_HOSTED and the storage root
-/// here is safe; both are restored in DisposeAsync.
+/// The assembly runs sequentially (TestParallelization), so toggling the storage root here is safe; it is
+/// restored in DisposeAsync.
 /// </summary>
 public sealed class ThrottleFeedReadsTheLedgerTests : IAsyncLifetime
 {
@@ -40,7 +40,6 @@ public sealed class ThrottleFeedReadsTheLedgerTests : IAsyncLifetime
     private string _keyUnbound = "";
     private TenantId _tenantA;
     private TenantId _tenantB;
-    private string? _priorHosted;
     private string? _priorRoot;
     private readonly string _storageRoot =
         Path.Combine(Path.GetTempPath(), "cc-throttle-feed-storage-" + Guid.NewGuid().ToString("N"));
@@ -49,8 +48,6 @@ public sealed class ThrottleFeedReadsTheLedgerTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
         _priorRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _storageRoot);
 
@@ -58,7 +55,8 @@ public sealed class ThrottleFeedReadsTheLedgerTests : IAsyncLifetime
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            promptLogPath: Path.Combine(_instancesDir, "prompt-log"));
+            promptLogPath: Path.Combine(_instancesDir, "prompt-log"),
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
 
@@ -75,7 +73,6 @@ public sealed class ThrottleFeedReadsTheLedgerTests : IAsyncLifetime
     {
         _http.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
         try { if (Directory.Exists(_storageRoot)) Directory.Delete(_storageRoot, true); } catch { /* best-effort */ }
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); } catch { /* best-effort */ }

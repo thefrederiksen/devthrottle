@@ -24,7 +24,7 @@ namespace CcDirector.Gateway.Tests;
 ///     nothing deleted). The hosted <see cref="GatewayHost"/> must construct its mission store with
 ///     <c>adoptUnattributedAs: null</c>, so a row written before missions carried an owner matches NO
 ///     tenant: never listed, never resolvable, never deletable - and still on disk afterwards. This is
-///     proven through the REAL host construction (GatewayHost.cs decides from GatewayHostedMode.IsHosted),
+///     proven through the REAL host construction (GatewayHost.cs decides from its options' Hosted value),
 ///     not by constructing a store with the right argument in the test, which would prove only that the
 ///     store honors an argument nobody is proven to pass.
 ///  2. THE DELETE LEG of the exit row "tenant A cannot list, resolve, or delete tenant B's missions".
@@ -47,9 +47,6 @@ namespace CcDirector.Gateway.Tests;
 /// it is Local's, and Local is exactly the shared partition hosted must never serve). Feed the mission
 /// routes a constant tenant instead of the caller's and MissionRouteTenantScopingTests reddens. Map the
 /// comm-queue on the ungrouped builder and the comm-queue row here reddens with a 200.
-///
-/// The assembly disables test parallelization, so toggling CC_GATEWAY_HOSTED here is safe; it is reset
-/// in DisposeAsync.
 /// </summary>
 public sealed class HostedMissionPartitionWiringTests : IAsyncLifetime
 {
@@ -69,14 +66,9 @@ public sealed class HostedMissionPartitionWiringTests : IAsyncLifetime
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-cr6-wiring-" + Guid.NewGuid().ToString("N"));
     private string _missionsPath = "";
-    private string? _priorHosted;
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-        Assert.True(GatewayHostedMode.IsHosted);
-
         // The legacy row exists BEFORE the host starts, exactly as a pre-#1039 file would: written by a
         // Gateway that stamped no owner. Seeded on disk rather than through the store, because the store
         // no longer has an unscoped write to create one with.
@@ -88,7 +80,8 @@ public sealed class HostedMissionPartitionWiringTests : IAsyncLifetime
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
             missionsPath: _missionsPath,
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
 
@@ -102,7 +95,6 @@ public sealed class HostedMissionPartitionWiringTests : IAsyncLifetime
     {
         _http.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
         catch { /* best-effort */ }
     }
@@ -268,14 +260,9 @@ public sealed class SelfHostMissionAdoptionControlTests : IAsyncLifetime
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-cr6-adopt-" + Guid.NewGuid().ToString("N"));
     private string _missionsPath = "";
-    private string? _priorHosted;
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", null);
-        Assert.False(GatewayHostedMode.IsHosted);
-
         _missionsPath = Path.Combine(_instancesDir, "missions.json");
         Directory.CreateDirectory(_instancesDir);
         // ParentMissionId is deliberate here - see SeedUnattributedMission. Mission no longer has that
@@ -298,7 +285,8 @@ public sealed class SelfHostMissionAdoptionControlTests : IAsyncLifetime
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
             missionsPath: _missionsPath,
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = false });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token);
@@ -308,7 +296,6 @@ public sealed class SelfHostMissionAdoptionControlTests : IAsyncLifetime
     {
         _http.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
         catch { /* best-effort */ }
     }

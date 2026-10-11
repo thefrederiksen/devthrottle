@@ -38,22 +38,18 @@ public sealed class MachineSpawnWorkflowScopeTests : IAsyncLifetime
     private HttpClient _http = null!;
     private string _aliceKey = "";
     private TenantId _aliceTenant;
-    private string? _priorHosted;
 
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-spawn-scope-" + Guid.NewGuid().ToString("N"));
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-        Assert.True(GatewayHostedMode.IsHosted);
-
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: Token, authEnabled: true,
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
 
@@ -66,7 +62,6 @@ public sealed class MachineSpawnWorkflowScopeTests : IAsyncLifetime
     {
         _http.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
         catch (Exception) { /* best effort */ }
     }

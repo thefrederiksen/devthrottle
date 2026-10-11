@@ -21,7 +21,7 @@ namespace CcDirector.Gateway.Tests;
 /// The reverted build's second defect was exactly a client deriving what the server should have handed it
 /// (devthrottle_internal#547).
 /// </summary>
-[Collection("GatewayHostedMode")]
+[Collection("DirectorRoot")]
 public sealed class SpokenLanguageEndpointTests : IAsyncLifetime
 {
     private readonly string _root;

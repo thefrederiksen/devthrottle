@@ -182,8 +182,7 @@ public sealed class TeamEndpointsTests : IDisposable
     [Fact]
     public async Task ResolveCaller_SelfHostedGateway_RefusesWithTheSelfHostedReason()
     {
-        // The unit test process is not hosted (CC_GATEWAY_HOSTED is unset), which is the self-hosted Gateway.
-        Assert.False(GatewayHostedMode.IsHosted);
+        // A self-host boundary: the hosted value is false, stated.
         var boundary = new HostedTenantBoundary(new SingleTenantContext(), new DeviceRegistry(_db), hosted: false);
 
         var (subject, denial) = TeamEndpoints.ResolveCaller(new DefaultHttpContext(), boundary, _tenants);

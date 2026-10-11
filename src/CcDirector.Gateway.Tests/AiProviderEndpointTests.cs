@@ -16,7 +16,7 @@ namespace CcDirector.Gateway.Tests;
 /// ephemeral port with CC_DIRECTOR_ROOT redirected to a temp dir, so writes round-trip an isolated
 /// config.json rather than the user's real one.
 /// </summary>
-[Collection("GatewayHostedMode")]
+[Collection("DirectorRoot")]
 public sealed class AiProviderEndpointTests : IAsyncLifetime
 {
     private readonly string _root;

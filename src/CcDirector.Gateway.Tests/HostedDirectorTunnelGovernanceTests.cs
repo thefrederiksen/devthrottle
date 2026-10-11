@@ -42,7 +42,6 @@ public sealed class HostedDirectorTunnelGovernanceTests : IAsyncLifetime
 
     private readonly string _root;
     private readonly string? _prevRoot;
-    private readonly string? _priorHosted;
     private readonly string? _priorServiceToken;
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-tunnel-governance-" + Guid.NewGuid().ToString("N"));
@@ -56,7 +55,6 @@ public sealed class HostedDirectorTunnelGovernanceTests : IAsyncLifetime
         _prevRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
         _root = Path.Combine(Path.GetTempPath(), "ccd-tunnel-governance-" + Guid.NewGuid().ToString("N"));
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _root);
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
         _priorServiceToken = Environment.GetEnvironmentVariable(MorningReportEndpoint.ServiceTokenEnvVar);
     }
 
@@ -66,7 +64,6 @@ public sealed class HostedDirectorTunnelGovernanceTests : IAsyncLifetime
     {
         _http?.Dispose();
         if (_gateway is not null) await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable(MorningReportEndpoint.ServiceTokenEnvVar, _priorServiceToken);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _prevRoot);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); } catch { }
@@ -75,15 +72,14 @@ public sealed class HostedDirectorTunnelGovernanceTests : IAsyncLifetime
 
     private async Task StartHostedGatewayAsync()
     {
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
         Environment.SetEnvironmentVariable(MorningReportEndpoint.ServiceTokenEnvVar, ServiceToken);
-        Assert.True(GatewayHostedMode.IsHosted);
 
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: GatewayToken,
             authEnabled: true,
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
 

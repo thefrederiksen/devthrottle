@@ -48,20 +48,17 @@ public sealed class TurnVerdictAnswerRouteTests : IAsyncLifetime
 
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-turn-verdict-answer-route-" + Guid.NewGuid().ToString("N"));
-    private string? _priorHosted;
     private long _pushSequence;
 
     public TurnVerdictAnswerRouteTests(ITestOutputHelper output) => _out = output;
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: SharedToken, authEnabled: true,
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
 
         var a = HostedTestEnrollment.Enroll(
@@ -90,7 +87,6 @@ public sealed class TurnVerdictAnswerRouteTests : IAsyncLifetime
         _deviceB.Dispose();
         _sessionKeyInA.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); } catch { /* best effort */ }
     }
 

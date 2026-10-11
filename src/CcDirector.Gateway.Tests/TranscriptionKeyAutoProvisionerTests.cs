@@ -182,12 +182,8 @@ public sealed class TranscriptionKeyAutoProvisionerTests : IDisposable
     [Fact]
     public async Task EnsureAsync_OnHosted_MintsNothing_AndStoresNothing()
     {
-        var prior = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
         try
         {
-            Assert.True(GatewayHostedMode.IsHosted);
-
             var vault = new KeyVault(_vaultPath);
             // Signed in with an empty vault - the exact case that mints on self-host
             // (EnsureAsync_SignedIn_EmptyVault_MintsAndStoresKeyAndId). On hosted it must not.
@@ -204,7 +200,6 @@ public sealed class TranscriptionKeyAutoProvisionerTests : IDisposable
         }
         finally
         {
-            Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", prior);
         }
     }
 
@@ -215,12 +210,8 @@ public sealed class TranscriptionKeyAutoProvisionerTests : IDisposable
     [Fact]
     public async Task RevokeMintedKeyAsync_OnHosted_IsInert()
     {
-        var prior = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
         try
         {
-            Assert.True(GatewayHostedMode.IsHosted);
-
             var vault = new KeyVault(_vaultPath);
             var minter = new FakeMinter("dt_live_x", id: "the-id");
             var sut = new TranscriptionKeyAutoProvisioner(vault, () => "the.jwt", minter, hosted: true);
@@ -232,7 +223,6 @@ public sealed class TranscriptionKeyAutoProvisionerTests : IDisposable
         }
         finally
         {
-            Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", prior);
         }
     }
 

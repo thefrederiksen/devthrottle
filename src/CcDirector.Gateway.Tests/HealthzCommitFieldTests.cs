@@ -56,16 +56,15 @@ public sealed class HealthzCommitFieldTests
 
     private static async Task<(HealthDto Health, string RawJson)> ProbeHealthz(bool hosted, string? commitEnv)
     {
-        var priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
         var priorCommit = Environment.GetEnvironmentVariable("COCKPIT_COMMIT");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", hosted ? "1" : null);
         Environment.SetEnvironmentVariable("COCKPIT_COMMIT", commitEnv);
         var instancesDir = Path.Combine(Path.GetTempPath(), "cc-hz-commit-" + Guid.NewGuid().ToString("N"));
         var gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: Token, authEnabled: true,
             instancesDirectory: instancesDir,
             workListsPath: Path.Combine(instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(instancesDir, "snooze", "snooze.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = hosted });
         try
         {
             await gateway.StartAsync();
@@ -83,7 +82,6 @@ public sealed class HealthzCommitFieldTests
         finally
         {
             await gateway.StopAsync();
-            Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", priorHosted);
             Environment.SetEnvironmentVariable("COCKPIT_COMMIT", priorCommit);
             // Deliberately NOT deleting instancesDir (see HealthzTenantLeakTests for why a delete here can
             // crash the whole test process via a late FileSystemWatcher event). The OS reclaims the temp dir.

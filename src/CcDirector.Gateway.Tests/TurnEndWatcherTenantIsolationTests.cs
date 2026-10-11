@@ -29,9 +29,6 @@ namespace CcDirector.Gateway.Tests;
 /// <see cref="Same_sid_two_tenants_each_turn_end_reaches_only_its_own_director"/> goes RED - tenant B writing
 /// "WaitingForInput" into the shared key first means tenant A's real Working -> Waiting transition sees no
 /// change and its refresh is suppressed, so dir-A is never asked to read session "s".
-///
-/// The assembly runs sequentially (TestParallelization), so toggling CC_GATEWAY_HOSTED here is safe; it is
-/// reset in DisposeAsync.
 /// </summary>
 public sealed class TurnEndWatcherTenantIsolationTests : IAsyncLifetime
 {
@@ -50,18 +47,15 @@ public sealed class TurnEndWatcherTenantIsolationTests : IAsyncLifetime
 
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-turnend-tenant-" + Guid.NewGuid().ToString("N"));
-    private string? _priorHosted;
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: Token, authEnabled: true,
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
 
         var deviceA = HostedTestEnrollment.Enroll(
@@ -91,7 +85,6 @@ public sealed class TurnEndWatcherTenantIsolationTests : IAsyncLifetime
         await _dirA.DisposeAsync();
         await _dirB.DisposeAsync();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
         catch { /* best-effort */ }
     }

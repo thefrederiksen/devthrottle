@@ -24,7 +24,7 @@ namespace CcDirector.Gateway.Tests.Teams;
 /// on the colleague's side. Remove either wire and the colleague's Director is reached; make the team branch answer no
 /// for the session's own Director and the owner is starved. Each of the three goes red here.
 /// </summary>
-[Collection("GatewayHostedMode")]
+[Collection("DirectorRoot")]
 public sealed class HostedTeamColleagueSessionWiringTests : IAsyncLifetime
 {
     private const string Token = "test-token";
@@ -41,13 +41,10 @@ public sealed class HostedTeamColleagueSessionWiringTests : IAsyncLifetime
     private FakeTunnelDirector _owner = null!;
     private FakeTunnelDirector _colleague = null!;
     private TenantId _team;
-    private string? _priorHosted;
     private string? _priorRoot;
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
         _priorRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _instancesDir);
 
@@ -55,7 +52,8 @@ public sealed class HostedTeamColleagueSessionWiringTests : IAsyncLifetime
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            streamMode: true, teamsReleased: true);
+            streamMode: true, teamsReleased: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
 
         // Bob owns the session; Alice is his colleague in the same team, and her Director lists his session's id.
@@ -83,7 +81,6 @@ public sealed class HostedTeamColleagueSessionWiringTests : IAsyncLifetime
         await _owner.DisposeAsync();
         await _colleague.DisposeAsync();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
         catch { /* best-effort */ }

@@ -39,8 +39,8 @@ namespace CcDirector.Gateway.Tests;
 /// rather than to return a transcript. That is the same offline bound the dictation isolation suite runs
 /// under, and it is exactly enough to prove the leg is served for A and denied for B.
 ///
-/// The assembly runs sequentially (TestParallelization), so toggling CC_GATEWAY_HOSTED and the storage root
-/// here is safe; both are restored in DisposeAsync.
+/// The assembly runs sequentially (TestParallelization), so toggling the storage root here is safe; it is
+/// restored in DisposeAsync.
 /// </summary>
 public sealed class HostedUtteranceTenantIsolationTests : IAsyncLifetime
 {
@@ -53,7 +53,6 @@ public sealed class HostedUtteranceTenantIsolationTests : IAsyncLifetime
     private HttpClient _httpB = null!;
     private HttpClient _httpUnbound = null!;
 
-    private string? _priorHosted;
     private string? _priorRoot;
 
     private readonly string _storageRoot =
@@ -63,8 +62,6 @@ public sealed class HostedUtteranceTenantIsolationTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
         _priorRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _storageRoot);
 
@@ -72,7 +69,8 @@ public sealed class HostedUtteranceTenantIsolationTests : IAsyncLifetime
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            promptLogPath: Path.Combine(_instancesDir, "prompt-log"));
+            promptLogPath: Path.Combine(_instancesDir, "prompt-log"),
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
 
         var keyA = _gateway.Devices.Register("dev-a", "MA").DeviceKey;
@@ -94,7 +92,6 @@ public sealed class HostedUtteranceTenantIsolationTests : IAsyncLifetime
         _httpB.Dispose();
         _httpUnbound.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); } catch { /* cleanup */ }
         try { if (Directory.Exists(_storageRoot)) Directory.Delete(_storageRoot, true); } catch { /* cleanup */ }

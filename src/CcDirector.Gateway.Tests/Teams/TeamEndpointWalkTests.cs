@@ -36,9 +36,9 @@ namespace CcDirector.Gateway.Tests.Teams;
 /// device registry at all, so no request yet runs inside a team (devthrottle_internal#2311 changes that, and the gate
 /// is what it will then meet).
 ///
-/// This class sets the process-wide CC_GATEWAY_HOSTED, so it belongs to the hosted-mode collection.
+/// This class sets the process-wide CC_DIRECTOR_ROOT, so it joins the DirectorRoot collection.
 /// </summary>
-[Collection("GatewayHostedMode")]
+[Collection("DirectorRoot")]
 public sealed class TeamEndpointWalkTests : IAsyncLifetime
 {
     private const string Token = "test-token";
@@ -64,7 +64,6 @@ public sealed class TeamEndpointWalkTests : IAsyncLifetime
     private readonly ITestOutputHelper _output;
     private GatewayHost _gateway = null!;
     private HttpClient _http = null!;
-    private string? _priorHosted;
     private string? _priorRoot;
     private string _team = "";
     private (string Method, string Pattern)[] _routes = Array.Empty<(string, string)>();
@@ -73,8 +72,6 @@ public sealed class TeamEndpointWalkTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
         _priorRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _instancesDir);
 
@@ -82,7 +79,8 @@ public sealed class TeamEndpointWalkTests : IAsyncLifetime
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            streamMode: true, teamsReleased: true);
+            streamMode: true, teamsReleased: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
 
@@ -112,7 +110,6 @@ public sealed class TeamEndpointWalkTests : IAsyncLifetime
     {
         _http.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
         catch { /* best-effort */ }

@@ -22,7 +22,7 @@ namespace CcDirector.Gateway.Tests.Teams;
 /// time (<c>TestParallelization.cs</c>), so the Cockpit tests that delete the web root cannot race this one; a page this
 /// class wrote is removed afterwards, and a built Cockpit it found is left alone.
 /// </summary>
-[Collection("GatewayHostedMode")]
+[Collection("DirectorRoot")]
 public sealed class HostedTeamsDarkCockpitTests : IAsyncLifetime
 {
     private const string Token = "test-token";
@@ -31,7 +31,6 @@ public sealed class HostedTeamsDarkCockpitTests : IAsyncLifetime
     private readonly string _instancesDir = Path.Combine(Path.GetTempPath(), "cc-tdc-" + Guid.NewGuid().ToString("N"));
     private GatewayHost _gateway = null!;
     private HttpClient _http = null!;
-    private string? _priorHosted;
     private string? _priorRoot;
     private bool _wroteWebRoot;
 
@@ -45,8 +44,6 @@ public sealed class HostedTeamsDarkCockpitTests : IAsyncLifetime
             await File.WriteAllTextAsync(index, "<!doctype html><html><body><div id=\"root\"></div>" + ShellMarker + "</body></html>");
         }
 
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
         _priorRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _instancesDir);
 
@@ -54,7 +51,8 @@ public sealed class HostedTeamsDarkCockpitTests : IAsyncLifetime
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            streamMode: true, teamsReleased: false);
+            streamMode: true, teamsReleased: false,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
     }
@@ -63,7 +61,6 @@ public sealed class HostedTeamsDarkCockpitTests : IAsyncLifetime
     {
         _http.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
         try
         {

@@ -31,14 +31,13 @@ namespace CcDirector.Gateway.Tests;
 ///
 /// Self-host is unchanged and is the control in <see cref="HostedOwnerSettingsSelfHostControlTests"/>.
 /// </summary>
-[Collection("GatewayHostedMode")]
+[Collection("DirectorRoot")]
 public sealed class HostedPerAccountSettingsServeTests : IAsyncLifetime
 {
     private const string Token = "test-token-peraccount";
 
     private readonly string _root;
     private readonly string? _priorRoot;
-    private readonly string? _priorHosted;
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-peraccount-" + Guid.NewGuid().ToString("N"));
 
@@ -53,9 +52,6 @@ public sealed class HostedPerAccountSettingsServeTests : IAsyncLifetime
         _root = Path.Combine(Path.GetTempPath(), "ccd-peraccount-" + Guid.NewGuid().ToString("N"));
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _root);
 
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-        Assert.True(GatewayHostedMode.IsHosted);
     }
 
     public async Task InitializeAsync()
@@ -63,7 +59,8 @@ public sealed class HostedPerAccountSettingsServeTests : IAsyncLifetime
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: Token, authEnabled: true,
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
-            snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"));
+            snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
 
         _httpA = Enrolled("dev-a", "sub-alice", "alice@example.com");
@@ -96,7 +93,6 @@ public sealed class HostedPerAccountSettingsServeTests : IAsyncLifetime
         _httpB.Dispose();
         _httpUnbound.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); } catch { /* best effort */ }
         try { if (Directory.Exists(_root)) Directory.Delete(_root, true); } catch { /* best effort */ }

@@ -60,8 +60,7 @@ namespace CcDirector.Gateway.Tests.Account;
 /// This drives a REAL GatewayHost over REAL HTTP through the REAL auth middleware with the REAL tenant
 /// registry, so the binding under test is the one enrollment actually creates. Self-host behaviour is
 /// unchanged and is covered by <see cref="AccountActingCredentialSelfHostTests"/>, the control for this
-/// change. The assembly runs sequentially, so toggling CC_GATEWAY_HOSTED here is safe; it is restored in
-/// DisposeAsync.
+/// change.
 /// </summary>
 public sealed class HostedAccountRoutesTellTheTruthTests : IAsyncLifetime
 {
@@ -83,15 +82,11 @@ public sealed class HostedAccountRoutesTellTheTruthTests : IAsyncLifetime
 
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-984-" + Guid.NewGuid().ToString("N"));
-    private string? _priorHosted;
     private string? _priorRoot;
     private string? _priorServiceToken;
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-
         // The assembly default equips hosted test gateways for account-attributed AI calls. This fixture proves
         // the truthful refusal when owner email has no service credential, so keep that absence local to the fixture.
         _priorServiceToken = Environment.GetEnvironmentVariable(
@@ -108,7 +103,8 @@ public sealed class HostedAccountRoutesTellTheTruthTests : IAsyncLifetime
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
 
@@ -123,7 +119,6 @@ public sealed class HostedAccountRoutesTellTheTruthTests : IAsyncLifetime
     {
         _http.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
         Environment.SetEnvironmentVariable(
             CcDirector.Core.Account.AccountNotifyByTenantClient.ServiceTokenEnvVar, _priorServiceToken);

@@ -15,28 +15,21 @@ namespace CcDirector.Gateway.Tests.Teams;
 /// The Mentor's page for a person's own account (owner, 8 Oct 2026), over REAL HTTP on a real hosted Gateway with
 /// Teams released: each account's device key reads its own block and only its own; another account's key is served
 /// nothing of it; and with Teams dark the route is not there.
-///
-/// This class sets the process-wide CC_GATEWAY_HOSTED, so it belongs to the hosted-mode collection.
 /// </summary>
-[Collection("GatewayHostedMode")]
 public sealed class PersonalMentorHostedTests : IAsyncLifetime
 {
     private readonly string _runId = Guid.NewGuid().ToString("N")[..12];
     private readonly string _instancesDir = Path.Combine(Path.GetTempPath(), "cc-personal-mentor-" + Guid.NewGuid().ToString("N"));
-    private string? _priorHosted;
     private GatewayHost? _gateway;
 
     public Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
         return Task.CompletedTask;
     }
 
     public async Task DisposeAsync()
     {
         if (_gateway is not null) await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); } catch { /* best effort */ }
     }
 
@@ -46,7 +39,8 @@ public sealed class PersonalMentorHostedTests : IAsyncLifetime
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            streamMode: true, teamsReleased: teamsReleased);
+            streamMode: true, teamsReleased: teamsReleased,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
         return _gateway;
     }

@@ -29,9 +29,8 @@ namespace CcDirector.Gateway.Tests;
 /// second token path. This is the ONLY hosted human sign-in entry point (the hosted /account/sign-in-callback was
 /// descoped as unreached; all hosted clients use the /device-callback -> /mobile/enroll flow).
 ///
-/// The hosted path is selected by the INDEPENDENT hosted-mode signal (<c>CC_GATEWAY_HOSTED</c>) read directly by
-/// the endpoint, NOT by whether a dependency argument was passed - so these set that variable on (the assembly
-/// runs sequentially, so toggling it here is safe; restored in <see cref="Dispose"/>). A hosted Gateway mapped
+/// The hosted path is selected by the host's hosted value - the required <c>hosted</c> argument to Map - NOT by
+/// whether a dependency argument was passed, so these map with <c>hosted: true</c>. A hosted Gateway mapped
 /// without its mint dependencies must refuse to start (finding 2, proven by
 /// <see cref="HostedMode_WithoutDependencies_RefusesToStart"/>).
 ///
@@ -58,39 +57,12 @@ public sealed class HostedMobileAccountEnrollTests : IDisposable
     private readonly GatewayDbTestHarness _harness = new();
     private readonly string _devPath = Path.Combine(Path.GetTempPath(), $"hma-dev-{Guid.NewGuid():N}.json");
     private readonly TestEs256Key _key = new();
-    private readonly string? _priorHosted;
-
-    public HostedMobileAccountEnrollTests()
-    {
-        // These tests exercise the HOSTED path, which the endpoint selects on GatewayHostedMode.IsHosted read
-        // directly. The assembly runs sequentially (TestParallelization disabled), so setting it here is safe;
-        // Dispose restores the prior value.
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-    }
 
     public void Dispose()
     {
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         _harness.Dispose();
         _key.Dispose();
         if (File.Exists(_devPath)) File.Delete(_devPath);
-    }
-
-    /// <summary>Runs a block with hosted mode forced OFF (the self-host control), restoring the prior value after.</summary>
-    private static IDisposable SelfHostMode() => new EnvScope("CC_GATEWAY_HOSTED", null);
-
-    private sealed class EnvScope : IDisposable
-    {
-        private readonly string _name;
-        private readonly string? _prior;
-        public EnvScope(string name, string? value)
-        {
-            _name = name;
-            _prior = Environment.GetEnvironmentVariable(name);
-            Environment.SetEnvironmentVariable(name, value);
-        }
-        public void Dispose() => Environment.SetEnvironmentVariable(_name, _prior);
     }
 
     private GatewayDatabase OpenWithEntitlements(string subject, bool entitled)
@@ -443,7 +415,7 @@ public sealed class HostedMobileAccountEnrollTests : IDisposable
     {
         // The map-time fail-closed guard: a Gateway in hosted mode mapped without hosted enrollment dependencies
         // must THROW rather than silently fall through to the self-host device-key-in-body path (the fail-open the
-        // law forbids). CC_GATEWAY_HOSTED is "1" (class ctor), so mapping with hosted=null must throw. This is the
+        // law forbids). Mapping with hosted: true and no dependencies must throw. This is the
         // finding-2 guard; deleting the guard in MobileEnrollmentEndpoint reddens this test (proven at rework).
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
@@ -465,7 +437,6 @@ public sealed class HostedMobileAccountEnrollTests : IDisposable
         // request flows to the enrollment service. With no cloud account wired that service answers NotSignedIn
         // (409) - which is precisely NOT the hosted mint's 200/401/402/503, so it proves the hosted mint never
         // engaged on self-host.
-        using var _ = SelfHostMode();
         var (app, http) = await StartHostedAsync(hostedMode: false, hosted: null);
         try
         {

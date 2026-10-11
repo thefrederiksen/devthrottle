@@ -22,16 +22,12 @@ namespace CcDirector.Gateway.Tests;
 /// <summary>
 /// THE SELF-HOST CONTROL FOR THE OWNER-SETTINGS DENY, STATED EXPLICITLY (issue #1863).
 ///
-/// Self-host is the control for the whole hosted-tenancy mission, so it has to be PROVEN rather than
-/// INHERITED. The existing settings tests do not prove it: they never mention <c>CC_GATEWAY_HOSTED</c> and
-/// pass only because the runner happens to leave it unset. If that ambient default ever flipped - one
-/// leaked environment variable, one continuous-integration image change, one test that forgot to restore
-/// it - they would keep passing while self-host was completely broken, because they assert nothing about
-/// which mode they are in.
-///
-/// So this class sets the variable ITSELF, to BOTH non-hosted forms that occur in practice - ABSENT, and
-/// PRESENT-BUT-"0" - and asserts <see cref="GatewayHostedMode.IsHosted"/> really is false in each, so no
-/// test below can silently be running in the mode it thinks it is not in.
+/// Self-host is the control for the whole hosted-tenancy mission, so it has to be STATED rather than
+/// INHERITED: the Gateway here is built with <c>Hosted = false</c> stated in its options, so no test below
+/// can be running in the mode it thinks it is not in. (The mode used to be a process-wide environment
+/// variable with two non-hosted forms, absent and present-but-"0", and this class ran every route under
+/// both; the mode is now a value handed to the host, and the forms are proved once, in
+/// <c>GatewayHostedModeTests</c>.)
 ///
 /// AND IT ASSERTS A POSITIVE FACT PER ROUTE, NOT THE ABSENCE OF THE REFUSAL. "The refusal string is not
 /// in the body" is satisfied by an empty 200, by a single-page-application shell, and by a route that was
@@ -59,14 +55,13 @@ namespace CcDirector.Gateway.Tests;
 /// These tests must stay GREEN through the revert. A control that moves with the change under test is not
 /// a control.
 /// </summary>
-[Collection("GatewayHostedMode")]
+[Collection("DirectorRoot")]
 public sealed class HostedOwnerSettingsSelfHostControlTests : IAsyncLifetime
 {
     private const string Token = "test-token-12345";
 
     private readonly string _root;
     private readonly string? _priorRoot;
-    private readonly string? _priorHosted;
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-ownersettings-self-" + Guid.NewGuid().ToString("N"));
 
@@ -78,16 +73,15 @@ public sealed class HostedOwnerSettingsSelfHostControlTests : IAsyncLifetime
         _priorRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
         _root = Path.Combine(Path.GetTempPath(), "ccd-ownersettings-self-" + Guid.NewGuid().ToString("N"));
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _root);
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
     }
 
     public async Task InitializeAsync()
     {
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", null);
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: Token, authEnabled: true,
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
-            snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"));
+            snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
+            options: new GatewayHostOptions { Hosted = false });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token);
@@ -97,7 +91,6 @@ public sealed class HostedOwnerSettingsSelfHostControlTests : IAsyncLifetime
     {
         _http.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); } catch { /* best effort */ }
         try { if (Directory.Exists(_root)) Directory.Delete(_root, true); } catch { /* best effort */ }
@@ -108,38 +101,25 @@ public sealed class HostedOwnerSettingsSelfHostControlTests : IAsyncLifetime
     /// real self-host deployments and both must serve. Stating both is the point: a gate written against
     /// "the variable is set at all" would pass the first and fail the second.
     /// </summary>
-    public static TheoryData<string?> NonHostedForms => new() { null, "0" };
-
-    /// <summary>
-    /// Puts the process into a STATED non-hosted mode and proves the statement took, so nothing below can
-    /// silently be running in the mode it thinks it is not in.
-    /// </summary>
-    private static void DeclareSelfHost(string? value)
-    {
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", value);
-        Assert.False(GatewayHostedMode.IsHosted);
-    }
-
-    public static TheoryData<string?, string> ReadRoutes
+    public static TheoryData<string> ReadRoutes
     {
         get
         {
-            var data = new TheoryData<string?, string>();
-            foreach (var hosted in new string?[] { null, "0" })
-                foreach (var path in new[]
-                         {
-                             "gateway/settings",
-                             "gateway/snooze-default",
-                             "gateway/daily-report",
-                             "gateway/mentor-report",
-                             "gateway/injected-text",
-                             "gateway/snooze-presets",
-                             "gateway/time-zone",
-                             "gateway/transcription-mode",
-                             "gateway/ai-provider",
-                             "gateway/tts-voice",
-                         })
-                    data.Add(hosted, path);
+            var data = new TheoryData<string>();
+            foreach (var path in new[]
+                     {
+                         "gateway/settings",
+                         "gateway/snooze-default",
+                         "gateway/daily-report",
+                         "gateway/mentor-report",
+                         "gateway/injected-text",
+                         "gateway/snooze-presets",
+                         "gateway/time-zone",
+                         "gateway/transcription-mode",
+                         "gateway/ai-provider",
+                         "gateway/tts-voice",
+                     })
+                data.Add(path);
             return data;
         }
     }
@@ -152,10 +132,8 @@ public sealed class HostedOwnerSettingsSelfHostControlTests : IAsyncLifetime
     /// </summary>
     [Theory]
     [MemberData(nameof(ReadRoutes))]
-    public async Task Every_read_route_serves_its_real_payload_on_self_host(string? hostedForm, string path)
+    public async Task Every_read_route_serves_its_real_payload_on_self_host(string path)
     {
-        DeclareSelfHost(hostedForm);
-
         var response = await _http.GetAsync(path);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("application/json", response.Content.Headers.ContentType?.MediaType);
@@ -276,32 +254,29 @@ public sealed class HostedOwnerSettingsSelfHostControlTests : IAsyncLifetime
         }
     }
 
-    public static TheoryData<string?, string, string, string, string, string> WriteRoutes
+    public static TheoryData<string, string, string, string, string> WriteRoutes
     {
         get
         {
-            var data = new TheoryData<string?, string, string, string, string, string>();
-            foreach (var hosted in new string?[] { null, "0" })
-            {
-                data.Add(hosted, "PUT", "gateway/snooze-default", "{\"minutes\":45}", "snooze-default", "45");
-                data.Add(hosted, "PUT", "gateway/injected-text", "{\"use_yours\":true,\"yours\":\"words from another tenant\"}", "injected-text", "words from another tenant");
-                data.Add(hosted, "PUT", "gateway/snooze-presets", "{\"presets\":[15,30,60],\"defaultMinutes\":30}", "snooze-presets", "15,30,60");
-                data.Add(hosted, "PUT", "gateway/time-zone", "{\"timeZone\":\"America/New_York\"}", "time-zone", "America/New_York");
-                // "off" is the value that is distinguishable from the default, so the re-read proves a write
-                // rather than a no-op.
-                data.Add(hosted, "PUT", "gateway/daily-report", "{\"cadence\":\"off\"}", "daily-report", "off");
-                // false is the value distinguishable from the default, so the re-read proves a write.
-                data.Add(hosted, "PUT", "gateway/mentor-report", "{\"enabled\":false}", "mentor-report", "false");
-                // transcription-mode is NOT here - it needs a seeded starting value to be distinguishable
-                // from a no-op, so it has its own test below.
-                data.Add(hosted, "PUT", "gateway/tts-voice", "{\"voice\":\"shimmer\"}", "tts-voice", "shimmer");
-                // Model values are DevThrottle internal included ids (issue #1360: the resolver honors
-                // nothing else), each chosen OPPOSITE to its role's default so the re-read still proves
-                // a write rather than a no-op.
-                data.Add(hosted, "PUT", "gateway/ai/wingman-model", "{\"model\":\"devthrottle/wingman-fast\"}", "wingman-model", "devthrottle/wingman-fast");
-                data.Add(hosted, "PUT", "gateway/ai/wingman-fast-model", "{\"model\":\"devthrottle/wingman\"}", "wingman-fast-model", "devthrottle/wingman");
-                data.Add(hosted, "PUT", "gateway/ai/tts-model", "{\"model\":\"hosted-speech\"}", "tts-model", "hosted-speech");
-            }
+            var data = new TheoryData<string, string, string, string, string>();
+            data.Add("PUT", "gateway/snooze-default", "{\"minutes\":45}", "snooze-default", "45");
+            data.Add("PUT", "gateway/injected-text", "{\"use_yours\":true,\"yours\":\"words from another tenant\"}", "injected-text", "words from another tenant");
+            data.Add("PUT", "gateway/snooze-presets", "{\"presets\":[15,30,60],\"defaultMinutes\":30}", "snooze-presets", "15,30,60");
+            data.Add("PUT", "gateway/time-zone", "{\"timeZone\":\"America/New_York\"}", "time-zone", "America/New_York");
+            // "off" is the value that is distinguishable from the default, so the re-read proves a write
+            // rather than a no-op.
+            data.Add("PUT", "gateway/daily-report", "{\"cadence\":\"off\"}", "daily-report", "off");
+            // false is the value distinguishable from the default, so the re-read proves a write.
+            data.Add("PUT", "gateway/mentor-report", "{\"enabled\":false}", "mentor-report", "false");
+            // transcription-mode is NOT here - it needs a seeded starting value to be distinguishable
+            // from a no-op, so it has its own test below.
+            data.Add("PUT", "gateway/tts-voice", "{\"voice\":\"shimmer\"}", "tts-voice", "shimmer");
+            // Model values are DevThrottle internal included ids (issue #1360: the resolver honors
+            // nothing else), each chosen OPPOSITE to its role's default so the re-read still proves
+            // a write rather than a no-op.
+            data.Add("PUT", "gateway/ai/wingman-model", "{\"model\":\"devthrottle/wingman-fast\"}", "wingman-model", "devthrottle/wingman-fast");
+            data.Add("PUT", "gateway/ai/wingman-fast-model", "{\"model\":\"devthrottle/wingman\"}", "wingman-fast-model", "devthrottle/wingman");
+            data.Add("PUT", "gateway/ai/tts-model", "{\"model\":\"hosted-speech\"}", "tts-model", "hosted-speech");
             return data;
         }
     }
@@ -348,10 +323,8 @@ public sealed class HostedOwnerSettingsSelfHostControlTests : IAsyncLifetime
     [Theory]
     [MemberData(nameof(WriteRoutes))]
     public async Task Every_write_route_really_writes_and_the_write_reads_back_on_self_host(
-        string? hostedForm, string verb, string path, string body, string readBackKey, string expected)
+        string verb, string path, string body, string readBackKey, string expected)
     {
-        DeclareSelfHost(hostedForm);
-
         var response = await OwnerSettingsRoutes.SendAsync(_http, verb, path, body);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("application/json", response.Content.Headers.ContentType?.MediaType);
@@ -399,12 +372,9 @@ public sealed class HostedOwnerSettingsSelfHostControlTests : IAsyncLifetime
     /// independently re-read effect - as the previous revision's table did - would be claiming more than
     /// the evidence supports, which is the thing this whole review has been about.
     /// </summary>
-    [Theory]
-    [MemberData(nameof(NonHostedForms))]
-    public async Task The_transcription_mode_route_is_served_on_self_host(string? hostedForm)
+    [Fact]
+    public async Task The_transcription_mode_route_is_served_on_self_host()
     {
-        DeclareSelfHost(hostedForm);
-
         var response = await OwnerSettingsRoutes.SendAsync(_http, "PUT", "gateway/transcription-mode",
             "{\"mode\":\"devthrottle\"}");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -426,12 +396,9 @@ public sealed class HostedOwnerSettingsSelfHostControlTests : IAsyncLifetime
     /// below is for. That is a real, independently re-read effect - the strongest served-side fact
     /// available for this route.
     /// </summary>
-    [Theory]
-    [MemberData(nameof(NonHostedForms))]
-    public async Task The_provider_reset_really_resets_the_models_on_self_host(string? hostedForm)
+    [Fact]
+    public async Task The_provider_reset_really_resets_the_models_on_self_host()
     {
-        DeclareSelfHost(hostedForm);
-
         // A value the reset cannot possibly produce, so "unchanged" and "reset" cannot be confused. The reset
         // now clears the TENANT's override (issue #2017), so the before-state is seeded as a tenant override -
         // exactly what the AI tab writes - not a global config value. The sentinel carries the devthrottle/
@@ -455,26 +422,23 @@ public sealed class HostedOwnerSettingsSelfHostControlTests : IAsyncLifetime
         Assert.False(string.IsNullOrWhiteSpace(afterwards));
     }
 
-    public static TheoryData<string?, string, string, string, int, string> ReceiptRoutes
+    public static TheoryData<string, string, string, int, string> ReceiptRoutes
     {
         get
         {
-            var data = new TheoryData<string?, string, string, string, int, string>();
-            foreach (var hosted in new string?[] { null, "0" })
-            {
-                // The SPEECH catalog and test-chat routes both resolve the provider credential out of
-                // the key vault first. With no credential stored they answer 503 with this exact
-                // sentence - a handler-unique receipt that costs no network round-trip. (Issue #2022
-                // removed the brain-config receipt route along with the endpoint; issue #1360 made the
-                // CHAT kind a fixed local list that needs no credential, so the receipt row pins the
-                // speech kind explicitly. The test-chat row sends an INCLUDED id because the handler now
-                // refuses a non-included id with a 400 BEFORE resolving the credential - the refusal is
-                // pinned by AiModelsEndpointTests; this row pins the credential receipt.)
-                data.Add(hosted, "GET", "gateway/ai/models?kind=speech", "",
-                    503, "not signed in to DevThrottle - sign in on the Account tab");
-                data.Add(hosted, "POST", "gateway/ai/test-chat", "{\"model\":\"devthrottle/wingman\"}",
-                    503, "not signed in to DevThrottle - sign in on the Account tab");
-            }
+            var data = new TheoryData<string, string, string, int, string>();
+            // The SPEECH catalog and test-chat routes both resolve the provider credential out of
+            // the key vault first. With no credential stored they answer 503 with this exact
+            // sentence - a handler-unique receipt that costs no network round-trip. (Issue #2022
+            // removed the brain-config receipt route along with the endpoint; issue #1360 made the
+            // CHAT kind a fixed local list that needs no credential, so the receipt row pins the
+            // speech kind explicitly. The test-chat row sends an INCLUDED id because the handler now
+            // refuses a non-included id with a 400 BEFORE resolving the credential - the refusal is
+            // pinned by AiModelsEndpointTests; this row pins the credential receipt.)
+            data.Add("GET", "gateway/ai/models?kind=speech", "",
+                503, "not signed in to DevThrottle - sign in on the Account tab");
+            data.Add("POST", "gateway/ai/test-chat", "{\"model\":\"devthrottle/wingman\"}",
+                503, "not signed in to DevThrottle - sign in on the Account tab");
             return data;
         }
     }
@@ -488,10 +452,8 @@ public sealed class HostedOwnerSettingsSelfHostControlTests : IAsyncLifetime
     [Theory]
     [MemberData(nameof(ReceiptRoutes))]
     public async Task The_routes_without_a_readable_effect_answer_with_their_own_receipt_on_self_host(
-        string? hostedForm, string verb, string path, string body, int expectedStatus, string expectedMessage)
+        string verb, string path, string body, int expectedStatus, string expectedMessage)
     {
-        DeclareSelfHost(hostedForm);
-
         var response = await OwnerSettingsRoutes.SendAsync(_http, verb, path, body);
         Assert.Equal(expectedStatus, (int)response.StatusCode);
         Assert.Equal("application/json", response.Content.Headers.ContentType?.MediaType);
@@ -518,8 +480,6 @@ public sealed class HostedOwnerSettingsSelfHostControlTests : IAsyncLifetime
     [InlineData("{}")]
     public async Task An_unknown_report_cadence_is_refused_and_leaves_the_setting_alone(string body)
     {
-        DeclareSelfHost(null);
-
         // Start from a value that is NOT the default, so a write that wrongly went through would be visible
         // either way - as a change to daily, or as a change to the unknown value.
         (await _http.PutAsync("gateway/daily-report",
@@ -542,16 +502,15 @@ public sealed class HostedOwnerSettingsSelfHostControlTests : IAsyncLifetime
 /// finds it REFUSED on hosted. On its own that cannot tell a working gate apart from a brick: a primitive
 /// that refused everything unconditionally would satisfy every one of those assertions while having silently
 /// killed the routes for self-host too. This class drives the SAME probe paths with hosted mode explicitly
-/// OFF, in BOTH non-hosted forms, and asserts they are SERVED with their real payload.
+/// OFF and asserts they are SERVED with their real payload.
 /// </summary>
-[Collection("GatewayHostedMode")]
+[Collection("DirectorRoot")]
 public sealed class HostedOwnerSettingsSelfHostProbeTests : IAsyncLifetime
 {
     private const string ProbePayload = "the-probe-route-really-served-on-self-host";
 
     private readonly string _root;
     private readonly string? _priorRoot;
-    private readonly string? _priorHosted;
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-ownersettings-selfprobe-" + Guid.NewGuid().ToString("N"));
 
@@ -562,8 +521,6 @@ public sealed class HostedOwnerSettingsSelfHostProbeTests : IAsyncLifetime
         _priorRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
         _root = Path.Combine(Path.GetTempPath(), "ccd-ownersettings-selfprobe-" + Guid.NewGuid().ToString("N"));
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _root);
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", null);
     }
 
     public async Task InitializeAsync()
@@ -572,29 +529,26 @@ public sealed class HostedOwnerSettingsSelfHostProbeTests : IAsyncLifetime
             authEnabled: true,
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
-            snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"));
+            snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
+            options: new GatewayHostOptions { Hosted = false });
         await _gateway.StartAsync();
     }
 
     public async Task DisposeAsync()
     {
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); } catch { /* best effort */ }
         try { if (Directory.Exists(_root)) Directory.Delete(_root, true); } catch { /* best effort */ }
     }
 
-    public static TheoryData<string?, string, string> Probes
+    public static TheoryData<string, string> Probes
     {
         get
         {
-            var data = new TheoryData<string?, string, string>();
-            foreach (var hosted in new string?[] { null, "0" })
-            {
-                data.Add(hosted, "settings", "/gateway/added-after-the-deny-was-written");
-                data.Add(hosted, "models", "/gateway/ai/added-after-the-deny-was-written");
-            }
+            var data = new TheoryData<string, string>();
+            data.Add("settings", "/gateway/added-after-the-deny-was-written");
+            data.Add("models", "/gateway/ai/added-after-the-deny-was-written");
             return data;
         }
     }
@@ -602,11 +556,8 @@ public sealed class HostedOwnerSettingsSelfHostProbeTests : IAsyncLifetime
     [Theory]
     [MemberData(nameof(Probes))]
     public async Task A_route_added_to_the_group_still_serves_on_self_host(
-        string? hostedForm, string family, string probePath)
+        string family, string probePath)
     {
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", hostedForm);
-        Assert.False(GatewayHostedMode.IsHosted);
-
         Func<IEndpointRouteBuilder, HostedDenyGroup> map = family switch
         {
             "settings" => routes => Api.SettingsEndpoints.Map(routes, _gateway),

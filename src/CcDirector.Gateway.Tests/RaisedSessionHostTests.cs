@@ -52,20 +52,17 @@ public sealed class RaisedSessionHostTests : IAsyncLifetime
     private readonly string _runId = Guid.NewGuid().ToString("N")[..12];
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-raised-session-host-" + Guid.NewGuid().ToString("N"));
-    private string? _priorHosted;
     private long _pushSequence;
 
     public RaisedSessionHostTests(ITestOutputHelper output) => _out = output;
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: SharedToken, authEnabled: true,
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
 
         var subjectA = $"sub-raised-a-{_runId}";
@@ -108,7 +105,6 @@ public sealed class RaisedSessionHostTests : IAsyncLifetime
         foreach (var http in new[] { _ownerA, _ownerB, _directorA, _raised, _unraised, _worker })
             http.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); } catch { /* best effort */ }
     }
 
@@ -717,7 +713,8 @@ public sealed class RaisedSessionHostTests : IAsyncLifetime
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: SharedToken, authEnabled: true,
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
 
         Assert.True(_gateway.RaisedSessions.IsRaised(_tenantA, _raisedId));

@@ -33,14 +33,13 @@ namespace CcDirector.Gateway.Tests;
 /// Self-host is unchanged (the single Local tenant maps to the existing flat store) and is exercised by
 /// RecordingEndpointsE2ETests / RecordingCompletenessGateHttpTests with hosted mode off.
 /// </summary>
-[Collection("GatewayHostedMode")]
+[Collection("DirectorRoot")]
 public sealed class HostedRecordingServeTests : IAsyncLifetime
 {
     private const string Token = "test-token-rec-serve";
 
     private readonly string _root;
     private readonly string? _priorRoot;
-    private readonly string? _priorHosted;
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-rec-serve-" + Guid.NewGuid().ToString("N"));
     private readonly string _vaultPath =
@@ -57,9 +56,6 @@ public sealed class HostedRecordingServeTests : IAsyncLifetime
         _root = Path.Combine(Path.GetTempPath(), "ccd-rec-serve-" + Guid.NewGuid().ToString("N"));
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _root);
 
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-        Assert.True(GatewayHostedMode.IsHosted);
     }
 
     public async Task InitializeAsync()
@@ -69,7 +65,8 @@ public sealed class HostedRecordingServeTests : IAsyncLifetime
             keyVaultPath: _vaultPath,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
 
         _httpA = Enrolled("dev-a", "sub-alice", "alice@example.com");
@@ -96,7 +93,6 @@ public sealed class HostedRecordingServeTests : IAsyncLifetime
         _httpB.Dispose();
         _httpUnbound.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
         try { if (File.Exists(_vaultPath)) File.Delete(_vaultPath); } catch { /* best effort */ }
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); } catch { /* best effort */ }

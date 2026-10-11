@@ -37,7 +37,6 @@ public sealed class FleetManagerEventsHostTests : IAsyncLifetime
     private readonly string _runId = Guid.NewGuid().ToString("N")[..12];
     private readonly string _root = Path.Combine(Path.GetTempPath(), "cc-fm-events-root-" + Guid.NewGuid().ToString("N"));
     private readonly string _instancesDir = Path.Combine(Path.GetTempPath(), "cc-fm-events-" + Guid.NewGuid().ToString("N"));
-    private string? _priorHosted;
     private string? _priorRoot;
     private bool _priorSweep;
 
@@ -57,9 +56,7 @@ public sealed class FleetManagerEventsHostTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
         _priorRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _root);
         // No reconcile timer: a test decides when the reconcile runs, so no timer can stand in for a hook.
         _priorSweep = FleetManagerEventSweep.Enabled;
@@ -96,7 +93,8 @@ public sealed class FleetManagerEventsHostTests : IAsyncLifetime
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: SharedToken, authEnabled: true,
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
 
         // A restarted Gateway finds the same account in its database; each boot enrolls fresh device ids.
@@ -117,7 +115,6 @@ public sealed class FleetManagerEventsHostTests : IAsyncLifetime
         _owner.Dispose();
         await _gateway.StopAsync();
         FleetManagerEventSweep.Enabled = _priorSweep;
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
         foreach (var dir in new[] { _instancesDir, _root })
             try { if (Directory.Exists(dir)) Directory.Delete(dir, true); } catch { /* best effort */ }

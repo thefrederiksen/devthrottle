@@ -37,8 +37,7 @@ namespace CcDirector.Gateway.Tests;
 /// "DoesNotContain create/repos-list on B" and the 404 assertions go RED.
 ///
 /// This drives the REAL auth middleware (which stashes the authenticated device key) and the REAL tunnel Hello
-/// (which binds each Director's tenant), like <c>SessionServingReadIsolationTests</c>. The assembly runs
-/// sequentially, so toggling CC_GATEWAY_HOSTED here is safe; it is reset in DisposeAsync.
+/// (which binds each Director's tenant), like <c>SessionServingReadIsolationTests</c>.
 /// </summary>
 public sealed class DirectorRouteTenantScopingTests : IAsyncLifetime
 {
@@ -66,18 +65,15 @@ public sealed class DirectorRouteTenantScopingTests : IAsyncLifetime
 
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-mtr01-" + Guid.NewGuid().ToString("N"));
-    private string? _priorHosted;
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: Token, authEnabled: true,
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
 
@@ -106,7 +102,6 @@ public sealed class DirectorRouteTenantScopingTests : IAsyncLifetime
         await _dirBShared.DisposeAsync();
         await _dirBOnly.DisposeAsync();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
         catch { /* best-effort */ }
     }

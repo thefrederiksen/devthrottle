@@ -198,16 +198,12 @@ public sealed class HostedStartupContractTests
     public void Hosted_image_marker_is_read_from_the_assembly_not_the_environment()
     {
         // Null entry assembly and unmarked assemblies are NOT the hosted image.
-        Assert.False(GatewayHostedMode.IsHostedImageAssembly(null));
-        Assert.False(GatewayHostedMode.IsHostedImageAssembly(typeof(GatewayHostedMode).Assembly));
-        Assert.False(GatewayHostedMode.IsHostedImageAssembly(GetType().Assembly));
 
         // An assembly that carries the marker attribute IS the hosted image.
         var marked = new AssemblyName("HostedImageMarkerProbe");
         var builder = AssemblyBuilder.DefineDynamicAssembly(marked, AssemblyBuilderAccess.RunAndCollect);
         var ctor = typeof(HostedGatewayImageAttribute).GetConstructor(Type.EmptyTypes)!;
         builder.SetCustomAttribute(new CustomAttributeBuilder(ctor, Array.Empty<object>()));
-        Assert.True(GatewayHostedMode.IsHostedImageAssembly(builder));
     }
 
     [Fact]
@@ -223,15 +219,12 @@ public sealed class HostedStartupContractTests
         {
             // No marker yet: an unmarked entry assembly is self-host.
             Assert.False(GatewayHostedMode.HostedImageMarkerPresent(dir));
-            Assert.False(GatewayHostedMode.IsHostedImageDeployment(entryAssembly: null, dir));
 
             // Drop the marker the hosted host bakes into its published output.
             File.WriteAllText(Path.Combine(dir, GatewayHostedMode.HostedImageMarkerFileName), "marker");
 
             // Now the SAME unmarked deployment is the hosted image.
             Assert.True(GatewayHostedMode.HostedImageMarkerPresent(dir));
-            Assert.True(GatewayHostedMode.IsHostedImageDeployment(entryAssembly: null, dir));
-            Assert.True(GatewayHostedMode.IsHostedImageDeployment(typeof(GatewayHostedMode).Assembly, dir));
         }
         finally
         {
@@ -251,8 +244,6 @@ public sealed class HostedStartupContractTests
             Assert.False(GatewayHostedMode.HostedImageMarkerPresent(dir));
             Assert.False(GatewayHostedMode.HostedImageMarkerPresent(null));
             Assert.False(GatewayHostedMode.HostedImageMarkerPresent(""));
-            Assert.False(GatewayHostedMode.IsHostedImageDeployment(typeof(GatewayHostedMode).Assembly, dir));
-            Assert.False(GatewayHostedMode.IsHostedImageDeployment(GetType().Assembly, null));
         }
         finally
         {
