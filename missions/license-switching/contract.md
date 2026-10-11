@@ -174,6 +174,9 @@ sends `PushLicenseUsage` and only it executes `license-switch`; any other Direct
 `license-switch` with `"not-key-holder"`. When the holder exits, the next Director to take the lock
 sends a `"connected"` report at once.
 
+The key holder sends its `"connected"` and interval reports even when the machine holds no sign-in at
+all (`Holdings` empty), so a machine that only approves sign-ins for others still has a known Director (8.3).
+
 The Gateway's machine is `(tenant, MachineName, OsUser)`, compared without regard to case. The
 Gateway records which Director id sent the last accepted report for a machine and sends that machine's
 `license-switch` to that Director only.
@@ -515,10 +518,11 @@ Director never acts on the Gateway's out-of-date picture (3.3 step 7).
 These live as named constants in `LicenseMessages.cs` (`LicenseContract.ReportInterval` and so on),
 so the two sides cannot drift.
 
-## 8. Phase 4 additions - PROPOSED, not yet agreed
+## 8. Phase 4 additions - AGREED, not yet built
 
-Written by the phase 4 Developer for the phase 2 Tech Lead to agree before the second phase 4 pull request is
-built. Nothing in sections 1 to 7 changes until it is agreed; nothing here is built yet. Words as in section 5 of
+Written by the phase 4 Developer; agreed by the phase 2 Tech Lead on 11 October 2026 (pull request 3875), with
+the changes to 8.3 below. Phase 2 builds the Gateway side; the Director side is the second phase 4 pull request.
+The one change to an earlier section is in 8.3: the key holder reports even when it holds nothing (2.4). Words as in section 5 of
 `MISSION.md`; a "sign-in" is one `claude auth login` and what it leaves behind.
 
 What the first phase 4 pull request already gives, with no message change: `license sign-in` and `license renew`
@@ -561,11 +565,15 @@ sign-in. Which machine and profile approve which account is the OWNER's setting,
 set on the Licenses page: `LicenseApprover { AccountEmail, MachineName, OsUser, BrowserProfile }`. A machine with a
 local profile set by `license set-browser` approves its own sign-ins and never asks the Gateway.
 
-**Hub method, Director to Gateway, with an answer** (a SignalR invocation, so the answer returns on the same call):
+**Nothing waits on a hub call.** `DirectorHub` runs one invocation at a time per client, so a hub call that waited
+minutes for another machine would hold up `PushLicenseUsage` and every session push from the target behind it. The
+request returns at once; the answer comes back as a command, the pattern section 3 already uses.
+
+**1. Hub method, target Director to Gateway, returns at once:**
 
 ```csharp
-// DirectorHub
-public Task<LicenseApprovalResult> RequestLicenseApproval(LicenseApprovalRequest request)
+// DirectorHub - returns as soon as the Gateway has accepted the request and sent license-approve (or answered it)
+public void RequestLicenseApproval(LicenseApprovalRequest request)
 
 public sealed class LicenseApprovalRequest
 {
@@ -576,8 +584,9 @@ public sealed class LicenseApprovalRequest
 }
 ```
 
-The Gateway finds the account's `LicenseApprover`, and sends **command `license-approve`** to the Director that last
-reported for that machine (2.4), with the target Director's `SecretTransferPublicKey` (already sent in `Hello`):
+**2. Command `license-approve`, Gateway to the approving machine's Director.** The Gateway finds the account's
+`LicenseApprover` and sends this to the Director that last reported for that machine (2.4), with the target
+Director's Secret Handoff public key (already sent in `Hello` as `SecretTransferPublicKey`):
 
 ```csharp
 public sealed class LicenseApproveRequest
@@ -586,33 +595,53 @@ public sealed class LicenseApproveRequest
     public string AccountEmail { get; set; } = "";
     public string AuthorizeUrl { get; set; } = "";
     public string BrowserProfile { get; set; } = "";
-    public string SealToPublicKey { get; set; } = "";  // the TARGET Director's Secret Handoff public key
+    public string SealToRecipient { get; set; } = "";  // the TARGET Director's Secret Handoff public key, as sent in its Hello
     public DateTime NotAfterUtc { get; set; }
 }
+```
 
-public sealed class LicenseApprovalResult         // returned by the approving Director, relayed to the target verbatim
+The approving Director runs `license approve --email <AccountEmail> --browser <BrowserProfile> <AuthorizeUrl>`,
+seals its answer to `SealToRecipient` with the Secret Handoff envelope before it leaves the process, and returns
+`LicenseApprovalResult` as the command's result.
+
+**3. Command `license-approval-result`, Gateway to the target Director**, payload `LicenseApprovalResult`, keyed by
+`SignInId`. The Gateway sends it when the approving Director answers, or AT ONCE with `refused` /
+`approver-offline` when the approving machine has no Director connected, or no `LicenseApprover` is set
+(`refused` / `no-approver`).
+
+```csharp
+public sealed class LicenseApprovalResult
 {
     public string SignInId { get; set; } = "";
     public string Outcome { get; set; } = "";          // "approved" | "refused"
     public string? ReasonCode { get; set; }            // a LicenseRenewalErrors code, or "expired", when refused
     public string? Message { get; set; }               // one plain sentence
-    public string? SealedApproval { get; set; }        // when approved: the authorize answer sealed to SealToPublicKey
+    public string? SealedApproval { get; set; }        // when approved: the authorize answer sealed to SealToRecipient
 }
 ```
 
-The approving Director runs `license approve --email <AccountEmail> --browser <BrowserProfile> <AuthorizeUrl>` and
-seals its answer to `SealToPublicKey` with the Secret Handoff envelope before it leaves the process. The target
-Director opens it with its private key and types it into the waiting login. The Gateway relays ciphertext it cannot
-open. When the approving machine is offline, the Gateway answers `refused` / `approver-offline` at once.
+The target Director opens `SealedApproval` with its private key and types it into the waiting login. A target that
+has received no `license-approval-result` for its `SignInId` by `NotAfterUtc` gives up: the login is ended, its
+sign-in folder deleted, and the attempt is `failed` / `expired`. A result that arrives after that, or for a
+`SignInId` the target is not waiting on, is logged by `SignInId` and dropped.
 
-**Rule 6.1 needs one stated exception for this**: `SealedApproval` is the only field that carries anything derived
-from a sign-in, and it is sealed to one machine's key. It is also useless alone - it completes only the login that
-holds the matching verifier, on the target, within minutes. `LicenseMessagesCarryNoKeyTests` would name it as its
-one allowed exception.
+**The Gateway relays, and never keeps.** `AuthorizeUrl` and `SealedApproval` are held in memory only for the relay.
+They are never written to a store, the Licenses log, or a log line; the Gateway logs only `SignInId`, the account,
+the machines and the outcome. A Gateway test proves no stored table has a column for either.
 
-Open point for the Tech Lead: the Secret Handoff today seals a stored ENTRY (`cc-secrets transfer-send`). Sealing a
-short value handed on standard input needs a small `cc-secrets seal` / `open` pair, or the Director's own copy of the
-envelope code. The first is preferred: one place that seals.
+**Finding the approving machine's Director.** That machine may hold no sign-ins at all. So section 2.4 is amended:
+**the key holder sends its `"connected"` and interval reports even when it holds nothing (`Holdings` empty).** Every
+machine with a key holder then has a known Director, and a machine with none is `approver-offline`. No new
+mechanism.
+
+**Rule 6.1 has one stated exception for this**: `SealedApproval` is the only field that carries anything derived
+from a sign-in. It is sealed to one machine's key, the Gateway cannot open it, and it is useless alone - it completes
+only the login that holds the matching verifier, on the target, within minutes. `LicenseMessagesCarryNoKeyTests`
+names it as its one allowed exception, by name. (No other new field contains "Key", "Token", "Secret", "Credential"
+or "Code": the target's public key travels as `SealToRecipient`.)
+
+Agreed with the Tech Lead: the sealing is done by a small `cc-secrets seal` / `open` pair (a value on standard input,
+sealed to a recipient), not by a second copy of the envelope code in the Director. One place seals.
 
 ### 8.4 Starting a sign-in from the Cockpit
 
@@ -650,4 +679,5 @@ has a local profile for the account, else through 8.3), and sends a `"changed"` 
 | Director renewal run | once a day, and at start |
 | `license-sign-in` command timeout (Gateway) | 5 minutes |
 | `license-approve` command timeout (Gateway) | 3 minutes |
+| `license-approval-result` command timeout (Gateway) | 60 seconds |
 | A sign-in's `NotAfterUtc` | requested + 10 minutes |
