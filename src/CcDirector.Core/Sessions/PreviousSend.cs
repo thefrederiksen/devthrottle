@@ -85,12 +85,14 @@ public static class PreviousSend
         }
         catch (DeliveryRecordUnreadableException ex)
         {
+            // not-an-error: the FAILED DELIVERY line this answer goes on is the one report, and it says previous_send=unknown
             FileLog.Write($"[PreviousSend] Describe: session={sessionId}: the delivery record cannot be read: {ex.FilePath}");
             return "previous_send=unknown (the delivery record cannot be read)";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // Reaching the record's folder or its lock file failed (a path that is a file, a permission, a full disk).
+            // not-an-error: the FAILED DELIVERY line this answer goes on is the one report, and it says previous_send=unknown
             FileLog.Write($"[PreviousSend] Describe: session={sessionId}: the delivery record cannot be reached: {ex.Message}");
             return "previous_send=unknown (the delivery record cannot be reached)";
         }
