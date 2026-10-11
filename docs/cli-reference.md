@@ -1917,6 +1917,35 @@ Every result of a schedule linked to a factory also leaves a row in that factory
 for ok, `failed` for a problem - so no factory is silent on its dashboard. Resolving the problem marks its
 failed row handled.
 
+### Factory email
+
+The factory email (Factory Control, step 4). The Gateway composes and sends it itself - no session is
+involved - to the account that set up the factories, never a fixed address.
+
+```
+USAGE: cc-devthrottle factory email status [--json]
+       cc-devthrottle factory email on [--json]
+       cc-devthrottle factory email off [--json]
+       cc-devthrottle factory email reports [--kind morning-report|check] [--count N] [--html] [--json]
+```
+
+It ships OFF. Switched on, the account is sent:
+
+- **08:00, every day** - every problem still open (from the same list `run problems` reads; a problem fixed
+  yesterday is not open, so it is not there), then one line per factory for the last 24 hours: runs done,
+  runs that did not run, seats left open. Each factory with a problem links to its factory page.
+- **16:00 and midnight, only when something went wrong** - only when the shift that just ended raised a NEW
+  problem. Older open problems are one line pointing to the 08:00 report.
+
+The times are the account's own time zone. Each slot is sent once, whatever restarts; a failed send is tried
+again for two hours, then the slot is closed. A team account is told it is not supported yet - the email is
+not sent, and no address is guessed.
+
+`factory email reports` lists the kept emails, newest first: the slot (local date and hour), its kind, what
+became of it (`sent`, `nothing-to-send`, `failed`, `not-supported`), its subject and how many problems it
+listed. A slot that had nothing to send is listed too. `--html` adds each body exactly as composed; `--kind`
+and `--count` apply to `--json` too. Nothing kept prints `count: 0`. The factory page reads the same list.
+
 ### Trigger
 
 A trigger is a check with no model in it that a Director runs on an interval. When the check counts

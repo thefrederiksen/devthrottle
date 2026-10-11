@@ -13,6 +13,7 @@ from . import __version__
 from . import browser_ops
 from . import diag_ops
 from . import email_ops
+from . import factory_email_ops
 from . import factory_ops
 from . import factory_memory_ops
 from . import factory_registry_ops
@@ -155,6 +156,13 @@ factory_goal_number_app = typer.Typer(
     no_args_is_help=True,
 )
 factory_app.add_typer(factory_goal_number_app, name="goal-number")
+factory_email_app = typer.Typer(
+    cls=AxiGroup,
+    help="The factory email: the 08:00 report and the 16:00 and midnight checks.",
+    add_completion=False,
+    no_args_is_help=True,
+)
+factory_app.add_typer(factory_email_app, name="email")
 trigger_app = typer.Typer(
     cls=AxiGroup,
     help="Checks with no model that start a session when there is work.",
@@ -1040,6 +1048,34 @@ _ACTIONS = [
         "command": "cc-devthrottle factory status [--factory <id>]",
         "mutatesState": False,
         "args": [{"name": "factory", "required": False}],
+    },
+    {
+        "id": "factory-email-status",
+        "description": "Show whether this account is sent the factory email (the 08:00 report and the 16:00 / midnight checks).",
+        "command": "cc-devthrottle factory email status",
+        "mutatesState": False,
+        "args": [],
+    },
+    {
+        "id": "factory-email-on",
+        "description": "Switch the factory email on for this account. It ships off.",
+        "command": "cc-devthrottle factory email on",
+        "mutatesState": True,
+        "args": [],
+    },
+    {
+        "id": "factory-email-off",
+        "description": "Switch the factory email off for this account.",
+        "command": "cc-devthrottle factory email off",
+        "mutatesState": True,
+        "args": [],
+    },
+    {
+        "id": "factory-email-reports",
+        "description": "List the kept factory emails, newest first: each slot, what became of it, its subject, and with --html the body as composed.",
+        "command": "cc-devthrottle factory email reports [--kind <morning-report|check>] [--count <n>] [--html]",
+        "mutatesState": False,
+        "args": [{"name": "kind", "required": False}, {"name": "count", "required": False}, {"name": "html", "required": False}],
     },
     {
         "id": "factory-goal-number-post",
@@ -4063,6 +4099,52 @@ def factory_goal_number_show(
 ) -> None:
     """Show a factory's goal numbers, newest first."""
     factory_registry_ops.show_goal_numbers(factory, count, json_output, fields, full)
+
+
+@factory_email_app.command("status")
+def factory_email_status(
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Show whether this account is sent the factory email. It ships off."""
+    factory_email_ops.switch(None, json_output)
+
+
+@factory_email_app.command("on")
+def factory_email_on(
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Switch the factory email on for this account.
+
+    It is sent at 08:00 every day, and at 16:00 and midnight only when something went wrong.
+    """
+    factory_email_ops.switch("on", json_output)
+
+
+@factory_email_app.command("off")
+def factory_email_off(
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Switch the factory email off for this account.
+
+    Nothing is composed, kept or sent for this account while it is off.
+    """
+    factory_email_ops.switch("off", json_output)
+
+
+@factory_email_app.command("reports")
+def factory_email_reports(
+    kind: Optional[str] = typer.Option(None, "--kind", help="Only one kind: morning-report or check."),
+    count: Optional[int] = typer.Option(None, "--count", "-n", help="Largest number of emails to show (1-100, default 20)."),
+    html: bool = typer.Option(False, "--html", help="Also print each email's HTML exactly as it was composed."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """List the kept factory emails, newest first.
+
+    Each slot is listed with what became of it and its subject.
+
+    A slot that had nothing to send is listed too, so a check that found nothing is told apart from one that failed.
+    """
+    factory_email_ops.reports(kind, count, html, json_output)
 
 
 @factory_memory_app.command("list")
