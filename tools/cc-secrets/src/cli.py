@@ -598,7 +598,9 @@ def list_entries(
             _say("The store on this machine is empty.")
             return
         table = Table(show_lines=False)
-        for column in ("Name", "Kind", "Variable", "Value", "Username", "Allowed addresses", "Uses", "Notes"):
+        # An agent acts on the name, so it is never cut short or wrapped, however narrow the terminal.
+        table.add_column("Name", no_wrap=True, min_width=max(len(v["name"]) for v in views))
+        for column in ("Kind", "Variable", "Value", "Username", "Allowed addresses", "Uses", "Notes"):
             table.add_column(column)
         for v in views:
             row = [v["name"], v["kind"], v["envName"], v.get("value", ""), v["username"], ", ".join(v["allowedDomains"]),

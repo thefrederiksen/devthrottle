@@ -37,6 +37,18 @@ def test_List_AsAgent_ShowsEveryEntry_NeverTheSecret(store, plain, monkeypatch):
     assert first not in text and second not in text
 
 
+def test_List_InAnEightyColumnTerminal_ShowsEveryNameWhole(store, plain, monkeypatch):
+    # An agent greps the list and acts on the name; "qa-ha..." is a name it cannot act on.
+    monkeypatch.setattr(cli.console, "width", 80)
+    add_entry(store, name="qa-handoff-a-long-made-up-entry-name", username="someone@example.com",
+              notes="a note long enough to squeeze every column of the table")
+
+    result = runner.invoke(cli.app, ["list"])
+
+    assert result.exit_code == 0
+    assert "qa-handoff-a-long-made-up-entry-name" in plain(_all_text(result))
+
+
 def test_ListJson_CarriesNoSecretField(store):
     secret = add_entry(store)
 
