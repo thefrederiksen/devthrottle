@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using CcDirector.Core.Agents;
@@ -6,6 +5,8 @@ using CcDirector.Core.Backends;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.UnitTests.Sessions;
 using CcDirector.Gateway.Contracts;
+using CcDirector.TestInfrastructure;
+using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests;
@@ -15,21 +16,33 @@ namespace CcDirector.Gateway.Tests;
 /// a Director command; a send to a busy agent can take minutes. On 25 September 2026 the Gateway called such a slow
 /// success a failure and retried it, and the owner's words reached the agent twice. The verb now answers "delivering"
 /// at its budget and lets the send carry on.
+///
+/// <para>Every wait in here is on ONE FAKE CLOCK - the session's, the scripted terminal's and the verb's budget - advanced
+/// by <see cref="VirtualTime.RunAsync"/> until the work is done. A two-second echo, a thirty-second watch limit and a
+/// one-minute limit cost microseconds, and every "how long after" below is read off that clock, never a stopwatch. The
+/// earlier version of this class ran the real clock - 43 seconds for twelve tests, and an answer measured against
+/// "under 1.5 seconds" that a loaded machine cannot promise (Release Process Fix, H2).</para>
 /// </summary>
 public sealed class PromptAnswerBudgetTests : IDisposable
 {
+    private readonly FakeTimeProvider _clock = VirtualTime.NewClock();
+
     /// <summary>A terminal session whose agent takes <paramref name="echoDelay"/> to show typed text - a busy machine.
     /// The agent is one the Director has no conversation records for, so the send is judged by the terminal alone.</summary>
-    private static (Session Session, ScriptedTerminal Terminal) SlowTerminalSession(TimeSpan echoDelay)
+    private (Session Session, ScriptedTerminal Terminal) SlowTerminalSession(TimeSpan echoDelay)
     {
         var (session, terminal) = ScriptedTerminal.NewWaitingSession();
+        session.Clock = _clock;
         session.AgentKind = AgentKind.Gemini;
         terminal.Echo = false;
         terminal.OnWrite = text =>
         {
             if (text == "\r") return;
             var bytes = Encoding.UTF8.GetBytes(text);
-            _ = Task.Delay(echoDelay).ContinueWith(_ => terminal.Buffer!.Write(bytes), TaskScheduler.Default);
+            // The echo lands on the fake clock, inline when the clock reaches it, so nothing about the order of the echo
+            // and the budget depends on a thread-pool scheduling race.
+            _ = Task.Delay(echoDelay, _clock).ContinueWith(_ => terminal.Buffer!.Write(bytes),
+                CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         };
         return (session, terminal);
     }
@@ -43,30 +56,39 @@ public sealed class PromptAnswerBudgetTests : IDisposable
         return JsonSerializer.Deserialize<PromptResponse>(result.BodyJson!, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
     }
 
+    /// <summary>Advance the fake clock until <paramref name="condition"/> holds; the virtual-time limits turn a condition that
+    /// never holds into a failure that says so.</summary>
+    private Task UntilAsync(Func<bool> condition) => VirtualTime.RunAsync(_clock, async () =>
+    {
+        while (!condition()) await Task.Delay(TimeSpan.FromMilliseconds(10), _clock);
+    });
+
     [Fact]
     public async Task SendPromptAsync_SendOutlastsTheBudget_AnswersDeliveringAndTheSendStillCompletes()
     {
         // Arrange: the echo takes two seconds; the budget is a third of a second.
-        var (session, terminal) = SlowTerminalSession(TimeSpan.FromSeconds(2));
+        var echo = TimeSpan.FromSeconds(2);
+        var budget = TimeSpan.FromMilliseconds(300);
+        var (session, terminal) = SlowTerminalSession(echo);
         const string text = "Token BUDGET1. Reply with exactly: ACK";
-        var sw = Stopwatch.StartNew();
+        var sentAt = _clock.GetUtcNow();
 
         // Act
-        var result = await ControlApi.SessionCommandExecutor.SendPromptAsync(
-            session, Prompt(text), answerBudget: TimeSpan.FromMilliseconds(300));
-        var answeredAfter = sw.Elapsed;
+        var result = await VirtualTime.RunAsync(_clock, () => ControlApi.SessionCommandExecutor.SendPromptAsync(
+            session, Prompt(text), answerBudget: budget));
+        var answeredAfter = _clock.GetUtcNow() - sentAt;
 
-        // Assert: answered at the budget, accepted, "delivering" - and on the wire as that word.
+        // Assert: answered at the budget - after it, and before the echo the send is still waiting for - accepted,
+        // "delivering", and on the wire as that word.
         var response = Body(result);
-        Assert.True(answeredAfter < TimeSpan.FromSeconds(1.5), $"answered after {answeredAfter.TotalSeconds:F1}s");
+        Assert.InRange(answeredAfter, budget, echo);
         Assert.True(response.Accepted);
         Assert.Equal(DeliveryState.Delivering, response.DeliveryState);
         Assert.Contains("\"deliveryState\":\"delivering\"", result.BodyJson);
         Assert.Empty(terminal.Submitted);
 
         // ...and the send carried on after the answer and submitted the text once.
-        var deadline = DateTime.UtcNow.AddSeconds(15);
-        while (terminal.Submitted.Count == 0 && DateTime.UtcNow < deadline) await Task.Delay(100);
+        await UntilAsync(() => terminal.Submitted.Count > 0);
         Assert.Equal(new[] { text }, terminal.Submitted);
     }
 
@@ -75,10 +97,12 @@ public sealed class PromptAnswerBudgetTests : IDisposable
     {
         // Arrange
         var (session, terminal) = ScriptedTerminal.NewWaitingSession();
+        session.Clock = _clock;
         session.AgentKind = AgentKind.Gemini;
 
         // Act
-        var response = Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(session, Prompt("Token BUDGET2. Reply: ACK")));
+        var response = Body(await VirtualTime.RunAsync(_clock,
+            () => ControlApi.SessionCommandExecutor.SendPromptAsync(session, Prompt("Token BUDGET2. Reply: ACK"))));
 
         // Assert
         Assert.True(response.Accepted);
@@ -93,8 +117,8 @@ public sealed class PromptAnswerBudgetTests : IDisposable
         Directory.CreateDirectory(dir);
         var transcript = Path.Combine(dir, Guid.NewGuid() + ".jsonl");
         File.WriteAllText(transcript, "");
-        var terminal = new ScriptedAgentTerminal(AgentKind.ClaudeCode, transcript, dir) { Working = true };
-        var session = new Session(Guid.NewGuid(), dir, dir, null, terminal, SessionBackendType.ConPty) { AgentKind = AgentKind.ClaudeCode };
+        var terminal = new ScriptedAgentTerminal(AgentKind.ClaudeCode, transcript, dir) { Working = true, Clock = _clock };
+        var session = new Session(Guid.NewGuid(), dir, dir, null, terminal, SessionBackendType.ConPty) { AgentKind = AgentKind.ClaudeCode, Clock = _clock };
         _cleanup.Add(terminal);
         _cleanup.Add(session);
         session.UpdateClaudeSessionPointer(Guid.NewGuid().ToString(), transcript, "test");
@@ -110,18 +134,23 @@ public sealed class PromptAnswerBudgetTests : IDisposable
         foreach (var d in _cleanup) d.Dispose();
     }
 
-    /// <summary>Waits for the verb's late outcome for <paramref name="deliveryId"/>, as written by the one place it is written.</summary>
-    private static async Task<string> LateOutcomeFor(string deliveryId, Func<Task> act)
+    /// <summary>
+    /// Runs <paramref name="act"/> on the fake clock and goes on advancing it until the verb's late outcome for
+    /// <paramref name="deliveryId"/> is written by the one place it is written. Answers the outcome and the virtual moment
+    /// it was written.
+    /// </summary>
+    private async Task<(string Outcome, DateTimeOffset WrittenAt)> LateOutcomeFor(string deliveryId, Func<Task> act)
     {
-        var seen = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-        void Observe(string id, string state) { if (id == deliveryId) seen.TrySetResult(state); }
+        var seen = new TaskCompletionSource<(string, DateTimeOffset)>(TaskCreationOptions.RunContinuationsAsynchronously);
+        void Observe(string id, string state) { if (id == deliveryId) seen.TrySetResult((state, _clock.GetUtcNow())); }
         ControlApi.SessionCommandExecutor.LateOutcomeObserver += Observe;
         try
         {
-            await act();
-            var done = await Task.WhenAny(seen.Task, Task.Delay(TimeSpan.FromSeconds(30)));
-            Assert.True(done == seen.Task, "no late outcome was written within 30 seconds");
-            return await seen.Task;
+            return await VirtualTime.RunAsync(_clock, async () =>
+            {
+                await act();
+                return await seen.Task;
+            });
         }
         finally
         {
@@ -143,7 +172,7 @@ public sealed class PromptAnswerBudgetTests : IDisposable
         PromptResponse? response = null;
 
         // Act
-        var late = await LateOutcomeFor(deliveryId, async () => response = Body(
+        var (late, _) = await LateOutcomeFor(deliveryId, async () => response = Body(
             await ControlApi.SessionCommandExecutor.SendPromptAsync(session, Recording(text, deliveryId), SendSource.Delivery, NewDeliveryRecord())));
 
         // Assert: answered "delivering" - never a failure, never "delivered" before the records say so - then delivered.
@@ -167,7 +196,7 @@ public sealed class PromptAnswerBudgetTests : IDisposable
         PromptResponse? response = null;
 
         // Act
-        var late = await LateOutcomeFor(deliveryId, async () => response = Body(
+        var (late, _) = await LateOutcomeFor(deliveryId, async () => response = Body(
             await ControlApi.SessionCommandExecutor.SendPromptAsync(session, Recording(text, deliveryId), SendSource.Delivery, NewDeliveryRecord())));
 
         // Assert: "delivering" at the answer - never a failure inside the first window - and "unconfirmed" when the watch
@@ -212,7 +241,7 @@ public sealed class PromptAnswerBudgetTests : IDisposable
         DeliveryState? atAnswer = null;
 
         // Act
-        var late = await LateOutcomeFor(deliveryId, async () =>
+        var (late, _) = await LateOutcomeFor(deliveryId, async () =>
         {
             var response = Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(
                 session, Recording(text, deliveryId), SendSource.Delivery, record));
@@ -244,7 +273,7 @@ public sealed class PromptAnswerBudgetTests : IDisposable
         DeliveryState? atAnswer = null;
 
         // Act
-        var late = await LateOutcomeFor(deliveryId, async () =>
+        var (late, _) = await LateOutcomeFor(deliveryId, async () =>
         {
             Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(session, Recording(text, deliveryId), SendSource.Delivery, record));
             atAnswer = record.Read(session.Id, deliveryId).State;
@@ -272,8 +301,8 @@ public sealed class PromptAnswerBudgetTests : IDisposable
         _cleanup.Add(new FolderRemoval(dir));
         var transcript = Path.Combine(dir, Guid.NewGuid() + ".jsonl");
         File.WriteAllText(transcript, "");
-        var terminal = new ScriptedAgentTerminal(AgentKind.Codex, transcript, dir) { Working = true, SwallowEnter = true, MenuAfterEnter = true };
-        var session = new Session(Guid.NewGuid(), dir, dir, null, terminal, SessionBackendType.ConPty) { AgentKind = AgentKind.Codex };
+        var terminal = new ScriptedAgentTerminal(AgentKind.Codex, transcript, dir) { Working = true, SwallowEnter = true, MenuAfterEnter = true, Clock = _clock };
+        var session = new Session(Guid.NewGuid(), dir, dir, null, terminal, SessionBackendType.ConPty) { AgentKind = AgentKind.Codex, Clock = _clock };
         _cleanup.Add(terminal);
         _cleanup.Add(session);
         terminal.StartDrawing();
@@ -288,30 +317,31 @@ public sealed class PromptAnswerBudgetTests : IDisposable
         // known about the words, and the Director has no records of this agent's to watch for them.
         var (session, terminal) = WorkingCodexUnderAMenu();
         session.ComposerReleaseWindowForTests = TimeSpan.FromSeconds(1);
-        session.LateArrivalLimitForTests = TimeSpan.FromSeconds(4);
+        var limit = TimeSpan.FromSeconds(4);
+        session.LateArrivalLimitForTests = limit;
         var record = NewDeliveryRecord();
         const string text = "Token NORECORDS1. Reply with exactly: ACK";
         var deliveryId = Guid.NewGuid().ToString("N");
         DeliveryState? atAnswer = null;
-        var sinceAnswer = new Stopwatch();
+        DateTimeOffset answeredAt = default;
 
         // Act
-        var late = await LateOutcomeFor(deliveryId, async () =>
+        var (late, writtenAt) = await LateOutcomeFor(deliveryId, async () =>
         {
             var response = Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(
                 session, Recording(text, deliveryId), SendSource.Delivery, record));
-            sinceAnswer.Start();
+            answeredAt = _clock.GetUtcNow();
             Assert.Equal(DeliveryState.Delivering, response.DeliveryState);
             atAnswer = record.Read(session.Id, deliveryId).State;
         });
-        var lateAfter = sinceAnswer.Elapsed;
 
         // Assert: "delivering" at the answer and for the whole limit - never an early ending - then "unconfirmed" with the
         // ruled reason: never "not-delivered", which would invite a retry that doubles the words (issue #3484). Typed once,
         // never cleared.
         Assert.Equal(DeliveryState.Delivering, atAnswer);
         Assert.Equal(DeliveryStates.Unconfirmed, late);
-        Assert.True(lateAfter >= TimeSpan.FromSeconds(2.5), $"unconfirmed was written {lateAfter.TotalSeconds:F1}s after the answer, before the limit");
+        Assert.True(writtenAt - answeredAt >= limit - session.ComposerReleaseWindowForTests.Value,
+            $"unconfirmed was written {(writtenAt - answeredAt).TotalSeconds:F1}s after the answer, before the limit");
         var entry = record.Read(session.Id, deliveryId);
         Assert.Equal(DeliveryState.Unconfirmed, entry.State);
         Assert.Equal("could not be confirmed: the Director had no records to watch for this agent", entry.Reason);
@@ -327,29 +357,30 @@ public sealed class PromptAnswerBudgetTests : IDisposable
         var (session, terminal) = WorkingClaudeCode();
         terminal.NeverRecord = true;
         session.ArrivalWindow = TimeSpan.FromSeconds(2);
-        session.LateArrivalLimitForTests = TimeSpan.FromSeconds(4);
+        var limit = TimeSpan.FromSeconds(4);
+        session.LateArrivalLimitForTests = limit;
         session.LateWatchReadForTests = () => throw new IOException("the records file is locked");
         var record = NewDeliveryRecord();
         const string text = "Token WATCHFAIL1. Reply with exactly: ACK";
         var deliveryId = Guid.NewGuid().ToString("N");
         DeliveryState? atAnswer = null;
-        var sinceAnswer = new Stopwatch();
+        DateTimeOffset answeredAt = default;
 
         // Act
-        var late = await LateOutcomeFor(deliveryId, async () =>
+        var (late, writtenAt) = await LateOutcomeFor(deliveryId, async () =>
         {
             var response = Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(
                 session, Recording(text, deliveryId), SendSource.Delivery, record));
-            sinceAnswer.Start();
+            answeredAt = _clock.GetUtcNow();
             Assert.Equal(DeliveryState.Delivering, response.DeliveryState);
             atAnswer = record.Read(session.Id, deliveryId).State;
         });
-        var lateAfter = sinceAnswer.Elapsed;
 
         // Assert: the failure does not end the wait - "delivering" until the limit - then "unconfirmed" naming it.
         Assert.Equal(DeliveryState.Delivering, atAnswer);
         Assert.Equal(DeliveryStates.Unconfirmed, late);
-        Assert.True(lateAfter >= TimeSpan.FromSeconds(2.5), $"unconfirmed was written {lateAfter.TotalSeconds:F1}s after the answer, before the limit");
+        Assert.True(writtenAt - answeredAt >= limit - session.ArrivalWindow,
+            $"unconfirmed was written {(writtenAt - answeredAt).TotalSeconds:F1}s after the answer, before the limit");
         var entry = record.Read(session.Id, deliveryId);
         Assert.Equal(DeliveryState.Unconfirmed, entry.State);
         Assert.Equal("could not be confirmed: the records watch failed: the records file is locked", entry.Reason);
@@ -375,7 +406,7 @@ public sealed class PromptAnswerBudgetTests : IDisposable
         DeliveryState? atAnswer = null;
 
         // Act
-        var late = await LateOutcomeFor(deliveryId, async () =>
+        var (late, _) = await LateOutcomeFor(deliveryId, async () =>
         {
             var response = Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(
                 session, Recording(text, deliveryId), SendSource.Delivery, record));
@@ -410,7 +441,8 @@ public sealed class PromptAnswerBudgetTests : IDisposable
         copy.ReadsUnconfirmed = senderReadsUnconfirmed;
 
         // Act
-        var result = await ControlApi.SessionCommandExecutor.SendPromptAsync(session, copy, SendSource.Delivery, record);
+        var result = await VirtualTime.RunAsync(_clock,
+            () => ControlApi.SessionCommandExecutor.SendPromptAsync(session, copy, SendSource.Delivery, record));
 
         // Assert: refused either way, with nothing typed and the record unchanged. A sender that reads the word is told
         // "unconfirmed"; a sender older than it (a Gateway whose reader throws on the word) gets a failure it already rules
@@ -448,26 +480,26 @@ public sealed class PromptAnswerBudgetTests : IDisposable
         const string text = "Token ENDED1. Reply with exactly: ACK";
         var deliveryId = Guid.NewGuid().ToString("N");
         DeliveryState? atAnswer = null;
-        var sinceEnd = new Stopwatch();
+        DateTimeOffset endedAt = default;
 
         // Act
-        var late = await LateOutcomeFor(deliveryId, async () =>
+        var (late, writtenAt) = await LateOutcomeFor(deliveryId, async () =>
         {
             var response = Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(
                 session, Recording(text, deliveryId), SendSource.Delivery, record));
             Assert.Equal(DeliveryState.Delivering, response.DeliveryState);
             atAnswer = record.Read(session.Id, deliveryId).State;
             session.Dispose();
-            sinceEnd.Start();
+            endedAt = _clock.GetUtcNow();
         });
-        var lateAfter = sinceEnd.Elapsed;
 
         // Assert: "not-delivered" as soon as the session ended - a retry into an ended session cannot double anything, so
         // this provable ending stays not-delivered, never unconfirmed (issue #3484) - not a minute later at the limit.
-        // Typed once.
+        // "As soon as" is one poll of the watch, read off the clock the watch runs on. Typed once.
         Assert.Equal(DeliveryState.Delivering, atAnswer);
         Assert.Equal(DeliveryStates.NotDelivered, late);
-        Assert.True(lateAfter < TimeSpan.FromSeconds(10), $"not-delivered came {lateAfter.TotalSeconds:F1}s after the session ended");
+        Assert.True(writtenAt - endedAt <= TimeSpan.FromSeconds(10),
+            $"not-delivered came {(writtenAt - endedAt).TotalSeconds:F1}s after the session ended");
         var entry = record.Read(session.Id, deliveryId);
         Assert.Equal(DeliveryState.NotDelivered, entry.State);
         Assert.Equal("the session ended before the words appeared in its records", entry.Reason);
@@ -479,12 +511,13 @@ public sealed class PromptAnswerBudgetTests : IDisposable
     {
         // Arrange: the terminal refuses the write - a failure the send knows about at once.
         var (session, terminal) = ScriptedTerminal.NewWaitingSession();
+        session.Clock = _clock;
         session.AgentKind = AgentKind.Gemini;
         terminal.OnWrite = _ => throw new InvalidOperationException("the terminal refused the write");
 
         // Act and Assert: the failure is thrown, as before - never answered as delivered or delivering.
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => ControlApi.SessionCommandExecutor.SendPromptAsync(session, Prompt("Token BUDGET3. Reply: ACK")));
+            () => VirtualTime.RunAsync(_clock, () => ControlApi.SessionCommandExecutor.SendPromptAsync(session, Prompt("Token BUDGET3. Reply: ACK"))));
         Assert.Contains("refused the write", ex.Message);
     }
 }
