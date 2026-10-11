@@ -65,7 +65,8 @@ public static class CcStorageMigration
 
     /// <summary>
     /// Migrate %LOCALAPPDATA%\CcDirector\ -> config\director\
-    /// Files: accounts.json, root-directories.json
+    /// Files: root-directories.json. The retired account store's file is NOT carried forward: it holds sign-in tokens,
+    /// and a copy would be a second holder of them (License Switching, contract 1.1). It is left where it is.
     /// </summary>
     private static void MigrateDirectorConfig()
     {
@@ -76,7 +77,6 @@ public static class CcStorageMigration
         if (!Directory.Exists(oldDir))
             return;
 
-        CopyFileIfNewer(Path.Combine(oldDir, "accounts.json"), Path.Combine(newDir, "accounts.json"));
         CopyFileIfNewer(Path.Combine(oldDir, "root-directories.json"), Path.Combine(newDir, "root-directories.json"));
     }
 
