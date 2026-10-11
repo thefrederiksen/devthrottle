@@ -4,6 +4,8 @@ using CcDirector.Core.Input;
 using CcDirector.Core.Machine;
 using CcDirector.Core.Memory;
 using CcDirector.Core.Tests.Drivers;
+using CcDirector.TestInfrastructure;
+using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
 namespace CcDirector.Core.Tests.Input;
@@ -25,6 +27,11 @@ namespace CcDirector.Core.Tests.Input;
 /// EVERY TEST INJECTS A MEMORY READING. The verdict now depends on measured pressure, so a suite that
 /// read the real machine would pass or fail according to how much memory the build agent happened to
 /// have free. The probe is replaced in the constructor and restored on dispose.
+///
+/// EVERY SEND RUNS ON A FAKE CLOCK. The backend's echoes and the send's allowances - the sixty-second
+/// no-reaction allowance above all - share one fake clock that <see cref="VirtualTime.RunAsync"/> advances,
+/// so the two submits that used to sit out a minute each take milliseconds, and an echo "twelve seconds
+/// after typing" lands at exactly twelve seconds of the send's clock instead of racing a busy machine.
 /// </summary>
 [Collection("PromptDeliveryFailures")]
 public sealed class TerminalSubmitComposerEvidenceTests : IDisposable
@@ -52,6 +59,8 @@ public sealed class TerminalSubmitComposerEvidenceTests : IDisposable
 
     private PinnedMachineMemory? _starved;
 
+    private readonly FakeTimeProvider _clock = VirtualTime.NewClock();
+
     public TerminalSubmitComposerEvidenceTests() => PromptDeliveryFailures.ResetForTests();
 
     public void Dispose()
@@ -70,9 +79,9 @@ public sealed class TerminalSubmitComposerEvidenceTests : IDisposable
         _starved = null;
     }
 
-    private static RecordingSessionBackend SilentComposer()
+    private RecordingSessionBackend SilentComposer()
     {
-        var backend = new RecordingSessionBackend { Buffer = new CircularTerminalBuffer() };
+        var backend = new RecordingSessionBackend { Buffer = new CircularTerminalBuffer(), Clock = _clock };
         backend.EchoScript.UseDefault(RecordingEchoStep.Withheld());
         return backend;
     }
@@ -86,9 +95,9 @@ public sealed class TerminalSubmitComposerEvidenceTests : IDisposable
     private static bool TypedYet(RecordingSessionBackend backend, string text) =>
         backend.SentTexts.Any(t => t.Contains(text)) || backend.WrittenBytes.Any(b => System.Text.Encoding.UTF8.GetString(b).Contains(text));
 
-    private static RecordingSessionBackend ComposerThatEchoesSomethingElse()
+    private RecordingSessionBackend ComposerThatEchoesSomethingElse()
     {
-        var backend = new RecordingSessionBackend { Buffer = new CircularTerminalBuffer() };
+        var backend = new RecordingSessionBackend { Buffer = new CircularTerminalBuffer(), Clock = _clock };
         backend.EchoScript.UseDefault(RecordingEchoStep.CustomEcho("a spinner and some unrelated repaint"));
         return backend;
     }
@@ -96,9 +105,9 @@ public sealed class TerminalSubmitComposerEvidenceTests : IDisposable
     private static bool Wrote(RecordingSessionBackend backend, byte b) =>
         backend.WrittenBytes.Any(x => x.Length == 1 && x[0] == b);
 
-    private static Task Submit(
+    private Task Submit(
         RecordingSessionBackend backend, string text, Func<string[]>? screen = null, Guid sessionId = default) =>
-        TerminalSubmit.SharedSubmitAsync(
+        VirtualTime.RunAsync(_clock, () => TerminalSubmit.SharedSubmitAsync(
             backend,
             text,
             "ClaudeDriver",
@@ -107,7 +116,8 @@ public sealed class TerminalSubmitComposerEvidenceTests : IDisposable
             enterSettleDelay: ShortSettle,
             screenSnapshot: screen,
             submitVerifyBeat: FastVerifyBeat,
-            sessionId: sessionId);
+            sessionId: sessionId,
+            clock: _clock));
 
     // ---------------------------------------------------------------------------------------------
     // Evidence is Unknown - we cannot see, so we must not cut
@@ -242,7 +252,7 @@ public sealed class TerminalSubmitComposerEvidenceTests : IDisposable
         // The repaint is LATE, not absent - it lands after the deadline but inside the extra watch.
         // Under the old code the deadline expired, Escape wiped the text, and the owner's sentence was
         // gone. It must now be submitted.
-        var backend = new RecordingSessionBackend { Buffer = new CircularTerminalBuffer() };
+        var backend = new RecordingSessionBackend { Buffer = new CircularTerminalBuffer(), Clock = _clock };
         backend.EchoScript.UseDefault(RecordingEchoStep.Delayed(TimeSpan.FromMilliseconds(350)));
 
         await Submit(backend, "a late repaint");
@@ -390,7 +400,7 @@ public sealed class TerminalSubmitComposerEvidenceTests : IDisposable
     {
         // The mark is only set when a submit gives up without proving the composer clear. A normal send
         // must not leave one behind, or every second send would start with a needless Escape.
-        var backend = new RecordingSessionBackend { Buffer = new CircularTerminalBuffer() };
+        var backend = new RecordingSessionBackend { Buffer = new CircularTerminalBuffer(), Clock = _clock };
 
         await Submit(backend, "first");
         backend.WrittenBytes.Clear();
@@ -424,13 +434,14 @@ public sealed class TerminalSubmitComposerEvidenceTests : IDisposable
         backend.WrittenBytes.Clear();
         backend.EchoScript.UseDefault(RecordingEchoStep.Immediate());
 
-        await TerminalSubmit.SharedSubmitAsync(
+        await VirtualTime.RunAsync(_clock, () => TerminalSubmit.SharedSubmitAsync(
             backend,
             "second message\nwith a second line",
             "ClaudeDriver",
             bracketedPasteEnabled: true,
             enterSettleDelay: ShortSettle,
-            submitVerifyBeat: FastVerifyBeat);
+            submitVerifyBeat: FastVerifyBeat,
+            clock: _clock));
 
         Assert.True(Wrote(backend, Escape),
             "the paste route wrote new text without clearing the retained composer");
@@ -492,8 +503,8 @@ public sealed class TerminalSubmitComposerEvidenceTests : IDisposable
         // begins. The earlier form of this test used a silent composer, so each of its two submits sat out
         // that minute and the test took 2 minutes 20 seconds, which a hang detector reads as a hang and
         // which kept the whole Core.Tests run from completing. A placeholder repaint makes the terminal
-        // one that reacted, so the first wait ends at the base four seconds and the whole test takes about
-        // twenty.
+        // one that reacted, so the first wait ends at the base four seconds. The seconds are now the send's
+        // own clock, advanced by the test, so the whole test takes a fraction of a second of real time.
         var healthy = await SubmitWithAnEchoBetweenTheBudgets(goesCritical: false);
         Assert.IsType<ComposerNotAcceptingInputException>(healthy.Failure);
         Assert.Empty(healthy.Backend.SubmittedTexts);
@@ -515,21 +526,14 @@ public sealed class TerminalSubmitComposerEvidenceTests : IDisposable
     /// </summary>
     private static readonly TimeSpan EchoLandsAfter = TimeSpan.FromSeconds(12);
 
-    /// <summary>
-    /// The most one submit may take before the test fails instead of waiting. xUnit's own Timeout is
-    /// ignored in this assembly because test parallelization is off, so the limit is enforced here: a
-    /// future change that makes this wait unbounded fails this one test, it does not stall the suite.
-    /// </summary>
-    private static readonly TimeSpan OneSubmitLimit = TimeSpan.FromSeconds(45);
-
-    private static async Task<(RecordingSessionBackend Backend, Exception? Failure)> SubmitWithAnEchoBetweenTheBudgets(
+    private async Task<(RecordingSessionBackend Backend, Exception? Failure)> SubmitWithAnEchoBetweenTheBudgets(
         bool goesCritical)
     {
         var probe = new ShiftingProbe(MachineMemoryReading.Read(
             16UL * 1024 * 1024 * 1024, 12UL * 1024 * 1024 * 1024, DateTime.UtcNow));
         TerminalSubmit.MemoryProbe = probe;
 
-        var backend = new RecordingSessionBackend { Buffer = new CircularTerminalBuffer() };
+        var backend = new RecordingSessionBackend { Buffer = new CircularTerminalBuffer(), Clock = _clock };
         // A repaint straight away, so the terminal has visibly reacted; the typed text itself echoes late.
         backend.EchoScript.UseDefault(RecordingEchoStep.RepaintingPlaceholder("...", EchoLandsAfter));
         if (goesCritical)
@@ -537,13 +541,13 @@ public sealed class TerminalSubmitComposerEvidenceTests : IDisposable
                 16UL * 1024 * 1024 * 1024, 300UL * 1024 * 1024, DateTime.UtcNow);
 
         // NO explicit echoTimeout - the whole point is that the deadline is chosen from the reading.
-        // A short poll keeps the wait responsive; the deadline itself is what is under test.
-        var submit = TerminalSubmit.SharedSubmitAsync(
+        // A short poll keeps the wait responsive; the deadline itself is what is under test. A submit that
+        // never ends is reported by the virtual-time driver as a TimeoutException, not waited for.
+        var failure = await Record.ExceptionAsync(() => VirtualTime.RunAsync(_clock, () => TerminalSubmit.SharedSubmitAsync(
             backend, TypedAsTheMachineRanOut, "ClaudeDriver",
-            pollInterval: ShortPoll, enterSettleDelay: ShortSettle, submitVerifyBeat: FastVerifyBeat);
-        var failure = await Record.ExceptionAsync(() => submit.WaitAsync(OneSubmitLimit));
+            pollInterval: ShortPoll, enterSettleDelay: ShortSettle, submitVerifyBeat: FastVerifyBeat, clock: _clock)));
         Assert.False(failure is TimeoutException,
-            $"one submit ran past {OneSubmitLimit.TotalSeconds:F0}s - the echo wait no longer ends");
+            $"one submit did not end on its own clock - the echo wait no longer ends: {failure?.Message}");
         return (backend, failure);
     }
 
@@ -585,12 +589,12 @@ public sealed class TerminalSubmitComposerEvidenceTests : IDisposable
         // the change would silently retune every caller in the code base - the scaled deadline on a
         // starved machine is sixteen seconds, so this would not finish quickly if the override leaked.
         OnAStarvedMachine();
-        var backend = new RecordingSessionBackend { Buffer = new CircularTerminalBuffer() };
-        var started = DateTime.UtcNow;
+        var backend = new RecordingSessionBackend { Buffer = new CircularTerminalBuffer(), Clock = _clock };
+        var started = _clock.GetUtcNow();
 
         await Submit(backend, "quick");
 
-        Assert.True(DateTime.UtcNow - started < TimeSpan.FromSeconds(3),
+        Assert.True(_clock.GetUtcNow() - started < TimeSpan.FromSeconds(3),
             "the caller's explicit deadline was overridden by the pressure scaling");
     }
 }

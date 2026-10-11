@@ -472,6 +472,20 @@ public sealed class DeliveryRecord
     /// <summary>Test seam: runs just before the session's file is read. Null in the Director.</summary>
     internal Action? BeforeFileReadForTests { get; set; }
 
+    /// <summary>Test seam: runs on each look while another caller in this process holds the session's lock. Null in the Director.</summary>
+    internal Action? WhileWaitingForLockForTests { get; set; }
+
+    /// <summary>How often the in-process lock is looked at again while another reader or writer holds it.</summary>
+    private static readonly TimeSpan LockLook = TimeSpan.FromMilliseconds(20);
+
+    /// <summary>A wait measured on this record's clock (<see cref="_utcNow"/>), so a test that advances the clock sees
+    /// the notice fire without waiting the seconds out; in the Director the clock is the real one.</summary>
+    private Drivers.SendWaitNotice NoticeOnTheClock(string waitingFor, string limit)
+    {
+        var started = _utcNow();
+        return new Drivers.SendWaitNotice("DeliveryRecord", waitingFor, limit, () => _utcNow() - started);
+    }
+
     private object LockFor(Guid sessionId) => _sessionLocks.GetOrAdd(sessionId, _ => new object());
 
     /// <summary>How long taking a session's lock file may take before it is reported as a record that cannot be used. Its
@@ -507,7 +521,10 @@ public sealed class DeliveryRecord
         Directory.CreateDirectory(_directory);
         var path = LockFileFor(sessionId);
         Drivers.SendWaitNotice? notice = null;
-        var clock = System.Diagnostics.Stopwatch.StartNew();
+        // The give-up is a DECISION, so it is measured on a monotonic stopwatch that a clock step cannot move: a
+        // forward step must not refuse a delivery early, a backward one must not extend the wait. The notice beside
+        // it is measured on the record's clock, like the other two, so a test can see it fire.
+        var waited = System.Diagnostics.Stopwatch.StartNew();
         while (true)
         {
             try
@@ -524,18 +541,18 @@ public sealed class DeliveryRecord
             catch (IOException ex)
             {
                 // Another Director holds it for its own read or rewrite. It is kept only for that, so the wait is short.
-                if (clock.Elapsed >= LockFileGiveUp)
+                if (waited.Elapsed >= LockFileGiveUp)
                 {
                     notice?.End($"GAVE UP: {ex.Message}");
                     FileLog.Write($"[DeliveryRecord] TakeLockFile FAILED: {path}: not free after {LockFileGiveUp.TotalSeconds:0}s: {ex.Message}");
                     throw new DeliveryRecordUnreadableException(path,
                         $"its lock file was not free after {LockFileGiveUp.TotalSeconds:0} seconds ({ex.Message})", ex);
                 }
-                notice ??= new Drivers.SendWaitNotice("DeliveryRecord",
+                notice ??= NoticeOnTheClock(
                     $"the delivery record lock file {path} (session {sessionId}), for {doing}",
                     $"{LockFileGiveUp.TotalSeconds:0}s - another Director holds it for one read or rewrite");
                 notice.Check();
-                Thread.Sleep(20);
+                Thread.Sleep(LockLook);
             }
         }
     }
@@ -545,12 +562,14 @@ public sealed class DeliveryRecord
         var gate = LockFor(sessionId);
         if (!Monitor.TryEnter(gate))
         {
-            var notice = new Drivers.SendWaitNotice("DeliveryRecord",
+            // Another caller in this process holds the lock for one read or rewrite. Look again every LockLook and
+            // let the notice say so once the record's clock passes its threshold.
+            var notice = NoticeOnTheClock(
                 $"the delivery record lock for session {sessionId}, for {doing}", "none - it waits for the record's current reader or writer");
-            if (!Monitor.TryEnter(gate, Drivers.SendWaitNotice.NoticeAfter))
+            while (!Monitor.TryEnter(gate, LockLook))
             {
                 notice.Check();
-                Monitor.Enter(gate);
+                WhileWaitingForLockForTests?.Invoke();
             }
             notice.End("got the lock");
         }
@@ -590,7 +609,7 @@ public sealed class DeliveryRecord
         if (!File.Exists(path)) return new List<DeliveryRecordEntry>();
 
         string[] lines;
-        var notice = new Drivers.SendWaitNotice("DeliveryRecord",
+        var notice = NoticeOnTheClock(
             $"the file system to read the delivery record {path} (session {sessionId})", "none - one small file");
         try
         {

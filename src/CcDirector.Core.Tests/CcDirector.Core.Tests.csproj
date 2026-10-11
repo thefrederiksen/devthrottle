@@ -26,4 +26,7 @@
     <None Include="TestData\**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="..\TestInfrastructure\VirtualTime.cs" Link="TestInfrastructure\VirtualTime.cs" />
+  </ItemGroup>
 </Project>
