@@ -208,13 +208,14 @@ public class LinkDetectorExactTextTests
     }
 
     [Fact]
-    public void LongTailOfBrackets_IsTrimmedQuickly()
+    public async Task LongTailOfBrackets_IsTrimmedQuickly()
     {
-        // No stopwatch: a pattern that backtracked badly on this line would run past the detector's own regular
-        // expression timeout and throw, which fails the test without measuring how fast this machine is.
-        string line = "https://example.com/a" + new string(')', 10000);
+        // StripTrailingPunctuation counts the brackets once, so trimming is linear. No stopwatch decides this: the
+        // tail is long enough that a linear trim takes milliseconds and one that recounted on every character
+        // (about 45 billion reads here) takes minutes, so thirty seconds tells the two apart on any machine.
+        string line = "https://example.com/a" + new string(')', 300_000);
 
-        var (underlined, _, _) = OnlyLink(line);
+        var (underlined, _, _) = await Task.Run(() => OnlyLink(line)).WaitAsync(TimeSpan.FromSeconds(30));
 
         Assert.Equal("https://example.com/a", underlined);
     }
