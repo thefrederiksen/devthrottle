@@ -34,6 +34,8 @@ function row(id: string, title: string, statusRank: number, waitingCount = 0): F
     noBossText: null,
     purpose: null,
     bossName: null,
+    leftOpenText: null,
+    leftOpenHref: null,
   };
 }
 

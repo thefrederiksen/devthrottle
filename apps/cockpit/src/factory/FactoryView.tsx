@@ -74,6 +74,11 @@ export function FactoryView() {
               {page.statusHref !== null ? <Link to={page.statusHref}>{page.statusLine}</Link> : page.statusLine}
             </p>
           )}
+          {page.leftOpenText !== null && page.leftOpenHref !== null && (
+            <p className="fa-left-open" data-testid="fa-page-left-open">
+              <Link to={page.leftOpenHref}>{page.leftOpenText}</Link>
+            </p>
+          )}
           <div className="fa-factory-facts" data-testid="fa-factory-facts">
             <span>{page.bossText}</span>
             <span>{page.seatCountText}</span>
@@ -309,6 +314,9 @@ function SeatsTab({ view: d, onChanged }: { view: FactorySeatsView; onChanged: (
                 </td>
                 <td>
                   <span className={`fa-lastrun fa-tone-${seat.lastRunTone}`}>{seat.lastRunText}</span>
+                  <div className={`fa-lastrun fa-closing fa-tone-${seat.closingTone}`} data-testid="fa-seat-closing">
+                    {seat.closingText}
+                  </div>
                 </td>
                 <td>{seat.computerText}</td>
                 <td className="fa-seat-talk">

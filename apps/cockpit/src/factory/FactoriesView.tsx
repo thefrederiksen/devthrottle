@@ -270,6 +270,7 @@ function FactoriesList({ view, onChanged }: { view: FactoriesListView; onChanged
             </span>
             <span className="fa-flist-status dt-private" role="cell">
               <StatusWord word={row.statusWord} tone={row.statusTone} reason={row.statusReason} line={row.statusLine} href={row.statusHref} />
+              <LeftOpenFlag row={row} />
             </span>
             <span className="fa-flist-talk" role="cell">
               {row.talk !== null ? (
@@ -353,6 +354,7 @@ function FactoryCard({ row, groupKey }: { row: FactoryListRow; groupKey: Factory
           {row.statusLine}
         </p>
       )}
+      <LeftOpenFlag row={row} />
       {row.waitingCount > 0 && row.waitingHref !== null && (
         <Link className="fa-card-waiting dt-private" to={row.waitingHref} data-testid="fa-card-waiting">
           {row.waitingText} waiting on you
@@ -384,6 +386,19 @@ function FactoryCard({ row, groupKey }: { row: FactoryListRow; groupKey: Factory
         )}
       </div>
     </article>
+  );
+}
+
+/**
+ * The flag for seats whose sessions do not close themselves (Factory Control, step 2): the Gateway's words, verbatim,
+ * linking to the factory's Seats tab where each seat shows its marker. Nothing when the Gateway sends no flag.
+ */
+function LeftOpenFlag({ row }: { row: FactoryListRow }) {
+  if (row.leftOpenText === null || row.leftOpenHref === null) return null;
+  return (
+    <Link className="fa-left-open" to={row.leftOpenHref} onClick={(e) => e.stopPropagation()} data-testid="fa-left-open">
+      {row.leftOpenText}
+    </Link>
   );
 }
 

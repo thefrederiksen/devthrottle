@@ -1,0 +1,86 @@
+{
+  "title": "Factories",
+  "subtitle": "Each factory runs one business or one job on its own, toward the goal you set for it.",
+  "tabs": [
+    {
+      "key": "factories",
+      "label": "Factories"
+    },
+    {
+      "key": "activity",
+      "label": "Activity"
+    },
+    {
+      "key": "reports",
+      "label": "Reports"
+    }
+  ],
+  "columns": [
+    "Factory",
+    "Waiting on you",
+    "Status"
+  ],
+  "rows": [
+    {
+      "id": "qa-tallyhand",
+      "title": "Tallyhand (QA)",
+      "statusWord": "RUNNING",
+      "statusTone": "ok",
+      "statusRank": 3,
+      "statusReason": "Nothing failed and nothing is waiting on you.",
+      "statusLine": null,
+      "statusHref": null,
+      "waitingText": "-",
+      "waitingCount": 0,
+      "waitingHref": null,
+      "href": "/factories/qa-tallyhand",
+      "talk": {
+        "label": "Talk to the boss",
+        "busyLabel": "Starting the talk with the boss...",
+        "factoryId": "qa-tallyhand",
+        "seatId": "boss"
+      },
+      "noBossText": null,
+      "purpose": null,
+      "bossName": "Boss",
+      "leftOpenText": "Does not close itself: Scout - stayed open 3 of its last 7 runs",
+      "leftOpenHref": "/factories/qa-tallyhand/seats"
+    },
+    {
+      "id": "qa-warmforward",
+      "title": "WarmForward (QA)",
+      "statusWord": "RUNNING",
+      "statusTone": "ok",
+      "statusRank": 3,
+      "statusReason": "Nothing failed and nothing is waiting on you.",
+      "statusLine": null,
+      "statusHref": null,
+      "waitingText": "-",
+      "waitingCount": 0,
+      "waitingHref": null,
+      "href": "/factories/qa-warmforward",
+      "talk": {
+        "label": "Talk to the boss",
+        "busyLabel": "Starting the talk with the boss...",
+        "factoryId": "qa-warmforward",
+        "seatId": "boss"
+      },
+      "noBossText": null,
+      "purpose": null,
+      "bossName": "Boss",
+      "leftOpenText": null,
+      "leftOpenHref": null
+    }
+  ],
+  "footerText": "Worst first: failing, then needs you, then paused, then running.",
+  "emptyText": null,
+  "truncatedText": null,
+  "showArchivedLabel": "Show archived (0)",
+  "hideArchivedLabel": "Hide archived",
+  "archivedRows": [],
+  "archivedEmptyText": "No factory is archived.",
+  "outsideTitle": "Schedules outside any factory",
+  "outsideText": "These run on a schedule but are no seat of any factory. A plain job can stay here; factory work must be a seat of its factory - register the seat, then link the schedule to it with cc-devthrottle schedule link <id> --factory <factory> --seat <seat>.",
+  "outsideRows": [],
+  "outsideEmptyText": "Every enabled schedule is a seat of a factory."
+}

@@ -1,3 +1,4 @@
+using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.History;
 
@@ -35,14 +36,38 @@ public sealed class CronRunRecordReader
     public IReadOnlyDictionary<string, CronRunRecordSummaryDto> SummariesOf(IReadOnlyCollection<string> jobIds, DateTime nowUtc)
     {
         var byJob = _runs.RecentByJob(jobIds, CronRunEndingFold.SummaryRuns);
-        var endings = _endingsOf(SessionIdsOf(byJob.Values.SelectMany(r => r)));
+        var endings = StampAll(byJob, _endingsOf, nowUtc);
         var result = new Dictionary<string, CronRunRecordSummaryDto>(StringComparer.Ordinal);
         foreach (var (jobId, runs) in byJob)
-        {
-            CronRunEndingFold.Stamp(runs, endings, nowUtc);
             result[jobId] = CronRunEndingFold.Summarize(runs, endings, nowUtc);
-        }
         return result;
+    }
+
+    /// <summary>
+    /// Each of these schedules' newest <see cref="CronRunEndingFold.SummaryRuns"/> runs, newest first, each with its
+    /// ending - what a factory seat's marker is folded from (<see cref="CronRunEndingFold.SeatMarker"/>). Read in the
+    /// account the route resolved EXPLICITLY, never the ambient one, the way the Factories screen reads everything
+    /// else. A schedule that never ran is absent.
+    /// </summary>
+    public static IReadOnlyDictionary<string, IReadOnlyList<CronRunRecord>> RecentRunsOf(CronRunHistoryStore runs,
+        SessionHistoryStore history, Core.Tenancy.TenantId tenant, IReadOnlyCollection<string> jobIds, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(runs);
+        ArgumentNullException.ThrowIfNull(history);
+        var byJob = runs.RecentByJob(tenant, jobIds, CronRunEndingFold.SummaryRuns);
+        StampAll(byJob, ids => history.EndingsOf(tenant, ids), nowUtc);
+        FileLog.Write($"[CronRunRecordReader] RecentRunsOf: schedules asked={jobIds.Count}, with runs={byJob.Count}");
+        return byJob;
+    }
+
+    // Stamp every run with its ending, reading the sessions' endings in one query; returns those endings.
+    private static IReadOnlyDictionary<string, SessionEndingFact> StampAll(IReadOnlyDictionary<string, IReadOnlyList<CronRunRecord>> byJob,
+        Func<IReadOnlyCollection<string>, IReadOnlyDictionary<string, SessionEndingFact>> endingsOf, DateTime nowUtc)
+    {
+        var endings = endingsOf(SessionIdsOf(byJob.Values.SelectMany(r => r)));
+        foreach (var runs in byJob.Values)
+            CronRunEndingFold.Stamp(runs, endings, nowUtc);
+        return endings;
     }
 
     /// <summary>

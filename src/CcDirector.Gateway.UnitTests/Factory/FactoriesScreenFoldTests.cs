@@ -54,7 +54,7 @@ public sealed class FactoriesScreenFoldTests
     private static FactoriesScreenInputs Inputs(IReadOnlyList<RegisteredFactoryDto> registry,
         IReadOnlyList<FactoryActivityDto>? rows = null, IReadOnlyList<CronJobDto>? jobs = null,
         IReadOnlyList<FactoryTriggerFacts>? triggers = null, GoalNumberDto? number = null, IReadOnlyList<FactoryActivityDto>? talks = null,
-        TimeZoneInfo? accountZone = null)
+        TimeZoneInfo? accountZone = null, IReadOnlyDictionary<string, IReadOnlyList<CronRunRecord>>? runs = null)
     {
         rows ??= Array.Empty<FactoryActivityDto>();
         var waiting = rows.Where(r => r.Outcome is FactoryActivityOutcome.Asked or FactoryActivityOutcome.Escalated).ToList();
@@ -64,7 +64,7 @@ public sealed class FactoriesScreenFoldTests
         var latest = new Dictionary<string, GoalNumberDto>();
         if (number is not null) latest[number.Factory] = number;
         return new FactoriesScreenInputs(registry, activity, jobs ?? Array.Empty<CronJobDto>(), latest,
-            talks ?? Array.Empty<FactoryActivityDto>());
+            talks ?? Array.Empty<FactoryActivityDto>(), runs ?? new Dictionary<string, IReadOnlyList<CronRunRecord>>());
     }
 
     // ---------- status ----------

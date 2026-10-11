@@ -50,7 +50,7 @@ public sealed class FactoryOwnerActionsTests
             Array.Empty<FactoryTriggerFacts>(), new HashSet<string>(),
             new FactoryWindow(FactoryAgentsFold.WindowLast7d, Now.AddDays(-7), Now), TimeZoneInfo.Utc, Now);
         return new FactoriesScreenInputs(registry, activity, jobs ?? Array.Empty<CronJobDto>(),
-            new Dictionary<string, GoalNumberDto>(), Array.Empty<FactoryActivityDto>());
+            new Dictionary<string, GoalNumberDto>(), Array.Empty<FactoryActivityDto>(), new Dictionary<string, IReadOnlyList<CronRunRecord>>());
     }
 
     private static readonly FactoryActivityDto[] NoCorrections = Array.Empty<FactoryActivityDto>();

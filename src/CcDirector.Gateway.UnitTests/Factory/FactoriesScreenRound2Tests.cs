@@ -70,7 +70,7 @@ public sealed class FactoriesScreenRound2Tests
             triggers ?? Array.Empty<FactoryTriggerFacts>(), new HashSet<string>(),
             new FactoryWindow(FactoryAgentsFold.WindowLast7d, Now.AddDays(-7), Now), TimeZoneInfo.Utc, Now);
         return new FactoriesScreenInputs(registry, activity, jobs ?? Running(), new Dictionary<string, GoalNumberDto>(),
-            Array.Empty<FactoryActivityDto>());
+            Array.Empty<FactoryActivityDto>(), new Dictionary<string, IReadOnlyList<CronRunRecord>>());
     }
 
     private static FactoryListRowDto ListRow(IReadOnlyList<FactoryActivityDto> rows, IReadOnlyList<CronJobDto>? jobs = null) =>

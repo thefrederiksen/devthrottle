@@ -56,7 +56,8 @@ public sealed class FactoryTalkLastTalkEndToEndTests : IDisposable
                 Reports: new FactoryReportStore(settings),
                 Maps: new FactoryMapStore(settings)),
             registry,
-            _ => Array.Empty<CronJobDto>());
+            _ => Array.Empty<CronJobDto>(),
+            (_, _, _) => new Dictionary<string, IReadOnlyList<CronRunRecord>>());
 
         FactoryPageViewDto Page() => FactoriesScreenFold.Page(registered,
             FactoriesScreenEndpoints.Inputs(sources, TenantId.Local, FactoryAgentsFold.WindowLast7d, "warmforward"));
