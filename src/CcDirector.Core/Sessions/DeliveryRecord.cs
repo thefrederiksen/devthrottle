@@ -521,7 +521,10 @@ public sealed class DeliveryRecord
         Directory.CreateDirectory(_directory);
         var path = LockFileFor(sessionId);
         Drivers.SendWaitNotice? notice = null;
-        var started = _utcNow();
+        // The give-up is a DECISION, so it is measured on a monotonic stopwatch that a clock step cannot move: a
+        // forward step must not refuse a delivery early, a backward one must not extend the wait. The notice beside
+        // it is measured on the record's clock, like the other two, so a test can see it fire.
+        var waited = System.Diagnostics.Stopwatch.StartNew();
         while (true)
         {
             try
@@ -538,7 +541,7 @@ public sealed class DeliveryRecord
             catch (IOException ex)
             {
                 // Another Director holds it for its own read or rewrite. It is kept only for that, so the wait is short.
-                if (_utcNow() - started >= LockFileGiveUp)
+                if (waited.Elapsed >= LockFileGiveUp)
                 {
                     notice?.End($"GAVE UP: {ex.Message}");
                     FileLog.Write($"[DeliveryRecord] TakeLockFile FAILED: {path}: not free after {LockFileGiveUp.TotalSeconds:0}s: {ex.Message}");

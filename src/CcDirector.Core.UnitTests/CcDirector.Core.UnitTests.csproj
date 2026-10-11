@@ -76,7 +76,7 @@
     <Compile Include="..\CcDirector.Core.Tests\Voice\Mocks\MockTextToSpeech.cs" Link="Voice/Mocks/MockTextToSpeech.cs" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Compile Include="..\TestInfrastructure\VirtualTime.cs" Link="TestInfrastructure\VirtualTime.cs" />
-  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\TestInfrastructure\VirtualTime.cs" Link="TestInfrastructure\VirtualTime.cs" />
+  </ItemGroup>
 </Project>
