@@ -58,9 +58,13 @@ public sealed class TheRegistryReachesTheCatalogTests : IDisposable
     public void Dispose()
     {
         _registry.Dispose();
+        // The aggregator opened gateway-stats.db under the temp dir and holds it through pooled connections
+        // until disposed; without this line the delete below failed on every run, and the swallowed failure
+        // leaked one folder per test (nearly 700 in two days). The delete is loud now, so the next leak is a red
+        // test rather than a folder.
+        _inputStats.Dispose();
         _harness.Dispose();
-        try { Directory.Delete(_tempDir, recursive: true); }
-        catch (Exception) { /* best-effort temp cleanup */ }
+        Directory.Delete(_tempDir, recursive: true);
     }
 
     private static CcDirector.Gateway.Tenancy.HostedTenantBoundary SelfHostBoundary() =>

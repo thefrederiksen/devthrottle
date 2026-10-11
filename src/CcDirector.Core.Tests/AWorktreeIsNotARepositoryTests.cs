@@ -41,7 +41,8 @@ public sealed class AWorktreeIsNotARepositoryTests : IDisposable
     public void Dispose()
     {
         _sessions.Dispose();
-        try { TestTempRoot.DeleteTree(_root); } catch { }
+        // Loud: a copy that cannot be removed is a defect in the test, not a folder to leave behind.
+        TestTempRoot.DeleteTree(_root);
     }
 
     // ------------------------------------------------------------------- the stamp on the session

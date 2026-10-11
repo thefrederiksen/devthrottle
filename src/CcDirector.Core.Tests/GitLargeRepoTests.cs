@@ -139,7 +139,10 @@ public sealed class GitLargeRepoIntegrationTests : IDisposable
 
     public void Dispose()
     {
-        try { Directory.Delete(_repo, recursive: true); } catch { /* temp cleanup */ }
+        // The fixture holds a real git repository, whose objects are read-only; the shared delete clears the
+        // attribute first and reports a failure instead of retrying and swallowing it, which leaked a folder per
+        // test for as long as the swallow stood.
+        TestTempRoot.DeleteTree(_repo);
     }
 
     private void CreateTrackedFile(string relPath, string content)

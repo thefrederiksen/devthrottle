@@ -6943,6 +6943,13 @@ public sealed class GatewayHost : IAsyncDisposable
             _app = null;
         }
 
+        // The statistics store, after the application that served from it is gone, so no request is mid-flight
+        // on a disposed factory. It is a singleton INSTANCE handed to the container, and the container does not
+        // dispose instances it did not create - so until this line nothing disposed it, and its pooled SQLite
+        // connections kept gateway-stats.db open for the life of the process. Every test host left its storage
+        // root undeletable, and 9,000 temporary folders, each holding exactly that file, leaked in two days.
+        try { StatsStore.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] statistics store dispose error: {ex.Message}"); }
+
         // Nothing can push any more: write anything that arrived after the early save, so a clean shutdown loses nothing.
         SaveRepoHistoryAtShutdown();
     }
