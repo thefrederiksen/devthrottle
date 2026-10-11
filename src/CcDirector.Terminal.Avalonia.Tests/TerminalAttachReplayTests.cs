@@ -174,6 +174,16 @@ public sealed class TerminalAttachReplayTests
 
         var session = WrappedSession("A");
         using var gate = HoldReplays(terminal);
+        // Order proves the replay did not run INSIDE Attach; it does not prove where it ran. A replay posted
+        // to the screen thread would also return from Attach first (the review ran that mutation and this test
+        // passed it), so the replay records the thread it actually ran on, and it must not be the screen thread.
+        bool? replayedOnUiThread = null;
+        var hold = terminal.HarnessBeforeReplay!;
+        terminal.HarnessBeforeReplay = s =>
+        {
+            replayedOnUiThread = Dispatcher.UIThread.CheckAccess();
+            hold(s);
+        };
         terminal.Attach(session);
 
         Assert.True(terminal.HarnessReplayPending, "the replay must still be running when Attach returns");
@@ -183,6 +193,8 @@ public sealed class TerminalAttachReplayTests
         WaitForHandover(terminal);
 
         Assert.NotNull(terminal.HarnessParser);
+        Assert.False(replayedOnUiThread ?? throw new InvalidOperationException("the replay never reached its hook"),
+            "the replay ran on the screen thread - it must run on the thread pool");
         string expected = SynchronousReplayText(session.Buffer!, terminal.HarnessCols, terminal.HarnessRows);
         Assert.Equal(expected, terminal.GetAllTerminalText());
     }
