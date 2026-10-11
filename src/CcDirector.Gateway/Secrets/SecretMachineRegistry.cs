@@ -92,6 +92,23 @@ public sealed class SecretMachineRegistry
         return rows.OrderBy(r => r.Machine, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
+    /// <summary>
+    /// The live Director on <paramref name="machine"/> to send a transfer command to: connected, heard from within
+    /// <see cref="StaleAfter"/>, the most recently heard first. Null when there is none.
+    /// </summary>
+    public string? DirectorFor(TenantId tenant, string machine, Func<string, bool> isConnected, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(isConnected);
+        return _said
+            .Where(pair => pair.Key.Tenant.Equals(tenant)
+                           && string.Equals(pair.Value.Machine, machine, StringComparison.OrdinalIgnoreCase)
+                           && nowUtc - pair.Value.SeenUtc <= StaleAfter
+                           && isConnected(pair.Key.DirectorId))
+            .OrderByDescending(pair => pair.Value.SeenUtc)
+            .Select(pair => pair.Key.DirectorId)
+            .FirstOrDefault();
+    }
+
     /// <summary>How many Directors are held in memory (for tests).</summary>
     internal int Count => _said.Count;
 

@@ -353,14 +353,24 @@ public sealed class SecretTransferHostTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Ask_BornApproved_AnswersWithTheStateTheRowHoldsNow()
+    public async Task Ask_BornApproved_StartsTheDelivery_AndEndsSayingWhyWhenNoDirectorAnswers()
     {
         BothMachines();
 
         var (_, body) = await Post(_sessionA, "gateway/secrets/transfers", Ask(ownerApproved: "yes, send it"));
+        var id = Id(body);
 
-        // Phase 3 cannot deliver, so starting the delivery ends it at once; the answer must say so, not "approved".
-        Assert.Equal("failed", State(body));
-        Assert.Contains("Nothing was moved", body.GetProperty("note").GetString());
+        // The stand-in Directors here hold no real stream, so the delivery ends failed, naming the machine. It runs in
+        // the background, so read the transfer until it ends.
+        JsonElement transfer = default;
+        for (var i = 0; i < 50; i++)
+        {
+            var (_, text) = await Get(_sessionA, $"gateway/secrets/transfers/{id}");
+            transfer = JsonDocument.Parse(text).RootElement.GetProperty("transfer").Clone();
+            if (transfer.GetProperty("state").GetString() is "failed" or "delivered") break;
+            await Task.Delay(200);
+        }
+        Assert.Equal("failed", transfer.GetProperty("state").GetString());
+        Assert.Contains("SOREN_NORTH", transfer.GetProperty("outcome").GetString());
     }
 }
