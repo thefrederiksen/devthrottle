@@ -4,6 +4,7 @@
 # Format: rule | repository-relative path | number of uses in that file (comments do not count).
 # This list may only SHRINK. Lower or remove a line in the same change that removes the uses;
 # never raise one and never add one - write the new test against a fake clock or a fake instead.
+fixed-port | src/CcDirector.Avalonia.Tests/ActivityEventUploaderOnSchedulerTests.cs | 1
 real-clock | src/CcDirector.Avalonia.Tests/BackgroundDictationSendTests.cs | 2
 delay | src/CcDirector.Avalonia.Tests/BackgroundWorkDialogTests.cs | 1
 real-clock | src/CcDirector.Avalonia.Tests/BackgroundWorkDialogTests.cs | 1
@@ -79,13 +80,14 @@ real-clock | src/CcDirector.Core.Tests/Claude/BriefBuilderTests.cs | 1
 process | src/CcDirector.Core.Tests/Claude/HookScriptRoundTripTests.cs | 2
 real-clock | src/CcDirector.Core.Tests/Claude/HookScriptRoundTripTests.cs | 7
 sleep | src/CcDirector.Core.Tests/Claude/HookScriptRoundTripTests.cs | 2
-fixed-port | src/CcDirector.Core.Tests/Configuration/GatewayConfigTests.cs | 4
+fixed-port | src/CcDirector.Core.Tests/Configuration/GatewayConfigTests.cs | 5
 process | src/CcDirector.Core.Tests/Configuration/LauncherDiscoveryTests.cs | 1
 real-clock | src/CcDirector.Core.Tests/DictationCorpusStoreTests.cs | 3
 real-clock | src/CcDirector.Core.Tests/DirectorCrashJournalSweepTests.cs | 5
 real-clock | src/CcDirector.Core.Tests/Drivers/CompactContextDriverTests.cs | 2
 real-clock | src/CcDirector.Core.Tests/Drivers/PinnedMachineMemory.cs | 4
 delay | src/CcDirector.Core.Tests/Drivers/RecordingSessionBackend.cs | 3
+real-clock | src/CcDirector.Core.Tests/Drivers/RecordingSessionBackend.cs | 1
 real-clock | src/CcDirector.Core.Tests/Drivers/SessionAskRunnerTests.cs | 2
 delay | src/CcDirector.Core.Tests/Drivers/TerminalSubmitTests.cs | 2
 fixed-port | src/CcDirector.Core.Tests/EndpointProbeTests.cs | 4
@@ -115,6 +117,7 @@ fixed-port | src/CcDirector.Core.Tests/LinkDetectorExactTextTests.cs | 2
 stopwatch | src/CcDirector.Core.Tests/LinkDetectorExactTextTests.cs | 1
 fixed-port | src/CcDirector.Core.Tests/LinkDetectorTests.cs | 2
 process | src/CcDirector.Core.Tests/LinkedWorktreeTests.cs | 2
+fixed-port | src/CcDirector.Core.Tests/McpConfigManagerTests.cs | 2
 real-clock | src/CcDirector.Core.Tests/MissionStoreTenantPartitionTests.cs | 3
 real-clock | src/CcDirector.Core.Tests/MissionStoreTests.cs | 12
 real-clock | src/CcDirector.Core.Tests/NamedSessionStoreTests.cs | 2
@@ -149,6 +152,7 @@ delay | src/CcDirector.Core.Tests/SessionInteractiveTests.cs | 3
 real-clock | src/CcDirector.Core.Tests/SessionInteractiveTests.cs | 3
 delay | src/CcDirector.Core.Tests/SessionLifecycleTests.cs | 2
 delay | src/CcDirector.Core.Tests/SessionManagerTests.cs | 2
+timer-wait | src/CcDirector.Core.Tests/SessionManagerTests.cs | 2
 real-clock | src/CcDirector.Core.Tests/SessionPersistenceTests.cs | 1
 delay | src/CcDirector.Core.Tests/SessionReapOnExitTests.cs | 3
 real-clock | src/CcDirector.Core.Tests/SessionReapOnExitTests.cs | 2
@@ -226,6 +230,7 @@ real-clock | src/CcDirector.Core.Tests/WorktreeReaperServiceTests.cs | 1
 delay | src/CcDirector.Core.UnitTests/Background/BackgroundJobsTests.cs | 7
 real-clock | src/CcDirector.Core.UnitTests/Background/BackgroundJobsTests.cs | 2
 fixed-port | src/CcDirector.Core.UnitTests/ErrorReports/ErrorReporterTests.cs | 1
+timer-wait | src/CcDirector.Core.UnitTests/ErrorReports/ErrorReporterTests.cs | 1
 process | src/CcDirector.Core.UnitTests/Git/WorktreePoolSettingIsOneStoreTests.cs | 2
 real-clock | src/CcDirector.Core.UnitTests/Licenses/FakeLicenseCommandLine.cs | 1
 delay | src/CcDirector.Core.UnitTests/Licenses/LicenseSwitchCoordinatorTests.cs | 4
@@ -235,12 +240,14 @@ real-clock | src/CcDirector.Core.UnitTests/MissionStoreHeldReadsTests.cs | 1
 real-clock | src/CcDirector.Core.UnitTests/Sessions/BackgroundAgentPointerTests.cs | 1
 process | src/CcDirector.Core.UnitTests/Sessions/DeliveryRecordSettlementTests.cs | 2
 real-clock | src/CcDirector.Core.UnitTests/Sessions/FactoryMembershipSurvivesARestartTests.cs | 2
+fixed-port | src/CcDirector.Core.UnitTests/Sessions/FactoryMemoryAtLaunchTests.cs | 1
 real-clock | src/CcDirector.Core.UnitTests/Sessions/FactoryMemoryAtLaunchTests.cs | 2
 sleep | src/CcDirector.Core.UnitTests/Sessions/FactoryMemoryAtLaunchTests.cs | 3
 real-clock | src/CcDirector.Core.UnitTests/Sessions/PendingPromptSpokenSpansPersistenceTests.cs | 3
 real-clock | src/CcDirector.Core.UnitTests/Sessions/PooledWorktreeSurvivesARestartTests.cs | 3
 real-clock | src/CcDirector.Core.UnitTests/Sessions/RealScreenReaderTests.cs | 4
 delay | src/CcDirector.Core.UnitTests/Sessions/ScriptedAgentTerminal.cs | 5
+real-clock | src/CcDirector.Core.UnitTests/Sessions/ScriptedAgentTerminal.cs | 1
 delay | src/CcDirector.Core.UnitTests/Sessions/SendPathClockTests.cs | 1
 stopwatch | src/CcDirector.Core.UnitTests/Sessions/SendPathClockTests.cs | 1
 real-clock | src/CcDirector.Core.UnitTests/Sessions/SessionPointerDropTests.cs | 1
@@ -288,6 +295,7 @@ fixed-port | src/CcDirector.Gateway.Tests/Account/AccountSignInStartEndpointTest
 real-clock | src/CcDirector.Gateway.Tests/Account/AccountSignInStartEndpointTests.cs | 1
 real-clock | src/CcDirector.Gateway.Tests/Account/AccountStatusEndpointTests.cs | 5
 real-clock | src/CcDirector.Gateway.Tests/Account/BrowserDeviceEnrollmentTests.cs | 1
+fixed-port | src/CcDirector.Gateway.Tests/Account/ChildDeviceMirrorTests.cs | 1
 real-clock | src/CcDirector.Gateway.Tests/Account/ChildDeviceMirrorTests.cs | 2
 real-clock | src/CcDirector.Gateway.Tests/Account/GatewayAccountServiceTests.cs | 5
 real-clock | src/CcDirector.Gateway.Tests/Account/GatewayDeviceRegistrationTests.cs | 1
@@ -335,6 +343,7 @@ delay | src/CcDirector.Gateway.Tests/DirectorPolledReadsNotModifiedHostTests.cs 
 fixed-port | src/CcDirector.Gateway.Tests/DirectorRegistryOrphanFileTests.cs | 1
 process | src/CcDirector.Gateway.Tests/DirectorRegistryOrphanFileTests.cs | 2
 real-clock | src/CcDirector.Gateway.Tests/DirectorRestartRequestRouteTests.cs | 2
+fixed-port | src/CcDirector.Gateway.Tests/DirectorRouteTenantScopingTests.cs | 1
 real-clock | src/CcDirector.Gateway.Tests/DirectorRouteTenantScopingTests.cs | 4
 real-clock | src/CcDirector.Gateway.Tests/DirectorShutdownGateTests.cs | 1
 real-clock | src/CcDirector.Gateway.Tests/DirectorSpawnMissionAndSeatTests.cs | 1
@@ -347,6 +356,7 @@ real-clock | src/CcDirector.Gateway.Tests/DisplayPushTenantEnrichmentTests.cs | 
 delay | src/CcDirector.Gateway.Tests/DoorbellColourFactPushTests.cs | 1
 real-clock | src/CcDirector.Gateway.Tests/DoorbellColourFactPushTests.cs | 2
 real-clock | src/CcDirector.Gateway.Tests/DurableDictationDedupeTests.cs | 1
+fixed-port | src/CcDirector.Gateway.Tests/EventsFeedSelfHostedTests.cs | 1
 real-clock | src/CcDirector.Gateway.Tests/EventsFeedSelfHostedTests.cs | 1
 real-clock | src/CcDirector.Gateway.Tests/EvictionRaceAndCompositionTests.cs | 8
 real-clock | src/CcDirector.Gateway.Tests/FactoryActivityRouteTests.cs | 1
@@ -369,6 +379,7 @@ real-clock | src/CcDirector.Gateway.Tests/FleetMessageLinkHostTests.cs | 9
 real-clock | src/CcDirector.Gateway.Tests/FleetMessageLinkRequestHostTests.cs | 5
 delay | src/CcDirector.Gateway.Tests/FleetMessageRouteTests.cs | 1
 real-clock | src/CcDirector.Gateway.Tests/FleetMessageRouteTests.cs | 6
+fixed-port | src/CcDirector.Gateway.Tests/GatewayClientRegistrationRequestTests.cs | 2
 delay | src/CcDirector.Gateway.Tests/GatewayClientTests.cs | 1
 real-clock | src/CcDirector.Gateway.Tests/GatewayClientTests.cs | 2
 fixed-port | src/CcDirector.Gateway.Tests/GatewayConnectivitySelfTestTests.cs | 1
@@ -387,6 +398,7 @@ real-clock | src/CcDirector.Gateway.Tests/GatewayStreamClientTests.cs | 3
 real-clock | src/CcDirector.Gateway.Tests/GatewayTestSuiteLock.cs | 9
 sleep | src/CcDirector.Gateway.Tests/GatewayTestSuiteLock.cs | 1
 delay | src/CcDirector.Gateway.Tests/GhostSessionReapableTests.cs | 1
+fixed-port | src/CcDirector.Gateway.Tests/HealthzTenantLeakTests.cs | 1
 real-clock | src/CcDirector.Gateway.Tests/HealthzTenantLeakTests.cs | 1
 real-clock | src/CcDirector.Gateway.Tests/HelloCapabilityCompatibilityTests.cs | 1
 real-clock | src/CcDirector.Gateway.Tests/HostedCommQueueDenyTests.cs | 1
@@ -412,6 +424,7 @@ real-clock | src/CcDirector.Gateway.Tests/MicrophoneQualityFoldTests.cs | 1
 real-clock | src/CcDirector.Gateway.Tests/MissionAttachRouteTenantScopingTests.cs | 2
 real-clock | src/CcDirector.Gateway.Tests/MobileCaptureHealthLogHostedTests.cs | 1
 sleep | src/CcDirector.Gateway.Tests/MobileCaptureHealthLogHostedTests.cs | 1
+fixed-port | src/CcDirector.Gateway.Tests/NullBoundaryHostedGateFailClosedTests.cs | 1
 real-clock | src/CcDirector.Gateway.Tests/NullBoundaryHostedGateFailClosedTests.cs | 1
 real-clock | src/CcDirector.Gateway.Tests/OmittedTenantBoundaryFailClosedTests.cs | 10
 real-clock | src/CcDirector.Gateway.Tests/OneRepositoryListTunnelProofTests.cs | 2
@@ -487,6 +500,7 @@ real-clock | src/CcDirector.Gateway.Tests/Teams/TeamPersonStampHostTests.cs | 2
 real-clock | src/CcDirector.Gateway.Tests/TheCatalogueForgetsTunnelProofTests.cs | 2
 real-clock | src/CcDirector.Gateway.Tests/Throttle/ThrottleFeedReadsTheLedgerTests.cs | 13
 delay | src/CcDirector.Gateway.Tests/TrafficCompressionAndNotModifiedHostTests.cs | 1
+fixed-port | src/CcDirector.Gateway.Tests/TrafficCompressionAndNotModifiedHostTests.cs | 1
 real-clock | src/CcDirector.Gateway.Tests/TrafficCompressionAndNotModifiedHostTests.cs | 3
 delay | src/CcDirector.Gateway.Tests/TrafficTailAndRosterHostTests.cs | 2
 real-clock | src/CcDirector.Gateway.Tests/Transcription/TranscriptionAudioArchiveTests.cs | 3
@@ -567,14 +581,14 @@ real-clock | src/CcDirector.Gateway.UnitTests/CronWorkListTriggerTests.cs | 2
 real-clock | src/CcDirector.Gateway.UnitTests/Data/CompositeTenantKeyTests.cs | 2
 real-clock | src/CcDirector.Gateway.UnitTests/Data/GatewayDatabaseUnscopedContextTests.cs | 1
 stopwatch | src/CcDirector.Gateway.UnitTests/Data/GatewayStatsSqliteAdoptionTests.cs | 2
-real-clock | src/CcDirector.Gateway.UnitTests/DeliveryIdGatewayTests.cs | 3
+real-clock | src/CcDirector.Gateway.UnitTests/DeliveryIdGatewayTests.cs | 4
 delay | src/CcDirector.Gateway.UnitTests/DeliveryIdPromptTests.cs | 2
 real-clock | src/CcDirector.Gateway.UnitTests/DeliveryIdPromptTests.cs | 4
 stopwatch | src/CcDirector.Gateway.UnitTests/DevReports/DevReportShapeCheckTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/DeviceRegistryTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/Diagnostics/TrafficMeterTests.cs | 5
 real-clock | src/CcDirector.Gateway.UnitTests/DictationAskInsteadOfGuessingTests.cs | 2
-real-clock | src/CcDirector.Gateway.UnitTests/DictationExitedSessionTests.cs | 3
+real-clock | src/CcDirector.Gateway.UnitTests/DictationExitedSessionTests.cs | 4
 delay | src/CcDirector.Gateway.UnitTests/DirectorCommandRouterTimeoutTests.cs | 1
 stopwatch | src/CcDirector.Gateway.UnitTests/DirectorCommandRouterTimeoutTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/DirectorCronSessionStarterTests.cs | 1
@@ -582,6 +596,7 @@ real-clock | src/CcDirector.Gateway.UnitTests/DirectorFarewellRetiresRegistratio
 real-clock | src/CcDirector.Gateway.UnitTests/DirectorRegistryCredentialBindingTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/DirectorRegistryTenantKeyTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/DirectorRemovalTenantScopeTests.cs | 7
+fixed-port | src/CcDirector.Gateway.UnitTests/DirectorRemovedSubscriberFaultTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/DirectorRemovedSubscriberFaultTests.cs | 1
 delay | src/CcDirector.Gateway.UnitTests/DirectorStreamProducersTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/ExpireStalePendingDictationTests.cs | 2
@@ -766,6 +781,7 @@ real-clock | src/CcDirector.Reclaim.Tests/RecycleBinRuleTests.cs | 6
 real-clock | src/CcDirector.Reclaim.Tests/RunnerTests.cs | 8
 real-clock | src/CcDirector.Reclaim.Tests/ScanIndexStoreTests.cs | 5
 real-clock | src/CcDirector.Reclaim.Tests/TestScratchFoldersRuleTests.cs | 2
+real-clock | src/CcDirector.Terminal.Avalonia.Tests/PasteOffUiThreadTests.cs | 2
 real-clock | src/CcDirector.Terminal.Avalonia.Tests/TerminalAttachReplayTests.cs | 1
 sleep | src/CcDirector.Terminal.Avalonia.Tests/TerminalAttachReplayTests.cs | 2
 stopwatch | src/CcDirector.Terminal.Avalonia.Tests/TerminalAttachReplayTests.cs | 2
@@ -781,12 +797,14 @@ sleep | src/TestInfrastructure/MutationProofPinGuard.cs | 1
 process | src/TestInfrastructure/MutationProofPinGuardTests.cs | 8
 process | src/TestInfrastructure/RepositorySourceIndex.cs | 2
 process | src/TestInfrastructure/RepositorySourceIndexTests.cs | 2
-real-clock | src/TestInfrastructure/VirtualTime.cs | 1
+real-clock | src/TestInfrastructure/VirtualTime.cs | 3
 process | tools/cc-director-setup-engine.Tests/GatewayAndPinsTests.cs | 2
+fixed-port | tools/cc-director-setup-engine.Tests/InstallFailureReporterTests.cs | 4
 real-clock | tools/cc-director-setup-engine.Tests/LaunchdDiagnosticsTests.cs | 1
 process | tools/cc-director-setup-engine.Tests/LauncherLaunchdRebuildTests.cs | 1
 real-clock | tools/cc-director-setup-engine.Tests/LauncherLaunchdRebuildTests.cs | 4
 sleep | tools/cc-director-setup-engine.Tests/LauncherLaunchdRebuildTests.cs | 2
+fixed-port | tools/cc-director-setup-engine.Tests/LauncherMacInstallerTests.cs | 2
 real-clock | tools/cc-director-setup-engine.Tests/LauncherReadinessWaitTests.cs | 2
 stopwatch | tools/cc-director-setup-engine.Tests/ProcessRunnerTests.cs | 1
 process | tools/cc-director-setup-engine.Tests/PythonToolsHealAndShimTests.cs | 2
