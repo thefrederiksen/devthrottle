@@ -1,0 +1,43 @@
+   0.2s  machine: the Windows machine (Windows), 2.1.296 (Claude Code)
+   0.8s  before: the isolated default folder is on account-a@example.com
+  32.5s    [list] count: 2 (active 1, spare 1)
+  32.5s    [list] accounts[2]{email,role,organization}:
+  32.5s    [list]   account-a@example.com,active,account-a@example.com's Organization
+  32.5s    [list]   account-c@example.com,spare,account-c@example.com's Organization
+  32.5s    [list] help[3]:
+  32.5s    [list]   cc-devthrottle license switch account-c@example.com
+  32.5s    [list]   cc-devthrottle license add <account-folder>
+  32.5s    [list]   cc-devthrottle license list --json
+  32.5s  starting claude -p (model claude-haiku-5-5) on the isolated default folder; it will run: python -c "import time; time.sleep(40)"
+  36.1s  tool call started: "python -c \"import time; time.sleep(40)\""
+  36.2s  call answered before the switch: status=allowed_warning, five-hour window resets 2026-10-11 20:20 UTC, weekly window resets 2026-10-17 19:00 UTC (81% used)
+  41.1s  the tool call is paused - exchanging the key now: license switch account-c@example.com
+  64.8s    [switch] Switched from account-a@example.com to account-c@example.com. Read back and verified: account-c@example.com is now the active account. account-a@example.com is kept as a spare.
+  64.8s    [switch] help[1]:
+  64.8s    [switch]   cc-devthrottle license list
+  64.8s  exchange returned; the running task's next call is the test
+  85.7s  reply: SECOND CALL OK
+  85.8s  call answered AFTER the switch: status=allowed_warning, five-hour window resets 2026-10-11 18:10 UTC, weekly window resets 2026-10-13 12:00 UTC (99% used)
+  85.8s  task finished: success SECOND CALL OK
+  86.0s  claude exited 0
+  86.5s  after: the isolated default folder is on account-c@example.com
+ 103.6s    [list] count: 2 (active 1, spare 1)
+ 103.6s    [list] accounts[2]{email,role,organization}:
+ 103.6s    [list]   account-c@example.com,active,account-c@example.com's Organization
+ 103.6s    [list]   account-a@example.com,spare,account-a@example.com's Organization
+ 103.6s    [list] help[3]:
+ 103.6s    [list]   cc-devthrottle license switch account-a@example.com
+ 103.6s    [list]   cc-devthrottle license add <account-folder>
+ 103.6s    [list]   cc-devthrottle license list --json
+ 103.6s  VERDICT
+ 103.6s    PASS  the exchange command succeeded
+ 103.6s    PASS  the running task made a call before the exchange
+ 103.6s    PASS  the running task made a call after the exchange
+ 103.6s    PASS  the folder reports the target account afterwards
+ 103.6s    PASS  the call after the exchange was answered by a DIFFERENT account (its own reset times)
+ 103.6s  PROOF PASSED
+ 103.6s  exchanging back to leave the folders as they were: license switch account-a@example.com
+ 118.0s    [switch back] Switched from account-c@example.com to account-a@example.com. Read back and verified: account-a@example.com is now the active account. account-c@example.com is kept as a spare.
+ 118.0s    [switch back] help[1]:
+ 118.0s    [switch back]   cc-devthrottle license list
+ 118.4s  restored: the isolated default folder is on account-a@example.com

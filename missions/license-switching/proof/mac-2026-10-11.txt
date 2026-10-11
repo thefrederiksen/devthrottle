@@ -1,0 +1,43 @@
+   0.1s  machine: the Mac (Darwin), 2.1.296 (Claude Code)
+   0.4s  before: the isolated default folder is on account-c@example.com
+   0.6s    [list] count: 2 (active 1, spare 1)
+   0.6s    [list] accounts[2]{email,role,organization}:
+   0.6s    [list]   account-c@example.com,active,account-c@example.com's Organization
+   0.6s    [list]   account-b@example.com,spare,account-b@example.com's Organization
+   0.6s    [list] help[3]:
+   0.6s    [list]   cc-devthrottle license switch account-b@example.com
+   0.6s    [list]   cc-devthrottle license add <account-folder>
+   0.6s    [list]   cc-devthrottle license list --json
+   0.6s  starting claude -p (model claude-haiku-5-5) on the isolated default folder; it will run: python3 -c "import time; time.sleep(40)"
+   2.4s  tool call started: "python3 -c \"import time; time.sleep(40)\""
+   2.4s  call answered before the switch: status=allowed_warning, five-hour window resets 2026-10-11 18:10 UTC, weekly window resets 2026-10-13 12:00 UTC (99% used)
+   7.4s  the tool call is paused - exchanging the key now: license switch account-b@example.com
+   7.8s    [switch] Switched from account-c@example.com to account-b@example.com. Read back and verified: account-b@example.com is now the active account. account-c@example.com is kept as a spare.
+   7.8s    [switch] help[1]:
+   7.8s    [switch]   cc-devthrottle license list
+   7.8s  exchange returned; the running task's next call is the test
+  43.8s  call answered AFTER the switch: status=rejected, five-hour window resets 2026-10-11 22:00 UTC, weekly window resets 2026-10-15 21:00 UTC (100% used)
+  43.8s  reply: You've hit your weekly limit - resets Oct 15 at 5pm (the account's time zone)
+  43.8s  task finished: success You've hit your weekly limit - resets Oct 15 at 5pm (the account's time zone)
+  44.0s  claude exited 1
+  44.2s  after: the isolated default folder is on account-b@example.com
+  44.3s    [list] count: 2 (active 1, spare 1)
+  44.3s    [list] accounts[2]{email,role,organization}:
+  44.3s    [list]   account-b@example.com,active,account-b@example.com's Organization
+  44.3s    [list]   account-c@example.com,spare,account-c@example.com's Organization
+  44.3s    [list] help[3]:
+  44.3s    [list]   cc-devthrottle license switch account-c@example.com
+  44.3s    [list]   cc-devthrottle license add <account-folder>
+  44.3s    [list]   cc-devthrottle license list --json
+  44.3s  VERDICT
+  44.3s    PASS  the exchange command succeeded
+  44.3s    PASS  the running task made a call before the exchange
+  44.3s    PASS  the running task made a call after the exchange
+  44.3s    PASS  the folder reports the target account afterwards
+  44.3s    PASS  the call after the exchange was answered by a DIFFERENT account (its own reset times)
+  44.3s  PROOF PASSED
+  44.3s  exchanging back to leave the folders as they were: license switch account-c@example.com
+  44.7s    [switch back] Switched from account-b@example.com to account-c@example.com. Read back and verified: account-c@example.com is now the active account. account-b@example.com is kept as a spare.
+  44.7s    [switch back] help[1]:
+  44.7s    [switch back]   cc-devthrottle license list
+  44.8s  restored: the isolated default folder is on account-c@example.com
