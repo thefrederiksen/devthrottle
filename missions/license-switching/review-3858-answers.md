@@ -72,5 +72,42 @@ The key store (#3857) has merged, and the interim reader is gone. `license usage
 now open the store exactly as `license list` does, list accounts with `held_accounts()`, read a key with
 `HeldAccount.read_key()`, and write a renewed key back with `LicenseStore.store_refreshed_key()`, which
 replaces it in the same place and logs `key-refreshed` in the store's log. The macOS Keychain is
-therefore covered by the store's own backend. The refresh lock now lives in the store's folder, never
-inside a spare folder, because the store moves and removes spare folders whole.
+therefore covered by the store's own backend.
+
+# Round 2 (`review-3858-round-2.md`, made on commit `2c882ffb6`)
+
+## Refresh can lose a rotated key during an exchange - ACCEPTED, fixed
+
+Both orders the reviewer reproduced were real. A refresh took only its own per-account lock, and a switch
+took only the store lock, so neither saw the other: a switch holding the store lock made the renewed key's
+write fail after the provider had already rotated it, and a switch that finished first left the refresh
+pointing at the emptied spare folder.
+
+The fix is the Tech Lead's recommendation: one lock. A refresh now takes the key store's own lock (the
+one every switch, add and remove takes) before it reads the refresh token, and keeps it until the
+renewed key is written. Under the lock it reads again where the account is now. The separate per-account
+refresh lock is deleted.
+
+- **A switch already running:** the refresh is `busy` and sends nothing, so no refresh token is spent.
+  `license usage --refresh` then reads the key as it is and leaves the renewal to the next round: a busy
+  store is not `refresh-failed`, which would bar a usable spare from being a switch target.
+- **A switch tried while the provider answers:** it is refused as `switch-in-progress`. The Director
+  retries it, and the retry moves the RENEWED key.
+- **A switch that finished before the refresh took the lock:** the account is now active, so the refresh
+  is refused before anything is sent. `license usage --refresh` reads it where it is now, in the default
+  folder.
+
+`LicenseStore` gains one public method, `exclusive()`, which returns the store's reentrant lock, so the
+refresh holds it across its reads and the store's own write without reaching into a private field.
+
+Tests (all five fail on `2c882ffb6`, and all 86 in `tests/test_license_usage.py` pass with the fix). The
+other process is the same store opened a second time, which takes its own handle on the lock file
+exactly as a separate Director process does:
+`test_refresh_spare_ASwitchHoldsTheStore_IsBusyAndSendsNothing`,
+`test_refresh_spare_ASwitchTriedWhileTheProviderAnswers_IsRefusedAndTheRotatedKeyIsKept`,
+`test_refresh_spare_ASwitchFinishedFirst_RefusesTheNowActiveAccountAndSendsNothing`,
+`test_read_with_refresh_ASwitchFinishedFirst_ReadsTheAccountWhereItIsNow`, and
+`test_read_with_refresh_StoreBusy_ReadsTheKeyAsItIsInsteadOfBarringIt`.
+
+What remains of the accepted loss window is only a process dying between the provider's answer and the
+write, as recorded in round 1. Ordinary lock contention can no longer cause it.

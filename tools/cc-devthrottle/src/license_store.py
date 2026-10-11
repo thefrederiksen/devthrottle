@@ -1061,6 +1061,16 @@ class LicenseStore:
                 reason_code=REASON_VERIFY_FAILED,
             )
 
+    def exclusive(self) -> "_StoreLock":
+        """The store lock, for a caller that must read, act and write as ONE step with no switch in between.
+
+        A key refresh needs it: between reading a spare's refresh token and writing the renewed key back, the
+        provider has already rotated the token, so a switch that moved the key in that gap would leave the
+        spent token behind. Holding this, every other operation on the store - in this process or another -
+        is refused with `switch-in-progress`. It is reentrant, so the store's own methods work inside it.
+        Raises LicenseStoreError (`switch-in-progress`) when another operation holds it."""
+        return self._lock
+
     def store_refreshed_key(self, email: str, credentials_json: str) -> None:
         """Write a refreshed key for ``email`` back into the folder that holds it (not a copy: it replaces the
         old key in the same place). ``credentials_json`` is the whole credentials document."""

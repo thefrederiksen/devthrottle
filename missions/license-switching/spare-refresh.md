@@ -53,8 +53,11 @@ All measured on account C:
 3. **Never renew the ACTIVE key.** Running sessions renew it themselves. A renewal from outside would
    kill their access token mid-turn and spend the refresh token they hold. `license refresh` refuses the
    active account.
-4. **One renewal at a time per spare** (a lock file in the spare's folder). Two renewals posting the same
-   refresh token would spend it twice and one answer would be lost.
+4. **A renewal holds the key store's lock from start to finish** - reading the refresh token, asking the
+   provider, writing the renewed key. The provider spends the old refresh token the moment it answers, so
+   a switch, or a second renewal, that touched the key in between would lose the renewed one. While the
+   lock is held, any other store operation is refused as `switch-in-progress`; a renewal that finds the
+   lock taken sends nothing and tries again on the next round.
 5. **A spare renewed every so often still dies about 30 days after its sign-in.** Renewing keeps the
    8-hour access token alive, not the sign-in. `signInExpiresAtUtc` is reported on every usage row so the
    Gateway and the page can warn before a spare needs a new sign-in. This is a new fact for the mission:

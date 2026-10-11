@@ -8,7 +8,6 @@ against the contract's LicenseHolding (missions/license-switching/contract.md se
 import json
 import logging
 import sys
-import time
 from pathlib import Path
 
 import pytest
@@ -194,7 +193,6 @@ def test_held_keys_AreTheKeyStoresAccountsActiveFirst(machine):
     assert [(k.account, k.role) for k in keys] == [
         ("Account-A@example.com", "active"), ("account-b@example.com", "spare")]
     assert keys[1].folder == Path(machine.spare_folder("account-b@example.com"))
-    assert keys[1].refresh_lock.parent == Path(machine.store_dir), "the lock is never inside a spare folder"
 
 
 def test_read_usage_AccountFileWithoutEmail_IsStoreUnreadable(machine):
@@ -237,7 +235,7 @@ def test_refresh_spare_DueKey_PostsLikeClaudeCodeAndWritesBackInPlace(machine):
     assert result.sign_in_expires_at_utc == license_usage.iso_utc(at + 2_000_000)
     assert stored["subscriptionType"] == "max", "the rest of the stored sign-in is kept"
     assert not list(key.folder.glob("*.tmp"))
-    assert not key.refresh_lock.exists()
+    _assert_store_lock_released(machine)
 
 
 def test_refresh_spare_NoRefreshTokenInAnswer_KeepsTheOldOne(machine):
@@ -285,7 +283,7 @@ def test_refresh_spare_NetworkFailure_IsNetworkAndKeyUnchanged(machine):
                                     now=lambda: NOW)
     assert err.value.kind == "network"
     assert _stored(key)["refreshToken"] == REFRESH_B
-    assert not key.refresh_lock.exists()
+    _assert_store_lock_released(machine)
 
 
 def test_refresh_spare_AnswerWithoutAccessToken_IsUnexpected(machine):
@@ -330,24 +328,81 @@ def test_refresh_spare_WritesThroughTheKeyStore_AndItLogsTheRefresh(machine):
         assert secret not in log_text
 
 
-def test_refresh_spare_AnotherRefreshRunning_IsBusy(machine):
+def _other_process(machine):
+    """The same store opened a second time: its lock is a separate handle on the lock file, exactly what
+    another process - a Director running a switch - holds."""
+    return LicenseStore(machine.default_config_dir, machine.store_dir, backend=FileKeyBackend())
+
+
+def _assert_store_lock_released(machine):
+    with _other_process(machine).exclusive():
+        pass
+
+
+def test_refresh_spare_ASwitchHoldsTheStore_IsBusyAndSendsNothing(machine):
     key = _key(machine, "account-b@example.com")
-    key.refresh_lock.write_text("1", encoding="ascii")
+    post = FakePost(_token_answer())
+    with _other_process(machine).exclusive():
+        with pytest.raises(RefreshError) as err:
+            license_usage.refresh_spare(key, force=True, http_post_json=post, now=lambda: NOW)
+    assert err.value.kind == "busy"
+    assert post.calls == [], "nothing was sent, so no refresh token was spent"
+    assert _stored(key)["refreshToken"] == REFRESH_B
+
+
+def test_refresh_spare_ASwitchTriedWhileTheProviderAnswers_IsRefusedAndTheRotatedKeyIsKept(machine):
+    """Review round 2, first order: before the fix the switch ran in this gap, the write was refused, and
+    the active folder ended with the spent refresh token."""
+    key = _key(machine, "account-b@example.com")
+    other = _other_process(machine)
+    refused = []
+
+    def provider_answers_while_a_switch_is_tried(url, payload, headers, timeout):
+        with pytest.raises(LicenseStoreError) as err:
+            other.switch("account-b@example.com")
+        refused.append(err.value.reason_code)
+        return _token_answer()
+
+    result = license_usage.refresh_spare(key, force=True, http_post_json=provider_answers_while_a_switch_is_tried,
+                                         now=lambda: NOW)
+    assert refused == ["switch-in-progress"]
+    assert result.refreshed and _stored(key)["refreshToken"] == NEW_REFRESH
+    # The switch the Director retries afterwards moves the RENEWED key: nothing spent is left anywhere.
+    other.switch("account-b@example.com")
+    active = json.loads((Path(machine.default_config_dir) / ".credentials.json").read_text(encoding="utf-8"))
+    assert active["claudeAiOauth"]["refreshToken"] == NEW_REFRESH
+
+
+def test_refresh_spare_ASwitchFinishedFirst_RefusesTheNowActiveAccountAndSendsNothing(machine):
+    """Review round 2, second order: the handle was made while B was a spare, then a switch made B active.
+    Before the fix the refresh went ahead and the handle was left pointing at the emptied spare folder."""
+    key = _key(machine, "account-b@example.com")
+    _other_process(machine).switch("account-b@example.com")
     post = FakePost(_token_answer())
     with pytest.raises(RefreshError) as err:
-        license_usage.refresh_spare(key, force=True, http_post_json=post, now=time.time)
-    assert err.value.kind == "busy"
+        license_usage.refresh_spare(key, force=True, http_post_json=post, now=lambda: NOW)
+    assert err.value.kind == "active"
     assert post.calls == []
-    assert key.refresh_lock.exists(), "a lock it does not own is left alone"
+    assert key.folder == Path(machine.default_config_dir), "the handle follows the account to where it is now"
 
 
-def test_refresh_spare_StaleLock_IsTakenOver(machine):
+def test_read_with_refresh_ASwitchFinishedFirst_ReadsTheAccountWhereItIsNow(machine):
     key = _key(machine, "account-b@example.com")
-    key.refresh_lock.write_text("1", encoding="ascii")
-    later = time.time() + license_usage.STALE_LOCK_SECONDS + 10
-    result = license_usage.refresh_spare(key, force=True, http_post_json=FakePost(_token_answer()), now=lambda: later)
-    assert result.refreshed
-    assert not key.refresh_lock.exists()
+    _other_process(machine).switch("account-b@example.com")
+    get = FakeGet(HttpAnswer(200, GOOD_BODY))
+    reading = license_usage.read_with_refresh(key, get, FakePost(_token_answer()), now=lambda: NOW + 3600 * 4.5)
+    assert reading.read_error is None
+    assert get.calls[0][1]["Authorization"] == f"Bearer {ACCESS_B}"
+
+
+def test_read_with_refresh_StoreBusy_ReadsTheKeyAsItIsInsteadOfBarringIt(machine):
+    key = _key(machine, "account-b@example.com")
+    get = FakeGet(HttpAnswer(200, GOOD_BODY))
+    post = FakePost(_token_answer())
+    with _other_process(machine).exclusive():
+        reading = license_usage.read_with_refresh(key, get, post, now=lambda: NOW + 3600 * 4.5)
+    assert reading.read_error is None, "a busy store is not refresh-failed: that would bar a usable spare"
+    assert post.calls == []
 
 
 def test_read_with_refresh_DueSpare_IsRenewedThenReadWithTheNewKey(machine):

@@ -63,9 +63,10 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Protocol
+from contextlib import contextmanager
+from typing import Any, Callable, ContextManager, Dict, Iterator, List, Optional, Protocol
 
-from .license_store import HeldAccount, LicenseStore, LicenseStoreError, spare_slug
+from .license_store import HeldAccount, LicenseStore, LicenseStoreError
 from .license_store import ROLE_ACTIVE as STORE_ROLE_ACTIVE
 
 log = logging.getLogger("cc_devthrottle.license_usage")
@@ -82,8 +83,6 @@ HTTP_TIMEOUT_SECONDS = 20
 #: A spare is refreshed when its access token has less than this left. The Director reads spares every
 #: ten minutes, so an hour leaves several chances before the token actually dies.
 REFRESH_MARGIN_SECONDS = 60 * 60
-#: A refresh lock older than this belongs to a refresh that died; it is taken over, and that is logged.
-STALE_LOCK_SECONDS = 5 * 60
 
 # The contract's read-error codes (LicenseReadErrors).
 UNAUTHORIZED = "unauthorized"
@@ -127,12 +126,20 @@ class KeyHandle(Protocol):
     account: str
     folder: Path
     role: str
-    #: Where the one-refresh-at-a-time lock for this account lives.
-    refresh_lock: Path
+
+    def exclusive(self) -> ContextManager[None]:
+        """Hold the key store's lock, and inside it bring `folder` and `role` up to date: no switch can
+        move this account's key while it is held. Raises StoreBusy when another operation holds it, and
+        StoreUnreadable when the account is no longer held."""
+        ...
 
     def read_oauth(self) -> Dict[str, Any]: ...
 
     def write_oauth(self, oauth: Dict[str, Any]) -> None: ...
+
+
+class StoreBusy(Exception):
+    """Another operation on the key store - a switch, an add, a remove - is running."""
 
 
 class StoreKey:
@@ -143,10 +150,34 @@ class StoreKey:
         self._held = held
         self._document: Optional[Dict[str, Any]] = None
         self.account = held.email or ""
+        self._take(held)
+
+    def _take(self, held: HeldAccount) -> None:
+        self._held = held
+        self._document = None
         self.folder = Path(held.config_dir)
         self.role = ROLE_ACTIVE if held.role == STORE_ROLE_ACTIVE else ROLE_SPARE
-        # In the store's own folder, not the spare's: the store moves and removes spare folders whole.
-        self.refresh_lock = Path(store.store_dir) / f"refresh-{spare_slug(self.account or 'unknown')}.lock"
+
+    @contextmanager
+    def exclusive(self) -> Iterator[None]:
+        try:
+            lock = self._store.exclusive()
+            lock.__enter__()
+        except LicenseStoreError as ex:
+            raise StoreBusy(str(ex)) from None
+        try:
+            # Where the account is NOW: a switch may have moved it since this handle was made.
+            try:
+                current = [h for h in self._store.held_accounts()
+                           if (h.email or "").lower() == self.account.lower()]
+            except LicenseStoreError as ex:
+                raise StoreUnreadable(str(ex)) from None
+            if not current:
+                raise StoreUnreadable(f"{self.account} is no longer held on this machine.")
+            self._take(current[0])
+            yield
+        finally:
+            lock.__exit__(None, None, None)
 
     def read_oauth(self) -> Dict[str, Any]:
         try:
@@ -436,10 +467,16 @@ def read_with_refresh(key: KeyHandle, http_get: HttpGet = _requests_get,
         try:
             refresh_spare(key, http_post_json=http_post_json or _requests_post_json, now=now)
         except RefreshError as ex:
-            reading = _new_reading(key)
             if ex.kind == STORE_UNREADABLE:
-                return _failed(reading, STORE_UNREADABLE, str(ex))
-            return _failed(reading, REFRESH_FAILED, str(ex))
+                return _failed(_new_reading(key), STORE_UNREADABLE, str(ex))
+            if ex.kind == BUSY:
+                # A switch is running: nothing was sent, so the key is as good as it was. It is read as it
+                # is and renewed on the next round. Calling it refresh-failed would bar a usable spare.
+                log.info("usage %s: refresh skipped, the key store is busy", key.account.lower())
+            elif ex.kind != REFUSED_ACTIVE:
+                # REFUSED_ACTIVE: a switch made this account active since the list was read; the sessions
+                # now keep it fresh, so it is simply read.
+                return _failed(_new_reading(key), REFRESH_FAILED, str(ex))
     return read_usage(key, http_get, now)
 
 
@@ -478,41 +515,6 @@ class RefreshResult:
         }
 
 
-class _RefreshLock:
-    """One refresh at a time per spare folder: two refreshes posting the same refresh token would spend
-    it twice, and the loser's answer is lost. A lock left by a refresh that died is taken over after
-    STALE_LOCK_SECONDS."""
-
-    def __init__(self, path: Path, now: Callable[[], float]) -> None:
-        self._path = path
-        self._now = now
-        self._held = False
-
-    def __enter__(self) -> "_RefreshLock":
-        try:
-            self._create()
-        except FileExistsError:
-            age = self._now() - self._path.stat().st_mtime
-            if age < STALE_LOCK_SECONDS:
-                raise RefreshError(
-                    BUSY, f"Another refresh of this spare is running (lock {self._path}, {int(age)} seconds old)."
-                ) from None
-            log.warning("refresh: taking over a stale lock %s (%d seconds old)", self._path, int(age))
-            self._path.unlink()
-            self._create()
-        self._held = True
-        return self
-
-    def _create(self) -> None:
-        fd = os.open(str(self._path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        with os.fdopen(fd, "w", encoding="ascii") as handle:
-            handle.write(str(os.getpid()))
-
-    def __exit__(self, *exc: object) -> None:
-        if self._held:
-            self._path.unlink()
-
-
 def refresh_spare(
     key: KeyHandle,
     *,
@@ -521,97 +523,115 @@ def refresh_spare(
     now: Callable[[], float] = time.time,
 ) -> RefreshResult:
     """Renew a spare's access token in the spare's own folder, when it has under REFRESH_MARGIN_SECONDS
-    left (or always, with `force`). Raises RefreshError; never leaves a half-done refresh unreported."""
+    left (or always, with `force`). Raises RefreshError; never leaves a half-done refresh unreported.
+
+    The whole refresh - read the refresh token, ask the provider, write the renewed key - runs while the key
+    store's lock is held (`key.exclusive()`). The provider spends the old refresh token the moment it
+    answers, so a switch that moved the key between that answer and the write would leave the spent token
+    behind with the new one nowhere. Holding the store lock, no switch can start; a switch already running
+    makes this refresh `busy` before anything is sent; and the folder and role are read under the lock, so
+    an account a finished switch made active is refused rather than refreshed in its old folder.
+    """
     account = key.account.lower()
+    try:
+        with key.exclusive():
+            return _refresh_holding_the_lock(key, account, force, http_post_json, now)
+    except StoreBusy as ex:
+        raise RefreshError(BUSY, f"The key store is busy, so {account} was not refreshed this time: {ex}") from None
+    except StoreUnreadable as ex:
+        raise RefreshError(STORE_UNREADABLE, str(ex)) from None
+
+
+def _refresh_holding_the_lock(key: KeyHandle, account: str, force: bool, http_post_json: HttpPostJson,
+                              now: Callable[[], float]) -> RefreshResult:
     if key.role != ROLE_SPARE:
         raise RefreshError(
             REFUSED_ACTIVE,
             f"{account} is the ACTIVE account. The Claude Code sessions using it renew its key themselves, "
             "and a second renewal would rotate the key from under them.",
         )
-    with _RefreshLock(key.refresh_lock, now):
-        try:
-            oauth = key.read_oauth()
-        except StoreUnreadable as ex:
-            raise RefreshError(STORE_UNREADABLE, str(ex)) from None
-        refresh_token = oauth.get("refreshToken")
-        if not isinstance(refresh_token, str) or not refresh_token:
-            raise RefreshError(STORE_UNREADABLE, f"The stored sign-in for {account} has no refresh token.")
-        sign_in_ends = _millis_to_seconds(oauth.get("refreshTokenExpiresAt"))
-        expires = _millis_to_seconds(oauth.get("expiresAt"))
-        left = None if expires is None else expires - now()
-        if not force and left is not None and left > REFRESH_MARGIN_SECONDS:
-            log.info("refresh %s: not needed (%d minutes left)", account, int(left // 60))
-            return RefreshResult(account, str(key.folder), False, "not-needed", iso_utc(expires),
-                                 sign_in_expires_at_utc=None if sign_in_ends is None else iso_utc(sign_in_ends))
+    try:
+        oauth = key.read_oauth()
+    except StoreUnreadable as ex:
+        raise RefreshError(STORE_UNREADABLE, str(ex)) from None
+    refresh_token = oauth.get("refreshToken")
+    if not isinstance(refresh_token, str) or not refresh_token:
+        raise RefreshError(STORE_UNREADABLE, f"The stored sign-in for {account} has no refresh token.")
+    sign_in_ends = _millis_to_seconds(oauth.get("refreshTokenExpiresAt"))
+    expires = _millis_to_seconds(oauth.get("expiresAt"))
+    left = None if expires is None else expires - now()
+    if not force and left is not None and left > REFRESH_MARGIN_SECONDS:
+        log.info("refresh %s: not needed (%d minutes left)", account, int(left // 60))
+        return RefreshResult(account, str(key.folder), False, "not-needed", iso_utc(expires),
+                             sign_in_expires_at_utc=None if sign_in_ends is None else iso_utc(sign_in_ends))
 
-        scopes = oauth.get("scopes")
-        payload: Dict[str, Any] = {
-            "grant_type": "refresh_token",
-            "refresh_token": refresh_token,
-            "client_id": oauth.get("clientId") or CLAUDE_CODE_CLIENT_ID,
-        }
-        if isinstance(scopes, list) and scopes:
-            payload["scope"] = " ".join(str(s) for s in scopes)
-        headers = {"Content-Type": "application/json", "User-Agent": USER_AGENT}
-        log.info("refresh %s: renewing (%s left)", account,
-                 "unknown time" if left is None else f"{int(left // 60)} minutes")
-        try:
-            answer = http_post_json(TOKEN_URL, payload, headers, HTTP_TIMEOUT_SECONDS)
-        except NetworkFailure as ex:
-            raise RefreshError(NETWORK, f"The token endpoint was not reached ({_network_kind(ex)}).") from None
-        if answer.status in (400, 401, 403):
-            # Measured: a spent or revoked refresh token answers 400 invalid_grant.
-            raise RefreshError(
-                UNAUTHORIZED,
-                f"The token endpoint refused the refresh token for {account} (HTTP {answer.status}"
-                f"{_oauth_error_code(answer.body)}); this spare needs a new sign-in.",
-            )
-        if answer.status == 429:
-            raise RefreshError(RATE_LIMITED, "The token endpoint asked for fewer requests (HTTP 429).")
-        if answer.status != 200:
-            raise RefreshError(UNEXPECTED_ANSWER, f"The token endpoint answered HTTP {answer.status}.")
-        try:
-            body = json.loads(answer.body.decode("utf-8"))
-        except (ValueError, UnicodeDecodeError):
-            raise RefreshError(UNEXPECTED_ANSWER, "The token endpoint's answer is not JSON.") from None
-        new_access = body.get("access_token") if isinstance(body, dict) else None
-        expires_in = body.get("expires_in") if isinstance(body, dict) else None
-        if not isinstance(new_access, str) or not new_access or isinstance(expires_in, bool) \
-                or not isinstance(expires_in, (int, float)):
-            raise RefreshError(UNEXPECTED_ANSWER, "The token endpoint's answer lacks access_token or expires_in.")
-        new_refresh = body.get("refresh_token")
-        rotated = isinstance(new_refresh, str) and bool(new_refresh) and new_refresh != refresh_token
+    scopes = oauth.get("scopes")
+    payload: Dict[str, Any] = {
+        "grant_type": "refresh_token",
+        "refresh_token": refresh_token,
+        "client_id": oauth.get("clientId") or CLAUDE_CODE_CLIENT_ID,
+    }
+    if isinstance(scopes, list) and scopes:
+        payload["scope"] = " ".join(str(s) for s in scopes)
+    headers = {"Content-Type": "application/json", "User-Agent": USER_AGENT}
+    log.info("refresh %s: renewing (%s left)", account,
+             "unknown time" if left is None else f"{int(left // 60)} minutes")
+    try:
+        answer = http_post_json(TOKEN_URL, payload, headers, HTTP_TIMEOUT_SECONDS)
+    except NetworkFailure as ex:
+        raise RefreshError(NETWORK, f"The token endpoint was not reached ({_network_kind(ex)}).") from None
+    if answer.status in (400, 401, 403):
+        # Measured: a spent or revoked refresh token answers 400 invalid_grant.
+        raise RefreshError(
+            UNAUTHORIZED,
+            f"The token endpoint refused the refresh token for {account} (HTTP {answer.status}"
+            f"{_oauth_error_code(answer.body)}); this spare needs a new sign-in.",
+        )
+    if answer.status == 429:
+        raise RefreshError(RATE_LIMITED, "The token endpoint asked for fewer requests (HTTP 429).")
+    if answer.status != 200:
+        raise RefreshError(UNEXPECTED_ANSWER, f"The token endpoint answered HTTP {answer.status}.")
+    try:
+        body = json.loads(answer.body.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        raise RefreshError(UNEXPECTED_ANSWER, "The token endpoint's answer is not JSON.") from None
+    new_access = body.get("access_token") if isinstance(body, dict) else None
+    expires_in = body.get("expires_in") if isinstance(body, dict) else None
+    if not isinstance(new_access, str) or not new_access or isinstance(expires_in, bool) \
+            or not isinstance(expires_in, (int, float)):
+        raise RefreshError(UNEXPECTED_ANSWER, "The token endpoint's answer lacks access_token or expires_in.")
+    new_refresh = body.get("refresh_token")
+    rotated = isinstance(new_refresh, str) and bool(new_refresh) and new_refresh != refresh_token
 
-        answered_at = now()
-        updated = dict(oauth)
-        updated["accessToken"] = new_access
-        if isinstance(new_refresh, str) and new_refresh:
-            updated["refreshToken"] = new_refresh
-        new_expires = answered_at + float(expires_in)
-        updated["expiresAt"] = int(new_expires * 1000)
-        refresh_lives = body.get("refresh_token_expires_in")
-        if not isinstance(refresh_lives, bool) and isinstance(refresh_lives, (int, float)):
-            sign_in_ends = answered_at + float(refresh_lives)
-            updated["refreshTokenExpiresAt"] = int(sign_in_ends * 1000)
-        granted = body.get("scope")
-        if isinstance(granted, str) and granted.strip():
-            updated["scopes"] = granted.split()
-        # The server has already spent the old refresh token, so if this write fails the spare is
-        # lost; the error says so plainly rather than leaving it to be found at 3 AM.
-        try:
-            key.write_oauth(updated)
-        except (OSError, KeyWriteFailed) as ex:
-            failure = str(ex) if isinstance(ex, KeyWriteFailed) else type(ex).__name__
-            raise RefreshError(
-                UNEXPECTED_ANSWER,
-                f"The renewed key for {account} could not be written ({failure}); "
-                + ("the server rotated the refresh token, so this spare needs a new sign-in."
-                   if rotated else "the stored key is unchanged."),
-            ) from None
-        log.info("refresh %s: renewed, expires %s, refresh token rotated: %s", account, iso_utc(new_expires), rotated)
-        return RefreshResult(account, str(key.folder), True, "forced" if force else "due", iso_utc(new_expires),
-                             rotated, None if sign_in_ends is None else iso_utc(sign_in_ends))
+    answered_at = now()
+    updated = dict(oauth)
+    updated["accessToken"] = new_access
+    if isinstance(new_refresh, str) and new_refresh:
+        updated["refreshToken"] = new_refresh
+    new_expires = answered_at + float(expires_in)
+    updated["expiresAt"] = int(new_expires * 1000)
+    refresh_lives = body.get("refresh_token_expires_in")
+    if not isinstance(refresh_lives, bool) and isinstance(refresh_lives, (int, float)):
+        sign_in_ends = answered_at + float(refresh_lives)
+        updated["refreshTokenExpiresAt"] = int(sign_in_ends * 1000)
+    granted = body.get("scope")
+    if isinstance(granted, str) and granted.strip():
+        updated["scopes"] = granted.split()
+    # The server has already spent the old refresh token, so if this write fails the spare is
+    # lost; the error says so plainly rather than leaving it to be found at 3 AM.
+    try:
+        key.write_oauth(updated)
+    except (OSError, KeyWriteFailed) as ex:
+        failure = str(ex) if isinstance(ex, KeyWriteFailed) else type(ex).__name__
+        raise RefreshError(
+            UNEXPECTED_ANSWER,
+            f"The renewed key for {account} could not be written ({failure}); "
+            + ("the server rotated the refresh token, so this spare needs a new sign-in."
+               if rotated else "the stored key is unchanged."),
+        ) from None
+    log.info("refresh %s: renewed, expires %s, refresh token rotated: %s", account, iso_utc(new_expires), rotated)
+    return RefreshResult(account, str(key.folder), True, "forced" if force else "due", iso_utc(new_expires),
+                         rotated, None if sign_in_ends is None else iso_utc(sign_in_ends))
 
 
 #: The OAuth error codes (RFC 6749 section 5.2) a refusal may name. Only these are ever repeated: any
