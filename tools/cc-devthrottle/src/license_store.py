@@ -176,17 +176,26 @@ def account_file_for(folder: str) -> Path:
     return Path(folder) / ACCOUNT_FILE
 
 
-def absolute_as_given(folder: str | os.PathLike, what: str) -> str:
-    """``folder`` exactly as given, refused unless it is absolute.
+def canonical_folder(folder: str | os.PathLike, what: str) -> str:
+    """``folder`` exactly as given, refused unless it is in the one canonical form: absolute, no trailing
+    separator, no ``.`` or ``..`` segment, no doubled separator (on Windows, backslashes).
 
-    It is NOT made absolute or tidied: on macOS the Keychain service is a hash of the exact string
-    CLAUDE_CONFIG_DIR is set to, so a folder rewritten here would name an item Claude Code never reads. A
-    relative path is refused rather than resolved, because Claude Code would hash it relative, as typed."""
+    Measured on the Mac with Claude Code 2.1.296: the Keychain service is a hash of the RAW CLAUDE_CONFIG_DIR
+    string (after normal form C), so a relative path, a trailing slash, ``./`` or ``..`` each name a different
+    item. Rewriting a folder here would name an item Claude Code never reads, and accepting several spellings
+    of one folder would give it several names - so exactly one spelling is accepted and hashed as it is."""
     text = os.fspath(folder)
     if not text or not os.path.isabs(text):
         raise LicenseStoreError(
             f"{what} must be an absolute path, written exactly as CLAUDE_CONFIG_DIR is set; got {text!r}",
             ["Pass the full path, e.g. --default-config-dir /full/path/to/folder"],
+        )
+    canonical = os.path.normpath(text)
+    if canonical != text or canonical == os.path.dirname(canonical):
+        raise LicenseStoreError(
+            f"{what} must be written in its one canonical form (no trailing separator, no . or .. segment, no "
+            f"doubled separator, not the root); got {text!r}",
+            [f"Pass it as: {canonical}" if canonical != os.path.dirname(canonical) else "Pass a folder below the root"],
         )
     return text
 
@@ -558,8 +567,8 @@ class LicenseStore:
         allow_real_default: bool = False,
         checkpoint: Optional[Checkpoint] = None,
     ):
-        self.default_config_dir = absolute_as_given(default_config_dir, "the default config folder")
-        self.store_dir = absolute_as_given(store_dir, "the store folder")
+        self.default_config_dir = canonical_folder(default_config_dir, "the default config folder")
+        self.store_dir = canonical_folder(store_dir, "the store folder")
         if is_real_default(self.default_config_dir) and not allow_real_default:
             raise LicenseStoreError(
                 f"refusing to use the machine's real default Claude folder ({self.default_config_dir}): "
@@ -839,7 +848,7 @@ class LicenseStore:
     def add(self, source_folder: str | os.PathLike) -> HeldAccount:
         """Take the sign-in from ``source_folder`` (a folder ``claude auth login`` was run into) as a spare. The
         key and account block MOVE: the source folder no longer holds them afterwards."""
-        source = absolute_as_given(source_folder, "the folder to add")
+        source = canonical_folder(source_folder, "the folder to add")
         with self._lock:
             self.recover()
             if is_real_default(source) or _same_folder(source, self.default_config_dir):

@@ -41,20 +41,45 @@ All run on both backends. With the check removed, four of the review tests fail.
 
 **Accepted in part.**
 
-- **Relative paths and tidied paths: accepted.** The store no longer makes a folder absolute or tidies
-  it. The default folder, the store folder and an added folder are used exactly as given, which is the
-  string Claude Code hashes. A relative folder is refused with a clear error rather than resolved,
-  because Claude Code would hash it as typed, relative to wherever it was started.
-  - `test_store_FolderIsHashedExactlyAsGiven_NotTidied`: a trailing separator is kept and hashed.
-  - `test_store_RelativeFolder_IsRefused`: the default, store and added folders are each refused.
-  - With the old absolute-path conversion put back, the trailing-separator test fails.
-- **Unicode normal form C: declined.** Claude Code itself normalizes before hashing. Read from the
-  installed Claude Code 2.1.296 binary, its config folder is
+**The evidence.** Two sources agree.
+
+- **Measured on the Mac** with Claude Code 2.1.296, by the live-proof seat: the Keychain service is
+  `Claude Code-credentials-` + the first 8 hex of the SHA-256 of the RAW `CLAUDE_CONFIG_DIR` string,
+  after Unicode normal form C. A relative path, a trailing slash, `./` or `..` each give a different
+  service name.
+- **Read from the same version's binary**, its config folder is
   `ve = memo(() => (process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude")).normalize("NFC"))`,
-  and the Keychain service is `Claude Code-credentials-` + `sha256(ve()).hex[0:8]` whenever
-  `CLAUDE_CONFIG_DIR` is set. So the "direct hash" of a decomposed path is not what Claude Code
-  computes; the normalized one is. `test_keychain_ServiceName_NormalFormCLikeClaudeCode` pins this. If
-  the live measurement on the Mac shows otherwise, the change is one line in `keychain_service_for`.
+  hashed when `CLAUDE_CONFIG_DIR` is set, with no resolving.
+
+**Making a folder absolute before hashing: accepted.** That was wrong. Fixed by `canonical_folder`:
+every folder the store manages (the default config folder, the store folder, and a folder being added)
+is accepted in exactly one form:
+
+- absolute;
+- no trailing separator;
+- no `.` or `..` segment;
+- no doubled separator;
+- not the root.
+
+Anything else is refused with a clear error naming the canonical spelling to use. The accepted string is
+hashed exactly as given, never rewritten. One spelling per folder also means one Keychain name per folder.
+
+Tests:
+
+- `test_store_NonCanonicalFolder_IsRefusedNamingTheCanonicalForm` covers a trailing separator, a `.`
+  segment, a `..` segment and a doubled separator, each for the default, store and added folder.
+- `test_store_RelativeFolder_IsRefused` and `test_store_RootFolder_IsRefused`.
+- `test_store_CanonicalFolderIsHashedExactlyAsGiven`.
+- `test_realDefault_IsRefused_InEverySpelling`.
+- With the canonical check removed, all 13 refusal tests fail.
+
+**Unicode normal form C: declined,** per the measurement above. Claude Code normalizes before hashing,
+so the store does the same:
+
+- `test_keychain_ServiceName_NormalFormCLikeClaudeCode`: a decomposed and a composed path name the same
+  item.
+- `test_store_DecomposedUnicodeFolder_IsAcceptedAndHashedInNormalFormC`: a path written in decomposed
+  form (NFD) is accepted and hashed in normal form C.
 
 ## P2 - A crash during remove leaves `oauthAccount` behind permanently
 

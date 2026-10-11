@@ -20,6 +20,7 @@ import json
 import os
 import re
 import sys
+import unicodedata
 from pathlib import Path
 
 import pytest
@@ -762,15 +763,55 @@ def test_keychain_ServiceName_NormalFormCLikeClaudeCode():
     assert keychain_service_for(decomposed) == expected == keychain_service_for(composed)
 
 
-def test_store_FolderIsHashedExactlyAsGiven_NotTidied(tmp_path):
-    # A trailing separator changes what Claude Code hashes, so the store must not tidy it away.
+def test_store_CanonicalFolderIsHashedExactlyAsGiven(tmp_path):
     world = World(tmp_path, "keychain")
-    given = world.default + os.sep
-    store = LicenseStore(given, world.store_dir, world.backend())
-    world.sign_in(given, ACCOUNT_A)
+    store = LicenseStore(world.default, world.store_dir, world.backend())
+    world.sign_in(world.default, ACCOUNT_A)
     (account,) = store.held_accounts()
-    assert account.config_dir == given
-    assert account.key_location == "Claude Code-credentials-" + hashlib.sha256(given.encode("utf-8")).hexdigest()[:8]
+    assert account.config_dir == world.default
+    expected = "Claude Code-credentials-" + hashlib.sha256(world.default.encode("utf-8")).hexdigest()[:8]
+    assert account.key_location == expected
+
+
+def test_store_DecomposedUnicodeFolder_IsAcceptedAndHashedInNormalFormC(tmp_path):
+    # Measured on the Mac: Claude Code hashes the raw CLAUDE_CONFIG_DIR string after normal form C.
+    world = World(tmp_path, "keychain")
+    decomposed = os.path.join(str(tmp_path), "café")
+    store = LicenseStore(decomposed, world.store_dir, world.backend())
+    world.sign_in(decomposed, ACCOUNT_A)
+    (account,) = store.held_accounts()
+    composed = unicodedata.normalize("NFC", decomposed)
+    assert account.key_location == "Claude Code-credentials-" + hashlib.sha256(composed.encode("utf-8")).hexdigest()[:8]
+
+
+#: Every spelling of a folder other than the canonical one names a different Keychain item, so each is refused.
+_NON_CANONICAL = {
+    "trailing separator": lambda base: base + os.sep,
+    "dot segment": lambda base: os.path.dirname(base) + os.sep + "." + os.sep + os.path.basename(base),
+    "dot-dot segment": lambda base: base + os.sep + "x" + os.sep + "..",
+    "doubled separator": lambda base: os.path.dirname(base) + os.sep + os.sep + os.path.basename(base),
+}
+
+
+@pytest.mark.parametrize("which", ["default", "store", "add"])
+@pytest.mark.parametrize("form", sorted(_NON_CANONICAL))
+def test_store_NonCanonicalFolder_IsRefusedNamingTheCanonicalForm(tmp_path, which, form):
+    default, store_dir, source = str(tmp_path / "d"), str(tmp_path / "s"), str(tmp_path / "login")
+    bad = _NON_CANONICAL[form](str(tmp_path / ("d" if which == "default" else "s" if which == "store" else "login")))
+    if which == "add":
+        with pytest.raises(LicenseStoreError, match="canonical form") as refused:
+            LicenseStore(default, store_dir, FileKeyBackend()).add(bad)
+    else:
+        with pytest.raises(LicenseStoreError, match="canonical form") as refused:
+            LicenseStore(bad if which == "default" else default, bad if which == "store" else store_dir,
+                         FileKeyBackend())
+    assert os.path.normpath(bad) in refused.value.next_steps[0]
+
+
+def test_store_RootFolder_IsRefused(tmp_path):
+    root = os.path.abspath(os.sep)
+    with pytest.raises(LicenseStoreError, match="canonical form"):
+        LicenseStore(root, str(tmp_path / "s"), FileKeyBackend())
 
 
 @pytest.mark.parametrize("which", ["default", "store", "add"])
@@ -883,9 +924,14 @@ def test_realDefault_IsRefused_BeforeAnythingIsRead(tmp_path):
     assert not (tmp_path / "store").exists()
 
 
-def test_realDefault_IsRefused_EvenWithATrailingSeparator(tmp_path):
-    with pytest.raises(LicenseStoreError, match="real default"):
-        LicenseStore(str(Path.home() / ".claude") + "/", tmp_path / "store", FileKeyBackend())
+def test_realDefault_IsRefused_InEverySpelling(tmp_path):
+    # Spelled canonically it is the real default; spelled any other way it is not a canonical folder. Either
+    # way it is refused before anything is read or created.
+    home = str(Path.home() / ".claude")
+    for spelling in (home, home + os.sep, os.path.dirname(home) + os.sep + "." + os.sep + ".claude"):
+        with pytest.raises(LicenseStoreError, match="real default|canonical form"):
+            LicenseStore(spelling, str(tmp_path / "store"), FileKeyBackend())
+    assert not (tmp_path / "store").exists()
 
 
 def test_storeInsideDefault_IsRefused(tmp_path):
