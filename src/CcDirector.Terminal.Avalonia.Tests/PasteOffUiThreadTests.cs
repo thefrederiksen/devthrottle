@@ -68,13 +68,14 @@ public sealed class PasteOffUiThreadTests
         // first chunk until the pin is released proves the pin genuinely saturates the UI thread -
         // otherwise the first test would pass for the wrong reason (a pin that never bit).
         //
-        // The order has to be forced, not hoped for. The pacing's wait between chunks is a task the test
-        // completes by hand, from off the UI thread, only once the pin is held: completing it posts the
-        // second chunk's continuation onto the pinned dispatcher, and ONLY THEN is the pin released. So
-        // the second chunk can go out before the pin has ended only if its continuation never needed the
-        // UI thread - which is exactly the condition that would make the first test meaningless. (A first
-        // version of this test released the pin as soon as it was held, and the second chunk arrived 15 ms
-        // later whatever was pinned: the review reproduced a pass with the UI thread left completely free.)
+        // The order is forced, not hoped for. The pacing's wait between chunks is a task the test completes
+        // by hand, from off the UI thread, only once the pin is held: completing it posts the second chunk's
+        // continuation onto the pinned dispatcher, and only then is the pin released, so the second chunk
+        // goes out after the pin has ended. That the pin really held the dispatcher is proven by the pin job
+        // itself, which refuses to spin anywhere but on the UI thread (see PinUiThreadUntil) - order alone
+        // cannot prove it, because a pin that held nothing still ends a few microseconds before a freed UI
+        // thread gets to the chunk. (A first version of this test leaned on the order alone, and the review
+        // reproduced a pass with the UI thread left completely free.)
         var text = new string('x', PasteLen);
 
         using var release = new ManualResetEventSlim(false);
@@ -133,12 +134,25 @@ public sealed class PasteOffUiThreadTests
     /// completely. <paramref name="pinning"/>, when given, is set the moment the spin begins, and
     /// <paramref name="ended"/> the moment it stops, before the job returns the thread to the dispatcher.
     /// The task says what ended the pin: the signal, or the hang guard.
+    ///
+    /// <para>The job proves it IS the pin before it spins: it has to be running on the UI thread, because
+    /// a dispatcher runs one job at a time on that one thread, so a job spinning there is the one fact that
+    /// makes every other dispatcher job wait. A pin that found itself anywhere else fails both tests
+    /// instead of pinning nothing - the review ran this very mutation (the spin moved to a pool thread,
+    /// the UI thread left free) and the first version of this file passed it.</para>
     /// </summary>
     private static Task<PinEnd> PinUiThreadUntil(ManualResetEventSlim until, ManualResetEventSlim? pinning = null, ManualResetEventSlim? ended = null)
     {
         var tcs = new TaskCompletionSource<PinEnd>();
         Dispatcher.UIThread.Post(() =>
         {
+            if (!Dispatcher.UIThread.CheckAccess())
+            {
+                ended?.Set();
+                tcs.SetException(new InvalidOperationException(
+                    "the pin is not running on the UI thread, so it pins nothing and neither test can prove anything"));
+                return;
+            }
             pinning?.Set();
             var deadline = Environment.TickCount64 + (long)HangGuard.TotalMilliseconds;
             var endedBy = PinEnd.HangGuard;
