@@ -52,9 +52,9 @@ public sealed class HeldDeliveryReachabilityTests : IDisposable
     private readonly Streaming.PushedSessionStore _pushed;
     private readonly TranscribingSessions _marks = new();
     private readonly CountingTranscriptHandler _transcriber = new(SpokenWords);
-    private readonly AheadClock _clock = new();
     private readonly List<DirectorCommand> _commands = new();
     private readonly DateTime _sentAt = DateTime.UtcNow;
+    private readonly AheadClock _clock;
     private DictationDelivery? _delivery;
 
     /// <summary>How the Director answers the prompt verb. Null means the command never left this Gateway.</summary>
@@ -64,6 +64,7 @@ public sealed class HeldDeliveryReachabilityTests : IDisposable
 
     public HeldDeliveryReachabilityTests()
     {
+        _clock = new AheadClock(_sentAt);
         _vaultPath = Path.Combine(_root, "keyvault.json");
         Directory.CreateDirectory(_root);
         _store = new VoiceUploadStore(Path.Combine(_root, "uploads"), TenantId.Local);
@@ -900,12 +901,21 @@ public sealed class HeldDeliveryReachabilityTests : IDisposable
 
     /// <summary>The real clock moved ahead by <see cref="Ahead"/>, or pinned to <see cref="Fixed"/> when a boundary must be
     /// exact: every limit is judged by it.</summary>
+    /// <summary>
+    /// The delivery's clock: the moment the recording was sent, plus whatever the test puts it ahead by, or a fixed
+    /// instant. It used to be the REAL clock plus the offset, which drifted away from the send time by however long
+    /// the test had been running: on a loaded machine "299 seconds after the send" read as past the five-minute limit
+    /// and the recording was ruled unconfirmed one wake-up early (Values differ, nine failures in 96 runs). Nothing in
+    /// the test needs real time to pass, so the clock no longer reads it.
+    /// </summary>
     private sealed class AheadClock : TimeProvider
     {
+        private readonly DateTime _sentAt;
+        public AheadClock(DateTime sentAt) => _sentAt = DateTime.SpecifyKind(sentAt, DateTimeKind.Utc);
         public TimeSpan Ahead;
         public DateTime? Fixed;
         public override DateTimeOffset GetUtcNow()
-            => Fixed is { } at ? new DateTimeOffset(DateTime.SpecifyKind(at, DateTimeKind.Utc)) : DateTimeOffset.UtcNow + Ahead;
+            => Fixed is { } at ? new DateTimeOffset(DateTime.SpecifyKind(at, DateTimeKind.Utc)) : new DateTimeOffset(_sentAt) + Ahead;
     }
 
     private sealed class CountingTranscriptHandler : HttpMessageHandler
