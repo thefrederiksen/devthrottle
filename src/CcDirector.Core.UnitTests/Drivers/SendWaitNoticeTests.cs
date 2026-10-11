@@ -1,4 +1,5 @@
 using CcDirector.Core.Drivers;
+using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
 namespace CcDirector.Core.UnitTests.Drivers;
@@ -69,14 +70,16 @@ public sealed class SendWaitNoticeTests : IDisposable
     [Fact]
     public async Task SendTextAsync_PasteTakenInSlowly_TheWaitSaysWhatItWaitsFor()
     {
-        // Arrange: a working Claude Code that draws the paste only after seven seconds - longer than the notice.
+        // Arrange: a working Claude Code that draws the paste only after seven seconds - longer than the notice. The
+        // seconds are the send's own clock, advanced by the test, so the notice fires at the same virtual moment the wait does.
+        var clock = VirtualTime.NewClock();
         var dir = Path.Combine(Path.GetTempPath(), "cc-notice-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
         var transcript = Path.Combine(dir, "t.jsonl");
         File.WriteAllText(transcript, "");
         using var terminal = new Sessions.ScriptedAgentTerminal(Agents.AgentKind.ClaudeCode, transcript, dir)
-            { Working = true, PasteDrawDelay = TimeSpan.FromSeconds(7) };
-        using var session = new Core.Sessions.Session(Guid.NewGuid(), dir, dir, null, terminal, Core.Backends.SessionBackendType.ConPty);
+            { Working = true, PasteDrawDelay = TimeSpan.FromSeconds(7), Clock = clock };
+        using var session = new Core.Sessions.Session(Guid.NewGuid(), dir, dir, null, terminal, Core.Backends.SessionBackendType.ConPty) { Clock = clock };
         session.UpdateClaudeSessionPointer(Guid.NewGuid().ToString(), transcript, "test");
         terminal.StartDrawing();
         session.ApplyTerminalActivityState(Core.Sessions.ActivityState.Working);
@@ -86,12 +89,12 @@ public sealed class SendWaitNoticeTests : IDisposable
         SendWaitNotice.LineObserver += Watch;
 
         DateTime? announcedAt = null;
-        void Announced(string line) { if (line.Contains(what, StringComparison.Ordinal) && line.Contains("WAITING")) announcedAt ??= DateTime.UtcNow; }
+        void Announced(string line) { if (line.Contains(what, StringComparison.Ordinal) && line.Contains("WAITING")) announcedAt ??= clock.GetUtcNow().UtcDateTime; }
         SendWaitNotice.LineObserver += Announced;
         try
         {
             // Act
-            await session.SendTextAsync(text, Core.Sessions.SessionTestDoors.TestDoor);
+            await VirtualTime.RunAsync(clock, () => session.SendTextAsync(text, Core.Sessions.SessionTestDoors.TestDoor));
         }
         finally
         {

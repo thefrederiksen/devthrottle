@@ -47,6 +47,20 @@ internal sealed class SendWaitNotice
         }
     }
 
+    /// <summary>The same notice, measuring its wait on <paramref name="clock"/> - the send path's clock, so a test
+    /// that drives the send on a fake clock sees the notice fire at the same virtual moment the wait does.</summary>
+    internal SendWaitNotice(string tag, string waitingFor, string limit, TimeProvider clock)
+        : this(tag, waitingFor, limit, ElapsedOn(clock))
+    {
+    }
+
+    private static Func<TimeSpan> ElapsedOn(TimeProvider clock)
+    {
+        ArgumentNullException.ThrowIfNull(clock);
+        var startedAt = clock.GetTimestamp();
+        return () => clock.GetElapsedTime(startedAt);
+    }
+
     /// <summary>Called on every turn of the wait's loop: writes the "still waiting" line once, when the wait runs long.</summary>
     internal void Check()
     {
@@ -69,7 +83,8 @@ internal sealed class SendWaitNotice
     /// Await one task that is itself the wait - a semaphore, another send's end - saying what it waits for if it runs
     /// long. The task's own result or exception is passed through untouched.
     /// </summary>
-    internal static async Task WatchAsync(Task waiting, string tag, string waitingFor, string limit)
+    /// <param name="clock">The clock the notice waits on; null is the system clock.</param>
+    internal static async Task WatchAsync(Task waiting, string tag, string waitingFor, string limit, TimeProvider? clock = null)
     {
         ArgumentNullException.ThrowIfNull(waiting);
         if (waiting.IsCompleted)
@@ -77,9 +92,10 @@ internal sealed class SendWaitNotice
             await waiting;
             return;
         }
-        var notice = new SendWaitNotice(tag, waitingFor, limit);
+        clock ??= TimeProvider.System;
+        var notice = new SendWaitNotice(tag, waitingFor, limit, clock);
         using var cts = new CancellationTokenSource();
-        if (await Task.WhenAny(waiting, Task.Delay(NoticeAfter, cts.Token)) != waiting)
+        if (await Task.WhenAny(waiting, Task.Delay(NoticeAfter, clock, cts.Token)) != waiting)
             notice.Check();
         cts.Cancel();
         try

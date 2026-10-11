@@ -3,6 +3,7 @@ using CcDirector.Core.Agents;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Drivers;
 using CcDirector.Core.Sessions;
+using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
 namespace CcDirector.Core.UnitTests.Sessions;
@@ -19,6 +20,7 @@ public sealed class RealScreenReaderTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "cc-real-screen-" + Guid.NewGuid().ToString("N"));
     private readonly List<IDisposable> _cleanup = new();
+    private readonly FakeTimeProvider _clock = VirtualTime.NewClock();
 
     public RealScreenReaderTests() => Directory.CreateDirectory(_dir);
 
@@ -36,6 +38,7 @@ public sealed class RealScreenReaderTests : IDisposable
         File.WriteAllText(transcript, "");
         var terminal = new ScriptedAgentTerminal(AgentKind.ClaudeCode, transcript, _dir)
         {
+            Clock = _clock,
             Working = working,
             ConPtyPaint = true,
             Width = cols,
@@ -43,7 +46,7 @@ public sealed class RealScreenReaderTests : IDisposable
         };
         terminal.SetComposer(composer);
         _cleanup.Add(terminal);
-        var session = new Session(Guid.NewGuid(), _dir, _dir, null, terminal, SessionBackendType.ConPty) { AgentKind = AgentKind.ClaudeCode };
+        var session = new Session(Guid.NewGuid(), _dir, _dir, null, terminal, SessionBackendType.ConPty) { AgentKind = AgentKind.ClaudeCode, Clock = _clock };
         _cleanup.Add(session);
         session.Resize(cols, rows);
         session.UpdateClaudeSessionPointer(Guid.NewGuid().ToString(), transcript, "test");
@@ -83,8 +86,8 @@ public sealed class RealScreenReaderTests : IDisposable
         // Act: the next send, and one after it.
         const string first = "Reply with only the word OK. Marker: probe quokka seventy.";
         const string second = "Reply with only the word OK. Marker: second quokka.";
-        await session.SendTextAsync(first, SessionTestDoors.TestDoor);
-        await session.SendTextAsync(second, SessionTestDoors.TestDoor);
+        await VirtualTime.RunAsync(_clock, () => session.SendTextAsync(first, SessionTestDoors.TestDoor));
+        await VirtualTime.RunAsync(_clock, () => session.SendTextAsync(second, SessionTestDoors.TestDoor));
 
         // Assert: both are judged on the screen as it is now and go in, once each.
         Assert.Equal(new[] { first, second }, terminal.Recorded);
@@ -105,7 +108,7 @@ public sealed class RealScreenReaderTests : IDisposable
         const string next = "Reply with only the word OK. Marker Q3062DE01F0";
 
         // Act
-        await session.SendTextAsync(next, SessionTestDoors.TestDoor);
+        await VirtualTime.RunAsync(_clock, () => session.SendTextAsync(next, SessionTestDoors.TestDoor));
 
         // Assert: only the new prompt was submitted; the failed one never reached the agent.
         Assert.Equal(new[] { next }, terminal.Recorded);
@@ -123,7 +126,7 @@ public sealed class RealScreenReaderTests : IDisposable
 
         // Act 1: a send is refused, and says what it read.
         var refused = await Assert.ThrowsAsync<ComposerNotAcceptingInputException>(
-            () => session.SendTextAsync(first, SessionTestDoors.TestDoor));
+            () => VirtualTime.RunAsync(_clock, () => session.SendTextAsync(first, SessionTestDoors.TestDoor)));
 
         // Assert 1: nothing typed into text it cannot account for (#3290), and the refusal names the reading, the text
         // and the screen it read.
@@ -138,7 +141,7 @@ public sealed class RealScreenReaderTests : IDisposable
         terminal.SetComposer("");
         terminal.Redraw();
         const string second = "Reply with only the word OK. Marker: accepted quokka.";
-        await session.SendTextAsync(second, SessionTestDoors.TestDoor);
+        await VirtualTime.RunAsync(_clock, () => session.SendTextAsync(second, SessionTestDoors.TestDoor));
 
         // Assert 2: judged on the screen as it is now, it goes in once.
         Assert.Equal(new[] { second }, terminal.Recorded);

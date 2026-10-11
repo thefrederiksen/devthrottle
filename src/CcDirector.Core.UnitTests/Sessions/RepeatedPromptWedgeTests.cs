@@ -3,6 +3,7 @@ using CcDirector.Core.Backends;
 using CcDirector.Core.Drivers;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Tests.Drivers;
+using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
 namespace CcDirector.Core.UnitTests.Sessions;
@@ -31,6 +32,7 @@ public sealed class RepeatedPromptWedgeTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "cc-repeated-prompt-" + Guid.NewGuid().ToString("N"));
     private readonly List<IDisposable> _cleanup = new();
+    private readonly FakeTimeProvider _clock = VirtualTime.NewClock();
 
     public RepeatedPromptWedgeTests() => Directory.CreateDirectory(_dir);
 
@@ -48,6 +50,7 @@ public sealed class RepeatedPromptWedgeTests : IDisposable
         File.WriteAllText(transcript, "");
         var terminal = new ScriptedAgentTerminal(AgentKind.ClaudeCode, transcript, _dir)
         {
+            Clock = _clock,
             ConPtyPaint = true,
             ShowTranscript = true,
             Width = cols,
@@ -55,7 +58,7 @@ public sealed class RepeatedPromptWedgeTests : IDisposable
         };
         terminal.SetComposer(composer);
         _cleanup.Add(terminal);
-        var session = new Session(Guid.NewGuid(), _dir, _dir, null, terminal, SessionBackendType.ConPty) { AgentKind = AgentKind.ClaudeCode };
+        var session = new Session(Guid.NewGuid(), _dir, _dir, null, terminal, SessionBackendType.ConPty) { AgentKind = AgentKind.ClaudeCode, Clock = _clock };
         _cleanup.Add(session);
         session.Resize(cols, rows);
         session.UpdateClaudeSessionPointer(Guid.NewGuid().ToString(), transcript, "test");
@@ -80,9 +83,9 @@ public sealed class RepeatedPromptWedgeTests : IDisposable
         const string prompt = "yes";
 
         // Act: three identical short prompts in a row; the first puts the text in the conversation above.
-        await session.SendTextAsync(prompt, SessionTestDoors.TestDoor);
-        await session.SendTextAsync(prompt, SessionTestDoors.TestDoor);
-        await session.SendTextAsync(prompt, SessionTestDoors.TestDoor);
+        await VirtualTime.RunAsync(_clock, () => session.SendTextAsync(prompt, SessionTestDoors.TestDoor));
+        await VirtualTime.RunAsync(_clock, () => session.SendTextAsync(prompt, SessionTestDoors.TestDoor));
+        await VirtualTime.RunAsync(_clock, () => session.SendTextAsync(prompt, SessionTestDoors.TestDoor));
 
         // Assert: each was sent exactly once, the composer ended empty, and nothing was left behind.
         Assert.Equal(new[] { prompt, prompt, prompt }, terminal.Recorded);
@@ -114,7 +117,7 @@ public sealed class RepeatedPromptWedgeTests : IDisposable
         terminal.TranscriptLineOnNextPaint = "  the previous turn finished";
 
         // Act
-        await session.SendTextAsync(prompt, SessionTestDoors.TestDoor);
+        await VirtualTime.RunAsync(_clock, () => session.SendTextAsync(prompt, SessionTestDoors.TestDoor));
 
         // Assert: the old copy scrolled off and the new one arrived in the composer - sent once either way.
         Assert.DoesNotContain("❯ yes", session.SnapshotScreenRows().Take(1));
@@ -144,7 +147,7 @@ public sealed class RepeatedPromptWedgeTests : IDisposable
         const string next = "Reply with only the word OK. Marker: fresh quokka seventy.";
 
         // Act
-        await session.SendTextAsync(next, SessionTestDoors.TestDoor);
+        await VirtualTime.RunAsync(_clock, () => session.SendTextAsync(next, SessionTestDoors.TestDoor));
 
         // Assert: no refusal, the next prompt went in once, and the composer ended empty.
         Assert.Equal(new[] { next }, terminal.Recorded);
@@ -169,7 +172,7 @@ public sealed class RepeatedPromptWedgeTests : IDisposable
 
         // Act
         var refused = await Assert.ThrowsAsync<ComposerNotAcceptingInputException>(
-            () => session.SendTextAsync(next, SessionTestDoors.TestDoor));
+            () => VirtualTime.RunAsync(_clock, () => session.SendTextAsync(next, SessionTestDoors.TestDoor)));
 
         // Assert: the owner's words are untouched, nothing was typed over them, and the refusal says what it read.
         Assert.Equal("keep my draft", terminal.Composer);
@@ -196,7 +199,7 @@ public sealed class RepeatedPromptWedgeTests : IDisposable
         const string next = "Reply with only the word OK. Marker: onward quokka ninety.";
 
         // Act
-        await session.SendTextAsync(next, SessionTestDoors.TestDoor);
+        await VirtualTime.RunAsync(_clock, () => session.SendTextAsync(next, SessionTestDoors.TestDoor));
 
         // Assert: the fragment was cleared with the measured keys, the composer was confirmed empty, and the send
         // went through once - one Enter, nothing typed over the fragment, nothing welded to it.
@@ -228,7 +231,7 @@ public sealed class RepeatedPromptWedgeTests : IDisposable
 
         // Act
         var refused = await Assert.ThrowsAsync<ComposerNotAcceptingInputException>(
-            () => session.SendTextAsync(next, SessionTestDoors.TestDoor));
+            () => VirtualTime.RunAsync(_clock, () => session.SendTextAsync(next, SessionTestDoors.TestDoor)));
 
         // Assert: the owner's draft is untouched - nothing cleared, nothing typed over it.
         Assert.Equal(draft, terminal.Composer);
@@ -255,7 +258,7 @@ public sealed class RepeatedPromptWedgeTests : IDisposable
 
         // Act
         var refused = await Assert.ThrowsAsync<ComposerNotAcceptingInputException>(
-            () => session.SendTextAsync(next, SessionTestDoors.TestDoor));
+            () => VirtualTime.RunAsync(_clock, () => session.SendTextAsync(next, SessionTestDoors.TestDoor)));
 
         // Assert: the refusal names what it read, and nothing was typed into text it cannot account for.
         Assert.Equal("yes", terminal.Composer);

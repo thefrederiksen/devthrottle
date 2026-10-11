@@ -36,6 +36,20 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
 
     public bool Working { get; set; }
     public bool SwallowEnter { get; set; }
+
+    /// <summary>The clock this terminal draws on - its spinner, its delayed paste, typed text and record. A test gives
+    /// the terminal and the session the same fake clock and advances it; the real clock otherwise.</summary>
+    public TimeProvider Clock { get; set; } = TimeProvider.System;
+
+    private DateTime Now => Clock.GetUtcNow().UtcDateTime;
+
+    /// <summary>
+    /// Start a delayed draw NOW, on the caller's thread, so its wait is registered on <see cref="Clock"/> before the
+    /// caller returns. Task.Run would register it from a pool thread some real time later; a test advancing a fake
+    /// clock has moved on by then, and the draw lands late by however long the pool took - a race that fails one run
+    /// in five. The work's first await returns here at once; the rest runs when the clock reaches it.
+    /// </summary>
+    private static void OnTheClock(Func<Task> work) => _ = work();
     public TimeSpan PasteDrawDelay { get; set; } = TimeSpan.Zero;
     public TimeSpan SpinnerInterval { get; set; } = TimeSpan.FromMilliseconds(30);
 
@@ -151,11 +165,11 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
     {
         Buffer!.Write(Encoding.UTF8.GetBytes("\x1b[?2004h"));
         Draw();
-        _ = Task.Run(async () =>
+        OnTheClock(async () =>
         {
             while (!_stop.IsCancellationRequested)
             {
-                await Task.Delay(SpinnerInterval);
+                await Task.Delay(SpinnerInterval, Clock);
                 if (Working) Draw();
             }
         });
@@ -197,20 +211,20 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
         }
         if (TypedDrawDelay > TimeSpan.Zero && !text.Contains('\r') && !text.Contains('\x1b'))
         {
-            if (_drawTypedFrom == DateTime.MinValue) _drawTypedFrom = DateTime.UtcNow + TypedDrawDelay;
-            if (DateTime.UtcNow < _drawTypedFrom)
+            if (_drawTypedFrom == DateTime.MinValue) _drawTypedFrom = Now + TypedDrawDelay;
+            if (Now < _drawTypedFrom)
             {
                 Buffer!.Write(Encoding.UTF8.GetBytes("\x1b[?25h"));
-                var wait = _drawTypedFrom - DateTime.UtcNow;
-                _ = Task.Run(async () => { await Task.Delay(wait); Draw(); });
+                var wait = _drawTypedFrom - Now;
+                OnTheClock(async () => { await Task.Delay(wait, Clock); Draw(); });
                 return;
             }
         }
         if (WrappedRowsDrawDelay > TimeSpan.Zero && !text.Contains('\r') && !text.Contains('\x1b')
             && _wrappedRowsDue == DateTime.MinValue)
         {
-            _wrappedRowsDue = DateTime.UtcNow + WrappedRowsDrawDelay;
-            _ = Task.Run(async () => { await Task.Delay(WrappedRowsDrawDelay); Draw(); });
+            _wrappedRowsDue = Now + WrappedRowsDrawDelay;
+            OnTheClock(async () => { await Task.Delay(WrappedRowsDrawDelay, Clock); Draw(); });
         }
         Draw();
     }
@@ -222,20 +236,20 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
         if (PasteDrawDelay <= TimeSpan.Zero)
         {
             _pasteHeld = pasted;
-            PasteDrawnAt = DateTime.UtcNow;
+            PasteDrawnAt = Now;
             return;
         }
-        _ = Task.Run(async () =>
+        OnTheClock(async () =>
         {
-            await Task.Delay(PasteDrawDelay);
-            lock (_lock) { _pasteHeld = pasted; PasteDrawnAt = DateTime.UtcNow; }
+            await Task.Delay(PasteDrawDelay, Clock);
+            lock (_lock) { _pasteHeld = pasted; PasteDrawnAt = Now; }
             Draw();
         });
     }
 
     private void Enter()
     {
-        FirstEnterAt ??= DateTime.UtcNow;
+        FirstEnterAt ??= Now;
         if (SwallowEnter) return;
         var submitted = _pasteHeld is not null ? _composer + _pasteHeld : _composer.ToString();
         if (submitted.Length == 0) return;
@@ -258,9 +272,9 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
             StreamReply();
             return;
         }
-        _ = Task.Run(async () =>
+        OnTheClock(async () =>
         {
-            await Task.Delay(RecordDelay);
+            await Task.Delay(RecordDelay, Clock);
             lock (_lock)
             {
                 Recorded.Add(submitted);
@@ -350,13 +364,13 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
         lock (_lock)
         {
             _frame++;
-            var shown = DateTime.UtcNow < _drawTypedFrom ? "" : ComposerShown();
+            var shown = Now < _drawTypedFrom ? "" : ComposerShown();
             var spinner = Working ? $"* Working... ({_frame})" : "Done.";
             var afterEnter = FirstEnterAt is not null;
             var footer = afterEnter && MenuAfterEnter ? "  enter to select - esc to go back"
                 : Working ? "  esc to interrupt" : "  ? for shortcuts";
             // A frame the composer reader cannot read: the composer row without its prompt glyph.
-            var glyphless = afterEnter && DateTime.UtcNow < FirstEnterAt!.Value + UnreadableAfterEnter;
+            var glyphless = afterEnter && Now < FirstEnterAt!.Value + UnreadableAfterEnter;
             var rule = new string('─', 80);
             var sb = new StringBuilder("\x1b[2J\x1b[H");
             if (_agent == AgentKind.Codex)
@@ -376,7 +390,7 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
                     rows.AddRange(TranscriptLines);
                 }
                 var truncated = _wrappedRowsDue != DateTime.MinValue;
-                if (truncated && DateTime.UtcNow >= _wrappedRowsDue) { _wrappedRowsDue = DateTime.MinValue; truncated = false; }
+                if (truncated && Now >= _wrappedRowsDue) { _wrappedRowsDue = DateTime.MinValue; truncated = false; }
                 var composerRows = (glyphless ? ["  " + shown] : WrapCodexComposer(shown)).ToList();
                 if (truncated && composerRows.Count > 1)
                     composerRows.RemoveAt(composerRows.Count - 1); // the last row is still on its way
@@ -424,7 +438,7 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
                 TranscriptLineOnNextPaint = null;
             }
             _frame++;
-            var shown = DateTime.UtcNow < _drawTypedFrom ? "" : ComposerShown();
+            var shown = Now < _drawTypedFrom ? "" : ComposerShown();
             var rule = new string('─', Width);
             var painted = new[]
             {

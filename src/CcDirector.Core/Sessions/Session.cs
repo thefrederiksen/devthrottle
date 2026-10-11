@@ -2535,7 +2535,7 @@ public sealed class Session : IDisposable
         var priorOrigin = WorkingOrigin;
         var outcome = await Drivers.TerminalSubmit.DoorbellSubmitAsync(
             _backend, line, Driver.Kind.ToString(), mayTypeNow, composerShowsLine, turnStarted,
-            beforeEnter: () => WorkingOrigin = Gateway.Contracts.WorkingOrigins.Agent);
+            beforeEnter: () => WorkingOrigin = Gateway.Contracts.WorkingOrigins.Agent, clock: Clock);
         FileLog.Write($"[Session] SubmitDoorbellLineAsync: session={Id}, outcome={outcome}");
         if (outcome != Drivers.DoorbellSubmitOutcome.Verified && ActivityState is not (ActivityState.Working or ActivityState.Starting))
             WorkingOrigin = priorOrigin;
@@ -3579,6 +3579,17 @@ public sealed class Session : IDisposable
     internal TimeSpan ArrivalWindow { get; set; } = Drivers.PromptArrival.DefaultWindow;
 
     /// <summary>
+    /// THE CLOCK THE SEND PATH WAITS ON: the send gate, the typing and its echo deadline (<see cref="Drivers.TerminalSubmit"/>),
+    /// the arrival watch on the agent's records, the composer release watch and the late-arrival watch. Tests set a
+    /// fake one and advance it, so the sixty-second allowances in this path end when the test says, not a minute later.
+    /// Timestamps that are COMPARED WITH FILE TIMES - when an arrival proof began - stay on the real clock, because the
+    /// file system does not run on this one. The Director leaves it on the system clock.
+    /// </summary>
+    internal TimeProvider Clock { get; set; } = TimeProvider.System;
+
+    private DateTime ClockNow => Clock.GetUtcNow().UtcDateTime;
+
+    /// <summary>
     /// Decide whether this send can be PROVEN through the agent's own conversation records (issue #3290), and mark where
     /// the proof starts. Null - with the reason logged - when it cannot:
     ///  - the text is a slash command, bash line or memory line, which agents record in shapes of their own;
@@ -3760,7 +3771,9 @@ public sealed class Session : IDisposable
             pressEnter: () => _backend.Write([0x0D]),
             ownerTyped: ownerTyped,
             agentPrintedSinceSend: bytesAtEnter is { } at ? () => _backend.Buffer!.TotalBytesWritten != at : null,
-            recordsReadable: () => RecordsReadable(proof));
+            recordsReadable: () => RecordsReadable(proof),
+            pause: d => Task.Delay(d, Clock),
+            utcNow: () => ClockNow);
         FileLog.Write($"[Session] arrival proof: session={Id}, agent={AgentKind}, outcome={outcome}, len={typed.Length}");
         if (AgentKind == Agents.AgentKind.Codex && _codexRollout is null
             && outcome is Drivers.PromptArrivalOutcome.Arrived or Drivers.PromptArrivalOutcome.ArrivedAfterResend
@@ -3865,8 +3878,8 @@ public sealed class Session : IDisposable
             proof is null
                 ? $"the limit on '{label}' (session {Id}; the send already answered still delivering, and there are no records to watch)"
                 : $"'{label}' to reach the agent's conversation records late (session {Id}; the send already answered still delivering)",
-            $"{limit.TotalMinutes:F1} minutes");
-        var started = DateTime.UtcNow;
+            $"{limit.TotalMinutes:F1} minutes", Clock);
+        var started = ClockNow;
         string? watchFailure = null;
         while (true)
         {
@@ -3902,7 +3915,7 @@ public sealed class Session : IDisposable
                 FileLog.Write($"[Session] late arrival: session={Id}: the session ended before the records showed the prompt - not delivered");
                 return new LateWatchEnd(LateArrival.SessionEnded);
             }
-            if (DateTime.UtcNow - started >= limit)
+            if (ClockNow - started >= limit)
             {
                 var end = proof is null ? new LateWatchEnd(LateArrival.NoRecordsToWatch)
                     : watchFailure is not null ? new LateWatchEnd(LateArrival.WatchFailed, watchFailure)
@@ -3917,7 +3930,7 @@ public sealed class Session : IDisposable
                               $"{limit.TotalMinutes:F1} minutes after the send returned; the send is not delivered, and is not typed again. len={typed.Length}");
                 return end;
             }
-            await Task.Delay(Drivers.PromptArrival.DefaultPoll);
+            await Task.Delay(Drivers.PromptArrival.DefaultPoll, Clock);
         }
     }
 
@@ -3930,7 +3943,7 @@ public sealed class Session : IDisposable
     {
         if (!ComposerHoldsTextAndNoTurn()) return false;
         var before = _backend.Buffer?.TotalBytesWritten ?? 0;
-        await Task.Delay(TimeSpan.FromMilliseconds(1500));
+        await Task.Delay(TimeSpan.FromMilliseconds(1500), Clock);
         return (_backend.Buffer?.TotalBytesWritten ?? 0) == before && ComposerHoldsTextAndNoTurn();
     }
 
@@ -4128,8 +4141,8 @@ public sealed class Session : IDisposable
     private async Task<ComposerRelease> WatchComposerReleaseAsync(string fingerprint, TimeSpan window, int length, bool untilLeft)
     {
         var notice = new Drivers.SendWaitNotice("Session", $"a {length}-character text to leave the composer of session {Id}",
-            $"{window.TotalSeconds:F0}s");
-        var started = DateTime.UtcNow;
+            $"{window.TotalSeconds:F0}s", Clock);
+        var started = ClockNow;
         var sawHeld = false;
         var unreadableFrames = 0;
         while (true)
@@ -4138,7 +4151,7 @@ public sealed class Session : IDisposable
             var reading = ReadComposerForRelease(fingerprint);
             if (reading == ComposerRelease.Left)
             {
-                await Task.Delay(TimeSpan.FromMilliseconds(120));
+                await Task.Delay(TimeSpan.FromMilliseconds(120), Clock);
                 reading = ReadComposerForRelease(fingerprint);
                 if (reading == ComposerRelease.Left)
                 {
@@ -4160,7 +4173,7 @@ public sealed class Session : IDisposable
                 FileLog.Write($"[Session] composer release: session={Id}: a frame cannot be read (no composer recognised, or a menu " +
                               "over it); that proves nothing, so the watch goes on");
             }
-            if (DateTime.UtcNow - started >= window)
+            if (ClockNow - started >= window)
             {
                 var answer = sawHeld ? ComposerRelease.StillHeld : ComposerRelease.Unreadable;
                 FileLog.Write($"[Session] composer release: session={Id}: the {window.TotalSeconds:F0}s window ended, " +
@@ -4168,7 +4181,7 @@ public sealed class Session : IDisposable
                 notice.End(sawHeld ? "the text is still in the composer" : "the composer could not be read");
                 return answer;
             }
-            await Task.Delay(TimeSpan.FromMilliseconds(250));
+            await Task.Delay(TimeSpan.FromMilliseconds(250), Clock);
         }
     }
 
@@ -4227,7 +4240,7 @@ public sealed class Session : IDisposable
                 // ONE SEND AT A TIME (review finding 6): two sends to one session typed their chunks into each other,
                 // and each one's Enter and proof acted on the other's text.
                 await Drivers.SendWaitNotice.WatchAsync(_submitGate.WaitAsync(), "Session",
-                    $"the send in front of this one to session {Id} to finish (one send at a time)", "none - it waits for that send's own limits");
+                    $"the send in front of this one to session {Id} to finish (one send at a time)", "none - it waits for that send's own limits", Clock);
                 try
                 {
                 // THE PROMPT'S AGE AT THE FIRST KEYSTROKE (Voice Delivery mission, phase 5, QA finding F6): this is the
@@ -4257,7 +4270,8 @@ public sealed class Session : IDisposable
                     nudgeOnlyWhen: Drivers.FirstPromptGate.CanProve(AgentKind) ? ComposerHoldsTextAndNoTurn : () => false,
                     composerText: ComposerTextReader(),
                     composerSeen: ComposerSeen(),
-                    composerRegion: ComposerRegionReader());
+                    composerRegion: ComposerRegionReader(),
+                    clock: Clock);
 
                 string typed;
                 try

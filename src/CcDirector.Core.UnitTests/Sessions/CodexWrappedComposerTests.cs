@@ -3,6 +3,7 @@ using CcDirector.Core.Backends;
 using CcDirector.Core.Drivers;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Tests.Drivers;
+using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
 namespace CcDirector.Core.UnitTests.Sessions;
@@ -19,6 +20,7 @@ public sealed class CodexWrappedComposerTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "cc-codex-wrapped-" + Guid.NewGuid().ToString("N"));
     private readonly List<IDisposable> _cleanup = new();
+    private readonly FakeTimeProvider _clock = VirtualTime.NewClock();
 
     public CodexWrappedComposerTests() => Directory.CreateDirectory(_dir);
 
@@ -35,12 +37,13 @@ public sealed class CodexWrappedComposerTests : IDisposable
         File.WriteAllText(transcript, "");
         var terminal = new ScriptedAgentTerminal(AgentKind.Codex, transcript, _dir)
         {
+            Clock = _clock,
             Width = cols,
             Height = rows,
             ShowTranscript = true,
         };
         _cleanup.Add(terminal);
-        var session = new Session(Guid.NewGuid(), _dir, _dir, null, terminal, SessionBackendType.ConPty) { AgentKind = AgentKind.Codex };
+        var session = new Session(Guid.NewGuid(), _dir, _dir, null, terminal, SessionBackendType.ConPty) { AgentKind = AgentKind.Codex, Clock = _clock };
         _cleanup.Add(session);
         session.Resize(cols, rows);
         session.UpdateClaudeSessionPointer(Guid.NewGuid().ToString(), transcript, "test");
@@ -80,7 +83,7 @@ public sealed class CodexWrappedComposerTests : IDisposable
             new ScreenFrame(rowsNow, cursorRow, cursorCol, visible))); // an empty composer: the wrap is the send's own doing
 
         // Act
-        await session.SendTextAsync(Prompt, SessionTestDoors.TestDoor);
+        await VirtualTime.RunAsync(_clock, () => session.SendTextAsync(Prompt, SessionTestDoors.TestDoor));
 
         // Assert: one Enter, the prompt typed ONCE, nothing cleared, and the send is in the records exactly once.
         Assert.Equal(new[] { Prompt }, terminal.Recorded);
@@ -103,13 +106,14 @@ public sealed class CodexWrappedComposerTests : IDisposable
         var (session, terminal) = NewCodexSession(cols, rows);
         terminal.ReplyBytesAfterEnter = 4000; // the agent streams its answer, as a real one does
         terminal.WrappedRowsDrawDelay = TimeSpan.FromSeconds(10); // the last row lands ten seconds after the rest
-        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var startedAt = _clock.GetUtcNow();
 
         // Act
-        await session.SendTextAsync(Prompt, SessionTestDoors.TestDoor);
+        await VirtualTime.RunAsync(_clock, () => session.SendTextAsync(Prompt, SessionTestDoors.TestDoor));
 
         // Assert: the send waited for the filling composer and pressed Enter once - no clear, no retype, one copy.
-        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(30), $"the send took {sw.Elapsed.TotalSeconds:F1}s");
+        var took = _clock.GetUtcNow() - startedAt;
+        Assert.True(took < TimeSpan.FromSeconds(30), $"the send took {took.TotalSeconds:F1}s of the send's own clock");
         Assert.Equal(new[] { Prompt }, terminal.Recorded);
         Assert.Equal(1, terminal.EntersAccepted);
         Assert.Equal(1, CountOf(terminal.TypedText, Prompt));
