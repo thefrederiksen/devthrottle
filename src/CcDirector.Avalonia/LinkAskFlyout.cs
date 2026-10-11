@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
 using CcDirector.ControlApi;
+using CcDirector.Core.ErrorReports;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 
@@ -71,7 +72,7 @@ internal static class LinkAskFlyout
             {
                 // The Gateway's own words: an answer that quietly failed would look exactly like one that worked.
                 FileLog.Write($"[LinkAskFlyout] answer FAILED: request={request.RequestId} approve={yes}: {ex.Message}");
-                error.Text = ex.Message;
+                error.Text = ShownError.Report("link request", yes ? "approve the request" : "deny the request", ex.Message, ex);
                 error.IsVisible = true;
                 approve.IsEnabled = deny.IsEnabled = true;
             }
