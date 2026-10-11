@@ -60,9 +60,10 @@ public static class SecretTransferEndpoints
     public static void Map(IEndpointRouteBuilder app, Func<HttpContext, TenantId?> resolveTenant,
         SecretMachineRegistry machines, Func<TenantId, string, bool> isConnected, SecretTransferStore transfers,
         Func<TenantId, string, SessionDto?> findSession, Func<string, string?> machineOfDevice,
-        Action<TenantId, string> startDelivery, Func<DateTime> nowUtc)
+        Action<TenantId, string> startDelivery, Action<TenantId, SecretTransferDto> announceWaiting, Func<DateTime> nowUtc)
     {
         ArgumentNullException.ThrowIfNull(resolveTenant);
+        ArgumentNullException.ThrowIfNull(announceWaiting);
         ArgumentNullException.ThrowIfNull(machineOfDevice);
         ArgumentNullException.ThrowIfNull(machines);
         ArgumentNullException.ThrowIfNull(isConnected);
@@ -75,7 +76,8 @@ public static class SecretTransferEndpoints
         // The return types are stated on purpose: an async lambda whose only parameter is HttpContext also fits
         // RequestDelegate, which would throw the IResult away and answer an empty 200 (found in #3549).
         app.MapPost(TransfersRoute, async Task<IResult> (HttpContext ctx) =>
-            await CreateAsync(ctx, resolveTenant, machines, isConnected, transfers, findSession, machineOfDevice, startDelivery, nowUtc));
+            await CreateAsync(ctx, resolveTenant, machines, isConnected, transfers, findSession, machineOfDevice, startDelivery,
+                announceWaiting, nowUtc));
         app.MapGet(TransfersRoute, (HttpContext ctx) => List(ctx, resolveTenant, transfers, nowUtc));
         app.MapGet(TransferRoute, (HttpContext ctx, string id) => Get(ctx, id, resolveTenant, transfers, nowUtc));
         app.MapPost(AnswerRoute, async Task<IResult> (HttpContext ctx, string id) =>
@@ -105,7 +107,7 @@ public static class SecretTransferEndpoints
     internal static async Task<IResult> CreateAsync(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant,
         SecretMachineRegistry machines, Func<TenantId, string, bool> isConnected, SecretTransferStore transfers,
         Func<TenantId, string, SessionDto?> findSession, Func<string, string?> machineOfDevice,
-        Action<TenantId, string> startDelivery, Func<DateTime> nowUtc)
+        Action<TenantId, string> startDelivery, Action<TenantId, SecretTransferDto> announceWaiting, Func<DateTime> nowUtc)
     {
         FileLog.Write("[SecretTransferEndpoints] POST transfer");
         try
@@ -168,9 +170,14 @@ public static class SecretTransferEndpoints
             // holds now, not what it held before.
             row = transfers.Find(tenant, row.TransferId, now) ?? row;
             FileLog.Write($"[SecretTransferEndpoints] POST transfer: transfer={row.TransferId}, state={row.State}, by={caller.Actor}");
+            var dto = ToDto(row, now);
+            // A transfer that waits for the owner is announced on the owner's phones (phase 5): the push names the entry
+            // and the two machines, and tapping it opens the approval card.
+            if (dto.CanAnswer)
+                announceWaiting(tenant, dto);
             return Results.Json(new SecretTransferResponse
             {
-                Transfer = ToDto(row, now),
+                Transfer = dto,
                 Note = row.State switch
                 {
                     SecretTransferStates.Waiting => "Waiting for the owner's answer - on the phone, in the Cockpit, in the "
