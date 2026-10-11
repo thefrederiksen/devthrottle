@@ -280,6 +280,39 @@ public sealed class LicenseDecisionEngineTests
         Assert.Equal(C, Assert.Single(result.Switches).TargetAccountEmail);
     }
 
+    [Fact]
+    public void Decide_SpareSignInExpiringWithinTheCommandLifetime_IsNotChosen()
+    {
+        // B is the better account, but the Mac's sign-in for B expires exactly at now + 10 minutes (the
+        // command's NotAfterUtc), so the switch could outlive it. C's spare expires a second later: allowed.
+        var windows = Machine("windows", A, B, C);
+        var mac = Machine("mac", A) with
+        {
+            Spares =
+            [
+                new LicenseSpare(B, null, Now + LicenseDecisionEngine.SwitchCommandLifetime),
+                new LicenseSpare(C, null, Now + LicenseDecisionEngine.SwitchCommandLifetime + TimeSpan.FromSeconds(1)),
+            ],
+        };
+        var snapshot = Snapshot([Reading(A, 97, 50, active: true), Reading(B, 5, 5), Reading(C, 30, 30)], [windows, mac]);
+
+        var result = LicenseDecisionEngine.Decide(snapshot);
+
+        Assert.Equal(2, result.Switches.Count);
+        Assert.All(result.Switches, s => Assert.Equal(C, s.TargetAccountEmail));
+    }
+
+    [Fact]
+    public void DecideManual_NamedTargetWhoseSpareSignInIsExpiring_IsRefused()
+    {
+        var machine = Machine("windows", A) with { Spares = [new LicenseSpare(B, null, Now.AddMinutes(5))] };
+        var snapshot = Snapshot([Reading(A, 40, 40, active: true), Reading(B, 5, 5)], [machine]);
+
+        var verdict = LicenseDecisionEngine.DecideManual(snapshot, A, B);
+
+        Assert.Equal(LicenseManualRefusals.TargetSignInExpiring, verdict.RefusalCode);
+    }
+
     // ----- staleness (contract 5.2) -----
 
     [Fact]

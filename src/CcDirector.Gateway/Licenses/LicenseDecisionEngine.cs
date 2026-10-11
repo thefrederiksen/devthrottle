@@ -11,7 +11,8 @@ namespace CcDirector.Gateway.Licenses;
 ///
 /// For each account in use (some machine has it active): when a FRESH reading shows either window at or
 /// above <see cref="ThresholdPercent"/>, every machine on it that can be sent a switch is switched to one
-/// target - an account every one of those machines holds a usable spare for, whose fresh reading shows
+/// target - an account every one of those machines holds a usable spare for (one whose sign-in does not
+/// expire within <see cref="SwitchCommandLifetime"/>), whose fresh reading shows
 /// both windows under the threshold, and which is not barred. Best target is the lowest weekly use, then
 /// the lowest 5-hour use, then the account email in ordinal order so the choice never depends on input
 /// order. No target means nothing is switched and the owner gets exactly one email per exhaustion event.
@@ -34,6 +35,13 @@ public static class LicenseDecisionEngine
 
     /// <summary>A machine is stale when its last accepted report is older than this (contract section 5.2).</summary>
     public static readonly TimeSpan MachineStaleAfter = TimeSpan.FromMinutes(6);
+
+    /// <summary>
+    /// How long a switch command stays valid (contract: <c>NotAfterUtc</c> is <c>RequestedAtUtc</c> plus 10
+    /// minutes). A spare whose sign-in expires at or before now plus this is never chosen: the switch could
+    /// still be running when it expires.
+    /// </summary>
+    public static readonly TimeSpan SwitchCommandLifetime = TimeSpan.FromMinutes(10);
 
     /// <summary>The longest a 5-hour window can run - the end of a bar when the provider gave no reset time.</summary>
     public static readonly TimeSpan FiveHourWindowLength = TimeSpan.FromHours(5);
@@ -157,6 +165,10 @@ public static class LicenseDecisionEngine
             if (missing is not null)
                 return Refuse(skipped, LicenseManualRefusals.TargetNotHeld,
                     $"{missing.MachineName} holds no usable spare for {target}.");
+            var expiring = eligible.FirstOrDefault(m => SpareSignInExpiresTooSoon(m, target, snapshot.NowUtc));
+            if (expiring is not null)
+                return Refuse(skipped, LicenseManualRefusals.TargetSignInExpiring,
+                    $"{expiring.MachineName}'s sign-in for {target} expires before a switch could finish.");
             if (!readings.TryGetValue(target, out var targetReading) || IsReadingStale(targetReading, snapshot.NowUtc))
                 return Refuse(skipped, LicenseManualRefusals.TargetStale,
                     $"The latest reading of {target} is too old to show it has room.");
@@ -274,6 +286,9 @@ public static class LicenseDecisionEngine
         var missing = machines.FirstOrDefault(m => !HoldsUsableSpare(m, candidate.AccountEmail));
         if (missing is not null)
             return $"{missing.MachineName} holds no usable spare for it";
+        var expiring = machines.FirstOrDefault(m => SpareSignInExpiresTooSoon(m, candidate.AccountEmail, now));
+        if (expiring is not null)
+            return $"{expiring.MachineName}'s sign-in for it expires before a switch could finish";
         return null;
     }
 
@@ -303,6 +318,11 @@ public static class LicenseDecisionEngine
     private static bool HoldsUsableSpare(LicenseMachineState machine, string accountEmail) =>
         machine.Spares.Any(s => SameAccount(s.AccountEmail, accountEmail)
             && s.ReadError is not (ReadErrorUnauthorized or ReadErrorRefreshFailed));
+
+    // An unknown expiry is not "at or before" anything, so it does not block; the forecast shows it as unknown.
+    private static bool SpareSignInExpiresTooSoon(LicenseMachineState machine, string accountEmail, DateTime now) =>
+        machine.Spares.Any(s => SameAccount(s.AccountEmail, accountEmail)
+            && s.SignInExpiresAtUtc is { } expires && expires <= now + SwitchCommandLifetime);
 
     private static List<TiredWindow> TiredWindows(LicenseAccountReading reading)
     {

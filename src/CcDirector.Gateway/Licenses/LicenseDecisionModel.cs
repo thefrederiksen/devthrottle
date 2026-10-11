@@ -51,7 +51,8 @@ public sealed record LicenseAccountReading(
 /// <summary>A spare a machine holds, as its latest accepted report showed it.</summary>
 /// <param name="AccountEmail">The spare's account, lower-cased.</param>
 /// <param name="ReadError">The spare's last read error code (contract <c>LicenseReadErrors</c>), else null.</param>
-public sealed record LicenseSpare(string AccountEmail, string? ReadError);
+/// <param name="SignInExpiresAtUtc">When the spare's sign-in expires, as the Director reports it; null when not known.</param>
+public sealed record LicenseSpare(string AccountEmail, string? ReadError, DateTime? SignInExpiresAtUtc = null);
 
 /// <summary>One machine - (MachineName, OsUser) inside the tenant - as its latest accepted report and the switch log show it.</summary>
 /// <param name="MachineName">As the Director reports it.</param>
@@ -61,6 +62,7 @@ public sealed record LicenseSpare(string AccountEmail, string? ReadError);
 /// <param name="LastReportReceivedAtUtc">When the Gateway accepted the machine's latest report.</param>
 /// <param name="HasOpenSwitch">The switch log has a row for this machine in <c>pending</c> or <c>unknown</c>.</param>
 /// <param name="SwitchInProgressId">The latest report's <c>SwitchInProgressId</c>, else null.</param>
+/// <param name="ActiveSignInExpiresAtUtc">When the active holding's sign-in expires; null when not known.</param>
 public sealed record LicenseMachineState(
     string MachineName,
     string OsUser,
@@ -68,7 +70,8 @@ public sealed record LicenseMachineState(
     IReadOnlyList<LicenseSpare> Spares,
     DateTime LastReportReceivedAtUtc,
     bool HasOpenSwitch,
-    string? SwitchInProgressId);
+    string? SwitchInProgressId,
+    DateTime? ActiveSignInExpiresAtUtc = null);
 
 /// <summary>
 /// An account that triggered a switch is not chosen as a target again until the window that triggered it
@@ -165,6 +168,9 @@ public static class LicenseManualRefusals
 
     /// <summary>Not every machine to be switched holds a usable spare for the target.</summary>
     public const string TargetNotHeld = "target-not-held";
+
+    /// <summary>A machine's spare for the target has a sign-in that expires before the switch command would.</summary>
+    public const string TargetSignInExpiring = "target-sign-in-expiring";
 
     /// <summary>The target's freshest reading is stale, so it cannot be shown to have room.</summary>
     public const string TargetStale = "target-stale";

@@ -45,8 +45,37 @@ public sealed record LicenseAccountForecast(
 /// would qualify, which is when the owner would get the no-room email.</param>
 public sealed record LicenseNextSwitch(string FromAccountEmail, DateTime ExpectedAtUtc, string Window, string? TargetAccountEmail);
 
+/// <summary>How close a holding's sign-in is to expiring.</summary>
+public static class LicenseSignInVerdicts
+{
+    /// <summary>The sign-in has expired: the holding needs a new sign-in.</summary>
+    public const string Expired = "expired";
+
+    /// <summary>The sign-in expires within <see cref="LicenseForecaster.SignInExpiresSoonWithin"/>.</summary>
+    public const string ExpiresSoon = "expires-soon";
+
+    /// <summary>The sign-in expires later than that.</summary>
+    public const string Fine = "fine";
+
+    /// <summary>The Director did not report an expiry time.</summary>
+    public const string Unknown = "unknown";
+}
+
+/// <summary>One holding - active or spare - on one machine, and how close its sign-in is to expiring.</summary>
+public sealed record LicenseHoldingExpiry(
+    string MachineName,
+    string OsUser,
+    string AccountEmail,
+    bool IsActive,
+    DateTime? SignInExpiresAtUtc,
+    string Verdict);
+
 /// <summary>The whole forecast for one tenant.</summary>
-public sealed record LicenseForecast(IReadOnlyList<LicenseAccountForecast> Accounts, LicenseNextSwitch? NextSwitch);
+/// <param name="Holdings">Every holding on every machine, active first per machine, with its expiry verdict.</param>
+public sealed record LicenseForecast(
+    IReadOnlyList<LicenseAccountForecast> Accounts,
+    LicenseNextSwitch? NextSwitch,
+    IReadOnlyList<LicenseHoldingExpiry> Holdings);
 
 /// <summary>
 /// The forecast, as pure code: per account, its reset times and the expected time to the threshold at the
@@ -64,6 +93,9 @@ public sealed record LicenseForecast(IReadOnlyList<LicenseAccountForecast> Accou
 /// </summary>
 public static class LicenseForecaster
 {
+    /// <summary>A sign-in expiring within this is shown as expiring soon.</summary>
+    public static readonly TimeSpan SignInExpiresSoonWithin = TimeSpan.FromDays(3);
+
     /// <summary>Forecast every account in <paramref name="snapshot"/>, using <paramref name="histories"/> for the rates.</summary>
     public static LicenseForecast Forecast(LicenseSnapshot snapshot, IReadOnlyList<LicenseAccountHistory> histories)
     {
@@ -96,8 +128,19 @@ public static class LicenseForecaster
             next = new LicenseNextSwitch(source, at, window, target);
         }
 
-        FileLog.Write($"[LicenseForecaster] Forecast: nextSwitch={(next is null ? "none" : next.ExpectedAtUtc.ToString("o"))}");
-        return new LicenseForecast(accounts, next);
+        var holdings = new List<LicenseHoldingExpiry>();
+        foreach (var machine in snapshot.Machines)
+        {
+            if (machine.ActiveAccountEmail is { } active)
+                holdings.Add(new LicenseHoldingExpiry(machine.MachineName, machine.OsUser, Normalize(active), true,
+                    machine.ActiveSignInExpiresAtUtc, SignInVerdict(machine.ActiveSignInExpiresAtUtc, now)));
+            foreach (var spare in machine.Spares)
+                holdings.Add(new LicenseHoldingExpiry(machine.MachineName, machine.OsUser, Normalize(spare.AccountEmail), false,
+                    spare.SignInExpiresAtUtc, SignInVerdict(spare.SignInExpiresAtUtc, now)));
+        }
+
+        FileLog.Write($"[LicenseForecaster] Forecast: nextSwitch={(next is null ? "none" : next.ExpectedAtUtc.ToString("o"))}, holdings={holdings.Count}");
+        return new LicenseForecast(accounts, next, holdings);
     }
 
     /// <summary>
@@ -119,6 +162,17 @@ public static class LicenseForecaster
         if (hours <= 0)
             return null;
         return (run[^1].Utilization - run[0].Utilization) / hours;
+    }
+
+    /// <summary>The expiry verdict for a sign-in expiring at <paramref name="expiresAtUtc"/>: expired at or before
+    /// now, expires soon within <see cref="SignInExpiresSoonWithin"/>, otherwise fine; unknown when null.</summary>
+    public static string SignInVerdict(DateTime? expiresAtUtc, DateTime nowUtc)
+    {
+        if (expiresAtUtc is not { } expires)
+            return LicenseSignInVerdicts.Unknown;
+        if (expires <= nowUtc)
+            return LicenseSignInVerdicts.Expired;
+        return expires <= nowUtc + SignInExpiresSoonWithin ? LicenseSignInVerdicts.ExpiresSoon : LicenseSignInVerdicts.Fine;
     }
 
     private static LicenseAccountForecast ForecastAccount(LicenseAccountReading reading, LicenseAccountHistory? history, DateTime now)
