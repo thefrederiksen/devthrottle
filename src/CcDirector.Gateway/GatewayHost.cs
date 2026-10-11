@@ -380,6 +380,9 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>Sessions' requests for a message link, waiting for or answered by the owner (issue #3548).</summary>
     internal Messaging.FleetMessageLinkRequestStore MessageLinkRequests { get; }
 
+    /// <summary>The secret transfers and their approvals (the Secret Handoff mission) - never a value.</summary>
+    internal Secrets.SecretTransferStore SecretTransfers { get; }
+
     /// <summary>The record of every message link set up and stopped, and every message a link carried, in the
     /// governance audit trail.</summary>
     internal Messaging.FleetMessageLinkRecord MessageLinkRecord { get; }
@@ -2198,6 +2201,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // Issue #3548: the message links, and their record beside raise and lower in the governance audit trail.
         MessageLinks = new Messaging.FleetMessageLinkStore(_gatewayDb);
         MessageLinkRequests = new Messaging.FleetMessageLinkRequestStore(_gatewayDb);
+        SecretTransfers = new Secrets.SecretTransferStore(_gatewayDb);
         MessageLinkRecord = new Messaging.FleetMessageLinkRecord(_governanceAudit, tenant => _tenantBoundary.EnterScope(tenant));
         // Per-tenant dictation transcript store (issue #509): every transcribed turn's raw and cleaned text
         // lands in the caller tenant's partition of the dictation_transcripts table, write-only, for later
@@ -5291,11 +5295,19 @@ public sealed class GatewayHost : IAsyncDisposable
             notify: notifyOfLink,
             nowUtc: () => DateTime.UtcNow);
 
-        // The Secret Handoff routes (issue #2943): the machines that can receive a secret, from connected Directors only.
+        // The Secret Handoff routes (issue #2943): the machines that can receive a secret, from connected Directors only,
+        // and the transfers with the owner's one approval each.
         SecretTransferEndpoints.Map(_app,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             machines: SecretMachines,
             isConnected: (tenant, directorId) => PushedSessions.GetActiveConnectionId(tenant, directorId) is not null,
+            transfers: SecretTransfers,
+            findSession: (tenant, sid) => GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, sid),
+            machineOfDevice: deviceId => Devices.DisplayOfDevice(deviceId)?.MachineName,
+            // Phase 3 records approvals; moving the envelope between the machines arrives in phase 4. Until then an
+            // approved transfer ends at once, saying so, rather than sitting "approved" with nothing behind it.
+            startDelivery: (tenant, transferId) => SecretTransfers.TryFinish(tenant, transferId, delivered: false,
+                "Approved, but this Gateway cannot move a secret between machines yet. Nothing was moved.", DateTime.UtcNow),
             nowUtc: () => DateTime.UtcNow);
 
         // Requests for a message link (issue #3548): a session asks, the owner - or a raised session - answers. Asking is

@@ -368,6 +368,7 @@ public sealed class GatewayDbContext : DbContext
 
     /// <summary>Sessions' requests for a message link, waiting for or answered by the owner (issue #3548).</summary>
     public DbSet<FleetMessageLinkRequestEntity> FleetMessageLinkRequests => Set<FleetMessageLinkRequestEntity>();
+    public DbSet<SecretTransferEntity> SecretTransfers => Set<SecretTransferEntity>();
 
     /// <summary>The factory triggers (the Website Business Factory mission, product track): a model-free check a
     /// Director runs on an interval, which has the Gateway start a session only when the check counts work.</summary>
@@ -1131,6 +1132,31 @@ public sealed class GatewayDbContext : DbContext
             // owner's list reads the waiting ones.
             b.HasIndex(e => new { e.TenantId, e.RequesterSessionId, e.Status });
             b.HasIndex(e => new { e.TenantId, e.Status });
+        });
+
+        // The Secret Handoff mission (issue #2943): one row per secret transfer and its approval - never a value, never
+        // an envelope. Addressed by its id; the owner's list reads the waiting ones and the recent ones.
+        modelBuilder.Entity<SecretTransferEntity>(b =>
+        {
+            b.ToTable("secret_transfers");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.TransferId).HasMaxLength(32);
+            b.Property(e => e.EntryName).HasMaxLength(64);
+            b.Property(e => e.TargetName).HasMaxLength(64);
+            b.Property(e => e.FromMachine).HasMaxLength(128);
+            b.Property(e => e.ToMachine).HasMaxLength(128);
+            b.Property(e => e.AskedBySessionId).HasMaxLength(64);
+            b.Property(e => e.AskedBy).HasMaxLength(256);
+            b.Property(e => e.Reason).HasMaxLength(500);
+            b.Property(e => e.State).HasMaxLength(16);
+            b.Property(e => e.AnsweredWhere).HasMaxLength(16);
+            b.Property(e => e.AnsweredBy).HasMaxLength(256);
+            b.Property(e => e.ApprovalWords).HasMaxLength(500);
+            b.Property(e => e.AcceptedReceiverFingerprint).HasMaxLength(64);
+            b.Property(e => e.Outcome).HasMaxLength(500);
+            b.HasIndex(e => new { e.TenantId, e.TransferId }).IsUnique();
+            b.HasIndex(e => new { e.TenantId, e.State });
+            b.HasIndex(e => new { e.TenantId, e.CreatedAtUtc });
         });
 
         modelBuilder.Entity<FleetManagerEventEntity>(b =>
@@ -1920,6 +1946,7 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<RaisedSessionEntity>(modelBuilder);
         ApplyTenantScope<FleetMessageLinkEntity>(modelBuilder);
         ApplyTenantScope<FleetMessageLinkRequestEntity>(modelBuilder);
+        ApplyTenantScope<SecretTransferEntity>(modelBuilder);
         ApplyTenantScope<TriggerEntity>(modelBuilder);
         ApplyTenantScope<TriggerRunEntity>(modelBuilder);
         ApplyTenantScope<FleetManagerEventEntity>(modelBuilder);
@@ -2044,6 +2071,9 @@ public sealed class GatewayDbContext : DbContext
             modelBuilder.Entity<FleetMessageLinkRequestEntity>().Property(e => e.RequesterSessionId).UseCollation("C");
             modelBuilder.Entity<FleetMessageLinkRequestEntity>().Property(e => e.TargetSessionId).UseCollation("C");
             modelBuilder.Entity<FleetMessageLinkRequestEntity>().Property(e => e.Status).UseCollation("C");
+            // secret_transfers: the id and the state are exact keys, compared byte-ordinally.
+            modelBuilder.Entity<SecretTransferEntity>().Property(e => e.TransferId).UseCollation("C");
+            modelBuilder.Entity<SecretTransferEntity>().Property(e => e.State).UseCollation("C");
             // triggers: the name is the key a caller looks a trigger up by, and the machine is compared to a
             // Director's registered machine name; trigger_runs: the outcome is a closed word.
             modelBuilder.Entity<TriggerEntity>().Property(e => e.Name).UseCollation("C");
