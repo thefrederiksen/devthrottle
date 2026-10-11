@@ -452,6 +452,12 @@ it sends. After a restart it finds rows in `pending` or `unknown`:
 
 The Director's answer to a repeated `SwitchId` is what makes this safe: no switch runs twice.
 
+### 5.6 The two sides disagree about the active account
+
+The report wins. The Gateway's idea of "machine X is on account A" is only ever the latest accepted
+report or a switch result's read-back. `ExpectedActiveAccountEmail` in the command is there so a
+Director never acts on the Gateway's out-of-date picture (3.3 step 7).
+
 ### 5.7 A spare whose sign-in is about to expire
 
 - **The Gateway never chooses a target whose spare's `SignInExpiresAtUtc` is at or before the
@@ -462,12 +468,6 @@ The Director's answer to a repeated `SwitchId` is what makes this safe: no switc
   soon` (within `LicenseContract.SignInExpiryWarning`, 3 days, of now), `fine` (later than that), or
   `not known` when `SignInExpiresAtUtc` is null. The Gateway folds the verdict and the Cockpit shows it
   as given (`CLAUDE.md` rule 7); the Cockpit does not compare times itself.
-
-### 5.6 The two sides disagree about the active account
-
-The report wins. The Gateway's idea of "machine X is on account A" is only ever the latest accepted
-report or a switch result's read-back. `ExpectedActiveAccountEmail` in the command is there so a
-Director never acts on the Gateway's out-of-date picture (3.3 step 7).
 
 ## 6. Rules the contract enforces
 
