@@ -110,6 +110,8 @@ public sealed class LicenseHolding
     public DateTime? ReadAtUtc { get; set; }           // when THESE numbers were read from the provider; null if never read
     public string? ReadError { get; set; }             // LicenseReadErrors code when the last read failed, else null
     public string? ReadErrorDetail { get; set; }       // one plain sentence, never containing anything from the sign-in
+    public DateTime? SignedInAtUtc { get; set; }       // when this sign-in was made (the sign-in that created it); null when not known
+    public DateTime? SignInExpiresAtUtc { get; set; }  // when the Director expects this sign-in to stop working; null when not known
 }
 
 public sealed class LicenseWindow
@@ -136,6 +138,14 @@ one in the default config's `.claude.json`; a spare in its own folder). `Plan` a
 from the sign-in's own `subscriptionType` and `rateLimitTier` fields, read with the existing
 `ClaudeAccountStore.ParseCredentialsJson` (section 1.1) - those two words are copied, and nothing else
 from that file is.
+
+**How long a sign-in lives.** A sign-in dies about 30 days after it was made, however often it is
+refreshed: a refresh renews the short-lived access, not the sign-in itself. So each holding carries
+`SignedInAtUtc` - when the `claude auth login` that created it ran - and `SignInExpiresAtUtc` - when the
+Director expects it to stop working. **The Director fills both; the Gateway never computes them**, so
+the Gateway holds no rule about how long a sign-in lasts, and a change to that lifetime is a Director
+change alone. Either is null when the Director does not know it (for example a sign-in made by hand
+before the Director first saw it); a null expiry is never read as "fine" or as "expired" (section 5.7).
 
 ### 2.3 How often
 
@@ -190,7 +200,9 @@ Shown as JSON for reading; on the wire it is MessagePack with these property nam
       "ExtraUsage": { "IsEnabled": false, "Utilization": null },
       "ReadAtUtc": "2026-10-11T03:11:58Z",
       "ReadError": null,
-      "ReadErrorDetail": null
+      "ReadErrorDetail": null,
+      "SignedInAtUtc": "2026-09-20T14:05:00Z",
+      "SignInExpiresAtUtc": "2026-10-20T14:05:00Z"
     },
     {
       "AccountEmail": "account-b@example.com",
@@ -202,7 +214,9 @@ Shown as JSON for reading; on the wire it is MessagePack with these property nam
       "ExtraUsage": { "IsEnabled": false, "Utilization": null },
       "ReadAtUtc": "2026-10-11T03:04:10Z",
       "ReadError": null,
-      "ReadErrorDetail": null
+      "ReadErrorDetail": null,
+      "SignedInAtUtc": "2026-09-13T08:30:00Z",
+      "SignInExpiresAtUtc": "2026-10-13T08:30:00Z"
     }
   ]
 }
@@ -262,7 +276,8 @@ shape before anything else (it is logged and used as a file name, like the trans
 7. Active account is not `ExpectedActiveAccountEmail`: `failed`, `active-account-changed`. The
    Gateway decided on facts that are no longer true; the after-switch report tells it the real state.
 8. No spare for `TargetAccountEmail`: `failed`, `spare-not-held`.
-9. The spare's last read said `"unauthorized"` or `"refresh-failed"`: `failed`, `spare-not-usable`.
+9. The spare's last read said `"unauthorized"` or `"refresh-failed"`, or its `SignInExpiresAtUtc` is at
+   or before now by this machine's clock: `failed`, `spare-not-usable`.
 10. **Exchange** active and spare, rewriting `oauthAccount` with the key (`MISSION.md` trap 1), as one
     step that either completes or is undone. Failure that was undone: `failed`,
     `exchange-failed-restored`. Failure that could not be undone: `failed`, `exchange-failed-unknown`
@@ -437,6 +452,17 @@ it sends. After a restart it finds rows in `pending` or `unknown`:
 
 The Director's answer to a repeated `SwitchId` is what makes this safe: no switch runs twice.
 
+### 5.7 A spare whose sign-in is about to expire
+
+- **The Gateway never chooses a target whose spare's `SignInExpiresAtUtc` is at or before the
+  command's `NotAfterUtc`.** A sign-in that could die before the switch is allowed to start is not a
+  spare. A null `SignInExpiresAtUtc` does not exclude a target on its own; the Director still refuses
+  an expired sign-in at 3.3 step 9.
+- **The Cockpit shows an expiry verdict for every holding**: `expired` (at or before now), `expires
+  soon` (within `LicenseContract.SignInExpiryWarning`, 3 days, of now), `fine` (later than that), or
+  `not known` when `SignInExpiresAtUtc` is null. The Gateway folds the verdict and the Cockpit shows it
+  as given (`CLAUDE.md` rule 7); the Cockpit does not compare times itself.
+
 ### 5.6 The two sides disagree about the active account
 
 The report wins. The Gateway's idea of "machine X is on account A" is only ever the latest accepted
@@ -449,9 +475,10 @@ Director never acts on the Gateway's out-of-date picture (3.3 step 7).
    token, a refresh token, an authorize code, or the contents of `.credentials.json` or a Keychain
    item: only emails, the two plan words, percentages, times, outcome words and reason codes.
    `ReadErrorDetail` and `Message` are sentences the Director writes; they never quote a provider
-   answer, a file, or a process's output. A test in the contracts' test project fails if any property
-   of a `License*` type in `LicenseMessages.cs` is named with "Token", "Secret", "Credential", "Key"
-   or "Code" (other than `ReasonCode`).
+   answer, a file, or a process's output. A test fails if any property (static or instance) or instance
+   field of any `License*` type in `LicenseMessages.cs` - whatever its declaration form - is named with
+   "Token", "Secret", "Credential", "Key" or "Code" (other than `ReasonCode`). There is no contracts
+   test project, so the test is `LicenseMessagesCarryNoKeyTests` in the Director's unit tests.
 2. **A switch exchanges, never copies.** `license-switch` moves the active key to the spare's place
    and the spare into the active place, with their `oauthAccount` blocks. After every outcome, each
    sign-in exists in exactly one place. No message asks a Director to duplicate a key, and none moves
@@ -483,6 +510,7 @@ Director never acts on the Gateway's out-of-date picture (3.3 step 7).
 | `NotAfterUtc` | `RequestedAtUtc` + 10 minutes |
 | Director keeps switch results for | 24 hours |
 | Clock skew logged above | 2 minutes |
+| A sign-in "expires soon" within (`SignInExpiryWarning`) | 3 days |
 
 These live as named constants in `LicenseMessages.cs` (`LicenseContract.ReportInterval` and so on),
 so the two sides cannot drift.
