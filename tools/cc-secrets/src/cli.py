@@ -37,6 +37,7 @@ from urllib.parse import urlsplit
 
 import typer
 from rich.console import Console
+from rich.measure import Measurement
 from rich.table import Table
 
 from . import _console  # noqa: F401  (installs the ASCII-only output patches)
@@ -606,7 +607,15 @@ def list_entries(
             row = [v["name"], v["kind"], v["envName"], v.get("value", ""), v["username"], ", ".join(v["allowedDomains"]),
                    ", ".join(v["uses"]), v["notes"]]
             table.add_row(*[_visible_ascii(SCRUBBER.scrub(str(c))) for c in row])
-        console.print(table)
+        # Never narrower than the names need: below that, the terminal wraps the long line rather than the table
+        # cutting a name an agent has to act on.
+        needed = Measurement.get(console, console.options.update_width(10_000), table).minimum
+        terminal_width = console.width
+        console.width = max(terminal_width, needed)  # print() alone never draws wider than the console
+        try:
+            console.print(table)
+        finally:
+            console.width = terminal_width
     except Exception as exc:
         _log_failure("list", exc)
         _say(f"list failed: {_describe(exc)}", err=True)
@@ -1395,8 +1404,10 @@ def request_command(
     It waits for the owner's answer (phone, Cockpit, the cc-secrets window, or the owner's words with
     --owner-approved), then prints 'stored NAME on MACHINE'.
 
-    Exit codes: 0 stored on this machine; 1 failed (the reason is printed); 2 refused before anything was asked or
-    moved; 4 denied by the owner; 5 expired with no answer."""
+    In the owner's own terminal (outside any session) it asks you to type yes first.
+
+    Exit codes: 0 stored on this machine; 1 failed (the reason is printed); 2 refused before anything was moved; 3 not
+    approved at the yes prompt; 4 denied by the owner; 5 expired with no answer."""
     _ask("request", entry, from_machine, None, as_name, replace, reason, owner_approved, False, json_output)
 
 
