@@ -27,9 +27,10 @@ namespace CcDirector.Core.Voice;
 /// whole voice turn on the shared <c>HttpClient.Timeout</c> of 180 s, then
 /// return empty audio.  To keep the voice experience snappy this service now
 /// applies a short PER-REQUEST timeout (<see cref="PerRequestTimeout"/>) per
-/// chunk via a linked <see cref="CancellationTokenSource"/> + CancelAfter,
-/// retries a transient single-chunk failure once, and caps the whole reply at
-/// an overall budget (<see cref="OverallBudget"/>).  When TTS ultimately fails
+/// chunk through a deadline <see cref="CancellationTokenSource"/> on the service's
+/// clock, linked to the caller's token, retries a transient single-chunk failure
+/// once, and caps the whole reply at an overall budget (<see cref="OverallBudget"/>)
+/// the same way.  When TTS ultimately fails
 /// the caller is told promptly (text-only fallback already happens upstream),
 /// and the elapsed time + failing chunk index + reason are logged.
 /// </summary>
@@ -58,6 +59,7 @@ public sealed class TtsService
     private readonly AgentOptions _options;
     private readonly HttpMessageHandler? _handler;
     private readonly HostedAiKeyResolver? _keyResolver;
+    private readonly TimeProvider _clock;
 
     /// <param name="options">Chunking + legacy standalone defaults.</param>
     /// <param name="keyResolver">When supplied (the consolidated AI-provider path), the base URL, key,
@@ -68,6 +70,7 @@ public sealed class TtsService
         _options = options;
         _handler = null;
         _keyResolver = keyResolver;
+        _clock = TimeProvider.System;
     }
 
     /// <summary>
@@ -76,12 +79,26 @@ public sealed class TtsService
     /// and retry behaviour are unit-testable without hitting the network.  The
     /// handler is owned by the caller and is NOT disposed by this service.
     /// </summary>
-    public TtsService(AgentOptions options, HttpMessageHandler handler, HostedAiKeyResolver? keyResolver = null)
+    /// <param name="clock">The clock the two deadlines (<see cref="PerRequestTimeout"/>, <see cref="OverallBudget"/>)
+    /// run on. The product gets the system clock; a test passes its own and moves it, so a stalled call times out
+    /// when the test says so instead of the test sitting out the real thirty and sixty seconds.</param>
+    public TtsService(AgentOptions options, HttpMessageHandler handler, HostedAiKeyResolver? keyResolver = null,
+        TimeProvider? clock = null)
     {
         _options = options;
         _handler = handler;
         _keyResolver = keyResolver;
+        _clock = clock ?? TimeProvider.System;
     }
+
+    /// <summary>
+    /// A source that cancels itself once <paramref name="after"/> has passed on this service's clock. It is the
+    /// runtime's own deadline source (<see cref="CancellationTokenSource(TimeSpan, TimeProvider)"/>), whose timer
+    /// is safe against disposal, rather than a hand-made timer calling Cancel on a source that may already be
+    /// disposed. A linked source cannot be given a clock, so the deadline is its own source and the caller links
+    /// it to the token the deadline bounds.
+    /// </summary>
+    private CancellationTokenSource DeadlineOn(TimeSpan after) => new(after, _clock);
 
     /// <summary>True when a legacy standalone key is configured. Prefer
     /// <see cref="IsAvailableAsync"/>, which uses the DevThrottle account key.</summary>
@@ -183,8 +200,8 @@ public sealed class TtsService
         // Overall budget for the whole reply.  Linked to the caller's token so a
         // caller cancel still wins, and self-cancels after OverallBudget so the
         // turn can never block for minutes (issue #389).
-        using var budgetCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        budgetCts.CancelAfter(OverallBudget);
+        using var budgetDeadline = DeadlineOn(OverallBudget);
+        using var budgetCts = CancellationTokenSource.CreateLinkedTokenSource(ct, budgetDeadline.Token);
 
         try
         {
@@ -307,10 +324,10 @@ public sealed class TtsService
     /// </summary>
     private async Task<TtsResult> CallOnceAsync(HttpClient client, string endpoint, string model, string voice, string input, int chunkIndex, int attempt, CancellationToken budgetToken)
     {
-        // Per-request deadline, linked to the overall budget so whichever fires
-        // first wins.  CancelAfter is the per-chunk timeout (issue #389).
-        using var requestCts = CancellationTokenSource.CreateLinkedTokenSource(budgetToken);
-        requestCts.CancelAfter(PerRequestTimeout);
+        // Per-request deadline on the service's clock, linked to the overall budget
+        // so whichever fires first wins (issue #389).
+        using var requestDeadline = DeadlineOn(PerRequestTimeout);
+        using var requestCts = CancellationTokenSource.CreateLinkedTokenSource(budgetToken, requestDeadline.Token);
 
         var payload = JsonContent.Create(new
         {

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net;
+using Microsoft.Extensions.Time.Testing;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Voice;
 using Xunit;
@@ -15,10 +16,12 @@ namespace CcDirector.Core.Tests.Voice;
 /// (no network) and prove the new per-request timeout, retry-once, fast permanent
 /// failure, and a byte-identical success path.
 ///
-/// To keep the suite fast the tests do NOT wait the real 30 s per-request timeout;
-/// the "stall" double cancels itself as soon as the per-request token fires, which
-/// is exactly the observable behaviour the production CancellationTokenSource +
-/// CancelAfter produces - the chunk fails on cancellation, not on a wall clock.
+/// The deadlines run on the service's injected clock, and the clock here is a
+/// <see cref="FakeTimeProvider"/> the stall double moves: a stalled call advances the
+/// clock past the per-request timeout and then waits on its token, which the
+/// deadline timer has by then cancelled. So the thirty-second and sixty-second
+/// waits are decided, not sat out - until 10 October 2026 the two stall tests
+/// took 60 s and 30 s of real time, waiting out the production constants.
 /// </summary>
 public sealed class TtsServiceTests
 {
@@ -27,6 +30,9 @@ public sealed class TtsServiceTests
 
     private static AgentOptions OptionsWithKey() =>
         new() { OpenAiKey = "sk-test-key" };
+
+    private static TtsService Service(ScriptedHandler handler) =>
+        new(OptionsWithKey(), handler, clock: handler.Clock);
 
     // ===== test double =====================================================
 
@@ -43,6 +49,9 @@ public sealed class TtsServiceTests
         private Kind _last;
         public int CallCount { get; private set; }
         public byte[] OkBytes { get; init; } = Mp3A;
+
+        /// <summary>The clock the service under test runs its deadlines on; a stall moves it.</summary>
+        public FakeTimeProvider Clock { get; } = new();
 
         public ScriptedHandler(params Kind[] behaviours)
         {
@@ -80,10 +89,11 @@ public sealed class TtsServiceTests
                         Content = new ByteArrayContent(Array.Empty<byte>()),
                     };
                 case Kind.Stall:
-                    // Model a hung request: never complete on our own, just wait
-                    // for the per-request cancellation token to fire (which the
-                    // production CancelAfter triggers). This is what the 180 s
-                    // hang looked like, minus the 180 s wall time.
+                    // Model a hung request: never complete on our own. The per-request deadline
+                    // runs on the service's clock, so move that clock past it - the deadline timer
+                    // cancels the token at once - and then wait on the token exactly as a hung
+                    // call would. Nothing here knows how the service enforces the deadline.
+                    Clock.Advance(TtsService.PerRequestTimeout + TimeSpan.FromSeconds(1));
                     await Task.Delay(Timeout.Infinite, ct);
                     throw new InvalidOperationException("unreachable: Task.Delay(Infinite) always throws on cancel");
                 default:
@@ -101,7 +111,7 @@ public sealed class TtsServiceTests
         // Proves the per-request timeout is what ends the stalled call AND that a
         // timeout is treated as transient (retried), not propagated.
         var handler = new ScriptedHandler(ScriptedHandler.Kind.Stall, ScriptedHandler.Kind.Ok);
-        var svc = new TtsService(OptionsWithKey(), handler);
+        var svc = Service(handler);
 
         var result = await svc.GenerateAsync("Hello world.", null, null);
 
@@ -118,7 +128,7 @@ public sealed class TtsServiceTests
     {
         // A 5xx on the first attempt is transient; the second attempt returns audio.
         var handler = new ScriptedHandler(ScriptedHandler.Kind.ServerError, ScriptedHandler.Kind.Ok);
-        var svc = new TtsService(OptionsWithKey(), handler);
+        var svc = Service(handler);
 
         var result = await svc.GenerateAsync("Hello world.", null, null);
 
@@ -132,7 +142,7 @@ public sealed class TtsServiceTests
     {
         // An empty body (the exact "audio_bytes=0" symptom) is transient and retried.
         var handler = new ScriptedHandler(ScriptedHandler.Kind.Empty, ScriptedHandler.Kind.Ok);
-        var svc = new TtsService(OptionsWithKey(), handler);
+        var svc = Service(handler);
 
         var result = await svc.GenerateAsync("Hello world.", null, null);
 
@@ -145,19 +155,16 @@ public sealed class TtsServiceTests
     [Fact]
     public async Task GenerateAsync_PermanentFailure_ReturnsErrorQuickly_NotAfter180s()
     {
-        // Both attempts 5xx -> permanent failure after exactly one retry. The key
-        // assertion: it returns fast (well under the old 180 s), proving no chunk
-        // can block the turn.
+        // Both attempts 5xx -> permanent failure after exactly one retry, and no deadline is
+        // involved: a 5xx answers at once, so the only facts here are the outcome and that the
+        // retry rule stopped after one retry.
         var handler = new ScriptedHandler(ScriptedHandler.Kind.ServerError, ScriptedHandler.Kind.ServerError);
-        var svc = new TtsService(OptionsWithKey(), handler);
+        var svc = Service(handler);
 
-        var sw = Stopwatch.StartNew();
         var result = await svc.GenerateAsync("Hello world.", null, null);
-        sw.Stop();
 
         Assert.False(result.Success);
         Assert.Equal(2, handler.CallCount); // attempt + single retry, then give up
-        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(30), $"Took {sw.Elapsed.TotalSeconds:0.0}s - must fail fast, not block for 180s");
     }
 
     [Fact]
@@ -166,7 +173,7 @@ public sealed class TtsServiceTests
         // A 4xx is a permanent request error - it must NOT be retried (would waste
         // a call and delay the text-only fallback).
         var handler = new ScriptedHandler(ScriptedHandler.Kind.ClientError);
-        var svc = new TtsService(OptionsWithKey(), handler);
+        var svc = Service(handler);
 
         var result = await svc.GenerateAsync("Hello world.", null, null);
 
@@ -181,14 +188,23 @@ public sealed class TtsServiceTests
         // single retry also stalls, and the call returns an error - it never
         // waits the old 180 s ceiling.
         var handler = new ScriptedHandler(ScriptedHandler.Kind.Stall);
-        var svc = new TtsService(OptionsWithKey(), handler);
+        var svc = Service(handler);
 
         var sw = Stopwatch.StartNew();
         var result = await svc.GenerateAsync("Hello world.", null, null);
         sw.Stop();
 
         Assert.False(result.Success);
-        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(70), $"Took {sw.Elapsed.TotalSeconds:0.0}s - must stay within the overall budget, not block for 180s");
+        Assert.Equal(2, handler.CallCount); // the stalled attempt and its one retry
+        // The first stall is ended by its per-request deadline at 31 s on the clock; the retry's stall moves the clock
+        // to 62 s, past the 60 s overall budget, so the budget deadline fires before the retry's own and the whole
+        // reply fails on the budget. That is the path pinned here, on purpose.
+        Assert.Equal("tts_budget_exceeded", result.Status);
+        // The deadlines ran on the test's clock, which the stall moved; had they run on the system clock this call
+        // would have sat out the real thirty seconds twice. Ten seconds is daylight for a starved machine, not a
+        // timing the test depends on.
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(10),
+            $"took {sw.Elapsed.TotalSeconds:0.0}s of real time - the deadlines did not run on the service's clock");
     }
 
     // ===== (d) happy path unchanged (byte-identical concatenation) =========
@@ -197,7 +213,7 @@ public sealed class TtsServiceTests
     public async Task GenerateAsync_SingleChunk_ReturnsBytesUnchanged()
     {
         var handler = new ScriptedHandler(ScriptedHandler.Kind.Ok) { OkBytes = Mp3A };
-        var svc = new TtsService(OptionsWithKey(), handler);
+        var svc = Service(handler);
 
         var result = await svc.GenerateAsync("Short reply.", null, null);
 
@@ -217,7 +233,7 @@ public sealed class TtsServiceTests
         Assert.True(expectedChunks >= 2, "test text must split into at least 2 chunks");
 
         var handler = new ScriptedHandler(ScriptedHandler.Kind.Ok) { OkBytes = Mp3B };
-        var svc = new TtsService(OptionsWithKey(), handler);
+        var svc = Service(handler);
 
         var result = await svc.GenerateAsync(text, null, null);
 
@@ -251,7 +267,7 @@ public sealed class TtsServiceTests
     public async Task GenerateAsync_EmptyText_ReturnsError_WithoutCallingOpenAi()
     {
         var handler = new ScriptedHandler(ScriptedHandler.Kind.Ok);
-        var svc = new TtsService(OptionsWithKey(), handler);
+        var svc = Service(handler);
 
         var result = await svc.GenerateAsync("", null, null);
 
