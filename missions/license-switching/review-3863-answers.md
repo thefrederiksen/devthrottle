@@ -49,3 +49,46 @@ fix is the same code for all six.
 - Core.UnitTests: 1,499 passed, 1 failed - `BackgroundWorkRegisterTests`, red on main already (`LinkRequestsCache.cs`
   has no row in `docs/BackgroundWork.md`), untouched by this change.
 - Core.Tests, sessions, drivers and the terminal state detector: 355 passed.
+
+# Fix round: answers
+
+The fix-round review is `review-3863-fix-round.md` beside this file.
+
+## Medium: unrelated usage-limit text makes an ordinary menu drop automatic input - ACCEPTED, fixed
+
+Two parts, following the Tech Lead's reading.
+
+- **The limit words must be in the same menu as the hint.** `MayBeShowing` now reads, for each hint row in the lower
+  half, only that menu: from its question ("What do you want to do?", "Do you want to proceed?" - the nearest row with
+  a question mark, at most six rows up) down to the hint. Output above the question is not part of the menu. When no
+  question is in reach, every row in reach counts, which leans to blocking. A permission prompt under "The usage limit
+  is described in the README" - directly above the prompt or above its question - is answered again.
+- **A blocked remote prompt is no longer a silent success.** The prompt verb checks the dialog before it types and
+  answers not-delivered with a sentence the phone and the Cockpit can show ("The session is stopped at Claude Code's
+  usage-limit dialog, which only a person at that machine's terminal may answer; nothing was typed."). A recorded
+  delivery is written not-delivered with the same reason. For a dialog drawn while a send waits, the verb watches the
+  guard during the send (`UsageLimitInputGuard.WatchRefusals`) and answers the same refusal when any write was
+  refused. Every refused write is still logged by the guard. Writers on timer threads still get a logged drop, never
+  an exception, since an exception escaping a timer ends the process.
+
+The trade: a menu whose own rows carry no limit word is no longer blocked by limit text elsewhere on the screen. So
+the first round's "half drawn" shape (the menu's question and hint with no option drawn yet) no longer blocks. It is
+replaced by "option cut short" (the first option drawn only as far as "Stop and wait for li"), which is a partial
+drawing that does carry the menu's own words, and still blocks without an Escape.
+
+Tests, each red with the fix taken out (8 of 8) and green with it:
+
+- `MayBeShowing_PermissionPromptUnderUnrelatedLimitText_IsFalse` and
+  `Session_PermissionPromptUnderUnrelatedLimitText_AutomaticAnswerReachesIt` (the line above the prompt, and above its
+  question).
+- `SendPromptAsync_PhoneAnswerWhileTheDialogShows_RefusedWithAReasonAndNothingTyped` (with and without Enter; without
+  the fix the Enter case answered "delivering" after the 20-second budget, the raw case answered accepted),
+  `SendPromptAsync_RecordedDeliveryWhileTheDialogShows_RecordSaysNotDeliveredWithTheReason`, and
+  `SendPromptAsync_PhoneAnswerToAPermissionPromptUnderUnrelatedLimitText_ReachesIt`, through the real prompt core.
+- `WatchRefusals_GuardRefusesInsideTheScope_IsRefusedAndNotAfterIt` and
+  `WatchRefusals_RefusalInsideAnAwaitedSend_IsSeenByTheCaller`.
+
+## Runs, fix round
+
+- Core.UnitTests: 1,505 passed, 1 failed - the same `BackgroundWorkRegisterTests` row missing on main.
+- Gateway.UnitTests, every prompt and delivery test (filter `Prompt|Delivery|UsageLimitDialogPrompt`): 501 passed.

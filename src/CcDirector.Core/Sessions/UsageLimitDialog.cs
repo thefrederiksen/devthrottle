@@ -39,7 +39,7 @@ public static class UsageLimitDialog
 
     /// <summary>
     /// Words that belong to a usage limit. Any one of them inside an open menu at the bottom of the screen is enough
-    /// for <see cref="MayBeShowing"/>: a reworded option, a reordered menu or a half-drawn one still carries several.
+    /// for <see cref="MayBeShowing"/>: a reworded option, a reordered menu or one cut short still carries some.
     /// </summary>
     private static readonly string[] LimitWords =
     {
@@ -67,18 +67,48 @@ public static class UsageLimitDialog
     }
 
     /// <summary>
-    /// True when the screen MAY show the dialog: an open menu (its cancel or confirm hint) at the bottom of the screen,
-    /// with any word of a usage limit near it. The input guard blocks on this, because a dialog the certain check does
-    /// not recognise - a changed label, a changed order, a partial drawing - must not let a keystroke through: when the
-    /// screen looks like the dialog and is not recognised with certainty, the guard leans to blocking (finding 2). The
-    /// cost is that a menu shown next to a limit notice is not answered automatically either, which is the safe side.
+    /// True when the screen MAY show the dialog: an open menu (its cancel or confirm hint) in the lower half of the
+    /// screen, with a word of a usage limit INSIDE THAT MENU. The input guard blocks on this, because a dialog the
+    /// certain check does not recognise - a changed label, a changed order, an option cut short - must not let a
+    /// keystroke through: when the screen looks like the dialog and is not recognised with certainty, the guard leans
+    /// to blocking (finding 2).
+    ///
+    /// The limit words must belong to the same menu as the hint (<see cref="MenuText"/>), not merely sit near it: an
+    /// ordinary permission prompt under a line that happens to say "usage limit" is still answered (fix-round review of
+    /// pull request 3863).
     /// </summary>
     public static bool MayBeShowing(IReadOnlyList<string> visibleRows)
     {
-        var rows = SquashedRows(visibleRows);
-        var region = string.Concat(rows.Skip(Math.Max(0, rows.Count / 2 - OptionRowsAboveHint)));
-        var menuOpen = region.Contains(CancelHint, StringComparison.Ordinal) || region.Contains(ConfirmHint, StringComparison.Ordinal);
-        return menuOpen && LimitWords.Any(w => region.Contains(w, StringComparison.Ordinal));
+        ArgumentNullException.ThrowIfNull(visibleRows);
+        var rows = visibleRows.Where(r => Squash(r).Length > 0).ToList();
+        var squashed = rows.Select(Squash).ToList();
+        for (var hint = rows.Count - 1; hint >= rows.Count / 2; hint--)
+        {
+            if (!squashed[hint].Contains(CancelHint, StringComparison.Ordinal) && !squashed[hint].Contains(ConfirmHint, StringComparison.Ordinal))
+                continue;
+            var menu = MenuText(rows, squashed, hint);
+            if (LimitWords.Any(w => menu.Contains(w, StringComparison.Ordinal))) return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// The menu a hint row closes, squashed and joined: from the menu's question ("What do you want to do?", "Do you
+    /// want to proceed?" - the nearest row with a question mark, at most <see cref="OptionRowsAboveHint"/> rows up) down
+    /// to the hint. Text above the question is output the menu was drawn under, not part of it. When no question is in
+    /// reach the menu's top is not known, and every row in reach counts - leaning to blocking.
+    /// </summary>
+    private static string MenuText(IReadOnlyList<string> rows, IReadOnlyList<string> squashed, int hint)
+    {
+        var reach = Math.Max(0, hint - OptionRowsAboveHint);
+        var top = reach;
+        for (var i = hint; i >= reach; i--)
+        {
+            if (!rows[i].Contains('?', StringComparison.Ordinal)) continue;
+            top = i;
+            break;
+        }
+        return string.Concat(squashed.Skip(top).Take(hint - top + 1));
     }
 
     private static List<string> SquashedRows(IReadOnlyList<string> visibleRows)

@@ -259,7 +259,7 @@ public sealed class UsageLimitDialogTests
     /// <summary>A dialog in shapes nobody has captured yet: the guard must still block (finding 2).</summary>
     public static TheoryData<string> UnrecognisedDialogs() => new()
     {
-        "changed label", "reordered options", "half drawn",
+        "changed label", "reordered options", "option cut short",
     };
 
     private static string[] Unrecognised(string shape) => shape switch
@@ -279,11 +279,12 @@ public sealed class UsageLimitDialogTests
             "    2. Stop and wait for limit to reset",
             "  Enter to confirm · Esc to cancel",
         },
-        "half drawn" => new[]
+        "option cut short" => new[]
         {
             "❯ /rate-limit-options",
             "  What do you want to do?",
-            "  Enter to confirm",
+            "  ❯ 1. Stop and wait for li",
+            "  Enter to confirm · Esc to cancel",
         },
         _ => throw new ArgumentOutOfRangeException(nameof(shape)),
     };
@@ -363,6 +364,81 @@ public sealed class UsageLimitDialogTests
 
         Assert.False(UsageLimitDialog.IsShowing(rows));
         Assert.False(UsageLimitDialog.MayBeShowing(rows));   // an ordinary menu is still answered
+    }
+
+    /// <summary>An ordinary permission prompt drawn under output that happens to say "usage limit".</summary>
+    public static TheoryData<int> UnrelatedLimitTextPlaces() => new() { 0, 2 };
+
+    private static string[] PermissionPromptUnder(string line, int at)
+    {
+        var rows = new List<string>
+        {
+            " Bash command",
+            "   git status",
+            " Do you want to proceed?",
+            " ❯ 1. Yes",
+            "   2. Yes, and don't ask again for git status commands",
+            "   3. No, and tell Claude what to do differently (esc)",
+            " Esc to cancel",
+        };
+        rows.Insert(at, line);
+        return rows.ToArray();
+    }
+
+    [Theory]
+    [MemberData(nameof(UnrelatedLimitTextPlaces))]
+    public void MayBeShowing_PermissionPromptUnderUnrelatedLimitText_IsFalse(int at)
+    {
+        // Fix-round review of pull request 3863: the limit words and the menu hint were looked for independently, so a
+        // line of output saying "usage limit" made an ordinary permission prompt block. The words must be in the menu.
+        var rows = PermissionPromptUnder("The usage limit is described in the README", at);
+
+        Assert.False(UsageLimitDialog.MayBeShowing(rows));
+        Assert.False(UsageLimitDialog.IsShowing(rows));
+    }
+
+    [Theory]
+    [MemberData(nameof(UnrelatedLimitTextPlaces))]
+    public void Session_PermissionPromptUnderUnrelatedLimitText_AutomaticAnswerReachesIt(int at)
+    {
+        var backend = new RecordingBackend(withScreen: true);
+        var session = NewTerminalSession(backend);
+        backend.Show(PermissionPromptUnder("The usage limit is described in the README", at));
+
+        session.SendInput(System.Text.Encoding.ASCII.GetBytes("1"), InputOrigin.Typed(InputSurface.Phone));
+
+        Assert.Equal(new[] { System.Text.Encoding.ASCII.GetBytes("1") }, backend.Writes);
+    }
+
+    [Fact]
+    public void WatchRefusals_GuardRefusesInsideTheScope_IsRefusedAndNotAfterIt()
+    {
+        var guard = new UsageLimitInputGuard(new RecordingBackend(), Guid.NewGuid(), () => true);
+
+        using (var watch = UsageLimitInputGuard.WatchRefusals())
+        {
+            guard.Write(new byte[] { 0x1B });   // Escape passes: not a refusal
+            Assert.False(watch.Refused);
+            guard.Write(new byte[] { 0x0D });
+            Assert.True(watch.Refused);
+        }
+        using (var later = UsageLimitInputGuard.WatchRefusals())
+            Assert.False(later.Refused);
+    }
+
+    [Fact]
+    public async Task WatchRefusals_RefusalInsideAnAwaitedSend_IsSeenByTheCaller()
+    {
+        var guard = new UsageLimitInputGuard(new RecordingBackend(), Guid.NewGuid(), () => true);
+
+        using var watch = UsageLimitInputGuard.WatchRefusals();
+        await Task.Run(async () =>
+        {
+            await Task.Yield();
+            await guard.SendTextAsync("continue");
+        });
+
+        Assert.True(watch.Refused);
     }
 
     [Fact]

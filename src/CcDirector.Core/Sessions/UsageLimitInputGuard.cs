@@ -18,11 +18,13 @@ namespace CcDirector.Core.Sessions;
 /// with a typed origin), inside <see cref="PersonAtTheTerminal"/>. That person can see the dialog and choose.
 ///
 /// A refused write is DROPPED and logged, never thrown: writers run on timer threads where an escaped exception ends
-/// the process, and every sender that matters already verifies its own submit and reports the failure as its own.
+/// the process. A sender that must not mistake a drop for success - the prompt from the Gateway, which answers the
+/// phone or the Cockpit - opens <see cref="WatchRefusals"/> around its send and answers a refusal when it fired.
 /// </summary>
 internal sealed class UsageLimitInputGuard : ISessionBackend
 {
     private static readonly AsyncLocal<bool> PersonTyping = new();
+    private static readonly AsyncLocal<RefusalWatch?> Watching = new();
 
     private readonly Func<bool> _dialogShowing;
     private readonly Guid _sessionId;
@@ -42,6 +44,17 @@ internal sealed class UsageLimitInputGuard : ISessionBackend
         var was = PersonTyping.Value;
         PersonTyping.Value = true;
         return new Restore(was);
+    }
+
+    /// <summary>
+    /// Counts the writes this guard refuses inside the scope - the caller's own send and everything it awaits - so the
+    /// caller can tell a refused send from a delivered one (fix-round review of pull request 3863).
+    /// </summary>
+    public static RefusalWatch WatchRefusals()
+    {
+        var watch = new RefusalWatch(Watching.Value);
+        Watching.Value = watch;
+        return watch;
     }
 
     public int ProcessId => Inner.ProcessId;
@@ -95,7 +108,28 @@ internal sealed class UsageLimitInputGuard : ISessionBackend
     {
         if (isEscapeOnly || PersonTyping.Value || !_dialogShowing()) return true;
         FileLog.Write($"[UsageLimitInputGuard] session={_sessionId}: the usage-limit dialog is showing; REFUSED automatic input ({what}). Only Escape reaches it.");
+        Watching.Value?.Count();
         return false;
+    }
+
+    /// <summary>The refusals counted by one <see cref="WatchRefusals"/> scope. Disposing it ends the scope.</summary>
+    internal sealed class RefusalWatch : IDisposable
+    {
+        private readonly RefusalWatch? _outer;
+        private int _refused;
+
+        public RefusalWatch(RefusalWatch? outer) => _outer = outer;
+
+        /// <summary>True when at least one write was refused inside the scope.</summary>
+        public bool Refused => Volatile.Read(ref _refused) > 0;
+
+        internal void Count()
+        {
+            Interlocked.Increment(ref _refused);
+            _outer?.Count();
+        }
+
+        public void Dispose() => Watching.Value = _outer;
     }
 
     private sealed class Restore : IDisposable
