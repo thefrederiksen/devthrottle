@@ -1,4 +1,5 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
+using CcDirector.TestInfrastructure;
 using Xunit;
 
 namespace CcDirector.Core.UnitTests.Architecture;
@@ -99,10 +100,10 @@ public sealed class GatewayHostedModeIsReadOnceTests
     /// </summary>
     private static IReadOnlyCollection<string> FilesWhoseCodeMatches(Regex pattern)
     {
-        var gateway = Path.Combine(RepoRoot(), "src", "CcDirector.Gateway");
-        var files = Directory.EnumerateFiles(gateway, "*.cs", SearchOption.AllDirectories)
-            .Where(f => !IsBuildOutput(gateway, f))
-            .ToList();
+        // The shared index lists what git knows about - tracked files plus new ones not yet added - so a file a
+        // developer wrote a minute ago is seen, and no build output is.
+        var gateway = Path.Combine(RepositorySourceIndex.Root, "src", "CcDirector.Gateway");
+        var files = RepositorySourceIndex.Under(gateway, ".cs").ToList();
         Assert.True(files.Count > 100,
             $"Expected the Gateway source tree under {gateway}, found {files.Count} .cs files. A guard that " +
             "reads an empty tree has checked nothing.");
@@ -115,14 +116,6 @@ public sealed class GatewayHostedModeIsReadOnceTests
                 hits.Add(Path.GetRelativePath(gateway, file).Replace('\\', '/'));
         }
         return hits;
-    }
-
-    private static bool IsBuildOutput(string root, string file)
-    {
-        var relative = Path.GetRelativePath(root, file);
-        var first = relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)[0];
-        return string.Equals(first, "obj", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(first, "bin", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -188,24 +181,5 @@ public sealed class GatewayHostedModeIsReadOnceTests
             i++;
         }
         return output.ToString();
-    }
-
-    /// <summary>
-    /// The repository root, walked up from the test binary. Fails loudly rather than passing over a missing
-    /// tree: a guard whose pass condition is "found nothing to check" certifies a run that never happened.
-    /// </summary>
-    private static string RepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            if (File.Exists(Path.Combine(dir.FullName, "src", "CcDirector.Gateway", "GatewayHostOptions.cs")))
-                return dir.FullName;
-            dir = dir.Parent;
-        }
-
-        throw new DirectoryNotFoundException(
-            "Could not find the repository root above " + AppContext.BaseDirectory +
-            ". This guard reads the Gateway source in the checkout; without it there is nothing to check.");
     }
 }
