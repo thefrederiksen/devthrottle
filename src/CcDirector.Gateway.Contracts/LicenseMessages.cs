@@ -7,13 +7,16 @@ namespace CcDirector.Gateway.Contracts;
 // a change here is a change to both sides and goes through that document first.
 //
 // Rule 6.1 of the contract: nothing in this file ever carries a sign-in key. Only emails, the two plan words,
-// percentages, times, outcome words and reason codes. LicenseMessagesCarryNoKeyTests fails if a property of a
-// License* type is named with "Token", "Secret", "Credential", "Key" or "Code" (other than ReasonCode).
+// percentages, times, outcome words and reason codes. LicenseMessagesCarryNoKeyTests fails if a property or an
+// instance field of ANY License* type here - class, struct, record, abstract or static, static or instance member -
+// is named with "Token", "Secret", "Credential", "Key" or "Code" (other than ReasonCode).
+//
+// Every time in this file is in Coordinated Universal Time, which is what the "Utc" ending of a name says.
 
 /// <summary>
 /// The usage report a Director sends up with <c>DirectorHub.PushLicenseUsage</c> (contract section 2): a COMPLETE
-/// snapshot of every account this machine holds, active first, every time - never a change list. The Director id
-/// and the tenant come from the connection's binding, never from this payload.
+/// snapshot of every account this machine holds, active first, every time - never a change list. The Director's
+/// identifier and the tenant come from the connection's binding, never from this payload.
 /// </summary>
 public sealed class LicenseUsageReport
 {
@@ -23,7 +26,7 @@ public sealed class LicenseUsageReport
     /// <summary>The operating system user whose Claude config this is (the same as Hello.User).</summary>
     public string OsUser { get; set; } = "";
 
-    /// <summary>When the Director built this report (UTC).</summary>
+    /// <summary>When the Director built this report.</summary>
     public DateTime SentAtUtc { get; set; }
 
     /// <summary>Why it was sent: one of <see cref="LicenseReportTriggers"/>.</summary>
@@ -60,7 +63,7 @@ public sealed class LicenseHolding
     /// <summary>The paid extra usage; null when not known.</summary>
     public LicenseExtraUsage? ExtraUsage { get; set; }
 
-    /// <summary>When THESE numbers were read from the provider (UTC); null if never read. A failed read keeps the
+    /// <summary>When THESE numbers were read from the provider; null if never read. A failed read keeps the
     /// previous numbers and this old time, so the Gateway can see how old they are (contract section 5.2).</summary>
     public DateTime? ReadAtUtc { get; set; }
 
@@ -69,6 +72,14 @@ public sealed class LicenseHolding
 
     /// <summary>One plain sentence, never containing anything from the sign-in.</summary>
     public string? ReadErrorDetail { get; set; }
+
+    /// <summary>When this sign-in was made (the sign-in command that created it); null when the Director does not know.
+    /// Refreshing a sign-in does not change it (contract section 2.2).</summary>
+    public DateTime? SignedInAtUtc { get; set; }
+
+    /// <summary>When the Director expects this sign-in to stop working, however often it is refreshed; null when not
+    /// known. The Director fills it; the Gateway never computes it (contract section 2.2).</summary>
+    public DateTime? SignInExpiresAtUtc { get; set; }
 }
 
 /// <summary>One usage window as the provider reports it.</summary>
@@ -77,7 +88,7 @@ public sealed class LicenseWindow
     /// <summary>0 to 100, verbatim from the provider.</summary>
     public double Utilization { get; set; }
 
-    /// <summary>When the window resets (UTC); null when the provider gave none.</summary>
+    /// <summary>When the window resets; null when the provider gave none.</summary>
     public DateTime? ResetsAtUtc { get; set; }
 }
 
@@ -92,12 +103,14 @@ public sealed class LicenseExtraUsage
 }
 
 /// <summary>
-/// The payload of the <see cref="LicenseContract.SwitchVerb"/> command (contract section 3.2), carried as JSON in
-/// <see cref="DirectorCommand.PayloadJson"/>. Idempotency is carried by <see cref="SwitchId"/>, not the command id.
+/// The payload of the <see cref="LicenseContract.SwitchVerb"/> command (contract section 3.2), carried as text in
+/// <see cref="DirectorCommand.PayloadJson"/>. A repeated switch is recognised by <see cref="SwitchId"/>, not by the
+/// command's own identifier.
 /// </summary>
 public sealed class LicenseSwitchRequest
 {
-    /// <summary>Gateway-minted, 32 lower-case hex (Guid "N"); the switch log row's id. See <see cref="LicenseContract.SwitchIdShape"/>.</summary>
+    /// <summary>Made by the Gateway: 32 lower-case hexadecimal digits (a <see cref="Guid"/> written with the "N" format);
+    /// the identifier of the switch log row. See <see cref="LicenseContract.SwitchIdShape"/>.</summary>
     public string SwitchId { get; set; } = "";
 
     /// <summary>The spare to make active.</summary>
@@ -109,7 +122,7 @@ public sealed class LicenseSwitchRequest
     /// <summary>One of <see cref="LicenseSwitchReasons"/>.</summary>
     public string Reason { get; set; } = "";
 
-    /// <summary>When the Gateway decided (UTC).</summary>
+    /// <summary>When the Gateway decided.</summary>
     public DateTime RequestedAtUtc { get; set; }
 
     /// <summary>The Director refuses to START this switch after this time: <see cref="RequestedAtUtc"/> plus
@@ -118,7 +131,7 @@ public sealed class LicenseSwitchRequest
 }
 
 /// <summary>
-/// The answer to a <see cref="LicenseContract.SwitchVerb"/> command (contract section 3.4), carried as JSON in
+/// The answer to a <see cref="LicenseContract.SwitchVerb"/> command (contract section 3.4), carried as text in
 /// <see cref="DirectorCommandResult.BodyJson"/>. A refusal is a successful answer carrying a reason.
 /// </summary>
 public sealed class LicenseSwitchResult
@@ -143,7 +156,7 @@ public sealed class LicenseSwitchResult
     /// <summary>The new active key answered a usage read.</summary>
     public bool VerifiedByUsageRead { get; set; }
 
-    /// <summary>When the Director began this switch (UTC).</summary>
+    /// <summary>When the Director began this switch.</summary>
     public DateTime StartedAtUtc { get; set; }
 
     public DateTime FinishedAtUtc { get; set; }
@@ -217,7 +230,8 @@ public static class LicenseContract
     /// <summary>The <see cref="DirectorCommand.Verb"/> of a switch command. It addresses no session.</summary>
     public const string SwitchVerb = "license-switch";
 
-    /// <summary>The shape of <see cref="LicenseSwitchRequest.SwitchId"/>: 32 lower-case hex (Guid "N").</summary>
+    /// <summary>The shape of <see cref="LicenseSwitchRequest.SwitchId"/>: 32 lower-case hexadecimal digits (a
+    /// <see cref="Guid"/> written with the "N" format).</summary>
     public static readonly Regex SwitchIdShape = new("^[0-9a-f]{32}$", RegexOptions.CultureInvariant);
 
     /// <summary>The Director sends a report this often while the tunnel is connected.</summary>
@@ -241,10 +255,14 @@ public static class LicenseContract
     /// <summary><see cref="LicenseSwitchRequest.NotAfterUtc"/> is <see cref="LicenseSwitchRequest.RequestedAtUtc"/> plus this.</summary>
     public static readonly TimeSpan SwitchNotAfter = TimeSpan.FromMinutes(10);
 
-    /// <summary>The Director keeps finished switch results this long, so a repeated switch id is answered, not rerun.</summary>
+    /// <summary>The Director keeps finished switch results this long, so a repeated switch identifier is answered, not rerun.</summary>
     public static readonly TimeSpan SwitchResultRetention = TimeSpan.FromHours(24);
 
     /// <summary>A report whose <see cref="LicenseUsageReport.SentAtUtc"/> is further than this from the Gateway's
     /// receive time is logged as skewed and its ages are judged from the receive time instead.</summary>
     public static readonly TimeSpan ClockSkewLoggedAbove = TimeSpan.FromMinutes(2);
+
+    /// <summary>A holding whose <see cref="LicenseHolding.SignInExpiresAtUtc"/> is within this of now is shown as
+    /// "expires soon" (contract section 5.7).</summary>
+    public static readonly TimeSpan SignInExpiryWarning = TimeSpan.FromDays(3);
 }
