@@ -123,10 +123,12 @@ public sealed class LicenseMessagesCarryNoKeyTests
     {
         // The scan's own check, end to end: the probes go through the same discovery as the real types, then through
         // Offenders. Each form the first version missed must be found, and so must the members LicenseProbeInherited
-        // only inherits from ProbeBaseWithKey - a candidate the discovery itself leaves out, because of its name, so
-        // its members can be reported only through the inheritance walk, under the name of the License* type.
+        // only inherits from ProbeBaseWithKey, and the property LicenseProbeInterface only inherits from the interface
+        // IProbeWithKey - candidates the discovery itself leaves out, because of their names, so their members can be
+        // reported only through the inheritance walk, under the name of the License* type.
         var probes = typeof(LicenseMessagesCarryNoKeyTests).GetNestedTypes(BindingFlags.NonPublic)
-            .Append(typeof(ProbeBaseWithKey));
+            .Append(typeof(ProbeBaseWithKey))
+            .Append(typeof(IProbeWithKey));
 
         var offenders = Offenders(LicenseTypes(probes, typeof(LicenseMessagesCarryNoKeyTests).Namespace!));
 
@@ -134,7 +136,7 @@ public sealed class LicenseMessagesCarryNoKeyTests
             new[]
             {
                 "LicenseProbeAbstract.RefreshToken", "LicenseProbeField.ApiKey", "LicenseProbeInherited.InheritedSecret",
-                "LicenseProbeInherited.InheritedToken", "LicenseProbeRecord.ClientSecret",
+                "LicenseProbeInherited.InheritedToken", "LicenseProbeInterface.InterfaceToken", "LicenseProbeRecord.ClientSecret",
                 "LicenseProbeStatic.AuthorizeCode", "LicenseProbeStruct.AccessToken",
             },
             offenders.Order(StringComparer.Ordinal));
@@ -169,6 +171,11 @@ public sealed class LicenseMessagesCarryNoKeyTests
     private sealed class LicenseProbeInherited : ProbeBaseWithKey
     {
         public string? Label { get; init; }
+    }
+
+    private interface LicenseProbeInterface : IProbeWithKey
+    {
+        string? Label { get; }
     }
 
     [Fact]
@@ -218,8 +225,13 @@ public sealed class LicenseMessagesCarryNoKeyTests
     }
 }
 
-// Probe base type for LicenseMessagesCarryNoKeyTests.Scan_EveryDeclarationFormAndInheritedMember_IsCaught. It sits outside
-// the test class on purpose: nested inside it, it would count as inside a License* type and be found directly.
+// Probe base types for LicenseMessagesCarryNoKeyTests.Scan_EveryDeclarationFormAndInheritedMember_IsCaught. They sit outside
+// the test class on purpose: nested inside it, they would count as inside a License* type and be found directly.
+internal interface IProbeWithKey
+{
+    string? InterfaceToken { get; }
+}
+
 internal abstract class ProbeBaseWithKey
 {
     public string? InheritedToken { get; init; }
