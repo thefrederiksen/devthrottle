@@ -19,6 +19,7 @@ from . import factory_registry_ops
 from . import factory_status_ops
 from . import fleet_manager_ops
 from . import fleet_ops
+from . import license_ops
 from . import link_ops
 from . import mission_ops
 from . import schedule_ops
@@ -208,6 +209,16 @@ errors_app = typer.Typer(
     add_completion=False,
     no_args_is_help=True,
 )
+license_app = typer.Typer(
+    cls=AxiGroup,
+    help=(
+        "List, add, remove and switch the Claude accounts this machine holds.\n\n"
+        "The active sign-in is in the default config folder; each spare has a folder of its own in the store. "
+        "A switch exchanges the active sign-in with a spare's. Never prints a key."
+    ),
+    add_completion=False,
+    no_args_is_help=True,
+)
 app.add_typer(session_app, name="session")
 app.add_typer(errors_app, name="errors")
 app.add_typer(repo_app, name="repo")
@@ -230,6 +241,7 @@ app.add_typer(diag_app, name="diag")
 app.add_typer(autostart_app, name="autostart")
 app.add_typer(browser_app, name="browser")
 app.add_typer(fleet_app, name="fleet")
+app.add_typer(license_app, name="license")
 console = Console()
 
 _ACTIONS = [
@@ -1664,6 +1676,69 @@ def browser_remove(
 ) -> None:
     """Stop the browser, delete its folder, and drop it from the registry."""
     browser_ops.remove_browser(name, json_output)
+
+
+_LICENSE_DEFAULT_DIR_HELP = (
+    "The default Claude config folder, whose sign-in every session uses. Default: CC_LICENSE_DEFAULT_CONFIG_DIR, "
+    "else ~/.claude, which this release refuses - pass an isolated folder."
+)
+_LICENSE_STORE_DIR_HELP = "The folder holding the spares. Default: CC_LICENSE_STORE_DIR, else <DevThrottle data>/licenses."
+
+
+@license_app.command("list")
+def license_list(
+    default_config_dir: str = typer.Option(None, "--default-config-dir", help=_LICENSE_DEFAULT_DIR_HELP),
+    store_dir: str = typer.Option(None, "--store-dir", help=_LICENSE_STORE_DIR_HELP),
+    fields: str = typer.Option(
+        None, "--fields",
+        help="Fields to show, comma separated. Default: email,role,organization. Valid: email, role, organization, "
+        "configDir, accountFile, keyStore, keyLocation.",
+    ),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON: every field of every account."),
+) -> None:
+    """List the accounts held: the active one and the spares."""
+    license_ops.list_accounts(default_config_dir, store_dir, fields, json_output)
+
+
+@license_app.command("switch")
+def license_switch(
+    account: str = typer.Argument(..., help="The email of a spare account."),
+    expect_active: str = typer.Option(
+        None, "--expect-active",
+        help="Refuse (reason active-account-changed) unless this email is the active account now.",
+    ),
+    default_config_dir: str = typer.Option(None, "--default-config-dir", help=_LICENSE_DEFAULT_DIR_HELP),
+    store_dir: str = typer.Option(None, "--store-dir", help=_LICENSE_STORE_DIR_HELP),
+    json_output: bool = typer.Option(
+        False, "--json", "-j",
+        help="Output as JSON in the switch result's field names (outcome, reasonCode, ...), on failure too.",
+    ),
+) -> None:
+    """Exchange the active sign-in with a spare's, then read it back to verify."""
+    license_ops.switch_account(account, expect_active, default_config_dir, store_dir, json_output)
+
+
+@license_app.command("add")
+def license_add(
+    account_folder: str = typer.Argument(..., help="A config folder that 'claude auth login' signed in to."),
+    default_config_dir: str = typer.Option(None, "--default-config-dir", help=_LICENSE_DEFAULT_DIR_HELP),
+    store_dir: str = typer.Option(None, "--store-dir", help=_LICENSE_STORE_DIR_HELP),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
+) -> None:
+    """Move a signed-in folder's sign-in into the store as a spare."""
+    license_ops.add_account(account_folder, default_config_dir, store_dir, json_output)
+
+
+@license_app.command("remove")
+def license_remove(
+    account: str = typer.Argument(..., help="The email of a spare account."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Delete without asking. Required when there is no terminal."),
+    default_config_dir: str = typer.Option(None, "--default-config-dir", help=_LICENSE_DEFAULT_DIR_HELP),
+    store_dir: str = typer.Option(None, "--store-dir", help=_LICENSE_STORE_DIR_HELP),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
+) -> None:
+    """Delete a spare's sign-in from this machine."""
+    license_ops.remove_account(account, yes, default_config_dir, store_dir, json_output)
 
 
 @app.callback()
