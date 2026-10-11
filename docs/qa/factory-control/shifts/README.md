@@ -81,3 +81,10 @@ Not proven here:
   no-history case. The case with history is proven by `ScheduleShiftsTests` and the route tests.
 - **The run table's Shift column, on screen.** It has no rows in the rig, because no Director is connected. It is
   proven by the route and Cockpit tests.
+
+## Revert proof
+
+With the work committed, the rule "with history, the run ends at fire plus its typical length" was broken on purpose
+(`r.Fire + t > r.Shift.EndUtc` became `r.Fire > r.Shift.EndUtc`) and `ScheduleShifts` tests run against a fresh build:
+4 failed (the does-not-fit case, the long typical run, and both daylight-saving days). Restored, rebuilt and rerun:
+81 of 81 `ScheduleShifts` and `FactoriesScreenFold` tests pass.
