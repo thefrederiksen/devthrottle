@@ -11,7 +11,7 @@ storage work merges.
 - `src/CcDirector.Gateway/Licenses/LicenseDecisionEngine.cs` - the tick (`Decide`), Switch now
   (`DecideManual`), and the target choice they and the forecast share.
 - `src/CcDirector.Gateway/Licenses/LicenseForecaster.cs` - rate, expected time to 97%, next switch.
-- Tests: `src/CcDirector.Gateway.UnitTests/Licenses/` - 44 tests.
+- Tests: `src/CcDirector.Gateway.UnitTests/Licenses/` - 52 tests.
 
 ## The check (MISSION.md section 7), test by test
 
@@ -24,20 +24,21 @@ storage work merges.
 | No target: one email, no switch | `Decide_NoTarget_SendsOneEmailAndSwitchesNothing` |
 | A second tick sends no second email | `Decide_NoTargetOnTheSecondTick_SendsNoSecondEmail` |
 | Triggered account not chosen before its reset, and is after | `Decide_AccountThatTriggered_IsNotChosenBeforeItsResetAndIsAfter` |
-| Switch now | `DecideManual_*` (7 tests) |
+| Switch now | `DecideManual_*` (8 tests) |
 | Every machine on the tired account switched | `Decide_EveryMachineOnTheTiredAccount_IsSwitched` |
 | A machine missing the spare blocks that target | `Decide_MachineMissingTheSpare_BlocksThatTarget`, `Decide_NoTargetHeldByEveryMachine_EmailsAndSwitchesNothing` |
 | Stale cases (contract 5.2) | `Decide_StaleReadingOfTheAccountInUse_DoesNotTrigger`, `Decide_StaleCandidate_IsNeverChosen`, `Decide_StaleMachine_IsSkippedAndTheOthersStillGo`, `IsReadingStale_ActiveAndSpareLimits_AndNeverRead` |
-| Forecast | `LicenseForecasterTests` (9 tests) |
+| A spare whose sign-in expires at or before now + 10 minutes is never a target (Tech Lead's contract addition) | `Decide_SpareSignInExpiringWithinTheCommandLifetime_IsNotChosen`, `DecideManual_NamedTargetWhoseSpareSignInIsExpiring_IsRefused` |
+| Forecast, with each holding's sign-in expiry verdict (expired / expires soon within 3 days / fine / unknown) | `LicenseForecasterTests` (15 tests) |
 
 ## Commands run, and their results
 
 ```
 dotnet test src/CcDirector.Gateway.UnitTests/CcDirector.Gateway.UnitTests.csproj --filter "FullyQualifiedName~CcDirector.Gateway.Tests.Licenses"
-Passed!  - Failed: 0, Passed: 44, Skipped: 0, Total: 44
+Passed!  - Failed: 0, Passed: 52, Skipped: 0, Total: 52
 ```
 
-Revert proof (each mutation applied to the committed engine, the 44 tests run, then `git checkout` restored it):
+Revert proof (each mutation applied to the committed engine, the license tests run, then `git checkout` restored it):
 
 | Mutation | Result |
 |---|---|
@@ -45,6 +46,8 @@ Revert proof (each mutation applied to the committed engine, the 44 tests run, t
 | Bars ignored | 1 failed: `Decide_AccountThatTriggered_IsNotChosenBeforeItsResetAndIsAfter` |
 | Open exhaustion event ignored | 1 failed: `Decide_NoTargetOnTheSecondTick_SendsNoSecondEmail` |
 | Restored | 44 passed |
+| (after the expiry addition) spare expiry check disabled | 2 failed: both expiry tests |
+| Restored | 52 passed |
 
 ```
 .\scripts\test-local.ps1
@@ -64,4 +67,7 @@ Passed!  - Failed: 0, Passed: 1022, Skipped: 0, Total: 1022
 ```
 .\scripts\test-local.ps1 -Parked
 ```
-PARKED_RESULT
+First run, on the engine before the expiry addition: the ten default suites all passed again (Core.UnitTests
+1456, Avalonia.Tests 1022 and the eight above). It was STOPPED by me before the three parked suites
+(Gateway.Tests, Core.Tests, Gateway.UnitTests) finished, because the Tech Lead asked every Developer to hold
+gates while the machine was short of memory. The parked suites have not yet run on this branch: GATE_PENDING
