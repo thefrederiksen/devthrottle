@@ -32,9 +32,11 @@ namespace CcDirector.Core.UnitTests.Background;
 public sealed class BackgroundWorkRegisterTests
 {
     // Construction of a recurring mechanism. A comment line does not count. The initializer brace
-    // may sit on the next line, so a bare "new DispatcherTimer" at the end of a line counts too.
+    // may sit on the next line, so a bare "new DispatcherTimer" at the end of a line counts too. A timer
+    // made through a TimeProvider (CreateTimer) is the same mechanism on an injectable clock, so moving a
+    // timer onto a TimeProvider must not take it off the register.
     private static readonly Regex ConstructionPattern = new(
-        @"new\s+(DispatcherTimer|System\.Threading\.Timer|Timer|PeriodicTimer|FileSystemWatcher)\s*(\(|\{|$)",
+        @"new\s+(DispatcherTimer|System\.Threading\.Timer|Timer|PeriodicTimer|FileSystemWatcher)\s*(\(|\{|$)|\.CreateTimer\s*\(",
         RegexOptions.Compiled);
 
     // A loop that runs until it is cancelled is a standing job by its own declaration. ANY other
