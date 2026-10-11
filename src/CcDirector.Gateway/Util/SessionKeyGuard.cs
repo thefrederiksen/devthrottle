@@ -1001,7 +1001,7 @@ public static class SessionKeyGuard
         "gateway/factory-email" => true,
         // Which session is the account's Factory Manager (Factory Control, step 5) - the same kind of mark as the
         // Fleet Manager's, with the same reason: it names a session already inside the account and admits nobody.
-        // `cc-devthrottle factory-manager show|set|clear`. What the mark GRANTS - resolving any of the account's
+        // `cc-devthrottle factory manager show|set|clear`. What the mark GRANTS - resolving any of the account's
         // problems - is decided by the resolve route, which reads the mark; the guard admits only the setting.
         "gateway/factory-manager" => true,
         _ => false,

@@ -368,6 +368,8 @@ _ACTIONS_ADDED_SINCE_PIN = {
     "factory-status",
     # Factory Control, step 4: the factory email's switch and its kept reports.
     "factory-email-status", "factory-email-on", "factory-email-off", "factory-email-list", "factory-email-show",
+    # Factory Control, step 5: the Factory Manager's mark and the name check.
+    "factory-manager-show", "factory-manager-set", "factory-manager-clear", "factory-name-check",
     # The Schedule page work (the owner, 2026-10-09): each machine's scheduled load over the next 24 hours.
     "schedule-load",
 }

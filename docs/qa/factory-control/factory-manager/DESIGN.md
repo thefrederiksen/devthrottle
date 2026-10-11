@@ -42,7 +42,7 @@ hand-off: it is a talk that the owner opens.
   - `GET /gateway/factory-manager` returns the session, the computer and the folder.
   - `PUT /gateway/factory-manager { "sessionId": "<id>" | null }` sets the mark or clears it. A body with no
     `sessionId` is refused, exactly as the Fleet Manager's route refuses it.
-- **Command line:** `cc-devthrottle factory-manager show | set <id> | clear` (AXI: `--json` keeps its shape, and
+- **Command line:** `cc-devthrottle factory manager show | set <id> | clear` (under `factory`, next to `factory name-check`, rather than a top-level `factory-manager`: the longer top-level name would have pushed three existing one-line helps past one row) (AXI: `--json` keeps its shape, and
   unknown flags fail).
 - **Who may set the mark:** the owner's own device, or any session key of the account. This is the same rule as
   the Fleet Manager, and it has the same stated gap: a session can mark itself. The change is logged with who made

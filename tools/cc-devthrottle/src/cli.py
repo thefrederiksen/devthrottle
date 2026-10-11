@@ -18,6 +18,7 @@ from . import factory_ops
 from . import factory_memory_ops
 from . import factory_registry_ops
 from . import factory_status_ops
+from . import factory_manager_ops
 from . import run_ops
 from . import fleet_manager_ops
 from . import fleet_ops
@@ -119,6 +120,12 @@ message_app.add_typer(link_app, name="link")
 fleet_manager_app = typer.Typer(
     cls=AxiGroup,
     help="Show, set, or clear which session is this account's one Fleet Manager.",
+    add_completion=False,
+    no_args_is_help=True,
+)
+factory_manager_app = typer.Typer(
+    cls=AxiGroup,
+    help="Show, set, or clear which session is this account's one Factory Manager.",
     add_completion=False,
     no_args_is_help=True,
 )
@@ -248,6 +255,7 @@ app.add_typer(director_app, name="director")
 app.add_typer(mission_app, name="mission")
 app.add_typer(message_app, name="message")
 app.add_typer(fleet_manager_app, name="fleet-manager")
+factory_app.add_typer(factory_manager_app, name="manager")
 app.add_typer(settings_app, name="settings")
 app.add_typer(schedule_app, name="schedule")
 app.add_typer(factory_app, name="factory")
@@ -1050,6 +1058,13 @@ _ACTIONS = [
         "args": [{"name": "factory", "required": False}],
     },
     {
+        "id": "factory-name-check",
+        "description": "The name check over every factory: each seat that says CEO, or whose name is not a role word of its factory (a factory has a boss, not a CEO; seats are role words, never a person's name).",
+        "command": "cc-devthrottle factory name-check",
+        "mutatesState": False,
+        "args": [],
+    },
+    {
         "id": "factory-email-status",
         "description": "Show whether this account is sent the factory email (the 08:00 report and the 16:00 / midnight checks).",
         "command": "cc-devthrottle factory email status",
@@ -1442,6 +1457,30 @@ _ACTIONS = [
         "id": "fleet-manager-clear",
         "description": "Remove this account's Fleet Manager mark.",
         "command": "cc-devthrottle fleet-manager clear",
+        "mutatesState": True,
+        "args": [],
+    },
+    {
+        "id": "factory-manager-show",
+        "description": "Show which session is this account's one Factory Manager, or none, and the computer and folder it starts on.",
+        "command": "cc-devthrottle factory manager show",
+        "mutatesState": False,
+        "args": [],
+    },
+    {
+        "id": "factory-manager-set",
+        "description": (
+            "Mark a session as this account's one Factory Manager, replacing any earlier mark. "
+            "With no session, marks the session running the command. The Factory Manager may resolve any problem of the account."
+        ),
+        "command": "cc-devthrottle factory manager set [<session>]",
+        "mutatesState": True,
+        "args": [{"name": "session", "required": False}],
+    },
+    {
+        "id": "factory-manager-clear",
+        "description": "Remove this account's Factory Manager mark.",
+        "command": "cc-devthrottle factory manager clear",
         "mutatesState": True,
         "args": [],
     },
@@ -3125,6 +3164,35 @@ def fleet_manager_clear(
     fleet_manager_ops.clear(json_output)
 
 
+@factory_manager_app.command("show")
+def factory_manager_show(
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output JSON: {\"sessionId\": <id or null>, \"computer\": ..., \"folder\": ...}."
+    ),
+) -> None:
+    """Show this account's Factory Manager, or none, and where it starts."""
+    factory_manager_ops.show(json_output)
+
+
+@factory_manager_app.command("set")
+def factory_manager_set(
+    session: Optional[str] = typer.Argument(
+        None, help="The session to mark: its number, an id prefix, or its name. Omit to mark this session."
+    ),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Mark a session as the one Factory Manager, replacing any earlier mark."""
+    factory_manager_ops.set_mark(session, json_output)
+
+
+@factory_manager_app.command("clear")
+def factory_manager_clear(
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Remove this account's Factory Manager mark."""
+    factory_manager_ops.clear(json_output)
+
+
 @mission_app.command("create")
 def mission_create(
     name: str = typer.Argument(..., help="Human-friendly name for the Mission."),
@@ -4090,6 +4158,18 @@ def factory_status(
     the screen reads; nothing is decided here.
     """
     factory_status_ops.status(factory, json_output)
+
+
+@factory_app.command("name-check")
+def factory_name_check(
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Flag every seat that says CEO, or whose name is not a role word.
+
+    A factory has a boss, not a CEO, and seats are role words, never a person's name. The rule and every
+    sentence are the Gateway's, from the one fold the Factory Manager and the Factories screen read.
+    """
+    factory_manager_ops.name_check(json_output)
 
 
 @factory_goal_number_app.command("post")

@@ -261,7 +261,7 @@ public sealed class SessionKeyGuardTests
     [InlineData("GET", "/gateway/factories")]
     [InlineData("GET", "/gateway/factories/website-business")]
     // The Factory Manager's binding and the name check (Factory Control, step 5):
-    // `cc-devthrottle factory-manager show|set|clear` and `cc-devthrottle factory name-check`.
+    // `cc-devthrottle factory manager show|set|clear` and `cc-devthrottle factory name-check`.
     [InlineData("GET", "/gateway/factory-manager")]
     [InlineData("PUT", "/gateway/factory-manager")]
     [InlineData("GET", "/gateway/factory/name-check")]
