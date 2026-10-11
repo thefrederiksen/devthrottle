@@ -858,6 +858,24 @@ a.fa-tab {
   min-width: 600px;
 }
 
+/* One heading row per shift (Factory Control, step 3): the groups are the Gateway's, the heading is plain text. */
+.fa-seats .fa-shift-head th {
+  text-align: left;
+  padding: 14px 8px 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+}
+
+.fa-seats tbody:first-of-type .fa-shift-head th {
+  padding-top: 6px;
+}
+
+.fa-seat-shift {
+  font-size: 12px;
+}
+
 /* Phone width (mockup 4): the list's rows become cards - name and status on top, then what is waiting, then Talk -
    and nothing scrolls sideways at 390px. The page's tabs wrap; its tables scroll inside their own frame. */
 @media (max-width: 640px) {
@@ -941,6 +959,18 @@ a.fa-tab {
   .fa-seats .fa-seat-talk {
     text-align: left;
     padding-top: 6px;
+  }
+  /* A shift heading is a heading on the phone too, not a card. */
+  .fa-seats tr.fa-shift-head {
+    border: none;
+    background: transparent;
+    padding: 8px 0 4px;
+    margin-bottom: 4px;
+  }
+  .fa-seats .fa-shift-head th {
+    display: block;
+    padding: 0;
+    border-bottom: none;
   }
 }
 

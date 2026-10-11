@@ -9,6 +9,7 @@ import type {
 import type {
   FactoriesListView,
   FactoryPageView,
+  FactorySeatRow,
   FactorySeatsView,
 } from "@devthrottle/client-core/factory/factoriesScreenClient";
 
@@ -535,38 +536,45 @@ export const FACTORY_PAGE: FactoryPageView = {
   restore: null,
 };
 
+const SEAT_BOSS: FactorySeatRow = {
+  seatId: "nora-hale",
+  name: "Boss",
+  role: "Boss",
+  whenText: "Daily 06:15",
+  lastRunText: "Today 06:20 - succeeded",
+  lastRunTone: "ok",
+  computerText: "SOREN_NORTH",
+  closingText: "stayed open 3 of its last 7 runs (fixture)",
+  closingTone: "amber",
+  shiftText: "Night shift",
+  talk: { label: "Talk", busyLabel: "Starting the talk with nora-hale (fixture)...", factoryId: "warmforward", seatId: "nora-hale" },
+  schedules: [{ jobId: "cj_boss", whenText: "Daily 06:15", editLabel: "Edit schedule", paused: false, toggleLabel: "Pause", shiftText: "Night shift" }],
+};
+
+const SEAT_VALUE: FactorySeatRow = {
+  seatId: "value-hunter",
+  name: "Value Hunter",
+  role: "Value Hunter",
+  whenText: "Wednesday 05:30",
+  lastRunText: "Not run yet",
+  lastRunTone: "grey",
+  computerText: "SOREN_NORTH",
+  closingText: "no runs recorded yet (fixture)",
+  closingTone: "grey",
+  shiftText: "No run in the next 7 days",
+  talk: { label: "Talk", busyLabel: "Starting the talk with value-hunter (fixture)...", factoryId: "warmforward", seatId: "value-hunter" },
+  schedules: [{ jobId: "cj_value", whenText: "Schedule cj_value is missing", editLabel: null, paused: false, toggleLabel: null, shiftText: "No run in the next 7 days" }],
+};
+
 export const FACTORY_SEATS: FactorySeatsView = {
   factoryId: "warmforward",
   title: "WarmForward",
   crumb: "Factories / WarmForward / Seats",
   columns: ["Seat", "When it runs", "Last run", "Computer"],
-  rows: [
-    {
-      seatId: "nora-hale",
-      name: "Boss",
-      role: "Boss",
-      whenText: "Daily 06:15",
-      lastRunText: "Today 06:20 - succeeded",
-      lastRunTone: "ok",
-      computerText: "SOREN_NORTH",
-      closingText: "stayed open 3 of its last 7 runs (fixture)",
-      closingTone: "amber",
-      talk: { label: "Talk", busyLabel: "Starting the talk with nora-hale (fixture)...", factoryId: "warmforward", seatId: "nora-hale" },
-      schedules: [{ jobId: "cj_boss", whenText: "Daily 06:15", editLabel: "Edit schedule", paused: false, toggleLabel: "Pause" }],
-    },
-    {
-      seatId: "value-hunter",
-      name: "Value Hunter",
-      role: "Value Hunter",
-      whenText: "Wednesday 05:30",
-      lastRunText: "Not run yet",
-      lastRunTone: "grey",
-      computerText: "SOREN_NORTH",
-      closingText: "no runs recorded yet (fixture)",
-      closingTone: "grey",
-      talk: { label: "Talk", busyLabel: "Starting the talk with value-hunter (fixture)...", factoryId: "warmforward", seatId: "value-hunter" },
-      schedules: [{ jobId: "cj_value", whenText: "Schedule cj_value is missing", editLabel: null, paused: false, toggleLabel: null }],
-    },
+  rows: [SEAT_BOSS, SEAT_VALUE],
+  groups: [
+    { shift: "night", title: "Night shift, 00:00-08:00 (fixture)", rows: [SEAT_BOSS] },
+    { shift: "none", title: "No run in the next 7 days (fixture)", rows: [SEAT_VALUE] },
   ],
   note: "Only seats the boss hired are listed.",
 };

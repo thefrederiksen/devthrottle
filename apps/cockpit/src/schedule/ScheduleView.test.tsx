@@ -144,3 +144,55 @@ describe("Schedule page: your own jobs first, factory schedules behind a switch"
     expect(factorySwitch().checked).toBe(true);
   });
 });
+
+// Factory Control, step 3: the shift a schedule works in, the Gateway's warning when a run would end after its shift,
+// and each run's shift. Every word is the Gateway's; the page renders it as given.
+describe("Schedule page: shifts and the shift-end warning", () => {
+  const WARNING =
+    "Ends after its shift: the run on Sun 11 Oct at 15:45 starts in the morning shift and usually takes about 25 min, so it would still be going when the shift ends at 16:00. 7 of its 7 runs in the next 7 days do this.";
+  const RULE = "The rule: a run belongs to the shift it starts in (fixture).";
+
+  it("shows each schedule's shift, marks the warned one, and gives the warning and its rule in the detail", async () => {
+    cronClient.getCronJobs.mockResolvedValue([
+      job("cj_own", "Own morning sweep", { shiftText: "Morning shift", shiftWarning: WARNING, shiftRule: RULE }),
+      job("cj_orphan", "Retired factory run", { factory: "retired", seat: "boss", factoryHref: null, shiftText: "Night shift" }),
+    ]);
+    cronClient.getCronRuns.mockResolvedValue([
+      {
+        scheduledUtc: "2026-10-10T19:45:00Z",
+        firedUtc: "2026-10-10T19:45:02Z",
+        machine: "SOREN_NORTH",
+        targetDirectorId: "d1",
+        infraStatus: "started",
+        taskStatus: "succeeded",
+        shiftText: "morning shift, Sat 10 Oct, 08:00-16:00",
+      },
+    ] as never);
+    renderPage();
+
+    const warned = await screen.findByTestId("sched-shift-cj_own");
+    expect(warned.textContent).toBe("Morning shift");
+    expect(warned.className).toContain("warn");
+    expect(warned.getAttribute("title")).toBe(WARNING);
+    const quiet = screen.getByTestId("sched-shift-cj_orphan");
+    expect(quiet.textContent).toBe("Night shift");
+    expect(quiet.className).not.toContain("warn");
+
+    fireEvent.click(screen.getByText("Own morning sweep"));
+
+    const banner = await screen.findByTestId("sched-shift-warning");
+    expect(banner.textContent).toContain(WARNING);
+    expect(banner.textContent).toContain(RULE);
+    expect(await screen.findByText("morning shift, Sat 10 Oct, 08:00-16:00")).toBeTruthy();
+  });
+
+  it("shows no warning for a schedule the Gateway did not warn about", async () => {
+    cronClient.getCronJobs.mockResolvedValue([job("cj_own", "Own morning sweep", { shiftText: "Morning shift" })]);
+    renderPage();
+
+    fireEvent.click(await screen.findByText("Own morning sweep"));
+
+    await waitFor(() => expect(cronClient.getCronRuns).toHaveBeenCalledWith("cj_own"));
+    expect(screen.queryByTestId("sched-shift-warning")).toBeNull();
+  });
+});

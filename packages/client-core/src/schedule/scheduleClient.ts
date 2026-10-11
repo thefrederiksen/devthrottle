@@ -86,6 +86,17 @@ export interface CronJob {
    * over its machine's capacity, or null when it fits. The schedule is saved either way. Read-only.
    */
   loadWarning?: string | null;
+  /** The shifts this schedule starts runs in over the next 7 days: "night" | "morning" | "evening". Read-only. */
+  shifts?: string[] | null;
+  /** The shifts in words, for example "Morning shift" or "No run in the next 7 days". Read-only. */
+  shiftText?: string | null;
+  /**
+   * The Gateway's warning that a run would still be going when its shift ends (or, with no finished run to measure,
+   * starts in the last 30 minutes of a shift); null when every run fits. A warning, never a refusal. Read-only.
+   */
+  shiftWarning?: string | null;
+  /** The rule behind shiftWarning, in words, set with it. Read-only. */
+  shiftRule?: string | null;
 }
 
 /** A schedule's run record in words (CronRunRecordSummaryDto): show `text` as given, coloured by `verdict`. */
@@ -110,6 +121,8 @@ export interface CronRunRecord {
   ending?: string | null;
   /** The ending in words, for example "closed itself after 6 min". Read-only. */
   endingText?: string | null;
+  /** The shift the run started in, for example "morning shift, Sun 11 Oct, 08:00-16:00". Read-only. */
+  shiftText?: string | null;
 }
 
 /** Each machine's next 24 hours (CronLoadDto), folded by the Gateway for the load strip. Render it as given. */

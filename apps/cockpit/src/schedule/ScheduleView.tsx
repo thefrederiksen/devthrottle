@@ -12,6 +12,7 @@ import {
   type CronLoad,
   type CronRunRecord,
 } from "@devthrottle/client-core/schedule/scheduleClient";
+import { savedWarnings } from "@devthrottle/client-core/schedule/savedWarnings";
 import { LoadStrip, machineShown, resolveHourPick } from "./LoadStrip";
 import { ScheduleEditor, type ScheduleEditorRequest } from "./ScheduleEditor";
 import { PauseEverythingButton, PausedBanner, useSchedulerPause } from "./SchedulerPause";
@@ -182,7 +183,7 @@ export function ScheduleView() {
   // A save in the editor: show the Gateway's load warning, then read the list and the forecast again.
   const onEditorSaved = useCallback(
     async (saved: CronJob) => {
-      setLoadWarning(saved.loadWarning ?? null);
+      setLoadWarning(savedWarnings(saved));
       await refresh();
       await refreshLoad();
     },
@@ -229,7 +230,7 @@ export function ScheduleView() {
         // never silently clears them (Blazor #622), while keeping read-only scheduling state on the
         // Gateway.
         const saved = await updateCronJob(job.id, cronJobWriteBody(job, { enabled: !job.enabled }));
-        setLoadWarning(saved.loadWarning ?? null);
+        setLoadWarning(savedWarnings(saved));
         await refresh();
         await refreshLoad();
       } catch (err) {
@@ -377,6 +378,22 @@ export function ScheduleView() {
         },
       },
       {
+        // The shifts this schedule works in, and its shift-end warning (Factory Control, step 3). Both are the
+        // Gateway's words; the cell only marks the warning it is given, and the detail below says it in full.
+        key: "shift",
+        header: "Shift",
+        width: "150px",
+        render: (job) => (
+          <span
+            className={`sched-shift ${job.shiftWarning ? "warn" : ""}`}
+            title={job.shiftWarning ?? undefined}
+            data-testid={`sched-shift-${job.id}`}
+          >
+            {job.shiftText ?? "-"}
+          </span>
+        ),
+      },
+      {
         // Whether this schedule's sessions close themselves (the owner, 2026-10-09). The words and the verdict are
         // the Gateway's; the page only colours the verdict it is given.
         key: "closes",
@@ -517,9 +534,20 @@ export function ScheduleView() {
             </dd>
             <dt>Closes itself</dt>
             <dd className={`sched-runrecord ${runRecordClass(job.runRecord?.verdict)}`}>{job.runRecord?.text ?? "-"}</dd>
+            <dt>Shift</dt>
+            <dd>{job.shiftText ?? "-"}</dd>
             <dt>Notify</dt>
             <dd>{notifyDescription(job)}</dd>
           </dl>
+
+          {job.shiftWarning && (
+            <div className="sched-banner-warn sched-shift-warning" role="status" data-testid="sched-shift-warning">
+              <span>
+                {job.shiftWarning}
+                {job.shiftRule && <span className="sched-shift-rule">{job.shiftRule}</span>}
+              </span>
+            </div>
+          )}
 
           <div className="sched-detail-label">
             {actionType(job)} - instructions
@@ -538,6 +566,7 @@ export function ScheduleView() {
                   <th>Scheduled</th>
                   <th>Fired</th>
                   <th>Infra</th>
+                  <th>Shift</th>
                   <th>How it ended</th>
                 </tr>
               </thead>
@@ -549,6 +578,7 @@ export function ScheduleView() {
                     <td>
                       <span className={`sched-st ${infraClass(r.infraStatus)}`}>{r.infraStatus}</span>
                     </td>
+                    <td className="dim">{r.shiftText ?? "-"}</td>
                     <td className="dim">{r.endingText ?? r.taskStatus}</td>
                   </tr>
                 ))}
