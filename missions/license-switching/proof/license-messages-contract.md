@@ -101,3 +101,21 @@ Mutation for finding 2: added `&& t.IsClass` to the discovery in `LicenseTypes(c
   Engine 103, HostedAgent 89, Launcher 218, Terminal.Avalonia 82, Reclaim 310, setup 39, setup-engine 875,
   setup-cli 74 - 4,434 passed, 0 failed.
 - Parked suites not run: this change touches only a Director unit test file and mission documents, no Gateway code.
+
+### Review of 3876
+
+Review: `missions/license-switching/reviews/3876-review.md`. Answers: `missions/license-switching/reviews/3876-answers.md`.
+Fix committed as `02659d9d7` before the mutation.
+
+`dotnet test src/CcDirector.Core.UnitTests --filter "FullyQualifiedName~LicenseMessages"`
+- Passed 12, failed 0. `Scan_EveryDeclarationFormAndInheritedMember_IsCaught` now expects eight offenders,
+  including `LicenseProbeInterface.InterfaceToken`.
+
+Mutation: removed the `foreach (var i in type.GetInterfaces()) yield return i;` lines from `SelfAndAncestors`. Same filter:
+- Failed 1, passed 11. `Scan_EveryDeclarationFormAndInheritedMember_IsCaught` lost `LicenseProbeInterface.InterfaceToken`.
+- Restored with `git checkout HEAD --`; `git status` clean; same filter: passed 12, failed 0.
+
+`dotnet build src/CcDirector.Core.UnitTests --no-incremental`: 0 warnings, 0 errors.
+
+`.\scripts\test-local.ps1`
+- GREEN at commit `02659d9d7`, tree clean, every suite outcome Completed, the same counts as above - 4,434 passed, 0 failed.
