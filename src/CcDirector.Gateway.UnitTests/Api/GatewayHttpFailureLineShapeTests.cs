@@ -1,3 +1,4 @@
+using CcDirector.TestInfrastructure;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using Xunit;
@@ -42,11 +43,8 @@ public sealed class GatewayHttpFailureLineShapeTests(ITestOutputHelper output)
     [Fact]
     public void Every_Gateway_HTTP_failure_line_names_its_request_as_VERB_space_route()
     {
-        var gateway = Path.Combine(RepoRoot(), "src", "CcDirector.Gateway");
-        var files = Directory.EnumerateFiles(gateway, "*.cs", SearchOption.AllDirectories)
-            .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}")
-                        && !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}"))
-            .ToList();
+        var gateway = Path.Combine(RepositorySourceIndex.Root, "src", "CcDirector.Gateway");
+        var files = RepositorySourceIndex.Under(gateway, ".cs").ToList();
 
         var errorSites = 0;
         var httpSites = 0;

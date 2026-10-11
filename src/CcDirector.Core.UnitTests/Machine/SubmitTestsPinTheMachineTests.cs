@@ -1,3 +1,4 @@
+using CcDirector.TestInfrastructure;
 using CcDirector.Core.Drivers;
 using CcDirector.Core.Machine;
 using CcDirector.Core.Tests.Drivers;
@@ -43,7 +44,7 @@ public class SubmitTestsPinTheMachineTests
     [Fact]
     public void EveryTestFileThatDrivesASubmitPinsTheMachineItAssumes()
     {
-        var root = RepoRoot();
+        var root = RepositorySourceIndex.Root;
         var offenders = new List<string>();
 
         foreach (var file in TestSourceFiles(root))
@@ -125,30 +126,13 @@ public class SubmitTestsPinTheMachineTests
 
     private static IEnumerable<string> TestSourceFiles(string root)
     {
-        foreach (var dir in Directory.GetDirectories(Path.Combine(root, "src")))
+        var src = Path.Combine(root, "src");
+        foreach (var file in RepositorySourceIndex.Under(src, ".cs"))
         {
-            var name = Path.GetFileName(dir);
-            if (!name.EndsWith("Tests", StringComparison.Ordinal)) continue;
-
-            foreach (var file in Directory.EnumerateFiles(dir, "*.cs", SearchOption.AllDirectories))
-            {
-                if (file.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal)) continue;
-                if (file.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)) continue;
-                yield return file;
-            }
+            // A test project is a directory straight under src whose name ends in "Tests".
+            var project = Path.GetRelativePath(src, file).Split(Path.DirectorySeparatorChar)[0];
+            if (!project.EndsWith("Tests", StringComparison.Ordinal)) continue;
+            yield return file;
         }
-    }
-
-    private static string RepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            if (File.Exists(Path.Combine(dir.FullName, "cc-director.sln")))
-                return dir.FullName;
-            dir = dir.Parent;
-        }
-
-        throw new DirectoryNotFoundException("Could not find repository root from " + AppContext.BaseDirectory);
     }
 }

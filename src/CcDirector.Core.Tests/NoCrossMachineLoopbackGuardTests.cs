@@ -1,3 +1,4 @@
+using CcDirector.TestInfrastructure;
 using Xunit;
 
 namespace CcDirector.Core.Tests;
@@ -112,14 +113,12 @@ public sealed class NoCrossMachineLoopbackGuardTests
     [Fact]
     public void No_new_production_file_hardcodes_cross_machine_loopback()
     {
-        var root = GetRepoRoot();
-        var srcDir = Path.Combine(root, "src");
+        var root = RepositorySourceIndex.Root;
         var offenders = new List<string>();
 
-        foreach (var file in Directory.EnumerateFiles(srcDir, "*.cs", SearchOption.AllDirectories))
+        foreach (var file in RepositorySourceIndex.Under("src", ".cs"))
         {
             var rel = Relative(root, file);
-            if (rel.Contains("/bin/") || rel.Contains("/obj/")) continue;
             if (IsTestProject(rel)) continue;
 
             var text = File.ReadAllText(file);
@@ -139,7 +138,7 @@ public sealed class NoCrossMachineLoopbackGuardTests
     [Fact]
     public void Allowlist_has_no_stale_entries()
     {
-        var root = GetRepoRoot();
+        var root = RepositorySourceIndex.Root;
         var stale = new List<string>();
 
         foreach (var (rel, _) in Allowlist)
@@ -165,13 +164,4 @@ public sealed class NoCrossMachineLoopbackGuardTests
 
     private static string Relative(string root, string full)
         => Path.GetRelativePath(root, full).Replace('\\', '/');
-
-    private static string GetRepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "cc-director.sln")))
-            dir = dir.Parent;
-        Assert.NotNull(dir);
-        return dir!.FullName;
-    }
 }

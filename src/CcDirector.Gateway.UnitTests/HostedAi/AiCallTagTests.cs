@@ -1,3 +1,4 @@
+using CcDirector.TestInfrastructure;
 using System.Net;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -192,11 +193,9 @@ public sealed class AiCallTagTests : IDisposable
     [Fact]
     public void EveryProductionConstruction_OfAnAiClient_PassesATag()
     {
-        var src = Path.Combine(RepoRoot(), "src");
-        var files = Directory.EnumerateFiles(src, "*.cs", SearchOption.AllDirectories)
-            .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}")
-                        && !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")
-                        && !Path.GetDirectoryName(f)!.Split(Path.DirectorySeparatorChar).Any(d => d.Contains("Tests", StringComparison.Ordinal)))
+        var src = Path.Combine(RepositorySourceIndex.Root, "src");
+        var files = RepositorySourceIndex.Under(src, ".cs")
+            .Where(f => !Path.GetDirectoryName(f)!.Split(Path.DirectorySeparatorChar).Any(d => d.Contains("Tests", StringComparison.Ordinal)))
             .ToList();
         var constructions = new Regex(@"new\s+(?:[\w.]+\.)?(HostedInferenceBrain|HostedCandidateJudge|BatchTranscriptionPipeline)\s*\(");
         var found = 0;

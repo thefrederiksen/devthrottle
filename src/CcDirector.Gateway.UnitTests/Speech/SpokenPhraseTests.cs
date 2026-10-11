@@ -1,3 +1,4 @@
+using CcDirector.TestInfrastructure;
 using System.Reflection;
 using System.Text.RegularExpressions;
 using CcDirector.Gateway.Speech;
@@ -427,27 +428,14 @@ public sealed class SpokenPhraseTests
     /// <summary>Every production source file in the Gateway project.</summary>
     private static IReadOnlyList<(string Path, string Content)> GatewaySourceFiles()
     {
-        var root = RepoRoot();
-        var gateway = Path.Combine(root, "src", "CcDirector.Gateway");
         var files = new List<(string, string)>();
-        foreach (var file in Directory.EnumerateFiles(gateway, "*.cs", SearchOption.AllDirectories))
-        {
-            var rel = Path.GetRelativePath(root, file).Replace('\\', '/');
-            if (rel.Contains("/bin/", StringComparison.Ordinal) || rel.Contains("/obj/", StringComparison.Ordinal)) continue;
-            files.Add((rel, File.ReadAllText(file)));
-        }
+        foreach (var file in RepositorySourceIndex.Under("src/CcDirector.Gateway", ".cs"))
+            files.Add((RepositorySourceIndex.Relative(file), File.ReadAllText(file)));
         Assert.NotEmpty(files);
         return files;
     }
 
-    private static string RepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "cc-director.sln")))
-            dir = dir.Parent;
-        Assert.NotNull(dir);
-        return dir!.FullName;
-    }
+    private static string RepoRoot() => RepositorySourceIndex.Root;
 }
 
 /// <summary>Ordering helper so a failure message lists slots deterministically.</summary>

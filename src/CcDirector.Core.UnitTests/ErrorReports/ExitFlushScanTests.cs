@@ -1,3 +1,4 @@
+using CcDirector.TestInfrastructure;
 using CcDirector.Core.ErrorReports;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -103,16 +104,14 @@ public sealed class ExitFlushScanTests
     [Fact]
     public void EveryDeliberateExit_FlushesTheErrorReporterFirst_OrSaysWhyNot()
     {
-        var root = CatchLogLineScanTests.RepositoryRoot();
-        var sep = Path.DirectorySeparatorChar;
+        var root = RepositorySourceIndex.Root;
         var sites = new List<ExitSite>();
         var filesRead = 0;
         foreach (var project in CatchLogLineScanTests.ReportingExecutables)
         {
             var dir = Path.GetDirectoryName(Path.GetFullPath(Path.Combine(root, project)))!;
-            foreach (var file in Directory.EnumerateFiles(dir, "*.cs", SearchOption.AllDirectories))
+            foreach (var file in RepositorySourceIndex.Under(dir, ".cs"))
             {
-                if (file.Contains($"{sep}obj{sep}") || file.Contains($"{sep}bin{sep}")) continue;
                 filesRead++;
                 sites.AddRange(ExitSitesIn(Path.GetRelativePath(root, file).Replace('\\', '/'), File.ReadAllText(file)));
             }

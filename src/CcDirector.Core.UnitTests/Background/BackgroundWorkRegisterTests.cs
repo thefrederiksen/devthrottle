@@ -1,3 +1,4 @@
+using CcDirector.TestInfrastructure;
 using System.Text.RegularExpressions;
 using Xunit;
 
@@ -58,7 +59,7 @@ public sealed class BackgroundWorkRegisterTests
     [Fact]
     public void EveryTimerWatcherAndWaitingLoop_HasARowInTheRegister_AndEveryRowStillPointsAtOne()
     {
-        var root = FindRepositoryRoot();
+        var root = RepositorySourceIndex.Root;
         var registerPath = Path.Combine(root, "docs", "BackgroundWork.md");
         Assert.True(File.Exists(registerPath), $"the register is missing: {registerPath}");
 
@@ -70,11 +71,9 @@ public sealed class BackgroundWorkRegisterTests
         var filesScanned = 0;
         foreach (var project in projects)
         {
-            var dir = Path.GetDirectoryName(project)!;
-            foreach (var file in Directory.EnumerateFiles(dir, "*.cs", SearchOption.AllDirectories))
+            foreach (var file in RepositorySourceIndex.Under(Path.GetDirectoryName(project)!, ".cs"))
             {
                 var rel = Path.GetRelativePath(root, file).Replace('\\', '/');
-                if (rel.Contains("/obj/", StringComparison.Ordinal) || rel.Contains("/bin/", StringComparison.Ordinal)) continue;
                 filesScanned++;
                 var sites = CountSites(File.ReadAllLines(file));
                 if (sites > 0)
@@ -172,17 +171,5 @@ public sealed class BackgroundWorkRegisterTests
         }
         Walk(applicationProject);
         return seen;
-    }
-
-    private static string FindRepositoryRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            if (Directory.Exists(Path.Combine(dir.FullName, "src", "CcDirector.Core")) && Directory.Exists(Path.Combine(dir.FullName, "docs")))
-                return dir.FullName;
-            dir = dir.Parent;
-        }
-        throw new DirectoryNotFoundException("could not find the repository root above " + AppContext.BaseDirectory);
     }
 }

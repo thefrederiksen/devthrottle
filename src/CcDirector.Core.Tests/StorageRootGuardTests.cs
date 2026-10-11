@@ -1,3 +1,4 @@
+using CcDirector.TestInfrastructure;
 using Xunit;
 
 namespace CcDirector.Core.Tests;
@@ -73,7 +74,7 @@ public sealed class StorageRootGuardTests
         // skip CcStorage (no project references by design), but it must still be redirectable. Without
         // this, "cannot use CcStorage" would be a loophole that reintroduces the exact unredirectable
         // path the guard exists to prevent.
-        var file = Path.Combine(GetRepoRoot(), "src", "CcDirector.AgentBrain", "BrainLog.cs");
+        var file = Path.Combine(RepositorySourceIndex.Root, "src", "CcDirector.AgentBrain", "BrainLog.cs");
         var text = File.ReadAllText(file);
 
         Assert.True(text.Contains("CC_DIRECTOR_ROOT", StringComparison.Ordinal),
@@ -100,14 +101,13 @@ public sealed class StorageRootGuardTests
     /// <paramref name="allMatches"/>.</summary>
     private static List<string> ScanForRootRederivation(out HashSet<string> allMatches)
     {
-        var root = GetRepoRoot();
+        var root = RepositorySourceIndex.Root;
         var offenders = new List<string>();
         allMatches = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var file in Directory.EnumerateFiles(Path.Combine(root, "src"), "*.cs", SearchOption.AllDirectories))
+        foreach (var file in RepositorySourceIndex.Under("src", ".cs"))
         {
             var rel = Relative(root, file);
-            if (rel.Contains("/bin/") || rel.Contains("/obj/")) continue;
             if (IsTestProject(rel)) continue;
             if (RootOwners.Contains(rel, StringComparer.OrdinalIgnoreCase)) continue;
 
@@ -150,13 +150,4 @@ public sealed class StorageRootGuardTests
 
     private static string Relative(string root, string full)
         => Path.GetRelativePath(root, full).Replace('\\', '/');
-
-    private static string GetRepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "cc-director.sln")))
-            dir = dir.Parent;
-        Assert.NotNull(dir);
-        return dir!.FullName;
-    }
 }

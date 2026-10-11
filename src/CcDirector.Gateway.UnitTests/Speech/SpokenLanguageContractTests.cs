@@ -1,3 +1,4 @@
+using CcDirector.TestInfrastructure;
 using CcDirector.AgentBrain;
 using CcDirector.Core.Drivers;
 using CcDirector.Core.Tenancy;
@@ -568,15 +569,9 @@ public sealed class SpokenLanguageContractTests
     /// <summary>Every production source file in the Gateway project, as (repo-relative path, text).</summary>
     private static IReadOnlyList<(string Path, string Text)> GatewaySourceFiles()
     {
-        var root = RepoRoot();
-        var gateway = Path.Combine(root, "src", "CcDirector.Gateway");
         var files = new List<(string, string)>();
-        foreach (var file in Directory.EnumerateFiles(gateway, "*.cs", SearchOption.AllDirectories))
-        {
-            var rel = Path.GetRelativePath(root, file).Replace('\\', '/');
-            if (rel.Contains("/bin/", StringComparison.Ordinal) || rel.Contains("/obj/", StringComparison.Ordinal)) continue;
-            files.Add((rel, File.ReadAllText(file)));
-        }
+        foreach (var file in RepositorySourceIndex.Under("src/CcDirector.Gateway", ".cs"))
+            files.Add((RepositorySourceIndex.Relative(file), File.ReadAllText(file)));
         Assert.NotEmpty(files);
         return files;
     }
@@ -595,15 +590,6 @@ public sealed class SpokenLanguageContractTests
                 builders.Add($"{typeName}.{m.Groups[1].Value}");
         }
         return builders;
-    }
-
-    private static string RepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "cc-director.sln")))
-            dir = dir.Parent;
-        Assert.NotNull(dir);
-        return dir!.FullName;
     }
 
     /// <summary>A brain that records every prompt it is asked and answers with a fixed spoken string

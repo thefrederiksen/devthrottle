@@ -1,3 +1,4 @@
+using CcDirector.TestInfrastructure;
 using System.Text.RegularExpressions;
 using CcDirector.Core.ErrorReports;
 using Xunit;
@@ -31,19 +32,10 @@ public sealed class ErrorLineSourceScanTests
     private static readonly Regex Hole = new(@"\{[^{}]*\}", RegexOptions.CultureInvariant);
     private static readonly Regex MarkerWord = new(@"\b(FAILED|UNHANDLED|UNOBSERVED|FATAL|ERROR)\b", RegexOptions.CultureInvariant);
 
-    private static string RepositoryRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !Directory.Exists(Path.Combine(dir.FullName, "src", "CcDirector.Core")))
-            dir = dir.Parent;
-        return dir?.FullName ?? throw new InvalidOperationException(
-            $"could not find the repository root above {AppContext.BaseDirectory}; this test reads the source tree");
-    }
-
     [Fact]
     public void EveryLoggedErrorTemplate_IsRecognisedAsAnError()
     {
-        var root = RepositoryRoot();
+        var root = RepositorySourceIndex.Root;
         var scanned = 0;
         var withMarker = 0;
         var missed = new List<string>();
@@ -52,10 +44,8 @@ public sealed class ErrorLineSourceScanTests
         {
             var dir = Path.Combine(root, project);
             Assert.True(Directory.Exists(dir), $"scanned project not found: {dir}");
-            foreach (var file in Directory.EnumerateFiles(dir, "*.cs", SearchOption.AllDirectories))
+            foreach (var file in RepositorySourceIndex.Under(dir, ".cs"))
             {
-                if (file.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")
-                    || file.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}")) continue;
                 var source = File.ReadAllText(file);
                 foreach (Match m in Template.Matches(source))
                 {

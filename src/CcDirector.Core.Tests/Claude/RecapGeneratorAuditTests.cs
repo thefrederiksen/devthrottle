@@ -1,3 +1,4 @@
+using CcDirector.TestInfrastructure;
 using System.Text.RegularExpressions;
 using Xunit;
 
@@ -21,8 +22,7 @@ public sealed class RecapGeneratorAuditTests
     [Fact]
     public void No_side_claude_spawn_passes_bare()
     {
-        var dir = ResolveCoreSourceDir();
-        var files = Directory.GetFiles(dir, "*.cs", SearchOption.AllDirectories);
+        var files = RepositorySourceIndex.Under("src/CcDirector.Core", ".cs").ToArray();
         Assert.NotEmpty(files);
 
         // Match the QUOTED flag only (an actual ArgumentList.Add("--bare")), so this
@@ -38,18 +38,5 @@ public sealed class RecapGeneratorAuditTests
             "--bare disables keychain reads and breaks side-claude auth with 'Not logged in' " +
             "(issue #168). Use --tools \"\" / --allowedTools to restrict the session instead:\n  " +
             string.Join("\n  ", offenders));
-    }
-
-    private static string ResolveCoreSourceDir()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            var candidate = Path.Combine(dir.FullName, "src", "CcDirector.Core");
-            if (Directory.Exists(candidate)) return candidate;
-            dir = dir.Parent;
-        }
-        throw new DirectoryNotFoundException(
-            "Could not locate src/CcDirector.Core by walking up from " + AppContext.BaseDirectory);
     }
 }

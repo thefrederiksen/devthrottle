@@ -1,3 +1,4 @@
+using CcDirector.TestInfrastructure;
 using Xunit;
 
 namespace CcDirector.Core.Tests;
@@ -29,14 +30,12 @@ public sealed class GatewayOnlyTranscriptionGuardTests
     [Fact]
     public void Production_director_code_does_not_instantiate_direct_transcription()
     {
-        var root = GetRepoRoot();
-        var srcDir = Path.Combine(root, "src");
+        var root = RepositorySourceIndex.Root;
         var offenders = new List<string>();
 
-        foreach (var file in Directory.EnumerateFiles(srcDir, "*.cs", SearchOption.AllDirectories))
+        foreach (var file in RepositorySourceIndex.Under("src", ".cs"))
         {
             var rel = Relative(root, file);
-            if (rel.Contains("/bin/") || rel.Contains("/obj/")) continue;
             if (IsTestProject(rel)) continue;
             if (AllowedPrefixes.Any(p => rel.StartsWith(p, StringComparison.OrdinalIgnoreCase))) continue;
 
@@ -63,13 +62,4 @@ public sealed class GatewayOnlyTranscriptionGuardTests
 
     private static string Relative(string root, string full)
         => Path.GetRelativePath(root, full).Replace('\\', '/');
-
-    private static string GetRepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "cc-director.sln")))
-            dir = dir.Parent;
-        Assert.NotNull(dir);
-        return dir!.FullName;
-    }
 }

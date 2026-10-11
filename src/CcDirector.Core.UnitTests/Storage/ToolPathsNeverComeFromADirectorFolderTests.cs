@@ -1,3 +1,4 @@
+using CcDirector.TestInfrastructure;
 using System.Text.RegularExpressions;
 using Xunit;
 
@@ -134,13 +135,9 @@ public sealed class ToolPathsNeverComeFromADirectorFolderTests
 
         foreach (var area in new[] { "src", "tools" })
         {
-            var areaRoot = Path.Combine(root, area);
-            if (!Directory.Exists(areaRoot)) continue;
-
-            foreach (var file in Directory.EnumerateFiles(areaRoot, "*.cs", SearchOption.AllDirectories))
+            foreach (var file in RepositorySourceIndex.Under(area, ".cs"))
             {
                 var relative = Path.GetRelativePath(root, file).Replace('\\', '/');
-                if (relative.Contains("/bin/") || relative.Contains("/obj/")) continue;
                 if (TestProjectPath.IsTestProject(relative)) continue;
 
                 scanned++;
@@ -307,12 +304,5 @@ public sealed class ToolPathsNeverComeFromADirectorFolderTests
         return line;
     }
 
-    private static string GetRepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "cc-director.sln")))
-            dir = dir.Parent;
-        Assert.NotNull(dir);
-        return dir!.FullName;
-    }
+    private static string GetRepoRoot() => RepositorySourceIndex.Root;
 }
