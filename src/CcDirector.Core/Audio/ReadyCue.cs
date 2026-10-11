@@ -1,5 +1,3 @@
-using System.Numerics;
-
 namespace CcDirector.Core.Audio;
 
 /// <summary>
@@ -18,6 +16,14 @@ namespace CcDirector.Core.Audio;
 /// the cue that was played, sample for sample, at whatever rate it is built for. The search is the same one
 /// the research used (<c>cue_scan.py</c> in the internal repository): template made zero-mean and unit-norm,
 /// score = |dot(window, template)| / norm(window), threshold <see cref="FoundScore"/>.
+///
+/// The dot product at every position is computed through the discrete Fourier transform
+/// (<see cref="CrossCorrelate"/>), not by sliding the template along the clip. The sliding form is a
+/// 4,800-sample template against about 32,000 positions at the desktop's 24 kHz capture rate - over 150
+/// million multiply-adds per dictation - and whether that takes tens of milliseconds or the better part of a
+/// second depends entirely on the just-in-time compiler vectorising the inner loop, which it does not do for a
+/// Debug build: the test suites paid the slow case on every recorder test. The transform form does the same
+/// arithmetic in about a million operations and is fast in any build.
 /// </summary>
 public static class ReadyCue
 {
@@ -123,14 +129,16 @@ public static class ReadyCue
         for (int i = 0; i < regionSamples; i++)
             prefix[i + 1] = prefix[i] + (long)x[i] * (long)x[i];
 
+        // dot(window at i, template) for every position at once.
+        var dots = CrossCorrelate(x, template);
+
         // The research added 1e-9 to a norm of samples scaled to [-1, 1]; the same guard in int16 units.
         const double energyGuard = 1e-9 * 32768.0;
         double best = 0;
         int bestAt = 0;
         for (int i = 0; i + m <= regionSamples; i++)
         {
-            double dot = Dot(x.AsSpan(i, m), template);
-            double score = Math.Abs(dot) / (Math.Sqrt(prefix[i + m] - prefix[i]) + energyGuard);
+            double score = Math.Abs(dots[i]) / (Math.Sqrt(prefix[i + m] - prefix[i]) + energyGuard);
             if (score > best) { best = score; bestAt = i; }
         }
 
@@ -144,19 +152,113 @@ public static class ReadyCue
         return new ReadyCueSearch(best, bestAt, m, blankStart * 2L, blankEnd * 2L, regionSamples);
     }
 
-    private static double Dot(ReadOnlySpan<double> a, ReadOnlySpan<double> b)
+    /// <summary>
+    /// <c>result[i] = sum over j of signal[i + j] * template[j]</c>, for every <c>i</c> from 0 to
+    /// <c>signal.Length - template.Length</c>: the dot product of the template against the window starting at
+    /// each sample. Computed as a circular correlation through the discrete Fourier transform, on a length
+    /// that is the first power of two at or above the signal's. No wrap-around reaches a valid position: the
+    /// last sample a valid window touches is <c>signal.Length - 1</c>, inside the transform length, and the
+    /// zero padding beyond it contributes nothing. Entries past the last valid position are wrap-around and
+    /// are not meaningful. Pure arithmetic; reads its arguments and nothing else.
+    /// </summary>
+    internal static double[] CrossCorrelate(ReadOnlySpan<double> signal, ReadOnlySpan<double> template)
     {
-        double sum = 0;
-        int i = 0;
-        if (Vector.IsHardwareAccelerated && a.Length >= Vector<double>.Count)
+        if (template.Length > signal.Length)
+            throw new ArgumentException("The template is longer than the signal; there is no window to correlate.", nameof(template));
+
+        int length = 1;
+        while (length < signal.Length) length <<= 1;
+
+        var signalReal = new double[length];
+        var signalImaginary = new double[length];
+        var templateReal = new double[length];
+        var templateImaginary = new double[length];
+        signal.CopyTo(signalReal);
+        template.CopyTo(templateReal);
+
+        Transform(signalReal, signalImaginary, inverse: false);
+        Transform(templateReal, templateImaginary, inverse: false);
+
+        // Correlation is the product with the conjugate of the template's transform.
+        for (int k = 0; k < length; k++)
         {
-            var acc = Vector<double>.Zero;
-            for (; i <= a.Length - Vector<double>.Count; i += Vector<double>.Count)
-                acc += new Vector<double>(a.Slice(i)) * new Vector<double>(b.Slice(i));
-            sum = Vector.Sum(acc);
+            double real = signalReal[k] * templateReal[k] + signalImaginary[k] * templateImaginary[k];
+            double imaginary = signalImaginary[k] * templateReal[k] - signalReal[k] * templateImaginary[k];
+            signalReal[k] = real;
+            signalImaginary[k] = imaginary;
         }
-        for (; i < a.Length; i++) sum += a[i] * b[i];
-        return sum;
+
+        Transform(signalReal, signalImaginary, inverse: true);
+        return signalReal;
+    }
+
+    /// <summary>
+    /// In-place radix-2 fast Fourier transform of a complex sequence held as two arrays whose length is a
+    /// power of two. The twiddle factors come from one table of exact cosines and sines, not from a running
+    /// product, so no rounding accumulates along a stage. The inverse divides by the length, so a forward
+    /// transform followed by an inverse one returns the input.
+    /// </summary>
+    private static void Transform(double[] real, double[] imaginary, bool inverse)
+    {
+        int n = real.Length;
+        if (n == 0 || (n & (n - 1)) != 0)
+            throw new ArgumentException("The transform length must be a power of two.", nameof(real));
+
+        // Bit-reversal permutation, so each stage reads and writes in place.
+        for (int i = 1, j = 0; i < n; i++)
+        {
+            int bit = n >> 1;
+            for (; (j & bit) != 0; bit >>= 1) j ^= bit;
+            j ^= bit;
+            if (i < j)
+            {
+                (real[i], real[j]) = (real[j], real[i]);
+                (imaginary[i], imaginary[j]) = (imaginary[j], imaginary[i]);
+            }
+        }
+
+        // W(n)^k for k in [0, n/2): every stage's twiddle is one of these, taken with a stride.
+        int half = n / 2;
+        var cosines = new double[Math.Max(half, 1)];
+        var sines = new double[Math.Max(half, 1)];
+        double sign = inverse ? 1.0 : -1.0;
+        for (int k = 0; k < half; k++)
+        {
+            double angle = sign * 2.0 * Math.PI * k / n;
+            cosines[k] = Math.Cos(angle);
+            sines[k] = Math.Sin(angle);
+        }
+
+        for (int span = 2; span <= n; span <<= 1)
+        {
+            int halfSpan = span / 2;
+            int stride = n / span;
+            for (int start = 0; start < n; start += span)
+            {
+                for (int k = 0; k < halfSpan; k++)
+                {
+                    int a = start + k;
+                    int b = a + halfSpan;
+                    double wr = cosines[k * stride];
+                    double wi = sines[k * stride];
+                    double vr = real[b] * wr - imaginary[b] * wi;
+                    double vi = real[b] * wi + imaginary[b] * wr;
+                    real[b] = real[a] - vr;
+                    imaginary[b] = imaginary[a] - vi;
+                    real[a] += vr;
+                    imaginary[a] += vi;
+                }
+            }
+        }
+
+        if (inverse)
+        {
+            for (int i = 0; i < n; i++)
+            {
+                real[i] /= n;
+                imaginary[i] /= n;
+            }
+        }
     }
 }
 
