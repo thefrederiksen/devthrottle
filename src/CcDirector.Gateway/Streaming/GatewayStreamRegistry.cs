@@ -35,7 +35,7 @@ public sealed class GatewayStreamRegistry
         /// before the real Director, or tear it down.
         /// </summary>
         public required StreamOwner Owner { get; init; }
-        public Timer? OpenTimeout { get; set; }
+        public ITimer? OpenTimeout { get; set; }
         public int Claimed;
     }
 
@@ -44,12 +44,17 @@ public sealed class GatewayStreamRegistry
     /// <summary>How long a registered sink waits for its StreamUp before it is torn down (ruling 3).</summary>
     private readonly TimeSpan _openTimeout;
 
+    /// <summary>The clock the open timeout runs on.</summary>
+    private readonly TimeProvider _time;
+
     /// <param name="openTimeout">
     /// The StreamUp-never-arrives teardown window. Null uses ten seconds. A test seam; production passes null.
     /// </param>
-    public GatewayStreamRegistry(TimeSpan? openTimeout = null)
+    /// <param name="time">The clock the open timeout runs on. Null is the system clock; tests pass a fake one and advance it.</param>
+    public GatewayStreamRegistry(TimeSpan? openTimeout = null, TimeProvider? time = null)
     {
         _openTimeout = openTimeout ?? TimeSpan.FromSeconds(10);
+        _time = time ?? TimeProvider.System;
     }
 
     /// <summary>The number of live (registered, not yet torn down) streams. For diagnostics and tests.</summary>
@@ -80,7 +85,7 @@ public sealed class GatewayStreamRegistry
         if (!_streams.TryAdd(streamId, entry))
             throw new InvalidOperationException($"stream id already registered (ids must be fresh and unique): {streamId}");
 
-        entry.OpenTimeout = new Timer(_ => TimeoutUnclaimed(streamId), null, _openTimeout, Timeout.InfiniteTimeSpan);
+        entry.OpenTimeout = _time.CreateTimer(_ => TimeoutUnclaimed(streamId), null, _openTimeout, Timeout.InfiniteTimeSpan);
         FileLog.Write($"[GatewayStreamRegistry] registered stream {streamId} ({owner.ToLogString()}, live={_streams.Count})");
         return entry.Cts.Token;
     }
