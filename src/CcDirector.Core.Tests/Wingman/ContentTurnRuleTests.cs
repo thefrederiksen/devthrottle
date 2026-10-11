@@ -5,6 +5,8 @@ using CcDirector.Core.Configuration;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Wingman;
+using CcDirector.TestInfrastructure;
+using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
 namespace CcDirector.Core.Tests.Wingman;
@@ -19,9 +21,8 @@ namespace CcDirector.Core.Tests.Wingman;
 /// It is proved twice over: the state writes are identical with the shadow log on and off, and the
 /// flip still happens ON THE BYTE rather than after the settling window.
 ///
-/// These drive the detector's real timers, so they live in the serialised half of the Core tests
-/// and do NOT run in the default gate. CC_DIRECTOR_ROOT is pinned to a throwaway directory so the
-/// shadow log lands there and never in the real running Director's data.
+/// These drive the detector through one fake clock. CC_DIRECTOR_ROOT is pinned to a throwaway
+/// directory so the shadow log lands there and never in the real running Director's data.
 /// </summary>
 [Collection("CcStorageRoot")]
 public sealed class ContentTurnRuleTests : IDisposable
@@ -34,6 +35,7 @@ public sealed class ContentTurnRuleTests : IDisposable
     private readonly string? _previousRoot;
     private readonly bool _shadowWasEnabled;
     private readonly SessionManager _manager;
+    private readonly FakeTimeProvider _clock = VirtualTime.NewClock();
 
     public ContentTurnRuleTests()
     {
@@ -63,17 +65,17 @@ public sealed class ContentTurnRuleTests : IDisposable
     // ------------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task With_the_switch_off_the_shadow_log_changes_no_state_write()
+    public void With_the_switch_off_the_shadow_log_changes_no_state_write()
     {
         // The real risk of shipping an observation path is that observing changes the thing
         // observed. So the same scenario is run twice - once with the shadow log off, which is
         // today's code path exactly, and once with it on - and the two transition sequences must
         // be identical.
         TurnDetectionShadowLog.Enabled = false;
-        var without = await RunSettleThenRepaint(TurnContentRule.Off);
+        var without = RunSettleThenRepaint(TurnContentRule.Off);
 
         TurnDetectionShadowLog.Enabled = true;
-        var with = await RunSettleThenRepaint(TurnContentRule.Off);
+        var with = RunSettleThenRepaint(TurnContentRule.Off);
 
         Assert.Equal(without, with);
 
@@ -85,13 +87,13 @@ public sealed class ContentTurnRuleTests : IDisposable
     }
 
     [Fact]
-    public async Task With_the_switch_off_the_flip_still_happens_on_the_byte()
+    public void With_the_switch_off_the_flip_still_happens_on_the_byte()
     {
         TurnDetectionShadowLog.Enabled = true;
         var (session, backend, detector) = Start(TurnContentRule.Off);
         using (detector)
         {
-            await SettleWithABody(session, backend);
+            SettleWithABody(session, backend);
 
             // Synchronously after the write, before the settling window could possibly have
             // elapsed. Today's rule is immediate and must stay immediate with the switch off.
@@ -101,7 +103,7 @@ public sealed class ContentTurnRuleTests : IDisposable
     }
 
     [Fact]
-    public async Task With_the_switch_off_the_log_still_records_what_the_rule_would_have_done()
+    public void With_the_switch_off_the_log_still_records_what_the_rule_would_have_done()
     {
         // The escape hatch keeps its observer: with the switch set to off, the Director behaves
         // exactly as it did before the content rule, AND it still writes down what the rule would
@@ -110,11 +112,11 @@ public sealed class ContentTurnRuleTests : IDisposable
         var (session, backend, detector) = Start(TurnContentRule.Off);
         using (detector)
         {
-            await SettleWithABody(session, backend);
+            SettleWithABody(session, backend);
 
             int baseline = CountShadowRows(session.Id);
             backend.Write(Encoding.UTF8.GetBytes("Update installed - restart to apply\r\n> "));
-            var row = await WaitForShadowRowAfter(session.Id, baseline, detector);
+            var row = WaitForShadowRowAfter(session.Id, baseline, detector);
 
             Assert.True(row.GetProperty("ByteRuleOpens").GetBoolean());
             Assert.False(row.GetProperty("RowRuleOpens").GetBoolean());
@@ -130,45 +132,45 @@ public sealed class ContentTurnRuleTests : IDisposable
     // ------------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task A_repaint_that_adds_no_content_holds_the_session_red()
+    public void A_repaint_that_adds_no_content_holds_the_session_red()
     {
         TurnDetectionShadowLog.Enabled = true;
         var (session, backend, detector) = Start(TurnContentRule.Row);
         using (detector)
         {
-            await SettleWithABody(session, backend);
+            SettleWithABody(session, backend);
 
             // Claude Code's update notice, thirty minutes into an idle session. This is the exact
             // row that ended the owner's snooze between 179 and 325 times a day.
             int baseline = CountShadowRows(session.Id);
             backend.Write(Encoding.UTF8.GetBytes("Update installed - restart to apply\r\n> "));
 
-            await WaitForShadowRowAfter(session.Id, baseline, detector);
-            await Task.Delay(SettleDelay);
+            WaitForShadowRowAfter(session.Id, baseline, detector);
+            _clock.Advance(SettleDelay);
 
             Assert.Equal(ActivityState.WaitingForInput, session.ActivityState);
         }
     }
 
     [Fact]
-    public async Task Real_output_opens_the_turn()
+    public void Real_output_opens_the_turn()
     {
         TurnDetectionShadowLog.Enabled = true;
         var (session, backend, detector) = Start(TurnContentRule.Row);
         using (detector)
         {
-            await SettleWithABody(session, backend);
+            SettleWithABody(session, backend);
 
             var working = NextTransitionTo(session, ActivityState.Working);
             backend.Write(Encoding.UTF8.GetBytes("All nine call sites now go through one helper.\r\n> "));
 
-            Assert.True(await working.Task.WaitAsync(TimeSpan.FromSeconds(5)),
+            Assert.True(Reached(working, TimeSpan.FromSeconds(5)),
                 "a real reply did not open the turn");
         }
     }
 
     [Fact]
-    public async Task A_later_byte_re_arms_a_check_that_found_nothing()
+    public void A_later_byte_re_arms_a_check_that_found_nothing()
     {
         // The guarantee the claim "a miss can only delay a turn" rests on. Without it, one
         // filtered burst leaves a working session red for good - a LOST turn, not a late one.
@@ -176,25 +178,25 @@ public sealed class ContentTurnRuleTests : IDisposable
         var (session, backend, detector) = Start(TurnContentRule.Row);
         using (detector)
         {
-            await SettleWithABody(session, backend);
+            SettleWithABody(session, backend);
 
             int baseline = CountShadowRows(session.Id);
             backend.Write(Encoding.UTF8.GetBytes("Update installed - restart to apply\r\n> "));
-            await WaitForShadowRowAfter(session.Id, baseline, detector);
-            await Task.Delay(SettleDelay);
+            WaitForShadowRowAfter(session.Id, baseline, detector);
+            _clock.Advance(SettleDelay);
             Assert.Equal(ActivityState.WaitingForInput, session.ActivityState);
 
             // The check found nothing and cleared itself. A later byte must ask again.
             var working = NextTransitionTo(session, ActivityState.Working);
             backend.Write(Encoding.UTF8.GetBytes("All nine call sites now go through one helper.\r\n> "));
 
-            Assert.True(await working.Task.WaitAsync(TimeSpan.FromSeconds(5)),
+            Assert.True(Reached(working, TimeSpan.FromSeconds(5)),
                 "a byte after a check that found nothing did not arm another check");
         }
     }
 
     [Fact]
-    public async Task A_byte_inside_the_window_pushes_the_check_out_rather_than_being_dropped()
+    public void A_byte_inside_the_window_pushes_the_check_out_rather_than_being_dropped()
     {
         // Three bursts, each further apart than nothing and each closer together than the window
         // would survive if it were a fixed deadline. If the check were NOT pushed out it would
@@ -206,7 +208,7 @@ public sealed class ContentTurnRuleTests : IDisposable
         var (session, backend, detector) = Start(TurnContentRule.Row);
         using (detector)
         {
-            await SettleWithABody(session, backend);
+            SettleWithABody(session, backend);
 
             int baseline = CountShadowRows(session.Id);
             long written = 0;
@@ -215,10 +217,10 @@ public sealed class ContentTurnRuleTests : IDisposable
                 var burst = Encoding.UTF8.GetBytes($"Update installed - restart to apply ({i})\r\n> ");
                 backend.Write(burst);
                 written += burst.Length;
-                if (i < 3) await Task.Delay(SettleDelay - TimeSpan.FromMilliseconds(40));
+                if (i < 3) _clock.Advance(SettleDelay - TimeSpan.FromMilliseconds(40));
             }
 
-            var row = await WaitForShadowRowAfter(session.Id, baseline, detector);
+            var row = WaitForShadowRowAfter(session.Id, baseline, detector);
 
             Assert.Equal(written, row.GetProperty("Bytes").GetInt64());
             Assert.Equal(baseline + 1, CountShadowRows(session.Id));
@@ -231,7 +233,7 @@ public sealed class ContentTurnRuleTests : IDisposable
     // ------------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task A_settle_that_captured_no_baseline_does_not_lose_a_small_reply()
+    public void A_settle_that_captured_no_baseline_does_not_lose_a_small_reply()
     {
         // The lost turn the inspection found. The settle path only records a baseline when the
         // screen can be read; a settle with the cursor at the very top records nothing. The check
@@ -247,7 +249,7 @@ public sealed class ContentTurnRuleTests : IDisposable
             // baseline at all.
             var settled = NextTransitionTo(session, ActivityState.WaitingForInput);
             backend.Write(Encoding.UTF8.GetBytes("working on it"));
-            Assert.True(await settled.Task.WaitAsync(TimeSpan.FromSeconds(5)),
+            Assert.True(Reached(settled, TimeSpan.FromSeconds(5)),
                 "the session never settled");
             Assert.False(detector.TryGetSettledBodyRows(session.Id, out _),
                 "this test needs a settle that captured NO baseline");
@@ -257,13 +259,13 @@ public sealed class ContentTurnRuleTests : IDisposable
             var working = NextTransitionTo(session, ActivityState.Working);
             backend.Write(Encoding.UTF8.GetBytes("done\r\n> "));
 
-            Assert.True(await working.Task.WaitAsync(TimeSpan.FromSeconds(5)),
+            Assert.True(Reached(working, TimeSpan.FromSeconds(5)),
                 "a reply arriving with no settled screen to compare against was lost");
         }
     }
 
     [Fact]
-    public async Task A_settle_that_cannot_read_the_screen_drops_the_previous_turns_baseline()
+    public void A_settle_that_cannot_read_the_screen_drops_the_previous_turns_baseline()
     {
         // The other half of the same defect: when extraction fails the settle used to leave the
         // PREVIOUS turn's rows in place, so the next check compared a new screen against a stale
@@ -273,7 +275,7 @@ public sealed class ContentTurnRuleTests : IDisposable
         var (session, backend, detector) = Start(TurnContentRule.Off);
         using (detector)
         {
-            await SettleWithABody(session, backend);
+            SettleWithABody(session, backend);
             Assert.True(detector.TryGetSettledBodyRows(session.Id, out var first),
                 "the first settle should have captured a baseline");
             Assert.NotEmpty(first);
@@ -282,7 +284,7 @@ public sealed class ContentTurnRuleTests : IDisposable
             // which is exactly what a repaint that starts at the top of the screen looks like.
             var settledAgain = NextTransitionTo(session, ActivityState.WaitingForInput);
             backend.Write(Encoding.UTF8.GetBytes("\u001b[H"));
-            Assert.True(await settledAgain.Task.WaitAsync(TimeSpan.FromSeconds(5)),
+            Assert.True(Reached(settledAgain, TimeSpan.FromSeconds(5)),
                 "the session never settled a second time");
 
             Assert.False(detector.TryGetSettledBodyRows(session.Id, out _),
@@ -295,7 +297,7 @@ public sealed class ContentTurnRuleTests : IDisposable
     // ------------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task A_check_that_throws_does_not_consume_the_burst()
+    public void A_check_that_throws_does_not_consume_the_burst()
     {
         // The check cleared the scheduled flag, the pending flag and the byte count BEFORE it read
         // the screen, so anything that threw afterwards consumed the burst. A one-burst reply then
@@ -305,7 +307,7 @@ public sealed class ContentTurnRuleTests : IDisposable
         var (session, backend, detector) = Start(TurnContentRule.Row, rowRule: rule);
         using (detector)
         {
-            await SettleWithABody(session, backend);
+            SettleWithABody(session, backend);
 
             rule.ThrowOnNextCall = true;
             var working = NextTransitionTo(session, ActivityState.Working);
@@ -313,13 +315,13 @@ public sealed class ContentTurnRuleTests : IDisposable
             // ONE burst, and nothing after it. If the throw ate it, nothing will ever ask again.
             backend.Write(Encoding.UTF8.GetBytes("All nine call sites now go through one helper.\r\n> "));
 
-            Assert.True(await working.Task.WaitAsync(TimeSpan.FromSeconds(5)),
+            Assert.True(Reached(working, TimeSpan.FromSeconds(5)),
                 "a check that threw swallowed the burst, so the turn was lost");
         }
     }
 
     [Fact]
-    public async Task A_throw_during_the_state_write_does_not_leave_the_session_stuck_working()
+    public void A_throw_during_the_state_write_does_not_leave_the_session_stuck_working()
     {
         // The second window. The active latch was set BEFORE the state write, the evidence call and
         // the quiet-timer arm, so a throw in between left the session latched active with no idle
@@ -336,13 +338,13 @@ public sealed class ContentTurnRuleTests : IDisposable
             });
         using (detector)
         {
-            await SettleWithABody(session, backend);
+            SettleWithABody(session, backend);
 
             Volatile.Write(ref throwsLeft, 1);
             var red = NextTransitionTo(session, ActivityState.WaitingForInput);
             backend.Write(Encoding.UTF8.GetBytes("All nine call sites now go through one helper.\r\n> "));
 
-            Assert.True(await red.Task.WaitAsync(TimeSpan.FromSeconds(5)),
+            Assert.True(Reached(red, TimeSpan.FromSeconds(5)),
                 "the session never came back to red, so the failed write left it latched active");
         }
     }
@@ -352,7 +354,7 @@ public sealed class ContentTurnRuleTests : IDisposable
     // ------------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task The_shadow_row_is_written_after_the_state_decision_not_before()
+    public void The_shadow_row_is_written_after_the_state_decision_not_before()
     {
         // The append is a synchronous file write under one process-wide lock. Run before the state
         // write it can delay the very decision it is only meant to observe, and there is no upper
@@ -363,7 +365,7 @@ public sealed class ContentTurnRuleTests : IDisposable
         var (session, backend, detector) = Start(TurnContentRule.Row);
         using (detector)
         {
-            await SettleWithABody(session, backend);
+            SettleWithABody(session, backend);
             int baseline = CountShadowRows(session.Id);
 
             // The count is taken INSIDE the state write, and the test waits for that observation
@@ -378,12 +380,12 @@ public sealed class ContentTurnRuleTests : IDisposable
             };
 
             backend.Write(Encoding.UTF8.GetBytes("All nine call sites now go through one helper.\r\n> "));
-            Assert.True(await observed.Task.WaitAsync(TimeSpan.FromSeconds(5)), "the turn never opened");
+            Assert.True(Reached(observed, TimeSpan.FromSeconds(5)), "the turn never opened");
 
             Assert.Equal(baseline, Volatile.Read(ref rowsSeenDuringTheWrite));
 
             // And the row really is written - the ordering must not have silently dropped it.
-            await WaitForShadowRowAfter(session.Id, baseline, detector);
+            WaitForShadowRowAfter(session.Id, baseline, detector);
         }
     }
 
@@ -392,7 +394,7 @@ public sealed class ContentTurnRuleTests : IDisposable
     // ------------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task A_footer_that_repaints_for_ever_costs_no_check_and_no_row()
+    public void A_footer_that_repaints_for_ever_costs_no_check_and_no_row()
     {
         // The unbounded cost the inspection found. An agent whose idle terminal never goes
         // byte-silent (Grok) keeps emitting footer frames while it sits settled, and a check armed
@@ -405,7 +407,7 @@ public sealed class ContentTurnRuleTests : IDisposable
         {
             var settled = NextTransitionTo(session, ActivityState.WaitingForInput);
             backend.Write(Encoding.UTF8.GetBytes("The deployment finished successfully\r\n> "));
-            Assert.True(await settled.Task.WaitAsync(TimeSpan.FromSeconds(5)),
+            Assert.True(Reached(settled, TimeSpan.FromSeconds(5)),
                 "the session never settled, so there is nothing to repaint against");
 
             int baseline = CountShadowRows(session.Id);
@@ -415,18 +417,18 @@ public sealed class ContentTurnRuleTests : IDisposable
             // composer row, so every one of these writes lands at or below it: not body.
             for (int i = 0; i < 3; i++)
             {
-                await Task.Delay(TimeSpan.FromMilliseconds(600));
+                _clock.Advance(TimeSpan.FromMilliseconds(600));
                 backend.Write(Encoding.UTF8.GetBytes("\r> thinking " + i + " - esc to interrupt"));
             }
 
-            await Task.Delay(SettleDelay + TimeSpan.FromMilliseconds(400));
+            _clock.Advance(SettleDelay + TimeSpan.FromMilliseconds(400));
             Assert.Equal(baseline, CountShadowRows(session.Id));
             Assert.Equal(ActivityState.WaitingForInput, session.ActivityState);
 
             // And a real body change is still worth exactly one row.
-            await Task.Delay(TimeSpan.FromMilliseconds(600));
+            _clock.Advance(TimeSpan.FromMilliseconds(600));
             backend.Write(Encoding.UTF8.GetBytes("\r\nAll nine call sites now go through one helper.\r\n> "));
-            await WaitForShadowRowAfter(session.Id, baseline, detector);
+            WaitForShadowRowAfter(session.Id, baseline, detector);
         }
     }
 
@@ -435,7 +437,7 @@ public sealed class ContentTurnRuleTests : IDisposable
     // ------------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task An_agent_that_never_stops_writing_is_judged_at_the_deferral_cap()
+    public void An_agent_that_never_stops_writing_is_judged_at_the_deferral_cap()
     {
         // Nothing reached the cap before: the push-out test's three bursts finish inside a few
         // hundred milliseconds, so REMOVING the cap altogether left it green and the requirement
@@ -446,39 +448,28 @@ public sealed class ContentTurnRuleTests : IDisposable
         var (session, backend, detector) = Start(TurnContentRule.Row, maxDeferral: cap);
         using (detector)
         {
-            await SettleWithABody(session, backend);
+            SettleWithABody(session, backend);
             int baseline = CountShadowRows(session.Id);
 
             // Every burst is chrome, so the session stays settled and stays on this path. They
             // arrive closer together than the settling window, so each one pushes the check out:
             // without the cap the check is deferred for as long as this loop runs.
-            using var stop = new CancellationTokenSource();
-            var chatter = Task.Run(async () =>
+            var startedAt = _clock.GetUtcNow();
+            int i = 0;
+            while (_clock.GetUtcNow() - startedAt < cap)
             {
-                int i = 0;
-                while (!stop.IsCancellationRequested)
-                {
-                    backend.Write(Encoding.UTF8.GetBytes($"Update installed - restart to apply ({i++})\r\n> "));
-                    await Task.Delay(TimeSpan.FromMilliseconds(80));
-                }
-            });
-
-            var startedAt = DateTime.UtcNow;
-            try
-            {
-                await WaitForShadowRowAfter(session.Id, baseline, detector);
+                backend.Write(Encoding.UTF8.GetBytes($"Update installed - restart to apply ({i++})\r\n> "));
+                var remaining = cap - (_clock.GetUtcNow() - startedAt);
+                _clock.Advance(remaining < TimeSpan.FromMilliseconds(80)
+                    ? remaining
+                    : TimeSpan.FromMilliseconds(80));
+                if (_clock.GetUtcNow() - startedAt < cap)
+                    Assert.Equal(baseline, CountShadowRows(session.Id));
             }
-            finally
-            {
-                stop.Cancel();
-                await chatter;
-            }
-            var took = DateTime.UtcNow - startedAt;
+            var took = _clock.GetUtcNow() - startedAt;
 
-            Assert.True(took < TimeSpan.FromSeconds(2),
-                $"the check was still being deferred after {took.TotalMilliseconds:F0}ms of continuous chatter");
-            Assert.True(took >= TimeSpan.FromMilliseconds(400),
-                $"the check fired after {took.TotalMilliseconds:F0}ms, which is inside the settling window rather than at the cap");
+            Assert.Equal(cap, took);
+            Assert.Equal(baseline + 1, CountShadowRows(session.Id));
         }
     }
 
@@ -520,7 +511,7 @@ public sealed class ContentTurnRuleTests : IDisposable
     // ------------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task The_detector_obeys_the_row_rule_it_was_handed()
+    public void The_detector_obeys_the_row_rule_it_was_handed()
     {
         // The defect this pins: the detector used to call the rule FUNCTIONS directly and repeat
         // the size comparison beside them, so the interface that is meant to be the single seam
@@ -533,19 +524,19 @@ public sealed class ContentTurnRuleTests : IDisposable
         var (session, backend, detector) = Start(TurnContentRule.Row, rowRule: opensEverything);
         using (detector)
         {
-            await SettleWithABody(session, backend);
+            SettleWithABody(session, backend);
 
             var working = NextTransitionTo(session, ActivityState.Working);
             backend.Write(Encoding.UTF8.GetBytes("Update installed - restart to apply\r\n> "));
 
-            Assert.True(await working.Task.WaitAsync(TimeSpan.FromSeconds(5)),
+            Assert.True(Reached(working, TimeSpan.FromSeconds(5)),
                 "the detector did not take its verdict from the rule it was handed");
             Assert.True(opensEverything.Calls > 0, "the injected row rule was never asked");
         }
     }
 
     [Fact]
-    public async Task The_detector_holds_red_when_the_row_rule_it_was_handed_says_nothing_was_gained()
+    public void The_detector_holds_red_when_the_row_rule_it_was_handed_says_nothing_was_gained()
     {
         // The other direction, and the one that catches a detector that consults its rule and then
         // second-guesses it: real prose, which the shipped row rule opens on, must stay red when
@@ -557,20 +548,20 @@ public sealed class ContentTurnRuleTests : IDisposable
         {
             // The settling turn has to open, or the session never reaches the settled state this
             // test is about. The rule is turned down only once the session is red.
-            await SettleWithABody(session, backend);
+            SettleWithABody(session, backend);
             rule.Opens = false;
 
             int baseline = CountShadowRows(session.Id);
             backend.Write(Encoding.UTF8.GetBytes("All nine call sites now go through one helper.\r\n> "));
-            await WaitForShadowRowAfter(session.Id, baseline, detector);
-            await Task.Delay(SettleDelay);
+            WaitForShadowRowAfter(session.Id, baseline, detector);
+            _clock.Advance(SettleDelay);
 
             Assert.Equal(ActivityState.WaitingForInput, session.ActivityState);
         }
     }
 
     [Fact]
-    public async Task The_size_verdict_and_the_numbers_beside_it_come_from_the_same_rule()
+    public void The_size_verdict_and_the_numbers_beside_it_come_from_the_same_rule()
     {
         // The threshold comparison belongs INSIDE the size rule, and the magnitude written into
         // the log has to be the one that verdict was taken from. A detector that compares against
@@ -580,16 +571,16 @@ public sealed class ContentTurnRuleTests : IDisposable
         var (session, backend, detector) = Start(TurnContentRule.Size, sizeRule: size);
         using (detector)
         {
-            await SettleWithABody(session, backend);
+            SettleWithABody(session, backend);
 
             int baseline = CountShadowRows(session.Id);
             var working = NextTransitionTo(session, ActivityState.Working);
             backend.Write(Encoding.UTF8.GetBytes("Update installed - restart to apply\r\n> "));
 
-            Assert.True(await working.Task.WaitAsync(TimeSpan.FromSeconds(5)),
+            Assert.True(Reached(working, TimeSpan.FromSeconds(5)),
                 "the detector did not take its size verdict from the rule it was handed");
 
-            var row = await WaitForShadowRowAfter(session.Id, baseline, detector);
+            var row = WaitForShadowRowAfter(session.Id, baseline, detector);
             Assert.Equal(7, row.GetProperty("SizeThreshold").GetInt32());
             Assert.Equal(42, row.GetProperty("ChangedCharacters").GetInt32());
             Assert.True(row.GetProperty("SizeRuleOpens").GetBoolean());
@@ -601,7 +592,7 @@ public sealed class ContentTurnRuleTests : IDisposable
     // ------------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task A_check_that_faults_past_the_retry_bound_opens_the_turn_rather_than_losing_it()
+    public void A_check_that_faults_past_the_retry_bound_opens_the_turn_rather_than_losing_it()
     {
         // The retry bound was invented to stop a spin and it built the exact failure this design
         // forbids. Past the bound the burst was DROPPED: a one-burst reply then had no pending
@@ -618,14 +609,14 @@ public sealed class ContentTurnRuleTests : IDisposable
         var (session, backend, detector) = Start(TurnContentRule.Row, rowRule: rule);
         using (detector)
         {
-            await SettleWithABody(session, backend);
+            SettleWithABody(session, backend);
 
             var working = NextTransitionTo(session, ActivityState.Working);
 
             // ONE burst and nothing after it, exactly as in the inspection's probe.
             backend.Write(Encoding.UTF8.GetBytes("All nine call sites now go through one helper.\r\n> "));
 
-            Assert.True(await Reached(working, TimeSpan.FromSeconds(10)),
+            Assert.True(Reached(working, TimeSpan.FromSeconds(10)),
                 "a check that faulted past the retry bound lost the burst, so the turn never opened");
 
             // And it really did exhaust the bound rather than opening on the first fault - the
@@ -640,7 +631,7 @@ public sealed class ContentTurnRuleTests : IDisposable
     // ------------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task A_faulted_state_write_on_the_byte_path_does_not_leave_the_session_stuck_working()
+    public void A_faulted_state_write_on_the_byte_path_does_not_leave_the_session_stuck_working()
     {
         // THE SWITCH-OFF PATH, the escape hatch when the row rule is turned off - this fault is on
         // origin/main and is older than the content rule. Session.SetActivityState assigns Working
@@ -659,7 +650,7 @@ public sealed class ContentTurnRuleTests : IDisposable
             });
         using (detector)
         {
-            await SettleWithABody(session, backend);
+            SettleWithABody(session, backend);
 
             Volatile.Write(ref throwsLeft, 1);
             var red = NextTransitionTo(session, ActivityState.WaitingForInput);
@@ -667,13 +658,13 @@ public sealed class ContentTurnRuleTests : IDisposable
             // ONE burst. Nothing arrives afterwards to rescue it.
             backend.Write(Encoding.UTF8.GetBytes("All nine call sites now go through one helper.\r\n> "));
 
-            Assert.True(await Reached(red, TimeSpan.FromSeconds(10)),
+            Assert.True(Reached(red, TimeSpan.FromSeconds(10)),
                 "the session never came back to red, so the faulted write left it latched Working");
         }
     }
 
     [Fact]
-    public async Task A_faulted_state_write_on_the_body_path_does_not_leave_the_session_stuck_working()
+    public void A_faulted_state_write_on_the_body_path_does_not_leave_the_session_stuck_working()
     {
         // The same fault on the other shipped activation path: an agent whose idle terminal never
         // goes byte-silent (Grok) is woken by a BODY change rather than by a byte, through a
@@ -690,16 +681,16 @@ public sealed class ContentTurnRuleTests : IDisposable
             });
         using (detector)
         {
-            await SettleWithABody(session, backend);
+            SettleWithABody(session, backend);
 
             Volatile.Write(ref throwsLeft, 1);
             var red = NextTransitionTo(session, ActivityState.WaitingForInput);
 
             // Past the body-check throttle, and a real body change rather than a footer frame.
-            await Task.Delay(TimeSpan.FromMilliseconds(600));
+            _clock.Advance(TimeSpan.FromMilliseconds(600));
             backend.Write(Encoding.UTF8.GetBytes("\r\nAll nine call sites now go through one helper.\r\n> "));
 
-            Assert.True(await Reached(red, TimeSpan.FromSeconds(10)),
+            Assert.True(Reached(red, TimeSpan.FromSeconds(10)),
                 "the session never came back to red, so the faulted write left it latched Working");
         }
     }
@@ -709,7 +700,7 @@ public sealed class ContentTurnRuleTests : IDisposable
     // ------------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task The_size_verdict_and_its_numbers_come_from_one_call()
+    public void The_size_verdict_and_its_numbers_come_from_one_call()
     {
         // The detector used to gather the verdict, the magnitude and the threshold from three
         // separate calls, and an inspection pointed out that nothing REQUIRED the number written
@@ -721,13 +712,13 @@ public sealed class ContentTurnRuleTests : IDisposable
         var (session, backend, detector) = Start(TurnContentRule.Size, sizeRule: size);
         using (detector)
         {
-            await SettleWithABody(session, backend);
+            SettleWithABody(session, backend);
 
             int before = size.Calls;
             int baseline = CountShadowRows(session.Id);
             backend.Write(Encoding.UTF8.GetBytes("Update installed - restart to apply\r\n> "));
 
-            var row = await WaitForShadowRowAfter(session.Id, baseline, detector);
+            var row = WaitForShadowRowAfter(session.Id, baseline, detector);
 
             bool opens = row.GetProperty("SizeRuleOpens").GetBoolean();
             int magnitude = row.GetProperty("ChangedCharacters").GetInt32();
@@ -891,31 +882,32 @@ public sealed class ContentTurnRuleTests : IDisposable
             _manager, driveState: true, Quiet, activityProducer: null,
             contentRule: rule, settleCheckDelay: SettleDelay,
             maxSettleCheckDeferral: maxDeferral ?? MaxDeferral,
-            rowRule: rowRule, sizeRule: sizeRule);
+            rowRule: rowRule, sizeRule: sizeRule, timeProvider: _clock);
         detector.Start();
         return (session, backend, detector);
     }
 
     /// <summary>Drive one turn all the way to settled, so a settled screen exists to compare against.</summary>
-    private static async Task SettleWithABody(Session session, BufferOnlyBackend backend)
+    private void SettleWithABody(Session session, BufferOnlyBackend backend)
     {
         var settled = NextTransitionTo(session, ActivityState.WaitingForInput);
         backend.Write(Encoding.UTF8.GetBytes("The deployment finished successfully\r\n> "));
-        Assert.True(await settled.Task.WaitAsync(TimeSpan.FromSeconds(5)),
+        Assert.True(Reached(settled, TimeSpan.FromSeconds(5)),
             "the session never settled, so there is no settled screen to compare against");
     }
 
     /// <summary>
-    /// Wait for a transition and answer whether it arrived, rather than throwing when it did not.
-    ///
-    /// Task.WaitAsync throws TimeoutException, and it throws BEFORE Assert.True can look at the
-    /// result - so every one of these tests reported "The operation has timed out" and threw away
-    /// the sentence describing what had actually gone wrong. The symptom a test reports is the
-    /// whole value of watching it fail; a generic timeout tells the next reader nothing about which
-    /// guarantee broke.
+    /// Move the detector's clock until a transition arrives, and answer whether it did. The caller
+    /// supplies the assertion message, so a missing transition reports the guarantee that broke
+    /// rather than a generic real-time timeout.
     /// </summary>
-    private static async Task<bool> Reached(TaskCompletionSource<bool> transition, TimeSpan within)
-        => await Task.WhenAny(transition.Task, Task.Delay(within)) == transition.Task;
+    private bool Reached(TaskCompletionSource<bool> transition, TimeSpan within)
+    {
+        var startedAt = _clock.GetUtcNow();
+        while (!transition.Task.IsCompleted && _clock.GetUtcNow() - startedAt < within)
+            _clock.Advance(VirtualTime.Step);
+        return transition.Task.IsCompletedSuccessfully;
+    }
 
     private static TaskCompletionSource<bool> NextTransitionTo(Session session, ActivityState target)
     {
@@ -928,7 +920,7 @@ public sealed class ContentTurnRuleTests : IDisposable
     }
 
     /// <summary>Every state this session moved to, in order.</summary>
-    private async Task<string[]> RunSettleThenRepaint(TurnContentRule rule)
+    private string[] RunSettleThenRepaint(TurnContentRule rule)
     {
         var (session, backend, detector) = Start(rule);
         using (detector)
@@ -944,12 +936,13 @@ public sealed class ContentTurnRuleTests : IDisposable
                 }
             };
 
+            var settled = NextTransitionTo(session, ActivityState.WaitingForInput);
             backend.Write(Encoding.UTF8.GetBytes("The deployment finished successfully\r\n> "));
-            await Task.Delay(Quiet + TimeSpan.FromMilliseconds(250));
+            Assert.True(Reached(settled, TimeSpan.FromSeconds(5)), "the first turn never settled");
             backend.Write(Encoding.UTF8.GetBytes("Update installed - restart to apply\r\n> "));
 
-            await woke.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            await Task.Delay(SettleDelay + TimeSpan.FromMilliseconds(200));
+            Assert.True(Reached(woke, TimeSpan.FromSeconds(5)), "the repaint never opened the turn");
+            _clock.Advance(SettleDelay + TimeSpan.FromMilliseconds(200));
 
             lock (seen) return seen.ToArray();
         }
@@ -1013,26 +1006,17 @@ public sealed class ContentTurnRuleTests : IDisposable
     /// wrong check. Both of the failures this helper was written twice for looked like production
     /// defects and were this.
     /// </summary>
-    private static async Task<JsonElement> WaitForShadowRowAfter(
+    private JsonElement WaitForShadowRowAfter(
         Guid sessionId, int baseline, TerminalStateDetector? detector = null)
     {
         var path = ShadowPath(sessionId);
-        // Fifteen seconds, not five. These tests drive the detector's REAL timers, and a check that
-        // is merely late under load is not the same fact as a row that was never written - a five
-        // second deadline turned the first into the second about once in fifteen runs when a build
-        // was running beside the suite. What is asserted is unchanged: the row must appear.
-        //
-        // The longer wait changes no production behaviour and diagnoses nothing on its own - it
-        // only makes the flake less likely. That is a tolerance change, and it was once written up
-        // as though it had settled the question. The POSITIVE SIGNAL below is what actually
-        // separates the two facts.
-        var deadline = DateTime.UtcNow.AddSeconds(15);
-        while (DateTime.UtcNow < deadline)
+        var deadline = _clock.GetUtcNow().AddSeconds(15);
+        while (_clock.GetUtcNow() < deadline)
         {
             var lines = ShadowRows(sessionId);
             if (lines.Length > baseline)
                 return JsonDocument.Parse(lines[^1]).RootElement.Clone();
-            await Task.Delay(25);
+            _clock.Advance(VirtualTime.Step);
         }
 
         // An empty result must read as a broken instrument, never as a clean run - so the failure

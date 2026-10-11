@@ -131,6 +131,7 @@ public sealed class TerminalStateDetector : IDisposable
     private readonly TimeSpan _maxSettleCheckDeferral;
     private readonly ITerminalNoveltyRule _rowRule;
     private readonly ITerminalSizeRule _sizeRule;
+    private readonly TimeProvider _timeProvider;
     private readonly ConcurrentDictionary<Guid, Watcher> _watchers = new();
     private bool _started;
     private bool _disposed;
@@ -148,7 +149,8 @@ public sealed class TerminalStateDetector : IDisposable
     /// </param>
     public TerminalStateDetector(SessionManager sessionManager, bool driveState,
         Activity.ActivityEventProducer? activityProducer = null)
-        : this(sessionManager, driveState, QuietThreshold, activityProducer)
+        : this(sessionManager, driveState, QuietThreshold, activityProducer,
+            timeProvider: TimeProvider.System)
     {
     }
 
@@ -170,7 +172,8 @@ public sealed class TerminalStateDetector : IDisposable
         TimeSpan? settleCheckDelay = null,
         TimeSpan? maxSettleCheckDeferral = null,
         ITerminalNoveltyRule? rowRule = null,
-        ITerminalSizeRule? sizeRule = null)
+        ITerminalSizeRule? sizeRule = null,
+        TimeProvider? timeProvider = null)
     {
         if (quietThreshold <= TimeSpan.Zero)
             throw new ArgumentOutOfRangeException(nameof(quietThreshold));
@@ -184,6 +187,7 @@ public sealed class TerminalStateDetector : IDisposable
         _maxSettleCheckDeferral = maxSettleCheckDeferral ?? MaxSettleCheckDeferral;
         _rowRule = rowRule ?? TerminalContentNovelty.RowRule;
         _sizeRule = sizeRule ?? TerminalContentNovelty.StartingSizeRule();
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     /// <summary>
@@ -295,7 +299,8 @@ public sealed class TerminalStateDetector : IDisposable
         if (session.BackendType == Backends.SessionBackendType.GitHubActions) return;
         if (_watchers.ContainsKey(session.Id)) return;
         var w = new Watcher(session, _driveState, _quietThreshold, _activityProducer,
-            _contentRule, _settleCheckDelay, _maxSettleCheckDeferral, _rowRule, _sizeRule);
+            _contentRule, _settleCheckDelay, _maxSettleCheckDeferral, _rowRule, _sizeRule,
+            _timeProvider);
         if (_watchers.TryAdd(session.Id, w))
             w.Start();
         else
@@ -340,9 +345,10 @@ public sealed class TerminalStateDetector : IDisposable
         private readonly CircularTerminalBuffer _buffer;
         private readonly bool _driveState;
         private readonly TimeSpan _quietThreshold;
+        private readonly TimeProvider _timeProvider;
         private readonly Activity.ActivityEventProducer? _activityProducer;
         private readonly Action<byte[]> _onBytes;
-        private readonly System.Threading.Timer _quietTimer;
+        private readonly ITimer _quietTimer;
 
         // The content rule: which candidate is authoritative, and the settling window the check
         // waits out. Off is today's rule - any byte at a settled session opens the turn.
@@ -350,7 +356,7 @@ public sealed class TerminalStateDetector : IDisposable
         private readonly TimeSpan _settleCheckDelay;
         private readonly TimeSpan _maxSettleCheckDeferral;
         private readonly IReadOnlyCollection<string> _chromeMarkers;
-        private readonly System.Threading.Timer _contentCheckTimer;
+        private readonly ITimer _contentCheckTimer;
 
         // The two candidates, held as INTERFACES and never as functions, so the rule work item five
         // scores is the rule the Director ran.
@@ -450,7 +456,7 @@ public sealed class TerminalStateDetector : IDisposable
         public Watcher(Session session, bool driveState, TimeSpan quietThreshold,
             Activity.ActivityEventProducer? activityProducer,
             TurnContentRule contentRule, TimeSpan settleCheckDelay, TimeSpan maxSettleCheckDeferral,
-            ITerminalNoveltyRule rowRule, ITerminalSizeRule sizeRule)
+            ITerminalNoveltyRule rowRule, ITerminalSizeRule sizeRule, TimeProvider timeProvider)
         {
             _rowRule = rowRule;
             _sizeRule = sizeRule;
@@ -458,6 +464,7 @@ public sealed class TerminalStateDetector : IDisposable
             _buffer = session.Buffer!;
             _driveState = driveState;
             _quietThreshold = quietThreshold;
+            _timeProvider = timeProvider;
             _activityProducer = activityProducer;
             _continuousIdle = session.Driver.EmitsContinuousIdleOutput;
             _contentRule = contentRule;
@@ -465,8 +472,10 @@ public sealed class TerminalStateDetector : IDisposable
             _maxSettleCheckDeferral = maxSettleCheckDeferral;
             _chromeMarkers = session.Driver.SelfDescribingRowMarkers;
             _onBytes = OnBytes;
-            _quietTimer = new System.Threading.Timer(OnQuiet, null, Timeout.Infinite, Timeout.Infinite);
-            _contentCheckTimer = new System.Threading.Timer(OnContentCheck, null, Timeout.Infinite, Timeout.Infinite);
+            _quietTimer = _timeProvider.CreateTimer(
+                OnQuiet, null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+            _contentCheckTimer = _timeProvider.CreateTimer(
+                OnContentCheck, null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         }
 
         public void Start()
@@ -537,7 +546,7 @@ public sealed class TerminalStateDetector : IDisposable
             // an idle session does not flip it blue. The window is short (well under
             // QuietThreshold), so a genuine work-start inside it is only delayed until the next
             // byte after the window, which re-flags Working.
-            if (DateTime.UtcNow < _session.SuppressActivityUntilUtc)
+            if (UtcNow < _session.SuppressActivityUntilUtc)
             {
                 Stamp("suppressed as a Director-induced repaint");
                 return;
@@ -735,7 +744,7 @@ public sealed class TerminalStateDetector : IDisposable
         /// </summary>
         private bool ObserveBodyChange()
         {
-            var nowTicks = DateTime.UtcNow.Ticks;
+            var nowTicks = UtcNow.Ticks;
             if (nowTicks - Volatile.Read(ref _lastBodyCheckTicks) < BodyCheckIntervalTicks)
                 return false;
             Volatile.Write(ref _lastBodyCheckTicks, nowTicks);
@@ -795,7 +804,7 @@ public sealed class TerminalStateDetector : IDisposable
 
             lock (_checkGate)
             {
-                long now = DateTime.UtcNow.Ticks;
+                long now = UtcNow.Ticks;
                 if (!_checkScheduled)
                 {
                     _checkScheduled = true;
@@ -925,10 +934,10 @@ public sealed class TerminalStateDetector : IDisposable
             }
 
             bool submitted = _session.LastSubmissionAtUtc is DateTime submittedAt
-                && DateTime.UtcNow - submittedAt <= Activity.ActivityEventProducer.SubmissionWindow;
+                && UtcNow - submittedAt <= Activity.ActivityEventProducer.SubmissionWindow;
 
             var record = new TurnDetectionShadowLog.Record(
-                T: DateTime.UtcNow.ToString("o"),
+                T: UtcNow.ToString("o"),
                 Agent: _session.Driver.Kind.ToString(),
                 Mode: _continuousIdle ? "body" : "byte",
                 Rule: _contentRule.ToString().ToLowerInvariant(),
@@ -1008,7 +1017,7 @@ public sealed class TerminalStateDetector : IDisposable
                     _pendingBytes = bytes;
                     // A FRESH deadline, not the original one. The original is in the past, so
                     // reusing it would make the retry fire with no delay at all.
-                    _checkDeadlineTicks = DateTime.UtcNow.Ticks + _maxSettleCheckDeferral.Ticks;
+                    _checkDeadlineTicks = UtcNow.Ticks + _maxSettleCheckDeferral.Ticks;
                 }
 
                 try { _contentCheckTimer.Change(_settleCheckDelay, Timeout.InfiniteTimeSpan); }
@@ -1126,7 +1135,7 @@ public sealed class TerminalStateDetector : IDisposable
         {
             if (_activityProducer is null) return;
             if (_session.LastSubmissionAtUtc is DateTime submitted
-                && DateTime.UtcNow - submitted <= Activity.ActivityEventProducer.SubmissionWindow)
+                && UtcNow - submitted <= Activity.ActivityEventProducer.SubmissionWindow)
                 return;
 
             string? afterBody = TryReadScreenBody(out var body) ? body : null;
@@ -1144,7 +1153,7 @@ public sealed class TerminalStateDetector : IDisposable
             try { OnQuietCore(); }
             catch (Exception ex)
             {
-                // This runs on a System.Threading.Timer thread. An escaped exception
+                // This runs from a timer callback. An escaped exception
                 // would be unhandled and terminate the whole process (this was the
                 // ObjectDisposedException-on-disposed-buffer crash). Log and swallow.
                 FileLog.Write($"[TerminalStateDetector] OnQuiet failed session={_session.Id} FAILED: {ex.Message}");
@@ -1162,7 +1171,7 @@ public sealed class TerminalStateDetector : IDisposable
             var lastChange = _continuousIdle
                 ? _session.LastBodyActivityAtUtc
                 : _buffer.LastWriteAtUtc;
-            var idle = DateTime.UtcNow - lastChange;
+            var idle = UtcNow - lastChange;
             if (idle + TimeSpan.FromMilliseconds(250) < _quietThreshold)
             {
                 ArmQuietTimer();
@@ -1212,6 +1221,8 @@ public sealed class TerminalStateDetector : IDisposable
             FileLog.Write($"[TerminalStateDetector] {_session.Id} terminal=NEEDS-YOU after {idle.TotalSeconds:F1}s silent | hook={_session.ActivityState}");
             if (_driveState) _session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
         }
+
+        private DateTime UtcNow => _timeProvider.GetUtcNow().UtcDateTime;
 
         public void Dispose()
         {
