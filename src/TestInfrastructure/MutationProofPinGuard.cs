@@ -155,8 +155,9 @@ namespace CcDirector.TestInfrastructure;
 /// remembering - keying on the project name rather than on the IsTestProject flag was deliberate, because
 /// one of the seven existing test projects does not set that flag.
 ///
-/// It is pinned by MutationProofPinGuardTests, because a guard that silently fails to run leaves no trace
-/// and looks exactly like a guard that works.
+/// That it RUNS is pinned in every assembly by MutationProofPinGuardArmedTests, because a guard that silently fails to
+/// run leaves no trace and looks exactly like a guard that works. Its behavioural suite, which built real git
+/// repositories, was deleted on 11 October 2026: the release gate no longer starts real processes.
 /// </summary>
 internal static class MutationProofPinGuard
 {

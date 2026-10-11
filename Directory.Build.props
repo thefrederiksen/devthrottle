@@ -52,14 +52,6 @@
     <Compile Include="$(MSBuildThisFileDirectory)src\TestInfrastructure\MutationProofPinGuardArmedTests.cs" Link="TestInfrastructure\MutationProofPinGuardArmedTests.cs" />
   </ItemGroup>
   <!--
-    The guard's behavioural suite, compiled into exactly one assembly. Core.Tests because it is the
-    fastest of the seven to build and run, has no user-interface threading requirements, and is where
-    this unit's proofs have been driven throughout.
-  -->
-  <ItemGroup Condition="'$(MSBuildProjectName)' == 'CcDirector.Core.Tests'">
-    <Compile Include="$(MSBuildThisFileDirectory)src\TestInfrastructure\MutationProofPinGuardTests.cs" Link="TestInfrastructure\MutationProofPinGuardTests.cs" />
-  </ItemGroup>
-  <!--
     THE SHARED REPOSITORY SOURCE INDEX, linked into every test assembly: every project whose name ends in
     "Tests" - the ".Tests" projects, the ".UnitTests" ones and "Gateway.DatabaseTests", the last two of which
     the pin guard's condition above does not reach. That is the same rule TestProjectPath applies to a path,
