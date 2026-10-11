@@ -123,5 +123,37 @@ public sealed class SendPathClockTests : IDisposable
         Assert.Contains(lines, l => l.Contains("WAIT ENDED"));
     }
 
+    [Fact]
+    public async Task DoorbellSubmitAsync_OnAClock_PacesTheChunksOfALongLineOnThatClockNotTheRealOne()
+    {
+        // Arrange: a line long enough to be typed in twenty chunks, ten milliseconds apart, through the doorbell
+        // entry (review finding on this change: the doorbell passed its clock to its own polls but not to the pacing
+        // between chunks). The polls here do not wait at all, so the chunk pacing is the only wait left.
+        var clock = VirtualTime.NewClock();
+        var transcript = Path.Combine(_dir, "t.jsonl");
+        File.WriteAllText(transcript, "");
+        var terminal = new ScriptedAgentTerminal(AgentKind.ClaudeCode, transcript, _dir) { Clock = clock };
+        _cleanup.Add(terminal);
+        terminal.StartDrawing();
+        var line = string.Concat(Enumerable.Repeat("doorbell-", 36)); // 324 characters, 21 chunks of 16 bytes
+
+        // Act: start the doorbell and give the real clock well over the two hundred milliseconds the chunks would take
+        // on it; then advance the fake clock until the doorbell finishes.
+        var doorbell = TerminalSubmit.DoorbellSubmitAsync(terminal, line, "Test",
+            mayTypeNow: () => true, composerShowsLine: () => false, turnStarted: () => terminal.EntersAccepted > 0,
+            pause: _ => Task.CompletedTask, clock: clock);
+        await Task.Delay(TimeSpan.FromMilliseconds(600));
+        var finishedOnTheRealClock = doorbell.IsCompleted;
+        var startedAt = clock.GetUtcNow();
+        var outcome = await VirtualTime.RunAsync(clock, () => doorbell);
+
+        // Assert
+        Assert.False(finishedOnTheRealClock, "the chunks were paced on the real clock: the doorbell finished before the fake clock moved");
+        Assert.Equal(DoorbellSubmitOutcome.Verified, outcome);
+        Assert.Equal(line, terminal.TypedText);
+        Assert.True(clock.GetUtcNow() - startedAt >= TimeSpan.FromMilliseconds(190),
+            "twenty ten-millisecond pauses should have passed on the fake clock");
+    }
+
     private List<string> Lines() { lock (_lines) return _lines.ToList(); }
 }

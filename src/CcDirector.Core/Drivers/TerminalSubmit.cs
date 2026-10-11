@@ -314,7 +314,35 @@ public static class TerminalSubmit
         ArgumentNullException.ThrowIfNull(mayTypeNow);
         ArgumentNullException.ThrowIfNull(composerShowsLine);
         ArgumentNullException.ThrowIfNull(turnStarted);
-        var wait = pause ?? (d => Task.Delay(d, clock ?? TimeProvider.System));
+        // The clock is carried alongside this send as SharedSubmitAsync carries it, so the pacing between chunks in
+        // WriteTextAsync runs on it too - not only the polls here.
+        var clockBefore = SendClock.Value;
+        SendClock.Value = clock;
+        try
+        {
+            return await DoorbellSubmitCoreAsync(backend, line, driverTag, mayTypeNow, composerShowsLine, turnStarted,
+                echoTimeout, watch, poll, pause, beforeEnter);
+        }
+        finally
+        {
+            SendClock.Value = clockBefore;
+        }
+    }
+
+    private static async Task<DoorbellSubmitOutcome> DoorbellSubmitCoreAsync(
+        ISessionBackend backend,
+        string line,
+        string driverTag,
+        Func<bool> mayTypeNow,
+        Func<bool> composerShowsLine,
+        Func<bool> turnStarted,
+        TimeSpan? echoTimeout,
+        TimeSpan? watch,
+        TimeSpan? poll,
+        Func<TimeSpan, Task>? pause,
+        Action? beforeEnter)
+    {
+        var wait = pause ?? (d => Task.Delay(d, Clock));
         var step = poll ?? TimeSpan.FromMilliseconds(100);
         var echoPolls = Polls(echoTimeout ?? BaseEchoTimeout, step);
         var watchPolls = Polls(watch ?? DoorbellWatch, step);
