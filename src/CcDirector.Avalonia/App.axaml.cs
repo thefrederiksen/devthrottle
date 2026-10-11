@@ -61,7 +61,6 @@ public partial class App : Application
     public SessionHistoryStore SessionHistoryStore { get; private set; } = null!;
     public NulFileWatcher? NulFileWatcher { get; private set; }
     public BackupCleaner BackupCleaner { get; private set; } = null!;
-    public ClaudeAccountStore ClaudeAccountStore { get; private set; } = null!;
     public EngineHost? EngineHost { get; private set; }
     public ControlApiHost? ControlApiHost { get; private set; }
     public UpdateService? Updater { get; private set; }
@@ -450,10 +449,9 @@ public partial class App : Application
         BackupCleaner.OnDeletionFailed = (path, ex) => log($"Failed to delete corrupted backup {path}: {ex.Message}");
         BackupCleaner.Start();
 
-        UpdateSplashStatus(splash, "Loading accounts...");
-        ClaudeAccountStore = new ClaudeAccountStore();
-        ClaudeAccountStore.Load();
-        log($"Claude accounts loaded: {ClaudeAccountStore.Accounts.Count}");
+        // The License Switching mission retired the copying Claude account store and its Accounts dialog: it kept a
+        // second copy of the active sign-in in its own accounts file, which the mission forbids. That file is left where it is,
+        // unread; accounts are now held and switched by the license key store (cc-devthrottle license).
 
         // Gateway Centralization Phase 2 migration (issue #642), with the two-step install exception
         // (Slice A): the deletion of the Director's own credential blob is GATED on gateway presence.

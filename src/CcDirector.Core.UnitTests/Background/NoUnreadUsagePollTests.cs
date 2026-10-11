@@ -31,10 +31,11 @@ public sealed class NoUnreadUsagePollTests
             .SelectMany(d => RepositorySourceIndex.Under(d, ".cs"))
             .ToList();
 
-        // The scan read the real tree: the file that used to start the poll, and the account store
-        // that still talks to the provider for a token refresh, are both in it.
+        // The scan read the real tree: the file that used to start the poll, and the Gateway client
+        // that makes a real outbound call, are both in it. (The account store that used to be the second
+        // witness was retired by the License Switching mission.)
         Assert.Contains(files, f => f.EndsWith(Path.Combine("CcDirector.Avalonia", "App.axaml.cs"), StringComparison.Ordinal));
-        Assert.Contains(files, f => f.EndsWith(Path.Combine("Claude", "ClaudeAccountStore.cs"), StringComparison.Ordinal));
+        Assert.Contains(files, f => f.EndsWith(Path.Combine("CcDirector.ControlApi", "GatewayClient.cs"), StringComparison.Ordinal));
         Assert.True(files.Count > 500, $"expected the Director's sources, found {files.Count} files under {src}");
 
         var offenders = files.Where(f => File.ReadAllText(f).Contains(RetiredEndpoint, StringComparison.Ordinal)).ToList();

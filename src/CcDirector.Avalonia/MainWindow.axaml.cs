@@ -4977,12 +4977,6 @@ public partial class MainWindow : Window
         if (alpha)
         {
             var dev = new NativeMenuItem("Developer") { Menu = new NativeMenu() };
-            dev.Menu.Items.Add(Item("Accounts...", async () =>
-            {
-                FileLog.Write("[MainWindow] Menu: Accounts");
-                var dialog = new AccountsDialog(AppRef().ClaudeAccountStore);
-                await dialog.ShowDialog<bool?>(this);
-            }));
             dev.Menu.Items.Add(Item("Show Reviews", async () =>
             {
                 FileLog.Write("[MainWindow] Menu: Show Reviews");

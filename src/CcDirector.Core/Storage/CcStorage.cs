@@ -707,7 +707,7 @@ public static class CcStorage
     /// Encrypted DevThrottle account credential blob: config/director/devthrottle-credential.bin.
     /// The access-plus-refresh token pair is written here encrypted at rest by the operating system
     /// credential store (Windows Data Protection on Windows), never as plain text. Distinct from the
-    /// Claude sign-in account store (accounts.json) - this is the DevThrottle account.
+    /// Claude accounts a machine holds (the license key store) - this is the DevThrottle account.
     /// </summary>
     public static string DevThrottleCredentialBlob() =>
         Path.Combine(ToolConfig("director"), "devthrottle-credential.bin");

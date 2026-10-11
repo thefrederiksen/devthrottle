@@ -10,9 +10,8 @@ namespace CcDirector.Core.Account;
 /// locally with no network call, renews the access token in the background using the refresh token
 /// when connectivity is available, and clears the credential on logout.
 ///
-/// This is the DevThrottle account, distinct from the Claude sign-in account store
-/// (<c>ClaudeAccountStore</c>, which holds Claude OAuth credentials as plain-text JSON for a
-/// different purpose). The store binding is injected so Windows Data Protection is used on Windows
+/// This is the DevThrottle account, distinct from the Claude accounts a machine holds (the license key
+/// store, <c>cc-devthrottle license</c>). The store binding is injected so Windows Data Protection is used on Windows
 /// and the macOS Keychain can be a later drop-in.
 /// </summary>
 public sealed class DevThrottleAccountService
