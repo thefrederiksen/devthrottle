@@ -65,10 +65,11 @@ public static class TerminalSubmit
         TimeSpan? submitVerifyBeat,
         bool throwWhenParked = true)
     {
-        await Task.Delay(settle);
+        await Task.Delay(settle, Clock);
+        var clock = Clock;
         await SubmitVerifier.PressEnterAndVerifyAsync(
-            backend.Buffer, backend.Write, LabelFor(text, driverTag), submitVerifyBeat, throwWhenParked: throwWhenParked,
-            nudgeOnlyWhen: TextWaitsInComposer.Value);
+            backend.Buffer, backend.Write, LabelFor(text, driverTag), submitVerifyBeat, beatDelay: b => Task.Delay(b, clock),
+            throwWhenParked: throwWhenParked, nudgeOnlyWhen: TextWaitsInComposer.Value);
     }
 
     /// <summary>Short, log-safe description of what was submitted.</summary>
@@ -130,12 +131,15 @@ public static class TerminalSubmit
         Func<bool>? nudgeOnlyWhen = null,
         Func<string?>? composerText = null,
         Func<string>? composerSeen = null,
-        Func<(ComposerReading Reading, string Text)>? composerRegion = null)
+        Func<(ComposerReading Reading, string Text)>? composerRegion = null,
+        TimeProvider? clock = null)
     {
         ArgumentNullException.ThrowIfNull(backend);
         var throwWhenParked = !recordsProofFollows;
         var nudgeBefore = TextWaitsInComposer.Value;
+        var clockBefore = SendClock.Value;
         TextWaitsInComposer.Value = nudgeOnlyWhen;
+        SendClock.Value = clock;
         try
         {
             return await SharedSubmitCoreAsync(backend, text, driverTag, bracketedPasteEnabled, requireEcho, echoTimeout,
@@ -145,8 +149,21 @@ public static class TerminalSubmit
         finally
         {
             TextWaitsInComposer.Value = nudgeBefore;
+            SendClock.Value = clockBefore;
         }
     }
+
+    /// <summary>
+    /// THE SEND'S CLOCK, carried alongside the send exactly as <see cref="TextWaitsInComposer"/> is. Every wait in this
+    /// file - the echo deadline, the paste taken in, the quiet before a clear, the verifier's beats, the pacing between
+    /// chunks - and every clock reading runs on it, so a test that drives the send on a fake clock decides when the
+    /// sixty-second allowances end instead of waiting them out. Null, in the Director, is the system clock.
+    /// </summary>
+    private static readonly AsyncLocal<TimeProvider?> SendClock = new();
+
+    private static TimeProvider Clock => SendClock.Value ?? TimeProvider.System;
+
+    private static DateTime Now => Clock.GetUtcNow().UtcDateTime;
 
     /// <summary>
     /// Whether the screen shows the send's text waiting in the composer - the rule for every Enter the send presses
@@ -289,14 +306,15 @@ public static class TerminalSubmit
         TimeSpan? watch = null,
         TimeSpan? poll = null,
         Func<TimeSpan, Task>? pause = null,
-        Action? beforeEnter = null)
+        Action? beforeEnter = null,
+        TimeProvider? clock = null)
     {
         ArgumentNullException.ThrowIfNull(backend);
         ArgumentNullException.ThrowIfNull(line);
         ArgumentNullException.ThrowIfNull(mayTypeNow);
         ArgumentNullException.ThrowIfNull(composerShowsLine);
         ArgumentNullException.ThrowIfNull(turnStarted);
-        var wait = pause ?? (d => Task.Delay(d));
+        var wait = pause ?? (d => Task.Delay(d, clock ?? TimeProvider.System));
         var step = poll ?? TimeSpan.FromMilliseconds(100);
         var echoPolls = Polls(echoTimeout ?? BaseEchoTimeout, step);
         var watchPolls = Polls(watch ?? DoorbellWatch, step);
@@ -367,7 +385,8 @@ public static class TerminalSubmit
         TimeSpan? enterSettleDelay = null,
         Func<string[]>? screenSnapshot = null,
         TimeSpan? submitVerifyBeat = null,
-        Guid sessionId = default)
+        Guid sessionId = default,
+        TimeProvider? clock = null)
         => await SharedSubmitAsync(
             backend,
             text,
@@ -379,7 +398,8 @@ public static class TerminalSubmit
             enterSettleDelay,
             screenSnapshot,
             submitVerifyBeat,
-            sessionId);
+            sessionId,
+            clock: clock);
 
     private static async Task EchoVerifiedInlineSubmitAsync(
         ISessionBackend backend,
@@ -460,17 +480,17 @@ public static class TerminalSubmit
                                           : "only a new copy on screen counts as its echo"));
         SendTrail.Step(driverTag, $"EchoVerifiedSubmit: typing {text.Length} characters once; the composer before typing: " +
                                   $"{RegionForTrail(composerRegion)}; the text already in it {regionNeedleBefore} time(s)");
-        var typedAt = DateTime.UtcNow;
+        var typedAt = Now;
         await WriteTextAsync(backend, text);
 
         if (needle.Length == 0 || await WaitForEchoAsync(buffer, cursor, needle, visibleTailNeedle, to, poll, cap,
                 screenSnapshot, prefixBefore, needleBefore,
                 new SendWaitNotice(driverTag, $"the composer to echo a {text.Length}-character text",
-                    $"{to.TotalSeconds:F0}s after the terminal last moved, at most {cap.TotalSeconds:F0}s"),
+                    $"{to.TotalSeconds:F0}s after the terminal last moved, at most {cap.TotalSeconds:F0}s", Clock),
                 composerRegion, regionNeedleBefore))
         {
             SendTrail.Step(driverTag, $"EchoVerifiedSubmit: the composer echoed the text after " +
-                                      $"{(DateTime.UtcNow - typedAt).TotalMilliseconds:F0}ms - pressing Enter");
+                                      $"{(Now - typedAt).TotalMilliseconds:F0}ms - pressing Enter");
             await PressEnterAndVerifyAsync(backend, text, driverTag, settle, submitVerifyBeat, throwWhenParked);
             ComposerRetention.Clear(backend);
             return;
@@ -499,7 +519,7 @@ public static class TerminalSubmit
                                       $"screen cannot say whether the text is there. Watching for a further {extra.TotalSeconds:F0}s. " +
                                       $"{MemoryPressure.Describe(pressure)}.");
             if (await WaitForEchoAsync(buffer, cursor, needle, visibleTailNeedle, extra, poll, needleBefore: needleBefore,
-                    notice: new SendWaitNotice(driverTag, "a late composer echo", $"{extra.TotalSeconds:F0}s"),
+                    notice: new SendWaitNotice(driverTag, "a late composer echo", $"{extra.TotalSeconds:F0}s", Clock),
                     composerRegion: composerRegion, regionNeedleBefore: regionNeedleBefore)
                 || await ObserveComposerAsync(screenSnapshot, composerRegion, needle, visibleTailNeedle, pressure, regionNeedleBefore) == ComposerEvidence.Present)
             {
@@ -520,7 +540,7 @@ public static class TerminalSubmit
             return;
         }
 
-        SendTrail.Step(driverTag, $"EchoVerifiedSubmit: NO ECHO after {(DateTime.UtcNow - typedAt).TotalMilliseconds:F0}ms " +
+        SendTrail.Step(driverTag, $"EchoVerifiedSubmit: NO ECHO after {(Now - typedAt).TotalMilliseconds:F0}ms " +
                                   $"(screen evidence: {evidence}); the composer now: {RegionForTrail(composerRegion)}");
         PromptDeliveryFailures.RecordComposerEchoMiss(sessionId, driverTag, 1, text.Length);
         ComposerRetention.MarkMayHoldText(backend, driverTag, text);
@@ -722,7 +742,7 @@ public static class TerminalSubmit
                                       "unread in the terminal's input are read before them and would otherwise run into this send.");
             await WaitForQuietAsync(backend, driverTag);
             backend.Write(clearKeys);
-            await Task.Delay(TimeSpan.FromMilliseconds(300));
+            await Task.Delay(TimeSpan.FromMilliseconds(300), Clock);
         }
         else
         {
@@ -793,25 +813,25 @@ public static class TerminalSubmit
         var keys = clearKeys ?? EscapeByte;
         SendTrail.Step(driverTag, $"ResolveRetainedComposer: clearing - the composer before: {RegionForTrail(composerRegion)}; " +
                                   $"pressing {DescribeKeys(keys)}");
-        var clearedAt = DateTime.UtcNow;
+        var clearedAt = Now;
         backend.Write(keys);
-        await Task.Delay(TimeSpan.FromMilliseconds(300));
+        await Task.Delay(TimeSpan.FromMilliseconds(300), Clock);
         if (composerHoldsNothing is null) return;
 
         var empty = false;
         var looks = 0;
-        var notice = new SendWaitNotice(driverTag, "the composer to read empty after the clear", "100 looks, about 30s");
+        var notice = new SendWaitNotice(driverTag, "the composer to read empty after the clear", "100 looks, about 30s", Clock);
         for (var i = 0; i < 100 && !empty; i++)
         {
             notice.Check();
             looks++;
             empty = composerHoldsNothing();
-            if (empty) { await Task.Delay(BetweenScreenSamples); empty = composerHoldsNothing(); }
-            if (!empty) await Task.Delay(TimeSpan.FromMilliseconds(150));
+            if (empty) { await Task.Delay(BetweenScreenSamples, Clock); empty = composerHoldsNothing(); }
+            if (!empty) await Task.Delay(TimeSpan.FromMilliseconds(150), Clock);
         }
         notice.End(empty ? "the composer is empty" : "the composer still holds text - nothing is typed");
         SendTrail.Step(driverTag, $"ResolveRetainedComposer: after the clear, {looks} look(s) over " +
-                                  $"{(DateTime.UtcNow - clearedAt).TotalMilliseconds:F0}ms: " +
+                                  $"{(Now - clearedAt).TotalMilliseconds:F0}ms: " +
                                   (empty ? "the composer reads EMPTY" : $"the composer does NOT read empty - {RegionForTrail(composerRegion)}"));
         if (empty) return;
 
@@ -852,23 +872,23 @@ public static class TerminalSubmit
     {
         if (backend.Buffer is not { } buffer) return;
         var notice = new SendWaitNotice(driverTag, $"the terminal to stop printing for {QuietBeforeClear.TotalSeconds:F0}s before a clear",
-            $"{QuietBeforeClearLimit.TotalSeconds:F0}s");
-        var started = DateTime.UtcNow;
+            $"{QuietBeforeClearLimit.TotalSeconds:F0}s", Clock);
+        var started = Now;
         var lastTotal = buffer.TotalBytesWritten;
         var lastChange = started;
-        while (DateTime.UtcNow - lastChange < QuietBeforeClear)
+        while (Now - lastChange < QuietBeforeClear)
         {
             notice.Check();
-            if (DateTime.UtcNow - started >= QuietBeforeClearLimit)
+            if (Now - started >= QuietBeforeClearLimit)
             {
                 SendTrail.Step(driverTag, $"ResolveRetainedComposer: the terminal was still printing after " +
                                           $"{QuietBeforeClearLimit.TotalSeconds:F0}s - clearing anyway, and checking the composer after.");
                 notice.End("the limit was reached - clearing anyway");
                 return;
             }
-            await Task.Delay(TimeSpan.FromMilliseconds(100));
+            await Task.Delay(TimeSpan.FromMilliseconds(100), Clock);
             var total = buffer.TotalBytesWritten;
-            if (total != lastTotal) { lastTotal = total; lastChange = DateTime.UtcNow; }
+            if (total != lastTotal) { lastTotal = total; lastChange = Now; }
         }
         notice.End("the terminal went quiet");
     }
@@ -894,8 +914,8 @@ public static class TerminalSubmit
         if (backend.Buffer is not { } buffer) return;
         var notice = new SendWaitNotice(driverTag, $"the agent to take in a {length}-character paste " +
             (composerText is null ? "(a repaint followed by a quiet terminal)" : "(the composer showing it, or a quiet terminal)"),
-            $"{PasteTakenInLimit.TotalSeconds:F0}s");
-        var started = DateTime.UtcNow;
+            $"{PasteTakenInLimit.TotalSeconds:F0}s", Clock);
+        var started = Now;
         var startTotal = buffer.TotalBytesWritten;
         var lastTotal = startTotal;
         var lastChange = started;
@@ -904,9 +924,9 @@ public static class TerminalSubmit
         var shownSince = started;
         while (true)
         {
-            await Task.Delay(TimeSpan.FromMilliseconds(50));
+            await Task.Delay(TimeSpan.FromMilliseconds(50), Clock);
             notice.Check();
-            var now = DateTime.UtcNow;
+            var now = Now;
             var total = buffer.TotalBytesWritten;
             if (total != lastTotal) { lastTotal = total; lastChange = now; }
             if (total != startTotal && now - lastChange >= PasteQuiet)
@@ -1029,7 +1049,7 @@ public static class TerminalSubmit
             if (regionFirst is null) return ComposerEvidence.Unknown;
             if (RegionShowsText(regionFirst, needle, visibleTailNeedle, needleBefore)) return ComposerEvidence.Present;
 
-            await Task.Delay(BetweenScreenSamples);
+            await Task.Delay(BetweenScreenSamples, Clock);
 
             var regionSecond = ReadRegionText(composerRegion);
             if (regionSecond is null) return ComposerEvidence.Unknown;
@@ -1046,7 +1066,7 @@ public static class TerminalSubmit
         if (first is null) return ComposerEvidence.Unknown;
         if (ScreenRowsShowText(first, needle, visibleTailNeedle, needleBefore)) return ComposerEvidence.Present;
 
-        await Task.Delay(BetweenScreenSamples);
+        await Task.Delay(BetweenScreenSamples, Clock);
 
         var second = ReadScreen(screenSnapshot);
         if (second is null) return ComposerEvidence.Unknown;
@@ -1320,7 +1340,7 @@ public static class TerminalSubmit
         TimeSpan? hardCap, Func<string[]>? screenSnapshot, int prefixBefore, int needleBefore, SendWaitNotice? notice,
         Func<(ComposerReading Reading, string Text)>? composerRegion = null, int regionNeedleBefore = 0)
     {
-        var started = DateTime.UtcNow;
+        var started = Now;
         var cap = hardCap ?? timeout;
         var lastProgress = started;
         var lastTotal = buffer.TotalBytesWritten;
@@ -1331,7 +1351,7 @@ public static class TerminalSubmit
         while (true)
         {
             notice?.Check();
-            var now = DateTime.UtcNow;
+            var now = Now;
             var total = buffer.TotalBytesWritten;
             if (total != lastTotal) { lastTotal = total; lastProgress = now; }
 
@@ -1387,7 +1407,7 @@ public static class TerminalSubmit
                     && CountIn(NormalizeForEcho(string.Concat(rowsNow)), needle) > needleBefore)
                     return true;
                 if (now - lastProgress >= timeoutNow || now - started >= cap) return false;
-                await Task.Delay(poll);
+                await Task.Delay(poll, Clock);
                 continue;
             }
 
@@ -1408,7 +1428,7 @@ public static class TerminalSubmit
                 if (index > 0 && hay[index - 1] == '/' && !needle.StartsWith('/'))
                 {
                     if (now - lastProgress >= timeoutNow || now - started >= cap) return false;
-                    await Task.Delay(poll);
+                    await Task.Delay(poll, Clock);
                     continue;
                 }
 
@@ -1419,7 +1439,7 @@ public static class TerminalSubmit
                 return true;
 
             if (now - lastProgress >= timeoutNow || now - started >= cap) return false;
-            await Task.Delay(poll);
+            await Task.Delay(poll, Clock);
         }
     }
 
@@ -1436,7 +1456,7 @@ public static class TerminalSubmit
         foreach (var chunk in Chunks(text, asKeyEvents))
         {
             backend.Write(chunk);
-            await Task.Delay(TimeSpan.FromMilliseconds(10));
+            await Task.Delay(TimeSpan.FromMilliseconds(10), Clock);
         }
     }
 

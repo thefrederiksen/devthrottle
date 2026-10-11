@@ -2,6 +2,7 @@ using CcDirector.Core.Agents;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Drivers;
 using CcDirector.Core.Sessions;
+using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
 namespace CcDirector.Core.UnitTests.Sessions;
@@ -19,6 +20,7 @@ public sealed class TitledComposerSendTests : IDisposable
     private const string Title = "keynote deck slide reordering";
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "cc-titled-send-" + Guid.NewGuid().ToString("N"));
     private readonly List<IDisposable> _cleanup = new();
+    private readonly FakeTimeProvider _clock = VirtualTime.NewClock();
 
     public TitledComposerSendTests() => Directory.CreateDirectory(_dir);
 
@@ -35,6 +37,7 @@ public sealed class TitledComposerSendTests : IDisposable
         File.WriteAllText(transcript, "");
         var terminal = new ScriptedAgentTerminal(AgentKind.ClaudeCode, transcript, _dir)
         {
+            Clock = _clock,
             ConPtyPaint = true,
             Width = 161,
             Height = 41,
@@ -42,7 +45,7 @@ public sealed class TitledComposerSendTests : IDisposable
         };
         terminal.SetComposer(composer);
         _cleanup.Add(terminal);
-        var session = new Session(Guid.NewGuid(), _dir, _dir, null, terminal, SessionBackendType.ConPty) { AgentKind = AgentKind.ClaudeCode };
+        var session = new Session(Guid.NewGuid(), _dir, _dir, null, terminal, SessionBackendType.ConPty) { AgentKind = AgentKind.ClaudeCode, Clock = _clock };
         _cleanup.Add(session);
         session.Resize(161, 41);
         session.UpdateClaudeSessionPointer(Guid.NewGuid().ToString(), transcript, "test");
@@ -62,7 +65,7 @@ public sealed class TitledComposerSendTests : IDisposable
 
         // Act
         const string next = "Reply with only the word OK. Marker: titled quokka.";
-        await session.SendTextAsync(next, SessionTestDoors.TestDoor);
+        await VirtualTime.RunAsync(_clock, () => session.SendTextAsync(next, SessionTestDoors.TestDoor));
 
         // Assert: the orphan was cleared and only the new prompt went in.
         Assert.Equal(new[] { next }, terminal.Recorded);
@@ -80,7 +83,7 @@ public sealed class TitledComposerSendTests : IDisposable
 
         // Act
         const string next = "Reply with only the word OK. Marker: empty titled quokka.";
-        await session.SendTextAsync(next, SessionTestDoors.TestDoor);
+        await VirtualTime.RunAsync(_clock, () => session.SendTextAsync(next, SessionTestDoors.TestDoor));
 
         // Assert
         Assert.Equal(new[] { next }, terminal.Recorded);
