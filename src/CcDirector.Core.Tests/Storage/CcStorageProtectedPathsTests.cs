@@ -56,6 +56,7 @@ public sealed class CcStorageProtectedPathsTests
             ["MachineRoot"] = TheInstalledProduct,
             ["FleetManagerHome"] = DataTheMissionReportsAndNeverOffers,
             ["GatewayDb"] = DataTheMissionReportsAndNeverOffers,
+            ["GatewayStatsDb"] = DataTheMissionReportsAndNeverOffers,
             ["DefaultRoot"] = "the default location of the storage root; the sensitive folders beneath it are protected individually",
             ["DirectorInstances"] = InsideConfig,
             ["Output"] = InsideAUserFolder,
