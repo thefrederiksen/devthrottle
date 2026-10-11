@@ -159,9 +159,10 @@ public sealed class TerminalAttachReplayTests
     /// <summary>
     /// Attach must not replay the history on the screen thread. Decided by order, not by the clock: the
     /// replay is held at its gate, and Attach has to return while it is held. A replay run inside Attach
-    /// would sit at the gate until its 60-second guard, come back with a parser, and fail the assertions
-    /// below with that story - never pass on a fast machine. (The earlier version asserted that Attach
-    /// returned within 50 ms, a number the screen thread cannot promise under a parallel test load.)
+    /// would sit at the gate until its 60-second guard threw inside the replay, which clears the in-flight
+    /// flag - so Attach would return with no replay pending and fail the first assertion below, never pass
+    /// on a fast machine. (The earlier version asserted that Attach returned within 50 ms, a number the
+    /// screen thread cannot promise under a parallel test load.)
     /// </summary>
     [AvaloniaFact]
     public void Attach_WrappedTwoMegabyteBuffer_ReturnsWhileTheReplayIsStillHeld_AndTheHandoverGridEqualsASynchronousReplay()

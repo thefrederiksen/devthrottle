@@ -63,52 +63,66 @@ public sealed class PasteOffUiThreadTests
     [AvaloniaFact]
     public async Task Naive_ui_thread_pacing_cannot_send_a_second_chunk_until_the_ui_thread_is_released()
     {
-        // This is the OLD behavior, inlined: await Task.Delay with no ConfigureAwait(false) and no
-        // Task.Run, so every continuation resumes on the (pinned) UI thread. Showing that THIS cannot
-        // get past its first chunk until the pin is released proves the pin genuinely saturates the UI
-        // thread - otherwise the first test would pass for the wrong reason (a pin that never bit).
+        // This is the OLD behavior, inlined: an await with no ConfigureAwait(false) and no Task.Run, so
+        // every continuation resumes on the (pinned) UI thread. Showing that THIS cannot get past its
+        // first chunk until the pin is released proves the pin genuinely saturates the UI thread -
+        // otherwise the first test would pass for the wrong reason (a pin that never bit).
+        //
+        // The order has to be forced, not hoped for. The pacing's wait between chunks is a task the test
+        // completes by hand, from off the UI thread, only once the pin is held: completing it posts the
+        // second chunk's continuation onto the pinned dispatcher, and ONLY THEN is the pin released. So
+        // the second chunk can go out before the pin has ended only if its continuation never needed the
+        // UI thread - which is exactly the condition that would make the first test meaningless. (A first
+        // version of this test released the pin as soon as it was held, and the second chunk arrived 15 ms
+        // later whatever was pinned: the review reproduced a pass with the UI thread left completely free.)
         var text = new string('x', PasteLen);
 
         using var release = new ManualResetEventSlim(false);
         using var pinning = new ManualResetEventSlim(false);
+        using var pinEnded = new ManualResetEventSlim(false);
         using var firstChunkSent = new ManualResetEventSlim(false);
-        var sentWhilePinned = new ConcurrentQueue<bool>();
+        var betweenChunks = new TaskCompletionSource();
+        var sentAfterThePinEnded = new ConcurrentQueue<bool>();
 
-        var pin = PinUiThreadUntil(release, pinning);
+        var pin = PinUiThreadUntil(release, pinning, pinEnded);
 
-        // The releaser runs off the UI thread: it opens the pin only once the pin is really held AND the
-        // first chunk has gone out, so the second chunk's continuation has a pinned UI thread to wait on.
         var releaser = Task.Run(() =>
         {
             if (!pinning.Wait(HangGuard)) throw new TimeoutException("the UI thread was never pinned");
             if (!firstChunkSent.Wait(HangGuard)) throw new TimeoutException("the first chunk was never sent");
+            // The pacing is now awaiting betweenChunks on the UI thread's context. Completing it queues the
+            // continuation behind the pin job; the pin is opened only after that.
+            betweenChunks.SetResult();
             release.Set();
         });
 
         await NaiveUiThreadPace(text, _ =>
         {
-            sentWhilePinned.Enqueue(!release.IsSet);
+            sentAfterThePinEnded.Enqueue(pinEnded.IsSet);
             firstChunkSent.Set();
-        });
+        }, () => betweenChunks.Task);
 
         Assert.Equal(PinEnd.Signal, await pin);
         await releaser;
 
-        var sent = sentWhilePinned.ToArray();
+        var sent = sentAfterThePinEnded.ToArray();
         Assert.True(sent.Length > 1, $"expected the paste to go out in several chunks, got {sent.Length}");
-        Assert.True(sent[0], "the first chunk goes out synchronously, before the pacing ever awaits");
-        Assert.All(sent.Skip(1), pinned => Assert.False(pinned,
-            "a chunk after the first was sent while the UI thread was still pinned - the naive pacing did not need the UI thread, so the pin is not saturating it"));
+        Assert.False(sent[0], "the first chunk goes out synchronously, before the pin has even started");
+        Assert.All(sent.Skip(1), afterPin => Assert.True(afterPin,
+            "a chunk after the first was sent before the pin ended - its continuation did not need the UI thread, so the pin is not saturating it"));
     }
 
-    /// <summary>The naive loop the fix replaced: chunked, but resuming on the UI thread.</summary>
-    private static async Task NaiveUiThreadPace(string text, Action<byte[]> send)
+    /// <summary>
+    /// The naive loop the fix replaced: chunked, but resuming on the UI thread. The wait between chunks is
+    /// handed in so a test can decide the moment it ends; production used <c>Task.Delay(15)</c> there.
+    /// </summary>
+    private static async Task NaiveUiThreadPace(string text, Action<byte[]> send, Func<Task> waitBetweenChunks)
     {
         const int chunk = 8;
         for (int i = 0; i < text.Length; i += chunk)
         {
             send(System.Text.Encoding.UTF8.GetBytes(text.Substring(i, Math.Min(chunk, text.Length - i))));
-            await Task.Delay(15); // no ConfigureAwait(false): continuation returns to the UI thread
+            await waitBetweenChunks(); // no ConfigureAwait(false): continuation returns to the UI thread
         }
     }
 
@@ -116,23 +130,25 @@ public sealed class PasteOffUiThreadTests
 
     /// <summary>
     /// Post a job that spins the UI thread until <paramref name="until"/> is set, blocking the dispatcher
-    /// completely. <paramref name="pinning"/>, when given, is set the moment the spin begins. The task
-    /// says what ended the pin: the signal, or the hang guard.
+    /// completely. <paramref name="pinning"/>, when given, is set the moment the spin begins, and
+    /// <paramref name="ended"/> the moment it stops, before the job returns the thread to the dispatcher.
+    /// The task says what ended the pin: the signal, or the hang guard.
     /// </summary>
-    private static Task<PinEnd> PinUiThreadUntil(ManualResetEventSlim until, ManualResetEventSlim? pinning = null)
+    private static Task<PinEnd> PinUiThreadUntil(ManualResetEventSlim until, ManualResetEventSlim? pinning = null, ManualResetEventSlim? ended = null)
     {
         var tcs = new TaskCompletionSource<PinEnd>();
         Dispatcher.UIThread.Post(() =>
         {
             pinning?.Set();
             var deadline = Environment.TickCount64 + (long)HangGuard.TotalMilliseconds;
-            var ended = PinEnd.HangGuard;
+            var endedBy = PinEnd.HangGuard;
             while (Environment.TickCount64 < deadline)
             {
-                if (until.IsSet) { ended = PinEnd.Signal; break; }
+                if (until.IsSet) { endedBy = PinEnd.Signal; break; }
                 // Pin the UI thread: no wait, no yield.
             }
-            tcs.SetResult(ended);
+            ended?.Set();
+            tcs.SetResult(endedBy);
         }, DispatcherPriority.Normal);
         return tcs.Task;
     }
