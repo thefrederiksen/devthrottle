@@ -529,7 +529,10 @@ def test_CheckText_AnAccentedSecret_IsFound_ThroughARealProcessOnAConsoleCodePag
     import sys as _sys
     from pathlib import Path
 
-    accented = "qa-caf\u00e9-" + SECRET
+    import secrets as _secrets
+
+    # Its own value: the fixture's ASCII secret inside it would be found whatever the decoding.
+    accented = "qa-caf\u00e9-\u0142-" + _secrets.token_hex(12)
     with on(two["north"], two["mp"]) as (store, audit):
         save_entry(store, audit, "qa-handoff-accent", "qa-user", accented, ["https://example.com"], "made up", ["run"], "QA_ACCENT", False, "add", "", None)
     tool = Path(cli.__file__).resolve().parent.parent
