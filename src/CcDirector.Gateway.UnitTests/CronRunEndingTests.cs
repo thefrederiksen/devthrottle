@@ -392,4 +392,50 @@ public sealed class CronRunEndingTests : IDisposable
             Session("job-busy", null);
         Assert.Equal(TimeSpan.FromMinutes(50), reader.RunLengthsOf(new[] { "job-busy" })["job-busy"]);
     }
+
+    // ---- every ending is named -------------------------------------------------------------------------------
+
+    [Fact]
+    public void Judge_EveryEndingCronRunEndingsDefines_IsNamed()
+    {
+        var defined = typeof(CronRunEndings).GetFields()
+            .Where(f => f.IsLiteral && f.FieldType == typeof(string))
+            .Select(f => (string)f.GetRawConstantValue()!)
+            .ToList();
+        Assert.NotEmpty(defined);
+
+        foreach (var ending in defined)
+        {
+            var run = Run("s-1");
+            run.Ending = ending;
+            CronRunEndingFold.Judge(run, Now); // throws for an ending Judge does not name
+        }
+    }
+
+    [Theory]
+    [InlineData("closed-by-itself")]
+    [InlineData("CLOSED-ITSELF")]
+    [InlineData("")]
+    public void Judge_AnEndingItDoesNotKnow_IsRefusedNotLeftOut(string ending)
+    {
+        var run = Run("s-1");
+        run.Ending = ending;
+
+        var ex = Assert.Throws<InvalidOperationException>(() => CronRunEndingFold.Judge(run, Now));
+        Assert.Contains($"'{ending}'", ex.Message);
+    }
+
+    [Fact]
+    public void SeatMarker_ARunWithAnEndingItDoesNotKnow_IsRefusedNotShownAsClosingItself()
+    {
+        // Two runs that closed themselves and one with an ending nobody defined: leaving the third out would draw the
+        // seat green on the strength of the other two.
+        var runs = new[] { Run("s-1"), Run("s-2", fired: Fired.AddHours(-1)), Run("s-3", fired: Fired.AddHours(-2)) };
+        runs[0].Ending = CronRunEndings.ClosedItself;
+        runs[1].Ending = CronRunEndings.ClosedItself;
+        runs[2].Ending = "left-open-forever";
+
+        Assert.Throws<InvalidOperationException>(() =>
+            CronRunEndingFold.SeatMarker(new IReadOnlyList<CronRunRecord>[] { runs }, Now));
+    }
 }

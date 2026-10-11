@@ -709,10 +709,19 @@ describe("Seats that do not close themselves (Factory Control, step 2)", () => {
   });
 
   it("gives each seat its marker verbatim, coloured by the Gateway's tone", async () => {
+    // Seats are named by role words; the boss's seat id here is "boss", never a person's name.
+    const [boss0, hunter0] = FACTORY_SEATS.rows;
+    screenClient.getFactorySeats.mockResolvedValue({
+      ...FACTORY_SEATS,
+      rows: [
+        { ...boss0, seatId: "boss", talk: { ...boss0.talk, seatId: "boss" } },
+        hunter0,
+      ],
+    });
     renderAt("/factories/warmforward/seats");
 
     const table = await screen.findByTestId("fa-seats-table");
-    const boss = within(within(table).getByTestId("fa-seat-nora-hale")).getByTestId("fa-seat-closing");
+    const boss = within(within(table).getByTestId("fa-seat-boss")).getByTestId("fa-seat-closing");
     expect(boss.textContent).toBe("stayed open 3 of its last 7 runs (fixture)");
     expect(boss.className).toContain("fa-tone-amber");
     const hunter = within(within(table).getByTestId("fa-seat-value-hunter")).getByTestId("fa-seat-closing");

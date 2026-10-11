@@ -224,4 +224,33 @@ public sealed class FactorySeatMarkerTests
         Assert.Equal(FactoriesScreenFold.List(input).Rows.Single().LeftOpenText, page.LeftOpenText);
         Assert.Equal("/factories/tallyhand/seats", page.LeftOpenHref);
     }
+
+    [Theory]
+    [InlineData("ok", FactoryTone.Ok)]
+    [InlineData("bad", FactoryTone.Amber)]
+    [InlineData("none", FactoryTone.Grey)]
+    public void ClosingTone_EachVerdictTheMarkerGives_HasItsOwnTone(string verdict, string tone) =>
+        Assert.Equal(tone, FactoriesScreenFold.ClosingTone(verdict));
+
+    [Theory]
+    [InlineData("good")]
+    [InlineData("")]
+    public void ClosingTone_AVerdictTheMarkerNeverGives_IsRefusedNotDrawnGrey(string verdict)
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => FactoriesScreenFold.ClosingTone(verdict));
+        Assert.Contains($"'{verdict}'", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void List_ASeatThatStaysOpenWithNoRole_IsRefusedNotNamedByItsId(string role)
+    {
+        // The registry refuses a seat without a role, so this seat broke that rule; its id must never stand in.
+        var f = Factory("tallyhand", "Tallyhand", Seat("scout", role, "cj_scout"));
+        var input = Inputs(new[] { f }, new() { ["cj_scout"] = StaysOpen });
+
+        var ex = Assert.Throws<InvalidOperationException>(() => FactoriesScreenFold.List(input));
+        Assert.Contains("has no role", ex.Message);
+    }
 }

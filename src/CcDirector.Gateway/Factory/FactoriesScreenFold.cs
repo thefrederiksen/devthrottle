@@ -474,11 +474,14 @@ public static class FactoriesScreenFold
             seat.Schedules.Where(input.ScheduleRuns.ContainsKey).Select(id => input.ScheduleRuns[id]).ToList(),
             input.Activity.NowUtc);
 
-    private static string ClosingTone(string verdict) => verdict switch
+    internal static string ClosingTone(string verdict) => verdict switch
     {
         "ok" => FactoryTone.Ok,
         "bad" => FactoryTone.Amber,
-        _ => FactoryTone.Grey,
+        "none" => FactoryTone.Grey,
+        _ => throw new InvalidOperationException(
+            $"A seat marker has the verdict '{verdict}', which is not ok, bad or none. " +
+            "Give it a tone in FactoriesScreenFold.ClosingTone."),
     };
 
     /// <summary>
@@ -501,9 +504,19 @@ public static class FactoriesScreenFold
         };
     }
 
-    /// <summary>A seat named by its role word ("Scout"), never a person's name; its id when it has no role.</summary>
-    private static string SeatWord(RegisteredFactorySeatDto seat) =>
-        string.IsNullOrWhiteSpace(seat.Role) ? seat.Id : seat.Role.Trim();
+    /// <summary>
+    /// A seat named by its role word ("Scout"), never a person's name. The registry refuses a seat without a role
+    /// (FactoryRegistryStore), so a seat without one here means that rule was broken somewhere - and putting the
+    /// seat's id in its place could put a person's name in the factory's flag. It throws instead.
+    /// </summary>
+    internal static string SeatWord(RegisteredFactorySeatDto seat)
+    {
+        if (string.IsNullOrWhiteSpace(seat.Role))
+            throw new InvalidOperationException(
+                $"Seat '{seat.Id}' has no role. The factory registry requires one for every seat, so this seat was " +
+                "stored or built without going through it.");
+        return seat.Role.Trim();
+    }
 
     // ---------------------------------------------------------------------------------------------------------
     // Status

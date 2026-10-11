@@ -136,6 +136,10 @@ public static class CronRunEndingFold
     /// The ONE ruling on what a run already stamped by <see cref="Stamp"/> counts as - shared by a schedule's record
     /// (<see cref="Summarize"/>) and a factory seat's marker (<see cref="SeatMarker"/>), so the two can never judge the
     /// same run differently.
+    ///
+    /// Every ending is named: the ones that say nothing either way are listed one by one, and any other value throws.
+    /// An ending this does not know - a new one, or a misspelled or corrupt one - must never be quietly left out of
+    /// the count, because leaving it out can turn a seat's marker green.
     /// </summary>
     public static RunJudgement Judge(CronRunRecord run, DateTime nowUtc)
     {
@@ -146,8 +150,13 @@ public static class CronRunEndingFold
             CronRunEndings.StoppedByYou => RunJudgement.StoppedByYou,
             CronRunEndings.StoppedBySession => RunJudgement.StoppedBySession,
             CronRunEndings.StillOpen when nowUtc - run.FiredUtc >= LeftOpenAfter => RunJudgement.LeftOpen,
+            CronRunEndings.StillOpen => RunJudgement.NotJudged,
             CronRunEndings.NoSession => RunJudgement.DidNotStart,
-            _ => RunJudgement.NotJudged,
+            CronRunEndings.WorkList or CronRunEndings.ClosedNotRecorded or CronRunEndings.DirectorStopped
+                or CronRunEndings.Interrupted or CronRunEndings.Unknown => RunJudgement.NotJudged,
+            _ => throw new InvalidOperationException(
+                $"The run fired {run.FiredUtc:o} (session '{run.SessionId}') has the ending '{run.Ending}', which is not one of the endings " +
+                "CronRunEndings defines. Add it to CronRunEndingFold.Judge with what it counts as."),
         };
     }
 
