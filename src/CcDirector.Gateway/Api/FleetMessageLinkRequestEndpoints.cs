@@ -25,8 +25,9 @@ namespace CcDirector.Gateway.Api;
 /// <see cref="FleetMessageLinkEndpoints.Apply"/>, the same checks and the same notices as a link set up unasked.</item>
 /// </list>
 ///
-/// The list and the answer admit exactly who the link routes admit: the owner's own device, or a raised session on
-/// <see cref="RaisedGrant.MessageLinks"/>. The asking session hears every outcome in its inbox.
+/// The list and the answer admit who the link routes admit - the owner's own device, or a raised session on
+/// <see cref="RaisedGrant.MessageLinks"/> - and ALSO the owner's own Director, on its own key (issue #3851). See
+/// <see cref="Caller"/>. The asking session hears every outcome in its inbox.
 /// </summary>
 public static class FleetMessageLinkRequestEndpoints
 {
@@ -152,7 +153,7 @@ public static class FleetMessageLinkRequestEndpoints
         {
             if (resolveTenant(ctx) is not { } tenant)
                 return Refuse(StatusCodes.Status403Forbidden, "no_account", "no account is bound to this request");
-            var caller = FleetMessageLinkEndpoints.Caller(ctx, "list the requests for a message link", out var refused);
+            var caller = Caller(ctx, "list the requests for a message link", out var refused);
             if (caller is null) return refused!;
 
             // A request whose session has ended can never be answered; it ends here, recorded and told, rather than
@@ -164,7 +165,12 @@ public static class FleetMessageLinkRequestEndpoints
             var rows = requests.List(tenant, now - TimeSpan.FromDays(AnsweredWithinDays));
             return Results.Json(new FleetMessageLinkRequestListResponse
             {
-                Requests = rows.Select(ToDto).ToList(),
+                Requests = rows.Select(r =>
+                {
+                    var dto = ToDto(r);
+                    dto.TargetSessionName = findSession(tenant, r.TargetSessionId)?.Name;
+                    return dto;
+                }).ToList(),
                 AnsweredWithinDays = AnsweredWithinDays,
             });
         }
@@ -184,7 +190,7 @@ public static class FleetMessageLinkRequestEndpoints
         {
             if (resolveTenant(ctx) is not { } tenant)
                 return Refuse(StatusCodes.Status403Forbidden, "no_account", "no account is bound to this request");
-            var caller = FleetMessageLinkEndpoints.Caller(ctx, "answer a request for a message link", out var refused);
+            var caller = Caller(ctx, "answer a request for a message link", out var refused);
             if (caller is null) return refused!;
 
             FleetMessageLinkRequestAnswerRequest? body;
@@ -340,6 +346,29 @@ public static class FleetMessageLinkRequestEndpoints
         Amount = r.Amount,
         LinkId = r.LinkId,
     };
+
+    /// <summary>
+    /// Who may list and answer requests: everyone <see cref="FleetMessageLinkEndpoints.Caller"/> admits, and the owner's
+    /// own DIRECTOR on its own enrolled key (device type "workstation", issue #3851), so the request shows on the
+    /// Director's session list and can be answered there, not only in the Cockpit and on the phone.
+    ///
+    /// Only these two routes are widened. Setting up or removing a link unasked still needs the owner's phone or
+    /// browser. A SESSION'S key is still refused here - checked first, before the device - so a session never answers
+    /// its own request, whichever machine it runs on.
+    /// </summary>
+    internal static FleetMessageLinkEndpoints.LinkCaller? Caller(HttpContext ctx, string what, out IResult? refusal)
+    {
+        if (AuthMiddleware.CallingSession(ctx) is null
+            && ctx.Items.TryGetValue(AuthMiddleware.AuthenticatedDeviceItemKey, out var d)
+            && d is Pairing.DeviceCredentialIdentity device
+            && string.Equals(device.DeviceType, Pairing.DeviceRegistry.DefaultDeviceType, StringComparison.OrdinalIgnoreCase))
+        {
+            refusal = null;
+            return new FleetMessageLinkEndpoints.LinkCaller(
+                SessionStopFold.ActorFor(null, device.DeviceType, device.DeviceId, credentialAuthenticated: false), null);
+        }
+        return FleetMessageLinkEndpoints.Caller(ctx, what, out refusal);
+    }
 
     private static IResult Refuse(int status, string code, string sentence)
         => FleetMessageLinkEndpoints.Refuse(status, code, sentence);

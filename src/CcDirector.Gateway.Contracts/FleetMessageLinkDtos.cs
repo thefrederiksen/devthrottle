@@ -93,6 +93,12 @@ public sealed class FleetMessageLinkRequestDto
 
     public string TargetSessionId { get; set; } = "";
 
+    /// <summary>
+    /// The asked-for session's name as the Gateway knows it, on the LIST only, or null when it is not known (issue
+    /// #3851). A Director knows only its own sessions' names, and the session asked for is often on another machine.
+    /// </summary>
+    public string? TargetSessionName { get; set; }
+
     public string Reason { get; set; } = "";
 
     /// <summary>How much talking the session asked for: <c>once</c>, <c>once-with-reply</c> or <c>ongoing</c>. Null on a

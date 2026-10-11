@@ -28,7 +28,7 @@ namespace CcDirector.ControlApi;
 /// When the config is disabled (no gateway.url) the client is inert - every method
 /// is a no-op so the Director boots normally in local-only mode.
 /// </summary>
-public sealed class GatewayClient : IGatewayHold, IGatewayColourLegend, Triggers.ITriggerGateway, IDisposable
+public sealed class GatewayClient : IGatewayHold, IGatewayColourLegend, IGatewayLinkRequests, Triggers.ITriggerGateway, IDisposable
 {
     /// <summary>How often the heartbeat fires.</summary>
     public static TimeSpan HeartbeatInterval { get; } = TimeSpan.FromSeconds(15);
@@ -1181,6 +1181,47 @@ public sealed class GatewayClient : IGatewayHold, IGatewayColourLegend, Triggers
 
         FileLog.Write($"[GatewayClient] GetSessionColourLegendAsync: {legend.Entries.Count} colour(s)");
         return legend;
+    }
+
+    /// <summary>
+    /// Read the requests sessions have made to talk to another session (<c>GET /fleet/link-requests</c>, issue #3851):
+    /// the list the Cockpit shows, read here so the Director's own session list can show it too. Null when no Gateway is
+    /// configured; throws when the read fails, so the desktop's cache keeps its last list and says why.
+    /// </summary>
+    public async Task<List<FleetMessageLinkRequestDto>?> ListLinkRequestsAsync(CancellationToken ct = default)
+    {
+        if (!_config.IsEnabled) return null;
+
+        using var resp = await _http.GetAsync("fleet/link-requests", ct);
+        if (!resp.IsSuccessStatusCode)
+            throw await RelayFailureAsync(resp, "the requests to talk to another session", ct);
+
+        var list = await resp.Content.ReadFromJsonAsync<FleetMessageLinkRequestListResponse>(ct)
+                   ?? throw new InvalidOperationException("The Gateway returned no list of requests.");
+        return list.Requests;
+    }
+
+    /// <summary>
+    /// Approve exactly what a session asked for, or say no (<c>POST /fleet/link-requests/{id}/answer</c>, issue #3851).
+    /// Fail loud: throws when no Gateway is configured or the answer is refused, carrying the Gateway's own sentence.
+    /// </summary>
+    public async Task<FleetMessageLinkRequestAnswerResponse> AnswerLinkRequestAsync(string requestId, bool approve, CancellationToken ct = default)
+    {
+        if (!_config.IsEnabled)
+            throw new InvalidOperationException("This Director is not connected to a Gateway, so a request cannot be answered from here.");
+        if (string.IsNullOrWhiteSpace(requestId))
+            throw new ArgumentException("Request id is required", nameof(requestId));
+
+        FileLog.Write($"[GatewayClient] AnswerLinkRequestAsync: POST /fleet/link-requests/{requestId}/answer approve={approve}");
+        var body = approve
+            ? new FleetMessageLinkRequestAnswerRequest { Approve = true }
+            : new FleetMessageLinkRequestAnswerRequest { Decline = true };
+        using var resp = await _http.PostAsJsonAsync($"fleet/link-requests/{Uri.EscapeDataString(requestId)}/answer", body, ct);
+        if (!resp.IsSuccessStatusCode)
+            throw await RelayFailureAsync(resp, $"the answer to request {requestId}", ct);
+
+        return await resp.Content.ReadFromJsonAsync<FleetMessageLinkRequestAnswerResponse>(ct)
+               ?? throw new InvalidOperationException("The Gateway accepted the answer but returned nothing about it.");
     }
 
     // ===== Fleet session numbers (issue #1292) =====
