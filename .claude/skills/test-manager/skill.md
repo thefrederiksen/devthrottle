@@ -38,7 +38,7 @@ The owner of this repository's test suites. Three duties, in priority order:
 | Run the gate (this is THE gate) | `.\scripts\test-local.ps1` |
 | Run the gate plus parked suites | `.\scripts\test-local.ps1 -Parked` |
 | THE RELEASE GATE - on the frozen candidate, in a worktree detached at it | `.\scripts\test-local.ps1 -Parked -Configuration Release` - one command; the three installer projects are in the script's own list. A green run records the commit for `scripts\assert-gated.ps1`, which the tag step calls |
-| Run only the locked Gateway suite | `.\scripts\test-local.ps1 -Gateway` |
+| Run only the host-bound Gateway suite | `.\scripts\test-local.ps1 -Gateway` |
 | Filter within a run | `.\scripts\test-local.ps1 -Filter "FullyQualifiedName~Snooze"` |
 
 ---
@@ -300,45 +300,37 @@ a reason to relax about it.
 
 ---
 
-## The machine-wide lock, and why filters do not escape it
+## There is no Gateway suite lock any more
 
-`CcDirector.Gateway.Tests` takes `GatewayTestSuiteLock`, which serializes runs of that assembly
-across every working tree for one user on one machine. The lock itself is well-argued - overlapping
-runs corrupt each other's evidence, and a lock a caller must REMEMBER to take is a convention, which
-is why acquisition is automatic.
+Until October 2026 `CcDirector.Gateway.Tests` took a per-user, machine-wide lock when its assembly
+loaded, so two runs of it from any two working trees could never overlap. It was removed by the
+Reliable Tests mission: every test process keeps its files under its own temporary root and every
+host binds a port the operating system assigns, so runs share nothing that can corrupt each other.
+The gate now runs the suite as several concurrent processes, each given part of it by a filter
+(`scripts/gateway-test-shards.ps1`). A hand-run `dotnet test` of the suite blocks nobody.
 
-**It is armed by a `[ModuleInitializer]`, so it is taken when the ASSEMBLY LOADS** - before any test
-runs, whatever `--filter` was passed. There is no way to opt a single test out from inside the
-assembly. Running one pure unit test from that project still queues behind another working tree.
-
-That is why the pure tests were MOVED OUT into `CcDirector.Gateway.UnitTests` rather than filtered.
-
-Past `MaxWait` (two minutes since October 2026; it was forty-five) a queued run stops with an error
-naming the holder. That is the designed behaviour, not a bug: it never takes a lock from a living
-process. If a holder is genuinely stuck, that is a decision for a human - measure a CPU delta before
-calling anything stuck. The gate script does not queue at all: `test-local.ps1 -Parked` or `-Gateway`
-takes a release-gate lock before building and is refused with exit 6, naming the holder, when another
-run that includes the Gateway suite is in progress (`scripts/gate-lock.ps1`).
+The gate script still does not queue: `test-local.ps1 -Parked` or `-Gateway` takes a release-gate
+lock before building and is refused with exit 6, naming the holder, when another release gate is in
+progress (`scripts/gate-lock.ps1`).
 
 ---
 
 ## Which project does a new test belong in?
 
-**The locked project is the default home. This direction is the safety property.**
+**The serial project is the default home. This direction is the safety property.**
 
-Put a test in `CcDirector.Gateway.Tests` (locked) if it does ANY of:
+Put a test in `CcDirector.Gateway.Tests` (its tests run one at a time inside a process) if it does ANY of:
 
 - constructs a `GatewayHost`, binds a port, or drives `FakeTunnelDirector`
 - spawns a process
 - touches live Postgres
 - **mutates a process-global** - `Environment.SetEnvironmentVariable`, a static toggle, the current directory
 
-Otherwise it may go in `CcDirector.Gateway.UnitTests` (unlocked).
+Otherwise it may go in `CcDirector.Gateway.UnitTests` (its classes run in parallel inside a process).
 
-A test that needs exclusivity and is written in the unlocked project runs beside another working
-tree's suite and produces corrupted-but-clean-looking evidence. A test that does NOT need it and
-sits in the locked project merely runs slower. The asymmetry is the whole argument: **when unsure,
-locked.**
+A test that mutates a process-global and is written in the parallel project races its neighbours and
+produces corrupted-but-clean-looking evidence. A test that does NOT need it and sits in the serial
+project merely runs slower. The asymmetry is the whole argument: **when unsure, serial.**
 
 Note the environment-variable rule specifically - it is not about cross-process safety, it is about
 xUnit running classes in parallel WITHIN a process. 34 classes were moved back for exactly this.
