@@ -89,12 +89,15 @@ public sealed class SecretTransferHostTests : IAsyncLifetime
     }
 
     /// <summary>Stand in for a Director's Hello: registered, connected, and saying its key.</summary>
-    private string Connect(TenantId tenant, string directorId, string machine, string? key = null)
+    /// <summary>The credential machine A's Director says Hello with: machine A's own device key.</summary>
+    private string NorthCredential => $"device:dev-secrets-dir-{_runId}";
+
+    private string Connect(TenantId tenant, string directorId, string machine, string? key = null, string? credential = null)
     {
         key ??= Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
         _gateway.Registry.RegisterFromStream(directorId, machine, "someone", "1.0", pid: 4321, startedAt: DateTime.UtcNow, tenant: tenant);
         _gateway.PushedSessions.RegisterConnection(tenant, directorId, "conn-" + directorId);
-        _gateway.SecretMachines.Record(tenant, directorId, machine, key, DateTime.UtcNow);
+        _gateway.SecretMachines.Record(tenant, directorId, machine, key, DateTime.UtcNow, credential);
         return key;
     }
 
@@ -114,7 +117,7 @@ public sealed class SecretTransferHostTests : IAsyncLifetime
     [Fact]
     public async Task Machines_ASessionKey_TheOwnersPhone_AndTheMachinesOwnCredential_AllReadTheList()
     {
-        var northKey = Connect(_tenantA, DirectorNorth, "SOREN_NORTH");
+        var northKey = Connect(_tenantA, DirectorNorth, "SOREN_NORTH", credential: NorthCredential);
         Connect(_tenantA, DirectorMac, "devthrottle-mac-mini");
 
         foreach (var caller in new[] { _sessionA, _ownerA, _machineA })
@@ -132,7 +135,7 @@ public sealed class SecretTransferHostTests : IAsyncLifetime
     [Fact]
     public async Task Machines_AnotherAccountsMachine_IsNeverListed()
     {
-        Connect(_tenantA, DirectorNorth, "SOREN_NORTH");
+        Connect(_tenantA, DirectorNorth, "SOREN_NORTH", credential: NorthCredential);
         Connect(_tenantB, DirectorOther, "THEIRS");
 
         var (_, mine) = await Get(_ownerA, "gateway/secrets/machines");
@@ -168,7 +171,7 @@ public sealed class SecretTransferHostTests : IAsyncLifetime
 
     private void BothMachines()
     {
-        Connect(_tenantA, DirectorNorth, "SOREN_NORTH");
+        Connect(_tenantA, DirectorNorth, "SOREN_NORTH", credential: NorthCredential);
         Connect(_tenantA, DirectorMac, "devthrottle-mac-mini");
     }
 
@@ -250,7 +253,7 @@ public sealed class SecretTransferHostTests : IAsyncLifetime
     [Fact]
     public async Task Transfer_ToAMachineThatIsNotConnected_IsRefusedWithTheReason()
     {
-        Connect(_tenantA, DirectorNorth, "SOREN_NORTH");
+        Connect(_tenantA, DirectorNorth, "SOREN_NORTH", credential: NorthCredential);
 
         var (status, body) = await Post(_sessionA, "gateway/secrets/transfers", Ask());
 
@@ -275,10 +278,44 @@ public sealed class SecretTransferHostTests : IAsyncLifetime
 
     // ---- who may answer (the phase 3 review) --------------------------------------------------------------------
 
+    /// <summary>Another machine's own credential, with a Director on it that says Hello with that credential.</summary>
     private HttpClient MachineCredentialOf(string machine)
     {
-        var device = _gateway.Devices.RegisterForTenant(_tenantA, $"sub-secrets-a-{_runId}", $"dev-secrets-{machine}-{_runId}", machine);
+        var deviceId = $"dev-secrets-{machine}-{_runId}";
+        var device = _gateway.Devices.RegisterForTenant(_tenantA, $"sub-secrets-a-{_runId}", deviceId, machine);
+        Connect(_tenantA, $"director-secrets-{machine}", machine, credential: "device:" + deviceId);
         return Client(device.DeviceKey);
+    }
+
+    [Fact]
+    public async Task Answer_FromAMachineEnrolledUnderAnotherName_IsTheMachineItsDirectorReports()
+    {
+        // Found in the live QA on 2026-10-11: the Mac's credential was enrolled as "Sorens-Mac-mini" while its
+        // Director reports "devthrottle-mac-mini", and the owner's own terminal on the Mac was refused as a third machine.
+        Connect(_tenantA, DirectorNorth, "SOREN_NORTH", credential: NorthCredential);
+        var macDeviceId = $"dev-secrets-sorens-mac-{_runId}";
+        var macDevice = _gateway.Devices.RegisterForTenant(_tenantA, $"sub-secrets-a-{_runId}", macDeviceId, "Sorens-Mac-mini");
+        Connect(_tenantA, DirectorMac, "devthrottle-mac-mini", credential: "device:" + macDeviceId);
+        using var macTerminal = Client(macDevice.DeviceKey);
+        var (_, waiting) = await Post(_sessionA, "gateway/secrets/transfers", Ask());
+
+        var (status, body) = await Post(macTerminal, $"gateway/secrets/transfers/{Id(waiting)}/answer", new { approve = true, where = "terminal" });
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal("the own credential of devthrottle-mac-mini", body.GetProperty("transfer").GetProperty("answeredBy").GetString());
+    }
+
+    [Fact]
+    public async Task Answer_AMachineCredentialWithNoDirectorConnected_IsRefusedSayingSo()
+    {
+        BothMachines();
+        var lonely = _gateway.Devices.RegisterForTenant(_tenantA, $"sub-secrets-a-{_runId}", $"dev-secrets-lonely-{_runId}", "SOREN_NORTH");
+        using var noDirector = Client(lonely.DeviceKey);
+        var (_, waiting) = await Post(_sessionA, "gateway/secrets/transfers", Ask());
+
+        var (status, body) = await Post(noDirector, $"gateway/secrets/transfers/{Id(waiting)}/answer", new { approve = true, where = "window" });
+
+        Assert.Equal((HttpStatusCode.Forbidden, "credential_names_no_machine"), (status, Code(body)));
     }
 
     [Fact]

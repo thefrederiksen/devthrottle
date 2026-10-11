@@ -59,7 +59,7 @@ public static class SecretTransferEndpoints
 
     public static void Map(IEndpointRouteBuilder app, Func<HttpContext, TenantId?> resolveTenant,
         SecretMachineRegistry machines, Func<TenantId, string, bool> isConnected, SecretTransferStore transfers,
-        Func<TenantId, string, SessionDto?> findSession, Func<string, string?> machineOfDevice,
+        Func<TenantId, string, SessionDto?> findSession, Func<TenantId, string, string?> machineOfDevice,
         Action<TenantId, string> startDelivery, Action<TenantId, SecretTransferDto> announceWaiting, Func<DateTime> nowUtc)
     {
         ArgumentNullException.ThrowIfNull(resolveTenant);
@@ -106,7 +106,7 @@ public static class SecretTransferEndpoints
 
     internal static async Task<IResult> CreateAsync(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant,
         SecretMachineRegistry machines, Func<TenantId, string, bool> isConnected, SecretTransferStore transfers,
-        Func<TenantId, string, SessionDto?> findSession, Func<string, string?> machineOfDevice,
+        Func<TenantId, string, SessionDto?> findSession, Func<TenantId, string, string?> machineOfDevice,
         Action<TenantId, string> startDelivery, Action<TenantId, SecretTransferDto> announceWaiting, Func<DateTime> nowUtc)
     {
         FileLog.Write("[SecretTransferEndpoints] POST transfer");
@@ -114,7 +114,7 @@ public static class SecretTransferEndpoints
         {
             if (resolveTenant(ctx) is not { } tenant)
                 return Refuse(StatusCodes.Status403Forbidden, "no_account", "no account is bound to this request");
-            var caller = Classify(ctx, machineOfDevice);
+            var caller = Classify(ctx, tenant, machineOfDevice);
 
             SecretTransferCreateRequest? body;
             try
@@ -238,7 +238,7 @@ public static class SecretTransferEndpoints
     }
 
     internal static async Task<IResult> AnswerAsync(HttpContext ctx, string id, Func<HttpContext, TenantId?> resolveTenant,
-        SecretTransferStore transfers, Func<string, string?> machineOfDevice, Action<TenantId, string> startDelivery,
+        SecretTransferStore transfers, Func<TenantId, string, string?> machineOfDevice, Action<TenantId, string> startDelivery,
         Func<DateTime> nowUtc)
     {
         FileLog.Write($"[SecretTransferEndpoints] POST answer: id={id}");
@@ -246,7 +246,7 @@ public static class SecretTransferEndpoints
         {
             if (resolveTenant(ctx) is not { } tenant)
                 return Refuse(StatusCodes.Status403Forbidden, "no_account", "no account is bound to this request");
-            var caller = Classify(ctx, machineOfDevice);
+            var caller = Classify(ctx, tenant, machineOfDevice);
 
             SecretTransferAnswerRequest? body;
             try
@@ -295,7 +295,10 @@ public static class SecretTransferEndpoints
 
     // ---- the rules -------------------------------------------------------------------------------------------
 
-    internal static SecretCaller Classify(HttpContext ctx, Func<string, string?> machineOfDevice)
+    /// <param name="machineOfDevice">The machine a device credential belongs to, by the name the machine list uses
+    /// (the name its live Directors report when they connect with that same credential) - never the device's own
+    /// enrollment name, which can differ.</param>
+    internal static SecretCaller Classify(HttpContext ctx, TenantId tenant, Func<TenantId, string, string?> machineOfDevice)
     {
         if (AuthMiddleware.CallingSession(ctx) is { } session)
         {
@@ -309,7 +312,7 @@ public static class SecretTransferEndpoints
         // A machine's own credential. Every process of the owner's account on that machine can read it - the window,
         // a terminal, and the agents running there - so the record says which credential answered and on which
         // machine, and never claims that it was the owner's own hand.
-        var machine = device is null ? null : machineOfDevice(device.DeviceId);
+        var machine = device is null ? null : machineOfDevice(tenant, device.DeviceId);
         if (string.IsNullOrWhiteSpace(machine))
             return new SecretCaller(KindMachine, null, null, "a machine credential that names no machine", null);
         return new SecretCaller(KindMachine, null, null, $"the own credential of {machine.Trim()}", machine.Trim());
@@ -496,8 +499,9 @@ public static class SecretTransferEndpoints
         if (caller.Machine is null)
         {
             refusal = Refuse(StatusCodes.Status403Forbidden, "credential_names_no_machine",
-                "This credential does not belong to one machine, so it cannot answer for the window or a terminal. "
-                + "Answer on the phone or in the Cockpit.");
+                "No Director that can take part in a transfer is connected with this machine's credential, so the "
+                + "Gateway cannot tell which machine it belongs to, and it cannot answer for the window or a terminal. "
+                + "Start the Director on this machine, or answer on the phone or in the Cockpit.");
             return false;
         }
         if (!string.Equals(caller.Machine, fromMachine, StringComparison.OrdinalIgnoreCase)
