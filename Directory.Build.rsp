@@ -1,5 +1,6 @@
-# MSBuild reads this file for every build started in this repository: dotnet build, dotnet test,
-# dotnet publish and msbuild, from a script or by hand, for any project or solution below this folder.
+# MSBuild reads this file for every COMMAND-LINE build of a project or solution below this folder:
+# dotnet build, dotnet test, dotnet publish and msbuild, from a script or by hand. A build inside the
+# Visual Studio IDE ignores response files, and -noAutoResponse switches this file off.
 #
 # Node reuse is OFF here. With it on (the MSBuild default) each build leaves its worker nodes running
 # to serve a next build. Agents build this repository from many worktrees at once, the next build
