@@ -186,7 +186,7 @@ public sealed class SecretTransferHostTests : IAsyncLifetime
         BothMachines();
 
         var (asked, created) = await Post(_sessionA, "gateway/secrets/transfers", Ask());
-        Assert.Equal(HttpStatusCode.OK, asked);
+        Assert.Equal(HttpStatusCode.Created, asked);
         Assert.Equal("waiting", State(created));
         var id = Id(created);
 
@@ -210,7 +210,7 @@ public sealed class SecretTransferHostTests : IAsyncLifetime
         BothMachines();
 
         var (status, body) = await Post(_sessionA, "gateway/secrets/transfers", Ask(ownerApproved: "yes, send it"));
-        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal(HttpStatusCode.Created, status);
         var transfer = body.GetProperty("transfer");
         Assert.Equal(("chat", "yes, send it"),
             (transfer.GetProperty("answeredWhere").GetString(), transfer.GetProperty("approvalWords").GetString()));
@@ -243,7 +243,7 @@ public sealed class SecretTransferHostTests : IAsyncLifetime
 
         var (status, body) = await Post(_machineA, "gateway/secrets/transfers", Ask(reason: null, approvedHere: "window", askedOn: "SOREN_NORTH"));
 
-        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal(HttpStatusCode.Created, status);
         Assert.Equal("window", body.GetProperty("transfer").GetProperty("answeredWhere").GetString());
     }
 
