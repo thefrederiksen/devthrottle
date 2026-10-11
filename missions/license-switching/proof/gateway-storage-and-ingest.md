@@ -43,3 +43,17 @@ Task: phase 2, the Gateway stores what each machine's Director reports (contract
   setup-engine 875, setup-cli 74 - all passed. Core.UnitTests and Avalonia.Tests were stopped over the 120-second
   ceiling with the machine at full load; run directly: Core.UnitTests passed 1468, failed 0; Avalonia.Tests passed
   1022, failed 0.
+
+## After rebasing onto main (contract types pull request 3854 merged)
+
+- No migration landed on main after these two; `has-pending-model-changes` again says no changes for both providers.
+- License, hub, tenant scope guard and migration tests in Gateway.UnitTests (filter
+  `Licenses|DirectorHubTests|TenantScopeGuard|Migration`): passed 110, failed 0.
+- `LicenseMessages` tests in Core.UnitTests: passed 12, failed 0.
+
+## Not yet run: `.\scripts\test-local.ps1 -Parked`
+
+Refused twice by the machine-wide locks: first by another Developer's Gateway.Tests run (over 90 minutes), then by
+the release seat's `-Parked -Configuration Release` gate, which still held the Gateway.Tests lock after more than
+95 minutes. Of the three parked suites, Gateway.UnitTests ran in full above (10463 passed). Gateway.Tests and
+Core.Tests have not run on this change; this section is updated with their counts when the lock frees.
