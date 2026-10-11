@@ -21,6 +21,7 @@ from cc_shared import axi_output, gateway  # noqa: E402
 
 from . import usage_errors  # noqa: E402
 from . import axi_cli  # noqa: E402
+from . import secret_guard  # noqa: E402
 
 TIMEOUT_SECONDS = 10
 SCHEDULE_RECURRING = "recurring"
@@ -572,6 +573,9 @@ def create_job(
             f"not '{axi_cli.ascii_text(notify_on)}'."
         )
 
+    if seed:
+        # A seed is the first prompt of every session this schedule starts: a message delivered later.
+        secret_guard.refuse_if_it_carries_a_secret(seed, "seed")
     job = {
         "name": name,
         "enabled": True,

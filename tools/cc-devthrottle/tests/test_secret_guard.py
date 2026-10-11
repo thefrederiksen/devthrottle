@@ -119,3 +119,24 @@ def test_EveryOtherTextPath_IsCheckedBeforeAnythingIsReadOrSent(cc_secrets, monk
     assert f"this {what} contains a value stored in cc-secrets" in err
     assert touched == []
     assert cc_secrets["calls"][0][1] == "the value"
+
+
+def test_AScheduleSeed_And_ATriggerPrompt_AreChecked_BeforeTheyAreStored(cc_secrets, monkeypatch, capsys):
+    # Both are the first prompt of sessions started later: a message delivered on a timer.
+    from src import schedule_ops, trigger_ops
+
+    cc_secrets["answer"] = Ran(json.dumps({"containsSecret": True}) + "\n")
+    stored = []
+    monkeypatch.setattr(schedule_ops.gateway, "post_json", lambda *a, **k: stored.append(a) or {}, raising=False)
+    monkeypatch.setattr(trigger_ops, "_client", lambda: (_ for _ in ()).throw(AssertionError("reached the Gateway")))
+
+    seed_code, seed_err = _refused(capsys, lambda: schedule_ops.create_job(
+        "nightly", "SOREN_NORTH", "D:/repos/example", None, "0 3 * * *", "UTC", "the value", None, "none", None,
+        False))
+    prompt_code, prompt_err = _refused(capsys, lambda: trigger_ops.add(
+        "watch", "factory-a", "agent-a", "SOREN_NORTH", "D:/repos/example", "true", "10m", "the value", False, False))
+
+    assert (seed_code, prompt_code) == (1, 1)
+    assert "this seed contains a value stored in cc-secrets" in seed_err
+    assert "this prompt contains a value stored in cc-secrets" in prompt_err
+    assert stored == []
