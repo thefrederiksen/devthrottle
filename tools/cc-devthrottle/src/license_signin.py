@@ -1,0 +1,591 @@
+"""Signing a Claude account in as a spare, and renewing a spare before its sign-in dies.
+
+For the License Switching mission (missions/license-switching/MISSION.md, "Adding a spare to a machine").
+
+THE FLOW (proven by hand on 10 October 2026, before this code):
+
+1. The TARGET machine runs ``claude auth login --claudeai --email X`` with CLAUDE_CONFIG_DIR set to a new, empty
+   folder under the key store (``<store>/signing-in/...``) and BROWSER=none. Claude Code prints an authorize URL and
+   waits for a code.
+2. The APPROVING machine - the one that holds a browser profile signed in to claude.ai as X - opens that URL in that
+   profile. The page says "Logged in as X"; the approver refuses when it names anyone else, then clicks Authorize
+   and reads the ``code#state`` the page shows.
+3. The code goes back to the target, which types it into the waiting login. The code is useless anywhere else: it
+   only completes the login that holds the matching verifier.
+4. The key store ADOPTS the new folder: a new spare, or - when the account is already a spare here - a RENEWAL that
+   replaces the spare's old sign-in in place (``LicenseStore.adopt_sign_in``). The new sign-in is never copied; it
+   moves, so it exists in exactly one place after every step. The time of the sign-in is recorded, and
+   ``license usage`` reports it as ``signedInAtUtc``.
+
+The target and the approver are the same machine when the browser profile is local (``sign_in`` with
+``browser_approver``). They are two machines when it is not: the target runs ``sign_in`` with an ``approve`` that
+hands the URL over and reads the code back (``license sign-in --remote-approval``), and the approver runs
+``approve_in_browser`` (``license approve``).
+
+WHY RENEWAL EXISTS. A sign-in dies about 30 days after it was made, however often its access is refreshed
+(missions/license-switching/spare-refresh.md). So a spare is signed in again before then: ``renew_due`` renews every
+spare whose sign-in ends within ``RENEW_AHEAD`` (five days, so at about 25 days old), using the browser profile the
+owner configured for that account. Which profile is signed in as which account is the OWNER's configuration, kept in
+the key store's folder on his machine (``sign-in-browsers.json``), never in this repository. A renewal that fails
+is reported in the result and makes the command exit non-zero - never silent.
+
+NOTHING SECRET IS SHOWN. The new key never passes through this module: Claude Code writes it into the staging folder
+and the store moves it. The authorize code passes through, is checked for shape, and is typed into the login; it is
+never logged, and no error message carries it.
+"""
+
+from __future__ import annotations
+
+import datetime as _dt
+import json
+import logging
+import os
+import re
+import shutil
+import subprocess
+import threading
+import time
+from dataclasses import dataclass
+from typing import Callable, Dict, List, Optional, Protocol
+
+from .license_store import (
+    ROLE_ACTIVE,
+    ROLE_SPARE,
+    LicenseStore,
+    LicenseStoreError,
+    sign_in_ends,
+)
+
+log = logging.getLogger("cc_devthrottle.license_signin")
+
+#: A spare is signed in again when its sign-in ends within this. A sign-in lives about 30 days, so this renews it
+#: at about 25 days, leaving five days of daily attempts before it dies.
+RENEW_AHEAD = _dt.timedelta(days=5)
+
+#: How long Claude Code may take to print the authorize URL, and to finish once the code is typed in.
+URL_WAIT_SECONDS = 60
+FINISH_WAIT_SECONDS = 90
+#: How long the browser may take to show the consent page and then the code.
+BROWSER_WAIT_SECONDS = 150
+
+AUTHORIZE_URL = re.compile(r"https://\S+/oauth/authorize\?\S+")
+#: What the callback page shows and the login reads: two long URL-safe runs joined by "#".
+CODE_SHAPE = re.compile(r"^[A-Za-z0-9_\-]{20,}#[A-Za-z0-9_\-]{20,}$")
+
+#: The owner's account-to-browser-profile map, in the key store's folder.
+BROWSERS_FILE = "sign-in-browsers.json"
+
+# Why a sign-in failed. Each needs a different fix, so they are never folded into one.
+LOGIN_FAILED = "login-failed"              # claude auth login did not start, print a URL, or finish
+APPROVAL_FAILED = "approval-failed"        # the browser step did not produce a code
+WRONG_ACCOUNT = "wrong-account"            # the browser profile is signed in to claude.ai as someone else
+NOT_SIGNED_IN = "browser-not-signed-in"    # the browser profile is not signed in to claude.ai at all
+NO_BROWSER = "no-browser-configured"       # no browser profile is configured for the account
+STORE_REFUSED = "store-refused"            # the key store would not take the new sign-in
+ACTIVE_ACCOUNT = "active-account"          # the account is the active one here; it is renewed as a spare
+
+
+class SignInError(Exception):
+    """A sign-in did not happen. ``kind`` is one of the words above; the message never carries a code or a key."""
+
+    def __init__(self, kind: str, message: str, next_steps: Optional[List[str]] = None):
+        super().__init__(message)
+        self.kind = kind
+        self.next_steps = list(next_steps or [])
+
+
+def utc_now() -> _dt.datetime:
+    return _dt.datetime.now(_dt.timezone.utc)
+
+
+def iso(moment: Optional[_dt.datetime]) -> Optional[str]:
+    return None if moment is None else moment.astimezone(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+# ---------------------------------------------------------------------------------------------------
+# The login process on the target machine - one seam, faked in the tests
+# ---------------------------------------------------------------------------------------------------
+
+
+class LoginProcess(Protocol):
+    """One running ``claude auth login`` into one folder."""
+
+    def authorize_url(self, timeout_seconds: float) -> str:
+        """The URL Claude Code printed. Raises SignInError (login-failed) when none came in time."""
+        ...
+
+    def finish(self, code: str, timeout_seconds: float) -> None:
+        """Type ``code`` into the waiting login and wait for it to end. Raises SignInError (login-failed)."""
+        ...
+
+    def cancel(self) -> None:
+        """End the login if it is still running. Safe to call more than once."""
+        ...
+
+
+StartLogin = Callable[[str, str], LoginProcess]
+Approve = Callable[[str, str], str]
+
+
+class ClaudeLogin:
+    """``claude auth login --claudeai --email <email>`` with CLAUDE_CONFIG_DIR=<folder> and BROWSER=none."""
+
+    def __init__(self, folder: str, email: str, claude: Optional[str] = None):
+        exe = claude or shutil.which("claude")
+        if not exe:
+            raise SignInError(LOGIN_FAILED, "Claude Code (claude) is not on this machine's PATH.",
+                              ["Install Claude Code, then run: claude --version"])
+        env = dict(os.environ, CLAUDE_CONFIG_DIR=folder, BROWSER="none")
+        log.info("login %s: starting claude auth login in %s", email, folder)
+        self._email = email
+        self._lines: List[str] = []
+        self._lock = threading.Lock()
+        self._process = subprocess.Popen(
+            [exe, "auth", "login", "--claudeai", "--email", email], env=env,
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, encoding="utf-8", errors="replace", bufsize=1)
+        threading.Thread(target=self._pump, daemon=True).start()
+
+    def _pump(self) -> None:
+        stream = self._process.stdout
+        assert stream is not None
+        for line in stream:
+            with self._lock:
+                self._lines.append(line.rstrip())
+
+    def _output(self) -> str:
+        with self._lock:
+            return "\n".join(self._lines)
+
+    def _tail(self) -> str:
+        # Claude Code's own words, for an error. They never hold the code: it was typed in, not echoed.
+        with self._lock:
+            lines = [AUTHORIZE_URL.sub("<authorize URL>", line) for line in self._lines[-4:] if line.strip()]
+        return " / ".join(lines) or "(no output)"
+
+    def authorize_url(self, timeout_seconds: float) -> str:
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            found = AUTHORIZE_URL.search(self._output())
+            if found:
+                log.info("login %s: authorize URL received", self._email)
+                return found.group(0)
+            if self._process.poll() is not None:
+                raise SignInError(LOGIN_FAILED, f"claude auth login ended (exit {self._process.returncode}) "
+                                                f"without an authorize URL: {self._tail()}")
+            time.sleep(0.25)
+        raise SignInError(LOGIN_FAILED, f"claude auth login printed no authorize URL in {timeout_seconds:g} "
+                                        f"seconds: {self._tail()}")
+
+    def finish(self, code: str, timeout_seconds: float) -> None:
+        stdin = self._process.stdin
+        assert stdin is not None
+        try:
+            stdin.write(code + "\n")
+            stdin.flush()
+        except OSError as ex:
+            raise SignInError(LOGIN_FAILED, f"the code could not be typed into claude auth login "
+                                            f"({type(ex).__name__}): {self._tail()}") from None
+        try:
+            rc = self._process.wait(timeout=timeout_seconds)
+        except subprocess.TimeoutExpired:
+            raise SignInError(LOGIN_FAILED, f"claude auth login did not finish {timeout_seconds:g} seconds after "
+                                            f"the code was typed in: {self._tail()}") from None
+        if rc != 0:
+            raise SignInError(LOGIN_FAILED, f"claude auth login ended with exit {rc}: {self._tail()}")
+        log.info("login %s: finished", self._email)
+
+    def cancel(self) -> None:
+        if self._process.poll() is None:
+            self._process.kill()
+            self._process.wait(timeout=10)
+
+
+def start_claude_login(folder: str, email: str) -> LoginProcess:
+    return ClaudeLogin(folder, email)
+
+
+# ---------------------------------------------------------------------------------------------------
+# The sign-in, on the target machine
+# ---------------------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SignInResult:
+    email: str
+    config_dir: str
+    renewed: bool
+    signed_in_at_utc: str
+    sign_in_expires_at_utc: Optional[str]
+
+    def to_json(self) -> dict:
+        return {
+            "accountEmail": self.email,
+            "result": "renewed" if self.renewed else "added",
+            "configDir": self.config_dir,
+            "signedInAtUtc": self.signed_in_at_utc,
+            "signInExpiresAtUtc": self.sign_in_expires_at_utc,
+        }
+
+
+def _refuse_active(store: LicenseStore, email: str) -> None:
+    """Fail before any browser is touched when ``email`` is the active account: it can only be renewed as a spare."""
+    for held in store.held_accounts():
+        if (held.email or "").lower() == email.lower() and held.role == ROLE_ACTIVE:
+            raise SignInError(
+                ACTIVE_ACCOUNT,
+                f"{email} is the active account on this machine. The sessions running on it own its sign-in; it is "
+                "signed in again once it is a spare.",
+                ["cc-devthrottle license switch <another account>", "cc-devthrottle license list"])
+
+
+def sign_in(store: LicenseStore, email: str, approve: Approve, *,
+            start_login: Optional[StartLogin] = None,
+            now: Callable[[], _dt.datetime] = utc_now) -> SignInResult:
+    """Sign ``email`` in on this machine and keep it as a spare (new, or renewing the one held).
+
+    ``approve(url, email)`` returns the ``code#state`` for the authorize URL - from a local browser profile, or
+    from another machine. The staging folder is deleted on every failure, key and all: nothing else holds that
+    sign-in, so nothing is lost but a sign-in nobody wanted."""
+    email = email.strip()
+    try:
+        _refuse_active(store, email)
+        staging = store.new_signing_in_folder(email, now())
+    except LicenseStoreError as ex:
+        raise SignInError(STORE_REFUSED, str(ex), ex.next_steps) from None
+    login: Optional[LoginProcess] = None
+    adopted = False
+    try:
+        login = (start_login or start_claude_login)(staging, email)
+        url = login.authorize_url(URL_WAIT_SECONDS)
+        code = approve(url, email).strip()
+        if not CODE_SHAPE.match(code):
+            raise SignInError(APPROVAL_FAILED, "the approval returned something that is not an authorize code")
+        login.finish(code, FINISH_WAIT_SECONDS)
+        signed_in_at = now()
+        try:
+            result = store.adopt_sign_in(staging, email, signed_in_at)
+        except LicenseStoreError as ex:
+            raise SignInError(STORE_REFUSED, str(ex), ex.next_steps) from None
+        adopted = True
+    finally:
+        if login is not None:
+            login.cancel()
+        if not adopted:
+            _discard(store, staging)
+    log.info("sign-in %s: %s", email, "renewed" if result.renewed else "added")
+    return SignInResult(email.lower(), result.account.config_dir, result.renewed, iso(result.signed_in_at),
+                        iso(result.sign_in_ends))
+
+
+def _discard(store: LicenseStore, staging: str) -> None:
+    try:
+        store.discard_sign_in(staging)
+    except (LicenseStoreError, OSError) as ex:
+        # The sign-in failed already and that is what is raised; this is said in the log, not swallowed.
+        log.warning("sign-in folder %s could not be deleted (%s); delete it by hand", staging, type(ex).__name__)
+
+
+# ---------------------------------------------------------------------------------------------------
+# Approving, in a browser profile on this machine
+# ---------------------------------------------------------------------------------------------------
+
+
+#: What browser-harness runs to approve one authorize URL. It prints exactly one line starting "RESULT ", a JSON
+#: object whose "state" is code, wrong-account, not-signed-in, no-account-shown or no-code.
+_APPROVE_SCRIPT = r'''
+import json, re, time
+URL = %(url)s
+EMAIL = %(email)s
+WAIT = %(wait)s
+SHOWN = re.compile(r"Logged in as\s+([^\s]+@[^\s]+)", re.I)
+CODE = re.compile(r"[A-Za-z0-9_\-]{20,}#[A-Za-z0-9_\-]{20,}")
+
+def buttons():
+    return js("[...document.querySelectorAll('button')].filter(b=>b.offsetParent).map(b=>{const r=b.getBoundingClientRect();return [b.innerText.trim(), r.x+r.width/2, r.y+r.height/2]})") or []
+
+def finish(state, **extra):
+    print("RESULT " + json.dumps(dict(state=state, **extra)))
+
+new_tab(URL)
+tab = current_tab()
+try:
+    wait_for_load()
+    deadline = time.time() + WAIT
+    text, authorize = "", []
+    while time.time() < deadline:
+        text = js("document.body ? document.body.innerText : ''") or ""
+        authorize = [b for b in buttons() if b[0] == "Authorize"]
+        if authorize:
+            break
+        time.sleep(2)
+    shown = SHOWN.search(text)
+    if not authorize:
+        finish("not-signed-in", url=page_info().get("url", ""))
+    elif not shown:
+        finish("no-account-shown")
+    elif shown.group(1).strip().rstrip(".").lower() != EMAIL.lower():
+        finish("wrong-account", shown=shown.group(1).strip().rstrip("."))
+    else:
+        click_at_xy(authorize[0][1], authorize[0][2])
+        code = None
+        deadline = time.time() + WAIT
+        while time.time() < deadline and not code:
+            time.sleep(1.5)
+            values = js("[...document.querySelectorAll('input,textarea,code,pre')].map(e=>e.value||e.innerText||'')") or []
+            for s in values + [js("document.body ? document.body.innerText : ''") or ""]:
+                m = CODE.search(s)
+                if m:
+                    code = m.group(0)
+                    break
+        if code:
+            finish("code", code=code)
+        else:
+            page = js("document.body ? document.body.innerText : ''") or ""
+            finish("no-code", url=page_info().get("url", "").split("?")[0], text=" ".join(page.split())[:300])
+finally:
+    cdp("Target.closeTarget", targetId=tab["targetId"])
+'''
+
+
+class BrowserProfile(Protocol):
+    """A Director browser profile, started for driving. ``stop`` puts it back as it was found."""
+
+    def environment(self) -> Dict[str, str]:
+        """BU_NAME and BU_CDP_URL for browser-harness."""
+        ...
+
+    def stop(self) -> None: ...
+
+
+def director_browser(profile: str) -> BrowserProfile:
+    """The Director's own browser profile ``profile`` (name or id), started if it was stopped."""
+    from cc_shared import gateway
+
+    from . import browser_ops
+
+    try:
+        return browser_ops.DrivenBrowser(profile)
+    except LookupError as ex:
+        raise SignInError(APPROVAL_FAILED, str(ex), ["cc-devthrottle browser list"]) from None
+    except gateway.GatewayError as ex:
+        raise SignInError(APPROVAL_FAILED, f"the browser profile could not be started: {ex}",
+                          ["cc-devthrottle session whoami", "cc-devthrottle browser list"]) from None
+
+
+RunHarness = Callable[[str, Dict[str, str], float], str]
+
+
+def _run_harness(script: str, env: Dict[str, str], timeout_seconds: float) -> str:
+    exe = shutil.which("browser-harness")
+    if not exe:
+        raise SignInError(APPROVAL_FAILED, "browser-harness is not on this machine's PATH.",
+                          ["Install browser-harness, then run: browser-harness --doctor"])
+    full_env = dict(os.environ, **env)
+    try:
+        done = subprocess.run([exe], input=script, capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", env=full_env, timeout=timeout_seconds)
+    except subprocess.TimeoutExpired:
+        raise SignInError(APPROVAL_FAILED, f"the browser step did not finish in {timeout_seconds:g} seconds") from None
+    finally:
+        # End this profile's browser-harness daemon. The profile is stopped next when it was stopped before, and a
+        # daemon left attached to a stopped browser collides with the next one started for it (seen live: the
+        # next approval failed with "Access is denied" on the daemon's port file).
+        stopped = subprocess.run([exe, "--reload"], capture_output=True, text=True, encoding="utf-8",
+                                 errors="replace", env=full_env, timeout=60)
+        if stopped.returncode != 0:
+            log.warning("browser-harness --reload exited %d for %s: %s", stopped.returncode, env.get("BU_NAME"),
+                        " / ".join((stopped.stderr or stopped.stdout).strip().splitlines()[-2:]))
+    if done.returncode != 0:
+        # browser-harness's own error text names the page or the connection; the code is never in it, because a
+        # run that found the code printed it only on the RESULT line and exited 0.
+        detail = " / ".join(line for line in (done.stderr or done.stdout).splitlines()[-3:] if line.strip())
+        raise SignInError(APPROVAL_FAILED, f"browser-harness failed (exit {done.returncode}): {detail}",
+                          ["browser-harness --doctor"])
+    return done.stdout
+
+
+def approve_in_browser(url: str, email: str, profile: str, *,
+                       open_profile: Callable[[str], BrowserProfile] = director_browser,
+                       run_harness: RunHarness = _run_harness) -> str:
+    """Approve one authorize URL in the browser profile ``profile``, which must be signed in to claude.ai as
+    ``email``. Returns the ``code#state``. Refuses - clicking nothing - when the page names another account, names
+    no account, or is not signed in."""
+    if not AUTHORIZE_URL.fullmatch(url.strip()):
+        raise SignInError(APPROVAL_FAILED, "that is not a Claude authorize URL (https://.../oauth/authorize?...)")
+    browser = open_profile(profile)
+    try:
+        script = _APPROVE_SCRIPT % {"url": json.dumps(url.strip()), "email": json.dumps(email),
+                                    "wait": BROWSER_WAIT_SECONDS // 2}
+        out = run_harness(script, browser.environment(), BROWSER_WAIT_SECONDS + 30)
+    finally:
+        browser.stop()
+    lines = [line for line in out.splitlines() if line.startswith("RESULT ")]
+    if len(lines) != 1:
+        raise SignInError(APPROVAL_FAILED, "the browser step ended without a result")
+    try:
+        answer = json.loads(lines[0][len("RESULT "):])
+    except ValueError:
+        raise SignInError(APPROVAL_FAILED, "the browser step's result is not JSON") from None
+    state = answer.get("state")
+    if state == "code" and isinstance(answer.get("code"), str) and CODE_SHAPE.match(answer["code"]):
+        log.info("approve %s: approved in profile %s", email, profile)
+        return answer["code"]
+    log.warning("approve %s: refused in profile %s (%s)", email, profile, state)
+    if state == "wrong-account":
+        raise SignInError(
+            WRONG_ACCOUNT,
+            f"the browser profile \"{profile}\" is signed in to claude.ai as {answer.get('shown')}, not {email}; "
+            "nothing was approved.",
+            ["cc-devthrottle browser list --json", f"cc-devthrottle license set-browser {email} <profile>"])
+    if state == "not-signed-in":
+        raise SignInError(
+            NOT_SIGNED_IN,
+            f"the browser profile \"{profile}\" showed no Authorize button: it is not signed in to claude.ai. "
+            "Signing a profile in is done by hand, once.",
+            [f"cc-devthrottle browser signin \"{profile}\""])
+    if state == "no-account-shown":
+        raise SignInError(APPROVAL_FAILED, "the consent page did not say which account is signed in, so nothing "
+                                           "was approved")
+    raise SignInError(APPROVAL_FAILED, f"Authorize was clicked but the page showed no code (it is at "
+                                       f"{answer.get('url') or 'an unknown address'} and says: "
+                                       f"{answer.get('text') or 'nothing'})")
+
+
+def browser_approver(profile: str, **kwargs) -> Approve:
+    """An ``approve`` for ``sign_in`` that approves in a browser profile on this machine."""
+    return lambda url, email: approve_in_browser(url, email, profile, **kwargs)
+
+
+# ---------------------------------------------------------------------------------------------------
+# Which browser profile signs which account in - the owner's configuration
+# ---------------------------------------------------------------------------------------------------
+
+
+def _browsers_path(store: LicenseStore) -> str:
+    return os.path.join(store.store_dir, BROWSERS_FILE)
+
+
+def load_browsers(store: LicenseStore) -> Dict[str, str]:
+    """The owner's map of account email (lower case) to browser profile name, from the store's folder."""
+    path = _browsers_path(store)
+    if not os.path.isfile(path):
+        return {}
+    try:
+        data = json.loads(open(path, encoding="utf-8").read())
+    except ValueError:
+        raise SignInError(NO_BROWSER, f"{path} is not valid JSON", [f"Open {path} and repair it"]) from None
+    accounts = data.get("accounts") if isinstance(data, dict) else None
+    if not isinstance(accounts, dict):
+        raise SignInError(NO_BROWSER, f"{path} has no \"accounts\" object", [f"Open {path} and repair it"])
+    return {str(k).strip().lower(): str(v) for k, v in accounts.items() if isinstance(v, str) and v.strip()}
+
+
+def set_browser(store: LicenseStore, email: str, profile: str) -> str:
+    """Record that ``profile`` signs ``email`` in. Returns the file written."""
+    current = load_browsers(store)
+    current[email.strip().lower()] = profile.strip()
+    path = _browsers_path(store)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    temp = f"{path}.{os.getpid()}.tmp"
+    with open(temp, "w", encoding="utf-8") as handle:
+        handle.write(json.dumps({"accounts": dict(sorted(current.items()))}, indent=2))
+    os.replace(temp, path)
+    return path
+
+
+def browser_for(store: LicenseStore, email: str) -> str:
+    profile = load_browsers(store).get(email.strip().lower())
+    if not profile:
+        raise SignInError(
+            NO_BROWSER,
+            f"no browser profile is configured to sign {email} in.",
+            [f"cc-devthrottle license set-browser {email} <profile>", "cc-devthrottle browser list"])
+    return profile
+
+
+# ---------------------------------------------------------------------------------------------------
+# Renewing spares before their sign-in dies
+# ---------------------------------------------------------------------------------------------------
+
+
+@dataclass
+class RenewalRow:
+    account: str
+    role: str
+    sign_in_expires_at_utc: Optional[str]
+    result: str = ""     # renewed | not-due | unknown-expiry | active-due | failed-<kind>
+    detail: Optional[str] = None
+    browser: Optional[str] = None
+    signed_in_at_utc: Optional[str] = None
+
+    @property
+    def failed(self) -> bool:
+        return self.result.startswith("failed-")
+
+    def to_json(self) -> dict:
+        return {
+            "accountEmail": self.account,
+            "role": self.role,
+            "result": self.result,
+            "signInExpiresAtUtc": self.sign_in_expires_at_utc,
+            "signedInAtUtc": self.signed_in_at_utc,
+            "browser": self.browser,
+            "detail": self.detail,
+        }
+
+
+def renew_due(store: LicenseStore, *, account: Optional[str] = None, force: bool = False,
+              approver_for: Optional[Callable[[str], Approve]] = None,
+              start_login: Optional[StartLogin] = None,
+              now: Callable[[], _dt.datetime] = utc_now) -> List[RenewalRow]:
+    """Sign every spare in again whose sign-in ends within RENEW_AHEAD (or ``account`` alone; ``force`` renews
+    whether due or not). One row per account held, so the answer says what was NOT renewed and why too:
+
+    - ``not-due``: the sign-in has more than RENEW_AHEAD left;
+    - ``unknown-expiry``: the key carries no end date, so it is not known when it dies (reported, not guessed);
+    - ``active-due``: the ACTIVE account's sign-in ends soon. It is not renewed here (its sessions own it); it is
+      renewed once a switch makes it a spare. Reported so a person sees it coming;
+    - ``failed-<kind>``: the renewal was tried and did not work, with the reason."""
+    try:
+        held = store.held_accounts()
+    except LicenseStoreError as ex:
+        raise SignInError(STORE_REFUSED, str(ex), ex.next_steps) from None
+    if account is not None:
+        held = [h for h in held if (h.email or "").lower() == account.strip().lower()]
+        if not held:
+            raise SignInError(STORE_REFUSED, f"this machine holds no account {account!r}",
+                              ["cc-devthrottle license list", f"cc-devthrottle license sign-in {account} --browser <profile>"])
+    rows: List[RenewalRow] = []
+    for h in held:
+        email = (h.email or "").lower()
+        try:
+            ends = sign_in_ends(h.read_key())
+        except LicenseStoreError as ex:
+            rows.append(RenewalRow(email, h.role, None, f"failed-{STORE_REFUSED}", str(ex)))
+            continue
+        row = RenewalRow(email, h.role, iso(ends))
+        rows.append(row)
+        due = ends is not None and ends - now() <= RENEW_AHEAD
+        if h.role != ROLE_SPARE:
+            row.result = "active-due" if due else ("not-due" if ends else "unknown-expiry")
+            continue
+        if not force and ends is None:
+            row.result = "unknown-expiry"
+            continue
+        if not force and not due:
+            row.result = "not-due"
+            continue
+        try:
+            row.browser = browser_for(store, email)
+            result = sign_in(store, email, (approver_for or browser_approver)(row.browser), start_login=start_login,
+                             now=now)
+        except SignInError as ex:
+            row.result, row.detail = f"failed-{ex.kind}", str(ex)
+            log.warning("renew %s: FAILED (%s) %s", email, ex.kind, ex)
+            continue
+        row.result = "renewed"
+        row.sign_in_expires_at_utc = result.sign_in_expires_at_utc
+        row.signed_in_at_utc = result.signed_in_at_utc
+        log.info("renew %s: renewed, sign-in now ends %s", email, result.sign_in_expires_at_utc)
+    return rows

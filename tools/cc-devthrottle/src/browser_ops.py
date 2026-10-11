@@ -272,3 +272,34 @@ def remove_browser(target: str, json_output: bool) -> None:
         return
     axi_cli.write_lines(f'Removed "{bname}".')
     axi_cli.print_next([_LIST, _CREATE_USAGE])
+
+
+class DrivenBrowser:
+    """One of the Director's browser profiles, started for a program to drive and put back as it was found.
+
+    For code that drives a profile itself (`license approve`), not for an agent at a prompt. It finds the profile
+    by name or id among this machine's, starts it when it is stopped, gives the browser-harness environment the
+    Director folded for it, and `stop` stops it again only if it was stopped before. Raises LookupError when no
+    profile matches, and gateway.GatewayError when the Gateway cannot be reached."""
+
+    def __init__(self, target: str):
+        browsers = _browsers()
+        key = target.strip().lower()
+        match = next((b for b in browsers if gateway.field(b, "id", "Id").lower() == key), None) \
+            or next((b for b in browsers if gateway.field(b, "name", "Name").lower() == key), None)
+        if match is None:
+            names = ", ".join(f'"{gateway.field(b, "name", "Name")}"' for b in browsers) or "none"
+            raise LookupError(f'no browser profile "{target}" on this machine (there are: {names})')
+        self.id = gateway.field(match, "id", "Id")
+        self.name = gateway.field(match, "name", "Name")
+        self._was_running = (gateway.field(match, "status", "Status") or "").lower() != "stopped"
+        dto = gateway.post_json(f"{_mine()}/{self.id}/start", {})
+        self._env = {"BU_NAME": gateway.field(dto, "buName", "BuName"),
+                     "BU_CDP_URL": gateway.field(dto, "buCdpUrl", "BuCdpUrl")}
+
+    def environment(self) -> Dict[str, str]:
+        return dict(self._env)
+
+    def stop(self) -> None:
+        if not self._was_running:
+            gateway.post_json(f"{_mine()}/{self.id}/stop", {})

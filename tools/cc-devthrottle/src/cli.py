@@ -20,6 +20,7 @@ from . import factory_status_ops
 from . import fleet_manager_ops
 from . import fleet_ops
 from . import license_ops
+from . import license_signin_ops
 from . import license_usage_ops
 from . import link_ops
 from . import mission_ops
@@ -216,7 +217,8 @@ license_app = typer.Typer(
         "List, add, remove and switch the Claude accounts this machine holds.\n\n"
         "The active sign-in is in the default config folder; each spare has a folder of its own in the store. "
         "A switch exchanges the active sign-in with a spare's. 'usage' reads each account's limits, and "
-        "'refresh' keeps a spare's sign-in fresh. Never prints a key."
+        "'refresh' keeps a spare's sign-in fresh. 'sign-in' adds a spare by signing it in through a browser "
+        "profile, and 'renew' signs spares in again before their sign-in ends (about a month). Never prints a key."
     ),
     add_completion=False,
     no_args_is_help=True,
@@ -1784,6 +1786,66 @@ def license_refresh(
 ) -> None:
     """Renew a spare account's sign-in key in its own folder when it is due."""
     license_usage_ops.refresh(account, force, json_output, fields, default_config_dir, store_dir)
+
+
+@license_app.command("sign-in")
+def license_sign_in(
+    account: str = typer.Argument(..., help="The email of the Claude account to sign in."),
+    browser: Optional[str] = typer.Option(
+        None, "--browser",
+        help="The browser profile on this machine that is signed in to claude.ai as the account (cc-devthrottle "
+        "browser list). Default: the one set with license set-browser.",
+    ),
+    remote_approval: bool = typer.Option(
+        False, "--remote-approval",
+        help="Approve on another machine: print 'authorize-url: <url>', then read the code from standard input "
+        "(that machine runs license approve).",
+    ),
+    default_config_dir: Optional[str] = typer.Option(None, "--default-config-dir", help=_LICENSE_DEFAULT_DIR_HELP),
+    store_dir: Optional[str] = typer.Option(None, "--store-dir", help=_LICENSE_STORE_DIR_HELP),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
+) -> None:
+    """Sign an account in here and keep it as a spare (renews a spare held already)."""
+    license_signin_ops.sign_in(account, browser, remote_approval, default_config_dir, store_dir, json_output)
+
+
+@license_app.command("approve")
+def license_approve(
+    url: str = typer.Argument(..., help="The authorize URL that license sign-in --remote-approval printed."),
+    email: str = typer.Option(..., "--email", help="The account the URL signs in. Anything else is refused."),
+    browser: str = typer.Option(..., "--browser", help="The browser profile signed in to claude.ai as that account."),
+) -> None:
+    """Approve another machine's sign-in in a browser profile here; prints the code."""
+    license_signin_ops.approve(url, email, browser)
+
+
+@license_app.command("renew")
+def license_renew(
+    account: Optional[str] = typer.Argument(None, help="One account's email. Default: every account held."),
+    force: bool = typer.Option(False, "--force", help="Sign in again even when the sign-in is not due."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output JSON: {count, failed, accounts}."),
+    fields: Optional[str] = typer.Option(
+        None, "--fields",
+        help="Fields to show, comma separated. Default: account,role,result,sign-in-expires. Valid: account, role, "
+        "result, sign-in-expires, signed-in, browser, detail.",
+    ),
+    default_config_dir: Optional[str] = typer.Option(None, "--default-config-dir", help=_LICENSE_DEFAULT_DIR_HELP),
+    store_dir: Optional[str] = typer.Option(None, "--store-dir", help=_LICENSE_STORE_DIR_HELP),
+) -> None:
+    """Sign in again every spare whose sign-in ends within five days."""
+    license_signin_ops.renew(account, force, json_output, fields, default_config_dir, store_dir)
+
+
+@license_app.command("set-browser")
+def license_set_browser(
+    account: str = typer.Argument(..., help="The Claude account's email."),
+    browser: str = typer.Argument(..., help="The browser profile signed in to claude.ai as that account."),
+    default_config_dir: Optional[str] = typer.Option(None, "--default-config-dir", help=_LICENSE_DEFAULT_DIR_HELP),
+    store_dir: Optional[str] = typer.Option(None, "--store-dir", help=_LICENSE_STORE_DIR_HELP),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
+) -> None:
+    """Record which browser profile signs an account in on this machine."""
+    license_signin_ops.set_browser(account, browser, default_config_dir, store_dir, json_output)
 
 
 @app.callback()

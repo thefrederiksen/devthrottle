@@ -43,6 +43,7 @@ import hmac
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import unicodedata
@@ -67,6 +68,13 @@ JOURNAL_FILE = "journal.json"
 LOG_FILE = "license-store.log"
 LOCK_FILE = "store.lock"
 SPARES_DIR = "spares"
+#: Where `license sign-in` runs `claude auth login`, one fresh folder per sign-in, before the store adopts it.
+SIGNING_IN_DIR = "signing-in"
+#: When each held account's sign-in was made, by email. Written by `adopt_sign_in`; see `signed_in_at`.
+SIGN_INS_FILE = "sign-ins.json"
+#: A sign-in's end date is fixed when it is made and a refresh does not move it (spare-refresh.md), but each
+#: refresh recomputes it from "now + seconds left", so two readings of one sign-in differ by seconds.
+SIGN_IN_MATCH_TOLERANCE_SECONDS = 60 * 60
 
 ROLE_ACTIVE = "active"
 ROLE_SPARE = "spare"
@@ -610,6 +618,26 @@ class LicenseStore:
         return os.path.join(self.spares_dir, spare_slug(email))
 
     @property
+    def signing_in_dir(self) -> str:
+        return os.path.join(self.store_dir, SIGNING_IN_DIR)
+
+    def new_signing_in_folder(self, email: str, now: _dt.datetime) -> str:
+        """A new, empty folder for one `claude auth login` of ``email``. Never one that exists already: a folder
+        that held an earlier sign-in could still hold its key."""
+        stamp = now.astimezone(_dt.timezone.utc).strftime("%Y%m%d%H%M%S")
+        base = os.path.join(self.signing_in_dir, f"{spare_slug(email)}-{stamp}")
+        folder, n = base, 1
+        while os.path.exists(folder):
+            n += 1
+            folder = f"{base}-{n}"
+        os.makedirs(folder)
+        return folder
+
+    @property
+    def _sign_ins_path(self) -> Path:
+        return Path(self.store_dir) / SIGN_INS_FILE
+
+    @property
     def _journal_path(self) -> Path:
         return Path(self.store_dir) / JOURNAL_FILE
 
@@ -1061,6 +1089,123 @@ class LicenseStore:
                 reason_code=REASON_VERIFY_FAILED,
             )
 
+    # ----- a new sign-in: adopt it as a spare, or renew a spare with it -----
+
+    def adopt_sign_in(self, staging_folder: str | os.PathLike, expect_email: str,
+                      signed_in_at: _dt.datetime) -> "AdoptResult":
+        """Take a FRESH sign-in for ``expect_email`` - a folder under ``signing_in_dir`` that ``claude auth login``
+        was just run into - as that account's spare. The key and account block MOVE out of the staging folder.
+
+        - Not held here: it becomes a new spare (as ``add`` does).
+        - Held as a spare: the spare is RENEWED. Its old sign-in is erased and the new one put in the same folder,
+          journaled, so a crash part way is finished by the next run. The new sign-in is never at risk: until the
+          last step it is still in the staging folder.
+        - Held as the active account: refused. The sessions running on it own that key; replacing it under them
+          is a switch, not a renewal.
+
+        The time of the sign-in is recorded with the end date the new key carries (``signed_in_at`` reads it
+        back). Returns what was done."""
+        staging = canonical_folder(staging_folder, "the sign-in folder")
+        wanted = expect_email.strip().lower()
+        with self._lock:
+            self.recover()
+            if not _inside(staging, self.signing_in_dir) or _same_folder(staging, self.signing_in_dir):
+                raise LicenseStoreError(
+                    f"{staging} is not a sign-in folder of this store ({self.signing_in_dir})",
+                    ["cc-devthrottle license sign-in <email> --browser <profile>"],
+                )
+            new_key = self.backend.read(staging)
+            if new_key is None:
+                raise LicenseStoreError(f"the sign-in folder {staging} holds no sign-in key",
+                                        ["cc-devthrottle license sign-in <email> --browser <profile>"])
+            email = _email_of(read_oauth_account(staging))
+            if email is None or email.strip().lower() != wanted:
+                raise LicenseStoreError(
+                    f"the new sign-in is for {email or 'an unknown account'}, not {expect_email}; it was not kept",
+                    ["Check which account the browser profile is signed in to claude.ai as",
+                     "cc-devthrottle license sign-in <email> --browser <profile>"],
+                )
+            held = self._find(email)
+            if held is not None and held.role != ROLE_SPARE:
+                raise LicenseStoreError(
+                    f"{email} is the active account here. Its sign-in is renewed while it is a spare; the sessions "
+                    "running on it own the active key.",
+                    ["cc-devthrottle license switch <another account>", "cc-devthrottle license list"],
+                )
+            if held is None:
+                target = self.spare_folder(email)
+                if self.backend.exists(target):
+                    raise LicenseStoreError(
+                        f"the spare folder {target} already holds a key that is not {email}'s",
+                        ["cc-devthrottle license list"],
+                    )
+                self._start("adopt", email, [
+                    {"op": "copy", "from": staging, "to": target},
+                    {"op": "drop", "folder": staging, "keptIn": target},
+                ])
+            else:
+                old = held.read_key().fingerprint()
+                self._start("renew", email, [
+                    {"op": "erase", "folder": held.config_dir, "fingerprint": old, "account": held.email},
+                    {"op": "copy", "from": staging, "to": held.config_dir},
+                    {"op": "drop", "folder": staging, "keptIn": held.config_dir},
+                ])
+            account = self._find(email)
+            if account is None or account.role != ROLE_SPARE or self.backend.exists(staging) \
+                    or not new_key.same_as(self.backend.read(account.config_dir)):
+                self._log("adopt-verify-failed", account=email)
+                raise LicenseStoreError(
+                    f"the new sign-in for {email} was moved in, but reading it back did not show it as the spare",
+                    ["cc-devthrottle license list", f"Read {self._log_path}"],
+                )
+            # The sign-in folder holds no key now (checked above); what Claude Code left beside it goes too.
+            shutil.rmtree(staging)
+            ends = sign_in_ends(new_key)
+            self._record_sign_in(email, signed_in_at, ends)
+            self._log("renew-finished" if held else "adopt-finished", account=email, folder=account.config_dir)
+            return AdoptResult(account, renewed=held is not None, signed_in_at=signed_in_at, sign_in_ends=ends)
+
+    def discard_sign_in(self, staging_folder: str | os.PathLike) -> None:
+        """Delete a sign-in folder that will not be adopted (a failed or refused sign-in), key and all. Only a
+        folder under ``signing_in_dir`` is touched: that sign-in exists nowhere else and nothing uses it."""
+        staging = canonical_folder(staging_folder, "the sign-in folder")
+        if not _inside(staging, self.signing_in_dir) or _same_folder(staging, self.signing_in_dir):
+            raise LicenseStoreError(f"{staging} is not a sign-in folder of this store", ["cc-devthrottle license list"])
+        if self.backend.exists(staging):
+            self.backend.delete(staging)
+        if os.path.isdir(staging):
+            shutil.rmtree(staging)
+        self._log("sign-in-discarded", folder=staging)
+
+    def _record_sign_in(self, email: str, signed_in_at: _dt.datetime, ends: Optional[_dt.datetime]) -> None:
+        data = _read_json_object(self._sign_ins_path) or {}
+        accounts = data.get("accounts") if isinstance(data.get("accounts"), dict) else {}
+        accounts[email.strip().lower()] = {
+            "signedInAtUtc": _iso(signed_in_at),
+            "signInExpiresAtUtc": _iso(ends) if ends else None,
+        }
+        _atomic_write_text(self._sign_ins_path, json.dumps({"accounts": accounts}, indent=2), private=False)
+
+    def signed_in_at(self, email: str, sign_in_ends: Optional[_dt.datetime]) -> Optional[_dt.datetime]:
+        """When the sign-in held now for ``email`` was made, or None when that is not known.
+
+        The record is keyed by email, but an account can be signed in again by hand (``claude auth login``) without
+        this store seeing it. So the record counts only when its end date matches the end date of the key held
+        now: one sign-in keeps one end date for life, and another sign-in has another."""
+        if sign_in_ends is None:
+            return None
+        data = _read_json_object(self._sign_ins_path) or {}
+        accounts = data.get("accounts")
+        row = accounts.get(email.strip().lower()) if isinstance(accounts, dict) else None
+        if not isinstance(row, dict):
+            return None
+        made, ends = _parse_iso(row.get("signedInAtUtc")), _parse_iso(row.get("signInExpiresAtUtc"))
+        if made is None or ends is None:
+            return None
+        if abs((ends - sign_in_ends).total_seconds()) > SIGN_IN_MATCH_TOLERANCE_SECONDS:
+            return None
+        return made
+
     def exclusive(self) -> "_StoreLock":
         """The store lock, for a caller that must read, act and write as ONE step with no switch in between.
 
@@ -1083,6 +1228,43 @@ class LicenseStore:
             self._checkpoint("refresh-key")
             self.backend.write(account.config_dir, HeldKey(credentials_json, keychain_account=old.keychain_account))
             self._log("key-refreshed", account=account.email)
+
+
+@dataclass(frozen=True)
+class AdoptResult:
+    """What ``adopt_sign_in`` did: the spare as it is now held, whether an existing spare was renewed, and the
+    new sign-in's time and end date (None when the key carries no end date)."""
+
+    account: HeldAccount
+    renewed: bool
+    signed_in_at: _dt.datetime
+    sign_in_ends: Optional[_dt.datetime]
+
+
+def _iso(moment: _dt.datetime) -> str:
+    return moment.astimezone(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _parse_iso(value: object) -> Optional[_dt.datetime]:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = _dt.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        return None
+    return parsed.replace(tzinfo=_dt.timezone.utc)
+
+
+def sign_in_ends(key: HeldKey) -> Optional[_dt.datetime]:
+    """The end date of a key's sign-in (``claudeAiOauth.refreshTokenExpiresAt``, milliseconds), or None."""
+    try:
+        value = json.loads(key.reveal())["claudeAiOauth"]["refreshTokenExpiresAt"]
+    except (ValueError, KeyError, TypeError):
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return _dt.datetime.fromtimestamp(value / 1000.0, _dt.timezone.utc)
+
 
 
 def _inside(child: str, parent: str) -> bool:
