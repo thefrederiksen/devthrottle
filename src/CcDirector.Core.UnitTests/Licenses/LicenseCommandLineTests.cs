@@ -37,6 +37,34 @@ public sealed class LicenseCommandLineTests
     }
 
     [Fact]
+    public void ReadUsageRows_ReadErrorOutsideTheContract_ReadsAsUnexpectedAnswerAndCarriesNoToolText()
+    {
+        // Review of 3868, P1: an unknown readError could be a provider's answer; it never travels or reaches the log.
+        var marker = FakeLicenseCommandLine.ToolTextMarker;
+        var json = "{\"accounts\": [{\"accountEmail\": \"account-a@example.com\", \"isActive\": true, " +
+                   "\"readError\": \"" + marker + "\", \"readErrorDetail\": \"" + marker + "\"}]}";
+
+        var row = CcDevthrottleLicenseCommandLine.ReadUsageRows(json).Single();
+
+        Assert.Equal(LicenseReadErrors.UnexpectedAnswer, row.ReadError);
+        Assert.Null(row.ReadErrorDetail);
+        Assert.DoesNotContain(marker, LicenseUsageReporter.ReadErrorSentence(marker));
+    }
+
+    [Theory]
+    [InlineData("switched")]
+    [InlineData("failed")]
+    public void ReadSwitchAnswer_ReasonOutsideTheContract_ReadsAsFailedStateUnknown(string outcome)
+    {
+        var answer = CcDevthrottleLicenseCommandLine.ReadSwitchAnswer(
+            "{\"outcome\": \"" + outcome + "\", \"reasonCode\": \"" + FakeLicenseCommandLine.ToolTextMarker + "\", " +
+            "\"activeAccountEmailAfter\": \"a@example.com\"}");
+
+        Assert.Equal(LicenseSwitchOutcomes.Failed, answer!.Outcome);
+        Assert.Equal(LicenseSwitchReasonCodes.ExchangeFailedUnknown, answer.ReasonCode);
+    }
+
+    [Fact]
     public void ReadListedAccounts_KeyStoreRows_MapsRoleToActive()
     {
         // The shape license list --json prints: email and role, among the key store's own fields.

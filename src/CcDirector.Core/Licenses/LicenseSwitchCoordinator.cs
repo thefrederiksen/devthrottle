@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 
@@ -23,24 +24,38 @@ public sealed class LicenseSwitchCoordinator
     private readonly LicenseSwitchResultStore _results;
     private readonly LicenseUsageReporter _reporter;
     private readonly Func<DateTime> _utcNow;
+    private readonly bool _enabled;
     private readonly object _gate = new();
     private (string SwitchId, Task<LicenseSwitchResult> Run)? _running;
 
     public LicenseSwitchCoordinator(ILicenseCommandLine tool, LicenseKeyHolderLock holder, LicenseSwitchResultStore results,
-        LicenseUsageReporter reporter, Func<DateTime> utcNow)
+        LicenseUsageReporter reporter, Func<DateTime> utcNow, bool enabled)
     {
         _tool = tool ?? throw new ArgumentNullException(nameof(tool));
         _holder = holder ?? throw new ArgumentNullException(nameof(holder));
         _results = results ?? throw new ArgumentNullException(nameof(results));
         _reporter = reporter ?? throw new ArgumentNullException(nameof(reporter));
         _utcNow = utcNow ?? throw new ArgumentNullException(nameof(utcNow));
+        _enabled = enabled;
     }
+
+    /// <summary>The sentence every switch is answered with while license switching is off on this Director.</summary>
+    internal const string TurnedOffMessage = "License switching is turned off on this Director, so nothing was changed.";
 
     /// <summary>Carries out <paramref name="request"/>, whose SwitchId has already been checked for shape.</summary>
     public async Task<LicenseSwitchResult> SwitchAsync(LicenseSwitchRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
         FileLog.Write($"[LicenseSwitchCoordinator] SwitchAsync: switchId={request.SwitchId}, target={request.TargetAccountEmail}, expected={request.ExpectedActiveAccountEmail}, reason={request.Reason}");
+
+        // License switching is off (LicenseSwitchingSetting): nothing touches the key store. Answered with the
+        // contract's "not the key holder", which is literally true - an off Director never takes the lock - so the
+        // contract needs no new reason code. Not stored: the same SwitchId must run on a Director that has it on.
+        if (!_enabled)
+        {
+            FileLog.Write($"[LicenseSwitchCoordinator] switchId={request.SwitchId} refused: license switching is turned off on this Director");
+            return Build(request, _utcNow(), LicenseSwitchOutcomes.Failed, LicenseSwitchReasonCodes.NotKeyHolder, "", "", false, 0, TurnedOffMessage);
+        }
 
         // Step 2: a switch that already finished here is answered from the store and never run again.
         var stored = _results.Find(request.SwitchId);
@@ -64,8 +79,14 @@ public sealed class LicenseSwitchCoordinator
             if (_running is { } current)
             {
                 if (current.SwitchId != request.SwitchId)
-                    return Refuse(request, started, LicenseSwitchReasonCodes.SwitchInProgress, "",
+                {
+                    // A finished result for THIS SwitchId (contract 3.6): stored, so a retry of the same id after the
+                    // other switch ends replays the refusal instead of running a decision the Gateway already saw refused.
+                    var refused = Refuse(request, started, LicenseSwitchReasonCodes.SwitchInProgress, "",
                         "Another switch is running on this machine.");
+                    _results.Save(refused);
+                    return refused;
+                }
                 alreadyRunning = current.Run;
                 run = current.Run;
             }
@@ -141,11 +162,16 @@ public sealed class LicenseSwitchCoordinator
             return Failed(request, started, LicenseSwitchReasonCodes.SpareNotHeld, active, active,
                 $"This machine holds no spare for {target}.");
 
-        // Step 9: a spare whose sign-in the provider rejected would leave the machine signed out in effect.
+        // Step 9: a spare whose sign-in the provider rejected, or whose sign-in has expired by this machine's clock,
+        // would leave the machine signed out in effect.
         var spareError = _reporter.LastReadErrorFor(target);
         if (spareError is LicenseReadErrors.Unauthorized or LicenseReadErrors.RefreshFailed)
             return Failed(request, started, LicenseSwitchReasonCodes.SpareNotUsable, active, active,
                 $"The spare for {target} needs a new sign-in ({spareError}).");
+        var spareExpiry = _reporter.SignInExpiryFor(target);
+        if (spareExpiry is { } expires && expires <= _utcNow())
+            return Failed(request, started, LicenseSwitchReasonCodes.SpareNotUsable, active, active,
+                $"The sign-in for {target} expired at {expires.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)} UTC; the account needs a new sign-in.");
 
         // Step 10: the exchange, by the tool, which reads the active account back afterwards.
         var clock = Stopwatch.StartNew();
@@ -193,8 +219,9 @@ public sealed class LicenseSwitchCoordinator
 
     private LicenseSwitchResult Refuse(LicenseSwitchRequest request, DateTime started, string reasonCode, string active, string message)
     {
-        // A refusal before the switch started is not stored: it says nothing about this SwitchId, and the same
-        // SwitchId sent again once the refusal no longer applies must run.
+        // Stored only by the caller that decides it is a finished result for this SwitchId (switch-in-progress is).
+        // "Not the key holder" is not stored: the results folder is shared by every Director on the machine, and the
+        // one that holds the key must run that SwitchId when it is sent there.
         var result = Build(request, started, LicenseSwitchOutcomes.Failed, reasonCode, active, active, false, 0, message);
         FileLog.Write($"[LicenseSwitchCoordinator] switchId={request.SwitchId} refused: {reasonCode}");
         return result;
@@ -254,7 +281,7 @@ public sealed class LicenseSwitchCoordinator
         LicenseSwitchReasonCodes.ActiveAccountChanged => "The active account changed before the exchange could start.",
         LicenseSwitchReasonCodes.SwitchInProgress => "Another switch was running on this machine.",
         LicenseSwitchReasonCodes.VerifyFailed => $"After the exchange the active account did not read back as {target}.",
-        _ => $"The license tool refused the switch to {target} ({reasonCode ?? "no reason given"}).",
+        _ => $"The license tool refused the switch to {target} without a reason this Director recognises.",
     };
 
     private static string Normalize(string? email) => (email ?? "").Trim().ToLowerInvariant();

@@ -23,13 +23,19 @@ public sealed class LicenseSwitching : IDisposable
 
     private int _started;
 
-    public LicenseSwitching(ILicenseCommandLine tool, string directorFolder, Func<DateTime> utcNow, string machineName, string osUser)
+    /// <param name="enabled">The license switching setting (<see cref="Configuration.LicenseSwitchingSetting"/>). Off:
+    /// no report loop, the key holder lock is never taken, and every switch is answered failed.</param>
+    public LicenseSwitching(ILicenseCommandLine tool, string directorFolder, Func<DateTime> utcNow, string machineName, string osUser, bool enabled)
     {
+        Enabled = enabled;
         HolderLock = new LicenseKeyHolderLock(directorFolder);
         Reporter = new LicenseUsageReporter(tool, HolderLock, utcNow, machineName, osUser);
         Results = new LicenseSwitchResultStore(Path.Combine(directorFolder, "switch-results"), utcNow);
-        Coordinator = new LicenseSwitchCoordinator(tool, HolderLock, Results, Reporter, utcNow);
+        Coordinator = new LicenseSwitchCoordinator(tool, HolderLock, Results, Reporter, utcNow, enabled);
     }
+
+    /// <summary>Whether license switching is on for this Director (read once, at start).</summary>
+    public bool Enabled { get; }
 
     /// <summary>This process's instance.</summary>
     public static LicenseSwitching Shared => SharedInstance.Value;
@@ -54,15 +60,22 @@ public sealed class LicenseSwitching : IDisposable
         var configDir = Environment.GetEnvironmentVariable(DefaultConfigDirVariable);
         var storeDir = Environment.GetEnvironmentVariable(StoreDirVariable);
         var folder = DirectorFolder(storeDir);
-        FileLog.Write($"[LicenseSwitching] CreateForThisMachine: folder={folder}, isolatedConfig={!string.IsNullOrWhiteSpace(configDir)}, isolatedStore={!string.IsNullOrWhiteSpace(storeDir)}");
+        var enabled = Configuration.LicenseSwitchingSetting.Get();
+        FileLog.Write($"[LicenseSwitching] CreateForThisMachine: enabled={enabled}, folder={folder}, isolatedConfig={!string.IsNullOrWhiteSpace(configDir)}, isolatedStore={!string.IsNullOrWhiteSpace(storeDir)}");
         return new LicenseSwitching(new CcDevthrottleLicenseCommandLine(new LicenseCommandLineOptions(configDir, storeDir)),
-            folder, () => DateTime.UtcNow, Environment.MachineName, Environment.UserName);
+            folder, () => DateTime.UtcNow, Environment.MachineName, Environment.UserName, enabled);
     }
 
-    /// <summary>Puts the usage reporter on the scheduler once for the life of the process. Further calls do nothing.</summary>
+    /// <summary>Puts the usage reporter on the scheduler once for the life of the process, when license switching is
+    /// on. Further calls do nothing.</summary>
     public void Start()
     {
         if (Interlocked.Exchange(ref _started, 1) == 1) return;
+        if (!Enabled)
+        {
+            FileLog.Write("[LicenseSwitching] Start: license switching is turned off on this Director; no usage is read or reported");
+            return;
+        }
         FileLog.Write("[LicenseSwitching] Start");
         Results.Prune();
         Reporter.Start(Background.BackgroundJobs.Default);

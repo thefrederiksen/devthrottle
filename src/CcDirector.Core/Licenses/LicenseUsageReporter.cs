@@ -83,6 +83,13 @@ public sealed class LicenseUsageReporter
             return _readings.TryGetValue(accountEmail.Trim().ToLowerInvariant(), out var h) ? h.ReadError : null;
     }
 
+    /// <summary>When the last read said this account's sign-in stops working; null when not known.</summary>
+    public DateTime? SignInExpiryFor(string accountEmail)
+    {
+        lock (_gate)
+            return _readings.TryGetValue(accountEmail.Trim().ToLowerInvariant(), out var h) ? h.SignInExpiresAtUtc : null;
+    }
+
     /// <summary>Asks for a report with this trigger as soon as one can be sent. Never blocks.</summary>
     public void RequestReport(string trigger)
     {
@@ -108,6 +115,9 @@ public sealed class LicenseUsageReporter
         _job.StartTimer(TimeSpan.Zero);
         FileLog.Write($"[LicenseUsageReporter] Start: machine={_machineName}, user={_osUser}, every {ChangeCheckInterval.TotalSeconds:0}s");
     }
+
+    /// <summary>Whether the reporter is on the scheduler.</summary>
+    public bool IsScheduled => _job is not null;
 
     /// <summary>Takes the reporter off the scheduler.</summary>
     public void Stop()
@@ -299,7 +309,7 @@ public sealed class LicenseUsageReporter
         LicenseReadErrors.Network => "The provider could not be reached; the numbers shown are the last ones read.",
         LicenseReadErrors.UnexpectedAnswer => "The provider's answer could not be read; the numbers shown are the last ones read.",
         LicenseReadErrors.StoreUnreadable => "This machine could not read the sign-in for this account.",
-        _ => $"The usage read failed ({readError}).",
+        _ => "The usage read failed for a reason this Director does not recognise.",
     };
 
     private string? ErrorOf(string accountEmail)

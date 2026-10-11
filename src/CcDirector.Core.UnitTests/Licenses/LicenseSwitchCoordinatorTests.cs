@@ -34,8 +34,8 @@ public sealed class LicenseSwitchCoordinatorTests : IDisposable
         _folder.Dispose();
     }
 
-    private LicenseSwitchCoordinator NewCoordinator(LicenseKeyHolderLock? holder = null) =>
-        new(_tool, holder ?? _holder, new LicenseSwitchResultStore(Path.Combine(_folder.Path, "switch-results"), _clock.UtcNow), _reporter, _clock.UtcNow);
+    private LicenseSwitchCoordinator NewCoordinator(LicenseKeyHolderLock? holder = null, bool enabled = true) =>
+        new(_tool, holder ?? _holder, new LicenseSwitchResultStore(Path.Combine(_folder.Path, "switch-results"), _clock.UtcNow), _reporter, _clock.UtcNow, enabled);
 
     private LicenseSwitchRequest Request(string target = AccountB, string expected = AccountA, string id = SwitchId) => new()
     {
@@ -121,6 +121,42 @@ public sealed class LicenseSwitchCoordinatorTests : IDisposable
     }
 
     [Fact]
+    public async Task SwitchAsync_RefusedSwitchInProgressRetriedAfterTheOtherEnds_ReplaysTheRefusal()
+    {
+        // Review of 3868: a switch-in-progress refusal is a finished result for its SwitchId (contract 3.6). A Gateway
+        // that timed out before hearing it retries the same id, and must hear the refusal again, not run the switch.
+        _tool.SwitchGate = new TaskCompletionSource();
+        var coordinator = NewCoordinator();
+        var first = coordinator.SwitchAsync(Request(), CancellationToken.None);
+        while (_tool.SwitchCalls.Count == 0) await Task.Delay(5);
+        var refused = await coordinator.SwitchAsync(Request(target: AccountA, expected: AccountB, id: OtherSwitchId), CancellationToken.None);
+        _tool.SwitchGate.SetResult();
+        await first;
+
+        var retry = await NewCoordinator().SwitchAsync(Request(target: AccountA, expected: AccountB, id: OtherSwitchId), CancellationToken.None);
+
+        Assert.Equal(LicenseSwitchReasonCodes.SwitchInProgress, refused.ReasonCode);
+        Assert.True(retry.Replayed);
+        Assert.Equal(LicenseSwitchOutcomes.Failed, retry.Outcome);
+        Assert.Equal(LicenseSwitchReasonCodes.SwitchInProgress, retry.ReasonCode);
+        Assert.Single(_tool.SwitchCalls);
+    }
+
+    [Fact]
+    public async Task SwitchAsync_NotTheKeyHolderThenRetriedOnTheHolder_Runs()
+    {
+        // "Not the key holder" stays unstored: the results folder is shared, and the holder must run the same id.
+        using var notHeld = new LicenseKeyHolderLock(Path.Combine(_folder.Path, "elsewhere"));
+        var refused = await NewCoordinator(notHeld).SwitchAsync(Request(), CancellationToken.None);
+
+        var result = await NewCoordinator().SwitchAsync(Request(), CancellationToken.None);
+
+        Assert.Equal(LicenseSwitchReasonCodes.NotKeyHolder, refused.ReasonCode);
+        Assert.Equal(LicenseSwitchOutcomes.Switched, result.Outcome);
+        Assert.False(result.Replayed);
+    }
+
+    [Fact]
     public async Task SwitchAsync_SameSwitchIdWhileRunning_WaitsAndAnswersItsResultReplayed()
     {
         _tool.SwitchGate = new TaskCompletionSource();
@@ -193,6 +229,63 @@ public sealed class LicenseSwitchCoordinatorTests : IDisposable
 
         Assert.Equal(LicenseSwitchReasonCodes.SpareNotUsable, result.ReasonCode);
         Assert.Empty(_tool.SwitchCalls);
+    }
+
+    [Fact]
+    public async Task SwitchAsync_SpareSignInExpired_RefusesSpareNotUsable()
+    {
+        // Review of 3868, contract 3.3 step 9: a spare whose sign-in expires at or before now is not switched to.
+        _tool.SignInExpires[AccountB] = _clock.Now;
+        await _reporter.TickAsync(CancellationToken.None);
+
+        var result = await NewCoordinator().SwitchAsync(Request(), CancellationToken.None);
+
+        Assert.Equal(LicenseSwitchOutcomes.Failed, result.Outcome);
+        Assert.Equal(LicenseSwitchReasonCodes.SpareNotUsable, result.ReasonCode);
+        Assert.Empty(_tool.SwitchCalls);
+        Assert.Equal(AccountA, _tool.Active);
+    }
+
+    [Fact]
+    public async Task SwitchAsync_SpareSignInExpiresLater_StillSwitches()
+    {
+        _tool.SignInExpires[AccountB] = _clock.Now.AddMinutes(1);
+        await _reporter.TickAsync(CancellationToken.None);
+
+        var result = await NewCoordinator().SwitchAsync(Request(), CancellationToken.None);
+
+        Assert.Equal(LicenseSwitchOutcomes.Switched, result.Outcome);
+    }
+
+    [Fact]
+    public async Task SwitchAsync_LicenseSwitchingTurnedOff_FailsPlainlyAndTouchesNothing()
+    {
+        var result = await NewCoordinator(enabled: false).SwitchAsync(Request(), CancellationToken.None);
+
+        Assert.Equal(LicenseSwitchOutcomes.Failed, result.Outcome);
+        Assert.Equal(LicenseSwitchReasonCodes.NotKeyHolder, result.ReasonCode);
+        Assert.Equal(LicenseSwitchCoordinator.TurnedOffMessage, result.Message);
+        Assert.Equal(0, _tool.ListCalls);
+        Assert.Empty(_tool.SwitchCalls);
+
+        var turnedOn = await NewCoordinator().SwitchAsync(Request(), CancellationToken.None);   // not stored: runs when on
+        Assert.Equal(LicenseSwitchOutcomes.Switched, turnedOn.Outcome);
+    }
+
+    [Fact]
+    public async Task SwitchAsync_ToolReasonOutsideTheContract_IsNeitherReportedNorQuoted()
+    {
+        // Review of 3868, P1: a reason the contract has no word for could be anything the tool printed.
+        var marker = FakeLicenseCommandLine.ToolTextMarker;
+        _tool.SwitchAnswer = CcDevthrottleLicenseCommandLine.ReadSwitchAnswer(
+            "{\"outcome\": \"failed\", \"reasonCode\": \"" + marker + "\", " +
+            "\"previousActiveAccountEmail\": \"" + AccountA + "\", \"activeAccountEmailAfter\": \"" + AccountA + "\"}");
+
+        var result = await NewCoordinator().SwitchAsync(Request(), CancellationToken.None);
+
+        Assert.Equal(LicenseSwitchReasonCodes.ExchangeFailedUnknown, result.ReasonCode);
+        Assert.DoesNotContain(marker, result.Message);
+        Assert.DoesNotContain(marker, LicenseSwitchCoordinator.ExchangeFailureSentence(marker, AccountB));
     }
 
     [Fact]

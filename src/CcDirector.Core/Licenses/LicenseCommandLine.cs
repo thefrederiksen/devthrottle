@@ -76,6 +76,22 @@ public sealed class CcDevthrottleLicenseCommandLine : ILicenseCommandLine
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
+    /// <summary>The contract's read errors (section 2.2). A value outside it is never carried: it could be anything
+    /// the tool printed, a provider's answer included (rule 6.1).</summary>
+    private static readonly HashSet<string> KnownReadErrors = new(StringComparer.Ordinal)
+    {
+        LicenseReadErrors.Unauthorized, LicenseReadErrors.RefreshFailed, LicenseReadErrors.RateLimited,
+        LicenseReadErrors.Network, LicenseReadErrors.UnexpectedAnswer, LicenseReadErrors.StoreUnreadable,
+    };
+
+    /// <summary>The contract's switch reason codes (section 3.4), for the same reason.</summary>
+    private static readonly HashSet<string> KnownReasonCodes = new(StringComparer.Ordinal)
+    {
+        LicenseSwitchReasonCodes.NotKeyHolder, LicenseSwitchReasonCodes.SwitchInProgress, LicenseSwitchReasonCodes.Expired,
+        LicenseSwitchReasonCodes.ActiveAccountChanged, LicenseSwitchReasonCodes.SpareNotHeld, LicenseSwitchReasonCodes.SpareNotUsable,
+        LicenseSwitchReasonCodes.ExchangeFailedRestored, LicenseSwitchReasonCodes.ExchangeFailedUnknown, LicenseSwitchReasonCodes.VerifyFailed,
+    };
+
     private readonly LicenseCommandLineOptions _options;
     private readonly Func<string?> _resolveTool;
 
@@ -195,7 +211,17 @@ public sealed class CcDevthrottleLicenseCommandLine : ILicenseCommandLine
         using var document = ParseAccounts(output, "usage", out var rows);
         var holdings = rows.Deserialize<List<LicenseHolding>>(JsonOptions) ?? new List<LicenseHolding>();
         foreach (var h in holdings)
+        {
             h.AccountEmail = Normalize(h.AccountEmail, "usage");
+            // The tool's own words never travel (rule 6.1): the Director writes every detail itself.
+            h.ReadErrorDetail = null;
+            if (h.ReadError is not null && !KnownReadErrors.Contains(h.ReadError))
+            {
+                // The value is not logged either: it is not one of the contract's words, so it could be anything.
+                FileLog.Write($"[CcDevthrottleLicenseCommandLine] ReadUsageRows: account={h.AccountEmail} carried a read error outside the contract; read as '{LicenseReadErrors.UnexpectedAnswer}'");
+                h.ReadError = LicenseReadErrors.UnexpectedAnswer;
+            }
+        }
         return holdings;
     }
 
@@ -259,6 +285,14 @@ public sealed class CcDevthrottleLicenseCommandLine : ILicenseCommandLine
             if (answer is null) return null;
             if (answer.Outcome is not (LicenseSwitchOutcomes.Switched or LicenseSwitchOutcomes.AlreadyActive or LicenseSwitchOutcomes.Failed))
                 return null;
+            if (answer.ReasonCode is not null && !KnownReasonCodes.Contains(answer.ReasonCode))
+            {
+                // A failure for a reason the contract has no word for: what the exchange did is not known. The value
+                // is not logged or carried - it could be anything the tool printed (rule 6.1).
+                FileLog.Write($"[CcDevthrottleLicenseCommandLine] ReadSwitchAnswer: the answer carried a reason outside the contract; read as '{LicenseSwitchReasonCodes.ExchangeFailedUnknown}'");
+                answer.Outcome = LicenseSwitchOutcomes.Failed;
+                answer.ReasonCode = LicenseSwitchReasonCodes.ExchangeFailedUnknown;
+            }
             answer.PreviousActiveAccountEmail = (answer.PreviousActiveAccountEmail ?? "").Trim().ToLowerInvariant();
             answer.ActiveAccountEmailAfter = (answer.ActiveAccountEmailAfter ?? "").Trim().ToLowerInvariant();
             return answer;

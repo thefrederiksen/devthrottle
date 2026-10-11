@@ -23,7 +23,7 @@ public sealed class LicenseSwitchExecutorTests : IDisposable
     public LicenseSwitchExecutorTests()
     {
         Directory.CreateDirectory(_folder);
-        _licenses = new LicenseSwitching(_tool, _folder, () => DateTime.UtcNow, "the-windows-machine", "owner");
+        _licenses = new LicenseSwitching(_tool, _folder, () => DateTime.UtcNow, "the-windows-machine", "owner", enabled: true);
         Assert.True(_licenses.HolderLock.TryAcquire());
     }
 
