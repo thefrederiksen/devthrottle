@@ -1,3 +1,4 @@
+using CcDirector.Core.Tests.Git;
 using System.Diagnostics;
 using System.Text;
 using CcDirector.Core.Git;
@@ -15,40 +16,50 @@ namespace CcDirector.Core.Tests;
 ///   * a worktree with uncommitted work is NEVER in the safe set, and
 ///   * a squash-merged-then-deleted branch IS correctly classified as safe.
 /// </summary>
-public sealed class WorktreeInventoryIntegrationTests : IDisposable
+public sealed class WorktreeInventoryIntegrationTests : IClassFixture<WorktreeInventoryIntegrationTests.Template>, IDisposable
 {
     private readonly string _root;
     private readonly string _origin;
     private readonly string _primary;
 
-    public WorktreeInventoryIntegrationTests()
+    /// <summary>The bare origin and its primary clone, built once for the class and copied per test.</summary>
+    public sealed class Template : GitRepositoryTemplate
     {
-        _root = TestTempRoot.For("ccd-worktree-");
-        Directory.CreateDirectory(_root);
+        public Template() : base("ccd-worktree-") { }
+
+        protected override IReadOnlyList<string> Clones => new[] { "primary" };
+
+        protected override void Build(string root)
+        {
+            var origin = Path.Combine(root, "origin.git");
+            var primary = Path.Combine(root, "primary");
+
+            // Bare origin with a deterministic default branch, then a clone as the primary checkout.
+            RunGit(root, "-c", "init.defaultBranch=main", "init", "--bare", origin);
+            RunGit(root, "-c", "init.defaultBranch=main", "clone", origin, primary);
+            ConfigureIdentity(primary);
+
+            // An initial commit on main, pushed to origin so origin/main exists.
+            WriteFile(primary, "README.md", "initial\n");
+            RunGit(primary, "add", "-A");
+            RunGit(primary, "commit", "-m", "initial commit");
+            RunGit(primary, "branch", "-M", "main");
+            RunGit(primary, "push", "-u", "origin", "main");
+        }
+    }
+
+    public WorktreeInventoryIntegrationTests(Template template)
+    {
+        _root = template.CopyTo();
         _origin = Path.Combine(_root, "origin.git");
         _primary = Path.Combine(_root, "primary");
-
-        // Bare origin with a deterministic default branch, then a clone as the primary checkout.
-        RunGit(_root, "-c", "init.defaultBranch=main", "init", "--bare", _origin);
-        RunGit(_root, "-c", "init.defaultBranch=main", "clone", _origin, _primary);
-        ConfigureIdentity(_primary);
-
-        // An initial commit on main, pushed to origin so origin/main exists.
-        WriteFile(_primary, "README.md", "initial\n");
-        RunGit(_primary, "add", "-A");
-        RunGit(_primary, "commit", "-m", "initial commit");
-        RunGit(_primary, "branch", "-M", "main");
-        RunGit(_primary, "push", "-u", "origin", "main");
     }
 
     public void Dispose()
     {
-        // git worktrees hold handles; retry a little to be robust on Windows.
-        for (int attempt = 0; attempt < 3; attempt++)
-        {
-            try { Directory.Delete(_root, recursive: true); return; }
-            catch { Thread.Sleep(100); }
-        }
+        // The copy is this test's own; a delete that fails is reported, not retried and swallowed - the
+        // swallowed version leaked a folder per test for months, because git's objects are read-only.
+        TestTempRoot.DeleteTree(_root);
     }
 
     // -------------------------------------------------------------------------------------------
@@ -648,7 +659,7 @@ public sealed class WorktreeInventoryIntegrationTests : IDisposable
         }
     }
 
-    private void ConfigureIdentity(string repo)
+    private static void ConfigureIdentity(string repo)
     {
         RunGit(repo, "config", "user.email", "test@cc-director.local");
         RunGit(repo, "config", "user.name", "CC Director Test");
