@@ -33,7 +33,7 @@ public sealed class GatewayStatsStoreDisposeReleasesTheFileTests
         Assert.True(context.Database.CanConnect());
     }
 
-    [WindowsOnlyFact]
+    [WindowsOnlyFact("a held file blocks the folder delete only on Windows; on Unix the delete succeeds and there is nothing to observe")]
     public void Dispose_ReleasesTheSelfHostFile_SoItsFolderCanBeDeleted()
     {
         var dir = Path.Combine(Path.GetTempPath(), "cc-stats-store-dispose-" + Guid.NewGuid().ToString("N"));
@@ -54,7 +54,7 @@ public sealed class GatewayStatsStoreDisposeReleasesTheFileTests
         Assert.False(Directory.Exists(dir));
     }
 
-    [WindowsOnlyFact]
+    [WindowsOnlyFact("a held file blocks the folder delete only on Windows; on Unix the delete succeeds and there is nothing to observe")]
     public void Dispose_ReleasesOnlyItsOwnFile_AnotherStoresPooledConnectionIsLeftAlone()
     {
         // Two stores over two files in one process: a running Gateway next to a test, or two tests side by side.
