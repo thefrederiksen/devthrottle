@@ -47,7 +47,7 @@ public sealed class ReadyCueCrossCorrelateTests
         var fast = ReadyCue.CrossCorrelate(signal, template);
         var slow = SlidingDot(signal, template);
 
-        // Full-scale 16-bit samples against a template in the thousands: the sums reach 1e11. A relative
+        // Full-scale 16-bit samples against a template in the thousands: the sums reach about 1e9. A relative
         // tolerance of 1e-9 is a hundred times looser than double arithmetic and a hundred thousand times
         // tighter than anything that could move a score across the 0.5 threshold.
         double scale = Math.Max(1.0, slow.Max(v => Math.Abs(v)));

@@ -19,10 +19,11 @@ namespace CcDirector.Core.Audio;
 ///
 /// The dot product at every position is computed through the discrete Fourier transform
 /// (<see cref="CrossCorrelate"/>), not by sliding the template along the clip. The sliding form is a
-/// 3,200-sample template against 24,000 positions - 77 million multiply-adds per dictation - and whether
-/// that takes 25 milliseconds or 700 depends entirely on the just-in-time compiler vectorising the inner
-/// loop, which it does not do for a Debug build: the test suites paid the slow case on every recorder test.
-/// The transform form does the same arithmetic in about a million operations and is fast in any build.
+/// 4,800-sample template against about 32,000 positions at the desktop's 24 kHz capture rate - over 150
+/// million multiply-adds per dictation - and whether that takes tens of milliseconds or the better part of a
+/// second depends entirely on the just-in-time compiler vectorising the inner loop, which it does not do for a
+/// Debug build: the test suites paid the slow case on every recorder test. The transform form does the same
+/// arithmetic in about a million operations and is fast in any build.
 /// </summary>
 public static class ReadyCue
 {
