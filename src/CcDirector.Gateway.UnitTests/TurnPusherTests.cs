@@ -376,7 +376,7 @@ public sealed class TurnPusherTests
             return await gw.Push(b, ct);
         }, () => true, () => Now);
 
-        await pusher.PushSessionAsync(sid);   // the call returns; the work it could not finish is handed on
+        await pusher.PushSessionAsync(sid).WaitAsync(TimeSpan.FromSeconds(30));   // the call returns; the work it could not finish is handed on
 
         // The hand-off chain carries the rest. The watchdog only turns a hang into a failure; it never
         // decides a pass, because the event awaited is the ninth batch arriving, not time passing.

@@ -134,7 +134,7 @@ public sealed class GatewayStreamRegistryTests
         await flowing.Task; // a few frames have flowed
 
         registry.Close("inf"); // browser disconnected
-        await consume; // completes cleanly (cancellation swallowed), does not throw
+        await consume.WaitAsync(TimeSpan.FromSeconds(30)); // completes cleanly (cancellation swallowed), does not throw; the watchdog turns a hang into a failure
 
         Assert.True(sink.Completed);
         Assert.Equal(0, registry.LiveStreamCount);
