@@ -3,9 +3,11 @@
 Only the receiving machine can open it, and only for the transfer the owner approved:
 
 - the key is agreed twice with X25519 and the two results go through HKDF-SHA256 together: once from a fresh
-  ephemeral key made for this envelope alone (so one stolen machine key never opens envelopes recorded earlier), and
-  once from the SENDING machine's own static key (so the receiver knows which machine sealed it, not merely that
-  somebody did);
+  ephemeral key made for this envelope alone (so a stolen SENDING machine key never opens envelopes recorded
+  earlier), and once from the SENDING machine's own static key (so the receiver knows which machine sealed it, not
+  merely that somebody did). A stolen RECEIVING machine key does open every envelope recorded for that machine: both
+  halves can be computed from it. That machine already holds what it received in its plain store, so this protects
+  nothing the store does not already give away;
 - the entry is encrypted with AES-256-GCM, and the facts of the approval - the transfer id, the entry and the name it
   is stored under, both machines, the replace flag, the time it must arrive by and both machines' key fingerprints -
   are the additional authenticated data. Change any one of them, or hand the envelope to another machine or another

@@ -170,12 +170,12 @@ def _accepted(now: datetime) -> Dict[str, str]:
     try:
         document = json.loads(file.read().decode("utf-8"))
         rows = {str(k): str(v) for k, v in document["accepted"].items()}
+        cutoff = now - ACCEPTED_KEEP
+        return {k: v for k, v in rows.items() if datetime.fromisoformat(v) >= cutoff}
     except (ValueError, KeyError, TypeError, AttributeError) as exc:
         # Fail closed: without the list a replayed envelope could not be told from a new one.
         raise TransferRefused(f"{file.location} cannot be read ({type(exc).__name__}), so this machine cannot tell "
                               "whether it has received this transfer before. Nothing was stored.") from exc
-    cutoff = now - ACCEPTED_KEEP
-    return {k: v for k, v in rows.items() if datetime.fromisoformat(v) >= cutoff}
 
 
 def _remember(transfer_id: str, now: datetime) -> None:

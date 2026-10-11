@@ -455,3 +455,27 @@ def test_Send_Json_Stored_IsJson(gateway):
 
     assert result.exit_code == 0, result.output
     assert json.loads(result.stdout)["outcome"] == "stored"
+
+
+def test_TransferReceiveCommand_ReadsStandardInputAsUtf8_SoAnAccentedNameIsNotChanged(two, monkeypatch):
+    seen = {}
+
+    def capture(payload, transfer_id, store, audit):
+        seen["entry"] = payload["entry"]
+        return {"ok": True, "stored": payload["entry"]}
+
+    monkeypatch.setattr(transfer, "receive_half", capture)
+    raw = json.dumps({"transferId": TID, "entry": "qa-handoff-caf\u00e9"}, ensure_ascii=False).encode("utf-8")
+    with on(two["mac"], two["mp"]):
+        result = runner.invoke(cli.app, ["transfer-receive", TID], input=raw)
+
+    assert result.exit_code == 0
+    assert seen["entry"] == "qa-handoff-caf\u00e9"
+
+
+def test_AcceptedList_WithAMalformedTime_IsARefusalWithTheReason_NotACrash(two):
+    with on(two["mac"], two["mp"]):
+        transfer._accepted_file().write(json.dumps({"version": 1, "accepted": {TID: "not a time"}}).encode("utf-8"))
+
+        with pytest.raises(transfer.TransferRefused, match="cannot be read"):
+            transfer._accepted(datetime.now(timezone.utc))

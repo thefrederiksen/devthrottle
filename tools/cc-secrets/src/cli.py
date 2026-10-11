@@ -1185,7 +1185,9 @@ def _half(command: str, transfer_id: str, run) -> None:
     {ok: false, reason} with exit 2. A fault prints nothing on standard output, so the Director reports it as a fault
     without passing on any text."""
     try:
-        payload = json.loads(sys.stdin.read() or "null")
+        # The Director writes UTF-8 without a byte order mark; the console code page would change an accented entry
+        # name, and with it the bound facts, so the envelope would not open.
+        payload = json.loads(sys.stdin.buffer.read().decode("utf-8") or "null")
     except ValueError:
         payload = None
     try:
