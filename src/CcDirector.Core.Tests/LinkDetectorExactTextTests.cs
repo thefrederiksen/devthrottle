@@ -210,13 +210,13 @@ public class LinkDetectorExactTextTests
     [Fact]
     public void LongTailOfBrackets_IsTrimmedQuickly()
     {
+        // No stopwatch: a pattern that backtracked badly on this line would run past the detector's own regular
+        // expression timeout and throw, which fails the test without measuring how fast this machine is.
         string line = "https://example.com/a" + new string(')', 10000);
-        var watch = System.Diagnostics.Stopwatch.StartNew();
 
         var (underlined, _, _) = OnlyLink(line);
 
         Assert.Equal("https://example.com/a", underlined);
-        Assert.True(watch.ElapsedMilliseconds < 50, $"took {watch.ElapsedMilliseconds} ms");
     }
 
     // ---- paths ---------------------------------------------------------------------------------

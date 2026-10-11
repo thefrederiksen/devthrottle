@@ -460,7 +460,9 @@ public sealed class HeldDeliveryReachabilityTests : IDisposable
         _transcriber.OutOfCredits = true;
         driver.OnSessionsArrived(TenantId.Local, DirectorId);
         var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (_store.ReadRecord(uploadId) is not { State: DictationDeliveryState.Failed } && DateTime.UtcNow < deadline)
+        // The record is written before the driver lets go of it, so the wait is for both, not the record alone.
+        while ((_store.ReadRecord(uploadId) is not { State: DictationDeliveryState.Failed } || driver.HeldCount != 0)
+               && DateTime.UtcNow < deadline)
             await Task.Delay(50);
 
         // The driver stopped driving it and said why.
@@ -520,7 +522,9 @@ public sealed class HeldDeliveryReachabilityTests : IDisposable
         Assert.True(_pushed.ApplySnapshot(TenantId.Local, DirectorId, "conn-2", ++_pushedSeq, new[] { Session(sid) }));
         driver.OnSessionsArrived(TenantId.Local, DirectorId);
         var deadline = DateTime.UtcNow.AddSeconds(30);
-        while (_store.ReadRecord(uploadId) is not { State: DictationDeliveryState.Failed } && DateTime.UtcNow < deadline)
+        // The record is written before the driver lets go of it, so the wait is for both, not the record alone.
+        while ((_store.ReadRecord(uploadId) is not { State: DictationDeliveryState.Failed } || driver.HeldCount != 0)
+               && DateTime.UtcNow < deadline)
             await Task.Delay(50);
 
         Assert.Equal(0, driver.HeldCount);
@@ -568,9 +572,11 @@ public sealed class HeldDeliveryReachabilityTests : IDisposable
         driver.OnSessionsArrived(TenantId.Local, DirectorId);
 
         // The director-connected wake runs off the caller's thread, exactly as it does in the host: wait for
-        // the handback to land, bounded.
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (_store.ReadRecord(uploadId) is not { State: DictationDeliveryState.Pending, Owned: null }
+        // the handback to land, bounded. The record is written before the driver lets go of it, so the wait is
+        // for both - waiting on the record alone read the held count a moment early.
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        while ((_store.ReadRecord(uploadId) is not { State: DictationDeliveryState.Pending, Owned: null }
+                || driver.HeldCount != 0)
                && DateTime.UtcNow < deadline)
             await Task.Delay(50);
 

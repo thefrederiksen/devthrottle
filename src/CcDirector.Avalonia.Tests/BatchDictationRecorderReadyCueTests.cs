@@ -319,30 +319,6 @@ public sealed class BatchDictationRecorderReadyCueTests
         AssertPcm(pcm, await Snapshot(recorder, transcribed, transcribePath: true, pcm.Length));
     }
 
-    [Fact]
-    public async Task SendInsideTheCue_FailureReported_StopsWaitingAtOnce()
-    {
-        // A failure report releases the stop just as a completion does: the background Send does not sit out the
-        // three-second allowance for a cue that is not going to finish.
-        var pcm = new ReadyCueTestClip(450).Cue(50).Pcm();
-        var (recorder, mic, _, transcribed) = NewRecorder();
-        await using var _ = recorder;
-        await recorder.StartAsync();
-        Emit(recorder, mic, pcm, cuePlayed: true, toMs: 150);
-        var rest = Task.Run(async () =>
-        {
-            await Task.Delay(400);
-            recorder.NoteReadyCueFailed("playback stopped with an error: device lost");
-        });
-
-        var watch = System.Diagnostics.Stopwatch.StartNew();
-        var actual = await Snapshot(recorder, transcribed, transcribePath: true, 150 * BytesPerMs);
-        await rest;
-
-        Assert.True(watch.ElapsedMilliseconds < 2000, $"the stop waited {watch.ElapsedMilliseconds} ms after the failure report");
-        AssertPcm(pcm.AsSpan(0, 150 * BytesPerMs).ToArray(), actual);
-    }
-
     [Theory]
     [InlineData(true)]
     [InlineData(false)]

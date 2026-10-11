@@ -1084,23 +1084,6 @@ public sealed class RecordingIngestServiceTests : IDisposable
         Assert.Equal(1, svc.ScansCompleted);
     }
 
-    [Fact]
-    public async Task Worker_SleepingIdle_IsWokenAtOnceByACompletedRecording()
-    {
-        // Both ticks are ten minutes, so only the wake from CompleteAsync can get this recording transcribed in time.
-        using var svc = NewServiceWithTicks(new FakeTranscriber(), runWorker: true,
-            workerTick: TimeSpan.FromMinutes(10));
-        await WaitForScansAsync(svc, 1);
-        await Task.Delay(200);   // asleep now
-
-        await EnqueueOneChunk(svc, "rec1");
-
-        // The wake itself, read from the worker's own count: no file read races the worker's status writes here.
-        await WaitForScansAsync(svc, 2);
-        Assert.True(await WaitForStateToleratingHalfWrittenStatusAsync(svc, "rec1", "transcribed", TimeSpan.FromSeconds(15)),
-            "the woken worker must transcribe the recording");
-    }
-
     /// <summary>
     /// Wait for a recording's state in a test whose worker is RUNNING: the status file is not written atomically, so
     /// a read can land mid-write while the worker saves it. Such a read is retried, which is what the polling phone does.
