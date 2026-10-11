@@ -138,6 +138,46 @@ public sealed class AtomicFileReplaceTests : IDisposable
         Assert.Equal(TimeSpan.FromMilliseconds(120), clock.GetUtcNow() - FakeStart);
     }
 
+    /// <summary>
+    /// A pause that oversleeps never buys an attempt past the deadline: with pauses running 40 ms long, the
+    /// attempts are at 0 and 90 ms, the next pause lands at 160 ms, and the write fails there without trying.
+    /// </summary>
+    [Fact]
+    public void RenameThroughScannerVeto_PauseOversleepsTheDeadline_FailsWithoutAnotherAttempt()
+    {
+        var clock = new FakeTimeProvider();
+        var attemptTimes = new List<TimeSpan>();
+
+        Assert.Throws<Win32Exception>(() => AtomicFileReplace.RenameThroughScannerVeto(
+            () => { attemptTimes.Add(clock.GetUtcNow() - FakeStart); return 5; },
+            "temp", "list.json", clock, requested => clock.Advance(requested + TimeSpan.FromMilliseconds(40)),
+            deadline: TimeSpan.FromMilliseconds(120), pauseBetween: TimeSpan.FromMilliseconds(50)));
+
+        Assert.Equal(new[] { 0, 90 }, attemptTimes.Select(t => (int)t.TotalMilliseconds));
+        Assert.All(attemptTimes, t => Assert.True(t <= TimeSpan.FromMilliseconds(120)));
+    }
+
+    /// <summary>
+    /// The real Windows write, with a rename that fails: the temporary file it created through a real handle
+    /// is gone afterwards - for an immediate failure and for a veto that outlasts the deadline.
+    /// </summary>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(5)]
+    public void WriteOnWindows_RenameFails_TheTemporaryIsRemovedWithTheHandle(int renameError)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var destination = Path.Combine(_dir, "list.json");
+        var temporary = Path.Combine(_dir, ".list.json.test.tmp");
+        var clock = new FakeTimeProvider();
+
+        var ex = Assert.Throws<Win32Exception>(() => AtomicFileReplace.WriteOnWindows(temporary, destination,
+            new byte[] { 1, 2, 3 }, (_, _) => renameError, clock, clock.Advance));
+
+        Assert.Equal(renameError, ex.NativeErrorCode);
+        Assert.Empty(Directory.GetFiles(_dir));
+    }
+
     private static readonly DateTimeOffset FakeStart = new FakeTimeProvider().GetUtcNow();
 
     [Fact]
