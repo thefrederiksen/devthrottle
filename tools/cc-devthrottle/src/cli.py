@@ -1860,7 +1860,10 @@ def errors_website_token(
         None, "--gateway", help="Mint on this Gateway instead of CC_GATEWAY_URL, e.g. the hosted one."
     ),
 ) -> None:
-    """Mint (or rotate) the token the website files its errors with. Shown once. Needs ADMIN_SERVICE_TOKEN."""
+    """Mint or rotate the website's error-report token. Needs ADMIN_SERVICE_TOKEN.
+
+    Mints (or rotates) the token the website files its errors with. The token is shown once.
+    """
     from .errors_ops import mint_website_token
 
     mint_website_token(json_output=json_output, gateway_url=gateway_url)
