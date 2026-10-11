@@ -11,6 +11,7 @@ namespace CcDirector.Engine.Tests.Scheduling;
 /// fails is killed and the run ends only once it is gone. EN-F4: a run whose killed command was not seen
 /// to exit is revisited every tick, and its claim released once the command is proven gone.
 /// </summary>
+[Collection("RealProcesses")]
 public sealed class UnconfirmedStopTests : IDisposable
 {
     private readonly string _dbPath;

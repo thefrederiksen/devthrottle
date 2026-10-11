@@ -45,6 +45,7 @@ internal sealed class BufferOnlyBackend : ISessionBackend
 /// There is no other colour algorithm (no buffer scan, no byte-burst heuristic, no
 /// turn-summary voting) - those were removed.
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class SessionStatusWingmanTests
 {
     // ---------- The one state -> colour mapping ----------

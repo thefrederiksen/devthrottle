@@ -15,6 +15,7 @@ namespace CcDirector.Core.Tests.Sessions;
 /// (<see cref="Core.Claude.StreamMessageParser"/>) is in the path. Hand-built ContentBlock objects
 /// would prove the sorting logic and nothing about whether a real transcript ever produces it.
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class PendingInteractionDetectorTests : IDisposable
 {
     private readonly string _directory =

@@ -14,6 +14,7 @@ namespace CcDirector.Core.Tests;
 /// remote/embedded backend, is kept so the user sees it and crash recovery (#212)
 /// can act.
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class SessionReapOnExitTests
 {
     // ---- ShouldReapOnExit decision (pure) ----

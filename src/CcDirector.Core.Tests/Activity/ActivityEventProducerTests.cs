@@ -15,6 +15,7 @@ namespace CcDirector.Core.Tests.Activity;
 /// recording backend (the SessionInteractiveTests harness) and wired by hand - the manager fan-out is the
 /// same Wire call.
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class ActivityEventProducerTests : IDisposable
 {
     private readonly string _dir =

@@ -6,6 +6,7 @@ using CcDirector.Core.Tests.Drivers;
 
 namespace CcDirector.Core.Tests.Feedback;
 
+[Collection("ProcessWideState")]
 public sealed class FeedbackServiceTests : IDisposable
 {
     /// <summary>

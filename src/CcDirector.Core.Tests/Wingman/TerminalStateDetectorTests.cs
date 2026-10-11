@@ -6,6 +6,7 @@ using Xunit;
 
 namespace CcDirector.Core.Tests.Wingman;
 
+[Collection("ProcessWideState")]
 public sealed class TerminalStateDetectorTests : System.IDisposable
 {
     private readonly SessionManager _manager;

@@ -26,6 +26,7 @@ namespace CcDirector.Core.Tests.Storage;
 /// ConnectionProfile composes Connections), so the parameterless set is the complete set of
 /// independently named paths, and guarding it guards everything a parameterized composer could reach.
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class CcStorageProtectedPathsTests
 {
     // The reasons a path may be declared not protected, so each entry states one honest, checkable

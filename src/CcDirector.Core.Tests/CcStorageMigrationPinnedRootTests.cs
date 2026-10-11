@@ -18,6 +18,7 @@ namespace CcDirector.Core.Tests;
 /// matters, because it asserts on what a real migration run actually does to a pinned root rather than
 /// on what the flag says it should do.
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class CcStorageMigrationPinnedRootTests
 {
     [Theory]

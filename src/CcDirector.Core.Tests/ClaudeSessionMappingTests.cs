@@ -9,6 +9,7 @@ namespace CcDirector.Core.Tests;
 /// Tests for Claude session ID ↔ Director session mapping:
 /// RegisterClaudeSession, RelinkClaudeSession, GetSessionByClaudeId.
 /// </summary>
+[Collection("ProcessWideState")]
 public class ClaudeSessionMappingTests : IDisposable
 {
     private readonly SessionManager _manager;

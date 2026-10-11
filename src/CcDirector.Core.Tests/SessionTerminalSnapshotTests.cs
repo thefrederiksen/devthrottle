@@ -14,6 +14,7 @@ namespace CcDirector.Core.Tests;
 /// buffer has wrapped past the bytes that drew part of it - the case that made an incrementally
 /// repainting agent (Codex) tear on the old mid-stream byte replay.
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class SessionTerminalSnapshotTests
 {
     private static Session NewSession(ISessionBackend backend)

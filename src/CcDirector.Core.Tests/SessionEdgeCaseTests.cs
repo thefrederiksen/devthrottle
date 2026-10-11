@@ -9,6 +9,7 @@ namespace CcDirector.Core.Tests;
 /// Edge case and error handling tests for sessions: invalid operations,
 /// concurrent access, disposed sessions, etc.
 /// </summary>
+[Collection("ProcessWideState")]
 public class SessionEdgeCaseTests : IDisposable
 {
     private readonly SessionManager _manager;

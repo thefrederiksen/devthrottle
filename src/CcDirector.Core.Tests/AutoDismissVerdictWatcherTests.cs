@@ -14,6 +14,7 @@ namespace CcDirector.Core.Tests;
 /// stamping <see cref="Session.DismissVerdict"/>. The conservative rule is verified: no block leaves the
 /// verdict null, so the Gateway never auto-closes without an explicit "done".
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class AutoDismissVerdictWatcherTests
 {
     [Fact]

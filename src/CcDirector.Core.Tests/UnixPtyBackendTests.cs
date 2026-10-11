@@ -12,6 +12,7 @@ namespace CcDirector.Core.Tests;
 /// and exit with "Input must be provided either through stdin or as a prompt argument".
 /// The child MUST see a real TTY on stdin.
 /// </summary>
+[Collection("ProcessWideState")]
 public class UnixPtyBackendTests
 {
     private static bool OnUnix => !RuntimeInformation.IsOSPlatform(OSPlatform.Windows);

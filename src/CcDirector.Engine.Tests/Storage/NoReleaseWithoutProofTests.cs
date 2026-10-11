@@ -12,6 +12,7 @@ namespace CcDirector.Engine.Tests.Storage;
 /// is treated as proof - the end is conditional on the state it was decided from, the executor checks its
 /// own writes, and a migrated open run is never taken for "never started".
 /// </summary>
+[Collection("RealProcesses")]
 public sealed class NoReleaseWithoutProofTests : IDisposable
 {
     private readonly string _dbPath;

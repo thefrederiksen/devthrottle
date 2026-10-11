@@ -6,6 +6,7 @@ using Xunit;
 
 namespace CcDirector.Core.Tests.Drivers;
 
+[Collection("ProcessWideState")]
 public sealed class CodexDriverTests : IDisposable
 {
     /// <summary>

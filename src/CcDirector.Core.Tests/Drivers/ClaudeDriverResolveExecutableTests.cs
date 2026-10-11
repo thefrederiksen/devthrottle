@@ -9,6 +9,7 @@ namespace CcDirector.Core.Tests.Drivers;
 /// platform - a hardcoded claude.exe left the warm brain unable to spawn its agent off Windows. This
 /// test drops a file named for the current platform on a temporary PATH and asserts the driver finds it.
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class ClaudeDriverResolveExecutableTests : IDisposable
 {
     private readonly string _tempDir;

@@ -17,6 +17,7 @@ namespace CcDirector.Core.Tests.Utilities;
 /// The half of the fix that does not need static state - Enqueue never throwing - is tested in
 /// Core.UnitTests, so it runs in the default gate.
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class FileLogRestartAfterStopTests
 {
     [Fact]

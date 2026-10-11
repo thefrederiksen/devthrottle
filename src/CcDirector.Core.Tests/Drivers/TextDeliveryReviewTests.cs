@@ -5,6 +5,7 @@ using Xunit;
 namespace CcDirector.Core.Tests.Drivers;
 
 /// <summary>Findings of the Fable review of text delivery (issue #3290, 24 September 2026) that need a recording terminal.</summary>
+[Collection("ProcessWideState")]
 public sealed class TextDeliveryReviewTests : IDisposable
 {
     private readonly PinnedMachineMemory _machine = PinnedMachineMemory.Healthy();

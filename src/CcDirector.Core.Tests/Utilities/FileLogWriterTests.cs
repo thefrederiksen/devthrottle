@@ -14,6 +14,7 @@ namespace CcDirector.Core.Tests.Utilities;
 // Each test uses an injectable clock so midnight can be crossed deterministically with no
 // real waiting.
 // =====================================================================================
+[Collection("ProcessWideState")]
 public sealed class FileLogWriterTests : IDisposable
 {
     private readonly string _logDir;

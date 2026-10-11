@@ -16,6 +16,7 @@ namespace CcDirector.Core.Tests;
 ///   * a worktree with uncommitted work is NEVER in the safe set, and
 ///   * a squash-merged-then-deleted branch IS correctly classified as safe.
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class WorktreeInventoryIntegrationTests : IClassFixture<WorktreeInventoryIntegrationTests.Template>, IDisposable
 {
     private readonly string _root;

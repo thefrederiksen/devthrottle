@@ -16,6 +16,7 @@ namespace CcDirector.Core.Tests.Update;
 /// These assert the decision (<see cref="UpdateInstaller.BuildRelaunchStartInfo"/>), which is what
 /// both the post-update relaunch and the post-rollback relaunch start from.
 /// </summary>
+[Collection("ProcessWideState")]
 public class UpdateRelaunchInstanceTests
 {
     [Fact]

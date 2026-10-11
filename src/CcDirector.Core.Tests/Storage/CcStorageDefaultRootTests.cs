@@ -21,6 +21,7 @@ namespace CcDirector.Core.Tests.Storage;
 /// ResolveDefaultBase takes its inputs as parameters rather than reading the environment, so these tests
 /// need no CC_DIRECTOR_ROOT mutation and are safe to run in parallel with the rest of the suite.
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class CcStorageDefaultRootTests : IDisposable
 {
     private readonly List<string> _tempDirs = new();

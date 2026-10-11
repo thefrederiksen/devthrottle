@@ -13,6 +13,7 @@ namespace CcDirector.Core.Tests;
 ///
 /// Design: docs/new_architecture/sessions.html.
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class GatewayDisplayStateSignalTests
 {
     private static Session NewSession()

@@ -1,7 +1,8 @@
 using Xunit;
 
-// Run this assembly's tests sequentially - same rationale as CcDirector.Core.Tests: several
-// scheduler/timing tests spin up background work and assert on wall-clock-bounded outcomes, which
-// flake under xUnit's default parallelism on CI's few vCPUs. Sequential execution gives them the
-// CPU to meet their deadlines; coverage is unchanged.
-[assembly: CollectionBehavior(DisableTestParallelization = true)]
+// Four test threads instead of one. The classes that run REAL PROCESSES through the job executor (the
+// scheduler, the claim, the stop, the shared-database race) sit in the RealProcesses collection, defined with
+// DisableParallelization, so xUnit runs them with nothing beside them; the database, cron and dispatcher
+// classes run four wide. The scheduler's waits are on an injected clock since October 2026, so they no
+// longer need the whole machine to meet a wall-clock deadline.
+[assembly: CollectionBehavior(MaxParallelThreads = 4)]

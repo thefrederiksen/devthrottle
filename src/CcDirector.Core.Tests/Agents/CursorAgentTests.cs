@@ -11,6 +11,7 @@ namespace CcDirector.Core.Tests.Agents;
 /// round-trip (AC1), the launch-spec contract (AC2), and executable/path resolution
 /// (AC3).
 /// </summary>
+[Collection("ProcessWideState")]
 public class CursorAgentTests
 {
     // ---------------------------------------------------------------- AC1

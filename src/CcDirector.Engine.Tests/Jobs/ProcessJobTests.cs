@@ -7,6 +7,7 @@ namespace CcDirector.Engine.Tests.Jobs;
 /// The process half the factory triggers borrow: the exit code, the standard error kept apart from the output, the
 /// timeout, and the shell chosen for the operating system.
 /// </summary>
+[Collection("RealProcesses")]
 public sealed class ProcessJobTests
 {
     [Fact]

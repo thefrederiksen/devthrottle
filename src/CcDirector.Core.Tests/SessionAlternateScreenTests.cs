@@ -12,6 +12,7 @@ namespace CcDirector.Core.Tests;
 /// versus normal terminal buffer. Feeds the actual enter/leave sequences through the same path
 /// the real backend uses (the terminal buffer's OnBytesWritten event -> the server-side parser).
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class SessionAlternateScreenTests
 {
     [Fact]

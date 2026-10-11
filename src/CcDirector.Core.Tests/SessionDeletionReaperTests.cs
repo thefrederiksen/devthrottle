@@ -13,6 +13,7 @@ namespace CcDirector.Core.Tests;
 /// window has elapsed AND it is not actively Working (option (a): never cut off a final in-flight turn).
 /// The flag is set asynchronously to the removal, so the calling process is never yanked mid-request.
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class SessionDeletionReaperTests
 {
     private static Session NewSession(ExitableBackend backend)

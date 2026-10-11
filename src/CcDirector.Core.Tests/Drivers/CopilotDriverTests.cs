@@ -10,6 +10,7 @@ namespace CcDirector.Core.Tests.Drivers;
 /// capability honesty (AC14), the launch-spec session-id preassignment (AC2/AC11), session-id
 /// capture and the --output-format json JSONL transcript parse against a committed fixture (AC12).
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class CopilotDriverTests : IDisposable
 {
     /// <summary>

@@ -28,6 +28,7 @@ namespace CcDirector.Core.Tests.Claude;
 /// FileSystemWatcher. It used to need a running Control API host and therefore sat in the Gateway suite
 /// behind that suite's machine-wide lock; the whole point of this phase is that it does not need one now.
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class HookScriptRoundTripTests : IDisposable
 {
     private readonly string _dir;

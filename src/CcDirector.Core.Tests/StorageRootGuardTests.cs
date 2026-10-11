@@ -27,6 +27,7 @@ namespace CcDirector.Core.Tests;
 /// DEFINE the install root rather than consume it - they are the code that creates the folder CcStorage
 /// later reads, and they must target the real machine to install onto it.
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class StorageRootGuardTests
 {
     /// <summary>

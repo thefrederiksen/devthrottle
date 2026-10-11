@@ -9,6 +9,7 @@ namespace CcDirector.Core.Tests;
 /// Tests for session persistence: SaveCurrentState, SaveSessionState,
 /// LoadPersistedSessions, and the new SortOrder/ExpectedFirstPrompt fields.
 /// </summary>
+[Collection("ProcessWideState")]
 public class SessionPersistenceTests : IDisposable
 {
     private readonly SessionManager _manager;

@@ -15,6 +15,7 @@ namespace CcDirector.Core.Tests.Wingman;
 /// of the same work item - that the row form and the joined form of the body cannot drift apart -
 /// is in <c>TerminalBodyRowsTests</c>, in the project that actually runs at commit time.
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class TerminalSettledCaptureTests : System.IDisposable
 {
     private readonly SessionManager _manager;

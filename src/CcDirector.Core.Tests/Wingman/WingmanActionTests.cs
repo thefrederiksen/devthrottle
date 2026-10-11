@@ -14,6 +14,7 @@ namespace CcDirector.Core.Tests.Wingman;
 /// (<see cref="WingmanActionExecutor"/>). The decision LLM call itself is not exercised
 /// here (it spawns claude); these pin down the deterministic pieces around it.
 /// </summary>
+[Collection("ProcessWideState")]
 public sealed class WingmanActionTests
 {
     // ---------- ParseActionDecisionJson ----------

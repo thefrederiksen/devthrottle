@@ -8,6 +8,7 @@ namespace CcDirector.Core.Tests;
 /// Guards the embedded manifest's integrity and the catalog's honesty guarantee: every built cc-*
 /// binary is either declared in the manifest or surfaced as unmanaged - never silently dropped.
 /// </summary>
+[Collection("ProcessWideState")]
 public class ToolManifestTests
 {
     [Fact]
