@@ -1,0 +1,37 @@
+$ cc-devthrottle factory manager show      (as session 4c104657-61c0-4a16-91e2-0f7d477f4fab)
+factory-manager:
+  id: 4c104657-61c0-4a16-91e2-0f7d477f4fab
+  name: Factory Manager - WarmForward (QA) - handle the issue (qa-warmforward - writer)
+  computer: SOREN_NORTH
+  folder: C:\Users\soren\AppData\Local\Temp\factory-manager-qa\factories
+help[2]:
+  cc-devthrottle factory manager clear
+  cc-devthrottle session buffer 4c104657-61c0-4a16-91e2-0f7d477f4fab
+[exit 0]
+
+$ cc-devthrottle factory name-check      (as session 4c104657-61c0-4a16-91e2-0f7d477f4fab)
+count: 2
+factories-checked: 2
+rule: A seat is flagged when its id, name or role says CEO (a factory has a boss, not a CEO), or when its name is not a role word of its factory - one of the roles its seats are registered with, or Boss for the boss seat. Seats are role words only, never a person's name.
+findings[2]{factory,seat,kind,text}:
+  qa-warmforward,chief,ceo,"WarmForward (QA): the seat 'chief' (named 'Chief', role 'CEO') says CEO. A factory has a boss, not a CEO."
+  qa-warmforward,writer,not-a-role-word,"WarmForward (QA): the seat 'writer' is named 'Nora Hale', which is not a role word of this factory (its role is Writer). Name it by its role."
+help[1]:
+  cc-devthrottle factory status --factory <id>
+[exit 0]
+
+$ cc-devthrottle run resolve fa801b57-4bcf-425f-9d7b-a2d1ead39a42 "I am not the bound Factory Manager any more"      (as session 4e891283-ca24-445d-b75a-90611946f7c8)
+Error: this run belongs to factory 'qa-warmforward', so only a person or a session of 'qa-warmforward' may change or run it
+help[1]:
+  cc-devthrottle run problems
+[exit 1]
+
+$ cc-devthrottle run resolve fa801b57-4bcf-425f-9d7b-a2d1ead39a42 "Restarted the writer's schedule; the summary went out at 14:10."      (as session 4c104657-61c0-4a16-91e2-0f7d477f4fab)
+Resolved the problem on run fa801b57-4bcf-425f-9d7b-a2d1ead39a42.
+schedule: qa-warmforward - writer (cj_d7f3e2)
+problem: did not report - its session ended without reporting how the run went (stopped by you after 12 min)
+resolved by: the Factory Manager (session 4c104657-61c0-4a16-91e2-0f7d477f4fab)
+reason: Restarted the writer's schedule; the summary went out at 14:10.
+help[1]:
+  cc-devthrottle run problems
+[exit 0]
