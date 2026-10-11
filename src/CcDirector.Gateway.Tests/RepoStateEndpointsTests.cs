@@ -47,7 +47,7 @@ public sealed class RepoStateEndpointsTests : IAsyncLifetime
     {
         var db = _h.Open(new AsyncLocalTenantContext());
         _devices = new DeviceRegistry(_devPath);
-        var boundary = new HostedTenantBoundary(new AsyncLocalTenantContext(), _devices);
+        var boundary = new HostedTenantBoundary(new AsyncLocalTenantContext(), _devices, hosted: false);
         _store = new RepoStateStore(db);
 
         var builder = WebApplication.CreateBuilder();
@@ -57,7 +57,7 @@ public sealed class RepoStateEndpointsTests : IAsyncLifetime
 
         // The REAL host-wide gate, so an unauthenticated push meets the production wall rather than a
         // stand-in.
-        var cfg = new AuthMiddleware.RequireToken { Token = SharedToken, Devices = _devices };
+        var cfg = new AuthMiddleware.RequireToken { Hosted = false, Token = SharedToken, Devices = _devices };
         _app.Use(async (ctx, next) => await AuthMiddleware.Run(ctx, cfg, next));
 
         // The hosted pipeline's tenant middleware: after auth, enter the scope the authenticated device key

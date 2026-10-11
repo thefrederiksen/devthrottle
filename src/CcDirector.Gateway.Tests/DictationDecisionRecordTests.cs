@@ -578,7 +578,7 @@ public sealed class DictationDecisionRecordTests : IAsyncLifetime
         new KeyVault(_vaultPath),
         http: new HttpClient(new TranscriptStub()),
         history: new TranscriptionHistoryLog(Path.Combine(_root, "transcription-history")),
-        audioArchive: new TranscriptionAudioArchive(Path.Combine(_root, "audio")));
+        audioArchive: new TranscriptionAudioArchive(false, Path.Combine(_root, "audio")));
 
     private sealed class TranscriptStub : HttpMessageHandler
     {

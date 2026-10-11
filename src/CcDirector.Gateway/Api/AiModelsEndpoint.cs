@@ -66,8 +66,9 @@ internal static class AiModelsEndpoint
 
     /// <summary>
     /// The hosted refusal payload for every model-settings route (issue #1863). Validated on construction,
-    /// so a blank field fails the Gateway at startup. The primitive reads <see cref="GatewayHostedMode.IsHosted"/>
-    /// DIRECTLY, never an optional argument that fails OPEN when a caller forgets it. 404 rather than 403: on
+    /// so a blank field fails the Gateway at startup. The primitive takes the mode as a REQUIRED argument (read
+    /// once at startup into <c>GatewayHostOptions</c>), never an optional one that fails OPEN when a caller
+    /// forgets it. 404 rather than 403: on
     /// hosted these routes do not exist as a concept, and 403 would imply some credential could reach them.
     /// </summary>
     private static HostedDenial Denial() => new(
@@ -86,12 +87,12 @@ internal static class AiModelsEndpoint
     /// test can map a BRAND-NEW route onto the handle and find it already refused on hosted with no deny of
     /// its own. Without that return value nothing outside this file can state the future-route property.
     /// </summary>
-    public static HostedDenyGroup Map(IEndpointRouteBuilder outer, KeyVault vault,
+    public static HostedDenyGroup Map(IEndpointRouteBuilder outer, bool hosted, KeyVault vault,
         TenantSettingsResolver resolver, HostedTenantBoundary? tenantBoundary)
     {
-        FileLog.Write($"[AiModelsEndpoint] mapping the model settings; hosted={GatewayHostedMode.IsHosted} - per-account model setters serve; the catalog + test-chat (shared credential) are refused via the shared refusal primitive (issues #1863, #2022)");
+        FileLog.Write($"[AiModelsEndpoint] mapping the model settings; hosted={hosted} - per-account model setters serve; the catalog + test-chat (shared credential) are refused via the shared refusal primitive (issues #1863, #2022)");
 
-        var group = HostedRouteDeny.Group(outer, "", Denial());
+        var group = HostedRouteDeny.Group(outer, "", Denial(), hosted);
 
         // The per-account model/voice setters SERVE on hosted (issue #2022): each resolves the caller's tenant
         // and writes only that tenant's override, answering 403 on an unresolved identity - never Local. They

@@ -126,7 +126,7 @@ public class GatewayPublicUrlTests
 
     // ---- LIVE WRAPPER: ResolveCockpit() reads the real environment -------------------------------
     // These prove the wrapper is actually WIRED to the pure resolver (not stubbed or hardcoded). They drive
-    // ResolveCockpit() through the real env for BOTH modes. Replacing ResolveCockpit() with a hardcoded
+    // ResolveCockpit(hosted) for BOTH modes; the mode is passed in, the configured base still comes from the env. Replacing ResolveCockpit() with a hardcoded
     // constant reddens the hosted case (it pins the exact fake-base value) and would break the self-host
     // case's independence from the hosted var. Assembly runs sequentially; env saved/restored in finally.
 
@@ -137,7 +137,7 @@ public class GatewayPublicUrlTests
         {
             // Deterministic: hosted needs no tailnet. The wrapper must return {configured base}/cockpit, the
             // NON-production value - so a hardcoded ResolveCockpit() constant (prod or otherwise) reddens.
-            Assert.Equal(PublicBase + "/cockpit", GatewayPublicUrl.ResolveCockpit());
+            Assert.Equal(PublicBase + "/cockpit", GatewayPublicUrl.ResolveCockpit(hosted: true));
         });
     }
 
@@ -152,11 +152,11 @@ public class GatewayPublicUrlTests
             // (retain the real resolver when hosted, but return https://gateway.devthrottle.com/cockpit when
             // self-hosted) reddens here instead of sliding past a "not the fixture base, ends in /cockpit"
             // predicate. This closes the guard gap the both-mode live-wrapper coverage was meant to close.
-            Assert.Equal(FrontDoor + "/cockpit", GatewayPublicUrl.ResolveCockpit(() => FrontDoor));
+            Assert.Equal(FrontDoor + "/cockpit", GatewayPublicUrl.ResolveCockpit(hosted: false, () => FrontDoor));
 
             // Provider returns null (Tailscale down self-hosted): null out, never a fabricated or hardcoded
             // URL. A prod-constant hardcode would return non-null here and redden this line too.
-            Assert.Null(GatewayPublicUrl.ResolveCockpit(() => null));
+            Assert.Null(GatewayPublicUrl.ResolveCockpit(hosted: false, () => null));
         });
     }
 
@@ -169,7 +169,7 @@ public class GatewayPublicUrlTests
             // a build host with no tailnet) and NEVER the hosted env var. So the result is either null or a
             // {tailnet}/cockpit URL - but never the stray hosted base. This proves the wrapper routes through
             // Resolve()'s hosted gate rather than reading CC_GATEWAY_PUBLIC_URL directly, for both outcomes.
-            var result = GatewayPublicUrl.ResolveCockpit();
+            var result = GatewayPublicUrl.ResolveCockpit(hosted: false);
 
             Assert.NotEqual(PublicBase + "/cockpit", result);
             if (result is not null)
@@ -200,7 +200,7 @@ public class GatewayPublicUrlTests
         // /cockpit, not a child.
         WithEnv("1", PublicBase, () =>
         {
-            var result = GatewayPublicUrl.ResolveCockpitSession("2d0955fe-ed31-40c1-a519-72676b4499c5");
+            var result = GatewayPublicUrl.ResolveCockpitSession(hosted: true, "2d0955fe-ed31-40c1-a519-72676b4499c5");
 
             Assert.Equal(PublicBase + "/session/2d0955fe-ed31-40c1-a519-72676b4499c5", result);
         });
@@ -213,6 +213,7 @@ public class GatewayPublicUrlTests
         WithEnv(null, null, () =>
         {
             var result = GatewayPublicUrl.ResolveCockpitSession(
+                hosted: false,
                 "2d0955fe-ed31-40c1-a519-72676b4499c5",
                 () => "https://machine-a.tail0123.ts.net");
 
@@ -228,6 +229,7 @@ public class GatewayPublicUrlTests
         WithEnv(null, null, () =>
         {
             var result = GatewayPublicUrl.ResolveCockpitSession(
+                hosted: false,
                 "2d0955fe-ed31-40c1-a519-72676b4499c5",
                 () => null);
 
@@ -242,7 +244,7 @@ public class GatewayPublicUrlTests
         // segment or a query of its own.
         WithEnv("1", PublicBase, () =>
         {
-            var result = GatewayPublicUrl.ResolveCockpitSession("a b/../c?d");
+            var result = GatewayPublicUrl.ResolveCockpitSession(hosted: true, "a b/../c?d");
 
             Assert.Equal(PublicBase + "/session/a%20b%2F..%2Fc%3Fd", result);
         });
@@ -255,7 +257,7 @@ public class GatewayPublicUrlTests
         // caller somewhere it did not ask for, and it would look like it worked.
         WithEnv("1", PublicBase, () =>
         {
-            Assert.Throws<ArgumentException>(() => GatewayPublicUrl.ResolveCockpitSession("  "));
+            Assert.Throws<ArgumentException>(() => GatewayPublicUrl.ResolveCockpitSession(hosted: true, "  "));
         });
     }
 

@@ -52,7 +52,7 @@ public sealed class DirectorHubTests : IDisposable
     // The boundary is required and non-nullable now (finding I1-01). These are self-host hub tests, so they
     // get the REAL self-host boundary: built over the SingleTenantContext, it always resolves Local.
     private static CcDirector.Gateway.Tenancy.HostedTenantBoundary SelfHostBoundary() =>
-        new(new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry());
+        new(new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: false);
 
     private (DirectorHub hub, FakeHubCallerContext ctx) NewHub(string connectionId)
     {

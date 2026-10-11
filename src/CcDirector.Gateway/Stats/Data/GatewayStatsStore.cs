@@ -211,21 +211,21 @@ public sealed class GatewayStatsStore : IDisposable
     /// <param name="sqlitePath">The self-host statistics file. Defaults to gateway-stats.db under the
     /// storage root - the same file the hand-rolled store has always used. Never opened on a hosted
     /// Gateway.</param>
-    /// <param name="hosted">Whether this is a hosted Gateway. Defaults to the running deployment's own
-    /// answer. A hosted Gateway NEVER opens a statistics file.</param>
-    public static GatewayStatsStore FromEnvironment(string? sqlitePath = null, bool? hosted = null)
+    /// <param name="hosted">Whether this is a hosted Gateway - the owning host's <see cref="GatewayHost.Hosted"/>.
+    /// REQUIRED (see <see cref="GatewayHostOptions"/>). A hosted Gateway NEVER opens a statistics file.</param>
+    public static GatewayStatsStore FromEnvironment(bool hosted, string? sqlitePath = null)
     {
         var path = string.IsNullOrWhiteSpace(sqlitePath)
             ? Path.Combine(CcStorage.Root(), "gateway-stats.db")
             : sqlitePath!;
 
-        // Hosted is read from BOTH signals, and either one is enough. GatewayHostedMode.IsHosted is a runtime
+        // Hosted is read from BOTH signals, and either one is enough. The host's hosted flag comes from a runtime
         // environment variable that a slot swap or a config restore can drop; IsHostedImage is part of the
         // published artifact and cannot be. Taking either means a hosted container that lost its environment
         // variable still refuses to open a statistics file, which is the direction that matters: the cost of
         // being wrong towards "hosted" is an unavailable statistics surface with a named reason, and the cost
         // of being wrong the other way is a hosted Gateway writing a database onto ephemeral or shared disk.
-        var isHosted = hosted ?? (GatewayHostedMode.IsHosted || GatewayHostedMode.IsHostedImage);
+        var isHosted = hosted || GatewayHostedMode.IsHostedImage;
 
         var choice = StatsConnectionSelection.Resolve(
             Environment.GetEnvironmentVariable(StatsConnectionSelection.StatsConnectionEnvVar),

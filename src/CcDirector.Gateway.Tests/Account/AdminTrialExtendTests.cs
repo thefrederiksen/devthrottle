@@ -122,8 +122,8 @@ public sealed class AdminTrialExtendTests : IDisposable
         string? reason = "four weeks promised on 3 August", string? email = "member@example.com")
         => new(subject, endsAt, actor, reason, email);
 
-    private IResult Call(HttpContext ctx, AdminTrialEndpoint.ExtendRequest? body, GatewayDatabase db)
-        => AdminTrialEndpoint.Handle(ctx, body, new TrialRegistry(db), Now);
+    private IResult Call(HttpContext ctx, AdminTrialEndpoint.ExtendRequest? body, GatewayDatabase db, bool hosted)
+        => AdminTrialEndpoint.Handle(ctx, body, new TrialRegistry(db), Now, hosted);
 
     // ---- the exemption is deliberate, and it must stay -------------------------------------------------
 
@@ -135,6 +135,7 @@ public sealed class AdminTrialExtendTests : IDisposable
         // "could not confirm" forever. Asserted THROUGH the middleware rather than by peeking at the set.
         var cfg = new AuthMiddleware.RequireToken
         {
+            Hosted = true,
             Token = "shared-machine-token", Devices = new DeviceRegistry(_devPath),
         };
 
@@ -165,7 +166,7 @@ public sealed class AdminTrialExtendTests : IDisposable
         SeedTrial(db, Subject, Started, Expires);
 
         var ctx = Request(bearer);
-        var (status, _) = await ExecuteAsync(Call(ctx, Body(Expires.AddDays(21)), db), ctx);
+        var (status, _) = await ExecuteAsync(Call(ctx, Body(Expires.AddDays(21)), db, hosted: true), ctx);
 
         Assert.Equal(StatusCodes.Status401Unauthorized, status);
         // The rule that actually matters: a refused caller changed nothing.
@@ -180,7 +181,7 @@ public sealed class AdminTrialExtendTests : IDisposable
         SeedTrial(db, Subject, Started, Expires);
 
         var ctx = Request("Bearer " + Token);
-        var (status, _) = await ExecuteAsync(Call(ctx, Body(Expires.AddDays(21)), db), ctx);
+        var (status, _) = await ExecuteAsync(Call(ctx, Body(Expires.AddDays(21)), db, hosted: true), ctx);
 
         // 503, not 200-with-an-allow-anything-mode. A missing deployment secret is a deployment error.
         Assert.Equal(StatusCodes.Status503ServiceUnavailable, status);
@@ -202,7 +203,7 @@ public sealed class AdminTrialExtendTests : IDisposable
             SeedTrial(db, Subject, Started, Expires);
 
             var ctx = Request("Bearer " + reportToken);
-            var (status, _) = await ExecuteAsync(Call(ctx, Body(Expires.AddDays(21)), db), ctx);
+            var (status, _) = await ExecuteAsync(Call(ctx, Body(Expires.AddDays(21)), db, hosted: true), ctx);
 
             Assert.Equal(StatusCodes.Status401Unauthorized, status);
             Assert.Equal(Expires, ReadTrial(db, Subject)!.ExpiresAtUtc);
@@ -231,7 +232,7 @@ public sealed class AdminTrialExtendTests : IDisposable
             // Even the CORRECT admin token is refused while the two are equal - the misconfiguration is the
             // fault, not the caller, and serving anyone at all would leave the hole open.
             var ctx = Request("Bearer " + Token);
-            var (status, _) = await ExecuteAsync(Call(ctx, Body(Expires.AddDays(21)), db), ctx);
+            var (status, _) = await ExecuteAsync(Call(ctx, Body(Expires.AddDays(21)), db, hosted: true), ctx);
 
             Assert.Equal(StatusCodes.Status503ServiceUnavailable, status);
             Assert.Equal(Expires, ReadTrial(db, Subject)!.ExpiresAtUtc);
@@ -258,7 +259,7 @@ public sealed class AdminTrialExtendTests : IDisposable
             SeedTrial(db, Subject, Started, Expires);
 
             var ctx = Request("Bearer " + Token);
-            var (status, json) = await ExecuteAsync(Call(ctx, Body(Expires.AddDays(21)), db), ctx);
+            var (status, json) = await ExecuteAsync(Call(ctx, Body(Expires.AddDays(21)), db, hosted: true), ctx);
 
             Assert.Equal(StatusCodes.Status200OK, status);
             Assert.Equal(AdminTrialEndpoint.OutcomeExtended, json.GetProperty("outcome").GetString());
@@ -278,14 +279,14 @@ public sealed class AdminTrialExtendTests : IDisposable
 
         // Authorized caller on a self-host install: a distinct refusal, and nothing written.
         var authorized = Request("Bearer " + Token);
-        var (status, _) = await ExecuteAsync(Call(authorized, Body(Expires.AddDays(21)), db), authorized);
+        var (status, _) = await ExecuteAsync(Call(authorized, Body(Expires.AddDays(21)), db, hosted: false), authorized);
         Assert.Equal(StatusCodes.Status409Conflict, status);
         Assert.Equal(Expires, ReadTrial(db, Subject)!.ExpiresAtUtc);
 
         // UNauthorized caller on the same install still gets 401 - the self-host refusal must not become an
         // oracle telling an anonymous caller which mode this Gateway runs in.
         var anonymous = Request(null);
-        var (anonStatus, _) = await ExecuteAsync(Call(anonymous, Body(Expires.AddDays(21)), db), anonymous);
+        var (anonStatus, _) = await ExecuteAsync(Call(anonymous, Body(Expires.AddDays(21)), db, hosted: false), anonymous);
         Assert.Equal(StatusCodes.Status401Unauthorized, anonStatus);
     }
 
@@ -304,7 +305,7 @@ public sealed class AdminTrialExtendTests : IDisposable
         var app = builder.Build();
         app.Urls.Add("http://127.0.0.1:0");
 
-        AdminTrialEndpoint.Map(app, trials, () => Now);
+        AdminTrialEndpoint.Map(app, true, trials, () => Now);
         await app.StartAsync();
 
         return (app, new HttpClient { BaseAddress = new Uri(app.Urls.First()) });
@@ -433,7 +434,7 @@ public sealed class AdminTrialExtendTests : IDisposable
         foreach (var body in broken)
         {
             var ctx = Request("Bearer " + Token);
-            var (status, json) = await ExecuteAsync(Call(ctx, body, db), ctx);
+            var (status, json) = await ExecuteAsync(Call(ctx, body, db, hosted: true), ctx);
 
             Assert.Equal(StatusCodes.Status400BadRequest, status);
             Assert.False(json.TryGetProperty("outcome", out _));
@@ -452,7 +453,7 @@ public sealed class AdminTrialExtendTests : IDisposable
         var later = Expires.AddDays(21);
 
         var ctx = Request("Bearer " + Token);
-        var (status, json) = await ExecuteAsync(Call(ctx, Body(later), db), ctx);
+        var (status, json) = await ExecuteAsync(Call(ctx, Body(later), db, hosted: true), ctx);
 
         Assert.Equal(StatusCodes.Status200OK, status);
         Assert.Equal(AdminTrialEndpoint.OutcomeExtended, json.GetProperty("outcome").GetString());
@@ -485,7 +486,7 @@ public sealed class AdminTrialExtendTests : IDisposable
         SeedTrial(db, Subject, Started, Expires);
 
         var ctx = Request("Bearer " + Token);
-        var (status, json) = await ExecuteAsync(Call(ctx, Body(Expires.AddDays(dayOffset)), db), ctx);
+        var (status, json) = await ExecuteAsync(Call(ctx, Body(Expires.AddDays(dayOffset)), db, hosted: true), ctx);
 
         Assert.Equal(StatusCodes.Status200OK, status);
         Assert.Equal(AdminTrialEndpoint.OutcomeNotLater, json.GetProperty("outcome").GetString());
@@ -505,7 +506,7 @@ public sealed class AdminTrialExtendTests : IDisposable
         SeedTrial(db, Subject, Started, Expires);
 
         var ctx = Request("Bearer " + Token);
-        var (status, json) = await ExecuteAsync(Call(ctx, Body(Now.AddYears(10)), db), ctx);
+        var (status, json) = await ExecuteAsync(Call(ctx, Body(Now.AddYears(10)), db, hosted: true), ctx);
 
         Assert.Equal(StatusCodes.Status200OK, status);
         Assert.Equal(AdminTrialEndpoint.OutcomeTooFar, json.GetProperty("outcome").GetString());
@@ -525,11 +526,11 @@ public sealed class AdminTrialExtendTests : IDisposable
         var atCeiling = Now + TrialRegistry.MaxExtensionAhead;
 
         var ctxPast = Request("Bearer " + Token);
-        var (_, past) = await ExecuteAsync(Call(ctxPast, Body(atCeiling.AddTicks(1)), db), ctxPast);
+        var (_, past) = await ExecuteAsync(Call(ctxPast, Body(atCeiling.AddTicks(1)), db, hosted: true), ctxPast);
         Assert.Equal(AdminTrialEndpoint.OutcomeTooFar, past.GetProperty("outcome").GetString());
 
         var ctxAt = Request("Bearer " + Token);
-        var (_, at) = await ExecuteAsync(Call(ctxAt, Body(atCeiling), db), ctxAt);
+        var (_, at) = await ExecuteAsync(Call(ctxAt, Body(atCeiling), db, hosted: true), ctxAt);
         Assert.Equal(AdminTrialEndpoint.OutcomeExtended, at.GetProperty("outcome").GetString());
         Assert.Equal(atCeiling, ReadTrial(db, Subject)!.ExpiresAtUtc);
     }
@@ -540,7 +541,7 @@ public sealed class AdminTrialExtendTests : IDisposable
         var db = Db;   // nothing seeded
 
         var ctx = Request("Bearer " + Token);
-        var (status, json) = await ExecuteAsync(Call(ctx, Body(Now.AddDays(30)), db), ctx);
+        var (status, json) = await ExecuteAsync(Call(ctx, Body(Now.AddDays(30)), db, hosted: true), ctx);
 
         Assert.Equal(StatusCodes.Status200OK, status);
         Assert.Equal(AdminTrialEndpoint.OutcomeNoTrial, json.GetProperty("outcome").GetString());
@@ -559,7 +560,7 @@ public sealed class AdminTrialExtendTests : IDisposable
         SeedTrial(db, other, Started, Expires);
 
         var ctx = Request("Bearer " + Token);
-        await ExecuteAsync(Call(ctx, Body(Expires.AddDays(21)), db), ctx);
+        await ExecuteAsync(Call(ctx, Body(Expires.AddDays(21)), db, hosted: true), ctx);
 
         Assert.Equal(Expires.AddDays(21), ReadTrial(db, Subject)!.ExpiresAtUtc);
         // The other account is untouched: the only input is one subject, matched against the primary key.
@@ -574,11 +575,11 @@ public sealed class AdminTrialExtendTests : IDisposable
 
         var first = Expires.AddDays(14);
         var ctx1 = Request("Bearer " + Token);
-        await ExecuteAsync(Call(ctx1, Body(first, reason: "first goodwill window"), db), ctx1);
+        await ExecuteAsync(Call(ctx1, Body(first, reason: "first goodwill window"), db, hosted: true), ctx1);
 
         var second = Expires.AddDays(28);
         var ctx2 = Request("Bearer " + Token);
-        var (_, json) = await ExecuteAsync(Call(ctx2, Body(second, reason: "extended again"), db), ctx2);
+        var (_, json) = await ExecuteAsync(Call(ctx2, Body(second, reason: "extended again"), db, hosted: true), ctx2);
 
         Assert.Equal(AdminTrialEndpoint.OutcomeExtended, json.GetProperty("outcome").GetString());
         // The second refusal boundary moved with the row: "later" is judged against what is stored NOW.

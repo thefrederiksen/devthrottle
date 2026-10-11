@@ -512,7 +512,7 @@ public sealed class HostedTenantMachineControlTests : IAsyncLifetime
         // This is unit-level on purpose: the auth gate above means no real hosted request can carry an unbound
         // key this far, so the only honest way to prove the second gate is to ask it directly. If the auth
         // policy ever loosened, THIS is the gate that would still be holding.
-        var boundary = new CcDirector.Gateway.Tenancy.HostedTenantBoundary(new AsyncLocalTenantContext(), _gateway.Devices);
+        var boundary = new CcDirector.Gateway.Tenancy.HostedTenantBoundary(new AsyncLocalTenantContext(), _gateway.Devices, hosted: true);
         Assert.True(boundary.IsHosted);
 
         Assert.Null(boundary.ResolveForDeviceKey(_unboundKey));
@@ -639,10 +639,13 @@ internal sealed class MachineGroupProbeHost : IAsyncDisposable
             };
         }
 
-        // Self-host control harness: SelfHostMachineControlTests sets CC_GATEWAY_HOSTED to the non-hosted
-        // values before starting this host, so there is no boundary to pass. The parameter is required
-        // (finding CR-7), so the absence is stated rather than defaulted.
-        MachineEndpoints.Map(app, launchers, spawner, boundary: null, sendLauncherCommand: sendLauncherCommand, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown);
+        // Self-host control harness: the mode is passed as false, and the boundary is the REAL self-host one,
+        // built over the SingleTenantContext, which always resolves Local. A null boundary is a refusal in
+        // every mode, so the absence is no longer a self-host form.
+        MachineEndpoints.Map(app, false, launchers, spawner,
+            boundary: new CcDirector.Gateway.Tenancy.HostedTenantBoundary(
+                new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: false),
+            sendLauncherCommand: sendLauncherCommand, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown);
 
         await app.StartAsync();
         return new MachineGroupProbeHost

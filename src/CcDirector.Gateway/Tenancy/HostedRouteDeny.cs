@@ -60,9 +60,9 @@ namespace CcDirector.Gateway.Tenancy;
 ///
 /// FAIL DIRECTION. The refusal payload is validated when it is CONSTRUCTED, so a family supplying a blank
 /// message fails the Gateway at STARTUP - loudly, before serving - rather than serving an empty refusal that
-/// reads like a working route. The hosted decision is read from <see cref="GatewayHostedMode.IsHosted"/>
-/// directly, never from an optional argument a caller can omit: a security branch that depends on an
-/// argument fails OPEN the moment somebody forgets it.
+/// reads like a working route. The hosted decision is a REQUIRED argument (the host's
+/// <c>GatewayHostOptions.Hosted</c>, read once at startup), never an optional one a caller can omit: a security
+/// branch that depends on an optional argument fails OPEN the moment somebody forgets it.
 /// </summary>
 public static class HostedRouteDeny
 {
@@ -79,7 +79,7 @@ public static class HostedRouteDeny
     /// The claim is CHECKED, not trusted: if any live route serves under this prefix, the Gateway refuses
     /// to start, because the catch-all would take that route off the air.
     /// </summary>
-    public static HostedDenyGroup ExclusiveGroup(IEndpointRouteBuilder outer, string prefix, HostedDenial denial)
+    public static HostedDenyGroup ExclusiveGroup(IEndpointRouteBuilder outer, string prefix, HostedDenial denial, bool hosted)
     {
         ArgumentNullException.ThrowIfNull(outer);
         ArgumentNullException.ThrowIfNull(denial);
@@ -106,9 +106,9 @@ public static class HostedRouteDeny
                 "Use a literal prefix, or open a per-route Group so each declared route carries its own refusal.",
                 nameof(prefix));
 
-        var group = CreateGroup(outer, prefix, denial, exclusive: true);
+        var group = CreateGroup(outer, prefix, denial, exclusive: true, hosted);
 
-        if (GatewayHostedMode.IsHosted)
+        if (hosted)
             group.MapExclusiveCatchAll(prefix);
 
         return group;
@@ -143,8 +143,10 @@ public static class HostedRouteDeny
     /// <param name="outer">The builder the group hangs off.</param>
     /// <param name="prefix">The group prefix, or <c>""</c> to keep route paths written out in full.</param>
     /// <param name="denial">This family's refusal payload - the only per-family configuration.</param>
-    public static HostedDenyGroup Group(IEndpointRouteBuilder outer, string prefix, HostedDenial denial)
-        => CreateGroup(outer, prefix, denial, exclusive: false);
+    /// <param name="hosted">The owning host's deployment signal (<see cref="GatewayHost.Hosted"/>). REQUIRED, so a
+    /// family cannot be mapped without saying which mode it is in; see <see cref="GatewayHostOptions"/>.</param>
+    public static HostedDenyGroup Group(IEndpointRouteBuilder outer, string prefix, HostedDenial denial, bool hosted)
+        => CreateGroup(outer, prefix, denial, exclusive: false, hosted);
 
     /// <summary>
     /// The shared group construction behind <see cref="Group"/> and <see cref="ExclusiveGroup"/>. The
@@ -152,7 +154,7 @@ public static class HostedRouteDeny
     /// refusal is owed (per-route mode) or whether the ONE catch-all already covers the route and a per-route
     /// refusal would only manufacture a tie (exclusive mode).
     /// </summary>
-    private static HostedDenyGroup CreateGroup(IEndpointRouteBuilder outer, string prefix, HostedDenial denial, bool exclusive)
+    private static HostedDenyGroup CreateGroup(IEndpointRouteBuilder outer, string prefix, HostedDenial denial, bool exclusive, bool hosted)
     {
         ArgumentNullException.ThrowIfNull(outer);
         ArgumentNullException.ThrowIfNull(prefix);
@@ -174,14 +176,14 @@ public static class HostedRouteDeny
         // reinstate the constrained prefix, which is the hole this is closing, restored by the very line
         // meant to close it.
         FileLog.Write($"[HostedRouteDeny] group family={denial.Family} prefix='{prefix}' " +
-                      $"hosted={GatewayHostedMode.IsHosted}" +
+                      $"hosted={hosted}" +
                       " - on hosted EVERY route in this group is refused on EVERY request shape, with no argument binding");
 
-        var group = GatewayHostedMode.IsHosted
+        var group = hosted
             ? outer.MapGroup(HostedRefusalPattern.WithoutPolicies(prefix, denial.Family))
             : outer.MapGroup(prefix);
 
-        return new HostedDenyGroup(group, denial, exclusive);
+        return new HostedDenyGroup(group, denial, exclusive, hosted);
     }
 }
 
@@ -277,6 +279,9 @@ public sealed class HostedDenyGroup
     // real handlers map exactly as any group's would.
     private readonly bool _exclusive;
 
+    // The deployment signal this family was mapped under - the owning host's value, fixed at mapping time.
+    private readonly bool _hosted;
+
     // On hosted, one refusal per route shape WITHIN THIS FAMILY - a de-duplication, and nothing more.
     //
     // WHAT IT IS FOR: a family mapping several verbs on one path needs ONE verb-less refusal, because a
@@ -299,8 +304,9 @@ public sealed class HostedDenyGroup
 
     private sealed record RegisteredRefusal(string SourcePattern, IEndpointConventionBuilder Builder);
 
-    internal HostedDenyGroup(RouteGroupBuilder group, HostedDenial denial, bool exclusive)
+    internal HostedDenyGroup(RouteGroupBuilder group, HostedDenial denial, bool exclusive, bool hosted)
     {
+        _hosted = hosted;
         _group = group;
         _denial = denial;
         _exclusive = exclusive;
@@ -350,7 +356,7 @@ public sealed class HostedDenyGroup
         ArgumentNullException.ThrowIfNull(pattern);
         ArgumentNullException.ThrowIfNull(handler);
 
-        if (!GatewayHostedMode.IsHosted)
+        if (!_hosted)
             return mapHandler();
 
         // EXCLUSIVE MODE: the ONE catch-all refusal under this prefix already refuses this route and every

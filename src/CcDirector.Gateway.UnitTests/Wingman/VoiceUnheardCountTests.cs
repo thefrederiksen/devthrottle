@@ -36,7 +36,7 @@ public sealed class VoiceUnheardCountTests : IDisposable
         Func<TenantId, Core.Configuration.WingmanModelRole, string, CancellationToken, Task<IAgentBrain>> brain =
             (_, _, _, _) => Task.FromResult<IAgentBrain>(null!);
         _settings ??= new TenantSettingsResolver(new TenantSettingsStore(_settingsData.Open()));
-        return new WingmanVoiceService(brain, new KeyVault(Path.Combine(_dir, "vault.json")), _settings, Path.Combine(_dir, "voice-sessions.json"));
+        return new WingmanVoiceService(brain, new KeyVault(Path.Combine(_dir, "vault.json")), _settings, false, Path.Combine(_dir, "voice-sessions.json"));
     }
 
     /// <summary>A voice session at a stop with a narration, answered by the owner without playing it.</summary>

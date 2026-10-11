@@ -49,7 +49,7 @@ public sealed class PushNeedsYouTenantSweepTests : IDisposable
         var ambient = new AsyncLocalTenantContext();
         var db = _h.Open(ambient);
         var tenants = new TenantRegistry(db);
-        var boundary = new HostedTenantBoundary(ambient, _h.OpenDevices());
+        var boundary = new HostedTenantBoundary(ambient, _h.OpenDevices(), hosted: false);
         Assert.True(boundary.IsHosted); // the whole point: this is the mode push used to be switched off in
 
         var a = tenants.MintOrLookupBySubject("sub-a", "a@example.com");

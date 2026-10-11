@@ -72,10 +72,10 @@ public sealed class WingmanTtsStatusPassthroughTests
         var tenantSettings = new TenantSettingsResolver(new TenantSettingsStore(settingsData.Open()));
         var voice = new WingmanVoiceService(
             (_, _, _, _) => throw new InvalidOperationException("the brain must not be reached by a tts status test"),
-            vault, tenantSettings, persistPath);
+            vault, tenantSettings, false, persistPath);
 
         GatewayWingmanVoiceEndpoint.Map(
-            app,
+            app, false,
             new DirectorRegistry(Path.Combine(Path.GetTempPath(), "cc-tts-pass-inst-" + Guid.NewGuid().ToString("N"))),
             (_, _, _, _) => throw new InvalidOperationException("the brain must not be reached by a tts status test"),
             vault,
@@ -84,7 +84,7 @@ public sealed class WingmanTtsStatusPassthroughTests
             // The boundary is required and non-nullable now (finding I1-01). Self-host harness, so the REAL
             // self-host boundary: built over the SingleTenantContext, it always resolves Local.
             new CcDirector.Gateway.Tenancy.HostedTenantBoundary(
-                new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry()),
+                new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: false),
             ttsHttpClient: new HttpClient(upstream) { Timeout = Timeout.InfiniteTimeSpan },
             // The stall test proves a never-answering upstream becomes 504 rather than 502. What is under
             // test is WHICH status comes back, not how long the Gateway is willing to wait - so the deadline

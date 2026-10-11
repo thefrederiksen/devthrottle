@@ -59,7 +59,7 @@ public sealed class AccountLogoutEndpointTests
         Environment.SetEnvironmentVariable(GatewayAccountFactory.SigningSecretEnvVar, GatewayTestJwt.SigningSecret);
         try
         {
-            var service = GatewayAccountFactory.Build(new InMemoryTokenStore());
+            var service = GatewayAccountFactory.Build(new InMemoryTokenStore(), hosted: false);
             if (seed is not null)
                 service.StoreTokens(seed);
             return service;
@@ -85,16 +85,16 @@ public sealed class AccountLogoutEndpointTests
 
         if (authEnabled)
         {
-            var requireToken = new AuthMiddleware.RequireToken { Token = GatewayToken, Devices = new DeviceRegistry(Path.Combine(Path.GetTempPath(), "cc-gw-acct-logout-dev-" + Guid.NewGuid().ToString("N") + ".json")) };
+            var requireToken = new AuthMiddleware.RequireToken { Hosted = false, Token = GatewayToken, Devices = new DeviceRegistry(Path.Combine(Path.GetTempPath(), "cc-gw-acct-logout-dev-" + Guid.NewGuid().ToString("N") + ".json")) };
             app.Use(async (ctx, next) => await AuthMiddleware.Run(ctx, requireToken, next));
         }
 
         // The boundary is required and non-nullable now (finding I1-01). This is a self-host harness, so it
         // gets the REAL self-host boundary: built over the SingleTenantContext, it always resolves Local.
         var boundary = new CcDirector.Gateway.Tenancy.HostedTenantBoundary(
-            new CcDirector.Core.Tenancy.SingleTenantContext(), new DeviceRegistry());
-        AccountStatusEndpoint.Map(app, account, boundary);
-        AccountLogoutEndpoint.Map(app, account, boundary);
+            new CcDirector.Core.Tenancy.SingleTenantContext(), new DeviceRegistry(), hosted: false);
+        AccountStatusEndpoint.Map(app, false, account, boundary);
+        AccountLogoutEndpoint.Map(app, false, account, boundary);
         await app.StartAsync();
 
         var baseUrl = app.Urls.First();

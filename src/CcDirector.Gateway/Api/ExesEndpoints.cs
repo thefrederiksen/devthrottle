@@ -101,13 +101,13 @@ internal static class ExesEndpoints
     /// signature. On hosted the handle DISCARDS each handler (the exclusive catch-all already refuses the
     /// path); off hosted it maps each handler as an unguarded builder would.
     /// </summary>
-    public static HostedDenyGroup Map(IEndpointRouteBuilder outer, DirectorRegistry registry,
+    public static HostedDenyGroup Map(IEndpointRouteBuilder outer, bool hosted, DirectorRegistry registry,
         PushedSessionStore? pushedSessions = null, TimeSpan? streamStaleAfter = null,
         Snooze.SnoozeRegistry? snoozeRegistry = null)
     {
-        FileLog.Write($"[ExesEndpoints] mapping {Prefix} developer exe/slot routes; hosted={GatewayHostedMode.IsHosted} - on hosted the whole group is refused via the shared refusal primitive");
+        FileLog.Write($"[ExesEndpoints] mapping {Prefix} developer exe/slot routes; hosted={hosted} - on hosted the whole group is refused via the shared refusal primitive");
 
-        var group = HostedRouteDeny.ExclusiveGroup(outer, Prefix, Denial());
+        var group = HostedRouteDeny.ExclusiveGroup(outer, Prefix, Denial(), hosted);
         MapRoutes(group, registry, pushedSessions, streamStaleAfter, snoozeRegistry);
         return group;
     }

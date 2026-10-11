@@ -62,7 +62,7 @@ public sealed class RevokedKeyReasonTests : IDisposable
 
         await AuthMiddleware.Run(
             ctx,
-            new AuthMiddleware.RequireToken { Token = "shared-token", Devices = _devices },
+            new AuthMiddleware.RequireToken { Hosted = false, Token = "shared-token", Devices = _devices },
             () => { continued = true; return Task.CompletedTask; });
 
         ctx.Response.Body.Position = 0;

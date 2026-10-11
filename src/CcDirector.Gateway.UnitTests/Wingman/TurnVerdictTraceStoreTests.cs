@@ -302,7 +302,7 @@ public sealed class TurnVerdictTraceStoreTests : IDisposable
         var db = _harness.Open(ctx);
         var traces = new TurnVerdictTraceStore(db);
         var sweep = new TurnVerdictRetentionSweep(
-            new HostedTenantBoundary(ctx, new DeviceRegistry()), new TenantRegistry(db), ctx, new TurnVerdictStore(db), traces);
+            new HostedTenantBoundary(ctx, new DeviceRegistry(), hosted: false), new TenantRegistry(db), ctx, new TurnVerdictStore(db), traces);
         var now = DateTime.UtcNow;
         traces.Append(TenantId.Local, Trace("eight-days-old", recordedAt: now.AddDays(-8)));
         traces.Append(TenantId.Local, Trace("an-hour-old", recordedAt: now.AddHours(-1)));

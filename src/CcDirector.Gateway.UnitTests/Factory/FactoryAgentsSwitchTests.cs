@@ -156,7 +156,7 @@ public sealed class FactoryAgentsSwitchTests : IDisposable
                 : null;
 
         var app = WebApplication.CreateBuilder().Build();
-        FactoryAgentsViewEndpoints.MapSwitch(app, sw, resolve);
+        FactoryAgentsViewEndpoints.MapSwitch(app, false, sw, resolve);
         var gate = FactoryAgentsGate.Group(app, sw, resolve);
         FactoryActivityEndpoints.Map(gate, record);
         FactoryMapEndpoints.Map(gate, new FactoryMapStore(new TenantSettingsStore(Db)), resolve);

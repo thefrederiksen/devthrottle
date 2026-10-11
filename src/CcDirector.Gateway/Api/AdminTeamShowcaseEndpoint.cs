@@ -44,17 +44,17 @@ internal static class AdminTeamShowcaseEndpoint
         [property: JsonPropertyName("reason")] string? Reason,
         [property: JsonPropertyName("content")] TeamShowcaseContent? Content);
 
-    public static void Map(IEndpointRouteBuilder app, TeamShowcase showcase)
+    public static void Map(IEndpointRouteBuilder app, bool hosted, TeamShowcase showcase)
     {
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(showcase);
 
-        app.MapPost(Path, (Delegate)((HttpContext ctx) => Run(ctx, showcase, remove: false)));
-        app.MapPost(RemovePath, (Delegate)((HttpContext ctx) => Run(ctx, showcase, remove: true)));
+        app.MapPost(Path, (Delegate)((HttpContext ctx) => Run(ctx, showcase, remove: false, hosted)));
+        app.MapPost(RemovePath, (Delegate)((HttpContext ctx) => Run(ctx, showcase, remove: true, hosted)));
         FileLog.Write($"[AdminTeamShowcaseEndpoint] mapped {Path} and {RemovePath} (service-token authorized)");
     }
 
-    private static async Task<IResult> Run(HttpContext ctx, TeamShowcase showcase, bool remove)
+    private static async Task<IResult> Run(HttpContext ctx, TeamShowcase showcase, bool remove, bool hosted)
     {
         try
         {
@@ -72,7 +72,7 @@ internal static class AdminTeamShowcaseEndpoint
                 return Results.BadRequest(new { error = "the request body is not readable JSON" });
             }
 
-            return Handle(ctx, body, showcase, remove);
+            return Handle(ctx, body, showcase, remove, hosted);
         }
         catch (Exception ex)
         {
@@ -83,11 +83,11 @@ internal static class AdminTeamShowcaseEndpoint
     }
 
     /// <summary>Internal so every refusal is tested without a host.</summary>
-    internal static IResult Handle(HttpContext ctx, ShowcaseRequest? body, TeamShowcase showcase, bool remove)
+    internal static IResult Handle(HttpContext ctx, ShowcaseRequest? body, TeamShowcase showcase, bool remove, bool hosted)
     {
         if (AdminTrialEndpoint.ServiceTokenDenial(ctx) is { } denial) return denial;
 
-        if (!GatewayHostedMode.IsHosted)
+        if (!hosted)
         {
             FileLog.Write("[AdminTeamShowcaseEndpoint] DENIED: this is a self-hosted Gateway - it has no teams");
             return Results.Json(new { error = "this Gateway is self-hosted, so it has no teams to fill" },

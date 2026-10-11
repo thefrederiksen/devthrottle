@@ -134,7 +134,7 @@ public sealed class HostedContentDenyGroupFilterTests
         using var env = new HostedEnv("1");
         Assert.True(GatewayHostedMode.IsHosted, "the hosted leg must actually be in hosted mode");
 
-        await using var rig = await Rig.StartAsync(family);
+        await using var rig = await Rig.StartAsync(family, hosted: true);
 
         // Malformed JSON is a shape an earlier boundary let the framework answer with its own 400 instead of
         // the refusal - and a parameterless GET, having no body to be malformed, could never surface it.
@@ -150,7 +150,7 @@ public sealed class HostedContentDenyGroupFilterTests
         using var env = new HostedEnv("1");
         Assert.True(GatewayHostedMode.IsHosted, "the hosted leg must actually be in hosted mode");
 
-        await using var rig = await Rig.StartAsync(family);
+        await using var rig = await Rig.StartAsync(family, hosted: true);
 
         // A body parameter makes the framework infer a media-type constraint that endpoint SELECTION enforces
         // ahead of any handler; mapping no handler at all on hosted is what strips the constraint with it.
@@ -168,7 +168,7 @@ public sealed class HostedContentDenyGroupFilterTests
         Assert.True(GatewayHostedMode.IsHosted, "the hosted leg must actually be in hosted mode");
 
         ProbeBinding.Reset();
-        await using var rig = await Rig.StartAsync(family);
+        await using var rig = await Rig.StartAsync(family, hosted: true);
 
         // The claim the GET probe could not make: not that the answer was right, but that NO handler-bound
         // code executed - the property that separates a refusal placed BEFORE binding from one placed after
@@ -193,7 +193,7 @@ public sealed class HostedContentDenyGroupFilterTests
             $"the self-host leg must actually be in self-host mode (CC_GATEWAY_HOSTED={hostedValue ?? "absent"})");
 
         ProbeBinding.Reset();
-        await using var rig = await Rig.StartAsync(family);
+        await using var rig = await Rig.StartAsync(family, hosted: false);
 
         // The JSON body binds and the handler serves it back: the positive twin of the hosted no-binding
         // claim, and proof the substitution did not brick the route for self-host.
@@ -217,7 +217,7 @@ public sealed class HostedContentDenyGroupFilterTests
         using var env = new HostedEnv("1");
         Assert.True(GatewayHostedMode.IsHosted, "the hosted leg must actually be in hosted mode");
 
-        await using var rig = await Rig.StartAsync(family);
+        await using var rig = await Rig.StartAsync(family, hosted: true);
 
         // Mapped on the application, NOT on the guarded group. If this were refused, the hosted passes
         // above would be the host refusing everything rather than the primitive being correctly scoped.
@@ -269,7 +269,7 @@ public sealed class HostedContentDenyGroupFilterTests
         public Task<HttpResponseMessage> PostAsync(string path, string content, string mediaType)
             => Http.PostAsync(path, new StringContent(content, Encoding.UTF8, mediaType));
 
-        public static async Task<Rig> StartAsync(string family)
+        public static async Task<Rig> StartAsync(string family, bool hosted)
         {
             var priorRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
             var root = Path.Combine(Path.GetTempPath(), "ccd-probe-" + Guid.NewGuid().ToString("N"));
@@ -281,7 +281,7 @@ public sealed class HostedContentDenyGroupFilterTests
             app.Urls.Add("http://127.0.0.1:0");
 
             GatewayDbTestHarness? db = null;
-            var group = MapFamily(app, family, root, ref db);
+            var group = MapFamily(app, family, hosted, root, ref db);
 
             // The brand-new routes, on the guarded group, with NO deny of their own - and BODY-BOUND, so they
             // exercise the shape a parameterless GET is blind to. One carries a JSON body (a malformed body
@@ -297,7 +297,7 @@ public sealed class HostedContentDenyGroupFilterTests
                 root, priorRoot, db);
         }
 
-        private static HostedDenyGroup MapFamily(WebApplication app, string family, string root,
+        private static HostedDenyGroup MapFamily(WebApplication app, string family, bool hosted, string root,
             ref GatewayDbTestHarness? db)
         {
             var brain = (TenantId _, WingmanModelRole _, string _, CancellationToken _) =>
@@ -309,7 +309,7 @@ public sealed class HostedContentDenyGroupFilterTests
                 case "instructions":
                     db = new GatewayDbTestHarness();
                     return WingmanInstructionsEndpoint.Map(
-                        app,
+                        app, hosted,
                         new WingmanInstructionsStore(db.Open(), db.LegacyPath("probe-legacy.json")),
                         brain);
 

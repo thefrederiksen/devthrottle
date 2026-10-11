@@ -19,20 +19,30 @@ namespace CcDirector.Gateway.Tenancy;
 public sealed class HostedTenantBoundary
 {
     // Non-null ONLY on the hosted Gateway (the ITenantContext is the AsyncLocalTenantContext there). Null on
-    // self-host, which is how IsHosted and the inert behavior are decided - no separate flag to drift.
+    // self-host, which is how IsHosted and the inert behavior are decided. Hosted (the deployment signal) is
+    // kept beside it; the constructor guarantees the two agree on a hosted Gateway.
     private readonly AsyncLocalTenantContext? _ambient;
     private readonly DeviceRegistry _devices;
 
-    public HostedTenantBoundary(ITenantContext tenantContext, DeviceRegistry devices)
+    /// <param name="tenantContext">The tenant context the stores read: the <see cref="AsyncLocalTenantContext"/>
+    /// on a hosted Gateway, the <see cref="SingleTenantContext"/> on self-host.</param>
+    /// <param name="devices">The device registry whose verified key bindings name the tenant.</param>
+    /// <param name="hosted">Whether the owning Gateway is hosted - <see cref="GatewayHost.Hosted"/>, the host's own
+    /// value read once at construction. REQUIRED: the deployment signal travels as a value that cannot be omitted,
+    /// never as the process environment at call time (see <see cref="GatewayHostOptions"/>).</param>
+    public HostedTenantBoundary(ITenantContext tenantContext, DeviceRegistry devices, bool hosted)
     {
         _ambient = tenantContext as AsyncLocalTenantContext;
         _devices = devices ?? throw new ArgumentNullException(nameof(devices));
+        Hosted = hosted;
 
         // Tenant-boundary hardening (release 2026-07-31, finding CR-7): a HOSTED process whose boundary is
         // built over anything but the AsyncLocalTenantContext could only ever answer Local - every resolution
         // it performed would silently collapse the account partitions into one. That is a wiring defect, not
-        // a state to operate in, so it fails LOUD at construction rather than open at resolution.
-        if (GatewayHostedMode.IsHosted && _ambient is null)
+        // a state to operate in, so it fails LOUD at construction rather than open at resolution. Because the
+        // mode is fixed here for the boundary's life, this is also the ONLY place it needs checking: a boundary
+        // built self-host cannot later find itself on a hosted Gateway.
+        if (hosted && _ambient is null)
             throw new InvalidOperationException(
                 "This Gateway is running in hosted mode, but the tenant boundary was constructed without the " +
                 "per-account ambient tenant context (AsyncLocalTenantContext). A boundary wired this way can " +
@@ -40,8 +50,15 @@ public sealed class HostedTenantBoundary
                 "it over the hosted tenant context.");
     }
 
-    /// <summary>True on the hosted Gateway (per-account, fail-closed); false on self-host (always Local).</summary>
+    /// <summary>True when wired for hosted resolution (per-account, fail-closed); false when it answers Local.</summary>
     public bool IsHosted => _ambient is not null;
+
+    /// <summary>
+    /// The deployment signal this boundary was built under - the owning host's <see cref="GatewayHost.Hosted"/>.
+    /// On a hosted boundary <see cref="IsHosted"/> is guaranteed true by the constructor; the two differ only in a
+    /// test that wires the ambient context on a self-host boundary to exercise resolution.
+    /// </summary>
+    public bool Hosted { get; }
 
     /// <summary>
     /// Resolve the tenant for an AUTHENTICATED device key. On self-host every authenticated caller is the one
@@ -52,10 +69,7 @@ public sealed class HostedTenantBoundary
     public TenantId? ResolveForDeviceKey(string? deviceKey)
     {
         if (_ambient is null)
-        {
-            ThrowIfHostedWithoutAmbientContext();
             return TenantId.Local;
-        }
 
         var resolution = _devices.ResolveCredential(deviceKey);
         return resolution.Kind == DeviceCredentialResolutionKind.Active
@@ -74,10 +88,7 @@ public sealed class HostedTenantBoundary
     public TenantId? ResolveRequestTenant(Microsoft.AspNetCore.Http.HttpContext ctx)
     {
         if (_ambient is null)
-        {
-            ThrowIfHostedWithoutAmbientContext();
             return TenantId.Local;
-        }
 
         var identity = ctx?.Items.TryGetValue(Util.AuthMiddleware.AuthenticatedDeviceItemKey, out var value) == true
             ? value as DeviceCredentialIdentity
@@ -98,20 +109,11 @@ public sealed class HostedTenantBoundary
         return !tenant.IsValid || tenant.IsLocal || tenant.IsSystem ? null : tenant;
     }
 
-    /// <summary>
-    /// The resolution-time half of the CR-7 guard. The constructor already refuses a hosted process wiring a
-    /// Local-only boundary; this catches the one remaining path - a boundary built while the process was NOT
-    /// hosted, resolved after hosted mode turned on (the environment variable is read live). Resolving Local
-    /// there would silently collapse every account into one partition, so it throws instead.
-    /// </summary>
-    private static void ThrowIfHostedWithoutAmbientContext()
-    {
-        if (GatewayHostedMode.IsHosted)
-            throw new InvalidOperationException(
-                "This Gateway is running in hosted mode, but the tenant boundary has no per-account ambient " +
-                "tenant context, so it could only resolve the Local partition. Refusing to resolve: on hosted " +
-                "this would collapse every account into one partition.");
-    }
+    // The resolution-time half of the CR-7 guard that used to sit here is GONE, and deliberately. It caught a
+    // boundary built while the process was not hosted and resolved after the CC_GATEWAY_HOSTED variable turned
+    // on - a path that existed only because the mode was read from the environment on every call. The mode is
+    // now a constructor value fixed for the boundary's life, so that path cannot occur and the constructor guard
+    // above is the whole of CR-7.
 
     private static TenantId? ResolveIdentity(DeviceCredentialIdentity? identity)
     {

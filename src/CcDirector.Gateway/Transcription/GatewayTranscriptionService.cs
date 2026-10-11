@@ -64,9 +64,9 @@ public sealed class GatewayTranscriptionService
     /// <param name="history">Local, bounded transcription history. In production the host owns one
     /// instance and passes it here; when omitted it defaults to a fresh instance over the per-user
     /// location, and tests inject their own.</param>
-    /// <param name="audioArchive">Rolling archive of the audio behind each turn. In production the host
-    /// owns one instance and passes it here; when omitted it defaults to a fresh instance over the
-    /// per-user location, and tests inject their own so they never write into the real user's archive.</param>
+    /// <param name="audioArchive">Rolling archive of the audio behind each turn. REQUIRED: the archive carries the
+    /// deployment mode it writes under (on hosted it writes nothing), and this service cannot build one without knowing
+    /// that mode, so the owner - the host, or a mapper that knows its mode - constructs it and passes it in.</param>
     /// <param name="transcripts">The per-tenant transcript store (issue #509). In production the host owns
     /// one instance (over the Gateway database) and passes it here, so every transcribed turn's raw and
     /// cleaned text lands in the caller tenant's partition for later mistranscription mining. When null (tests
@@ -74,12 +74,12 @@ public sealed class GatewayTranscriptionService
     /// diagnostic aid and never gates a turn.</param>
     public GatewayTranscriptionService(
         KeyVault vault,
+        TranscriptionAudioArchive audioArchive,
         Func<CcDirector.Core.Tenancy.TenantId, DictationDictionary>? dictionaryProvider = null,
         Func<TranscriptionMode>? modeProvider = null,
         HttpClient? http = null,
         string? cleanupModel = null,
         TranscriptionHistoryLog? history = null,
-        TranscriptionAudioArchive? audioArchive = null,
         TranscriptStore? transcripts = null,
         IAudioTranscoder? transcoder = null)
     {
@@ -89,7 +89,7 @@ public sealed class GatewayTranscriptionService
         _http = http;
         _cleanupModel = string.IsNullOrWhiteSpace(cleanupModel) ? CleanupOrchestrator.DefaultModel : cleanupModel;
         _history = history ?? new TranscriptionHistoryLog();
-        _audioArchive = audioArchive ?? new TranscriptionAudioArchive();
+        _audioArchive = audioArchive ?? throw new ArgumentNullException(nameof(audioArchive));
         _transcoder = transcoder;
         _transcripts = transcripts;
     }

@@ -51,7 +51,7 @@ public sealed class WingmanVoiceFallbackTests : IDisposable
         // StoreSpokenAsync takes the spoken text directly, so the brain is never reached here.
         Func<TenantId, Core.Configuration.WingmanModelRole, string, CancellationToken, Task<IAgentBrain>> brain =
             (_, _, _, _) => throw new InvalidOperationException("the brain must not be reached by a fallback header test");
-        return Warmed(new WingmanVoiceService(brain, vault, Settings, persistPath, ttsHttpClient: new HttpClient(handler)));
+        return Warmed(new WingmanVoiceService(brain, vault, Settings, false, persistPath, ttsHttpClient: new HttpClient(handler)));
     }
 
     // A unique SUBDIRECTORY per test, not a bare temp filename. The service derives its durable audio

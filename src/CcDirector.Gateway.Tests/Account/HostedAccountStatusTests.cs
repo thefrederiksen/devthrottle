@@ -236,7 +236,7 @@ public sealed class HostedAccountStatusTests : IAsyncLifetime
         // Hosted mode is on; no boundary, no registry. The boundary parameter is required and non-nullable
         // now (finding I1-01), so the accidental version of this miswire no longer compiles - the forced
         // null below is the deliberate simulation of it, and the runtime gate must still fail closed.
-        AccountStatusEndpoint.Map(app, account: null, tenantBoundary: null!);
+        AccountStatusEndpoint.Map(app, hosted: true, account: null, tenantBoundary: null!);
         await app.StartAsync();
         try
         {

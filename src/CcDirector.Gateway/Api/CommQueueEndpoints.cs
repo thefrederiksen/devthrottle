@@ -81,11 +81,11 @@ internal static class CommQueueEndpoints
     /// future-route property is statable from outside this file: a test can map a brand-new route through
     /// the returned handle and show the refusal already covers routes nobody has written yet.
     /// </summary>
-    public static HostedDenyGroup Map(IEndpointRouteBuilder outer)
+    public static HostedDenyGroup Map(IEndpointRouteBuilder outer, bool hosted)
     {
-        FileLog.Write($"[CommQueueEndpoints] mapping {Prefix}; hosted={GatewayHostedMode.IsHosted} - on hosted the whole group is refused via the shared refusal primitive");
+        FileLog.Write($"[CommQueueEndpoints] mapping {Prefix}; hosted={hosted} - on hosted the whole group is refused via the shared refusal primitive");
 
-        var group = HostedRouteDeny.ExclusiveGroup(outer, Prefix, Denial());
+        var group = HostedRouteDeny.ExclusiveGroup(outer, Prefix, Denial(), hosted);
         MapRoutes(group);
         return group;
     }

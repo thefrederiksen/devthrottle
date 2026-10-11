@@ -147,14 +147,14 @@ public sealed class HostedMobileAccountEnrollTests : IDisposable
     private MobileDeviceEnrollmentService UnusedService() =>
         new(account: null, new DeviceRegistryClient(new HttpClient()), new DeviceRegistry(_devPath));
 
-    private async Task<(WebApplication app, HttpClient http)> StartHostedAsync(HostedEnrollDependencies? hosted)
+    private async Task<(WebApplication app, HttpClient http)> StartHostedAsync(bool hostedMode, HostedEnrollDependencies? hosted)
     {
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
         var app = builder.Build();
         app.Urls.Add("http://127.0.0.1:0");
 
-        MobileEnrollmentEndpoint.Map(app, UnusedService(), hosted);
+        MobileEnrollmentEndpoint.Map(app, hostedMode, UnusedService(), hostedDependencies: hosted);
         await app.StartAsync();
 
         var http = new HttpClient(new HttpClientHandler { UseCookies = false }) { BaseAddress = new Uri(app.Urls.First()) };
@@ -213,7 +213,7 @@ public sealed class HostedMobileAccountEnrollTests : IDisposable
         var db = OpenWithEntitlements(subject, entitled: true);
         var (devices, tenants, hosted) = WireHosted(db);
         var token = Token(subject);
-        var (app, http) = await StartHostedAsync(hosted);
+        var (app, http) = await StartHostedAsync(hostedMode: true, hosted);
         try
         {
             var resp = await PostBearerAsync(http, token, "dev-a");
@@ -244,7 +244,7 @@ public sealed class HostedMobileAccountEnrollTests : IDisposable
         const string subject = SubjectAlice;
         var db = OpenWithEntitlements(subject, entitled: true);
         var (devices, tenants, hosted) = WireHosted(db);
-        var (app, http) = await StartHostedAsync(hosted);
+        var (app, http) = await StartHostedAsync(hostedMode: true, hosted);
         try
         {
             var resp = await PostBearerAsync(http, Token(subject), "dev-a", path: "/m/enroll");
@@ -266,7 +266,7 @@ public sealed class HostedMobileAccountEnrollTests : IDisposable
         const string subject = SubjectAlice;
         var db = OpenWithEntitlements(subject, entitled: true);
         var (_, _, hosted) = WireHosted(db);
-        var (app, http) = await StartHostedAsync(hosted);
+        var (app, http) = await StartHostedAsync(hostedMode: true, hosted);
         try
         {
             var resp = await PostBearerAsync(http, Token(subject), "dev-a");
@@ -282,7 +282,7 @@ public sealed class HostedMobileAccountEnrollTests : IDisposable
         var db = OpenWithEntitlements(SubjectA, entitled: true);
         SeedEntitled(db, SubjectB);
         var (devices, _, hosted) = WireHosted(db);
-        var (app, http) = await StartHostedAsync(hosted);
+        var (app, http) = await StartHostedAsync(hostedMode: true, hosted);
         try
         {
             var respA = await PostBearerAsync(http, Token(SubjectA), "dev-a");
@@ -305,7 +305,7 @@ public sealed class HostedMobileAccountEnrollTests : IDisposable
         var db = OpenWithEntitlements(SubjectAttacker, entitled: true);
         var (devices, tenants, hosted) = WireHosted(db);
         var forged = TestEs256Key.Hs256Token("test-signing-secret", SubjectAttacker, Audience, Issuer);
-        var (app, http) = await StartHostedAsync(hosted);
+        var (app, http) = await StartHostedAsync(hostedMode: true, hosted);
         try
         {
             var before = RegistrySnapshot(devices);
@@ -323,7 +323,7 @@ public sealed class HostedMobileAccountEnrollTests : IDisposable
     {
         var db = OpenWithEntitlements(SubjectAlice, entitled: true);
         var (devices, tenants, hosted) = WireHosted(db);
-        var (app, http) = await StartHostedAsync(hosted);
+        var (app, http) = await StartHostedAsync(hostedMode: true, hosted);
         try
         {
             var before = RegistrySnapshot(devices);
@@ -341,7 +341,7 @@ public sealed class HostedMobileAccountEnrollTests : IDisposable
     {
         var db = OpenWithEntitlements(SubjectAlice, entitled: true);
         var (devices, tenants, hosted) = WireHosted(db);
-        var (app, http) = await StartHostedAsync(hosted);
+        var (app, http) = await StartHostedAsync(hostedMode: true, hosted);
         try
         {
             var before = RegistrySnapshot(devices);
@@ -359,7 +359,7 @@ public sealed class HostedMobileAccountEnrollTests : IDisposable
     {
         var db = OpenWithEntitlements(SubjectAlice, entitled: true);
         var (devices, tenants, hosted) = WireHosted(db);
-        var (app, http) = await StartHostedAsync(hosted);
+        var (app, http) = await StartHostedAsync(hostedMode: true, hosted);
         try
         {
             var before = RegistrySnapshot(devices);
@@ -379,7 +379,7 @@ public sealed class HostedMobileAccountEnrollTests : IDisposable
     {
         var db = OpenWithEntitlements(SubjectAlice, entitled: false);
         var (devices, tenants, hosted) = WireHosted(db);
-        var (app, http) = await StartHostedAsync(hosted);
+        var (app, http) = await StartHostedAsync(hostedMode: true, hosted);
         try
         {
             // Since issue #2117 an account with no paid entitlement that is ARRIVING FOR THE FIRST TIME is
@@ -404,7 +404,7 @@ public sealed class HostedMobileAccountEnrollTests : IDisposable
     {
         var db = _harness.Open();   // no entitlements table -> the read fails -> Unknown
         var (devices, tenants, hosted) = WireHosted(db);
-        var (app, http) = await StartHostedAsync(hosted);
+        var (app, http) = await StartHostedAsync(hostedMode: true, hosted);
         try
         {
             var before = RegistrySnapshot(devices);
@@ -423,7 +423,7 @@ public sealed class HostedMobileAccountEnrollTests : IDisposable
     {
         var db = OpenWithEntitlements(SubjectAlice, entitled: true);
         var (devices, tenants, hosted) = WireHosted(db);
-        var (app, http) = await StartHostedAsync(hosted);
+        var (app, http) = await StartHostedAsync(hostedMode: true, hosted);
         try
         {
             var before = RegistrySnapshot(devices);
@@ -450,7 +450,7 @@ public sealed class HostedMobileAccountEnrollTests : IDisposable
         var app = builder.Build();
         try
         {
-            Assert.Throws<InvalidOperationException>(() => MobileEnrollmentEndpoint.Map(app, UnusedService(), hosted: null));
+            Assert.Throws<InvalidOperationException>(() => MobileEnrollmentEndpoint.Map(app, hosted: true, UnusedService(), hostedDependencies: null));
         }
         finally { await app.DisposeAsync(); }
     }
@@ -466,7 +466,7 @@ public sealed class HostedMobileAccountEnrollTests : IDisposable
         // (409) - which is precisely NOT the hosted mint's 200/401/402/503, so it proves the hosted mint never
         // engaged on self-host.
         using var _ = SelfHostMode();
-        var (app, http) = await StartHostedAsync(hosted: null);
+        var (app, http) = await StartHostedAsync(hostedMode: false, hosted: null);
         try
         {
             var msg = new HttpRequestMessage(HttpMethod.Post, "/mobile/enroll")

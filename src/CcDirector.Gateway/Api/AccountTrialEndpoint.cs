@@ -50,7 +50,7 @@ internal static class AccountTrialEndpoint
     /// account subject the trial ledger is keyed by.</param>
     /// <param name="nowUtc">The clock, injected so the day count and the expiry boundary are testable at an
     /// exact instant. Defaults to the real one.</param>
-    public static void Map(IEndpointRouteBuilder app, Tenancy.TrialRegistry trials,
+    public static void Map(IEndpointRouteBuilder app, bool hosted, Tenancy.TrialRegistry trials,
         Tenancy.HostedTenantBoundary tenantBoundary, Tenancy.TenantRegistry? tenants = null,
         Func<DateTime>? nowUtc = null)
     {
@@ -66,7 +66,7 @@ internal static class AccountTrialEndpoint
             // whole contract, because "I could not find out" is the true answer and it is logged loud.
             try
             {
-                var (dto, status) = await ResolveAsync(ctx, trials, tenantBoundary, tenants, clock()).ConfigureAwait(false);
+                var (dto, status) = await ResolveAsync(ctx, hosted, trials, tenantBoundary, tenants, clock()).ConfigureAwait(false);
                 FileLog.Write($"[AccountTrialEndpoint] GET /account/trial: state={dto.State}, status={status}");
                 return Results.Json(dto, statusCode: status);
             }
@@ -86,7 +86,7 @@ internal static class AccountTrialEndpoint
     /// can be exercised directly at every state without standing a web host up.
     /// </summary>
     internal static async Task<(AccountTrialDto Dto, int StatusCode)> ResolveAsync(
-        HttpContext ctx, Tenancy.TrialRegistry trials, Tenancy.HostedTenantBoundary boundary,
+        HttpContext ctx, bool hosted, Tenancy.TrialRegistry trials, Tenancy.HostedTenantBoundary boundary,
         Tenancy.TenantRegistry? tenants, DateTime now)
     {
         // SELF-HOST. The trial is a hosted-account fact: it is granted at hosted enrolment and recorded in the
@@ -94,7 +94,7 @@ internal static class AccountTrialEndpoint
         // different deployment, and reading it here would produce a statement that is true about THIS RECORD
         // and false about the world - the most convincing kind of wrong answer. So it does not read: it says
         // it cannot tell, which is exactly what is true.
-        if (!GatewayHostedMode.IsHosted)
+        if (!hosted)
         {
             return (Unknown(
                 "This is a self-hosted DevThrottle Gateway, so it does not hold your account's trial status. "
@@ -104,7 +104,7 @@ internal static class AccountTrialEndpoint
         }
 
         var verdict = await AccountActingCredential
-            .ResolveAsync(AccountOperations.Trial, ctx, account: null, boundary, tenants, ctx.RequestAborted)
+            .ResolveAsync(AccountOperations.Trial, ctx, hosted, account: null, boundary, tenants, ctx.RequestAborted)
             .ConfigureAwait(false);
 
         // A deny (nothing bound this request to an account) and a deployment fault both keep their proper

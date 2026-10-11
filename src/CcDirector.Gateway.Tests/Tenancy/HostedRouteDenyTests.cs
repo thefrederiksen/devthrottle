@@ -324,7 +324,7 @@ public sealed class HostedExclusiveDenyTests
     {
         await using var host = await ValidatedHostedApp.StartAsync(outer =>
         {
-            var group = HostedRouteDeny.ExclusiveGroup(outer, "/exgroup", ProbeDenial());
+            var group = HostedRouteDeny.ExclusiveGroup(outer, "/exgroup", ProbeDenial(), hosted: true);
 
             // Declared shapes a per-route family would have turned into TYING verb-less refusals: the same
             // path under two verbs and two cases, and a multi-verb path. On an exclusive family these are all
@@ -368,7 +368,7 @@ public sealed class HostedExclusiveDenyTests
         await using var host = await ValidatedHostedApp.StartAsync(
             outer =>
             {
-                var group = HostedRouteDeny.ExclusiveGroup(outer, "/exgroup", ProbeDenial());
+                var group = HostedRouteDeny.ExclusiveGroup(outer, "/exgroup", ProbeDenial(), hosted: false);
                 group.MapGet("/x/{id}", (int id) => Results.Json(new { id }));
             },
             hosted: false);
@@ -401,10 +401,10 @@ public sealed class HostedRefusalRouteSpaceCrossGroupTests
         // the only thing that can - and it must fail the start rather than allow the request-time 500.
         await using var host = await ValidatedHostedApp.StartAsync(outer =>
         {
-            var a = HostedRouteDeny.Group(outer, "/shared", ProbeDenial("A"));
+            var a = HostedRouteDeny.Group(outer, "/shared", ProbeDenial("A"), hosted: true);
             a.MapGet("/{id}", (int id) => Results.Json(new { id }));
 
-            var b = HostedRouteDeny.Group(outer, "/shared", ProbeDenial("B"));
+            var b = HostedRouteDeny.Group(outer, "/shared", ProbeDenial("B"), hosted: true);
             b.MapPost("/{name}", (string name) => Results.Json(new { name }));
         });
 
@@ -420,7 +420,7 @@ public sealed class HostedRefusalRouteSpaceCrossGroupTests
         // path answers the refusal rather than the 500 the un-folded key would have produced.
         await using var host = await ValidatedHostedApp.StartAsync(outer =>
         {
-            var group = HostedRouteDeny.Group(outer, "", ProbeDenial());
+            var group = HostedRouteDeny.Group(outer, "", ProbeDenial(), hosted: true);
             group.MapGet("/x/{id}", (int id) => Results.Json(new { id }));
             group.MapPost("/X/{name}", (string name) => Results.Json(new { name }));
         });
@@ -468,7 +468,7 @@ public sealed class HostedRefusalRouteSpaceFailBeforeStartTests
             // method: /x/{id} (Standard) and /x/{name?} (Optional) become verb-less refusals that a single
             // path /x/value matches at EQUAL precedence. Their shape keys differ - Standard versus Optional -
             // so the round-1 equality check missed them; the overlap check must not.
-            var group = HostedRouteDeny.Group(outer, "", ProbeDenial());
+            var group = HostedRouteDeny.Group(outer, "", ProbeDenial(), hosted: true);
             group.MapGet("/x/{id}", (int id) => Results.Json(new { id }));
             group.MapPost("/x/{name?}", (string? name) => Results.Json(new { name }));
         });
@@ -486,7 +486,7 @@ public sealed class HostedRefusalRouteSpaceFailBeforeStartTests
             // A denied POST /x/{id} and a LIVE GET /x/{name?}. Off hosted the method holds them apart; hosted
             // gives the family a verb-less refusal /x/{id} that competes with the live /x/{name?} on /x/value.
             // The kinds differ (Standard versus Optional), so an exact-key live lookup could not see the tie.
-            var group = HostedRouteDeny.Group(outer, "", ProbeDenial());
+            var group = HostedRouteDeny.Group(outer, "", ProbeDenial(), hosted: true);
             group.MapPost("/x/{id}", (int id) => Results.Json(new { id }));
 
             outer.MapGet("/x/{name?}", (string? name) => Results.Json(new { name }));
@@ -506,7 +506,7 @@ public sealed class HostedRefusalRouteSpaceFailBeforeStartTests
             // match /x/left-mid.right after the method is stripped. Their shape keys differ only by the
             // separator character, so equality missed them; the overlap check treats two complex segments at
             // equal precedence as able to share a value and fails the start.
-            var group = HostedRouteDeny.Group(outer, "", ProbeDenial());
+            var group = HostedRouteDeny.Group(outer, "", ProbeDenial(), hosted: true);
             group.MapGet("/x/{a}-{b}", (string a, string b) => Results.Json(new { a, b }));
             group.MapPost("/x/{c}.{d}", (string c, string d) => Results.Json(new { c, d }));
         });
@@ -526,7 +526,7 @@ public sealed class HostedRefusalRouteSpaceFailBeforeStartTests
         // notice the validator had begun refusing routes nobody denied.
         await using var host = UnstartedHostedApp.Map(outer =>
         {
-            var group = HostedRouteDeny.Group(outer, "", ProbeDenial());
+            var group = HostedRouteDeny.Group(outer, "", ProbeDenial(), hosted: true);
             group.MapGet("/x/{id}", (int id) => Results.Json(new { id }));
 
             outer.MapGet("/x/summary", () => Results.Json(new { neighbour = "still serving" }));
@@ -547,7 +547,7 @@ public sealed class HostedRefusalRouteSpaceFailBeforeStartTests
         // reddens and a human re-checks the production read - which is the point.
         await using var host = UnstartedHostedApp.Map(outer =>
         {
-            var group = HostedRouteDeny.Group(outer, "", ProbeDenial());
+            var group = HostedRouteDeny.Group(outer, "", ProbeDenial(), hosted: true);
             group.MapGet("/x/{id}", (int id) => Results.Json(new { id }));
             group.MapPost("/x/{name?}", (string? name) => Results.Json(new { name }));
         });
@@ -750,7 +750,7 @@ internal sealed class DenyProbeHost : IAsyncDisposable
         var app = builder.Build();
         app.Urls.Add("http://127.0.0.1:0");
 
-        MapFamily(app);
+        MapFamily(app, hosted);
 
         await app.StartAsync();
         var http = new HttpClient { BaseAddress = new Uri(app.Urls.First()) };
@@ -762,7 +762,7 @@ internal sealed class DenyProbeHost : IAsyncDisposable
     /// through the typed handle. The neighbour is mapped on the OUTER builder, which is what a route outside
     /// the denied family looks like.
     /// </summary>
-    private static void MapFamily(IEndpointRouteBuilder outer)
+    private static void MapFamily(IEndpointRouteBuilder outer, bool hosted)
     {
         var denial = new HostedDenial(
             family: "probe",
@@ -770,7 +770,7 @@ internal sealed class DenyProbeHost : IAsyncDisposable
             reason: "the probe family exists only to prove the primitive",
             unDenyInstruction: "nothing to un-deny: this family is a test fixture and stores nothing");
 
-        var group = HostedRouteDeny.Group(outer, "/family", denial);
+        var group = HostedRouteDeny.Group(outer, "/family", denial, hosted: hosted);
 
         group.MapPost("/echo", (EchoBody body) => Results.Json(new { echoed = body.Text }));
         group.MapPost("/custom", (ObservableBinding probe) => Results.Json(new { probe = probe.Value }));

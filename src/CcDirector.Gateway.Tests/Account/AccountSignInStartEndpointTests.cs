@@ -40,7 +40,7 @@ public sealed class AccountSignInStartEndpointTests
         Environment.SetEnvironmentVariable(GatewayAccountFactory.SigningSecretEnvVar, GatewayTestJwt.SigningSecret);
         try
         {
-            var service = GatewayAccountFactory.Build(new InMemoryTokenStore());
+            var service = GatewayAccountFactory.Build(new InMemoryTokenStore(), hosted: false);
             if (seed is not null)
                 service.StoreTokens(seed);
             return service;

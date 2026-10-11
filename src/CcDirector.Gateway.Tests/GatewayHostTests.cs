@@ -67,7 +67,7 @@ public sealed class GatewayHostTests : IAsyncLifetime
             // Gateway Cleanup mission (Wave 4b): isolate the Gateway-native mission store to this test's temp
             // dir so /missions calls never touch the developer machine's real missions.json.
             missionsPath: Path.Combine(_instancesDir, "missions.json"),
-            account: GatewayAccountFactory.Build(new InMemoryTokenStore()));
+            account: GatewayAccountFactory.Build(new InMemoryTokenStore(), hosted: false));
         await _gateway.StartAsync();
         _gatewayPort = _gateway.Port;
 

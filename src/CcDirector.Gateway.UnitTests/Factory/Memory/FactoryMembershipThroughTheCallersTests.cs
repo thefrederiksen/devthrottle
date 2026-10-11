@@ -167,10 +167,10 @@ public sealed class FactoryMembershipThroughTheCallersTests : IDisposable
                 (true, new SessionDto { SessionId = Guid.NewGuid().ToString() }, null));
         });
 
-        var boundary = new HostedTenantBoundary(new SingleTenantContext(), new DeviceRegistry());
-        GatewayEndpoints.Map(app, _registry, version: "test", token: "test-token",
+        var boundary = new HostedTenantBoundary(new SingleTenantContext(), new DeviceRegistry(), hosted: false);
+        GatewayEndpoints.Map(app, false, _registry, version: "test", token: "test-token",
             tenantBoundary: boundary, sessionFactoryOf: _history.FactoryOf, sendCommand: send);
-        MachineEndpoints.Map(app, new LauncherRegistry(), spawner, boundary: boundary,
+        MachineEndpoints.Map(app, false, new LauncherRegistry(), spawner, boundary: boundary,
             sessionFactoryOf: _history.FactoryOf, directors: _registry);
 
         var db = _db.Open();

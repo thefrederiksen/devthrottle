@@ -55,7 +55,7 @@ public sealed class TurnVerdictFeedbackRouteTests : IDisposable
     private static readonly string Sid = Guid.NewGuid().ToString();
 
     private static CcDirector.Gateway.Tenancy.HostedTenantBoundary SelfHostBoundary() =>
-        new(new SingleTenantContext(), new DeviceRegistry());
+        new(new SingleTenantContext(), new DeviceRegistry(), hosted: false);
 
     private static int Status(IResult result) => Assert.IsAssignableFrom<IStatusCodeHttpResult>(result).StatusCode!.Value;
 

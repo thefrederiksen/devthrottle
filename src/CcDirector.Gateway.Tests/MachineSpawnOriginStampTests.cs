@@ -72,9 +72,13 @@ public sealed class MachineSpawnOriginStampTests : IDisposable
             await next();
         });
 
-        // Self-host-only harness: this host never runs hosted, so there is no boundary to pass. The
-        // parameter is required (finding CR-7), so the absence is stated rather than defaulted.
-        MachineEndpoints.Map(app, new LauncherRegistry(), spawner, boundary: null, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown);
+        // Self-host harness: the REAL self-host boundary, built over the SingleTenantContext, which always
+        // resolves Local. A null boundary is a refusal in every mode now that the mode is a value the host
+        // hands over rather than the process environment, so the absence is no longer a self-host form.
+        MachineEndpoints.Map(app, false, new LauncherRegistry(), spawner,
+            boundary: new CcDirector.Gateway.Tenancy.HostedTenantBoundary(
+                new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: false),
+            sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown);
         await app.StartAsync();
         return (app, new HttpClient { BaseAddress = new Uri(app.Urls.First()) }, () => seen);
     }

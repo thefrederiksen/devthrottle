@@ -35,16 +35,19 @@ namespace CcDirector.Gateway.Api;
 /// </summary>
 internal static class MobileEnrollmentEndpoint
 {
-    public static void Map(IEndpointRouteBuilder app, MobileDeviceEnrollmentService service, HostedEnrollDependencies? hosted = null)
+    /// <param name="hosted">The owning host's deployment signal (<see cref="GatewayHost.Hosted"/>). REQUIRED - see
+    /// <see cref="GatewayHostOptions"/>.</param>
+    public static void Map(IEndpointRouteBuilder app, bool hosted, MobileDeviceEnrollmentService service, HostedEnrollDependencies? hostedDependencies = null)
     {
         if (service is null) throw new ArgumentNullException(nameof(service));
 
         // FAIL CLOSED, at startup, on a miswired hosted host. The hosted-vs-self-host path is decided by the
-        // INDEPENDENT hosted-mode signal (GatewayHostedMode.IsHosted read directly in the delegate), never by
+        // INDEPENDENT hosted-mode value (the required `hosted` parameter, read once at startup into
+        // GatewayHostOptions), never by
         // whether this optional argument was passed - deciding on arg-presence FAILS OPEN, silently routing a
         // hosted deployment through the self-host device-key-in-body path on a one-word omission. So a hosted
         // Gateway mapped without its mint dependencies refuses to START rather than degrade unseen.
-        if (GatewayHostedMode.IsHosted && hosted is null)
+        if (hosted && hostedDependencies is null)
             throw new InvalidOperationException(
                 "This Gateway is in hosted mode but /mobile/enroll was mapped without hosted enrollment dependencies. Refusing to start rather than fall through to the self-host device-key-in-body path.");
 
@@ -62,8 +65,8 @@ internal static class MobileEnrollmentEndpoint
                 // tenant-scoped device key by the ONE hosted mint - the same single mint path the hosted Cockpit
                 // callback and a hosted Director use. hosted is non-null here by the map-time fail-closed guard.
                 // The self-host device-key-in-body path below is untouched.
-                if (GatewayHostedMode.IsHosted)
-                    return CompleteHostedEnroll(ctx, req, hosted!);
+                if (hosted)
+                    return CompleteHostedEnroll(ctx, req, hostedDependencies!);
 
                 var outcome = await service
                     .EnrollAsync(req?.DeviceKey, req?.DeviceId, req?.Name, req?.Platform, ctx.RequestAborted)
@@ -80,7 +83,7 @@ internal static class MobileEnrollmentEndpoint
                 if (outcome.Kind == MobileEnrollmentOutcome.ResultKind.Ok
                     && !string.IsNullOrEmpty(outcome.LocalDeviceKey))
                 {
-                    GatewayTokenCookie.Set(ctx, outcome.LocalDeviceKey);
+                    GatewayTokenCookie.Set(ctx, outcome.LocalDeviceKey, hosted);
                 }
 
                 return outcome.Kind switch
@@ -154,7 +157,7 @@ internal static class MobileEnrollmentEndpoint
 
         // The one credential the browser keeps is the tenant-scoped device key, set here through the single
         // cookie helper - the same cookie the self-host path sets, so both surfaces are set exactly one way.
-        GatewayTokenCookie.Set(ctx, result.Response.DeviceKey);
+        GatewayTokenCookie.Set(ctx, result.Response.DeviceKey, hosted: true);
         FileLog.Write("[MobileEnrollment] POST /mobile/enroll (hosted): signed in - minted a tenant-scoped device key and set the session cookie (account token not logged)");
         return Results.Json(new MobileEnrollmentResponse { DeviceKey = result.Response.DeviceKey });
     }

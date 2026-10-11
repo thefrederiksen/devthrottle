@@ -23,7 +23,7 @@ public sealed class TranscriptionAudioArchiveTests : IDisposable
         catch { /* scratch cleanup is best-effort */ }
     }
 
-    private TranscriptionAudioArchive NewArchive() => new(_dir);
+    private TranscriptionAudioArchive NewArchive() => new(false, _dir);
 
     private static byte[] Clip(byte fill = 0x42) => Enumerable.Repeat(fill, 64).ToArray();
 
@@ -107,7 +107,7 @@ public sealed class TranscriptionAudioArchiveTests : IDisposable
         var occupied = Path.Combine(_dir, "occupied");
         Directory.CreateDirectory(_dir);
         File.WriteAllText(occupied, "not a directory");
-        var archive = new TranscriptionAudioArchive(occupied);
+        var archive = new TranscriptionAudioArchive(false, occupied);
 
         var path = archive.TrySave("turn1", Clip(), "audio/wav");
 
@@ -174,7 +174,7 @@ public sealed class TranscriptionAudioArchiveTests : IDisposable
         {
             // An archive constructed with NO override, BEFORE the root is redirected - exactly Shared's
             // situation. It must still follow a root set afterwards.
-            var archive = new TranscriptionAudioArchive();
+            var archive = new TranscriptionAudioArchive(hosted: false);
 
             var rootA = Path.Combine(_dir, "rootA");
             Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", rootA);

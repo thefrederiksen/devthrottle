@@ -73,7 +73,9 @@ public sealed partial class TeamRegistry
         _utcNow = utcNow ?? (() => DateTime.UtcNow);
         _bills = bills ?? new TeamBillStore(db, _utcNow);
         _governance = governance ?? new TeamGovernanceStore(db, _utcNow);
-        _readTeamBill = readTeamBill ?? new EntitlementRegistry(db).ReadTeamBill;
+        // The default reader needs no live-mode answer: ReadTeamBill reads the team's bill row and never consults the
+        // live-mode requirement, which only EvaluatePaid applies to a person's own subscription.
+        _readTeamBill = readTeamBill ?? new EntitlementRegistry(db, requireLivemode: false).ReadTeamBill;
         _billEndedNotice = billEndedNotice;
         _access = new TeamAccess(this);
     }

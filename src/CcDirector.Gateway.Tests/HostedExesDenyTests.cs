@@ -95,7 +95,7 @@ public sealed class HostedExesDenyTests : IDisposable
     [InlineData("GET", "exes/anything-added-later", null)]            // a path that does not exist today
     public async Task Every_exes_route_is_refused_to_an_enrolled_tenant(string method, string path, string? body)
     {
-        var (app, http) = await ExesGroupProbeHost.StartAsync(_instances);
+        var (app, http) = await ExesGroupProbeHost.StartAsync(_instances, hosted: true);
         try
         {
             var resp = await Send(http, new HttpMethod(method), path, body);
@@ -109,7 +109,7 @@ public sealed class HostedExesDenyTests : IDisposable
     {
         // Refuse, never serve the host roster: GET /exes/list normally returns the box's machine name and its
         // running Directors. On hosted the exact-property assertion proves there is no machineName field at all.
-        var (app, http) = await ExesGroupProbeHost.StartAsync(_instances);
+        var (app, http) = await ExesGroupProbeHost.StartAsync(_instances, hosted: true);
         try
         {
             var resp = await Send(http, HttpMethod.Get, "exes/list");
@@ -126,7 +126,7 @@ public sealed class HostedExesDenyTests : IDisposable
         // The primitive maps a VERB-LESS refusal, so a method the family never mapped meets the refusal too -
         // it does not leak the route's existence through a 405. /exes/list is a GET-only route; a DELETE on it
         // was never mapped by any verb, yet the catch-all refuses it.
-        var (app, http) = await ExesGroupProbeHost.StartAsync(_instances);
+        var (app, http) = await ExesGroupProbeHost.StartAsync(_instances, hosted: true);
         try
         {
             var resp = await Send(http, HttpMethod.Delete, "exes/list");
@@ -175,6 +175,7 @@ internal static class ExesGroupProbeHost
 {
     public static async Task<(WebApplication app, HttpClient http)> StartAsync(
         string instancesDir,
+        bool hosted,
         Action<HostedDenyGroup>? mapIntoGroup = null,
         Action<IEndpointRouteBuilder>? mapOutsideGroup = null)
     {
@@ -185,7 +186,7 @@ internal static class ExesGroupProbeHost
 
         var registry = new DirectorRegistry(instancesDir);
         app.Lifetime.ApplicationStopped.Register(registry.Dispose);
-        var group = ExesEndpoints.Map(app, registry, new PushedSessionStore());
+        var group = ExesEndpoints.Map(app, hosted, registry, new PushedSessionStore());
         mapIntoGroup?.Invoke(group);
         mapOutsideGroup?.Invoke(app);
 
@@ -248,7 +249,7 @@ public sealed class HostedExesGroupFilterTests : IDisposable
     [Fact]
     public async Task A_route_added_to_the_group_later_is_refused_on_hosted_with_no_deny_of_its_own()
     {
-        var (app, http) = await ExesGroupProbeHost.StartAsync(_instances,
+        var (app, http) = await ExesGroupProbeHost.StartAsync(_instances, hosted: true,
             mapIntoGroup: group =>
                 group.MapPost("/added-after-the-deny-was-written",
                     (ExesProbeBody body) => Results.Json(new { echoed = body.Text })),
@@ -296,7 +297,7 @@ public sealed class HostedExesGroupFilterTests : IDisposable
     [Fact]
     public async Task A_route_outside_the_group_still_serves_on_hosted()
     {
-        var (app, http) = await ExesGroupProbeHost.StartAsync(_instances,
+        var (app, http) = await ExesGroupProbeHost.StartAsync(_instances, hosted: true,
             mapOutsideGroup: routes => routes.MapGet("/not-an-exes-route", () => Results.Json(new { ok = true })));
         try
         {
@@ -357,7 +358,7 @@ public sealed class SelfHostExesGroupControlTests : IDisposable
     {
         DeclareSelfHost(hostedValue);
 
-        var (app, http) = await ExesGroupProbeHost.StartAsync(_instances);
+        var (app, http) = await ExesGroupProbeHost.StartAsync(_instances, hosted: false);
         try
         {
             var resp = await http.GetAsync("/exes/list");
@@ -381,7 +382,7 @@ public sealed class SelfHostExesGroupControlTests : IDisposable
     {
         DeclareSelfHost(hostedValue);
 
-        var (app, http) = await ExesGroupProbeHost.StartAsync(_instances);
+        var (app, http) = await ExesGroupProbeHost.StartAsync(_instances, hosted: false);
         try
         {
             var resp = await http.DeleteAsync("/exes/slots/9");
@@ -407,7 +408,7 @@ public sealed class SelfHostExesGroupControlTests : IDisposable
     {
         DeclareSelfHost(hostedValue);
 
-        var (app, http) = await ExesGroupProbeHost.StartAsync(_instances,
+        var (app, http) = await ExesGroupProbeHost.StartAsync(_instances, hosted: false,
             mapIntoGroup: group =>
                 group.MapPost("/added-after-the-deny-was-written",
                     (ExesProbeBody body) => Results.Json(new { echoed = body.Text })));

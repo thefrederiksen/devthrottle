@@ -53,9 +53,9 @@ public sealed class TranscriptionBatchEndpointTests : IAsyncLifetime
         _app.Urls.Add(bindUrl);
         // The boundary is required and non-nullable now (finding I1-01). Self-host harness, so the REAL
         // self-host boundary: built over the SingleTenantContext, it always resolves Local.
-        TranscriptionBatchEndpoint.Map(_app, new KeyVault(_vaultPath),
+        TranscriptionBatchEndpoint.Map(_app, false, new KeyVault(_vaultPath),
             new CcDirector.Gateway.Tenancy.HostedTenantBoundary(
-                new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry()));
+                new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: false));
         await _app.StartAsync();
         var baseUrl = $"http://127.0.0.1:{BoundPort.Of(_app)}";
 
