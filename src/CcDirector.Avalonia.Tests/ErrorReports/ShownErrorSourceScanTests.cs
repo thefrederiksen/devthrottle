@@ -99,6 +99,11 @@ public sealed class ShownErrorSourceScanTests
         AssertRead(result, "SaveWorkspaceDialog.axaml.cs", "TxtWarning.Text = _existingIdsProblem", "control text", "a field named for a failure (rule b)");
         AssertRead(result, "AgentEditorDialog.axaml.cs", "SetQuickCheckResult(result.Ok", "error call", "a success flag that is not a literal (rule d)");
         AssertRead(result, "ToolsView.axaml.cs", "repair.Detail", "control text", "the text of an outcome whose success the method tests (rule e)");
+        AssertRead(result, "FirstRunWizardDialog.axaml.cs", "The repair did not succeed", "control text", "a positive if/else test of an outcome (rule e, S2)");
+        // S1 (only the value shown counts as reported) has no sentinel here: its lax direction - a swapped branch
+        // passing - has no real site by design. Its guard is the unit tests below (shapes A, B, C and the flag and
+        // count tests); its strict direction is loud on its own, because a reported site it stopped reading goes
+        // NOT REPORTED.
         Assert.True(result.Findings.Count == 0, string.Join("\n", result.Findings));
         Assert.True(violations.Count == 0,
             $"{violations.Count} place(s) show the user an error that is never reported. Show it through " +
@@ -414,6 +419,16 @@ public sealed class ShownErrorSourceScanTests
         const string decl = " void SetIncomplete(int started, int total, string detail){ } }";
         Assert.Empty(ScanOne(Head + "void M(int s, int t, string d){ SetIncomplete(s, t, ShownError.Report(\"s\", \"a\", d)); }" + decl).Violations);
         Assert.Single(ScanOne(Head + "void M(int s, int t, string d){ SetIncomplete(s, t, d); }" + decl).Violations);
+    }
+
+    [Fact]
+    public void Scan_F1_AFailureNamedPropertyAtTheEndOfAValueChain_IsErrorText_ButAnEnumValueIsNot()
+    {
+        // run.Outcome.Error starts at a value: a property, shown unreported. NativeNotice.Kind.Error starts at a type.
+        Assert.Equal("control text", Assert.Single(ScanOne(Head + "void M(Run run){ StatusText.Text = run.Outcome.Error; } }").Violations).Kind);
+        Assert.Single(ScanOne(Head + "void M(Vm _vm){ StatusText.Text = _vm.Result.Failure; } }").Violations);
+        var notice = ScanOne(Head + "void M(Exception ex){ var notice = ShownError.Report(\"s\", \"a\", ex.Message, ex); NativeNotice.Show(notice, \"Title\", NativeNotice.Kind.Error); } }");
+        Assert.Empty(notice.Violations);
     }
 
     [Fact]

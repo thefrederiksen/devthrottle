@@ -438,9 +438,14 @@ public sealed class ShownErrorScanner
     /// <summary><c>StatusLevel.Error</c>, <c>NativeNotice.Kind.Error</c>, <c>RunState.Failed</c>: a value of an enumeration, which names a state rather
     /// than carrying the text of a failure.</summary>
     private static bool IsEnumValue(MemberAccessExpressionSyntax m)
-        => m.Expression is IdentifierNameSyntax or MemberAccessExpressionSyntax
-           && LastName(m.Expression) is { Length: > 0 } owner && char.IsUpper(owner[0])
+        => ChainRoot(m.Expression) is IdentifierNameSyntax root && char.IsUpper(root.Identifier.Text[0])
            && m.Name.Identifier.Text is "Error" or "Failed" or "Failure" or "Fault" or "Problem";
+
+    /// <summary>The first name of a member chain: <c>NativeNotice</c> in <c>NativeNotice.Kind</c>, <c>run</c> in
+    /// <c>run.Outcome</c>. A chain that starts at a value (<c>run.Outcome.Error</c>) is a property, whatever its
+    /// capitals; only one that starts at a type is an enumeration's value (review of #3816, F1).</summary>
+    private static ExpressionSyntax ChainRoot(ExpressionSyntax e)
+        => e is MemberAccessExpressionSyntax m ? ChainRoot(m.Expression) : e;
 
     private static bool IsCallOnAType(ExpressionSyntax callee) => callee is MemberAccessExpressionSyntax ma
         && (ma.Expression is GenericNameSyntax
