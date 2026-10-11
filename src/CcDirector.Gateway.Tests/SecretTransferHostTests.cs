@@ -306,10 +306,27 @@ public sealed class SecretTransferHostTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Answer_ASecondDeviceOnTheSameMachine_IsThatMachine_ThoughNoDirectorUsesIt()
+    {
+        // Found in the same QA run: SOREN_NORTH holds two device credentials - cc-secrets reads the machine's own
+        // config.json, its Directors their instance's - both enrolled as SOREN_NORTH. The window's credential has no
+        // Director of its own, and the fix for the Mac had it refused as naming no machine.
+        BothMachines();
+        var tools = _gateway.Devices.RegisterForTenant(_tenantA, $"sub-secrets-a-{_runId}", $"dev-secrets-north-tools-{_runId}", "SOREN_NORTH");
+        using var window = Client(tools.DeviceKey);
+        var (_, waiting) = await Post(_sessionA, "gateway/secrets/transfers", Ask());
+
+        var (status, body) = await Post(window, $"gateway/secrets/transfers/{Id(waiting)}/answer", new { approve = true, where = "window" });
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal("the own credential of SOREN_NORTH", body.GetProperty("transfer").GetProperty("answeredBy").GetString());
+    }
+
+    [Fact]
     public async Task Answer_AMachineCredentialWithNoDirectorConnected_IsRefusedSayingSo()
     {
         BothMachines();
-        var lonely = _gateway.Devices.RegisterForTenant(_tenantA, $"sub-secrets-a-{_runId}", $"dev-secrets-lonely-{_runId}", "SOREN_NORTH");
+        var lonely = _gateway.Devices.RegisterForTenant(_tenantA, $"sub-secrets-a-{_runId}", $"dev-secrets-lonely-{_runId}", "NO-DIRECTOR-HERE");
         using var noDirector = Client(lonely.DeviceKey);
         var (_, waiting) = await Post(_sessionA, "gateway/secrets/transfers", Ask());
 

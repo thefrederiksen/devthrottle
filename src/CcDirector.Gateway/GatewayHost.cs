@@ -5337,9 +5337,13 @@ public sealed class GatewayHost : IAsyncDisposable
             isConnected: (tenant, directorId) => PushedSessions.GetActiveConnectionId(tenant, directorId) is not null,
             transfers: SecretTransfers,
             findSession: (tenant, sid) => GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, sid),
-            // The machine as the machine list names it: what this credential's own live Directors report. A device's
-            // enrollment name can differ (a Mac enrolled as its host name whose Director reports another name).
+            // The machine as the machine list names it: what the live Directors of this credential - or of another device
+            // enrolled under the same machine name - report. A device's enrollment name can differ from that (a Mac
+            // enrolled as its host name whose Director reports another name), and one machine can hold two devices.
             machineOfDevice: (tenant, deviceId) => SecretMachines.MachineOfCredential(tenant, "device:" + deviceId,
+                credential => credential.StartsWith("device:", StringComparison.Ordinal)
+                    ? Devices.DisplayOfDevice(credential["device:".Length..])?.MachineName
+                    : null,
                 directorId => PushedSessions.GetActiveConnectionId(tenant, directorId) is not null, DateTime.UtcNow),
             startDelivery: (tenant, transferId) => SecretDelivery.Start(tenant, transferId),
             // A waiting transfer is pushed to the owner's phones (phase 5). The subscriptions are read inside the request,
