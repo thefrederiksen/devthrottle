@@ -185,7 +185,7 @@ delay | src/CcDirector.Core.Tests/Storage/SessionLogWriterTests.cs | 4
 delay | src/CcDirector.Core.Tests/Storage/TurnReviewLogTests.cs | 3
 real-clock | src/CcDirector.Core.Tests/Storage/TurnReviewLogTests.cs | 5
 real-clock | src/CcDirector.Core.Tests/StubGitHubClient.cs | 3
-fixed-port | src/CcDirector.Core.Tests/TailnetIdentityResolverTests.cs | 4
+fixed-port | src/CcDirector.Core.Tests/TailnetIdentityResolverTests.cs | 6
 delay | src/CcDirector.Core.Tests/TerminalPromptInjectionChokepointTests.cs | 2
 stopwatch | src/CcDirector.Core.Tests/TerminalThroughputTests.cs | 4
 process | src/CcDirector.Core.Tests/TestTempRootTests.cs | 2

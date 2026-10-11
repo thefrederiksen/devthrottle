@@ -56,13 +56,13 @@ public sealed class GateTestsDoNotDependOnTheMachineTests
         // A never-ending wait (Timeout.Infinite, Timeout.InfiniteTimeSpan, -1) reads no clock; every finite one does.
         ("delay", new Regex(@"\bTask\.Delay\s*\((?!\s*(Timeout\.Infinite(TimeSpan)?\b|-1\s*[,)]))", RegexOptions.Compiled)),
         // A polling wait, or a timer of the test's own, on the real clock.
-        ("timer-wait", new Regex(@"\bSpinWait\.SpinUntil\s*\(|\bnew\s+(System\.Threading\.)?Timer\s*\(|\bnew\s+PeriodicTimer\s*\(", RegexOptions.Compiled)),
+        ("timer-wait", new Regex(@"\bSpinWait\.SpinUntil\s*\(|\bnew\s+(System\.(Threading|Timers)\.)?Timer\s*\(|\bnew\s+PeriodicTimer\s*\(", RegexOptions.Compiled)),
         ("real-clock", new Regex(@"\bDateTime(Offset)?\.((Utc)?Now|Today)\b|\bTimeProvider\.System\b|\bEnvironment\.TickCount(64)?\b", RegexOptions.Compiled)),
         ("stopwatch", new Regex(@"\bStopwatch\b", RegexOptions.Compiled)),
-        ("process", new Regex(@"\bProcess\.Start\s*\(|\bnew\s+Process\s*[({]|\bnew\s+ProcessStartInfo\b|\bProcess(StartInfo)?\s+\w+\s*=\s*new\s*\(", RegexOptions.Compiled)),
+        ("process", new Regex(@"\bProcess\.Start\s*\(|\bnew\s+Process\s*[({]|\bnew\s+ProcessStartInfo\b|\bProcess(StartInfo)?\??\s+\w+\s*=\s*new\s*\(", RegexOptions.Compiled)),
         ("docker", new Regex(@"\b(docker|testcontainers)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase)),
         ("npgsql", new Regex(@"\bNpgsql", RegexOptions.Compiled)),
-        ("fixed-port", new Regex(@"\b(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]):(?!0\b)\d{1,5}\b|//[+*]:[1-9]\d{0,4}\b|\bIPEndPoint\s*\(\s*IPAddress\.\w+\s*,\s*[1-9]", RegexOptions.Compiled)),
+        ("fixed-port", new Regex(@"(\b(localhost|127\.0\.0\.1|0\.0\.0\.0)|\[::1\]):(?!0\b)\d{1,5}\b|//[+*]:[1-9]\d{0,4}\b|\bIPEndPoint\s*\(\s*IPAddress\.\w+\s*,\s*[1-9]", RegexOptions.Compiled)),
     };
 
     /// <summary>The three parked suites hold most of the offenders; a scan that lost one of them would pass.</summary>
