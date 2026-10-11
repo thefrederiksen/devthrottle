@@ -58,7 +58,15 @@ public static class GitHubUrls
         try
         {
             if (!Directory.Exists(repoPath)) return "";
-            var repoName = ParseRepoName(GetOriginRemoteUrl(repoPath));
+            var origin = ReadOriginRemoteUrl(repoPath);
+            if (origin is null)
+            {
+                // No origin remote is the normal state of a local-only repository, so it is a plain line, not a
+                // FAILED one: every FAILED line is sent to the Gateway as an error report (#3828).
+                FileLog.Write($"[GitHubUrls] ResolveRepoNameCached: {repoPath} has no origin remote, so it has no repo name");
+                return "";
+            }
+            var repoName = ParseRepoName(origin);
             FileLog.Write($"[GitHubUrls] ResolveRepoNameCached: {repoPath} -> {repoName}");
             return repoName;
         }
@@ -164,7 +172,12 @@ public static class GitHubUrls
     /// Runs "git remote get-url origin" in the repo and returns the trimmed URL.
     /// Throws when the repo has no origin remote (or is not a git repo).
     /// </summary>
-    private static string GetOriginRemoteUrl(string repoPath)
+    private static string GetOriginRemoteUrl(string repoPath) =>
+        ReadOriginRemoteUrl(repoPath) ?? throw new InvalidOperationException($"No 'origin' remote in {repoPath}");
+
+    /// <summary>The origin remote's URL, or null when the repository has no origin remote. Throws when git
+    /// itself fails (not a repository, a broken .git, git missing).</summary>
+    private static string? ReadOriginRemoteUrl(string repoPath)
     {
         var psi = new System.Diagnostics.ProcessStartInfo
         {
@@ -179,9 +192,13 @@ public static class GitHubUrls
         using var process = System.Diagnostics.Process.Start(psi)
             ?? throw new InvalidOperationException("Failed to start git");
         var output = process.StandardOutput.ReadToEnd().Trim();
+        var error = process.StandardError.ReadToEnd().Trim();
         process.WaitForExit();
-        if (process.ExitCode != 0 || output.Length == 0)
-            throw new InvalidOperationException($"No 'origin' remote in {repoPath}");
+        // git answers exit code 2 when the repository has no remote of that name.
+        if (process.ExitCode == 2 || (process.ExitCode == 0 && output.Length == 0))
+            return null;
+        if (process.ExitCode != 0)
+            throw new InvalidOperationException($"git remote get-url origin failed in {repoPath} (exit {process.ExitCode}): {error}");
         return output;
     }
 }

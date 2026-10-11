@@ -134,6 +134,56 @@ public class GitHubUrlsTests
         }
     }
 
+    [Fact]
+    public void ResolveRepoNameCached_RepoWithoutOrigin_ReportsNoError()
+    {
+        // A local repository with no origin remote is an expected state (it groups by its folder name), so it
+        // must not write a FAILED line: every error line is sent to the Gateway as an error report.
+        var repoDir = CreateTempGitRepo(originUrl: null);
+        var errors = new List<string>();
+        var previous = FileLog.ErrorObserver;
+        using var scope = FileLog.RedirectForTests();
+        try
+        {
+            FileLog.ErrorObserver = errors.Add;
+
+            Assert.Equal("", GitHubUrls.ResolveRepoNameCached(repoDir));
+
+            Assert.DoesNotContain(errors, e => e.Contains("[GitHubUrls]", StringComparison.Ordinal));
+        }
+        finally
+        {
+            FileLog.ErrorObserver = previous;
+            Directory.Delete(repoDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ResolveRepoNameCached_GitFailsForAnotherReason_StillReportsFailed()
+    {
+        // Only a missing origin is expected. A folder git cannot read as a repository (here a .git file pointing
+        // nowhere) is a real failure and still writes the FAILED line.
+        var dir = Path.Combine(Path.GetTempPath(), $"cc-director-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, ".git"), "gitdir: " + Path.Combine(dir, "no-such-git-dir"));
+        var errors = new List<string>();
+        var previous = FileLog.ErrorObserver;
+        using var scope = FileLog.RedirectForTests();
+        try
+        {
+            FileLog.ErrorObserver = errors.Add;
+
+            Assert.Equal("", GitHubUrls.ResolveRepoNameCached(dir));
+
+            Assert.Contains(errors, e => e.Contains("[GitHubUrls] ResolveRepoNameCached FAILED", StringComparison.Ordinal));
+        }
+        finally
+        {
+            FileLog.ErrorObserver = previous;
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]
