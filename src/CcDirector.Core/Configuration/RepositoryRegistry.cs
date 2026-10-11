@@ -296,7 +296,8 @@ public class RepositoryRegistry
     /// <summary>
     /// Write the list through a temporary file and a single move, so no reader - in this process or in
     /// another Director sharing this root - can ever see half of it, and so a crash mid-write cannot
-    /// leave an unparseable file behind.
+    /// leave an unparseable file behind. <see cref="AtomicFileReplace"/> owns the mechanics, including
+    /// why the temporary file is never closed before it has its final name.
     /// </summary>
     private void WriteAtomic(string json)
     {
@@ -304,9 +305,6 @@ public class RepositoryRegistry
             ?? throw new InvalidOperationException($"The repository list has no directory: {FilePath}");
         Directory.CreateDirectory(dir);
 
-        // A unique temporary name, because a fixed one would itself be the thing two writers race over.
-        var temp = Path.Combine(dir, $".repositories.{Guid.NewGuid():N}.tmp");
-        File.WriteAllText(temp, json);
-        AtomicFileReplace.Replace(temp, FilePath);
+        AtomicFileReplace.WriteAllText(FilePath, json);
     }
 }
