@@ -30,7 +30,7 @@ is pointed at a stand-in `cc-devthrottle` that records the arguments it receives
 Revert proof: with the old line put back, the first test fails ("Collections differ") and nothing else in
 `LicenseCommandLineTests` does; with the fix, all pass.
 
-**Live proof** - see the section below.
+**Live proof**: an expired spare was renewed and read through the Director's own adapter. See the section below.
 
 ## Finding 2 - Retiring ClaudeAccountStore leaves its old token copies behind: answered, no change in this pull request
 
@@ -56,4 +56,35 @@ What the finding describes is real but is not the harm trap 2 guards against:
 
 ## Live proof (finding 1)
 
-To follow in this file once the spare's access token has expired (21:33 UTC, 11 October).
+Run on the Windows machine on 11 October 2026 at 21:34 UTC, in ISOLATED folders only, inside the test root
+the live exchange proof marked. The machine's real default Claude login was not touched.
+
+**Setup.** Account C had a sign-in of its own in an isolated folder, made at 09:33 UTC, whose access token
+expired at 21:33:34 UTC. Its refresh token was distinct from every other key in the test root. It was MOVED
+(not copied) into a fresh isolated store with `cc-devthrottle license add`, after which the source folder held
+no key. The isolated default folder was signed in to account A.
+
+**What ran.** A scratch console program referencing `CcDirector.Core` built the production
+`CcDevthrottleLicenseCommandLine` (its tool seam pointed at the checkout's `tools/cc-devthrottle/src`, run with
+the installed tool's own Python environment, because the installed tool predates the `license` command) and
+made exactly the reporter's spare read: `ReadUsageAsync(activeOnly: false)`. It printed the first 10 hex
+characters of each token's SHA-256, never a key, and replaced email addresses with labels. Its output:
+
+```
+now: 2026-10-11 21:34:10 UTC
+before: spare access token e6099b39a5, refresh token 14bfa3bd34, expires 2026-10-11 21:33:34 UTC (EXPIRED)
+row: account A (active), readError=none, fiveHour=11%, sevenDay=90%, readAt=21:34:11
+row: account C (spare), readError=none, fiveHour=0%, sevenDay=99%, readAt=21:34:11
+after: spare access token 626f241fce, refresh token d30e671fd7, expires 2026-10-12 05:34:11 UTC (valid)
+```
+
+**What it shows.** The spare went in with an EXPIRED access token and came out renewed (new access token,
+rotated refresh token, 8 hours of life) and READ with no error - a usable switch target. Afterwards every key in
+the test root was fingerprinted: the renewed refresh token exists in exactly one place (the store's spare
+folder), and the active account A's refresh token is the same as before the run, so the active key was not
+renewed.
+
+**Not shown here.** The run does not include a control read of the same expired key without `--refresh`: one
+key could be expired only once, and it was spent on the proof. The control is the adapter test and its revert
+proof above, together with the code path the review cites (`read_usage` answers `unauthorized` for an expired
+key). The proof drove the adapter call, not a whole running Director with its reporter and Gateway connection.
