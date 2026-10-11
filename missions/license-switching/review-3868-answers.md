@@ -113,8 +113,8 @@ Two answers still carry an empty `ActiveAccountEmailAfter`, because the Director
 - **License switching turned off:** an off Director runs no tool at all.
 
 Neither is stored, so neither is ever replayed. Both are still a refusal with an empty account in its first answer.
-This is raised in the handback. The Gateway's reading of an empty account is a contract question, not one this
-pull request can settle alone.
+The Tech Lead's ruling: both stay empty, with no Director error. An empty `ActiveAccountEmailAfter` means "not
+known", and it must never update the Gateway's machine state. The Tech Lead is passing that rule to phase 2.
 
 ## Runs, fix round
 
