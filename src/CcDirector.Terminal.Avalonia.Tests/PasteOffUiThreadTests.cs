@@ -79,22 +79,32 @@ public sealed class PasteOffUiThreadTests
         var text = new string('x', PasteLen);
 
         using var release = new ManualResetEventSlim(false);
-        using var pinning = new ManualResetEventSlim(false);
+        using var pinStarted = new ManualResetEventSlim(false);
         using var pinEnded = new ManualResetEventSlim(false);
         using var firstChunkSent = new ManualResetEventSlim(false);
         var betweenChunks = new TaskCompletionSource();
         var sentAfterThePinEnded = new ConcurrentQueue<bool>();
 
-        var pin = PinUiThreadUntil(release, pinning, pinEnded);
+        var pin = PinUiThreadUntil(release, pinStarted, pinEnded);
 
         var releaser = Task.Run(() =>
         {
-            if (!pinning.Wait(HangGuard)) throw new TimeoutException("the UI thread was never pinned");
-            if (!firstChunkSent.Wait(HangGuard)) throw new TimeoutException("the first chunk was never sent");
-            // The pacing is now awaiting betweenChunks on the UI thread's context. Completing it queues the
-            // continuation behind the pin job; the pin is opened only after that.
-            betweenChunks.SetResult();
-            release.Set();
+            try
+            {
+                if (!pinStarted.Wait(HangGuard)) throw new TimeoutException("the pin job never started");
+                if (!firstChunkSent.Wait(HangGuard)) throw new TimeoutException("the first chunk was never sent");
+                // The pacing is now awaiting betweenChunks on the UI thread's context. Completing it queues the
+                // continuation behind the pin job; the pin is opened only after that.
+                betweenChunks.SetResult();
+                release.Set();
+            }
+            finally
+            {
+                // Whatever stopped the releaser, the pacing must not be left waiting for ever on a task only
+                // the releaser completes: a test that hangs reports nothing, a test that fails names its cause.
+                betweenChunks.TrySetException(new InvalidOperationException("the releaser gave up before it let the pacing continue"));
+                release.Set();
+            }
         });
 
         await NaiveUiThreadPace(text, _ =>
@@ -131,9 +141,9 @@ public sealed class PasteOffUiThreadTests
 
     /// <summary>
     /// Post a job that spins the UI thread until <paramref name="until"/> is set, blocking the dispatcher
-    /// completely. <paramref name="pinning"/>, when given, is set the moment the spin begins, and
-    /// <paramref name="ended"/> the moment it stops, before the job returns the thread to the dispatcher.
-    /// The task says what ended the pin: the signal, or the hang guard.
+    /// completely. <paramref name="started"/>, when given, is set the moment the job runs - whether it then
+    /// pins or refuses to - and <paramref name="ended"/> the moment it stops, before the job returns the
+    /// thread to the dispatcher. The task says what ended the pin: the signal, or the hang guard.
     ///
     /// <para>The job proves it IS the pin before it spins: it has to be running on the UI thread, because
     /// a dispatcher runs one job at a time on that one thread, so a job spinning there is the one fact that
@@ -141,11 +151,12 @@ public sealed class PasteOffUiThreadTests
     /// instead of pinning nothing - the review ran this very mutation (the spin moved to a pool thread,
     /// the UI thread left free) and the first version of this file passed it.</para>
     /// </summary>
-    private static Task<PinEnd> PinUiThreadUntil(ManualResetEventSlim until, ManualResetEventSlim? pinning = null, ManualResetEventSlim? ended = null)
+    private static Task<PinEnd> PinUiThreadUntil(ManualResetEventSlim until, ManualResetEventSlim? started = null, ManualResetEventSlim? ended = null)
     {
         var tcs = new TaskCompletionSource<PinEnd>();
         Dispatcher.UIThread.Post(() =>
         {
+            started?.Set();
             if (!Dispatcher.UIThread.CheckAccess())
             {
                 ended?.Set();
@@ -153,7 +164,6 @@ public sealed class PasteOffUiThreadTests
                     "the pin is not running on the UI thread, so it pins nothing and neither test can prove anything"));
                 return;
             }
-            pinning?.Set();
             var deadline = Environment.TickCount64 + (long)HangGuard.TotalMilliseconds;
             var endedBy = PinEnd.HangGuard;
             while (Environment.TickCount64 < deadline)
