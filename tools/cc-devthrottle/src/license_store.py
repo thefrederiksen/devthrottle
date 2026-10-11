@@ -176,9 +176,26 @@ def account_file_for(folder: str) -> Path:
     return Path(folder) / ACCOUNT_FILE
 
 
+def absolute_as_given(folder: str | os.PathLike, what: str) -> str:
+    """``folder`` exactly as given, refused unless it is absolute.
+
+    It is NOT made absolute or tidied: on macOS the Keychain service is a hash of the exact string
+    CLAUDE_CONFIG_DIR is set to, so a folder rewritten here would name an item Claude Code never reads. A
+    relative path is refused rather than resolved, because Claude Code would hash it relative, as typed."""
+    text = os.fspath(folder)
+    if not text or not os.path.isabs(text):
+        raise LicenseStoreError(
+            f"{what} must be an absolute path, written exactly as CLAUDE_CONFIG_DIR is set; got {text!r}",
+            ["Pass the full path, e.g. --default-config-dir /full/path/to/folder"],
+        )
+    return text
+
+
 def keychain_service_for(folder: str) -> str:
     """The Keychain service Claude Code uses for ``folder`` on macOS. ``folder`` must be the exact string
-    CLAUDE_CONFIG_DIR is set to; the hash is over that string, in Unicode normal form C."""
+    CLAUDE_CONFIG_DIR is set to. Claude Code 2.1.296 hashes that string after Unicode normal form C and nothing
+    else - its config folder is (CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude")).normalize("NFC"), with no
+    resolving - so this does exactly the same."""
     if is_real_default(folder):
         return KEYCHAIN_SERVICE
     digest = hashlib.sha256(unicodedata.normalize("NFC", folder).encode("utf-8")).hexdigest()
@@ -541,8 +558,8 @@ class LicenseStore:
         allow_real_default: bool = False,
         checkpoint: Optional[Checkpoint] = None,
     ):
-        self.default_config_dir = os.path.abspath(os.fspath(default_config_dir))
-        self.store_dir = os.path.abspath(os.fspath(store_dir))
+        self.default_config_dir = absolute_as_given(default_config_dir, "the default config folder")
+        self.store_dir = absolute_as_given(store_dir, "the store folder")
         if is_real_default(self.default_config_dir) and not allow_real_default:
             raise LicenseStoreError(
                 f"refusing to use the machine's real default Claude folder ({self.default_config_dir}): "
@@ -641,19 +658,39 @@ class LicenseStore:
         if self._journal_path.exists():
             self._journal_path.unlink()
 
-    def _step_copy(self, source: str, target: str) -> None:
-        """Put ``source``'s key and account block into ``target``. Safe to run again after a crash part way."""
+    def _step_copy(self, source: str, target: str, replaces: Optional[str] = None) -> None:
+        """Put ``source``'s key and account block into ``target``. Safe to run again after a crash part way.
+
+        A copy never overwrites a sign-in it cannot prove is held elsewhere: ``target`` must be empty, already
+        hold ``source``'s key (a step re-run after a crash), or hold the same key as ``replaces`` - the folder
+        the journal says still holds what ``target`` had. Anything else (a login or a credential rewrite while
+        the operation was interrupted) stops the step with nothing changed."""
         key = self.backend.read(source)
         block = read_oauth_account(source)
         if key is None:
             raise _StepFailed(f"{source} holds no sign-in key")
         if _email_of(block) is None:
             raise _StepFailed(f"{source} has no account block with an email")
+        present = self.backend.read(target)
+        if present is not None and not present.same_as(key):
+            if replaces is None or not present.same_as(self.backend.read(replaces)):
+                raise _StepFailed(
+                    f"refusing to overwrite the key in {target}: it is not a sign-in this operation can prove is "
+                    "held elsewhere"
+                )
         os.makedirs(target, exist_ok=True)
         self._checkpoint("copy-key")
         self.backend.write(target, key)
         self._checkpoint("copy-account")
         _write_oauth_account(target, block)
+
+    def _step_erase(self, folder: str) -> None:
+        """Delete ``folder``'s key and account block outright - the one deliberate end of a sign-in, used only by
+        remove. Done already counts as done, so a crash between the two halves is finished by the next run."""
+        self._checkpoint("erase-key")
+        self.backend.delete(folder)
+        self._checkpoint("erase-account")
+        _clear_oauth_account(folder)
 
     def _step_drop(self, folder: str, kept_in: str) -> None:
         """Remove ``folder``'s key and account block, but only when ``kept_in`` holds the same key and account,
@@ -676,9 +713,11 @@ class LicenseStore:
 
     def _do_step(self, step: dict) -> None:
         if step["op"] == "copy":
-            self._step_copy(step["from"], step["to"])
+            self._step_copy(step["from"], step["to"], step.get("replaces"))
         elif step["op"] == "drop":
             self._step_drop(step["folder"], step["keptIn"])
+        elif step["op"] == "erase":
+            self._step_erase(step["folder"])
         else:
             raise _StepFailed(f"the journal names an unknown step {step['op']!r}")
 
@@ -800,7 +839,7 @@ class LicenseStore:
     def add(self, source_folder: str | os.PathLike) -> HeldAccount:
         """Take the sign-in from ``source_folder`` (a folder ``claude auth login`` was run into) as a spare. The
         key and account block MOVE: the source folder no longer holds them afterwards."""
-        source = os.path.abspath(os.fspath(source_folder))
+        source = absolute_as_given(source_folder, "the folder to add")
         with self._lock:
             self.recover()
             if is_real_default(source) or _same_folder(source, self.default_config_dir):
@@ -860,11 +899,9 @@ class LicenseStore:
                     f"{email} is the active account; switch to another account first",
                     ["cc-devthrottle license switch <email>", "cc-devthrottle license list"],
                 )
-            self._log("remove-started", account=account.email, folder=account.config_dir)
-            self._checkpoint("remove-key")
-            self.backend.delete(account.config_dir)
-            self._checkpoint("remove-account")
-            _clear_oauth_account(account.config_dir)
+            # Journaled like every other change, so a crash between deleting the key and clearing the account
+            # block is finished by the next run instead of leaving the block behind without its key.
+            self._start("remove", account.email, [{"op": "erase", "folder": account.config_dir}])
             self._log("remove-finished", account=account.email)
             return account
 
@@ -935,9 +972,12 @@ class LicenseStore:
             steps.append({"op": "copy", "from": self.default_config_dir, "to": previous_folder})
         bring_in = {"op": "copy", "from": target.config_dir, "to": self.default_config_dir}
         if previous_folder is not None:
-            # Undone by putting the old active sign-in back, never by emptying the default folder: an empty
-            # default folder would sign the machine out.
-            bring_in["undo"] = {"op": "copy", "from": previous_folder, "to": self.default_config_dir}
+            # Overwrites the default folder only while it still holds the key the first step put away.
+            bring_in["replaces"] = previous_folder
+            # Undone by putting the old active sign-in back, never by emptying the default folder (that would
+            # sign the machine out), and only while the default folder still holds the spare's key.
+            bring_in["undo"] = {"op": "copy", "from": previous_folder, "to": self.default_config_dir,
+                                "replaces": target.config_dir}
         steps.append(bring_in)
         steps.append({"op": "drop", "folder": target.config_dir, "keptIn": self.default_config_dir})
         exchange_started = _dt.datetime.now(_dt.timezone.utc)

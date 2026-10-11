@@ -172,7 +172,7 @@ def add_account(folder: str, default_config_dir: Optional[str], store_dir: Optio
     store = _open(default_config_dir, store_dir)
     account = _run(store, lambda: store.add(folder))
     _report_recovery(store)
-    source = os.path.abspath(folder)
+    source = folder
     if json_output:
         print(json.dumps({
             "added": account.email,

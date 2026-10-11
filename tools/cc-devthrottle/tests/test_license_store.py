@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -171,6 +172,11 @@ class World:
             if email in self.removed:
                 continue
             assert key in places, f"{email}'s sign-in was lost"
+        # The account block travels with its key: a folder must never keep one after its key has gone.
+        for folder in self.folders():
+            if self.key_at(folder) is None:
+                assert self.email_at(folder) is None, (
+                    f"{folder} still names {self.email_at(folder)} but holds no key")
 
     removed: set[str] = set()
 
@@ -323,27 +329,90 @@ def test_contract_ReadBackWrong_IsVerifyFailed(world):
     assert refused.value.reason_code == "verify-failed"
 
 
-def test_contract_RollBackAfterTheSpareCameIn_PutsTheOldActiveSigninBack(world, tmp_path):
-    # The last step (deleting the spare's copy) cannot be proven safe, so the switch is rolled back. Undoing
-    # "bring the spare in" must restore the old active sign-in to the default folder, not leave it empty.
-    probe = World(tmp_path / "probe", world.kind)
+def _switch_crash_point(tmp_path: Path, kind: str, label: str, occurrence: int = 0) -> int:
+    """The change point (1-based) of the n-th occurrence of ``label`` in a switch, counted on a probe run."""
+    probe = World(tmp_path / f"probe-{label}-{occurrence}", kind)
     probe.removed = set()
     _machine_with_active_and_spare(probe)
     labels = []
     probe.store(checkpoint=labels.append).switch(ACCOUNT_B)
-    after_second_step = [i for i, label in enumerate(labels) if label == "journal"][2] + 2
+    return [i for i, seen in enumerate(labels) if seen == label][occurrence] + 1
 
+
+def test_review_RollBackNeverOverwritesASigninWrittenAfterTheCrash(world, tmp_path):
+    # The review's reproduction: crash at the delete of the spare's copy (A put away, B brought in), then a
+    # login writes C into the default folder before anyone recovers. Rolling back must not copy A over C.
+    crash_at = _switch_crash_point(tmp_path, world.kind, "drop-key")
+    _machine_with_active_and_spare(world)
+    assert _run_with_crash_at(world, crash_at, _switch)
+    world.sign_in(world.default, ACCOUNT_C)
+
+    with pytest.raises(LicenseStoreError) as refused:
+        world.store().recover()
+
+    assert refused.value.reason_code == "exchange-failed-unknown"
+    assert world.email_at(world.default) == ACCOUNT_C
+    world.assert_each_signin_in_exactly_one_place()  # A, B and C each still in exactly one place
+    assert (Path(world.store_dir) / "journal.json").exists()
+
+
+def test_review_RollForwardNeverOverwritesASigninWrittenAfterTheCrash(world, tmp_path):
+    # The same in the other direction: crash while bringing B in, C written into the default folder; the
+    # re-run of "bring B in" must not overwrite C either.
+    crash_at = _switch_crash_point(tmp_path, world.kind, "copy-key", occurrence=1)
+    _machine_with_active_and_spare(world)
+    assert _run_with_crash_at(world, crash_at, _switch)
+    world.sign_in(world.default, ACCOUNT_C)
+
+    with pytest.raises(LicenseStoreError):
+        world.store().recover()
+
+    assert world.email_at(world.default) == ACCOUNT_C
+    world.assert_each_signin_in_exactly_one_place()
+
+
+def test_review_RemoveCrashBetweenKeyAndAccountBlock_TheNextRunClearsTheBlock(world, tmp_path):
+    _machine_with_active_and_spare(world)
+    labels = []
+    probe = World(tmp_path / "probe-remove", world.kind)
+    probe.removed = set()
+    _machine_with_active_and_spare(probe)
+    probe.store(checkpoint=labels.append).remove(ACCOUNT_B)
+    assert _run_with_crash_at(world, labels.index("erase-account") + 1, _remove)
+    spare_b = world.store().spare_folder(ACCOUNT_B)
+    assert world.key_at(spare_b) is None and world.email_at(spare_b) == ACCOUNT_B, "crash was not between the two"
+
+    world.store().held_accounts()
+    world.removed.add(ACCOUNT_B)
+
+    assert world.email_at(spare_b) is None
+    world.assert_each_signin_in_exactly_one_place()
+
+
+def _refuse_the_final_delete(then=None):
+    """A checkpoint that makes the switch's last step (deleting the spare's copy) find it cannot go on, the way
+    `_step_drop` does when the copy is not provably held elsewhere, so the switch rolls back. ``then`` is called
+    for every later change point (to crash during the roll back)."""
+    state = {"refused": False}
+
+    def checkpoint(label):
+        if label == "drop-key" and not state["refused"]:
+            state["refused"] = True
+            raise license_store._StepFailed("the spare's copy is not provably held elsewhere (test)")
+        if state["refused"] and then is not None:
+            then(label)
+
+    return checkpoint
+
+
+def test_contract_RollBackAfterTheSpareCameIn_PutsTheOldActiveSigninBack(world):
+    # Undoing "bring the spare in" must restore the old active sign-in to the default folder, not leave it
+    # empty (an empty default folder would sign the machine out).
     _machine_with_active_and_spare(world)
     key_a = world.key_at(world.default)
-    assert _run_with_crash_at(world, after_second_step, _switch)
-    spare_b = world.store().spare_folder(ACCOUNT_B)
-    assert world.key_at(world.default) == world.key_at(spare_b), "the crash came before step 2 finished"
-    # The spare's copy changes before recovery (a refresh wrote a new key), so dropping it is not provable.
-    del world.secrets[world.key_at(spare_b)]
-    world.sign_in(spare_b, ACCOUNT_B)
 
     with pytest.raises(LicenseStoreError, match="rolled back") as refused:
-        world.store().recover()
+        world.store(checkpoint=_refuse_the_final_delete()).switch(ACCOUNT_B)
 
     assert refused.value.reason_code == "exchange-failed-restored"
     assert world.key_at(world.default) == key_a and world.email_at(world.default) == ACCOUNT_A
@@ -351,42 +420,64 @@ def test_contract_RollBackAfterTheSpareCameIn_PutsTheOldActiveSigninBack(world, 
     world.assert_each_signin_in_exactly_one_place()
 
 
+def test_contract_SpareRefreshedMidSwitch_StopsWithNothingLost(world, tmp_path):
+    # Crash after B came in; B's spare copy is then refreshed (a new key). Neither the delete of the spare's
+    # copy nor the undo can be proven safe - the default folder holds the OLD B key, held nowhere else - so
+    # recovery stops, changes nothing, and keeps the journal.
+    crash_at = _switch_crash_point(tmp_path, world.kind, "journal", occurrence=2) + 1
+    _machine_with_active_and_spare(world)
+    assert _run_with_crash_at(world, crash_at, _switch)
+    spare_b = world.store().spare_folder(ACCOUNT_B)
+    assert world.key_at(world.default) == world.key_at(spare_b), "the crash came before step 2 finished"
+    world.sign_in(spare_b, ACCOUNT_B)  # the refreshed key
+    before = world.snapshot()
+
+    with pytest.raises(LicenseStoreError) as refused:
+        world.store().recover()
+
+    assert refused.value.reason_code == "exchange-failed-unknown"
+    assert world.snapshot() == before
+    assert (Path(world.store_dir) / "journal.json").exists()
+
+
 @pytest.mark.parametrize("kind", ["file", "keychain"])
 def test_contract_CrashDuringTheRollBack_TheNextRunResumesIt(tmp_path, kind):
-    probe = World(tmp_path / "probe", kind)
-    probe.removed = set()
-    _machine_with_active_and_spare(probe)
-    labels = []
-    probe.store(checkpoint=labels.append).switch(ACCOUNT_B)
-    after_second_step = [i for i, label in enumerate(labels) if label == "journal"][2] + 2
-
     def make(tag):
         w = World(tmp_path / tag, kind)
         w.removed = set()
         _machine_with_active_and_spare(w)
-        assert _run_with_crash_at(w, after_second_step, _switch)
-        spare_b = w.store().spare_folder(ACCOUNT_B)
-        del w.secrets[w.key_at(spare_b)]
-        w.sign_in(spare_b, ACCOUNT_B)
         return w
 
     rollback_labels = []
-    first = make("count")
+    counter = make("count")
     with pytest.raises(LicenseStoreError):
-        first.store(checkpoint=rollback_labels.append).recover()
-    assert len(rollback_labels) >= 4
+        counter.store(checkpoint=_refuse_the_final_delete(then=rollback_labels.append)).switch(ACCOUNT_B)
+    assert len(rollback_labels) >= 4, rollback_labels
 
     for n in range(1, len(rollback_labels) + 1):
         w = make(f"rb{n}")
-        key_a = w.key_at(w.store().spare_folder(ACCOUNT_A))
-        assert _run_with_crash_at(w, n, lambda store: store.recover()), f"no crash at {rollback_labels[n - 1]}"
+        key_a = w.key_at(w.default)
+        seen = {"count": 0}
+
+        def crash_at_n(label):
+            seen["count"] += 1
+            if seen["count"] == n:
+                raise SimulatedCrash(label)
+
+        with pytest.raises(SimulatedCrash):
+            w.store(checkpoint=_refuse_the_final_delete(then=crash_at_n)).switch(ACCOUNT_B)
         try:
             w.store().recover()
         except LicenseStoreError as exc:
             assert exc.reason_code == "exchange-failed-restored", f"crash at {rollback_labels[n - 1]}: {exc}"
+        w.assert_each_signin_in_exactly_one_place()
+        if n == 1:
+            # The crash came before the roll back was recorded, so the journal still says "go forward" and
+            # the next run finishes the switch instead. Either whole outcome is correct.
+            assert _held(w) in ({ACCOUNT_A: "active", ACCOUNT_B: "spare"}, {ACCOUNT_B: "active", ACCOUNT_A: "spare"})
+            continue
         assert _held(w) == {ACCOUNT_A: "active", ACCOUNT_B: "spare"}, f"crash at {rollback_labels[n - 1]}"
         assert w.key_at(w.default) == key_a
-        w.assert_each_signin_in_exactly_one_place()
 
 
 def test_contract_DiskErrorOnceMidExchange_IsFinishedAtOnce(world):
@@ -601,6 +692,12 @@ def test_recovery_IsLogged(world):
     assert "recovery-started" in events and "recovery-finished" in events
 
 
+def _vanish(world: World, folder: str) -> None:
+    """Someone deletes a sign-in from outside the store: its key and its account block both go."""
+    world.backend().delete(folder)
+    license_store._clear_oauth_account(folder)
+
+
 def _after_first_switch_step(tmp_path: Path, kind: str) -> int:
     """The change point just after the first step of a switch (the active key put away) is recorded."""
     probe = World(tmp_path / "probe", kind)
@@ -617,7 +714,7 @@ def test_recovery_SpareVanishedMidSwitch_RollsBackAndKeepsTheActiveSignin(world,
     key_a = world.key_at(world.default)
     assert _run_with_crash_at(world, crash_at, _switch)
     assert world.key_at(world.store().spare_folder(ACCOUNT_A)) == key_a, "the crash came before step 1 finished"
-    world.backend().delete(world.store().spare_folder(ACCOUNT_B))  # the spare disappears before recovery
+    _vanish(world, world.store().spare_folder(ACCOUNT_B))  # the spare disappears before recovery
     world.removed.add(ACCOUNT_B)
 
     with pytest.raises(LicenseStoreError, match="rolled back") as refused:
@@ -634,7 +731,7 @@ def test_recovery_WhenRollingBackCannotBeProven_NothingIsDeleted(world, tmp_path
     crash_at = _after_first_switch_step(tmp_path, world.kind)
     _machine_with_active_and_spare(world)
     assert _run_with_crash_at(world, crash_at, _switch)
-    world.backend().delete(world.store().spare_folder(ACCOUNT_B))  # finishing is impossible
+    _vanish(world, world.store().spare_folder(ACCOUNT_B))  # finishing is impossible
     world.sign_in(world.default, ACCOUNT_C)  # and the default no longer holds the key that was put away
     before = world.snapshot()
 
@@ -655,6 +752,41 @@ def test_keychain_ServiceNames_AreClaudeCodesExactNames(tmp_path):
     other = str(tmp_path / "x")
     assert keychain_service_for(other) == "Claude Code-credentials-" + hashlib.sha256(other.encode()).hexdigest()[:8]
     assert keychain_service_for(str(Path.home() / ".claude")) == "Claude Code-credentials"
+
+
+def test_keychain_ServiceName_NormalFormCLikeClaudeCode():
+    # Claude Code 2.1.296 hashes (CLAUDE_CONFIG_DIR ?? ~/.claude).normalize("NFC"), so a path typed with a
+    # decomposed accent names the same item as the composed one.
+    decomposed, composed = "/Users/example/café", "/Users/example/café"
+    expected = "Claude Code-credentials-" + hashlib.sha256(composed.encode("utf-8")).hexdigest()[:8]
+    assert keychain_service_for(decomposed) == expected == keychain_service_for(composed)
+
+
+def test_store_FolderIsHashedExactlyAsGiven_NotTidied(tmp_path):
+    # A trailing separator changes what Claude Code hashes, so the store must not tidy it away.
+    world = World(tmp_path, "keychain")
+    given = world.default + os.sep
+    store = LicenseStore(given, world.store_dir, world.backend())
+    world.sign_in(given, ACCOUNT_A)
+    (account,) = store.held_accounts()
+    assert account.config_dir == given
+    assert account.key_location == "Claude Code-credentials-" + hashlib.sha256(given.encode("utf-8")).hexdigest()[:8]
+
+
+@pytest.mark.parametrize("which", ["default", "store", "add"])
+def test_store_RelativeFolder_IsRefused(tmp_path, which):
+    # Claude Code would hash a relative CLAUDE_CONFIG_DIR as typed; resolving it here would name another item.
+    default, store_dir = str(tmp_path / "d"), str(tmp_path / "s")
+    if which == "default":
+        default = "isolated-claude"
+    if which == "store":
+        store_dir = "store"
+    if which == "add":
+        with pytest.raises(LicenseStoreError, match="absolute path"):
+            LicenseStore(default, store_dir, FileKeyBackend()).add("isolated-claude")
+        return
+    with pytest.raises(LicenseStoreError, match="absolute path"):
+        LicenseStore(default, store_dir, FileKeyBackend())
 
 
 def test_keychain_Exchange_ItemsLandUnderTheExactServiceNames(tmp_path):
@@ -706,10 +838,40 @@ def test_keychain_NoKeyIsEverOnACommandLine(tmp_path):
     world.store().switch(ACCOUNT_B)
     world.store().switch(ACCOUNT_A)
 
-    for args, _stdin in world.security.calls:
+    _assert_no_key_on_a_command_line(world.security.calls, list(world.secrets))
+
+
+#: The exact argument shapes the Keychain backend may use: a service name and fixed flags, nothing else.
+_SAFE_SECURITY_SHAPES = [
+    lambda a: len(a) == 3 and a[:2] == ["find-generic-password", "-s"],
+    lambda a: len(a) == 4 and a[:2] == ["find-generic-password", "-s"] and a[3] == "-w",
+    lambda a: len(a) == 3 and a[:2] == ["delete-generic-password", "-s"],
+    lambda a: a == ["-i"],
+]
+
+
+def _assert_no_key_on_a_command_line(calls, secrets) -> None:
+    """Every `security` call has a safe shape, and no key appears in its arguments in any encoding - raw, or
+    hex as `-X` takes it. A key moved onto the command line fails this whatever it looks like."""
+    for args, _stdin in calls:
+        assert any(shape(list(args)) for shape in _SAFE_SECURITY_SHAPES), f"unexpected security arguments: {args}"
         joined = " ".join(args)
-        for secret in world.secrets:
-            assert "SECRET" not in joined and secret not in joined
+        for secret in secrets:
+            for form in (secret, secret.encode("utf-8").hex(), secret.encode("utf-8").hex().upper()):
+                assert form not in joined, "a key is on the command line"
+
+
+def test_keychain_TheCommandLineCheckCanFail():
+    # The arguments a regression to `security add-generic-password ... -X <hex>` would produce must fail.
+    secret = '{"claudeAiOauth": {"accessToken": "x"}}'
+    leaked = ["add-generic-password", "-U", "-a", "claude-code-user", "-s", "Claude Code-credentials-12345678",
+              "-X", secret.encode("utf-8").hex()]
+    with pytest.raises(AssertionError):
+        _assert_no_key_on_a_command_line([(leaked, None)], [secret])
+    # And a safe shape carrying the hex as its service argument fails on the encoding check alone.
+    with pytest.raises(AssertionError, match="on the command line"):
+        _assert_no_key_on_a_command_line([(["find-generic-password", "-s", secret.encode("utf-8").hex()], None)],
+                                         [secret])
 
 
 # ===== the real default folder =====
