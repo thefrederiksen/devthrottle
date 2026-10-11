@@ -150,6 +150,11 @@ public sealed class GatewayStatsStore : IDisposable
     private int _reopenWaits;
     private int _reopenAttempts;
 
+    /// <summary>The self-host file's connection string, kept so <see cref="Dispose"/> can release exactly the
+    /// pooled connections that hold that file open - and no other store's. Null for PostgreSQL and when
+    /// nothing is configured.</summary>
+    private readonly string? _sqliteConnectionString;
+
     /// <summary>
     /// What the statistics surface should say about itself. Folded once, here.
     ///
@@ -249,6 +254,7 @@ public sealed class GatewayStatsStore : IDisposable
     {
         ArgumentNullException.ThrowIfNull(choice);
         _time = time ?? TimeProvider.System;
+        _sqliteConnectionString = choice.Source == StatsConnectionSource.SqliteFile ? choice.ConnectionString : null;
 
         if (!choice.IsConfigured)
         {
@@ -533,6 +539,10 @@ public sealed class GatewayStatsStore : IDisposable
     /// </summary>
     private async Task ReopenLoop(StatsConnectionChoice choice)
     {
+        // Read once. Dispose cancels and then disposes the source, and the Token getter of a disposed source
+        // throws ObjectDisposedException - outside every catch below, on the iteration after an attempt that was
+        // mid-flight at stop time. A token already in hand keeps working after its source is disposed.
+        var stop = _stop.Token;
         for (var attempt = 0; ; attempt++)
         {
             var wait = ReopenBackoff[Math.Min(attempt, ReopenBackoff.Count - 1)];
@@ -540,7 +550,7 @@ public sealed class GatewayStatsStore : IDisposable
             {
                 // On the injected clock. The timer is armed when Task.Delay returns, and only then is the wait
                 // counted - see ReopenWaits for why that order is load-bearing.
-                var waiting = Task.Delay(wait, _time, _stop.Token);
+                var waiting = Task.Delay(wait, _time, stop);
                 Interlocked.Increment(ref _reopenWaits);
                 await waiting.ConfigureAwait(false);
             }
@@ -1084,11 +1094,21 @@ public sealed class GatewayStatsStore : IDisposable
             availability = _availability;
         }
 
-        // Release the underlying SQLite connections so a test can delete the file. SQLite-only: the
-        // PostgreSQL path has no local file and its pooling is the provider's to manage. Outside the lock:
-        // it is process-wide and has no business being held under this store's gate.
-        if (availability.Source == StatsConnectionSource.SqliteFile)
-            SqliteConnection.ClearAllPools();
+        // Release the pooled SQLite connections that hold this store's file open, so the Gateway that owns the
+        // store (and a test that owns a Gateway) can delete or reopen the file after stopping. SQLite-only: the
+        // PostgreSQL path has no local file and its pooling is the provider's to manage. Outside the lock: the
+        // pool is process-wide and has no business being held under this store's gate.
+        //
+        // Only THIS store's pool, never ClearAllPools(). The pool is process-wide, so clearing all of it disposes
+        // the native handle of a connection another store in the same process is opening at that moment - an
+        // ObjectDisposedException inside SqliteConnection.Open() on a database nobody closed. GatewayDatabase
+        // hit exactly that in parallel tests and in a running Gateway disposing one database while another
+        // serves; the stats store is disposed on every Gateway stop and must not reintroduce it.
+        if (_sqliteConnectionString is not null)
+        {
+            using var poolKey = new SqliteConnection(_sqliteConnectionString);
+            SqliteConnection.ClearPool(poolKey);
+        }
 
         // Outside the lock, and after the cancel above has already stopped the reopen loop from publishing.
         _stop.Dispose();

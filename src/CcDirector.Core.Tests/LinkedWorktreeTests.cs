@@ -31,7 +31,8 @@ public sealed class LinkedWorktreeTests : IDisposable
 
     public void Dispose()
     {
-        try { TestTempRoot.DeleteTree(_root); } catch { }
+        // Loud: a copy that cannot be removed is a defect in the test, not a folder to leave behind.
+        TestTempRoot.DeleteTree(_root);
     }
 
     // ---------------------------------------------------------------- the flow, with real git

@@ -63,11 +63,10 @@ public sealed class RepositoryWatcherIntegrationTests : IDisposable
 
     public void Dispose()
     {
-        for (int i = 0; i < 3; i++)
-        {
-            try { Directory.Delete(_root, recursive: true); return; }
-            catch { Thread.Sleep(100); }
-        }
+        // The fixture holds a real git repository, whose objects are read-only; the shared delete clears the
+        // attribute first and reports a failure instead of retrying and swallowing it, which leaked a folder per
+        // test for as long as the swallow stood.
+        TestTempRoot.DeleteTree(_root);
     }
 
     /// <summary>

@@ -850,6 +850,11 @@ public sealed class GatewayStatsDatabase : IDisposable
         if (_disposed) return;
         _disposed = true;
         _connection.Close();
+        // Closing a pooled connection returns its native handle to the pool, where it keeps the file open for
+        // the life of the process; the owner of this database (the Gateway, or a test) expects the file to be
+        // free once it has disposed it. Only this file's pool is cleared, never every pool in the process, for
+        // the reason GatewayDatabase.Dispose gives.
+        SqliteConnection.ClearPool(_connection);
         _connection.Dispose();
         FileLog.Write($"[GatewayStatsDatabase] Dispose: closed {_path}");
     }

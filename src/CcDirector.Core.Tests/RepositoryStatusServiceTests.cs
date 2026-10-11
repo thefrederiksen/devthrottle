@@ -42,7 +42,8 @@ public sealed class WorktreeSizeMeasurementTests : IDisposable
 
     public void Dispose()
     {
-        try { Directory.Delete(_dir, recursive: true); } catch { }
+        // Loud: the folder is created in the constructor and holds plain files; a delete that fails is a defect.
+        Directory.Delete(_dir, recursive: true);
     }
 
     [Fact]
@@ -112,7 +113,7 @@ public sealed class WorktreeSizeMeasurementTests : IDisposable
         }
         finally
         {
-            try { Directory.Delete(goneDir, recursive: true); } catch { }
+            if (Directory.Exists(goneDir)) Directory.Delete(goneDir, recursive: true);
         }
     }
 }
@@ -133,11 +134,10 @@ public sealed class RepositoryStatusServiceTests : IDisposable
 
     public void Dispose()
     {
-        for (int i = 0; i < 3; i++)
-        {
-            try { Directory.Delete(_root, recursive: true); return; }
-            catch { Thread.Sleep(100); }
-        }
+        // The fixture holds a real git repository, whose objects are read-only; the shared delete clears the
+        // attribute first and reports a failure instead of retrying and swallowing it, which leaked a folder per
+        // test for as long as the swallow stood.
+        TestTempRoot.DeleteTree(_root);
     }
 
     [Fact]

@@ -286,11 +286,8 @@ public class RepositoryMonitorTests
         }
         finally
         {
-            for (int i = 0; i < 3; i++)
-            {
-                try { Directory.Delete(root, recursive: true); break; }
-                catch { Thread.Sleep(100); }
-            }
+            // A real git repository: read-only objects, removed by the shared delete, and a failure is reported.
+            TestTempRoot.DeleteTree(root);
         }
     }
 
