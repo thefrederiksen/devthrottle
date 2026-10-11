@@ -98,9 +98,9 @@ def _held(store):
     return {h.email: h.role for h in store.held_accounts()}
 
 
-def _signing_in_folders(store):
-    root = Path(store.signing_in_dir)
-    return list(root.iterdir()) if root.is_dir() else []
+def _new_spare_left(store, email):
+    """True when a new spare folder for `email` was left behind."""
+    return Path(store.spare_folder(email)).exists()
 
 
 def _add_spare(store, tmp_path, email, ends):
@@ -120,8 +120,7 @@ def test_signIn_NewAccount_IsAddedAsASpare_WithItsSignInTime(store):
     assert result.sign_in_expires_at_utc == "2026-11-10T14:00:00Z"
     login = FakeLogin.instances[0]
     assert login.code == CODE and login.cancelled == 1
-    assert Path(login.folder).parent == Path(store.signing_in_dir)
-    assert _signing_in_folders(store) == []
+    assert str(login.folder) == store.spare_folder(ACCOUNT_B), "the login runs straight into the spare folder"
 
 
 def test_signIn_HeldSpare_IsRenewedInPlace(store, tmp_path):
@@ -143,7 +142,7 @@ def test_signIn_ActiveAccount_IsRenewedInPlace(store):
     key = json.loads((Path(store.default_config_dir) / ".credentials.json").read_text(encoding="utf-8"))
     assert "NEW" in key["claudeAiOauth"]["accessToken"]
     assert _held(store) == {ACCOUNT_A: "active"}
-    assert _signing_in_folders(store) == []
+    assert str(FakeLogin.instances[0].folder) == store.default_config_dir
 
 
 def test_signIn_BrowserSignedInAsAnotherAccount_NothingIsKept(store):
@@ -153,11 +152,11 @@ def test_signIn_BrowserSignedInAsAnotherAccount_NothingIsKept(store):
 
     assert refused.value.kind == license_signin.STORE_REFUSED
     assert _held(store) == {ACCOUNT_A: "active"}
-    assert _signing_in_folders(store) == [], "the unwanted sign-in must be deleted, not left behind"
+    assert not _new_spare_left(store, ACCOUNT_B), "the unwanted sign-in must be deleted, not left behind"
 
 
 @pytest.mark.parametrize("failure", ["no-url", "bad-code", "approve-raises", "finish-fails"])
-def test_signIn_AnyFailure_CancelsTheLoginAndDeletesTheSignInFolder(store, tmp_path, failure):
+def test_signIn_AnyFailure_CancelsTheLogin_AndTheHeldSpareIsUntouched(store, tmp_path, failure):
     _add_spare(store, tmp_path, ACCOUNT_B, NOW + dt.timedelta(days=2))
     old_key = (Path(store.spare_folder(ACCOUNT_B)) / ".credentials.json").read_text(encoding="utf-8")
     starter = {"no-url": _starter(url_error="no URL"), "finish-fails": _starter(finish_error="exit 1")}.get(
@@ -173,7 +172,6 @@ def test_signIn_AnyFailure_CancelsTheLoginAndDeletesTheSignInFolder(store, tmp_p
 
     assert CODE not in str(failed.value)
     assert all(login.cancelled for login in FakeLogin.instances)
-    assert _signing_in_folders(store) == []
     # The spare held before is untouched by a renewal that failed.
     assert (Path(store.spare_folder(ACCOUNT_B)) / ".credentials.json").read_text(encoding="utf-8") == old_key
 
@@ -291,7 +289,7 @@ def test_renewDue_NoBrowserConfigured_IsAFailedRow_NeverSilent(store, tmp_path):
     rows = license_signin.renew_due(store, start_login=_starter(), now=lambda: NOW)
 
     row = next(r for r in rows if r.account == ACCOUNT_B)
-    assert row.failed and row.result == "failed-no-browser-configured"
+    assert row.failed and row.result == "failed-no-approver"
     assert "no browser profile is configured" in row.detail
     assert FakeLogin.instances == []
 
@@ -365,7 +363,7 @@ def test_cli_signInRemoteApproval_NoCode_FailsAndKeepsNothing(machine):
 
     assert result.exit_code == 1
     assert "approval-failed" in result.output
-    assert not list((machine / "store" / "signing-in").iterdir())
+    assert (machine / "store" / "spares").is_dir() and not (machine / "store" / "spares" / "account-b-example.com").exists()
 
 
 def test_cli_signIn_BrowserAndRemoteApproval_IsAUsageError(machine):

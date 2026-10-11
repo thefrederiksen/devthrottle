@@ -147,9 +147,6 @@ class World:
             found += [str(p) for p in sorted(spares.iterdir()) if p.is_dir()]
         if self.signins.is_dir():
             found += [str(p) for p in sorted(self.signins.iterdir()) if p.is_dir()]
-        signing_in = Path(self.store_dir) / "signing-in"
-        if signing_in.is_dir():
-            found += [str(p) for p in sorted(signing_in.iterdir()) if p.is_dir()]
         return found
 
     def key_at(self, folder: str) -> str | None:
@@ -184,7 +181,7 @@ class World:
                     f"{folder} still names {self.email_at(folder)} but holds no key")
 
     removed: set[str] = set()
-    #: Keys an operation sets out to discard (a renewal's old sign-in): they may be gone afterwards.
+    #: Keys an operation sets out to replace (a renewal's old sign-in): they may be gone afterwards.
     gone_ok: frozenset[str] = frozenset()
 
 
@@ -1104,128 +1101,189 @@ def test_lock_ASecondOperationAtTheSameTime_IsRefused(world):
     assert len(second.held_accounts()) == 1
 
 
-# ===== a fresh sign-in: adopted as a new spare, or renewing the spare held =====
+# ===== a new sign-in, written straight into the folder it belongs in (never moved) =====
 
 
 SIGNED_IN_AT = datetime.datetime(2026, 10, 11, 14, 0, tzinfo=datetime.timezone.utc)
+ENDS_MS = 1_793_000_000_000
 
 
-def _fresh_sign_in(world: World, email: str, ends_ms: int = 1_793_000_000_000) -> str:
-    """What `license sign-in` leaves before adopting: a `claude auth login` into a new folder under the store."""
-    folder = world.store().new_signing_in_folder(email, SIGNED_IN_AT)
-    secret = world.sign_in(folder, email)
-    document = json.loads(secret)
-    document["claudeAiOauth"]["refreshTokenExpiresAt"] = ends_ms
-    with_end = json.dumps(document)
-    del world.secrets[secret]
-    world.secrets[with_end] = email
-    world.backend().write(folder, HeldKey(with_end, keychain_account="claude-code-user"))
-    return folder
+def _login_writes(world: World, folder: str, email: str, ends_ms: int = ENDS_MS):
+    """What typing the code into `claude auth login` does: ONE write of a new key and account block into `folder`.
+    Returns (write, holder) - `holder["key"]` is the new key once written."""
+    holder = {}
+
+    def write():
+        world.sign_in(folder, email)
+        document = json.loads(world.key_at(folder))
+        del world.secrets[world.key_at(folder)]
+        document["claudeAiOauth"]["refreshTokenExpiresAt"] = ends_ms
+        key = json.dumps(document)
+        world.secrets[key] = email
+        world.backend().write(folder, HeldKey(key, keychain_account="claude-code-user"))
+        holder["key"] = key
+
+    return write, holder
 
 
-def test_adopt_NewAccount_BecomesASpareAndTheSignInFolderIsEmptied(world):
+def _now():
+    return SIGNED_IN_AT
+
+
+def _places(world: World, key: str) -> list[str]:
+    return [f for f, (k, _) in world.snapshot().items() if k == key]
+
+
+def test_signIn_NewAccount_LandsInItsSpareFolder_OneWrite(world):
     world.sign_in(world.default, ACCOUNT_A)
-    folder = _fresh_sign_in(world, ACCOUNT_B)
-    new_key = world.key_at(folder)
+    store = world.store()
+    target = store.sign_in_target(ACCOUNT_B)
+    assert target.folder == store.spare_folder(ACCOUNT_B) and not target.renewing
+    assert _held(world) == {ACCOUNT_A: "active"}, "an empty spare folder is not a held account"
+    write, holder = _login_writes(world, target.folder, ACCOUNT_B)
 
-    result = world.store().adopt_sign_in(folder, ACCOUNT_B, SIGNED_IN_AT)
+    result = world.store().finish_sign_in(target, write, _now)
 
-    assert not result.renewed
+    assert not result.renewed and result.account.role == "spare"
     assert _held(world) == {ACCOUNT_A: "active", ACCOUNT_B: "spare"}
-    assert world.key_at(world.store().spare_folder(ACCOUNT_B)) == new_key
-    assert world.key_at(folder) is None and world.email_at(folder) is None
+    assert _places(world, holder["key"]) == [target.folder]
     world.assert_each_signin_in_exactly_one_place()
 
 
-def test_adopt_HeldSpare_IsRenewedInPlace_OldSignInGone(world):
+def test_signIn_HeldSpare_IsReplacedInItsOwnFolder(world):
     _machine_with_active_and_spare(world)
     spare = world.store().spare_folder(ACCOUNT_B)
-    old_key = world.key_at(spare)
-    world.gone_ok = frozenset({old_key})
-    folder = _fresh_sign_in(world, ACCOUNT_B)
-    new_key = world.key_at(folder)
+    world.gone_ok = frozenset({world.key_at(spare)})
+    target = world.store().sign_in_target(ACCOUNT_B)
+    assert target.renewing and target.folder == spare and target.role == "spare"
+    write, holder = _login_writes(world, spare, ACCOUNT_B)
 
-    result = world.store().adopt_sign_in(folder, ACCOUNT_B, SIGNED_IN_AT)
+    result = world.store().finish_sign_in(target, write, _now)
 
-    assert result.renewed and result.account.config_dir == spare
-    assert world.key_at(spare) == new_key
-    assert old_key not in {k for k, _ in world.snapshot().values()}
-    assert world.key_at(folder) is None
+    assert result.renewed and _places(world, holder["key"]) == [spare]
     world.assert_each_signin_in_exactly_one_place()
 
 
-def test_adopt_ActiveAccount_IsRenewedInPlace(world):
+def test_signIn_ActiveAccount_IsReplacedInTheDefaultFolder(world):
     world.sign_in(world.default, ACCOUNT_A)
     world.gone_ok = frozenset({world.key_at(world.default)})
-    folder = _fresh_sign_in(world, ACCOUNT_A)
-    new_key = world.key_at(folder)
+    target = world.store().sign_in_target(ACCOUNT_A)
+    assert target.renewing and target.role == "active"
+    write, holder = _login_writes(world, world.default, ACCOUNT_A)
 
-    result = world.store().adopt_sign_in(folder, ACCOUNT_A, SIGNED_IN_AT)
+    result = world.store().finish_sign_in(target, write, _now)
 
     assert result.renewed and result.account.role == "active"
-    assert world.key_at(world.default) == new_key and world.email_at(world.default) == ACCOUNT_A
-    assert world.key_at(folder) is None
+    assert _places(world, holder["key"]) == [world.default]
     world.assert_each_signin_in_exactly_one_place()
 
 
-def test_adopt_ActiveKeyRenewedBySessionMeanwhile_IsRefusedAndNothingChanges(world):
-    # A running session renews the active key between the plan and the replace (the store lock does not stop
-    # Claude Code). The replace must not overwrite a sign-in it did not plan on.
-    world.sign_in(world.default, ACCOUNT_A)
-    folder = _fresh_sign_in(world, ACCOUNT_A)
-    session_key = json.dumps({"claudeAiOauth": {"accessToken": "sk-ant-oat01-SECRET-SESSION", "refreshToken": "r"}})
-    world.secrets[session_key] = ACCOUNT_A
-    world.gone_ok = frozenset({k for k, e in world.secrets.items() if e == ACCOUNT_A and k != session_key})
+@pytest.mark.parametrize("case", ["new", "renew-spare", "renew-active"])
+@pytest.mark.parametrize("crash", ["before-write", "after-write"])
+def test_signIn_CrashAtEitherSide_EachSignInIsInOnePlace_AtTheInstantOfTheCrash(world, case, crash):
+    # The only change a sign-in makes is the login's one write. A crash on either side of it leaves every sign-in
+    # in exactly one place AT ONCE - checked before any recovery runs - and the active folder never empty.
+    _machine_with_active_and_spare(world)
+    email = {"new": ACCOUNT_C, "renew-spare": ACCOUNT_B, "renew-active": ACCOUNT_A}[case]
+    target = world.store().sign_in_target(email)
+    if target.renewing:
+        world.gone_ok = frozenset({world.key_at(target.folder)})
+    write, holder = _login_writes(world, target.folder, email)
 
-    def session_renews(label):
-        if label == "journal" and world.key_at(world.default) != session_key:
-            world.backend().write(world.default, HeldKey(session_key, keychain_account="claude-code-user"))
+    def crash_after():
+        write()
+        raise SimulatedCrash("after the write")
 
-    with pytest.raises(LicenseStoreError, match="changed while it was being renewed"):
-        world.store(checkpoint=session_renews).adopt_sign_in(folder, ACCOUNT_A, SIGNED_IN_AT)
+    def checkpoint(label):
+        if crash == "before-write" and label == "sign-in-write":
+            raise SimulatedCrash(label)
 
-    assert world.key_at(world.default) == session_key
-    assert world.key_at(folder) is not None, "the new sign-in stays in its folder for the caller to discard"
-    assert not (Path(world.store_dir) / "journal.json").exists()
+    with pytest.raises(SimulatedCrash):
+        world.store(checkpoint=checkpoint).finish_sign_in(target, crash_after if crash == "after-write" else write,
+                                                          _now)
 
-
-def test_adopt_SignInForAnotherAccount_IsRefused(world):
-    world.sign_in(world.default, ACCOUNT_A)
-    folder = _fresh_sign_in(world, ACCOUNT_C)
-
-    with pytest.raises(LicenseStoreError, match="not account-b@example.com"):
-        world.store().adopt_sign_in(folder, ACCOUNT_B, SIGNED_IN_AT)
-
-    assert ACCOUNT_C not in _held(world)
-
-
-def test_adopt_FolderOutsideTheSignInArea_IsRefused(world):
-    world.sign_in(world.default, ACCOUNT_A)
-    source = world.new_signin_folder(ACCOUNT_B)
-
-    with pytest.raises(LicenseStoreError, match="not a sign-in folder"):
-        world.store().adopt_sign_in(source, ACCOUNT_B, SIGNED_IN_AT)
-
-    assert world.key_at(source) is not None
-
-
-def test_discardSignIn_DeletesKeyAndFolder_OnlyInsideTheSignInArea(world):
-    world.sign_in(world.default, ACCOUNT_A)
-    folder = _fresh_sign_in(world, ACCOUNT_B)
-
-    world.store().discard_sign_in(folder)
-
-    assert world.key_at(folder) is None and not Path(folder).exists()
-    with pytest.raises(LicenseStoreError, match="not a sign-in folder"):
-        world.store().discard_sign_in(world.default)
+    world.assert_each_signin_in_exactly_one_place()
     assert world.key_at(world.default) is not None
+    if crash == "after-write":
+        assert _places(world, holder["key"]) == [target.folder]
+    else:
+        assert "key" not in holder
+    assert not (Path(world.store_dir) / "journal.json").exists(), "a sign-in leaves nothing to recover"
+
+
+def test_signIn_SwitchBetweenPlanAndWrite_NothingIsWritten(world):
+    # Account B is a spare when the login starts; a switch then puts account A's key in B's spare folder. Writing
+    # B's new sign-in there would destroy A's.
+    _machine_with_active_and_spare(world)
+    target = world.store().sign_in_target(ACCOUNT_B)
+    world.store().switch(ACCOUNT_B)
+    before = world.snapshot()
+    called = []
+
+    with pytest.raises(LicenseStoreError, match="moved while it was being signed in"):
+        world.store().finish_sign_in(target, lambda: called.append(1), _now)
+
+    assert called == [] and world.snapshot() == before
+
+
+def test_signIn_NewAccountHeldMeanwhile_NothingIsWritten(world):
+    world.sign_in(world.default, ACCOUNT_A)
+    target = world.store().sign_in_target(ACCOUNT_B)
+    world.store().add(world.new_signin_folder(ACCOUNT_B))
+    called = []
+
+    with pytest.raises(LicenseStoreError, match="nothing was written"):
+        world.store().finish_sign_in(target, lambda: called.append(1), _now)
+
+    assert called == []
+
+
+def test_signIn_LoginWroteAnotherAccount_IsReportedNotAccepted(world):
+    world.sign_in(world.default, ACCOUNT_A)
+    target = world.store().sign_in_target(ACCOUNT_B)
+    write, _ = _login_writes(world, target.folder, ACCOUNT_C)
+
+    with pytest.raises(LicenseStoreError, match="is for account-c@example.com, not account-b@example.com"):
+        world.store().finish_sign_in(target, write, _now)
+
+    assert "sign-in-wrong-account" in (Path(world.store_dir) / "license-store.log").read_text(encoding="utf-8")
+
+
+def test_abandonSignIn_RemovesOnlyAnEmptyNewFolder_NeverARenewalsFolder(world):
+    _machine_with_active_and_spare(world)
+    new = world.store().sign_in_target(ACCOUNT_C)
+    world.store().abandon_sign_in(new)
+    assert not Path(new.folder).exists()
+
+    renewal = world.store().sign_in_target(ACCOUNT_B)
+    world.store().abandon_sign_in(renewal)
+    assert world.key_at(renewal.folder) is not None
+
+    written = world.store().sign_in_target(ACCOUNT_C)
+    world.sign_in(written.folder, ACCOUNT_C)
+    world.store().abandon_sign_in(written)
+    assert world.key_at(written.folder) is not None, "a folder holding the account's own key is never deleted"
+
+
+def test_abandonSignIn_NewFolderHoldingAnotherAccountsKey_IsDeleted(world):
+    world.sign_in(world.default, ACCOUNT_A)
+    target = world.store().sign_in_target(ACCOUNT_B)
+    world.sign_in(target.folder, ACCOUNT_C)  # the login signed in the wrong account
+    world.removed = {ACCOUNT_C}
+
+    world.store().abandon_sign_in(target)
+
+    assert not Path(target.folder).exists()
+    assert _held(world) == {ACCOUNT_A: "active"}
+    world.assert_each_signin_in_exactly_one_place()
 
 
 def test_signedInAt_RecordedWithTheEndDate_AndOnlyMatchesThatSignIn(world):
     world.sign_in(world.default, ACCOUNT_A)
-    folder = _fresh_sign_in(world, ACCOUNT_B, ends_ms=1_793_000_000_000)
-    world.store().adopt_sign_in(folder, ACCOUNT_B, SIGNED_IN_AT)
-    ends = datetime.datetime.fromtimestamp(1_793_000_000, datetime.timezone.utc)
+    target = world.store().sign_in_target(ACCOUNT_B)
+    write, _ = _login_writes(world, target.folder, ACCOUNT_B)
+    world.store().finish_sign_in(target, write, _now)
+    ends = datetime.datetime.fromtimestamp(ENDS_MS / 1000, datetime.timezone.utc)
     store = world.store()
 
     assert store.signed_in_at(ACCOUNT_B, ends) == SIGNED_IN_AT
@@ -1236,52 +1294,3 @@ def test_signedInAt_RecordedWithTheEndDate_AndOnlyMatchesThatSignIn(world):
     assert store.signed_in_at(ACCOUNT_B, None) is None
     assert store.signed_in_at(ACCOUNT_C, ends) is None
     assert "SECRET" not in (Path(world.store_dir) / "sign-ins.json").read_text(encoding="utf-8")
-
-
-def test_newSigningInFolder_NeverReusesAFolder(world):
-    store = world.store()
-    first = store.new_signing_in_folder(ACCOUNT_B, SIGNED_IN_AT)
-    second = store.new_signing_in_folder(ACCOUNT_B, SIGNED_IN_AT)
-    assert first != second and Path(first).is_dir() and Path(second).is_dir()
-
-
-@pytest.mark.parametrize("kind", ["file", "keychain"])
-@pytest.mark.parametrize("operation_name", ["adopt", "renew", "renew-active"])
-def test_crash_AdoptAtEveryChangePoint_TheNewSignInIsNeverLost(tmp_path, kind, operation_name):
-    def make(tag):
-        w = World(tmp_path / tag, kind)
-        w.removed = set()
-        if operation_name == "renew-active":
-            w.sign_in(w.default, ACCOUNT_A)
-            w.gone_ok = frozenset({w.key_at(w.default)})
-            email = ACCOUNT_A
-        elif operation_name == "renew":
-            _machine_with_active_and_spare(w)
-            w.gone_ok = frozenset({w.key_at(w.store().spare_folder(ACCOUNT_B))})
-            email = ACCOUNT_B
-        else:
-            w.sign_in(w.default, ACCOUNT_A)
-            email = ACCOUNT_C
-        folder = _fresh_sign_in(w, email)
-        return w, folder, email, w.key_at(folder)
-
-    probe, probe_folder, probe_email, _ = make("probe")
-    labels = []
-    probe.store(checkpoint=labels.append).adopt_sign_in(probe_folder, probe_email, SIGNED_IN_AT)
-    assert len(labels) >= 3, "the operation reported no change points, so the crash test would prove nothing"
-    done_shape = _shape(probe)
-
-    for n in range(1, len(labels) + 1):
-        w, folder, email, new_key = make(f"crash{n}")
-        before_shape = _shape(w)
-        crashed = _run_with_crash_at(w, n, lambda store: store.adopt_sign_in(folder, email, SIGNED_IN_AT))
-        assert crashed, f"no crash at change point {n} ({labels[n - 1]})"
-        # The active folder is never without a sign-in, even at the instant of the crash.
-        assert w.key_at(w.default) is not None, f"crash at {labels[n - 1]} left the active folder empty"
-
-        w.store().held_accounts()  # the next run recovers first
-
-        w.assert_each_signin_in_exactly_one_place()
-        assert new_key in {k for k, _ in w.snapshot().values()}, f"crash at {labels[n - 1]} lost the new sign-in"
-        assert _shape(w) in (before_shape, done_shape), f"crash at change point {n} ({labels[n - 1]})"
-        assert not (Path(w.store_dir) / "journal.json").exists()

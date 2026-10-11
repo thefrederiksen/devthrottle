@@ -12,10 +12,12 @@ What it shows, each step checked, the output passing only when every check passe
 3. a sign-in for the profile's own account adds it as a spare;
 4. `license usage` reads the new spare with its own key and reports when it was signed in;
 5. signing it in again RENEWS the same spare in place: same folder, a new sign-in time;
-6. the renewed spare reads, and exactly one spare is held, with nothing left in the sign-in area;
+6. the renewed spare reads, exactly one spare is held, and the refused sign-in left no folder behind;
 7. the spare is switched in, so it is the ACTIVE account of the isolated default folder, and signing it in again
    renews the ACTIVE sign-in in place: the default folder, a new sign-in time, and it reads;
 8. the test root is deleted - on the Mac its Keychain items too - and checked, so no test sign-in is left behind.
+   The root is one the run created itself, exclusively, inside the parent folder given, and marked with the run's
+   id; cleanup deletes it only when that marker is there.
 
 Nothing private is printed: every email given is replaced by its label, the test root by "<test root>", the home
 folder, user and machine names by labels, and the authorize code is never printed at all.
@@ -23,8 +25,8 @@ folder, user and machine names by labels, and the authorize code is never printe
 Usage (the Mac's Keychain is locked over SSH, so its password comes from the environment):
 
     python live_sign_in_proof.py --account <email> --label "account A" --wrong-account <email> --wrong-label "account B"
-        --browser <profile> --test-root <empty folder>
-    cc-secrets run desktop-login -- python live_sign_in_proof.py ... --remote <user@host> --remote-root <folder>
+        --browser <profile> --test-parent <existing folder>
+    cc-secrets run desktop-login -- python live_sign_in_proof.py ... --remote <user@host> --remote-parent <folder>
         --remote-python <python on that machine> --remote-tool <tools/cc-devthrottle copied there>
 """
 
@@ -40,6 +42,7 @@ import shlex
 import subprocess
 import sys
 import threading
+import uuid
 from pathlib import Path
 
 HERE = Path(__file__).resolve()
@@ -56,9 +59,11 @@ class Proof:
                            (args.account, f"<{args.label}>"), (args.wrong_account, f"<{args.wrong_label}>")]
         if args.remote:
             self.redactions += [(args.remote, "<the target machine>"), (args.remote_root, "<test root>"),
+                                (args.remote_parent, "<test parent>"),
                                 (args.remote_tool, "<tool copy>")]
         self.redactions += [(f'"{args.browser}"', '"<browser profile>"'), (f" {args.browser} ", " <browser profile> "),
-                            (args.test_root, "<test root>"), (str(Path.home()), "<home>"),
+                            (args.test_root, "<test root>"), (args.test_parent, "<test parent>"),
+                            (str(Path.home()), "<home>"),
                             (platform.node(), "<this machine>"), (getpass.getuser(), "<user>")]
 
     def redact(self, text: str) -> str:
@@ -147,21 +152,53 @@ class Proof:
         return p.returncode, _first_json(rest), "".join(out) + rest + "".join(err)
 
 
+MARKER = ".license-proof-root"
+
+
+def make_root(args) -> None:
+    """Create THIS run's test root, exclusively, inside the parent folder given, and mark it with the run's id. The
+    proof only ever works in - and only ever deletes - a root it created itself in this run."""
+    name = f"license-proof-{args.run_id}"
+    if not args.remote:
+        root = Path(args.test_parent) / name
+        root.mkdir()  # fails if it exists: never adopt a folder this run did not make
+        (root / MARKER).write_text(args.run_id, encoding="utf-8")
+        (root / "default").mkdir()
+        args.test_root = str(root)
+        return
+    root = f"{args.remote_parent.rstrip('/')}/{name}"
+    done = subprocess.run(["ssh", "-o", "BatchMode=yes", args.remote,
+                           f"set -e; mkdir {shlex.quote(root)}; printf %s {shlex.quote(args.run_id)} > "
+                           f"{shlex.quote(root + '/' + MARKER)}; mkdir {shlex.quote(root + '/default')}"],
+                          capture_output=True, text=True)
+    if done.returncode != 0:
+        raise SystemExit(f"could not create the test root on the target (exit {done.returncode})")
+    args.remote_root = root
+
+
 def clean(args, default_dir: str | None, store_dir: str | None) -> bool:
-    """Delete the test root. The key store refuses to empty the active folder - by design - so the proof deletes
-    its own test root directly; on the Mac the Keychain item of every folder it used goes first."""
+    """Delete this run's test root, and only when it carries this run's marker. The key store refuses to empty the
+    active folder - by design - so the proof deletes its own root directly; on the Mac the Keychain item of every
+    folder it used goes first."""
     if not args.remote:
         import shutil
 
-        shutil.rmtree(args.test_root)
-        return not Path(args.test_root).exists()
+        root = Path(args.test_root)
+        if (root / MARKER).read_text(encoding="utf-8") != args.run_id:
+            return False
+        shutil.rmtree(root)
+        return not root.exists()
     service = 'Claude Code-credentials-$(printf %s "$F" | shasum -a 256 | cut -c1-8)'
     folders = [default_dir or f"{args.remote_root}/default"]
+    marker = shlex.quote(args.remote_root + "/" + MARKER)
     script = ('read -r P; security unlock-keychain -p "$P" ~/Library/Keychains/login.keychain-db || exit 9; left=0; '
+              f'[ "$(cat {marker})" = {shlex.quote(args.run_id)} ] || exit 7; '
               + "".join(f'F={shlex.quote(f)}; while security delete-generic-password -s "{service}" >/dev/null 2>&1; '
                         f'do :; done; security find-generic-password -s "{service}" >/dev/null 2>&1 && left=1; '
                         for f in folders)
-              + f'for F in {shlex.quote(store_dir or args.remote_root + "/store")}/spares/*; do [ -d "$F" ] || continue; '
+              # find, not a glob: the target's shell may be zsh, which aborts on a glob that matches nothing
+              + f'for F in $(find {shlex.quote((store_dir or args.remote_root + "/store") + "/spares")} -mindepth 1 '
+              f'-maxdepth 1 -type d 2>/dev/null); do '
               f'security find-generic-password -s "{service}" >/dev/null 2>&1 && left=1; done; '
               f'rm -rf {shlex.quote(args.remote_root)}; [ -e {shlex.quote(args.remote_root)} ] && left=1; '
               'echo "left=$left"')
@@ -200,14 +237,19 @@ def main() -> int:
     ap.add_argument("--wrong-account", required=True)
     ap.add_argument("--wrong-label", required=True)
     ap.add_argument("--browser", required=True)
-    ap.add_argument("--test-root", required=True)
+    ap.add_argument("--test-parent", help="an existing folder; this run creates its own root inside it")
     ap.add_argument("--remote")
-    ap.add_argument("--remote-root")
+    ap.add_argument("--remote-parent", help="the same, on the target machine")
     ap.add_argument("--remote-python")
     ap.add_argument("--remote-tool")
     args = ap.parse_args()
-    if args.remote and not all((args.remote_root, args.remote_python, args.remote_tool)):
-        ap.error("--remote needs --remote-root, --remote-python and --remote-tool")
+    if args.remote and not all((args.remote_parent, args.remote_python, args.remote_tool)):
+        ap.error("--remote needs --remote-parent, --remote-python and --remote-tool")
+    if not args.remote and not args.test_parent:
+        ap.error("--test-parent is required")
+    args.run_id = uuid.uuid4().hex[:12]
+    args.test_root = args.remote_root = None
+    make_root(args)
     proof = Proof(args)
     account, wrong = args.account.lower(), args.wrong_account.lower()
     where = "the target machine over SSH (approval here)" if args.remote else "this machine (approval here)"
@@ -246,7 +288,7 @@ def main() -> int:
     proof.check("new-sign-in-time", bool(second) and bool(first)
                 and second.get("signedInAtUtc", "") >= first.get("signedInAtUtc", "~"))
 
-    proof.say("\n--- 6. the renewed spare reads; one spare is held; the sign-in area is empty")
+    proof.say("\n--- 6. the renewed spare reads; one spare is held; no other spare folder was left")
     _, usage = proof.target_json("usage")
     row = next((r for r in (usage or {}).get("accounts", []) if r["accountEmail"] == account), None)
     proof.check("renewed-reads", bool(row) and row["readError"] is None
@@ -254,14 +296,15 @@ def main() -> int:
     _, listed = proof.target_json("list")
     spares = [a for a in (listed or {}).get("accounts", []) if a["role"] == "spare"]
     proof.check("one-spare", len(spares) == 1 and spares[0]["email"] == account)
+    # The refused sign-in for account B must have left no folder of its own behind.
     if args.remote:
-        area = f"{args.remote_root}/store/signing-in"
         done = subprocess.run(["ssh", "-o", "BatchMode=yes", args.remote,
-                               f"ls -A {shlex.quote(area)} 2>/dev/null | wc -l"], capture_output=True, text=True)
-        proof.check("sign-in-area-empty", done.returncode == 0 and done.stdout.strip() == "0")
+                               f"ls -A {shlex.quote(args.remote_root + '/store/spares')} | wc -l"],
+                              capture_output=True, text=True)
+        count = done.stdout.strip() if done.returncode == 0 else "?"
     else:
-        area = Path(args.test_root) / "store" / "signing-in"
-        proof.check("sign-in-area-empty", not area.exists() or not any(area.iterdir()))
+        count = str(len(list((Path(args.test_root) / "store" / "spares").iterdir())))
+    proof.check("one-spare-folder", count == "1", f"{count} folder(s) under spares")
 
     proof.say(f"\n--- 7. switch <{args.label}> in, then renew the ACTIVE sign-in in place")
     done, switched = proof.target_json("switch", account)

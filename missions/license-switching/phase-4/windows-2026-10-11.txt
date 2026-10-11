@@ -35,8 +35,8 @@ sign-in exit 0: {
   "result": "added",
   "role": "spare",
   "configDir": "<test root>\\store\\spares\\<account A folder>",
-  "signedInAtUtc": "2026-10-11T20:29:42Z",
-  "signInExpiresAtUtc": "2026-11-09T19:42:34Z"
+  "signedInAtUtc": "2026-10-11T21:42:40Z",
+  "signInExpiresAtUtc": "2026-11-09T08:33:41Z"
 }
 CHECK added: PASS
 
@@ -55,22 +55,22 @@ $ license usage --json  (exit 0)
       "plan": "max",
       "rateLimitTier": "default_claude_max_20x",
       "fiveHour": {
-        "utilization": 1.0,
-        "resetsAtUtc": "2026-10-12T01:20:00Z"
+        "utilization": 13.0,
+        "resetsAtUtc": "2026-10-12T01:19:59Z"
       },
       "sevenDay": {
-        "utilization": 88.0,
-        "resetsAtUtc": "2026-10-17T19:00:00Z"
+        "utilization": 91.0,
+        "resetsAtUtc": "2026-10-17T18:59:59Z"
       },
       "extraUsage": {
         "isEnabled": false,
         "utilization": 100.0
       },
-      "readAtUtc": "2026-10-11T20:29:43Z",
+      "readAtUtc": "2026-10-11T21:42:41Z",
       "readError": null,
       "readErrorDetail": null,
-      "signedInAtUtc": "2026-10-11T20:29:42Z",
-      "signInExpiresAtUtc": "2026-11-09T19:42:34Z",
+      "signedInAtUtc": "2026-10-11T21:42:40Z",
+      "signInExpiresAtUtc": "2026-11-09T08:33:41Z",
       "folder": "<test root>\\store\\spares\\<account A folder>"
     }
   ]
@@ -84,13 +84,13 @@ sign-in exit 0: {
   "result": "renewed",
   "role": "spare",
   "configDir": "<test root>\\store\\spares\\<account A folder>",
-  "signedInAtUtc": "2026-10-11T20:30:04Z",
-  "signInExpiresAtUtc": "2026-11-09T18:34:37Z"
+  "signedInAtUtc": "2026-10-11T21:43:16Z",
+  "signInExpiresAtUtc": "2026-11-08T22:03:04Z"
 }
 CHECK renewed-in-place: PASS
 CHECK new-sign-in-time: PASS
 
---- 6. the renewed spare reads; one spare is held; the sign-in area is empty
+--- 6. the renewed spare reads; one spare is held; no other spare folder was left
 $ license usage --json  (exit 0)
 {
   "count": 1,
@@ -105,22 +105,22 @@ $ license usage --json  (exit 0)
       "plan": "max",
       "rateLimitTier": "default_claude_max_20x",
       "fiveHour": {
-        "utilization": 1.0,
-        "resetsAtUtc": "2026-10-12T01:19:59Z"
+        "utilization": 13.0,
+        "resetsAtUtc": "2026-10-12T01:20:00Z"
       },
       "sevenDay": {
-        "utilization": 88.0,
-        "resetsAtUtc": "2026-10-17T18:59:59Z"
+        "utilization": 91.0,
+        "resetsAtUtc": "2026-10-17T19:00:00Z"
       },
       "extraUsage": {
         "isEnabled": false,
         "utilization": 100.0
       },
-      "readAtUtc": "2026-10-11T20:30:05Z",
+      "readAtUtc": "2026-10-11T21:43:17Z",
       "readError": null,
       "readErrorDetail": null,
-      "signedInAtUtc": "2026-10-11T20:30:04Z",
-      "signInExpiresAtUtc": "2026-11-09T18:34:37Z",
+      "signedInAtUtc": "2026-10-11T21:43:16Z",
+      "signInExpiresAtUtc": "2026-11-08T22:03:04Z",
       "folder": "<test root>\\store\\spares\\<account A folder>"
     }
   ]
@@ -145,7 +145,7 @@ $ license list --json  (exit 0)
   ]
 }
 CHECK one-spare: PASS
-CHECK sign-in-area-empty: PASS
+CHECK one-spare-folder: PASS - 1 folder(s) under spares
 
 --- 7. switch <account A> in, then renew the ACTIVE sign-in in place
 $ license switch <account A> --json  (exit 0)
@@ -155,9 +155,9 @@ $ license switch <account A> --json  (exit 0)
   "message": "Switched to <account A>; the default folder held no sign-in before.",
   "previousActiveAccountEmail": "",
   "activeAccountEmailAfter": "<account A>",
-  "startedAtUtc": "2026-10-11T20:30:06Z",
-  "finishedAtUtc": "2026-10-11T20:30:06Z",
-  "exchangeMilliseconds": 9,
+  "startedAtUtc": "2026-10-11T21:43:18Z",
+  "finishedAtUtc": "2026-10-11T21:43:18Z",
+  "exchangeMilliseconds": 34,
   "previousKeptIn": null,
   "recovered": null
 }
@@ -167,8 +167,8 @@ sign-in exit 0: {
   "result": "renewed",
   "role": "active",
   "configDir": "<test root>\\default",
-  "signedInAtUtc": "2026-10-11T20:30:27Z",
-  "signInExpiresAtUtc": "2026-11-08T23:34:16Z"
+  "signedInAtUtc": "2026-10-11T21:43:39Z",
+  "signInExpiresAtUtc": "2026-11-09T20:14:21Z"
 }
 CHECK active-renewed-in-place: PASS
 $ license usage --active --json  (exit 0)
@@ -185,22 +185,22 @@ $ license usage --active --json  (exit 0)
       "plan": "max",
       "rateLimitTier": "default_claude_max_20x",
       "fiveHour": {
-        "utilization": 1.0,
+        "utilization": 13.0,
         "resetsAtUtc": "2026-10-12T01:20:00Z"
       },
       "sevenDay": {
-        "utilization": 88.0,
+        "utilization": 91.0,
         "resetsAtUtc": "2026-10-17T19:00:00Z"
       },
       "extraUsage": {
         "isEnabled": false,
         "utilization": 100.0
       },
-      "readAtUtc": "2026-10-11T20:30:27Z",
+      "readAtUtc": "2026-10-11T21:43:40Z",
       "readError": null,
       "readErrorDetail": null,
-      "signedInAtUtc": "2026-10-11T20:30:27Z",
-      "signInExpiresAtUtc": "2026-11-08T23:34:16Z",
+      "signedInAtUtc": "2026-10-11T21:43:39Z",
+      "signInExpiresAtUtc": "2026-11-09T20:14:21Z",
       "folder": "<test root>\\default"
     }
   ]

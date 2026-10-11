@@ -4,19 +4,23 @@ For the License Switching mission (missions/license-switching/MISSION.md, "Addin
 
 THE FLOW (proven by hand on 10 October 2026, before this code):
 
-1. The TARGET machine runs ``claude auth login --claudeai --email X`` with CLAUDE_CONFIG_DIR set to a new, empty
-   folder under the key store (``<store>/signing-in/...``) and BROWSER=none. Claude Code prints an authorize URL and
-   waits for a code.
+1. The TARGET machine runs ``claude auth login --claudeai --email X`` with BROWSER=none and CLAUDE_CONFIG_DIR set to
+   the folder the account belongs in: its spare folder for a new spare, or the folder already holding it for a
+   renewal - its spare folder, or the default folder when it is the ACTIVE account. Claude Code prints an authorize
+   URL and waits for a code.
 2. The APPROVING machine - the one that holds a browser profile signed in to claude.ai as X - opens that URL in that
    profile. The page says "Logged in as X"; the approver refuses when it names anyone else, then clicks Authorize
    and reads the ``code#state`` the page shows.
-3. The code goes back to the target, which types it into the waiting login. The code is useless anywhere else: it
-   only completes the login that holds the matching verifier.
-4. The key store ADOPTS the new folder: a new spare, or - when the account is held here already, as a spare or as
-   the ACTIVE account - a RENEWAL that replaces its old sign-in in place (``LicenseStore.adopt_sign_in``). The new
-   sign-in is never copied; it moves, so it exists in exactly one place after every step, and the active folder is
-   never left without a sign-in. The time of the sign-in is recorded, and ``license usage`` reports it as
+3. The code goes back to the target, which types it into the waiting login - holding the key store's lock, after
+   checking the folder still holds what it did when the login started (``LicenseStore.finish_sign_in``). Claude
+   Code's own single write puts the new sign-in in place, replacing the old one when it renews. The code is useless
+   anywhere else: it only completes the login that holds the matching verifier.
+4. The store reads the folder back and records the time of the sign-in; ``license usage`` reports it as
    ``signedInAtUtc``.
+
+THE SIGN-IN NEVER MOVES. It is written once, where it belongs, by Claude Code. Moving a key from one folder to
+another always has a moment when it is in both, and a refresh of one copy kills the other (MISSION.md trap 2) - so
+there is no staging folder and no copy step, and the folder of an active account always holds a sign-in.
 
 The target and the approver are the same machine when the browser profile is local (``sign_in`` with
 ``browser_approver``). They are two machines when it is not: the target runs ``sign_in`` with an ``approve`` that
@@ -31,8 +35,8 @@ owner configured for that account. Which profile is signed in as which account i
 the key store's folder on his machine (``sign-in-browsers.json``), never in this repository. A renewal that fails
 is reported in the result and makes the command exit non-zero - never silent.
 
-NOTHING SECRET IS SHOWN. The new key never passes through this module: Claude Code writes it into the staging folder
-and the store moves it. The authorize code passes through, is checked for shape, and is typed into the login; it is
+NOTHING SECRET IS SHOWN. The new key never passes through this module: Claude Code writes it into the folder it
+belongs in, and nothing moves it. The authorize code passes through, is checked for shape, and is typed into the login; it is
 never logged, and no error message carries it.
 """
 
@@ -53,6 +57,7 @@ from typing import Callable, Dict, List, Optional, Protocol
 from .license_store import (
     LicenseStore,
     LicenseStoreError,
+    is_real_default,
     sign_in_ends,
 )
 
@@ -80,7 +85,7 @@ LOGIN_FAILED = "login-failed"              # claude auth login did not start, pr
 APPROVAL_FAILED = "approval-failed"        # the browser step did not produce a code
 WRONG_ACCOUNT = "wrong-account"            # the browser profile is signed in to claude.ai as someone else
 NOT_SIGNED_IN = "browser-not-signed-in"    # the browser profile is not signed in to claude.ai at all
-NO_BROWSER = "no-browser-configured"       # no browser profile is configured for the account
+NO_APPROVER = "no-approver"                # no browser profile is set to approve the account (contract 8.1)
 STORE_REFUSED = "store-refused"            # the key store would not take the new sign-in
 
 
@@ -135,6 +140,10 @@ class ClaudeLogin:
             raise SignInError(LOGIN_FAILED, "Claude Code (claude) is not on this machine's PATH.",
                               ["Install Claude Code, then run: claude --version"])
         env = dict(os.environ, CLAUDE_CONFIG_DIR=folder, BROWSER="none")
+        if is_real_default(folder):
+            # Claude Code names the real default login by CLAUDE_CONFIG_DIR being UNSET (license_store); set to the
+            # same folder, it would sign in under another Keychain name.
+            del env["CLAUDE_CONFIG_DIR"]
         log.info("login %s: starting claude auth login in %s", email, folder)
         self._email = email
         self._lines: List[str] = []
@@ -234,45 +243,45 @@ def sign_in(store: LicenseStore, email: str, approve: Approve, *,
             now: Callable[[], _dt.datetime] = utc_now) -> SignInResult:
     """Sign ``email`` in on this machine: a new spare, or a renewal in place of the sign-in held (spare or active).
 
-    ``approve(url, email)`` returns the ``code#state`` for the authorize URL - from a local browser profile, or
-    from another machine. The staging folder is deleted on every failure, key and all: nothing else holds that
-    sign-in, so nothing is lost but a sign-in nobody wanted."""
+    ``approve(url, email)`` returns the ``code#state`` for the authorize URL - from a local browser profile, or from
+    another machine. Until the code is typed in, nothing has been written: a failure before then leaves every folder
+    as it was, and removes a new spare folder that never received a sign-in."""
     email = email.strip()
     try:
-        staging = store.new_signing_in_folder(email, now())
+        target = store.sign_in_target(email)
     except LicenseStoreError as ex:
         raise SignInError(STORE_REFUSED, str(ex), ex.next_steps) from None
     login: Optional[LoginProcess] = None
-    adopted = False
+    finished = False
     try:
-        login = (start_login or start_claude_login)(staging, email)
+        login = (start_login or start_claude_login)(target.folder, email)
         url = login.authorize_url(URL_WAIT_SECONDS)
         code = approve(url, email).strip()
         if not CODE_SHAPE.match(code):
             raise SignInError(APPROVAL_FAILED, "the approval returned something that is not an authorize code")
-        login.finish(code, FINISH_WAIT_SECONDS)
-        signed_in_at = now()
+        typed_in = login
         try:
-            result = store.adopt_sign_in(staging, email, signed_in_at)
+            result = store.finish_sign_in(target, lambda: typed_in.finish(code, FINISH_WAIT_SECONDS), now)
         except LicenseStoreError as ex:
             raise SignInError(STORE_REFUSED, str(ex), ex.next_steps) from None
-        adopted = True
+        finished = True
     finally:
         if login is not None:
             login.cancel()
-        if not adopted:
-            _discard(store, staging)
+        if not finished:
+            _abandon(store, target)
     log.info("sign-in %s: %s", email, "renewed" if result.renewed else "added")
     return SignInResult(email.lower(), result.account.role, result.account.config_dir, result.renewed,
                         iso(result.signed_in_at), iso(result.sign_in_ends))
 
 
-def _discard(store: LicenseStore, staging: str) -> None:
+def _abandon(store: LicenseStore, target) -> None:
     try:
-        store.discard_sign_in(staging)
+        store.abandon_sign_in(target)
     except (LicenseStoreError, OSError) as ex:
         # The sign-in failed already and that is what is raised; this is said in the log, not swallowed.
-        log.warning("sign-in folder %s could not be deleted (%s); delete it by hand", staging, type(ex).__name__)
+        log.warning("new spare folder %s could not be removed (%s); remove it by hand", target.folder,
+                    type(ex).__name__)
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -306,6 +315,9 @@ def finish(state, **extra):
 
 new_tab(URL)
 tab = current_tab()
+# The tab is driven in the background, never brought to the front. A page can ignore input while it believes it
+# has no focus (a click was lost this way live), so focus is emulated for the approval and switched off after.
+cdp("Emulation.setFocusEmulationEnabled", enabled=True)
 try:
     wait_for_load()
     deadline = time.time() + WAIT
@@ -349,9 +361,11 @@ try:
             finish("code", code=code)
         else:
             page = js("document.body ? document.body.innerText : ''") or ""
+            state = js("[document.visibilityState, document.hasFocus()]") or ["?", "?"]
             finish("no-code", clicks=clicks, url=page_info().get("url", "").split("?")[0],
-                   text=" ".join(page.split())[:300])
+                   text=" ".join(page.split())[:300], visibility=state[0], focused=state[1])
 finally:
+    cdp("Emulation.setFocusEmulationEnabled", enabled=False)
     cdp("Target.closeTarget", targetId=tab["targetId"])
 '''
 
@@ -455,7 +469,9 @@ def approve_in_browser(url: str, email: str, profile: str, *,
     if state == "no-account-shown":
         raise SignInError(APPROVAL_FAILED, "the consent page did not say which account is signed in, so nothing "
                                            "was approved")
-    raise SignInError(APPROVAL_FAILED, f"Authorize was clicked but the page showed no code (it is at "
+    raise SignInError(APPROVAL_FAILED, f"Authorize was clicked {answer.get('clicks', '?')} time(s) but the page "
+                                       f"showed no code (page visibility {answer.get('visibility', '?')}, focused "
+                                       f"{answer.get('focused', '?')}; it is at "
                                        f"{answer.get('url') or 'an unknown address'} and says: "
                                        f"{answer.get('text') or 'nothing'})")
 
@@ -482,10 +498,10 @@ def load_browsers(store: LicenseStore) -> Dict[str, str]:
     try:
         data = json.loads(open(path, encoding="utf-8").read())
     except ValueError:
-        raise SignInError(NO_BROWSER, f"{path} is not valid JSON", [f"Open {path} and repair it"]) from None
+        raise SignInError(NO_APPROVER, f"{path} is not valid JSON", [f"Open {path} and repair it"]) from None
     accounts = data.get("accounts") if isinstance(data, dict) else None
     if not isinstance(accounts, dict):
-        raise SignInError(NO_BROWSER, f"{path} has no \"accounts\" object", [f"Open {path} and repair it"])
+        raise SignInError(NO_APPROVER, f"{path} has no \"accounts\" object", [f"Open {path} and repair it"])
     return {str(k).strip().lower(): str(v) for k, v in accounts.items() if isinstance(v, str) and v.strip()}
 
 
@@ -506,7 +522,7 @@ def browser_for(store: LicenseStore, email: str) -> str:
     profile = load_browsers(store).get(email.strip().lower())
     if not profile:
         raise SignInError(
-            NO_BROWSER,
+            NO_APPROVER,
             f"no browser profile is configured to sign {email} in.",
             [f"cc-devthrottle license set-browser {email} <profile>", "cc-devthrottle browser list"])
     return profile

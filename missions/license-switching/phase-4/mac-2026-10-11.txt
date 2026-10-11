@@ -43,8 +43,8 @@ sign-in exit 0: {
   "result": "added",
   "role": "spare",
   "configDir": "<test root>/store/spares/<account A folder>",
-  "signedInAtUtc": "2026-10-11T20:32:50Z",
-  "signInExpiresAtUtc": "2026-11-08T10:57:10Z"
+  "signedInAtUtc": "2026-10-11T21:38:44Z",
+  "signInExpiresAtUtc": "2026-11-09T02:13:55Z"
 }
 CHECK added: PASS
 
@@ -63,22 +63,22 @@ $ license usage --json  (exit 0)
       "plan": "max",
       "rateLimitTier": "default_claude_max_20x",
       "fiveHour": {
-        "utilization": 2.0,
+        "utilization": 12.0,
         "resetsAtUtc": "2026-10-12T01:20:00Z"
       },
       "sevenDay": {
-        "utilization": 88.0,
+        "utilization": 90.0,
         "resetsAtUtc": "2026-10-17T19:00:00Z"
       },
       "extraUsage": {
         "isEnabled": false,
         "utilization": 100.0
       },
-      "readAtUtc": "2026-10-11T20:32:51Z",
+      "readAtUtc": "2026-10-11T21:38:44Z",
       "readError": null,
       "readErrorDetail": null,
-      "signedInAtUtc": "2026-10-11T20:32:50Z",
-      "signInExpiresAtUtc": "2026-11-08T10:57:10Z",
+      "signedInAtUtc": "2026-10-11T21:38:44Z",
+      "signInExpiresAtUtc": "2026-11-09T02:13:55Z",
       "folder": "<test root>/store/spares/<account A folder>"
     }
   ]
@@ -94,13 +94,13 @@ sign-in exit 0: {
   "result": "renewed",
   "role": "spare",
   "configDir": "<test root>/store/spares/<account A folder>",
-  "signedInAtUtc": "2026-10-11T20:33:12Z",
-  "signInExpiresAtUtc": "2026-11-10T10:11:11Z"
+  "signedInAtUtc": "2026-10-11T21:39:05Z",
+  "signInExpiresAtUtc": "2026-11-10T16:03:06Z"
 }
 CHECK renewed-in-place: PASS
 CHECK new-sign-in-time: PASS
 
---- 6. the renewed spare reads; one spare is held; the sign-in area is empty
+--- 6. the renewed spare reads; one spare is held; no other spare folder was left
 $ license usage --json  (exit 0)
 {
   "count": 1,
@@ -115,22 +115,22 @@ $ license usage --json  (exit 0)
       "plan": "max",
       "rateLimitTier": "default_claude_max_20x",
       "fiveHour": {
-        "utilization": 2.0,
-        "resetsAtUtc": "2026-10-12T01:20:00Z"
+        "utilization": 12.0,
+        "resetsAtUtc": "2026-10-12T01:19:59Z"
       },
       "sevenDay": {
-        "utilization": 88.0,
-        "resetsAtUtc": "2026-10-17T19:00:00Z"
+        "utilization": 90.0,
+        "resetsAtUtc": "2026-10-17T18:59:59Z"
       },
       "extraUsage": {
         "isEnabled": false,
         "utilization": 100.0
       },
-      "readAtUtc": "2026-10-11T20:33:13Z",
+      "readAtUtc": "2026-10-11T21:39:06Z",
       "readError": null,
       "readErrorDetail": null,
-      "signedInAtUtc": "2026-10-11T20:33:12Z",
-      "signInExpiresAtUtc": "2026-11-10T10:11:11Z",
+      "signedInAtUtc": "2026-10-11T21:39:05Z",
+      "signInExpiresAtUtc": "2026-11-10T16:03:06Z",
       "folder": "<test root>/store/spares/<account A folder>"
     }
   ]
@@ -150,12 +150,12 @@ $ license list --json  (exit 0)
       "configDir": "<test root>/store/spares/<account A folder>",
       "accountFile": "<test root>/store/spares/<account A folder>/.claude.json",
       "keyStore": "keychain",
-      "keyLocation": "Claude Code-credentials-eb11c319"
+      "keyLocation": "Claude Code-credentials-ff6d915f"
     }
   ]
 }
 CHECK one-spare: PASS
-CHECK sign-in-area-empty: PASS
+CHECK one-spare-folder: PASS - 1 folder(s) under spares
 
 --- 7. switch <account A> in, then renew the ACTIVE sign-in in place
 $ license switch <account A> --json  (exit 0)
@@ -165,9 +165,9 @@ $ license switch <account A> --json  (exit 0)
   "message": "Switched to <account A>; the default folder held no sign-in before.",
   "previousActiveAccountEmail": "",
   "activeAccountEmailAfter": "<account A>",
-  "startedAtUtc": "2026-10-11T20:33:14Z",
-  "finishedAtUtc": "2026-10-11T20:33:14Z",
-  "exchangeMilliseconds": 123,
+  "startedAtUtc": "2026-10-11T21:39:07Z",
+  "finishedAtUtc": "2026-10-11T21:39:07Z",
+  "exchangeMilliseconds": 125,
   "previousKeptIn": null,
   "recovered": null
 }
@@ -179,8 +179,8 @@ sign-in exit 0: {
   "result": "renewed",
   "role": "active",
   "configDir": "<test root>/default",
-  "signedInAtUtc": "2026-10-11T20:33:36Z",
-  "signInExpiresAtUtc": "2026-11-09T22:45:53Z"
+  "signedInAtUtc": "2026-10-11T21:39:31Z",
+  "signInExpiresAtUtc": "2026-11-10T01:33:42Z"
 }
 CHECK active-renewed-in-place: PASS
 $ license usage --active --json  (exit 0)
@@ -197,22 +197,22 @@ $ license usage --active --json  (exit 0)
       "plan": "max",
       "rateLimitTier": "default_claude_max_20x",
       "fiveHour": {
-        "utilization": 2.0,
-        "resetsAtUtc": "2026-10-12T01:19:59Z"
+        "utilization": 12.0,
+        "resetsAtUtc": "2026-10-12T01:20:00Z"
       },
       "sevenDay": {
-        "utilization": 88.0,
-        "resetsAtUtc": "2026-10-17T18:59:59Z"
+        "utilization": 90.0,
+        "resetsAtUtc": "2026-10-17T19:00:00Z"
       },
       "extraUsage": {
         "isEnabled": false,
         "utilization": 100.0
       },
-      "readAtUtc": "2026-10-11T20:33:36Z",
+      "readAtUtc": "2026-10-11T21:39:32Z",
       "readError": null,
       "readErrorDetail": null,
-      "signedInAtUtc": "2026-10-11T20:33:36Z",
-      "signInExpiresAtUtc": "2026-11-09T22:45:53Z",
+      "signedInAtUtc": "2026-10-11T21:39:31Z",
+      "signInExpiresAtUtc": "2026-11-10T01:33:42Z",
       "folder": "<test root>/default"
     }
   ]
@@ -232,7 +232,7 @@ $ license list --json  (exit 0)
       "configDir": "<test root>/default",
       "accountFile": "<test root>/default/.claude.json",
       "keyStore": "keychain",
-      "keyLocation": "Claude Code-credentials-42cc1133"
+      "keyLocation": "Claude Code-credentials-4462945d"
     }
   ]
 }
