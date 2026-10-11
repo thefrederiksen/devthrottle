@@ -118,7 +118,8 @@ public sealed class SecretMachineRegistry
     /// Director reports (a Mac enrolled as "Sorens-Mac-mini" whose Director calls it "devthrottle-mac-mini"), and a
     /// transfer names machines as the list does - so the credential is matched through its Directors, never by name.
     /// Null when no live Director that can take part said Hello with it, or when its Directors name different
-    /// machines (the Gateway will not guess between them).
+    /// machines (the Gateway will not guess between them). Spelled as the most recently heard Director spells it, as the
+    /// machine list does.
     /// </summary>
     public string? MachineOfCredential(TenantId tenant, string credential, Func<string, bool> isConnected, DateTime nowUtc)
     {
@@ -129,6 +130,7 @@ public sealed class SecretMachineRegistry
                            && string.Equals(pair.Value.Credential, credential, StringComparison.Ordinal)
                            && nowUtc - pair.Value.SeenUtc <= StaleAfter
                            && isConnected(pair.Key.DirectorId))
+            .OrderByDescending(pair => pair.Value.SeenUtc)
             .Select(pair => pair.Value.Machine)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
