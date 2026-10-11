@@ -72,9 +72,20 @@ internal static class TestTempRoot
     /// It does NOT tolerate a missing directory: a test that deletes something that was never there
     /// is telling you its fixture is wrong, and the callers that legitimately delete an optional tree
     /// already guard or catch around their own call.
+    ///
+    /// DIRECTORY LINKS GO FIRST, AS LINKS. A junction or a directory symbolic link inside the tree is
+    /// removed by itself before anything else, and never descended into. Two reasons. The recursive
+    /// enumeration FOLLOWS a link, so the read-only sweep below would otherwise reach the link's target -
+    /// which may lie outside this tree - and change its files. And <c>Directory.Delete(path, recursive)</c>
+    /// removes a junction by unmounting it, which needs elevation; without it .NET removes the junction all
+    /// the same and then throws "Access to the path is denied" naming it, so a tree that held one junction
+    /// was never deleted by the recursive call alone. The worktree reaper's junction test hit exactly this.
     /// </summary>
     public static void DeleteTree(string path)
     {
+        foreach (var link in DirectoryLinksUnder(path))
+            Directory.Delete(link);
+
         foreach (var file in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
         {
             var attributes = File.GetAttributes(file);
@@ -83,5 +94,25 @@ internal static class TestTempRoot
         }
 
         Directory.Delete(path, recursive: true);
+    }
+
+    /// <summary>Every directory under <paramref name="root"/> that is a link (junction or symbolic link),
+    /// found one level at a time so a link is reported and never entered.</summary>
+    private static List<string> DirectoryLinksUnder(string root)
+    {
+        var links = new List<string>();
+        var pending = new Stack<string>();
+        pending.Push(root);
+        while (pending.Count > 0)
+        {
+            foreach (var child in Directory.EnumerateDirectories(pending.Pop()))
+            {
+                if ((File.GetAttributes(child) & FileAttributes.ReparsePoint) != 0)
+                    links.Add(child);
+                else
+                    pending.Push(child);
+            }
+        }
+        return links;
     }
 }
