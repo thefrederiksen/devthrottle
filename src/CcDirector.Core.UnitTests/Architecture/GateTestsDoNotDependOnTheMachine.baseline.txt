@@ -611,8 +611,6 @@ delay | src/CcDirector.Gateway.UnitTests/Fleet/FleetManagerPlacementServiceTests
 npgsql | src/CcDirector.Gateway.UnitTests/GatewayDatabaseOpenResilienceTests.cs | 4
 real-clock | src/CcDirector.Gateway.UnitTests/GatewayStatsDatabaseTests.cs | 1
 npgsql | src/CcDirector.Gateway.UnitTests/GatewayStatsStoreContainmentTests.cs | 1
-delay | src/CcDirector.Gateway.UnitTests/GatewayStreamRegistryTests.cs | 4
-real-clock | src/CcDirector.Gateway.UnitTests/GatewayStreamRegistryTests.cs | 2
 real-clock | src/CcDirector.Gateway.UnitTests/GatewayTurnJobStoreTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/GovernanceAuditLogTests.cs | 3
 real-clock | src/CcDirector.Gateway.UnitTests/GovernanceEventLedgerTests.cs | 5
@@ -642,8 +640,6 @@ real-clock | src/CcDirector.Gateway.UnitTests/Messaging/FleetDoorbellTests.cs | 
 stopwatch | src/CcDirector.Gateway.UnitTests/Messaging/FleetDoorbellTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/MicrophoneRankingTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/NarrationClipsOnDiskTests.cs | 1
-real-clock | src/CcDirector.Gateway.UnitTests/NeedsYouClockTests.cs | 2
-sleep | src/CcDirector.Gateway.UnitTests/NeedsYouClockTests.cs | 4
 delay | src/CcDirector.Gateway.UnitTests/PromptAnswerBudgetTests.cs | 2
 delay | src/CcDirector.Gateway.UnitTests/PromptDeliveryAgeTests.cs | 2
 real-clock | src/CcDirector.Gateway.UnitTests/PromptDeliveryAgeTests.cs | 2
@@ -654,7 +650,6 @@ real-clock | src/CcDirector.Gateway.UnitTests/Prompts/PromptLogRetentionTests.cs
 real-clock | src/CcDirector.Gateway.UnitTests/RandomScheduleWiringTests.cs | 3
 real-clock | src/CcDirector.Gateway.UnitTests/RegistryDirectorTargetResolverTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/RepoHistoryStoreTests.cs | 2
-sleep | src/CcDirector.Gateway.UnitTests/RepoHistoryStoreTests.cs | 3
 real-clock | src/CcDirector.Gateway.UnitTests/RepositoryUsageIsWiredIntoTheDirectorTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/Restart/DirectorRestoreWayUpLeaseTests.cs | 6
 real-clock | src/CcDirector.Gateway.UnitTests/RestoreContextBuilderTests.cs | 1
@@ -706,8 +701,6 @@ real-clock | src/CcDirector.Gateway.UnitTests/TranscriptionHistoryTests.cs | 3
 delay | src/CcDirector.Gateway.UnitTests/TunnelStreamLegsTests.cs | 2
 stopwatch | src/CcDirector.Gateway.UnitTests/TunnelStreamLegsTests.cs | 1
 delay | src/CcDirector.Gateway.UnitTests/TurnLog/TurnLogRecorderTests.cs | 1
-delay | src/CcDirector.Gateway.UnitTests/TurnPusherTests.cs | 8
-real-clock | src/CcDirector.Gateway.UnitTests/TurnPusherTests.cs | 2
 real-clock | src/CcDirector.Gateway.UnitTests/TypedPromptClaimTests.cs | 3
 delay | src/CcDirector.Gateway.UnitTests/TypedPromptDeliveryTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/TypedPromptDeliveryTests.cs | 5

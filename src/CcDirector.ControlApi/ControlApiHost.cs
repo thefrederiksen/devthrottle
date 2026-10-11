@@ -1137,7 +1137,7 @@ public sealed class ControlApiHost : IAsyncDisposable
             // silence, and reconciling against a silence would re-push every conversation from the start.
             onHello: capabilities =>
             {
-                if (capabilities.TurnWatermarksKnown) _turnPusher?.SeedWatermarks(capabilities.TurnWatermarks);
+                if (capabilities.TurnWatermarksKnown) _ = _turnPusher?.SeedWatermarks(capabilities.TurnWatermarks);
                 // License Switching contract 2.3: the first Hello on a new connection is answered with a "connected"
                 // usage report, so a restarted Gateway has the facts within seconds rather than two minutes. After
                 // the Hello, because only then does the Director know the Gateway has PushLicenseUsage at all.

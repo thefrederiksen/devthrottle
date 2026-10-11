@@ -1,7 +1,7 @@
 using System;
-using System.Threading;
 using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Briefing;
+using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests;
@@ -13,10 +13,11 @@ namespace CcDirector.Gateway.Tests;
 /// </summary>
 public sealed class NeedsYouClockTests
 {
+    private readonly FakeTimeProvider _time = new(new DateTimeOffset(2026, 10, 11, 12, 0, 0, TimeSpan.Zero));
     [Fact]
     public void Stamp_NotRed_ReturnsNull()
     {
-        var clock = new NeedsYouClock();
+        var clock = new NeedsYouClock(_time);
 
         var result = clock.Stamp(TenantId.Local, "s1", isRed: false);
 
@@ -24,25 +25,22 @@ public sealed class NeedsYouClockTests
     }
 
     [Fact]
-    public void Stamp_FirstRed_ReturnsAStampNearNow()
+    public void Stamp_FirstRed_ReturnsTheClocksNow()
     {
-        var clock = new NeedsYouClock();
-        var before = DateTime.UtcNow;
+        var clock = new NeedsYouClock(_time);
 
         var result = clock.Stamp(TenantId.Local, "s1", isRed: true);
 
-        Assert.NotNull(result);
-        var after = DateTime.UtcNow;
-        Assert.InRange(result.Value, before, after);
+        Assert.Equal(_time.GetUtcNow().UtcDateTime, result);
     }
 
     [Fact]
     public void Stamp_StaysRedAcrossPolls_HoldsSameValue()
     {
-        var clock = new NeedsYouClock();
+        var clock = new NeedsYouClock(_time);
 
         var first = clock.Stamp(TenantId.Local, "s1", isRed: true);
-        Thread.Sleep(20); // a later poll cycle
+        _time.Advance(TimeSpan.FromMilliseconds(20)); // a later poll cycle
         var second = clock.Stamp(TenantId.Local, "s1", isRed: true);
 
         Assert.NotNull(first);
@@ -54,7 +52,7 @@ public sealed class NeedsYouClockTests
     [Fact]
     public void Stamp_LeavesRed_ClearsToNull()
     {
-        var clock = new NeedsYouClock();
+        var clock = new NeedsYouClock(_time);
         clock.Stamp(TenantId.Local, "s1", isRed: true);
 
         var afterLeaving = clock.Stamp(TenantId.Local, "s1", isRed: false);
@@ -65,11 +63,11 @@ public sealed class NeedsYouClockTests
     [Fact]
     public void Stamp_ReEntersRed_SecondStampIsStrictlyLater()
     {
-        var clock = new NeedsYouClock();
+        var clock = new NeedsYouClock(_time);
 
         var first = clock.Stamp(TenantId.Local, "s1", isRed: true);
         clock.Stamp(TenantId.Local, "s1", isRed: false); // leaves red - episode ends, value goes null
-        Thread.Sleep(20);
+        _time.Advance(TimeSpan.FromMilliseconds(20));
         var second = clock.Stamp(TenantId.Local, "s1", isRed: true); // returns to red - new episode
 
         Assert.NotNull(first);
@@ -81,10 +79,10 @@ public sealed class NeedsYouClockTests
     [Fact]
     public void Stamp_TracksSessionsIndependently()
     {
-        var clock = new NeedsYouClock();
+        var clock = new NeedsYouClock(_time);
 
         var a = clock.Stamp(TenantId.Local, "a", isRed: true);
-        Thread.Sleep(20);
+        _time.Advance(TimeSpan.FromMilliseconds(20));
         var b = clock.Stamp(TenantId.Local, "b", isRed: true);
         // re-poll a while still red: it keeps its (earlier) value, independent of b.
         var aAgain = clock.Stamp(TenantId.Local, "a", isRed: true);
@@ -99,7 +97,7 @@ public sealed class NeedsYouClockTests
     [Fact]
     public void Stamp_EmptySessionId_Throws()
     {
-        var clock = new NeedsYouClock();
+        var clock = new NeedsYouClock(_time);
 
         Assert.Throws<ArgumentException>(() => clock.Stamp(TenantId.Local, "", isRed: true));
     }
@@ -113,11 +111,11 @@ public sealed class NeedsYouClockTests
     [Fact]
     public void Stamp_SameSessionIdTwoTenants_TracksIndependently()
     {
-        var clock = new NeedsYouClock();
+        var clock = new NeedsYouClock(_time);
 
         // Both accounts have a red session with the SAME id.
         var a = clock.Stamp(TenantA, "shared", isRed: true);
-        Thread.Sleep(20);
+        _time.Advance(TimeSpan.FromMilliseconds(20));
         var b = clock.Stamp(TenantB, "shared", isRed: true);
 
         Assert.NotNull(a);
@@ -135,7 +133,7 @@ public sealed class NeedsYouClockTests
     [Fact]
     public void Stamp_OneTenantLeavesRed_DoesNotClearTheOtherTenant()
     {
-        var clock = new NeedsYouClock();
+        var clock = new NeedsYouClock(_time);
 
         var a = clock.Stamp(TenantA, "shared", isRed: true);   // A enters red
         clock.Stamp(TenantB, "shared", isRed: false);          // B leaves red on the SAME id

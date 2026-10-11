@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Streaming;
+using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests;
@@ -80,7 +81,8 @@ public sealed class GatewayStreamRegistryTests
         // pulls the next frame. A sink whose write is held therefore stops the producer from running ahead.
         var registry = new GatewayStreamRegistry();
         var gate = new TaskCompletionSource();
-        var sink = new RecordingSink(gate: () => gate.Task);
+        var firstWriteHeld = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var sink = new RecordingSink(gate: () => { firstWriteHeld.TrySetResult(); return gate.Task; });
         registry.Register("bp", Owner, sink);
 
         var yielded = 0;
@@ -96,7 +98,7 @@ public sealed class GatewayStreamRegistryTests
         }
 
         var consume = registry.ConsumeAsync("bp", Owner, Produce(), CancellationToken.None);
-        await Task.Delay(150); // let the consumer pull the first frame and block on the held sink write
+        await firstWriteHeld.Task; // the consumer pulled the first frame and is blocked on the held sink write
 
         Assert.Equal(1, Volatile.Read(ref yielded)); // only the first frame was pulled; the next pull is blocked
         Assert.False(consume.IsCompleted);
@@ -115,22 +117,21 @@ public sealed class GatewayStreamRegistryTests
         var sink = new RecordingSink();
         registry.Register("inf", Owner, sink);
 
-        var started = new TaskCompletionSource();
+        var flowing = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         async IAsyncEnumerable<DirectorStreamFrame> Forever([EnumeratorCancellation] CancellationToken ct = default)
         {
-            started.TrySetResult();
             var i = 0;
             while (true)
             {
                 ct.ThrowIfCancellationRequested();
                 yield return Bin("inf", (byte)(i++ & 0xFF));
-                await Task.Delay(20, ct);
+                if (i == 3) flowing.TrySetResult();
+                await Task.Yield();
             }
         }
 
         var consume = registry.ConsumeAsync("inf", Owner, Forever(), CancellationToken.None);
-        await started.Task;
-        await Task.Delay(60); // let a few frames flow
+        await flowing.Task; // a few frames have flowed
 
         registry.Close("inf"); // browser disconnected
         await consume; // completes cleanly (cancellation swallowed), does not throw
@@ -161,38 +162,21 @@ public sealed class GatewayStreamRegistryTests
         // StreamUp-never-arrives (ruling 3): the Director died mid-open, so no StreamUp ever comes; the sink
         // must not wait forever - the open timeout tears it down and fires the caller's token.
         //
-        // WAIT FOR THE TEARDOWN, do not sleep a guessed interval past it. This slept 400 ms after a 100 ms
-        // timeout and asserted, which reads as a generous margin and is not one: the assertion is really that
-        // a timer callback got a thread within 300 ms, and on a loaded runner it does not always. It failed
-        // exactly that way on the v2.6.0 release check run (17 September 2026, run 35288911706), one test out
-        // of 12,562, in code no change in that release touched. Enlarging the sleep would buy a bigger number
-        // and the same defect; polling removes the clock from the assertion, and still fails - on the timeout
-        // below - if the teardown genuinely never happens.
-        var registry = new GatewayStreamRegistry(openTimeout: TimeSpan.FromMilliseconds(100));
+        // The timeout runs on a fake clock. This once slept 400 ms past a 100 ms real timeout and failed on a
+        // loaded runner (the v2.6.0 release check, 17 September 2026), then polled the real clock; now the test
+        // moves the clock itself, and the timer fires on this thread when it does.
+        var time = new FakeTimeProvider();
+        var registry = new GatewayStreamRegistry(openTimeout: TimeSpan.FromSeconds(10), time: time);
         var sink = new RecordingSink();
         var token = registry.Register("late", Owner, sink);
 
-        await WaitUntil(() => sink.Completed, "the open timeout tore the sink down");
+        time.Advance(TimeSpan.FromSeconds(10) - TimeSpan.FromTicks(1));
+        Assert.False(sink.Completed); // not one tick early
+        time.Advance(TimeSpan.FromTicks(1));
 
         Assert.True(sink.Completed);
         Assert.True(token.IsCancellationRequested);
         Assert.Equal(0, registry.LiveStreamCount);
-    }
-
-    /// <summary>
-    /// Waits for <paramref name="condition"/> to become true, and fails with <paramref name="what"/> if it has
-    /// not within ten seconds. The cap is long on purpose: it is there to turn a hang into a named failure, not
-    /// to be the thing under test, so it must sit far above any scheduling delay a busy runner can impose.
-    /// </summary>
-    private static async Task WaitUntil(Func<bool> condition, string what)
-    {
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
-        while (!condition())
-        {
-            if (DateTime.UtcNow > deadline)
-                Assert.Fail($"Timed out after 10 seconds waiting until {what}.");
-            await Task.Delay(10);
-        }
     }
 
     [Fact]

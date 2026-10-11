@@ -110,9 +110,10 @@ public sealed class TurnPusher : IAsyncDisposable
     /// The Gateway's watermarks, handed back on Hello: what it already holds per session. A FULL
     /// reconciliation: a session the Gateway lists resumes from its watermark; a session it does not list
     /// is reset so it is pushed from the start (the Gateway was replaced, or lost its rows). Then a sweep
-    /// brings every live session current.
+    /// brings every live session current. Returns that sweep, which never throws; the Director does not wait
+    /// for it, and a test awaits it instead of guessing how long it takes.
     /// </summary>
-    public void SeedWatermarks(IReadOnlyList<TurnWatermark> watermarks)
+    public Task SeedWatermarks(IReadOnlyList<TurnWatermark> watermarks)
     {
         ArgumentNullException.ThrowIfNull(watermarks);
         var listed = new HashSet<Guid>();
@@ -150,7 +151,7 @@ public sealed class TurnPusher : IAsyncDisposable
             reset++;
         }
         FileLog.Write($"[TurnPusher] Hello: seeded {seeded} watermark(s) from the Gateway; reset {reset} session(s) it did not list, so they are pushed from the start");
-        _ = SweepAsync(_stopping.Token);
+        return SweepAsync(_stopping.Token);
     }
 
     /// <summary>Fire-and-forget: bring one session current. Coalesces with a run already in progress.</summary>

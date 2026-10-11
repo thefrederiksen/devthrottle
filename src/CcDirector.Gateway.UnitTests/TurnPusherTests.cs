@@ -24,10 +24,28 @@ public sealed class TurnPusherTests
         public readonly List<TurnPushBatch> Received = new();
         public Func<TurnPushBatch, TurnWatermark?>? Answer;
         public Exception? ThrowNext;
+        private readonly List<(int Count, TaskCompletionSource Reached)> _waiters = new();
+
+        /// <summary>Completes once <paramref name="count"/> batches have been received - the event a test awaits.</summary>
+        public Task WhenReceived(int count)
+        {
+            lock (_waiters)
+            {
+                if (Received.Count >= count) return Task.CompletedTask;
+                var reached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                _waiters.Add((count, reached));
+                return reached.Task;
+            }
+        }
+
         public Task<TurnWatermark?> Push(TurnPushBatch b, CancellationToken ct)
         {
             if (ThrowNext is { } ex) { ThrowNext = null; throw ex; }
-            Received.Add(b);
+            lock (_waiters)
+            {
+                Received.Add(b);
+                foreach (var waiter in _waiters.Where(w => Received.Count >= w.Count)) waiter.Reached.TrySetResult();
+            }
             // A configured Answer that returns null IS the refusal; only an unconfigured fake answers by default.
             var answer = Answer is null
                 ? new TurnWatermark { SessionId = b.SessionId, Generation = b.Generation, Count = b.StartOrdinal + b.Turns.Count }
@@ -178,9 +196,7 @@ public sealed class TurnPusherTests
         var gw = new FakeGateway();
         var pusher = new TurnPusher(() => new[] { sid }, _ => Snap(sid, "g", 5), gw.Push, () => true, () => Now, sweepInterval: TimeSpan.FromHours(1));
 
-        pusher.SeedWatermarks(new[] { new TurnWatermark { SessionId = sid.ToString(), Generation = "g", Count = 3 } });
-        await Task.Delay(200);   // the seed kicks a sweep
-        if (gw.Received.Count == 0) await pusher.PushSessionAsync(sid);
+        await pusher.SeedWatermarks(new[] { new TurnWatermark { SessionId = sid.ToString(), Generation = "g", Count = 3 } });   // the seed's sweep
 
         var b = gw.Received.First();
         Assert.Equal(3, b.StartOrdinal);
@@ -194,9 +210,7 @@ public sealed class TurnPusherTests
         var gw = new FakeGateway();
         var pusher = new TurnPusher(() => new[] { sid }, _ => Snap(sid, "current", 2), gw.Push, () => true, () => Now, sweepInterval: TimeSpan.FromHours(1));
 
-        pusher.SeedWatermarks(new[] { new TurnWatermark { SessionId = sid.ToString(), Generation = "previous", Count = 9 } });
-        await Task.Delay(200);
-        if (gw.Received.Count == 0) await pusher.PushSessionAsync(sid);
+        await pusher.SeedWatermarks(new[] { new TurnWatermark { SessionId = sid.ToString(), Generation = "previous", Count = 9 } });
 
         var b = gw.Received.First();
         Assert.Equal("current", b.Generation);
@@ -254,18 +268,23 @@ public sealed class TurnPusherTests
         var sid = Guid.NewGuid();
         var count = 2;
         var gate = new TaskCompletionSource();
+        var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var gw = new FakeGateway();
         var entered = 0;
         var pusher = new TurnPusher(() => new[] { sid }, _ => Snap(sid, "g", count),
             async (b, ct) =>
             {
-                if (Interlocked.Increment(ref entered) == 1) await gate.Task;   // hold the first push open
+                if (Interlocked.Increment(ref entered) == 1)
+                {
+                    firstEntered.SetResult();
+                    await gate.Task;   // hold the first push open
+                }
                 return await gw.Push(b, ct);
             },
             () => true, () => Now);
 
         var first = pusher.PushSessionAsync(sid);
-        await Task.Delay(50);
+        await firstEntered.Task;
         count = 3;                                    // a new turn lands while the first run is mid-push
         var second = pusher.PushSessionAsync(sid);    // must return at once, marking the run pending
         Assert.True(second.IsCompleted);
@@ -289,9 +308,7 @@ public sealed class TurnPusherTests
         Assert.Equal(4, gw.Received.Single().Turns.Count);
         gw.Received.Clear();
 
-        pusher.SeedWatermarks(Array.Empty<TurnWatermark>());
-        await Task.Delay(200);
-        if (gw.Received.Count == 0) await pusher.PushSessionAsync(sid);
+        await pusher.SeedWatermarks(Array.Empty<TurnWatermark>());
 
         var b = gw.Received.First();
         Assert.Equal(0, b.StartOrdinal);
@@ -359,12 +376,11 @@ public sealed class TurnPusherTests
             return await gw.Push(b, ct);
         }, () => true, () => Now);
 
-        var run = pusher.PushSessionAsync(sid);
-        var finished = await Task.WhenAny(run, Task.Delay(5000));
-        Assert.Same(run, finished);        // the call returned; it did not run until the work ran out
+        await pusher.PushSessionAsync(sid);   // the call returns; the work it could not finish is handed on
 
-        var deadline = DateTime.UtcNow.AddSeconds(5);
-        while (DateTime.UtcNow < deadline && gw.Received.Count < 9) await Task.Delay(25);
+        // The hand-off chain carries the rest. The watchdog only turns a hang into a failure; it never
+        // decides a pass, because the event awaited is the ninth batch arriving, not time passing.
+        await gw.WhenReceived(9).WaitAsync(TimeSpan.FromSeconds(30));
         // More pushes than one call's round cap allows, so the hand-off chain carried the rest.
         Assert.True(gw.Received.Count >= 9, $"expected the whole conversation to land, saw {gw.Received.Count} push(es)");
         Assert.True(gw.Received.Count > TurnPusher.MaxRoundsPerCall, "the remainder must be handed on, not left waiting for the sweep");
@@ -441,13 +457,14 @@ public sealed class TurnPusherTests
         // watermark, and the next run would re-push the whole conversation from ordinal zero (found in review).
         var sid = Guid.NewGuid();
         var gate = new TaskCompletionSource();
+        var inFlight = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var gw = new FakeGateway();
         IReadOnlyCollection<Guid> ids = new[] { sid };
         var pusher = new TurnPusher(() => ids, _ => Snap(sid, "g", 2),
-            async (b, ct) => { await gate.Task; return await gw.Push(b, ct); }, () => true, () => Now);
+            async (b, ct) => { inFlight.TrySetResult(); await gate.Task; return await gw.Push(b, ct); }, () => true, () => Now);
 
         var run = pusher.PushSessionAsync(sid);
-        await Task.Delay(50);
+        await inFlight.Task;
         ids = Array.Empty<Guid>();          // the roster stops listing it while its push is in flight
         await pusher.SweepAsync();
         gate.SetResult();
@@ -494,8 +511,7 @@ public sealed class TurnPusherTests
         await pusher.PushSessionAsync(sid);
         Assert.Single(gw.Received);
 
-        pusher.SeedWatermarks(new[] { new TurnWatermark { SessionId = sid.ToString(), Generation = "g", Count = 0 } });
-        await Task.Delay(200);
+        await pusher.SeedWatermarks(new[] { new TurnWatermark { SessionId = sid.ToString(), Generation = "g", Count = 0 } });
         await pusher.PushSessionAsync(sid);
 
         Assert.Single(gw.Received);
