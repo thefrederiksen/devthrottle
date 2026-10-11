@@ -155,9 +155,9 @@ public sealed class TtsServiceTests
     [Fact]
     public async Task GenerateAsync_PermanentFailure_ReturnsErrorQuickly_NotAfter180s()
     {
-        // Both attempts 5xx -> permanent failure after exactly one retry. The key
-        // assertion: it returns fast (well under the old 180 s), proving no chunk
-        // can block the turn.
+        // Both attempts 5xx -> permanent failure after exactly one retry, and no deadline is
+        // involved: a 5xx answers at once, so the only facts here are the outcome and that the
+        // retry rule stopped after one retry.
         var handler = new ScriptedHandler(ScriptedHandler.Kind.ServerError, ScriptedHandler.Kind.ServerError);
         var svc = Service(handler);
 
