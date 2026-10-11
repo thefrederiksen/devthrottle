@@ -490,8 +490,8 @@ def test_CheckText_SaysYesForAStoredSecret_AndNeverWhichEntry(two):
         clean = runner.invoke(cli.app, ["check-text"], input="nothing secret in here")
 
     assert (found.exit_code, clean.exit_code) == (0, 0)
-    assert json.loads(found.stdout) == {"containsSecret": True}
-    assert json.loads(clean.stdout) == {"containsSecret": False}
+    assert json.loads(found.stdout) == {"containsSecret": True, "storeFound": True}
+    assert json.loads(clean.stdout) == {"containsSecret": False, "storeFound": True}
     assert "qa-handoff-one" not in found.output and SECRET not in found.output
 
 
@@ -510,3 +510,36 @@ def test_Request_OwnerWordsCarryingAStoredValue_AreRefused(gateway):
 
     assert result.exit_code == cli.EXIT_REFUSED
     assert gateway["posted"] == []
+
+
+def test_CheckText_OnAMachineWithNoStore_SaysSo(tmp_path, monkeypatch):
+    with on(tmp_path / "no-store-here", monkeypatch):
+        result = runner.invoke(cli.app, ["check-text"], input="anything at all")
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == {"containsSecret": False, "storeFound": False}
+
+
+def test_CheckText_AnAccentedSecret_IsFound_ThroughARealProcessOnAConsoleCodePage(two):
+    """The guard runs cc-secrets as its own process and writes UTF-8. A console code page decoding that would turn an
+    accented secret into text that matches nothing, and the message would go. So this goes through a real process
+    with UTF-8 mode off, not the test runner, which decodes standard input as UTF-8 itself."""
+    import os
+    import subprocess
+    import sys as _sys
+    from pathlib import Path
+
+    accented = "qa-caf\u00e9-" + SECRET
+    with on(two["north"], two["mp"]) as (store, audit):
+        save_entry(store, audit, "qa-handoff-accent", "qa-user", accented, ["https://example.com"], "made up", ["run"], "QA_ACCENT", False, "add", "", None)
+    tool = Path(cli.__file__).resolve().parent.parent
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTHONUTF8", "PYTHONIOENCODING")}
+    env.update(CC_SECRETS_HOME=str(two["north"]), PYTHONUTF8="0")
+
+    done = subprocess.run([_sys.executable, "-c", "from src.cli import main; main()", "check-text"],
+                          input=f"the password is {accented} ok".encode("utf-8"), capture_output=True, cwd=str(tool),
+                          env=env, timeout=60)
+
+    assert done.returncode == 0, done.stderr.decode("utf-8", "replace")[-500:]
+    assert json.loads(done.stdout.decode("ascii").strip().splitlines()[-1])["containsSecret"] is True
+    assert accented.encode("utf-8") not in done.stdout + done.stderr

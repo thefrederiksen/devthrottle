@@ -1214,17 +1214,22 @@ def _half(command: str, transfer_id: str, run) -> None:
 def check_text_command():
     """Say whether the text on standard input contains a secret stored on this machine: one JSON line,
     {"containsSecret": true|false}. Never says which entry and never prints the text. cc-devthrottle asks this before
-    a fleet message or reply leaves the machine."""
-    text = sys.stdin.read()
+    a fleet message, reply, report, prompt or raised hand leaves the machine. "storeFound": false means this machine
+    holds no store, so there was nothing to find. It catches a stored value and its common re-encodings, not every
+    way of rewriting one."""
     try:
+        # Read as UTF-8 bytes: cc-devthrottle writes UTF-8, and the console code page would turn an accented secret
+        # into text that matches nothing, so the message would go out carrying it.
+        text = sys.stdin.buffer.read().decode("utf-8")
+        found = paths.store_path().exists()
         _store().entries()  # opening the store hands every secret, and its common re-encodings, to the scrubber
         contains = SCRUBBER.scrub(text) != text
     except Exception as exc:
         _log_failure("check-text", exc)
         _say(f"failed: {_describe(exc)}", err=True)
         raise typer.Exit(EXIT_FAILED)
-    filelog.write(f"[cli] check-text: {len(text)} characters, contains a secret: {contains}")
-    sys.stdout.write(json.dumps({"containsSecret": contains}) + "\n")
+    filelog.write(f"[cli] check-text: {len(text)} characters, store found: {found}, contains a secret: {contains}")
+    sys.stdout.write(json.dumps({"containsSecret": contains, "storeFound": found}) + "\n")
 
 
 def _refuse_a_stored_value(command: str, subject: str, fields: dict, json_output: bool) -> None:

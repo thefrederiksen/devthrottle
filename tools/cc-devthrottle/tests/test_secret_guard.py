@@ -87,3 +87,35 @@ def test_MessageSend_And_Reply_AreCheckedBeforeAnythingIsQueued(cc_secrets, monk
 
     assert (send_code, reply_code) == (1, 1)
     assert posted == []
+
+
+def _spawn_with_prompt(prompt):
+    """spawn_session with every option at its default and only the first prompt set."""
+    import inspect
+
+    params = inspect.signature(session_ops.spawn_session).parameters
+    kwargs = {name: (p.default if p.default is not inspect.Parameter.empty else None) for name, p in params.items()}
+    kwargs.update(repo="D:/repos/example", prompt=prompt)
+    return session_ops.spawn_session(**kwargs)
+
+
+@pytest.mark.parametrize("what, call", [
+    ("prompt", lambda: session_ops.prompt_session("abc12345", "the value")),
+    ("reason", lambda: session_ops.raise_hand("the value")),
+    ("report", lambda: session_ops.report_to_parent("the value")),
+    ("first prompt", lambda: _spawn_with_prompt("the value")),
+])
+def test_EveryOtherTextPath_IsCheckedBeforeAnythingIsReadOrSent(cc_secrets, monkeypatch, capsys, what, call):
+    # A handback, a typed prompt, a raised hand's reason and a new session's first prompt all carry free text to
+    # another session or the owner, exactly as a message does.
+    cc_secrets["answer"] = Ran(json.dumps({"containsSecret": True}) + "\n")
+    touched = []
+    monkeypatch.setattr(session_ops.gateway, "post_json", lambda *a, **k: touched.append(("post", a)) or {})
+    monkeypatch.setattr(session_ops.gateway, "get_json", lambda *a, **k: touched.append(("get", a)) or {})
+
+    code, err = _refused(capsys, call)
+
+    assert code == 1
+    assert f"this {what} contains a value stored in cc-secrets" in err
+    assert touched == []
+    assert cc_secrets["calls"][0][1] == "the value"

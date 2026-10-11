@@ -666,6 +666,7 @@ def prompt_session(target: str, text: str, no_submit: bool = False) -> Dict[str,
             "the prompt text is blank. "
             'Pass the text to type: cc-devthrottle session prompt <session-id> "<text>"',
         )
+    secret_guard.refuse_if_it_carries_a_secret(text, "prompt")
     sid = resolve_target_or_current(target, "cc-devthrottle session prompt")
     try:
         resp = gateway.post_json(
@@ -811,6 +812,7 @@ def raise_hand(reason: Optional[str], target: Optional[str] = None, clear: bool 
                 "would have to open you to find out what for, which is the work this is meant to save. "
                 'Pass the question: cc-devthrottle session raise "<what you are blocked on>"',
             )
+        secret_guard.refuse_if_it_carries_a_secret(text, "reason")
         body = {"raised": True, "reason": text}
 
     sid = resolve_target_or_current(target, "cc-devthrottle session raise")
@@ -872,6 +874,7 @@ def report_to_parent(summary: Optional[str], target: Optional[str] = None) -> No
             "to open you to find out what happened, which is the work this is meant to save. "
             'Pass one or two sentences: cc-devthrottle session report "<what you did, and anything they must decide>"',
         )
+    secret_guard.refuse_if_it_carries_a_secret(text, "report")
 
     sid = resolve_target_or_current(target, "cc-devthrottle session report")
     sessions, complete, reason, _stale = _get_fleet()
@@ -2046,6 +2049,9 @@ def spawn_session(
     director_target: Optional[str] = None,
 ) -> None:
     """Open a new session here, on another computer (--machine), or on one named Director (--director)."""
+    if prompt:
+        # Checked before anything is read or started: a first prompt is a message to the new session.
+        secret_guard.refuse_if_it_carries_a_secret(prompt, "first prompt")
     # WHO OWNS THE NEW SESSION MUST BE STATED, NOT INFERRED (owner's ruling, 2026-09-13): "I think it is
     # clear if you have to state ownership intent when you start a session."
     #
