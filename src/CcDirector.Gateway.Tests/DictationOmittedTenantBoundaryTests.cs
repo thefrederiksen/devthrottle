@@ -30,7 +30,7 @@ namespace CcDirector.Gateway.Tests;
 /// Why this is its own test class. The tenant boundary is a SECURITY argument, and it used to be declared
 /// optional and nullable (<c>HostedTenantBoundary? tenantBoundary = null</c>) with <c>ResolveTenant</c>
 /// answering <see cref="TenantId.Local"/> whenever it was absent - WITHOUT ever asking
-/// <see cref="GatewayHostedMode.IsHosted"/>. Correctness therefore rested on every present and future call
+/// the hosted mode. Correctness therefore rested on every present and future call
 /// site remembering a one-word argument. Any hosted call site, test, or rewire that omitted it sent
 /// register, chunk, complete, ack and abandon to the base shared root - reopening transcript disclosure,
 /// chunk overwrite, ack, abandon and completion-cache joining - and NOTHING failed loud to say so. An
@@ -136,8 +136,8 @@ namespace CcDirector.Gateway.Tests;
 /// and it does not prove the line it was aimed at. Hence MustStillExist instead of bare `!` dereferences,
 /// and hence the cross-boundary question is asked BEFORE any setup step that could throw.
 ///
-/// The assembly runs sequentially (TestParallelization), so toggling CC_GATEWAY_HOSTED and the storage root
-/// here is safe; both are restored in DisposeAsync.
+/// The assembly runs sequentially (TestParallelization), so toggling the storage root here is safe; it is
+/// restored in DisposeAsync.
 /// </summary>
 public sealed class DictationOmittedTenantBoundaryTests : IAsyncLifetime
 {
@@ -153,7 +153,6 @@ public sealed class DictationOmittedTenantBoundaryTests : IAsyncLifetime
     private readonly string _storageRoot =
         Path.Combine(Path.GetTempPath(), "cc-dictation-nobound-" + Guid.NewGuid().ToString("N"));
 
-    private string? _priorHosted;
     private string? _priorRoot;
 
     /// <summary>The miswired host: hosted mode ON, no tenant boundary. The subject of every test here.</summary>
@@ -166,9 +165,7 @@ public sealed class DictationOmittedTenantBoundaryTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
         _priorRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _storageRoot);
 
         // A canonical lowercase minted GUID - the ONE tenant spelling the registry produces and the upload
@@ -183,7 +180,6 @@ public sealed class DictationOmittedTenantBoundaryTests : IAsyncLifetime
     {
         await _unwired.DisposeAsync();
         await _wired.DisposeAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
         try { if (Directory.Exists(_storageRoot)) Directory.Delete(_storageRoot, true); } catch { /* cleanup */ }
     }

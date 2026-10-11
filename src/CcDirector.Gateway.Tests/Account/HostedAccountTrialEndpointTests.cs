@@ -26,10 +26,10 @@ namespace CcDirector.Gateway.Tests.Account;
 /// Revert-prove: delete the <c>AccountTrialEndpoint.Map(...)</c> line in <c>GatewayHost</c> and every test
 /// here goes RED with 404 - which is the defect itself, exactly as it stands on main today.
 ///
-/// This class sets the process-wide CC_GATEWAY_HOSTED, so it belongs to the hosted-mode collection; the
-/// storage root is isolated per instance for the same reason the sibling hosted classes isolate theirs.
+/// This class sets the process-wide CC_DIRECTOR_ROOT, so it joins the DirectorRoot collection; the storage
+/// root is isolated per instance for the same reason the sibling hosted classes isolate theirs.
 /// </summary>
-[Collection("GatewayHostedMode")]
+[Collection("DirectorRoot")]
 public sealed class HostedAccountTrialEndpointTests : IAsyncLifetime
 {
     private const string Token = "test-token";
@@ -52,13 +52,10 @@ public sealed class HostedAccountTrialEndpointTests : IAsyncLifetime
     /// <summary>Authenticated, but bound to no tenant at all - the caller we cannot identify.</summary>
     private string _keyUnbound = "";
 
-    private string? _priorHosted;
     private string? _priorRoot;
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
         _priorRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _instancesDir);
 
@@ -66,7 +63,8 @@ public sealed class HostedAccountTrialEndpointTests : IAsyncLifetime
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
 
@@ -96,7 +94,6 @@ public sealed class HostedAccountTrialEndpointTests : IAsyncLifetime
     {
         _http.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
         catch { /* best-effort */ }

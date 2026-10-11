@@ -17,7 +17,7 @@ namespace CcDirector.Gateway.Tests;
 /// seams, not the resolver in isolation: tenant A and tenant B deliberately choose different values and the
 /// outbound model or speech request must carry only the value belonging to the tenant on that call.
 /// </summary>
-[Collection("GatewayHostedMode")]
+[Collection("DirectorRoot")]
 public sealed class TenantSettingsRuntimeThreadingTests : IAsyncLifetime
 {
     private static readonly TenantId TenantA = new("aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa");

@@ -47,7 +47,6 @@ namespace CcDirector.Gateway.Tests.Tenancy;
 /// measured refusing a sibling route that was never part of the denied family. Every deny from here on
 /// carries a neighbour probe.
 /// </summary>
-[Collection(HostedRouteDenyCollection.Name)]
 public sealed class HostedRouteDenyOnHostedTests : IAsyncLifetime
 {
     private DenyProbeHost _host = null!;
@@ -210,7 +209,6 @@ public sealed class HostedRouteDenyOnHostedTests : IAsyncLifetime
 /// install. Absence of the refusal is asserted POSITIVELY - the real handler's own payload is required -
 /// because an assertion that merely checks "not the refusal" passes on a framework error too.
 /// </summary>
-[Collection(HostedRouteDenyCollection.Name)]
 public sealed class HostedRouteDenySelfHostControlTests : IAsyncLifetime
 {
     private DenyProbeHost _host = null!;
@@ -220,19 +218,15 @@ public sealed class HostedRouteDenySelfHostControlTests : IAsyncLifetime
     public Task DisposeAsync() => _host.DisposeAsync().AsTask();
 
     /// <summary>
-    /// BOTH declared non-hosted forms, explicitly. The variable ABSENT and the variable present but not
-    /// "1" are two different states of the world, and a control exercising one of them proves the guard
-    /// for one of them. The absent case additionally must be SET rather than inherited: a control that
-    /// passes because the runner happened to leave the variable unset is reporting an ambient condition,
-    /// not a property of the code.
+    /// Self-host STATED, not inherited: the probe host takes <c>hosted</c> as a required argument, so this
+    /// control reports a property of the code and not an ambient condition of the test process. (The mode
+    /// used to be a process-wide variable with three non-hosted forms - absent, "0" and empty - and this
+    /// test ran under each; the forms are now proved once, in <c>GatewayHostedModeTests</c>.)
     /// </summary>
-    [Theory]
-    [InlineData(null)]      // absent
-    [InlineData("0")]       // present, not "1"
-    [InlineData("")]        // present, empty
-    public async Task The_family_serves_normally_in_EITHER_non_hosted_form(string? nonHostedForm)
+    [Fact]
+    public async Task The_family_serves_normally_on_self_host()
     {
-        await using var host = await DenyProbeHost.StartAsync(hosted: false, nonHostedForm: nonHostedForm);
+        await using var host = await DenyProbeHost.StartAsync(hosted: false);
 
         var response = await host.PostJsonAsync("/family/echo", "{\"text\":\"hello\"}");
 
@@ -284,7 +278,6 @@ public sealed class HostedRouteDenySelfHostControlTests : IAsyncLifetime
 }
 
 /// <summary>The refusal payload is validated where it is CONSTRUCTED, so a bad one fails at startup.</summary>
-[Collection(HostedRouteDenyCollection.Name)]
 public sealed class HostedDenialValidationTests
 {
     [Theory]
@@ -316,7 +309,6 @@ public sealed class HostedDenialValidationTests
 /// route. Before this fix, every <c>Map*</c> on an exclusive group ALSO installed a per-route refusal, so
 /// the exclusive family carried the exact ties its single catch-all was supposed to make impossible.
 /// </summary>
-[Collection(HostedRouteDenyCollection.Name)]
 public sealed class HostedExclusiveDenyTests
 {
     [Fact]
@@ -389,7 +381,6 @@ public sealed class HostedExclusiveDenyTests
 /// a request-time 500. The companion single-family case shows the case-fold dedup already collapses the
 /// Codex counterexample to one refusal, so it never reaches the validator as a tie at all.
 /// </summary>
-[Collection(HostedRouteDenyCollection.Name)]
 public sealed class HostedRefusalRouteSpaceCrossGroupTests
 {
     [Fact]
@@ -456,7 +447,6 @@ public sealed class HostedRefusalRouteSpaceCrossGroupTests
 ///   2. A denied refusal vs a LIVE route of the same shape - the exact-key live lookup could not see it.
 ///   3. Two complex segments differing only by SEPARATOR - keys differ by separator text.
 /// </summary>
-[Collection(HostedRouteDenyCollection.Name)]
 public sealed class HostedRefusalRouteSpaceFailBeforeStartTests
 {
     [Fact]
@@ -589,23 +579,18 @@ internal sealed class ValidatedHostedApp : IAsyncDisposable
 {
     private readonly WebApplication _app;
     private readonly HttpClient _http;
-    private readonly string? _priorHosted;
 
     public IReadOnlyList<Endpoint> Endpoints { get; }
 
-    private ValidatedHostedApp(WebApplication app, HttpClient http, string? priorHosted, IReadOnlyList<Endpoint> endpoints)
+    private ValidatedHostedApp(WebApplication app, HttpClient http, IReadOnlyList<Endpoint> endpoints)
     {
         _app = app;
         _http = http;
-        _priorHosted = priorHosted;
         Endpoints = endpoints;
     }
 
     public static async Task<ValidatedHostedApp> StartAsync(Action<IEndpointRouteBuilder> map, bool hosted = true)
     {
-        var priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", hosted ? "1" : null);
-
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
         var app = builder.Build();
@@ -621,7 +606,7 @@ internal sealed class ValidatedHostedApp : IAsyncDisposable
         var endpoints = app.Services.GetRequiredService<EndpointDataSource>().Endpoints;
 
         var http = new HttpClient { BaseAddress = new Uri(app.Urls.First()) };
-        return new ValidatedHostedApp(app, http, priorHosted, endpoints);
+        return new ValidatedHostedApp(app, http, endpoints);
     }
 
     public Task<HttpResponseMessage> GetAsync(string path) => _http.GetAsync(path);
@@ -631,7 +616,6 @@ internal sealed class ValidatedHostedApp : IAsyncDisposable
         _http.Dispose();
         await _app.StopAsync();
         await _app.DisposeAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
     }
 }
 
@@ -646,7 +630,6 @@ internal sealed class ValidatedHostedApp : IAsyncDisposable
 internal sealed class UnstartedHostedApp : IAsyncDisposable
 {
     private readonly WebApplication _app;
-    private readonly string? _priorHosted;
 
     /// <summary>The app itself, so a test can contrast the app's own data sources with the DI composite.</summary>
     public WebApplication App => _app;
@@ -654,10 +637,9 @@ internal sealed class UnstartedHostedApp : IAsyncDisposable
     /// <summary>The finalised endpoint set, read pre-Start from the app's own data sources.</summary>
     public IReadOnlyList<Endpoint> Endpoints { get; }
 
-    private UnstartedHostedApp(WebApplication app, string? priorHosted, IReadOnlyList<Endpoint> endpoints)
+    private UnstartedHostedApp(WebApplication app, IReadOnlyList<Endpoint> endpoints)
     {
         _app = app;
-        _priorHosted = priorHosted;
         Endpoints = endpoints;
     }
 
@@ -674,9 +656,6 @@ internal sealed class UnstartedHostedApp : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(map);
 
-        var priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
         var app = builder.Build();
@@ -692,26 +671,14 @@ internal sealed class UnstartedHostedApp : IAsyncDisposable
         // the tie tests below, rather than passing unnoticed while production silently regresses.
         var endpoints = HostedRefusalRouteSpace.SelectFinalisedEndpoints(app);
 
-        return new UnstartedHostedApp(app, priorHosted, endpoints);
+        return new UnstartedHostedApp(app, endpoints);
     }
 
     public async ValueTask DisposeAsync()
     {
-        // The app was never started, so there is nothing to stop - just dispose and restore the variable.
+        // The app was never started, so there is nothing to stop - just dispose.
         await _app.DisposeAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
     }
-}
-
-/// <summary>
-/// Serialises these classes. They set the process-wide <c>CC_GATEWAY_HOSTED</c> variable, and one class
-/// running while another flips it would produce exactly the kind of unexplained cross-class contamination
-/// this mission has already had to chase down inside its own instrument.
-/// </summary>
-[CollectionDefinition(Name, DisableParallelization = true)]
-public sealed class HostedRouteDenyCollection
-{
-    public const string Name = "hosted-route-deny";
 }
 
 /// <summary>
@@ -724,27 +691,15 @@ internal sealed class DenyProbeHost : IAsyncDisposable
 
     private readonly WebApplication _app;
     private readonly HttpClient _http;
-    private readonly string? _priorHosted;
 
-    private DenyProbeHost(WebApplication app, HttpClient http, string? priorHosted)
+    private DenyProbeHost(WebApplication app, HttpClient http)
     {
         _app = app;
         _http = http;
-        _priorHosted = priorHosted;
     }
 
-    /// <param name="nonHostedForm">
-    /// WHICH non-hosted form to set when <paramref name="hosted"/> is false. There are TWO declared ways to
-    /// be non-hosted - the variable ABSENT, and the variable present but not "1" - and a control that only
-    /// ever exercises one of them proves the guard for one of them. Worse, a control that leans on the
-    /// variable being absent passes only because the test runner happened to leave it unset, which is an
-    /// ambient condition and not a proof.
-    /// </param>
-    public static async Task<DenyProbeHost> StartAsync(bool hosted, string? nonHostedForm = null)
+    public static async Task<DenyProbeHost> StartAsync(bool hosted)
     {
-        var priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", hosted ? "1" : nonHostedForm);
-
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
         var app = builder.Build();
@@ -754,7 +709,7 @@ internal sealed class DenyProbeHost : IAsyncDisposable
 
         await app.StartAsync();
         var http = new HttpClient { BaseAddress = new Uri(app.Urls.First()) };
-        return new DenyProbeHost(app, http, priorHosted);
+        return new DenyProbeHost(app, http);
     }
 
     /// <summary>
@@ -808,7 +763,6 @@ internal sealed class DenyProbeHost : IAsyncDisposable
         _http.Dispose();
         await _app.StopAsync();
         await _app.DisposeAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
     }
 
     private sealed record EchoBody(string Text);

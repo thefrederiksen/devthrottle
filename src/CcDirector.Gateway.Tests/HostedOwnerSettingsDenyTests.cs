@@ -174,14 +174,13 @@ public static class OwnerSettingsRoutes
 /// a verb the route never served - proved by
 /// <see cref="The_brain_restart_route_answers_the_refusal_on_a_verb_it_never_served_on_hosted"/>.
 /// </summary>
-[Collection("GatewayHostedMode")]
+[Collection("DirectorRoot")]
 public sealed class HostedOwnerSettingsDenyTests : IAsyncLifetime
 {
     private const string Token = "test-token-12345";
 
     private readonly string _root;
     private readonly string? _priorRoot;
-    private readonly string? _priorHosted;
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-ownersettings-" + Guid.NewGuid().ToString("N"));
 
@@ -197,9 +196,6 @@ public sealed class HostedOwnerSettingsDenyTests : IAsyncLifetime
 
         // EXPLICIT, never ambient. This class asserts hosted behaviour, so it states hosted mode itself
         // and proves the statement took, rather than inheriting whatever the runner happened to leave set.
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-        Assert.True(GatewayHostedMode.IsHosted);
     }
 
     public async Task InitializeAsync()
@@ -207,7 +203,8 @@ public sealed class HostedOwnerSettingsDenyTests : IAsyncLifetime
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: Token, authEnabled: true,
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
-            snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"));
+            snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
 
@@ -224,7 +221,6 @@ public sealed class HostedOwnerSettingsDenyTests : IAsyncLifetime
     {
         _http.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); } catch { /* best effort */ }
         try { if (Directory.Exists(_root)) Directory.Delete(_root, true); } catch { /* best effort */ }
@@ -359,14 +355,13 @@ internal sealed record CanaryBody(string Text);
 /// tell a working gate apart from a brick: a refusal that fired everything unconditionally would pass every
 /// assertion in this class while having silently killed the routes for self-host too.
 /// </summary>
-[Collection("GatewayHostedMode")]
+[Collection("DirectorRoot")]
 public sealed class HostedOwnerSettingsGroupFilterTests : IAsyncLifetime
 {
     internal const string ProbeSentinel = "probe-payload-that-must-never-be-served-on-hosted";
 
     private readonly string _root;
     private readonly string? _priorRoot;
-    private readonly string? _priorHosted;
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-ownersettings-group-" + Guid.NewGuid().ToString("N"));
 
@@ -378,9 +373,6 @@ public sealed class HostedOwnerSettingsGroupFilterTests : IAsyncLifetime
         _root = Path.Combine(Path.GetTempPath(), "ccd-ownersettings-group-" + Guid.NewGuid().ToString("N"));
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _root);
 
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-        Assert.True(GatewayHostedMode.IsHosted);
     }
 
     public async Task InitializeAsync()
@@ -391,14 +383,14 @@ public sealed class HostedOwnerSettingsGroupFilterTests : IAsyncLifetime
             authEnabled: true,
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
-            snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"));
+            snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
     }
 
     public async Task DisposeAsync()
     {
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); } catch { /* best effort */ }
         try { if (Directory.Exists(_root)) Directory.Delete(_root, true); } catch { /* best effort */ }

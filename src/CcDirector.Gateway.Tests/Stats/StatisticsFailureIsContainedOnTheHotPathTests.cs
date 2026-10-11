@@ -54,27 +54,18 @@ public sealed class StatisticsFailureIsContainedOnTheHotPathTests : IDisposable
     private readonly string _root =
         Path.Combine(Path.GetTempPath(), "cc-stats-contained-" + Guid.NewGuid().ToString("N"));
     private readonly string? _priorRoot;
-    private readonly string? _priorHosted;
 
     public StatisticsFailureIsContainedOnTheHotPathTests(ITestOutputHelper output)
     {
         _out = output;
         Directory.CreateDirectory(_root);
         _priorRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _root);
-        // Self-host, stated rather than inherited: this fixture needs a WORKING statistics store to break,
-        // and the only one a test can stand up without a database server is the local SQLite file - which a
-        // hosted Gateway refuses to open. A run that silently inherited hosted mode would find no aggregator
-        // at all and would pass having exercised nothing.
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", null);
-        Assert.False(GatewayHostedMode.IsHosted);
     }
 
     public void Dispose()
     {
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         try { Directory.Delete(_root, recursive: true); } catch (Exception) { /* best effort */ }
     }
 
@@ -102,7 +93,12 @@ public sealed class StatisticsFailureIsContainedOnTheHotPathTests : IDisposable
         instancesDirectory: Path.Combine(_root, "instances"),
         workListsPath: Path.Combine(_root, "worklists", "worklists.json"),
         snoozePath: Path.Combine(_root, "snooze", "snooze.json"),
-        inputStatsPath: StatsDbPath);
+        inputStatsPath: StatsDbPath,
+        // Self-host, stated rather than inherited: this fixture needs a WORKING statistics store to break,
+        // and the only one a test can stand up without a database server is the local SQLite file - which a
+        // hosted Gateway refuses to open. A Gateway that silently inherited hosted mode would find no
+        // aggregator at all and would pass having exercised nothing.
+        options: new GatewayHostOptions { Hosted = false });
 
     /// <summary>Put one live, freshly-served session on the roster, so the statistics fold has a subject.
     /// Registering the connection AND applying the snapshot is what makes the serve FRESH - the roster only

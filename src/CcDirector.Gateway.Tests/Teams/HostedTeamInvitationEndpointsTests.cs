@@ -15,9 +15,10 @@ namespace CcDirector.Gateway.Tests.Teams;
 /// Team invitations over real HTTP on a hosted Gateway with Teams released (devthrottle_internal#2301): the caller is
 /// the account behind their own device key, the email is asked of a recording mailer (nothing leaves the process), and
 /// the team's bill is the Gateway's own team_bills row (Teams v1, the team bill without Stripe), started here.
+///
+/// This class sets the process-wide CC_DIRECTOR_ROOT, so it joins the DirectorRoot collection.
 /// </summary>
-/// This class sets the process-wide CC_GATEWAY_HOSTED, so it belongs to the hosted-mode collection.
-[Collection("GatewayHostedMode")]
+[Collection("DirectorRoot")]
 public sealed class HostedTeamInvitationEndpointsTests : IAsyncLifetime
 {
     private const string Token = "test-token";
@@ -35,7 +36,6 @@ public sealed class HostedTeamInvitationEndpointsTests : IAsyncLifetime
     private string _keyOwner = "";
     private string _keyManager = "";
     private string _keyBob = "";
-    private string? _priorHosted;
     private string? _priorRoot;
     private string? _priorPublicUrl;
 
@@ -43,8 +43,6 @@ public sealed class HostedTeamInvitationEndpointsTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
         _priorRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _instancesDir);
         // A hosted Gateway always has its public address (HostedStartupContract); the accept link is built on it.
@@ -55,7 +53,8 @@ public sealed class HostedTeamInvitationEndpointsTests : IAsyncLifetime
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            streamMode: true, teamsReleased: true);
+            streamMode: true, teamsReleased: true,
+            options: new GatewayHostOptions { Hosted = true });
         _gateway.TeamInvitationMailer = _mailer;
         await _gateway.StartAsync();
         _http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
@@ -69,7 +68,6 @@ public sealed class HostedTeamInvitationEndpointsTests : IAsyncLifetime
     {
         _http.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
         Environment.SetEnvironmentVariable(GatewayPublicUrl.PublicBaseUrlEnvVar, _priorPublicUrl);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }

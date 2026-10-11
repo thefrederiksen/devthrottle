@@ -62,22 +62,11 @@ public sealed class HostedExesDenyTests : IDisposable
 {
     internal const string RefusalMessage = ExesEndpoints.RefusalMessage;
 
-    private readonly string? _priorHosted;
     private readonly string _instances =
         Path.Combine(Path.GetTempPath(), "cc-hosted-exes-" + Guid.NewGuid().ToString("N"));
 
-    public HostedExesDenyTests()
-    {
-        // EXPLICIT, not ambient: this class asserts hosted behaviour, so it states hosted mode itself and
-        // proves the statement took, rather than inheriting whatever the runner happened to leave set.
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-        Assert.True(GatewayHostedMode.IsHosted);
-    }
-
     public void Dispose()
     {
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         try { if (Directory.Exists(_instances)) Directory.Delete(_instances, true); } catch (Exception) { /* best effort */ }
     }
 
@@ -220,20 +209,11 @@ internal static class ExesGroupProbeHost
 /// </summary>
 public sealed class HostedExesGroupFilterTests : IDisposable
 {
-    private readonly string? _priorHosted;
     private readonly string _instances =
         Path.Combine(Path.GetTempPath(), "cc-exes-group-" + Guid.NewGuid().ToString("N"));
 
-    public HostedExesGroupFilterTests()
-    {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-        Assert.True(GatewayHostedMode.IsHosted);
-    }
-
     public void Dispose()
     {
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         try { if (Directory.Exists(_instances)) Directory.Delete(_instances, true); } catch (Exception) { /* best effort */ }
     }
 
@@ -311,53 +291,36 @@ public sealed class HostedExesGroupFilterTests : IDisposable
 }
 
 /// <summary>
-/// THE SELF-HOST CONTROL ON THE GROUP, in BOTH non-hosted forms, with the effects proven.
+/// THE SELF-HOST CONTROL ON THE GROUP, with the effects proven.
 ///
-/// Self-host is the control for this whole mission, so it is PROVEN rather than INHERITED. This class sets
-/// <c>CC_GATEWAY_HOSTED</c> itself, to both non-hosted values that occur in practice - absent, and
-/// present-but-not-"1" - and asserts the mode took before driving anything. It asserts REAL PAYLOADS, not the
+/// Self-host is the control for this whole mission, so it is STATED rather than INHERITED: every probe host
+/// here is built with <c>hosted: false</c>, a required argument, so no test below can be running in the mode
+/// it thinks it is not in. (The mode used to be a process-wide environment variable with two non-hosted
+/// forms, absent and present-but-not-"1", and this class set both; the mode is now a value handed to the
+/// host, and the forms are proved once, in <c>GatewayHostedModeTests</c>.)
+/// It asserts REAL PAYLOADS, not the
 /// absence of the refusal string: an empty-but-successful response would satisfy "the refusal is absent" while
 /// still being a broken self-host. Every test here must stay GREEN through the revert described on
 /// <see cref="HostedExesDenyTests"/>.
 /// </summary>
 public sealed class SelfHostExesGroupControlTests : IDisposable
 {
-    private readonly string? _priorHosted;
     private readonly string _instances =
         Path.Combine(Path.GetTempPath(), "cc-exes-selfhost-" + Guid.NewGuid().ToString("N"));
 
-    public SelfHostExesGroupControlTests()
-    {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-    }
-
     public void Dispose()
     {
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         try { if (Directory.Exists(_instances)) Directory.Delete(_instances, true); } catch (Exception) { /* best effort */ }
     }
-
-    /// <summary>Puts the process into a STATED non-hosted mode and proves it took.</summary>
-    private static void DeclareSelfHost(string? value)
-    {
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", value);
-        Assert.False(GatewayHostedMode.IsHosted);
-    }
-
-    /// <summary>null = the variable is absent. "0" = present and explicitly not hosted. Both must serve.</summary>
-    public static TheoryData<string?> NonHostedValues => new() { null, "0" };
 
     /// <summary>
     /// HANDLER-POSITIVE RECEIPT for the list route: the route really exists and really answers with the host's
     /// machine name. A 404 deny is indistinguishable from a route that was never mapped, so without a receipt
     /// like this the hosted 404 would prove nothing about a guard.
     /// </summary>
-    [Theory]
-    [MemberData(nameof(NonHostedValues))]
-    public async Task The_owner_still_reads_the_host_roster_on_self_host(string? hostedValue)
+    [Fact]
+    public async Task The_owner_still_reads_the_host_roster_on_self_host()
     {
-        DeclareSelfHost(hostedValue);
-
         var (app, http) = await ExesGroupProbeHost.StartAsync(_instances, hosted: false);
         try
         {
@@ -376,12 +339,9 @@ public sealed class SelfHostExesGroupControlTests : IDisposable
     /// request (a validation 400 for an out-of-range slot proves the handler ran, not the refusal). This is
     /// the route that DELETES a process-global executable on hosted, so its presence off hosted is the control.
     /// </summary>
-    [Theory]
-    [MemberData(nameof(NonHostedValues))]
-    public async Task The_owner_reaches_the_slot_delete_handler_on_self_host(string? hostedValue)
+    [Fact]
+    public async Task The_owner_reaches_the_slot_delete_handler_on_self_host()
     {
-        DeclareSelfHost(hostedValue);
-
         var (app, http) = await ExesGroupProbeHost.StartAsync(_instances, hosted: false);
         try
         {
@@ -402,12 +362,9 @@ public sealed class SelfHostExesGroupControlTests : IDisposable
     /// bound, and a malformed body off hosted hits the framework's own 400 - the capability the hosted refusal
     /// short-circuits before reaching.
     /// </summary>
-    [Theory]
-    [MemberData(nameof(NonHostedValues))]
-    public async Task A_route_added_to_the_group_still_serves_on_self_host(string? hostedValue)
+    [Fact]
+    public async Task A_route_added_to_the_group_still_serves_on_self_host()
     {
-        DeclareSelfHost(hostedValue);
-
         var (app, http) = await ExesGroupProbeHost.StartAsync(_instances, hosted: false,
             mapIntoGroup: group =>
                 group.MapPost("/added-after-the-deny-was-written",

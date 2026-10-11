@@ -18,7 +18,6 @@ namespace CcDirector.Gateway.Tests;
 /// the gateway's REST API over loopback. This covers the discovery flow, proxy
 /// routing, auth middleware, and error paths.
 /// </summary>
-[Collection("GatewayHostedMode")]
 public sealed class GatewayHostTests : IAsyncLifetime
 {
     private ControlApiHost _director = null!;

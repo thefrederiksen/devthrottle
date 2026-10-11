@@ -25,8 +25,6 @@ namespace CcDirector.Gateway.Tests;
 /// carries no target Director (empty) - crucially, never B's "d-bob". Reverting the Gateway wiring to
 /// <c>registry.ListDirectors()</c> makes A's fire resolve B's "d-bob" and stamp it into A's run record, so both
 /// assertions below go RED.
-///
-/// The assembly runs sequentially (TestParallelization), so toggling CC_GATEWAY_HOSTED here is safe.
 /// </summary>
 public sealed class CronResolverCrossTenantTests : IAsyncLifetime
 {
@@ -44,18 +42,15 @@ public sealed class CronResolverCrossTenantTests : IAsyncLifetime
 
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-cron-xt-" + Guid.NewGuid().ToString("N"));
-    private string? _priorHosted;
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: Token, authEnabled: true,
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
 
@@ -74,7 +69,6 @@ public sealed class CronResolverCrossTenantTests : IAsyncLifetime
         _http.Dispose();
         await _dirB.DisposeAsync();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
         catch { /* best-effort */ }
     }

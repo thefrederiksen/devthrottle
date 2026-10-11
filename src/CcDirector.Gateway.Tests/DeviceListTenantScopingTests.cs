@@ -30,8 +30,7 @@ namespace CcDirector.Gateway.Tests;
 /// B's device - and <see cref="An_unbound_device_key_is_denied_on_hosted"/> goes RED (200, not 403).
 ///
 /// The HTTP tests drive the REAL auth middleware, which stashes the authenticated device key the tenant boundary
-/// resolves the request tenant from - the same key the other tenant-scoped read routes use. The assembly runs
-/// sequentially, so toggling CC_GATEWAY_HOSTED here is safe; it is reset in DisposeAsync.
+/// resolves the request tenant from - the same key the other tenant-scoped read routes use.
 /// </summary>
 public sealed class DeviceListTenantScopingTests : IAsyncLifetime
 {
@@ -46,18 +45,15 @@ public sealed class DeviceListTenantScopingTests : IAsyncLifetime
 
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-mtr12-" + Guid.NewGuid().ToString("N"));
-    private string? _priorHosted;
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: Token, authEnabled: true,
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
 
@@ -73,7 +69,6 @@ public sealed class DeviceListTenantScopingTests : IAsyncLifetime
     {
         _http.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
         catch { /* best-effort */ }
     }

@@ -27,7 +27,7 @@ namespace CcDirector.Gateway.Tests.Teams;
 /// (<see cref="CcDirector.Gateway.Teams.TeamsDarkRoutes"/>, devthrottle_internal#2311), so these tests pin 404 and
 /// compare with an unmapped POST, which the fallback always answers with its not-found answer.
 /// </summary>
-[Collection("GatewayHostedMode")]
+[Collection("DirectorRoot")]
 public sealed class HostedTeamsDarkTests : IAsyncLifetime
 {
     private const string Token = "test-token";
@@ -36,14 +36,11 @@ public sealed class HostedTeamsDarkTests : IAsyncLifetime
     private GatewayHost _gateway = null!;
     private HttpClient _http = null!;
     private string _key = "";
-    private string? _priorHosted;
     private string? _priorRoot;
     private string? _priorTeams;
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
         _priorRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _instancesDir);
         // The DEFAULT is what is under test, so the switch is read from an environment where it is not set at all,
@@ -55,7 +52,8 @@ public sealed class HostedTeamsDarkTests : IAsyncLifetime
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
 
@@ -68,7 +66,6 @@ public sealed class HostedTeamsDarkTests : IAsyncLifetime
     {
         _http.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
         Environment.SetEnvironmentVariable(CcDirector.Gateway.Teams.TeamsReleaseSwitch.EnvVar, _priorTeams);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }

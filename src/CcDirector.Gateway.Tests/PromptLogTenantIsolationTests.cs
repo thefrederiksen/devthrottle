@@ -31,9 +31,6 @@ namespace CcDirector.Gateway.Tests;
 ///   - <c>GatewayPromptLog.DirectoryFor</c> - the ONE helper every read and write path goes through, which is
 ///     what makes the partition structural rather than conventional. Return the root directory for every
 ///     tenant and the same assertion goes RED.
-///
-/// The assembly runs sequentially (TestParallelization), so toggling CC_GATEWAY_HOSTED here is safe; it is
-/// reset in DisposeAsync.
 /// </summary>
 public sealed class PromptLogTenantIsolationTests : IAsyncLifetime
 {
@@ -52,20 +49,17 @@ public sealed class PromptLogTenantIsolationTests : IAsyncLifetime
 
     private readonly string _tempDir =
         Path.Combine(Path.GetTempPath(), "cc-prompt-iso-" + Guid.NewGuid().ToString("N"));
-    private string? _priorHosted;
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-
         // The prompt log is pinned into a throwaway directory; it otherwise defaults to the running user's real one.
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: Token, authEnabled: true,
             instancesDirectory: _tempDir,
             workListsPath: Path.Combine(_tempDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_tempDir, "snooze", "snooze.json"),
             promptLogPath: Path.Combine(_tempDir, "prompt-log"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
 
@@ -87,7 +81,6 @@ public sealed class PromptLogTenantIsolationTests : IAsyncLifetime
     {
         _http.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         try { if (Directory.Exists(_tempDir)) Directory.Delete(_tempDir, true); }
         catch { /* best-effort */ }
     }

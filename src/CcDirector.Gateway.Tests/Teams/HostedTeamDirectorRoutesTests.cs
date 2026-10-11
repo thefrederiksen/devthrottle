@@ -33,7 +33,7 @@ namespace CcDirector.Gateway.Tests.Teams;
 ///
 /// PARKED SUITE. Gateway.Tests serializes machine-wide and does not run in the default gate.
 /// </summary>
-[Collection("GatewayHostedMode")]
+[Collection("DirectorRoot")]
 public sealed class HostedTeamDirectorRoutesTests : IAsyncLifetime
 {
     private const string Token = "test-token-team-routes";
@@ -64,15 +64,12 @@ public sealed class HostedTeamDirectorRoutesTests : IAsyncLifetime
     private string _aliceKey = "";
     private string _bobKey = "";
     private string _carolKey = "";
-    private string? _priorHosted;
     private string? _priorRoot;
 
     public HostedTeamDirectorRoutesTests(ITestOutputHelper output) => _out = output;
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
         _priorRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _instancesDir);
 
@@ -80,7 +77,8 @@ public sealed class HostedTeamDirectorRoutesTests : IAsyncLifetime
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            streamMode: true, teamsReleased: true);
+            streamMode: true, teamsReleased: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/"), Timeout = TimeSpan.FromMinutes(2) };
 
@@ -116,7 +114,6 @@ public sealed class HostedTeamDirectorRoutesTests : IAsyncLifetime
             await director.DisposeAsync();
         _http.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
         catch { /* best-effort */ }

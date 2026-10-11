@@ -15,7 +15,7 @@ namespace CcDirector.Gateway.Tests.Teams;
 /// to start rather than sweep silently for weeks (review H3) - but only once the key has had its chance to arrive from
 /// the environment (review J3), and never when the Mentor is off (review J5).
 /// </summary>
-[Collection("GatewayHostedMode")]
+[Collection("DirectorRoot")]
 public sealed class TeamMentorSwitchHostTests
 {
     private const string KeyName = TranscriptionEndpointResolver.DevThrottleKeyName;
@@ -65,10 +65,9 @@ public sealed class TeamMentorSwitchHostTests
         var vaultPath = Path.Combine(root, "test-vault.json");
         if (keyInVault)
             new KeyVault(vaultPath).Set(KeyName, "test-key-not-real");
-        var prior = new[] { "CC_GATEWAY_HOSTED", "CC_DIRECTOR_ROOT", "CC_GATEWAY_NO_TAILSCALE", KeyName,
+        var prior = new[] { "CC_DIRECTOR_ROOT", "CC_GATEWAY_NO_TAILSCALE", KeyName,
             CcDirector.Gateway.Teams.Mentor.TeamMentorSwitch.EnvVar };
         var priorValues = Array.ConvertAll(prior, Environment.GetEnvironmentVariable);
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", hosted ? "1" : null);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", root);
         // A personal Gateway would otherwise point this machine's real tailnet front door at the test port.
         Environment.SetEnvironmentVariable("CC_GATEWAY_NO_TAILSCALE", "1");
@@ -81,7 +80,8 @@ public sealed class TeamMentorSwitchHostTests
                 instancesDirectory: root, keyVaultPath: vaultPath,
                 workListsPath: Path.Combine(root, "worklists", "worklists.json"),
                 snoozePath: Path.Combine(root, "snooze", "snooze.json"),
-                streamMode: true, teamsReleased: teamsReleased);
+                streamMode: true, teamsReleased: teamsReleased,
+                options: new GatewayHostOptions { Hosted = hosted });
             await gateway.StartAsync();
             return gateway.TeamMentorWriter;
         }

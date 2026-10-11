@@ -61,18 +61,15 @@ public sealed class WorkspaceRestoreRouteTests : IAsyncLifetime
     private HttpClient _asDirector = null!;
     private HttpClient _asOwner = null!;
     private HttpClient _asRestoringSession = null!;
-    private string? _priorHosted;
     private Func<DirectorCommand, DirectorCommandResult>? _restoreAnswer;
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: SharedToken, authEnabled: true,
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
 
         var subject = $"sub-restore-{_runId}";
@@ -133,7 +130,6 @@ public sealed class WorkspaceRestoreRouteTests : IAsyncLifetime
         await _director.DisposeAsync();
         foreach (var c in new[] { _asDirector, _asOwner, _asRestoringSession }) c.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); } catch { /* best effort */ }
     }
 

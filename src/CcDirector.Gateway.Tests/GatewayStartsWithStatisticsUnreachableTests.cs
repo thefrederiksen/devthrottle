@@ -56,7 +56,6 @@ public sealed class GatewayStartsWithStatisticsUnreachableTests : IDisposable
         Path.Combine(Path.GetTempPath(), "cc-stats-unreachable-" + Guid.NewGuid().ToString("N"));
 
     private readonly string? _priorRoot;
-    private readonly string? _priorHosted;
     private readonly string? _priorStatsConnection;
 
     public GatewayStartsWithStatisticsUnreachableTests(ITestOutputHelper output)
@@ -68,7 +67,6 @@ public sealed class GatewayStartsWithStatisticsUnreachableTests : IDisposable
         // existing, and a shared root that another test had already written that file into would make this
         // fail for a reason that has nothing to do with the hosted path.
         _priorRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
         _priorStatsConnection = Environment.GetEnvironmentVariable(
             StatsConnectionSelection.StatsConnectionEnvVar);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _root);
@@ -77,7 +75,6 @@ public sealed class GatewayStartsWithStatisticsUnreachableTests : IDisposable
     public void Dispose()
     {
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable(
             StatsConnectionSelection.StatsConnectionEnvVar, _priorStatsConnection);
         try { Directory.Delete(_root, recursive: true); } catch (Exception) { /* best effort */ }
@@ -88,12 +85,11 @@ public sealed class GatewayStartsWithStatisticsUnreachableTests : IDisposable
     [Fact]
     public async Task HostedGateway_StartsAndServesARoster_WithTheStatisticsDatabaseUnreachable()
     {
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
         Environment.SetEnvironmentVariable(
             StatsConnectionSelection.StatsConnectionEnvVar, DeadPostgres);
 
         // THE START. If the statistics migration were fatal, this line throws and there is no roster at all.
-        await using var gateway = NewGateway();
+        await using var gateway = NewGateway(hosted: true);
         await gateway.StartAsync();
 
         // THE STATISTICS STORE TRIED, AND FAILED, AND SAID SO. Without these the test would also pass
@@ -149,11 +145,10 @@ public sealed class GatewayStartsWithStatisticsUnreachableTests : IDisposable
         var file = Path.Combine(_root, ConcurrencyFileName);
 
         // ---- HOSTED: no recorder is constructed at all, so the file is never written.
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
         Environment.SetEnvironmentVariable(
             StatsConnectionSelection.StatsConnectionEnvVar, DeadPostgres);
 
-        await using (var hosted = NewGateway())
+        await using (var hosted = NewGateway(hosted: true))
         {
             await hosted.StartAsync();
             Assert.Null(hosted.SessionConcurrency);
@@ -172,11 +167,10 @@ public sealed class GatewayStartsWithStatisticsUnreachableTests : IDisposable
         _out.WriteLine("HOSTED root contents: " + string.Join(", ", afterHosted));
         Assert.False(File.Exists(file), $"{ConcurrencyFileName} was written on the HOSTED path.");
 
-        // ---- CONTROL, SELF-HOST: the same roster calls DO write it. One variable different.
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", null);
+        // ---- CONTROL, SELF-HOST: the same roster calls DO write it. One value different.
         Environment.SetEnvironmentVariable(StatsConnectionSelection.StatsConnectionEnvVar, null);
 
-        await using (var selfHost = NewGateway())
+        await using (var selfHost = NewGateway(hosted: false))
         {
             await selfHost.StartAsync();
             Assert.NotNull(selfHost.SessionConcurrency);
@@ -196,7 +190,7 @@ public sealed class GatewayStartsWithStatisticsUnreachableTests : IDisposable
             "hosted assertion above proves nothing about the hosted path.");
     }
 
-    private GatewayHost NewGateway() =>
+    private GatewayHost NewGateway(bool hosted) =>
         new(port: GatewayHost.OperatingSystemAssignedPort,
             token: SharedToken,
             authEnabled: true,
@@ -205,5 +199,6 @@ public sealed class GatewayStartsWithStatisticsUnreachableTests : IDisposable
             cronJobsPath: Path.Combine(_root, "cron", "cronjobs.json"),
             snoozePath: Path.Combine(_root, "snooze", "snooze.json"),
             missionsPath: Path.Combine(_root, "missions", "missions.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = hosted });
 }

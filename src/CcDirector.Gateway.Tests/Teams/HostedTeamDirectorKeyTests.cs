@@ -23,7 +23,7 @@ namespace CcDirector.Gateway.Tests.Teams;
 /// the wire-level proof here is the difference between "served" (200) and "the key itself is revoked" (401): removing
 /// the person turns the first into the second, for their keys on that team only.
 /// </summary>
-[Collection("GatewayHostedMode")]
+[Collection("DirectorRoot")]
 public sealed class HostedTeamDirectorKeyTests : IAsyncLifetime
 {
     private const string Token = "test-token";
@@ -33,13 +33,10 @@ public sealed class HostedTeamDirectorKeyTests : IAsyncLifetime
     private readonly string _instancesDir = Path.Combine(Path.GetTempPath(), "cc-tdk-" + Guid.NewGuid().ToString("N"));
     private GatewayHost _gateway = null!;
     private HttpClient _http = null!;
-    private string? _priorHosted;
     private string? _priorRoot;
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
         _priorRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _instancesDir);
 
@@ -47,7 +44,8 @@ public sealed class HostedTeamDirectorKeyTests : IAsyncLifetime
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            streamMode: true, teamsReleased: true);
+            streamMode: true, teamsReleased: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
     }
@@ -56,7 +54,6 @@ public sealed class HostedTeamDirectorKeyTests : IAsyncLifetime
     {
         _http.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
         catch { /* best-effort */ }
@@ -157,7 +154,7 @@ public sealed class HostedTeamDirectorKeyTests : IAsyncLifetime
 /// The dark half: with Teams NOT released, a hosted Gateway maps neither team enrollment route, and a key bound to a
 /// team's tenant is refused as an invalid binding, exactly as before teams existed.
 /// </summary>
-[Collection("GatewayHostedMode")]
+[Collection("DirectorRoot")]
 public sealed class HostedTeamDirectorKeyDarkTests : IAsyncLifetime
 {
     private const string Token = "test-token";
@@ -165,13 +162,10 @@ public sealed class HostedTeamDirectorKeyDarkTests : IAsyncLifetime
     private readonly string _instancesDir = Path.Combine(Path.GetTempPath(), "cc-tdkd-" + Guid.NewGuid().ToString("N"));
     private GatewayHost _gateway = null!;
     private HttpClient _http = null!;
-    private string? _priorHosted;
     private string? _priorRoot;
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
         _priorRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _instancesDir);
 
@@ -179,7 +173,8 @@ public sealed class HostedTeamDirectorKeyDarkTests : IAsyncLifetime
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            streamMode: true, teamsReleased: false);
+            streamMode: true, teamsReleased: false,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
     }
@@ -188,7 +183,6 @@ public sealed class HostedTeamDirectorKeyDarkTests : IAsyncLifetime
     {
         _http.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
         catch { /* best-effort */ }

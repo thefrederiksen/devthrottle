@@ -87,19 +87,13 @@ public sealed class HostedTenantMachineControlTests : IAsyncLifetime
     private HubConnection? _aliceLauncherStream;
     private readonly List<string> _aliceLauncherHits = new();
 
-    private string? _priorHosted;
-
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-tenant-machines-" + Guid.NewGuid().ToString("N"));
 
     public async Task InitializeAsync()
     {
-        // EXPLICIT, not ambient: this class asserts HOSTED behaviour, so it states hosted mode itself rather
-        // than inheriting whatever the runner happened to leave set, and proves the statement took.
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-        Assert.True(GatewayHostedMode.IsHosted);
-
+        // EXPLICIT, not ambient: this class asserts HOSTED behaviour, so it states hosted mode on the host it builds
+        // rather than inheriting whatever the runner happened to leave set.
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: Token, authEnabled: true,
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
@@ -110,7 +104,8 @@ public sealed class HostedTenantMachineControlTests : IAsyncLifetime
             // to sit through production's full ninety-second wait - the single slowest test in the suite
             // (issue #1156). What is under test is which STATUS comes back, never how long the Gateway is
             // willing to wait for a Director, so the wait is injected short.
-            directorLaunchTimeout: TimeSpan.FromMilliseconds(250));
+            directorLaunchTimeout: TimeSpan.FromMilliseconds(250),
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
 
@@ -135,7 +130,6 @@ public sealed class HostedTenantMachineControlTests : IAsyncLifetime
         if (_aliceLauncherStream is not null) await _aliceLauncherStream.DisposeAsync();
         _http.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
         catch (Exception) { /* best effort */ }
     }
@@ -677,16 +671,13 @@ internal sealed class MachineGroupProbeHost : IAsyncDisposable
 /// <summary>
 /// THE SELF-HOST CONTROL, STATED EXPLICITLY.
 ///
-/// Self-host is the control for this entire hosted-tenancy mission, so it has to be PROVEN rather than
-/// INHERITED. <see cref="LauncherRegistryEndpointTests"/> does not prove it: those tests never mention
-/// <c>CC_GATEWAY_HOSTED</c> and pass only because the runner happens to leave it unset. If that ambient
-/// default ever flipped - one leaked environment variable, one continuous-integration image change, one test
-/// that forgot to restore it - they would keep passing while self-host was completely broken, because they
-/// assert nothing about which mode they are in.
+/// Self-host is the control for this whole mission, so it is STATED rather than INHERITED: every probe host
+/// here is built with <c>hosted: false</c>, a required argument, so no test below can be running in the mode
+/// it thinks it is not in. (The mode used to be a process-wide environment variable with two non-hosted
+/// forms, absent and present-but-not-"1", and this class set both; the mode is now a value handed to the
+/// host, and the forms are proved once, in <c>GatewayHostedModeTests</c>.)
 ///
-/// So this class sets the variable itself, to BOTH non-hosted values that occur in practice - absent, and
-/// present-but-not-"1" - and asserts <see cref="GatewayHostedMode.IsHosted"/> is actually false before driving
-/// anything. Each route is then proved SERVED by a POSITIVE EFFECT: a seeded registration read back out of the
+/// Each route is proved SERVED by a POSITIVE EFFECT: a seeded registration read back out of the
 /// listing, a heartbeat and an unregister whose effects are re-read from the registry, a dispatch that
 /// actually reaches the stub launcher stream and is recorded by it, and a spawn that returns the stubbed
 /// session id.
@@ -697,34 +688,13 @@ internal sealed class MachineGroupProbeHost : IAsyncDisposable
 /// tests prove that degeneration is exact - the same routes, the same dispatch, the same behaviour - so the
 /// tenant work cannot have quietly cost the single-operator deployment anything.
 /// </summary>
-public sealed class SelfHostMachineControlTests : IDisposable
+public sealed class SelfHostMachineControlTests
 {
     private const string Machine = "PROBE-MACHINE";
-    private readonly string? _priorHosted;
 
-    public SelfHostMachineControlTests() =>
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-
-    public void Dispose() => Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
-
-    /// <summary>
-    /// Puts the process into a STATED non-hosted mode and proves the statement took, so no test below can
-    /// silently be running in the mode it thinks it is not in.
-    /// </summary>
-    private static void DeclareSelfHost(string? value)
+    [Fact]
+    public async Task Registration_listing_heartbeat_and_unregister_all_still_work_on_self_host()
     {
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", value);
-        Assert.False(GatewayHostedMode.IsHosted);
-    }
-
-    /// <summary>null = the variable is absent. "0" = present and explicitly not hosted. Both are real non-hosted deployments.</summary>
-    public static TheoryData<string?> NonHostedValues => new() { null, "0" };
-
-    [Theory]
-    [MemberData(nameof(NonHostedValues))]
-    public async Task Registration_listing_heartbeat_and_unregister_all_still_work_on_self_host(string? hostedValue)
-    {
-        DeclareSelfHost(hostedValue);
         await using var probe = await MachineGroupProbeHost.StartAsync();
 
         var register = await probe.Http.PostAsJsonAsync("/launchers/register", new LauncherRegistrationRequest
@@ -752,11 +722,9 @@ public sealed class SelfHostMachineControlTests : IDisposable
         Assert.Empty((await probe.Http.GetFromJsonAsync<List<LauncherDto>>("/launchers"))!);
     }
 
-    [Theory]
-    [MemberData(nameof(NonHostedValues))]
-    public async Task The_director_lifecycle_dispatch_still_reaches_the_launcher_on_self_host(string? hostedValue)
+    [Fact]
+    public async Task The_director_lifecycle_dispatch_still_reaches_the_launcher_on_self_host()
     {
-        DeclareSelfHost(hostedValue);
         await using var probe = await MachineGroupProbeHost.StartAsync(withStubLauncher: true);
         probe.SeedStubLauncher(Machine);
 
@@ -778,11 +746,9 @@ public sealed class SelfHostMachineControlTests : IDisposable
         Assert.Equal(new[] { "director/restart", "director/start", "director/stop" }, probe.StubLauncherHits);
     }
 
-    [Theory]
-    [MemberData(nameof(NonHostedValues))]
-    public async Task The_generic_launch_dispatch_still_reaches_the_launcher_on_self_host(string? hostedValue)
+    [Fact]
+    public async Task The_generic_launch_dispatch_still_reaches_the_launcher_on_self_host()
     {
-        DeclareSelfHost(hostedValue);
         await using var probe = await MachineGroupProbeHost.StartAsync(withStubLauncher: true);
         probe.SeedStubLauncher(Machine);
 
@@ -799,11 +765,9 @@ public sealed class SelfHostMachineControlTests : IDisposable
 
     /// <summary>Phase 6's refusal, proved at the route: a registered machine with NO stream is a loud 502
     /// that names the actual problem, and there is no address left for anything to dial instead.</summary>
-    [Theory]
-    [MemberData(nameof(NonHostedValues))]
-    public async Task A_registered_machine_with_no_stream_is_refused_loudly_on_self_host(string? hostedValue)
+    [Fact]
+    public async Task A_registered_machine_with_no_stream_is_refused_loudly_on_self_host()
     {
-        DeclareSelfHost(hostedValue);
         await using var probe = await MachineGroupProbeHost.StartAsync(withStubLauncher: false);
         probe.SeedStubLauncher(Machine);
 
@@ -813,11 +777,9 @@ public sealed class SelfHostMachineControlTests : IDisposable
         Assert.Contains("not connected", await resp.Content.ReadAsStringAsync(), StringComparison.Ordinal);
     }
 
-    [Theory]
-    [MemberData(nameof(NonHostedValues))]
-    public async Task Starting_a_session_on_another_machine_still_works_on_self_host(string? hostedValue)
+    [Fact]
+    public async Task Starting_a_session_on_another_machine_still_works_on_self_host()
     {
-        DeclareSelfHost(hostedValue);
         await using var probe = await MachineGroupProbeHost.StartAsync();
 
         var resp = await probe.Http.PostAsync($"/machines/{Machine}/sessions",

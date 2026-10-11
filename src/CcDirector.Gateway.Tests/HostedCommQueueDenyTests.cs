@@ -47,9 +47,8 @@ namespace CcDirector.Gateway.Tests;
 /// seeded draft) instead of the refusal - while <see cref="SelfHostCommQueueControlTests"/> stays
 /// green. Restore, rebuild, rerun: all green.
 ///
-/// Sets CC_DIRECTOR_ROOT (the storage root the handler resolves the SQLite path through) and
-/// CC_GATEWAY_HOSTED, so it joins the DirectorRoot collection to serialize with every other test
-/// that redirects the root.
+/// Sets CC_DIRECTOR_ROOT (the storage root the handler resolves the SQLite path through), so it joins the
+/// DirectorRoot collection to serialize with every other test that redirects the root.
 /// </summary>
 [Collection("DirectorRoot")]
 public sealed class HostedCommQueueDenyTests : IAsyncLifetime
@@ -64,7 +63,6 @@ public sealed class HostedCommQueueDenyTests : IAsyncLifetime
         Path.Combine(Path.GetTempPath(), "cc-hosted-commq-" + Guid.NewGuid().ToString("N"));
     private readonly string _root;
     private readonly string? _prevRoot;
-    private string? _priorHosted;
 
     public HostedCommQueueDenyTests()
     {
@@ -75,12 +73,6 @@ public sealed class HostedCommQueueDenyTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        // EXPLICIT, not ambient: this class asserts hosted behaviour, so it states hosted mode itself
-        // and proves the statement took, rather than inheriting whatever the runner left set.
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-        Assert.True(GatewayHostedMode.IsHosted);
-
         // The operator's queue holds a real pending draft, so a read that (wrongly) got through would
         // have something to hand back.
         await CommQueueTestSeed.SeedAsync(_root);
@@ -89,7 +81,8 @@ public sealed class HostedCommQueueDenyTests : IAsyncLifetime
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
 
@@ -102,7 +95,6 @@ public sealed class HostedCommQueueDenyTests : IAsyncLifetime
     {
         _http.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _prevRoot);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); } catch (Exception) { /* best effort */ }
         try { if (Directory.Exists(_root)) Directory.Delete(_root, true); } catch (Exception) { /* best effort */ }
@@ -200,7 +192,6 @@ public sealed class SelfHostCommQueueControlTests : IAsyncLifetime
         Path.Combine(Path.GetTempPath(), "cc-selfhost-commq-" + Guid.NewGuid().ToString("N"));
     private readonly string _root;
     private readonly string? _prevRoot;
-    private string? _priorHosted;
 
     public SelfHostCommQueueControlTests()
     {
@@ -211,17 +202,14 @@ public sealed class SelfHostCommQueueControlTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", null);
-        Assert.False(GatewayHostedMode.IsHosted);
-
         await CommQueueTestSeed.SeedAsync(_root);
 
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: Token, authEnabled: true,
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = false });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
     }
@@ -230,7 +218,6 @@ public sealed class SelfHostCommQueueControlTests : IAsyncLifetime
     {
         _http.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _prevRoot);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); } catch (Exception) { /* best effort */ }
         try { if (Directory.Exists(_root)) Directory.Delete(_root, true); } catch (Exception) { /* best effort */ }

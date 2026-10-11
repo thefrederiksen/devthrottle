@@ -74,14 +74,10 @@ public sealed class HostedSessionCommandRouteTenancyTests : IAsyncLifetime
 
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-cmd-" + Guid.NewGuid().ToString("N"));
-    private string? _priorHosted;
     private bool _cleanedUp;
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-
         try
         {
             await InitializeHostedAsync();
@@ -120,7 +116,8 @@ public sealed class HostedSessionCommandRouteTenancyTests : IAsyncLifetime
                 instancesDirectory: _instancesDir,
                 workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
                 snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-                streamMode: true);
+                streamMode: true,
+                options: new GatewayHostOptions { Hosted = true });
             try
             {
                 await _gateway.StartAsync();
@@ -173,7 +170,6 @@ public sealed class HostedSessionCommandRouteTenancyTests : IAsyncLifetime
         }
         finally
         {
-            Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
             try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
             catch { /* best-effort */ }
         }

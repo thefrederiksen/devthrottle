@@ -153,7 +153,7 @@ internal static class ContentFingerprint
 /// transcript is a FALSE statement about a box that is transcribing and capturing; a refusal is merely an
 /// absent one.
 ///
-/// THE GATE IS ON THE DEPLOYMENT SIGNAL. Every one reads <see cref="GatewayHostedMode.IsHosted"/> directly,
+/// THE GATE IS ON THE DEPLOYMENT SIGNAL. Every one reads the host's hosted value - a required argument -
 /// not an optional boundary or tenant argument. A security branch that depends on an optional argument
 /// fails OPEN the moment a caller omits it.
 ///
@@ -215,7 +215,6 @@ public sealed class HostedContentReadDenyTests : IAsyncLifetime
         Path.Combine(Path.GetTempPath(), "cc-hosted-content-" + Guid.NewGuid().ToString("N"));
     private readonly string _root;
     private readonly string? _prevRoot;
-    private string? _priorHosted;
 
     public HostedContentReadDenyTests()
     {
@@ -228,14 +227,12 @@ public sealed class HostedContentReadDenyTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: Token, authEnabled: true,
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
 
@@ -254,7 +251,6 @@ public sealed class HostedContentReadDenyTests : IAsyncLifetime
     {
         _http.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _prevRoot);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); } catch { /* best effort */ }
         try { if (Directory.Exists(_root)) Directory.Delete(_root, true); } catch { /* best effort */ }
@@ -308,7 +304,7 @@ public sealed class HostedContentReadDenyTests : IAsyncLifetime
     /// <summary>
     /// THE GATE MUST NOT DEPEND ON RESOLVING A TENANT, AND THIS IS THE CASE THAT PROVES IT.
     ///
-    /// The stated reason these denies read <see cref="GatewayHostedMode.IsHosted"/> directly, rather than
+    /// The stated reason these denies read the host's hosted value directly, rather than
     /// branching on a boundary or tenant argument, is that a security branch resting on an optional input
     /// FAILS OPEN the moment a caller does not supply it. Every other hosted test here drives a fully
     /// enrolled, tenant-BOUND device key - so all of them would still pass under a deny that quietly
@@ -460,7 +456,6 @@ public sealed class HostedContentReadSelfHostControlTests : IAsyncLifetime
         Path.Combine(Path.GetTempPath(), "cc-selfhost-content-" + Guid.NewGuid().ToString("N"));
     private readonly string _root;
     private readonly string? _prevRoot;
-    private string? _priorHosted;
 
     public HostedContentReadSelfHostControlTests()
     {
@@ -473,14 +468,13 @@ public sealed class HostedContentReadSelfHostControlTests : IAsyncLifetime
     {
         // Hosted mode explicitly OFF - the whole point of this class. Cleared rather than set to "0" so it
         // is the same absence a real self-host install has.
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", null);
 
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: Token, authEnabled: true,
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = false });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
         _key = _gateway.Devices.Register("dev-owner", "MA").DeviceKey;
@@ -515,7 +509,6 @@ public sealed class HostedContentReadSelfHostControlTests : IAsyncLifetime
     {
         _http.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _prevRoot);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); } catch { /* best effort */ }
         try { if (Directory.Exists(_root)) Directory.Delete(_root, true); } catch { /* best effort */ }

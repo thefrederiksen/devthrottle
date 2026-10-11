@@ -36,9 +36,6 @@ namespace CcDirector.Gateway.Tests;
 ///    (the owning tenant resolved BEFORE Observe and carried on the signal, MTR-10 Gap C) with the old
 ///    <c>TenantId.Local</c> and <see cref="Turn_end_voice_refresh_reaches_only_the_owning_tenants_director"/>
 ///    goes RED - IsVoiceSession is false in the Local partition, so no refresh is issued.
-///
-/// The assembly runs sequentially (TestParallelization), so toggling CC_GATEWAY_HOSTED here is safe; it is
-/// reset in DisposeAsync.
 /// </summary>
 public sealed class VoiceServingLoopIsolationTests : IAsyncLifetime
 {
@@ -59,18 +56,15 @@ public sealed class VoiceServingLoopIsolationTests : IAsyncLifetime
 
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-voice-loop-" + Guid.NewGuid().ToString("N"));
-    private string? _priorHosted;
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: Token, authEnabled: true,
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
 
         var deviceA = HostedTestEnrollment.Enroll(
@@ -114,7 +108,6 @@ public sealed class VoiceServingLoopIsolationTests : IAsyncLifetime
         await _dirA.DisposeAsync();
         await _dirB.DisposeAsync();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
         catch { /* best-effort */ }
     }

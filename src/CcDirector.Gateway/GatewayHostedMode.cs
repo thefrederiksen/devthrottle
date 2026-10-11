@@ -30,9 +30,16 @@ public static class GatewayHostedMode
     /// a slot swap or config restore can drop; the IMMUTABLE identity is <see cref="IsHostedImage"/>.</summary>
     public const string HostedEnvVar = "CC_GATEWAY_HOSTED";
 
-    /// <summary>True when <c>CC_GATEWAY_HOSTED=1</c> - this Gateway is a hosted/container deployment.</summary>
-    public static bool IsHosted =>
-        string.Equals(Environment.GetEnvironmentVariable(HostedEnvVar), "1", StringComparison.Ordinal);
+    /// <summary>True when <c>CC_GATEWAY_HOSTED=1</c> - this Gateway is a hosted/container deployment. Read in
+    /// exactly two places; see the type summary.</summary>
+    public static bool IsHosted => IsHostedValue(Environment.GetEnvironmentVariable(HostedEnvVar));
+
+    /// <summary>
+    /// The one reading of the variable's value: hosted when it is exactly <c>"1"</c>, and not hosted for every
+    /// other value - absent, empty, <c>"0"</c>, <c>"true"</c>, or <c>"1"</c> with whitespace around it. Pure, so
+    /// the forms are proved by a unit test that touches no environment (<c>GatewayHostedModeTests</c>).
+    /// </summary>
+    public static bool IsHostedValue(string? raw) => string.Equals(raw, "1", StringComparison.Ordinal);
 
     /// <summary>
     /// The file name of the IMAGE-WIDE hosted identity marker. The hosted host project

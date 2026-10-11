@@ -57,7 +57,6 @@ public sealed class HostedLauncherHubTenantTests : IAsyncLifetime
 
     private readonly string _root;
     private readonly string? _prevRoot;
-    private readonly string? _priorHosted;
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-launcher-hub-tenant-" + Guid.NewGuid().ToString("N"));
 
@@ -78,7 +77,6 @@ public sealed class HostedLauncherHubTenantTests : IAsyncLifetime
         _prevRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
         _root = Path.Combine(Path.GetTempPath(), "ccd-launcher-hub-tenant-" + Guid.NewGuid().ToString("N"));
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _root);
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
     }
 
     public Task InitializeAsync() => Task.CompletedTask;
@@ -87,7 +85,6 @@ public sealed class HostedLauncherHubTenantTests : IAsyncLifetime
     {
         _http?.Dispose();
         if (_gateway is not null) await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _prevRoot);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); } catch (Exception) { }
         try { if (Directory.Exists(_root)) Directory.Delete(_root, true); } catch (Exception) { }
@@ -95,13 +92,11 @@ public sealed class HostedLauncherHubTenantTests : IAsyncLifetime
 
     private async Task StartHostedGatewayAsync()
     {
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-        Assert.True(GatewayHostedMode.IsHosted);
-
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: Token, authEnabled: true,
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
 
@@ -307,13 +302,11 @@ public sealed class HostedLauncherHubTenantTests : IAsyncLifetime
     [Fact]
     public async Task The_hub_still_serves_on_self_host()
     {
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "0");
-        Assert.False(GatewayHostedMode.IsHosted);
-
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: Token, authEnabled: true,
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = false });
         await _gateway.StartAsync();
 
         await using var conn = await JoinAsLauncherAsync(Token);

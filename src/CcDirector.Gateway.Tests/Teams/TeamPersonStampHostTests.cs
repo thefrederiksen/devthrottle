@@ -17,7 +17,7 @@ namespace CcDirector.Gateway.Tests.Teams;
 /// lookup, which are exactly the objects the Director hub and <c>POST /prompts</c> are built with; this class sets up no
 /// team bill, and a team key reaches a route only when the team's bill can be read (devthrottle_internal#2311 step 2).
 /// </summary>
-[Collection("GatewayHostedMode")]
+[Collection("DirectorRoot")]
 public sealed class TeamPersonStampHostTests
 {
     private const string Owner = "sub-owner";
@@ -98,9 +98,8 @@ public sealed class TeamPersonStampHostTests
     {
         var root = Path.Combine(Path.GetTempPath(), "cc-person-stamp-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
-        var prior = new[] { "CC_GATEWAY_HOSTED", "CC_DIRECTOR_ROOT", "CC_GATEWAY_NO_TAILSCALE" };
+        var prior = new[] { "CC_DIRECTOR_ROOT", "CC_GATEWAY_NO_TAILSCALE" };
         var priorValues = Array.ConvertAll(prior, Environment.GetEnvironmentVariable);
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", root);
         Environment.SetEnvironmentVariable("CC_GATEWAY_NO_TAILSCALE", "1");
         GatewayHost? gateway = null;
@@ -110,7 +109,8 @@ public sealed class TeamPersonStampHostTests
                 instancesDirectory: root, keyVaultPath: Path.Combine(root, "test-vault.json"),
                 workListsPath: Path.Combine(root, "worklists", "worklists.json"),
                 snoozePath: Path.Combine(root, "snooze", "snooze.json"),
-                streamMode: true, teamsReleased: true);
+                streamMode: true, teamsReleased: true,
+                options: new GatewayHostOptions { Hosted = true });
             await gateway.StartAsync();
             act(gateway);
         }

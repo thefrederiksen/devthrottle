@@ -14,7 +14,6 @@ namespace CcDirector.Gateway.Tests;
 /// Gateway's finished connection verdict. The self-host control proves the collector and direct-versus-relay
 /// behavior remain wired on the same production route.
 /// </summary>
-[Collection("GatewayHostedMode")]
 public sealed class HostedNetworkDiagEndpointTests
 {
     [Fact]
@@ -126,8 +125,6 @@ public sealed class HostedNetworkDiagEndpointTests
         Func<TailscaleDiagnostics.NetworkDiag> collectNetworkDiagnostic,
         Func<HttpClient, Task> assertion)
     {
-        var priorHosted = Environment.GetEnvironmentVariable(GatewayHostedMode.HostedEnvVar);
-        Environment.SetEnvironmentVariable(GatewayHostedMode.HostedEnvVar, hosted ? "1" : null);
         var instancesDirectory = Path.Combine(Path.GetTempPath(), "cc-netstatus-" + Guid.NewGuid().ToString("N"));
         WebApplication? app = null;
         DirectorRegistry? registry = null;
@@ -176,7 +173,6 @@ public sealed class HostedNetworkDiagEndpointTests
                 await app.DisposeAsync();
             }
             registry?.Dispose();
-            Environment.SetEnvironmentVariable(GatewayHostedMode.HostedEnvVar, priorHosted);
         }
     }
 }

@@ -39,9 +39,6 @@ namespace CcDirector.Gateway.Tests;
 ///
 /// REVERT-PROOF (each stated at its test). Remove the hosted guard and the hosted refusal test reddens while
 /// its self-host control stays green.
-///
-/// The assembly runs sequentially (TestParallelization), so toggling CC_GATEWAY_HOSTED here is safe; it is
-/// reset in the finally of each probe.
 /// </summary>
 public sealed class HostedProcessControlDenyTests
 {
@@ -75,7 +72,7 @@ public sealed class HostedProcessControlDenyTests
     public async Task Selfhost_force_kill_still_reaches_the_process_by_pid()
     {
         // The control, and the self-host-untouched proof: identical arrangement, the ONLY difference being
-        // CC_GATEWAY_HOSTED. On self-host the Director really is a local process and the owner's force-kill must
+        // the hosted value. On self-host the Director really is a local process and the owner's force-kill must
         // still work, so the seam is reached with the director's own pid.
         const int SelfHostPid = 987654;
         var probe = await RunForceKillProbe(hosted: false, victimPid: SelfHostPid);
@@ -87,7 +84,7 @@ public sealed class HostedProcessControlDenyTests
         Assert.Equal(SelfHostPid, probe.KilledPid);
     }
 
-    // REVERT-PROOF for the force-kill: delete the `if (GatewayHostedMode.IsHosted) { ...refuse... }` block from
+    // REVERT-PROOF for the force-kill: delete the `if (hosted) { ...refuse... }` block from
     // the DELETE /directors/{id} force branch in GatewayEndpoints. Then
     // Hosted_force_kill_cannot_reach_the_process_by_client_supplied_pid goes RED - the seam IS reached
     // (KilledPid becomes the victim pid) and the status is 200, not the refusal - while
@@ -98,14 +95,13 @@ public sealed class HostedProcessControlDenyTests
 
     private static async Task<ForceKillProbeResult> RunForceKillProbe(bool hosted, int victimPid)
     {
-        var prior = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", hosted ? "1" : null);
         var instancesDir = Path.Combine(Path.GetTempPath(), "cc-procctl-b2-" + Guid.NewGuid().ToString("N"));
         var gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: Token, authEnabled: true,
             instancesDirectory: instancesDir,
             workListsPath: Path.Combine(instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(instancesDir, "snooze", "snooze.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = hosted });
         try
         {
             await gateway.StartAsync();
@@ -155,7 +151,6 @@ public sealed class HostedProcessControlDenyTests
         finally
         {
             await gateway.StopAsync();
-            Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", prior);
         }
     }
 
@@ -171,7 +166,7 @@ public sealed class HostedProcessControlDenyTests
         Assert.StartsWith("application/json", probe.ContentType);
     }
 
-    // REVERT-PROOF for the launch: delete the `if (GatewayHostedMode.IsHosted) { ...refuse... }` block at the
+    // REVERT-PROOF for the launch: delete the `if (hosted) { ...refuse... }` block at the
     // top of the POST /directors handler. Then Hosted_director_launch_is_refused goes RED - the handler runs
     // ResolveDirectorExe and returns a 500 (no cc-director.exe in the test) or a launch, never the 404 refusal.
     // There is no self-host control test that actually launches a process here (a unit test must not spawn a
@@ -207,14 +202,13 @@ public sealed class HostedProcessControlDenyTests
     private static async Task<LaunchProbeResult> RunSimpleProbe(
         bool hosted, bool useDeviceKey, HttpMethod method, string path, Func<HttpContent>? content)
     {
-        var prior = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", hosted ? "1" : null);
         var instancesDir = Path.Combine(Path.GetTempPath(), "cc-procctl-b2-" + Guid.NewGuid().ToString("N"));
         var gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: Token, authEnabled: true,
             instancesDirectory: instancesDir,
             workListsPath: Path.Combine(instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(instancesDir, "snooze", "snooze.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = hosted });
         try
         {
             await gateway.StartAsync();
@@ -242,7 +236,6 @@ public sealed class HostedProcessControlDenyTests
         finally
         {
             await gateway.StopAsync();
-            Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", prior);
         }
     }
 

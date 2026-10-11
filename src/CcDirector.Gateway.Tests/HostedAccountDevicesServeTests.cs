@@ -29,19 +29,18 @@ namespace CcDirector.Gateway.Tests;
 ///   3. FAIL CLOSED - an unbound device key is refused at the auth gate (401, MTR-14B), never served the
 ///      Local partition.
 ///
-/// Revert-prove: point the GET back at the self-host token path (drop the <c>GatewayHostedMode.IsHosted</c>
+/// Revert-prove: point the GET back at the self-host token path (drop the hosted
 /// branch) and <see cref="Account_devices_serves_the_callers_own_tenant"/> goes RED (signedIn=false), and
 /// <see cref="A_device_registered_by_one_tenant_is_invisible_to_another_on_hosted"/> can no longer even see a
 /// device to compare. Self-host is unchanged (it keeps the cloud-proxy path) and is not exercised here.
 /// </summary>
-[Collection("GatewayHostedMode")]
+[Collection("DirectorRoot")]
 public sealed class HostedAccountDevicesServeTests : IAsyncLifetime
 {
     private const string Token = "test-token-acct-devices-serve";
 
     private readonly string _root;
     private readonly string? _priorRoot;
-    private readonly string? _priorHosted;
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-acctdev-serve-" + Guid.NewGuid().ToString("N"));
 
@@ -57,9 +56,6 @@ public sealed class HostedAccountDevicesServeTests : IAsyncLifetime
         _root = Path.Combine(Path.GetTempPath(), "ccd-acctdev-serve-" + Guid.NewGuid().ToString("N"));
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _root);
 
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-        Assert.True(GatewayHostedMode.IsHosted);
     }
 
     public async Task InitializeAsync()
@@ -68,7 +64,8 @@ public sealed class HostedAccountDevicesServeTests : IAsyncLifetime
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
 
         _httpA = Enrolled("dev-a", "sub-alice", "alice@example.com", "MACHINE-A", out _tenantA);
@@ -102,7 +99,6 @@ public sealed class HostedAccountDevicesServeTests : IAsyncLifetime
         _httpB.Dispose();
         _httpUnbound.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); } catch { /* best effort */ }
         try { if (Directory.Exists(_root)) Directory.Delete(_root, true); } catch { /* best effort */ }

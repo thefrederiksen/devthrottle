@@ -487,20 +487,14 @@ public sealed class WingmanVoiceTenantPartitionTests : IDisposable
         var baseDir = NewBaseDir();
         SeedLegacyState(baseDir);
 
-        var prior = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-        try
-        {
-            var svc = ServiceAt(baseDir, hosted: true);
-            // The clip is GONE from disk - not merely unreachable, actually deleted.
-            Assert.False(File.Exists(Path.Combine(baseDir, "voice-sessions.json")));
-            Assert.False(Directory.Exists(Path.Combine(baseDir, "voice-audio")));
-            // And it was not quietly re-homed into some tenant on the way out.
-            Assert.False(svc.HasVoice(TenantId.Local, "s1"));
-            Assert.False(svc.IsVoiceSession(TenantId.Local, "s1"));
-            Assert.False(svc.HasVoice(TenantA, "s1"));
-        }
-        finally { Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", prior); }
+        var svc = ServiceAt(baseDir, hosted: true);
+        // The clip is GONE from disk - not merely unreachable, actually deleted.
+        Assert.False(File.Exists(Path.Combine(baseDir, "voice-sessions.json")));
+        Assert.False(Directory.Exists(Path.Combine(baseDir, "voice-audio")));
+        // And it was not quietly re-homed into some tenant on the way out.
+        Assert.False(svc.HasVoice(TenantId.Local, "s1"));
+        Assert.False(svc.IsVoiceSession(TenantId.Local, "s1"));
+        Assert.False(svc.HasVoice(TenantA, "s1"));
     }
 
     [Fact]
@@ -509,29 +503,23 @@ public sealed class WingmanVoiceTenantPartitionTests : IDisposable
         var baseDir = NewBaseDir();
         SeedLegacyState(baseDir);
 
-        var prior = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", null);
-        try
-        {
-            var svc = ServiceAt(baseDir, hosted: false);
-            // ARRIVED is asserted FIRST, deliberately, and this ordering is load-bearing. Its twin above
-            // asserts the opposite outcome (the clip is GONE). If both tests led with "gone from the old
-            // location", then deleting the whole migration would fail BOTH on the same assertion for the
-            // same reason, and a revert run could no longer tell the two directions apart - it would prove
-            // only "something broke". Leading with the direction-specific claim keeps the pair honest:
-            // with no migration at all, the hosted twin fails on "still there" and this one fails on
-            // "never arrived", which are different assertions about different files.
-            Assert.True(File.Exists(Path.Combine(baseDir, "tenants", "local", "voice-audio", "s1.mp3")));
-            Assert.True(svc.IsVoiceSession(TenantId.Local, "s1"));
-            Assert.True(svc.HasVoice(TenantId.Local, "s1"));
-            Assert.Equal(Mp3("legacy"), svc.GetAudio(TenantId.Local, "s1"));
-            // ...and only then that it was MOVED rather than copied.
-            Assert.False(File.Exists(Path.Combine(baseDir, "voice-sessions.json")));
-            Assert.False(Directory.Exists(Path.Combine(baseDir, "voice-audio")));
-            // It landed in LOCAL only - it was not fanned out to an account tenant.
-            Assert.False(svc.HasVoice(TenantA, "s1"));
-        }
-        finally { Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", prior); }
+        var svc = ServiceAt(baseDir, hosted: false);
+        // ARRIVED is asserted FIRST, deliberately, and this ordering is load-bearing. Its twin above
+        // asserts the opposite outcome (the clip is GONE). If both tests led with "gone from the old
+        // location", then deleting the whole migration would fail BOTH on the same assertion for the
+        // same reason, and a revert run could no longer tell the two directions apart - it would prove
+        // only "something broke". Leading with the direction-specific claim keeps the pair honest:
+        // with no migration at all, the hosted twin fails on "still there" and this one fails on
+        // "never arrived", which are different assertions about different files.
+        Assert.True(File.Exists(Path.Combine(baseDir, "tenants", "local", "voice-audio", "s1.mp3")));
+        Assert.True(svc.IsVoiceSession(TenantId.Local, "s1"));
+        Assert.True(svc.HasVoice(TenantId.Local, "s1"));
+        Assert.Equal(Mp3("legacy"), svc.GetAudio(TenantId.Local, "s1"));
+        // ...and only then that it was MOVED rather than copied.
+        Assert.False(File.Exists(Path.Combine(baseDir, "voice-sessions.json")));
+        Assert.False(Directory.Exists(Path.Combine(baseDir, "voice-audio")));
+        // It landed in LOCAL only - it was not fanned out to an account tenant.
+        Assert.False(svc.HasVoice(TenantA, "s1"));
     }
 
     // ===== the voice-turn stores in the same state layer ====================================
@@ -603,14 +591,8 @@ public sealed class WingmanVoiceTenantPartitionTests : IDisposable
         Directory.CreateDirectory(legacyTurn);
         File.WriteAllText(Path.Combine(legacyTurn, "meta.json"), "{}");
 
-        var prior = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-        try
-        {
-            _ = new VoiceTurnArchive(true, root);
-            Assert.False(Directory.Exists(legacyTurn));
-        }
-        finally { Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", prior); }
+        _ = new VoiceTurnArchive(true, root);
+        Assert.False(Directory.Exists(legacyTurn));
     }
 
     [Fact]
@@ -623,21 +605,15 @@ public sealed class WingmanVoiceTenantPartitionTests : IDisposable
         File.WriteAllText(Path.Combine(legacyTurn, "meta.json"),
             "{\"TurnId\":\"" + turnId + "\",\"SessionId\":\"s1\",\"UploadId\":\"u1\",\"Summary\":\"legacy summary\"}");
 
-        var prior = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", null);
-        try
-        {
-            var archive = new VoiceTurnArchive(false, root);
-            // ARRIVED first, for the same reason as the voice-state twin above: leading with the
-            // direction-specific claim keeps this test distinguishable from its hosted opposite when the
-            // whole migration is deleted in a revert run.
-            var moved = archive.Get(TenantId.Local, turnId.ToString());
-            Assert.NotNull(moved);
-            Assert.Equal("legacy summary", moved!.Summary);
-            Assert.False(Directory.Exists(legacyTurn));
-            Assert.Null(archive.Get(TenantA, turnId.ToString()));
-        }
-        finally { Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", prior); }
+        var archive = new VoiceTurnArchive(false, root);
+        // ARRIVED first, for the same reason as the voice-state twin above: leading with the
+        // direction-specific claim keeps this test distinguishable from its hosted opposite when the
+        // whole migration is deleted in a revert run.
+        var moved = archive.Get(TenantId.Local, turnId.ToString());
+        Assert.NotNull(moved);
+        Assert.Equal("legacy summary", moved!.Summary);
+        Assert.False(Directory.Exists(legacyTurn));
+        Assert.Null(archive.Get(TenantA, turnId.ToString()));
     }
 
     /// <summary>

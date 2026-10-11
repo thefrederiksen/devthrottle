@@ -33,8 +33,7 @@ namespace CcDirector.Gateway.Tests;
 ///
 /// This drives the REAL mapped endpoints through the REAL auth middleware (which stashes the authenticated
 /// device key) and the REAL tunnel Hello (which binds each Director's tenant) - it is the wired read path the
-/// unit-level boundary tests (HostedTenancyActivationTests) do not exercise. The assembly runs sequentially
-/// (TestParallelization), so toggling CC_GATEWAY_HOSTED here is safe; it is reset in DisposeAsync.
+/// unit-level boundary tests (HostedTenancyActivationTests) do not exercise.
 /// </summary>
 public sealed class SessionServingReadIsolationTests : IAsyncLifetime
 {
@@ -54,14 +53,10 @@ public sealed class SessionServingReadIsolationTests : IAsyncLifetime
 
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-ss-" + Guid.NewGuid().ToString("N"));
-    private string? _priorHosted;
     private bool _cleanedUp;
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-
         try
         {
             await InitializeHostedAsync();
@@ -75,12 +70,12 @@ public sealed class SessionServingReadIsolationTests : IAsyncLifetime
 
     private async Task InitializeHostedAsync()
     {
-
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: Token, authEnabled: true,
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
 
@@ -124,7 +119,6 @@ public sealed class SessionServingReadIsolationTests : IAsyncLifetime
         }
         finally
         {
-            Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
             try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
             catch { /* best-effort */ }
         }

@@ -48,19 +48,16 @@ public sealed class SessionKeysAreNeverHeldTests : IAsyncLifetime
     private readonly string _runId = Guid.NewGuid().ToString("N")[..12];
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-session-keys-never-held-" + Guid.NewGuid().ToString("N"));
-    private string? _priorHosted;
 
     public SessionKeysAreNeverHeldTests(ITestOutputHelper output) => _out = output;
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: SharedToken, authEnabled: true,
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = true });
         // Only a test's own wake-ups drive anything, so a hold the test makes by hand is never raced by the tick.
         _gateway.HeldDeliveryTickInterval = TimeSpan.FromHours(1);
         await _gateway.StartAsync();
@@ -128,7 +125,6 @@ public sealed class SessionKeysAreNeverHeldTests : IAsyncLifetime
         _parent.Dispose();
         _raised.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); } catch { /* best effort */ }
     }
 

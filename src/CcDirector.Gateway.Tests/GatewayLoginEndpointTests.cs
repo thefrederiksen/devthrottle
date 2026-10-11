@@ -24,25 +24,10 @@ namespace CcDirector.Gateway.Tests;
 ///   AND writes the cookie THROUGH the single GatewayTokenCookie helper (HttpOnly + SameSite=Lax, and - being
 ///   plain-HTTP loopback - not Secure so it survives), and a wrong token is 401 with no cookie.</item>
 /// </list>
-/// The assembly runs sequentially (parallelization disabled), so toggling CC_GATEWAY_HOSTED here is safe;
-/// each test restores the prior value.
 /// </summary>
 public sealed class GatewayLoginEndpointTests
 {
     private const string SharedToken = "shared-machine-token-mh2";
-
-    private sealed class EnvScope : IDisposable
-    {
-        private readonly string _name;
-        private readonly string? _prior;
-        public EnvScope(string name, string? value)
-        {
-            _name = name;
-            _prior = Environment.GetEnvironmentVariable(name);
-            Environment.SetEnvironmentVariable(name, value);
-        }
-        public void Dispose() => Environment.SetEnvironmentVariable(_name, _prior);
-    }
 
     private static async Task<(WebApplication app, HttpClient http)> StartAsync(bool hosted)
     {
@@ -74,7 +59,6 @@ public sealed class GatewayLoginEndpointTests
     [Fact]
     public async Task Hosted_GET_login_is_404()
     {
-        using var _ = new EnvScope(GatewayHostedMode.HostedEnvVar, "1");
         var (app, http) = await StartAsync(hosted: true);
         try
         {
@@ -87,7 +71,6 @@ public sealed class GatewayLoginEndpointTests
     [Fact]
     public async Task Hosted_POST_login_with_the_correct_token_is_404_and_writes_no_cookie()
     {
-        using var _ = new EnvScope(GatewayHostedMode.HostedEnvVar, "1");
         var (app, http) = await StartAsync(hosted: true);
         try
         {
@@ -106,7 +89,6 @@ public sealed class GatewayLoginEndpointTests
     [Fact]
     public async Task SelfHost_GET_login_serves_the_form()
     {
-        using var _ = new EnvScope(GatewayHostedMode.HostedEnvVar, null);
         var (app, http) = await StartAsync(hosted: false);
         try
         {
@@ -119,7 +101,6 @@ public sealed class GatewayLoginEndpointTests
     [Fact]
     public async Task SelfHost_POST_login_with_the_correct_token_redirects_and_writes_the_cookie_through_the_helper()
     {
-        using var _ = new EnvScope(GatewayHostedMode.HostedEnvVar, null);
         var (app, http) = await StartAsync(hosted: false);
         try
         {
@@ -147,7 +128,6 @@ public sealed class GatewayLoginEndpointTests
     [Fact]
     public async Task SelfHost_POST_login_with_a_wrong_token_is_401_and_writes_no_cookie()
     {
-        using var _ = new EnvScope(GatewayHostedMode.HostedEnvVar, null);
         var (app, http) = await StartAsync(hosted: false);
         try
         {
@@ -160,12 +140,11 @@ public sealed class GatewayLoginEndpointTests
         finally { await app.StopAsync(); }
     }
 
-    // ===== /logout clears the cookie THROUGH the single helper, so the expiring header carries Secure=IsHosted =====
+    // ===== /logout clears the cookie THROUGH the single helper, so the expiring header carries Secure=hosted =====
 
     [Fact]
     public async Task Hosted_GET_logout_clears_the_cookie_with_a_Secure_header()
     {
-        using var _ = new EnvScope(GatewayHostedMode.HostedEnvVar, "1");
         var (app, http) = await StartAsync(hosted: true);
         try
         {
@@ -188,7 +167,6 @@ public sealed class GatewayLoginEndpointTests
     [Fact]
     public async Task SelfHost_GET_logout_clears_the_cookie_with_an_HTTP_usable_header()
     {
-        using var _ = new EnvScope(GatewayHostedMode.HostedEnvVar, null);
         var (app, http) = await StartAsync(hosted: false);
         try
         {

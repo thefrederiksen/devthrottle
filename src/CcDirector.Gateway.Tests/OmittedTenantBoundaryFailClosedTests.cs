@@ -69,13 +69,13 @@ namespace CcDirector.Gateway.Tests;
 ///  13. <c>LauncherHub</c> - same shape for the launcher machine-control plane.
 ///
 /// Each resolver used to answer <see cref="TenantId.Local"/> whenever its boundary argument was absent,
-/// WITHOUT asking <see cref="GatewayHostedMode.IsHosted"/> - so one forgotten optional argument silently
+/// WITHOUT asking the hosted mode - so one forgotten optional argument silently
 /// collapsed every hosted tenant into the shared Local partition, and nothing failed loud to say so. TWO
 /// DEFENCES ship together, exactly as on the dictation endpoint. The compile-time one: the boundary
 /// parameter is REQUIRED at every Map signature, so the tests below force the miswire with <c>null!</c> -
-/// the accidental version no longer builds. The runtime one, proved here: the resolvers gate on
-/// <see cref="GatewayHostedMode.IsHosted"/> itself and answer null (a REFUSAL) for a missing or
-/// non-hosted-wired boundary on a hosted process.
+/// the accidental version no longer builds. The runtime one, proved here: the resolvers answer null (a
+/// REFUSAL) for a missing boundary in EVERY mode, and a present boundary decides by the tenant context it
+/// was built over - its constructor refuses a hosted boundary over anything but the ambient context.
 ///
 /// THE MECHANICS, taken from the dictation class:
 ///  - Every request is replayed against an IDENTICAL harness differing ONLY in the boundary argument. The
@@ -94,8 +94,8 @@ namespace CcDirector.Gateway.Tests;
 /// goes RED - the unwired host answers 200 and (where seeded) hands back the Local partition's data. Restore
 /// the <see cref="HostedTenantBoundary"/> guards to silent-Local and both boundary tests go red.
 ///
-/// The assembly runs sequentially (TestParallelization), so toggling CC_GATEWAY_HOSTED and CC_DIRECTOR_ROOT
-/// here is safe; both are restored in DisposeAsync.
+/// The assembly runs sequentially (TestParallelization), so toggling CC_DIRECTOR_ROOT here is safe; it is
+/// restored in DisposeAsync.
 /// </summary>
 public sealed class OmittedTenantBoundaryFailClosedTests : IAsyncLifetime
 {
@@ -109,15 +109,12 @@ public sealed class OmittedTenantBoundaryFailClosedTests : IAsyncLifetime
     private readonly string _storageRoot =
         Path.Combine(Path.GetTempPath(), "cc-omitted-boundary-" + Guid.NewGuid().ToString("N"));
 
-    private string? _priorHosted;
     private string? _priorRoot;
     private TenantId _tenant;
 
     public Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
         _priorRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _storageRoot);
         Directory.CreateDirectory(_storageRoot);
 
@@ -129,7 +126,6 @@ public sealed class OmittedTenantBoundaryFailClosedTests : IAsyncLifetime
 
     public Task DisposeAsync()
     {
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
         try { if (Directory.Exists(_storageRoot)) Directory.Delete(_storageRoot, true); } catch { /* cleanup */ }
         return Task.CompletedTask;

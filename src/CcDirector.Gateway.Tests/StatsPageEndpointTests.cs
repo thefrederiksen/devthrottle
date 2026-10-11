@@ -31,23 +31,15 @@ public sealed class StatsPageEndpointTests : IDisposable
     private const string GatewayToken = "test-gateway-token-for-stats";
     private readonly string _dir;
     private readonly GatewayDbTestHarness _harness = new();
-    private readonly string? _priorHosted;
 
     public StatsPageEndpointTests()
     {
         _dir = Path.Combine(Path.GetTempPath(), "cc-stats-ep-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_dir);
-        // Declared, not assumed: this class is the self-host contract, so the process must actually be in
-        // self-host mode while it runs - a leaked hosted toggle from another fixture would turn these into
-        // tests of something else.
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", null);
-        Assert.False(GatewayHostedMode.IsHosted);
     }
 
     public void Dispose()
     {
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         _harness.Dispose();
         try { Directory.Delete(_dir, recursive: true); } catch (Exception) { /* best effort */ }
     }

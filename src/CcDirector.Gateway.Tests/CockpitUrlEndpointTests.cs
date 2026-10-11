@@ -188,9 +188,7 @@ public sealed class CockpitUrlEndpointTests
     private static async Task WithHostedGateway(
         string? configuredBase, Func<HttpClient, GatewayHost, Task> body)
     {
-        var priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
         var priorUrl = Environment.GetEnvironmentVariable(GatewayPublicUrl.PublicBaseUrlEnvVar);
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
         Environment.SetEnvironmentVariable(GatewayPublicUrl.PublicBaseUrlEnvVar, configuredBase);
 
         var instancesDir = Path.Combine(Path.GetTempPath(), "cc-cockpiturl-" + Guid.NewGuid().ToString("N"));
@@ -198,7 +196,8 @@ public sealed class CockpitUrlEndpointTests
             instancesDirectory: instancesDir,
             workListsPath: Path.Combine(instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(instancesDir, "snooze", "snooze.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = true });
         try
         {
             await gateway.StartAsync();
@@ -208,7 +207,6 @@ public sealed class CockpitUrlEndpointTests
         finally
         {
             await gateway.StopAsync();
-            Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", priorHosted);
             Environment.SetEnvironmentVariable(GatewayPublicUrl.PublicBaseUrlEnvVar, priorUrl);
             // Deliberately NOT deleting instancesDir - see the note in HealthzTenantLeakTests: deleting it
             // can raise a FileSystemWatcher event on a pool thread after teardown and abort the whole run.

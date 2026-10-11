@@ -35,7 +35,7 @@ namespace CcDirector.Gateway.Tests.Account;
 /// Revert-prove, two of them, each reddening a DIFFERENT thing:
 ///  - Delete the hosted early return in <c>AccountStatusEndpoint.Map</c> so hosted falls through to the
 ///    Gateway-credential path, and both signed-in tests go RED with <c>signedIn:false</c> - the reported bug.
-///  - Change the selector from <c>GatewayHostedMode.IsHosted</c> back to <c>tenantBoundary is { IsHosted: true }</c>
+///  - Change the selector from the host's hosted value back to <c>tenantBoundary is { IsHosted: true }</c>
 ///    and ONLY <see cref="A_hosted_gateway_with_no_tenant_boundary_refuses_rather_than_reporting_signed_out"/>
 ///    goes RED, with 200 in place of 503 - the fail-open under miswiring.
 /// Both were run and watched; a revert that reddens is not the same as a revert that reddens the assertion
@@ -44,8 +44,7 @@ namespace CcDirector.Gateway.Tests.Account;
 /// This drives a REAL GatewayHost through REAL HTTP and the REAL auth middleware, with the REAL tenant
 /// registry, so the binding under test is the one enrollment actually creates. Self-host behaviour is
 /// unchanged and is covered by <see cref="AccountStatusEndpointTests"/>, which maps the endpoint with no
-/// boundary at all - those are the control for this change. The assembly runs sequentially, so toggling
-/// CC_GATEWAY_HOSTED here is safe; it is restored in DisposeAsync.
+/// boundary at all - those are the control for this change.
 /// </summary>
 public sealed class HostedAccountStatusTests : IAsyncLifetime
 {
@@ -78,14 +77,10 @@ public sealed class HostedAccountStatusTests : IAsyncLifetime
 
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-has-" + Guid.NewGuid().ToString("N"));
-    private string? _priorHosted;
     private string? _priorRoot;
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-
         // ISOLATE THE STORAGE ROOT. Without this the tenant registry mints into the RUNNING USER'S REAL
         // storage root, which is shared with every other test class in the assembly - so a subject minted
         // here with no email and the SAME subject minted elsewhere WITH one become one row, and whichever
@@ -99,7 +94,8 @@ public sealed class HostedAccountStatusTests : IAsyncLifetime
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
 
@@ -119,7 +115,6 @@ public sealed class HostedAccountStatusTests : IAsyncLifetime
     {
         _http.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
         catch { /* best-effort */ }

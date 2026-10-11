@@ -17,7 +17,7 @@ namespace CcDirector.Gateway.Tests;
 /// /gateway/ai-provider snapshot, and the list route reports "not signed in" (503) with no key - never a
 /// crash or a silent empty list.
 /// </summary>
-[Collection("GatewayHostedMode")]
+[Collection("DirectorRoot")]
 public sealed class AiModelsEndpointTests : IAsyncLifetime
 {
     private readonly string _root;

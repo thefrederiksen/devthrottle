@@ -223,13 +223,12 @@ public sealed class ContextLessRouteCensusTests
     /// </summary>
     private static async Task<string[]> ContextLessRoutes(bool hosted)
     {
-        var prior = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", hosted ? "1" : null);
         var dir = Path.Combine(Path.GetTempPath(), "cc-census-routes-" + Guid.NewGuid().ToString("N"));
         var gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: "census-token",
             authEnabled: true,
             instancesDirectory: dir,
-            workListsPath: Path.Combine(dir, "worklists", "worklists.json"));
+            workListsPath: Path.Combine(dir, "worklists", "worklists.json"),
+            options: new GatewayHostOptions { Hosted = hosted });
         try
         {
             await gateway.StartAsync();
@@ -253,7 +252,6 @@ public sealed class ContextLessRouteCensusTests
         finally
         {
             await gateway.StopAsync();
-            Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", prior);
             try { if (Directory.Exists(dir)) Directory.Delete(dir, true); } catch { /* best-effort */ }
         }
     }

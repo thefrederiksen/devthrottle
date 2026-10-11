@@ -484,14 +484,11 @@ public sealed class NetDiagEndpointTenantIsolationTests : IAsyncLifetime
     private string _keyNoTenant = "";
 
     private readonly string _root = Path.Combine(Path.GetTempPath(), "cc-netdiag-ep-" + Guid.NewGuid().ToString("N"));
-    private string? _priorHosted;
     private string? _priorRoot;
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
         _priorRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
 
         // The diagnostic stores resolve their file from CcStorage.Root(), so the test gets its OWN root -
         // otherwise this test would read and WRITE the developer's real diagnostics files, and a stale one
@@ -504,7 +501,8 @@ public sealed class NetDiagEndpointTenantIsolationTests : IAsyncLifetime
             instancesDirectory: Path.Combine(_root, "instances"),
             workListsPath: Path.Combine(_root, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_root, "snooze", "snooze.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
 
@@ -525,7 +523,6 @@ public sealed class NetDiagEndpointTenantIsolationTests : IAsyncLifetime
     {
         _http.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
         try { if (Directory.Exists(_root)) Directory.Delete(_root, true); }
         catch { /* best-effort */ }
@@ -687,10 +684,9 @@ public sealed class NetDiagEndpointTenantIsolationTests : IAsyncLifetime
 }
 
 /// <summary>
-/// SELF-HOST IS PROVED, NOT INHERITED. With <c>CC_GATEWAY_HOSTED</c> explicitly CLEARED there is one tenant -
+/// SELF-HOST IS STATED, NOT INHERITED. With the Gateway built on <c>Hosted = false</c> there is one tenant -
 /// Local - and all three diagnostic routes must behave exactly as they always did. Leaning on the older
-/// endpoint tests would prove nothing here, because those rest on the test runner's ambient default: if that
-/// default ever flips they keep passing while self-host is broken.
+/// endpoint tests would prove nothing here, because those never say which mode they run in.
 ///
 /// This is a CONTROL for the mutation register in <see cref="NetDiagResultStoreTenantPartitionTests"/>: it
 /// must stay GREEN under every one of M1 through M4, because on self-host the resolved tenant IS Local and
@@ -706,14 +702,11 @@ public sealed class NetDiagSelfHostControlTests : IAsyncLifetime
     private string _key = "";
 
     private readonly string _root = Path.Combine(Path.GetTempPath(), "cc-netdiag-self-" + Guid.NewGuid().ToString("N"));
-    private string? _priorHosted;
     private string? _priorRoot;
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
         _priorRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", null);
 
         Directory.CreateDirectory(_root);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _root);
@@ -722,7 +715,8 @@ public sealed class NetDiagSelfHostControlTests : IAsyncLifetime
             instancesDirectory: Path.Combine(_root, "instances"),
             workListsPath: Path.Combine(_root, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_root, "snooze", "snooze.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = false });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
 
@@ -735,7 +729,6 @@ public sealed class NetDiagSelfHostControlTests : IAsyncLifetime
     {
         _http.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
         try { if (Directory.Exists(_root)) Directory.Delete(_root, true); }
         catch { /* best-effort */ }

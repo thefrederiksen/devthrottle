@@ -20,7 +20,7 @@ namespace CcDirector.Gateway.Tests;
 /// HOW IT FAILS ON PURPOSE: move the Run call back into the constructor and the second host's construction
 /// throws; delete it from EnsureStoresReady and the key stays revoked.
 /// </summary>
-[Collection("GatewayHostedMode")]
+[Collection("DirectorRoot")]
 public sealed class PreFreeTierKeyReinstatementHostStartupTests : IDisposable
 {
     private static readonly DateTime OldRuleRevocation = new(2026, 9, 2, 0, 0, 15, DateTimeKind.Utc);
@@ -28,18 +28,15 @@ public sealed class PreFreeTierKeyReinstatementHostStartupTests : IDisposable
     private readonly string _root = Path.Combine(Path.GetTempPath(), "cc-reinstate-root-" + Guid.NewGuid().ToString("N"));
     private readonly string _instances = Path.Combine(Path.GetTempPath(), "cc-reinstate-inst-" + Guid.NewGuid().ToString("N"));
     private readonly string? _priorRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
-    private readonly string? _priorHosted = Environment.GetEnvironmentVariable(GatewayHostedMode.HostedEnvVar);
 
     public PreFreeTierKeyReinstatementHostStartupTests()
     {
         Directory.CreateDirectory(_root);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _root);
-        Environment.SetEnvironmentVariable(GatewayHostedMode.HostedEnvVar, "1");
     }
 
     public void Dispose()
     {
-        Environment.SetEnvironmentVariable(GatewayHostedMode.HostedEnvVar, _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
         try { if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true); } catch { /* best effort */ }
         try { if (Directory.Exists(_instances)) Directory.Delete(_instances, recursive: true); } catch { /* best effort */ }
@@ -50,7 +47,8 @@ public sealed class PreFreeTierKeyReinstatementHostStartupTests : IDisposable
         token: "reinstate-startup-token",
         authEnabled: true,
         instancesDirectory: _instances,
-        workListsPath: Path.Combine(_root, "worklists.json"));
+        workListsPath: Path.Combine(_root, "worklists.json"),
+        options: new GatewayHostOptions { Hosted = true });
 
     [Fact]
     public async Task HostedStartup_ConstructsWithoutTheDatabase_AndGivesBackAKeyTheOldRuleCancelled()

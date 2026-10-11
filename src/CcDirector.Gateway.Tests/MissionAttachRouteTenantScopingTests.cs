@@ -46,9 +46,6 @@ namespace CcDirector.Gateway.Tests;
 /// Revert-prove: drop the <c>ResolveReadTenant</c> gate (or resolve the mission with <c>TenantId.Local</c>)
 /// in the route and <see cref="Another_tenants_mission_cannot_be_attached_to_your_own_session"/> goes RED -
 /// A's attach to B's mission stops being a 400 and reaches A's Director carrying B's mission name.
-///
-/// The assembly disables test parallelization, so toggling CC_GATEWAY_HOSTED here is safe; it is reset in
-/// DisposeAsync.
 /// </summary>
 public sealed class MissionAttachRouteTenantScopingTests : IAsyncLifetime
 {
@@ -76,19 +73,16 @@ public sealed class MissionAttachRouteTenantScopingTests : IAsyncLifetime
 
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-2387-" + Guid.NewGuid().ToString("N"));
-    private string? _priorHosted;
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: Token, authEnabled: true,
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
             missionsPath: Path.Combine(_instancesDir, "missions.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
 
@@ -115,7 +109,6 @@ public sealed class MissionAttachRouteTenantScopingTests : IAsyncLifetime
         await _dirA.DisposeAsync();
         await _dirB.DisposeAsync();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
         catch { /* best-effort */ }
     }
@@ -351,22 +344,20 @@ public sealed class MissionAttachSeatMoveTests : IAsyncLifetime
 
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-2387-seat-" + Guid.NewGuid().ToString("N"));
-    private string? _priorHosted;
 
     public async Task InitializeAsync()
     {
         // Self-host shape (one owner). The tenant partition of this route is proven next door in
         // MissionAttachRouteTenantScopingTests; what is under test here is the seat, and a single owner is
         // the cleanest place to see it.
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", null);
 
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: Token, authEnabled: true,
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
             missionsPath: Path.Combine(_instancesDir, "missions.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = false });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token);
@@ -393,7 +384,6 @@ public sealed class MissionAttachSeatMoveTests : IAsyncLifetime
         _http.Dispose();
         await _dir.DisposeAsync();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
         catch { /* best-effort */ }
     }

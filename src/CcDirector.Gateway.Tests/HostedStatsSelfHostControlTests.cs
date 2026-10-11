@@ -66,49 +66,34 @@ internal static class StatsGroupProbeHost
 /// <summary>
 /// THE SELF-HOST CONTROL, STATED EXPLICITLY.
 ///
-/// Self-host is the control for this entire hosted-tenancy mission, so it has to be PROVEN rather than
-/// INHERITED. <see cref="StatsPageEndpointTests"/> does not prove it: those tests never mention
-/// <c>CC_GATEWAY_HOSTED</c> and pass only because the runner happens to leave it unset. If that ambient
-/// default ever flipped - one leaked environment variable, one continuous-integration image change, one test
-/// that forgot to restore it - they would keep passing while self-host was broken, because they assert
-/// nothing about which mode they are in.
+/// Self-host is the control for this whole mission, so it is STATED rather than INHERITED: the probe host
+/// here is built with <c>hosted: false</c>, a required argument, so no test below can be running in the mode
+/// it thinks it is not in. (The mode used to be a process-wide environment variable with two non-hosted
+/// forms, absent and present-but-not-"1", and this class set both; the mode is now a value handed to the
+/// host, and the forms are proved once, in <c>GatewayHostedModeTests</c>.)
 ///
-/// So this class sets the variable itself, to BOTH non-hosted values that occur in practice: absent, and
-/// present-but-not-"1". It then asserts the routes serve their REAL PAYLOADS - the seeded counts, the ranked
+/// It asserts the routes serve their REAL PAYLOADS - the seeded counts, the ranked
 /// repository, the honesty caveats, the dashboard markup - and not merely that a refusal string is absent.
 /// On self-host the data route resolves to the single Local tenant, so it serves exactly as it always has.
 /// </summary>
 public sealed class HostedStatsSelfHostControlTests : IDisposable
 {
     private readonly string _dir;
-    private readonly string? _priorHosted;
     private readonly GatewayDbTestHarness _harness = new();
 
     public HostedStatsSelfHostControlTests()
     {
         _dir = Path.Combine(Path.GetTempPath(), "cc-stats-selfhost-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_dir);
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
     }
 
     public void Dispose()
     {
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         _harness.Dispose();
         try { Directory.Delete(_dir, recursive: true); } catch (Exception) { /* best effort */ }
     }
 
     private ThrottleLedgerReader Reader() => new(_harness.Open());
-
-    /// <summary>
-    /// Puts the process into a stated non-hosted mode and proves it took, so no test below can silently be
-    /// running in the mode it thinks it is not in.
-    /// </summary>
-    private static void DeclareSelfHost(string? value)
-    {
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", value);
-        Assert.False(GatewayHostedMode.IsHosted);
-    }
 
     private GatewayInputStatsAggregator SeededAggregator()
     {
@@ -125,20 +110,11 @@ public sealed class HostedStatsSelfHostControlTests : IDisposable
         return agg;
     }
 
-    /// <summary>
-    /// null = the variable is absent. "0" = the variable is present and explicitly not hosted. Both are real
-    /// non-hosted deployments and both must serve.
-    /// </summary>
-    public static TheoryData<string?> NonHostedValues => new() { null, "0" };
-
     /// <summary>The standalone dashboard page is retired (issue #587): on self-host too, /stats answers a
     /// redirect to the Cockpit /your-throttle route rather than serving embedded HTML.</summary>
-    [Theory]
-    [MemberData(nameof(NonHostedValues))]
-    public async Task The_stats_page_redirects_to_your_throttle_on_self_host(string? hostedValue)
+    [Fact]
+    public async Task The_stats_page_redirects_to_your_throttle_on_self_host()
     {
-        DeclareSelfHost(hostedValue);
-
         var (app, http) = await StatsGroupProbeHost.StartAsync(SeededAggregator(), Reader());
         try
         {
@@ -158,12 +134,9 @@ public sealed class HostedStatsSelfHostControlTests : IDisposable
     /// a fault in the request; and the aggregator that was seeded with real numbers is never consulted, so
     /// those numbers do not leak into the answer.
     /// </summary>
-    [Theory]
-    [MemberData(nameof(NonHostedValues))]
-    public async Task The_stats_feed_on_self_host_answers_the_one_sentence_and_no_figure(string? hostedValue)
+    [Fact]
+    public async Task The_stats_feed_on_self_host_answers_the_one_sentence_and_no_figure()
     {
-        DeclareSelfHost(hostedValue);
-
         var (app, http) = await StatsGroupProbeHost.StartAsync(SeededAggregator(), Reader());
         try
         {
@@ -184,12 +157,9 @@ public sealed class HostedStatsSelfHostControlTests : IDisposable
     }
 
     /// <summary>A route added to the group still serves on self-host, in both non-hosted forms.</summary>
-    [Theory]
-    [MemberData(nameof(NonHostedValues))]
-    public async Task A_route_added_to_the_group_still_serves_on_self_host(string? hostedValue)
+    [Fact]
+    public async Task A_route_added_to_the_group_still_serves_on_self_host()
     {
-        DeclareSelfHost(hostedValue);
-
         var (app, http) = await StatsGroupProbeHost.StartAsync(
             SeededAggregator(), Reader(),
             mapIntoGroup: group => group.MapGet("/stats/added-later",

@@ -71,22 +71,19 @@ public sealed class ContextLessDatabaseRouteTenancyTests : IAsyncLifetime
 
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-ctxless-" + Guid.NewGuid().ToString("N"));
-    private string? _priorHosted;
 
     public ContextLessDatabaseRouteTenancyTests(ITestOutputHelper output) => _out = output;
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: SharedToken, authEnabled: true,
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             cronJobsPath: Path.Combine(_instancesDir, "cron", "cronjobs.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
             missionsPath: Path.Combine(_instancesDir, "missions", "missions.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
 
@@ -106,7 +103,6 @@ public sealed class ContextLessDatabaseRouteTenancyTests : IAsyncLifetime
     {
         _http.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
         catch { /* best-effort */ }
     }

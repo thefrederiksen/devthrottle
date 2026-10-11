@@ -14,9 +14,10 @@ namespace CcDirector.Gateway.Tests.Teams;
 /// gate (#2302) and then the route - and every refusal is read as a person reads it. The bill's seat sync is proven in
 /// the unit suite's <c>TeamPageTests</c> against a recording website; here the hosted Gateway has no service credential,
 /// so it never calls one.
+///
+/// This class sets the process-wide CC_DIRECTOR_ROOT, so it joins the DirectorRoot collection.
 /// </summary>
-/// This class sets the process-wide CC_GATEWAY_HOSTED, so it belongs to the hosted-mode collection.
-[Collection("GatewayHostedMode")]
+[Collection("DirectorRoot")]
 public sealed class HostedTeamPageEndpointsTests : IAsyncLifetime
 {
     private const string Token = "test-token";
@@ -34,15 +35,12 @@ public sealed class HostedTeamPageEndpointsTests : IAsyncLifetime
     private HttpClient _http = null!;
     private readonly Dictionary<string, string> _keys = new();
     private string _team = "";
-    private string? _priorHosted;
     private string? _priorRoot;
 
     public HostedTeamPageEndpointsTests(ITestOutputHelper output) => _output = output;
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
         _priorRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _instancesDir);
 
@@ -50,7 +48,8 @@ public sealed class HostedTeamPageEndpointsTests : IAsyncLifetime
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            streamMode: true, teamsReleased: true);
+            streamMode: true, teamsReleased: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
         _http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
 
@@ -74,7 +73,6 @@ public sealed class HostedTeamPageEndpointsTests : IAsyncLifetime
     {
         _http.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
         catch { /* best-effort */ }

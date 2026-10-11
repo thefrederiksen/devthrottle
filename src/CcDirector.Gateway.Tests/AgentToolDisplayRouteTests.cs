@@ -26,14 +26,10 @@ public sealed class AgentToolDisplayRouteTests : IAsyncLifetime
     private FakeTunnelDirector _directorB = null!;
     private string _keyA = "";
     private string _keyB = "";
-    private string? _priorHosted;
     private bool _cleanedUp;
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-
         try
         {
             _gateway = new GatewayHost(
@@ -43,7 +39,8 @@ public sealed class AgentToolDisplayRouteTests : IAsyncLifetime
                 instancesDirectory: _instancesDir,
                 workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
                 snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-                streamMode: true);
+                streamMode: true,
+                options: new GatewayHostOptions { Hosted = true });
             await _gateway.StartAsync();
             _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
 
@@ -154,7 +151,6 @@ public sealed class AgentToolDisplayRouteTests : IAsyncLifetime
         }
         finally
         {
-            Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
             try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
             catch { /* best-effort cleanup */ }
         }

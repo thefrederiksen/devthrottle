@@ -49,13 +49,12 @@ namespace CcDirector.Gateway.Tests.Architecture;
 /// SELF-HOST KEEPS SQLITE AND THAT IS CORRECT. The rule is no SQLite on the HOSTED Gateway. Nothing here
 /// forbids the SQLite code from existing or from running on a desktop install.
 ///
-/// This class joins the <c>GatewayHostedMode</c> collection under that collection's rule 1: DT-SQL-3 and
-/// DT-SQL-4 SET a process-wide variable that decides whether a Gateway is hosted. The variable is
-/// <c>CC_GATEWAY_DB_CONNECTION</c> rather than <c>CC_GATEWAY_HOSTED</c>, but the hazard is identical and
-/// worse - anything constructing a GatewayDatabase in parallel would silently be handed the other test's
-/// provider. The collection disables parallelization, which is what makes that impossible.
+/// This class joins the <c>DirectorRoot</c> collection: DT-SQL-3 and DT-SQL-4 SET a process-wide variable,
+/// <c>CC_GATEWAY_DB_CONNECTION</c>, and anything constructing a GatewayDatabase in parallel would silently be
+/// handed the other test's provider. The collection serialises its members, which is what makes that
+/// impossible while the variable is still process-wide.
 /// </summary>
-[Collection("GatewayHostedMode")]
+[Collection("DirectorRoot")]
 public sealed class NoSqliteOnHostedArchitectureTests
 {
     /// <summary>

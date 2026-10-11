@@ -103,7 +103,6 @@ public sealed class HostedVaultDenyTests : IAsyncLifetime
         Path.Combine(Path.GetTempPath(), "cc-hosted-vault-" + Guid.NewGuid().ToString("N") + ".json");
     private readonly string _root;
     private readonly string? _prevRoot;
-    private string? _priorHosted;
 
     public HostedVaultDenyTests()
     {
@@ -114,12 +113,6 @@ public sealed class HostedVaultDenyTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        // EXPLICIT, not ambient: this class asserts hosted behaviour, so it states hosted mode itself and
-        // proves the statement took, rather than inheriting whatever the runner happened to leave set.
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-        Assert.True(GatewayHostedMode.IsHosted);
-
         // A real secret already in the vault, so a read that (wrongly) got through would have something to
         // hand back. A deny tested against an empty vault proves nothing.
         new KeyVault(_vaultPath).Set(SecretName, SecretValue);
@@ -129,7 +122,8 @@ public sealed class HostedVaultDenyTests : IAsyncLifetime
             keyVaultPath: _vaultPath,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
 
@@ -144,7 +138,6 @@ public sealed class HostedVaultDenyTests : IAsyncLifetime
     {
         _http.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _prevRoot);
         try { if (File.Exists(_vaultPath)) File.Delete(_vaultPath); } catch (Exception) { /* best effort */ }
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); } catch (Exception) { /* best effort */ }
@@ -359,21 +352,16 @@ public sealed class HostedVaultGroupFilterTests : IDisposable
     private const string SecretValue = "dt_live_another_tenants_key";
 
     private readonly string _dir;
-    private readonly string? _priorHosted;
 
     public HostedVaultGroupFilterTests()
     {
         _dir = Path.Combine(Path.GetTempPath(), "cc-vault-group-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_dir);
 
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-        Assert.True(GatewayHostedMode.IsHosted);
     }
 
     public void Dispose()
     {
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         try { Directory.Delete(_dir, recursive: true); } catch (Exception) { /* best effort */ }
     }
 
@@ -465,14 +453,13 @@ public sealed class HostedVaultGroupFilterTests : IDisposable
 }
 
 /// <summary>
-/// THE SELF-HOST CONTROL ON THE GROUP, in BOTH non-hosted forms, with the effects proven.
+/// THE SELF-HOST CONTROL ON THE GROUP, with the effects proven.
 ///
-/// Self-host is the control for this whole mission, so it is PROVEN rather than INHERITED.
-/// <see cref="VaultEndpointsTests"/> does not prove it: those tests never mention <c>CC_GATEWAY_HOSTED</c>
-/// and pass only because the runner happens to leave it unset. If that ambient default ever flipped they
-/// would keep passing while self-host was completely broken, because they assert nothing about which mode
-/// they are in. So this class sets the variable itself, to both non-hosted values that occur in practice -
-/// absent, and present-but-not-"1" - and asserts the mode took before driving anything.
+/// Self-host is the control for this whole mission, so it is STATED rather than INHERITED: every probe host
+/// here is built with <c>hosted: false</c>, a required argument, so no test below can be running in the mode
+/// it thinks it is not in. (The mode used to be a process-wide environment variable with two non-hosted
+/// forms, absent and present-but-not-"1", and this class set both; the mode is now a value handed to the
+/// host, and the forms are proved once, in <c>GatewayHostedModeTests</c>.)
 ///
 /// It asserts REAL PAYLOADS AND REAL EFFECTS, not the absence of the refusal string. An empty-but-successful
 /// response would satisfy "the refusal is absent" while still being a broken self-host.
@@ -489,34 +476,17 @@ public sealed class SelfHostVaultGroupControlTests : IDisposable
     private const string SecretValue = "dt_live_the_owners_own_key";
 
     private readonly string _dir;
-    private readonly string? _priorHosted;
 
     public SelfHostVaultGroupControlTests()
     {
         _dir = Path.Combine(Path.GetTempPath(), "cc-vault-selfhost-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_dir);
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
     }
 
     public void Dispose()
     {
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         try { Directory.Delete(_dir, recursive: true); } catch (Exception) { /* best effort */ }
     }
-
-    /// <summary>
-    /// Puts the process into a STATED non-hosted mode and proves it took, so no test below can silently be
-    /// running in the mode it thinks it is not in.
-    /// </summary>
-    private static void DeclareSelfHost(string? value)
-    {
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", value);
-        Assert.False(GatewayHostedMode.IsHosted);
-    }
-
-    /// <summary>null = the variable is absent. "0" = present and explicitly not hosted. Both are real
-    /// non-hosted deployments and both must serve.</summary>
-    public static TheoryData<string?> NonHostedValues => new() { null, "0" };
 
     private KeyVault SeededVault()
     {
@@ -530,12 +500,9 @@ public sealed class SelfHostVaultGroupControlTests : IDisposable
     /// owner's key names. A 404 deny is indistinguishable from a route that was never mapped, so without a
     /// receipt like this the hosted 404 would prove nothing about a guard.
     /// </summary>
-    [Theory]
-    [MemberData(nameof(NonHostedValues))]
-    public async Task The_owner_still_gets_his_real_key_names_on_self_host(string? hostedValue)
+    [Fact]
+    public async Task The_owner_still_gets_his_real_key_names_on_self_host()
     {
-        DeclareSelfHost(hostedValue);
-
         var (app, http) = await VaultGroupProbeHost.StartAsync(SeededVault(), hosted: false);
         try
         {
@@ -552,12 +519,9 @@ public sealed class SelfHostVaultGroupControlTests : IDisposable
     }
 
     /// <summary>HANDLER-POSITIVE RECEIPT for the value read: the real key value comes back.</summary>
-    [Theory]
-    [MemberData(nameof(NonHostedValues))]
-    public async Task The_owner_still_gets_his_real_key_value_on_self_host(string? hostedValue)
+    [Fact]
+    public async Task The_owner_still_gets_his_real_key_value_on_self_host()
     {
-        DeclareSelfHost(hostedValue);
-
         var (app, http) = await VaultGroupProbeHost.StartAsync(SeededVault(), hosted: false);
         try
         {
@@ -578,12 +542,9 @@ public sealed class SelfHostVaultGroupControlTests : IDisposable
     /// Without this, "the key survived" would be satisfied by an operation incapable of changing anything.
     /// It is also the handler-positive receipt for the write route.
     /// </summary>
-    [Theory]
-    [MemberData(nameof(NonHostedValues))]
-    public async Task The_same_write_overwrites_an_existing_key_on_self_host(string? hostedValue)
+    [Fact]
+    public async Task The_same_write_overwrites_an_existing_key_on_self_host()
     {
-        DeclareSelfHost(hostedValue);
-
         var vault = SeededVault();
         var (app, http) = await VaultGroupProbeHost.StartAsync(vault, hosted: false);
         try
@@ -609,12 +570,9 @@ public sealed class SelfHostVaultGroupControlTests : IDisposable
     /// identical delete against the identical seeded key DOES destroy it when the guard is not in the way.
     /// It is also the handler-positive receipt for the delete route.
     /// </summary>
-    [Theory]
-    [MemberData(nameof(NonHostedValues))]
-    public async Task The_same_delete_destroys_an_existing_key_on_self_host(string? hostedValue)
+    [Fact]
+    public async Task The_same_delete_destroys_an_existing_key_on_self_host()
     {
-        DeclareSelfHost(hostedValue);
-
         var vault = SeededVault();
         var (app, http) = await VaultGroupProbeHost.StartAsync(vault, hosted: false);
         try
@@ -643,12 +601,9 @@ public sealed class SelfHostVaultGroupControlTests : IDisposable
     /// Without this half, "the deny refuses everything, always" would pass every hosted test in this file
     /// while having silently killed the vault for self-host too.
     /// </summary>
-    [Theory]
-    [MemberData(nameof(NonHostedValues))]
-    public async Task A_route_added_to_the_group_still_serves_on_self_host(string? hostedValue)
+    [Fact]
+    public async Task A_route_added_to_the_group_still_serves_on_self_host()
     {
-        DeclareSelfHost(hostedValue);
-
         var (app, http) = await VaultGroupProbeHost.StartAsync(
             SeededVault(), hosted: false,
             mapIntoGroup: group => group.MapGet("/added-after-the-deny-was-written",
@@ -698,7 +653,6 @@ public sealed class SelfHostVaultControlTests : IAsyncLifetime
         Path.Combine(Path.GetTempPath(), "cc-selfhost-vault-" + Guid.NewGuid().ToString("N") + ".json");
     private readonly string _root;
     private readonly string? _prevRoot;
-    private string? _priorHosted;
 
     public SelfHostVaultControlTests()
     {
@@ -709,12 +663,8 @@ public sealed class SelfHostVaultControlTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        // Hosted mode explicitly OFF and PROVEN off - set here rather than assumed, so a value leaked by
-        // another test cannot turn this control silently into a second hosted run.
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", null);
-        Assert.False(GatewayHostedMode.IsHosted);
-
+        // Hosted mode explicitly OFF on the host built below - stated rather than assumed, so this control
+        // cannot silently turn into a second hosted run.
         new KeyVault(_vaultPath).Set(SecretName, SecretValue);
 
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: Token, authEnabled: true,
@@ -722,7 +672,8 @@ public sealed class SelfHostVaultControlTests : IAsyncLifetime
             keyVaultPath: _vaultPath,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = false });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
 
@@ -733,7 +684,6 @@ public sealed class SelfHostVaultControlTests : IAsyncLifetime
     {
         _http.Dispose();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _prevRoot);
         try { if (File.Exists(_vaultPath)) File.Delete(_vaultPath); } catch (Exception) { /* best effort */ }
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); } catch (Exception) { /* best effort */ }

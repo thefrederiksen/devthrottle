@@ -26,22 +26,19 @@ public sealed class WingmanStopsSelfHostedRouteTests : IAsyncLifetime
     private readonly string _sessionId = Guid.NewGuid().ToString();
     private GatewayHost _gateway = null!;
     private string _deviceKey = "";
-    private string? _priorHosted;
 
     public WingmanStopsSelfHostedRouteTests(ITestOutputHelper output) => _out = output;
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", null);
-
         _gateway = new GatewayHost(
             port: GatewayHost.OperatingSystemAssignedPort,
             token: SharedToken,
             authEnabled: true,
             instancesDirectory: Path.Combine(_tempDir, "instances"),
             devicesPath: Path.Combine(_tempDir, "devices.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = false });
         await _gateway.StartAsync();
         Assert.False(_gateway.TenantBoundary.IsHosted, "The harness must be running the SELF-HOSTED boundary.");
 
@@ -57,7 +54,6 @@ public sealed class WingmanStopsSelfHostedRouteTests : IAsyncLifetime
     public async Task DisposeAsync()
     {
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         try { if (Directory.Exists(_tempDir)) Directory.Delete(_tempDir, true); } catch { /* best effort */ }
     }
 

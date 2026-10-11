@@ -48,9 +48,6 @@ namespace CcDirector.Gateway.Tests;
 /// REVERT-PROVE: restore any of the six sites to <c>tenantBoundary?.IsHosted == true</c> and its test here
 /// goes RED - the null-boundary hosted twin serves the counts, registers the shadow, heartbeats, records
 /// the doorbell, or removes the registration again. The self-host control stays green in both directions.
-///
-/// The assembly runs sequentially (TestParallelization), so toggling CC_GATEWAY_HOSTED here is safe; it is
-/// restored per helper.
 /// </summary>
 public sealed class NullBoundaryHostedGateFailClosedTests
 {
@@ -184,9 +181,8 @@ public sealed class NullBoundaryHostedGateFailClosedTests
     /// <summary>
     /// A minimal host mapping the production <see cref="GatewayEndpoints.Map"/> with <c>tenantBoundary:
     /// null!</c> - the miswire under test - over a real <see cref="DirectorRegistry"/> the tests assert
-    /// directly. The hosted flag is the ONLY variable between the twin configurations, captured at Map
-    /// time and restored immediately (the sites under test read <see cref="GatewayHostedMode"/> live, and
-    /// the assembly runs sequentially).
+    /// directly. The hosted value is the ONLY difference between the twin configurations, and it is passed to
+    /// Map as a value.
     /// </summary>
     private sealed class NullBoundaryHost : IAsyncDisposable
     {
@@ -194,24 +190,19 @@ public sealed class NullBoundaryHostedGateFailClosedTests
 
         private readonly WebApplication _app;
         private readonly string _dir;
-        private readonly string? _priorHosted;
         public DirectorRegistry Registry { get; }
         public HttpClient Http { get; }
 
-        private NullBoundaryHost(WebApplication app, HttpClient http, DirectorRegistry registry, string dir, string? priorHosted)
+        private NullBoundaryHost(WebApplication app, HttpClient http, DirectorRegistry registry, string dir)
         {
             _app = app;
             Http = http;
             Registry = registry;
             _dir = dir;
-            _priorHosted = priorHosted;
         }
 
         internal static async Task<NullBoundaryHost> StartAsync(bool hosted, bool seedLocalDirector)
         {
-            var prior = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-            Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", hosted ? "1" : null);
-
             var dir = Path.Combine(Path.GetTempPath(), "cc-nullgate-" + Guid.NewGuid().ToString("N"));
             var registry = new DirectorRegistry(Path.Combine(dir, "directors"));
             if (seedLocalDirector)
@@ -229,7 +220,7 @@ public sealed class NullBoundaryHostedGateFailClosedTests
             {
                 BaseAddress = new Uri(app.Urls.First()),
                 Timeout = TimeSpan.FromSeconds(30),
-            }, registry, dir, prior);
+            }, registry, dir);
         }
 
         public async ValueTask DisposeAsync()
@@ -237,7 +228,6 @@ public sealed class NullBoundaryHostedGateFailClosedTests
             Http.Dispose();
             await _app.StopAsync();
             await _app.DisposeAsync();
-            Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
             try { if (Directory.Exists(_dir)) Directory.Delete(_dir, true); } catch { /* cleanup */ }
         }
     }

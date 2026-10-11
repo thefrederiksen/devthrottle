@@ -28,9 +28,6 @@ namespace CcDirector.Gateway.Tests;
 /// Revert-prove: change any of these routes back to passing TenantId.Local into WingmanVoiceService (instead
 /// of the request tenant) and key B reads the empty Local partition, so every same-tenant positive control
 /// (key B sees / plays sess-b's voice) goes RED.
-///
-/// The assembly runs sequentially (TestParallelization), so toggling CC_GATEWAY_HOSTED here is safe; it is
-/// reset in DisposeAsync.
 /// </summary>
 public sealed class VoiceServingReadIsolationTests : IAsyncLifetime
 {
@@ -53,18 +50,15 @@ public sealed class VoiceServingReadIsolationTests : IAsyncLifetime
 
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-voice-read-" + Guid.NewGuid().ToString("N"));
-    private string? _priorHosted;
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
-
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: Token, authEnabled: true,
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
 
@@ -96,7 +90,6 @@ public sealed class VoiceServingReadIsolationTests : IAsyncLifetime
         await _dirA.DisposeAsync();
         await _dirB.DisposeAsync();
         await _gateway.StopAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
         catch { /* best-effort */ }
     }

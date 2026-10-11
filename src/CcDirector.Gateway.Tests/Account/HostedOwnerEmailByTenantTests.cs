@@ -64,7 +64,6 @@ public sealed class HostedOwnerEmailByTenantTests : IAsyncLifetime
     private HttpClient _http = null!;
     private string _key = "";
     private string _tenantId = "";
-    private string? _priorHosted;
     private string? _priorRoot;
     private string? _priorSecret;
     private string? _priorApiUrl;
@@ -130,12 +129,10 @@ public sealed class HostedOwnerEmailByTenantTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        _priorHosted = Environment.GetEnvironmentVariable("CC_GATEWAY_HOSTED");
         _priorRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
         _priorSecret = Environment.GetEnvironmentVariable(AccountNotifyByTenantClient.ServiceTokenEnvVar);
         _priorApiUrl = Environment.GetEnvironmentVariable(DevThrottleApi.BaseUrlEnvVar);
 
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _instancesDir);
         Environment.SetEnvironmentVariable(AccountNotifyByTenantClient.ServiceTokenEnvVar, ServiceSecret);
 
@@ -148,7 +145,8 @@ public sealed class HostedOwnerEmailByTenantTests : IAsyncLifetime
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            streamMode: true);
+            streamMode: true,
+            options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
 
@@ -163,7 +161,6 @@ public sealed class HostedOwnerEmailByTenantTests : IAsyncLifetime
         _http.Dispose();
         await _gateway.StopAsync();
         await _cloud.DisposeAsync();
-        Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
         Environment.SetEnvironmentVariable(AccountNotifyByTenantClient.ServiceTokenEnvVar, _priorSecret);
         Environment.SetEnvironmentVariable(DevThrottleApi.BaseUrlEnvVar, _priorApiUrl);
