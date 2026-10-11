@@ -1,3 +1,4 @@
+using CcDirector.Core.Tests.Git;
 using System.Diagnostics;
 using CcDirector.Core.Git;
 using Xunit;
@@ -69,28 +70,41 @@ public class BranchSafetyEvaluatorTests
 }
 
 /// <summary>Real-git integration: listing verdicts and the delete-time re-verify.</summary>
-public sealed class GitBranchServiceTests : IDisposable
+public sealed class GitBranchServiceTests : IClassFixture<GitBranchServiceTests.Template>, IDisposable
 {
     private readonly string _root;
     private readonly string _origin;
     private readonly string _repo;
 
-    public GitBranchServiceTests()
+    /// <summary>The bare origin and its clone, built once for the class and copied per test.</summary>
+    public sealed class Template : GitRepositoryTemplate
     {
-        _root = Path.Combine(Path.GetTempPath(), "ccd-branch-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(_root);
+        public Template() : base("ccd-branch-") { }
+
+        protected override IReadOnlyList<string> Clones => new[] { "repo" };
+
+        protected override void Build(string root)
+        {
+            var origin = Path.Combine(root, "origin.git");
+            var repo = Path.Combine(root, "repo");
+            RunGit(root, "-c", "init.defaultBranch=main", "init", "--bare", origin);
+            RunGit(root, "-c", "init.defaultBranch=main", "clone", origin, repo);
+            RunGit(repo, "config", "user.email", "test@cc-director.local");
+            RunGit(repo, "config", "user.name", "CC Director Test");
+            RunGit(repo, "config", "commit.gpgsign", "false");
+            File.WriteAllText(Path.Combine(repo, "README.md"), "init\n");
+            RunGit(repo, "add", "-A");
+            RunGit(repo, "commit", "-m", "initial");
+            RunGit(repo, "branch", "-M", "main");
+            RunGit(repo, "push", "-u", "origin", "main");
+        }
+    }
+
+    public GitBranchServiceTests(Template template)
+    {
+        _root = template.CopyTo();
         _origin = Path.Combine(_root, "origin.git");
         _repo = Path.Combine(_root, "repo");
-        RunGit(_root, "-c", "init.defaultBranch=main", "init", "--bare", _origin);
-        RunGit(_root, "-c", "init.defaultBranch=main", "clone", _origin, _repo);
-        RunGit(_repo, "config", "user.email", "test@cc-director.local");
-        RunGit(_repo, "config", "user.name", "CC Director Test");
-        RunGit(_repo, "config", "commit.gpgsign", "false");
-        WriteFile("README.md", "init\n");
-        RunGit(_repo, "add", "-A");
-        RunGit(_repo, "commit", "-m", "initial");
-        RunGit(_repo, "branch", "-M", "main");
-        RunGit(_repo, "push", "-u", "origin", "main");
     }
 
     public void Dispose()

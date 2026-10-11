@@ -1,3 +1,4 @@
+using CcDirector.Core.Tests.Git;
 using System.Diagnostics;
 using System.Text.Json;
 using CcDirector.Core.Git;
@@ -16,7 +17,7 @@ namespace CcDirector.Core.Tests;
 /// LAYOUT protects a slot on a machine whose records were lost, and the RECORDS protect a slot whose
 /// path does not look like one.
 /// </summary>
-public sealed class PooledWorktreeReaperTests : IDisposable
+public sealed class PooledWorktreeReaperTests : IClassFixture<PooledWorktreeReaperTests.Template>, IDisposable
 {
     private readonly string _root;
     private readonly string _origin;
@@ -24,26 +25,39 @@ public sealed class PooledWorktreeReaperTests : IDisposable
     private readonly string _home;
     private readonly WorktreeLeftoverStore _leftovers;
 
-    public PooledWorktreeReaperTests()
+    /// <summary>The bare origin and its primary clone, built once for the class and copied per test.</summary>
+    public sealed class Template : GitRepositoryTemplate
     {
-        _root = TestTempRoot.For("ccd-pool-reaper-");
-        Directory.CreateDirectory(_root);
+        public Template() : base("ccd-pool-reaper-") { }
+
+        protected override IReadOnlyList<string> Clones => new[] { "primary" };
+
+        protected override void Build(string root)
+        {
+            var origin = Path.Combine(root, "origin.git");
+            var primary = Path.Combine(root, "primary");
+
+            RunGit(root, "-c", "init.defaultBranch=main", "init", "--bare", origin);
+            RunGit(root, "-c", "init.defaultBranch=main", "clone", origin, primary);
+            RunGit(primary, "config", "user.email", "test@cc-director.local");
+            RunGit(primary, "config", "user.name", "CC Director Test");
+            RunGit(primary, "config", "commit.gpgsign", "false");
+
+            File.WriteAllText(Path.Combine(primary, "README.md"), "initial\n");
+            RunGit(primary, "add", "-A");
+            RunGit(primary, "commit", "-m", "initial commit");
+            RunGit(primary, "branch", "-M", "main");
+            RunGit(primary, "push", "-u", "origin", "main");
+        }
+    }
+
+    public PooledWorktreeReaperTests(Template template)
+    {
+        _root = template.CopyTo();
         _home = Path.Combine(_root, "cc-worktrees-home");
         _leftovers = new WorktreeLeftoverStore(Path.Combine(_root, "leftovers"));
         _origin = Path.Combine(_root, "origin.git");
         _primary = Path.Combine(_root, "primary");
-
-        RunGit(_root, "-c", "init.defaultBranch=main", "init", "--bare", _origin);
-        RunGit(_root, "-c", "init.defaultBranch=main", "clone", _origin, _primary);
-        RunGit(_primary, "config", "user.email", "test@cc-director.local");
-        RunGit(_primary, "config", "user.name", "CC Director Test");
-        RunGit(_primary, "config", "commit.gpgsign", "false");
-
-        File.WriteAllText(Path.Combine(_primary, "README.md"), "initial\n");
-        RunGit(_primary, "add", "-A");
-        RunGit(_primary, "commit", "-m", "initial commit");
-        RunGit(_primary, "branch", "-M", "main");
-        RunGit(_primary, "push", "-u", "origin", "main");
     }
 
     public void Dispose()

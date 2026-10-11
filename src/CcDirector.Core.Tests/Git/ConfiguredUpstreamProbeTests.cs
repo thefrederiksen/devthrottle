@@ -15,32 +15,47 @@ namespace CcDirector.Core.Tests.Git;
 /// and refuses any that reaches for the network; the other points origin at a path that does
 /// not exist, which the old probe reported as "could not inspect".
 /// </summary>
-public sealed class ConfiguredUpstreamProbeTests : IDisposable
+public sealed class ConfiguredUpstreamProbeTests : IClassFixture<ConfiguredUpstreamProbeTests.Template>, IDisposable
 {
     private readonly string _root;
     private readonly string _origin;
     private readonly string _work;
     private readonly string _elsewhere;
 
-    public ConfiguredUpstreamProbeTests()
+    /// <summary>The bare origin, the working clone and the "someone else" clone, built once for the class
+    /// and copied per test.</summary>
+    public sealed class Template : GitRepositoryTemplate
     {
-        _root = TestTempRoot.For("ccd-upstream-probe-");
-        Directory.CreateDirectory(_root);
+        public Template() : base("ccd-upstream-probe-") { }
+
+        protected override IReadOnlyList<string> Clones => new[] { "work", "elsewhere" };
+
+        protected override void Build(string root)
+        {
+            var origin = Path.Combine(root, "origin.git");
+            var work = Path.Combine(root, "work");
+            var elsewhere = Path.Combine(root, "elsewhere");
+
+            RunGit(root, "-c", "init.defaultBranch=main", "init", "--bare", origin);
+            RunGit(root, "-c", "init.defaultBranch=main", "clone", origin, work);
+            ConfigureIdentity(work);
+            File.WriteAllText(Path.Combine(work, "README.md"), "initial\n");
+            RunGit(work, "add", "-A");
+            RunGit(work, "commit", "-m", "initial commit");
+            RunGit(work, "branch", "-M", "main");
+            RunGit(work, "push", "-u", "origin", "main");
+
+            RunGit(root, "-c", "init.defaultBranch=main", "clone", origin, elsewhere);
+            ConfigureIdentity(elsewhere);
+        }
+    }
+
+    public ConfiguredUpstreamProbeTests(Template template)
+    {
+        _root = template.CopyTo();
         _origin = Path.Combine(_root, "origin.git");
         _work = Path.Combine(_root, "work");
         _elsewhere = Path.Combine(_root, "elsewhere");
-
-        RunGit(_root, "-c", "init.defaultBranch=main", "init", "--bare", _origin);
-        RunGit(_root, "-c", "init.defaultBranch=main", "clone", _origin, _work);
-        ConfigureIdentity(_work);
-        File.WriteAllText(Path.Combine(_work, "README.md"), "initial\n");
-        RunGit(_work, "add", "-A");
-        RunGit(_work, "commit", "-m", "initial commit");
-        RunGit(_work, "branch", "-M", "main");
-        RunGit(_work, "push", "-u", "origin", "main");
-
-        RunGit(_root, "-c", "init.defaultBranch=main", "clone", _origin, _elsewhere);
-        ConfigureIdentity(_elsewhere);
     }
 
     public void Dispose()
