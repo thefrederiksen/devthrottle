@@ -349,42 +349,93 @@ $runRecord = [ordered]@{
 # suite name. Recorded per suite in run.json and the runs log, so the free-space floor below can be set
 # from real runs instead of from one measurement.
 $tempUsage = @{}
+$running = $null
+$targetedRuns = @()
 
-# Measures and deletes the run's temporary folders. Called on every path that ends a run. rd with the
-# \\?\ prefix, because Remove-Item in Windows PowerShell 5.1 fails on paths over 260 characters and tests
-# do build paths that deep. A folder that survives is NAMED, never ignored: it means a process the run
-# started is still alive and holding a file, which the person running the gate needs to know.
-function Remove-RunTemp {
-    if (-not (Test-Path $tempRoot)) { return }
-    foreach ($dir in @(Get-ChildItem -Path $tempRoot -Directory)) {
-        $files = 0; $bytes = [long] 0
-        foreach ($f in [System.IO.Directory]::EnumerateFiles($dir.FullName, "*", [System.IO.SearchOption]::AllDirectories)) {
-            $files++
-            $bytes += (New-Object System.IO.FileInfo $f).Length
-        }
-        $suite = $dir.Name
-        if ($null -ne $running) {
-            $match = @($running | Where-Object { $_.TempName -eq $dir.Name })
-            if ($match.Count -eq 1) { $suite = $match[0].Name }
-        }
-        $tempUsage[$suite] = [ordered]@{ files = $files; megabytes = [Math]::Round($bytes / 1MB, 1) }
-    }
+# Deletes a folder tree and returns how many items are left in it (0: it is gone). rd with the \\?\ prefix,
+# because Remove-Item in Windows PowerShell 5.1 fails on paths over 260 characters and tests do build
+# paths that deep; rd also removes a junction without following it into its target.
+function Remove-FolderTree([string] $Path) {
+    if (-not (Test-Path -LiteralPath $Path)) { return 0 }
     if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
-        & $env:ComSpec /d /c "rd /s /q `"\\?\$tempRoot`" >nul 2>&1"
+        & $env:ComSpec /d /c "rd /s /q `"\\?\$Path`" >nul 2>&1"
     } else {
-        Remove-Item -Recurse -Force $tempRoot
+        Remove-Item -Recurse -Force -LiteralPath $Path -ErrorAction SilentlyContinue
     }
-    if (Test-Path $tempRoot) {
-        $left = @(Get-ChildItem -Path $tempRoot -Recurse -Force -ErrorAction SilentlyContinue).Count
+    if (-not (Test-Path -LiteralPath $Path)) { return 0 }
+    return [Math]::Max(1, @(Get-ChildItem -LiteralPath $Path -Recurse -Force -ErrorAction SilentlyContinue).Count)
+}
+
+# Measures what a folder holds. This is a MEASUREMENT for run.json, never part of the verdict, so a
+# folder it cannot read is reported in the measurement ("error") instead of ending the run: under
+# "Stop" a throw here would skip Stop-Gate's records and exit code entirely. It walks with the \\?\
+# prefix (deep paths) and does not follow junctions or symbolic links, which tests create and which
+# can be broken or loop.
+function Measure-FolderTree([string] $Path) {
+    $files = 0; $bytes = [long] 0; $problem = $null
+    try {
+        $rootPath = $Path
+        if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) { $rootPath = "\\?\" + $Path }
+        $stack = New-Object System.Collections.Stack
+        $stack.Push((New-Object System.IO.DirectoryInfo $rootPath))
+        while ($stack.Count -gt 0) {
+            $d = $stack.Pop()
+            foreach ($f in $d.GetFiles()) { $files++; $bytes += $f.Length }
+            foreach ($sub in $d.GetDirectories()) {
+                if (($sub.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) { $stack.Push($sub) }
+            }
+        }
+    } catch {
+        $problem = "could not measure all of it: " + $_.Exception.Message
+    }
+    $m = [ordered]@{ files = $files; bytes = $bytes; megabytes = [Math]::Round($bytes / 1MB, 1) }
+    if ($null -ne $problem) { $m.error = $problem }
+    return $m
+}
+
+# Ends every test process this run started that is still alive, with its whole tree. Only reached when
+# the run is stopped before its verdict (Ctrl+C, an exception): deleting the temporary folders under a
+# live test host would pull files out from under it. Only processes THIS run started are touched.
+function Stop-RunProcesses {
+    foreach ($r in @(@($running) + @($targetedRuns))) {
+        if ($null -eq $r -or $null -eq $r.Process -or $r.Process.HasExited) { continue }
+        if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
+            & $env:ComSpec /d /c "taskkill /T /F /PID $($r.Process.Id) >nul 2>&1"
+        } else {
+            $r.Process.Kill()
+        }
+        $null = $r.Process.WaitForExit(10000)
+    }
+}
+
+# Measures and deletes the run's temporary folders. Called on every path that ends a run. A folder that
+# survives is NAMED, never ignored: it means a process the run started is still alive and holding a
+# file, which the person running the gate needs to know.
+function Remove-RunTemp {
+    if (-not (Test-Path -LiteralPath $tempRoot)) { return }
+    foreach ($dir in @(Get-ChildItem -LiteralPath $tempRoot -Directory)) {
+        $m = Measure-FolderTree $dir.FullName
+        $suite = $dir.Name
+        $match = @(@($running) + @($targetedRuns) | Where-Object { $null -ne $_ -and $_.TempName -eq $dir.Name })
+        if ($match.Count -eq 1) { $suite = $match[0].Name }
+        # A targeted run starts one suite several times; its passes add up under the one suite name.
+        if ($tempUsage.Contains($suite)) {
+            $m.files += $tempUsage[$suite].files
+            $m.bytes += [long] ($tempUsage[$suite].bytes)
+            $m.megabytes = [Math]::Round($m.bytes / 1MB, 1)
+        }
+        $tempUsage[$suite] = $m
+    }
+    $left = Remove-FolderTree $tempRoot
+    $runRecord.tempLeftBehind = $left
+    if ($left -gt 0) {
         Write-Host ("ERROR: the run's temporary folder could not be fully deleted - {0} item(s) remain in {1}." -f $left, $tempRoot)
         Write-Host "  A process this run started is still alive and holding a file. Find it (a testhost or dotnet process"
         Write-Host "  whose working files are under that folder), end it, and delete the folder by hand."
-        $runRecord.tempLeftBehind = $left
     } else {
         $total = 0.0
         foreach ($v in $tempUsage.Values) { $total += $v.megabytes }
         Write-Host ("Temporary folders deleted: the test processes had left {0} MB in them." -f [Math]::Round($total, 1))
-        $runRecord.tempLeftBehind = 0
     }
 }
 
@@ -441,24 +492,21 @@ function Stop-Gate([int] $Code, [string] $Verdict) {
     # A green run's folder is deleted, a red run's is kept, and -KeepRun keeps a green one. The folder is
     # only ever removed AFTER the records above are written - run.json's content is in the runs log by
     # then - so nothing a later reader needs goes with it.
-    if ($Code -eq 0 -and -not $KeepRun) {
-        Remove-Item -Recurse -Force $logDir
-        Write-Host "Run folder deleted (green run; pass -KeepRun to keep the result files)."
+    if ($Code -eq 0 -and -not $KeepRun -and $runRecord.tempLeftBehind -gt 0) {
+        Write-Host "Run folder kept, although the run is green, because its temporary folder could not be deleted: $logDir"
+    } elseif ($Code -eq 0 -and -not $KeepRun) {
+        $leftInRun = Remove-FolderTree $logDir
+        if ($leftInRun -gt 0) {
+            Write-Host "ERROR: the run folder could not be fully deleted - $leftInRun item(s) remain in $logDir. Delete it by hand."
+        } else {
+            Write-Host "Run folder deleted (green run; pass -KeepRun to keep the result files)."
+        }
     } elseif ($Code -ne 0) {
         Write-Host "Run folder kept: $logDir"
     }
     exit $Code
 }
 
-# ONE RUN HOLDING THE GATEWAY SUITE AT A TIME. A SECOND ONE IS REFUSED HERE, BEFORE THE BUILD, NEVER
-# QUEUED. See the header and scripts\gate-lock.ps1 for why: a queue hid nineteen conflicting release
-# gates for forty-five minutes each, and every one of them then executed nothing.
-#
-# Two locks are consulted. The Gateway suite's OWN lock is only probed: the test process takes that one
-# itself when it starts, so a hand-run "dotnet test" of the suite holds it and a gate that built for
-# minutes would then find its child queued behind that run. The release-gate lock is TAKEN and held
-# until this script ends, in the finally block below - held in a variable, not in a scope, so that a
-# script run from an interactive shell (whose process survives "exit") releases it too.
 # A RELEASE GATE DOES NOT START ON A DISK THAT IS ABOUT TO FILL. The v2.18.0 gate ran drive C: out of
 # space part way through and every failure after that was the disk, not the code - hours of run that
 # certified nothing. So a -Parked or -Gateway run checks first and refuses with exit 7, before taking a
@@ -473,11 +521,17 @@ function Stop-Gate([int] $Code, [string] $Verdict) {
 # tune these from those records, not by guessing.
 $MinFreeTempGB = 15
 $MinFreeRepoGB = 10
-if ($Parked -or $Gateway) {
+# A FILTERED run writes a fraction of that, so the floor applies to the unfiltered runs only.
+if (($Parked -or $Gateway) -and $Filter -eq "") {
     $short = @()
     foreach ($check in @(@{ Path = $logDir; Min = $MinFreeTempGB; What = "the TEMP drive (run folder and test temporary folders)" },
                          @{ Path = $repoRoot; Min = $MinFreeRepoGB; What = "the repository drive (build output)" })) {
-        $drive = New-Object System.IO.DriveInfo ([System.IO.Path]::GetPathRoot($check.Path))
+        $root = [System.IO.Path]::GetPathRoot($check.Path)
+        if ($root.StartsWith("\\")) {
+            $short += ("  {0} {1}: a network path, whose free space this script cannot read. Run the release gate from a local drive." -f $root, $check.What)
+            continue
+        }
+        $drive = New-Object System.IO.DriveInfo $root
         $freeGB = [Math]::Round($drive.AvailableFreeSpace / 1GB, 1)
         if ($freeGB -lt $check.Min) { $short += ("  {0} {1}: {2} GB free, at least {3} GB needed" -f $drive.Name, $check.What, $freeGB, $check.Min) }
     }
@@ -494,6 +548,15 @@ if ($Parked -or $Gateway) {
     }
 }
 
+# ONE RUN HOLDING THE GATEWAY SUITE AT A TIME. A SECOND ONE IS REFUSED HERE, BEFORE THE BUILD, NEVER
+# QUEUED. See the header and scripts\gate-lock.ps1 for why: a queue hid nineteen conflicting release
+# gates for forty-five minutes each, and every one of them then executed nothing.
+#
+# Two locks are consulted. The Gateway suite's OWN lock is only probed: the test process takes that one
+# itself when it starts, so a hand-run "dotnet test" of the suite holds it and a gate that built for
+# minutes would then find its child queued behind that run. The release-gate lock is TAKEN and held
+# until this script ends, in the finally block below - held in a variable, not in a scope, so that a
+# script run from an interactive shell (whose process survives "exit") releases it too.
 $gateLock = $null
 if ($toRun -contains $gatewayProject) {
     $command = "test-local.ps1"
@@ -1040,6 +1103,7 @@ try {
     # A run that ends by exception or Ctrl+C never reached Stop-Gate, and its run.json would say RUNNING
     # forever - exactly the shape a reader mistakes for a live run. Stamp it as stopped without a verdict.
     if ($null -eq $runRecord.exitCode) {
+        Stop-RunProcesses
         Remove-RunTemp
         $runRecord.verdict = "STOPPED BEFORE A VERDICT"
         $runRecord.finishedUtc = (Get-Date).ToUniversalTime().ToString("o")
