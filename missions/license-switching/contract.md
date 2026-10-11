@@ -514,3 +514,140 @@ Director never acts on the Gateway's out-of-date picture (3.3 step 7).
 
 These live as named constants in `LicenseMessages.cs` (`LicenseContract.ReportInterval` and so on),
 so the two sides cannot drift.
+
+## 8. Phase 4 additions - PROPOSED, not yet agreed
+
+Written by the phase 4 Developer for the phase 2 Tech Lead to agree before the second phase 4 pull request is
+built. Nothing in sections 1 to 7 changes until it is agreed; nothing here is built yet. Words as in section 5 of
+`MISSION.md`; a "sign-in" is one `claude auth login` and what it leaves behind.
+
+What the first phase 4 pull request already gives, with no message change: `license sign-in` and `license renew`
+on the command line, and `SignedInAtUtc` (2.2) is now filled by `license usage --json` for every sign-in made with
+`license sign-in`, so the Director passes it through as it is. A sign-in was measured to live 27.1 to 29.9 days
+(`phase-4/README.md`), and the ACTIVE account's dies too, so renewal covers every holding.
+
+### 8.1 A failed renewal travels in the report
+
+Three fields are added to `LicenseHolding` (2.2), filled by the Director and folded by the Gateway like the rest:
+
+```csharp
+public DateTime? RenewalFailedAtUtc { get; set; }  // the LAST renewal of this holding failed at this time; null when the last one worked, or none was tried
+public string? RenewalError { get; set; }          // LicenseRenewalErrors code, else null
+public string? RenewalErrorDetail { get; set; }    // one plain sentence the Director writes; never a page's or a process's text
+```
+
+`LicenseRenewalErrors`: `"login-failed"`, `"approval-failed"`, `"wrong-account"` (the approving browser profile is
+signed in to claude.ai as someone else), `"browser-not-signed-in"`, `"no-approver"` (no browser profile is set for
+the account, here or on another machine), `"approver-offline"`, `"store-refused"`. They are the reasons
+`license renew --json` already writes, without the `failed-` prefix, plus the two only the relay can see.
+
+A holding with `RenewalError` set and `SignInExpiresAtUtc` within `LicenseContract.SignInExpiryWarning` (3 days)
+makes the Gateway send the owner ONE email per holding per failure streak (the same email channel as "no account
+has room", `MISSION.md` section 4), and the Licenses page shows the error beside the expiry verdict (5.7). A failed
+renewal is therefore always seen twice: on the page, and by email before the sign-in dies.
+
+### 8.2 The Director renews on a schedule
+
+The key holder (2.4) runs `license renew --json` once a day and once at start, only while
+`licenseSwitching.enabled` is on. A renewal is due when the sign-in ends within five days of now
+(`LicenseContract.RenewAhead`, matching `license_signin.RENEW_AHEAD`). Each row that changes - renewed, or failed -
+makes a report with `Trigger = "changed"` (2.3). A renewal never interrupts a switch: both take the key store's lock,
+and a renewal that finds it taken is tried at the next run.
+
+### 8.3 Approval on another machine
+
+The browser profile signed in to claude.ai as an account may live on a machine other than the one that needs the
+sign-in. Which machine and profile approve which account is the OWNER's setting, kept by the Gateway per tenant and
+set on the Licenses page: `LicenseApprover { AccountEmail, MachineName, OsUser, BrowserProfile }`. A machine with a
+local profile set by `license set-browser` approves its own sign-ins and never asks the Gateway.
+
+**Hub method, Director to Gateway, with an answer** (a SignalR invocation, so the answer returns on the same call):
+
+```csharp
+// DirectorHub
+public Task<LicenseApprovalResult> RequestLicenseApproval(LicenseApprovalRequest request)
+
+public sealed class LicenseApprovalRequest
+{
+    public string SignInId { get; set; } = "";        // 32 lower-case hex, minted by the target Director; logged and correlated
+    public string AccountEmail { get; set; } = "";
+    public string AuthorizeUrl { get; set; } = "";    // what `claude auth login` printed; carries a PKCE challenge, never the verifier
+    public DateTime NotAfterUtc { get; set; }         // the target's login gives up after this
+}
+```
+
+The Gateway finds the account's `LicenseApprover`, and sends **command `license-approve`** to the Director that last
+reported for that machine (2.4), with the target Director's `SecretTransferPublicKey` (already sent in `Hello`):
+
+```csharp
+public sealed class LicenseApproveRequest
+{
+    public string SignInId { get; set; } = "";
+    public string AccountEmail { get; set; } = "";
+    public string AuthorizeUrl { get; set; } = "";
+    public string BrowserProfile { get; set; } = "";
+    public string SealToPublicKey { get; set; } = "";  // the TARGET Director's Secret Handoff public key
+    public DateTime NotAfterUtc { get; set; }
+}
+
+public sealed class LicenseApprovalResult         // returned by the approving Director, relayed to the target verbatim
+{
+    public string SignInId { get; set; } = "";
+    public string Outcome { get; set; } = "";          // "approved" | "refused"
+    public string? ReasonCode { get; set; }            // a LicenseRenewalErrors code, or "expired", when refused
+    public string? Message { get; set; }               // one plain sentence
+    public string? SealedApproval { get; set; }        // when approved: the authorize answer sealed to SealToPublicKey
+}
+```
+
+The approving Director runs `license approve --email <AccountEmail> --browser <BrowserProfile> <AuthorizeUrl>` and
+seals its answer to `SealToPublicKey` with the Secret Handoff envelope before it leaves the process. The target
+Director opens it with its private key and types it into the waiting login. The Gateway relays ciphertext it cannot
+open. When the approving machine is offline, the Gateway answers `refused` / `approver-offline` at once.
+
+**Rule 6.1 needs one stated exception for this**: `SealedApproval` is the only field that carries anything derived
+from a sign-in, and it is sealed to one machine's key. It is also useless alone - it completes only the login that
+holds the matching verifier, on the target, within minutes. `LicenseMessagesCarryNoKeyTests` would name it as its
+one allowed exception.
+
+Open point for the Tech Lead: the Secret Handoff today seals a stored ENTRY (`cc-secrets transfer-send`). Sealing a
+short value handed on standard input needs a small `cc-secrets seal` / `open` pair, or the Director's own copy of the
+envelope code. The first is preferred: one place that seals.
+
+### 8.4 Starting a sign-in from the Cockpit
+
+**Command `license-sign-in`, Gateway to the target Director**, for "Add a spare" and "Renew now" on the Licenses page:
+
+```csharp
+public sealed class LicenseSignInRequest
+{
+    public string SignInId { get; set; } = "";        // 32 lower-case hex, Gateway-minted
+    public string AccountEmail { get; set; } = "";
+    public string Reason { get; set; } = "";          // "manual" | "renewal"
+    public DateTime NotAfterUtc { get; set; }         // the Director refuses to START after this
+}
+
+public sealed class LicenseSignInResult
+{
+    public string SignInId { get; set; } = "";
+    public string Outcome { get; set; } = "";          // "added" | "renewed" | "failed"
+    public string? ReasonCode { get; set; }            // a LicenseRenewalErrors code, "not-key-holder" or "expired", when failed
+    public string? Message { get; set; }
+    public DateTime? SignedInAtUtc { get; set; }
+    public DateTime? SignInExpiresAtUtc { get; set; }
+}
+```
+
+The Director answers `not-key-holder` unless it is the key holder (2.4), runs the sign-in (approving locally when it
+has a local profile for the account, else through 8.3), and sends a `"changed"` report after it. Results are kept by
+`SignInId` for 24 hours and replayed like a switch (3.6).
+
+### 8.5 Constants added to section 7
+
+| Constant | Value |
+|---|---|
+| Renewal due when the sign-in ends within (`RenewAhead`) | 5 days |
+| Director renewal run | once a day, and at start |
+| `license-sign-in` command timeout (Gateway) | 5 minutes |
+| `license-approve` command timeout (Gateway) | 3 minutes |
+| A sign-in's `NotAfterUtc` | requested + 10 minutes |

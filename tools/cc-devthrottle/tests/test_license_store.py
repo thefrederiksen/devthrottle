@@ -1154,15 +1154,39 @@ def test_adopt_HeldSpare_IsRenewedInPlace_OldSignInGone(world):
     world.assert_each_signin_in_exactly_one_place()
 
 
-def test_adopt_ActiveAccount_IsRefusedAndNothingMoves(world):
+def test_adopt_ActiveAccount_IsRenewedInPlace(world):
+    world.sign_in(world.default, ACCOUNT_A)
+    world.gone_ok = frozenset({world.key_at(world.default)})
+    folder = _fresh_sign_in(world, ACCOUNT_A)
+    new_key = world.key_at(folder)
+
+    result = world.store().adopt_sign_in(folder, ACCOUNT_A, SIGNED_IN_AT)
+
+    assert result.renewed and result.account.role == "active"
+    assert world.key_at(world.default) == new_key and world.email_at(world.default) == ACCOUNT_A
+    assert world.key_at(folder) is None
+    world.assert_each_signin_in_exactly_one_place()
+
+
+def test_adopt_ActiveKeyRenewedBySessionMeanwhile_IsRefusedAndNothingChanges(world):
+    # A running session renews the active key between the plan and the replace (the store lock does not stop
+    # Claude Code). The replace must not overwrite a sign-in it did not plan on.
     world.sign_in(world.default, ACCOUNT_A)
     folder = _fresh_sign_in(world, ACCOUNT_A)
-    before = world.snapshot()
+    session_key = json.dumps({"claudeAiOauth": {"accessToken": "sk-ant-oat01-SECRET-SESSION", "refreshToken": "r"}})
+    world.secrets[session_key] = ACCOUNT_A
+    world.gone_ok = frozenset({k for k, e in world.secrets.items() if e == ACCOUNT_A and k != session_key})
 
-    with pytest.raises(LicenseStoreError, match="active account"):
-        world.store().adopt_sign_in(folder, ACCOUNT_A, SIGNED_IN_AT)
+    def session_renews(label):
+        if label == "journal" and world.key_at(world.default) != session_key:
+            world.backend().write(world.default, HeldKey(session_key, keychain_account="claude-code-user"))
 
-    assert world.snapshot() == before
+    with pytest.raises(LicenseStoreError, match="changed while it was being renewed"):
+        world.store(checkpoint=session_renews).adopt_sign_in(folder, ACCOUNT_A, SIGNED_IN_AT)
+
+    assert world.key_at(world.default) == session_key
+    assert world.key_at(folder) is not None, "the new sign-in stays in its folder for the caller to discard"
+    assert not (Path(world.store_dir) / "journal.json").exists()
 
 
 def test_adopt_SignInForAnotherAccount_IsRefused(world):
@@ -1222,12 +1246,16 @@ def test_newSigningInFolder_NeverReusesAFolder(world):
 
 
 @pytest.mark.parametrize("kind", ["file", "keychain"])
-@pytest.mark.parametrize("operation_name", ["adopt", "renew"])
+@pytest.mark.parametrize("operation_name", ["adopt", "renew", "renew-active"])
 def test_crash_AdoptAtEveryChangePoint_TheNewSignInIsNeverLost(tmp_path, kind, operation_name):
     def make(tag):
         w = World(tmp_path / tag, kind)
         w.removed = set()
-        if operation_name == "renew":
+        if operation_name == "renew-active":
+            w.sign_in(w.default, ACCOUNT_A)
+            w.gone_ok = frozenset({w.key_at(w.default)})
+            email = ACCOUNT_A
+        elif operation_name == "renew":
             _machine_with_active_and_spare(w)
             w.gone_ok = frozenset({w.key_at(w.store().spare_folder(ACCOUNT_B))})
             email = ACCOUNT_B
@@ -1248,6 +1276,8 @@ def test_crash_AdoptAtEveryChangePoint_TheNewSignInIsNeverLost(tmp_path, kind, o
         before_shape = _shape(w)
         crashed = _run_with_crash_at(w, n, lambda store: store.adopt_sign_in(folder, email, SIGNED_IN_AT))
         assert crashed, f"no crash at change point {n} ({labels[n - 1]})"
+        # The active folder is never without a sign-in, even at the instant of the crash.
+        assert w.key_at(w.default) is not None, f"crash at {labels[n - 1]} left the active folder empty"
 
         w.store().held_accounts()  # the next run recovers first
 

@@ -218,7 +218,7 @@ license_app = typer.Typer(
         "The active sign-in is in the default config folder; each spare has a folder of its own in the store. "
         "A switch exchanges the active sign-in with a spare's. 'usage' reads each account's limits, and "
         "'refresh' keeps a spare's sign-in fresh. 'sign-in' adds a spare by signing it in through a browser "
-        "profile, and 'renew' signs spares in again before their sign-in ends (about a month). Never prints a key."
+        "profile, and 'renew' signs accounts in again before their sign-in ends (about a month). Never prints a key."
     ),
     add_completion=False,
     no_args_is_help=True,
@@ -1805,7 +1805,7 @@ def license_sign_in(
     store_dir: Optional[str] = typer.Option(None, "--store-dir", help=_LICENSE_STORE_DIR_HELP),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
 ) -> None:
-    """Sign an account in here and keep it as a spare (renews a spare held already)."""
+    """Sign an account in here as a spare, or renew the sign-in of one held already."""
     license_signin_ops.sign_in(account, browser, remote_approval, default_config_dir, store_dir, json_output)
 
 
@@ -1832,7 +1832,7 @@ def license_renew(
     default_config_dir: Optional[str] = typer.Option(None, "--default-config-dir", help=_LICENSE_DEFAULT_DIR_HELP),
     store_dir: Optional[str] = typer.Option(None, "--store-dir", help=_LICENSE_STORE_DIR_HELP),
 ) -> None:
-    """Sign in again every spare whose sign-in ends within five days."""
+    """Sign in again every account held whose sign-in ends within five days."""
     license_signin_ops.renew(account, force, json_output, fields, default_config_dir, store_dir)
 
 

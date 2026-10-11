@@ -33,9 +33,10 @@ CHECK nothing-kept: PASS
 sign-in exit 0: {
   "accountEmail": "<account A>",
   "result": "added",
+  "role": "spare",
   "configDir": "<test root>\\store\\spares\\<account A folder>",
-  "signedInAtUtc": "2026-10-11T19:51:13Z",
-  "signInExpiresAtUtc": "2026-11-10T09:42:24Z"
+  "signedInAtUtc": "2026-10-11T20:29:42Z",
+  "signInExpiresAtUtc": "2026-11-09T19:42:34Z"
 }
 CHECK added: PASS
 
@@ -54,22 +55,22 @@ $ license usage --json  (exit 0)
       "plan": "max",
       "rateLimitTier": "default_claude_max_20x",
       "fiveHour": {
-        "utilization": 44.0,
-        "resetsAtUtc": "2026-10-11T20:20:00Z"
+        "utilization": 1.0,
+        "resetsAtUtc": "2026-10-12T01:20:00Z"
       },
       "sevenDay": {
-        "utilization": 87.0,
+        "utilization": 88.0,
         "resetsAtUtc": "2026-10-17T19:00:00Z"
       },
       "extraUsage": {
         "isEnabled": false,
         "utilization": 100.0
       },
-      "readAtUtc": "2026-10-11T19:51:14Z",
+      "readAtUtc": "2026-10-11T20:29:43Z",
       "readError": null,
       "readErrorDetail": null,
-      "signedInAtUtc": "2026-10-11T19:51:13Z",
-      "signInExpiresAtUtc": "2026-11-10T09:42:24Z",
+      "signedInAtUtc": "2026-10-11T20:29:42Z",
+      "signInExpiresAtUtc": "2026-11-09T19:42:34Z",
       "folder": "<test root>\\store\\spares\\<account A folder>"
     }
   ]
@@ -81,9 +82,10 @@ CHECK signed-in-time-reported: PASS
 sign-in exit 0: {
   "accountEmail": "<account A>",
   "result": "renewed",
+  "role": "spare",
   "configDir": "<test root>\\store\\spares\\<account A folder>",
-  "signedInAtUtc": "2026-10-11T19:51:35Z",
-  "signInExpiresAtUtc": "2026-11-08T21:03:53Z"
+  "signedInAtUtc": "2026-10-11T20:30:04Z",
+  "signInExpiresAtUtc": "2026-11-09T18:34:37Z"
 }
 CHECK renewed-in-place: PASS
 CHECK new-sign-in-time: PASS
@@ -103,22 +105,22 @@ $ license usage --json  (exit 0)
       "plan": "max",
       "rateLimitTier": "default_claude_max_20x",
       "fiveHour": {
-        "utilization": 44.0,
-        "resetsAtUtc": "2026-10-11T20:20:00Z"
+        "utilization": 1.0,
+        "resetsAtUtc": "2026-10-12T01:19:59Z"
       },
       "sevenDay": {
-        "utilization": 87.0,
-        "resetsAtUtc": "2026-10-17T19:00:00Z"
+        "utilization": 88.0,
+        "resetsAtUtc": "2026-10-17T18:59:59Z"
       },
       "extraUsage": {
         "isEnabled": false,
         "utilization": 100.0
       },
-      "readAtUtc": "2026-10-11T19:51:36Z",
+      "readAtUtc": "2026-10-11T20:30:05Z",
       "readError": null,
       "readErrorDetail": null,
-      "signedInAtUtc": "2026-10-11T19:51:35Z",
-      "signInExpiresAtUtc": "2026-11-08T21:03:53Z",
+      "signedInAtUtc": "2026-10-11T20:30:04Z",
+      "signInExpiresAtUtc": "2026-11-09T18:34:37Z",
       "folder": "<test root>\\store\\spares\\<account A folder>"
     }
   ]
@@ -145,19 +147,86 @@ $ license list --json  (exit 0)
 CHECK one-spare: PASS
 CHECK sign-in-area-empty: PASS
 
---- 7. remove the test spare
-remove exit 0: Removed: the spare sign-in for <account A> was deleted from this machine.
-help[2]:
-  cc-devthrottle license list
-  cc-devthrottle license add <account-folder>
-$ license list --json  (exit 0)
+--- 7. switch <account A> in, then renew the ACTIVE sign-in in place
+$ license switch <account A> --json  (exit 0)
 {
-  "count": 0,
+  "outcome": "switched",
+  "reasonCode": null,
+  "message": "Switched to <account A>; the default folder held no sign-in before.",
+  "previousActiveAccountEmail": "",
+  "activeAccountEmailAfter": "<account A>",
+  "startedAtUtc": "2026-10-11T20:30:06Z",
+  "finishedAtUtc": "2026-10-11T20:30:06Z",
+  "exchangeMilliseconds": 9,
+  "previousKeptIn": null,
+  "recovered": null
+}
+CHECK now-active: PASS
+sign-in exit 0: {
+  "accountEmail": "<account A>",
+  "result": "renewed",
+  "role": "active",
+  "configDir": "<test root>\\default",
+  "signedInAtUtc": "2026-10-11T20:30:27Z",
+  "signInExpiresAtUtc": "2026-11-08T23:34:16Z"
+}
+CHECK active-renewed-in-place: PASS
+$ license usage --active --json  (exit 0)
+{
+  "count": 1,
+  "total": 1,
   "defaultConfigDir": "<test root>\\default",
   "storeDir": "<test root>\\store",
   "recovered": null,
-  "accounts": []
+  "accounts": [
+    {
+      "accountEmail": "<account A>",
+      "isActive": true,
+      "plan": "max",
+      "rateLimitTier": "default_claude_max_20x",
+      "fiveHour": {
+        "utilization": 1.0,
+        "resetsAtUtc": "2026-10-12T01:20:00Z"
+      },
+      "sevenDay": {
+        "utilization": 88.0,
+        "resetsAtUtc": "2026-10-17T19:00:00Z"
+      },
+      "extraUsage": {
+        "isEnabled": false,
+        "utilization": 100.0
+      },
+      "readAtUtc": "2026-10-11T20:30:27Z",
+      "readError": null,
+      "readErrorDetail": null,
+      "signedInAtUtc": "2026-10-11T20:30:27Z",
+      "signInExpiresAtUtc": "2026-11-08T23:34:16Z",
+      "folder": "<test root>\\default"
+    }
+  ]
 }
-CHECK removed: PASS
+CHECK active-renewed-reads: PASS
+$ license list --json  (exit 0)
+{
+  "count": 1,
+  "defaultConfigDir": "<test root>\\default",
+  "storeDir": "<test root>\\store",
+  "recovered": null,
+  "accounts": [
+    {
+      "email": "<account A>",
+      "role": "active",
+      "organization": "<account A>'s Organization",
+      "configDir": "<test root>\\default",
+      "accountFile": "<test root>\\default\\.claude.json",
+      "keyStore": "file",
+      "keyLocation": "<test root>\\default\\.credentials.json"
+    }
+  ]
+}
+CHECK one-account-active: PASS
+
+--- 8. delete the test root and check no test sign-in is left
+CHECK cleaned: PASS
 
 PROOF PASSED

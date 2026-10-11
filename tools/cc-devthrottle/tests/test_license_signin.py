@@ -136,11 +136,14 @@ def test_signIn_HeldSpare_IsRenewedInPlace(store, tmp_path):
     assert _held(store) == {ACCOUNT_A: "active", ACCOUNT_B: "spare"}
 
 
-def test_signIn_ActiveAccount_RefusedBeforeAnyLoginStarts(store):
-    with pytest.raises(SignInError) as refused:
-        license_signin.sign_in(store, ACCOUNT_A, _approve, start_login=_starter(), now=lambda: NOW)
-    assert refused.value.kind == license_signin.ACTIVE_ACCOUNT
-    assert FakeLogin.instances == [] and _signing_in_folders(store) == []
+def test_signIn_ActiveAccount_IsRenewedInPlace(store):
+    result = license_signin.sign_in(store, ACCOUNT_A, _approve, start_login=_starter(), now=lambda: NOW)
+
+    assert result.renewed and result.role == "active" and result.config_dir == store.default_config_dir
+    key = json.loads((Path(store.default_config_dir) / ".credentials.json").read_text(encoding="utf-8"))
+    assert "NEW" in key["claudeAiOauth"]["accessToken"]
+    assert _held(store) == {ACCOUNT_A: "active"}
+    assert _signing_in_folders(store) == []
 
 
 def test_signIn_BrowserSignedInAsAnotherAccount_NothingIsKept(store):
@@ -293,14 +296,15 @@ def test_renewDue_NoBrowserConfigured_IsAFailedRow_NeverSilent(store, tmp_path):
     assert FakeLogin.instances == []
 
 
-def test_renewDue_ActiveAccountEndingSoon_IsReportedNotRenewed(tmp_path):
+def test_renewDue_ActiveAccountEndingSoon_IsRenewedInPlace(tmp_path):
     _write_sign_in(tmp_path / "default", ACCOUNT_A, "A", NOW + dt.timedelta(days=2))
     store = LicenseStore(str(tmp_path / "default"), str(tmp_path / "store"), backend=FileKeyBackend())
+    license_signin.set_browser(store, ACCOUNT_A, "Profile A")
 
-    rows = license_signin.renew_due(store, start_login=_starter(), now=lambda: NOW)
+    rows = license_signin.renew_due(store, approver_for=lambda p: _approve, start_login=_starter(), now=lambda: NOW)
 
-    assert [(r.account, r.result) for r in rows] == [(ACCOUNT_A, "active-due")]
-    assert FakeLogin.instances == []
+    assert [(r.account, r.role, r.result) for r in rows] == [(ACCOUNT_A, "active", "renewed")]
+    assert rows[0].sign_in_expires_at_utc == "2026-11-10T14:00:00Z"
 
 
 def test_renewDue_SpareWithNoEndDate_IsUnknownNotGuessed(store, tmp_path):

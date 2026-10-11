@@ -13,7 +13,9 @@ What it shows, each step checked, the output passing only when every check passe
 4. `license usage` reads the new spare with its own key and reports when it was signed in;
 5. signing it in again RENEWS the same spare in place: same folder, a new sign-in time;
 6. the renewed spare reads, and exactly one spare is held, with nothing left in the sign-in area;
-7. the spare is removed, so no test sign-in is left behind.
+7. the spare is switched in, so it is the ACTIVE account of the isolated default folder, and signing it in again
+   renews the ACTIVE sign-in in place: the default folder, a new sign-in time, and it reads;
+8. the test root is deleted - on the Mac its Keychain items too - and checked, so no test sign-in is left behind.
 
 Nothing private is printed: every email given is replaced by its label, the test root by "<test root>", the home
 folder, user and machine names by labels, and the authorize code is never printed at all.
@@ -145,6 +147,29 @@ class Proof:
         return p.returncode, _first_json(rest), "".join(out) + rest + "".join(err)
 
 
+def clean(args, default_dir: str | None, store_dir: str | None) -> bool:
+    """Delete the test root. The key store refuses to empty the active folder - by design - so the proof deletes
+    its own test root directly; on the Mac the Keychain item of every folder it used goes first."""
+    if not args.remote:
+        import shutil
+
+        shutil.rmtree(args.test_root)
+        return not Path(args.test_root).exists()
+    service = 'Claude Code-credentials-$(printf %s "$F" | shasum -a 256 | cut -c1-8)'
+    folders = [default_dir or f"{args.remote_root}/default"]
+    script = ('read -r P; security unlock-keychain -p "$P" ~/Library/Keychains/login.keychain-db || exit 9; left=0; '
+              + "".join(f'F={shlex.quote(f)}; while security delete-generic-password -s "{service}" >/dev/null 2>&1; '
+                        f'do :; done; security find-generic-password -s "{service}" >/dev/null 2>&1 && left=1; '
+                        for f in folders)
+              + f'for F in {shlex.quote(store_dir or args.remote_root + "/store")}/spares/*; do [ -d "$F" ] || continue; '
+              f'security find-generic-password -s "{service}" >/dev/null 2>&1 && left=1; done; '
+              f'rm -rf {shlex.quote(args.remote_root)}; [ -e {shlex.quote(args.remote_root)} ] && left=1; '
+              'echo "left=$left"')
+    done = subprocess.run(["ssh", "-o", "BatchMode=yes", args.remote, script],
+                          input=os.environ["DESKTOP_LOGIN_PASSWORD"] + "\n", capture_output=True, text=True)
+    return done.returncode == 0 and done.stdout.strip().endswith("left=0")
+
+
 def _slug(email: str) -> str:
     """The spare folder name for an email, as license_store.spare_slug makes it."""
     return re.sub(r"[^a-z0-9._-]+", "-", email.strip().lower()).strip("-.")
@@ -238,11 +263,24 @@ def main() -> int:
         area = Path(args.test_root) / "store" / "signing-in"
         proof.check("sign-in-area-empty", not area.exists() or not any(area.iterdir()))
 
-    proof.say("\n--- 7. remove the test spare")
-    done = proof.target("remove", account, "--yes")
-    proof.say(f"remove exit {done.returncode}: {done.stdout.strip()}")
+    proof.say(f"\n--- 7. switch <{args.label}> in, then renew the ACTIVE sign-in in place")
+    done, switched = proof.target_json("switch", account)
+    proof.check("now-active", bool(switched) and switched.get("activeAccountEmailAfter") == account)
+    rc, third, text = proof.sign_in(account)
+    proof.say(f"sign-in exit {rc}: {json.dumps(third, indent=2) if third else text.strip()}")
+    default_dir = (listed or {}).get("defaultConfigDir")
+    proof.check("active-renewed-in-place", rc == 0 and bool(third) and third.get("result") == "renewed"
+                and third.get("role") == "active" and third.get("configDir") == default_dir)
+    _, usage = proof.target_json("usage", "--active")
+    row = next((r for r in (usage or {}).get("accounts", []) if r["accountEmail"] == account), None)
+    proof.check("active-renewed-reads", bool(row) and row["isActive"] and row["readError"] is None
+                and row["signedInAtUtc"] == (third or {}).get("signedInAtUtc"))
     _, listed = proof.target_json("list")
-    proof.check("removed", listed is not None and listed["count"] == 0)
+    proof.check("one-account-active", bool(listed) and [(a["email"], a["role"]) for a in listed["accounts"]]
+                == [(account, "active")])
+
+    proof.say("\n--- 8. delete the test root and check no test sign-in is left")
+    proof.check("cleaned", clean(args, default_dir, (listed or {}).get("storeDir")))
 
     proof.say("\nPROOF " + ("FAILED" if proof.failed else "PASSED"))
     return 1 if proof.failed else 0

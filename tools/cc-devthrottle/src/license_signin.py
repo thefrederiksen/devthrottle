@@ -12,10 +12,11 @@ THE FLOW (proven by hand on 10 October 2026, before this code):
    and reads the ``code#state`` the page shows.
 3. The code goes back to the target, which types it into the waiting login. The code is useless anywhere else: it
    only completes the login that holds the matching verifier.
-4. The key store ADOPTS the new folder: a new spare, or - when the account is already a spare here - a RENEWAL that
-   replaces the spare's old sign-in in place (``LicenseStore.adopt_sign_in``). The new sign-in is never copied; it
-   moves, so it exists in exactly one place after every step. The time of the sign-in is recorded, and
-   ``license usage`` reports it as ``signedInAtUtc``.
+4. The key store ADOPTS the new folder: a new spare, or - when the account is held here already, as a spare or as
+   the ACTIVE account - a RENEWAL that replaces its old sign-in in place (``LicenseStore.adopt_sign_in``). The new
+   sign-in is never copied; it moves, so it exists in exactly one place after every step, and the active folder is
+   never left without a sign-in. The time of the sign-in is recorded, and ``license usage`` reports it as
+   ``signedInAtUtc``.
 
 The target and the approver are the same machine when the browser profile is local (``sign_in`` with
 ``browser_approver``). They are two machines when it is not: the target runs ``sign_in`` with an ``approve`` that
@@ -23,8 +24,9 @@ hands the URL over and reads the code back (``license sign-in --remote-approval`
 ``approve_in_browser`` (``license approve``).
 
 WHY RENEWAL EXISTS. A sign-in dies about 30 days after it was made, however often its access is refreshed
-(missions/license-switching/spare-refresh.md). So a spare is signed in again before then: ``renew_due`` renews every
-spare whose sign-in ends within ``RENEW_AHEAD`` (five days, so at about 25 days old), using the browser profile the
+(missions/license-switching/spare-refresh.md) - the active account's too, or the machine stops. So every held account
+is signed in again before then: ``renew_due`` renews each one whose sign-in ends within ``RENEW_AHEAD`` (five days,
+so at about 25 days old), using the browser profile the
 owner configured for that account. Which profile is signed in as which account is the OWNER's configuration, kept in
 the key store's folder on his machine (``sign-in-browsers.json``), never in this repository. A renewal that fails
 is reported in the result and makes the command exit non-zero - never silent.
@@ -49,8 +51,6 @@ from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Protocol
 
 from .license_store import (
-    ROLE_ACTIVE,
-    ROLE_SPARE,
     LicenseStore,
     LicenseStoreError,
     sign_in_ends,
@@ -82,7 +82,6 @@ WRONG_ACCOUNT = "wrong-account"            # the browser profile is signed in to
 NOT_SIGNED_IN = "browser-not-signed-in"    # the browser profile is not signed in to claude.ai at all
 NO_BROWSER = "no-browser-configured"       # no browser profile is configured for the account
 STORE_REFUSED = "store-refused"            # the key store would not take the new sign-in
-ACTIVE_ACCOUNT = "active-account"          # the account is the active one here; it is renewed as a spare
 
 
 class SignInError(Exception):
@@ -213,6 +212,7 @@ def start_claude_login(folder: str, email: str) -> LoginProcess:
 @dataclass(frozen=True)
 class SignInResult:
     email: str
+    role: str
     config_dir: str
     renewed: bool
     signed_in_at_utc: str
@@ -222,34 +222,23 @@ class SignInResult:
         return {
             "accountEmail": self.email,
             "result": "renewed" if self.renewed else "added",
+            "role": self.role,
             "configDir": self.config_dir,
             "signedInAtUtc": self.signed_in_at_utc,
             "signInExpiresAtUtc": self.sign_in_expires_at_utc,
         }
 
 
-def _refuse_active(store: LicenseStore, email: str) -> None:
-    """Fail before any browser is touched when ``email`` is the active account: it can only be renewed as a spare."""
-    for held in store.held_accounts():
-        if (held.email or "").lower() == email.lower() and held.role == ROLE_ACTIVE:
-            raise SignInError(
-                ACTIVE_ACCOUNT,
-                f"{email} is the active account on this machine. The sessions running on it own its sign-in; it is "
-                "signed in again once it is a spare.",
-                ["cc-devthrottle license switch <another account>", "cc-devthrottle license list"])
-
-
 def sign_in(store: LicenseStore, email: str, approve: Approve, *,
             start_login: Optional[StartLogin] = None,
             now: Callable[[], _dt.datetime] = utc_now) -> SignInResult:
-    """Sign ``email`` in on this machine and keep it as a spare (new, or renewing the one held).
+    """Sign ``email`` in on this machine: a new spare, or a renewal in place of the sign-in held (spare or active).
 
     ``approve(url, email)`` returns the ``code#state`` for the authorize URL - from a local browser profile, or
     from another machine. The staging folder is deleted on every failure, key and all: nothing else holds that
     sign-in, so nothing is lost but a sign-in nobody wanted."""
     email = email.strip()
     try:
-        _refuse_active(store, email)
         staging = store.new_signing_in_folder(email, now())
     except LicenseStoreError as ex:
         raise SignInError(STORE_REFUSED, str(ex), ex.next_steps) from None
@@ -274,8 +263,8 @@ def sign_in(store: LicenseStore, email: str, approve: Approve, *,
         if not adopted:
             _discard(store, staging)
     log.info("sign-in %s: %s", email, "renewed" if result.renewed else "added")
-    return SignInResult(email.lower(), result.account.config_dir, result.renewed, iso(result.signed_in_at),
-                        iso(result.sign_in_ends))
+    return SignInResult(email.lower(), result.account.role, result.account.config_dir, result.renewed,
+                        iso(result.signed_in_at), iso(result.sign_in_ends))
 
 
 def _discard(store: LicenseStore, staging: str) -> None:
@@ -301,8 +290,16 @@ WAIT = %(wait)s
 SHOWN = re.compile(r"Logged in as\s+([^\s]+@[^\s]+)", re.I)
 CODE = re.compile(r"[A-Za-z0-9_\-]{20,}#[A-Za-z0-9_\-]{20,}")
 
-def buttons():
-    return js("[...document.querySelectorAll('button')].filter(b=>b.offsetParent).map(b=>{const r=b.getBoundingClientRect();return [b.innerText.trim(), r.x+r.width/2, r.y+r.height/2]})") or []
+def authorize_button():
+    # The consent page is long: the button can sit below the visible area, where a click at its position lands on
+    # nothing. Scroll it to the middle first, then read where it is, and only count it when it is on screen.
+    found = js("""(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.offsetParent&&b.innerText.trim()==='Authorize');
+        if(!b) return null; b.scrollIntoView({block:'center'}); const r=b.getBoundingClientRect();
+        return [r.x+r.width/2, r.y+r.height/2, innerWidth, innerHeight];})()""")
+    if not found:
+        return None
+    x, y, width, height = found
+    return (x, y) if 0 <= x <= width and 0 <= y <= height else None
 
 def finish(state, **extra):
     print("RESULT " + json.dumps(dict(state=state, **extra)))
@@ -312,11 +309,12 @@ tab = current_tab()
 try:
     wait_for_load()
     deadline = time.time() + WAIT
-    text, authorize = "", []
+    text, authorize = "", None
+    # Judge only a settled page: the Authorize button can render before the "Logged in as" line (seen live).
     while time.time() < deadline:
+        authorize = authorize_button()
         text = js("document.body ? document.body.innerText : ''") or ""
-        authorize = [b for b in buttons() if b[0] == "Authorize"]
-        if authorize:
+        if authorize and SHOWN.search(text):
             break
         time.sleep(2)
     shown = SHOWN.search(text)
@@ -327,11 +325,20 @@ try:
     elif shown.group(1).strip().rstrip(".").lower() != EMAIL.lower():
         finish("wrong-account", shown=shown.group(1).strip().rstrip("."))
     else:
-        click_at_xy(authorize[0][1], authorize[0][2])
+        # A click made while the page is still settling can be lost (seen live: the consent page stayed up). So
+        # the button is read again just before the click, and clicked again while it is still showing.
+        time.sleep(1)
+        authorize = authorize_button() or authorize
+        click_at_xy(authorize[0], authorize[1])
+        clicks, last_click = 1, time.time()
         code = None
         deadline = time.time() + WAIT
         while time.time() < deadline and not code:
             time.sleep(1.5)
+            again = authorize_button()
+            if again and clicks < 3 and time.time() - last_click > 6:
+                click_at_xy(again[0], again[1])
+                clicks, last_click = clicks + 1, time.time()
             values = js("[...document.querySelectorAll('input,textarea,code,pre')].map(e=>e.value||e.innerText||'')") or []
             for s in values + [js("document.body ? document.body.innerText : ''") or ""]:
                 m = CODE.search(s)
@@ -342,7 +349,8 @@ try:
             finish("code", code=code)
         else:
             page = js("document.body ? document.body.innerText : ''") or ""
-            finish("no-code", url=page_info().get("url", "").split("?")[0], text=" ".join(page.split())[:300])
+            finish("no-code", clicks=clicks, url=page_info().get("url", "").split("?")[0],
+                   text=" ".join(page.split())[:300])
 finally:
     cdp("Target.closeTarget", targetId=tab["targetId"])
 '''
@@ -514,7 +522,7 @@ class RenewalRow:
     account: str
     role: str
     sign_in_expires_at_utc: Optional[str]
-    result: str = ""     # renewed | not-due | unknown-expiry | active-due | failed-<kind>
+    result: str = ""     # renewed | not-due | unknown-expiry | failed-<kind>
     detail: Optional[str] = None
     browser: Optional[str] = None
     signed_in_at_utc: Optional[str] = None
@@ -539,13 +547,12 @@ def renew_due(store: LicenseStore, *, account: Optional[str] = None, force: bool
               approver_for: Optional[Callable[[str], Approve]] = None,
               start_login: Optional[StartLogin] = None,
               now: Callable[[], _dt.datetime] = utc_now) -> List[RenewalRow]:
-    """Sign every spare in again whose sign-in ends within RENEW_AHEAD (or ``account`` alone; ``force`` renews
-    whether due or not). One row per account held, so the answer says what was NOT renewed and why too:
+    """Sign in again every account held - spares AND the active one - whose sign-in ends within RENEW_AHEAD (or
+    ``account`` alone; ``force`` renews whether due or not). One row per account held, so the answer says what was
+    NOT renewed and why too:
 
     - ``not-due``: the sign-in has more than RENEW_AHEAD left;
     - ``unknown-expiry``: the key carries no end date, so it is not known when it dies (reported, not guessed);
-    - ``active-due``: the ACTIVE account's sign-in ends soon. It is not renewed here (its sessions own it); it is
-      renewed once a switch makes it a spare. Reported so a person sees it coming;
     - ``failed-<kind>``: the renewal was tried and did not work, with the reason."""
     try:
         held = store.held_accounts()
@@ -567,9 +574,6 @@ def renew_due(store: LicenseStore, *, account: Optional[str] = None, force: bool
         row = RenewalRow(email, h.role, iso(ends))
         rows.append(row)
         due = ends is not None and ends - now() <= RENEW_AHEAD
-        if h.role != ROLE_SPARE:
-            row.result = "active-due" if due else ("not-due" if ends else "unknown-expiry")
-            continue
         if not force and ends is None:
             row.result = "unknown-expiry"
             continue

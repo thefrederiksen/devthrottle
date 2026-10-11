@@ -2,12 +2,14 @@
 in the AXI shape (docs/axi-standard.md).
 
 - `license sign-in <email> --browser <profile>` signs an account in on this machine and keeps it as a spare, approving
-  in one of this machine's browser profiles. When the account is a spare already, the spare is RENEWED in place.
+  in one of this machine's browser profiles. When the account is held already - as a spare or as the active
+  account - its sign-in is RENEWED in place.
 - `license sign-in <email> --remote-approval` does the same with the approval done on ANOTHER machine: it prints
   `authorize-url: <url>` and reads the code back as one line on standard input.
 - `license approve --email <email> --browser <profile> <url>` is that other machine's half: it approves the URL in
   its browser profile and prints the code alone, for the caller to hand back.
-- `license renew` signs in again every spare whose sign-in ends within five days, with the profile set for it by
+- `license renew` signs in again every account held (the active one too) whose sign-in ends within five days, with
+  the profile set for it by
   `license set-browser`. It exits non-zero when any renewal failed, so a scheduler sees the failure.
 
 The store is opened exactly as `license list` opens it (`license_ops._open`).
@@ -112,7 +114,7 @@ def renew(account: Optional[str], force: bool, json_output: bool, fields: Option
         print(json.dumps({"count": len(rows), "failed": len(failed), "accounts": [r.to_json() for r in rows]},
                          indent=2))
     else:
-        results = ("renewed", "not-due", "unknown-expiry", "active-due")
+        results = ("renewed", "not-due", "unknown-expiry")
         breakdown = [(label, n) for label in results if (n := sum(1 for r in rows if r.result == label))]
         if failed:
             breakdown.append(("failed", len(failed)))
@@ -126,8 +128,6 @@ def renew(account: Optional[str], force: bool, json_output: bool, fields: Option
         else:
             blocks.append("This machine holds no account to renew.")
         help_lines = []
-        if any(r.result == "active-due" for r in rows):
-            help_lines.append("cc-devthrottle license switch <another account>")
         if failed:
             help_lines.append("cc-devthrottle license renew --fields account,result,detail")
         help_lines.append("cc-devthrottle license renew --json")
