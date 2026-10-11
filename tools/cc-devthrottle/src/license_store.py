@@ -129,6 +129,11 @@ class HeldKey:
         """The raw value, for a key backend writing it to its own store. Never print or log it."""
         return self._secret
 
+    def fingerprint(self) -> str:
+        """A SHA-256 of the key, so a journal can name WHICH sign-in a step acts on without holding the key.
+        Never reversible to the key; still never printed."""
+        return hashlib.sha256(self._secret.encode("utf-8")).hexdigest()
+
     def same_as(self, other: Optional["HeldKey"]) -> bool:
         """True when ``other`` holds exactly this value."""
         return other is not None and hmac.compare_digest(self._secret.encode("utf-8"), other._secret.encode("utf-8"))
@@ -185,17 +190,26 @@ def canonical_folder(folder: str | os.PathLike, what: str) -> str:
     item. Rewriting a folder here would name an item Claude Code never reads, and accepting several spellings
     of one folder would give it several names - so exactly one spelling is accepted and hashed as it is."""
     text = os.fspath(folder)
+    # Never advise just retyping the folder another way: that names a different Keychain item from the one a
+    # sign-in made under this spelling lives in. The way out is a sign-in made under the canonical spelling.
     if not text or not os.path.isabs(text):
         raise LicenseStoreError(
-            f"{what} must be an absolute path, written exactly as CLAUDE_CONFIG_DIR is set; got {text!r}",
-            ["Pass the full path, e.g. --default-config-dir /full/path/to/folder"],
+            f"{what} is {text!r}, a relative path. A relative CLAUDE_CONFIG_DIR is not supported for license "
+            "switching: Claude Code names its sign-in by the folder exactly as typed, so the same folder written "
+            "absolutely is a different sign-in.",
+            ["Sign the account in again with CLAUDE_CONFIG_DIR set to an absolute folder, e.g. "
+             "CLAUDE_CONFIG_DIR=/full/path/to/folder claude auth login, and pass that folder"],
         )
     canonical = os.path.normpath(text)
-    if canonical != text or canonical == os.path.dirname(canonical):
+    if canonical == os.path.dirname(canonical):
+        raise LicenseStoreError(f"{what} cannot be the root folder ({text!r})", ["Use a folder below the root"])
+    if canonical != text:
         raise LicenseStoreError(
-            f"{what} must be written in its one canonical form (no trailing separator, no . or .. segment, no "
-            f"doubled separator, not the root); got {text!r}",
-            [f"Pass it as: {canonical}" if canonical != os.path.dirname(canonical) else "Pass a folder below the root"],
+            f"{what} is {text!r}, which is not in its one canonical form (no trailing separator, no . or .. "
+            "segment, no doubled separator). That spelling is not supported for license switching: Claude Code "
+            "names its sign-in by the folder exactly as typed, so a sign-in made under it is not the one under "
+            f"{canonical}.",
+            [f"Sign the account in again with CLAUDE_CONFIG_DIR={canonical} claude auth login, and pass {canonical}"],
         )
     return text
 
@@ -693,21 +707,34 @@ class LicenseStore:
         self._checkpoint("copy-account")
         _write_oauth_account(target, block)
 
-    def _step_erase(self, folder: str) -> None:
-        """Delete ``folder``'s key and account block outright - the one deliberate end of a sign-in, used only by
-        remove. Done already counts as done, so a crash between the two halves is finished by the next run."""
-        self._checkpoint("erase-key")
-        self.backend.delete(folder)
-        self._checkpoint("erase-account")
-        _clear_oauth_account(folder)
+    def _step_erase(self, folder: str, fingerprint: str, email: str) -> None:
+        """Delete the ONE sign-in remove set out to delete - the key whose ``fingerprint`` the journal recorded -
+        and its account block. Done already counts as done, so a crash between the two halves is finished by the
+        next run. A different key now in the folder (a login after the crash) means the removal already
+        happened; it is left alone, and so is an account block naming any account but ``email``."""
+        key = self.backend.read(folder)
+        if key is not None:
+            if not hmac.compare_digest(key.fingerprint(), fingerprint):
+                self._log("erase-left-alone", folder=folder, account=email,
+                          reason="the folder now holds a different sign-in")
+                return
+            self._checkpoint("erase-key")
+            self.backend.delete(folder)
+        if (_email_of(read_oauth_account(folder)) or "").lower() == email.lower():
+            self._checkpoint("erase-account")
+            _clear_oauth_account(folder)
 
     def _step_drop(self, folder: str, kept_in: str) -> None:
         """Remove ``folder``'s key and account block, but only when ``kept_in`` holds the same key and account,
         so a sign-in is never deleted from its last place. Done already counts as done."""
         key = self.backend.read(folder)
         if key is None:
-            self._checkpoint("drop-account")
-            _clear_oauth_account(folder)
+            # The key is gone already. Clear the account block only when it names the account that went to
+            # kept_in: any other block belongs to a sign-in this step never touched.
+            here, there = _email_of(read_oauth_account(folder)), _email_of(read_oauth_account(kept_in))
+            if here is not None and there is not None and here.lower() == there.lower():
+                self._checkpoint("drop-account")
+                _clear_oauth_account(folder)
             return
         kept = self.backend.read(kept_in)
         if not key.same_as(kept):
@@ -726,7 +753,7 @@ class LicenseStore:
         elif step["op"] == "drop":
             self._step_drop(step["folder"], step["keptIn"])
         elif step["op"] == "erase":
-            self._step_erase(step["folder"])
+            self._step_erase(step["folder"], step["fingerprint"], step["account"])
         else:
             raise _StepFailed(f"the journal names an unknown step {step['op']!r}")
 
@@ -910,7 +937,10 @@ class LicenseStore:
                 )
             # Journaled like every other change, so a crash between deleting the key and clearing the account
             # block is finished by the next run instead of leaving the block behind without its key.
-            self._start("remove", account.email, [{"op": "erase", "folder": account.config_dir}])
+            fingerprint = account.read_key().fingerprint()
+            self._start("remove", account.email,
+                        [{"op": "erase", "folder": account.config_dir, "fingerprint": fingerprint,
+                          "account": account.email}])
             self._log("remove-finished", account=account.email)
             return account
 

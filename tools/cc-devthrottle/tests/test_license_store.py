@@ -372,6 +372,94 @@ def test_review_RollForwardNeverOverwritesASigninWrittenAfterTheCrash(world, tmp
     world.assert_each_signin_in_exactly_one_place()
 
 
+def test_fixRound_RemoveRecoveryNeverDeletesASigninMadeAfterTheCrash(world, tmp_path):
+    # The fix-round review's reproduction: remove crashes after B's key is deleted, then a login puts C into
+    # the same, now empty, spare folder before anyone recovers. Recovery must finish removing B only.
+    labels = []
+    probe = World(tmp_path / "probe-remove-c", world.kind)
+    probe.removed = set()
+    _machine_with_active_and_spare(probe)
+    probe.store(checkpoint=labels.append).remove(ACCOUNT_B)
+    _machine_with_active_and_spare(world)
+    assert _run_with_crash_at(world, labels.index("erase-account") + 1, _remove)
+    spare_b = world.store().spare_folder(ACCOUNT_B)
+    world.removed.add(ACCOUNT_B)
+    key_c = world.sign_in(spare_b, ACCOUNT_C)
+
+    world.store().held_accounts()
+
+    assert world.key_at(spare_b) == key_c and world.email_at(spare_b) == ACCOUNT_C
+    world.assert_each_signin_in_exactly_one_place()
+    assert not (Path(world.store_dir) / "journal.json").exists()
+    assert "erase-left-alone" in (Path(world.store_dir) / "license-store.log").read_text(encoding="utf-8")
+
+
+def test_fixRound_RemoveJournalHoldsAFingerprintNotTheKey(world, tmp_path):
+    _machine_with_active_and_spare(world)
+    key_b = world.key_at(world.store().spare_folder(ACCOUNT_B))
+    assert _run_with_crash_at(world, 2, _remove)  # just after the journal was written
+    journal = json.loads((Path(world.store_dir) / "journal.json").read_text(encoding="utf-8"))
+    (step,) = journal["steps"]
+    assert step["fingerprint"] == hashlib.sha256(key_b.encode("utf-8")).hexdigest()
+    assert "SECRET" not in json.dumps(journal)
+
+
+def test_fixRound_AddRecoveryNeverDeletesASigninMadeAfterTheCrash(world, tmp_path):
+    # The same rule for the other step that deletes: add crashes after the source folder's key is deleted,
+    # then a login puts D into the source folder. Recovery must not clear D's account block or key.
+    labels = []
+    probe = World(tmp_path / "probe-add-d", world.kind)
+    probe.removed = set()
+    probe.sign_in(probe.default, ACCOUNT_A)
+    probe_source = probe.new_signin_folder(ACCOUNT_B)
+    probe.store(checkpoint=labels.append).add(probe_source)
+    world.sign_in(world.default, ACCOUNT_A)
+    source = world.new_signin_folder(ACCOUNT_B)
+    assert _run_with_crash_at(world, labels.index("drop-account") + 1, lambda store: store.add(source))
+    assert world.key_at(source) is None
+    key_d = world.sign_in(source, "account-d@example.com")
+
+    try:
+        world.store().held_accounts()
+    except LicenseStoreError:
+        pass  # stopping with nothing changed is an acceptable answer; losing D is not
+
+    assert world.key_at(source) == key_d and world.email_at(source) == "account-d@example.com"
+    world.assert_each_signin_in_exactly_one_place()
+
+
+@pytest.mark.parametrize("operation_name", ["add", "remove"])
+def test_fixRound_RecoveryLeavesAnotherAccountsBlockAlone(world, tmp_path, operation_name):
+    # The key is already gone, and before recovery something writes ANOTHER account's block into the folder
+    # (a login that has written its account file but not yet its key). Recovery clears only the block of the
+    # account it moved or removed, never someone else's.
+    labels = []
+    probe = World(tmp_path / f"probe-{operation_name}-block", world.kind)
+    probe.removed = set()
+    _machine_with_active_and_spare(probe)
+    probe_source = probe.new_signin_folder(ACCOUNT_C)
+    if operation_name == "add":
+        probe.store(checkpoint=labels.append).add(probe_source)
+        crash_label = "drop-account"
+    else:
+        probe.store(checkpoint=labels.append).remove(ACCOUNT_B)
+        crash_label = "erase-account"
+    _machine_with_active_and_spare(world)
+    source = world.new_signin_folder(ACCOUNT_C)
+    operation = (lambda store: store.add(source)) if operation_name == "add" else _remove
+    folder = source if operation_name == "add" else world.store().spare_folder(ACCOUNT_B)
+    assert _run_with_crash_at(world, labels.index(crash_label) + 1, operation)
+    assert world.key_at(folder) is None
+    path = Path(folder) / ".claude.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["oauthAccount"] = {"emailAddress": "account-d@example.com"}
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+    world.store().held_accounts()
+
+    assert world.email_at(folder) == "account-d@example.com"
+
+
 def test_review_RemoveCrashBetweenKeyAndAccountBlock_TheNextRunClearsTheBlock(world, tmp_path):
     _machine_with_active_and_spare(world)
     labels = []
@@ -805,12 +893,16 @@ def test_store_NonCanonicalFolder_IsRefusedNamingTheCanonicalForm(tmp_path, whic
         with pytest.raises(LicenseStoreError, match="canonical form") as refused:
             LicenseStore(bad if which == "default" else default, bad if which == "store" else store_dir,
                          FileKeyBackend())
+    # The way out is a NEW sign-in under the canonical spelling - never "retype it", which would point at a
+    # different Keychain item from the one the existing sign-in is in.
+    assert "not supported for license switching" in str(refused.value)
+    assert refused.value.next_steps[0].startswith("Sign the account in again with CLAUDE_CONFIG_DIR=")
     assert os.path.normpath(bad) in refused.value.next_steps[0]
 
 
 def test_store_RootFolder_IsRefused(tmp_path):
     root = os.path.abspath(os.sep)
-    with pytest.raises(LicenseStoreError, match="canonical form"):
+    with pytest.raises(LicenseStoreError, match="root folder"):
         LicenseStore(root, str(tmp_path / "s"), FileKeyBackend())
 
 
@@ -823,11 +915,15 @@ def test_store_RelativeFolder_IsRefused(tmp_path, which):
     if which == "store":
         store_dir = "store"
     if which == "add":
-        with pytest.raises(LicenseStoreError, match="absolute path"):
+        with pytest.raises(LicenseStoreError, match="relative path") as refused:
             LicenseStore(default, store_dir, FileKeyBackend()).add("isolated-claude")
-        return
-    with pytest.raises(LicenseStoreError, match="absolute path"):
-        LicenseStore(default, store_dir, FileKeyBackend())
+    else:
+        with pytest.raises(LicenseStoreError, match="relative path") as refused:
+            LicenseStore(default, store_dir, FileKeyBackend())
+    # Not supported, and the way out is signing in again under an absolute folder - never "use the absolute
+    # spelling", which names a different Keychain item from the existing sign-in's.
+    assert "A relative CLAUDE_CONFIG_DIR is not supported for license switching" in str(refused.value)
+    assert refused.value.next_steps[0].startswith("Sign the account in again with CLAUDE_CONFIG_DIR set to an absolute")
 
 
 def test_keychain_Exchange_ItemsLandUnderTheExactServiceNames(tmp_path):

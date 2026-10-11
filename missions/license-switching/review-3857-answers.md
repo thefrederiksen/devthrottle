@@ -109,7 +109,53 @@ block. They now remove both (`_vanish`), which is what a spare disappearing mean
 `add-generic-password ... -X <hex>` would produce, and a safe shape carrying the hex, and requires both
 to fail.
 
+## Fix round (`review-3857-fix-round.md`)
+
+### P1 - Recovery of an interrupted remove can delete a later sign-in
+
+**Accepted.** Remove's journal step now records a fingerprint of the key it sets out to delete: a
+SHA-256 of the key, never the key itself (`HeldKey.fingerprint()`). The erase deletes only a key with
+that fingerprint. A different key in the folder means the removal already happened and a new sign-in
+arrived; it is left alone and the log says so (`erase-left-alone`). The account block is cleared only
+when it names the removed account.
+
+The same rule now holds for the other step that deletes. Add's drop already deleted a key only when the
+same key was proven in its new place. When the key is already gone, it now clears the account block
+only when that block names the account that moved.
+
+Tests, on both backends:
+
+- `test_fixRound_RemoveRecoveryNeverDeletesASigninMadeAfterTheCrash` is the reviewer's scenario: crash
+  after B's key is deleted, C signs in to that folder, recovery. C's key and block survive.
+- `test_fixRound_RemoveJournalHoldsAFingerprintNotTheKey`.
+- `test_fixRound_AddRecoveryNeverDeletesASigninMadeAfterTheCrash`.
+- `test_fixRound_RecoveryLeavesAnotherAccountsBlockAlone`: for add and for remove, another account's
+  block written before recovery is kept.
+
+With the fingerprint check removed, the reviewer's scenario fails. With the block checks removed, all
+four block tests fail.
+
+### P2 - The canonical-folder rule refuses relative config folders Claude Code can use
+
+**Declined as a change of behaviour; the error message is fixed.** A relative folder, or any spelling
+other than the canonical one, stays refused, on the Tech Lead's recommendation:
+
+- a person who sets a relative `CLAUDE_CONFIG_DIR` is rare;
+- a relative folder's meaning depends on where each process starts, so the Director and Claude Code
+  could resolve it differently;
+- failing loudly beats guessing.
+
+The reviewer is right that the old advice ("pass the full path", "pass it as <canonical>") pointed at a
+different Keychain item from the one the existing sign-in lives in. The errors now say a relative or
+non-canonical `CLAUDE_CONFIG_DIR` is not supported for license switching, and that the way out is to
+sign the account in again with `CLAUDE_CONFIG_DIR` set to the absolute, canonical folder, which is
+named.
+
+`test_store_RelativeFolder_IsRefused` and `test_store_NonCanonicalFolder_IsRefusedNamingTheCanonicalForm`
+assert the new wording and that the next step is a new sign-in, not a retyped path.
+
 ## Tests run
 
 cc-devthrottle only, as the Tech Lead asked: `tests/test_license_store.py`, `tests/test_license_cli.py`,
-`tests/test_help_and_errors_axi.py` and `tests/test_actions_cli.py`, at the declared dependency floors.
+`tests/test_help_and_errors_axi.py` and `tests/test_actions_cli.py`, at the declared dependency floors,
+after each round.
