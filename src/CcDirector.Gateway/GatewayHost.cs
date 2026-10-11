@@ -1506,6 +1506,7 @@ public sealed class GatewayHost : IAsyncDisposable
     private readonly Push.WebPushVapidStore _vapidStore;
     private readonly Push.PushSubscriptionStore _pushSubscriptions;
     private Push.WebPushNeedsYouNotifier? _pushNotifier;
+    private readonly Push.SecretTransferPushNotifier _secretTransferPush;
     // The per-tenant driver for the app-icon dot, and the timer that fires it. The notifier holds no timer of
     // its own: a bare timer has no tenant, which is exactly why hosted push had to be switched off before.
     private Push.PushNeedsYouTenantSweep? _pushNeedsYouSweep;
@@ -2520,6 +2521,10 @@ public sealed class GatewayHost : IAsyncDisposable
         // argument is the LEGACY push-subscriptions.json, imported once on first upgrade then renamed aside.
         // Tests MUST pass an isolated path so they never touch the real legacy file.
         _pushSubscriptions = new Push.PushSubscriptionStore(_gatewayDb, pushSubscriptionsPath ?? Path.Combine(CcStorage.ToolConfig("gateway"), "push-subscriptions.json"));
+        // The Secret Handoff push (issue #2943, phase 5): a transfer waiting for the owner is pushed to the same phones, over
+        // its own VAPID sender so its lifetime does not hang on the needs-you sweep starting.
+        _secretTransferPush = new Push.SecretTransferPushNotifier(_pushSubscriptions,
+            new Push.VapidWebPushSender(_vapidStore.PublicKey, _vapidStore.PrivateKey, "mailto:support@devthrottle.com"));
 
         // Gateway device registration (issue #857): on sign-in (and as a first-launch/retry safety net on
         // the heartbeat) register THIS Gateway as a device with the cloud account and store the issued
@@ -5308,6 +5313,10 @@ public sealed class GatewayHost : IAsyncDisposable
             // approved transfer ends at once, saying so, rather than sitting "approved" with nothing behind it.
             startDelivery: (tenant, transferId) => SecretTransfers.TryFinish(tenant, transferId, delivered: false,
                 "Approved, but this Gateway cannot move a secret between machines yet. Nothing was moved.", DateTime.UtcNow),
+            // A waiting transfer is pushed to the owner's phones (phase 5). The subscriptions are read inside the request,
+            // so the push reaches this account's phones only; the sends are not awaited, so a slow push service never
+            // holds up the agent that asked.
+            announceWaiting: (forTenant, transfer) => { _ = _secretTransferPush.NotifyWaitingAsync(transfer, CancellationToken.None); },
             nowUtc: () => DateTime.UtcNow);
 
         // Requests for a message link (issue #3548): a session asks, the owner - or a raised session - answers. Asking is
@@ -6820,6 +6829,7 @@ public sealed class GatewayHost : IAsyncDisposable
         try { _pushNotifierTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] push needs-you timer dispose error: {ex.Message}"); }
         _pushNotifierTimer = null;
         try { _pushNotifier?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] push notifier dispose error: {ex.Message}"); }
+        try { _secretTransferPush.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] secret transfer push dispose error: {ex.Message}"); }
         try { _netDiagMonitor?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] netdiag monitor dispose error: {ex.Message}"); }
         try { _hostedAiSpendSweep?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] hosted-ai spend sweep dispose error: {ex.Message}"); }
         _pushNotifier = null;
