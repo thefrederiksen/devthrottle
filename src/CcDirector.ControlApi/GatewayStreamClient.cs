@@ -70,6 +70,13 @@ public sealed class GatewayStreamClient : IAsyncDisposable
     private readonly Func<string?>? _displayName;
 
     /// <summary>
+    /// The Secret Handoff mission: this machine's public key for receiving a secret, read on every Hello. The provider
+    /// never blocks - it answers empty until cc-secrets has been read once, and empty for good when this machine cannot
+    /// take part. Null in tests and older callers: the Hello then offers no key, which is the same answer.
+    /// </summary>
+    private readonly Func<string>? _secretTransferPublicKey;
+
+    /// <summary>
     /// Remove-the-network-port phase 1b: the registrations for every live session that holds a Gateway
     /// session key, re-sent on every reseed so a key survives a tunnel drop, a Gateway restart, and a
     /// Director reconnect. Null in tests and older callers - session keys are then simply never registered,
@@ -164,8 +171,10 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         CcDirector.Core.Background.BackgroundJobs? jobs = null,
         Action? onNewConnection = null,
         Func<string, string?>? teamNameForKey = null,
-        Func<Task>? redialDelay = null)
+        Func<Task>? redialDelay = null,
+        Func<string>? secretTransferPublicKey = null)
     {
+        _secretTransferPublicKey = secretTransferPublicKey;
         _redialDelay = redialDelay ?? (() => Task.Delay(RestartDelay));
         _teamNameForKey = teamNameForKey;
         _jobs = jobs ?? CcDirector.Core.Background.BackgroundJobs.Default;
@@ -684,6 +693,25 @@ public sealed class GatewayStreamClient : IAsyncDisposable
     }
 
     /// <summary>
+    /// The Secret Handoff mission: the key this Hello offers. Like the display name it must never take the Hello down,
+    /// so a provider that throws is logged and the Hello offers no key - the Gateway then simply does not list this
+    /// machine as able to receive.
+    /// </summary>
+    private string ReadSecretTransferPublicKey()
+    {
+        if (_secretTransferPublicKey is null) return "";
+        try
+        {
+            return _secretTransferPublicKey() ?? "";
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayStreamClient] secret transfer key provider FAILED (Hello offers no key): {ex.Message}");
+            return "";
+        }
+    }
+
+    /// <summary>
     /// The hub methods this Director will actually call on a Gateway, and therefore the ones whose
     /// absence it should say something about. Kept deliberately SHORT: this is not an inventory of
     /// the hub, it is the list whose absence has a consequence a person needs to hear about.
@@ -856,6 +884,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
                 Pid = Environment.ProcessId,
                 StartedAt = _startedAt,
                 DisplayName = ReadDisplayName(),
+                SecretTransferPublicKey = ReadSecretTransferPublicKey(),
                 PushesTurns = true,   // this build carries the TurnPusher (turn-push mission)
                 ChecksIdleBeforeTyping = true,   // this build honours PromptRequest.OnlyWhenWaitingForInput
                 CreatesFleetManagerHome = true,   // this build honours NewSessionRequest.FleetManagerHome

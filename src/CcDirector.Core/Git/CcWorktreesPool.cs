@@ -119,32 +119,7 @@ public sealed class CcWorktreesPool : IWorktreePool
     /// copy comes before PATH for the same reason the session PATH is rewritten at launch: another
     /// install's copy in front of ours is shared state we do not control.
     /// </summary>
-    public static string? ResolveExecutable()
-    {
-        var explicitPath = Environment.GetEnvironmentVariable(ExecutableEnvVar);
-        if (!string.IsNullOrWhiteSpace(explicitPath))
-        {
-            var resolved = ExecutableResolver.Resolve(explicitPath);
-            if (resolved is not null)
-                return resolved;
-            FileLog.Write($"[CcWorktreesPool] {ExecutableEnvVar}={explicitPath} does not resolve to a file; falling through to the normal search");
-        }
-
-        try
-        {
-            var ownBin = Path.Combine(Storage.CcStorage.Bin(), ToolName);
-            var own = ExecutableResolver.Resolve(ownBin);
-            if (own is not null)
-                return own;
-        }
-        catch (Exception ex)
-        {
-            // The tool directory is not readable on this machine. That is not a reason to stop looking.
-            FileLog.Write($"[CcWorktreesPool] could not look in the machine's tool directory FAILED: {ex.Message}");
-        }
-
-        return ExecutableResolver.Resolve(ToolName);
-    }
+    public static string? ResolveExecutable() => CcToolExecutable.Resolve(ToolName, ExecutableEnvVar);
 
     /// <inheritdoc />
     public PooledWorktree Get(string repoPath, string holder, int poolSize)

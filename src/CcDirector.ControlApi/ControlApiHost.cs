@@ -1145,7 +1145,20 @@ public sealed class ControlApiHost : IAsyncDisposable
             {
                 if (Guid.TryParse(id, out var confirmed))
                     _sessionGatewayKeys.RevocationConfirmed(confirmed);
-            });
+            },
+            // The Secret Handoff mission, phase 4: this machine's public key for receiving a secret, read from
+            // cc-secrets once on the thread pool, started here so it is usually ready by the first Hello. Until it
+            // is, and for good when cc-secrets is missing or too old, the Hello offers no key.
+            secretTransferPublicKey: StartSecretTransferMachineKey());
+    }
+
+    /// <summary>The Secret Handoff mission: starts the one read of this machine's public key and returns the
+    /// never-blocking provider the Hello reads.</summary>
+    private static Func<string> StartSecretTransferMachineKey()
+    {
+        var machineKey = new SecretTransferMachineKey();
+        machineKey.Start();
+        return () => machineKey.Current;
     }
 
     /// <summary>
