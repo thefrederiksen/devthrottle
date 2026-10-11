@@ -25,6 +25,10 @@ internal sealed class RecordingSessionBackend : ISessionBackend
     public TimeSpan BlindSubmitDelay { get; init; } = TimeSpan.FromMilliseconds(50);
     public RecordingEchoScript EchoScript { get; } = new();
 
+    /// <summary>The clock this backend's echoes and blind-submit pause run on. A test gives the backend and the send
+    /// the same fake clock and advances it; the real clock otherwise.</summary>
+    public TimeProvider Clock { get; init; } = TimeProvider.System;
+
     /// <summary>
     /// What is parked in the composer RIGHT NOW because an Enter was swallowed - empty once something
     /// finally submits. Live-state, not a tally: a prompt the watchdog nudged through was parked and
@@ -82,7 +86,7 @@ internal sealed class RecordingSessionBackend : ISessionBackend
         }
 
         EchoScript.RecordTypedText(Encoding.UTF8.GetString(data));
-        EchoScript.ScheduleEcho(Buffer, data);
+        EchoScript.ScheduleEcho(Buffer, data, Clock);
     }
 
     public async Task SendTextAsync(string text)
@@ -92,7 +96,7 @@ internal sealed class RecordingSessionBackend : ISessionBackend
             return;
 
         Write(Encoding.UTF8.GetBytes(text));
-        await Task.Delay(BlindSubmitDelay);
+        await Task.Delay(BlindSubmitDelay, Clock);
         Write([0x0D]);
     }
 
@@ -167,14 +171,16 @@ internal sealed class RecordingEchoScript
         IsComposerReady = false;
     }
 
-    public void ScheduleEcho(CircularTerminalBuffer? buffer, byte[] typedBytes)
+    /// <summary>Start the echo for <paramref name="typedBytes"/> on <paramref name="clock"/>. It is started here, on the
+    /// caller's thread, so its wait is registered on the clock before the write returns.</summary>
+    public void ScheduleEcho(CircularTerminalBuffer? buffer, byte[] typedBytes, TimeProvider clock)
     {
         if (buffer is null)
             return;
 
         var typedText = Encoding.UTF8.GetString(typedBytes);
         var step = _steps.Count > 0 ? _steps.Dequeue() : _defaultStep;
-        _ = EchoAsync(buffer, typedText, step);
+        _ = EchoAsync(buffer, typedText, step, clock);
     }
 
     public void ClearComposer()
@@ -183,7 +189,7 @@ internal sealed class RecordingEchoScript
         IsComposerReady = false;
     }
 
-    private async Task EchoAsync(CircularTerminalBuffer buffer, string typedText, RecordingEchoStep step)
+    private async Task EchoAsync(CircularTerminalBuffer buffer, string typedText, RecordingEchoStep step, TimeProvider clock)
     {
         if (step.Mode == RecordingEchoMode.Withheld)
             return;
@@ -192,7 +198,7 @@ internal sealed class RecordingEchoScript
             buffer.Write(Encoding.UTF8.GetBytes(step.PlaceholderText));
 
         if (step.Delay > TimeSpan.Zero)
-            await Task.Delay(step.Delay);
+            await Task.Delay(step.Delay, clock);
 
         var echoText = step.EchoText ?? typedText;
         buffer.Write(Encoding.UTF8.GetBytes(echoText));
@@ -203,7 +209,7 @@ internal sealed class RecordingEchoScript
         // watchdog (a composer that NEVER accepts leaves ReadyAfter null and must end in a throw).
         if (step.ReadyAfter is TimeSpan readyAfter)
         {
-            await Task.Delay(readyAfter);
+            await Task.Delay(readyAfter, clock);
             IsComposerReady = true;
         }
     }

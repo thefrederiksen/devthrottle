@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Time.Testing;
 
-namespace CcDirector.Core.UnitTests;
+namespace CcDirector.TestInfrastructure;
 
 /// <summary>
 /// Drives a send on a fake clock. The send path waits on a <see cref="TimeProvider"/> - the echo deadline, the paste
@@ -11,8 +11,11 @@ namespace CcDirector.Core.UnitTests;
 ///
 /// A send that never finishes is reported, not waited for: if the real clock passes <see cref="RealLimit"/> while
 /// the fake one is advanced, something in the path still waits on real time, and the exception says so.
+///
+/// Linked into the test projects that drive the send path (Core.UnitTests, Core.Tests) by name, not through the
+/// shared item group in Directory.Build.props, because it needs the fake-clock package those projects reference.
 /// </summary>
-internal static class VirtualTime
+public static class VirtualTime
 {
     /// <summary>How long, in real time, a virtual run may take before it is called stuck.</summary>
     public static readonly TimeSpan RealLimit = TimeSpan.FromSeconds(60);
