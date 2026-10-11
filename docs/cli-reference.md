@@ -2090,6 +2090,11 @@ COMMANDS:
   run      Run a command with the secret supplied; output comes back with the secret removed
   get      Print a SETTING's value (never a secret)
   login    Fill and submit the login form in a Director-owned browser; refuses any other address
+  request  Get an entry from another machine onto this one, once the owner approves
+  send     Send an entry from this machine to another, once the owner approves
+  machines The machines an entry can move between, and whether each one's key changed
+  approvals / approve / deny   Transfers waiting for an answer, and the answer
+  trust-machine  OWNER: trust a machine's new key after it changed
   log      Show the audit log (-n, --json)
   version  Print the version (the same line as `--version`)
 ```
@@ -2327,6 +2332,100 @@ that page first. If it cannot be confirmed - for example the connection dropped 
 connection, and if that fails too the tab is closed.
 
 ---
+
+### Moving an entry between machines
+
+An entry lives on the machine that holds it. To use it on another machine, it is **moved, once, with the owner's
+approval** - one approval per transfer, wherever it is given (owner decision, 10 October 2026). The secret is
+sealed on the holding machine for the receiving machine's own key and opened only there: the Gateway passes the
+sealed bytes on and never stores them, and no command prints, logs or audits the value.
+
+- Each machine has its own transfer key (`cc-secrets machine-key`), created on first use and kept in the store
+  folder. The Director publishes its public half to the Gateway. The first time a machine sends to another it pins
+  that machine's key; if the key later changes (a reinstalled machine) the transfer is refused until the owner trusts
+  the new key (`cc-secrets trust-machine`, or `send --accept-new-key`).
+- The owner answers wherever they are: the phone, the Cockpit card, the session's badge, the pop-up the cc-secrets
+  window opens on the holding machine, `cc-secrets approve` in their own terminal, or in the agent's chat, which the
+  agent passes on with `--owner-approved "<the owner's words, verbatim>"`. The first answer wins; the others are told
+  it was answered. A transfer not answered within 15 minutes expires.
+- Replacing an entry that already exists on the receiving machine must be asked for (`--replace`); otherwise it is
+  refused, with the reason, and nothing is overwritten.
+- Every transfer is recorded on both machines (`cc-secrets log`) and on the Gateway: who asked, why, who answered,
+  where, and with what words.
+- A fleet message, reply, report (`session handback`), typed prompt, raised hand, first prompt of a new session,
+  schedule seed or trigger prompt that contains a value stored on the sending machine is refused: `cc-devthrottle` asks `cc-secrets check-text` first,
+  and does not send when cc-secrets cannot answer. It catches a stored value and its common re-encodings (base64,
+  hexadecimal, escaped forms), not a secret someone deliberately rewrote; a secret travels as a transfer, never in a
+  message.
+
+Accepted limitation: the machine credential that approves from the window or a terminal can be read by every program
+running as the owner's user, agents included. The Gateway therefore records such an answer as given by "the own
+credential of <machine>", never as "the owner", and that credential can answer only for a transfer that involves its
+own machine. Real separation needs the operating system's help; it is planned together with encrypting the store at
+rest.
+
+### cc-secrets request
+
+How an agent gets a credential this machine does not hold. It asks the Gateway, waits for the owner's answer, and
+prints `stored NAME on MACHINE` when the entry has arrived. Inside a session `--reason` is required: the Gateway
+refuses a session's request without one, and the command ends with exit code 2. Run in the owner's own terminal
+(outside any session), it asks "Type yes to approve" and goes only on `yes`.
+
+```
+cc-secrets request github-token --from SOREN_NORTH --reason "push the release tag"
+cc-secrets request github-token --from SOREN_NORTH --as github-token-ci --replace --reason "..."
+cc-secrets request github-token --from SOREN_NORTH --reason "..." --owner-approved "Soren in chat: yes, send it"
+```
+
+| Flag | Meaning |
+|---|---|
+| `--from MACHINE` | The machine that holds it (required; see `cc-secrets machines`) |
+| `--as NAME` | Store it under another name here |
+| `--replace` | Replace an entry of that name already here (otherwise refused) |
+| `--reason TEXT` | Why it is needed; shown to the owner. Required inside a session |
+| `--owner-approved TEXT` | The owner's approval of THIS transfer, verbatim from the session's chat; it then goes at once |
+| `--json` | Print JSON |
+
+Exit codes: 0 stored; 1 failed (the reason is printed); 2 refused before anything was moved; 3 not approved at the
+`yes` prompt in the owner's terminal; 4 denied by the owner; 5 expired with no answer.
+
+### cc-secrets send
+
+Send an entry from this machine to another. In the owner's own terminal the owner approves it there by typing
+`yes`; inside a session it waits for the owner's answer, or goes at once with `--owner-approved`.
+
+```
+cc-secrets send github-token --to devthrottle-mac-mini
+cc-secrets send github-token --to devthrottle-mac-mini --as github-token-mac --replace
+```
+
+Flags as for `request`, with `--to MACHINE` in place of `--from`, plus `--accept-new-key` (owner only: send although
+the receiving machine's key changed since it was pinned). Exit codes as for `request`.
+
+### cc-secrets machines / approvals / approve / deny
+
+```
+cc-secrets machines                      # the machines that can take part now, and whether each key is new, the same or CHANGED
+cc-secrets approvals                     # transfers waiting for an answer that this machine can give
+cc-secrets approve <transfer-id>         # the owner's yes, from their own terminal (or --owner-approved "<words>" in a session)
+cc-secrets deny <transfer-id>            # no; a session may also deny (withdraw) its own request
+```
+
+All take `--json`. A session can approve only with the owner's words (`--owner-approved`), and only a transfer it
+asked for itself.
+
+### cc-secrets trust-machine
+
+`cc-secrets trust-machine MACHINE` - an owner command: pin that machine's new key after it changed. Like `add` and
+`edit`, it refuses inside a session unless the session passes the owner's words with `--owner-approved`.
+
+### Commands the Director runs
+
+`machine-key` (prints this machine's public transfer key and fingerprint - never the private half),
+`transfer-send ID` and `transfer-receive ID` (the two halves of a transfer, run by the Director once the owner
+approved; payload on standard input, one JSON line out, never the secret), and `check-text` (reads UTF-8 text on standard input and answers only
+`{"containsSecret": true|false, "storeFound": true|false}`, never which entry; `storeFound` false means the machine
+holds no store, so there was nothing to find). They are not for agents to call.
 
 ## cc-transcribe
 

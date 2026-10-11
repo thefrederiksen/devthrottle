@@ -99,3 +99,18 @@ def tool_error_reports_stay_in_the_test(tmp_path_factory, monkeypatch):
     """
     monkeypatch.setenv("CC_DIRECTOR_ROOT", str(tmp_path_factory.mktemp("director-root")))
     monkeypatch.setenv("DEVTHROTTLE_HOSTED_GATEWAY_URL", "http://127.0.0.1:0")
+
+
+@pytest.fixture(autouse=True)
+def no_real_secret_check(request, monkeypatch):
+    """No test here ever runs the real cc-secrets: a message counts as clean unless a test says otherwise. The
+    guard itself is tested in test_secret_guard.py, which opts out with the 'real_secret_guard' marker."""
+    if request.node.get_closest_marker("real_secret_guard"):
+        return
+    from src import secret_guard
+
+    monkeypatch.setattr(secret_guard, "_answer", lambda text: False)
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "real_secret_guard: run the real message secret guard (cc-secrets stood in)")

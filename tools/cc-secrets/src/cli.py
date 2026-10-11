@@ -37,6 +37,7 @@ from urllib.parse import urlsplit
 
 import typer
 from rich.console import Console
+from rich.measure import Measurement
 from rich.table import Table
 
 from . import _console  # noqa: F401  (installs the ASCII-only output patches)
@@ -66,6 +67,7 @@ app = typer.Typer(
          "window for the owner to type a secret). The window: ui (list, add, edit, delete, show). Owner: add, import, "
          "edit, remove "
          "(inside a session only with --owner-approved). "
+         "Between machines: send and request (the owner approves each one), machines, approvals, approve, deny. "
          "Anyone: log. " + PROTECTION,
     add_completion=False,
     no_args_is_help=True,
@@ -597,13 +599,23 @@ def list_entries(
             _say("The store on this machine is empty.")
             return
         table = Table(show_lines=False)
-        for column in ("Name", "Kind", "Variable", "Value", "Username", "Allowed addresses", "Uses", "Notes"):
+        # An agent acts on the name, so it is never cut short or wrapped, however narrow the terminal.
+        table.add_column("Name", no_wrap=True, min_width=max(len(v["name"]) for v in views))
+        for column in ("Kind", "Variable", "Value", "Username", "Allowed addresses", "Uses", "Notes"):
             table.add_column(column)
         for v in views:
             row = [v["name"], v["kind"], v["envName"], v.get("value", ""), v["username"], ", ".join(v["allowedDomains"]),
                    ", ".join(v["uses"]), v["notes"]]
             table.add_row(*[_visible_ascii(SCRUBBER.scrub(str(c))) for c in row])
-        console.print(table)
+        # Never narrower than the names need: below that, the terminal wraps the long line rather than the table
+        # cutting a name an agent has to act on.
+        needed = Measurement.get(console, console.options.update_width(10_000), table).minimum
+        terminal_width = console.width
+        console.width = max(terminal_width, needed)  # print() alone never draws wider than the console
+        try:
+            console.print(table)
+        finally:
+            console.width = terminal_width
     except Exception as exc:
         _log_failure("list", exc)
         _say(f"list failed: {_describe(exc)}", err=True)
@@ -1118,6 +1130,7 @@ def _answer(command: str, transfer_id: str, approve: bool, owner_approved: Optio
         if owner_approved is not None and not in_session:
             _local_refusal(command, subject, "--owner-approved is how a session reports the owner's words from its chat. "
                                              "In your own terminal you approve by typing yes; leave it out.", json_output)
+        _refuse_a_stored_value(command, subject, {"--owner-approved": owner_approved}, json_output)
         where = None if in_session else "terminal"
         if approve and not in_session:
             # The owner's own terminal: show exactly what is being approved and have it confirmed by typing yes, so
@@ -1206,6 +1219,37 @@ def _half(command: str, transfer_id: str, run) -> None:
     sys.stdout.write(json.dumps(answer) + "\n")
 
 
+@app.command("check-text")
+def check_text_command():
+    """Say whether the text on standard input contains a secret stored on this machine: one JSON line,
+    {"containsSecret": true|false}. Never says which entry and never prints the text. cc-devthrottle asks this before
+    a fleet message, reply, report, prompt or raised hand leaves the machine. "storeFound": false means this machine
+    holds no store, so there was nothing to find. It catches a stored value and its common re-encodings, not every
+    way of rewriting one."""
+    try:
+        # Read as UTF-8 bytes: cc-devthrottle writes UTF-8, and the console code page would turn an accented secret
+        # into text that matches nothing, so the message would go out carrying it.
+        text = sys.stdin.buffer.read().decode("utf-8")
+        found = paths.store_path().exists()
+        _store().entries()  # opening the store hands every secret, and its common re-encodings, to the scrubber
+        contains = SCRUBBER.scrub(text) != text
+    except Exception as exc:
+        _log_failure("check-text", exc)
+        _say(f"failed: {_describe(exc)}", err=True)
+        raise typer.Exit(EXIT_FAILED)
+    filelog.write(f"[cli] check-text: {len(text)} characters, store found: {found}, contains a secret: {contains}")
+    sys.stdout.write(json.dumps({"containsSecret": contains, "storeFound": found}) + "\n")
+
+
+def _refuse_a_stored_value(command: str, subject: str, fields: dict, json_output: bool) -> None:
+    """A reason or the owner's words travel to the Gateway and the audit log: refuse one that carries a stored secret."""
+    _store().entries()
+    for label, value in fields.items():
+        if value and SCRUBBER.scrub(value) != value:
+            _local_refusal(command, subject, f"{label} contains a value stored in cc-secrets on this machine. Write "
+                                             "it again without the secret.", json_output)
+
+
 @app.command("transfer-send")
 def transfer_send_command(transfer_id: str = typer.Argument(..., help="The transfer's id.")):
     """Run by the Director on the machine that holds the entry, once the owner approved: reads the approved transfer
@@ -1279,6 +1323,7 @@ def _ask(command: str, entry: str, from_machine: Optional[str], to_machine: Opti
         source = here if from_machine is None else machines.find(listed, from_machine)
         destination = here if to_machine is None else machines.find(listed, to_machine)
         in_session = link.kind == gateway_link.KIND_SESSION
+        _refuse_a_stored_value(command, entry, {"--reason": reason, "--owner-approved": owner_approved}, json_output)
         if source.this_machine and _store().get(entry) is None:
             _local_refusal(command, entry, f"No entry named '{entry}' is on this machine. Nothing was asked.", json_output)
         if accept_new_key and in_session:
@@ -1332,11 +1377,13 @@ def send_command(
         help="Owner only: send although the receiving machine's key changed since it was pinned."),
     json_output: bool = typer.Option(False, "--json", help="Print JSON."),
 ):
-    """Send an entry from this machine to another, once the owner approves. In the owner's own terminal you approve it
-    here by typing yes; inside a session it waits for the owner's answer, or goes at once with --owner-approved. The
-    secret travels sealed to the receiving machine and is never shown. Exit codes: 0 stored on the receiving machine;
-    1 failed (the reason is printed); 2 refused before anything was asked or moved; 3 cancelled at the yes prompt;
-    4 denied by the owner; 5 expired with no answer."""
+    """Send an entry from this machine to another, once the owner approves.
+
+    In the owner's own terminal you approve it here by typing yes; inside a session it waits for the owner's answer,
+    or goes at once with --owner-approved. The secret travels sealed to the receiving machine and is never shown.
+
+    Exit codes: 0 stored on the receiving machine; 1 failed (the reason is printed); 2 refused before anything was
+    asked or moved; 3 cancelled at the yes prompt; 4 denied by the owner; 5 expired with no answer."""
     _ask("send", entry, None, to, as_name, replace, reason, owner_approved, accept_new_key, json_output)
 
 
@@ -1352,11 +1399,15 @@ def request_command(
         help="Inside a session: the owner's approval of THIS transfer, in their words, verbatim, from this session's chat."),
     json_output: bool = typer.Option(False, "--json", help="Print JSON."),
 ):
-    """Get an entry from another machine onto this one, once the owner approves. This is how an agent asks for a
-    credential it does not have here: it waits for the owner's answer (phone, Cockpit, the cc-secrets window, or the
-    owner's words with --owner-approved), then prints 'stored NAME on MACHINE'. Exit codes: 0 stored on this machine;
-    1 failed (the reason is printed); 2 refused before anything was asked or moved; 4 denied by the owner; 5 expired
-    with no answer."""
+    """Get an entry from another machine onto this one, once the owner approves. How an agent asks for a credential.
+
+    It waits for the owner's answer (phone, Cockpit, the cc-secrets window, or the owner's words with
+    --owner-approved), then prints 'stored NAME on MACHINE'.
+
+    In the owner's own terminal (outside any session) it asks you to type yes first.
+
+    Exit codes: 0 stored on this machine; 1 failed (the reason is printed); 2 refused before anything was moved; 3 not
+    approved at the yes prompt; 4 denied by the owner; 5 expired with no answer."""
     _ask("request", entry, from_machine, None, as_name, replace, reason, owner_approved, False, json_output)
 
 

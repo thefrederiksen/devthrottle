@@ -22,6 +22,7 @@ if _tools_dir not in sys.path:
 from cc_shared import gateway  # noqa: E402
 
 from . import axi_cli  # noqa: E402
+from . import secret_guard  # noqa: E402
 
 TIMEOUT_SECONDS = 10
 MINIMUM_INTERVAL_SECONDS = 60
@@ -164,6 +165,9 @@ def add(
         axi_cli.usage_error(f"--every: {ex}. Full form: {_ADD_USAGE}")
         return
 
+    if prompt:
+        # The prompt is the first message of every session this trigger starts.
+        secret_guard.refuse_if_it_carries_a_secret(prompt, "prompt")
     body = {
         "name": name, "factory": factory, "factoryAgent": agent, "machine": machine, "repoPath": repo,
         "checkCommand": check, "intervalSeconds": interval, "prompt": prompt, "paused": paused,
