@@ -899,8 +899,6 @@ public sealed class HeldDeliveryReachabilityTests : IDisposable
         audioArchive: new TranscriptionAudioArchive(false, Path.Combine(_root, "archive")),
         transcoder: transcoder);
 
-    /// <summary>The real clock moved ahead by <see cref="Ahead"/>, or pinned to <see cref="Fixed"/> when a boundary must be
-    /// exact: every limit is judged by it.</summary>
     /// <summary>
     /// The delivery's clock: the moment the recording was sent, plus whatever the test puts it ahead by, or a fixed
     /// instant. It used to be the REAL clock plus the offset, which drifted away from the send time by however long
