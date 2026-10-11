@@ -99,38 +99,47 @@ public sealed class ClaimCoversTheCommandTests : IDisposable
         job.Command = LoopCommand("second");
         a.UpdateJob(job);
 
+        // WHILE IT LIVES: Director B ticks beside A's open run. A answers Running, so B's cleanup keeps the
+        // run, and B's claim is refused by the open run. The tick returns at once with nothing started.
+        using var schedulerB = new Scheduler(b, new JobExecutor(b), checkIntervalSeconds: 1, runRetentionDays: 30);
+        await schedulerB.TickAsync().WaitAsync(TimeSpan.FromSeconds(15));
+        Assert.DoesNotContain("second-start", ReadLog());
+        Assert.Null(a.ListRuns(jobName: "long-job").Single().EndedAt);
+
         // Director A shuts down mid-run: its job is cancelled, which kills the command and waits for it to
-        // be seen gone. The tick completes when the job has been dealt with.
+        // be seen gone. The tick completes when the job has been dealt with: the run is ended and, because a
+        // cancellation is not a completion, the schedule has not moved.
+        var due = a.GetJob("long-job")!.NextRun!.Value;
         directorAShutdown.Cancel();
         await tickA.WaitAsync(TimeSpan.FromSeconds(15));
+        var ended = a.ListRuns(jobName: "long-job").Single();
+        Assert.NotNull(ended.EndedAt);
+        Assert.Equal(due, a.GetJob("long-job")!.NextRun!.Value, TimeSpan.FromSeconds(1));
 
-        // Director B, on the same file, takes one tick. The command's ticks are real time (it is a real
-        // process), so the only waits left are the ones that watch the process, not the scheduler.
-        using var schedulerB = new Scheduler(b, new JobExecutor(b), checkIntervalSeconds: 1, runRetentionDays: 30);
+        // The command's ticks are real time (it is a real process): three seconds with no new "first-tick"
+        // is the kill having taken effect, the only wait left in this test and one on the process, not on
+        // the scheduler.
+        var firstTicksAfterStop = ReadLog().Count(l => l == "first-tick");
+        await Task.Delay(TimeSpan.FromSeconds(3));
+        Assert.True(ReadLog().Count(l => l == "first-tick") == firstTicksAfterStop,
+            "the cancelled command kept running after its Director shut down");
+
+        // AFTER, NEVER ALONGSIDE: now the occurrence is free and B's next tick runs it, and every line of the
+        // first command precedes the start of the second.
         using var directorBShutdown = new CancellationTokenSource();
         var tickB = schedulerB.TickAsync(directorBShutdown.Token);
         try
         {
+            await WaitForLine("second-start", TimeSpan.FromSeconds(20));
             var log = ReadLog();
-            var firstTicksAfterStop = log.Count(l => l == "first-tick");
-            await Task.Delay(TimeSpan.FromSeconds(3));
-            log = ReadLog();
-
-            Assert.True(log.Count(l => l == "first-tick") == firstTicksAfterStop,
-                "the cancelled command kept running after its Director shut down");
-
             var secondStart = log.IndexOf("second-start");
-            if (secondStart >= 0)
-            {
-                Assert.True(log.Skip(secondStart).All(l => l != "first-tick"),
-                    "Director B started the occurrence while Director A's command was still running");
-            }
+            Assert.True(log.Skip(secondStart).All(l => l != "first-tick"),
+                "Director B started the occurrence while Director A's command was still running");
         }
         finally
         {
             directorBShutdown.Cancel();
-            try { await tickB.WaitAsync(TimeSpan.FromSeconds(15)); }
-            catch (OperationCanceledException) { /* the test's own cancellation */ }
+            await tickB.WaitAsync(TimeSpan.FromSeconds(15));
         }
     }
 

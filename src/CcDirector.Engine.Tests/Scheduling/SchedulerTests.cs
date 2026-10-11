@@ -1,6 +1,7 @@
 using CcDirector.Engine.Events;
 using CcDirector.Engine.Scheduling;
 using CcDirector.Engine.Storage;
+using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
 namespace CcDirector.Engine.Tests.Scheduling;
@@ -85,5 +86,76 @@ public sealed class SchedulerTests : IDisposable
 
         Assert.Contains(events, e => e.Type == EngineEventType.JobStarted && e.JobName == "event-job");
         Assert.Contains(events, e => e.Type == EngineEventType.JobCompleted && e.JobName == "event-job");
+    }
+
+    /// <summary>
+    /// The LOOP, on its clock: Start ticks at once, then waits one interval on the injected clock before the
+    /// next tick. Moving that clock is what wakes it - nothing else does - and stopping ends the wait at once
+    /// rather than after the interval. The one real wait here is for the command process the first tick
+    /// started; the loop itself is never waited on.
+    /// </summary>
+    [Fact]
+    public async Task Loop_TicksWhenItsClockMoves_StartsADueJobOnce_AndStopEndsTheWait()
+    {
+        var clock = new FakeTimeProvider();
+        var started = new List<string>();
+        var firstRunEnded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var jobId = _db.AddJob(new JobRecord
+        {
+            Name = "loop-job", Cron = "0 0 31 2 *", Command = "echo loop", TimeoutSeconds = 60,
+            NextRun = DateTime.UtcNow.AddSeconds(-1)
+        });
+        using var scheduler = new Scheduler(_db, new JobExecutor(_db), checkIntervalSeconds: 60, runRetentionDays: 30, clock);
+        scheduler.OnEvent += e =>
+        {
+            if (e.Type == EngineEventType.JobStarted) lock (started) started.Add(e.JobName!);
+            if (e.Type == EngineEventType.JobCompleted) firstRunEnded.TrySetResult();
+        };
+
+        scheduler.Start();
+        try
+        {
+            // The first tick is Start's own; the command is a real process, so this is the one real wait.
+            await firstRunEnded.Task.WaitAsync(TimeSpan.FromSeconds(20));
+            await WaitForTicks(scheduler, 1);
+            Assert.Equal(new[] { "loop-job" }, started);
+
+            // Due again - but the loop is asleep on its clock, and nothing but the clock wakes it.
+            _db.UpdateNextRun(jobId, DateTime.UtcNow.AddSeconds(-1));
+            Assert.Equal(1, scheduler.TicksRun);
+
+            // Short of the interval: still asleep.
+            clock.Advance(TimeSpan.FromSeconds(59));
+            Assert.Equal(1, scheduler.TicksRun);
+
+            // The interval passes: the loop wakes, ticks, and the due occurrence runs exactly once more.
+            clock.Advance(TimeSpan.FromSeconds(1));
+            await WaitForTicks(scheduler, 2);
+            Assert.Equal(new[] { "loop-job", "loop-job" }, started);
+
+            // Another interval while the occurrence is NOT due: a tick, and nothing started by it.
+            clock.Advance(TimeSpan.FromSeconds(60));
+            await WaitForTicks(scheduler, 3);
+            Assert.Equal(2, started.Count);
+        }
+        finally
+        {
+            // Stop ends the clock wait at once: the loop task itself has ended, so the stop did not sit out
+            // its shutdown allowance waiting for a loop that never woke.
+            await scheduler.StopAsync(shutdownTimeoutSeconds: 5);
+            Assert.True(scheduler.LoopTask!.IsCompleted, "stopping did not end the loop's wait on its clock");
+        }
+    }
+
+    /// <summary>The loop runs its tick on a thread-pool thread after the clock wakes it; this waits for that
+    /// tick to have run, bounded, so an assertion about what the tick did is made after it did it.</summary>
+    private static async Task WaitForTicks(Scheduler scheduler, int atLeast)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (scheduler.TicksRun < atLeast)
+        {
+            Assert.True(DateTime.UtcNow < deadline, $"the loop never ran tick {atLeast}; it ran {scheduler.TicksRun}");
+            await Task.Delay(10);
+        }
     }
 }

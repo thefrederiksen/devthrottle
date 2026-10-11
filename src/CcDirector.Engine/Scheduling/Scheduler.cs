@@ -22,6 +22,14 @@ public sealed class Scheduler : IDisposable
 
     public int RunningJobCount => _runningJobs.Count;
 
+    /// <summary>How many ticks have run their pass (cleanup, due jobs claimed and started). A test that moves the
+    /// loop's clock reads this to know the loop woke, instead of guessing from the absence of an effect.</summary>
+    internal int TicksRun => Volatile.Read(ref _ticksRun);
+    private int _ticksRun;
+
+    /// <summary>The running loop, for a test to see that a stop ended it rather than timed out waiting for it.</summary>
+    internal Task? LoopTask => _loopTask;
+
     /// <param name="clock">The clock the loop waits on and the purge is judged by. The product passes nothing and
     /// gets the system clock; a test passes its own so a wait is a fact it controls, not seconds it sits out.</param>
     public Scheduler(EngineDatabase db, JobExecutor executor, int checkIntervalSeconds, int runRetentionDays,
@@ -152,6 +160,7 @@ public sealed class Scheduler : IDisposable
 
             started.Add(RunJobAsync(job, ct));
         }
+        Interlocked.Increment(ref _ticksRun);
         return Task.WhenAll(started);
     }
 
