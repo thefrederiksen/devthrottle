@@ -489,7 +489,7 @@ internal static class SessionCommandExecutor
         {
             var sending = session.SendTextAsync(request.Text, provenance, effectiveSource, origin, request.SentAtUtc);
             var budget = answerBudget ?? PromptAnswerBudget;
-            if (!await FinishesWithinAsync(sending, budget, session.Id))
+            if (!await FinishesWithinAsync(sending, budget, session))
             {
                 FileLog.Write($"[SessionCommandExecutor] SendPromptAsync: session={session.Id}: the send is still going after " +
                               $"{budget.TotalSeconds:F0}s - answering '{DeliveryStates.Delivering}' inside the Gateway's wait; the send carries on " +
@@ -586,22 +586,26 @@ internal static class SessionCommandExecutor
     /// when the budget's own timer ran late, by how much (phase 6: in the case2f QA run the 20-second timer fired 12
     /// seconds late, because the Director was not being given the processor).
     /// </summary>
-    private static async Task<bool> FinishesWithinAsync(Task sending, TimeSpan budget, Guid sessionId)
+    private static async Task<bool> FinishesWithinAsync(Task sending, TimeSpan budget, Session session)
     {
         if (sending.IsCompleted) return true;
-        var clock = Stopwatch.StartNew();
+        // The budget runs on the SESSION's clock - the one the send itself waits on - so a test that drives the send on a
+        // fake clock sees the budget end at the same virtual moment the send's own windows do, and nothing here reads
+        // the machine's time (Release Process Fix, H2: PromptAnswerBudgetTests measured the answer in real seconds).
+        var clock = session.Clock;
+        var startedAt = clock.GetTimestamp();
         var notice = new SendWaitNotice("SessionCommandExecutor",
-            $"the send to finish before the prompt verb answers (session={sessionId})", $"{budget.TotalSeconds:0.#}s");
+            $"the send to finish before the prompt verb answers (session={session.Id})", $"{budget.TotalSeconds:0.#}s", clock);
         using var cts = new CancellationTokenSource();
-        var budgetEnds = Task.Delay(budget, cts.Token);
+        var budgetEnds = Task.Delay(budget, clock, cts.Token);
         if (budget > SendWaitNotice.NoticeAfter
-            && await Task.WhenAny(sending, Task.Delay(SendWaitNotice.NoticeAfter, cts.Token)) != sending)
+            && await Task.WhenAny(sending, Task.Delay(SendWaitNotice.NoticeAfter, clock, cts.Token)) != sending)
             notice.Check();
         var finished = await Task.WhenAny(sending, budgetEnds) == sending;
         cts.Cancel();
         notice.End(finished
             ? "the send finished"
-            : $"still sending - answering '{DeliveryStates.Delivering}'{DescribeBudgetEnd(budget, clock.Elapsed)}");
+            : $"still sending - answering '{DeliveryStates.Delivering}'{DescribeBudgetEnd(budget, clock.GetElapsedTime(startedAt))}");
         return finished;
     }
 
