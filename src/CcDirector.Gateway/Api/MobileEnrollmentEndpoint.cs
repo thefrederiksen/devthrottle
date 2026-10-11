@@ -108,8 +108,11 @@ internal static class MobileEnrollmentEndpoint
             }
         };
 
-        app.MapPost("/mobile/enroll", handler);
-        app.MapPost("/m/enroll", handler);
+        // Each map takes a lambda written at the call site, not the variable itself: the compile-time request
+        // delegate generator can only read a handler it can see, and one it cannot is compiled again at runtime
+        // on every Gateway start.
+        app.MapPost("/mobile/enroll", (MobileEnrollmentRequest? req, HttpContext ctx) => handler(req, ctx));
+        app.MapPost("/m/enroll", (MobileEnrollmentRequest? req, HttpContext ctx) => handler(req, ctx));
     }
 
     /// <summary>

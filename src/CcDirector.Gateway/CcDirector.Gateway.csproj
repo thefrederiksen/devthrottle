@@ -13,6 +13,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <RootNamespace>CcDirector.Gateway</RootNamespace>
+    <!-- Build the minimal-API request delegates at compile time. Without it ASP.NET compiles an expression
+         tree for every one of the ~480 routes each time the endpoints are read, which cost about 1.5 seconds of
+         every Gateway start and about an hour of every Gateway.Tests run (one host per test). -->
+    <EnableRequestDelegateGenerator>true</EnableRequestDelegateGenerator>
   </PropertyGroup>
 
   <ItemGroup>

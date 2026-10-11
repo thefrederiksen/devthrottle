@@ -5793,16 +5793,17 @@ public sealed class GatewayHost : IAsyncDisposable
         // returns an EMPTY set and the validation silently does nothing. The app's own
         // IEndpointRouteBuilder.DataSources carry the group endpoints (prefix and metadata conventions
         // applied) as soon as they are mapped, which is what lets this fail the start BEFORE any listener
-        // binds rather than after. That source selection lives in ONE place - ValidateBeforeStart - shared
-        // with the pre-start test harness, so reverting it to the DI composite reddens the tie tests rather
+        // binds rather than after. That source selection lives in ONE place - SelectFinalisedEndpoints - shared
+        // with the pre-start test harness through ValidateBeforeStart, so reverting it to the DI composite reddens the tie tests rather
         // than silently regressing this path.
-        Tenancy.HostedRefusalRouteSpace.ValidateBeforeStart(_app);
-
-        // The finalised route table, kept for the route-surface guard tests (the auth allowlist for the
+        //
+        // The finalised route table is also kept, for the route-surface guard tests (the auth allowlist for the
         // shell prefixes is complete ONLY while the set of endpoints mapped under /mobile, /m and /assets
         // stays exactly what the allowlist was written against - the guard pins that set, so a new route
-        // under a shell prefix fails a test until it is consciously ruled public or gated).
+        // under a shell prefix fails a test until it is consciously ruled public or gated). It is read ONCE
+        // and validated from that one read: every read of the app's data sources builds every endpoint again.
         MappedEndpoints = Tenancy.HostedRefusalRouteSpace.SelectFinalisedEndpoints(_app);
+        Tenancy.HostedRefusalRouteSpace.Validate(MappedEndpoints);
 
         await _app.StartAsync();
 
