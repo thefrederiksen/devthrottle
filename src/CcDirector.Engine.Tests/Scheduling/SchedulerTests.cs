@@ -120,6 +120,10 @@ public sealed class SchedulerTests : IDisposable
             await WaitForTicks(scheduler, 1);
             Assert.Equal(new[] { "loop-job" }, started);
 
+            // The completion event is raised before the job leaves the running set; a tick that found it
+            // still there would skip it. So wait for the release before making the occurrence due again.
+            await WaitForNoRunningJobs(scheduler);
+
             // Due again - but the loop is asleep on its clock, and nothing but the clock wakes it.
             _db.UpdateNextRun(jobId, DateTime.UtcNow.AddSeconds(-1));
             Assert.Equal(1, scheduler.TicksRun);
@@ -140,10 +144,24 @@ public sealed class SchedulerTests : IDisposable
         }
         finally
         {
-            // Stop ends the clock wait at once: the loop task itself has ended, so the stop did not sit out
-            // its shutdown allowance waiting for a loop that never woke.
             await scheduler.StopAsync(shutdownTimeoutSeconds: 5);
-            Assert.True(scheduler.LoopTask!.IsCompleted, "stopping did not end the loop's wait on its clock");
+        }
+
+        // Stop ends the clock wait at once: the loop task itself has ended, so the stop did not sit out
+        // its shutdown allowance waiting for a loop that never woke. Asserted outside the finally so a
+        // failure in the body is never replaced by this one.
+        Assert.True(scheduler.LoopTask!.IsCompleted, "stopping did not end the loop's wait on its clock");
+    }
+
+    /// <summary>A finished job is released from the running set after its completion event; this waits,
+    /// bounded, for that release, so the next tick can start the job again.</summary>
+    private static async Task WaitForNoRunningJobs(Scheduler scheduler)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (scheduler.RunningJobCount > 0)
+        {
+            Assert.True(DateTime.UtcNow < deadline, $"a job was never released; {scheduler.RunningJobCount} still running");
+            await Task.Delay(10);
         }
     }
 
