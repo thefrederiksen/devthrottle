@@ -22,12 +22,34 @@ var NEEDS_YOU_TAG = 'devthrottle-needs-you';
 // build has no mobile app the browser simply shows its default icon (a notification needs no icon).
 var NOTIFICATION_ICON = '/mobile/icon-192.png';
 
+// A secret transfer waiting for the owner's answer (the Secret Handoff mission, issue #2943). The Gateway wrote the
+// title and the body - the entry and the two machines, never a value - and this only shows them. It is its own
+// notification, tagged per transfer, so it never replaces or clears the "needs you" one; clicking it opens the
+// Cockpit's sessions screen, where the approval card waits.
+var SECRET_TRANSFER_KIND = 'secret-transfer';
+
+function showSecretTransfer(payload) {
+  return self.registration.showNotification(String(payload.title), {
+    tag: String(payload.tag),
+    body: String(payload.body),
+    renotify: true,
+    requireInteraction: true,
+    icon: NOTIFICATION_ICON,
+    badge: NOTIFICATION_ICON,
+    data: { url: '/sessions', fixedUrl: true }
+  });
+}
+
 self.addEventListener('push', function (event) {
   var count = 0;
   var snoozeEnded = false;
   if (event.data) {
     try {
       var payload = event.data.json();
+      if (payload && payload.kind === SECRET_TRANSFER_KIND) {
+        event.waitUntil(showSecretTransfer(payload));
+        return;
+      }
       count = Number(payload && payload.count) || 0;
       snoozeEnded = !!(payload && payload.snoozeEnded);
     } catch (e) {
@@ -92,6 +114,11 @@ function closeNeedsYou() {
 
 self.addEventListener('notificationclick', function (event) {
   event.notification.close();
+  var data = event.notification.data || {};
+  if (data.fixedUrl && data.url) {
+    event.waitUntil(focusOrOpen(data.url));
+    return;
+  }
   event.waitUntil(
     resolveTargetUrl().then(function (url) {
       return focusOrOpen(url);

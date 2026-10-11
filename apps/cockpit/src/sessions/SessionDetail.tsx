@@ -8,6 +8,7 @@ import { SessionActionBar } from "./SessionActionBar";
 import { SessionComposer } from "./SessionComposer";
 import { SessionMenu } from "./SessionMenu";
 import { LinkRequestChip } from "./LinkRequests";
+import { SecretTransferChip } from "./SecretTransferChip";
 import { ChatTab } from "./ChatTab";
 import { VoiceTab } from "./VoiceTab";
 import { SourceControlTab } from "./SourceControlTab";
@@ -251,6 +252,9 @@ export function SessionDetail() {
           {selected && <SessionModelChip session={selected} />}
           {/* This session asked to talk to another (issue #3631): a chip whose popover approves or denies it. */}
           {sessionId && <LinkRequestChip sessionId={sessionId} />}
+          {/* This session asked for a secret from another machine (issue #2943): a chip whose popover approves or
+              denies it, recorded as answered "from the badge". */}
+          {sessionId && <SecretTransferChip sessionId={sessionId} />}
           {/* The session menu (issue #1214): Rename, Hold/Resume, Handover info, Close - top right of
               the session header, driving the shared Gateway calls. */}
           {selected && <SessionMenu session={selected} variant="page" onClosed={() => navigate("/sessions")} />}

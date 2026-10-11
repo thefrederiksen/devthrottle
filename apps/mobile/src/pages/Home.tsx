@@ -35,6 +35,7 @@ import { voiceQueueFor } from "@devthrottle/client-core/voice/voiceQueue";
 import { NavDrawer } from "../components/NavDrawer";
 import { AccountSwitcher } from "@devthrottle/client-core/auth/AccountSwitcher";
 import { RestartRequestsPanel } from "@devthrottle/client-core/restart/RestartRequestsPanel";
+import { SecretTransfersPanel, SecretTransfersProvider } from "@devthrottle/client-core/secrets/SecretTransfers";
 import { SessionFilterPanel } from "../components/SessionFilterPanel";
 import { ColourLegendButton } from "@devthrottle/client-core/sessions/ColourLegend";
 import { useSessionFilter } from "../hooks/useSessionFilter";
@@ -530,6 +531,14 @@ export function Home() {
           the roster where "Needs you" lives. The same shared component the Cockpit mounts; this shell
           only tunes its layout under .screen. Renders nothing while no request exists. */}
       {tab === "all" && <RestartRequestsPanel />}
+
+      {/* A secret transfer waiting for the owner's one approval (Secret Handoff, issue #2943): the same shared card the
+          Cockpit mounts, answered here "on the phone". Renders nothing while none waits. */}
+      {tab === "all" && (
+        <SecretTransfersProvider>
+          <SecretTransfersPanel where="phone" />
+        </SecretTransfersProvider>
+      )}
 
       {tab === "all" && tree !== null && split !== null && split.pinned.length > 0 && (
         <section className="group group-pinned" data-testid="roster-pinned">

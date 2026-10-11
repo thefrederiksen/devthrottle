@@ -4683,6 +4683,19 @@ a.banner-btn {
 .restart-request-btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .restart-request-btn-danger { background: var(--attention); border-color: var(--attention); color: #fff; }
 
+/* ---- A secret transfer waiting for the owner's approval (Secret Handoff, issue #2943) - the shared client-core
+   card (packages/client-core/src/secrets/secrets.css), re-tuned for touch under .screen. Every sentence on it is the
+   Gateway's; this only lays them out. ---- */
+.screen .secret-transfers { gap: 10px; margin-top: 14px; }
+.screen .secret-transfer { border-radius: 10px; padding: 12px 14px; gap: 8px; }
+.screen .secret-transfer-summary { font-size: 15px; }
+.screen .secret-transfer-line { font-size: 14px; line-height: 1.45; }
+.screen .secret-transfer-error, .screen .secret-transfer-empty { font-size: 14px; }
+.screen .secret-transfer-actions { gap: 10px; }
+.screen .secret-transfer-btn {
+  min-height: 44px; border-radius: 10px; padding: 0 18px; font-size: 15px; font-weight: 600;
+}
+
 /* ---- The ownership tree on the phone (owner ruling, 2026-09-14). A parent card carries a band along
    its bottom: the chevron, one dot per session under it, the counts, the age. Tapping the band expands
    the children IN PLACE as one-line rows at touch height. No indentation - a second level would steal

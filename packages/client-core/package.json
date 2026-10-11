@@ -18,6 +18,7 @@
     "./settings/NotificationsTab": "./src/settings/NotificationsTab.tsx",
     "./settings/DemoModeCard": "./src/settings/DemoModeCard.tsx",
     "./restart/RestartRequestsPanel": "./src/restart/RestartRequestsPanel.tsx",
+    "./secrets/SecretTransfers": "./src/secrets/SecretTransfers.tsx",
     "./sessions/ColourLegend": "./src/sessions/ColourLegend.tsx",
     "./sessions/VerdictPanel": "./src/sessions/VerdictPanel.tsx",
     "./sessions/WingmanTab": "./src/sessions/WingmanTab.tsx",
