@@ -1,0 +1,33 @@
+   0.2s  machine: the Windows machine (Windows), 2.1.296 (Claude Code)
+   2.1s    held: account-a@example.com (active)
+   2.1s    held: account-c@example.com (spare)
+   2.5s  before: the isolated default folder is on account-a@example.com
+   2.8s    reference for account-a@example.com: five-hour window resets 2026-10-11 20:20 UTC, weekly window resets 2026-10-17 19:00 UTC (83.0% used)
+   3.1s    reference for account-c@example.com: five-hour window resets 2026-10-11 18:09 UTC, weekly window resets 2026-10-13 11:59 UTC (99.0% used)
+   3.1s  starting claude -p (model claude-haiku-5-5) on the isolated default folder; it will run: python -c "import time; time.sleep(40)"
+   5.8s  tool call started: "python -c \"import time; time.sleep(40)\""
+   5.9s  call made before the tool result: status=allowed_warning, five-hour window resets 2026-10-11 20:20 UTC, weekly window resets 2026-10-17 19:00 UTC (82% used)
+  10.9s  the tool call is paused - exchanging the key now: license switch account-c@example.com
+  14.5s    [switch] Switched from account-a@example.com to account-c@example.com. Read back and verified: account-c@example.com is now the active account. account-a@example.com is kept as a spare.
+  14.5s    [switch] help[1]:
+  14.5s    [switch]   cc-devthrottle license list
+  14.5s  exchange returned
+  57.5s  tool result delivered; the next request starts now (exchange had returned)
+  58.3s  reply: SECOND CALL OK
+  58.3s  call made AFTER the tool result: status=allowed_warning, five-hour window resets 2026-10-11 18:10 UTC, weekly window resets 2026-10-13 12:00 UTC (99% used)
+  58.3s  task finished: success SECOND CALL OK
+  58.7s  claude exited 0
+  59.0s  after: the isolated default folder is on account-c@example.com
+  59.0s  exchanging back: license switch account-a@example.com
+  60.4s    [switch back] Switched from account-c@example.com to account-a@example.com. Read back and verified: account-a@example.com is now the active account. account-c@example.com is kept as a spare.
+  60.4s    [switch back] help[1]:
+  60.4s    [switch back]   cc-devthrottle license list
+  61.2s  switch back VERIFIED: the isolated default folder is on account-a@example.com
+  61.2s  VERDICT
+  61.2s    PASS  the exchange command succeeded
+  61.2s    PASS  the exchange returned before the paused tool call ended
+  61.2s    PASS  the folder reported the target account after the task
+  61.2s    PASS  a call made before the tool result matches the SOURCE account's own reset times
+  61.2s    PASS  the call made after the tool result matches the TARGET account's own reset times
+  61.2s    PASS  the folder was switched back and verified on the source account
+  61.2s  PROOF PASSED
