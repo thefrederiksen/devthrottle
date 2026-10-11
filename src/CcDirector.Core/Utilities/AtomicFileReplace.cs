@@ -21,11 +21,12 @@ namespace CcDirector.Core.Utilities;
 ///
 /// <para><b>WHY THE TEMPORARY FILE IS WRITTEN AND RENAMED THROUGH ONE HANDLE, NEVER CLOSED IN BETWEEN.</b>
 /// The first version wrote the temporary file with <c>File.WriteAllText</c>, closed it, opened it again
-/// and renamed it. Closing a freshly written file is the moment Microsoft Defender's real-time protection
-/// takes it to scan, and while that scan is running the filter driver refuses to let the file be renamed:
-/// both the POSIX rename and the classic one answered <c>Access is denied</c> (Win32 error 5) for about
-/// 1.3 seconds, sometimes far longer, with no handle open on either file that any sharing check or the
-/// Restart Manager could see. Under <c>RepositoryRegistryConcurrencyTests</c> that was one red run in
+/// and renamed it. Closing a freshly written file is when a file-system filter driver - typically
+/// real-time antivirus such as Microsoft Defender - takes it to inspect, and while it does, the rename is
+/// refused: both the POSIX rename and the classic one answered <c>Access is denied</c> (Win32 error 5)
+/// for about 1.3 seconds, sometimes far longer, with no handle open on either file that any sharing check
+/// or the Restart Manager could see. The evidence is that pattern - transient error 5, no visible handle,
+/// and the improvement from never closing the file - not a trace naming the driver. Under <c>RepositoryRegistryConcurrencyTests</c> that was one red run in
 /// five (measured 11 October 2026: 6 of 30, then 5 of 30, then 4 of 30, every one error 5 on the rename).
 /// With the bytes written through the very handle that renames the file, the file is never closed before
 /// it has its final name, so there is no closed-then-reopened temporary for the scanner to catch
@@ -62,6 +63,12 @@ public static class AtomicFileReplace
         var fullDestination = Path.GetFullPath(destination);
         var directory = Path.GetDirectoryName(fullDestination)
             ?? throw new ArgumentException($"[AtomicFileReplace] {destination} has no directory", nameof(destination));
+
+        // A directory in the way is a certain failure, and Windows reports it as the same Access-denied a
+        // scanner's veto produces - so it is refused here, at once, instead of being waited out.
+        if (Directory.Exists(fullDestination))
+            throw new IOException($"[AtomicFileReplace] cannot write {fullDestination}: a directory has that name");
+
         var temporary = Path.Combine(directory, $".{Path.GetFileName(fullDestination)}.{Guid.NewGuid():N}.tmp");
         var bytes = Encoding.UTF8.GetBytes(text);
 
@@ -69,7 +76,17 @@ public static class AtomicFileReplace
         {
             // rename(2): already atomic, and already indifferent to readers holding the old file.
             File.WriteAllBytes(temporary, bytes);
-            File.Move(temporary, fullDestination, overwrite: true);
+            try
+            {
+                File.Move(temporary, fullDestination, overwrite: true);
+            }
+            catch
+            {
+                // Nothing may be left beside the destination. A delete that also fails surfaces as its own
+                // exception, carrying the move's failure inside it, rather than being swallowed.
+                DeleteTemporaryAfterFailedMove(temporary);
+                throw;
+            }
             return;
         }
 
@@ -93,12 +110,35 @@ public static class AtomicFileReplace
             RenameThroughScannerVeto(() => TryRename(handle, destination), temporary, destination,
                 TimeProvider.System, Thread.Sleep);
         }
-        catch
+        catch (Exception failure)
         {
             // The temporary never reached its name: take it with the handle, so nothing is left beside
-            // the list for the next reader to trip over. The failure already in flight is the one reported.
-            MarkDeleteOnClose(handle);
+            // the list for the next reader to trip over. If even that is refused, both failures are
+            // reported together - never the cleanup one silently dropped.
+            var cleanupError = MarkDeleteOnClose(handle);
+            if (cleanupError != 0)
+            {
+                FileLog.Write($"[AtomicFileReplace] WriteOnWindows FAILED to mark {temporary} for deletion: {Describe(cleanupError)}");
+                throw new IOException(
+                    $"[AtomicFileReplace] writing {destination} failed, and the temporary file {temporary} could not be " +
+                    $"removed ({Describe(cleanupError)}); delete it by hand", failure);
+            }
             throw;
+        }
+    }
+
+    private static void DeleteTemporaryAfterFailedMove(string temporary)
+    {
+        try
+        {
+            File.Delete(temporary);
+        }
+        catch (Exception deleteFailure)
+        {
+            FileLog.Write($"[AtomicFileReplace] DeleteTemporaryAfterFailedMove FAILED for {temporary}: {deleteFailure.Message}");
+            throw new IOException(
+                $"[AtomicFileReplace] the move failed and the temporary file {temporary} could not be removed; delete it by hand",
+                deleteFailure);
         }
     }
 
@@ -125,6 +165,11 @@ public static class AtomicFileReplace
     /// <param name="tryRename">One rename attempt: 0 when it went through, otherwise the Win32 error.</param>
     internal static void RenameThroughScannerVeto(Func<int> tryRename, string source, string destination,
         TimeProvider clock, Action<TimeSpan> pause)
+        => RenameThroughScannerVeto(tryRename, source, destination, clock, pause, ScannerVetoDeadline, ScannerVetoPause);
+
+    /// <summary>The same wait with its two durations given, so a test can put the deadline between pauses.</summary>
+    internal static void RenameThroughScannerVeto(Func<int> tryRename, string source, string destination,
+        TimeProvider clock, Action<TimeSpan> pause, TimeSpan deadline, TimeSpan pauseBetween)
     {
         var started = clock.GetTimestamp();
         var vetoes = 0;
@@ -145,7 +190,7 @@ public static class AtomicFileReplace
 
             vetoes++;
             var waited = clock.GetElapsedTime(started);
-            if (waited >= ScannerVetoDeadline)
+            if (waited >= deadline)
             {
                 FileLog.Write($"[AtomicFileReplace] RenameThroughScannerVeto FAILED: {destination} refused {vetoes} times over {waited.TotalSeconds:F1} s");
                 throw new Win32Exception(error,
@@ -154,7 +199,9 @@ public static class AtomicFileReplace
                     "new file - usually an antivirus scan that has not finished; check the antivirus log for this path.");
             }
 
-            pause(ScannerVetoPause);
+            // Never pause past the deadline: the last attempt happens AT it, and the next refusal fails.
+            var remaining = deadline - waited;
+            pause(remaining < pauseBetween ? remaining : pauseBetween);
         }
     }
 
@@ -185,14 +232,17 @@ public static class AtomicFileReplace
         }
     }
 
-    private static void MarkDeleteOnClose(SafeFileHandle handle)
+    /// <summary>Mark the open file for deletion on close: 0 when that was accepted, otherwise the Win32 error.</summary>
+    private static int MarkDeleteOnClose(SafeFileHandle handle)
     {
         // FILE_DISPOSITION_INFO is a single BOOLEAN; the buffer is one byte set to TRUE.
         var buffer = Marshal.AllocHGlobal(1);
         try
         {
             Marshal.WriteByte(buffer, 1);
-            SetFileInformationByHandle(handle, FileDispositionInfo, buffer, 1);
+            return SetFileInformationByHandle(handle, FileDispositionInfo, buffer, 1)
+                ? 0
+                : Marshal.GetLastWin32Error();
         }
         finally
         {

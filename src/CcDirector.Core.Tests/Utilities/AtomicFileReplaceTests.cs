@@ -119,16 +119,40 @@ public sealed class AtomicFileReplaceTests : IDisposable
         Assert.Equal(TimeSpan.Zero, clock.GetUtcNow() - FakeStart);
     }
 
+    /// <summary>
+    /// A deadline that falls between pauses is never overrun: the last pause is cut to what remains, one
+    /// attempt is made AT the deadline, and the next refusal fails - at 120 ms, not 150.
+    /// </summary>
+    [Fact]
+    public void RenameThroughScannerVeto_DeadlineBetweenPauses_LastAttemptIsAtTheDeadlineNeverPastIt()
+    {
+        var clock = new FakeTimeProvider();
+        var attemptTimes = new List<TimeSpan>();
+
+        Assert.Throws<Win32Exception>(() => AtomicFileReplace.RenameThroughScannerVeto(
+            () => { attemptTimes.Add(clock.GetUtcNow() - FakeStart); return 5; },
+            "temp", "list.json", clock, clock.Advance,
+            deadline: TimeSpan.FromMilliseconds(120), pauseBetween: TimeSpan.FromMilliseconds(50)));
+
+        Assert.Equal(new[] { 0, 50, 100, 120 }, attemptTimes.Select(t => (int)t.TotalMilliseconds));
+        Assert.Equal(TimeSpan.FromMilliseconds(120), clock.GetUtcNow() - FakeStart);
+    }
+
     private static readonly DateTimeOffset FakeStart = new FakeTimeProvider().GetUtcNow();
 
     [Fact]
-    public void WriteAllText_DestinationIsADirectory_ThrowsAndLeavesNothingBehind()
+    public void WriteAllText_DestinationIsADirectory_ThrowsAtOnceAndLeavesNothingBehind()
     {
         var destination = Path.Combine(_dir, "list.json");
         Directory.CreateDirectory(destination);
+        var watch = System.Diagnostics.Stopwatch.StartNew();
 
-        Assert.ThrowsAny<Exception>(() => AtomicFileReplace.WriteAllText(destination, "text"));
+        var ex = Assert.Throws<IOException>(() => AtomicFileReplace.WriteAllText(destination, "text"));
 
+        // Windows answers a directory in the way with the same Access-denied a scanner's veto gives; it
+        // must be refused up front, not waited out for the full ten seconds.
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"took {watch.Elapsed}");
+        Assert.Contains("a directory has that name", ex.Message);
         Assert.Empty(Directory.GetFiles(_dir));
         Assert.True(Directory.Exists(destination));
     }
