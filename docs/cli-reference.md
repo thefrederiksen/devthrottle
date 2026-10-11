@@ -2352,8 +2352,8 @@ sealed bytes on and never stores them, and no command prints, logs or audits the
   refused, with the reason, and nothing is overwritten.
 - Every transfer is recorded on both machines (`cc-secrets log`) and on the Gateway: who asked, why, who answered,
   where, and with what words.
-- A fleet message, reply, report (`session handback`), typed prompt, raised hand or first prompt of a new session
-  that contains a value stored on the sending machine is refused: `cc-devthrottle` asks `cc-secrets check-text` first,
+- A fleet message, reply, report (`session handback`), typed prompt, raised hand, first prompt of a new session,
+  schedule seed or trigger prompt that contains a value stored on the sending machine is refused: `cc-devthrottle` asks `cc-secrets check-text` first,
   and does not send when cc-secrets cannot answer. It catches a stored value and its common re-encodings (base64,
   hexadecimal, escaped forms), not a secret someone deliberately rewrote; a secret travels as a transfer, never in a
   message.
