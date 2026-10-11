@@ -453,6 +453,12 @@ public sealed class TerminalStateDetector : IDisposable
         private string? _lastBody;
         private long _lastBodyCheckTicks;
 
+        // The last change the quiet timer measures silence from - a byte for a byte-silent agent, a body
+        // change for a continuous-idle one - stamped on THIS detector's clock. The buffer and the session
+        // keep their own stamps on the system clock for their other readers; comparing those with this
+        // clock would measure one clock against another the moment a test hands the detector a fake one.
+        private long _lastChangeTicks;
+
         public Watcher(Session session, bool driveState, TimeSpan quietThreshold,
             Activity.ActivityEventProducer? activityProducer,
             TurnContentRule contentRule, TimeSpan settleCheckDelay, TimeSpan maxSettleCheckDeferral,
@@ -465,6 +471,7 @@ public sealed class TerminalStateDetector : IDisposable
             _driveState = driveState;
             _quietThreshold = quietThreshold;
             _timeProvider = timeProvider;
+            _lastChangeTicks = UtcNow.Ticks;
             _activityProducer = activityProducer;
             _continuousIdle = session.Driver.EmitsContinuousIdleOutput;
             _contentRule = contentRule;
@@ -528,6 +535,7 @@ public sealed class TerminalStateDetector : IDisposable
         private void OnBytes(byte[] bytes)
         {
             if (Volatile.Read(ref _disposed) != 0) return;
+            if (!_continuousIdle) Volatile.Write(ref _lastChangeTicks, UtcNow.Ticks);
             try { OnBytesCore(bytes); }
             catch (Exception ex)
             {
@@ -1058,7 +1066,7 @@ public sealed class TerminalStateDetector : IDisposable
                     // This agent's idle clock runs off body changes rather than bytes, so stamp one:
                     // the quiet threshold must measure silence from this moment.
                     if (TryReadScreenBody(out var body)) _lastBody = body;
-                    _session.StampBodyActivity();
+                    StampBodyChange();
                 }
 
                 RecordUnexplainedWakeEvidence(byteCount, _continuousIdle ? "body" : "content");
@@ -1102,7 +1110,7 @@ public sealed class TerminalStateDetector : IDisposable
         {
             try
             {
-                _session.StampBodyActivity();
+                StampBodyChange();
                 if (_active) return;
                 _active = true;
                 try
@@ -1165,13 +1173,10 @@ public sealed class TerminalStateDetector : IDisposable
             if (!_active) return;
 
             // Confirm the silence is real (guard a raced timer fire). For a byte-silent agent,
-            // "silent" means no bytes (LastWriteAtUtc). For a continuous-idle agent the bytes
-            // never stop, so "silent" means no BODY change since the last one - measure against
-            // _lastBodyChangeTicks instead, or the footer heartbeat would re-arm us forever.
-            var lastChange = _continuousIdle
-                ? _session.LastBodyActivityAtUtc
-                : _buffer.LastWriteAtUtc;
-            var idle = UtcNow - lastChange;
+            // "silent" means no bytes. For a continuous-idle agent the bytes never stop, so
+            // "silent" means no BODY change since the last one, or the footer heartbeat would
+            // re-arm us forever. _lastChangeTicks holds whichever applies, on this clock.
+            var idle = UtcNow - new DateTime(Volatile.Read(ref _lastChangeTicks), DateTimeKind.Utc);
             if (idle + TimeSpan.FromMilliseconds(250) < _quietThreshold)
             {
                 ArmQuietTimer();
@@ -1222,7 +1227,17 @@ public sealed class TerminalStateDetector : IDisposable
             if (_driveState) _session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
         }
 
+        // Every time this detector reads. Two windows it compares against are stamped by the SESSION on the
+        // system clock - the Director-induced repaint suppression and the last submission - so a test that
+        // exercises either must leave the detector on the system clock too; in production both are that clock.
         private DateTime UtcNow => _timeProvider.GetUtcNow().UtcDateTime;
+
+        /// <summary>A body change: the session's stamp for the idle clock, and this detector's own for the quiet timer.</summary>
+        private void StampBodyChange()
+        {
+            _session.StampBodyActivity();
+            Volatile.Write(ref _lastChangeTicks, UtcNow.Ticks);
+        }
 
         public void Dispose()
         {

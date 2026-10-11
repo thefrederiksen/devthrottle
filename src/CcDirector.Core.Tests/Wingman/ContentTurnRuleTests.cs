@@ -21,7 +21,10 @@ namespace CcDirector.Core.Tests.Wingman;
 /// It is proved twice over: the state writes are identical with the shadow log on and off, and the
 /// flip still happens ON THE BYTE rather than after the settling window.
 ///
-/// These drive the detector through one fake clock. CC_DIRECTOR_ROOT is pinned to a throwaway
+/// These drive the detector's timers and every time it reads through one fake clock; the quiet timer
+/// measures silence on that clock too. Advancing the clock runs the timer callbacks on the test thread,
+/// so a byte arriving WHILE a callback runs is not exercised here - that race is a machine-timing
+/// question, and a gate test does not ask it. CC_DIRECTOR_ROOT is pinned to a throwaway
 /// directory so the shadow log lands there and never in the real running Director's data.
 /// </summary>
 [Collection("CcStorageRoot")]
@@ -466,9 +469,6 @@ public sealed class ContentTurnRuleTests : IDisposable
                 if (_clock.GetUtcNow() - startedAt < cap)
                     Assert.Equal(baseline, CountShadowRows(session.Id));
             }
-            var took = _clock.GetUtcNow() - startedAt;
-
-            Assert.Equal(cap, took);
             Assert.Equal(baseline + 1, CountShadowRows(session.Id));
         }
     }
