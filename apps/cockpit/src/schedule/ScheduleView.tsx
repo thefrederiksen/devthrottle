@@ -346,6 +346,22 @@ export function ScheduleView() {
         ),
       },
       {
+        // The shifts this schedule works in, and its shift-end warning (Factory Control, step 3). Both are the
+        // Gateway's words; the cell only marks the warning it is given, and the detail below says it in full.
+        key: "shift",
+        header: "Shift",
+        width: "150px",
+        render: (job) => (
+          <span
+            className={`sched-shift ${job.shiftWarning ? "warn" : ""}`}
+            title={job.shiftWarning ?? undefined}
+            data-testid={`sched-shift-${job.id}`}
+          >
+            {job.shiftText ?? "-"}
+          </span>
+        ),
+      },
+      {
         key: "next",
         header: "Next run",
         width: "90px",
@@ -376,22 +392,6 @@ export function ScheduleView() {
             </span>
           );
         },
-      },
-      {
-        // The shifts this schedule works in, and its shift-end warning (Factory Control, step 3). Both are the
-        // Gateway's words; the cell only marks the warning it is given, and the detail below says it in full.
-        key: "shift",
-        header: "Shift",
-        width: "150px",
-        render: (job) => (
-          <span
-            className={`sched-shift ${job.shiftWarning ? "warn" : ""}`}
-            title={job.shiftWarning ?? undefined}
-            data-testid={`sched-shift-${job.id}`}
-          >
-            {job.shiftText ?? "-"}
-          </span>
-        ),
       },
       {
         // Whether this schedule's sessions close themselves (the owner, 2026-10-09). The words and the verdict are

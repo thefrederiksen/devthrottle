@@ -1266,7 +1266,7 @@
 }
 
 .sched-shift.warn {
-  color: var(--needsyou-fyi-text);
+  color: var(--warn);
   font-weight: 600;
 }
 
