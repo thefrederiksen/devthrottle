@@ -104,4 +104,31 @@ public sealed class ProcessRunnerTests
             try { if (File.Exists(marker)) File.Delete(marker); } catch { }
         }
     }
+
+    // ---------------------------------------------------------------------------------------
+    // The Secret Handoff mission: a caller hands a child something that must never be in its
+    // argument list or environment by writing it to standard input. The child here copies its
+    // standard input to standard output, so what comes back is exactly what went in - and the
+    // pipe is closed after the write, or the child would wait for more input forever.
+    // ---------------------------------------------------------------------------------------
+    [Fact]
+    public async Task RunAsync_WithStandardInput_ChildReadsItAndSeesEndOfInput()
+    {
+        // Arrange
+        const string input = "{\"transferId\":\"t-1\",\"marker\":\"stdin-only\"}";
+        var (file, args) = OperatingSystem.IsWindows()
+            ? ("powershell", new[] { "-NoProfile", "-Command", "[Console]::Out.Write([Console]::In.ReadToEnd())" })
+            : ("/bin/sh", new[] { "-c", "cat" });
+
+        // Act
+        var run = ProcessRunner.RunAsync(file, args, workingDirectory: null, standardInput: input, CancellationToken.None);
+        var finished = await Task.WhenAny(run, Task.Delay(TimeSpan.FromSeconds(60)));
+
+        // Assert
+        Assert.Same(run, finished);
+        var result = await run;
+        Assert.True(result.Started);
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(input, result.StandardOutput.Trim());
+    }
 }

@@ -30,17 +30,31 @@ public static class ProcessRunner
     /// process exits. On cancellation the child process tree is killed and
     /// <see cref="OperationCanceledException"/> is thrown.
     /// </summary>
-    public static async Task<Result> RunAsync(
+    public static Task<Result> RunAsync(
         string fileName, IReadOnlyList<string> args, string? workingDirectory, CancellationToken ct = default)
+        => RunAsync(fileName, args, workingDirectory, standardInput: null, ct);
+
+    /// <summary>
+    /// As <see cref="RunAsync(string, IReadOnlyList{string}, string?, CancellationToken)"/>, and also writes
+    /// <paramref name="standardInput"/> to the child's standard input (UTF-8, no byte order mark) and then closes
+    /// it, so the child reads to end of input. This is how a caller hands a child something that must never sit
+    /// in its argument list or environment, where any process on the machine can read it. Null leaves standard
+    /// input unredirected, exactly as the overload without it.
+    /// </summary>
+    public static async Task<Result> RunAsync(
+        string fileName, IReadOnlyList<string> args, string? workingDirectory, string? standardInput, CancellationToken ct)
     {
         var psi = new ProcessStartInfo
         {
             FileName = fileName,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            RedirectStandardInput = standardInput is not null,
             UseShellExecute = false,
             CreateNoWindow = true,
         };
+        if (standardInput is not null)
+            psi.StandardInputEncoding = new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
         if (!string.IsNullOrEmpty(workingDirectory))
             psi.WorkingDirectory = workingDirectory;
         foreach (var a in args)
@@ -68,6 +82,8 @@ public static class ProcessRunner
         var errTask = proc.StandardError.ReadToEndAsync(ct);
         try
         {
+            if (standardInput is not null)
+                await WriteStandardInputAsync(proc, standardInput, ct);
             await proc.WaitForExitAsync(ct);
             var stdout = await outTask;
             var stderr = await errTask;
@@ -80,6 +96,29 @@ public static class ProcessRunner
             await ObserveQuietlyAsync(outTask);
             await ObserveQuietlyAsync(errTask);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Writes the input and closes the pipe. A child that exits without reading all of it breaks the pipe; that is
+    /// not this method's failure to report - the child's own exit code and output say what happened, and the caller
+    /// reads those once the process has exited.
+    /// </summary>
+    private static async Task WriteStandardInputAsync(Process proc, string standardInput, CancellationToken ct)
+    {
+        try
+        {
+            await proc.StandardInput.WriteAsync(standardInput.AsMemory(), ct);
+            await proc.StandardInput.FlushAsync(ct);
+        }
+        catch (IOException)
+        {
+            // The child closed its end first. Its exit code carries the outcome.
+        }
+        finally
+        {
+            try { proc.StandardInput.Close(); }
+            catch (IOException) { /* the pipe is already broken; nothing is left to close */ }
         }
     }
 

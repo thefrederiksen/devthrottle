@@ -108,6 +108,9 @@ internal static class SessionCommandExecutor
         // The Message Load mission, slice 2: the doorbell. The Gateway asks; this Director checks the live screen
         // and types the one line only when that is safe.
         new FleetDoorbellExecutor(),
+        // The Secret Handoff mission, phase 4: sealing a secret on the machine that holds it and opening it on the
+        // machine that receives it, each by running the machine's cc-secrets with the payload on standard input.
+        new SecretTransferExecutor(),
     };
 
     /// <summary>
@@ -116,6 +119,9 @@ internal static class SessionCommandExecutor
     /// a duplicate verb across two areas throws immediately (fail loud, no silent shadow).
     /// </summary>
     private static readonly IReadOnlyDictionary<string, ISessionCommandArea> VerbMap = BuildVerbMap(Areas);
+
+    /// <summary>The area that owns <paramref name="verb"/> in the production map, or null when no area does.</summary>
+    internal static ISessionCommandArea? AreaFor(string verb) => VerbMap.TryGetValue(verb, out var area) ? area : null;
 
     internal static IReadOnlyDictionary<string, ISessionCommandArea> BuildVerbMap(IReadOnlyList<ISessionCommandArea> areas)
     {
