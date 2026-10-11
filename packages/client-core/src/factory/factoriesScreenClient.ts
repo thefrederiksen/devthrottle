@@ -260,12 +260,12 @@ export interface FactoryProblemItem {
   resolveBusyLabel: string;
 }
 
-/** Handle the issue: opens a talk with the factory's boss, briefed on the problem - or, for a factory with no boss,
- *  is drawn unavailable with the Gateway's sentence saying why. */
+/** Handle the issue: opens a talk with the factory's boss, briefed on the problem - or, for a factory with no boss, a
+ *  talk with the Factory Manager, briefed in the same words. */
 export interface FactoryProblemHandle {
   /** "Handle the issue". */
   label: string;
-  /** "Starting the talk with the boss...". */
+  /** "Starting the talk with the boss...", or "...with the Factory Manager..." for a factory with no boss. */
   busyLabel: string;
   factoryId: string;
   runId: string;
@@ -645,4 +645,83 @@ export async function runFactoryOwnerAction(action: FactoryOwnerAction, signal?:
   if (!res.ok) throw await GatewayError.from(res, action.label.toLowerCase());
   assertJson(res);
   return (await res.json()) as FactoryOwnerActionResult;
+}
+
+// ---- the Factory Manager (Factory Control, step 5) ----------------------------------------------------------------
+// Mirrors FactoryManagerDtos.cs. Every word, tone and finding is the Gateway's (FactoryManagerEndpoints.CardOf and
+// FactoryNameCheck), rendered verbatim.
+
+/** One seat the name check flagged. */
+export interface FactoryNameFinding {
+  factory: string;
+  factoryTitle: string;
+  seatId: string;
+  /** "ceo" or "not-a-role-word". */
+  kind: string;
+  /** The Gateway's sentence. */
+  text: string;
+}
+
+/** The name check over every factory that is not archived. */
+export interface FactoryNameCheck {
+  count: number;
+  factoriesChecked: number;
+  /** "Name check: 2 seats flagged", or "Name check: nothing flagged". */
+  headingText: string;
+  ruleText: string;
+  /** "Every factory passes." when nothing is flagged; null otherwise. */
+  passText: string | null;
+  findings: FactoryNameFinding[];
+}
+
+/** The Factories screen's Factory Manager card. */
+export interface FactoryManagerCard {
+  title: string;
+  purpose: string;
+  stateText: string;
+  stateTone: FactoryTone;
+  /** Where the running Factory Manager opens; null when none runs. */
+  sessionHref: string | null;
+  /** "Talk to the Factory Manager", or "Open the Factory Manager" while one runs. */
+  actionLabel: string;
+  busyLabel: string;
+  /** True when no computer and folder are saved: the card asks for them before the first start. */
+  needsPlacement: boolean;
+  /** The computers with a running Director, to choose from; empty once a placement is saved. */
+  computers: string[];
+  placementText: string | null;
+  placementSavedText: string | null;
+  nameCheck: FactoryNameCheck;
+}
+
+/** Where a first start puts the Factory Manager: both, or neither (the saved ones). */
+export interface FactoryManagerPlacement {
+  computer: string;
+  folder: string;
+}
+
+const FACTORY_MANAGER_PREFIX = "/gateway/factory-agents/factory-manager";
+
+export function getFactoryManagerCard(signal?: AbortSignal): Promise<FactoryManagerCard> {
+  return getJson<FactoryManagerCard>(FACTORY_MANAGER_PREFIX, "load the Factory Manager", signal);
+}
+
+/**
+ * Talk to the Factory Manager: the Gateway answers with the running one, or starts a new top-level session owned by
+ * the person who pressed it - on the placement sent, or the saved one - and binds it. A refusal (no placement yet, no
+ * Director on the computer, the switch off) throws a GatewayError carrying the Gateway's own sentence.
+ */
+export async function startFactoryManagerTalk(
+  placement: FactoryManagerPlacement | null,
+  signal?: AbortSignal,
+): Promise<FactoryTalkStarted> {
+  const res = await fetch(`${FACTORY_MANAGER_PREFIX}/talk`, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json", ...authHeaders() },
+    body: placement === null ? undefined : JSON.stringify(placement),
+    signal,
+  });
+  if (!res.ok) throw await GatewayError.from(res, "start the Factory Manager");
+  assertJson(res);
+  return (await res.json()) as FactoryTalkStarted;
 }

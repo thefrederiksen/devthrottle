@@ -1454,3 +1454,76 @@ a:focus .ff-bay rect {
   border-radius: 6px;
   background: #fff;
 }
+
+/* The Factory Manager card (Factory Control, step 5): one card over the factory list, the same surface as a factory
+   card, with the placement form, the talk button and the name check. */
+.fa-fm-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.fa-fm-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.fa-fm-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.fa-fm-placement .fa-dim {
+  margin: 0 0 6px;
+}
+
+.fa-fm-folder {
+  flex: 1;
+  min-width: 200px;
+}
+
+.fa-fm-names {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.fa-fm-subtitle {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.fa-fm-names .fa-dim,
+.fa-fm-pass {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.fa-fm-pass {
+  color: var(--ok-text);
+}
+
+.fa-fm-findings {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--needsyou-text);
+  overflow-wrap: anywhere;
+}
+
+.fa-fm-findings li + li {
+  margin-top: 4px;
+}

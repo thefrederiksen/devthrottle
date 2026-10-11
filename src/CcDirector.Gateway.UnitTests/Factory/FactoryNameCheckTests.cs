@@ -32,6 +32,7 @@ public sealed class FactoryNameCheckTests
         Assert.Equal(0, check.Count);
         Assert.Equal(1, check.FactoriesChecked);
         Assert.Equal("Every factory passes.", check.PassText);
+        Assert.Equal("Name check: nothing flagged", check.HeadingText);
         Assert.Equal(FactoryNameCheck.RuleText, check.RuleText);
     }
 
@@ -106,6 +107,7 @@ public sealed class FactoryNameCheckTests
         });
 
         Assert.Equal(2, check.FactoriesChecked);
+        Assert.Equal("Name check: 1 seat flagged", check.HeadingText);
         var finding = Assert.Single(check.Findings);
         Assert.Equal("warmforward", finding.Factory);
         Assert.Equal("WarmForward", finding.FactoryTitle);

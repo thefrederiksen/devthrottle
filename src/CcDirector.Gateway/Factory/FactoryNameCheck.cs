@@ -40,6 +40,12 @@ public static class FactoryNameCheck
         {
             Count = findings.Count,
             FactoriesChecked = factories.Count,
+            HeadingText = findings.Count switch
+            {
+                0 => "Name check: nothing flagged",
+                1 => "Name check: 1 seat flagged",
+                _ => $"Name check: {findings.Count} seats flagged",
+            },
             RuleText = RuleText,
             PassText = findings.Count == 0 ? "Every factory passes." : null,
             Findings = findings,

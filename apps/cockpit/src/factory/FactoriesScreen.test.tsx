@@ -21,6 +21,9 @@ import { GatewayError } from "@devthrottle/client-core/api/client";
 //   * at phone width the list is cards, from the stylesheet, not a horizontally scrolling table.
 
 const screenClient = vi.hoisted(() => ({
+  // The Factory Manager card loads beside the list; it stays loading here (FactoryManagerCard.test.tsx covers it).
+  getFactoryManagerCard: vi.fn(() => new Promise(() => {})),
+  startFactoryManagerTalk: vi.fn(),
   getFactoriesList: vi.fn(),
   getFactoryPage: vi.fn(),
   getFactorySeats: vi.fn(),

@@ -81,6 +81,9 @@ public sealed class FactoryNameCheckDto
     /// <summary>How many factories were checked.</summary>
     public int FactoriesChecked { get; set; }
 
+    /// <summary>The check's heading: "Name check: 2 seats flagged", or "Name check: nothing flagged".</summary>
+    public string HeadingText { get; set; } = "";
+
     /// <summary>The rule, in words.</summary>
     public string RuleText { get; set; } = "";
 

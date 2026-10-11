@@ -8,6 +8,7 @@ import {
 import { EmptyState, ErrorBanner, LoadingState, PageHeader } from "../components";
 import { ActivityTab, ReportsTab, useView } from "./FactoryActivityTabs";
 import { OwnerActionButton, StatusWord, TalkButton, ToneChip } from "./FactoryParts";
+import { FactoryManagerCard } from "./FactoryManagerCard";
 import { PauseEverythingButton, PausedBanner, useSchedulerPause } from "../schedule/SchedulerPause";
 import {
   FACTORY_VIEW_MODES,
@@ -88,6 +89,7 @@ export function FactoriesView() {
       {/* error-reported-by: useView */}
       {frame.error !== null && <ErrorBanner message={frame.error} onRetry={frame.reload} />}
       {frame.data === null && frame.error === null && <LoadingState />}
+      {frame.data !== null && tab === "factories" && <FactoryManagerCard />}
       {frame.data !== null && tab === "factories" && <FactoriesList view={frame.data} onChanged={frame.reload} />}
       {tab === "activity" && <ActivityTab />}
       {tab === "reports" && <ReportsTab />}
