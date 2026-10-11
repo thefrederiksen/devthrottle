@@ -3917,6 +3917,8 @@ public partial class MainWindow : Window
         // DevThrottle Stats: the origin BackgroundDictationSend decided by the one rule (ruling R20) -
         // DesktopVoice for the transcript alone, DesktopTyped for typed text composed around it. This
         // used to stamp every background dictation DesktopVoice, mixture or not.
+        // A refusal says how the send before it ended, read from the shared delivery record (issue #3675).
+        using var previousSend = PreviousSend.Begin(DeliveryRecord.Shared, target.Id, deliveryId: null);
         await target.SendTextAsync(text, provenance, origin: origin);
     }
 
@@ -5988,6 +5990,8 @@ public partial class MainWindow : Window
         // newline here. Appending one used to trip LargeInputHandler's multi-line check
         // and route short single-line prompts through a temp file.
         var target = _activeSession.Session;
+        // A refusal says how the send before it ended, read from the shared delivery record (issue #3675).
+        using var previousSend = PreviousSend.Begin(DeliveryRecord.Shared, target.Id, deliveryId: null);
         try
         {
             await target.SendTextAsync(text, provenance, origin: origin);

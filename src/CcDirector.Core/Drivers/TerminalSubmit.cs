@@ -1139,7 +1139,10 @@ public static class TerminalSubmit
         try
         {
             var (reading, text) = composerRegion();
-            return $"reading={reading}, text='{text}'";
+            // Never in an error report (issue #3675): the token is withheld from this send's reports.
+            var token = $"'{text}'";
+            ErrorReports.ErrorContext.Withhold(token);
+            return $"reading={reading}, text={token}";
         }
         catch (Exception ex)
         {
@@ -1515,7 +1518,10 @@ public static class TerminalSubmit
         const int tailBytes = 64 * 1024;
         var text = NormalizeWhitespace(StripAnsi(Encoding.UTF8.GetString(buffer.DumpTail(tailBytes))));
         const int maxChars = 500;
-        return text.Length <= maxChars ? text : text[^maxChars..];
+        var tail = text.Length <= maxChars ? text : text[^maxChars..];
+        // Terminal content: never in an error report (issue #3675).
+        ErrorReports.ErrorContext.Withhold(tail);
+        return tail;
     }
 
     /// <summary>
@@ -1562,13 +1568,21 @@ public static class TerminalSubmit
             screenInfo =
                 $"screenRows={rows.Length}, screenLen={screenHay.Length}, " +
                 $"screenHasNeedle={screenHasNeedle}, screenHasTail={screenHasTail}, " +
-                $"screenTail=\"{TailBounded(screenHay, tailChars)}\"";
+                $"screenTail={Withheld(TailBounded(screenHay, tailChars))}";
         }
 
         return
-            $"[echo-miss] needleLen={needle.Length}, tailNeedle=\"{visibleTailNeedle}\", " +
+            $"[echo-miss] needleLen={needle.Length}, tailNeedle={Withheld(visibleTailNeedle ?? "")}, " +
             $"byteLen={byteHay.Length}, byteHasNeedle={byteHasNeedle}, byteHasTail={byteHasTail}, " +
-            $"byteTail=\"{TailBounded(byteHay, tailChars)}\", {screenInfo}";
+            $"byteTail={Withheld(TailBounded(byteHay, tailChars))}, {screenInfo}";
+
+        // The prompt's own words and the terminal's content, quoted - and never in an error report (issue #3675).
+        static string Withheld(string value)
+        {
+            var token = $"\"{value}\"";
+            ErrorReports.ErrorContext.Withhold(token);
+            return token;
+        }
     }
 
     private static string TailBounded(string value, int maxChars) =>

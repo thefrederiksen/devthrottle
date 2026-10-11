@@ -116,9 +116,12 @@ public static class FirstPromptGate
         if (frame is null) return "The screen was never read.";
         var rows = (frame.Rows ?? []).Where(r => !string.IsNullOrWhiteSpace(r)).TakeLast(4)
             .Select(r => { var t = r.Trim(); return t.Length > 80 ? t[..80] + "..." : t; });
+        // What the screen showed is carried into a failed-delivery reason, and never into an error report (issue #3675).
+        var bottomRows = string.Join(" | ", rows);
+        ErrorReports.ErrorContext.Withhold(bottomRows);
         return $"Last screen: composer {DoorbellSafety.ReadComposer(agent, frame)}, cursor " +
                $"{(frame.CursorVisible ? $"at row {frame.CursorRow} column {frame.CursorCol}" : "hidden")}; " +
-               $"bottom rows: {string.Join(" | ", rows)}";
+               $"bottom rows: {bottomRows}";
     }
 
     /// <summary>
