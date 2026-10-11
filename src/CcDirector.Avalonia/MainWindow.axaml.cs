@@ -2206,6 +2206,7 @@ public partial class MainWindow : Window
         {
             // Not a FAILED line: the workspace dialog that shows the sentence below reports it, and one failure is
             // one report. The exception and its stack stay in the log here.
+            // not-an-error: the workspace dialog that shows this failure reports it through ShownError
             FileLog.Write($"[MainWindow] ImportLegacyWorkspacesAsync: the import threw, and the dialog reports it: {ex}");
             return "The workspaces saved on this machine before they moved to the Gateway could not " +
                    $"be imported: {ex.Message} They are still on disk and will be tried again.";

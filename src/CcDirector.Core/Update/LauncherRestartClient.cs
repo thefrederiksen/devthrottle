@@ -62,6 +62,7 @@ public static class LauncherRestartClient
         {
             // Not a FAILED line: the window shows this result and reports it (issue #3675), and one failure is one
             // report. The exception stays in the log here.
+            // not-an-error: the window that shows this result reports it through ShownError
             FileLog.Write($"[LauncherRestartClient] RequestRestartAsync: the request threw, and the window reports it: {ex}");
             return Task.FromResult(new LauncherRestartResult(false,
                 $"Could not ask the launcher to restart the Director: {ex.Message}. Closing and reopening the "

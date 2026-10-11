@@ -153,6 +153,7 @@ public static class BackgroundDictationSend
                 // With a callback the window shows and reports it (issue #3675), so this is a plain line - one
                 // failure, one report; without one nothing reports it, so it is a FAILED line.
                 var refused = $"session {target.Id} ({DiagnosticState(target)}): {ex.GetType().Name}, chars={text.Length}";
+                // not-an-error: with a callback the window shows and reports this failure; without one it is a FAILED line
                 FileLog.Write(onFailed is null
                     ? $"[BackgroundDictationSend] submit FAILED for {refused}"
                     : $"[BackgroundDictationSend] submit refused, handed to the window to show and report, for {refused}");
