@@ -16,15 +16,24 @@ namespace CcDirector.Core.UnitTests.Architecture;
 ///
 /// So test code in a gate suite may not, for a new reason, use any of these:
 /// <list type="bullet">
-/// <item>a wall-clock wait: <c>Thread.Sleep</c>, or <c>Task.Delay</c> with a finite wait (await the event, or
-/// advance a fake clock - <c>FakeTimeProvider</c>, <c>VirtualTime</c>);</item>
-/// <item>the real clock: <c>DateTime.Now</c>/<c>UtcNow</c>, <c>DateTimeOffset.Now</c>/<c>UtcNow</c>, or a
-/// <c>Stopwatch</c> (inject a <c>TimeProvider</c> into the code under test);</item>
-/// <item>a real process: <c>Process.Start</c>, <c>new Process</c>, <c>new ProcessStartInfo</c>;</item>
+/// <item>a wall-clock wait: <c>Thread.Sleep</c>, <c>Task.Delay</c> with a finite wait, <c>SpinWait.SpinUntil</c>,
+/// or a timer of the test's own (await the event, or advance a fake clock - <c>FakeTimeProvider</c>,
+/// <c>VirtualTime</c>);</item>
+/// <item>the real clock: <c>DateTime.Now</c>/<c>UtcNow</c>/<c>Today</c>, <c>DateTimeOffset.Now</c>/<c>UtcNow</c>,
+/// <c>TimeProvider.System</c>, <c>Environment.TickCount</c>, or a <c>Stopwatch</c> (inject a <c>TimeProvider</c>
+/// into the code under test and hand it a fake);</item>
+/// <item>a real process: <c>Process.Start</c>, <c>new Process</c>, <c>new ProcessStartInfo</c>, or either one
+/// built with a target-typed <c>new(...)</c>;</item>
 /// <item>Docker or a real database server: Docker, Testcontainers, Npgsql (database tests live in
 /// <c>CcDirector.Gateway.DatabaseTests</c>, which the gate never runs);</item>
-/// <item>a fixed network port: <c>localhost:5000</c> and the like (port 0, or an in-memory host).</item>
+/// <item>a fixed network port: <c>localhost:5000</c>, <c>http://+:5000</c>,
+/// <c>new IPEndPoint(IPAddress.Loopback, 5000)</c> and the like (port 0, or an in-memory host).</item>
 /// </list>
+///
+/// A <c>.WaitAsync(timeout)</c> watchdog is NOT refused: it only turns a hang into a named failure and never decides
+/// a pass. WHAT A TEXT SCAN CANNOT SEE: it counts where a sleep or a process start is WRITTEN, not where it is
+/// called from, so a new test calling an existing helper that sleeps adds nothing here. Do not write such tests;
+/// the helpers are on the baseline so they can be found and removed, and any new helper anywhere is a new use.
 ///
 /// THE BASELINE. Today's offenders are listed in <c>GateTestsDoNotDependOnTheMachine.baseline.txt</c>, one line
 /// per file and rule with the count found. The list may only SHRINK: a file whose count rises, or a file that is
@@ -44,14 +53,16 @@ public sealed class GateTestsDoNotDependOnTheMachineTests
     private static readonly (string Name, Regex Pattern)[] Rules =
     {
         ("sleep", new Regex(@"\bThread\.Sleep\s*\(", RegexOptions.Compiled)),
-        // A never-ending wait (Timeout.Infinite, -1) reads no clock; every finite one does.
-        ("delay", new Regex(@"\bTask\.Delay\s*\((?!\s*(Timeout\.Infinite|-1\s*[,)]))", RegexOptions.Compiled)),
-        ("real-clock", new Regex(@"\bDateTime(Offset)?\.(Utc)?Now\b", RegexOptions.Compiled)),
+        // A never-ending wait (Timeout.Infinite, Timeout.InfiniteTimeSpan, -1) reads no clock; every finite one does.
+        ("delay", new Regex(@"\bTask\.Delay\s*\((?!\s*(Timeout\.Infinite(TimeSpan)?\b|-1\s*[,)]))", RegexOptions.Compiled)),
+        // A polling wait, or a timer of the test's own, on the real clock.
+        ("timer-wait", new Regex(@"\bSpinWait\.SpinUntil\s*\(|\bnew\s+(System\.Threading\.)?Timer\s*\(|\bnew\s+PeriodicTimer\s*\(", RegexOptions.Compiled)),
+        ("real-clock", new Regex(@"\bDateTime(Offset)?\.((Utc)?Now|Today)\b|\bTimeProvider\.System\b|\bEnvironment\.TickCount(64)?\b", RegexOptions.Compiled)),
         ("stopwatch", new Regex(@"\bStopwatch\b", RegexOptions.Compiled)),
-        ("process", new Regex(@"\bProcess\.Start\s*\(|\bnew\s+Process\s*[({]|\bnew\s+ProcessStartInfo\b", RegexOptions.Compiled)),
+        ("process", new Regex(@"\bProcess\.Start\s*\(|\bnew\s+Process\s*[({]|\bnew\s+ProcessStartInfo\b|\bProcess(StartInfo)?\s+\w+\s*=\s*new\s*\(", RegexOptions.Compiled)),
         ("docker", new Regex(@"\b(docker|testcontainers)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase)),
         ("npgsql", new Regex(@"\bNpgsql", RegexOptions.Compiled)),
-        ("fixed-port", new Regex(@"\b(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]):(?!0\b)\d{2,5}\b", RegexOptions.Compiled)),
+        ("fixed-port", new Regex(@"\b(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]):(?!0\b)\d{1,5}\b|//[+*]:[1-9]\d{0,4}\b|\bIPEndPoint\s*\(\s*IPAddress\.\w+\s*,\s*[1-9]", RegexOptions.Compiled)),
     };
 
     /// <summary>The three parked suites hold most of the offenders; a scan that lost one of them would pass.</summary>
@@ -116,6 +127,13 @@ public sealed class GateTestsDoNotDependOnTheMachineTests
             .Select(m => m.Groups[1].Value.Replace('\\', '/'))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+        // Every project path the script quotes must be one this guard read: a change in how the script spells a
+        // path would otherwise drop that suite out of the scan without a word.
+        var quoted = Regex.Matches(script, @"""[^""\r\n]*\.csproj""").Select(m => m.Value)
+            .Distinct(StringComparer.OrdinalIgnoreCase).Count();
+        Assert.True(quoted == suites.Count,
+            $"scripts/test-local.ps1 quotes {quoted} test project paths and this guard could read the folder of only " +
+            $"{suites.Count} of them. Teach GateSuiteDirectories the new spelling, so every gate suite is scanned.");
         suites.Add("src/TestInfrastructure");
         return suites;
     }
@@ -163,9 +181,10 @@ public sealed class GateTestsDoNotDependOnTheMachineTests
     }
 
     /// <summary>
-    /// Remove every comment and keep every string literal, by walking the source once - the same walker as
-    /// <see cref="GatewayHostedModeIsReadOnceTests"/>, so a <c>//</c> inside an <c>https://</c> literal does not
-    /// cut the rest of the line away.
+    /// Remove every comment and keep every string literal, by walking the source once, so a <c>//</c> inside an
+    /// <c>https://</c> literal does not cut the rest of the line away. It knows ordinary, verbatim, interpolated and
+    /// raw literals: a raw JSON fixture full of <c>//</c> and lone quotes once threw a simpler walker out of step
+    /// and hid real code after it.
     /// </summary>
     private static string StripComments(string source)
     {
@@ -187,9 +206,24 @@ public sealed class GateTestsDoNotDependOnTheMachineTests
                 i = end < 0 ? source.Length : end + 2;
                 continue;
             }
-            if (c == '@' && next == '"')
+            if (c == '"' && next == '"' && i + 2 < source.Length && source[i + 2] == '"')
             {
-                output.Append(c).Append(next);
+                // Raw literal ("""...""", with or without a $ prefix): it ends at the first run of as many quotes as
+                // opened it, and nothing inside it - a // in a JSON fixture, a lone quote - means anything.
+                var run = 0;
+                while (i + run < source.Length && source[i + run] == '"') run++;
+                var fence = new string('"', run);
+                var close = source.IndexOf(fence, i + run, StringComparison.Ordinal);
+                var end = close < 0 ? source.Length : close + run;
+                output.Append(source, i, end - i);
+                i = end;
+                continue;
+            }
+            if ((c == '@' && next == '"') || (c == '@' && next == '$' && i + 2 < source.Length && source[i + 2] == '"'))
+            {
+                // Verbatim literal, interpolated or not: only a doubled quote continues it.
+                if (next == '$') { output.Append(c); i++; }
+                output.Append(source[i]).Append(source[i + 1]);
                 i += 2;
                 while (i < source.Length)
                 {
