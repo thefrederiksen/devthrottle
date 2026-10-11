@@ -64,11 +64,9 @@ public sealed class RepoStateSnapshotCollectorTests : IClassFixture<RepoStateSna
 
     public void Dispose()
     {
-        for (var i = 0; i < 3; i++)
-        {
-            try { Directory.Delete(_root, recursive: true); return; }
-            catch { Thread.Sleep(100); }
-        }
+        // The copy is this test's own; a delete that fails is reported, not retried and swallowed - the
+        // swallowed version leaked a folder per test for months, because git's objects are read-only.
+        TestTempRoot.DeleteTree(_root);
     }
 
     private RepositoryConfig Repo(string? path = null) =>

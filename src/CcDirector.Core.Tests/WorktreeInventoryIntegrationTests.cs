@@ -57,12 +57,9 @@ public sealed class WorktreeInventoryIntegrationTests : IClassFixture<WorktreeIn
 
     public void Dispose()
     {
-        // git worktrees hold handles; retry a little to be robust on Windows.
-        for (int attempt = 0; attempt < 3; attempt++)
-        {
-            try { Directory.Delete(_root, recursive: true); return; }
-            catch { Thread.Sleep(100); }
-        }
+        // The copy is this test's own; a delete that fails is reported, not retried and swallowed - the
+        // swallowed version leaked a folder per test for months, because git's objects are read-only.
+        TestTempRoot.DeleteTree(_root);
     }
 
     // -------------------------------------------------------------------------------------------

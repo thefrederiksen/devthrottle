@@ -62,10 +62,9 @@ public sealed class PooledWorktreeReaperTests : IClassFixture<PooledWorktreeReap
 
     public void Dispose()
     {
-        for (int attempt = 0; attempt < 3; attempt++)
-        {
-            try { Directory.Delete(_root, recursive: true); return; } catch { Thread.Sleep(150); }
-        }
+        // The copy is this test's own; a delete that fails is reported, not retried and swallowed - the
+        // swallowed version leaked a folder per test for months, because git's objects are read-only.
+        TestTempRoot.DeleteTree(_root);
     }
 
     /// <summary>An hour into the future, so a freshly made worktree is past the activity cooling-off.</summary>

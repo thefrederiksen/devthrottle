@@ -23,6 +23,10 @@ namespace CcDirector.Core.Tests.Git;
 /// every clone named in <see cref="Clones"/> at the origin inside its own copy. Worktrees share their
 /// clone's configuration, so one call per clone covers them. A relative URL would not do: git resolves it
 /// against the directory the command runs in, which for a worktree is not the clone.
+///
+/// A copied index carries the template's stat cache, so the copy's files look changed to git until it
+/// re-reads them. `git status` does re-read them and reports the copy clean; a caller that reaches for
+/// `diff-index` or `diff-files` without a refresh would see every file as modified. The Director uses status.
 /// </summary>
 public abstract class GitRepositoryTemplate : IDisposable
 {
@@ -56,6 +60,9 @@ public abstract class GitRepositoryTemplate : IDisposable
         return root;
     }
 
+    /// <summary>The template folder, once built; for the fixture's own tests.</summary>
+    internal string? BuiltRoot => _templateRoot;
+
     private string TemplateRoot()
     {
         lock (_gate)
@@ -63,7 +70,16 @@ public abstract class GitRepositoryTemplate : IDisposable
             if (_templateRoot is not null) return _templateRoot;
             var root = TestTempRoot.For(_prefix + "template-");
             Directory.CreateDirectory(root);
-            Build(root);
+            try
+            {
+                Build(root);
+            }
+            catch
+            {
+                // A half-built template is never served and never left behind; the failure itself is rethrown.
+                TestTempRoot.DeleteTree(root);
+                throw;
+            }
             _templateRoot = root;
             return root;
         }

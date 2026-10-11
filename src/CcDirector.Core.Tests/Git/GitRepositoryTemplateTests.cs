@@ -101,18 +101,23 @@ public sealed class GitRepositoryTemplateTests
         var copy = template.CopyTo();
         try
         {
-            var templateOrigin = Template.Git(Path.Combine(copy, "repo"), "remote", "get-url", "origin");
+            var templateRoot = template.BuiltRoot;
+            Assert.NotNull(templateRoot);
+            Assert.True(Directory.Exists(templateRoot), "the template folder should exist once a copy was taken");
+            var copyOrigin = Template.Git(Path.Combine(copy, "repo"), "remote", "get-url", "origin");
             Assert.True(Directory.Exists(copy));
 
             template.Dispose();
 
+            Assert.False(Directory.Exists(templateRoot), "disposing the template must remove its folder, read-only git objects included");
             Assert.True(Directory.Exists(copy), "disposing the template must not touch a copy a test still owns");
             Assert.True(File.Exists(Path.Combine(copy, "repo", "README.md")));
-            Assert.Equal(Path.Combine(copy, "origin.git"), templateOrigin.Trim());
+            Assert.Equal(Path.Combine(copy, "origin.git"), copyOrigin.Trim());
         }
         finally
         {
             TestTempRoot.DeleteTree(copy);
+            if (template.BuiltRoot is { } leftover && Directory.Exists(leftover)) TestTempRoot.DeleteTree(leftover);
         }
     }
 }
