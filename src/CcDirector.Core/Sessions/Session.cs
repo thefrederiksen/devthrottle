@@ -2292,7 +2292,11 @@ public sealed class Session : IDisposable
         RepoPath = repoPath;
         WorkingDirectory = workingDirectory;
         ClaudeArgs = claudeArgs;
-        _backend = backend;
+        // The License Switching mission, trap 4: every keystroke the Director sends a terminal session passes the
+        // usage-limit guard. Only a terminal session can show Claude Code's dialog, and only its screen can be read.
+        _backend = backendType == SessionBackendType.ConPty
+            ? new UsageLimitInputGuard(backend, id, UsageLimitDialogShowing)
+            : backend;
         BackendType = backendType;
         CreatedAt = createdAt ?? DateTimeOffset.UtcNow;
         Status = SessionStatus.Starting;
@@ -2964,7 +2968,7 @@ public sealed class Session : IDisposable
         foreach (var held in _heldKeystrokes)
         {
             _inputGeneration++;
-            _backend.Write(held.Data);
+            WriteRawInput(held.Data, held.Origin);
             released.Add(new ReleasedKeystrokes(held, NoteRawInputLocked(held.Data, held.Provenance)));
         }
         _heldKeystrokes.Clear();
@@ -3015,6 +3019,64 @@ public sealed class Session : IDisposable
         }
     }
 
+    /// <summary>
+    /// Writes raw terminal input. Input with a TYPED origin is a person's own keystrokes at a terminal they are looking
+    /// at (the desktop, the Cockpit or the phone terminal view), and is the one kind that reaches Claude Code's
+    /// usage-limit dialog (<see cref="UsageLimitInputGuard"/>): that person can see it and choose.
+    /// </summary>
+    private void WriteRawInput(byte[] data, InputOrigin? origin)
+    {
+        if (origin is not { Modality: InputModality.Typed })
+        {
+            _backend.Write(data);
+            return;
+        }
+        using (UsageLimitInputGuard.PersonAtTheTerminal())
+            _backend.Write(data);
+    }
+
+    /// <summary>Where the usage-limit verdict was last taken: the screen's byte count then, and what it said.</summary>
+    private long _usageLimitCheckedAtBytes = -1;
+    private bool _usageLimitDialogShowing;
+    private bool _usageLimitEscapeSent;
+
+    /// <summary>
+    /// The License Switching mission, trap 4: whether the visible screen shows Claude Code's usage-limit dialog. Read
+    /// again only when the screen has changed since the last answer, so the guard can ask on every write. False for a
+    /// session with no screen to read.
+    /// </summary>
+    internal bool UsageLimitDialogShowing()
+    {
+        if (_screenParser is null) return false;
+        lock (_screenLock)
+        {
+            if (_screenBytesReflected == _usageLimitCheckedAtBytes) return _usageLimitDialogShowing;
+            var (rows, _, _) = _screenParser.SnapshotActiveRows();
+            _usageLimitDialogShowing = UsageLimitDialog.IsShowing(rows);
+            _usageLimitCheckedAtBytes = _screenBytesReflected;
+            return _usageLimitDialogShowing;
+        }
+    }
+
+    /// <summary>
+    /// The License Switching mission, trap 4: when the usage-limit dialog shows, send it Escape - once for each time it
+    /// appears, and logged - and nothing else. Called when the screen settles (the dialog waits, so the screen goes
+    /// quiet). Returns true when it sent the Escape.
+    /// </summary>
+    internal bool EscapeUsageLimitDialogIfShowing()
+    {
+        if (!UsageLimitDialogShowing())
+        {
+            _usageLimitEscapeSent = false;
+            return false;
+        }
+        if (_usageLimitEscapeSent) return false;
+        _usageLimitEscapeSent = true;
+        FileLog.Write($"[Session] EscapeUsageLimitDialogIfShowing: session={Id}: Claude Code's usage-limit dialog is showing; sending Escape, once, and nothing else");
+        _backend.Write([0x1B]);
+        return true;
+    }
+
     /// <summary>Send raw bytes to the backend. <paramref name="origin"/> tags this input for the
     /// DevThrottle Stats tally. A bare keystroke is the user COMPOSING and is not a turn; the write that
     /// carries the Enter IS the submitted turn and is counted as one, with the character volume of the
@@ -3043,7 +3105,7 @@ public sealed class Session : IDisposable
             }
             _inputGeneration++;
             _inputInFlight++;
-            _backend.Write(data);
+            WriteRawInput(data, origin);
             submits = NoteRawInputLocked(data, provenance);
         }
         try { AfterRawInput(data, origin, provenance, submits); }
