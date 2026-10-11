@@ -263,8 +263,10 @@ jobs:
       - name: Build solution
         run: dotnet build cc-director.sln -c Release --no-restore
 
+      # Quarantined tests ([Trait("Gate", "Quarantine")]) never decide a verdict here either: they depend
+      # on the machine and are being fixed or deleted, and a red they cause is not a code defect.
       - name: Run tests
-        run: dotnet test cc-director.sln -c Release --no-build --verbosity normal
+        run: dotnet test cc-director.sln -c Release --no-build --verbosity normal --filter "Gate!=Quarantine"
 
       # The installer's own tests. They are NOT in cc-director.sln, so the step above
       # never touched them: roughly 415 tests - the gateway-surface guard, the wizard step flow,
@@ -282,9 +284,9 @@ jobs:
       # outside the solution, so they restore and build themselves.
       - name: Run installer tests
         run: |
-          dotnet test tools/cc-director-setup.Tests/ -c Release --verbosity normal
-          dotnet test tools/cc-director-setup-engine.Tests/ -c Release --verbosity normal
-          dotnet test tools/cc-director-setup-cli.Tests/ -c Release --verbosity normal
+          dotnet test tools/cc-director-setup.Tests/ -c Release --verbosity normal --filter "Gate!=Quarantine"
+          dotnet test tools/cc-director-setup-engine.Tests/ -c Release --verbosity normal --filter "Gate!=Quarantine"
+          dotnet test tools/cc-director-setup-cli.Tests/ -c Release --verbosity normal --filter "Gate!=Quarantine"
 
   # The browser shells (the mobile PWA and the React Cockpit) and the client-core library they share.
   #

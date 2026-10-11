@@ -112,8 +112,14 @@
 
 .PARAMETER Quarantine
     Run ONLY the quarantined tests (trait Gate=Quarantine), in every suite including the parked ones.
-    Prints what passed and failed and always exits 0: a quarantined test never decides a verdict. Writes
-    no gate record. Takes the release-gate lock, as it includes the Gateway suite.
+    Prints what passed and failed and exits 0 whenever the tests ran, failures or not: a quarantined test
+    never decides a verdict. (A build failure, a held lock or too little disk space still stop it, because
+    then nothing ran.) Writes no gate record, keeps its run folder so the failures can be read, and takes
+    the release-gate lock, as it includes the Gateway suite.
+
+    A SUITE MAY NOT BE QUARANTINED WHOLE. Every gate suite must execute at least one test; a suite with
+    every test quarantined executes none and the run ends NEVER RAN. Delete such a suite from the list, or
+    fix its tests.
 
 .PARAMETER Gateway
     Run ONLY the parked Gateway suite (host-bound). Takes the release-gate lock; refused with exit 6 if
@@ -539,7 +545,7 @@ function Stop-Gate([int] $Code, [string] $Verdict) {
 $MinFreeTempGB = 15
 $MinFreeRepoGB = 10
 # A FILTERED run writes a fraction of that, so the floor applies to the unfiltered runs only.
-if (($Parked -or $Gateway) -and $Filter -eq "") {
+if (($Parked -or $Gateway -or $Quarantine) -and $Filter -eq "") {
     $short = @()
     foreach ($check in @(@{ Path = $logDir; Min = $MinFreeTempGB; What = "the TEMP drive (run folder and test temporary folders)" },
                          @{ Path = $repoRoot; Min = $MinFreeRepoGB; What = "the repository drive (build output)" })) {
@@ -847,6 +853,9 @@ try {
         Write-Host ""
         Write-Host ("RESULT: QUARANTINE RAN {0} test(s); {1} failed. This never fails a run." -f $qTotal, $qFailed.Count)
         foreach ($l in $qFailed) { Write-Host $l }
+        # The folder is the point of a quarantine run - the failures are read from it - so it is always kept.
+        $KeepRun = $true
+        Write-Host "Run folder kept: $logDir"
         Stop-Gate 0 "QUARANTINE"
     }
 
@@ -908,7 +917,7 @@ try {
         } elseif ($r.Aborted) {
             $why = "says in its result file that the active test run was aborted (total=$($r.Total), executed=$($r.Executed))"
         } elseif ($Filter -eq "" -and $r.Executed -eq 0) {
-            $why = "executed zero tests with no filter (outcome=$($r.Outcome), total=$($r.Total))"
+            $why = "executed zero tests with no filter (outcome=$($r.Outcome), total=$($r.Total)) - or every test in it is quarantined, which is not allowed"
         }
         if ($null -ne $why) { $neverRan += [pscustomobject]@{ Name = $r.Name; Why = $why; Log = $r.Log } }
     }
@@ -1068,7 +1077,8 @@ try {
             Write-Host ""
             Write-Host "$($names.Count) test(s) were collected in total, so the run is not empty - which is exactly"
             Write-Host "why it would otherwise have passed. A term that matches nothing is a test name that has"
-            Write-Host "drifted, a test that has been removed, or a typo; in all three the claim this run was"
+            Write-Host "drifted, a test that has been removed, a typo - or a QUARANTINED test (trait Gate=Quarantine),"
+            Write-Host "which no gate run includes; run it with -Quarantine. In every case the claim this run was"
             Write-Host "gathered to support is unproven."
             Stop-Gate 5 "FILTER MATCHED NOTHING"
         }
@@ -1114,7 +1124,8 @@ try {
             Write-Host "The filter was: $Filter"
             Write-Host "No test in any project matched it. Check the test name, and check that the test file is"
             Write-Host "actually in THIS checkout - a filter naming a class that does not exist here exits zero"
-            Write-Host "with 'No test matches', which is the shape of a green and the substance of nothing."
+            Write-Host "with 'No test matches', which is the shape of a green and the substance of nothing. A test tagged"
+            Write-Host "Gate=Quarantine is excluded from every gate run too; run it with -Quarantine."
         } else {
             Write-Host "No filter was passed, so a total of zero means the run did not execute at all."
         }
