@@ -18,12 +18,34 @@
 
 var NEEDS_YOU_TAG = 'devthrottle-needs-you';
 
+// A secret transfer waiting for the owner's answer (the Secret Handoff mission, issue #2943). The Gateway wrote the
+// title, the body (the entry and the two machines, never a value), the per-transfer tag and the page to open; this
+// only shows them. It is a separate notification that BUZZES - the agent that asked is waiting - and it never touches
+// the "needs you" dot. Tapping it opens the approval card (see notificationclick).
+var SECRET_TRANSFER_KIND = 'secret-transfer';
+
+function showSecretTransfer(payload) {
+  return self.registration.showNotification(String(payload.title), {
+    tag: String(payload.tag),
+    body: String(payload.body),
+    renotify: true,
+    silent: false,
+    icon: '/mobile/icon-192.png',
+    badge: '/mobile/icon-192.png',
+    data: { url: String(payload.url), navigate: true }
+  });
+}
+
 self.addEventListener('push', function (event) {
   var count = 0;
   var snoozeEnded = false;
   if (event.data) {
     try {
       var payload = event.data.json();
+      if (payload && payload.kind === SECRET_TRANSFER_KIND) {
+        event.waitUntil(showSecretTransfer(payload));
+        return;
+      }
       count = Number(payload && payload.count) || 0;
       snoozeEnded = !!(payload && payload.snoozeEnded);
     } catch (e) {
@@ -104,12 +126,23 @@ function closeNeedsYou() {
 
 self.addEventListener('notificationclick', function (event) {
   event.notification.close();
-  var url = (event.notification.data && event.notification.data.url) || '/mobile/';
+  var data = event.notification.data || {};
+  var url = data.url || '/mobile/';
+  // A notification that names a page (a secret transfer's approval card) steers an open app window to it; the
+  // "needs you" dot only brings the app forward, wherever it was.
+  var steer = !!data.navigate;
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (clients) {
       for (var i = 0; i < clients.length; i++) {
         var c = clients[i];
         if (c.url.indexOf('/mobile') !== -1 && 'focus' in c) {
+          if (steer && 'navigate' in c) {
+            return c.navigate(url).then(function (nav) {
+              return (nav || c).focus();
+            }).catch(function () {
+              return c.focus();
+            });
+          }
           return c.focus();
         }
       }

@@ -28,6 +28,10 @@ function openNotDelivered(): HTMLElement {
 //   - Could not confirm (phase 2, change 1): the words come back with the label and Dismiss only, because the
 //     Gateway says a second copy might double them.
 
+vi.mock("@devthrottle/client-core/secrets/SecretTransfers", () => ({
+  SecretTransfersProvider: ({ children }: { children: unknown }) => children,
+  SecretTransfersPanel: () => null,
+}));
 vi.mock("@devthrottle/client-core/restart/RestartRequestsPanel", () => ({
   RestartRequestsPanel: () => null,
 }));

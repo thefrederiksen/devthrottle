@@ -218,4 +218,38 @@ describe("cockpit push service worker", () => {
     expect(w.shown[0].closed).toBe(true);
     expect(w.self.navigator.clearAppBadge).toHaveBeenCalled();
   });
+
+  // Secret Handoff (issue #2943, phase 5): a transfer waiting for the owner arrives as its own push.
+  const SECRET_PUSH = {
+    kind: "secret-transfer",
+    title: "Secret transfer waiting",
+    body: "Approve sending vercel-bypass from SOREN_NORTH to devthrottle-mac-mini?",
+    tag: "devthrottle-secret-transfer-tr-1",
+    url: "/mobile/secret-transfers",
+  };
+
+  it("a secret transfer push draws its own notification in the Gateway's words", async () => {
+    const w = loadWorker({});
+    await w.dispatch("push", { data: { json: () => SECRET_PUSH } });
+    expect(w.shown).toHaveLength(1);
+    expect(w.shown[0].title).toBe("Secret transfer waiting");
+    expect(w.shown[0].options.body).toBe(SECRET_PUSH.body);
+    expect(w.shown[0].options.tag).toBe("devthrottle-secret-transfer-tr-1");
+  });
+
+  it("a secret transfer push never clears the needs-you notification", async () => {
+    const w = loadWorker({});
+    await w.dispatch("push", pushEvent(2));
+    await w.dispatch("push", { data: { json: () => SECRET_PUSH } });
+    expect(w.shown[0].closed).toBe(false);
+    expect(w.self.navigator.clearAppBadge).not.toHaveBeenCalled();
+  });
+
+  it("clicking a secret transfer notification opens the Cockpit's sessions screen, not the phone page", async () => {
+    const w = loadWorker({});
+    await w.dispatch("push", { data: { json: () => SECRET_PUSH } });
+    await w.dispatch("notificationclick", { notification: { close: () => undefined, data: w.shown[0].options.data } });
+    expect(w.fetchStub).not.toHaveBeenCalled();
+    expect(w.openedWindows).toEqual(["/sessions"]);
+  });
 });

@@ -37,6 +37,10 @@ function rule(selector: string): string {
 // with a band along its bottom; the children expand in place as one-line rows. The All tab opens in
 // attention order - longest wait on top, then working, then snoozed - and "My order" groups by machine.
 
+vi.mock("@devthrottle/client-core/secrets/SecretTransfers", () => ({
+  SecretTransfersProvider: ({ children }: { children: unknown }) => children,
+  SecretTransfersPanel: () => null,
+}));
 vi.mock("@devthrottle/client-core/restart/RestartRequestsPanel", () => ({
   RestartRequestsPanel: () => null,
 }));

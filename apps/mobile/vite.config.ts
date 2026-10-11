@@ -146,7 +146,7 @@ export default defineConfig({
         // generated sw.js content changes too, which is what makes the browser re-install the service
         // worker and re-import the new push handler (an unchanged sw.js is never re-fetched). The
         // Gateway serves push-sw.js ignoring the query, with no-cache.
-        importScripts: ["push-sw.js?v=2"],
+        importScripts: ["push-sw.js?v=3"],
         // NETWORK-FIRST APP SHELL (root cause fix): the app shell and the JS/CSS bundle are NO LONGER
         // precached and served cache-first. A precached, cache-first index.html was serving the phone a
         // STALE bundle for a whole load even though the Gateway serves a fresh index.html (no-cache) - so
