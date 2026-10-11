@@ -199,8 +199,9 @@ internal static class SessionWsProxyEndpoints
     /// (<c>boundary is null ? TenantId.Local : ...</c>), which fails OPEN - a hosted process handed a null
     /// boundary answered Local, exposing every per-session leg (terminal, file, screenshots, the catch-all
     /// verbs, backfill) to the shared partition. <see cref="GatewayEndpoints.ResolveReadTenant"/> treats a
-    /// missing boundary as a REFUSAL in every mode, and the boundary carries the mode itself
-    /// (<c>HostedTenantBoundary.Hosted</c>). The second defence is that <see cref="Map"/> takes the boundary as a required
+    /// missing boundary as a REFUSAL in every mode, and a present boundary decides by the tenant context it was
+    /// built over (ambient on hosted, single-tenant on self-host). The second defence is that <see cref="Map"/>
+    /// takes the boundary as a required
     /// non-nullable argument, so omitting it is a compile error rather than a runtime downgrade.
     /// </summary>
     private static async Task<TenantId?> ResolveTenantOrDenyAsync(HttpContext ctx, Tenancy.HostedTenantBoundary? boundary)

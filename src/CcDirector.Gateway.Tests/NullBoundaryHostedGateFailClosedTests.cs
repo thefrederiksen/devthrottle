@@ -20,8 +20,8 @@ namespace CcDirector.Gateway.Tests;
 /// <summary>
 /// Tenant-boundary hardening (release 2026-07-31, the census sweep's ruling on the six adjacent sites):
 /// the hosted-only gates in <c>GatewayEndpoints.Map</c> that used to read <c>tenantBoundary?.IsHosted ==
-/// true</c> now gate on <see cref="GatewayHostedMode.IsHosted"/> - the PROCESS-level hosted flag - so a
-/// literal <c>null!</c> boundary on a hosted process can no longer fail them OPEN.
+/// true</c> now gate on the host's hosted value - the required <c>hosted</c> parameter of <c>Map</c>, read
+/// once at startup - so a literal <c>null!</c> boundary on a hosted process can no longer fail them OPEN.
 ///
 /// Phase 2 (<see cref="OmittedTenantBoundaryFailClosedTests"/>) made the boundary parameter required and
 /// the RESOLVERS fail closed; these six sites were the flagged leftovers that gated hosted-only DENIALS on

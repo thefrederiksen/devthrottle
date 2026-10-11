@@ -1104,9 +1104,10 @@ public sealed class DirectorHub : Hub
     /// </summary>
     private TenantId? ResolveConnectionTenant()
     {
-        // The boundary carries the deployment mode it was built under (HostedTenantBoundary.Hosted, the host's own
-        // value), so the whole decision is the boundary's: hosted answers the key's bound tenant or null, self-host
-        // answers Local. NO BOUNDARY IS A REFUSAL, in every mode (finding I1-01, the same shape
+        // The boundary decides, by the tenant context it was built over: over the ambient context (hosted) it
+        // answers the key's bound tenant or null, over the single-tenant context (self-host) it answers Local, and
+        // its constructor guarantees a hosted Gateway's boundary is the former. NO BOUNDARY IS A REFUSAL, in every
+        // mode (finding I1-01, the same shape
         // GatewayEndpoints.ResolveReadTenant carries): a hub constructed without one has nothing to resolve a tenant
         // with, and answering Local would bind the Director's whole push stream into the shared partition. Hello
         // aborts the connection. The second defence is the required non-nullable constructor parameter.

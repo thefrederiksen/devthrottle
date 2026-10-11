@@ -92,9 +92,10 @@ public sealed class LauncherHub : Hub
     /// On self-host this is <see cref="TenantId.Local"/>; on hosted a key with no bound tenant returns null
     /// and the connection is aborted.
     ///
-    /// A hub constructed WITHOUT a boundary refuses every connection in every mode, and the boundary carries
-    /// the mode itself (<c>HostedTenantBoundary.Hosted</c>, a required value fixed once at startup) - finding
-    /// I1-01, revised, the same shape <c>GatewayEndpoints.ResolveReadTenant</c> carries. Letting the absent
+    /// A hub constructed WITHOUT a boundary refuses every connection in every mode, and a present boundary
+    /// decides by the tenant context it was built over (ambient on hosted, single-tenant on self-host - its
+    /// constructor guarantees a hosted Gateway gets the former) - finding I1-01, revised, the same shape
+    /// <c>GatewayEndpoints.ResolveReadTenant</c> carries. Letting the absent
     /// field mean "self-host" would fail OPEN: a hosted process whose hub was constructed without a boundary would resolve
     /// <see cref="TenantId.Local"/> and register the launcher into the shared partition. On hosted, a missing
     /// or non-hosted-wired boundary resolves to null, and null is a REFUSAL - Hello aborts the connection.
@@ -104,8 +105,8 @@ public sealed class LauncherHub : Hub
         var key = Context.GetHttpContext()?.Items.TryGetValue(AuthMiddleware.DeviceKeyItemKey, out var value) == true
             ? value as string
             : null;
-        // The boundary carries the deployment mode it was built under, so the decision is the boundary's; NO
-        // BOUNDARY IS A REFUSAL in every mode (see DirectorHub.ResolveConnectionTenant for the reasoning).
+        // The boundary decides by the tenant context it was built over (see DirectorHub.ResolveConnectionTenant);
+        // NO BOUNDARY IS A REFUSAL in every mode.
         if (_tenantBoundary is null)
             return null;
         return _tenantBoundary.ResolveForDeviceKey(key);

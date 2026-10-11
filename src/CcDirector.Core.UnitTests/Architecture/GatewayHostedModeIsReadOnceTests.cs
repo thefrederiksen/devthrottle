@@ -92,8 +92,10 @@ public sealed class GatewayHostedModeIsReadOnceTests
     }
 
     /// <summary>
-    /// Every Gateway source file whose CODE (comments stripped) matches <paramref name="pattern"/>, as a
-    /// file name. A match inside a comment is allowed to say anything it likes about the old reader.
+    /// Every Gateway source file whose CODE (comments stripped) matches <paramref name="pattern"/>, as its path
+    /// relative to the Gateway project with forward slashes - so a same-named file in a subfolder is not
+    /// mistaken for a sanctioned reader. A match inside a comment is allowed to say anything it likes about
+    /// the old reader.
     /// </summary>
     private static IReadOnlyCollection<string> FilesWhoseCodeMatches(Regex pattern)
     {
@@ -110,7 +112,7 @@ public sealed class GatewayHostedModeIsReadOnceTests
         {
             var code = StripComments(File.ReadAllText(file));
             if (pattern.IsMatch(code))
-                hits.Add(Path.GetFileName(file));
+                hits.Add(Path.GetRelativePath(gateway, file).Replace('\\', '/'));
         }
         return hits;
     }
@@ -123,11 +125,70 @@ public sealed class GatewayHostedModeIsReadOnceTests
             || string.Equals(first, "bin", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static readonly Regex BlockComment = new(@"/\*.*?\*/", RegexOptions.Singleline);
-    private static readonly Regex LineComment = new(@"//[^\r\n]*");
+    /// <summary>
+    /// Remove every comment and keep every string literal, by walking the source once. A regex that cuts at
+    /// the first <c>//</c> would also cut a line at the <c>//</c> inside an <c>https://</c> literal and miss a
+    /// reader placed after it; this walker knows when it is inside a quoted, verbatim or character literal.
+    /// </summary>
+    private static string StripComments(string source)
+    {
+        var output = new System.Text.StringBuilder(source.Length);
+        var i = 0;
+        while (i < source.Length)
+        {
+            var c = source[i];
+            var next = i + 1 < source.Length ? source[i + 1] : '\0';
 
-    private static string StripComments(string source) =>
-        LineComment.Replace(BlockComment.Replace(source, string.Empty), string.Empty);
+            if (c == '/' && next == '/')
+            {
+                while (i < source.Length && source[i] != '\n') i++;
+                continue;
+            }
+            if (c == '/' && next == '*')
+            {
+                var end = source.IndexOf("*/", i + 2, StringComparison.Ordinal);
+                i = end < 0 ? source.Length : end + 2;
+                continue;
+            }
+            if (c == '@' && next == '"')
+            {
+                // Verbatim literal: only a doubled quote continues it.
+                output.Append(c).Append(next);
+                i += 2;
+                while (i < source.Length)
+                {
+                    output.Append(source[i]);
+                    if (source[i] == '"')
+                    {
+                        if (i + 1 < source.Length && source[i + 1] == '"') { output.Append('"'); i += 2; continue; }
+                        i++;
+                        break;
+                    }
+                    i++;
+                }
+                continue;
+            }
+            if (c == '"' || c == '\'')
+            {
+                // Ordinary or interpolated string, or a character literal: a backslash escapes the next character.
+                var quote = c;
+                output.Append(c);
+                i++;
+                while (i < source.Length)
+                {
+                    output.Append(source[i]);
+                    if (source[i] == '\\' && i + 1 < source.Length) { output.Append(source[i + 1]); i += 2; continue; }
+                    if (source[i] == quote) { i++; break; }
+                    i++;
+                }
+                continue;
+            }
+
+            output.Append(c);
+            i++;
+        }
+        return output.ToString();
+    }
 
     /// <summary>
     /// The repository root, walked up from the test binary. Fails loudly rather than passing over a missing

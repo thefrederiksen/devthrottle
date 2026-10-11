@@ -87,7 +87,7 @@ public static class GatewayPublicUrl
     /// <summary>
     /// Session-screen resolver with the self-host front-door source injected, so the self-host branch can
     /// be driven against a KNOWN front door - the same seam, and for the same reason, as
-    /// <see cref="ResolveCockpit(Func{string?})"/>.
+    /// <see cref="ResolveCockpit(bool, Func{string?})"/>.
     /// </summary>
     internal static string? ResolveCockpitSession(bool hosted, string sessionId, Func<string?> frontDoorProvider)
     {

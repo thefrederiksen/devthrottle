@@ -141,9 +141,10 @@ public static class HistoryEndpoints
     private static DateTime EndOfDay(DateTime day) => day.Date.AddDays(1).AddTicks(-1);
 
     /// <summary>
-    /// Null means DENY. The mode rides on the boundary (<c>HostedTenantBoundary.Hosted</c>, a required value
-    /// fixed once at startup), and a missing boundary resolves null - a refusal, never Local - in every mode
-    /// (finding CR-7, revised: no wiring omission can fall open). A self-host boundary is Local as before.
+    /// Null means DENY. The boundary decides, by the tenant context it was built over (ambient on hosted,
+    /// single-tenant on self-host - its constructor guarantees a hosted Gateway gets the former), and a missing
+    /// boundary resolves null - a refusal, never Local - in every mode (finding CR-7, revised: no wiring
+    /// omission can fall open). A self-host boundary is Local as before.
     /// </summary>
     private static TenantId? ResolveTenant(HttpContext ctx, Tenancy.HostedTenantBoundary? boundary)
     {

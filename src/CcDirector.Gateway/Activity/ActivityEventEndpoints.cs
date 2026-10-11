@@ -89,9 +89,10 @@ public static class ActivityEventEndpoints
 
     /// <summary>
     /// Resolve the request's tenant from the AUTHENTICATED device key the auth middleware stashed - the same
-    /// seam the prompt log uses. Null means DENY. The mode rides on the boundary (<c>HostedTenantBoundary.Hosted</c>,
-    /// a required value fixed once at startup), and a missing boundary resolves null - a refusal, never Local -
-    /// in EVERY mode (finding CR-7, revised: no wiring omission can fall open). A self-host boundary is
+    /// seam the prompt log uses. Null means DENY. The boundary decides, by the tenant context it was built over
+    /// (ambient on hosted, single-tenant on self-host - its constructor guarantees a hosted Gateway gets the
+    /// former), and a missing boundary resolves null - a refusal, never Local - in EVERY mode (finding CR-7,
+    /// revised: no wiring omission can fall open). A self-host boundary is
     /// Local exactly as before.
     /// </summary>
     private static TenantId? ResolveTenant(HttpContext ctx, Tenancy.HostedTenantBoundary? boundary)

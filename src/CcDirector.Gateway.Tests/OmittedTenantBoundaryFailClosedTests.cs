@@ -50,8 +50,9 @@ namespace CcDirector.Gateway.Tests;
 ///      Local now THROWS at construction, and at resolution when hosted mode appeared after construction.
 ///
 /// Phase 5a (inspection finding I1-01) extends the census to the sites that still carried an OPTIONAL
-/// nullable boundary defaulting to null, and whose resolvers decided on the ARGUMENT rather than on
-/// <see cref="GatewayHostedMode.IsHosted"/>:
+/// nullable boundary defaulting to null, and whose resolvers decided on the ARGUMENT rather than on the
+/// deployment mode (then the process switch; now the host's value, with a missing boundary a refusal in every
+/// mode):
 ///
 ///   7. <c>SessionWsProxyEndpoints.ResolveTenantOrDenyAsync</c> - the widest per-session surface (terminal
 ///      stream, file read, screenshot legs, the catch-all session verbs, director backfill). Probed at

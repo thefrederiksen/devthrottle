@@ -43,8 +43,8 @@ namespace CcDirector.Gateway.Tests;
 /// body, a malformed body, a wrong media type, a verb the group never mapped, and a route added LATER. Off
 /// hosted the primitive maps the real handlers exactly as an unguarded builder would and creates no refusal.
 ///
-/// THE GATE IS ON THE DEPLOYMENT SIGNAL. The primitive reads <see cref="GatewayHostedMode.IsHosted"/>
-/// directly, never an optional argument that would fail OPEN the moment a caller omits it.
+/// THE GATE IS ON THE DEPLOYMENT SIGNAL. The primitive takes the mode as a REQUIRED argument (the host's
+/// value, read once at startup), never an optional argument that would fail OPEN the moment a caller omits it.
 ///
 /// STATUS AND MEDIA TYPE ARE ASSERTED BEFORE ANY PARSE, so a revert reddens as a STATEMENT - "expected
 /// NotFound, got OK/BadRequest" - rather than as a parser exception on a non-JSON body. The build-start probe

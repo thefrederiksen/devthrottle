@@ -174,8 +174,9 @@ internal static class GatewayDictationEndpoint
     /// Resolve the request's tenant from the AUTHENTICATED device key the auth layer stashed - the same seam
     /// the prompt log and the cockpit read path use. Null means DENY.
     ///
-    /// The mode rides on the boundary (<c>HostedTenantBoundary.Hosted</c>, a required value fixed once at
-    /// startup), and a MISSING boundary is a refusal in every mode - never a fall-through to Local. Letting an
+    /// The boundary decides, by the tenant context it was built over (ambient on hosted, single-tenant on
+    /// self-host - its constructor guarantees a hosted Gateway gets the former), and a MISSING boundary is a
+    /// refusal in every mode - never a fall-through to Local. Letting an
     /// absent argument mean "self-host" would fail OPEN, and that is the fail-open that matters most on this
     /// endpoint: the
     /// boundary is a SECURITY argument, so a hosted call site, test, or future rewire that does not supply one

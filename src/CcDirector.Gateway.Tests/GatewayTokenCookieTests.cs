@@ -8,7 +8,7 @@ namespace CcDirector.Gateway.Tests;
 
 /// <summary>
 /// Direct tests of the ONE cookie writer (<see cref="GatewayTokenCookie"/>) shared by BOTH the hosted mint and
-/// the self-host cookie-mirror. The <c>Secure</c> flag is conditional on <see cref="GatewayHostedMode.IsHosted"/>:
+/// the self-host cookie-mirror. The <c>Secure</c> flag is conditional on the <c>hosted</c> argument every caller passes:
 ///  - HOSTED is always HTTPS behind the platform front door, so the standing credential MUST be marked Secure -
 ///    a browser then never sends cc-gateway-token over plain HTTP.
 ///  - SELF-HOST is reached over loopback/tailnet HTTP, where a Secure cookie would never be sent back and would

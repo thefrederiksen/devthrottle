@@ -76,8 +76,8 @@ public sealed class TranscriptionKeyAutoProvisioner
         // HOSTED-GATED. The global key vault is denied in whole on hosted (VaultEndpoints), and a deny on the
         // read route alone is not enough: this provisioner writes minted key material into that same global
         // vault on every sign-in and at startup, by a path that never touches the denied routes. On hosted it
-        // is inert. The gate reads the deployment signal directly, so it cannot fail open by a caller omitting
-        // an argument.
+        // is inert. The gate is the REQUIRED constructor argument (the host's value, read once at startup), so it
+        // cannot fail open by a caller omitting it.
         if (_hosted)
         {
             FileLog.Write("[TranscriptionKeyAutoProvisioner] EnsureAsync: hosted - the global vault is denied on hosted, provisioning is inert");

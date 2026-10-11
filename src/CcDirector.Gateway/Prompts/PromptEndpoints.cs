@@ -158,8 +158,8 @@ public static class PromptEndpoints
     /// </summary>
     private static TenantId? ResolveTenant(HttpContext ctx, Tenancy.HostedTenantBoundary? boundary)
     {
-        // The boundary carries the deployment mode it was built under, so the whole decision is the boundary's;
-        // NO BOUNDARY IS A DENY, in every mode (finding CR-7 - see GatewayEndpoints.ResolveReadTenant).
+        // The boundary decides, by the tenant context it was built over (ambient on hosted, single-tenant on
+        // self-host); NO BOUNDARY IS A DENY, in every mode (finding CR-7 - see GatewayEndpoints.ResolveReadTenant).
         return boundary?.ResolveRequestTenant(ctx);
     }
 

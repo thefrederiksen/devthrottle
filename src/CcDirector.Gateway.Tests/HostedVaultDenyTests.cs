@@ -43,8 +43,8 @@ namespace CcDirector.Gateway.Tests;
 /// LATER. Off hosted the primitive maps the four real handlers exactly as an unguarded builder would and
 /// creates no refusal at all.
 ///
-/// THE GATE IS ON THE DEPLOYMENT SIGNAL. The primitive reads <see cref="GatewayHostedMode.IsHosted"/>
-/// directly, never an optional boundary or tenant argument. A security branch that depends on an optional
+/// THE GATE IS ON THE DEPLOYMENT SIGNAL. The primitive takes the mode as a REQUIRED argument (the host's
+/// value, read once at startup), never an optional boundary or tenant argument. A security branch that depends on an optional
 /// argument fails OPEN the moment a caller omits it.
 ///
 /// IT REFUSES, IT NEVER SERVES AN EMPTY ANSWER. An empty name list would be a FALSE statement about a vault

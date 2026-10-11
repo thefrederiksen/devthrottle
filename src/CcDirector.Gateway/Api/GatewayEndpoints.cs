@@ -791,7 +791,7 @@ internal static partial class GatewayEndpoints
             // Self-host is untouched: one tenant, one owner, and the counts are what the Director's own
             // connectivity self-test and the settings gateway probe read.
             //
-            // Gated on the PROCESS-level hosted flag, never on the nullable boundary argument: a caller
+            // Gated on the host's hosted value (the required Map parameter), never on the nullable boundary argument: a caller
             // passing a literal null! boundary on a hosted process must not reopen the aggregate.
             if (hosted)
             {
@@ -1090,7 +1090,7 @@ internal static partial class GatewayEndpoints
             // tenant. Left open on hosted, POST /directors/register is exactly the Local-shadow path: a hosted
             // caller could fabricate a Local registration for an arbitrary director id and then read that id's
             // Local event ring. Make the whole plane explicitly UNAVAILABLE on hosted (403) so the shadow can
-            // never be created; self-host is unchanged. Gated on the PROCESS-level hosted flag, never on
+            // never be created; self-host is unchanged. Gated on the host's hosted value (the required Map parameter), never on
             // the nullable boundary argument, so a null! boundary on a hosted process cannot reopen the
             // plane (the same discipline as HostedRouteDeny).
             if (hosted)
@@ -1114,7 +1114,7 @@ internal static partial class GatewayEndpoints
             // MTR-01 (Codex round 1): part of the legacy same-machine discovery plane - unavailable on hosted
             // (see /directors/register). This also replaces the pre-fix 410 that an unbound hosted request got
             // here with the correct 403 for a plane that does not serve hosted accounts. Gated on the
-            // process-level hosted flag so a null! boundary cannot reopen it (see /directors/register).
+            // host's hosted value (the required Map parameter) so a null! boundary cannot reopen it (see /directors/register).
             if (hosted)
                 return LegacyDiscoveryPlaneUnavailable();
             var ok = registry.Heartbeat(id);
@@ -1161,7 +1161,7 @@ internal static partial class GatewayEndpoints
             // unavailable on hosted (see /directors/register), where leaving it open would let a hosted caller
             // inject into a bare-id event ring. On self-host its entries are always keyed to the Local tenant
             // (see DirectorRegistry.Upsert), so it resolves within Local and records under Local. Gated on
-            // the process-level hosted flag so a null! boundary cannot reopen it (see /directors/register).
+            // the host's hosted value (the required Map parameter) so a null! boundary cannot reopen it (see /directors/register).
             if (hosted)
                 return LegacyDiscoveryPlaneUnavailable();
             if (registry.Get(TenantId.Local, id) is null)
@@ -1207,7 +1207,7 @@ internal static partial class GatewayEndpoints
             // MTR-01 (Codex round 1): part of the legacy same-machine discovery plane - unavailable on hosted
             // (see /directors/register). Left open, an unbound hosted caller holding the shared machine token
             // could remove a Local registration; on hosted there is no such plane to unregister from. Gated
-            // on the process-level hosted flag so a null! boundary cannot reopen it (see /directors/register).
+            // on the host's hosted value (the required Map parameter) so a null! boundary cannot reopen it (see /directors/register).
             if (hosted)
                 return LegacyDiscoveryPlaneUnavailable();
             FileLog.Write($"[GatewayEndpoints] DELETE /directors/{id}/registration");
@@ -1352,7 +1352,7 @@ internal static partial class GatewayEndpoints
             // above is confined to this tenant's partition (every id here belongs to reqTenant); it is a
             // pushed-vs-registered filter, not the tenant boundary. On self-host it is skipped, so a
             // registered-but-unpushed Director still surfaces (unchanged).
-            // Gated on the process-level hosted flag (never the nullable boundary argument): with a null!
+            // Gated on the host's hosted value, the required Map parameter (never the nullable boundary argument): with a null!
             // boundary on a hosted process this filter must still apply.
             if (hosted && pushedSessions is not null)
             {
@@ -6145,8 +6145,10 @@ internal static partial class GatewayEndpoints
     /// bound tenant is refused, NEVER served the Local partition (which would be a wrong-tenant read waiting to
     /// happen). Self-host is always Local - behavior unchanged.
     ///
-    /// The mode rides on the boundary (<c>HostedTenantBoundary.Hosted</c>, a required value fixed once at
-    /// startup), and a MISSING boundary is a refusal in every mode (tenant-boundary hardening, release
+    /// The boundary decides, by the tenant context it was built over: over the ambient context (hosted) it
+    /// answers the key's bound tenant or null, over the single-tenant context (self-host) it answers Local, and
+    /// its constructor guarantees a hosted Gateway's boundary is the former. A MISSING boundary is a refusal in
+    /// every mode (tenant-boundary hardening, release
     /// 2026-07-31, finding CR-7, revised when the mode became a value - the same shape
     /// <c>GatewayDictationEndpoint.ResolveTenant</c> already carries). Letting an absent argument mean
     /// "self-host" would fail OPEN:
@@ -6159,9 +6161,9 @@ internal static partial class GatewayEndpoints
     /// </summary>
     internal static TenantId? ResolveReadTenant(HttpContext ctx, Tenancy.HostedTenantBoundary? boundary)
     {
-        // The boundary carries the deployment mode it was built under (HostedTenantBoundary.Hosted, the owning
-        // host's value fixed at construction), so the whole decision is the boundary's: a hosted boundary answers
-        // the key's bound tenant or null, a self-host boundary answers Local. NO BOUNDARY IS A DENY, in every mode:
+        // The boundary decides, by the tenant context it was built over: over the ambient context (hosted) it
+        // answers the key's bound tenant or null, over the single-tenant context (self-host) it answers Local, and
+        // its constructor guarantees a hosted Gateway's boundary is the former. NO BOUNDARY IS A DENY, in every mode:
         // a mapper handed none has nothing to resolve a tenant with, and answering Local would be the fail-open
         // (finding CR-7) this resolver exists to refuse. Before GatewayHostOptions the mode was the PROCESS
         // environment and a null boundary could still be read against it; the mode is now the host's, and the
