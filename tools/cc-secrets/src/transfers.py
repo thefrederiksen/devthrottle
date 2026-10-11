@@ -81,7 +81,7 @@ def find(transfer_id: str, link: Optional[gateway_link.Link] = None) -> Transfer
 
 
 def answer(transfer_id: str, approve: bool, where: Optional[str], owner_approved: Optional[str],
-           link: Optional[gateway_link.Link] = None) -> tuple:
+           link: Optional[gateway_link.Link] = None, accept_receiver_fingerprint: Optional[str] = None) -> tuple:
     """Give the one answer. Returns (transfer, note). A transfer someone already answered, or that expired, is a
     GatewayRefusal with the Gateway's own sentence."""
     body = {"approve": approve, "deny": not approve}
@@ -89,6 +89,8 @@ def answer(transfer_id: str, approve: bool, where: Optional[str], owner_approved
         body["where"] = where
     if owner_approved is not None:
         body["ownerApproved"] = owner_approved
+    if accept_receiver_fingerprint:
+        body["acceptReceiverFingerprint"] = accept_receiver_fingerprint
     response = gateway_link.post(f"{ROUTE}/{_segment(transfer_id)}/answer", body, link)
     return _one(response), str(response.get("note") or "")
 

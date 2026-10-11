@@ -11,13 +11,14 @@ from __future__ import annotations
 
 import queue
 import threading
+from datetime import datetime
 from typing import Callable, Dict, List, Optional
 
 from . import window_style
 from .errors import describe
-from .gateway_link import GatewayRefusal
+from .gateway_link import GatewayRefusal, NotSignedIn
 from .window_actions import log_failure
-from .window_transfers import Destination, WindowTransfers, ended_sentence
+from .window_transfers import Destination, Waiting, WindowTransfers, ended_sentence
 
 POPUP_POLL_MS = 5000
 QUEUE_DRAIN_MS = 200
@@ -32,21 +33,28 @@ class Worker:
         self._drain()
 
     def _drain(self) -> None:
-        while True:
-            try:
-                callback = self._done.get_nowait()
-            except queue.Empty:
-                break
-            callback()
-        if self._root.winfo_exists():
-            self._root.after(QUEUE_DRAIN_MS, self._drain)
+        # One callback that fails must never end the loop: every later result, and every pop-up, comes through it.
+        try:
+            while True:
+                try:
+                    callback = self._done.get_nowait()
+                except queue.Empty:
+                    break
+                try:
+                    callback()
+                except Exception as exc:  # the window's own loop: logged, and the next callback still runs
+                    log_failure("show a secret transfer's result", exc)
+        finally:
+            if self._root.winfo_exists():
+                self._root.after(QUEUE_DRAIN_MS, self._drain)
 
     def run(self, work: Callable[[], object], done: Callable[[object], None], failed: Callable[[BaseException], None]):
         def body() -> None:
             try:
                 result = work()
             except BaseException as exc:  # the worker thread's entry point: handed back to the window to show
-                self._done.put(lambda: failed(exc))
+                error = exc  # bound here: Python unbinds `exc` when this block ends, before the window runs the call
+                self._done.put(lambda: failed(error))
                 return
             self._done.put(lambda: done(result))
 
@@ -55,7 +63,16 @@ class Worker:
 
 def refusal_text(exc: BaseException) -> str:
     """A Gateway refusal in its own words; anything else described without its message (it might quote a value)."""
-    return str(exc) if isinstance(exc, GatewayRefusal) else describe(exc)
+    return str(exc) if isinstance(exc, (GatewayRefusal, NotSignedIn)) else describe(exc)
+
+
+def local_time(utc_text: str) -> str:
+    """'2026-10-10T12:15:00Z' as this machine's clock shows it, for example '08:15 (your time)'."""
+    try:
+        moment = datetime.fromisoformat(utc_text.replace("Z", "+00:00"))
+    except ValueError:
+        return utc_text
+    return moment.astimezone().strftime("%H:%M") + " (your time)"
 
 
 class TransferDialog:
@@ -121,7 +138,13 @@ class TransferDialog:
         win.bind("<Escape>", lambda _e: self.close())
         worker.run(actions.others, self._listed, self._failed)
 
+    def _open(self) -> bool:
+        """False once the owner closed the dialog: a late result then changes nothing."""
+        return bool(self.win.winfo_exists())
+
     def _listed(self, destinations) -> None:
+        if not self._open():
+            return
         self._destinations = list(destinations)
         names = [d.name for d in self._destinations]
         self.machine_box.configure(values=names)
@@ -161,14 +184,18 @@ class TransferDialog:
 
     def _ended(self, t) -> None:
         sentence = ended_sentence(t)
-        self.status.set(sentence)
-        self.close_button.configure(text="Close")
         if self._on_done is not None:
             self._on_done(sentence)
+        if not self._open():
+            return
+        self.status.set(sentence)
+        self.close_button.configure(text="Close")
 
     def _failed(self, exc: BaseException) -> None:
-        if not isinstance(exc, GatewayRefusal):
+        if not isinstance(exc, (GatewayRefusal, NotSignedIn)):
             log_failure(f"{self.mode} a secret transfer", exc)
+        if not self._open():
+            return
         self.status.set(f"Not done: {refusal_text(exc)}")
         self.close_button.configure(text="Close")
 
@@ -179,12 +206,14 @@ class TransferDialog:
 class ApprovalPopup:
     """One transfer waiting on this machine for the owner's answer: what, from where to where, who asked and why."""
 
-    def __init__(self, parent, worker: Worker, actions: WindowTransfers, transfer,
+    def __init__(self, parent, worker: Worker, actions: WindowTransfers, waiting: Waiting,
                  on_closed: Callable[[str, str], None]) -> None:
         import tkinter as tk
         from tkinter import ttk
 
+        transfer = waiting.transfer
         self.transfer = transfer
+        self.receiver = waiting.receiver
         self._worker = worker
         self._actions = actions
         self._on_closed = on_closed
@@ -201,26 +230,44 @@ class ApprovalPopup:
             lines.append(f"Why: {transfer.reason}")
         if transfer.replace_note:
             lines.append(transfer.replace_note)
-        lines.append(f"Answer by {transfer.expires_utc}. You can also answer on the phone or in the Cockpit.")
+        self.key_changed = bool(self.receiver is not None and self.receiver.key_changed)
+        if self.key_changed:
+            lines.append(f"{transfer.to_machine}'s KEY HAS CHANGED since this machine pinned it. Approve only if you "
+                         "know why (it was reinstalled, for example).")
+        lines.append(f"Answer by {local_time(transfer.expires_utc)}. You can also answer on the phone or in the "
+                     "Cockpit.")
         for row, line in enumerate(lines, start=1):
             ttk.Label(frame, text=line, style="Ask.TLabel", wraplength=420).grid(row=row, column=0, sticky="w",
                                                                                  pady=(6 if row == 1 else 2, 0))
+        self.accept_key = tk.BooleanVar(value=False)
+        self.accept_box = None
+        if self.key_changed:
+            self.accept_box = ttk.Checkbutton(frame, text="I know why its key changed: send to the new key",
+                                              variable=self.accept_key, command=self._accept_toggled)
+            self.accept_box.grid(row=len(lines) + 1, column=0, sticky="w", pady=(8, 0))
         self.status = tk.StringVar(value="")
         ttk.Label(frame, textvariable=self.status, style="Ask.TLabel", wraplength=420).grid(
-            row=len(lines) + 1, column=0, sticky="w", pady=(8, 0))
+            row=len(lines) + 2, column=0, sticky="w", pady=(8, 0))
         buttons = ttk.Frame(frame, style="Ask.TFrame")
-        buttons.grid(row=len(lines) + 2, column=0, sticky="e", pady=(12, 0))
-        self.approve_button = ttk.Button(buttons, text="Approve", style="Accent.TButton", command=lambda: self.answer(True))
+        buttons.grid(row=len(lines) + 3, column=0, sticky="e", pady=(12, 0))
+        self.approve_button = ttk.Button(buttons, text="Approve", style="Accent.TButton", command=lambda: self.answer(True),
+                                         state="disabled" if self.key_changed else "normal")
         self.approve_button.grid(row=0, column=0)
         self.deny_button = ttk.Button(buttons, text="Deny", style="Danger.TButton", command=lambda: self.answer(False))
         self.deny_button.grid(row=0, column=1, padx=(8, 0))
         win.protocol("WM_DELETE_WINDOW", self.dismiss)
 
+    def _accept_toggled(self) -> None:
+        self.approve_button.configure(state="normal" if self.accept_key.get() else "disabled")
+
     def answer(self, approve: bool) -> None:
+        if approve and self.key_changed and not self.accept_key.get():
+            return
+        accept = self.receiver.fingerprint if (approve and self.key_changed) else None
         self.approve_button.configure(state="disabled")
         self.deny_button.configure(state="disabled")
         self.status.set("Sending your answer...")
-        self._worker.run(lambda: self._actions.answer(self.transfer.transfer_id, approve),
+        self._worker.run(lambda: self._actions.answer(self.transfer.transfer_id, approve, accept),
                          lambda t: self._close(f"{'Approved' if approve else 'Denied'}: {self.transfer.summary}."),
                          self._failed)
 
@@ -243,8 +290,9 @@ class ApprovalPopup:
 
 
 class ApprovalWatcher:
-    """Asks the Gateway every few seconds for transfers waiting on this machine, and pops each one up once. A
-    machine that cannot take part says why once, in the window's status line, and the watcher stops."""
+    """Asks the Gateway every few seconds for transfers waiting on this machine, and pops each one up once. A machine
+    that is not signed in says why once, in the window's status line, and the watcher stops. Any other failure (a
+    Gateway restarting, a laptop waking up) is said once and the watcher keeps asking."""
 
     def __init__(self, root, worker: Worker, actions: WindowTransfers, say: Callable[[str], None],
                  poll_ms: int = POPUP_POLL_MS) -> None:
@@ -257,6 +305,7 @@ class ApprovalWatcher:
         self._dismissed: set = set()
         self._stopped = False
         self._busy = False
+        self._failing = False
         self.poll()
 
     def poll(self) -> None:
@@ -269,13 +318,17 @@ class ApprovalWatcher:
 
     def _arrived(self, waiting) -> None:
         self._busy = False
-        ids = {t.transfer_id for t in waiting}
+        if self._failing:
+            self._failing = False
+            self._say("Checking for secret transfers to answer again.")
+        ids = {w.transfer.transfer_id for w in waiting}
         for transfer_id, popup in list(self.open.items()):
             if transfer_id not in ids:
                 popup.answered_elsewhere("it was answered or expired.")
-        for t in waiting:
-            if t.transfer_id not in self.open and t.transfer_id not in self._dismissed:
-                self.open[t.transfer_id] = ApprovalPopup(self._root, self._worker, self._actions, t, self._closed)
+        for w in waiting:
+            transfer_id = w.transfer.transfer_id
+            if transfer_id not in self.open and transfer_id not in self._dismissed:
+                self.open[transfer_id] = ApprovalPopup(self._root, self._worker, self._actions, w, self._closed)
 
     def _closed(self, transfer_id: str, sentence: str) -> None:
         self.open.pop(transfer_id, None)
@@ -286,7 +339,13 @@ class ApprovalWatcher:
 
     def _failed(self, exc: BaseException) -> None:
         self._busy = False
-        self._stopped = True
+        if isinstance(exc, NotSignedIn):
+            self._stopped = True
+            self._say(f"Moving secrets between machines is off here: {refusal_text(exc)}")
+            return
+        if self._failing:
+            return
+        self._failing = True
         if not isinstance(exc, GatewayRefusal):
             log_failure("look for secret transfers to answer", exc)
-        self._say(f"Moving secrets between machines is off here: {refusal_text(exc)}")
+        self._say(f"Could not check for secret transfers to answer ({refusal_text(exc)}). Trying again.")

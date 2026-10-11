@@ -25,6 +25,15 @@ class Destination:
     name: str
     key_note: str
     key_changed: bool
+    fingerprint: str = ""
+
+
+@dataclass(frozen=True)
+class Waiting:
+    """A transfer waiting for the owner's answer on this machine, and what the owner needs to know about the key of
+    the machine it would go to (None when that machine is not listed now)."""
+    transfer: transfers.Transfer
+    receiver: Optional[Destination]
 
 
 class WindowTransfers:
@@ -55,12 +64,12 @@ class WindowTransfers:
             if m.this_machine:
                 continue
             if m.conflict:
-                rows.append(Destination(m.name, m.conflict, False))
+                rows.append(Destination(m.name, m.conflict, False, m.fingerprint))
                 continue
             note = {known_machines.NEW: "Not sent to from here before.",
                     known_machines.SAME: "Its key is the one pinned when this machine first sent to it.",
                     known_machines.CHANGED: "Its KEY HAS CHANGED since this machine pinned it."}[m.pin.state]
-            rows.append(Destination(m.name, note, m.pin.state == known_machines.CHANGED))
+            rows.append(Destination(m.name, note, m.pin.state == known_machines.CHANGED, m.fingerprint))
         return rows
 
     def send(self, entry: str, to: str, target: str, replace: bool, accept_new_key: bool) -> transfers.Transfer:
@@ -97,17 +106,23 @@ class WindowTransfers:
             t = transfers.find(t.transfer_id, link)
         return t
 
-    def waiting_here(self) -> List[transfers.Transfer]:
+    def waiting_here(self) -> List[Waiting]:
         """Transfers that can still be answered and would send an entry FROM this machine: the ones its pop-up asks
-        the owner about."""
+        the owner about, each with what the owner needs to know about the receiving machine's key."""
         link = self._link()
         _, here = self._listed(link)
-        return [t for t in transfers.listed(link)
-                if t.can_answer and t.from_machine.lower() == here.name.lower()]
+        waiting = [t for t in transfers.listed(link) if t.can_answer and t.from_machine.lower() == here.name.lower()]
+        if not waiting:
+            return []
+        receivers = {d.name.lower(): d for d in self.others()}
+        return [Waiting(t, receivers.get(t.to_machine.lower())) for t in waiting]
 
-    def answer(self, transfer_id: str, approve: bool) -> transfers.Transfer:
-        t, _ = transfers.answer(transfer_id, approve, WHERE, None, self._link())
-        filelog.write(f"[window_transfers] answer: {transfer_id} approve={approve}")
+    def answer(self, transfer_id: str, approve: bool, accept_fingerprint: Optional[str] = None) -> transfers.Transfer:
+        """The owner's answer from this window. `accept_fingerprint` approves sending to a receiving machine whose key
+        changed: the exact key the owner saw."""
+        t, _ = transfers.answer(transfer_id, approve, WHERE, None, self._link(), accept_fingerprint)
+        filelog.write(f"[window_transfers] answer: {transfer_id} approve={approve} "
+                      f"accepted_new_key={bool(accept_fingerprint)}")
         return t
 
 
