@@ -103,6 +103,18 @@
     "Passed!" line, is the verdict - see the comment above the run loop for why. A green with a collapsed
     count is the result most worth being able to go back and check.
 
+    QUARANTINED TESTS NEVER DECIDE A VERDICT. A test tagged [Trait("Gate", "Quarantine")] is excluded from
+    EVERY run of this script - default, -Parked, -Gateway - by a filter added to each suite, and runs only
+    under -Quarantine, whose result never fails anything. Quarantine is where a test goes that depends on
+    the machine (real git, real processes, the clock) while it is being rewritten against a fake or
+    deleted: out of the gate the same day, so the gate's red keeps meaning a code defect. It is a waiting
+    room, not a home - a quarantined test is fixed or deleted, and the trait is removed when it is fixed.
+
+.PARAMETER Quarantine
+    Run ONLY the quarantined tests (trait Gate=Quarantine), in every suite including the parked ones.
+    Prints what passed and failed and always exits 0: a quarantined test never decides a verdict. Writes
+    no gate record. Takes the release-gate lock, as it includes the Gateway suite.
+
 .PARAMETER Gateway
     Run ONLY the parked Gateway suite (host-bound). Takes the release-gate lock; refused with exit 6 if
     another run holding the Gateway suite is in progress.
@@ -144,6 +156,7 @@ param(
     [switch]$Parked,
     [switch]$Fast,
     [switch]$KeepRun,
+    [switch]$Quarantine,
     [string]$Filter = "",
     [int]$ExpectTests = 0,
     [string]$Configuration = "Debug"
@@ -158,6 +171,15 @@ if ($Gateway -and $Parked) {
     Write-Error "-Gateway already runs a parked suite on its own; pass one or the other."
     exit 2
 }
+if ($Quarantine -and ($Gateway -or $Parked -or $ExpectTests -gt 0)) {
+    Write-Error "-Quarantine runs the quarantined tests of every suite, parked ones included, and never gates; it cannot be combined with -Gateway, -Parked or -ExpectTests."
+    exit 2
+}
+
+# THE QUARANTINE TRAIT (see the header). Every suite run gets "Gate!=Quarantine" ANDed onto its filter, so
+# a quarantined test never runs in a gate; -Quarantine flips it to run only them.
+$QuarantineExclude = "Gate!=Quarantine"
+$QuarantineOnly = "Gate=Quarantine"
 
 # THE TWO-MINUTE BUDGET IS THE RULE THIS LIST ENCODES. A suite is in the default run if it finishes
 # inside it, and parked if it does not. DURATIONS ONLY - the test counts live once in the header, with
@@ -286,7 +308,7 @@ if ($Gateway) {
     $toRun = @($gatewayProject)
 } else {
     $toRun = $defaultProjects + $installerProjects
-    if ($Parked) { $toRun += $parkedProjects }
+    if ($Parked -or $Quarantine) { $toRun += $parkedProjects }
 }
 
 
@@ -330,6 +352,7 @@ $runRecord = [ordered]@{
     dirtyFiles    = @($dirtyFiles | Select-Object -First 50)
     parked        = [bool] $Parked
     gateway       = [bool] $Gateway
+    quarantine    = [bool] $Quarantine
     configuration = $Configuration
     filter        = $Filter
     expectTests   = $ExpectTests
@@ -472,7 +495,7 @@ function Stop-Gate([int] $Code, [string] $Verdict) {
     }
     Write-RunRecord
     Write-RunsLog
-    if ($Code -eq 0 -and $Parked -and $Filter -eq "") {
+    if ($Code -eq 0 -and $Parked -and $Filter -eq "" -and -not $Quarantine) {
         $recordDir = Get-GateRecordDirectory
         New-Item -ItemType Directory -Force $recordDir | Out-Null
         $stamp = ([DateTime]::Parse($runRecord.startedUtc)).ToUniversalTime().ToString("yyyyMMddTHHmmssZ")
@@ -556,6 +579,7 @@ if ($toRun -contains $gatewayProject) {
     $command = "test-local.ps1"
     if ($Parked) { $command += " -Parked" }
     if ($Gateway) { $command += " -Gateway" }
+    if ($Quarantine) { $command += " -Quarantine" }
     $command += " -Configuration $Configuration"
     if ($Filter -ne "") { $command += " -Filter `"$Filter`"" }
     $suiteLockPath = Get-GatewaySuiteLockPath
@@ -635,8 +659,10 @@ try {
         }
     }
 
-    $filterArgs = @()
-    if ($Filter -ne "") { $filterArgs = @("--filter", $Filter) }
+    # The caller's filter, ANDed with the quarantine trait. $Filter itself stays the caller's words, because
+    # the per-term check below reads its "FullyQualifiedName~" terms.
+    $traitFilter = $(if ($Quarantine) { $QuarantineOnly } else { $QuarantineExclude })
+    $filterArgs = @("--filter", $(if ($Filter -ne "") { "($Filter)&$traitFilter" } else { $traitFilter }))
 
     # Hang and crash detection for the runs that have no ceiling (see $HangTimeoutMinutes). A hung test is
     # dumped and named in Sequence_<guid>.xml inside the run folder, and its host is killed; the suite then
@@ -644,7 +670,7 @@ try {
     # Mini dumps: the name of the hung test is the finding, and a full dump of a Gateway host is hundreds of
     # megabytes nobody opens.
     $blameArgs = @()
-    if ($Parked -or $Gateway) {
+    if ($Parked -or $Gateway -or $Quarantine) {
         $blameArgs = @("--blame-hang", "--blame-hang-timeout", "${HangTimeoutMinutes}m", "--blame-hang-dump-type", "mini",
                        "--blame-crash", "--blame-crash-dump-type", "mini")
     }
@@ -723,7 +749,7 @@ try {
         # the whole gate, and record it separately from a real failure. -Parked and -Gateway deliberately
         # suspend the ceiling: that run is the release gate and is EXPECTED to be slow, and a hung test in it
         # is caught by the hang timeout instead.
-        if ($Parked -or $Gateway) {
+        if ($Parked -or $Gateway -or $Quarantine) {
             $r.Process.WaitForExit()
         } else {
             $remainingMs = [int] [Math]::Max(0, ($deadline - (Get-Date)).TotalMilliseconds)
@@ -798,6 +824,30 @@ try {
             Write-Host ("  FAIL  {0}  {1}" -f $r.Name, $summary.Trim())
             $failed += $r
         }
+    }
+
+    if ($Quarantine) {
+        # NEVER A VERDICT. What ran, what failed, and exit 0 whatever happened - including a suite that did
+        # not finish, which is printed as such rather than hidden.
+        Write-Host ""
+        Write-Host "QUARANTINE - these results decide nothing. Quarantined tests are being fixed or deleted:"
+        $qFailed = @()
+        foreach ($r in $running) {
+            Write-Host ("  {0,-40} outcome={1,-12} total={2,-6} executed={3}" -f $r.Name, $r.Outcome, $r.Total, $r.Executed)
+            if (-not (Test-Path $r.Trx)) { continue }
+            $raw = [string] (Get-Content $r.Trx -Raw)
+            if ([string]::IsNullOrWhiteSpace($raw)) { continue }
+            [xml] $doc = $raw
+            foreach ($u in @($doc.TestRun.Results.UnitTestResult)) {
+                if ($null -ne $u -and [string] $u.outcome -eq "Failed") { $qFailed += "  $($r.Name)  $($u.testName)" }
+            }
+        }
+        $qTotal = 0
+        foreach ($r in $running) { $qTotal += [int] $r.Total }
+        Write-Host ""
+        Write-Host ("RESULT: QUARANTINE RAN {0} test(s); {1} failed. This never fails a run." -f $qTotal, $qFailed.Count)
+        foreach ($l in $qFailed) { Write-Host $l }
+        Stop-Gate 0 "QUARANTINE"
     }
 
     Write-Host ""
