@@ -3553,6 +3553,14 @@ body {
 .restart-request-btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .restart-request-btn-danger { background: var(--attention); border-color: var(--attention); color: #fff; }
 
+/* ---- A secret transfer waiting for the owner's approval (Secret Handoff, issue #2943) - the shared client-core
+   card (packages/client-core/src/secrets/secrets.css), tuned for the roster rail and for the session chip's popover.
+   Every sentence on it is the Gateway's; this only lays them out. ---- */
+.secret-transfer { background: var(--surface-2); border-radius: 8px; }
+.secret-transfer-pop { display: flex; flex-direction: column; gap: 10px; }
+.secret-transfer-pop .secret-transfer { background: none; border: none; padding: 0; }
+.secret-transfer-pop .secret-transfer + .secret-transfer { border-top: 1px solid var(--border); padding-top: 10px; }
+
 /* ---- The ownership tree (owner ruling, 2026-09-14): a parent row carries a chevron in the gutter,
    a crew line while collapsed, and its children as a nested list while expanded. The gutter is
    reserved only on parent rows, so an ordinary row does not move. ---- */
