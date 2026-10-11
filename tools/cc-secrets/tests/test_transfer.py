@@ -157,11 +157,14 @@ def test_ATransfer_UnderAnotherName_IsStoredUnderThatName(two):
 
 
 def test_Receive_TheSameEnvelopeTwice_IsRefusedTheSecondTime(two):
-    sent = _send(two)
-    _receive(two, _receive_payload(two, sent))
+    # Approved to replace, so the name being taken after the first delivery does not stop the second: only the
+    # once-per-transfer rule can.
+    sent = _send(two, replace=True)
+    payload = _receive_payload(two, sent, replace=True)
+    _receive(two, payload)
 
     with pytest.raises(transfer.TransferRefused, match="already received"):
-        _receive(two, _receive_payload(two, sent, replace=True))
+        _receive(two, payload)
 
 
 def test_Receive_PastItsTime_IsRefused(two):
