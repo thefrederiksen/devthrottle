@@ -178,7 +178,10 @@ function Test-FlakyRecord($Record) {
     $flaky = @($Record.rerun.flaky)
     if ($flaky.Count -eq 0) { return "its re-run named no flaky test" }
     foreach ($name in $failedSuites) {
-        if (@($flaky | Where-Object { $_.suite -eq $name }).Count -eq 0) { return "suite $name failed, and the re-run named no flaky test in it" }
+        # A Gateway.Tests shard fails under its shard name ("CcDirector.Gateway.Tests.shard2of4") and its tests are
+        # re-run, and recorded, under the suite's own name (scripts\gateway-test-shards.ps1, Get-SuiteBaseName).
+        $base = $name -replace '\.shard\d+of\d+$', ''
+        if (@($flaky | Where-Object { $_.suite -eq $base }).Count -eq 0) { return "suite $name failed, and the re-run named no flaky test in it" }
     }
     return $null
 }
