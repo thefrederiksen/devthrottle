@@ -73,10 +73,11 @@ public sealed record LicenseMachineState(
 public sealed record LicenseBar(string AccountEmail, string Window, DateTime BarredUntilUtc);
 
 /// <summary>
-/// An exhaustion event: an account in use is at the threshold and no target exists. It starts on the tick
-/// that finds no target and runs until the window that caused it resets, a fresh reading shows no window at
-/// the threshold, or no machine is on the account any more (a switch succeeded, or someone moved the
-/// machines by hand). Exactly one owner email is sent per event.
+/// An exhaustion event: an account in use is at the threshold and no target exists - one continuous outage.
+/// It starts on the tick that finds no target. It ends when no machine is on the account any more (a switch
+/// succeeded, or someone moved the machines by hand), when a fresh reading shows no window at the threshold,
+/// or when its end time has passed - but never by time while a fresh reading still shows a tired window;
+/// then its end moves to that window's reset instead. Exactly one owner email is sent per event.
 /// </summary>
 /// <param name="AccountEmail">The tired account.</param>
 /// <param name="StartedAtUtc">The tick that found no target.</param>
@@ -124,6 +125,8 @@ public sealed record LicenseSkippedMachine(string MachineName, string OsUser, st
 /// <param name="Emails">Owner emails to send.</param>
 /// <param name="OpenedExhaustions">Exhaustion events that start this tick (each comes with its one email).</param>
 /// <param name="ClosedExhaustions">Account emails whose open exhaustion event ends this tick.</param>
+/// <param name="ExtendedExhaustions">Open exhaustion events whose end moves later, with the new end: the outage
+/// now lasts longer than the event said (another window tired during it, or a reset moved later).</param>
 /// <param name="Skipped">Machines on a tired account that were not sent a switch, for the log.</param>
 public sealed record LicenseDecisions(
     IReadOnlyList<LicenseSwitchDecision> Switches,
@@ -131,6 +134,7 @@ public sealed record LicenseDecisions(
     IReadOnlyList<LicenseOwnerEmail> Emails,
     IReadOnlyList<LicenseExhaustion> OpenedExhaustions,
     IReadOnlyList<string> ClosedExhaustions,
+    IReadOnlyList<LicenseExhaustion> ExtendedExhaustions,
     IReadOnlyList<LicenseSkippedMachine> Skipped);
 
 /// <summary>

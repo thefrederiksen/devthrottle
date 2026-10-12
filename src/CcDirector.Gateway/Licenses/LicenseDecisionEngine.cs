@@ -57,13 +57,19 @@ public static class LicenseDecisionEngine
         var closed = new List<string>();
         var skipped = new List<LicenseSkippedMachine>();
 
+        var extended = new List<LicenseExhaustion>();
         var stillOpen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var exhaustion in snapshot.OpenExhaustions)
         {
-            if (ExhaustionHasEnded(exhaustion, snapshot, readings))
+            var (ended, laterEnd) = JudgeExhaustion(exhaustion, snapshot, readings);
+            if (ended)
+            {
                 closed.Add(exhaustion.AccountEmail);
-            else
-                stillOpen.Add(exhaustion.AccountEmail);
+                continue;
+            }
+            stillOpen.Add(exhaustion.AccountEmail);
+            if (laterEnd is { } end)
+                extended.Add(exhaustion with { EndsAtUtc = end });
         }
 
         foreach (var source in AccountsInUse(snapshot))
@@ -108,8 +114,8 @@ public static class LicenseDecisionEngine
             }
         }
 
-        FileLog.Write($"[LicenseDecisionEngine] Decide: switches={switches.Count}, newBars={newBars.Count}, emails={emails.Count}, opened={opened.Count}, closed={closed.Count}, skipped={skipped.Count}");
-        return new LicenseDecisions(switches, newBars, emails, opened, closed, skipped);
+        FileLog.Write($"[LicenseDecisionEngine] Decide: switches={switches.Count}, newBars={newBars.Count}, emails={emails.Count}, opened={opened.Count}, closed={closed.Count}, extended={extended.Count}, skipped={skipped.Count}");
+        return new LicenseDecisions(switches, newBars, emails, opened, closed, extended, skipped);
     }
 
     /// <summary>
@@ -162,7 +168,7 @@ public static class LicenseDecisionEngine
                     $"The latest reading of {target} is too old to show it has room.");
             if (!HasRoom(targetReading))
                 return Refuse(skipped, LicenseManualRefusals.TargetFull,
-                    $"{target} is at or over {Percent(ThresholdPercent)} on a window, or a window is unknown.");
+                    $"{target} has no room: {NoRoomReason(targetReading, snapshot.NowUtc)}.");
         }
 
         var explanation = $"Switch now: from {source} to {target}.";
@@ -291,13 +297,7 @@ public static class LicenseDecisionEngine
         if (IsReadingStale(candidate, now))
             return "its latest reading is too old to show it has room";
         if (!HasRoom(candidate))
-        {
-            if (TiredWindows(candidate, now) is { Count: > 0 } tired)
-                return $"it is at {DescribeWindows(tired)}";
-            if (candidate.FiveHour is null || candidate.SevenDay is null)
-                return "a window's use is unknown";
-            return "its latest reading was taken before a window reset, so its use now is not known yet";
-        }
+            return NoRoomReason(candidate, now);
         var bar = snapshot.Bars
             .Where(b => SameAccount(b.AccountEmail, candidate.AccountEmail) && b.BarredUntilUtc > now)
             .OrderByDescending(b => b.BarredUntilUtc)
@@ -311,6 +311,16 @@ public static class LicenseDecisionEngine
         if (expiring is not null)
             return $"{expiring.MachineName}'s sign-in for it expires before a switch could finish";
         return null;
+    }
+
+    // Why a reading without room has none, in the words the no-room email and Switch now both use.
+    private static string NoRoomReason(LicenseAccountReading reading, DateTime now)
+    {
+        if (TiredWindows(reading, now) is { Count: > 0 } tired)
+            return $"it is at {DescribeWindows(tired)}";
+        if (reading.FiveHour is null || reading.SevenDay is null)
+            return "a window's use is unknown";
+        return "its latest reading was taken before a window reset, so its use now is not known yet";
     }
 
     private static (List<LicenseMachineState> Eligible, List<LicenseSkippedMachine> Skipped) SplitMachines(
@@ -356,19 +366,31 @@ public static class LicenseDecisionEngine
         return tired;
     }
 
-    private static bool ExhaustionHasEnded(LicenseExhaustion exhaustion, LicenseSnapshot snapshot,
+    // One email per CONTINUOUS outage (the Tech Lead's ruling on the second review): whether the event has
+    // ended and, while it has not, a later end to move it to.
+    private static (bool Ended, DateTime? LaterEnd) JudgeExhaustion(LicenseExhaustion exhaustion, LicenseSnapshot snapshot,
         IReadOnlyDictionary<string, LicenseAccountReading> readings)
     {
-        if (snapshot.NowUtc >= exhaustion.EndsAtUtc)
-            return true;
+        var now = snapshot.NowUtc;
         if (MachinesOn(snapshot, exhaustion.AccountEmail).Count == 0)
-            return true; // nothing is on it any more: a switch succeeded or a machine was moved by hand
-        // A fresh reading with no tired window means the window reset (early, or before EndsAtUtc caught
-        // up). No margin below 97% is needed against a reading that wobbles across it: the provider's use
-        // only falls at a reset, so a fall under 97% IS the end of the event.
-        return readings.TryGetValue(Normalize(exhaustion.AccountEmail), out var reading)
-            && !IsReadingStale(reading, snapshot.NowUtc)
-            && TiredWindows(reading, snapshot.NowUtc).Count == 0;
+            return (true, null); // nothing is on it any more: a switch succeeded or a machine was moved by hand
+
+        var fresh = readings.TryGetValue(Normalize(exhaustion.AccountEmail), out var reading)
+            && !IsReadingStale(reading, now);
+        if (fresh && reading is not null && TiredWindows(reading, now) is { Count: > 0 } tired)
+        {
+            // Still out of room: the event never closes by time while a fresh reading shows a tired window. When
+            // the outage now lasts longer than the event said - the week tired during it, or the provider moved
+            // a reset later - the end moves with it, so that reset cannot open a second event and a second email.
+            var end = ExhaustionEnd(tired, now);
+            return (false, end > exhaustion.EndsAtUtc ? end : null);
+        }
+        if (now >= exhaustion.EndsAtUtc)
+            return (true, null);
+        // A fresh reading with no tired window means the window reset early. No margin below 97% is needed
+        // against a reading that wobbles across it: the provider's use only falls at a reset, so a fall under
+        // 97% IS the end of the event. A stale reading says nothing, and the event stays open.
+        return (fresh, null);
     }
 
     private static DateTime ExhaustionEnd(IReadOnlyList<TiredWindow> tired, DateTime now) =>

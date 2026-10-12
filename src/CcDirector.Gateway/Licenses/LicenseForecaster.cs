@@ -202,7 +202,9 @@ public static class LicenseForecaster
 
         DateTime? expected;
         if (reading.ResetsAtUtc is { } passed && passed <= now)
-            expected = null; // read before the reset: it says nothing about the window now
+            // Read before the reset: it says nothing about the window now. The checks below would give null
+            // here too, so this line states the intent rather than changing a result.
+            expected = null;
         else if (LicenseDecisionEngine.IsTired(reading, now))
             expected = now;
         else if (rate is { } perHour && perHour > 0)

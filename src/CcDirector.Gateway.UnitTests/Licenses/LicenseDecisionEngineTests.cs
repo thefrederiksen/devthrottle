@@ -210,6 +210,68 @@ public sealed class LicenseDecisionEngineTests
     }
 
     [Fact]
+    public void Decide_ReadingWhoseResetIsExactlyNow_IsNotTired()
+    {
+        // The tick lands exactly on the reset: the window has reset, so no switch, no bar, no email.
+        var atReset = new LicenseAccountReading(A, new LicenseWindowReading(99, Now), new LicenseWindowReading(50, WeekReset),
+            Now.AddMinutes(-1), true);
+
+        var result = LicenseDecisionEngine.Decide(Snapshot([atReset, Reading(B, 98, 10)], [Machine("windows", A, B)]));
+
+        Assert.Empty(result.Switches);
+        Assert.Empty(result.NewBars);
+        Assert.Empty(result.Emails);
+    }
+
+    [Fact]
+    public void Decide_WeekTiresDuringTheEvent_OneEmailForTheWholeOutage()
+    {
+        // The event opens on the 5-hour window (reset at +10 minutes). At +3 the week reaches 98%. At +10 the 5-hour
+        // window resets, but the account is still out of room until the weekly reset: no second event, no second
+        // email, and the event's end moves to the weekly reset.
+        var fiveReset = Now.AddMinutes(10);
+        LicenseAccountReading ReadingOfA(double week, DateTime at) =>
+            new(A, new LicenseWindowReading(at < fiveReset ? 99 : 5, at < fiveReset ? fiveReset : fiveReset.AddHours(5)),
+                new LicenseWindowReading(week, WeekReset), at, true);
+        var exhaustions = new List<LicenseExhaustion>();
+        var emails = 0;
+        var lastEnd = DateTime.MinValue;
+
+        foreach (var minute in new[] { 0, 3, 10, 11 })
+        {
+            var at = Now.AddMinutes(minute);
+            var result = LicenseDecisionEngine.Decide(Snapshot([ReadingOfA(minute >= 3 ? 98 : 50, at), Reading(B, 98, 10, readAt: at)],
+                [Machine("windows", A, B) with { LastReportReceivedAtUtc = at }], exhaustions: exhaustions, now: at));
+            emails += result.Emails.Count;
+            exhaustions.RemoveAll(e => result.ClosedExhaustions.Contains(e.AccountEmail));
+            foreach (var moved in result.ExtendedExhaustions)
+                exhaustions[exhaustions.FindIndex(e => e.AccountEmail == moved.AccountEmail)] = moved;
+            exhaustions.AddRange(result.OpenedExhaustions);
+            lastEnd = Assert.Single(exhaustions).EndsAtUtc;
+        }
+
+        Assert.Equal(1, emails);
+        Assert.Equal(WeekReset, lastEnd);
+    }
+
+    [Fact]
+    public void Decide_ResetReportedLaterThanTheEventsEnd_KeepsTheEventOpenAndMovesItsEnd()
+    {
+        // The event ends at R; the provider now reports the same window resetting 90 seconds later. A tick in
+        // that gap is still the same outage: no close, no second email, and the end moves to the new reset.
+        var r = Now.AddSeconds(-30);
+        var open = new LicenseExhaustion(A, Now.AddHours(-1), r);
+        var drifted = new LicenseAccountReading(A, new LicenseWindowReading(99, r.AddSeconds(90)),
+            new LicenseWindowReading(50, WeekReset), Now.AddMinutes(-1), true);
+
+        var result = LicenseDecisionEngine.Decide(Snapshot([drifted, Reading(B, 98, 10)], [Machine("windows", A, B)], exhaustions: [open]));
+
+        Assert.Empty(result.ClosedExhaustions);
+        Assert.Empty(result.Emails);
+        Assert.Equal(r.AddSeconds(90), Assert.Single(result.ExtendedExhaustions).EndsAtUtc);
+    }
+
+    [Fact]
     public void Decide_PreResetReadingAfterTheReset_DoesNotSwitchOrBar()
     {
         var preReset = new LicenseAccountReading(A, new LicenseWindowReading(99, Now.AddMinutes(-1)),
@@ -224,17 +286,20 @@ public sealed class LicenseDecisionEngineTests
     [Fact]
     public void Decide_ReadingTakenAfterTheResetAgainAtThreshold_IsANewEventWithOneEmail()
     {
-        // The old event ended at the reset; a reading taken after it shows A at 97.5% of the NEW window.
+        // The old event ended at the reset. A reading after it shows A with room (20%): the outage is over. Later A
+        // reaches 97.5% of the NEW window with no target: a new outage, and one email for it.
         var open = new LicenseExhaustion(A, Now.AddHours(-5), Now.AddMinutes(-30));
-        var snapshot = Snapshot(
-            [Reading(A, 97.5, 50, active: true), Reading(B, 98, 10)],
-            [Machine("windows", A, B)], exhaustions: [open]);
+        var machines = new[] { Machine("windows", A, B) };
 
-        var result = LicenseDecisionEngine.Decide(snapshot);
+        var recovered = LicenseDecisionEngine.Decide(Snapshot(
+            [Reading(A, 20, 50, active: true), Reading(B, 98, 10)], machines, exhaustions: [open]));
+        var tiredAgain = LicenseDecisionEngine.Decide(Snapshot(
+            [Reading(A, 97.5, 50, active: true), Reading(B, 98, 10)], machines, now: Now.AddSeconds(30)));
 
-        Assert.Equal(new[] { A }, result.ClosedExhaustions);
-        Assert.Single(result.OpenedExhaustions);
-        Assert.Single(result.Emails);
+        Assert.Equal(new[] { A }, recovered.ClosedExhaustions);
+        Assert.Empty(recovered.Emails);
+        Assert.Single(tiredAgain.OpenedExhaustions);
+        Assert.Single(tiredAgain.Emails);
     }
 
     [Fact]
@@ -375,8 +440,8 @@ public sealed class LicenseDecisionEngineTests
     }
 
     [Theory]
-    [InlineData("unauthorized")]
-    [InlineData("refresh-failed")]
+    [InlineData(LicenseReadErrors.Unauthorized)]
+    [InlineData(LicenseReadErrors.RefreshFailed)]
     public void Decide_SpareWhoseSignInIsRefused_IsNotChosen(string readError)
     {
         var machine = Machine("windows", A) with
