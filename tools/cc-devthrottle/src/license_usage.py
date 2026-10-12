@@ -137,6 +137,10 @@ class KeyHandle(Protocol):
 
     def write_oauth(self, oauth: Dict[str, Any]) -> None: ...
 
+    def signed_in_at_utc(self, sign_in_ends: Optional[float]) -> Optional[str]:
+        """When the sign-in that ends at `sign_in_ends` (epoch seconds) was made, or None when not known."""
+        ...
+
 
 class StoreBusy(Exception):
     """Another operation on the key store - a switch, an add, a remove - is running."""
@@ -203,6 +207,11 @@ class StoreKey:
             self._store.store_refreshed_key(self.account, json.dumps(document))
         except (LicenseStoreError, OSError) as ex:
             raise KeyWriteFailed(type(ex).__name__) from None
+
+    def signed_in_at_utc(self, sign_in_ends: Optional[float]) -> Optional[str]:
+        ends = None if sign_in_ends is None else datetime.fromtimestamp(sign_in_ends, timezone.utc)
+        made = self._store.signed_in_at(self.account, ends)
+        return None if made is None else iso_utc(made.timestamp())
 
 
 def held_keys(store: LicenseStore) -> List[KeyHandle]:
@@ -318,6 +327,7 @@ class UsageReading:
     read_error: Optional[str] = None
     read_error_detail: Optional[str] = None
     sign_in_expires_at_utc: Optional[str] = None
+    signed_in_at_utc: Optional[str] = None
 
     def to_json(self) -> Dict[str, Any]:
         def window(w: Optional[Window]) -> Optional[Dict[str, Any]]:
@@ -336,9 +346,9 @@ class UsageReading:
             "readAtUtc": self.read_at_utc,
             "readError": self.read_error,
             "readErrorDetail": self.read_error_detail,
-            # When the sign-in was made. Nothing stored with a sign-in records it - not the key, not the
-            # account block - so it is null (the contract's "not known") until the sign-in flow records it.
-            "signedInAtUtc": None,
+            # When the sign-in was made. Nothing Claude Code stores records it, so it is known only for a
+            # sign-in `license sign-in` made and recorded; otherwise null (the contract's "not known").
+            "signedInAtUtc": self.signed_in_at_utc,
             "signInExpiresAtUtc": self.sign_in_expires_at_utc,
             "folder": self.folder,
         }
@@ -416,6 +426,7 @@ def read_usage(key: KeyHandle, http_get: HttpGet = _requests_get, now: Callable[
         setattr(reading, attribute, value if isinstance(value, str) and value else None)
     sign_in_ends = _millis_to_seconds(oauth.get("refreshTokenExpiresAt"))
     reading.sign_in_expires_at_utc = None if sign_in_ends is None else iso_utc(sign_in_ends)
+    reading.signed_in_at_utc = key.signed_in_at_utc(sign_in_ends)
     token = oauth.get("accessToken")
     if not isinstance(token, str) or not token:
         return _failed(reading, STORE_UNREADABLE, "the stored sign-in has no access token")

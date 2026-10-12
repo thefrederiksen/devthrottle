@@ -174,6 +174,9 @@ sends `PushLicenseUsage` and only it executes `license-switch`; any other Direct
 `license-switch` with `"not-key-holder"`. When the holder exits, the next Director to take the lock
 sends a `"connected"` report at once.
 
+The key holder sends its `"connected"` and interval reports even when the machine holds no sign-in at
+all (`Holdings` empty), so a machine that only approves sign-ins for others still has a known Director (8.3).
+
 The Gateway's machine is `(tenant, MachineName, OsUser)`, compared without regard to case. The
 Gateway records which Director id sent the last accepted report for a machine and sends that machine's
 `license-switch` to that Director only.
@@ -514,3 +517,174 @@ Director never acts on the Gateway's out-of-date picture (3.3 step 7).
 
 These live as named constants in `LicenseMessages.cs` (`LicenseContract.ReportInterval` and so on),
 so the two sides cannot drift.
+
+## 8. Phase 4 additions - AGREED, not yet built
+
+Written by the phase 4 Developer; agreed by the phase 2 Tech Lead on 11 October 2026 (pull request 3875), with
+the changes to 8.3 below. Phase 2 builds the Gateway side; the Director side is the second phase 4 pull request.
+The one change to an earlier section is in 8.3: the key holder reports even when it holds nothing (2.4). Words as in section 5 of
+`MISSION.md`; a "sign-in" is one `claude auth login` and what it leaves behind.
+
+What the first phase 4 pull request already gives, with no message change: `license sign-in` and `license renew`
+on the command line, and `SignedInAtUtc` (2.2) is now filled by `license usage --json` for every sign-in made with
+`license sign-in`, so the Director passes it through as it is. A sign-in was measured to live 27.1 to 29.9 days
+(`phase-4/README.md`), and the ACTIVE account's dies too, so renewal covers every holding.
+
+### 8.1 A failed renewal travels in the report
+
+Three fields are added to `LicenseHolding` (2.2), filled by the Director and folded by the Gateway like the rest:
+
+```csharp
+public DateTime? RenewalFailedAtUtc { get; set; }  // the LAST renewal of this holding failed at this time; null when the last one worked, or none was tried
+public string? RenewalError { get; set; }          // LicenseRenewalErrors code, else null
+public string? RenewalErrorDetail { get; set; }    // one plain sentence the Director writes; never a page's or a process's text
+```
+
+`LicenseRenewalErrors`: `"login-failed"`, `"approval-failed"`, `"wrong-account"` (the approving browser profile is
+signed in to claude.ai as someone else), `"browser-not-signed-in"`, `"no-approver"` (no browser profile is set for
+the account, here or on another machine), `"approver-offline"`, `"expired"` (no approval came back by `NotAfterUtc`,
+8.3), `"store-refused"`. They are the reasons `license renew --json` already writes, without the `failed-` prefix,
+plus the two only the relay can produce: `approver-offline` and `expired`.
+
+A holding with `RenewalError` set and `SignInExpiresAtUtc` within `LicenseContract.SignInExpiryWarning` (3 days)
+makes the Gateway send the owner ONE email per holding per failure streak (the same email channel as "no account
+has room", `MISSION.md` section 4), and the Licenses page shows the error beside the expiry verdict (5.7). A failed
+renewal is therefore always seen twice: on the page, and by email before the sign-in dies.
+
+### 8.2 The Director renews on a schedule
+
+The key holder (2.4) runs `license renew --json` once a day and once at start, only while
+`licenseSwitching.enabled` is on. A renewal is due when the sign-in ends within five days of now
+(`LicenseContract.RenewAhead`, matching `license_signin.RENEW_AHEAD`). Each row that changes - renewed, or failed -
+makes a report with `Trigger = "changed"` (2.3). A renewal never interrupts a switch: both take the key store's lock,
+and a renewal that finds it taken is tried at the next run.
+
+### 8.3 Approval on another machine
+
+The browser profile signed in to claude.ai as an account may live on a machine other than the one that needs the
+sign-in. Which machine and profile approve which account is the OWNER's setting, kept by the Gateway per tenant and
+set on the Licenses page: `LicenseApprover { AccountEmail, MachineName, OsUser, BrowserProfile }`. A machine with a
+local profile set by `license set-browser` approves its own sign-ins and never asks the Gateway.
+
+**Nothing waits on a hub call.** `DirectorHub` runs one invocation at a time per client, so a hub call that waited
+minutes for another machine would hold up `PushLicenseUsage` and every session push from the target behind it. The
+request returns at once; the answer comes back as a command, the pattern section 3 already uses.
+
+**1. Hub method, target Director to Gateway, returns at once:**
+
+```csharp
+// DirectorHub - returns as soon as the Gateway has accepted the request and sent license-approve (or answered it)
+public void RequestLicenseApproval(LicenseApprovalRequest request)
+
+public sealed class LicenseApprovalRequest
+{
+    public string SignInId { get; set; } = "";        // 32 lower-case hex, minted by the target Director; logged and correlated
+    public string AccountEmail { get; set; } = "";
+    public string AuthorizeUrl { get; set; } = "";    // what `claude auth login` printed; carries a PKCE challenge, never the verifier
+    public DateTime NotAfterUtc { get; set; }         // the target's login gives up after this
+}
+```
+
+**2. Command `license-approve`, Gateway to the approving machine's Director.** The Gateway finds the account's
+`LicenseApprover` and sends this to the Director that last reported for that machine (2.4), with the target
+Director's Secret Handoff public key (already sent in `Hello` as `SecretTransferPublicKey`):
+
+```csharp
+public sealed class LicenseApproveRequest
+{
+    public string SignInId { get; set; } = "";
+    public string AccountEmail { get; set; } = "";
+    public string AuthorizeUrl { get; set; } = "";
+    public string BrowserProfile { get; set; } = "";
+    public string SealToRecipient { get; set; } = "";  // the TARGET Director's Secret Handoff public key, as sent in its Hello
+    public DateTime NotAfterUtc { get; set; }
+}
+```
+
+The approving Director runs `license approve --email <AccountEmail> --browser <BrowserProfile> <AuthorizeUrl>`. That
+command refuses, as `wrong-account` and before any browser opens, when the account the URL itself names (its
+`login_hint`) is not `AccountEmail`: the consent page shows only who the browser is signed in as, and a code for
+another account would replace a renewal's held sign-in before anything could read it back. The Director then
+seals its answer to `SealToRecipient` with the Secret Handoff envelope before it leaves the process, and returns
+`LicenseApprovalResult` as the command's result.
+
+**3. Command `license-approval-result`, Gateway to the target Director**, payload `LicenseApprovalResult`, keyed by
+`SignInId`. The Gateway sends it when the approving Director answers, or AT ONCE with `refused` /
+`approver-offline` when the approving machine has no Director connected, or no `LicenseApprover` is set
+(`refused` / `no-approver`).
+
+```csharp
+public sealed class LicenseApprovalResult
+{
+    public string SignInId { get; set; } = "";
+    public string Outcome { get; set; } = "";          // "approved" | "refused"
+    public string? ReasonCode { get; set; }            // a LicenseRenewalErrors code when refused
+    public string? Message { get; set; }               // one plain sentence
+    public string? SealedApproval { get; set; }        // when approved: the authorize answer sealed to SealToRecipient
+}
+```
+
+The target Director opens `SealedApproval` with its private key and types it into the waiting login. A target that
+has received no `license-approval-result` for its `SignInId` by `NotAfterUtc` gives up, and the attempt is `failed`
+/ `expired`. Giving up means exactly what `LicenseStore.abandon_sign_in` does: the waiting login is ended; a NEW
+spare's folder that received no sign-in is removed; **a renewal's folder is never touched** - it is the folder that
+holds the account (its spare folder, or the default folder for the active account) and still holds the sign-in it
+had, because nothing is written until the code is typed in. A result that arrives after that, or for a
+`SignInId` the target is not waiting on, is logged by `SignInId` and dropped.
+
+**The Gateway relays, and never keeps.** `AuthorizeUrl` and `SealedApproval` are held in memory only for the relay.
+They are never written to a store, the Licenses log, or a log line; the Gateway logs only `SignInId`, the account,
+the machines and the outcome. A Gateway test proves no stored table has a column for either.
+
+**Finding the approving machine's Director.** That machine may hold no sign-ins at all. So section 2.4 is amended:
+**the key holder sends its `"connected"` and interval reports even when it holds nothing (`Holdings` empty).** Every
+machine with a key holder then has a known Director, and a machine with none is `approver-offline`. No new
+mechanism.
+
+**Rule 6.1 has one stated exception for this**: `SealedApproval` is the only field that carries anything derived
+from a sign-in. It is sealed to one machine's key, the Gateway cannot open it, and it is useless alone - it completes
+only the login that holds the matching verifier, on the target, within minutes. `LicenseMessagesCarryNoKeyTests`
+names it as its one allowed exception, by name. (No other new field contains "Key", "Token", "Secret", "Credential"
+or "Code": the target's public key travels as `SealToRecipient`.)
+
+Agreed with the Tech Lead: the sealing is done by a small `cc-secrets seal` / `open` pair (a value on standard input,
+sealed to a recipient), not by a second copy of the envelope code in the Director. One place seals.
+
+### 8.4 Starting a sign-in from the Cockpit
+
+**Command `license-sign-in`, Gateway to the target Director**, for "Add a spare" and "Renew now" on the Licenses page:
+
+```csharp
+public sealed class LicenseSignInRequest
+{
+    public string SignInId { get; set; } = "";        // 32 lower-case hex, Gateway-minted
+    public string AccountEmail { get; set; } = "";
+    public string Reason { get; set; } = "";          // "manual" | "renewal"
+    public DateTime NotAfterUtc { get; set; }         // the Director refuses to START after this
+}
+
+public sealed class LicenseSignInResult
+{
+    public string SignInId { get; set; } = "";
+    public string Outcome { get; set; } = "";          // "added" | "renewed" | "failed"
+    public string? ReasonCode { get; set; }            // a LicenseRenewalErrors code, or "not-key-holder", when failed
+    public string? Message { get; set; }
+    public DateTime? SignedInAtUtc { get; set; }
+    public DateTime? SignInExpiresAtUtc { get; set; }
+}
+```
+
+The Director answers `not-key-holder` unless it is the key holder (2.4), runs the sign-in (approving locally when it
+has a local profile for the account, else through 8.3), and sends a `"changed"` report after it. Results are kept by
+`SignInId` for 24 hours and replayed like a switch (3.6).
+
+### 8.5 Constants added to section 7
+
+| Constant | Value |
+|---|---|
+| Renewal due when the sign-in ends within (`RenewAhead`) | 5 days |
+| Director renewal run | once a day, and at start |
+| `license-sign-in` command timeout (Gateway) | 5 minutes |
+| `license-approve` command timeout (Gateway) | 3 minutes |
+| `license-approval-result` command timeout (Gateway) | 60 seconds |
+| A sign-in's `NotAfterUtc` | requested + 10 minutes |

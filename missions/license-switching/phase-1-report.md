@@ -70,7 +70,8 @@ accepted or declined with the reason, in the files below.
 - **The 24-hour spare check is not done yet.** An isolated folder signed in at 13:33 UTC on 11 October was
   left untouched; its access token expired at 21:33 UTC. Due 13:33 UTC on 12 October: add that folder to an
   isolated store with `cc-devthrottle license add`, run `cc-devthrottle license usage --refresh`, and confirm
-  it renews and reads.
+  it renews and reads. **Done on 12 October, 24 hours 46 minutes after its last renewal: it renewed and read**
+  (`proof/spare-24-hours.md`).
 - **A spare needs a new sign-in about once a month.** The refresh token keeps the end date of its original
   sign-in, roughly 30 days (`spare-refresh.md`). `license usage` reports `signInExpiresAtUtc`; `signedInAtUtc`
   stays empty until a sign-in records its own time (phase 4). The Licenses page should warn ahead of it.
