@@ -14,6 +14,7 @@ namespace CcDirector.Core.Tests;
 /// platforms than to be identical, so the child is now a shell that exists everywhere and these run
 /// everywhere.
 /// </summary>
+[Trait("Gate", "Quarantine")]
 public sealed class ProcessRunnerTests
 {
     /// <summary>

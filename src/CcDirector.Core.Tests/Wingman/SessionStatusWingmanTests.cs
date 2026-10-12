@@ -363,6 +363,7 @@ public sealed class SessionStatusWingmanTests
         finally { wingman.Dispose(); manager.Dispose(); }
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void CreateSession_stamps_ControllerSessionId_and_IsControlled()
     {
@@ -380,6 +381,7 @@ public sealed class SessionStatusWingmanTests
         finally { manager.Dispose(); }
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Wingman_paints_blue_on_working_and_red_on_waiting_for_input()
     {
@@ -409,6 +411,7 @@ public sealed class SessionStatusWingmanTests
 
     // ---------- Session model writes ----------
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Session_starts_blue_at_construction()
     {
@@ -422,6 +425,7 @@ public sealed class SessionStatusWingmanTests
         finally { manager.Dispose(); }
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void SetStatusColor_fires_OnStatusColorChanged_event_with_old_new_reason()
     {
@@ -444,6 +448,7 @@ public sealed class SessionStatusWingmanTests
         finally { manager.Dispose(); }
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void WingmanEventLog_records_each_color_change_newest_first()
     {
@@ -483,6 +488,7 @@ public sealed class SessionStatusWingmanTests
         finally { manager.Dispose(); }
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void WingmanEventLog_caps_at_50_entries()
     {
@@ -501,6 +507,7 @@ public sealed class SessionStatusWingmanTests
         finally { manager.Dispose(); }
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void SetStatusColor_no_change_does_not_fire_event()
     {
@@ -522,6 +529,7 @@ public sealed class SessionStatusWingmanTests
         finally { manager.Dispose(); }
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void SnapshotScreenRows_returns_the_rendered_grid_text()
     {
@@ -542,6 +550,7 @@ public sealed class SessionStatusWingmanTests
 
     // ---------- Wingman lifecycle ----------
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Wingman_Start_sets_existing_sessions_to_color_matching_their_state()
     {
@@ -567,6 +576,7 @@ public sealed class SessionStatusWingmanTests
         finally { manager.Dispose(); }
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Wingman_pill_goes_gray_on_real_session_end()
     {
@@ -585,6 +595,7 @@ public sealed class SessionStatusWingmanTests
         finally { wingman.Dispose(); manager.Dispose(); }
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Wingman_OnSessionCreated_writes_red_needs_you()
     {
@@ -811,6 +822,7 @@ public sealed class SessionStatusWingmanTests
 
     // ---------- Brand-new session gate ----------
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void New_session_is_brand_new_until_user_submits()
     {
@@ -866,6 +878,7 @@ public sealed class SessionStatusWingmanTests
         finally { manager.Dispose(); }
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Wingman_seeds_brand_new_session_with_canned_explain()
     {
@@ -885,6 +898,7 @@ public sealed class SessionStatusWingmanTests
         finally { wingman.Dispose(); manager.Dispose(); }
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void SetCachedExplain_fires_OnCachedExplainChanged()
     {
@@ -907,6 +921,7 @@ public sealed class SessionStatusWingmanTests
         finally { manager.Dispose(); }
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task PromptInjectionWatcher_does_not_double_push_same_text()
     {

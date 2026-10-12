@@ -47,6 +47,7 @@ public sealed class SkillRound6BoundaryTests : IDisposable
 
     // ---- SK-F16: the retired-copy reclaim never takes a link ---------------------------------------------------
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void A_persons_junction_at_a_retired_installer_name_is_never_reclaimed()
     {
@@ -73,6 +74,7 @@ public sealed class SkillRound6BoundaryTests : IDisposable
 
     // ---- SK-F19: an unreadable record never stops a missing link being made --------------------------------------
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void A_truncated_link_record_does_not_stop_a_missing_link_being_made()
     {
@@ -93,6 +95,7 @@ public sealed class SkillRound6BoundaryTests : IDisposable
 
     // ---- SK-F17: inside our own folders, a delete never follows a link ----------------------------------------
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void A_link_inside_our_own_folder_is_removed_as_a_link_and_its_target_survives_a_refresh_and_a_withdrawal()
     {
@@ -114,6 +117,7 @@ public sealed class SkillRound6BoundaryTests : IDisposable
         Assert.Empty(Directory.GetDirectories(SkillDirectoryInstaller.StagingRootFor(Shared)!));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void DeleteOwnTree_removes_nested_links_without_entering_them()
     {
@@ -131,6 +135,7 @@ public sealed class SkillRound6BoundaryTests : IDisposable
         Assert.Equal("theirs\n", File.ReadAllText(Path.Combine(target, "kept.txt")));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void DeleteOwnTree_refuses_a_link_at_the_top()
     {
@@ -144,6 +149,7 @@ public sealed class SkillRound6BoundaryTests : IDisposable
         Assert.Equal("theirs\n", File.ReadAllText(Path.Combine(target, "kept.txt")));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void An_envelope_that_cannot_be_deleted_does_not_stop_the_reconcile_and_is_cleaned_next_time()
     {

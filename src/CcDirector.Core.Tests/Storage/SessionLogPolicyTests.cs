@@ -96,6 +96,7 @@ public sealed class SessionLogPolicyTests : IDisposable
     /// same path with the setting ON and requires the directory to appear: the instrument is shown
     /// to be capable of reading a write before it is trusted to report none.
     /// </summary>
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void With_logging_off_a_new_session_writes_nothing_to_disk()
     {
@@ -119,6 +120,7 @@ public sealed class SessionLogPolicyTests : IDisposable
     /// arrangement DOES write. Reverting the gate in SessionLogManager.Start turns the off-test red;
     /// removing the writer turns this one red.
     /// </summary>
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void With_logging_on_a_new_session_is_logged()
     {

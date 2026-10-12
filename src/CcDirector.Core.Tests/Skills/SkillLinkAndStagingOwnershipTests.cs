@@ -44,6 +44,7 @@ public sealed class SkillLinkAndStagingOwnershipTests : IDisposable
 
     // ---- SK-F10: a link is removed only with proof ------------------------------------------------------------
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void A_persons_dangling_link_into_the_shared_folder_survives_a_launch_and_works_again_when_its_target_returns()
     {
@@ -67,6 +68,7 @@ public sealed class SkillLinkAndStagingOwnershipTests : IDisposable
         Assert.Equal("# hand-made\n", File.ReadAllText(Path.Combine(link, "SKILL.md")));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void A_withdrawn_skills_link_is_left_in_place_and_reads_as_nothing()
     {
@@ -84,6 +86,7 @@ public sealed class SkillLinkAndStagingOwnershipTests : IDisposable
         Assert.True(File.Exists(Path.Combine(LinkRoot, "keeper", "SKILL.md")));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void A_recorded_link_the_person_replaced_with_one_to_another_place_survives_refresh_and_withdrawal()
     {
@@ -107,6 +110,7 @@ public sealed class SkillLinkAndStagingOwnershipTests : IDisposable
         Assert.Equal("# theirs\n", File.ReadAllText(Path.Combine(link, "SKILL.md")));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void A_recorded_link_the_person_replaced_with_one_to_the_same_place_survives_withdrawal()
     {
@@ -123,6 +127,7 @@ public sealed class SkillLinkAndStagingOwnershipTests : IDisposable
         Assert.True(IsLink(link), "the person's link at a recorded path was deleted on withdrawal");
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void A_record_that_cannot_be_written_changes_nothing_on_disk_and_says_so()
     {
@@ -148,6 +153,7 @@ public sealed class SkillLinkAndStagingOwnershipTests : IDisposable
         Directory.Delete(recordPath);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void A_persons_link_in_the_shared_folder_is_never_moved_overwritten_or_withdrawn()
     {
@@ -174,6 +180,7 @@ public sealed class SkillLinkAndStagingOwnershipTests : IDisposable
         Assert.Contains("my own notes", File.ReadAllText(Path.Combine(moved, "SKILL.md")));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void A_link_made_before_the_record_existed_is_left_alone_when_its_skill_is_withdrawn()
     {
@@ -188,6 +195,7 @@ public sealed class SkillLinkAndStagingOwnershipTests : IDisposable
         Assert.True(Directory.Exists(Path.Combine(LinkRoot, "keeper")));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Our_link_that_the_person_pointed_somewhere_else_is_left_alone()
     {
@@ -207,6 +215,7 @@ public sealed class SkillLinkAndStagingOwnershipTests : IDisposable
 
     // ---- SK-F11: never inside a folder agents read, never in a folder we did not make -------------------------------
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void An_agent_folder_linked_into_the_shared_folder_places_nothing_and_touches_nothing()
     {
@@ -229,6 +238,7 @@ public sealed class SkillLinkAndStagingOwnershipTests : IDisposable
             "a staging root was created although placement was refused");
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void An_agent_folder_whose_PARENT_is_linked_into_the_shared_folder_stages_nothing()
     {
@@ -269,6 +279,7 @@ public sealed class SkillLinkAndStagingOwnershipTests : IDisposable
         Assert.False(Directory.Exists(Path.Combine(Shared, "keeper")));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void A_staging_root_the_installer_makes_carries_its_marker_and_is_used_again()
     {

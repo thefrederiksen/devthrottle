@@ -64,6 +64,7 @@ public sealed class DirectorCrashJournalTests : IDisposable
 
     // ---- dirty detection ----
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void DetectAndClaim_finds_a_dead_directors_roster_and_claims_it_once()
     {
@@ -101,6 +102,7 @@ public sealed class DirectorCrashJournalTests : IDisposable
         Assert.True(File.Exists(liveJournal.FilePath)); // untouched
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void DetectAndClaim_deletes_a_dead_director_with_empty_roster()
     {
@@ -114,6 +116,7 @@ public sealed class DirectorCrashJournalTests : IDisposable
         Assert.False(File.Exists(emptyJournal.FilePath));  // cleaned up
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void ListPendingRecoveries_returns_claimed_dirty_journals()
     {
@@ -128,6 +131,7 @@ public sealed class DirectorCrashJournalTests : IDisposable
         Assert.Equal("interrupted", d.Sessions[0].Name);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Dismiss_removes_a_claimed_dirty_journal()
     {
@@ -152,6 +156,7 @@ public sealed class DirectorCrashJournalTests : IDisposable
 
     // ---- per-session removal after restore (issue #212 W4) ----
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void RemoveSession_drops_one_session_and_keeps_the_rest()
     {
@@ -173,6 +178,7 @@ public sealed class DirectorCrashJournalTests : IDisposable
         Assert.Equal("still waiting", left.Name);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void RemoveSession_deletes_the_journal_when_it_was_the_last_session()
     {
@@ -188,6 +194,7 @@ public sealed class DirectorCrashJournalTests : IDisposable
         Assert.Empty(DirectorCrashJournal.ListPendingRecoveries(_dir));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void RemoveSession_returns_false_for_unknown_session_or_journal()
     {

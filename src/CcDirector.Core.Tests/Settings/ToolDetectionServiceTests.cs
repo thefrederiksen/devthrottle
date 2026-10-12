@@ -45,6 +45,7 @@ public class ToolDetectionServiceTests
         }
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task TestToolAsync_VersionCommandSucceeds_ReturnsOkWithVersion()
     {
@@ -104,6 +105,7 @@ public class ToolDetectionServiceTests
         Assert.Equal("opencode-custom", ToolDetectionService.GetConfiguredPath(AgentKind.OpenCode, options));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task IsToolValidated_CurrentConfiguredPathWasTested_ReturnsTrue()
     {

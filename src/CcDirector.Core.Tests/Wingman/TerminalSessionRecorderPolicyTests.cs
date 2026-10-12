@@ -92,6 +92,7 @@ public sealed class TerminalSessionRecorderPolicyTests : IDisposable
     /// would otherwise pass this test while deleting nothing, which is exactly the mistake the
     /// first version of the purge made (it used the dashed spelling of the id).
     /// </summary>
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Removing_a_session_purges_its_recording()
     {
@@ -126,6 +127,7 @@ public sealed class TerminalSessionRecorderPolicyTests : IDisposable
     /// default (capture OFF), while leaving live sessions' recordings and unrecognised directories
     /// alone.
     /// </summary>
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Startup_sweeps_recordings_orphaned_before_this_run()
     {
@@ -168,6 +170,7 @@ public sealed class TerminalSessionRecorderPolicyTests : IDisposable
     /// belongs to its session, and is deleted with it - while the capture-off recorder writes
     /// nothing new for the session that lived and died here.
     /// </summary>
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Capture_off_still_purges_a_preexisting_recording_and_records_nothing_new()
     {

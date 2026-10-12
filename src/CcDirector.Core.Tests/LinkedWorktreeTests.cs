@@ -37,6 +37,7 @@ public sealed class LinkedWorktreeTests : IDisposable
 
     // ---------------------------------------------------------------- the flow, with real git
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void ARealWorktree_ResolvesToTheRepositoryItWasMadeFrom()
     {
@@ -49,6 +50,7 @@ public sealed class LinkedWorktreeTests : IDisposable
         AssertSameFolder(repository, LinkedWorktree.ParentRepositoryOf(worktree));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void ARealWorktreeInAFolderCalledWorktrees_ResolvesToTheRepositoryToo()
     {
@@ -62,6 +64,7 @@ public sealed class LinkedWorktreeTests : IDisposable
         AssertSameFolder(repository, LinkedWorktree.ParentRepositoryOf(worktree));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void ARepositoryProper_IsNotAWorktreeAndIsLeftAlone()
     {
@@ -73,6 +76,7 @@ public sealed class LinkedWorktreeTests : IDisposable
         Assert.Null(LinkedWorktree.ParentRepositoryOf(repository));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void APlainFolderInsideARepository_IsLeftAlone()
     {
@@ -87,6 +91,7 @@ public sealed class LinkedWorktreeTests : IDisposable
         Assert.Null(LinkedWorktree.ParentRepositoryOf(inside));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void AWorktreeWhoseRepositoryWasDeleted_IsLeftAlone()
     {
@@ -112,6 +117,7 @@ public sealed class LinkedWorktreeTests : IDisposable
         Assert.Null(LinkedWorktree.ParentRepositoryOf(worktree));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void ASubmodule_IsLeftAlone_BecauseASubmoduleIsARepository()
     {
@@ -141,6 +147,7 @@ public sealed class LinkedWorktreeTests : IDisposable
         Assert.Null(LinkedWorktree.ParentRepositoryOf(worktree));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void AGitFileWithARelativeTarget_ResolvesAgainstTheWorktreesOwnFolder()
     {

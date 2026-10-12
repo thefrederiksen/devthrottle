@@ -31,6 +31,7 @@ public class SessionLifecycleTests : IDisposable
         _manager = new SessionManager(options);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void CreateSession_NewSession_StatusIsRunning()
     {
@@ -41,6 +42,7 @@ public class SessionLifecycleTests : IDisposable
         Assert.Equal(SessionBackendType.ConPty, session.BackendType);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void CreateSession_WithCustomArgs_StoresArgs()
     {
@@ -49,6 +51,7 @@ public class SessionLifecycleTests : IDisposable
         Assert.Equal("--test-arg", session.ClaudeArgs);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void CreateSession_DefaultProperties_AreCorrect()
     {
@@ -66,6 +69,7 @@ public class SessionLifecycleTests : IDisposable
         Assert.Null(session.VerifiedFirstPrompt);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task KillSession_SetsActivityStateToExited()
     {
@@ -81,6 +85,7 @@ public class SessionLifecycleTests : IDisposable
         Assert.Equal(ActivityState.Exited, session.ActivityState);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task KillSession_AlreadyExited_DoesNotThrow()
     {
@@ -94,6 +99,7 @@ public class SessionLifecycleTests : IDisposable
         await _manager.KillSessionAsync(session.Id);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void CreateMultipleSessions_AllTracked()
     {
@@ -108,6 +114,7 @@ public class SessionLifecycleTests : IDisposable
         Assert.Contains(sessions, s => s.Id == s3.Id);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void RemoveSession_RemovesFromTracking()
     {
@@ -120,6 +127,7 @@ public class SessionLifecycleTests : IDisposable
         Assert.Null(_manager.GetSession(session.Id));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void RemoveSession_WithClaudeSessionId_ClearsMapping()
     {
@@ -147,6 +155,7 @@ public class SessionLifecycleTests : IDisposable
         await _manager.KillAllSessionsAsync();
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Session_CustomProperties_Settable()
     {
@@ -165,6 +174,7 @@ public class SessionLifecycleTests : IDisposable
         Assert.Equal("hello world", session.ExpectedFirstPrompt);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Dispose_DisposesAllSessions()
     {

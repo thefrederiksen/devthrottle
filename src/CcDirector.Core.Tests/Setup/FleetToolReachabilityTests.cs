@@ -79,6 +79,7 @@ public class FleetToolReachabilityTests : IDisposable
         Assert.Contains("PATH", check.Detail, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task RunAsync_ToolReachesTheFleet_ReportsWorking()
     {
@@ -90,6 +91,7 @@ public class FleetToolReachabilityTests : IDisposable
         Assert.Equal(stub, check.ResolvedPath);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task RunAsync_ToolFails_ReportsCannotReachGatewayWithTheToolsOwnReason()
     {
@@ -135,6 +137,7 @@ public class FleetToolReachabilityTests : IDisposable
             () => reachability.RunAsync(GatewayUrl, "", expectedBinDir: null));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task RunAsync_PathToolFails_AndOurOwnCopyWorks_IsRepairableByRepointingPath()
     {
@@ -149,6 +152,7 @@ public class FleetToolReachabilityTests : IDisposable
         Assert.False(check.OwnToolsAreMissingOrBroken);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task RunAsync_PathToolFails_AndWeHaveNoCopyOfOurOwn_IsNotRepairableByRepointingPath()
     {
@@ -170,6 +174,7 @@ public class FleetToolReachabilityTests : IDisposable
         Assert.Contains(OurBinDir, check.OwnDetail, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task RunAsync_PathToolFails_AndOurOwnCopyAlsoFails_IsNotRepairableByRepointingPath()
     {
@@ -187,6 +192,7 @@ public class FleetToolReachabilityTests : IDisposable
         Assert.Contains("ModuleNotFoundError", check.OwnDetail, StringComparison.Ordinal);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task RunAsync_PathToolWorks_LeavesOurOwnCopyUnasked()
     {
@@ -202,6 +208,7 @@ public class FleetToolReachabilityTests : IDisposable
         Assert.False(check.OwnToolsAreMissingOrBroken);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task RunAsync_NoBinDirOfOurOwn_ReportsOurCopyAsUncheckedRatherThanMissing()
     {

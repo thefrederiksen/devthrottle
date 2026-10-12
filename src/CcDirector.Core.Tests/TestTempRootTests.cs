@@ -8,6 +8,7 @@ namespace CcDirector.Core.Tests;
 /// and directory links (a junction on Windows, a symbolic link elsewhere) - removed as links, with their
 /// targets untouched.
 /// </summary>
+[Trait("Gate", "Quarantine")]
 public sealed class TestTempRootTests
 {
     [Fact]

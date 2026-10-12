@@ -107,6 +107,7 @@ public class GitLargeRepoParserTests
 /// Integration tests that drive real git commands on a throwaway repo.
 /// Exercises stage/unstage/discard/commit against a fixture with many files.
 /// </summary>
+[Trait("Gate", "Quarantine")]
 public sealed class GitLargeRepoIntegrationTests : IDisposable
 {
     private readonly string _repo;

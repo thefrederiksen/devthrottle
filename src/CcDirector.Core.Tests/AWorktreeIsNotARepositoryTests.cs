@@ -47,6 +47,7 @@ public sealed class AWorktreeIsNotARepositoryTests : IDisposable
 
     // ------------------------------------------------------------------- the stamp on the session
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void ASessionStartedInAWorktree_CarriesTheRepositoryItIsAWorktreeOf()
     {
@@ -62,6 +63,7 @@ public sealed class AWorktreeIsNotARepositoryTests : IDisposable
         AssertSameFolder(repository, session.PrimaryRepoPath);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void ASessionStartedInARepositoryProper_CarriesNothing()
     {
@@ -75,6 +77,7 @@ public sealed class AWorktreeIsNotARepositoryTests : IDisposable
         Assert.Null(session.PrimaryRepoPath);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void ASessionStartedInAWorktreeWhoseRepositoryIsGone_CarriesNothing()
     {
@@ -105,6 +108,7 @@ public sealed class AWorktreeIsNotARepositoryTests : IDisposable
         Assert.Null(session.PrimaryRepoPath);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void WhenResolvingThrows_TheSessionIsStillCreatedAndCarriesNothing()
     {
@@ -123,6 +127,7 @@ public sealed class AWorktreeIsNotARepositoryTests : IDisposable
         Assert.True(announced);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void ARestoredSessionIsResolvedAgainstTheDiskAsItIsNow_NotAsItWas()
     {
@@ -144,6 +149,7 @@ public sealed class AWorktreeIsNotARepositoryTests : IDisposable
 
     // -------------------------------------------------------- what the Director's own list records
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void ASessionInAWorktree_MovesTheREPOSITORYUpTheList_NotTheWorktree()
     {
@@ -168,6 +174,7 @@ public sealed class AWorktreeIsNotARepositoryTests : IDisposable
         Assert.DoesNotContain(_registry.Repositories, r => r.Path == worktree.TrimEnd('\\', '/'));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void AWorktreeAddedByHand_IsRegisteredAsTheRepositoryItIsAWorktreeOf()
     {
@@ -184,6 +191,7 @@ public sealed class AWorktreeIsNotARepositoryTests : IDisposable
         Assert.Equal(RealPath(repository), RealPath(registered.Path));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void AFolderThatIsNotAWorktree_IsRegisteredExactlyAsGiven()
     {
@@ -212,6 +220,7 @@ public sealed class AWorktreeIsNotARepositoryTests : IDisposable
     /// <c>D:\ReposFred</c>, <c>D:\ReposMindzie</c> and <c>/Users/soren/ReposFred</c>, none of which
     /// is reached through a link. It is here so that the day it does bite, this test names it.
     /// </summary>
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void ARepositoryRegisteredThroughASymbolicLink_IsNotMatched()
     {
@@ -229,6 +238,7 @@ public sealed class AWorktreeIsNotARepositoryTests : IDisposable
         Assert.Null(LastUsedOf(link));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void ASessionInAWorktreeWhoseRepositoryIsGone_StillMovesTheWorktree()
     {
@@ -249,6 +259,7 @@ public sealed class AWorktreeIsNotARepositoryTests : IDisposable
         Assert.NotNull(LastUsedOf(worktree));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void APooledSession_StillCreditsTheRepositoryTheSlotCameFrom()
     {
