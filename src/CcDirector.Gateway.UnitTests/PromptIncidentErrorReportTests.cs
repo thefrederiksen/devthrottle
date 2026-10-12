@@ -12,6 +12,8 @@ using CcDirector.Core.Sessions;
 using CcDirector.Core.UnitTests.Sessions;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
+using CcDirector.TestInfrastructure;
+using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests;
@@ -26,6 +28,10 @@ namespace CcDirector.Gateway.Tests;
 /// The reporter here hears only lines that belong to the test's own session: lines logged inside a context naming it,
 /// and any line that mentions its id. A line that mentions the session but is not linked to the incident is therefore
 /// caught, not filtered out.
+///
+/// Every wait in a send that is slow on purpose - the echo that never comes, the late watch, the refusal that outlives
+/// the answer - runs on ONE FAKE CLOCK, advanced by <see cref="VirtualTime.RunAsync"/>. The echo miss alone used to take
+/// a minute of real time.
 /// </summary>
 public sealed class PromptIncidentErrorReportTests : IDisposable
 {
@@ -94,6 +100,7 @@ public sealed class PromptIncidentErrorReportTests : IDisposable
     private readonly Action<string>? _previousObserver;
     private readonly SessionManager _manager = new(new AgentOptions());
     private readonly List<IDisposable> _cleanup = new();
+    private readonly FakeTimeProvider _clock = VirtualTime.NewClock();
     private string _watchedSessionId = "";
 
     public PromptIncidentErrorReportTests()
@@ -147,9 +154,8 @@ public sealed class PromptIncidentErrorReportTests : IDisposable
         try
         {
             await act();
-            var done = await Task.WhenAny(seen.Task, Task.Delay(TimeSpan.FromSeconds(60)));
-            Assert.True(done == seen.Task, "no late outcome was written within 60 seconds");
-            return await seen.Task;
+            // A watchdog only: under VirtualTime the late outcome comes when the fake clock reaches it.
+            return await seen.Task.WaitAsync(TimeSpan.FromSeconds(60));
         }
         finally
         {
@@ -275,6 +281,8 @@ public sealed class PromptIncidentErrorReportTests : IDisposable
         File.WriteAllText(transcript, "");
         var terminal = new ScriptedAgentTerminal(AgentKind.Codex, transcript, dir) { Working = true, SwallowEnter = true, MenuAfterEnter = true };
         var working = new Session(Guid.NewGuid(), dir, dir, null, terminal, SessionBackendType.ConPty) { AgentKind = AgentKind.Codex };
+        terminal.Clock = _clock;
+        working.Clock = _clock;
         _cleanup.Add(terminal);
         _cleanup.Add(working);
         terminal.StartDrawing();
@@ -283,7 +291,8 @@ public sealed class PromptIncidentErrorReportTests : IDisposable
         working.LateArrivalLimitForTests = TimeSpan.FromSeconds(2);
         _watchedSessionId = working.Id.ToString();
 
-        var late = await LateOutcomeFor("upload-previous", () => PromptCommand(working, "cmd-previous", Prompt("check the build", "upload-previous")));
+        var late = await VirtualTime.RunAsync(_clock, () =>
+            LateOutcomeFor("upload-previous", () => PromptCommand(working, "cmd-previous", Prompt("check the build", "upload-previous"))));
 
         Assert.Equal(DeliveryStates.Unconfirmed, late);
         var line = _record.LatestOtherThan(working.Id, exceptDeliveryId: null);
@@ -307,6 +316,8 @@ public sealed class PromptIncidentErrorReportTests : IDisposable
     {
         // The verb answers "delivering" at a 200 millisecond budget; the terminal refuses 1.5 seconds later, after the
         // command's and the verb's scopes were disposed. The late outcome is written by its own task.
+        // This one stays on the real clock (1.5 seconds): on a fake clock the refusal's continuation runs inside the clock's
+        // advance and the late path waits on it there, so the advance never returns.
         var session = _manager.CreateEmbeddedSession(Path.GetTempPath(), null, new LateRefusingBackend());
         _watchedSessionId = session.Id.ToString();
 
@@ -370,13 +381,14 @@ public sealed class PromptIncidentErrorReportTests : IDisposable
         // carries what the Director looked for and what the terminal showed - which is the prompt itself.
         var (session, terminal) = ScriptedTerminal.NewWaitingSession();
         _cleanup.Add(session);
+        session.Clock = _clock;
         session.AgentKind = AgentKind.Gemini;
         terminal.Echo = false;
         _watchedSessionId = session.Id.ToString();
         var text = $"ship the release {Marker} FAILED: then report back on {Marker}";
 
         // The echo miss takes longer than the verb's usual 20-second answer; this verb waits for the failure itself.
-        var result = await PromptCommand(session, "cmd-marker", Prompt(text, "upload-marker"), answerBudget: TimeSpan.FromMinutes(3));
+        var result = await VirtualTime.RunAsync(_clock, () => PromptCommand(session, "cmd-marker", Prompt(text, "upload-marker"), answerBudget: TimeSpan.FromMinutes(3)));
 
         // The line itself carried the words - the route this test closes is live...
         Assert.False(result.Ok);
@@ -408,6 +420,8 @@ public sealed class PromptIncidentErrorReportTests : IDisposable
         File.WriteAllText(transcript, "");
         var terminal = new ScriptedAgentTerminal(AgentKind.Codex, transcript, dir) { Working = true, SwallowEnter = true, MenuAfterEnter = true };
         var session = new Session(Guid.NewGuid(), dir, dir, null, terminal, SessionBackendType.ConPty) { AgentKind = AgentKind.Codex };
+        terminal.Clock = _clock;
+        session.Clock = _clock;
         _cleanup.Add(terminal);
         _cleanup.Add(session);
         terminal.StartDrawing();
@@ -416,7 +430,8 @@ public sealed class PromptIncidentErrorReportTests : IDisposable
         session.LateArrivalLimitForTests = TimeSpan.FromSeconds(7);
         _watchedSessionId = session.Id.ToString();
 
-        var late = await LateOutcomeFor("upload-watch-" + shape, () => PromptCommand(session, "cmd-watch", Prompt(text, "upload-watch-" + shape)));
+        var late = await VirtualTime.RunAsync(_clock, () =>
+            LateOutcomeFor("upload-watch-" + shape, () => PromptCommand(session, "cmd-watch", Prompt(text, "upload-watch-" + shape))));
 
         Assert.Equal(DeliveryStates.Unconfirmed, late);
         var rows = await SentAsync();
