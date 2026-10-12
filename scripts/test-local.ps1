@@ -112,11 +112,15 @@
     room, not a home - a quarantined test is fixed or deleted, and the trait is removed when it is fixed.
 
 .PARAMETER Quarantine
-    Run ONLY the quarantined tests (trait Gate=Quarantine), in every suite including the parked ones.
+    Run ONLY the quarantined tests (trait Gate=Quarantine), in every suite including the parked Core.Tests
+    and Gateway.UnitTests. Gateway.Tests is left out unless -Gateway is passed too, and -Quarantine -Gateway
+    then runs that suite's quarantined tests alone: the Gateway suite is one run per machine at a time, and
+    with it included a look at the quarantine was REFUSED for the whole length of someone else's Gateway run
+    (found on 2026-10-11, when another session's full run held the lock for about two hours).
     Prints what passed and failed and exits 0 whenever the tests ran, failures or not: a quarantined test
     never decides a verdict. (A build failure, a held lock or too little disk space still stop it, because
     then nothing ran.) Writes no gate record, keeps its run folder so the failures can be read, and takes
-    the release-gate lock, as it includes the Gateway suite.
+    the release-gate lock only with -Gateway, the one quarantine run that includes the Gateway suite.
 
     A SUITE MAY NOT BE QUARANTINED WHOLE. Every gate suite must execute at least one test; a suite with
     every test quarantined executes none and the run ends NEVER RAN. Delete such a suite from the list, or
@@ -229,8 +233,8 @@ if ($Gateway -and $Parked) {
     Write-Error "-Gateway already runs a parked suite on its own; pass one or the other."
     exit 2
 }
-if ($Quarantine -and ($Gateway -or $Parked -or $ExpectTests -gt 0)) {
-    Write-Error "-Quarantine runs the quarantined tests of every suite, parked ones included, and never gates; it cannot be combined with -Gateway, -Parked or -ExpectTests."
+if ($Quarantine -and ($Parked -or $ExpectTests -gt 0)) {
+    Write-Error "-Quarantine runs the quarantined tests of every suite except Gateway.Tests (add -Gateway for that suite alone) and never gates; it cannot be combined with -Parked or -ExpectTests."
     exit 2
 }
 
@@ -238,6 +242,10 @@ if ($Quarantine -and ($Gateway -or $Parked -or $ExpectTests -gt 0)) {
 # a quarantined test never runs in a gate; -Quarantine flips it to run only them.
 $QuarantineExclude = "Gate!=Quarantine"
 $QuarantineOnly = "Gate=Quarantine"
+# The caller's filter, ANDed with the quarantine trait: what each suite is actually given. $Filter itself stays
+# the caller's words, because the per-term check below reads its "FullyQualifiedName~" terms.
+$traitFilter = $(if ($Quarantine) { $QuarantineOnly } else { $QuarantineExclude })
+$suiteFilter = $(if ($Filter -ne "") { "($Filter)&$traitFilter" } else { $traitFilter })
 
 # THE TWO-MINUTE BUDGET IS THE RULE THIS LIST ENCODES. A suite is in the default run if it finishes
 # inside it, and parked if it does not. DURATIONS ONLY - the test counts live once in the header, with
@@ -366,7 +374,10 @@ if ($Gateway) {
     $toRun = @($gatewayProject)
 } else {
     $toRun = $defaultProjects + $installerProjects
-    if ($Parked -or $Quarantine) { $toRun += $parkedProjects }
+    if ($Parked) { $toRun += $parkedProjects }
+    # Every parked suite but the Gateway one, which takes the machine's one Gateway lock; -Quarantine -Gateway
+    # runs it on its own (see the header).
+    if ($Quarantine) { $toRun += @($parkedProjects | Where-Object { $_ -ne $gatewayProject }) }
 }
 
 
@@ -583,6 +594,7 @@ $runRecord = [ordered]@{
     quarantine    = [bool] $Quarantine
     configuration = $Configuration
     filter        = $Filter
+    suiteFilter   = $suiteFilter
     expectTests   = $ExpectTests
     startedUtc    = (Get-Date).ToUniversalTime().ToString("o")
     machine       = [Environment]::MachineName
@@ -1216,10 +1228,7 @@ try {
         Stop-Gate 0 "CLEARED"
     }
 
-    # The caller's filter, ANDed with the quarantine trait. $Filter itself stays the caller's words, because
-    # the per-term check below reads its "FullyQualifiedName~" terms.
-    $traitFilter = $(if ($Quarantine) { $QuarantineOnly } else { $QuarantineExclude })
-    $filterArgs = @("--filter", $(if ($Filter -ne "") { "($Filter)&$traitFilter" } else { $traitFilter }))
+    $filterArgs = @("--filter", $suiteFilter)
 
     # Hang and crash detection for the runs that have no ceiling (see $HangTimeoutMinutes). A hung test is
     # dumped and named in Sequence_<guid>.xml inside the run folder, and its host is killed; the suite then
@@ -1257,7 +1266,7 @@ try {
         Write-Host "Waiting. This run holds the release-gate lock ($gateLockPath); another run that includes"
         Write-Host "the Gateway suite is refused at once rather than queued behind this one."
     } else {
-        Write-Host "Waiting. No parked suite is in this run, so it takes no lock and nothing queues behind it."
+        Write-Host "Waiting. The Gateway suite is not in this run, so it takes no lock and nothing queues behind it."
     }
     Write-Host ""
 
@@ -1351,6 +1360,7 @@ try {
         # not finish, which is printed as such rather than hidden.
         Write-Host ""
         Write-Host "QUARANTINE - these results decide nothing. Quarantined tests are being fixed or deleted:"
+        Write-Host "  suite filter=$suiteFilter"
         $qFailed = @()
         foreach ($r in $running) {
             Write-Host ("  {0,-40} outcome={1,-12} total={2,-6} executed={3}" -f $r.Name, $r.Outcome, $r.Total, $r.Executed)
@@ -1375,9 +1385,9 @@ try {
 
     Write-Host ""
     Write-Host "TRX verdict - THIS is the gate. Every suite must report outcome=Completed:"
-    Write-Host ("  commit {0}  tree {1}  parked={2} configuration={3}{4}" -f $commit,
+    Write-Host ("  commit {0}  tree {1}  parked={2} configuration={3} suite filter={4}" -f $commit,
         $(if ($treeClean) { "clean" } else { "DIRTY ($($dirtyFiles.Count) changed or untracked)" }),
-        [bool] $Parked, $Configuration, $(if ($Filter -ne "") { " filter=$Filter" } else { "" }))
+        [bool] $Parked, $Configuration, $suiteFilter)
     foreach ($r in $running) {
         Write-Host ("  {0,-40} outcome={1,-12} total={2,-6} executed={3}" -f $r.Name, $r.Outcome, $r.Total, $r.Executed)
     }
