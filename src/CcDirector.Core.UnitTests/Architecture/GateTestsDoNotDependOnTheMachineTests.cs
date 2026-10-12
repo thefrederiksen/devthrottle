@@ -16,7 +16,8 @@ namespace CcDirector.Core.UnitTests.Architecture;
 ///
 /// So test code in a gate suite may not, for a new reason, use any of these:
 /// <list type="bullet">
-/// <item>a wall-clock wait: <c>Thread.Sleep</c>, <c>Task.Delay</c> with a finite wait, <c>SpinWait.SpinUntil</c>,
+/// <item>a wall-clock wait: <c>Thread.Sleep</c>, <c>Task.Delay</c> with a finite wait on the real clock (one handed a
+/// clock - <c>Task.Delay(wait, _clock)</c> - is what this asks for, and is not counted), <c>SpinWait.SpinUntil</c>,
 /// or a timer of the test's own (await the event, or advance a fake clock - <c>FakeTimeProvider</c>,
 /// <c>VirtualTime</c>);</item>
 /// <item>the real clock: <c>DateTime.Now</c>/<c>UtcNow</c>/<c>Today</c>, <c>DateTimeOffset.Now</c>/<c>UtcNow</c>,
@@ -153,13 +154,43 @@ public sealed class GateTestsDoNotDependOnTheMachineTests
                 var code = StripComments(File.ReadAllText(file));
                 foreach (var (name, pattern) in Rules)
                 {
-                    var hits = pattern.Matches(code).Count;
+                    var hits = pattern.Matches(code).Count(m => name != "delay" || !WaitsOnAnInjectedClock(code, m.Index + m.Length - 1));
                     if (hits > 0) counts[(name, relative)] = hits;
                 }
             }
         }
         Assert.True(scanned > 1000, $"Read only {scanned} test source files across the gate suites. A guard that reads an empty tree has checked nothing.");
         return counts;
+    }
+
+    private static readonly Regex InjectedClockArgument = new(
+        @"^[A-Za-z_]\w*(\.[A-Za-z_]\w*)*$", RegexOptions.Compiled);
+
+    /// <summary>
+    /// True when the <c>Task.Delay(</c> whose open parenthesis is at <paramref name="open"/> is handed a clock - a
+    /// later argument named like one (<c>_clock</c>, <c>Clock</c>, <c>time</c>, <c>fakeTime</c>) - so the wait ends
+    /// when the test moves that clock, not when real time passes. That is the very thing this guard asks for, so it
+    /// is not counted. <c>TimeProvider.System</c> is the real clock and does not end in such a name.
+    /// </summary>
+    private static bool WaitsOnAnInjectedClock(string code, int open)
+    {
+        var arguments = new List<string>();
+        var depth = 0;
+        var start = open + 1;
+        for (var i = open + 1; i < code.Length; i++)
+        {
+            var c = code[i];
+            if (c is '(' or '[' or '{') depth++;
+            else if (c is ')' or ']' or '}')
+            {
+                if (depth == 0) { arguments.Add(code[start..i]); break; }
+                depth--;
+            }
+            else if (c == ',' && depth == 0) { arguments.Add(code[start..i]); start = i + 1; }
+        }
+        return arguments.Skip(1).Select(a => a.Trim()).Any(a =>
+            InjectedClockArgument.IsMatch(a)
+            && Regex.IsMatch(a.Split('.')[^1], @"(clock|time|timeprovider)$", RegexOptions.IgnoreCase));
     }
 
     private static Dictionary<(string Rule, string Path), int> ReadBaseline()

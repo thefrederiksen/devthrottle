@@ -84,7 +84,6 @@ real-clock | src/CcDirector.Core.Tests/DictationCorpusStoreTests.cs | 3
 real-clock | src/CcDirector.Core.Tests/DirectorCrashJournalSweepTests.cs | 5
 real-clock | src/CcDirector.Core.Tests/Drivers/CompactContextDriverTests.cs | 2
 real-clock | src/CcDirector.Core.Tests/Drivers/PinnedMachineMemory.cs | 4
-delay | src/CcDirector.Core.Tests/Drivers/RecordingSessionBackend.cs | 3
 real-clock | src/CcDirector.Core.Tests/Drivers/RecordingSessionBackend.cs | 1
 real-clock | src/CcDirector.Core.Tests/Drivers/SessionAskRunnerTests.cs | 2
 delay | src/CcDirector.Core.Tests/Drivers/TerminalSubmitTests.cs | 2
@@ -240,7 +239,6 @@ sleep | src/CcDirector.Core.UnitTests/Sessions/FactoryMemoryAtLaunchTests.cs | 3
 real-clock | src/CcDirector.Core.UnitTests/Sessions/PendingPromptSpokenSpansPersistenceTests.cs | 3
 real-clock | src/CcDirector.Core.UnitTests/Sessions/PooledWorktreeSurvivesARestartTests.cs | 3
 real-clock | src/CcDirector.Core.UnitTests/Sessions/RealScreenReaderTests.cs | 4
-delay | src/CcDirector.Core.UnitTests/Sessions/ScriptedAgentTerminal.cs | 5
 real-clock | src/CcDirector.Core.UnitTests/Sessions/ScriptedAgentTerminal.cs | 1
 delay | src/CcDirector.Core.UnitTests/Sessions/SendPathClockTests.cs | 1
 stopwatch | src/CcDirector.Core.UnitTests/Sessions/SendPathClockTests.cs | 1
@@ -630,7 +628,6 @@ delay | src/CcDirector.Gateway.UnitTests/Messaging/FleetDoorbellTests.cs | 2
 real-clock | src/CcDirector.Gateway.UnitTests/Messaging/FleetDoorbellTests.cs | 2
 real-clock | src/CcDirector.Gateway.UnitTests/MicrophoneRankingTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/NarrationClipsOnDiskTests.cs | 1
-delay | src/CcDirector.Gateway.UnitTests/PromptAnswerBudgetTests.cs | 2
 delay | src/CcDirector.Gateway.UnitTests/PromptDeliveryAgeTests.cs | 2
 real-clock | src/CcDirector.Gateway.UnitTests/PromptDeliveryAgeTests.cs | 2
 real-clock | src/CcDirector.Gateway.UnitTests/PromptDeliveryNoticeFoldTests.cs | 1
