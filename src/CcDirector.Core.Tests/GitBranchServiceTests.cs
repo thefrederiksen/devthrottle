@@ -69,7 +69,15 @@ public class BranchSafetyEvaluatorTests
     }
 }
 
-/// <summary>Real-git integration: listing verdicts and the delete-time re-verify.</summary>
+/// <summary>
+/// Real-git integration: listing verdicts and the delete-time re-verify.
+///
+/// MARKED FOR QUARANTINE (Reliable Tests, 11 October 2026): it runs real git processes, which gate tests may no longer
+/// do, but it is the only real coverage of a sweep that DELETES branches, so it is kept for a run of its own whose result
+/// never decides a release. The gate's filter on this trait comes with a later change; until it does, the class still
+/// runs in the release gate (-Parked).
+/// </summary>
+[Trait("Gate", "Quarantine")]
 public sealed class GitBranchServiceTests : IClassFixture<GitBranchServiceTests.Template>, IDisposable
 {
     private readonly string _root;

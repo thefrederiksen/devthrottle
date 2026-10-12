@@ -223,8 +223,6 @@ real-clock | src/CcDirector.Core.Tests/Wingman/TurnDetectionShadowRetentionTests
 real-clock | src/CcDirector.Core.Tests/Wingman/WingmanAskTests.cs | 2
 real-clock | src/CcDirector.Core.Tests/Wingman/WingmanServiceTests.cs | 2
 real-clock | src/CcDirector.Core.Tests/WorkflowStoreTests.cs | 3
-process | src/CcDirector.Core.Tests/WorktreeInventoryIntegrationTests.cs | 2
-real-clock | src/CcDirector.Core.Tests/WorktreeInventoryIntegrationTests.cs | 3
 process | src/CcDirector.Core.Tests/WorktreeReaperServiceTests.cs | 6
 real-clock | src/CcDirector.Core.Tests/WorktreeReaperServiceTests.cs | 1
 delay | src/CcDirector.Core.UnitTests/Background/BackgroundJobsTests.cs | 7
@@ -787,7 +785,6 @@ stopwatch | src/CcDirector.Terminal.Avalonia.Tests/TerminalTabReturnTests.cs | 1
 process | src/TestInfrastructure/MutationProofPinGuard.cs | 2
 real-clock | src/TestInfrastructure/MutationProofPinGuard.cs | 2
 sleep | src/TestInfrastructure/MutationProofPinGuard.cs | 1
-process | src/TestInfrastructure/MutationProofPinGuardTests.cs | 8
 process | src/TestInfrastructure/RepositorySourceIndex.cs | 2
 process | src/TestInfrastructure/RepositorySourceIndexTests.cs | 2
 real-clock | src/TestInfrastructure/VirtualTime.cs | 3

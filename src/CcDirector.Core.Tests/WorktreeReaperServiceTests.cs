@@ -9,7 +9,13 @@ namespace CcDirector.Core.Tests;
 /// Integration tests for the reaper against real git repositories (with a local bare origin).
 /// Proves it removes exactly the safe set, leaves everything else untouched, honours the
 /// live-session guard, and reports - rather than hides - a folder it could not delete.
+///
+/// MARKED FOR QUARANTINE (Reliable Tests, 11 October 2026): it runs real git processes, which gate tests may no longer
+/// do, but it is the only real coverage of a sweep that DELETES worktrees, so it is kept for a run of its own whose result
+/// never decides a release. The gate's filter on this trait comes with a later change; until it does, the class still
+/// runs in the release gate (-Parked).
 /// </summary>
+[Trait("Gate", "Quarantine")]
 public sealed class WorktreeReaperServiceTests : IClassFixture<WorktreeReaperServiceTests.Template>, IDisposable
 {
     private readonly string _root;

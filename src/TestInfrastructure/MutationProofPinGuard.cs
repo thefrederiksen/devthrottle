@@ -155,8 +155,10 @@ namespace CcDirector.TestInfrastructure;
 /// remembering - keying on the project name rather than on the IsTestProject flag was deliberate, because
 /// one of the seven existing test projects does not set that flag.
 ///
-/// It is pinned by MutationProofPinGuardTests, because a guard that silently fails to run leaves no trace
-/// and looks exactly like a guard that works.
+/// That it RUNS is pinned in every assembly by MutationProofPinGuardArmedTests, because a guard that silently fails to
+/// run leaves no trace and looks exactly like a guard that works. NOTHING NOW PROVES THAT ANY CHECK BELOW FIRES: the
+/// behavioural suite that did, by building real git repositories, was deleted on 11 October 2026, because the release
+/// gate no longer accepts new tests that start real processes. The checks below name the tests that used to prove them.
 /// </summary>
 internal static class MutationProofPinGuard
 {
@@ -310,7 +312,7 @@ internal static class MutationProofPinGuard
                 return new Verdict(true, "No mutation-proof pin is active for this working tree.");
 
             case PinOutcome.CouldNotDetermine:
-                // CONTROL (preventing) - pinned state unknown. Test: OnlyASettledAbsenceAdmits.
+                // CONTROL (preventing) - pinned state unknown. Was proved by (deleted 11 October 2026, now untested): OnlyASettledAbsenceAdmits.
                 return new Verdict(
                     false,
                     "CANNOT ESTABLISH WHETHER A MUTATION PROOF IS ACTIVE IN THIS WORKING TREE: "
@@ -338,7 +340,7 @@ internal static class MutationProofPinGuard
 
         if (pin.Pin is null)
         {
-            // CONTROL (preventing) - defensive; should be unreachable. Test: AnActiveProofWithNoPinAttachedRefuses.
+            // CONTROL (preventing) - defensive; should be unreachable. Was proved by (deleted 11 October 2026, now untested): AnActiveProofWithNoPinAttachedRefuses.
             return new Verdict(
                 false,
                 "The mutation-proof pin guard reports an active proof with no pin attached, which it "
@@ -349,7 +351,7 @@ internal static class MutationProofPinGuard
 
         if (!tree.Read)
         {
-            // CONTROL (preventing) - a pinned run whose tree cannot be read. Test:
+            // CONTROL (preventing) - a pinned run whose tree cannot be read. Was proved by (deleted 11 October 2026, now untested):
             // AnActivePinIsNeverTreatedAsAbsentWhenGitIsUnavailable, APinnedRunThatCannotReadTheTreeIsRefused.
             return new Verdict(
                 false,
@@ -365,7 +367,7 @@ internal static class MutationProofPinGuard
         if (!ledger.Read)
         {
             // CONTROL (preventing) - protects the moved-pin control below, which cannot run without a
-            // history. Test: AProofHistoryThatCannotBeReadRefuses_RatherThanReadingAsNoHistory.
+            // history. Was proved by (deleted 11 October 2026, now untested): AProofHistoryThatCannotBeReadRefuses_RatherThanReadingAsNoHistory.
             // The history is what proves this proof's pinned head has not moved. Without it that check
             // cannot run, and an unreadable history silently disabling a safety mechanism is exactly the
             // shape this guard exists to refuse.
@@ -383,7 +385,7 @@ internal static class MutationProofPinGuard
             case HeadPublication.NotPublished:
                 // CONTROL (VISIBILITY, not preventing) - does NOT stop a stashed repair; makes the commit
                 // the numbers are attributed to fetchable, so a missing repair is visible in the record
-                // rather than only on this machine. Test: APinnedCommitThatWasNeverPushedIsRefused.
+                // rather than only on this machine. Was proved by (deleted 11 October 2026, now untested): APinnedCommitThatWasNeverPushedIsRefused.
                 problems.Add(
                     "THE PINNED COMMIT HAS NOT BEEN PUSHED, so the numbers this run produces would be "
                     + "attributed to a commit nobody else can fetch or read."
@@ -418,7 +420,7 @@ internal static class MutationProofPinGuard
         }
 
         // CONTROL (preventing) - the second mechanism, catching a pin that names a different head
-        // however it came to say so. Test: AProofWhoseHeadMovedSinceAnEarlierRunOfTheSameProofIsRefused,
+        // however it came to say so. Was proved by (deleted 11 October 2026, now untested): AProofWhoseHeadMovedSinceAnEarlierRunOfTheSameProofIsRefused,
         // APinReWrittenToANewHeadIsRefusedFromDisk_EvenThoughTheTreeMatchesItExactly.
         var moved = DetectMovedPin(active, priorLedgerLines);
         if (moved is not null)
@@ -426,7 +428,7 @@ internal static class MutationProofPinGuard
 
         if (!string.Equals(active.PinnedHead, tree.Head, StringComparison.OrdinalIgnoreCase))
         {
-            // CONTROL (preventing) - baseline and arm must be the same commit. Test:
+            // CONTROL (preventing) - baseline and arm must be the same commit. Was proved by (deleted 11 October 2026, now untested):
             // ABaselineOnATreeWhoseHeadHasMovedIsRefused_AndNamesBothHeads.
             problems.Add(
                 "THE HEAD HAS MOVED. This proof pinned " + active.PinnedHead + ", and the working tree is "
@@ -448,7 +450,7 @@ internal static class MutationProofPinGuard
 
         if (undeclared.Count > 0)
         {
-            // CONTROL (preventing) - the 2026-07-19 event. Test:
+            // CONTROL (preventing) - the 2026-07-19 event. Was proved by (deleted 11 October 2026, now untested):
             // ABaselineOverAnUncommittedlyDeletedGuardBlockIsRefused_AndTheRefusalNamesTheFile.
             problems.Add(
                 "THE WORKING TREE CARRIES " + undeclared.Count.ToString(CultureInfo.InvariantCulture)
@@ -468,7 +470,7 @@ internal static class MutationProofPinGuard
 
         if (missing.Count > 0)
         {
-            // CONTROL (preventing) - an arm with no mutation is a second baseline. Test:
+            // CONTROL (preventing) - an arm with no mutation is a second baseline. Was proved by (deleted 11 October 2026, now untested):
             // AnArmWhoseDeclaredMutationIsAbsentIsRefused_BecauseItIsASecondBaselineInDisguise.
             problems.Add(
                 "THE DECLARED MUTATION IS NOT IN THE WORKING TREE:"
@@ -1006,7 +1008,7 @@ internal static class MutationProofPinGuard
                     }
                     catch (Exception ex)
                     {
-                        // CONTROL (preventing). Test: ARepositoryMarkerThatExistsButCannotBeReadIsIndeterminate.
+                        // CONTROL (preventing). Was proved by (deleted 11 October 2026, now untested): ARepositoryMarkerThatExistsButCannotBeReadIsIndeterminate.
                         return new PinLocation(
                             PinLocationOutcome.Indeterminate, null, null,
                             "the repository marker " + marker + " exists but could not be read, so the "
@@ -1416,7 +1418,7 @@ internal static class MutationProofPinGuard
         {
             // The git directory was confirmed moments ago, so its disappearance now is a change underneath
             // this run, not a settled absence.
-            // CONTROL (preventing). Test: APinWhoseDirectoryHasVanishedIsIndeterminate_NotAbsent.
+            // CONTROL (preventing). Was proved by (deleted 11 October 2026, now untested): APinWhoseDirectoryHasVanishedIsIndeterminate_NotAbsent.
             return PinReading.Indeterminate(
                 "the pin file " + path + " could not be read because its directory is gone: " + ex.Message);
         }
