@@ -71,6 +71,8 @@ public sealed class PromptIncidentErrorReportTests : IDisposable
     /// <summary>A backend whose every send fails only after <see cref="Delay"/>: a refusal that outlives the verb's answer.</summary>
     private sealed class LateRefusingBackend : ISessionBackend
     {
+        private readonly TimeProvider _clock;
+        public LateRefusingBackend(TimeProvider clock) => _clock = clock;
         public TimeSpan Delay = TimeSpan.FromMilliseconds(1500);
         public int ProcessId => 0;
         public string Status => "refusing late";
@@ -85,7 +87,7 @@ public sealed class PromptIncidentErrorReportTests : IDisposable
         public void Write(byte[] data) => Buffer!.Write(data);
         public async Task SendTextAsync(string text)
         {
-            await Task.Delay(Delay);
+            await Task.Delay(Delay, _clock);
             throw new InvalidOperationException("the terminal refused the text after a while");
         }
         public void Resize(short cols, short rows) { }
@@ -316,14 +318,13 @@ public sealed class PromptIncidentErrorReportTests : IDisposable
     {
         // The verb answers "delivering" at a 200 millisecond budget; the terminal refuses 1.5 seconds later, after the
         // command's and the verb's scopes were disposed. The late outcome is written by its own task.
-        // This one stays on the real clock (1.5 seconds): moved onto the fake clock the same way as the tests above, it
-        // hung and never reached VirtualTime's own time limit. Why is not yet diagnosed.
-        var session = _manager.CreateEmbeddedSession(Path.GetTempPath(), null, new LateRefusingBackend());
+        var session = _manager.CreateEmbeddedSession(Path.GetTempPath(), null, new LateRefusingBackend(_clock));
+        session.Clock = _clock;
         _watchedSessionId = session.Id.ToString();
 
         DirectorCommandResult? answer = null;
-        var late = await LateOutcomeFor("upload-late", async () =>
-            answer = await PromptCommand(session, "cmd-late", Prompt("release it", "upload-late"), answerBudget: TimeSpan.FromMilliseconds(200)));
+        var late = await VirtualTime.RunAsync(_clock, () => LateOutcomeFor("upload-late", async () =>
+            answer = await PromptCommand(session, "cmd-late", Prompt("release it", "upload-late"), answerBudget: TimeSpan.FromMilliseconds(200))));
 
         Assert.True(answer!.Ok, answer.Error);
         Assert.Equal(DeliveryStates.NotDelivered, late);
@@ -341,7 +342,7 @@ public sealed class PromptIncidentErrorReportTests : IDisposable
         });
 
         // The next refusal names it: the link 4e exists for survives a send that outlived its answer.
-        await PromptCommand(session, "cmd-second", Prompt("release it", "upload-second"));
+        await VirtualTime.RunAsync(_clock, () => PromptCommand(session, "cmd-second", Prompt("release it", "upload-second")));
         var second = Assert.Single(await SentAsync(), r => r.Source == "PromptDeliveryFailures" && r.CorrelationId == "cmd-second");
         Assert.Contains("previous_send=refused, previous_correlation_id=cmd-late", second.Message);
     }
