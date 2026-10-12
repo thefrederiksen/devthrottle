@@ -164,8 +164,9 @@ public sealed class DirectorHub : Hub
     private readonly FleetManagerHomeCapabilityRegistry? _fleetManagerHomeCapabilities;
     /// <summary>The machines that can receive a secret (the Secret Handoff mission) - learned here, from Hello.</summary>
     private readonly Secrets.SecretMachineRegistry? _secretMachines;
-    /// <summary>License Switching: takes each usage report. Null (older callers, tests that do not exercise licenses)
-    /// drops every report, logged.</summary>
+    /// <summary>License Switching: takes each usage report and owns which connection may send it. Null (older callers, tests
+    /// that do not exercise licenses): Hello does not offer PushLicenseUsage, and a report that arrives anyway is dropped,
+    /// logged.</summary>
     private readonly Licenses.LicenseUsageIngest? _licenseUsage;
 
     /// <summary>
@@ -188,8 +189,7 @@ public sealed class DirectorHub : Hub
         }
         try
         {
-            var outcome = _licenseUsage.Ingest(tenant, directorId, Context.ConnectionId,
-                _store.IsActiveConnection(tenant, directorId, Context.ConnectionId), sequence, report, DateTime.UtcNow);
+            var outcome = _licenseUsage.Ingest(tenant, directorId, Context.ConnectionId, sequence, report, DateTime.UtcNow);
             FileLog.Write($"[DirectorHub] PushLicenseUsage: director={directorId} seq={sequence} outcome={outcome}");
         }
         catch (Exception ex)
@@ -391,6 +391,8 @@ public sealed class DirectorHub : Hub
         // The repository store follows the same ownership discipline: only this - the current -
         // connection may push repository snapshots from now on.
         _repositoryStore?.RegisterConnection(tenant, directorId, Context.ConnectionId);
+        // And the license ingest: it decides ownership itself, under the same lock that applies a report.
+        _licenseUsage?.RegisterConnection(tenant, directorId, Context.ConnectionId);
         // MTR-15 cancellation cutoff: index this live tunnel by tenant with a server-side abort, so a revoked
         // tenant's connection is severed the moment the sweep (or a request re-read) finds it NotEntitled. The
         // durable device tombstone denies NEW auth; this ends the tunnel already up. Cleared on disconnect.
@@ -444,7 +446,12 @@ public sealed class DirectorHub : Hub
     private GatewayCapabilities CapabilitiesFor(TenantId tenant, string directorId)
     {
         var shared = Capabilities;
-        var answer = new GatewayCapabilities { Version = shared.Version, Commit = shared.Commit, HubMethods = shared.HubMethods };
+        // A Gateway with no license ingest does not offer PushLicenseUsage: a Director told it may send reports must
+        // never be sending them into a method that drops every one (pull request 3871 review, finding 2).
+        var methods = _licenseUsage is null
+            ? shared.HubMethods.Where(m => m != LicenseContract.PushUsageHubMethod).ToList()
+            : shared.HubMethods;
+        var answer = new GatewayCapabilities { Version = shared.Version, Commit = shared.Commit, HubMethods = methods };
         if (_sessionTurns is null) return answer;
         // ONCE PER CONNECTION (devthrottle_internal#2199). A Director sends Hello on every re-push - every ten
         // seconds - and not only when it connects, and this read returns every conversation that Director has
@@ -1124,7 +1131,7 @@ public sealed class DirectorHub : Hub
             // The tenant is the one bound at Hello (Hello sets both, so a bound director always has a tenant).
             _store.UnregisterConnection(t, directorId, Context.ConnectionId);
             _repositoryStore?.UnregisterConnection(t, directorId, Context.ConnectionId);
-            _licenseUsage?.ForgetConnection(t, directorId, Context.ConnectionId);
+            _licenseUsage?.UnregisterConnection(t, directorId, Context.ConnectionId);
         }
         // MTR-15: drop this connection's abort entry (it is gone now). Keyed by connection id, so it is cleared
         // whether or not a tenant was bound.

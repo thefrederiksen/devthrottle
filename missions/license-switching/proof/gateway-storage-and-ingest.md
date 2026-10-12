@@ -57,3 +57,35 @@ Refused twice by the machine-wide locks: first by another Developer's Gateway.Te
 the release seat's `-Parked -Configuration Release` gate, which still held the Gateway.Tests lock after more than
 95 minutes. Of the three parked suites, Gateway.UnitTests ran in full above (10463 passed). Gateway.Tests and
 Core.Tests have not run on this change; this section is updated with their counts when the lock frees.
+
+## Review fixes (answers in `missions/license-switching/reviews/3871-answers.md`)
+
+- `dotnet test ... --filter "FullyQualifiedName~CcDirector.Gateway.Tests.Licenses|FullyQualifiedName~DirectorHubTests"`:
+  passed 74, failed 0.
+- Mutation for finding 1: `RegisterConnection` locking `owner.ConnectionEpochs` instead of `owner` (so a reconnect no
+  longer waits for the write) - `LicenseUsageIngestTests`: failed 1
+  (`Ingest_AReconnectDuringTheWrite_WaitsForIt_AndThenTheOldConnectionIsRefused`), passed 13. Restored.
+- `dotnet test src/CcDirector.Gateway.UnitTests/CcDirector.Gateway.UnitTests.csproj`: passed 10470, failed 0.
+- `-Parked` still refused: the release seat started a second gate run at 16:21 local time and holds both the release
+  gate lock and the Gateway.Tests lock. Gateway.Tests and Core.Tests remain owed.
+
+## Re-review fixes (answers in `missions/license-switching/reviews/3871-answers.md`, second part)
+
+- License and hub tests: passed 75, failed 0.
+- Mutation, write gate removed (`lock (owner.WriteGate)` replaced by `lock (new object())`): `LicenseUsageIngestTests`
+  failed 1 (`Ingest_AReconnectDuringAWrite_DoesNotWait_AndTheNewReportLandsAfterTheOldOne`), passed 14. Restored.
+- Mutation, Director identifiers compared with `StringComparer.Ordinal`: failed 1
+  (`Ingest_AReconnectWithTheDirectorIdInAnotherCase_SupersedesTheOldConnection`), passed 14. Restored.
+- `dotnet test src/CcDirector.Gateway.UnitTests/...`: passed 10497, failed 0.
+- `.\scripts\test-database.ps1`: Completed, 68 executed, 68 passed, 0 skipped.
+- `.\scripts\test-local.ps1`: GREEN at f965f7561, tree clean - every one of the ten suites Completed, none over the
+  ceiling (Core.UnitTests 1600, Avalonia 1044, Engine 103, HostedAgent 89, Launcher 218, Terminal.Avalonia 82,
+  Reclaim 310, setup 39, setup-engine 875, setup-cli 74).
+
+## The parked gate, run at last (the locks freed)
+
+`.\scripts\test-local.ps1 -Parked` at f965f7561, tree clean: twelve of thirteen suites Completed and passed, including
+**Gateway.Tests 3077 passed** and **Gateway.UnitTests 10497 passed**. **Core.Tests: 4934 passed, 1 failed** -
+`RecordingIngestServiceTests.Worker_SleepingIdle_IsWokenAtOnceByACompletedRecording`. This branch changes nothing in
+`src/CcDirector.Core` or `src/CcDirector.Core.Tests`; run alone, that test class failed this one test 2 times out of 3
+and passed the third. It is an existing timing-dependent test, filed as issue 3893.

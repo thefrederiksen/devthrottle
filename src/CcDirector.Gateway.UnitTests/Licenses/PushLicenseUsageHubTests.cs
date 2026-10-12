@@ -95,6 +95,20 @@ public sealed class PushLicenseUsageHubTests : IDisposable
     public void GatewayCapabilities_ListPushLicenseUsage()
         => Assert.Contains(LicenseContract.PushUsageHubMethod, NewHub("conn-1").Hello(Hello())!.HubMethods);
 
+    [Fact]
+    public void GatewayCapabilities_WithNoLicenseIngest_DoNotOfferPushLicenseUsage()
+    {
+        // Pull request 3871 review, finding 2: a Gateway that would drop every report must not invite a Director to send one.
+        var hub = new DirectorHub(_store, _registry, InputStatsHandle.Available(_inputStats), new GatewayStreamRegistry(),
+            new CcDirector.Gateway.Tenancy.HostedTenantBoundary(new SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: false))
+            { Context = new FakeHubCallerContext("conn-1") };
+
+        var methods = hub.Hello(Hello())!.HubMethods;
+
+        Assert.DoesNotContain(LicenseContract.PushUsageHubMethod, methods);
+        Assert.Contains("PushRepoSnapshot", methods);
+    }
+
     /// <summary>The same fake caller as <c>DirectorHubTests</c>: a connection identifier, and a web request context so the self-host
     /// boundary can resolve the Local tenant.</summary>
     private sealed class FakeHubCallerContext : HubCallerContext

@@ -24,8 +24,22 @@ public enum LicenseIngestOutcome
 /// THE USAGE REPORT INGEST (License Switching, contract section 2.1): decides whether one report from a bound Director
 /// is taken, and when it is, hands it to <see cref="LicenseStore.ApplyReport"/>. The same gate
 /// <c>PushedRepositoryStore.ApplySnapshot</c> applies: only the Director's ACTIVE connection, only a sequence higher
-/// than the last one accepted from that connection (a new connection starts a fresh baseline, as the Director's own
-/// sequence does). A refused report is logged and dropped; it is never an error to the Director.
+/// than the last one accepted from that connection. A refused report is logged and dropped; it is never an error to
+/// the Director.
+///
+/// WHO OWNS A DIRECTOR. This class keeps which connection owns each Director (registered from Hello, with the epoch rule
+/// of <c>PushedRepositoryStore</c>, so a superseded connection saying Hello again never reclaims it). Director
+/// identifiers are compared without regard to case, as that store compares them.
+///
+/// THE ORDER OF WRITES, WITHOUT HOLDING HELLO HOSTAGE TO THE DATABASE (pull request 3871 reviews). Two locks per
+/// Director: a short ownership lock that Hello, disconnect and the check take, held only over a few fields; and a write
+/// gate that only reports take, held over the check AND the database write. So:
+/// - a reconnect or a disconnect never waits for a database write;
+/// - a report is checked against ownership inside the write gate, immediately before its write, so a connection that was
+///   superseded before its turn is refused;
+/// - a report that passed its check before a reconnect finishes its write before the new connection's first report can
+///   even be checked, so the older facts can never land on top of the newer ones;
+/// - the accepted sequence is recorded only if the connection generation (its epoch) is still the one the check saw.
 ///
 /// Clock skew (contract section 5.2): when a report's <c>SentAtUtc</c> is further than
 /// <see cref="LicenseContract.ClockSkewLoggedAbove"/> from the receive time, its ages are judged from the receive time,
@@ -35,73 +49,131 @@ public sealed class LicenseUsageIngest
 {
     public const int MaxHoldings = 64;
 
-    private sealed class SequenceGate
+    private sealed class Owner
     {
-        public string ConnectionId = "";
+        public readonly object WriteGate = new();
+        public string? ActiveConnectionId;
+        public long CurrentEpoch;                 // 0 = no owner
+        public long NextEpoch = 1;
+        public readonly Dictionary<string, long> ConnectionEpochs = new(StringComparer.Ordinal);
         public long LastSequence = long.MinValue;
     }
 
     private readonly LicenseStore _store;
-    private readonly ConcurrentDictionary<(TenantId Tenant, string DirectorId), SequenceGate> _gates = new();
+    private readonly Action<string>? _waitingForWriteGate;
+    private readonly Action<string>? _insideWrite;
+    private readonly ConcurrentDictionary<TenantId, ConcurrentDictionary<string, Owner>> _owners = new();
     private readonly ConcurrentDictionary<(TenantId Tenant, string MachineKey, string UserKey), byte> _skewLogged = new();
 
-    public LicenseUsageIngest(LicenseStore store)
+    public LicenseUsageIngest(LicenseStore store) : this(store, null, null) { }
+
+    /// <summary>For tests: <paramref name="waitingForWriteGate"/> runs (with the connection id) just before a report asks
+    /// for the write gate, and <paramref name="insideWrite"/> runs inside it, after the ownership check and before the
+    /// database write - so a test can line up a reconnect and a second report at exactly those points.</summary>
+    internal LicenseUsageIngest(LicenseStore store, Action<string>? waitingForWriteGate, Action<string>? insideWrite)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
+        _waitingForWriteGate = waitingForWriteGate;
+        _insideWrite = insideWrite;
+    }
+
+    private ConcurrentDictionary<string, Owner> OwnersFor(TenantId tenant)
+        => _owners.GetOrAdd(tenant, _ => new ConcurrentDictionary<string, Owner>(StringComparer.OrdinalIgnoreCase));
+
+    /// <summary>A connection said Hello for this Director. A newer connection takes ownership and starts a fresh sequence
+    /// baseline; a superseded one saying Hello again does not reclaim it; the current one keeps its baseline. Never waits
+    /// for a database write.</summary>
+    public void RegisterConnection(TenantId tenant, string directorId, string connectionId)
+    {
+        var owner = OwnersFor(tenant).GetOrAdd(directorId, _ => new Owner());
+        lock (owner)
+        {
+            if (!owner.ConnectionEpochs.TryGetValue(connectionId, out var epoch))
+            {
+                epoch = owner.NextEpoch++;
+                owner.ConnectionEpochs[connectionId] = epoch;
+            }
+            if (string.Equals(owner.ActiveConnectionId, connectionId, StringComparison.Ordinal))
+                return;
+            if (epoch < owner.CurrentEpoch)
+            {
+                FileLog.Write($"[LicenseUsageIngest] Hello IGNORED from a superseded connection (epoch {epoch} < current {owner.CurrentEpoch}): director={directorId}");
+                return;
+            }
+            owner.ActiveConnectionId = connectionId;
+            owner.CurrentEpoch = epoch;
+            owner.LastSequence = long.MinValue;
+            FileLog.Write($"[LicenseUsageIngest] RegisterConnection: tenant={tenant.ToLogString()}, director={directorId}, epoch={epoch}");
+        }
+    }
+
+    /// <summary>A connection ended. When it was the owner, nobody owns the Director until the next Hello. Never waits for
+    /// a database write.</summary>
+    public void UnregisterConnection(TenantId tenant, string directorId, string connectionId)
+    {
+        if (!OwnersFor(tenant).TryGetValue(directorId, out var owner)) return;
+        lock (owner)
+        {
+            owner.ConnectionEpochs.Remove(connectionId);
+            if (string.Equals(owner.ActiveConnectionId, connectionId, StringComparison.Ordinal))
+            {
+                owner.ActiveConnectionId = null;
+                owner.CurrentEpoch = 0;
+            }
+        }
+        FileLog.Write($"[LicenseUsageIngest] UnregisterConnection: tenant={tenant.ToLogString()}, director={directorId}");
     }
 
     /// <summary>
-    /// Take or refuse one report. <paramref name="isActiveConnection"/> is the hub's answer to "is this the Director's
-    /// current connection"; the tenant and the Director identifier are the connection's binding, never the payload.
+    /// Take or refuse one report. The tenant and the Director identifier are the connection's binding, never the payload;
+    /// whether <paramref name="connectionId"/> is the owner is decided inside the write gate, just before the write.
     /// </summary>
-    public LicenseIngestOutcome Ingest(TenantId tenant, string directorId, string connectionId, bool isActiveConnection,
-        long sequence, LicenseUsageReport? report, DateTime receivedAtUtc)
+    public LicenseIngestOutcome Ingest(TenantId tenant, string directorId, string connectionId, long sequence,
+        LicenseUsageReport? report, DateTime receivedAtUtc)
     {
-        if (!isActiveConnection)
-        {
-            FileLog.Write($"[LicenseUsageIngest] report DROPPED (not the active connection): tenant={tenant.ToLogString()}, director={directorId}, seq={sequence}");
-            return LicenseIngestOutcome.NotActiveConnection;
-        }
         if (Malformed(report) is { } why)
         {
             FileLog.Write($"[LicenseUsageIngest] report DROPPED (malformed: {why}): tenant={tenant.ToLogString()}, director={directorId}, seq={sequence}");
             return LicenseIngestOutcome.Malformed;
         }
-
-        var gate = _gates.GetOrAdd((tenant, directorId), _ => new SequenceGate());
-        lock (gate)
+        if (!OwnersFor(tenant).TryGetValue(directorId, out var owner))
         {
-            if (!string.Equals(gate.ConnectionId, connectionId, StringComparison.Ordinal))
+            FileLog.Write($"[LicenseUsageIngest] report DROPPED (no connection registered): tenant={tenant.ToLogString()}, director={directorId}, seq={sequence}");
+            return LicenseIngestOutcome.NotActiveConnection;
+        }
+
+        _waitingForWriteGate?.Invoke(connectionId);
+        lock (owner.WriteGate)
+        {
+            long generation;
+            lock (owner)
             {
-                gate.ConnectionId = connectionId;
-                gate.LastSequence = long.MinValue;
-            }
-            if (sequence <= gate.LastSequence)
-            {
-                FileLog.Write($"[LicenseUsageIngest] report DROPPED (stale sequence {sequence} <= last {gate.LastSequence}): tenant={tenant.ToLogString()}, director={directorId}");
-                return LicenseIngestOutcome.StaleSequence;
+                if (!string.Equals(owner.ActiveConnectionId, connectionId, StringComparison.Ordinal))
+                {
+                    FileLog.Write($"[LicenseUsageIngest] report DROPPED (not the active connection): tenant={tenant.ToLogString()}, director={directorId}, seq={sequence}");
+                    return LicenseIngestOutcome.NotActiveConnection;
+                }
+                if (sequence <= owner.LastSequence)
+                {
+                    FileLog.Write($"[LicenseUsageIngest] report DROPPED (stale sequence {sequence} <= last {owner.LastSequence}): tenant={tenant.ToLogString()}, director={directorId}");
+                    return LicenseIngestOutcome.StaleSequence;
+                }
+                generation = owner.CurrentEpoch;
             }
 
-            // Applied under the gate, so two reports from one Director cannot land out of order.
             var shift = ReadAtShift(tenant, report!, receivedAtUtc);
+            _insideWrite?.Invoke(connectionId);
             var applied = _store.ApplyReport(tenant, directorId, sequence, report!, receivedAtUtc, shift);
-            gate.LastSequence = sequence;
+            lock (owner)
+            {
+                // A reconnect during the write started a fresh baseline for the new connection; this one's number must
+                // not be written over it.
+                if (owner.CurrentEpoch == generation)
+                    owner.LastSequence = sequence;
+            }
             FileLog.Write($"[LicenseUsageIngest] report ACCEPTED: tenant={tenant.ToLogString()}, director={directorId}, seq={sequence}, "
                           + $"trigger={report!.Trigger}, holdings={report.Holdings.Count}, added={applied.Added.Count}, removed={applied.Removed.Count}");
             return LicenseIngestOutcome.Accepted;
-        }
-    }
-
-    /// <summary>Forget a Director's sequence baseline when its connection ends, so the map does not grow forever.</summary>
-    public void ForgetConnection(TenantId tenant, string directorId, string connectionId)
-    {
-        if (_gates.TryGetValue((tenant, directorId), out var gate))
-        {
-            lock (gate)
-            {
-                if (string.Equals(gate.ConnectionId, connectionId, StringComparison.Ordinal))
-                    _gates.TryRemove(new KeyValuePair<(TenantId, string), SequenceGate>((tenant, directorId), gate));
-            }
         }
     }
 

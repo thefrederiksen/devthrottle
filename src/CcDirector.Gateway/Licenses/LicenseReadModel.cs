@@ -1,4 +1,5 @@
 using CcDirector.Core.Tenancy;
+using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data.Entities;
 
@@ -111,8 +112,19 @@ public sealed class LicenseReadModel
 
     public LicenseOverview Read(TenantId tenant, DateTime nowUtc)
     {
-        var (accounts, machines, holdings) = _store.ReadAll(tenant);
-        return Fold(accounts, machines, holdings, nowUtc);
+        FileLog.Write($"[LicenseReadModel] Read: tenant={tenant.ToLogString()}");
+        try
+        {
+            var (accounts, machines, holdings) = _store.ReadAll(tenant);
+            var overview = Fold(accounts, machines, holdings, nowUtc);
+            FileLog.Write($"[LicenseReadModel] Read: accounts={overview.Accounts.Count}, machines={overview.Machines.Count}");
+            return overview;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[LicenseReadModel] Read FAILED: {ex.Message}");
+            throw;
+        }
     }
 
     public static LicenseOverview Fold(IReadOnlyList<LicenseAccountEntity> accounts, IReadOnlyList<LicenseMachineEntity> machines,

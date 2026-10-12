@@ -267,30 +267,37 @@ public sealed class LicenseStore
     public LicenseSwitchLogEntity? FindSwitch(TenantId tenant, string? switchId)
     {
         var id = SwitchKey(switchId);
-        if (id is null) return null;
-        using var ctx = _db.CreateContext(tenant);
-        return ctx.LicenseSwitchLog.AsNoTracking().FirstOrDefault(r => r.SwitchId == id);
+        return Logged(nameof(FindSwitch), $"tenant={tenant.ToLogString()}, switch={switchId}", () =>
+        {
+            if (id is null) return null;
+            using var ctx = _db.CreateContext(tenant);
+            return ctx.LicenseSwitchLog.AsNoTracking().FirstOrDefault(r => r.SwitchId == id);
+        }, row => row is null ? "not found" : $"state={row.State}");
     }
 
     /// <summary>Every switch row still <c>pending</c> or <c>unknown</c>, oldest first.</summary>
     public IReadOnlyList<LicenseSwitchLogEntity> ListOpenSwitches(TenantId tenant)
-    {
-        using var ctx = _db.CreateContext(tenant);
-        return ctx.LicenseSwitchLog.AsNoTracking()
-            .Where(r => r.Kind == LicenseLogKinds.Switch && (r.State == LicenseLogStates.Pending || r.State == LicenseLogStates.Unknown))
-            .ToList()
-            .OrderBy(r => r.CreatedAtUtc).ThenBy(r => r.SwitchId, StringComparer.Ordinal).ToList();
-    }
+        => Logged(nameof(ListOpenSwitches), $"tenant={tenant.ToLogString()}", () =>
+        {
+            using var ctx = _db.CreateContext(tenant);
+            return (IReadOnlyList<LicenseSwitchLogEntity>)ctx.LicenseSwitchLog.AsNoTracking()
+                .Where(r => r.Kind == LicenseLogKinds.Switch && (r.State == LicenseLogStates.Pending || r.State == LicenseLogStates.Unknown))
+                .ToList()
+                .OrderBy(r => r.CreatedAtUtc).ThenBy(r => r.SwitchId, StringComparer.Ordinal).ToList();
+        }, rows => $"count={rows.Count}");
 
     /// <summary>The log, newest first: every row written at or after <paramref name="sinceUtc"/>, and every open switch.</summary>
     public IReadOnlyList<LicenseSwitchLogEntity> ListLog(TenantId tenant, DateTime sinceUtc)
     {
         var since = Utc(sinceUtc);
-        using var ctx = _db.CreateContext(tenant);
-        return ctx.LicenseSwitchLog.AsNoTracking()
-            .Where(r => r.CreatedAtUtc >= since || r.State == LicenseLogStates.Pending || r.State == LicenseLogStates.Unknown)
-            .ToList()
-            .OrderByDescending(r => r.CreatedAtUtc).ThenBy(r => r.Id).ToList();
+        return Logged(nameof(ListLog), $"tenant={tenant.ToLogString()}, since={since:O}", () =>
+        {
+            using var ctx = _db.CreateContext(tenant);
+            return (IReadOnlyList<LicenseSwitchLogEntity>)ctx.LicenseSwitchLog.AsNoTracking()
+                .Where(r => r.CreatedAtUtc >= since || r.State == LicenseLogStates.Pending || r.State == LicenseLogStates.Unknown)
+                .ToList()
+                .OrderByDescending(r => r.CreatedAtUtc).ThenBy(r => r.Id).ToList();
+        }, rows => $"count={rows.Count}");
     }
 
     /// <summary>Record one send of an OPEN switch: the count, the time and the Director. False when it is no longer open.</summary>
@@ -393,9 +400,12 @@ public sealed class LicenseStore
     public IReadOnlyList<LicenseBarEntity> ListActiveBars(TenantId tenant, DateTime nowUtc)
     {
         var now = Utc(nowUtc);
-        using var ctx = _db.CreateContext(tenant);
-        return ctx.LicenseBars.AsNoTracking().Where(b => b.UntilUtc > now).ToList()
-            .OrderBy(b => b.AccountEmail, StringComparer.Ordinal).ThenBy(b => b.Window, StringComparer.Ordinal).ToList();
+        return Logged(nameof(ListActiveBars), $"tenant={tenant.ToLogString()}", () =>
+        {
+            using var ctx = _db.CreateContext(tenant);
+            return (IReadOnlyList<LicenseBarEntity>)ctx.LicenseBars.AsNoTracking().Where(b => b.UntilUtc > now).ToList()
+                .OrderBy(b => b.AccountEmail, StringComparer.Ordinal).ThenBy(b => b.Window, StringComparer.Ordinal).ToList();
+        }, rows => $"count={rows.Count}");
     }
 
     // ---- Reads for the read model ----
@@ -407,6 +417,23 @@ public sealed class LicenseStore
         return (ctx.LicenseAccounts.AsNoTracking().ToList(),
                 ctx.LicenseMachines.AsNoTracking().ToList(),
                 ctx.LicenseHoldings.AsNoTracking().ToList());
+    }
+
+    /// <summary>One read with its entry, its result and its failure in the log (CLAUDE.md rule 2).</summary>
+    private static T Logged<T>(string method, string context, Func<T> read, Func<T, string> describe)
+    {
+        FileLog.Write($"[LicenseStore] {method}: {context}");
+        try
+        {
+            var result = read();
+            FileLog.Write($"[LicenseStore] {method}: {describe(result)}");
+            return result;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[LicenseStore] {method} FAILED: {ex.Message}");
+            throw;
+        }
     }
 
     private static string? SwitchKey(string? switchId)
