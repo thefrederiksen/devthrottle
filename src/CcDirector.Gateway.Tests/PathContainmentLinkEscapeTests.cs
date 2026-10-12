@@ -1,4 +1,4 @@
-using System.Diagnostics;
+using CcDirector.Core.Utilities;
 using System.Text.Json;
 using CcDirector.ControlApi;
 using CcDirector.Core.Storage;
@@ -78,22 +78,16 @@ public sealed class PathContainmentLinkEscapeTests : IDisposable
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             if (!OperatingSystem.IsWindows())
+            {
                 Assert.Fail($"Could not create a directory symbolic link on this Unix host ({ex.Message}). " +
                             "This security regression test needs a REAL link and must not be skipped.");
+                return;
+            }
         }
 
-        var psi = new ProcessStartInfo("cmd.exe", $"/c mklink /J \"{link}\" \"{target}\"")
-        {
-            CreateNoWindow = true,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        };
-        using var p = Process.Start(psi);
-        p!.WaitForExit(15000);
-        if (!Directory.Exists(link))
-            Assert.Fail("Could not create a real directory link (symbolic link AND junction both failed). " +
-                        "This security regression test needs a REAL link and must not be skipped.");
+        // No symbolic-link right on this Windows host: a junction, made in this process, which throws
+        // rather than skip when it cannot be made.
+        DirectoryJunction.Create(link, target);
     }
 
     /// <summary>

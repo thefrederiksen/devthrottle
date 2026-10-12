@@ -1,4 +1,4 @@
-using System.Diagnostics;
+using CcDirector.Core.Utilities;
 using System.Security.AccessControl;
 using System.Security.Principal;
 
@@ -238,31 +238,10 @@ public sealed class FixtureTree : IDisposable
         }
     }
 
-    private static void MakeJunction(string link, string target)
-    {
-        // There is no managed call that makes a junction, so this asks Windows for one the way a
-        // person would. It is fixture code and never ships.
-        var start = new ProcessStartInfo("cmd.exe", $"/c mklink /J \"{link}\" \"{target}\"")
-        {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        using var process = Process.Start(start)
-            ?? throw new InvalidOperationException("The fixture could not start cmd.exe to make a junction.");
-
-        var error = process.StandardError.ReadToEnd().Trim();
-        process.StandardOutput.ReadToEnd();
-        process.WaitForExit();
-
-        if (process.ExitCode != 0)
-        {
-            throw new InvalidOperationException(
-                $"The fixture could not make a junction at {link}: exit code {process.ExitCode}. {error}");
-        }
-    }
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private static void MakeJunction(string link, string target) =>
+        // The junction a person would make with mklink /J, made in this process: a test starts no process.
+        DirectoryJunction.Create(link, target);
 
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     private static void DenyListingOnWindows(string folder)
