@@ -38,7 +38,7 @@ public sealed class ContentTurnRuleTests : IDisposable
     private readonly string? _previousRoot;
     private readonly bool _shadowWasEnabled;
     private readonly SessionManager _manager;
-    private readonly FakeTimeProvider _clock = VirtualTime.NewClock();
+    private readonly VirtualClock _clock = VirtualTime.NewClock();
 
     public ContentTurnRuleTests()
     {

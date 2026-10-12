@@ -21,7 +21,7 @@ public sealed class CodexWrappedComposerTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "cc-codex-wrapped-" + Guid.NewGuid().ToString("N"));
     private readonly List<IDisposable> _cleanup = new();
-    private readonly FakeTimeProvider _clock = VirtualTime.NewClock();
+    private readonly VirtualClock _clock = VirtualTime.NewClock();
 
     public CodexWrappedComposerTests() => Directory.CreateDirectory(_dir);
 

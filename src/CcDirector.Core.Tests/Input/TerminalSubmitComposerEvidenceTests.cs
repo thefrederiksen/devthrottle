@@ -59,7 +59,7 @@ public sealed class TerminalSubmitComposerEvidenceTests : IDisposable
 
     private PinnedMachineMemory? _starved;
 
-    private readonly FakeTimeProvider _clock = VirtualTime.NewClock();
+    private readonly VirtualClock _clock = VirtualTime.NewClock();
 
     public TerminalSubmitComposerEvidenceTests() => PromptDeliveryFailures.ResetForTests();
 

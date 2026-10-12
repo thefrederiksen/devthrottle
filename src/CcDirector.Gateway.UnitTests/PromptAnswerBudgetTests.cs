@@ -25,7 +25,7 @@ namespace CcDirector.Gateway.Tests;
 /// </summary>
 public sealed class PromptAnswerBudgetTests : IDisposable
 {
-    private readonly FakeTimeProvider _clock = VirtualTime.NewClock();
+    private readonly VirtualClock _clock = VirtualTime.NewClock();
 
     /// <summary>A terminal session whose agent takes <paramref name="echoDelay"/> to show typed text - a busy machine.
     /// The agent is one the Director has no conversation records for, so the send is judged by the terminal alone.</summary>

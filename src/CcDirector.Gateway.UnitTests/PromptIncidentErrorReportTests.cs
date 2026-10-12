@@ -102,7 +102,7 @@ public sealed class PromptIncidentErrorReportTests : IDisposable
     private readonly Action<string>? _previousObserver;
     private readonly SessionManager _manager = new(new AgentOptions());
     private readonly List<IDisposable> _cleanup = new();
-    private readonly FakeTimeProvider _clock = VirtualTime.NewClock();
+    private readonly VirtualClock _clock = VirtualTime.NewClock();
     private string _watchedSessionId = "";
 
     public PromptIncidentErrorReportTests()

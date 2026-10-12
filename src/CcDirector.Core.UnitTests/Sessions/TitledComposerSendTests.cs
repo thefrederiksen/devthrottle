@@ -21,7 +21,7 @@ public sealed class TitledComposerSendTests : IDisposable
     private const string Title = "keynote deck slide reordering";
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "cc-titled-send-" + Guid.NewGuid().ToString("N"));
     private readonly List<IDisposable> _cleanup = new();
-    private readonly FakeTimeProvider _clock = VirtualTime.NewClock();
+    private readonly VirtualClock _clock = VirtualTime.NewClock();
 
     public TitledComposerSendTests() => Directory.CreateDirectory(_dir);
 
