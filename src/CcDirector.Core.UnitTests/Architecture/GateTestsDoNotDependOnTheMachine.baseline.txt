@@ -8,8 +8,7 @@ fixed-port | src/CcDirector.Avalonia.Tests/ActivityEventUploaderOnSchedulerTests
 real-clock | src/CcDirector.Avalonia.Tests/BackgroundDictationSendTests.cs | 2
 delay | src/CcDirector.Avalonia.Tests/BackgroundWorkDialogTests.cs | 1
 real-clock | src/CcDirector.Avalonia.Tests/BackgroundWorkDialogTests.cs | 1
-delay | src/CcDirector.Avalonia.Tests/BatchDictationRecorderReadyCueTests.cs | 2
-stopwatch | src/CcDirector.Avalonia.Tests/BatchDictationRecorderReadyCueTests.cs | 1
+delay | src/CcDirector.Avalonia.Tests/BatchDictationRecorderReadyCueTests.cs | 1
 delay | src/CcDirector.Avalonia.Tests/BatchDictationRecorderStopTailTests.cs | 2
 delay | src/CcDirector.Avalonia.Tests/BatchDictationRecorderStopWavTests.cs | 1
 delay | src/CcDirector.Avalonia.Tests/BatchDictationRecorderTailTests.cs | 1
@@ -20,7 +19,6 @@ real-clock | src/CcDirector.Avalonia.Tests/ComposerSendRouteTests.cs | 1
 delay | src/CcDirector.Avalonia.Tests/GatewayChoicePanelIntegrationTests.cs | 1
 fixed-port | src/CcDirector.Avalonia.Tests/GatewayLoopbackEnrollUrlTests.cs | 5
 real-clock | src/CcDirector.Avalonia.Tests/GitChangesViewHiddenTabTests.cs | 2
-stopwatch | src/CcDirector.Avalonia.Tests/GitChangesViewTreeTests.cs | 2
 real-clock | src/CcDirector.Avalonia.Tests/Licenses/LicenseSwitchExecutorTests.cs | 3
 real-clock | src/CcDirector.Avalonia.Tests/MicCaptureConstructionQueriesNoDeviceTests.cs | 2
 sleep | src/CcDirector.Avalonia.Tests/MicCaptureConstructionQueriesNoDeviceTests.cs | 1
@@ -102,7 +100,6 @@ real-clock | src/CcDirector.Core.Tests/GitHubActionsBackendTests.cs | 2
 stopwatch | src/CcDirector.Core.Tests/GitHubActionsBackendTests.cs | 1
 real-clock | src/CcDirector.Core.Tests/GitHubRestClientLiveTests.cs | 1
 process | src/CcDirector.Core.Tests/GitLargeRepoTests.cs | 2
-stopwatch | src/CcDirector.Core.Tests/GitLargeRepoTests.cs | 2
 delay | src/CcDirector.Core.Tests/GitProcessCancellationTests.cs | 2
 process | src/CcDirector.Core.Tests/GitProcessCancellationTests.cs | 2
 process | src/CcDirector.Core.Tests/GitWriteServiceTests.cs | 2
@@ -114,7 +111,6 @@ process | src/CcDirector.Core.Tests/LifecycleSignalCrossProcessTests.cs | 2
 stopwatch | src/CcDirector.Core.Tests/LifecycleSignalCrossProcessTests.cs | 2
 sleep | src/CcDirector.Core.Tests/LifecycleSignalTests.cs | 3
 fixed-port | src/CcDirector.Core.Tests/LinkDetectorExactTextTests.cs | 2
-stopwatch | src/CcDirector.Core.Tests/LinkDetectorExactTextTests.cs | 1
 fixed-port | src/CcDirector.Core.Tests/LinkDetectorTests.cs | 2
 process | src/CcDirector.Core.Tests/LinkedWorktreeTests.cs | 2
 fixed-port | src/CcDirector.Core.Tests/McpConfigManagerTests.cs | 2
@@ -128,7 +124,7 @@ real-clock | src/CcDirector.Core.Tests/PooledWorktreeReaperTests.cs | 1
 sleep | src/CcDirector.Core.Tests/PooledWorktreeRestartTests.cs | 1
 sleep | src/CcDirector.Core.Tests/PooledWorktreeSessionTests.cs | 1
 delay | src/CcDirector.Core.Tests/ProcessRunnerTests.cs | 4
-delay | src/CcDirector.Core.Tests/Recording/RecordingIngestServiceTests.cs | 4
+delay | src/CcDirector.Core.Tests/Recording/RecordingIngestServiceTests.cs | 3
 real-clock | src/CcDirector.Core.Tests/Recording/RecordingIngestServiceTests.cs | 16
 process | src/CcDirector.Core.Tests/RepoStateSnapshotCollectorTests.cs | 2
 delay | src/CcDirector.Core.Tests/RepositoryMonitorTests.cs | 1
@@ -136,10 +132,10 @@ process | src/CcDirector.Core.Tests/RepositoryMonitorTests.cs | 1
 real-clock | src/CcDirector.Core.Tests/RepositoryMonitorTests.cs | 3
 process | src/CcDirector.Core.Tests/RepositoryStatusServiceTests.cs | 2
 real-clock | src/CcDirector.Core.Tests/RepositoryUsageRecorderTests.cs | 3
-delay | src/CcDirector.Core.Tests/RepositoryWatcherTests.cs | 14
+delay | src/CcDirector.Core.Tests/RepositoryWatcherTests.cs | 12
 process | src/CcDirector.Core.Tests/RepositoryWatcherTests.cs | 2
 real-clock | src/CcDirector.Core.Tests/RepositoryWatcherTests.cs | 1
-stopwatch | src/CcDirector.Core.Tests/RepositoryWatcherTests.cs | 2
+stopwatch | src/CcDirector.Core.Tests/RepositoryWatcherTests.cs | 1
 real-clock | src/CcDirector.Core.Tests/SessionAlternateScreenTests.cs | 1
 real-clock | src/CcDirector.Core.Tests/SessionClaudePointerTests.cs | 1
 delay | src/CcDirector.Core.Tests/SessionDeletionReaperTests.cs | 2
@@ -533,8 +529,6 @@ real-clock | src/CcDirector.Gateway.Tests/VoiceModeAllEndpointProofTests.cs | 1
 real-clock | src/CcDirector.Gateway.Tests/VoiceModeSweepHostedTenantScopeTests.cs | 2
 delay | src/CcDirector.Gateway.Tests/VoiceServingLoopIsolationTests.cs | 1
 real-clock | src/CcDirector.Gateway.Tests/VoiceServingLoopIsolationTests.cs | 6
-delay | src/CcDirector.Gateway.Tests/VoiceSweepBudgetTests.cs | 4
-real-clock | src/CcDirector.Gateway.Tests/VoiceSweepBudgetTests.cs | 14
 delay | src/CcDirector.Gateway.Tests/VoiceTurnUploadSweepWiringTests.cs | 1
 real-clock | src/CcDirector.Gateway.Tests/VoiceTurnUploadSweepWiringTests.cs | 4
 delay | src/CcDirector.Gateway.Tests/WingmanAskForwardingTests.cs | 1
@@ -559,7 +553,6 @@ real-clock | src/CcDirector.Gateway.UnitTests/Api/AdminTurnLogEndpointScopeTests
 real-clock | src/CcDirector.Gateway.UnitTests/Api/AdminTurnVerdictFeedbackEndpointScopeTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/Api/ClientErrorEndpointsTests.cs | 3
 real-clock | src/CcDirector.Gateway.UnitTests/Api/DirectorErrorEndToEndTests.cs | 4
-stopwatch | src/CcDirector.Gateway.UnitTests/Api/DirectorErrorEndpointsTests.cs | 1
 sleep | src/CcDirector.Gateway.UnitTests/Api/ErrorGroupsAndSummariesTests.cs | 2
 real-clock | src/CcDirector.Gateway.UnitTests/Api/FleetManagerEndpointsTests.cs | 33
 real-clock | src/CcDirector.Gateway.UnitTests/Api/GatewayRequestErrorsTests.cs | 6
@@ -635,7 +628,6 @@ real-clock | src/CcDirector.Gateway.UnitTests/LauncherRegistryTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/LauncherTenantIsolationTests.cs | 1
 delay | src/CcDirector.Gateway.UnitTests/Messaging/FleetDoorbellTests.cs | 2
 real-clock | src/CcDirector.Gateway.UnitTests/Messaging/FleetDoorbellTests.cs | 2
-stopwatch | src/CcDirector.Gateway.UnitTests/Messaging/FleetDoorbellTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/MicrophoneRankingTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/NarrationClipsOnDiskTests.cs | 1
 delay | src/CcDirector.Gateway.UnitTests/PromptAnswerBudgetTests.cs | 2
@@ -730,9 +722,7 @@ real-clock | src/CcDirector.Gateway.UnitTests/Wingman/TurnVerdictServiceTests.cs
 real-clock | src/CcDirector.Gateway.UnitTests/Wingman/TurnVerdictTraceRowStampTests.cs | 5
 real-clock | src/CcDirector.Gateway.UnitTests/Wingman/TurnVerdictTraceStoreTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/Wingman/TurnVerdictTraceTests.cs | 1
-stopwatch | src/CcDirector.Gateway.UnitTests/Wingman/TurnVerdictTraceTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/Wingman/TurnVerdictTraceWriterTests.cs | 2
-stopwatch | src/CcDirector.Gateway.UnitTests/Wingman/TurnVerdictTraceWriterTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/Wingman/VoiceNarrationPlayedTests.cs | 1
 sleep | src/CcDirector.Gateway.UnitTests/Wingman/VoiceNarrationPlayedTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/Wingman/VoiceUnheardCountTests.cs | 2
@@ -800,5 +790,4 @@ stopwatch | tools/cc-director-setup-engine.Tests/ProcessRunnerTests.cs | 1
 process | tools/cc-director-setup-engine.Tests/PythonToolsHealAndShimTests.cs | 2
 process | tools/cc-director-setup-engine.Tests/PythonToolsInstallerTests.cs | 1
 real-clock | tools/cc-director-setup-engine.Tests/ReleaseSourceTests.cs | 3
-process | tools/cc-director-setup-engine.Tests/ScheduledTaskRemoverTests.cs | 2
 delay | tools/cc-director-setup-engine.Tests/StandbySlotProvisionerTests.cs | 1
