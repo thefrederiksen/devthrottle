@@ -904,13 +904,6 @@ public sealed class HeldDeliveryReachabilityTests : IDisposable
         audioArchive: new TranscriptionAudioArchive(false, Path.Combine(_root, "archive")),
         transcoder: transcoder);
 
-    /// <summary>
-    /// The delivery's clock: the moment the recording was sent, plus whatever the test puts it ahead by, or a fixed
-    /// instant. It used to be the REAL clock plus the offset, which drifted away from the send time by however long
-    /// the test had been running: on a loaded machine "299 seconds after the send" read as past the five-minute limit
-    /// and the recording was ruled unconfirmed one wake-up early (Values differ, nine failures in 96 runs). Nothing in
-    /// the test needs real time to pass, so the clock no longer reads it.
-    /// </summary>
     /// <summary>A transcoder that can decode nothing, failing as FfmpegAudioTranscoder does on a non-zero ffmpeg exit.</summary>
     private sealed class UndecodableTranscoder : IAudioTranscoder
     {
@@ -919,6 +912,13 @@ public sealed class HeldDeliveryReachabilityTests : IDisposable
                 "ffmpeg could not decode the audio (exit 1): (test transcoder)");
     }
 
+    /// <summary>
+    /// The delivery's clock: the moment the recording was sent, plus whatever the test puts it ahead by, or a fixed
+    /// instant. It used to be the REAL clock plus the offset, which drifted away from the send time by however long
+    /// the test had been running: on a loaded machine "299 seconds after the send" read as past the five-minute limit
+    /// and the recording was ruled unconfirmed one wake-up early (Values differ, nine failures in 96 runs). Nothing in
+    /// the test needs real time to pass, so the clock no longer reads it.
+    /// </summary>
     private sealed class AheadClock : TimeProvider
     {
         private readonly DateTime _sentAt;
