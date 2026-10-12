@@ -1241,6 +1241,8 @@ try {
     # GATEWAY.TESTS RUNS AS SEVERAL PROCESSES, each with a disjoint part of the suite (scripts\gateway-test-shards.ps1
     # says how it is split and why that is safe). Each shard is its own entry below, with its own log, result file
     # and verdict line, so a failure names the shard it was in.
+    $running = @()
+    $deadline = (Get-Date).AddSeconds($BudgetSeconds)
     foreach ($proj in $toRun) {
         if ($proj -eq $gatewayProject) {
             $shardFilters = Get-GatewayTestShardFilters
