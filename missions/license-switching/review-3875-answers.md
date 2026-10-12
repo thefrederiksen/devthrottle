@@ -63,3 +63,45 @@ approvals in a day, though the profile stayed signed in to claude.ai itself. The
 (`browser-not-signed-in`), but unattended renewal can meet this wall, and passing it needs the email-link login the
 prototype proved. It is recorded in `phase-4/README.md` as not in this pull request. The live runs stopped there;
 re-proving needs the owner to sign that profile in again.
+
+# Answers to the second-round review (`review-3875-round-2.md`)
+
+All three findings are accepted and fixed. Nothing is declined.
+
+## P2 - A renewal approved by hand for another account replaces the held sign-in - ACCEPTED, fixed
+
+The finding was right. For a renewal the login writes into the folder that already holds the account, so by the
+time `finish_sign_in` reads the folder back and sees the wrong account, the held sign-in is already gone. Reading
+back cannot protect a renewal; the wrong code must never reach the waiting login. The consent page could not catch
+it either: run by hand with the wrong email and that email's own profile, "Logged in as" and `--email` agree.
+
+The authorize URL itself names the account the login was started for (its `login_hint`). `approve_in_browser` now
+compares it with `--email` before any browser is opened, and refuses as `wrong-account` when they differ or when
+the URL names no account. No browser opens, no code exists, nothing is typed into the login, and the folder is
+never written.
+
+- `test_approve_UrlIsForAnotherAccountOrNone_RefusedBeforeAnyBrowserOpens` - another account, and no account.
+- `test_signIn_RenewalApprovedByHandForAnotherAccount_HeldKeyIsNeverReplaced` - the review's own path, for a
+  renewal of the active account and of a spare: the held key file is byte-for-byte what it was, no code reached the
+  login, and both accounts are still held. With the check disabled this test fails (`store-refused` where
+  `wrong-account` is expected, the held key replaced), so it watches the fix and not a hand-built input.
+
+Contract 8.3 now states the rule, so the Director that runs `license approve` for the relay inherits it.
+
+## P2 - Contract 8.3 says an expired attempt deletes "its sign-in folder" - ACCEPTED, fixed
+
+That sentence was left from the staging design and is wrong for a renewal, whose folder is the one holding the
+account. Section 8.3 now says what `abandon_sign_in` does: the waiting login is ended; a new spare's folder that
+received no sign-in is removed; a renewal's folder is never touched and still holds the sign-in it had.
+
+## P3 - `expired` is missing from `LicenseRenewalErrors` - ACCEPTED, fixed
+
+`"expired"` is added to the list in 8.1, and the sentence now names the two reasons only the relay can produce:
+`approver-offline` and `expired`. The `ReasonCode` comments in 8.3 and 8.4 no longer list `expired` as something
+outside the vocabulary.
+
+## Residual risk the review noted, not changed here
+
+A `claude auth login` child can outlive a `cc-devthrottle` that is killed outright. It holds no key and writes
+nothing without a code, so no sign-in is at risk; tying the child to the parent's life (a job object on Windows) is
+left for the phase that makes the Director the caller.

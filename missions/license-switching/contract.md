@@ -542,8 +542,9 @@ public string? RenewalErrorDetail { get; set; }    // one plain sentence the Dir
 
 `LicenseRenewalErrors`: `"login-failed"`, `"approval-failed"`, `"wrong-account"` (the approving browser profile is
 signed in to claude.ai as someone else), `"browser-not-signed-in"`, `"no-approver"` (no browser profile is set for
-the account, here or on another machine), `"approver-offline"`, `"store-refused"`. They are the reasons
-`license renew --json` already writes, without the `failed-` prefix, plus the two only the relay can see.
+the account, here or on another machine), `"approver-offline"`, `"expired"` (no approval came back by `NotAfterUtc`,
+8.3), `"store-refused"`. They are the reasons `license renew --json` already writes, without the `failed-` prefix,
+plus the two only the relay can produce: `approver-offline` and `expired`.
 
 A holding with `RenewalError` set and `SignInExpiresAtUtc` within `LicenseContract.SignInExpiryWarning` (3 days)
 makes the Gateway send the owner ONE email per holding per failure streak (the same email channel as "no account
@@ -600,7 +601,10 @@ public sealed class LicenseApproveRequest
 }
 ```
 
-The approving Director runs `license approve --email <AccountEmail> --browser <BrowserProfile> <AuthorizeUrl>`,
+The approving Director runs `license approve --email <AccountEmail> --browser <BrowserProfile> <AuthorizeUrl>`. That
+command refuses, as `wrong-account` and before any browser opens, when the account the URL itself names (its
+`login_hint`) is not `AccountEmail`: the consent page shows only who the browser is signed in as, and a code for
+another account would replace a renewal's held sign-in before anything could read it back. The Director then
 seals its answer to `SealToRecipient` with the Secret Handoff envelope before it leaves the process, and returns
 `LicenseApprovalResult` as the command's result.
 
@@ -614,15 +618,18 @@ public sealed class LicenseApprovalResult
 {
     public string SignInId { get; set; } = "";
     public string Outcome { get; set; } = "";          // "approved" | "refused"
-    public string? ReasonCode { get; set; }            // a LicenseRenewalErrors code, or "expired", when refused
+    public string? ReasonCode { get; set; }            // a LicenseRenewalErrors code when refused
     public string? Message { get; set; }               // one plain sentence
     public string? SealedApproval { get; set; }        // when approved: the authorize answer sealed to SealToRecipient
 }
 ```
 
 The target Director opens `SealedApproval` with its private key and types it into the waiting login. A target that
-has received no `license-approval-result` for its `SignInId` by `NotAfterUtc` gives up: the login is ended, its
-sign-in folder deleted, and the attempt is `failed` / `expired`. A result that arrives after that, or for a
+has received no `license-approval-result` for its `SignInId` by `NotAfterUtc` gives up, and the attempt is `failed`
+/ `expired`. Giving up means exactly what `LicenseStore.abandon_sign_in` does: the waiting login is ended; a NEW
+spare's folder that received no sign-in is removed; **a renewal's folder is never touched** - it is the folder that
+holds the account (its spare folder, or the default folder for the active account) and still holds the sign-in it
+had, because nothing is written until the code is typed in. A result that arrives after that, or for a
 `SignInId` the target is not waiting on, is logged by `SignInId` and dropped.
 
 **The Gateway relays, and never keeps.** `AuthorizeUrl` and `SealedApproval` are held in memory only for the relay.
@@ -660,7 +667,7 @@ public sealed class LicenseSignInResult
 {
     public string SignInId { get; set; } = "";
     public string Outcome { get; set; } = "";          // "added" | "renewed" | "failed"
-    public string? ReasonCode { get; set; }            // a LicenseRenewalErrors code, "not-key-holder" or "expired", when failed
+    public string? ReasonCode { get; set; }            // a LicenseRenewalErrors code, or "not-key-holder", when failed
     public string? Message { get; set; }
     public DateTime? SignedInAtUtc { get; set; }
     public DateTime? SignInExpiresAtUtc { get; set; }

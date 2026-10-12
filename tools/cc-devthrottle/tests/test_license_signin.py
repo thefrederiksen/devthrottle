@@ -26,7 +26,12 @@ from src.license_store import FileKeyBackend, LicenseStore  # noqa: E402
 ACCOUNT_A = "account-a@example.com"
 ACCOUNT_B = "account-b@example.com"
 ACCOUNT_C = "account-c@example.com"
-URL = "https://claude.ai/oauth/authorize?code=true&client_id=x&state=s1"
+URL = "https://claude.ai/oauth/authorize?code=true&client_id=x&state=s1&login_hint=account-b%40example.com"
+
+
+def _url_for(email):
+    """The authorize URL `claude auth login --email <email>` prints: it names the account as login_hint."""
+    return "https://claude.ai/oauth/authorize?code=true&client_id=x&state=s1&login_hint=" + email.replace("@", "%40")
 CODE = "AUTHCODE-never-shown-aaaaaaaaaaaa#STATE-never-shown-bbbbbbbbbbbbb"
 NOW = dt.datetime(2026, 10, 11, 14, 0, tzinfo=dt.timezone.utc)
 runner = CliRunner()
@@ -50,9 +55,10 @@ class FakeLogin:
 
     instances: list["FakeLogin"] = []
 
-    def __init__(self, folder, email, signs_in_as=None, url=URL, finish_error=None, url_error=None):
+    def __init__(self, folder, email, signs_in_as=None, url=None, finish_error=None, url_error=None):
         self.folder, self.email = Path(folder), email
         self.signs_in_as = signs_in_as or email
+        url = url or _url_for(email)
         self.url, self.finish_error, self.url_error = url, finish_error, url_error
         self.code = None
         self.cancelled = 0
@@ -78,7 +84,7 @@ def _starter(**kwargs):
 
 
 def _approve(url, email):
-    assert url == URL
+    assert url == _url_for(email)
     return CODE
 
 
@@ -251,6 +257,43 @@ def test_approve_NotAnAuthorizeUrl_RefusedBeforeAnyBrowserOpens():
     assert opened == []
 
 
+@pytest.mark.parametrize("url", [_url_for(ACCOUNT_A), "https://claude.ai/oauth/authorize?code=true&state=s1"],
+                         ids=["another-account", "no-account"])
+def test_approve_UrlIsForAnotherAccountOrNone_RefusedBeforeAnyBrowserOpens(url):
+    # Run by hand with the wrong email and that email's own profile, the consent page and --email would agree.
+    opened = []
+    with pytest.raises(SignInError) as refused:
+        license_signin.approve_in_browser(url, ACCOUNT_C, "Profile C", open_profile=opened.append, run_harness=None)
+    assert refused.value.kind == license_signin.WRONG_ACCOUNT
+    assert opened == []
+
+
+@pytest.mark.parametrize("renewed", [ACCOUNT_A, ACCOUNT_B], ids=["active", "spare"])
+def test_signIn_RenewalApprovedByHandForAnotherAccount_HeldKeyIsNeverReplaced(store, tmp_path, renewed):
+    # The review's path: the target renews an account it holds; on the other machine the approval is run with
+    # another account's email and that account's signed-in profile. No code may come back, and the held sign-in -
+    # which a wrong code would have REPLACED before any read-back - must be untouched.
+    _add_spare(store, tmp_path, ACCOUNT_B, NOW + dt.timedelta(days=2))
+    folder = store.default_config_dir if renewed == ACCOUNT_A else store.spare_folder(ACCOUNT_B)
+    held_before = (Path(folder) / ".credentials.json").read_text(encoding="utf-8")
+    profile = FakeProfile()
+    run, seen = _harness({"state": "code", "code": CODE})  # account C's profile would approve happily
+
+    def operator_approves_as_c(url, email):
+        return license_signin.approve_in_browser(url, ACCOUNT_C, "Profile C", open_profile=lambda p: profile,
+                                                 run_harness=run)
+
+    with pytest.raises(SignInError) as refused:
+        license_signin.sign_in(store, renewed, operator_approves_as_c,
+                               start_login=_starter(signs_in_as=ACCOUNT_C), now=lambda: NOW)
+
+    assert refused.value.kind == license_signin.WRONG_ACCOUNT
+    assert seen == {} and profile.stopped == 0, "no browser was opened"
+    assert FakeLogin.instances[0].code is None, "no code reached the waiting login"
+    assert (Path(folder) / ".credentials.json").read_text(encoding="utf-8") == held_before
+    assert _held(store) == {ACCOUNT_A: "active", ACCOUNT_B: "spare"}
+
+
 def test_approve_HarnessPrintsNoResult_IsAFailure():
     with pytest.raises(SignInError, match="without a result"):
         license_signin.approve_in_browser(URL, ACCOUNT_B, "P", open_profile=lambda p: FakeProfile(),
@@ -350,9 +393,9 @@ def test_cli_signInRemoteApproval_PrintsTheUrl_ReadsTheCode_AddsTheSpare(machine
     result = _run("sign-in", ACCOUNT_B, "--remote-approval", "--json", input=CODE + "\n")
 
     assert result.exit_code == 0, result.stdout
-    lines = result.stdout.splitlines()
-    assert lines[0] == f"authorize-url: {URL}"
-    answer = json.loads("\n".join(lines[1:]))
+    assert result.stdout.splitlines()[0] == f"authorize-url: {URL}"
+    # Click below 8.2 mixes standard error (the "waiting:" line) into stdout, so the JSON is found, not assumed.
+    answer, _ = json.JSONDecoder().raw_decode(result.stdout[result.stdout.index("{"):])
     assert answer["accountEmail"] == ACCOUNT_B and answer["result"] == "added"
     assert FakeLogin.instances[0].code == CODE
     assert CODE not in result.stdout

@@ -51,6 +51,7 @@ import shutil
 import subprocess
 import threading
 import time
+import urllib.parse
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Protocol
 
@@ -432,9 +433,25 @@ def approve_in_browser(url: str, email: str, profile: str, *,
                        run_harness: RunHarness = _run_harness) -> str:
     """Approve one authorize URL in the browser profile ``profile``, which must be signed in to claude.ai as
     ``email``. Returns the ``code#state``. Refuses - clicking nothing - when the page names another account, names
-    no account, or is not signed in."""
+    no account, or is not signed in.
+
+    It refuses before any browser opens when the URL itself is for another account. ``claude auth login --email X``
+    puts X in the URL as ``login_hint``; the consent page shows only who the BROWSER is signed in as. Without this
+    check, an approval run by hand with the wrong email and that email's profile would agree with itself, approve,
+    and hand the waiting login a code for another account - which on a renewal replaces the held sign-in before
+    anything can read it back. A URL with no ``login_hint`` names no account and is refused the same way."""
     if not AUTHORIZE_URL.fullmatch(url.strip()):
         raise SignInError(APPROVAL_FAILED, "that is not a Claude authorize URL (https://.../oauth/authorize?...)")
+    hints = urllib.parse.parse_qs(urllib.parse.urlsplit(url.strip()).query).get("login_hint", [])
+    if len(hints) != 1 or not hints[0].strip():
+        raise SignInError(WRONG_ACCOUNT, "the authorize URL does not say which account it signs in (no login_hint); "
+                                         "nothing was approved.",
+                          ["Start the sign-in again with: cc-devthrottle license sign-in <email> --remote-approval"])
+    if hints[0].strip().lower() != email.strip().lower():
+        raise SignInError(
+            WRONG_ACCOUNT,
+            f"the authorize URL signs in {hints[0].strip()}, not {email}; nothing was approved.",
+            [f"cc-devthrottle license approve --email {hints[0].strip()} --browser <its profile> <url>"])
     browser = open_profile(profile)
     try:
         script = _APPROVE_SCRIPT % {"url": json.dumps(url.strip()), "email": json.dumps(email),
