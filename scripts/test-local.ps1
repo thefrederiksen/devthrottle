@@ -27,11 +27,11 @@
     WHAT THE DEFAULT NO LONGER RUNS - AND THIS IS DELIBERATE, NOT AN OVERSIGHT. Three suites are PARKED
     behind -Parked because none can meet the budget:
 
-      CcDirector.Gateway.Tests   - host-bound, and one run of it at a time per user per machine
-                                   (GatewayTestSuiteLock). Its own running time is most of an hour. Until
-                                   October 2026 its cost was the QUEUE behind every other working tree -
-                                   waits of 45 minutes that executed ZERO tests - which the release-gate
-                                   lock above now turns into an immediate refusal. Its pure tests were
+      CcDirector.Gateway.Tests   - host-bound. Run as several concurrent processes, each given part of
+                                   the suite (scripts\gateway-test-shards.ps1): about 10 minutes in
+                                   Release on SOREN_NORTH (October 2026), where it took 2 hours 9
+                                   minutes as one process on the v2.18.0 candidate. It no longer has a lock of
+                                   its own, so a hand-run "dotnet test" of it blocks nobody. Its pure tests were
                                    split out into CcDirector.Gateway.UnitTests, which was in the default
                                    run until 2026-09-13 and is now parked beside it (issue #2824); what is
                                    parked here is the host-bound remainder.
@@ -54,12 +54,10 @@
     be invoked by hand; a gate that depends on remembering two extra commands is one that will eventually
     be run without them, and a release is the one place there is no fixing it forward.
 
-    ONE RUN THAT INCLUDES THE GATEWAY SUITE AT A TIME, AND A SECOND ONE IS REFUSED, NEVER QUEUED. Before
-    building, a -Parked or -Gateway run takes the release-gate lock (scripts\gate-lock.ps1) and probes
-    the Gateway suite's own lock. If either is held by a live process, this run stops within seconds
-    with exit 6 naming the holder - the release-gate lock carries its process, session, commit and
-    command; the suite's own lock, written by the test process, carries its process, session and
-    directory - and it does not build, it does not start, and it does not wait. Between 8 and 10 October 2026 nineteen release-gate runs each
+    ONE RELEASE GATE AT A TIME, AND A SECOND ONE IS REFUSED, NEVER QUEUED. Before building, a -Parked
+    or -Gateway run takes the release-gate lock (scripts\gate-lock.ps1). If it is held by a live
+    process, this run stops within seconds with exit 6 naming the holder's process, session, commit and
+    command - and it does not build, it does not start, and it does not wait. Between 8 and 10 October 2026 nineteen release-gate runs each
     queued forty-five minutes behind another and then executed nothing: fourteen hours that proved
     nothing, with up to seven gates overlapping. A queue hides a conflict; a refusal shows it. The
     default run takes no lock, because it includes no suite that cannot overlap.
@@ -76,7 +74,7 @@
     ran. Red-first evidence is gathered with this command, so that shape of green is now a failure:
     exit 3 means zero tests were collected anywhere, exit 4 means a project exited zero without writing a
     result file, exit 5 means part of the filter matched nothing (or -ExpectTests was not met), exit 6
-    means another run holding the Gateway suite is in progress and this one was refused before building
+    means another release gate is in progress and this one was refused before building
     (and exit 2, as for a bad argument, means the lock's own location is broken), exit 7 means a -Parked
     or -Gateway run was refused before building because the disk is too full to finish it, exit 10 means
     a -RerunFailed found every failed test FLAKY (still a failure - see THE FLAKY TEST RULE), and exit 9 means a
@@ -114,9 +112,10 @@
 .PARAMETER Quarantine
     Run ONLY the quarantined tests (trait Gate=Quarantine), in every suite including the parked Core.Tests
     and Gateway.UnitTests. Gateway.Tests is left out unless -Gateway is passed too, and -Quarantine -Gateway
-    then runs that suite's quarantined tests alone: the Gateway suite is one run per machine at a time, and
-    with it included a look at the quarantine was REFUSED for the whole length of someone else's Gateway run
-    (found on 2026-10-11, when another session's full run held the lock for about two hours).
+    then runs that suite's quarantined tests alone: a run that includes the Gateway suite takes the
+    release-gate lock, and with it included a look at the quarantine was REFUSED for the whole length of
+    someone else's release gate (found on 2026-10-11, when another session's full run held the lock for
+    about two hours).
     Prints what passed and failed and exits 0 whenever the tests ran, failures or not: a quarantined test
     never decides a verdict. (A build failure, a held lock or too little disk space still stop it, because
     then nothing ran.) Writes no gate record, keeps its run folder so the failures can be read, and takes
@@ -182,7 +181,7 @@
 .PARAMETER Parked
     Also run the three parked suites - Gateway.Tests, Core.Tests and Gateway.UnitTests. This is the
     RELEASE gate. Takes the release-gate lock before building; a second one on this machine is refused
-    with exit 6, not queued. Expect the Gateway suite's own running time, which is most of an hour.
+    with exit 6, not queued. The Gateway suite takes about 10 minutes of it (four processes side by side).
 
 .PARAMETER Fast
     Retained for callers that pass it. The default IS fast now, so this is a no-op.
@@ -228,6 +227,7 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $sln = Join-Path $repoRoot "cc-director.sln"
 . (Join-Path $PSScriptRoot "gate-lock.ps1")
+. (Join-Path $PSScriptRoot "gateway-test-shards.ps1")
 
 if ($Gateway -and $Parked) {
     Write-Error "-Gateway already runs a parked suite on its own; pass one or the other."
@@ -301,7 +301,7 @@ $installerProjects = @(
 )
 
 # PARKED. Not deleted, not broken - excluded from the default because they cannot meet the budget.
-# Gateway.Tests runs for most of an hour and one at a time; Core.Tests costs 11 to 33 minutes of its
+# Gateway.Tests runs as several processes (see gateway-test-shards.ps1); Core.Tests costs 11 to 33 minutes of its
 # own; Gateway.UnitTests grew past the ceiling (see its block below). Run them with -Parked before a
 # release, and move any of them back into the list above the day it fits.
 $gatewayProject = "src\CcDirector.Gateway.Tests\CcDirector.Gateway.Tests.csproj"
@@ -375,7 +375,7 @@ if ($Gateway) {
 } else {
     $toRun = $defaultProjects + $installerProjects
     if ($Parked) { $toRun += $parkedProjects }
-    # Every parked suite but the Gateway one, which takes the machine's one Gateway lock; -Quarantine -Gateway
+    # Every parked suite but the Gateway one, which takes the machine's one release-gate lock; -Quarantine -Gateway
     # runs it on its own (see the header).
     if ($Quarantine) { $toRun += @($parkedProjects | Where-Object { $_ -ne $gatewayProject }) }
 }
@@ -466,6 +466,7 @@ function Stop-Refused([string] $Message) {
 
 # Every suite this script knows, by the name used for its result file.
 function Get-ProjectForSuite([string] $Suite) {
+    $Suite = Get-SuiteBaseName $Suite
     foreach ($proj in ($defaultProjects + $installerProjects + $parkedProjects)) {
         if ((Split-Path -Leaf ([System.IO.Path]::GetDirectoryName((Join-Path $repoRoot $proj)))) -eq $Suite) { return $proj }
     }
@@ -518,7 +519,9 @@ if ($RerunFailed -ne "") {
         $failedHere = @(Get-TrxFailedTests $trxPath)
         if ($failedHere.Count -eq 0) { Stop-Refused "suite $($suite.name) reported outcome=Failed but its result file names no failed test, so there is no list to re-run. Read $trxPath." }
         foreach ($test in $failedHere) {
-            $targets += [pscustomobject]@{ Suite = [string] $suite.name; Project = $proj; Test = $test }
+            # A Gateway.Tests shard's failures re-run as Gateway.Tests tests: the re-run runs each project once, by
+            # name, and keys what it saw by the suite's base name.
+            $targets += [pscustomobject]@{ Suite = (Get-SuiteBaseName ([string] $suite.name)); Project = $proj; Test = $test }
         }
     }
     if ($targets.Count -eq 0) { Stop-Refused "no suite in that run reported failed tests, so there is nothing to re-run." }
@@ -578,9 +581,9 @@ New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 # failures (issue #3880) are very likely the same thing. A gate that fills the disk fails for a reason
 # that has nothing to do with the code, which is exactly the kind of red this gate must never produce.
 #
-# TEMP and TMP are set for each child, so Path.GetTempPath() inside the test host lands here. The locks
-# do not move with it: gate-lock.ps1 and GatewayTestSuiteLock.cs derive their paths from the local
-# application data folder precisely so that a changed TEMP cannot split them. The folder names are kept
+# TEMP and TMP are set for each child, so Path.GetTempPath() inside the test host lands here. The lock
+# does not move with it: gate-lock.ps1 derives its path from the local application data folder precisely
+# so that a changed TEMP cannot split it. The folder names are kept
 # SHORT (t\0, t\1, ...) because tests build deep paths under it and Windows still has a 260-character
 # limit in places; run.json maps each number to its suite.
 $tempRoot = Join-Path $logDir "t"
@@ -817,15 +820,13 @@ if (($Parked -or $Gateway -or $Quarantine) -and $Filter -eq "") {
     }
 }
 
-# ONE RUN HOLDING THE GATEWAY SUITE AT A TIME. A SECOND ONE IS REFUSED HERE, BEFORE THE BUILD, NEVER
-# QUEUED. See the header and scripts\gate-lock.ps1 for why: a queue hid nineteen conflicting release
-# gates for forty-five minutes each, and every one of them then executed nothing.
+# ONE RELEASE GATE AT A TIME. A SECOND ONE IS REFUSED HERE, BEFORE THE BUILD, NEVER QUEUED. See the
+# header and scripts\gate-lock.ps1 for why: a queue hid nineteen conflicting release gates for
+# forty-five minutes each, and every one of them then executed nothing.
 #
-# Two locks are consulted. The Gateway suite's OWN lock is only probed: the test process takes that one
-# itself when it starts, so a hand-run "dotnet test" of the suite holds it and a gate that built for
-# minutes would then find its child queued behind that run. The release-gate lock is TAKEN and held
-# until this script ends, in the finally block below - held in a variable, not in a scope, so that a
-# script run from an interactive shell (whose process survives "exit") releases it too.
+# The release-gate lock is TAKEN and held until this script ends, in the finally block below - held in a
+# variable, not in a scope, so that a script run from an interactive shell (whose process survives "exit")
+# releases it too. Gateway.Tests no longer has a lock of its own (scripts\gate-lock.ps1 says why).
 $gateLock = $null
 if ($toRun -contains $gatewayProject) {
     $command = "test-local.ps1"
@@ -836,45 +837,27 @@ if ($toRun -contains $gatewayProject) {
     if ($ClearFlaky -ne "") { $command += " -ClearFlaky $ClearFlaky" }
     $command += " -Configuration $Configuration"
     if ($Filter -ne "") { $command += " -Filter `"$Filter`"" }
-    $suiteLockPath = Get-GatewaySuiteLockPath
     $gateLockPath = Get-ReleaseGateLockPath
-    $suiteHeld = $false
     try {
-        $suiteHeld = Test-GateLockHeld $suiteLockPath
-        if (-not $suiteHeld) {
-            $gateLock = Enter-GateLock $gateLockPath ([ordered]@{
-                session = (Get-GateLockSessionName); commit = $commit; command = $command
-                directory = $repoRoot; runFolder = $logDir })
-        }
+        $gateLock = Enter-GateLock $gateLockPath ([ordered]@{
+            session = (Get-GateLockSessionName); commit = $commit; command = $command
+            directory = $repoRoot; runFolder = $logDir })
     } catch {
         # Only a sharing conflict means "held", and the helper answers that without throwing. Anything that
         # reaches here is a fault in the lock's home - permissions, a directory at the path, a read-only
-        # file, a full disk - which no amount of waiting clears. Named here, as the C# lock names it,
-        # instead of dying with a raw constructor error and an empty run folder left behind.
+        # file, a full disk - which no amount of waiting clears. Named here instead of dying with a raw
+        # constructor error and an empty run folder left behind.
         $fault = Get-GateLockInnerException $_.Exception
         Write-Host ""
         Write-Host "RESULT: CANNOT SET UP THE GATE LOCK - nothing was built and nothing was started."
         Write-Host ("  " + $fault.GetType().Name + ": " + $fault.Message)
-        Write-Host "  Lock files: $gateLockPath and $suiteLockPath"
+        Write-Host "  Lock file: $gateLockPath"
         Write-Host ""
         Write-Host "This is NOT another run holding the lock. It is a fault in the lock's location that will not"
         Write-Host "clear by waiting: fix the path above (permissions, a directory or read-only file sitting at it,"
         Write-Host "a full disk) and run this again."
         Remove-Item $logDir -Recurse -Force
         exit 2
-    }
-    if ($suiteHeld) {
-        Write-Host ""
-        Write-Host "RESULT: REFUSED - a run of CcDirector.Gateway.Tests is in progress on this machine, and this"
-        Write-Host "run includes that suite. Nothing was built and nothing was started."
-        Write-Host ("  Holder: " + (Format-GateLockHolder (Read-GateLockHolder $suiteLockPath)))
-        Write-Host "  Lock file: $suiteLockPath"
-        Write-Host ""
-        Write-Host "Two runs of that suite corrupt each other, so there is one at a time per user per machine."
-        Write-Host "This run does not queue: a queue hides the conflict until it expires. Wait for the holder to"
-        Write-Host "finish - or, if it is stuck, end that process - and run this again."
-        Remove-Item $logDir -Recurse -Force
-        exit 6
     }
     if ($null -eq $gateLock) {
         Write-Host ""
@@ -1229,6 +1212,8 @@ try {
     }
 
     $filterArgs = @("--filter", $suiteFilter)
+    # Each Gateway.Tests shard runs this same filter, ANDed with the shard's own part of the suite.
+    $shardScopeFilter = $suiteFilter
 
     # Hang and crash detection for the runs that have no ceiling (see $HangTimeoutMinutes). A hung test is
     # dumped and named in Sequence_<guid>.xml inside the run folder, and its host is killed; the suite then
@@ -1252,10 +1237,27 @@ try {
     # The TRX file carries the two things that make the difference checkable: ResultSummary/@outcome, which
     # says whether the run COMPLETED rather than merely whether its assertions passed, and Counters/@total,
     # which says how many tests there were. Judge a run by those two against a recorded baseline, never by
-    # the console line. scripts/test-qualification.ps1 already judges its soak this way.
+    # the console line.
+    #
+    # GATEWAY.TESTS RUNS AS SEVERAL PROCESSES, each with a disjoint part of the suite (scripts\gateway-test-shards.ps1
+    # says how it is split and why that is safe). Each shard is its own entry below, with its own log, result file
+    # and verdict line, so a failure names the shard it was in.
     $running = @()
     $deadline = (Get-Date).AddSeconds($BudgetSeconds)
     foreach ($proj in $toRun) {
+        if ($proj -eq $gatewayProject) {
+            $shardFilters = Get-GatewayTestShardFilters
+            for ($i = 0; $i -lt $shardFilters.Count; $i++) {
+                $label = ".shard{0}of{1}" -f ($i + 1), $shardFilters.Count
+                $r = Start-TestSuite $proj $label (@("--filter", (Join-GatewayTestShardFilter $shardScopeFilter $shardFilters[$i])) + $blameArgs)
+                # The shard's name is the suite's name with its label, matching its log and result file, so the
+                # verdict line, run.json and a later -RerunFailed all name the shard (Get-SuiteBaseName undoes it).
+                $r.Name = $r.Name + $label
+                $running += $r
+                Write-Host "  started $($r.Name)"
+            }
+            continue
+        }
         $r = Start-TestSuite $proj "" ($filterArgs + $blameArgs)
         $running += $r
         Write-Host "  started $($r.Name)"
@@ -1336,7 +1338,7 @@ try {
             # run can report total=1, executed=0 and "Test Run Successful". Anything that asks "did this run
             # actually enforce something" has to read executed.
             $executed = [int] $doc.TestRun.ResultSummary.Counters.executed
-            # A host that was killed, crashed, or stopped by the suite lock writes outcome="Failed" with
+            # A host that was killed or crashed, or that a suite lock once stopped, writes outcome="Failed" with
             # total=0 - the same outcome as an ordinary red - and says what happened only in a RunInfo text:
             # "The active test run was aborted". Observed three times in October 2026, each read as a test
             # failure by the check below instead of as a suite that never ran.

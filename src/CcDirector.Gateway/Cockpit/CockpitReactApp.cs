@@ -96,14 +96,14 @@ public static class CockpitReactApp
     /// auth (pages stay protected) and BEFORE routing (it must win over the explicit JSON endpoints
     /// for these requests, which a program still reaches with a non-HTML Accept).
     /// </summary>
-    public static void UseBrowserPageRoutes(WebApplication app)
+    public static void UseBrowserPageRoutes(WebApplication app, string webRoot)
     {
         app.Use(async (ctx, next) =>
         {
             if (IsBrowserPageRequest(ctx.Request.Method, ctx.Request.Path, ctx.Request.Headers.Accept))
             {
                 FileLog.Write($"[CockpitReactApp] browser navigation {Api.TeamInvitationEndpoints.RedactForLog(ctx.Request.Path.Value ?? "")} -> React shell");
-                await ServeIndexAsync(ctx, WebRoot);
+                await ServeIndexAsync(ctx, webRoot);
                 return;
             }
             await next();
@@ -115,14 +115,22 @@ public static class CockpitReactApp
     /// wins; everything else (the shell at <c>/</c>, client-side routes, and Vite's hashed assets)
     /// resolves here.
     /// </summary>
-    public static void Map(WebApplication app)
+    public static void Map(WebApplication app, string webRoot)
     {
-        FileLog.Write($"[CockpitReactApp] serving the Cockpit from {WebRoot} (exists={Directory.Exists(WebRoot)})");
+        FileLog.Write($"[CockpitReactApp] serving the Cockpit from {webRoot} (exists={Directory.Exists(webRoot)})");
 
         // Explicit "{*path}" pattern: the parameterless MapFallback uses "{*path:nonfile}", whose
         // :nonfile constraint skips anything with a file extension - which would 404 every Cockpit
         // asset (index-*.js, index-*.css, ...). The shell must serve FILES too.
-        app.MapFallback("{*path}", (HttpContext ctx, string? path) => ServeAsync(ctx, path ?? ""));
+        //
+        // A RequestDelegate, NOT a lambda with parameters, and that is load-bearing. The Gateway builds its
+        // request delegates at compile time (EnableRequestDelegateGenerator), and the generator's replacement for
+        // MapFallback(pattern, handler) DISCARDS the pattern it is given and maps "{*path:nonfile}" instead - so
+        // with a parameter lambda here every hashed asset answered an empty 404. The generator does not intercept
+        // the RequestDelegate overload, so this pattern is mapped exactly as written.
+        // CockpitReactAppServingTests.Hashed_asset_is_served_immutably goes red if it is changed back.
+        app.MapFallback("{*path}", (RequestDelegate)(ctx =>
+            ServeAsync(ctx, ctx.Request.RouteValues["path"] as string ?? "", webRoot)));
     }
 
     /// <summary>
@@ -133,7 +141,7 @@ public static class CockpitReactApp
     /// is not built into this host. Writes the response directly (the handler is a RequestDelegate),
     /// so it returns a non-generic Task.
     /// </summary>
-    private static async Task ServeAsync(HttpContext ctx, string relativePath)
+    private static async Task ServeAsync(HttpContext ctx, string relativePath, string webRoot)
     {
         // The SPA shell (and its client-side routes and static assets) is only ever reached by a
         // browser NAVIGATION or asset load, which is always GET (or HEAD). A NON-GET request that fell
@@ -148,7 +156,6 @@ public static class CockpitReactApp
             return;
         }
 
-        var webRoot = WebRoot;
         if (!Directory.Exists(webRoot))
         {
             FileLog.Write("[CockpitReactApp] request but the React Cockpit is not built into this host (no wwwroot/c)");

@@ -234,8 +234,8 @@ answer you already have locally was the single largest source of dead time in th
    Know exactly what the default run covers, because it is not everything:
    - It runs every suite that fits the two-minute budget - 4,144 tests including the installer, as
      measured on 2026-10-10 (the header of `scripts\test-local.ps1` carries the current counts).
-   - **Three suites are PARKED and do NOT run by default** - `Gateway.Tests` (host-bound, takes a
-     machine-wide lock), `Core.Tests` (far outside the budget), and `Gateway.UnitTests` (grew past
+   - **Three suites are PARKED and do NOT run by default** - `Gateway.Tests` (host-bound; about 10
+     minutes as four concurrent processes), `Core.Tests` (far outside the budget), and `Gateway.UnitTests` (grew past
      the ceiling; issue #2824). Run them with `-Parked`.
    - **`Gateway.UnitTests` being parked is the one most likely to surprise you**: a green default run
      no longer says anything about the Gateway's 10,344 unit tests (2026-10-10). If you touched the Gateway, the
@@ -333,8 +333,8 @@ integration run rather than reintroducing it.
 A second `-Parked` or `-Gateway` run on one machine is REFUSED, not queued: the gate takes a
 release-gate lock before it builds and exits 6 within seconds naming the holder's process, session,
 commit and command (`scripts/gate-lock.ps1`). Wait for that run to finish, or if it is stuck end that
-process; do not start another gate beside it. See issue #1156 for the lock's history and the work to
-remove the in-process one.
+process; do not start another gate beside it. Gateway.Tests no longer has an in-process lock of its own
+(removed October 2026): a hand-run `dotnet test` of it blocks nobody.
 
 **A one-off workflow is disabled by the pull request that finishes it.** A workflow added on a branch
 to rehearse or reproduce something stays registered and dispatchable after its file and branch are

@@ -143,6 +143,11 @@ function Get-GateClearanceDirectory { return '$clearDir' }
     Test-Case "a re-run that failed again is refused even with a clearance" 1 $r (New-Clearance $fix "DELETED") $fix "failed again"
     $r = New-FlakyRecord; $r.suites = @((New-Suite "Alpha.Tests" "Failed"), (New-Suite "Beta.Tests" "Failed"))
     Test-Case "a failing suite the re-run did not cover is refused" 1 $r (New-Clearance $fix "DELETED") $fix "suite Alpha.Tests failed, and the re-run named no flaky test in it"
+    # A sharded suite fails under its shard's name, and the re-run records the suite's own name.
+    $r = New-FlakyRecord; $r.suites = @((New-Suite "Alpha.Tests" "Completed"), (New-Suite "Beta.Tests.shard1of2" "Completed"), (New-Suite "Beta.Tests.shard2of2" "Failed"))
+    Test-Case "a failing shard whose test the re-run named under the suite's name is accepted" 0 $r (New-Clearance $fix "DELETED") $fix "since deleted or fixed on main"
+    $r = New-FlakyRecord; $r.suites = @((New-Suite "Alpha.Tests.shard1of2" "Failed"), (New-Suite "Beta.Tests" "Failed"))
+    Test-Case "a failing shard of a suite the re-run did not cover is refused" 1 $r (New-Clearance $fix "DELETED") $fix "suite Alpha.Tests.shard1of2 failed, and the re-run named no flaky test in it"
     $r = New-FlakyRecord; $r.suites = @((New-Suite "Alpha.Tests" "Aborted"), (New-Suite "Beta.Tests" "Failed"))
     Test-Case "a FLAKY record of a run that did not finish is refused" 1 $r (New-Clearance $fix "DELETED") $fix "so the run did not finish"
     $r = New-FlakyRecord; $r.treeClean = $false

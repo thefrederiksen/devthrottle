@@ -376,8 +376,15 @@ public sealed class NoSqliteOnHostedArchitectureTests
     /// ACTUALLY selects, in all three states of the variable. Asserting the two read the same variable NAME
     /// would prove nothing - they share one compile-time constant, so that comparison cannot fail and a check
     /// that cannot fail is not a check. This drives the real selection instead and observes which provider came
-    /// out: SQLite opens a file, PostgreSQL fails to reach a dead endpoint, blank is rejected as a
-    /// misconfiguration. If the guard's predicate is ever loosened away from the Gateway's, this goes red.
+    /// out: SQLite opens a file, PostgreSQL is selected without being reached (the database is built with its
+    /// open deferred, and its path is the redacted PostgreSQL target, not the file it was handed), blank is
+    /// rejected as a misconfiguration. If the guard's predicate is ever loosened away from the Gateway's, this
+    /// goes red.
+    ///
+    /// The PostgreSQL case used to OPEN against a refusing port and wait out the open's whole 170-second retry
+    /// window, which made this one test three minutes of every Gateway.Tests run and put a real network
+    /// connection in the gate. The selection is decided in the constructor; the open adds nothing to what this
+    /// test proves.
     /// </summary>
     [Fact]
     public void DT_SQL_3_the_guards_notion_of_hosted_matches_the_provider_the_gateway_selects()
@@ -395,15 +402,15 @@ public sealed class NoSqliteOnHostedArchitectureTests
                 Assert.Equal(dbPath, db.Path);
             Assert.True(File.Exists(dbPath), "the unset case must really have opened a SQLite FILE, not merely reported one");
 
-            // SET: hosted. The guard says hosted, and the Gateway selects PostgreSQL - proven by it failing to
-            // reach a dead endpoint rather than quietly opening a file. Port 1 refuses immediately.
+            // SET: hosted. The guard says hosted, and the Gateway selects PostgreSQL - proven by the database
+            // describing itself as the PostgreSQL target rather than the SQLite file it was handed. Nothing is
+            // reached: the open is deferred, and the selection is made before it.
             Environment.SetEnvironmentVariable(HostedSqliteGuard.HostedMarkerEnvVar,
                 "Host=127.0.0.1;Port=1;Database=dt_sql_3;Username=u;Password=p;Timeout=1;Command Timeout=1");
             Assert.True(HostedSqliteGuard.IsHosted);
             var pgPath = Path.Combine(dir, "must-not-be-created.db");
-            var pgFailure = Assert.Throws<InvalidOperationException>(
-                () => new GatewayDatabase(new CcDirector.Core.Tenancy.SingleTenantContext(), pgPath));
-            Assert.Contains("PostgreSQL", pgFailure.Message, StringComparison.Ordinal);
+            using (var pg = new GatewayDatabase(new CcDirector.Core.Tenancy.SingleTenantContext(), pgPath, deferOpen: true))
+                Assert.Equal("postgres host=127.0.0.1 database=dt_sql_3", pg.Path);
             Assert.False(File.Exists(pgPath),
                 "the hosted case must not have created a SQLite file even though a path was supplied");
 
