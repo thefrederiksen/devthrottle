@@ -401,6 +401,15 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>Moves an approved secret transfer between the two machines' Directors (the Secret Handoff mission).</summary>
     internal Secrets.SecretTransferDelivery SecretDelivery { get; }
 
+    /// <summary>License Switching: the accounts, machines, readings, switch log and bars - never a sign-in key.</summary>
+    internal Licenses.LicenseStore LicenseStore { get; }
+
+    /// <summary>Takes or refuses each Director's license usage report (contract section 2.1).</summary>
+    internal Licenses.LicenseUsageIngest LicenseUsage { get; }
+
+    /// <summary>The license picture the decision engine and the Licenses page read.</summary>
+    internal Licenses.LicenseReadModel LicenseReads { get; }
+
     /// <summary>The record of every message link set up and stopped, and every message a link carried, in the
     /// governance audit trail.</summary>
     internal Messaging.FleetMessageLinkRecord MessageLinkRecord { get; }
@@ -2232,6 +2241,9 @@ public sealed class GatewayHost : IAsyncDisposable
             enterScope: tenant => _tenantBoundary.EnterScope(tenant),
             nowUtc: () => DateTime.UtcNow);
         MessageLinkRecord = new Messaging.FleetMessageLinkRecord(_governanceAudit, tenant => _tenantBoundary.EnterScope(tenant));
+        LicenseStore = new Licenses.LicenseStore(_gatewayDb);
+        LicenseUsage = new Licenses.LicenseUsageIngest(LicenseStore);
+        LicenseReads = new Licenses.LicenseReadModel(LicenseStore);
         // Per-tenant dictation transcript store (issue #509): every transcribed turn's raw and cleaned text
         // lands in the caller tenant's partition of the dictation_transcripts table, write-only, for later
         // mistranscription mining (devthrottle #2075). Same store on SQLite (self-host) and Postgres (hosted) -
@@ -4105,6 +4117,8 @@ public sealed class GatewayHost : IAsyncDisposable
         builder.Services.AddSingleton(_turnPushCapabilities);
         builder.Services.AddSingleton(_fleetManagerHomeCapabilities);
         builder.Services.AddSingleton(SecretMachines);
+        // License Switching: DirectorHub.PushLicenseUsage hands each report to the ingest.
+        builder.Services.AddSingleton(LicenseUsage);
         // Gateway Cleanup mission (Wave 4b): the Gateway-native mission store, so the mission endpoints and
         // spawn validation share the one instance.
         builder.Services.AddSingleton(Missions);
