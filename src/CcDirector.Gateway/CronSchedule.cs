@@ -165,6 +165,37 @@ public static class CronSchedule
     internal static bool IsOneOff(string? kind) =>
         string.Equals(kind?.Trim(), KindOneOff, StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// The most missed runs of one schedule recorded one by one in a single pass. Far above any real outage of the
+    /// owner's schedules (a day of a schedule that runs every five minutes is 288); it exists so a schedule left due for
+    /// months cannot write an unbounded number of rows in one go. The count past it is still recorded, in words.
+    /// </summary>
+    public const int MaxMissedRunsRecorded = CronRunProblems.MaxMissedRunsRecorded;
+
+    /// <summary>
+    /// Every time the schedule was due AFTER <paramref name="afterUtc"/> and at or before <paramref name="upToUtc"/>,
+    /// oldest first, at most <see cref="MaxMissedRunsRecorded"/> - and how many more there were past that. A one-off is
+    /// due once, so it has none after its own time. Random and window schedules are deterministic for a given moment
+    /// (a random one is seeded by its id), so this lists the same times the engine would have fired.
+    /// </summary>
+    public static (IReadOnlyList<DateTime> Due, int MoreNotListed) DueBetween(CronJobDto job, DateTime afterUtc, DateTime upToUtc,
+        int maxListed = MaxMissedRunsRecorded)
+    {
+        ArgumentNullException.ThrowIfNull(job);
+        if (maxListed < 0) throw new ArgumentOutOfRangeException(nameof(maxListed), maxListed, "maxListed cannot be negative");
+        var due = new List<DateTime>();
+        var more = 0;
+        if (IsOneOff(job.ScheduleKind)) return (due, more);
+        var cursor = DateTime.SpecifyKind(afterUtc, DateTimeKind.Utc);
+        while (ComputeNextRunUtc(job, cursor) is { } next && next <= upToUtc && next > cursor)
+        {
+            if (due.Count < maxListed) due.Add(next);
+            else more++;
+            cursor = next;
+        }
+        return (due, more);
+    }
+
     /// <summary>True when the kind is <see cref="KindWindow"/>, ignoring case and surrounding spaces.</summary>
     public static bool IsWindow(string? kind) =>
         string.Equals(kind?.Trim(), KindWindow, StringComparison.OrdinalIgnoreCase);
