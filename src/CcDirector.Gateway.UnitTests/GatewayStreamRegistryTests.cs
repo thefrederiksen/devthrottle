@@ -79,35 +79,48 @@ public sealed class GatewayStreamRegistryTests
     {
         // The backpressure invariant (ruling 1): the registry must await the sink write of one frame BEFORE it
         // pulls the next frame. A sink whose write is held therefore stops the producer from running ahead.
+        //
+        // Decided without a clock. The producer answers every pull synchronously, so a consumer that did NOT await
+        // the write would pull every frame inside the ConsumeAsync call itself, before it returns. A consumer that
+        // does await it returns to this test holding exactly one pull and one started write. The log then proves
+        // the order for the whole stream: no pull ever comes before the previous write ended.
         var registry = new GatewayStreamRegistry();
         var gate = new TaskCompletionSource();
-        var firstWriteHeld = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var sink = new RecordingSink(gate: () => { firstWriteHeld.TrySetResult(); return gate.Task; });
+        var log = new List<string>();
+        var writes = 0;
+        var sink = new RecordingSink(gate: () =>
+        {
+            var n = writes++;
+            lock (log) log.Add("write-start " + n);
+            var held = n == 0 ? gate.Task : Task.CompletedTask;
+            return held.ContinueWith(_ => { lock (log) log.Add("write-end " + n); },
+                CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        });
         registry.Register("bp", Owner, sink);
 
-        var yielded = 0;
         async IAsyncEnumerable<DirectorStreamFrame> Produce([EnumeratorCancellation] CancellationToken ct = default)
         {
             for (var i = 0; i < 5; i++)
             {
-                Interlocked.Increment(ref yielded);
+                lock (log) log.Add("pull " + i);
                 yield return Bin("bp", (byte)i);
-                await Task.Yield();
             }
+            lock (log) log.Add("pull 5");
             yield return Closed("bp", "eof");
+            await Task.CompletedTask;
         }
 
         var consume = registry.ConsumeAsync("bp", Owner, Produce(), CancellationToken.None);
-        await firstWriteHeld.Task; // the consumer pulled the first frame and is blocked on the held sink write
 
-        Assert.Equal(1, Volatile.Read(ref yielded)); // only the first frame was pulled; the next pull is blocked
+        lock (log) Assert.Equal(new[] { "pull 0", "write-start 0" }, log); // held on the first write; nothing pulled ahead
         Assert.False(consume.IsCompleted);
 
-        gate.SetResult(); // release the sink writes
-        await consume;
+        gate.SetResult(); // release the first write
+        await consume.WaitAsync(TimeSpan.FromSeconds(30));
 
-        Assert.Equal(5, Volatile.Read(ref yielded)); // all five binaries were pulled (the counter counts binaries)
-        Assert.Equal(6, sink.Frames.Count); // and the sink received all five binaries plus the closed frame
+        var expected = Enumerable.Range(0, 6).SelectMany(i => new[] { "pull " + i, "write-start " + i, "write-end " + i });
+        lock (log) Assert.Equal(expected, log);
+        Assert.Equal(6, sink.Frames.Count); // all five binaries plus the closed frame
     }
 
     [Fact]
