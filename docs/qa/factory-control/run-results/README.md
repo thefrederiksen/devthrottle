@@ -191,7 +191,7 @@ change in this round, so the database and Python suites were not re-run.
 ## After the review passed: rebased onto main's new migration (12 October 2026)
 
 The fourth review passed on head `4cf928063`. Main then added the AddLicenseSwitching migration, so the branch
-was rebased onto origin/main `6fbabf01a` and the AddCronRunResults migration regenerated on top of it for both
+was rebased onto origin/main `8610c8fb2` and the AddCronRunResults migration regenerated on top of it for both
 providers (still 14 columns and 3 indexes on `cron_runs`, nothing else). No product code changed. The migration
 chain test now lists main's migration before this one, and its count is 163: main's 128, the license migration's
 18, and this one's 17.
