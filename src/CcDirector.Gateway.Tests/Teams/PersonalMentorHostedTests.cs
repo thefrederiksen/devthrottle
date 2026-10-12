@@ -40,7 +40,9 @@ public sealed class PersonalMentorHostedTests : IAsyncLifetime
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
             streamMode: true, teamsReleased: teamsReleased,
-            options: new GatewayHostOptions { Hosted = true });
+            // No Cockpit is served: the folder named here does not exist. Stated rather than assumed, because a Release
+            // build stages the real Cockpit beside these binaries, and its shell would answer every unmapped address.
+            options: new GatewayHostOptions { Hosted = true, CockpitWebRoot = Path.Combine(_instancesDir, "no-cockpit") });
         await _gateway.StartAsync();
         return _gateway;
     }
@@ -132,17 +134,14 @@ public sealed class PersonalMentorHostedTests : IAsyncLifetime
     [Fact]
     public async Task OverTheWire_TeamsDark_TheRouteIsNotMapped()
     {
-        // An unmapped address is the Gateway's plain 404 when no Cockpit is built beside these binaries (a Debug build),
-        // and the built Cockpit's HTML shell when one is (a Release build builds it into wwwroot, as production does).
-        // Both are what the client reads as "not offered"; what must never come back is the Mentor's JSON page.
+        // This host serves no Cockpit (see StartAsync), so an unmapped address is the Gateway's plain 404. In production the
+        // built Cockpit answers it with its HTML shell instead, which the client reads as "not offered" too.
         var gateway = await StartAsync(teamsReleased: false);
         var ann = Enroll(gateway, $"sub-pm-dark-{_runId}", $"dark-{_runId}@example.com", $"dev-pm-dark-{_runId}");
 
         var (status, body) = await Get(gateway, PersonalMentorEndpoints.Route.TrimStart('/'), ann.Key);
 
-        var cockpitShell = status == HttpStatusCode.OK && body.TrimStart().StartsWith("<!doctype html", StringComparison.OrdinalIgnoreCase);
-        Assert.True(status == HttpStatusCode.NotFound || cockpitShell,
-            $"expected 404 or the Cockpit's HTML shell for an unmapped route, got {(int)status}: {body[..Math.Min(body.Length, 200)]}");
+        Assert.Equal(HttpStatusCode.NotFound, status);
         Assert.DoesNotContain("\"scope\"", body, StringComparison.Ordinal);
     }
 }
