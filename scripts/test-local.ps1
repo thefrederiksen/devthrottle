@@ -234,7 +234,7 @@ if ($Gateway -and $Parked) {
     exit 2
 }
 if ($Quarantine -and ($Parked -or $ExpectTests -gt 0)) {
-    Write-Error "-Quarantine runs the quarantined tests of every suite, parked ones included, and never gates; it cannot be combined with -Parked or -ExpectTests. (-Quarantine -Gateway runs the Gateway suite's quarantined tests alone.)"
+    Write-Error "-Quarantine runs the quarantined tests of every suite except Gateway.Tests (add -Gateway for that suite alone) and never gates; it cannot be combined with -Parked or -ExpectTests."
     exit 2
 }
 
@@ -1385,9 +1385,9 @@ try {
 
     Write-Host ""
     Write-Host "TRX verdict - THIS is the gate. Every suite must report outcome=Completed:"
-    Write-Host ("  commit {0}  tree {1}  parked={2} quarantine={3} configuration={4} suite filter={5}" -f $commit,
+    Write-Host ("  commit {0}  tree {1}  parked={2} configuration={3} suite filter={4}" -f $commit,
         $(if ($treeClean) { "clean" } else { "DIRTY ($($dirtyFiles.Count) changed or untracked)" }),
-        [bool] $Parked, [bool] $Quarantine, $Configuration, $suiteFilter)
+        [bool] $Parked, $Configuration, $suiteFilter)
     foreach ($r in $running) {
         Write-Host ("  {0,-40} outcome={1,-12} total={2,-6} executed={3}" -f $r.Name, $r.Outcome, $r.Total, $r.Executed)
     }
