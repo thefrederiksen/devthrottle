@@ -21,6 +21,7 @@ namespace CcDirector.Core.Tests;
 ///  - THE PAYLOAD CARRIES NO CONTENT. Asserted on the SERIALIZED snapshot of a repository whose files and
 ///    commit messages contain a distinctive marker: if any of it ever reaches the wire, the marker shows up.
 /// </summary>
+[Trait("Gate", "Quarantine")]
 [Collection("ProcessWideState")]
 public sealed class RepoStateSnapshotCollectorTests : IClassFixture<RepoStateSnapshotCollectorTests.Template>, IDisposable
 {

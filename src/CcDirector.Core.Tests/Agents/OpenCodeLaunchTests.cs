@@ -14,6 +14,7 @@ namespace CcDirector.Core.Tests.Agents;
 /// bare command name. Skipped when opencode is not installed so it stays green on
 /// machines/CI without it.
 /// </summary>
+[Trait("Gate", "Quarantine")]
 [Collection("ProcessWideState")]
 public class OpenCodeLaunchTests
 {

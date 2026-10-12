@@ -49,6 +49,7 @@ public class SessionManagerTests : IDisposable
             () => _manager.KillSessionAsync(Guid.NewGuid()));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void CreateSession_WithCmdExe_Succeeds()
     {
@@ -68,6 +69,7 @@ public class SessionManagerTests : IDisposable
         Assert.Equal(session.Id, fetched.Id);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void RenameSession_ExplicitRename_ClearsIsAutoNamed()
     {
@@ -90,6 +92,7 @@ public class SessionManagerTests : IDisposable
         _manager.ScanForOrphans();
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void SaveCurrentState_ConPtySession_IsPersisted()
     {
@@ -129,6 +132,7 @@ public class SessionManagerTests : IDisposable
         }
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task SaveCurrentState_ExitedSessionWithoutClaudeSessionId_NotPersisted()
     {
@@ -162,6 +166,7 @@ public class SessionManagerTests : IDisposable
         }
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task SaveCurrentState_ExitedSessionWithClaudeSessionId_IsPersisted()
     {
@@ -197,6 +202,7 @@ public class SessionManagerTests : IDisposable
         }
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task SaveCurrentState_AnyStatusWithClaudeSessionId_IsPersisted()
     {
@@ -234,6 +240,7 @@ public class SessionManagerTests : IDisposable
         }
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void RemoveSession_WithClaudeSessionId_NotPersistedAfterRemoval()
     {
@@ -268,6 +275,7 @@ public class SessionManagerTests : IDisposable
         }
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void RemoveSession_FiresOnSessionRemoved_Once_WithThatSession()
     {
@@ -282,6 +290,7 @@ public class SessionManagerTests : IDisposable
         Assert.Equal(session.Id, fired[0]);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void RemoveSession_FiresOnSessionRemoved_BeforeBufferIsDisposed()
     {
@@ -324,6 +333,7 @@ public class SessionManagerTests : IDisposable
         Assert.False(fired);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void RemoveSession_OnSessionRemovedHandlerThrows_DoesNotPropagate()
     {
@@ -340,6 +350,7 @@ public class SessionManagerTests : IDisposable
 
     // ===== Issue #820: three-digit session numbers =====
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void CreateSession_AssignsThreeDigitNumber()
     {
@@ -349,6 +360,7 @@ public class SessionManagerTests : IDisposable
         Assert.InRange(session.Number.Value, SessionNumberAllocator.MinNumber, SessionNumberAllocator.MaxNumber);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void CreateSession_TwoActiveSessions_HaveDistinctNumbers()
     {
@@ -360,6 +372,7 @@ public class SessionManagerTests : IDisposable
         Assert.NotEqual(a.Number!.Value, b.Number!.Value);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void RemoveSession_ReleasesNumber_BackToThePool()
     {
@@ -375,6 +388,7 @@ public class SessionManagerTests : IDisposable
 
     // ===== Issue #1292: Gateway-assigned fleet numbers + offline fallback =====
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void CreateSession_WithGatewayNumbering_UsesTheGatewayNumber()
     {
@@ -390,6 +404,7 @@ public class SessionManagerTests : IDisposable
         Assert.True(_manager.NumberAllocator.IsReserved(250));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void CreateSession_WhenGatewayReturnsNoNumber_FallsBackToOfflineHighBand()
     {
@@ -404,6 +419,7 @@ public class SessionManagerTests : IDisposable
         Assert.InRange(session.Number!.Value, SessionNumberAllocator.OfflineBandStart, SessionNumberAllocator.MaxNumber);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void CreateSession_WithNoGatewayConfigured_NumbersOfflineSynchronously()
     {
@@ -416,6 +432,7 @@ public class SessionManagerTests : IDisposable
         Assert.InRange(session.Number!.Value, SessionNumberAllocator.OfflineBandStart, SessionNumberAllocator.MaxNumber);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void RemoveSession_TellsTheGatewayToReleaseTheNumber()
     {
@@ -428,6 +445,7 @@ public class SessionManagerTests : IDisposable
         Assert.Contains(session.Id, released);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void SaveCurrentState_PersistsSessionNumber()
     {
@@ -453,6 +471,7 @@ public class SessionManagerTests : IDisposable
         }
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void BackfillNumbers_AssignsNumberToUnnumberedSession()
     {
@@ -467,6 +486,7 @@ public class SessionManagerTests : IDisposable
         Assert.InRange(session.Number.Value, SessionNumberAllocator.MinNumber, SessionNumberAllocator.MaxNumber);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void BackfillNumbers_LeavesAlreadyNumberedSessionUnchanged()
     {

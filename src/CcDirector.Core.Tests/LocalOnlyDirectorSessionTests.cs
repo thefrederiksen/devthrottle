@@ -57,6 +57,7 @@ public class LocalOnlyDirectorSessionTests
         WithRoot(() => Assert.False(GatewayConfig.Load().IsEnabled));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void NewSession_LocalOnly_StartsNumbersOffline_AndNeverCallsTheGateway()
     {

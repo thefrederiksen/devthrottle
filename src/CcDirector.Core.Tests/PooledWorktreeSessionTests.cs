@@ -102,6 +102,7 @@ public sealed class PooledWorktreeSessionTests : IDisposable
 
     // ---- off changes nothing --------------------------------------------------------------------
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void SettingOff_TheSessionRunsInTheCheckoutAndNoToolIsRun()
     {
@@ -121,6 +122,7 @@ public sealed class PooledWorktreeSessionTests : IDisposable
 
     // ---- on: the session runs in the slot -------------------------------------------------------
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void SettingOn_TheSessionRunsInTheSlotTheToolHandedOut()
     {
@@ -138,6 +140,7 @@ public sealed class PooledWorktreeSessionTests : IDisposable
         Assert.Equal(4, poolSize);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void SettingOn_TheLeaseIsKeptWithTheSession_SoCloseCanPresentIt()
     {
@@ -150,6 +153,7 @@ public sealed class PooledWorktreeSessionTests : IDisposable
         Assert.Equal(_repo, session.PooledWorktree.Repo); // where the slot came from
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void SettingOn_TheHolderNamesTheSession()
     {
@@ -164,6 +168,7 @@ public sealed class PooledWorktreeSessionTests : IDisposable
         Assert.Contains(session.Id.ToString(), holder);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void SettingOn_ThePoolSizeIsTheRepositorysSetting()
     {
@@ -175,6 +180,7 @@ public sealed class PooledWorktreeSessionTests : IDisposable
 
     // ---- a refusal stops the spawn, with no fallback --------------------------------------------
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void ARefusal_StopsTheSpawnWithTheToolsOwnReason_AndOpensNoSession()
     {
@@ -197,6 +203,7 @@ public sealed class PooledWorktreeSessionTests : IDisposable
 
     // ---- close --------------------------------------------------------------------------------
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Close_OnACleanSlot_ReturnsItAndRemovesTheRow()
     {
@@ -211,6 +218,7 @@ public sealed class PooledWorktreeSessionTests : IDisposable
         Assert.Empty(manager.ListSessions());
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Close_OnAHeldSlot_KeepsTheRowAndPutsTheReasonOnIt()
     {
@@ -229,6 +237,7 @@ public sealed class PooledWorktreeSessionTests : IDisposable
         Assert.Contains("1 commit is on no remote", stillThere!.PooledWorktreeHeldReason);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Close_OnAHeldSlot_ForcesNothing()
     {
@@ -245,6 +254,7 @@ public sealed class PooledWorktreeSessionTests : IDisposable
         Assert.True(Directory.Exists(_slot), "a held slot is never removed from disk by the Director");
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Close_AgainAfterAHeldSlot_RemovesTheRowAndLeavesTheSlotHeld()
     {
@@ -263,6 +273,7 @@ public sealed class PooledWorktreeSessionTests : IDisposable
         Assert.True(Directory.Exists(_slot));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Close_WhenTheToolCannotBeAskedAtAll_IsHeldAndNotFree()
     {

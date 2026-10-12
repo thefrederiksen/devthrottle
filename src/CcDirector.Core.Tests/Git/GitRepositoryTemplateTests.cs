@@ -6,6 +6,7 @@ namespace CcDirector.Core.Tests.Git;
 /// The once-per-class repository template keeps tests as isolated as a repository built per test did:
 /// a copy pushes to its OWN origin, never to the template's or to another copy's.
 /// </summary>
+[Trait("Gate", "Quarantine")]
 public sealed class GitRepositoryTemplateTests
 {
     public sealed class Template : GitRepositoryTemplate

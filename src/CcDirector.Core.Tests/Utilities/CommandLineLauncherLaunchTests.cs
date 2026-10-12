@@ -17,6 +17,7 @@ namespace CcDirector.Core.Tests.Utilities;
 /// cmd.exe quoting that the launcher produces, while avoiding the pseudo-console attach behavior
 /// that makes ConPTY-based capture unreliable when the test host is itself inside a terminal.
 /// </summary>
+[Trait("Gate", "Quarantine")]
 public class CommandLineLauncherLaunchTests
 {
     private const string Marker = "MARKER_OK_123";

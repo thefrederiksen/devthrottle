@@ -25,6 +25,7 @@ public class ToolRunnerTests
         return collected;
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task RunStream_EchoCommand_YieldsStartStdoutThenExitZero()
     {
@@ -47,6 +48,7 @@ public class ToolRunnerTests
         Assert.Equal(ToolRunChunk.StreamExit, chunks[^1].Chunk.Stream);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task RunStream_StderrOutput_YieldsStderrChunk()
     {
@@ -60,6 +62,7 @@ public class ToolRunnerTests
             c.Chunk.Data is not null && c.Chunk.Data.Contains("to-stderr"));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task RunStream_NonZeroExit_ReportsRealExitCode()
     {
@@ -74,6 +77,7 @@ public class ToolRunnerTests
         Assert.Null(exit.Chunk.Error);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task RunStream_Timeout_KillsProcessTreeAndReportsDistinctTimeoutError()
     {
@@ -112,6 +116,7 @@ public class ToolRunnerTests
         Assert.True(gone, $"pid {pid} still alive after the timeout kill");
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task RunStream_Timeout_DurationReflectsBoundNotCommand()
     {

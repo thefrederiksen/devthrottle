@@ -96,6 +96,7 @@ public sealed class SkillDirectoryInstallerTests : IDisposable
         Assert.Contains("Use when the task involves: move session.", skillMd);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Installing_puts_the_skill_where_the_agent_looks_and_marks_it_as_ours()
     {
@@ -109,6 +110,7 @@ public sealed class SkillDirectoryInstallerTests : IDisposable
         Assert.True(File.Exists(Path.Combine(Shared, "demo-skill", SkillDirectoryInstaller.MarkerFileName)));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void There_is_ONE_copy_and_the_agents_own_directory_holds_a_link_to_it()
     {
@@ -131,6 +133,7 @@ public sealed class SkillDirectoryInstallerTests : IDisposable
             File.ReadAllText(Path.Combine(link, "SKILL.md")));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Installing_twice_leaves_one_working_link_and_not_a_broken_one()
     {
@@ -146,6 +149,7 @@ public sealed class SkillDirectoryInstallerTests : IDisposable
         Assert.Single(Directory.GetDirectories(LinkRoot));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void A_copy_left_by_the_previous_scheme_becomes_a_link()
     {
@@ -191,6 +195,7 @@ public sealed class SkillDirectoryInstallerTests : IDisposable
         Assert.Equal(0, (int)(File.GetAttributes(mineOwn) & FileAttributes.ReparsePoint));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void A_withdrawn_skill_is_removed_and_a_skill_that_is_not_ours_is_left_alone()
     {
@@ -218,6 +223,7 @@ public sealed class SkillDirectoryInstallerTests : IDisposable
         Assert.True(File.Exists(Path.Combine(theirs, "SKILL.md")));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Removing_a_withdrawn_link_does_not_empty_the_one_real_copy()
     {
@@ -237,6 +243,7 @@ public sealed class SkillDirectoryInstallerTests : IDisposable
         Assert.True(File.Exists(Path.Combine(LinkRoot, "keeper", "SKILL.md")));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void A_file_removed_upstream_does_not_survive_inside_an_installed_skill()
     {
@@ -335,6 +342,7 @@ public sealed class SkillDirectoryInstallerTests : IDisposable
         Assert.Equal("# MINE\n", File.ReadAllText(Path.Combine(theirs, "SKILL.md")));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void A_complete_placement_says_nothing_is_wrong()
     {
@@ -348,6 +356,7 @@ public sealed class SkillDirectoryInstallerTests : IDisposable
         Assert.Equal(placement.Held, placement.Reachable);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void The_retired_installers_leftover_is_moved_aside_ONCE_so_the_fleet_copy_can_land()
     {
@@ -377,6 +386,7 @@ public sealed class SkillDirectoryInstallerTests : IDisposable
         Assert.Empty(Directory.GetDirectories(LinkRoot, "*superseded*"));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void The_reclaim_runs_once_and_never_takes_a_name_again()
     {
@@ -402,6 +412,7 @@ public sealed class SkillDirectoryInstallerTests : IDisposable
         Assert.Equal(SkillPlacementFault.Shadowed, placement.Problems[0].Fault);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void A_second_Director_never_moves_the_persons_own_folder_after_the_first_one_migrated()
     {

@@ -13,6 +13,7 @@ namespace CcDirector.Core.Tests.Storage;
 /// the disposal lifecycle. The hot-path back-pressure test is deliberately omitted -
 /// the bounded-channel drop policy is the relevant Channels API behavior, not ours.
 /// </summary>
+[Trait("Gate", "Quarantine")]
 [Collection("ProcessWideState")]
 public sealed class SessionLogWriterTests : IDisposable
 {

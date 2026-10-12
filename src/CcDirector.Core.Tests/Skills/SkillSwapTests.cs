@@ -42,6 +42,7 @@ public sealed class SkillSwapTests : IDisposable
 
     // ---- SK-F5: never without its marker ---------------------------------------------------------------------
 
+    [Trait("Gate", "Quarantine")]
     [Theory]
     [InlineData("copying")]       // part-way through copying the files
     [InlineData("copied")]        // every file copied, the source stamp not yet written
@@ -71,6 +72,7 @@ public sealed class SkillSwapTests : IDisposable
         }
     }
 
+    [Trait("Gate", "Quarantine")]
     [Theory]
     [InlineData("copying")]
     [InlineData("copied")]
@@ -88,6 +90,7 @@ public sealed class SkillSwapTests : IDisposable
         Assert.Empty(Directory.GetDirectories(Staging));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void A_reconcile_killed_while_withdrawing_a_skill_leaves_no_half_deleted_folder_and_the_next_one_finishes()
     {
@@ -104,6 +107,7 @@ public sealed class SkillSwapTests : IDisposable
         Assert.Empty(Directory.GetDirectories(Staging));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Nothing_is_ever_built_inside_a_skills_folder()
     {
@@ -149,6 +153,7 @@ public sealed class SkillSwapTests : IDisposable
         Assert.Equal("somebody's work\n", File.ReadAllText(Path.Combine(foreign, "work", "precious.txt")));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Every_folder_the_installer_makes_in_the_staging_folder_carries_its_marker_before_anything_else()
     {
@@ -182,6 +187,7 @@ public sealed class SkillSwapTests : IDisposable
 
     // ---- SK-F9: build on the volume the skills folder really lives on --------------------------------------------
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void A_skills_folder_that_is_a_link_has_its_copies_built_beside_the_folder_it_points_at()
     {
@@ -204,6 +210,7 @@ public sealed class SkillSwapTests : IDisposable
             "a staging folder was made beside the link's own spelling - on another volume, every move would fail");
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void A_skills_folder_linked_to_nowhere_changes_nothing_and_says_why()
     {

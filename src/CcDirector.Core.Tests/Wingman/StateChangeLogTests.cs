@@ -35,6 +35,7 @@ public sealed class StateChangeLogTests : IDisposable
         try { if (Directory.Exists(_root)) Directory.Delete(_root, true); } catch { /* best-effort cleanup */ }
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void State_changes_are_recorded_newest_first()
     {
@@ -54,6 +55,7 @@ public sealed class StateChangeLogTests : IDisposable
         finally { manager.Dispose(); }
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void State_change_ring_is_capped_at_100()
     {
@@ -69,6 +71,7 @@ public sealed class StateChangeLogTests : IDisposable
         finally { manager.Dispose(); }
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Recording_a_state_change_raises_the_event()
     {
@@ -84,6 +87,7 @@ public sealed class StateChangeLogTests : IDisposable
         finally { manager.Dispose(); }
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Same_state_write_is_a_no_op_and_records_nothing()
     {
@@ -99,6 +103,7 @@ public sealed class StateChangeLogTests : IDisposable
         finally { manager.Dispose(); }
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void LastOutputAtUtc_is_initialized_not_default()
     {

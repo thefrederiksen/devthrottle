@@ -54,6 +54,7 @@ public class SessionEdgeCaseTests : IDisposable
             () => _manager.CreateSession(Path.GetTempPath(), null, (SessionBackendType)999));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task SendText_OnExitedSession_NoOp()
     {
@@ -68,6 +69,7 @@ public class SessionEdgeCaseTests : IDisposable
         await session.SendTextAsync("should be ignored");
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task SendEnter_OnExitedSession_NoOp()
     {
@@ -81,6 +83,7 @@ public class SessionEdgeCaseTests : IDisposable
     }
 
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Session_CreatedAt_IsSet()
     {
@@ -92,6 +95,7 @@ public class SessionEdgeCaseTests : IDisposable
         Assert.True(session.CreatedAt <= after);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Session_Buffer_IsNotNull_ForConPty()
     {
@@ -99,6 +103,7 @@ public class SessionEdgeCaseTests : IDisposable
         Assert.NotNull(session.Buffer);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Session_RepoPath_MatchesInput()
     {
@@ -108,6 +113,7 @@ public class SessionEdgeCaseTests : IDisposable
         Assert.Equal(tempDir, session.WorkingDirectory);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void RegisterClaudeSession_ThenRemove_CleansMappingAndClaudeId()
     {

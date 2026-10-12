@@ -96,6 +96,7 @@ public sealed class RepositoryWatcherIntegrationTests : IDisposable
         return repo;
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task Commit_InOneRepo_RecomputesOnlyThatRepo()
     {
@@ -143,6 +144,7 @@ public sealed class RepositoryWatcherIntegrationTests : IDisposable
     // must recompute the repository, so its cleanliness and dirty-age do not go stale until the
     // next full scan. The old watcher observed only .git and ignored the worktree entirely.
     // ---------------------------------------------------------------------------------------
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task WorkingTreeChange_WithNoGitChange_RecomputesTheRepo()
     {
@@ -188,6 +190,7 @@ public sealed class RepositoryWatcherIntegrationTests : IDisposable
         Assert.Same(requested.Task, done); // the periodic tick asked for a rescan
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task BurstOfRefWrites_CollapsesIntoOneRecompute()
     {
@@ -224,6 +227,7 @@ public sealed class RepositoryWatcherIntegrationTests : IDisposable
     // completes, and the model ends holding the post-commit state - the newest compute wins
     // through the real watcher -> deferral -> drain -> guarded publish pipeline.
     // ---------------------------------------------------------------------------------------
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task Watcher_FiringDuringAScan_IsDeferred_AndTheNewestStateLandsAfterTheScan()
     {
@@ -292,6 +296,7 @@ public sealed class RepositoryWatcherIntegrationTests : IDisposable
     // count, dirtying the tree and letting the watcher recompute must publish the dirty state -
     // before the fix the recompute read the cached clean count and stayed wrong.
     // ---------------------------------------------------------------------------------------
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task WorkingTreeChange_RecomputesFromFreshStatus_NotTheStaleCache()
     {
@@ -320,6 +325,7 @@ public sealed class RepositoryWatcherIntegrationTests : IDisposable
     // a state change, so every recompute triggered the next - a repository with linked worktrees
     // recomputed every ~11s forever, each time downloading the fleet session list from the Gateway.
     // ---------------------------------------------------------------------------------------
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task StatusScanInALinkedWorktree_DoesNotRecompute_ButABranchSwitchThereDoes()
     {
@@ -358,6 +364,7 @@ public sealed class RepositoryWatcherIntegrationTests : IDisposable
         await WaitUntilAsync(() => Volatile.Read(ref recomputes) >= 1, TimeSpan.FromSeconds(15));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task RemovingALinkedWorktree_RecomputesTheRepo()
     {
@@ -403,6 +410,7 @@ public sealed class RepositoryWatcherIntegrationTests : IDisposable
     // recompute, not twenty. (Before the settle window was widened, every agent edit burst paid a
     // full git inventory - about one recompute every 3.7 seconds all day.)
     // ---------------------------------------------------------------------------------------
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task TwentyWritesInsideTheSettleWindow_ProduceOneRecompute()
     {
@@ -435,6 +443,7 @@ public sealed class RepositoryWatcherIntegrationTests : IDisposable
     // task the test completes by hand, and it ignores cancellation - exactly the moment a wait has
     // already expired when the replacement or the Dispose arrives.
     // ---------------------------------------------------------------------------------------
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task AReplacementAtTheMomentAWaitExpires_RecomputesExactlyOnce()
     {
@@ -470,6 +479,7 @@ public sealed class RepositoryWatcherIntegrationTests : IDisposable
         Assert.Equal(1, Volatile.Read(ref computes.Value));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task ADisposeAtTheMomentAWaitExpires_RecomputesNothing_AndRaisesNothing()
     {

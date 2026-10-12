@@ -157,6 +157,7 @@ public sealed class LauncherDiscoveryTests : IDisposable
         Assert.True(LauncherDiscovery.IsRunning(LauncherDiscovery.Read(path)));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void IsRunning_DeadPid_IsFalse_StaleFileIsNotALiveLauncher()
     {

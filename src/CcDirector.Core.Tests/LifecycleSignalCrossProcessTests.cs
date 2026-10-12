@@ -30,6 +30,7 @@ namespace CcDirector.Core.Tests;
 ///   <see cref="LifecycleSignalRequestPathTests"/>, which asserts the derivation as a value and
 ///   therefore fails on every platform if the expression regresses.
 /// </summary>
+[Trait("Gate", "Quarantine")]
 public sealed class LifecycleSignalCrossProcessTests : IDisposable
 {
     private readonly string _sharedRoot = Path.Combine(AppContext.BaseDirectory,

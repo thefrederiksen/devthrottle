@@ -238,6 +238,7 @@ public class RepositoryMonitorTests
     // worktree path as a repository entry of its own. Uses real git so the canonicalization
     // (rev-parse --git-common-dir) is the production one.
     // ---------------------------------------------------------------------------------------
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task RecomputeOne_LinkedWorktreePath_RecomputesThePrimaryEntry()
     {

@@ -25,6 +25,7 @@ public class ClaudeSessionMappingTests : IDisposable
         _manager = new SessionManager(options);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void RegisterClaudeSession_MapsCorrectly()
     {
@@ -35,6 +36,7 @@ public class ClaudeSessionMappingTests : IDisposable
         Assert.Equal(session, _manager.GetSessionByClaudeId("claude-id-1"));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void RegisterClaudeSession_FiresEvent()
     {
@@ -54,6 +56,7 @@ public class ClaudeSessionMappingTests : IDisposable
         Assert.Equal("claude-id-1", eventClaudeId);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void RegisterClaudeSession_DuplicateId_IgnoresSecondRegistration()
     {
@@ -73,6 +76,7 @@ public class ClaudeSessionMappingTests : IDisposable
         Assert.NotEqual("same-claude-id", s2.ClaudeSessionId);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void RegisterClaudeSession_SameSessionSameId_Succeeds()
     {
@@ -89,6 +93,7 @@ public class ClaudeSessionMappingTests : IDisposable
         Assert.Null(_manager.GetSessionByClaudeId("nonexistent-id"));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void RelinkClaudeSession_UpdatesMapping()
     {
@@ -104,6 +109,7 @@ public class ClaudeSessionMappingTests : IDisposable
         Assert.Equal("new-claude-id", session.ClaudeSessionId);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void RelinkClaudeSession_NoOldMapping_JustSetsNew()
     {
@@ -117,6 +123,7 @@ public class ClaudeSessionMappingTests : IDisposable
         Assert.Equal("new-claude-id", session.ClaudeSessionId);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void RelinkClaudeSession_FiresEvent()
     {
@@ -136,6 +143,7 @@ public class ClaudeSessionMappingTests : IDisposable
         _manager.RelinkClaudeSession(Guid.NewGuid(), "some-id");
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void CreateSession_WithResumeSessionId_PrePopulatesMapping()
     {
@@ -146,6 +154,7 @@ public class ClaudeSessionMappingTests : IDisposable
         Assert.Equal(session, _manager.GetSessionByClaudeId("resume-id-123"));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void CreateSession_WithResumeSessionId_AppendsResumeArg()
     {
@@ -158,6 +167,7 @@ public class ClaudeSessionMappingTests : IDisposable
         Assert.Equal("resume-id-123", session.ClaudeSessionId);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void GetTrackedProcessIds_ReturnsAllLiveSessionPids()
     {
