@@ -122,7 +122,15 @@ public static class CockpitReactApp
         // Explicit "{*path}" pattern: the parameterless MapFallback uses "{*path:nonfile}", whose
         // :nonfile constraint skips anything with a file extension - which would 404 every Cockpit
         // asset (index-*.js, index-*.css, ...). The shell must serve FILES too.
-        app.MapFallback("{*path}", (HttpContext ctx, string? path) => ServeAsync(ctx, path ?? "", webRoot));
+        //
+        // A RequestDelegate, NOT a lambda with parameters, and that is load-bearing. The Gateway builds its
+        // request delegates at compile time (EnableRequestDelegateGenerator), and the generator's replacement for
+        // MapFallback(pattern, handler) DISCARDS the pattern it is given and maps "{*path:nonfile}" instead - so
+        // with a parameter lambda here every hashed asset answered an empty 404. The generator does not intercept
+        // the RequestDelegate overload, so this pattern is mapped exactly as written.
+        // CockpitReactAppServingTests.Hashed_asset_is_served_immutably goes red if it is changed back.
+        app.MapFallback("{*path}", (RequestDelegate)(ctx =>
+            ServeAsync(ctx, ctx.Request.RouteValues["path"] as string ?? "", webRoot)));
     }
 
     /// <summary>
