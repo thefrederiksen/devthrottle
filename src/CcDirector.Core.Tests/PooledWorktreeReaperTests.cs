@@ -16,7 +16,13 @@ namespace CcDirector.Core.Tests;
 /// Both of the pool's markers are exercised separately, because they protect different machines: the
 /// LAYOUT protects a slot on a machine whose records were lost, and the RECORDS protect a slot whose
 /// path does not look like one.
+///
+/// MARKED FOR QUARANTINE (Reliable Tests, 11 October 2026): it runs real git processes, which gate tests may no longer
+/// do, but it is the only real coverage of the reaper refusing a cc-worktrees pool slot it would otherwise DELETE, so it is kept for a run of its own whose result never decides a
+/// release. The gate's filter on this trait comes with a later change; until it does, the class still runs in the
+/// release gate (-Parked).
 /// </summary>
+[Trait("Gate", "Quarantine")]
 public sealed class PooledWorktreeReaperTests : IClassFixture<PooledWorktreeReaperTests.Template>, IDisposable
 {
     private readonly string _root;

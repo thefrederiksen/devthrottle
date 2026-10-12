@@ -8,7 +8,12 @@ namespace CcDirector.Core.Tests;
 /// Issue 516: a superseded scan must be able to cancel its git children, and git commands must
 /// drain both pipes and honor cancellation. These prove the token is threaded through and honored,
 /// and that a cancelled git command kills its child process tree rather than orphaning it.
+///
+/// MARKED FOR QUARANTINE (Reliable Tests, 11 October 2026): it runs real git processes, which gate tests may no longer
+/// do, but it holds the issue 516 regression tests, among them the only test of GitCommandRunner's own kill of a child process tree, so it is kept for a run of its own whose result never decides a release. The gate's filter on this
+/// trait comes with a later change; until it does, the class still runs in the release gate (-Parked).
 /// </summary>
+[Trait("Gate", "Quarantine")]
 public sealed class GitProcessCancellationTests : IDisposable
 {
     private readonly string _root;

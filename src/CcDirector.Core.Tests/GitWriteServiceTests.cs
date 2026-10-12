@@ -7,7 +7,13 @@ namespace CcDirector.Core.Tests;
 /// <summary>
 /// #6a - git WRITE actions against a real throwaway repo. Proves stage / commit / discard
 /// actually mutate the working tree (the desktop Source Control parity the Cockpit needs).
+///
+/// MARKED FOR QUARANTINE (Reliable Tests, 11 October 2026): it runs real git processes, which gate tests may no longer
+/// do, but it is the only real coverage of the Source Control actions that DISCARD a user's changes, so it is kept for a run of its own whose result never decides a
+/// release. The gate's filter on this trait comes with a later change; until it does, the class still runs in the
+/// release gate (-Parked).
 /// </summary>
+[Trait("Gate", "Quarantine")]
 public sealed class GitWriteServiceTests : IDisposable
 {
     private readonly string _repo;
