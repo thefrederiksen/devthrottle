@@ -35,14 +35,13 @@ public sealed class StateChangeLogTests : IDisposable
         try { if (Directory.Exists(_root)) Directory.Delete(_root, true); } catch { /* best-effort cleanup */ }
     }
 
-    [Trait("Gate", "Quarantine")]
     [Fact]
     public void State_changes_are_recorded_newest_first()
     {
         var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
         try
         {
-            var session = manager.CreateSession(Path.GetTempPath());
+            var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, new BufferOnlyBackend());
             session.ApplyTerminalActivityState(ActivityState.Working);
             session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
 
@@ -55,14 +54,13 @@ public sealed class StateChangeLogTests : IDisposable
         finally { manager.Dispose(); }
     }
 
-    [Trait("Gate", "Quarantine")]
     [Fact]
     public void State_change_ring_is_capped_at_100()
     {
         var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
         try
         {
-            var session = manager.CreateSession(Path.GetTempPath());
+            var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, new BufferOnlyBackend());
             // Alternate so every call is a real transition (same-state writes are no-ops).
             for (int i = 0; i < 130; i++)
                 session.ApplyTerminalActivityState(i % 2 == 0 ? ActivityState.Working : ActivityState.WaitingForInput);
@@ -71,14 +69,13 @@ public sealed class StateChangeLogTests : IDisposable
         finally { manager.Dispose(); }
     }
 
-    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Recording_a_state_change_raises_the_event()
     {
         var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
         try
         {
-            var session = manager.CreateSession(Path.GetTempPath());
+            var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, new BufferOnlyBackend());
             var fired = 0;
             session.OnStateChangeRecorded += () => fired++;
             session.ApplyTerminalActivityState(ActivityState.Working);
@@ -87,14 +84,13 @@ public sealed class StateChangeLogTests : IDisposable
         finally { manager.Dispose(); }
     }
 
-    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Same_state_write_is_a_no_op_and_records_nothing()
     {
         var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
         try
         {
-            var session = manager.CreateSession(Path.GetTempPath());
+            var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, new BufferOnlyBackend());
             session.ApplyTerminalActivityState(ActivityState.Working);
             var countAfterFirst = session.RecentStateChanges.Count;
             session.ApplyTerminalActivityState(ActivityState.Working); // identical -> ignored
@@ -103,14 +99,13 @@ public sealed class StateChangeLogTests : IDisposable
         finally { manager.Dispose(); }
     }
 
-    [Trait("Gate", "Quarantine")]
     [Fact]
     public void LastOutputAtUtc_is_initialized_not_default()
     {
         var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
         try
         {
-            var session = manager.CreateSession(Path.GetTempPath());
+            var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, new BufferOnlyBackend());
             // Initialized to construction time, not DateTime default -- the tab subtracts
             // it from "now", so a default would render a nonsense multi-millennium age.
             Assert.True(session.LastOutputAtUtc > DateTime.UtcNow.AddMinutes(-5));
