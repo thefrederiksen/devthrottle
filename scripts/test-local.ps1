@@ -112,9 +112,10 @@
 .PARAMETER Quarantine
     Run ONLY the quarantined tests (trait Gate=Quarantine), in every suite including the parked Core.Tests
     and Gateway.UnitTests. Gateway.Tests is left out unless -Gateway is passed too, and -Quarantine -Gateway
-    then runs that suite's quarantined tests alone: the Gateway suite is one run per machine at a time, and
-    with it included a look at the quarantine was REFUSED for the whole length of someone else's Gateway run
-    (found on 2026-10-11, when another session's full run held the lock for about two hours).
+    then runs that suite's quarantined tests alone: a run that includes the Gateway suite takes the
+    release-gate lock, and with it included a look at the quarantine was REFUSED for the whole length of
+    someone else's release gate (found on 2026-10-11, when another session's full run held the lock for
+    about two hours).
     Prints what passed and failed and exits 0 whenever the tests ran, failures or not: a quarantined test
     never decides a verdict. (A build failure, a held lock or too little disk space still stop it, because
     then nothing ran.) Writes no gate record, keeps its run folder so the failures can be read, and takes
@@ -374,7 +375,7 @@ if ($Gateway) {
 } else {
     $toRun = $defaultProjects + $installerProjects
     if ($Parked) { $toRun += $parkedProjects }
-    # Every parked suite but the Gateway one, which takes the machine's one Gateway lock; -Quarantine -Gateway
+    # Every parked suite but the Gateway one, which takes the machine's one release-gate lock; -Quarantine -Gateway
     # runs it on its own (see the header).
     if ($Quarantine) { $toRun += @($parkedProjects | Where-Object { $_ -ne $gatewayProject }) }
 }
