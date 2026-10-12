@@ -76,6 +76,17 @@ function Get-GateRecordDirectory {
     return Join-Path (Join-Path (Split-Path -Parent $locks) "test-gate") "gated"
 }
 
+<#
+.SYNOPSIS
+    Where scripts\test-local.ps1 -ClearFlaky records that every flaky test a candidate's release gate named
+    has been deleted or fixed on main. One JSON file per clearance, named by the CANDIDATE it clears.
+    scripts\assert-gated.ps1 reads it beside the gate record. Kept apart from the gate records because a
+    clearance is not a run of the gate, and must never be mistaken for one.
+#>
+function Get-GateClearanceDirectory {
+    return Join-Path (Split-Path -Parent (Get-GateRecordDirectory)) "cleared"
+}
+
 function Get-GatewaySuiteLockPath { return Get-GateLockPath "gateway-test-suite.lock" }
 
 # PowerShell hands a .NET constructor's exception back wrapped in a MethodInvocationException. The

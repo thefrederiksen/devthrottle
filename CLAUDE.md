@@ -212,6 +212,14 @@ Do NOT put try-catch in helper methods or service methods.
 **The gate is two things, both of which happen here: `.\scripts\test-local.ps1` goes green, and a
 reviewer from a different agent family reads the change. Then merge. Nothing waits on GitHub.**
 
+**THE TEST STANDARD (owner ruling, 11 October 2026).** A test failure means a code defect - a sensor
+that lights at random is worse than no sensor. So a test in a gate suite never lets Docker, a database
+server, a real port, a real process, a sleep or the real clock decide whether it passes: it uses a fake
+(an in-memory host or store, `TestServer`, an injected clock) or it is deleted. The whole release gate
+finishes in 90 minutes or less. A flaky test is fixed or deleted THE SAME DAY - deleting it is
+pre-approved. When a gate fails, re-run ONLY its failed tests (`-RerunFailed`, below), never the whole
+gate.
+
 There is no longer any case in which you hold a merge open waiting for a continuous integration
 result - not a release, not a change to the build or to continuous integration itself, not a
 cross-platform change. That exception list is gone deliberately. Waiting fifty minutes for an
@@ -224,12 +232,13 @@ answer you already have locally was the single largest source of dead time in th
    going further.
 
    Know exactly what the default run covers, because it is not everything:
-   - It runs every suite that fits the two-minute budget, 1,634 tests as measured on 2026-09-13.
+   - It runs every suite that fits the two-minute budget - 4,144 tests including the installer, as
+     measured on 2026-10-10 (the header of `scripts\test-local.ps1` carries the current counts).
    - **Three suites are PARKED and do NOT run by default** - `Gateway.Tests` (host-bound, takes a
      machine-wide lock), `Core.Tests` (far outside the budget), and `Gateway.UnitTests` (grew past
      the ceiling; issue #2824). Run them with `-Parked`.
    - **`Gateway.UnitTests` being parked is the one most likely to surprise you**: a green default run
-     no longer says anything about the Gateway's 4,259 unit tests. If you touched the Gateway, the
+     no longer says anything about the Gateway's 10,344 unit tests (2026-10-10). If you touched the Gateway, the
      COVERAGE GAP line will say so - run `-Parked`.
    - `-Fast` is a **no-op**, retained only for callers that still pass it. The default is the
      fast run. Do not claim a change was gated by `-Fast`; it means nothing.
@@ -239,13 +248,14 @@ answer you already have locally was the single largest source of dead time in th
    main with a green local run. If your change touches any of those, run `-Parked` or the
    relevant suite yourself - do not let "the gate was green" stand in for coverage it never had.
 2. **Get the change reviewed by a different agent family.** The author is the last to see the
-   defect, so the reviewer must not be the writer. **Codex reviews first.** If Codex cannot do it -
-   it is out of usage, it will not start, or Codex wrote the change - **Pi on GLM-5.3 reviews
-   instead** (Pi's default model). Do not wait for a Codex limit to reset; switch to Pi at once.
-   Either way the reviewer runs as a real tracked session, never backgrounded and never hidden:
+   defect, so the reviewer must not be the writer. The order is fixed (owner ruling, 28 September
+   2026): **Codex first; if Codex cannot do it, Claude Code on Fable; if Fable cannot either, Claude
+   Code on Opus. Never Pi, Grok or Gemini.** Read the Codex seat's screen within a minute - a usage
+   limit or an unsupported model looks like a waiting seat - and switch at once. The reviewer runs as
+   a real tracked session, never backgrounded and never hidden:
 
-       cc-devthrottle session spawn <repo> --controlled-by self --agent Codex --prompt "<what to review>" --name "review: <what it is>"
-       cc-devthrottle session spawn <repo> --controlled-by self --agent Pi --prompt "<what to review>" --name "review: <what it is>"
+       cc-devthrottle session spawn <repo> --controlled-by self --agent Codex --prompt "<what to review>" --name "<Mission> - Reviewer - <what>"
+       cc-devthrottle session spawn <repo> --controlled-by self --agent ClaudeCode --args "--model claude-fable-5-1 --dangerously-skip-permissions" --prompt "<what to review>" --name "<Mission> - Reviewer - <what>"
 
 3. **Merge.** `gh pr merge <number> --squash --delete-branch`, then park the checkout back on main.
 
@@ -270,6 +280,11 @@ and it is ONE command:**
 `-Parked` adds the three skipped suites. `-Configuration Release` matches what users download,
 because the script defaults to Debug while the continuous integration job it replaced ran Release.
 
+**Every test process writes its temporary files inside the run folder, and they are deleted when the
+run ends.** Test runs had left tens of thousands of folders in the user's TEMP and filled the disk under
+the v2.18.0 gate, where every failure in two suites was "not enough space on the disk". A `-Parked` run
+refuses to start (exit 7) with too little free space.
+
 **The gate starts no database, and needs no Docker - not by default, not with `-Parked`.** Every test
 that needs a real PostgreSQL lives in its own project, `src\CcDirector.Gateway.DatabaseTests`, and
 `.\scripts\test-database.ps1` is the only thing that runs it: it builds a throwaway PostgreSQL in Docker
@@ -290,9 +305,16 @@ already ran. Read the project list in `scripts\test-local.ps1` rather than a cou
 merge commit is the candidate. The notes are never edited after that merge. The gate runs once on
 the candidate, `scripts\assert-gated.ps1 <candidate>` must accept it, and the tag goes on the
 candidate even when main has moved on. Work merged after the candidate waits for the next release.
-A red candidate is not released and is not run again - the gate runs in a worktree detached at the
-candidate, so a fix made on main never reaches it, and a second run is a retry. Fix the cause on main
-(a flaky test is a defect in the test) and cut a new candidate. `scripts\new-release.ps1` freezes
+**A red candidate is never run again whole.** Re-run only its failed tests, once, on the same commit:
+`.\scripts\test-local.ps1 -RerunFailed <run folder>`. A test that fails again is a code defect: fix it on
+main and cut a new candidate. A test that passes alone is FLAKY - treat it as a defect in the test, but
+remember a race in the product can look the same: fix or delete it on main the same day, then run
+`.\scripts\test-local.ps1 -ClearFlaky <candidate>` from a clean checkout of main. That proves the fix
+against the CANDIDATE'S product code (a fix that needs a product change means a new candidate), and the
+candidate is then tagged as it is. `assert-gated.ps1` accepts a flaky gate only with that clearance,
+made at a commit on origin/main, and only if it was the candidate's one release gate - never a re-roll.
+Tests tagged `[Trait("Gate", "Quarantine")]` never run in a gate; `-Quarantine` runs them without a
+verdict. THE FLAKY TEST RULE in the script's header has the whole rule. `scripts\new-release.ps1` freezes
 the candidate, and `scripts\new-release.ps1 -Tag <candidate>` tags it only once `assert-gated.ps1`
 accepts it. The `release-manager` skill holds the steps. **Why:** v2.18.0's notes were rewritten four times, because
 every notes edit was a new commit that voided the gate run under way, and every merge widened what

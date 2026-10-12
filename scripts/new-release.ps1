@@ -132,7 +132,10 @@ if ($Tag) {
     }
     & $assertGated $candidate
     if ($LASTEXITCODE -ne 0) {
-        Fail "assert-gated.ps1 refused $candidate." "Run the release gate on the candidate first:`n  git worktree add ../devthrottle-gate-$tagName --detach $candidate`n  cd ../devthrottle-gate-$tagName`n  .\scripts\test-local.ps1 -Parked -Configuration Release"
+        Fail "assert-gated.ps1 refused $candidate." ("Its reason is printed above. If the candidate has not been gated, run the release gate on it:`n  git worktree add ../devthrottle-gate-$tagName --detach $candidate`n  cd ../devthrottle-gate-$tagName`n  .\scripts\test-local.ps1 -Parked -Configuration Release`n" +
+            "If the gate FAILED, never run it again to find out whether a failure was flaky - re-run only its failed tests:`n  .\scripts\test-local.ps1 -RerunFailed <the run folder it printed>`n" +
+            "If that found them FLAKY, fix or delete those tests on main today, then from a clean checkout of main:`n  .\scripts\test-local.ps1 -ClearFlaky $candidate`n" +
+            "(THE FLAKY TEST RULE in scripts\test-local.ps1 has the whole rule.)")
     }
 
     Write-Host ""
