@@ -187,3 +187,16 @@ Revert proof, each fix broken alone on a fresh build (98 run-result and engine t
 2 red and 1 red respectively, each including that finding's test; the tree was clean after each restore.
 Gates: `dotnet test src/CcDirector.Gateway.UnitTests` 10,542 passed, 0 failed. No schema or command-line
 change in this round, so the database and Python suites were not re-run.
+
+## After the review passed: rebased onto main's new migration (12 October 2026)
+
+The fourth review passed on head `4cf928063`. Main then added the AddLicenseSwitching migration, so the branch
+was rebased onto origin/main `6fbabf01a` and the AddCronRunResults migration regenerated on top of it for both
+providers (still 14 columns and 3 indexes on `cron_runs`, nothing else). No product code changed. The migration
+chain test now lists main's migration before this one, and its count is 163: main's 128, the license migration's
+18, and this one's 17.
+
+Gates on the rebased head: `has-pending-model-changes` clean for SQLite and Postgres;
+`dotnet test src/CcDirector.Gateway.UnitTests` 10,657 passed, 0 failed; `pytest` in `tools/cc-devthrottle`
+4,171 passed, 3 skipped; `.\scripts\test-database.ps1` GREEN, 68 executed, none failed, none skipped (main's
+`secret_transfers` collation failure is fixed).
