@@ -166,6 +166,30 @@ public sealed class GateTestsDoNotDependOnTheMachineTests
     private static readonly Regex InjectedClockArgument = new(
         @"^[A-Za-z_]\w*(\.[A-Za-z_]\w*)*$", RegexOptions.Compiled);
 
+    /// <summary>A name that is a clock: the whole word (<c>clock</c>, <c>_time</c>, <c>Clock</c>) or a word ending in a
+    /// capitalised one (<c>fakeTime</c>, <c>FakeClock</c>) - never <c>lifetime</c>, <c>runtime</c> or <c>uptime</c>.</summary>
+    private static readonly Regex ClockName = new(
+        @"^_?(clock|time|timeProvider|Clock|Time|TimeProvider)$|[a-z0-9_](Clock|Time|TimeProvider)$", RegexOptions.Compiled);
+
+    [Theory]
+    [InlineData("await Task.Delay(TimeSpan.FromSeconds(1), _clock);", 0)]
+    [InlineData("await Task.Delay(wait, Clock);", 0)]
+    [InlineData("await Task.Delay(wait, fakeTime, ct);", 0)]
+    [InlineData("await Task.Delay(Step(a, b), time);", 0)]
+    [InlineData("await Task.Delay(TimeSpan.FromSeconds(1));", 1)]
+    [InlineData("await Task.Delay(TimeSpan.FromSeconds(1), ct);", 1)]
+    [InlineData("await Task.Delay(wait, TimeProvider.System);", 1)]
+    [InlineData("await Task.Delay(wait, lifetime);", 1)]
+    [InlineData("await Task.Delay(Timeout.Infinite, ct);", 0)]
+    public void A_delay_on_a_handed_clock_is_not_counted_and_every_other_finite_delay_is(string code, int counted)
+    {
+        var delay = Rules.Single(r => r.Name == "delay").Pattern;
+
+        var hits = delay.Matches(code).Count(m => !WaitsOnAnInjectedClock(code, m.Index + m.Length - 1));
+
+        Assert.Equal(counted, hits);
+    }
+
     /// <summary>
     /// True when the <c>Task.Delay(</c> whose open parenthesis is at <paramref name="open"/> is handed a clock - a
     /// later argument named like one (<c>_clock</c>, <c>Clock</c>, <c>time</c>, <c>fakeTime</c>) - so the wait ends
@@ -190,7 +214,7 @@ public sealed class GateTestsDoNotDependOnTheMachineTests
         }
         return arguments.Skip(1).Select(a => a.Trim()).Any(a =>
             InjectedClockArgument.IsMatch(a)
-            && Regex.IsMatch(a.Split('.')[^1], @"(clock|time|timeprovider)$", RegexOptions.IgnoreCase));
+            && ClockName.IsMatch(a.Split('.')[^1]));
     }
 
     private static Dictionary<(string Rule, string Path), int> ReadBaseline()
