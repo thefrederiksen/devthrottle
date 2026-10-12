@@ -631,7 +631,6 @@ real-clock | src/CcDirector.Gateway.UnitTests/NarrationClipsOnDiskTests.cs | 1
 delay | src/CcDirector.Gateway.UnitTests/PromptDeliveryAgeTests.cs | 2
 real-clock | src/CcDirector.Gateway.UnitTests/PromptDeliveryAgeTests.cs | 2
 real-clock | src/CcDirector.Gateway.UnitTests/PromptDeliveryNoticeFoldTests.cs | 1
-delay | src/CcDirector.Gateway.UnitTests/PromptIncidentErrorReportTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/PromptLogTenantConcurrencyTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/Prompts/PromptLogRetentionTests.cs | 9
 real-clock | src/CcDirector.Gateway.UnitTests/RandomScheduleWiringTests.cs | 3
@@ -691,7 +690,6 @@ delay | src/CcDirector.Gateway.UnitTests/TurnLog/TurnLogRecorderTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/TypedPromptClaimTests.cs | 3
 delay | src/CcDirector.Gateway.UnitTests/TypedPromptDeliveryTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/TypedPromptDeliveryTests.cs | 5
-delay | src/CcDirector.Gateway.UnitTests/VerbWaitNoticeTests.cs | 2
 real-clock | src/CcDirector.Gateway.UnitTests/VoiceTestClipStoreTests.cs | 4
 real-clock | src/CcDirector.Gateway.UnitTests/VoiceTurnArchiveTests.cs | 4
 real-clock | src/CcDirector.Gateway.UnitTests/VoiceUploadStoreDecisionLogTests.cs | 3
