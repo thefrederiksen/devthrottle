@@ -92,8 +92,7 @@ public sealed class LicenseSwitchService
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly LicenseStore _store;
-    private readonly LicenseReadModel _reads;
-    private readonly LicenseUsageHistory _history;
+    private readonly LicenseSnapshotSource _snapshots;
     private readonly DirectorCommandRouter.SendDirectorCommandAsync _send;
     private readonly LicenseOwnerEmailSender _mail;
     private readonly Func<DateTime> _nowUtc;
@@ -109,17 +108,18 @@ public sealed class LicenseSwitchService
     // The mail service asked for a wait before the next try of this event's email.
     private readonly ConcurrentDictionary<(TenantId Tenant, string AccountEmail), DateTime> _emailNotBefore = new();
 
+    /// <param name="store">The switch log, the bars and the no-room events.</param>
+    /// <param name="snapshots">The one place the engine's picture of a tenant is built from the store.</param>
     /// <param name="send">The one way a command goes down a Director's stream (<c>GatewayHost.SendCommandAsync</c>). It
     /// reads the tenant scope in effect, so <see cref="TickAsync"/> and <see cref="SwitchNowAsync"/> must be called
     /// inside the tenant's scope.</param>
     /// <param name="mail">Sends the owner email (<see cref="LicenseOwnerMailer.SendAsync"/>).</param>
     /// <param name="nowUtc">The Gateway's clock.</param>
-    internal LicenseSwitchService(LicenseStore store, LicenseReadModel reads, LicenseUsageHistory history,
+    internal LicenseSwitchService(LicenseStore store, LicenseSnapshotSource snapshots,
         DirectorCommandRouter.SendDirectorCommandAsync send, LicenseOwnerEmailSender mail, Func<DateTime> nowUtc)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
-        _reads = reads ?? throw new ArgumentNullException(nameof(reads));
-        _history = history ?? throw new ArgumentNullException(nameof(history));
+        _snapshots = snapshots ?? throw new ArgumentNullException(nameof(snapshots));
         _send = send ?? throw new ArgumentNullException(nameof(send));
         _mail = mail ?? throw new ArgumentNullException(nameof(mail));
         _nowUtc = nowUtc ?? throw new ArgumentNullException(nameof(nowUtc));
@@ -221,9 +221,10 @@ public sealed class LicenseSwitchService
             try
             {
                 var now = _nowUtc();
-                var overview = _reads.Read(tenant, now);
-                var open = Classify(tenant, _store.ListOpenSwitches(tenant));
-                var snapshot = BuildSnapshot(tenant, overview, open.Blocked, _store.ListOpenNoRoom(tenant), now);
+                var picture = _snapshots.ReadPicture(tenant, now, Exhaustions(_store.ListOpenNoRoom(tenant)));
+                var overview = picture.Overview;
+                var open = Classify(tenant, picture.OpenSwitches);
+                var snapshot = SnapshotToDecideOn(picture, open.Blocked);
                 var verdict = LicenseDecisionEngine.DecideManual(snapshot, sourceAccountEmail, targetAccountEmail);
                 if (verdict.RefusalCode is { } code)
                 {
@@ -282,34 +283,6 @@ public sealed class LicenseSwitchService
         }
     }
 
-    // ----- reads for the Licenses page -----
-
-    /// <summary>
-    /// The picture of one tenant that the engine and the forecast both take: every account with its freshest reading,
-    /// every machine, the bars in force and the open no-room events - exactly what the minute check decides on.
-    /// </summary>
-    public LicenseSnapshot ReadSnapshot(TenantId tenant, DateTime nowUtc)
-    {
-        FileLog.Write($"[LicenseSwitchService] ReadSnapshot: tenant={tenant.ToLogString()}");
-        try
-        {
-            var overview = _reads.Read(tenant, nowUtc);
-            var open = Classify(tenant, _store.ListOpenSwitches(tenant));
-            var snapshot = BuildSnapshot(tenant, overview, open.Blocked, _store.ListOpenNoRoom(tenant), nowUtc);
-            FileLog.Write($"[LicenseSwitchService] ReadSnapshot: accounts={snapshot.Accounts.Count}, machines={snapshot.Machines.Count}");
-            return snapshot;
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[LicenseSwitchService] ReadSnapshot FAILED: {ex.Message}");
-            throw;
-        }
-    }
-
-    /// <summary>The recent readings <see cref="LicenseForecaster.Forecast"/> takes its rates from: two hours, kept in
-    /// memory, empty after a restart until the next reports arrive.</summary>
-    public IReadOnlyList<LicenseAccountHistory> ReadHistory(TenantId tenant, DateTime nowUtc) => _history.Read(tenant, nowUtc);
-
     // ----- what one check decides and writes (under the tenant's gate; nothing here waits on a Director) -----
 
     private sealed record PlannedSend(string SwitchId, Guid MachineId, string MachineName, string DirectorId,
@@ -350,9 +323,11 @@ public sealed class LicenseSwitchService
     private TickPlan PlanTick(TenantId tenant)
     {
         var now = _nowUtc();
-        var overview = _reads.Read(tenant, now);
+        var noRoom = _store.ListOpenNoRoom(tenant);
+        var picture = _snapshots.ReadPicture(tenant, now, Exhaustions(noRoom));
+        var overview = picture.Overview;
         var machinesById = overview.Machines.ToDictionary(m => m.MachineId);
-        var open = Classify(tenant, _store.ListOpenSwitches(tenant));
+        var open = Classify(tenant, picture.OpenSwitches);
         var sends = new List<PlannedSend>();
 
         // 1. Rows whose outcome is not known: ask again with the same identifier, or settle from the machine's report.
@@ -391,8 +366,7 @@ public sealed class LicenseSwitchService
         }
 
         // 3. Decide.
-        var noRoom = _store.ListOpenNoRoom(tenant);
-        var snapshot = BuildSnapshot(tenant, overview, open.Blocked, noRoom, now);
+        var snapshot = SnapshotToDecideOn(picture, open.Blocked);
         var decisions = LicenseDecisionEngine.Decide(snapshot);
 
         // 4. Switches: the same decision as a waiting row is that row sent again; any other is a new row.
@@ -489,29 +463,31 @@ public sealed class LicenseSwitchService
         return new PlannedSend(id, machine.MachineId, machine.MachineName, machine.DirectorId, request, outcomeUnknown);
     }
 
-    private LicenseSnapshot BuildSnapshot(TenantId tenant, LicenseOverview overview, IReadOnlySet<Guid> blocked,
-        IReadOnlyList<LicenseSwitchLogEntity> openNoRoom, DateTime now)
+    /// <summary>
+    /// The shared picture, with one mark judged here. <see cref="LicenseSnapshotSource"/> marks every machine that has
+    /// an open switch row as mid-switch, which is what the Licenses page and the forecast should show. For DECIDING,
+    /// a row known never to have left its Gateway does not hold its machine back (see the class summary): the engine
+    /// must still be asked about that machine, because its answer is what says whether the waiting switch still
+    /// stands, and a row this check has just ended no longer holds its machine either. So the mark is set from
+    /// <paramref name="blocked"/> - the machines whose open row's outcome is not known or whose send is in flight.
+    /// Nothing else in the picture is touched.
+    /// </summary>
+    private static LicenseSnapshot SnapshotToDecideOn(LicensePicture picture, IReadOnlySet<Guid> blocked)
     {
-        var accounts = overview.Accounts.Select(a => a.Freshest is { } reading
-                ? new LicenseAccountReading(a.AccountEmail,
-                    Window(reading.FiveHourUtilization, reading.FiveHourResetsAtUtc),
-                    Window(reading.SevenDayUtilization, reading.SevenDayResetsAtUtc),
-                    reading.JudgedReadAtUtc, reading.FromActiveHolding)
-                : new LicenseAccountReading(a.AccountEmail, null, null, null, false))
-            .ToList();
-        var machines = overview.Machines.Select(m => new LicenseMachineState(
-                m.MachineName, m.OsUser, m.ActiveAccountEmail,
-                m.Holdings.Where(h => !h.IsActive).Select(h => new LicenseSpare(h.AccountEmail, h.ReadError, h.SignInExpiresAtUtc)).ToList(),
-                m.LastReportAtUtc, blocked.Contains(m.MachineId), m.SwitchInProgressId,
-                m.Holdings.FirstOrDefault(h => h.IsActive)?.SignInExpiresAtUtc))
-            .ToList();
-        var bars = _store.ListActiveBars(tenant, now).Select(b => new LicenseBar(b.AccountEmail, b.Window, b.UntilUtc)).ToList();
-        var exhaustions = openNoRoom.Select(r => new LicenseExhaustion(r.FromAccountEmail, r.CreatedAtUtc, NotAfterOf(r))).ToList();
-        return new LicenseSnapshot(now, accounts, machines, bars, exhaustions);
+        var blockedMachines = picture.Overview.Machines
+            .Where(m => blocked.Contains(m.MachineId))
+            .Select(m => MachineKey(m.MachineName, m.OsUser))
+            .ToHashSet(StringComparer.Ordinal);
+        return picture.Snapshot with
+        {
+            Machines = picture.Snapshot.Machines
+                .Select(m => m with { HasOpenSwitch = blockedMachines.Contains(MachineKey(m.MachineName, m.OsUser)) })
+                .ToList(),
+        };
     }
 
-    private static LicenseWindowReading? Window(double? utilization, DateTime? resetsAtUtc)
-        => utilization is { } used ? new LicenseWindowReading(used, resetsAtUtc) : null;
+    private static List<LicenseExhaustion> Exhaustions(IReadOnlyList<LicenseSwitchLogEntity> openNoRoom)
+        => openNoRoom.Select(r => new LicenseExhaustion(r.FromAccountEmail, r.CreatedAtUtc, NotAfterOf(r))).ToList();
 
     // ----- one send, and what its result writes (contract section 3.5) -----
 

@@ -44,7 +44,7 @@ public sealed class LicenseSwitchServiceTests : IDisposable
     {
         _store = new LicenseStore(_harness.Open());
         _directors = new FakeDirectors(() => _now);
-        _service = new LicenseSwitchService(_store, new LicenseReadModel(_store), new LicenseUsageHistory(),
+        _service = new LicenseSwitchService(_store, new LicenseSnapshotSource(_store, new LicenseReadModel(_store)),
             _directors.SendAsync, _mail.SendAsync, () => { _clockReads++; return _now; });
     }
 
@@ -820,23 +820,5 @@ public sealed class LicenseSwitchServiceTests : IDisposable
 
         Assert.Empty(_directors.Sent);
         Assert.Empty(_store.ListLog(Tenant, LogStart));
-    }
-
-    // ----- the picture the Licenses page reads -----
-
-    [Fact]
-    public async Task ReadSnapshot_IsThePictureTheCheckDecidesOn()
-    {
-        OnA(Windows, "dir-win", 97);
-        _directors.TimesOut();
-        await Tick();
-
-        var snapshot = _service.ReadSnapshot(Tenant, _now);
-
-        Assert.Equal(new[] { A, B }, snapshot.Accounts.Select(a => a.AccountEmail));
-        var machine = Assert.Single(snapshot.Machines);
-        Assert.Equal((Windows, A, true), (machine.MachineName, machine.ActiveAccountEmail, machine.HasOpenSwitch));
-        Assert.Equal(B, Assert.Single(machine.Spares).AccountEmail);
-        Assert.Equal(A, Assert.Single(snapshot.Bars).AccountEmail);
     }
 }

@@ -94,20 +94,22 @@ A route can map it directly: refused is a 409 with `RefusalCode` and `RefusalMes
 200 with the switches. The Cockpit shows every word as given (`CLAUDE.md` rule 7) - it never works
 out what a state means.
 
-## Also on the same service, for the Licenses page
+## The picture and the history are NOT on this service
 
-These two come in the same pull request and are stated here so the API need not rebuild them:
+An earlier version of this file offered `ReadSnapshot` and `ReadHistory` here. They were removed before
+the pull request: the snapshot and the history have one home each, shared by both pull requests
+(commit `9596645a5`, cherry-picked into this branch unchanged).
 
-```csharp
-/// The picture of one tenant the engine and the forecast both take: accounts with their freshest
-/// reading, machines, bars in force and open "no account has room" events.
-public LicenseSnapshot ReadSnapshot(CcDirector.Core.Tenancy.TenantId tenant, DateTime nowUtc);
+- The engine's picture: `GatewayHost.LicenseSnapshots` - `LicenseSnapshotSource.Read(tenant, nowUtc, openExhaustions)`
+  and `ReadPicture(...)`. The minute check passes its open no-room events in; the Licenses page and the
+  forecast pass an empty list.
+- The recent readings: `GatewayHost.LicenseHistory` - `LicenseUsageHistory.Read(tenant, nowUtc)`.
 
-/// The recent readings (two hours, kept in memory, rebuilt after a restart) LicenseForecaster needs.
-public IReadOnlyList<LicenseAccountHistory> ReadHistory(CcDirector.Core.Tenancy.TenantId tenant, DateTime nowUtc);
-```
-
-So the forecast is `LicenseForecaster.Forecast(service.ReadSnapshot(tenant, now), service.ReadHistory(tenant, now))`.
+One thing the page should know about that picture. It marks a machine as mid-switch
+(`HasOpenSwitch`) whenever the log holds a `pending` or `unknown` row for it, which is right to show.
+The minute check and Switch now are a little narrower when they DECIDE: a row that is `pending` with
+reason `director-offline` was never sent, so it does not hold its machine back from a new decision -
+Switch now on that account is accepted, ends the waiting row as `failed`, and writes a new one.
 
 ## In the switch log
 
