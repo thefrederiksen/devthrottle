@@ -10,10 +10,9 @@ namespace CcDirector.Core.Tests;
 /// Proves it removes exactly the safe set, leaves everything else untouched, honours the
 /// live-session guard, and reports - rather than hides - a folder it could not delete.
 ///
-/// MARKED FOR QUARANTINE (Reliable Tests, 11 October 2026): it runs real git processes, which gate tests may no longer
-/// do, but it is the only real coverage of a sweep that DELETES worktrees, so it is kept for a run of its own whose result
-/// never decides a release. The gate's filter on this trait comes with a later change; until it does, the class still
-/// runs in the release gate (-Parked).
+/// QUARANTINED (Reliable Tests, 11 October 2026): it runs real git processes, which gate tests may no longer do,
+/// but it is the only real coverage of a sweep that DELETES worktrees, so it is kept and run on its own: test-
+/// local.ps1 leaves it out of every gate run and runs it under -Quarantine, whose result never decides a release.
 /// </summary>
 [Trait("Gate", "Quarantine")]
 public sealed class WorktreeReaperServiceTests : IClassFixture<WorktreeReaperServiceTests.Template>, IDisposable

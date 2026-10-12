@@ -122,9 +122,10 @@ public sealed class WorktreeSizeMeasurementTests : IDisposable
 /// Integration tests over real repositories: a repo's status folds in its remote provider, its
 /// uncommitted count, and its worktree summary.
 ///
-/// MARKED FOR QUARANTINE (Reliable Tests, 11 October 2026): it runs real git processes, which gate tests may no longer
-/// do, but it holds the regression test that a failed git probe never reads as verified clean, so it is kept for a run of its own whose result never decides a release. The gate's filter on this
-/// trait comes with a later change; until it does, the class still runs in the release gate (-Parked).
+/// QUARANTINED (Reliable Tests, 11 October 2026): it runs real git processes, which gate tests may no longer do,
+/// but it holds the regression test that a failed git probe never reads as verified clean, so it is kept and run on
+/// its own: test-local.ps1 leaves it out of every gate run and runs it under -Quarantine, whose result never
+/// decides a release.
 /// </summary>
 [Trait("Gate", "Quarantine")]
 public sealed class RepositoryStatusServiceTests : IDisposable
