@@ -687,6 +687,41 @@ public sealed class LicenseDecisionEngineTests
         Assert.Single(verdict.Skipped);
     }
 
+    // ----- the no-room email written again on a later tick -----
+
+    [Fact]
+    public void NoRoomEmail_WhileTheAccountIsStillOutOfRoom_IsTheEmailDecideWrote()
+    {
+        var snapshot = Snapshot(
+            [Reading(A, 98, 40, active: true), Reading(B, 99, 10)],
+            [Machine("windows", A, B)]);
+        var first = Assert.Single(LicenseDecisionEngine.Decide(snapshot).Emails);
+
+        // The event is open now, so Decide writes no email; this is how its text is had again.
+        var open = snapshot with { OpenExhaustions = [new LicenseExhaustion(A, Now, FiveHourReset)] };
+        Assert.Empty(LicenseDecisionEngine.Decide(open).Emails);
+
+        Assert.Equal(first, LicenseDecisionEngine.NoRoomEmail(open, " Account-A@Example.com "));
+    }
+
+    [Theory]
+    [InlineData("a target exists")]
+    [InlineData("the reading is stale")]
+    [InlineData("no window is tired")]
+    [InlineData("no machine can be sent a switch")]
+    public void NoRoomEmail_WhenItWouldNotBeTrueNow_IsNotWritten(string why)
+    {
+        var snapshot = why switch
+        {
+            "a target exists" => Snapshot([Reading(A, 98, 40, active: true), Reading(B, 10, 10)], [Machine("windows", A, B)]),
+            "the reading is stale" => Snapshot([Reading(A, 98, 40, Now.AddMinutes(-7), active: true), Reading(B, 99, 10)], [Machine("windows", A, B)]),
+            "no window is tired" => Snapshot([Reading(A, 50, 40, active: true), Reading(B, 99, 10)], [Machine("windows", A, B)]),
+            _ => Snapshot([Reading(A, 98, 40, active: true), Reading(B, 99, 10)], [Machine("windows", A, B) with { HasOpenSwitch = true }]),
+        };
+
+        Assert.Null(LicenseDecisionEngine.NoRoomEmail(snapshot, A));
+    }
+
     [Fact]
     public void DecideManual_NoTargetQualifies_IsRefused()
     {

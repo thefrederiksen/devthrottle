@@ -170,6 +170,94 @@ public sealed class LicenseStoreTests : IDisposable
     }
 
     [Fact]
+    public void CreatePendingSwitch_WhileTheMachineHasAnOpenSwitch_IsRefused_AndAllowedAgainOnceItEnds()
+    {
+        var store = Open();
+        var machineId = Apply(store, TenantA, Report("m1", Holding(A, true), Holding(B, false))).MachineId;
+        var first = store.CreatePendingSwitch(TenantA, machineId, A, B, LicenseSwitchReasons.Threshold, T0, "Why the first was decided.")!;
+        Assert.Equal("Why the first was decided.", first.Message);
+
+        // Contract section 5.4: no second switch identifier while one is pending, or sent with no answer.
+        Assert.Null(store.CreatePendingSwitch(TenantA, machineId, A, B, LicenseSwitchReasons.Manual, T0.AddMinutes(1)));
+        Assert.True(store.TryMark(TenantA, first.SwitchId!, LicenseLogStates.Unknown, null, "No answer.", T0.AddMinutes(1)));
+        Assert.Null(store.CreatePendingSwitch(TenantA, machineId, A, B, LicenseSwitchReasons.Manual, T0.AddMinutes(2)));
+
+        Assert.True(store.TryMark(TenantA, first.SwitchId!, LicenseLogStates.Switched, null, "Settled from the machine's report.", T0.AddMinutes(3)));
+        var second = store.CreatePendingSwitch(TenantA, machineId, B, A, LicenseSwitchReasons.Manual, T0.AddMinutes(4));
+
+        Assert.NotNull(second);
+        Assert.NotEqual(first.SwitchId, second!.SwitchId);
+        Assert.Equal(T0.AddMinutes(3), store.FindSwitch(TenantA, first.SwitchId)!.FinishedAtUtc);
+    }
+
+    [Fact]
+    public void NoRoom_IsOneOpenRowPerAccount_ThatCanBeMovedAndEnded()
+    {
+        var store = Open();
+
+        var opened = store.OpenNoRoom(TenantA, " Account-A@Example.com ", T0, T0.AddHours(2));
+        var again = store.OpenNoRoom(TenantA, A, T0.AddMinutes(1), T0.AddHours(9));
+
+        Assert.Equal(opened.Id, again.Id); // already open: returned as it stands
+        Assert.Equal((LicenseLogKinds.NoRoom, A, LicenseLogStates.Open, T0, T0.AddHours(2)),
+            (opened.Kind, opened.FromAccountEmail, opened.State, opened.CreatedAtUtc, opened.NotAfterUtc!.Value));
+        Assert.Null(opened.SwitchId);
+        Assert.Empty(store.ListOpenSwitches(TenantA)); // it is not a switch, and holds no machine back
+        Assert.Empty(store.ListOpenNoRoom(TenantB));
+
+        Assert.True(store.ExtendNoRoom(TenantA, A, T0.AddDays(4)));
+        Assert.Equal(T0.AddDays(4), Assert.Single(store.ListOpenNoRoom(TenantA)).NotAfterUtc);
+
+        // An open event is in the log however old it is.
+        Assert.Single(store.ListLog(TenantA, T0.AddDays(30)));
+
+        Assert.True(store.CloseNoRoom(TenantA, A, T0.AddHours(3)));
+        Assert.Empty(store.ListOpenNoRoom(TenantA));
+        Assert.False(store.CloseNoRoom(TenantA, A, T0.AddHours(4)));
+        Assert.False(store.ExtendNoRoom(TenantA, A, T0.AddDays(9)));
+        var ended = Assert.Single(store.ListLog(TenantA, T0));
+        Assert.Equal((LicenseLogStates.Ended, T0.AddHours(3)), (ended.State, ended.FinishedAtUtc!.Value));
+
+        // The account can run out again later: a new event, a new row.
+        Assert.NotEqual(opened.Id, store.OpenNoRoom(TenantA, A, T0.AddHours(5), T0.AddHours(7)).Id);
+    }
+
+    [Fact]
+    public void RecordNoRoomEmail_AnEventRecordedAsEmailed_IsNeverChangedAgain()
+    {
+        var store = Open();
+        store.OpenNoRoom(TenantA, A, T0, T0.AddHours(2));
+
+        Assert.True(store.RecordNoRoomEmail(TenantA, A, LicenseGatewayReasonCodes.OwnerEmailFailed, "Not sent yet.", null));
+        var failed = Assert.Single(store.ListOpenNoRoom(TenantA));
+        Assert.Equal((LicenseGatewayReasonCodes.OwnerEmailFailed, "Not sent yet.", 0), (failed.ReasonCode, failed.Message, failed.SendCount));
+        Assert.Null(failed.LastSentAtUtc);
+
+        Assert.True(store.RecordNoRoomEmail(TenantA, A, LicenseGatewayReasonCodes.OwnerEmailed, "The owner was emailed.", T0.AddMinutes(1)));
+        Assert.False(store.RecordNoRoomEmail(TenantA, A, LicenseGatewayReasonCodes.OwnerEmailFailed, "A late failure.", null));
+        Assert.False(store.RecordNoRoomEmail(TenantA, A, LicenseGatewayReasonCodes.OwnerEmailed, "A second send.", T0.AddMinutes(2)));
+
+        var emailed = Assert.Single(store.ListOpenNoRoom(TenantA));
+        Assert.Equal((LicenseGatewayReasonCodes.OwnerEmailed, "The owner was emailed.", 1, T0.AddMinutes(1)),
+            (emailed.ReasonCode, emailed.Message, emailed.SendCount, emailed.LastSentAtUtc!.Value));
+        Assert.False(store.RecordNoRoomEmail(TenantB, A, LicenseGatewayReasonCodes.OwnerEmailed, "Another tenant.", T0)); // no such event there
+        Assert.Throws<ArgumentException>(() => store.RecordNoRoomEmail(TenantA, A, LicenseGatewayReasonCodes.OwnerEmailed, "No time given.", null));
+        Assert.Throws<ArgumentException>(() => store.RecordNoRoomEmail(TenantA, A, "switched", "Not an email state.", null));
+    }
+
+    [Fact]
+    public void HasMachines_IsTrueOnlyForATenantWhoseMachineHasReported()
+    {
+        var store = Open();
+        Assert.False(store.HasMachines(TenantA));
+
+        Apply(store, TenantA, Report("m1"));
+
+        Assert.True(store.HasMachines(TenantA)); // a key holder with no sign-ins is still a machine (contract section 2.4)
+        Assert.False(store.HasMachines(TenantB));
+    }
+
+    [Fact]
     public void Bar_HoldsUntilTheWindowResets_AndBarringAgainMovesIt()
     {
         var store = Open();

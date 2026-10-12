@@ -127,6 +127,13 @@ public sealed class LicenseHoldingEntity : GatewayMintedKeyEntity
 /// THE SWITCH LOG, in <c>license_switch_log</c>: one row per switch sent to one machine (written <c>pending</c> BEFORE
 /// it is sent, contract section 5.5), and one row each time a report shows a holding added or removed (contract
 /// section 4). The decision engine writes the switch rows; the usage ingest writes the spare rows.
+///
+/// A third kind, <c>no-room</c>, records an exhaustion event: an account in use reached the threshold and no account
+/// had room, so nothing was switched. It is about an ACCOUNT, not a machine, so <see cref="MachineId"/> is the empty
+/// identifier and the machine fields are blank. It reuses four columns, each named below where it does:
+/// <see cref="FromAccountEmail"/> is the account that ran out, <see cref="NotAfterUtc"/> is when the event is expected
+/// to end, <see cref="ReasonCode"/> is what became of the owner email, and <see cref="LastSentAtUtc"/> is when that
+/// email was sent. The row is open while <see cref="FinishedAtUtc"/> is null.
 /// </summary>
 public sealed class LicenseSwitchLogEntity : GatewayMintedKeyEntity
 {

@@ -60,19 +60,27 @@ public sealed class LicenseUsageIngest
     }
 
     private readonly LicenseStore _store;
+    private readonly LicenseUsageHistory _history;
     private readonly Action<string>? _waitingForWriteGate;
     private readonly Action<string>? _insideWrite;
     private readonly ConcurrentDictionary<TenantId, ConcurrentDictionary<string, Owner>> _owners = new();
     private readonly ConcurrentDictionary<(TenantId Tenant, string MachineKey, string UserKey), byte> _skewLogged = new();
 
-    public LicenseUsageIngest(LicenseStore store) : this(store, null, null) { }
+    public LicenseUsageIngest(LicenseStore store) : this(store, new LicenseUsageHistory()) { }
+
+    /// <param name="history">The recent readings the forecast reads; every ACCEPTED report is added to it.</param>
+    public LicenseUsageIngest(LicenseStore store, LicenseUsageHistory history) : this(store, history, null, null) { }
 
     /// <summary>For tests: <paramref name="waitingForWriteGate"/> runs (with the connection id) just before a report asks
     /// for the write gate, and <paramref name="insideWrite"/> runs inside it, after the ownership check and before the
     /// database write - so a test can line up a reconnect and a second report at exactly those points.</summary>
     internal LicenseUsageIngest(LicenseStore store, Action<string>? waitingForWriteGate, Action<string>? insideWrite)
+        : this(store, new LicenseUsageHistory(), waitingForWriteGate, insideWrite) { }
+
+    private LicenseUsageIngest(LicenseStore store, LicenseUsageHistory history, Action<string>? waitingForWriteGate, Action<string>? insideWrite)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
+        _history = history ?? throw new ArgumentNullException(nameof(history));
         _waitingForWriteGate = waitingForWriteGate;
         _insideWrite = insideWrite;
     }
@@ -164,6 +172,8 @@ public sealed class LicenseUsageIngest
             var shift = ReadAtShift(tenant, report!, receivedAtUtc);
             _insideWrite?.Invoke(connectionId);
             var applied = _store.ApplyReport(tenant, directorId, sequence, report!, receivedAtUtc, shift);
+            // Only a report that landed feeds the forecast: a refused one never reaches this line.
+            _history.Record(tenant, report!, receivedAtUtc, shift);
             lock (owner)
             {
                 // A reconnect during the write started a fresh baseline for the new connection; this one's number must

@@ -160,6 +160,11 @@ public sealed class FakeTunnelDirector : IAsyncDisposable
     public Task PushDeltaAsync(SessionDto session) =>
         _conn.InvokeAsync("PushDelta", ++_sequence, session);
 
+    /// <summary>Send the machine's license usage report (License Switching, contract section 2.1), the way the key
+    /// holder Director does. Each call bumps the sequence.</summary>
+    public Task PushLicenseUsageAsync(LicenseUsageReport report) =>
+        _conn.InvokeAsync("PushLicenseUsage", ++_sequence, report);
+
     /// <summary>Serialize a verb result body the way the real Director cores do.</summary>
     public static DirectorCommandResult Ok(object body) =>
         DirectorCommandResult.Success(JsonSerializer.Serialize(body, WebJson));
