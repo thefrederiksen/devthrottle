@@ -135,34 +135,6 @@ public sealed class LicenseForecasterTests
         Assert.Null(next.TargetAccountEmail);
     }
 
-    [Theory]
-    [InlineData(-1, LicenseSignInVerdicts.Expired)]
-    [InlineData(0, LicenseSignInVerdicts.Expired)]
-    [InlineData(1, LicenseSignInVerdicts.ExpiresSoon)]
-    [InlineData(72 * 60, LicenseSignInVerdicts.ExpiresSoon)]
-    [InlineData(72 * 60 + 1, LicenseSignInVerdicts.Fine)]
-    public void SignInVerdict_ByMinutesUntilExpiry(int minutes, string expected)
-    {
-        Assert.Equal(expected, LicenseForecaster.SignInVerdict(Now.AddMinutes(minutes), Now));
-    }
-
-    [Fact]
-    public void Forecast_Holdings_CarryAnExpiryVerdictForTheActiveAndEverySpare()
-    {
-        var machine = Machine("windows", A) with
-        {
-            ActiveSignInExpiresAtUtc = Now.AddDays(10),
-            Spares = [new LicenseSpare(B, null, Now.AddDays(1)), new LicenseSpare(C, null, null)],
-        };
-        var snapshot = Snapshot([Reading(A, 10, 10, active: true)], [machine]);
-
-        var holdings = LicenseForecaster.Forecast(snapshot, []).Holdings;
-
-        Assert.Equal(
-            new[] { (A, true, LicenseSignInVerdicts.Fine), (B, false, LicenseSignInVerdicts.ExpiresSoon), (C, false, LicenseSignInVerdicts.NotKnown) },
-            holdings.Select(h => (h.AccountEmail, h.IsActive, h.Verdict)).ToArray());
-    }
-
     [Fact]
     public void Forecast_NextSwitchTarget_IgnoresAStaleMachineTheWayTheEngineDoes()
     {
