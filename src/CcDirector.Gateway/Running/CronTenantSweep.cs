@@ -15,15 +15,24 @@ namespace CcDirector.Gateway.Running;
 internal sealed class CronTenantSweep : TenantScopedSweep
 {
     private readonly CronEngine _cronEngine;
+    private readonly Action _sweepResults;
 
-    public CronTenantSweep(HostedTenantBoundary boundary, TenantRegistry tenants, CronEngine cronEngine)
+    /// <param name="sweepResults">Run inside each account's scope after its due jobs fire: records the runs that did not
+    /// report or ran past their shift (Factory Control, step 1; <see cref="CronRunResultService.Sweep"/>).</param>
+    public CronTenantSweep(HostedTenantBoundary boundary, TenantRegistry tenants, CronEngine cronEngine, Action sweepResults)
         : base(boundary, tenants)
     {
         _cronEngine = cronEngine ?? throw new ArgumentNullException(nameof(cronEngine));
+        _sweepResults = sweepResults ?? throw new ArgumentNullException(nameof(sweepResults));
     }
 
-    /// <summary>Fire all due cron jobs for every tenant (hosted) or the single Local tenant (self-host). The
-    /// per-tenant fan-out is isolated: a failure firing one tenant's jobs does not abort the others.</summary>
+    /// <summary>Fire all due cron jobs for every tenant (hosted) or the single Local tenant (self-host), then record
+    /// each tenant's runs that owe a problem. The per-tenant fan-out is isolated: a failure in one tenant's work does
+    /// not abort the others.</summary>
     public Task SweepAsync(CancellationToken ct = default)
-        => ForEachTenantAsync(() => _cronEngine.EvaluateDueAsync(ct), ct);
+        => ForEachTenantAsync(async () =>
+        {
+            await _cronEngine.EvaluateDueAsync(ct);
+            _sweepResults();
+        }, ct);
 }

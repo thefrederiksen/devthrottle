@@ -103,6 +103,19 @@ public sealed class FactoryActivityRecord
         }
     }
 
+    /// <summary>
+    /// A new row, checked by every rule <see cref="Append(TenantId, AppendFactoryActivityRequest, string?)"/> applies,
+    /// for a writer in the data layer to add to ITS OWN context and save in the same write as its own change - so the
+    /// row and the writer's note that it was written land together or not at all (the scheduled-run result rows,
+    /// Factory Control step 6). Throws <see cref="FactoryActivityValidationException"/> when the row is refused.
+    /// Adds nothing itself: the record stays append-only.
+    /// </summary>
+    internal static FactoryActivityEntity NewRow(GatewayDbContext ctx, AppendFactoryActivityRequest request, string? callingActor, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(ctx);
+        return Build(ctx, request, callingActor, nowUtc);
+    }
+
     private FactoryActivityDto AppendIn(Func<GatewayDbContext> openContext, AppendFactoryActivityRequest request, string? callingActor)
     {
         FileLog.Write($"[FactoryActivityRecord] Append: factory={request?.Factory}, agent={request?.FactoryAgent}, outcome={request?.Outcome}");
