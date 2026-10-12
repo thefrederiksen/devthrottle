@@ -7,12 +7,13 @@ namespace CcDirector.Core.Licenses;
 /// <summary>
 /// License Switching contract 8.2: the key holder renews this machine's sign-ins before they die. A sign-in lives a
 /// little under thirty days however often its key is refreshed, and the ACTIVE account's dies too, so once a day and
-/// once at start the key holder runs <c>license renew</c>: every held account whose sign-in ends within five days is
-/// signed in again, in place, approved in the browser profile set for it on this machine.
+/// once at start the key holder asks the license tool which held accounts are due (<c>license renew --check</c>: the
+/// sign-in ends within five days) and signs each of those in again, in place.
 ///
-/// An account with no browser profile here is renewed through another machine (contract 8.3) when the Gateway can
-/// relay the approval. Every failure is recorded against its holding and travels in the next report (8.1), so a
-/// renewal that failed is seen on the Licenses page and by email before the sign-in dies - never only in this log.
+/// Each one goes through <see cref="LicenseSignInCoordinator"/>, the same path a sign-in the Gateway asks for takes:
+/// approved in the browser profile set for the account on this machine, or - with none here - on another machine
+/// (contract 8.3). Every failure is recorded against its holding and travels in the next report (8.1), so a renewal
+/// that failed is seen on the Licenses page and by email before the sign-in dies - never only in this log.
 ///
 /// A renewal never interrupts a switch: both take the key store's lock, and a renewal that finds it taken is that
 /// account's <c>store-refused</c>, tried again at the next run.
@@ -93,7 +94,7 @@ public sealed class LicenseRenewer
             IReadOnlyList<LicenseRenewalRow> rows;
             try
             {
-                rows = await _tool.RenewAsync(cancellationToken);
+                rows = await _tool.CheckRenewalsAsync(cancellationToken);
             }
             catch (LicenseCommandLineException ex)
             {
@@ -109,8 +110,8 @@ public sealed class LicenseRenewer
             var changed = false;
             foreach (var row in rows)
             {
-                if (row.Result == LicenseRenewalResults.Failed && row.Error == LicenseRenewalErrors.NoApprover)
-                    await RenewThroughAnotherMachineAsync(row, cancellationToken);
+                if (row.Result == LicenseRenewalResults.Due)
+                    await RenewAsync(row, cancellationToken);
 
                 changed |= row.Result == LicenseRenewalResults.Failed
                     ? _reporter.RecordRenewal(row.AccountEmail, _utcNow(), row.Error ?? LicenseRenewalErrors.LoginFailed)
@@ -128,9 +129,10 @@ public sealed class LicenseRenewer
         }
     }
 
-    private async Task RenewThroughAnotherMachineAsync(LicenseRenewalRow row, CancellationToken cancellationToken)
+    /// <summary>Signs one due account in again and writes what happened into its row: renewed, or failed with the reason.</summary>
+    private async Task RenewAsync(LicenseRenewalRow row, CancellationToken cancellationToken)
     {
-        var answer = await _signIns.RenewThroughAnotherMachineAsync(row.AccountEmail, cancellationToken);
+        var answer = await _signIns.RenewAsync(row.AccountEmail, cancellationToken);
         if (answer.Succeeded)
         {
             row.Result = LicenseRenewalResults.Renewed;
@@ -139,6 +141,7 @@ public sealed class LicenseRenewer
             row.SignInExpiresAtUtc = answer.SignInExpiresAtUtc ?? row.SignInExpiresAtUtc;
             return;
         }
+        row.Result = LicenseRenewalResults.Failed;
         row.Error = answer.ReasonCode ?? LicenseRenewalErrors.LoginFailed;
     }
 }

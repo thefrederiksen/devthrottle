@@ -8,11 +8,13 @@ namespace CcDirector.Core.Licenses;
 /// spare, or a renewal in place - when the Gateway asks (<c>license-sign-in</c>) or the daily renewal finds one with
 /// no browser profile here.
 ///
-/// The sign-in itself is the license command line's. With a browser profile set for the account on this machine it
-/// is approved here. With none, the approval is asked of another machine through the Gateway: the tool prints its
-/// authorize URL and waits; the URL goes up with <c>RequestLicenseApproval</c>, which returns at once; the answer comes
-/// back as the <c>license-approval-result</c> command, sealed to this machine; it is opened and typed into the waiting
-/// login. A login that hears nothing by its deadline is ended with nothing written.
+/// The sign-in itself is the license command line's, and so is the choice of route: with a browser profile set for
+/// the account on this machine the tool approves in it (the owner's setting here wins, contract 8.3) and no other
+/// machine is asked. With none, the tool prints its authorize URL and waits; the URL goes up with
+/// <c>RequestLicenseApproval</c>, which returns at once; the answer comes back as the <c>license-approval-result</c>
+/// command, sealed to this machine; it is opened and typed into the waiting login. A login that hears nothing by its
+/// deadline is ended with nothing written. While no Gateway can relay an approval the tool is not told to wait, so an
+/// account with no profile here ends at once as <c>no-approver</c>.
 ///
 /// One sign-in runs at a time on a Director. A sign-in never copies or moves a key: the tool writes it once, where it
 /// belongs.
@@ -90,9 +92,7 @@ public sealed class LicenseSignInCoordinator
             }
             else
             {
-                answer = await _tool.SignInAsync(email, cancellationToken);
-                if (!answer.Succeeded && answer.ReasonCode == LicenseRenewalErrors.NoApprover)
-                    answer = await ThroughAnotherMachineAsync(request.SignInId, email, request.NotAfterUtc, cancellationToken);
+                answer = await RunAsync(request.SignInId, email, request.NotAfterUtc, cancellationToken);
                 _reporter.RecordRenewal(email, answer.Succeeded ? null : _utcNow(), answer.ReasonCode);
                 // Section 8.4: a "changed" report after it, so the Gateway sees the new sign-in or the failure.
                 _reporter.RequestReport(LicenseReportTriggers.Changed);
@@ -110,18 +110,18 @@ public sealed class LicenseSignInCoordinator
     }
 
     /// <summary>
-    /// The daily renewal's way to renew an account that has no browser profile on this machine: the same sign-in,
-    /// approved through another machine, under a SignInId minted here. The caller records the outcome and reports it.
+    /// The daily renewal's sign-in for an account that is due: the same sign-in by the same route, under a SignInId
+    /// minted here. The caller records the outcome and reports it.
     /// </summary>
-    public async Task<LicenseSignInAnswer> RenewThroughAnotherMachineAsync(string accountEmail, CancellationToken cancellationToken)
+    public async Task<LicenseSignInAnswer> RenewAsync(string accountEmail, CancellationToken cancellationToken)
     {
         var email = Normalize(accountEmail);
         var signInId = Guid.NewGuid().ToString("N");
-        FileLog.Write($"[LicenseSignInCoordinator] RenewThroughAnotherMachineAsync: signInId={signInId}, account={email}");
+        FileLog.Write($"[LicenseSignInCoordinator] RenewAsync: signInId={signInId}, account={email}");
         await _oneAtATime.WaitAsync(cancellationToken);
         try
         {
-            var answer = await ThroughAnotherMachineAsync(signInId, email, _utcNow() + LicenseContract.SignInNotAfter, cancellationToken);
+            var answer = await RunAsync(signInId, email, _utcNow() + LicenseContract.SignInNotAfter, cancellationToken);
             FileLog.Write($"[LicenseSignInCoordinator] signInId={signInId} finished: outcome={answer.Outcome}, reason={answer.ReasonCode ?? "-"}");
             return answer;
         }
@@ -131,27 +131,27 @@ public sealed class LicenseSignInCoordinator
         }
     }
 
-    private async Task<LicenseSignInAnswer> ThroughAnotherMachineAsync(string signInId, string email, DateTime notAfterUtc, CancellationToken cancellationToken)
+    /// <summary>One sign-in, by whichever route the tool chooses.</summary>
+    private async Task<LicenseSignInAnswer> RunAsync(string signInId, string email, DateTime notAfterUtc, CancellationToken cancellationToken)
     {
         var relay = _relay;
         var seal = _seal;
-        if (relay is null || !relay.CanRequest || seal is null)
-        {
-            // No browser profile here and no way to ask another machine: the truthful word is the one the tool gave.
-            FileLog.Write($"[LicenseSignInCoordinator] signInId={signInId}: no browser profile here and no Gateway that relays an approval");
-            return LicenseSignInAnswer.Failed(LicenseRenewalErrors.NoApprover);
-        }
+        // The tool is told to wait for another machine's approval only while one can be asked for and opened here.
+        var canAsk = relay is { CanRequest: true } && seal is not null;
+        if (!canAsk)
+            FileLog.Write($"[LicenseSignInCoordinator] signInId={signInId}: no Gateway relays an approval just now; only a browser profile on this machine can approve");
 
-        var wait = notAfterUtc - _utcNow();
-        if (wait <= TimeSpan.Zero)
-            return LicenseSignInAnswer.Failed(LicenseRenewalErrors.Expired);
-
-        var start = await _tool.StartRemoteSignInAsync(email, cancellationToken);
+        var start = await _tool.StartSignInAsync(email, canAsk, cancellationToken);
         if (start.Waiting is null)
-            return start.Failed ?? LicenseSignInAnswer.Failed(LicenseRenewalErrors.LoginFailed);
+            return start.Finished ?? LicenseSignInAnswer.Failed(LicenseRenewalErrors.LoginFailed);
 
         // Disposing a login that was not completed abandons it: nothing is written, and a new spare's empty folder goes.
         await using var waiting = start.Waiting;
+        if (relay is null || seal is null || !canAsk)
+            return LicenseSignInAnswer.Failed(LicenseRenewalErrors.NoApprover);
+        var wait = notAfterUtc - _utcNow();
+        if (wait <= TimeSpan.Zero)
+            return LicenseSignInAnswer.Failed(LicenseRenewalErrors.Expired);
         using var expected = _approvals.Expect(signInId);
 
         try

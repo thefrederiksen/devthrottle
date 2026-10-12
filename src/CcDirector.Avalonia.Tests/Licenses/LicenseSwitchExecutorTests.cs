@@ -118,13 +118,10 @@ public sealed class LicenseSwitchExecutorTests : IDisposable
         }
 
         // The sign-in commands are not this test's subject; LicenseSignInExecutorTests has its own tool.
-        public Task<IReadOnlyList<LicenseRenewalRow>> RenewAsync(CancellationToken cancellationToken) =>
+        public Task<IReadOnlyList<LicenseRenewalRow>> CheckRenewalsAsync(CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
-        public Task<LicenseSignInAnswer> SignInAsync(string accountEmail, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task<LicenseRemoteSignInStart> StartRemoteSignInAsync(string accountEmail, CancellationToken cancellationToken) =>
+        public Task<LicenseSignInStart> StartSignInAsync(string accountEmail, bool askAnotherMachineWhenNoBrowser, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
         public Task<LicenseApproveAnswer> ApproveAsync(string authorizeUrl, string accountEmail, string browserProfile, CancellationToken cancellationToken) =>

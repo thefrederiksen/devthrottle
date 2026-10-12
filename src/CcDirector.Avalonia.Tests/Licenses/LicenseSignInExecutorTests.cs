@@ -226,17 +226,14 @@ public sealed class LicenseSignInExecutorTests : IDisposable
         public Task<LicenseExchangeAnswer> SwitchAsync(string targetAccountEmail, string expectedActiveAccountEmail, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
-        public Task<IReadOnlyList<LicenseRenewalRow>> RenewAsync(CancellationToken cancellationToken) =>
+        public Task<IReadOnlyList<LicenseRenewalRow>> CheckRenewalsAsync(CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
-        public Task<LicenseSignInAnswer> SignInAsync(string accountEmail, CancellationToken cancellationToken)
+        public Task<LicenseSignInStart> StartSignInAsync(string accountEmail, bool askAnotherMachineWhenNoBrowser, CancellationToken cancellationToken)
         {
             SignIns.Add(accountEmail);
-            return Task.FromResult(new LicenseSignInAnswer { Outcome = LicenseSignInOutcomes.Added, SignedInAtUtc = Now });
+            return Task.FromResult(new LicenseSignInStart { Finished = new LicenseSignInAnswer { Outcome = LicenseSignInOutcomes.Added, SignedInAtUtc = Now } });
         }
-
-        public Task<LicenseRemoteSignInStart> StartRemoteSignInAsync(string accountEmail, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
 
         public Task<LicenseApproveAnswer> ApproveAsync(string authorizeUrl, string accountEmail, string browserProfile, CancellationToken cancellationToken)
         {

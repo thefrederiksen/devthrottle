@@ -6,7 +6,8 @@ using CcDirector.Gateway.Contracts;
 
 namespace CcDirector.Core.Licenses;
 
-/// <summary>One row of <c>license renew --json</c>: what happened to one held account's sign-in.</summary>
+/// <summary>One held account's sign-in in a renewal run: first what <c>license renew --check</c> said of it, then -
+/// for one that was due - what the Director's sign-in did.</summary>
 public sealed class LicenseRenewalRow
 {
     public string AccountEmail { get; set; } = "";
@@ -27,7 +28,12 @@ public sealed class LicenseRenewalRow
 /// <summary>What a renewal did to one account, in the Director's words.</summary>
 public static class LicenseRenewalResults
 {
+    /// <summary>The sign-in ends within five days; the Director signs the account in again.</summary>
+    public const string Due = "due";
+
+    /// <summary>It was due and the Director's sign-in renewed it.</summary>
     public const string Renewed = "renewed";
+
     public const string NotDue = "not-due";
 
     /// <summary>The sign-in carries no end date, so the tool cannot tell whether it is due.</summary>
@@ -86,55 +92,36 @@ public interface ILicenseRemoteSignIn : IAsyncDisposable
     Task AbandonAsync(CancellationToken cancellationToken);
 }
 
-/// <summary>The start of a remote sign-in: a waiting login, or the reason there is none.</summary>
-public sealed class LicenseRemoteSignInStart
+/// <summary>The start of a sign-in: a login waiting for another machine's approval, or one that already finished.</summary>
+public sealed class LicenseSignInStart
 {
+    /// <summary>Set when the tool printed an authorize URL and is waiting for the approval on its input.</summary>
     public ILicenseRemoteSignIn? Waiting { get; init; }
 
-    /// <summary>Set when the tool ended before it printed an authorize URL.</summary>
-    public LicenseSignInAnswer? Failed { get; init; }
+    /// <summary>Set when the tool ended without waiting: it approved in a browser profile here and signed in, or it failed.</summary>
+    public LicenseSignInAnswer? Finished { get; init; }
 }
 
 public sealed partial class CcDevthrottleLicenseCommandLine
 {
-    /// <summary>How long a renewal of every due account may take: each one is a sign-in approved in a browser.</summary>
-    public static readonly TimeSpan RenewTimeout = TimeSpan.FromMinutes(10);
-
-    /// <summary>How long one sign-in or one approval in a local browser profile may take.</summary>
+    /// <summary>How long one approval in a local browser profile may take - and so how long a sign-in may take to
+    /// either print its authorize URL or finish by approving here.</summary>
     public static readonly TimeSpan SignInTimeout = TimeSpan.FromMinutes(4);
 
-    /// <summary>How long the tool may take to print its authorize URL, and to finish once the approval is typed in.</summary>
-    public static readonly TimeSpan RemoteStepTimeout = TimeSpan.FromSeconds(90);
+    /// <summary>How long the tool may take to finish once its input has ended - the approval typed in, or nothing.</summary>
+    public static readonly TimeSpan FinishTimeout = TimeSpan.FromSeconds(90);
 
     internal const string AuthorizeUrlPrefix = "authorize-url: ";
 
     private const string FailedPrefix = "failed-";
 
-    public async Task<IReadOnlyList<LicenseRenewalRow>> RenewAsync(CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<LicenseRenewalRow>> CheckRenewalsAsync(CancellationToken cancellationToken)
     {
-        FileLog.Write("[CcDevthrottleLicenseCommandLine] RenewAsync");
-        var output = await RunForJsonAsync(new[] { "license", "renew" }, cancellationToken, RenewTimeout);
+        FileLog.Write("[CcDevthrottleLicenseCommandLine] CheckRenewalsAsync");
+        var output = await RunForJsonAsync(new[] { "license", "renew", "--check" }, cancellationToken);
         var rows = ReadRenewalRows(output);
-        FileLog.Write($"[CcDevthrottleLicenseCommandLine] RenewAsync: rows={rows.Count}, renewed={rows.Count(r => r.Result == LicenseRenewalResults.Renewed)}, failed={rows.Count(r => r.Result == LicenseRenewalResults.Failed)}");
+        FileLog.Write($"[CcDevthrottleLicenseCommandLine] CheckRenewalsAsync: rows={rows.Count}, due={rows.Count(r => r.Result == LicenseRenewalResults.Due)}, failed={rows.Count(r => r.Result == LicenseRenewalResults.Failed)}");
         return rows;
-    }
-
-    public async Task<LicenseSignInAnswer> SignInAsync(string accountEmail, CancellationToken cancellationToken)
-    {
-        FileLog.Write($"[CcDevthrottleLicenseCommandLine] SignInAsync: account={accountEmail}");
-        string output;
-        try
-        {
-            output = await RunForJsonAsync(new[] { "license", "sign-in", accountEmail }, cancellationToken, SignInTimeout);
-        }
-        catch (LicenseCommandLineException ex)
-        {
-            FileLog.Write($"[CcDevthrottleLicenseCommandLine] SignInAsync FAILED: {ex.Message}");
-            return LicenseSignInAnswer.Failed(LicenseRenewalErrors.LoginFailed);
-        }
-        var answer = ReadSignInAnswer(output);
-        FileLog.Write($"[CcDevthrottleLicenseCommandLine] SignInAsync: account={accountEmail}, outcome={answer.Outcome}, reason={answer.ReasonCode ?? "-"}");
-        return answer;
     }
 
     public async Task<LicenseApproveAnswer> ApproveAsync(string authorizeUrl, string accountEmail, string browserProfile, CancellationToken cancellationToken)
@@ -158,14 +145,14 @@ public sealed partial class CcDevthrottleLicenseCommandLine
         return answer;
     }
 
-    public async Task<LicenseRemoteSignInStart> StartRemoteSignInAsync(string accountEmail, CancellationToken cancellationToken)
+    public async Task<LicenseSignInStart> StartSignInAsync(string accountEmail, bool askAnotherMachineWhenNoBrowser, CancellationToken cancellationToken)
     {
-        FileLog.Write($"[CcDevthrottleLicenseCommandLine] StartRemoteSignInAsync: account={accountEmail}");
+        FileLog.Write($"[CcDevthrottleLicenseCommandLine] StartSignInAsync: account={accountEmail}, askAnotherMachineWhenNoBrowser={askAnotherMachineWhenNoBrowser}");
         var exe = _resolveTool();
         if (exe is null)
         {
-            FileLog.Write($"[CcDevthrottleLicenseCommandLine] StartRemoteSignInAsync FAILED: {ToolName} is not installed in {OwnToolDirectory()}");
-            return new LicenseRemoteSignInStart { Failed = LicenseSignInAnswer.Failed(LicenseRenewalErrors.LoginFailed) };
+            FileLog.Write($"[CcDevthrottleLicenseCommandLine] StartSignInAsync FAILED: {ToolName} is not installed in {OwnToolDirectory()}");
+            return new LicenseSignInStart { Finished = LicenseSignInAnswer.Failed(LicenseRenewalErrors.LoginFailed) };
         }
 
         var psi = new ProcessStartInfo
@@ -178,7 +165,10 @@ public sealed partial class CcDevthrottleLicenseCommandLine
             CreateNoWindow = true,
             StandardInputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
         };
-        foreach (var a in WithIsolation(new List<string> { "license", "sign-in", accountEmail, "--remote-approval", "--json" }))
+        var args = new List<string> { "license", "sign-in", accountEmail };
+        if (askAnotherMachineWhenNoBrowser) args.Add("--ask-when-no-browser");
+        args.Add("--json");
+        foreach (var a in WithIsolation(args))
             psi.ArgumentList.Add(a);
 
         var process = new Process { StartInfo = psi };
@@ -189,8 +179,8 @@ public sealed partial class CcDevthrottleLicenseCommandLine
         catch (System.ComponentModel.Win32Exception ex)
         {
             process.Dispose();
-            FileLog.Write($"[CcDevthrottleLicenseCommandLine] StartRemoteSignInAsync FAILED: {ToolName} could not be started (error {ex.NativeErrorCode})");
-            return new LicenseRemoteSignInStart { Failed = LicenseSignInAnswer.Failed(LicenseRenewalErrors.LoginFailed) };
+            FileLog.Write($"[CcDevthrottleLicenseCommandLine] StartSignInAsync FAILED: {ToolName} could not be started (error {ex.NativeErrorCode})");
+            return new LicenseSignInStart { Finished = LicenseSignInAnswer.Failed(LicenseRenewalErrors.LoginFailed) };
         }
 
         // Standard error carries the sentence for a person; it is drained so the tool never blocks on it, and dropped.
@@ -200,11 +190,13 @@ public sealed partial class CcDevthrottleLicenseCommandLine
             waitForExit: async ct => { await process.WaitForExitAsync(ct); await drained; },
             kill: () => { try { if (!process.HasExited) process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { } },
             release: process.Dispose,
-            RemoteStepTimeout);
-        return await conversation.StartAsync(cancellationToken);
+            SignInTimeout, FinishTimeout);
+        var start = await conversation.StartAsync(cancellationToken);
+        FileLog.Write($"[CcDevthrottleLicenseCommandLine] StartSignInAsync: account={accountEmail}, {(start.Waiting is not null ? "waiting for another machine's approval" : $"finished: outcome={start.Finished?.Outcome}, reason={start.Finished?.ReasonCode ?? "-"}")}");
+        return start;
     }
 
-    /// <summary>The rows of a <c>renew</c> answer: one JSON object whose <c>accounts</c> array holds
+    /// <summary>The rows of a <c>renew</c> or <c>renew --check</c> answer: one JSON object whose <c>accounts</c> array holds
     /// <c>{accountEmail, role, result, signedInAtUtc, signInExpiresAtUtc}</c> rows. The tool's own <c>detail</c> sentence
     /// is never read (rule 6.1), and a failure word outside the contract reads as <c>login-failed</c>.</summary>
     internal static IReadOnlyList<LicenseRenewalRow> ReadRenewalRows(string? output)
@@ -226,7 +218,7 @@ public sealed partial class CcDevthrottleLicenseCommandLine
                 SignedInAtUtc = Time(row, "signedInAtUtc"),
                 SignInExpiresAtUtc = Time(row, "signInExpiresAtUtc"),
             };
-            if (result is LicenseRenewalResults.Renewed or LicenseRenewalResults.NotDue or LicenseRenewalResults.UnknownExpiry)
+            if (result is LicenseRenewalResults.Due or LicenseRenewalResults.Renewed or LicenseRenewalResults.NotDue or LicenseRenewalResults.UnknownExpiry)
             {
                 renewal.Result = result;
             }
@@ -331,8 +323,9 @@ public sealed partial class CcDevthrottleLicenseCommandLine
 }
 
 /// <summary>
-/// The conversation with a running <c>license sign-in --remote-approval --json</c>: read lines until it prints
-/// <c>authorize-url: ...</c>, later write the approval as one line and close its input, then read its JSON answer.
+/// The conversation with a running <c>license sign-in --json</c>: read lines until it prints
+/// <c>authorize-url: ...</c> - or ends, having approved in a browser profile here or failed - and, when it is
+/// waiting, later write the approval as one line and close its input, then read its JSON answer.
 /// Closing the input with nothing written is how it is abandoned - the tool then ends the login itself, removing a
 /// new spare's empty folder - and the process is killed only when it does not end in time.
 ///
@@ -345,28 +338,33 @@ internal sealed class LicenseRemoteSignInConversation : ILicenseRemoteSignIn
     private readonly Func<CancellationToken, Task> _waitForExit;
     private readonly Action _kill;
     private readonly Action _release;
-    private readonly TimeSpan _stepTimeout;
+    private readonly TimeSpan _startTimeout;
+    private readonly TimeSpan _finishTimeout;
     private int _ended;
 
+    /// <param name="startTimeout">How long the tool may take to print its authorize URL or to end.</param>
+    /// <param name="finishTimeout">How long it may take to end once its input has ended.</param>
     public LicenseRemoteSignInConversation(TextReader output, TextWriter input, Func<CancellationToken, Task> waitForExit,
-        Action kill, Action release, TimeSpan stepTimeout)
+        Action kill, Action release, TimeSpan startTimeout, TimeSpan finishTimeout)
     {
         _output = output;
         _input = input;
         _waitForExit = waitForExit;
         _kill = kill;
         _release = release;
-        _stepTimeout = stepTimeout;
+        _startTimeout = startTimeout;
+        _finishTimeout = finishTimeout;
     }
 
     public string AuthorizeUrl { get; private set; } = "";
 
-    /// <summary>Reads until the authorize URL. A tool that ends first is answered from what it printed.</summary>
-    public async Task<LicenseRemoteSignInStart> StartAsync(CancellationToken cancellationToken)
+    /// <summary>Reads until the authorize URL. A tool that ends first is answered from what it printed: the sign-in
+    /// it made by approving in a browser profile here, or its failure.</summary>
+    public async Task<LicenseSignInStart> StartAsync(CancellationToken cancellationToken)
     {
         var printed = new StringBuilder();
         using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        limit.CancelAfter(_stepTimeout);
+        limit.CancelAfter(_startTimeout);
         try
         {
             while (await _output.ReadLineAsync(limit.Token) is { } line)
@@ -375,26 +373,23 @@ internal sealed class LicenseRemoteSignInConversation : ILicenseRemoteSignIn
                 {
                     AuthorizeUrl = line[CcDevthrottleLicenseCommandLine.AuthorizeUrlPrefix.Length..].Trim();
                     if (AuthorizeUrl.Length > 0)
-                        return new LicenseRemoteSignInStart { Waiting = this };
+                        return new LicenseSignInStart { Waiting = this };
                 }
                 printed.AppendLine(line);
             }
         }
         catch (OperationCanceledException)
         {
-            FileLog.Write("[LicenseRemoteSignInConversation] StartAsync FAILED: no authorize URL in time; the sign-in is ended");
+            FileLog.Write("[LicenseRemoteSignInConversation] StartAsync FAILED: the sign-in neither asked for an approval nor ended in time; it is ended");
             End(kill: true);
             cancellationToken.ThrowIfCancellationRequested();
-            return new LicenseRemoteSignInStart { Failed = LicenseSignInAnswer.Failed(LicenseRenewalErrors.LoginFailed) };
+            return new LicenseSignInStart { Finished = LicenseSignInAnswer.Failed(LicenseRenewalErrors.LoginFailed) };
         }
 
-        // The tool ended without a URL: what it printed says why (a failure answer), or nothing does.
+        // The tool ended without asking: what it printed is its answer - signed in here, or why not.
         var answer = CcDevthrottleLicenseCommandLine.ReadSignInAnswer(printed.ToString());
         End(kill: false);
-        return new LicenseRemoteSignInStart
-        {
-            Failed = answer.Succeeded ? LicenseSignInAnswer.Failed(LicenseRenewalErrors.LoginFailed) : answer,
-        };
+        return new LicenseSignInStart { Finished = answer };
     }
 
     public async Task<LicenseSignInAnswer> CompleteAsync(string approval, CancellationToken cancellationToken)
@@ -421,7 +416,7 @@ internal sealed class LicenseRemoteSignInConversation : ILicenseRemoteSignIn
     private async Task<string?> FinishAsync(string? line, CancellationToken cancellationToken)
     {
         using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        limit.CancelAfter(_stepTimeout);
+        limit.CancelAfter(_finishTimeout);
         try
         {
             try

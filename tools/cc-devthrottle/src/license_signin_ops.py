@@ -14,6 +14,15 @@ in the AXI shape (docs/axi-standard.md).
 - `license renew` signs in again every account held (the active one too) whose sign-in ends within five days, with
   the profile set for it by
   `license set-browser`. It exits non-zero when any renewal failed, so a scheduler sees the failure.
+- `license renew --check` signs nothing in: it answers which accounts are `due`, and the profile set for each here.
+- `license sign-in <email> --ask-when-no-browser` approves in the profile set for the account on this machine when
+  there is one, and otherwise behaves as `--remote-approval`. The Director runs these two: it asks what is due once
+  a day and signs each due account in, so an account with no profile here is approved on another machine and no
+  call is made that is expected to fail.
+- A caller that CLOSES standard input while a sign-in waits for its code has called the sign-in off: the approval
+  did not come, and the caller is the one who knows why. That ends as a stopped command - the same `failed` answer
+  under `--json`, exit 1 - and not as a tool failure, so it files no error report. A blank line is different: it is
+  a caller that answered with nothing, and it is reported like any other failure.
 
 The store is opened exactly as `license list` opens it (`license_ops._open`).
 """
@@ -23,6 +32,8 @@ from __future__ import annotations
 import json
 import sys
 from typing import List, Optional
+
+import click
 
 from cc_shared import axi_output
 
@@ -44,29 +55,53 @@ def _fail(ex: SignInError, json_answer: Optional[dict] = None) -> None:
     axi_cli.fail(f"{ex} (reason: {ex.kind})", ex.next_steps or [_LIST])
 
 
+class _CalledOff(SignInError):
+    """The caller closed standard input instead of sending a code: it called the sign-in off."""
+
+    def __init__(self):
+        super().__init__(license_signin.APPROVAL_FAILED, "standard input was closed before a code arrived: the "
+                         "caller called this sign-in off")
+
+
 def _stdin_approval(url: str, email: str) -> str:
     """The approval done elsewhere: say the URL, read the code back as one line."""
     print(f"authorize-url: {url}", flush=True)
     print(f"waiting: approve it for {email} on the machine with the browser profile, then send the code as one "
           "line on standard input", file=sys.stderr, flush=True)
     line = sys.stdin.readline()
+    if line == "":
+        raise _CalledOff()
     if not line.strip():
         raise SignInError(license_signin.APPROVAL_FAILED, "no code arrived on standard input")
     return line.strip()
 
 
 def sign_in(email: str, browser: Optional[str], remote_approval: bool, default_config_dir: Optional[str],
-            store_dir: Optional[str], json_output: bool) -> None:
+            store_dir: Optional[str], json_output: bool, ask_when_no_browser: bool = False) -> None:
     if browser and remote_approval:
         axi_cli.usage_error("--browser and --remote-approval cannot be used together: the approval happens either "
                             "here in a browser profile, or on another machine.")
+    if ask_when_no_browser and (browser or remote_approval):
+        axi_cli.usage_error("--ask-when-no-browser chooses between the profile set here and another machine by "
+                            "itself; it cannot be used with --browser or --remote-approval.")
     store = license_ops._open(default_config_dir, store_dir)
     try:
         if remote_approval:
             approve = _stdin_approval
+        elif ask_when_no_browser:
+            # The owner's setting on this machine wins (contract 8.3); with none, the approval is asked for.
+            profile = license_signin.load_browsers(store).get(email.strip().lower())
+            approve = license_signin.browser_approver(profile) if profile else _stdin_approval
         else:
             approve = license_signin.browser_approver(browser or license_signin.browser_for(store, email))
         result = license_signin.sign_in(store, email, approve)
+    except _CalledOff as ex:
+        # Not a failure of this tool, and not reported as one: the caller stopped it, as Ctrl+C would.
+        if json_output:
+            print(json.dumps({"accountEmail": email.strip().lower(), "result": "failed", "reason": ex.kind},
+                             indent=2), flush=True)
+        print(f"Stopped: {ex} (reason: {ex.kind})", file=sys.stderr, flush=True)
+        raise click.Abort()
     except SignInError as ex:
         _fail(ex, {"accountEmail": email.strip().lower(), "result": "failed"} if json_output else None)
     license_ops._report_recovery(store)
@@ -110,13 +145,13 @@ def set_browser(email: str, profile: str, default_config_dir: Optional[str], sto
 
 
 def renew(account: Optional[str], force: bool, json_output: bool, fields: Optional[str],
-          default_config_dir: Optional[str], store_dir: Optional[str]) -> None:
+          default_config_dir: Optional[str], store_dir: Optional[str], check: bool = False) -> None:
     if json_output and fields is not None:
         axi_cli.usage_error(axi_cli.FIELDS_WITH_JSON)
     chosen = usage_errors.parse_fields(fields, RENEW_FIELDS, RENEW_DEFAULT_FIELDS)
     store = license_ops._open(default_config_dir, store_dir)
     try:
-        rows = license_signin.renew_due(store, account=account, force=force)
+        rows = license_signin.renew_due(store, account=account, force=force, check=check)
     except SignInError as ex:
         _fail(ex)
     license_ops._report_recovery(store)
@@ -125,7 +160,7 @@ def renew(account: Optional[str], force: bool, json_output: bool, fields: Option
         print(json.dumps({"count": len(rows), "failed": len(failed), "accounts": [r.to_json() for r in rows]},
                          indent=2))
     else:
-        results = ("renewed", "not-due", "unknown-expiry")
+        results = ("renewed", "due", "not-due", "unknown-expiry")
         breakdown = [(label, n) for label in results if (n := sum(1 for r in rows if r.result == label))]
         if failed:
             breakdown.append(("failed", len(failed)))

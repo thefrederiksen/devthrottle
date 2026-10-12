@@ -31,20 +31,23 @@ public interface ILicenseCommandLine
     /// <see cref="LicenseSwitchReasonCodes.ExchangeFailedUnknown"/>, because the Director cannot know what happened.</summary>
     Task<LicenseExchangeAnswer> SwitchAsync(string targetAccountEmail, string expectedActiveAccountEmail, CancellationToken cancellationToken);
 
-    /// <summary>Signs in again every held account - the active one too - whose sign-in ends within five days
-    /// (<c>license renew</c>), each approved in the browser profile set for it on this machine. One row per held
-    /// account; a failed renewal is that row's <see cref="LicenseRenewalRow.Error"/>, not an exception.
-    /// Throws <see cref="LicenseCommandLineException"/> when the tool did not give a readable answer.</summary>
-    Task<IReadOnlyList<LicenseRenewalRow>> RenewAsync(CancellationToken cancellationToken);
+    /// <summary>Which held accounts - the active one too - have a sign-in that ends within five days
+    /// (<c>license renew --check</c>). It signs nothing in: one row per held account, <c>due</c>, <c>not-due</c> or
+    /// <c>unknown-expiry</c>, and <c>failed</c> only for an account whose stored sign-in could not be read. The tool
+    /// decides what "due" means, in one place. Throws <see cref="LicenseCommandLineException"/> when the tool did not
+    /// give a readable answer.</summary>
+    Task<IReadOnlyList<LicenseRenewalRow>> CheckRenewalsAsync(CancellationToken cancellationToken);
 
-    /// <summary>Signs <paramref name="accountEmail"/> in on this machine, approving in the browser profile set for it
-    /// here (<c>license sign-in</c>): a new spare, or a renewal in place of the sign-in held. Never throws for an
-    /// answer the tool gave; with no profile set here the answer is failed, <c>no-approver</c>.</summary>
-    Task<LicenseSignInAnswer> SignInAsync(string accountEmail, CancellationToken cancellationToken);
-
-    /// <summary>Starts a sign-in whose approval happens on another machine (<c>license sign-in --remote-approval</c>)
-    /// and returns it waiting, with its authorize URL - or the reason it could not start.</summary>
-    Task<LicenseRemoteSignInStart> StartRemoteSignInAsync(string accountEmail, CancellationToken cancellationToken);
+    /// <summary>
+    /// Starts signing <paramref name="accountEmail"/> in on this machine (<c>license sign-in</c>): a new spare, or a
+    /// renewal in place of the sign-in held. With a browser profile set for the account here, the tool approves in it
+    /// and the answer comes back <see cref="LicenseSignInStart.Finished"/>. With none, and
+    /// <paramref name="askAnotherMachineWhenNoBrowser"/> true (<c>--ask-when-no-browser</c>), it comes back
+    /// <see cref="LicenseSignInStart.Waiting"/> with its authorize URL, for another machine to approve; with false it
+    /// finishes failed, <c>no-approver</c>. One call chooses the route - none is made that is expected to fail.
+    /// Never throws for an answer the tool gave.
+    /// </summary>
+    Task<LicenseSignInStart> StartSignInAsync(string accountEmail, bool askAnotherMachineWhenNoBrowser, CancellationToken cancellationToken);
 
     /// <summary>Approves another machine's sign-in in a browser profile here (<c>license approve</c>). The tool
     /// refuses, before any browser opens, a URL that names another account than <paramref name="accountEmail"/>.</summary>

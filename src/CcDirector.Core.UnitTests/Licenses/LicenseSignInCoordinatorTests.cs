@@ -82,6 +82,8 @@ public sealed class LicenseSignInCoordinatorTests : IDisposable
         Assert.Equal(LicenseSignInOutcomes.Renewed, result.Outcome);
         Assert.Null(result.ReasonCode);
         Assert.Equal(ends, result.SignInExpiresAtUtc);
+        // One call to the tool, which chose the route itself: the owner's profile on this machine wins.
+        Assert.Equal((AccountB, true), Assert.Single(_tool.SignInCalls));
         Assert.Empty(_relay.Requests);
         Assert.Empty(_tool.RemoteSignIns);
     }
@@ -117,7 +119,21 @@ public sealed class LicenseSignInCoordinatorTests : IDisposable
 
         Assert.Equal(LicenseSignInOutcomes.Failed, result.Outcome);
         Assert.Equal(LicenseRenewalErrors.NoApprover, result.ReasonCode);
+        // The tool was not told to wait for an approval nobody could bring, so no login was left waiting.
+        Assert.Equal((AccountB, false), Assert.Single(_tool.SignInCalls));
         Assert.Empty(_tool.RemoteSignIns);
+    }
+
+    [Fact]
+    public async Task SignInAsync_NoSealOnThisMachine_NeverAsksForAnApprovalItCouldNotOpen()
+    {
+        _licenses.SignIns.AttachSeal(null);
+
+        var result = await _licenses.SignIns.SignInAsync(Request(), CancellationToken.None);
+
+        Assert.Equal(LicenseRenewalErrors.NoApprover, result.ReasonCode);
+        Assert.Equal((AccountB, false), Assert.Single(_tool.SignInCalls));
+        Assert.Empty(_relay.Requests);
     }
 
     [Theory]

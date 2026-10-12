@@ -13,6 +13,7 @@ public sealed class LicenseSignInCommandLineTests
 {
     private const string Url = "https://claude.ai/oauth/authorize?code=true&state=s1&login_hint=account-b%40example.com";
     private static readonly TimeSpan Step = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan Short = TimeSpan.FromMilliseconds(50);
 
     [Fact]
     public void ReadRenewalRows_EveryResultTheToolWrites_ReadsIt_AndNeverItsSentence()
@@ -23,6 +24,7 @@ public sealed class LicenseSignInCommandLineTests
               {"accountEmail": "Account-A@Example.com", "role": "active", "result": "renewed",
                "signedInAtUtc": "2026-10-12T03:00:00Z", "signInExpiresAtUtc": "2026-11-10T02:00:00Z", "browser": "P", "detail": null},
               {"accountEmail": "account-b@example.com", "role": "spare", "result": "not-due", "signInExpiresAtUtc": "2026-11-01T00:00:00Z"},
+              {"accountEmail": "account-e@example.com", "role": "spare", "result": "due", "browser": null},
               {"accountEmail": "account-c@example.com", "role": "spare", "result": "failed-browser-not-signed-in", "detail": "MARKER"},
               {"accountEmail": "account-d@example.com", "role": "spare", "result": "failed-MARKER", "detail": "MARKER"}
             ]}
@@ -36,9 +38,10 @@ public sealed class LicenseSignInCommandLineTests
         Assert.Equal(new DateTime(2026, 11, 10, 2, 0, 0, DateTimeKind.Utc), rows[0].SignInExpiresAtUtc);
         Assert.Equal(DateTimeKind.Utc, rows[0].SignedInAtUtc!.Value.Kind);
         Assert.Equal(LicenseRenewalResults.NotDue, rows[1].Result);
-        Assert.Equal((LicenseRenewalResults.Failed, LicenseRenewalErrors.BrowserNotSignedIn), (rows[2].Result, rows[2].Error));
+        Assert.Equal((LicenseRenewalResults.Due, null), (rows[2].Result, rows[2].Error));
+        Assert.Equal((LicenseRenewalResults.Failed, LicenseRenewalErrors.BrowserNotSignedIn), (rows[3].Result, rows[3].Error));
         // A failure word outside the contract could be anything the tool printed: it never travels.
-        Assert.Equal((LicenseRenewalResults.Failed, LicenseRenewalErrors.LoginFailed), (rows[3].Result, rows[3].Error));
+        Assert.Equal((LicenseRenewalResults.Failed, LicenseRenewalErrors.LoginFailed), (rows[4].Result, rows[4].Error));
         Assert.DoesNotContain(rows, r => (r.Error ?? "").Contains(marker) || r.Result.Contains(marker));
     }
 
@@ -161,8 +164,24 @@ public sealed class LicenseSignInCommandLineTests
         var start = await tool.Conversation(Step).StartAsync(CancellationToken.None);
 
         Assert.Null(start.Waiting);
-        Assert.Equal(LicenseRenewalErrors.StoreRefused, start.Failed!.ReasonCode);
+        Assert.Equal(LicenseRenewalErrors.StoreRefused, start.Finished!.ReasonCode);
         Assert.True(tool.Released);
+    }
+
+    [Fact]
+    public async Task Conversation_ToolSignsInHereWithoutAsking_IsFinishedWithItsAnswer()
+    {
+        // A browser profile is set for the account on this machine: the tool approves there and never prints a URL.
+        var tool = new FakeSignInTool(url: null, endsWith: "{\"result\": \"renewed\", \"signInExpiresAtUtc\": \"2026-11-10T02:00:00Z\"}");
+
+        var start = await tool.Conversation(Step).StartAsync(CancellationToken.None);
+
+        Assert.Null(start.Waiting);
+        Assert.True(start.Finished!.Succeeded);
+        Assert.Equal(LicenseSignInOutcomes.Renewed, start.Finished.Outcome);
+        Assert.Equal(new DateTime(2026, 11, 10, 2, 0, 0, DateTimeKind.Utc), start.Finished.SignInExpiresAtUtc);
+        Assert.Equal("", tool.Typed);
+        Assert.False(tool.Killed);
     }
 
     [Fact]
@@ -170,10 +189,10 @@ public sealed class LicenseSignInCommandLineTests
     {
         var tool = new FakeSignInTool(url: null, hangs: true);
 
-        var start = await tool.Conversation(TimeSpan.FromMilliseconds(50)).StartAsync(CancellationToken.None);
+        var start = await tool.Conversation(Short, Step).StartAsync(CancellationToken.None);
 
         Assert.Null(start.Waiting);
-        Assert.Equal(LicenseRenewalErrors.LoginFailed, start.Failed!.ReasonCode);
+        Assert.Equal(LicenseRenewalErrors.LoginFailed, start.Finished!.ReasonCode);
         Assert.True(tool.Killed);
     }
 
@@ -181,7 +200,7 @@ public sealed class LicenseSignInCommandLineTests
     public async Task Conversation_ToolDoesNotEndAfterTheApproval_IsKilled_AndTheAnswerIsAFailedLogin()
     {
         var tool = new FakeSignInTool(Url, hangsAfterInput: true);
-        var conversation = tool.Conversation(TimeSpan.FromMilliseconds(50));
+        var conversation = tool.Conversation(Step, Short);
         var start = await conversation.StartAsync(CancellationToken.None);
 
         var answer = await start.Waiting!.CompleteAsync("the-approval#state", CancellationToken.None);
@@ -217,12 +236,12 @@ public sealed class LicenseSignInCommandLineTests
         public bool Killed { get; private set; }
         public bool Released { get; private set; }
 
-        public LicenseRemoteSignInConversation Conversation(TimeSpan stepTimeout) => new(
+        public LicenseRemoteSignInConversation Conversation(TimeSpan startTimeout, TimeSpan? finishTimeout = null) => new(
             new Output(this), new Input(this),
             waitForExit: ct => _inputClosed.Task.WaitAsync(ct),
             kill: () => Killed = true,
             release: () => Released = true,
-            stepTimeout);
+            startTimeout, finishTimeout ?? startTimeout);
 
         private sealed class Input : StringWriter
         {

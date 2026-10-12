@@ -96,18 +96,20 @@ internal sealed class FakeLicenseCommandLine : ILicenseCommandLine
 
     // ---- Contract section 8: renewing, signing in, approving ----
 
-    /// <summary>What RenewAsync answers: one row per account, as the tool would after trying each due one.</summary>
+    /// <summary>What CheckRenewalsAsync answers: one row per account, as <c>license renew --check</c> would.</summary>
     public List<LicenseRenewalRow> RenewRows { get; } = new();
 
     public int RenewCalls { get; private set; }
 
     /// <summary>What a sign-in approved in a browser profile on THIS machine answers, by account. An account with no
-    /// entry has no profile here: failed, no-approver.</summary>
+    /// entry has no profile here: the tool asks for another machine's approval when told it may, and otherwise
+    /// finishes failed, no-approver.</summary>
     public Dictionary<string, LicenseSignInAnswer> LocalSignIns { get; } = new(StringComparer.Ordinal);
 
-    public List<string> SignInCalls { get; } = new();
+    /// <summary>Every sign-in started: the account, and whether the tool was told it may ask another machine.</summary>
+    public List<(string Email, bool MayAsk)> SignInCalls { get; } = new();
 
-    /// <summary>When set, a remote sign-in ends before it prints its authorize URL, with this answer.</summary>
+    /// <summary>When set, a sign-in ends before it prints its authorize URL, with this answer.</summary>
     public LicenseSignInAnswer? RemoteStartFailure { get; set; }
 
     /// <summary>What a completed remote sign-in answers.</summary>
@@ -119,7 +121,7 @@ internal sealed class FakeLicenseCommandLine : ILicenseCommandLine
 
     public List<(string Url, string Email, string Profile)> ApproveCalls { get; } = new();
 
-    public Task<IReadOnlyList<LicenseRenewalRow>> RenewAsync(CancellationToken cancellationToken)
+    public Task<IReadOnlyList<LicenseRenewalRow>> CheckRenewalsAsync(CancellationToken cancellationToken)
     {
         RenewCalls++;
         ThrowIfFailing();
@@ -130,21 +132,18 @@ internal sealed class FakeLicenseCommandLine : ILicenseCommandLine
         }).ToList());
     }
 
-    public Task<LicenseSignInAnswer> SignInAsync(string accountEmail, CancellationToken cancellationToken)
+    public Task<LicenseSignInStart> StartSignInAsync(string accountEmail, bool askAnotherMachineWhenNoBrowser, CancellationToken cancellationToken)
     {
-        SignInCalls.Add(accountEmail);
-        return Task.FromResult(LocalSignIns.TryGetValue(accountEmail, out var answer)
-            ? answer
-            : LicenseSignInAnswer.Failed(LicenseRenewalErrors.NoApprover));
-    }
-
-    public Task<LicenseRemoteSignInStart> StartRemoteSignInAsync(string accountEmail, CancellationToken cancellationToken)
-    {
+        SignInCalls.Add((accountEmail, askAnotherMachineWhenNoBrowser));
+        if (LocalSignIns.TryGetValue(accountEmail, out var here))
+            return Task.FromResult(new LicenseSignInStart { Finished = here });
+        if (!askAnotherMachineWhenNoBrowser)
+            return Task.FromResult(new LicenseSignInStart { Finished = LicenseSignInAnswer.Failed(LicenseRenewalErrors.NoApprover) });
         if (RemoteStartFailure is not null)
-            return Task.FromResult(new LicenseRemoteSignInStart { Failed = RemoteStartFailure });
+            return Task.FromResult(new LicenseSignInStart { Finished = RemoteStartFailure });
         var waiting = new FakeRemoteSignIn(accountEmail, RemoteAnswer);
         RemoteSignIns.Add(waiting);
-        return Task.FromResult(new LicenseRemoteSignInStart { Waiting = waiting });
+        return Task.FromResult(new LicenseSignInStart { Waiting = waiting });
     }
 
     public Task<LicenseApproveAnswer> ApproveAsync(string authorizeUrl, string accountEmail, string browserProfile, CancellationToken cancellationToken)

@@ -55,14 +55,20 @@ public sealed class LicenseRenewerTests : IDisposable
     {
         // A renewal is this machine's own business: it must not wait for a tunnel.
         _licenses.Reporter.AttachSink(null);
-        Rows((AccountA, LicenseRenewalResults.NotDue, null), (AccountB, LicenseRenewalResults.Renewed, null));
+        Rows((AccountA, LicenseRenewalResults.NotDue, null), (AccountB, LicenseRenewalResults.Due, null));
+        _tool.LocalSignIns[AccountB] = new LicenseSignInAnswer { Outcome = LicenseSignInOutcomes.Renewed, SignInExpiresAtUtc = _clock.Now.AddDays(29) };
 
         var rows = await _licenses.Renewer.TickAsync(CancellationToken.None);
 
         Assert.True(_licenses.HolderLock.IsHeld);
         Assert.Equal(1, _tool.RenewCalls);
-        Assert.Equal(2, rows!.Count);
         Assert.Equal(_clock.Now, _licenses.Renewer.LastRunUtc);
+        // Only the account that is due is signed in again; the one that is not is left alone.
+        Assert.Equal(new[] { AccountB }, _tool.SignInCalls.Select(c => c.Email));
+        Assert.Equal(LicenseRenewalResults.NotDue, rows!.Single(r => r.AccountEmail == AccountA).Result);
+        var renewed = rows!.Single(r => r.AccountEmail == AccountB);
+        Assert.Equal(LicenseRenewalResults.Renewed, renewed.Result);
+        Assert.Equal(_clock.Now.AddDays(29), renewed.SignInExpiresAtUtc);
     }
 
     [Fact]
@@ -96,8 +102,9 @@ public sealed class LicenseRenewerTests : IDisposable
     [Fact]
     public async Task TickAsync_ARenewalThatFailed_TravelsInTheReport_ForTheActiveAccountToo()
     {
-        Rows((AccountA, LicenseRenewalResults.Failed, LicenseRenewalErrors.BrowserNotSignedIn),
-             (AccountB, LicenseRenewalResults.Failed, LicenseRenewalErrors.WrongAccount));
+        Rows((AccountA, LicenseRenewalResults.Due, null), (AccountB, LicenseRenewalResults.Due, null));
+        _tool.LocalSignIns[AccountA] = LicenseSignInAnswer.Failed(LicenseRenewalErrors.BrowserNotSignedIn);
+        _tool.LocalSignIns[AccountB] = LicenseSignInAnswer.Failed(LicenseRenewalErrors.WrongAccount);
 
         await _licenses.Renewer.TickAsync(CancellationToken.None);
 
@@ -113,12 +120,14 @@ public sealed class LicenseRenewerTests : IDisposable
     [Fact]
     public async Task TickAsync_AFailureThenASuccessTheNextDay_ClearsTheFailure_AndSaysChanged()
     {
-        Rows((AccountB, LicenseRenewalResults.Failed, LicenseRenewalErrors.ApprovalFailed));
-        await _licenses.Renewer.TickAsync(CancellationToken.None);
+        Rows((AccountB, LicenseRenewalResults.Due, null));
+        _tool.LocalSignIns[AccountB] = LicenseSignInAnswer.Failed(LicenseRenewalErrors.ApprovalFailed);
+        var failedRun = await _licenses.Renewer.TickAsync(CancellationToken.None);
+        Assert.Equal((LicenseRenewalResults.Failed, LicenseRenewalErrors.ApprovalFailed), (failedRun!.Single().Result, failedRun!.Single().Error));
         Assert.Equal(LicenseRenewalErrors.ApprovalFailed, (await ReportedAsync(AccountB)).RenewalError);
 
         _clock.Advance(LicenseContract.RenewalRunInterval);
-        Rows((AccountB, LicenseRenewalResults.Renewed, null));
+        _tool.LocalSignIns[AccountB] = new LicenseSignInAnswer { Outcome = LicenseSignInOutcomes.Renewed };
         await _licenses.Renewer.TickAsync(CancellationToken.None);
 
         var report = await _licenses.Reporter.TickAsync(CancellationToken.None);
@@ -143,9 +152,28 @@ public sealed class LicenseRenewerTests : IDisposable
     }
 
     [Fact]
+    public async Task TickAsync_AFailureThatWasRenewedByHand_IsClearedWhenTheAccountIsNoLongerDue()
+    {
+        Rows((AccountB, LicenseRenewalResults.Due, null));
+        _tool.LocalSignIns[AccountB] = LicenseSignInAnswer.Failed(LicenseRenewalErrors.WrongAccount);
+        await _licenses.Renewer.TickAsync(CancellationToken.None);
+        Assert.Equal(LicenseRenewalErrors.WrongAccount, (await ReportedAsync(AccountB)).RenewalError);
+
+        // The owner signs it in by hand; the next day the tool says it is not due any more.
+        _clock.Advance(LicenseContract.RenewalRunInterval);
+        Rows((AccountB, LicenseRenewalResults.NotDue, null));
+        await _licenses.Renewer.TickAsync(CancellationToken.None);
+
+        var report = await _licenses.Reporter.TickAsync(CancellationToken.None);
+        Assert.Equal(LicenseReportTriggers.Changed, report!.Trigger);
+        Assert.Null(report.Holdings.Single(h => h.AccountEmail == AccountB).RenewalError);
+        Assert.Single(_tool.SignInCalls);
+    }
+
+    [Fact]
     public async Task TickAsync_AccountWithNoProfileHere_IsRenewedThroughAnotherMachine()
     {
-        Rows((AccountB, LicenseRenewalResults.Failed, LicenseRenewalErrors.NoApprover));
+        Rows((AccountB, LicenseRenewalResults.Due, null));
         _relay.OnRequest = request => Assert.True(_licenses.Approvals.Deliver(new LicenseApprovalResult
         {
             SignInId = request.SignInId,
@@ -160,6 +188,7 @@ public sealed class LicenseRenewerTests : IDisposable
         Assert.Equal(AccountB, asked.AccountEmail);
         Assert.Equal(_clock.Now + LicenseContract.SignInNotAfter, asked.NotAfterUtc);
         Assert.Equal(FakeRemoteSignIn.ApprovalMarker, Assert.Single(_tool.RemoteSignIns).TypedIn);
+        Assert.Equal((AccountB, true), Assert.Single(_tool.SignInCalls));
         Assert.Equal(LicenseRenewalResults.Renewed, rows!.Single().Result);
         Assert.Null((await ReportedAsync(AccountB)).RenewalError);
     }
@@ -167,7 +196,7 @@ public sealed class LicenseRenewerTests : IDisposable
     [Fact]
     public async Task TickAsync_NoProfileHereAndTheOtherMachineIsOffline_ReportsWhatTheRelaySaid()
     {
-        Rows((AccountB, LicenseRenewalResults.Failed, LicenseRenewalErrors.NoApprover));
+        Rows((AccountB, LicenseRenewalResults.Due, null));
         _relay.OnRequest = request => _licenses.Approvals.Deliver(new LicenseApprovalResult
         {
             SignInId = request.SignInId, Outcome = LicenseApprovalOutcomes.Refused, ReasonCode = LicenseRenewalErrors.ApproverOffline,
@@ -177,6 +206,31 @@ public sealed class LicenseRenewerTests : IDisposable
 
         Assert.Equal(LicenseRenewalErrors.ApproverOffline, (await ReportedAsync(AccountB)).RenewalError);
         Assert.True(Assert.Single(_tool.RemoteSignIns).Abandoned);
+    }
+
+    [Fact]
+    public async Task TickAsync_NoProfileHereAndNoGatewayThatRelays_IsNoApprover_AndTheToolIsNotToldToWait()
+    {
+        Rows((AccountB, LicenseRenewalResults.Due, null));
+        _relay.CanRequest = false;
+
+        var rows = await _licenses.Renewer.TickAsync(CancellationToken.None);
+
+        Assert.Equal((LicenseRenewalResults.Failed, LicenseRenewalErrors.NoApprover), (rows!.Single().Result, rows!.Single().Error));
+        Assert.Equal((AccountB, false), Assert.Single(_tool.SignInCalls));
+        Assert.Empty(_tool.RemoteSignIns);
+        Assert.Equal(LicenseRenewalErrors.NoApprover, (await ReportedAsync(AccountB)).RenewalError);
+    }
+
+    [Fact]
+    public async Task TickAsync_AStoredSignInTheToolCouldNotRead_IsReportedAsItsOwnFailure()
+    {
+        Rows((AccountB, LicenseRenewalResults.Failed, LicenseRenewalErrors.StoreRefused));
+
+        await _licenses.Renewer.TickAsync(CancellationToken.None);
+
+        Assert.Empty(_tool.SignInCalls);
+        Assert.Equal(LicenseRenewalErrors.StoreRefused, (await ReportedAsync(AccountB)).RenewalError);
     }
 
     [Fact]
