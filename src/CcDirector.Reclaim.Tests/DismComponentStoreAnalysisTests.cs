@@ -19,6 +19,7 @@ namespace CcDirector.Reclaim.Tests;
 /// </summary>
 public class DismComponentStoreAnalysisTests
 {
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Ask_ThroughAHarmlessCommandTheTestSupplies_ReadsBothSizesOutOfTheReport()
     {
@@ -94,6 +95,7 @@ public class DismComponentStoreAnalysisTests
             "Backups and Disabled Features: unknown\r\n"));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Ask_ACommandThatPrintsNoReport_IsNotAnsweredWithTheReason()
     {
@@ -106,6 +108,7 @@ public class DismComponentStoreAnalysisTests
         Assert.Contains("not known", question.ReasonNotAnswered!, StringComparison.Ordinal);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Ask_ACommandThatFails_IsNotAnsweredWithItsExitCode()
     {

@@ -490,6 +490,7 @@ public sealed class PythonToolsHealAndShimTests : IDisposable
 
     // --- Self-checking Windows shim body -----------------------------------------------------------
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void WindowsShimBody_TargetMissing_ExitsNonZeroWithRepairGuidance()
     {

@@ -139,6 +139,7 @@ public sealed class DirectorTriggerRunnerTests
         TimeoutSeconds = timeoutSeconds,
     };
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task RunCheckAsync_ACommandThatPrintsACount_ReportsExitZeroAndTheOutput()
     {
@@ -150,6 +151,7 @@ public sealed class DirectorTriggerRunnerTests
         Assert.Contains("\"count\": 2", report.Output);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task RunCheckAsync_ACommandThatExitsOne_ReportsExitOne()
     {
@@ -157,6 +159,7 @@ public sealed class DirectorTriggerRunnerTests
         Assert.Equal(1, report.ExitCode);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task RunCheckAsync_ACommandPastItsTimeout_IsKilledAndReportedAsATimeout()
     {

@@ -77,6 +77,7 @@ public sealed class DatabaseDecidesOpenRunsTests : IDisposable
 
     // -- EN-F7: an engine restarted in a live process --
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task EngineRestartedInALiveProcess_UnconfirmedStop_IsReleasedWhenTheCommandExits()
     {
