@@ -11,7 +11,7 @@ storage work merges.
 - `src/CcDirector.Gateway/Licenses/LicenseDecisionEngine.cs` - the tick (`Decide`), Switch now
   (`DecideManual`), and the target choice they and the forecast share.
 - `src/CcDirector.Gateway/Licenses/LicenseForecaster.cs` - rate, expected time to 97%, next switch.
-- Tests: `src/CcDirector.Gateway.UnitTests/Licenses/` - 67 tests.
+- Tests: `src/CcDirector.Gateway.UnitTests/Licenses/` - 70 engine and forecast tests (115 license tests in all, with the store work now on main).
 
 ## The check (MISSION.md section 7), test by test
 
@@ -24,6 +24,8 @@ storage work merges.
 | No target: one email, no switch | `Decide_NoTarget_SendsOneEmailAndSwitchesNothing` |
 | A second tick sends no second email | `Decide_NoTargetOnTheSecondTick_SendsNoSecondEmail` |
 | A reading taken before a passed reset never triggers, opens an event or emails | `Decide_PreResetReadingOverSeveralTicksAfterTheReset_SendsNoEmail`, `Decide_PreResetReadingAfterTheReset_DoesNotSwitchOrBar`, `Forecast_ReadingTakenBeforeAPassedReset_IsNotTiredNow` |
+| One email per continuous outage: no close by time while a fresh reading is tired, end moved to the later reset (round 2 ruling) | `Decide_WeekTiresDuringTheEvent_OneEmailForTheWholeOutage`, `Decide_ResetReportedLaterThanTheEventsEnd_KeepsTheEventOpenAndMovesItsEnd` |
+| A reading whose reset is exactly now is not tired | `Decide_ReadingWhoseResetIsExactlyNow_IsNotTired` |
 | A new event after the reset emails once | `Decide_ReadingTakenAfterTheResetAgainAtThreshold_IsANewEventWithOneEmail` |
 | An event closes on a fresh reading under 97%, not on a stale one | `Decide_ExhaustionWithAFreshReadingUnderThreshold_ClosesBeforeItsEnd`, `Decide_ExhaustionWithAStaleReadingUnderThreshold_StaysOpen` |
 | A candidate at 97.0 has no room, at 96.99 it does, on each window | `Decide_CandidateRoomBoundary_OnEachWindowSeparately` (4 rows) |
@@ -39,7 +41,7 @@ storage work merges.
 
 ```
 dotnet test src/CcDirector.Gateway.UnitTests/CcDirector.Gateway.UnitTests.csproj --filter "FullyQualifiedName~CcDirector.Gateway.Tests.Licenses"
-Passed!  - Failed: 0, Passed: 67, Skipped: 0, Total: 67
+Passed!  - Failed: 0, Passed: 115, Skipped: 0, Total: 115   (round 2, after rebasing on main with the store work: 70 of them engine and forecast)
 ```
 
 Revert proof (each mutation applied to the committed engine, the license tests run, then `git checkout` restored it):
@@ -58,6 +60,10 @@ Revert proof (each mutation applied to the committed engine, the license tests r
 | (review round) a passed reset still counts as tired | 2 failed: both pre-reset tests |
 | (review round) forecast passes every machine, not the switchable ones | 1 failed: `Forecast_NextSwitchTarget_IgnoresAStaleMachineTheWayTheEngineDoes` |
 | Restored | 67 passed |
+| (round 2) a fresh tired reading no longer keeps the event open | 3 failed |
+| (round 2) the event's end never moved later | 2 failed |
+| (round 2) `IsTired` reset `>` changed to `>=` | 1 failed |
+| Restored | 115 passed |
 
 ```
 .\scripts\test-local.ps1

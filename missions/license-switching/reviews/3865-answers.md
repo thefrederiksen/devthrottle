@@ -96,3 +96,58 @@ Test: `Forecast_ReadingTakenBeforeAPassedReset_IsNotTiredNow`.
 | A window whose reset has passed still counted as tired | 2 failed: both pre-reset tests |
 | Forecast passes every machine instead of the switchable ones | 1 failed: `Forecast_NextSwitchTarget_IgnoresAStaleMachineTheWayTheEngineDoes` |
 | Restored | 67 passed |
+
+# Round 2 - answers to `3865-re-review.md`
+
+The re-review approved the pull request. The Tech Lead ruled on its first finding; every finding is answered
+below. The branch is rebased on origin/main (2effe261f), which now carries the storage and ingest work, so the
+license tests run here are 115: 70 for the engine and forecast, the rest for the store, ingest and read model.
+
+## 1. The event closed on its stored end while a fresh reading was still tired - fixed, as ruled
+
+Ruling: one email per CONTINUOUS outage. An event never closes by time while a fresh reading still shows a
+tired window; its end moves to the later reset instead. The close is now judged in this order: no machine on
+the account closes it; a fresh tired reading keeps it open and, when a tired window's reset is later than the
+stored end, moves the end there (`LicenseDecisions.ExtendedExhaustions`, a new output the store applies);
+the stored end having passed closes it; a fresh reading with no tired window closes it; a stale reading leaves
+it open. The model's summary of an exhaustion event says the same.
+
+Both cases are pinned:
+- `Decide_WeekTiresDuringTheEvent_OneEmailForTheWholeOutage` - ticks at 0, 3, 10 and 11 minutes: the event
+  opens on the 5-hour window, the week tires at 3, the 5-hour window resets at 10. One email, and the event's
+  end is the weekly reset.
+- `Decide_ResetReportedLaterThanTheEventsEnd_KeepsTheEventOpenAndMovesItsEnd` - the same window reported
+  resetting 90 seconds after the stored end, ticked inside the gap: not closed, no email, end moved.
+
+`Decide_ReadingTakenAfterTheResetAgainAtThreshold_IsANewEventWithOneEmail` relied on the old close-by-time and
+now walks two ticks: a fresh reading at 20% closes the old event with no email, and a later reading at 97.5%
+with no target opens a new one with one email - a new outage, as the ruling intends.
+
+## 2. The reset boundary in `IsTired` not pinned - fixed
+
+`Decide_ReadingWhoseResetIsExactlyNow_IsNotTired`: a reading at 99% whose reset equals now - no switch, no
+bar, no email.
+
+## 3. The forecast's "reset has passed" guard is redundant - kept, and said so
+
+Kept for readability; its comment now says the checks below would give the same null, so it states intent
+rather than changing a result.
+
+## 4. Switch now's "target full" message - fixed
+
+`NoRoomReason` is the one wording, used by both the no-room email and Switch now. A named target read before
+a passed reset is refused with "its latest reading was taken before a window reset, so its use now is not
+known yet".
+
+## 5. Test literals for the read errors - fixed
+
+`[InlineData(LicenseReadErrors.Unauthorized)]` and `[InlineData(LicenseReadErrors.RefreshFailed)]`.
+
+## Mutations, round 2 (each applied to the committed code, the 115 license tests run, then restored)
+
+| Mutation | Result |
+|---|---|
+| A fresh tired reading no longer keeps the event open | 3 failed: both new outage tests and `Decide_NoTargetOnTheSecondTick_SendsNoSecondEmail` |
+| The event's end never moved later | 2 failed: both new outage tests |
+| `IsTired` reset check `reset > now` changed to `>=` | 1 failed: `Decide_ReadingWhoseResetIsExactlyNow_IsNotTired` |
+| Restored | 115 passed |
