@@ -51,3 +51,17 @@ write released; and the stored numbers must be the new report's. The two-second 
 correct code - it only gives a broken gate time to show itself. Proven by mutation: the write gate replaced by a fresh
 object (no gate) turns exactly that test red (1 failed, 14 passed); restored. The earlier test, which relied on a
 500-millisecond window, is removed.
+
+# Answer to round 3 (`3871-round-3-review.md`)
+
+**1. Low - the stale comment in `DirectorHub.Hello`. Accepted and fixed.** It now says what the class comment says:
+the ingest keeps its own record of who owns the Director, Hello takes only the short ownership lock and never waits for
+a database write, and reports are checked and applied under a separate write gate.
+
+**After rebasing for round 3:** a guard that reached main meanwhile (`GateTestsDoNotDependOnTheMachineTests`) refuses
+`Task.Delay` in gate tests, and the race test used two as timeouts. The Hello check is now a `.WaitAsync(10 seconds)`
+watchdog, which that guard allows because it only turns a hang into a named failure. The "the new report wrote while
+the old one held the gate" check now waits on a signal the new report sets inside its write: with the gate held that
+signal cannot be set, so on correct code the result is false whatever the timing, and the bound only gives a missing
+gate the chance to show itself. Proven again by mutation: no write gate turns exactly that test red (1 failed, 14
+passed); restored.

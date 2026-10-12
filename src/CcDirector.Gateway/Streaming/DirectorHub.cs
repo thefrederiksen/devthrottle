@@ -391,7 +391,8 @@ public sealed class DirectorHub : Hub
         // The repository store follows the same ownership discipline: only this - the current -
         // connection may push repository snapshots from now on.
         _repositoryStore?.RegisterConnection(tenant, directorId, Context.ConnectionId);
-        // And the license ingest: it decides ownership itself, under the same lock that applies a report.
+        // And the license ingest, which keeps its own record of who owns this Director. Hello takes only its short
+        // ownership lock and never waits for a database write; reports are checked and applied under a separate write gate.
         _licenseUsage?.RegisterConnection(tenant, directorId, Context.ConnectionId);
         // MTR-15 cancellation cutoff: index this live tunnel by tenant with a server-side abort, so a revoked
         // tenant's connection is severed the moment the sweep (or a request re-read) finds it NotEntitled. The

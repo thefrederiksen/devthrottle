@@ -66,9 +66,14 @@ public sealed class LicenseUsageIngestTests : IDisposable
         using var oldInsideWrite = new ManualResetEventSlim();
         using var releaseOldWrite = new ManualResetEventSlim();
         using var newAtWriteGate = new ManualResetEventSlim();
+        using var newInsideWrite = new ManualResetEventSlim();
         var ingest = new LicenseUsageIngest(_store,
             waitingForWriteGate: conn => { if (conn == "conn-2") newAtWriteGate.Set(); },
-            insideWrite: conn => { if (conn == "conn-1") { oldInsideWrite.Set(); releaseOldWrite.Wait(TimeSpan.FromSeconds(30)); } });
+            insideWrite: conn =>
+            {
+                if (conn == "conn-2") newInsideWrite.Set();
+                if (conn == "conn-1") { oldInsideWrite.Set(); releaseOldWrite.Wait(TimeSpan.FromSeconds(30)); }
+            });
         ingest.RegisterConnection(Tenant, "dir-1", "conn-1");
 
         var oldReport = Task.Run(() => Push(1, 10, "conn-1", ingest));
@@ -76,17 +81,19 @@ public sealed class LicenseUsageIngestTests : IDisposable
 
         // The old report is checked and inside its write. A reconnect's Hello completes anyway.
         var hello = Task.Run(() => ingest.RegisterConnection(Tenant, "dir-1", "conn-2"));
-        Assert.Same(hello, await Task.WhenAny(hello, Task.Delay(TimeSpan.FromSeconds(10))));
+        await hello.WaitAsync(TimeSpan.FromSeconds(10));   // a watchdog: a Hello that waited on the write would hang here
 
         // The new connection's first report reaches the write gate while the old write still holds it.
         var newReport = Task.Run(() => Push(1, 20, "conn-2", ingest));
         Assert.True(newAtWriteGate.Wait(TimeSpan.FromSeconds(10)), "the new report never reached the write gate");
-        var newFinishedBeforeOld = await Task.WhenAny(newReport, Task.Delay(TimeSpan.FromSeconds(2))) == newReport;
+        // With the gate held, the new report cannot be inside its write, so this probe is false on correct code whatever
+        // the timing; its bound only gives a missing gate the chance to show itself.
+        var newWroteWhileOldHeldTheGate = newInsideWrite.Wait(TimeSpan.FromMilliseconds(500));
         releaseOldWrite.Set();
 
         Assert.Equal(LicenseIngestOutcome.Accepted, await oldReport);
         Assert.Equal(LicenseIngestOutcome.Accepted, await newReport);
-        Assert.False(newFinishedBeforeOld);
+        Assert.False(newWroteWhileOldHeldTheGate);
         Assert.Equal(20, StoredFiveHour());
         Assert.Equal(LicenseIngestOutcome.NotActiveConnection, Push(2, 99, "conn-1", ingest));
     }

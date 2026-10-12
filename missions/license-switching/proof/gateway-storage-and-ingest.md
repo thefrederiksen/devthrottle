@@ -89,3 +89,12 @@ Core.Tests have not run on this change; this section is updated with their count
 `RecordingIngestServiceTests.Worker_SleepingIdle_IsWokenAtOnceByACompletedRecording`. This branch changes nothing in
 `src/CcDirector.Core` or `src/CcDirector.Core.Tests`; run alone, that test class failed this one test 2 times out of 3
 and passed the third. It is an existing timing-dependent test, filed as issue 3893.
+
+## Round 3 and the final default gate
+
+- Ingest tests after removing the two `Task.Delay` timeouts: passed 15, failed 0; `GateTestsDoNotDependOnTheMachineTests`:
+  passed 2. Mutation (no write gate): failed 1, passed 14; restored.
+- `.\scripts\test-local.ps1` at dda208a75, tree clean: GREEN, all ten suites Completed. A run just before it on the same
+  commit failed one Engine test, `EngineDatabaseSharedFileTests.TryClaimRun_TwoDirectorsOneFile_ManyRounds_ExactlyOneClaimPerOccurrence`
+  (a disposed SQLite handle), in code this change does not touch; three reruns of that suite passed 103 of 103.
+  Filed as issue 3897.
