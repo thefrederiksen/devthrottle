@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using CcDirector.Core.Utilities;
+using CcDirector.Gateway.Contracts;
 
 namespace CcDirector.Gateway.Licenses;
 
@@ -12,47 +13,34 @@ namespace CcDirector.Gateway.Licenses;
 /// For each account in use (some machine has it active): when a FRESH reading shows either window at or
 /// above <see cref="ThresholdPercent"/>, every machine on it that can be sent a switch is switched to one
 /// target - an account every one of those machines holds a usable spare for (one whose sign-in does not
-/// expire within <see cref="SwitchCommandLifetime"/>), whose fresh reading shows
+/// expire at or before the command's <see cref="LicenseContract.SwitchNotAfter"/>, contract 5.7), whose fresh reading shows
 /// both windows under the threshold, and which is not barred. Best target is the lowest weekly use, then
 /// the lowest 5-hour use, then the account email in ordinal order so the choice never depends on input
 /// order. No target means nothing is switched and the owner gets exactly one email per exhaustion event.
 ///
 /// Who decides "which machines": the machines that are on the account and can be sent a switch now. A
-/// stale machine (no accepted report for <see cref="MachineStaleAfter"/>) or one with an open switch is
-/// skipped and does not take part in the target choice, because its holdings are not known to be current
-/// - letting it veto a target would hold back the machines whose state is known.
+/// stale machine (no accepted report for <see cref="LicenseContract.MachineStaleAfter"/>) or one with an
+/// open switch is skipped and does not take part in the target choice, because its holdings are not known
+/// to be current - letting it veto a target would hold back the machines whose state is known.
+///
+/// A window whose reset time has passed is never tired: its numbers were read before the reset and say
+/// nothing about now. Without this, the tick at a reset would see the last pre-reset reading (fresh for up
+/// to 6 minutes) still at 97% or more, open a new exhaustion event and email the owner again every tick.
+///
+/// Logging: <see cref="Decide"/> and <see cref="DecideManual"/> log entry and exit. The small public
+/// predicates (<see cref="IsReadingStale"/>, <see cref="HasRoom"/> and the rest) do not: they are called in
+/// loops on every tick, and a line per call would bury the decisions in the log.
 /// </summary>
 public static class LicenseDecisionEngine
 {
     /// <summary>A window at or above this percentage is tired.</summary>
     public const double ThresholdPercent = 97.0;
 
-    /// <summary>A reading taken while the account was active is stale after this (contract section 5.2).</summary>
-    public static readonly TimeSpan ActiveReadingStaleAfter = TimeSpan.FromMinutes(6);
-
-    /// <summary>A reading of a spare is stale after this (contract section 5.2).</summary>
-    public static readonly TimeSpan SpareReadingStaleAfter = TimeSpan.FromMinutes(30);
-
-    /// <summary>A machine is stale when its last accepted report is older than this (contract section 5.2).</summary>
-    public static readonly TimeSpan MachineStaleAfter = TimeSpan.FromMinutes(6);
-
-    /// <summary>
-    /// How long a switch command stays valid (contract: <c>NotAfterUtc</c> is <c>RequestedAtUtc</c> plus 10
-    /// minutes). A spare whose sign-in expires at or before now plus this is never chosen: the switch could
-    /// still be running when it expires.
-    /// </summary>
-    public static readonly TimeSpan SwitchCommandLifetime = TimeSpan.FromMinutes(10);
-
     /// <summary>The longest a 5-hour window can run - the end of a bar when the provider gave no reset time.</summary>
     public static readonly TimeSpan FiveHourWindowLength = TimeSpan.FromHours(5);
 
     /// <summary>The longest a weekly window can run - the end of a bar when the provider gave no reset time.</summary>
     public static readonly TimeSpan SevenDayWindowLength = TimeSpan.FromDays(7);
-
-    // The two read errors after which the Director refuses a spare as not usable (contract 3.3 step 9).
-    // Spelled as the contract's LicenseReadErrors; the wiring step points these at that class.
-    private const string ReadErrorUnauthorized = "unauthorized";
-    private const string ReadErrorRefreshFailed = "refresh-failed";
 
     /// <summary>One tick: decide every threshold switch and every owner email for the tenant.</summary>
     public static LicenseDecisions Decide(LicenseSnapshot snapshot)
@@ -83,7 +71,7 @@ public static class LicenseDecisionEngine
             if (!readings.TryGetValue(source, out var reading) || IsReadingStale(reading, now))
                 continue; // stale numbers never trigger (contract 5.2)
 
-            var tired = TiredWindows(reading);
+            var tired = TiredWindows(reading, now);
             if (tired.Count == 0)
                 continue;
 
@@ -100,7 +88,7 @@ public static class LicenseDecisionEngine
                     var exhaustion = new LicenseExhaustion(source, now, ExhaustionEnd(tired, now));
                     opened.Add(exhaustion);
                     stillOpen.Add(source);
-                    emails.Add(BuildNoRoomEmail(snapshot, readings, source, tired, eligible));
+                    emails.Add(BuildNoRoomEmail(snapshot, readings, source, tired, eligible, skippedHere));
                 }
                 continue;
             }
@@ -108,7 +96,7 @@ public static class LicenseDecisionEngine
             var explanation = ThresholdExplanation(source, tired, target);
             foreach (var machine in eligible)
                 switches.Add(new LicenseSwitchDecision(machine.MachineName, machine.OsUser, source, target,
-                    LicenseDecisionReasons.Threshold, explanation));
+                    LicenseSwitchReasons.Threshold, explanation));
 
             foreach (var window in tired)
             {
@@ -179,15 +167,15 @@ public static class LicenseDecisionEngine
 
         var explanation = $"Switch now: from {source} to {target}.";
         var switches = eligible
-            .Select(m => new LicenseSwitchDecision(m.MachineName, m.OsUser, source, target, LicenseDecisionReasons.Manual, explanation))
+            .Select(m => new LicenseSwitchDecision(m.MachineName, m.OsUser, source, target, LicenseSwitchReasons.Manual, explanation))
             .ToList();
         FileLog.Write($"[LicenseDecisionEngine] DecideManual: switches={switches.Count}, skipped={skipped.Count}");
         return new LicenseManualSwitchVerdict(switches, skipped, null, null);
     }
 
     /// <summary>
-    /// The best target for the machines on <paramref name="sourceAccountEmail"/>, or null when none
-    /// qualifies. Used by the tick, by Switch now, and by the forecast, so all three agree.
+    /// The best target for <paramref name="machines"/> - pass <see cref="SwitchableMachines"/> - or null when
+    /// none qualifies. Used by the tick, by Switch now, and by the forecast, so all three agree.
     /// </summary>
     public static string? ChooseTarget(LicenseSnapshot snapshot, string sourceAccountEmail, IReadOnlyList<LicenseMachineState> machines)
     {
@@ -205,18 +193,21 @@ public static class LicenseDecisionEngine
         ArgumentNullException.ThrowIfNull(reading);
         if (reading.ReadAtUtc is not { } readAt)
             return true;
-        var limit = reading.ReadWhileActive ? ActiveReadingStaleAfter : SpareReadingStaleAfter;
+        var limit = reading.ReadWhileActive ? LicenseContract.ActiveHoldingStaleAfter : LicenseContract.SpareHoldingStaleAfter;
         return nowUtc - readAt > limit;
     }
 
-    /// <summary>True when the machine's last accepted report is older than <see cref="MachineStaleAfter"/>.</summary>
+    /// <summary>True when the machine's last accepted report is older than <see cref="LicenseContract.MachineStaleAfter"/>.</summary>
     public static bool IsMachineStale(LicenseMachineState machine, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(machine);
-        return nowUtc - machine.LastReportReceivedAtUtc > MachineStaleAfter;
+        return nowUtc - machine.LastReportReceivedAtUtc > LicenseContract.MachineStaleAfter;
     }
 
-    /// <summary>True when both windows are known and under the threshold.</summary>
+    /// <summary>
+    /// True when both windows are known and under the threshold. A reading taken before a reset still
+    /// answers this truly when it is under the threshold: use only falls at a reset, so it is still under.
+    /// </summary>
     public static bool HasRoom(LicenseAccountReading reading)
     {
         ArgumentNullException.ThrowIfNull(reading);
@@ -229,8 +220,10 @@ public static class LicenseDecisionEngine
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         return snapshot.Machines
-            .Where(m => !string.IsNullOrWhiteSpace(m.ActiveAccountEmail))
-            .Select(m => Normalize(m.ActiveAccountEmail ?? ""))
+            .Select(m => m.ActiveAccountEmail)
+            .OfType<string>()
+            .Where(e => !string.IsNullOrWhiteSpace(e))
+            .Select(Normalize)
             .Distinct(StringComparer.Ordinal)
             .OrderBy(e => e, StringComparer.Ordinal)
             .ToList();
@@ -245,6 +238,26 @@ public static class LicenseDecisionEngine
             .ToList();
     }
 
+    /// <summary>
+    /// The machines on <paramref name="accountEmail"/> that a switch can be sent to now: not stale, no open
+    /// switch, none reported in progress. The same split the tick and Switch now use.
+    /// </summary>
+    public static IReadOnlyList<LicenseMachineState> SwitchableMachines(LicenseSnapshot snapshot, string accountEmail)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        return SplitMachines(snapshot, Normalize(accountEmail)).Eligible;
+    }
+
+    /// <summary>
+    /// True when the window is at or over the threshold and its reset time, if known, is still ahead of
+    /// <paramref name="nowUtc"/>. Shared with the forecast so both read a pre-reset reading the same way.
+    /// </summary>
+    public static bool IsTired(LicenseWindowReading window, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(window);
+        return window.Utilization >= ThresholdPercent && (window.ResetsAtUtc is not { } reset || reset > nowUtc);
+    }
+
     // ----- the rule's parts -----
 
     private sealed record TiredWindow(string Name, double Utilization, DateTime? ResetsAtUtc);
@@ -254,12 +267,16 @@ public static class LicenseDecisionEngine
     {
         if (machines.Count == 0)
             return null;
+        // A qualifying reading has both windows (HasRoom checked them), so a missing one is a defect here.
         return readings.Values
             .Where(r => WhyNotTarget(snapshot, r, source, machines) is null)
-            .OrderBy(r => r.SevenDay?.Utilization ?? double.MaxValue)
-            .ThenBy(r => r.FiveHour?.Utilization ?? double.MaxValue)
-            .ThenBy(r => r.AccountEmail, StringComparer.Ordinal)
-            .Select(r => r.AccountEmail)
+            .Select(r => r is { SevenDay: { } week, FiveHour: { } five }
+                ? (r.AccountEmail, Week: week.Utilization, Five: five.Utilization)
+                : throw new InvalidOperationException($"Target candidate {r.AccountEmail} passed the room check without both windows."))
+            .OrderBy(c => c.Week)
+            .ThenBy(c => c.Five)
+            .ThenBy(c => c.AccountEmail, StringComparer.Ordinal)
+            .Select(c => c.AccountEmail)
             .FirstOrDefault();
     }
 
@@ -274,9 +291,13 @@ public static class LicenseDecisionEngine
         if (IsReadingStale(candidate, now))
             return "its latest reading is too old to show it has room";
         if (!HasRoom(candidate))
-            return TiredWindows(candidate) is { Count: > 0 } tired
-                ? $"it is at {DescribeWindows(tired)}"
-                : "a window's use is unknown";
+        {
+            if (TiredWindows(candidate, now) is { Count: > 0 } tired)
+                return $"it is at {DescribeWindows(tired)}";
+            if (candidate.FiveHour is null || candidate.SevenDay is null)
+                return "a window's use is unknown";
+            return "its latest reading was taken before a window reset, so its use now is not known yet";
+        }
         var bar = snapshot.Bars
             .Where(b => SameAccount(b.AccountEmail, candidate.AccountEmail) && b.BarredUntilUtc > now)
             .OrderByDescending(b => b.BarredUntilUtc)
@@ -317,19 +338,20 @@ public static class LicenseDecisionEngine
 
     private static bool HoldsUsableSpare(LicenseMachineState machine, string accountEmail) =>
         machine.Spares.Any(s => SameAccount(s.AccountEmail, accountEmail)
-            && s.ReadError is not (ReadErrorUnauthorized or ReadErrorRefreshFailed));
+            && s.ReadError is not (LicenseReadErrors.Unauthorized or LicenseReadErrors.RefreshFailed));
 
-    // An unknown expiry is not "at or before" anything, so it does not block; the forecast shows it as unknown.
+    // An unknown expiry is not "at or before" anything, so it does not block (contract 5.7); the forecast
+    // shows it as not known.
     private static bool SpareSignInExpiresTooSoon(LicenseMachineState machine, string accountEmail, DateTime now) =>
         machine.Spares.Any(s => SameAccount(s.AccountEmail, accountEmail)
-            && s.SignInExpiresAtUtc is { } expires && expires <= now + SwitchCommandLifetime);
+            && s.SignInExpiresAtUtc is { } expires && expires <= now + LicenseContract.SwitchNotAfter);
 
-    private static List<TiredWindow> TiredWindows(LicenseAccountReading reading)
+    private static List<TiredWindow> TiredWindows(LicenseAccountReading reading, DateTime now)
     {
         var tired = new List<TiredWindow>();
-        if (reading.FiveHour is { } five && five.Utilization >= ThresholdPercent)
+        if (reading.FiveHour is { } five && IsTired(five, now))
             tired.Add(new TiredWindow(LicenseWindowNames.FiveHour, five.Utilization, five.ResetsAtUtc));
-        if (reading.SevenDay is { } week && week.Utilization >= ThresholdPercent)
+        if (reading.SevenDay is { } week && IsTired(week, now))
             tired.Add(new TiredWindow(LicenseWindowNames.SevenDay, week.Utilization, week.ResetsAtUtc));
         return tired;
     }
@@ -341,10 +363,12 @@ public static class LicenseDecisionEngine
             return true;
         if (MachinesOn(snapshot, exhaustion.AccountEmail).Count == 0)
             return true; // nothing is on it any more: a switch succeeded or a machine was moved by hand
-        // A fresh reading under the threshold on both windows means the window reset early.
+        // A fresh reading with no tired window means the window reset (early, or before EndsAtUtc caught
+        // up). No margin below 97% is needed against a reading that wobbles across it: the provider's use
+        // only falls at a reset, so a fall under 97% IS the end of the event.
         return readings.TryGetValue(Normalize(exhaustion.AccountEmail), out var reading)
             && !IsReadingStale(reading, snapshot.NowUtc)
-            && TiredWindows(reading).Count == 0;
+            && TiredWindows(reading, snapshot.NowUtc).Count == 0;
     }
 
     private static DateTime ExhaustionEnd(IReadOnlyList<TiredWindow> tired, DateTime now) =>
@@ -360,12 +384,16 @@ public static class LicenseDecisionEngine
 
     private static LicenseOwnerEmail BuildNoRoomEmail(LicenseSnapshot snapshot,
         IReadOnlyDictionary<string, LicenseAccountReading> readings, string source,
-        IReadOnlyList<TiredWindow> tired, IReadOnlyList<LicenseMachineState> machines)
+        IReadOnlyList<TiredWindow> tired, IReadOnlyList<LicenseMachineState> machines,
+        IReadOnlyList<LicenseSkippedMachine> skipped)
     {
         var subject = $"DevThrottle: no Claude account has room - {source} is at {DescribeWindows(tired)}";
         var body = new StringBuilder();
         body.Append(CultureInfo.InvariantCulture, $"{source} has reached {DescribeWindows(tired)}, and no other account can take its machines, so nothing was switched.\r\n\r\n");
-        body.Append("Machines on it: ").Append(string.Join(", ", machines.Select(m => m.MachineName))).Append(".\r\n\r\n");
+        body.Append("Machines on it: ").Append(string.Join(", ", machines.Select(m => m.MachineName)));
+        foreach (var machine in skipped)
+            body.Append(CultureInfo.InvariantCulture, $", {machine.MachineName} (not sent a switch: {machine.Why})");
+        body.Append(".\r\n\r\n");
         foreach (var window in tired)
             body.Append(CultureInfo.InvariantCulture, $"Its {WindowLabel(window.Name)} resets {(window.ResetsAtUtc is { } r ? "at " + Time(r) : "at a time the provider did not give")}.\r\n");
         var others = readings.Values

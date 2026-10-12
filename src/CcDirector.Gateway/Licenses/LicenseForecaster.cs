@@ -1,4 +1,5 @@
 using CcDirector.Core.Utilities;
+using CcDirector.Gateway.Contracts;
 
 namespace CcDirector.Gateway.Licenses;
 
@@ -51,14 +52,14 @@ public static class LicenseSignInVerdicts
     /// <summary>The sign-in has expired: the holding needs a new sign-in.</summary>
     public const string Expired = "expired";
 
-    /// <summary>The sign-in expires within <see cref="LicenseForecaster.SignInExpiresSoonWithin"/>.</summary>
+    /// <summary>The sign-in expires within <see cref="LicenseContract.SignInExpiryWarning"/>.</summary>
     public const string ExpiresSoon = "expires-soon";
 
     /// <summary>The sign-in expires later than that.</summary>
     public const string Fine = "fine";
 
-    /// <summary>The Director did not report an expiry time.</summary>
-    public const string Unknown = "unknown";
+    /// <summary>The Director did not report an expiry time (contract 5.7, "not known").</summary>
+    public const string NotKnown = "not-known";
 }
 
 /// <summary>One holding - active or spare - on one machine, and how close its sign-in is to expiring.</summary>
@@ -93,8 +94,6 @@ public sealed record LicenseForecast(
 /// </summary>
 public static class LicenseForecaster
 {
-    /// <summary>A sign-in expiring within this is shown as expiring soon.</summary>
-    public static readonly TimeSpan SignInExpiresSoonWithin = TimeSpan.FromDays(3);
 
     /// <summary>Forecast every account in <paramref name="snapshot"/>, using <paramref name="histories"/> for the rates.</summary>
     public static LicenseForecast Forecast(LicenseSnapshot snapshot, IReadOnlyList<LicenseAccountHistory> histories)
@@ -124,7 +123,7 @@ public static class LicenseForecaster
         if (soonest is { ExpectedTiredAtUtc: { } at, ExpectedTiredWindow: { } window })
         {
             var source = Normalize(soonest.AccountEmail);
-            var target = LicenseDecisionEngine.ChooseTarget(snapshot, source, LicenseDecisionEngine.MachinesOn(snapshot, source));
+            var target = LicenseDecisionEngine.ChooseTarget(snapshot, source, LicenseDecisionEngine.SwitchableMachines(snapshot, source));
             next = new LicenseNextSwitch(source, at, window, target);
         }
 
@@ -151,6 +150,8 @@ public static class LicenseForecaster
     {
         ArgumentNullException.ThrowIfNull(points);
         var ordered = points.OrderBy(p => p.AtUtc).ToList();
+        // Any fall, however small, is read as a reset: the provider's use only falls at one. If it ever
+        // reports rounding noise (50.0 then 49.9), the rate simply restarts from that point.
         var start = 0;
         for (var i = 1; i < ordered.Count; i++)
             if (ordered[i].Utilization < ordered[i - 1].Utilization)
@@ -165,14 +166,14 @@ public static class LicenseForecaster
     }
 
     /// <summary>The expiry verdict for a sign-in expiring at <paramref name="expiresAtUtc"/>: expired at or before
-    /// now, expires soon within <see cref="SignInExpiresSoonWithin"/>, otherwise fine; unknown when null.</summary>
+    /// now, expires soon within <see cref="LicenseContract.SignInExpiryWarning"/>, otherwise fine; not known when null.</summary>
     public static string SignInVerdict(DateTime? expiresAtUtc, DateTime nowUtc)
     {
         if (expiresAtUtc is not { } expires)
-            return LicenseSignInVerdicts.Unknown;
+            return LicenseSignInVerdicts.NotKnown;
         if (expires <= nowUtc)
             return LicenseSignInVerdicts.Expired;
-        return expires <= nowUtc + SignInExpiresSoonWithin ? LicenseSignInVerdicts.ExpiresSoon : LicenseSignInVerdicts.Fine;
+        return expires <= nowUtc + LicenseContract.SignInExpiryWarning ? LicenseSignInVerdicts.ExpiresSoon : LicenseSignInVerdicts.Fine;
     }
 
     private static LicenseAccountForecast ForecastAccount(LicenseAccountReading reading, LicenseAccountHistory? history, DateTime now)
@@ -200,7 +201,9 @@ public static class LicenseForecaster
             return new LicenseWindowForecast(name, reading.Utilization, reading.ResetsAtUtc, rate, null);
 
         DateTime? expected;
-        if (reading.Utilization >= LicenseDecisionEngine.ThresholdPercent)
+        if (reading.ResetsAtUtc is { } passed && passed <= now)
+            expected = null; // read before the reset: it says nothing about the window now
+        else if (LicenseDecisionEngine.IsTired(reading, now))
             expected = now;
         else if (rate is { } perHour && perHour > 0)
         {

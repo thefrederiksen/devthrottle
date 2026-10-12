@@ -159,7 +159,34 @@ public sealed class LicenseForecasterTests
         var holdings = LicenseForecaster.Forecast(snapshot, []).Holdings;
 
         Assert.Equal(
-            new[] { (A, true, LicenseSignInVerdicts.Fine), (B, false, LicenseSignInVerdicts.ExpiresSoon), (C, false, LicenseSignInVerdicts.Unknown) },
+            new[] { (A, true, LicenseSignInVerdicts.Fine), (B, false, LicenseSignInVerdicts.ExpiresSoon), (C, false, LicenseSignInVerdicts.NotKnown) },
             holdings.Select(h => (h.AccountEmail, h.IsActive, h.Verdict)).ToArray());
+    }
+
+    [Fact]
+    public void Forecast_NextSwitchTarget_IgnoresAStaleMachineTheWayTheEngineDoes()
+    {
+        // The stale Mac on A holds no spare for B. The engine leaves it out and switches Windows to B; the
+        // forecast must name the same target, not "no target".
+        var staleMac = Machine("mac", A) with { LastReportReceivedAtUtc = Now.AddMinutes(-7) };
+        var snapshot = Snapshot([Reading(A, 87, 40, active: true), Reading(B, 10, 10)], [Machine("windows", A, B), staleMac]);
+        var history = new LicenseAccountHistory(A, Series((60, 77), (0, 87)), []);
+
+        var next = LicenseForecaster.Forecast(snapshot, [history]).NextSwitch;
+
+        Assert.NotNull(next);
+        Assert.Equal(B, next.TargetAccountEmail);
+    }
+
+    [Fact]
+    public void Forecast_ReadingTakenBeforeAPassedReset_IsNotTiredNow()
+    {
+        var preReset = new LicenseAccountReading(A, new LicenseWindowReading(99, Now.AddMinutes(-1)),
+            new LicenseWindowReading(30, Now.AddDays(3)), Now.AddMinutes(-3), true);
+
+        var account = Assert.Single(LicenseForecaster.Forecast(Snapshot([preReset], [Machine("windows", A)]), []).Accounts);
+
+        Assert.Null(account.FiveHour.ExpectedAtThresholdUtc);
+        Assert.Null(account.ExpectedTiredAtUtc);
     }
 }

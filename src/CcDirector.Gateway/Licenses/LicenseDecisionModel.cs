@@ -17,16 +17,6 @@ public static class LicenseWindowNames
     public const string SevenDay = "seven-day";
 }
 
-/// <summary>Why a switch was decided. Spelled as the contract's <c>LicenseSwitchReasons</c>.</summary>
-public static class LicenseDecisionReasons
-{
-    /// <summary>The account in use reached the threshold on either window.</summary>
-    public const string Threshold = "threshold";
-
-    /// <summary>Someone asked for it: Switch now.</summary>
-    public const string Manual = "manual";
-}
-
 /// <summary>One window's numbers as last read from the provider.</summary>
 /// <param name="Utilization">0 to 100, verbatim from the provider.</param>
 /// <param name="ResetsAtUtc">When the window resets; null when the provider gave no time.</param>
@@ -83,10 +73,10 @@ public sealed record LicenseMachineState(
 public sealed record LicenseBar(string AccountEmail, string Window, DateTime BarredUntilUtc);
 
 /// <summary>
-/// An exhaustion event: an account in use reached the threshold and no target existed. It runs from the
-/// moment the account reached the threshold until the window that caused it resets, or until no machine
-/// is on the account any more (a switch succeeded, or someone moved the machines by hand). Exactly one
-/// owner email is sent per event.
+/// An exhaustion event: an account in use is at the threshold and no target exists. It starts on the tick
+/// that finds no target and runs until the window that caused it resets, a fresh reading shows no window at
+/// the threshold, or no machine is on the account any more (a switch succeeded, or someone moved the
+/// machines by hand). Exactly one owner email is sent per event.
 /// </summary>
 /// <param name="AccountEmail">The tired account.</param>
 /// <param name="StartedAtUtc">The tick that found no target.</param>
@@ -112,7 +102,7 @@ public sealed record LicenseSnapshot(
 /// <param name="OsUser">The machine's user.</param>
 /// <param name="FromAccountEmail">The account the machine is on now (the command's expected active account).</param>
 /// <param name="TargetAccountEmail">The spare to make active.</param>
-/// <param name="Reason"><see cref="LicenseDecisionReasons"/>.</param>
+/// <param name="Reason">The contract's <c>LicenseSwitchReasons</c>: threshold or manual.</param>
 /// <param name="Explanation">One plain sentence for the switch log saying why.</param>
 public sealed record LicenseSwitchDecision(
     string MachineName,
