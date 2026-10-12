@@ -308,7 +308,7 @@ public sealed class DirectorErrorEndpointsTests : IDisposable
     {
         // A write stuck on a stalled share holds the lock. Every other report must be refused at once rather
         // than park a Gateway thread behind it - and must not use up the device's hourly allowance.
-        var store = NewStore();
+        var store = new ErrorReportStore(_root, () => Now, writeLockTimeout: TimeSpan.FromMilliseconds(50));
         var device = UniqueDevice();
         var full = Batch(Enumerable.Range(0, ErrorReportLimits.MaxReportsPerBatch).Select(i => Item($"E{i} FAILED")).ToArray());
         IResult result = Results.Ok();

@@ -483,19 +483,21 @@ public sealed class ErrorGroupsAndSummariesTests : IDisposable
     [Fact]
     public void SetLinkedIssue_AStalledStore_AnswersBusy()
     {
-        var store = NewStore();
+        var store = new ErrorReportStore(_root, () => Now, writeLockTimeout: TimeSpan.FromMilliseconds(50));
         var fingerprint = StoreOneProblem(store);
+        IResult result = Results.Ok();
 
-        var holder = new Thread(() =>
+        // The lock is thread-affine, so it is held on this thread and the link is set on another. It is held until
+        // that call has answered, so a call that waited for it would never answer: answering at all, refused, is
+        // the proof it gave up. Thirty seconds only bounds a hang.
+        using (store.HoldWriteLockForTests())
         {
-            using (store.HoldWriteLockForTests()) Thread.Sleep(ErrorReportStore.WriteLockTimeout + TimeSpan.FromSeconds(1));
-        });
-        holder.Start();
-        Thread.Sleep(200);
-
-        var result = DirectorErrorEndpoints.HandleSetLinkedIssue(store, Json($$"""{"fingerprint":"{{fingerprint}}","linked_issue":"#1"}"""));
-        holder.Join();
+            var setter = new Thread(() => result = DirectorErrorEndpoints.HandleSetLinkedIssue(store, Json($$"""{"fingerprint":"{{fingerprint}}","linked_issue":"#1"}""")));
+            setter.Start();
+            Assert.True(setter.Join(TimeSpan.FromSeconds(30)), "setting the link waited for the held lock instead of refusing");
+        }
 
         Assert.Equal(StatusCodes.Status503ServiceUnavailable, Status(result));
+        Assert.Null(Assert.Single(store.Summaries()).LinkedIssue);
     }
 }
