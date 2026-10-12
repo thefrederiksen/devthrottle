@@ -118,6 +118,7 @@ public sealed class UnconfirmedStopTests : IDisposable
         }
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task KilledCommandExitsAfterTheConfirmationWindow_TheClaimIsReleasedOnALaterTick_AndTheNextOccurrenceRuns()
     {

@@ -42,6 +42,7 @@ public sealed class SharedEngineDatabaseTests : IDisposable
     /// run; <c>EngineDatabaseSharedFileTests.TryClaimRun_TwoDirectorsOneFile_ManyRounds_ExactlyOneClaimPerOccurrence</c>
     /// races two claims through a barrier for three hundred rounds and covers it.
     /// </summary>
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task TwoSchedulers_OneFile_SameDueJob_RunsExactlyOncePerRound()
     {
