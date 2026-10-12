@@ -316,8 +316,8 @@ public sealed class PromptIncidentErrorReportTests : IDisposable
     {
         // The verb answers "delivering" at a 200 millisecond budget; the terminal refuses 1.5 seconds later, after the
         // command's and the verb's scopes were disposed. The late outcome is written by its own task.
-        // This one stays on the real clock (1.5 seconds): on a fake clock the refusal's continuation runs inside the clock's
-        // advance and the late path waits on it there, so the advance never returns.
+        // This one stays on the real clock (1.5 seconds): moved onto the fake clock the same way as the tests above, it
+        // hung and never reached VirtualTime's own time limit. Why is not yet diagnosed.
         var session = _manager.CreateEmbeddedSession(Path.GetTempPath(), null, new LateRefusingBackend());
         _watchedSessionId = session.Id.ToString();
 
