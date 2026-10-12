@@ -580,9 +580,9 @@ New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 # failures (issue #3880) are very likely the same thing. A gate that fills the disk fails for a reason
 # that has nothing to do with the code, which is exactly the kind of red this gate must never produce.
 #
-# TEMP and TMP are set for each child, so Path.GetTempPath() inside the test host lands here. The locks
-# do not move with it: gate-lock.ps1 and GatewayTestSuiteLock.cs derive their paths from the local
-# application data folder precisely so that a changed TEMP cannot split them. The folder names are kept
+# TEMP and TMP are set for each child, so Path.GetTempPath() inside the test host lands here. The lock
+# does not move with it: gate-lock.ps1 derives its path from the local application data folder precisely
+# so that a changed TEMP cannot split it. The folder names are kept
 # SHORT (t\0, t\1, ...) because tests build deep paths under it and Windows still has a 260-character
 # limit in places; run.json maps each number to its suite.
 $tempRoot = Join-Path $logDir "t"
