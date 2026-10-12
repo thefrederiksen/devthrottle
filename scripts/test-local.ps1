@@ -122,8 +122,23 @@
     run's folder is always kept. 523 folders and 2.6 GB had piled up in TEMP by 2026-10-10. Pass
     this when the result files themselves are the point: per-class timings, a count to quote.
 
+.PARAMETER Quarantine
+    Run ONLY the quarantined tests - those marked [Trait("Gate", "Quarantine")] - in every suite this script
+    names, the parked Core.Tests and Gateway.UnitTests included. Gateway.Tests is left out unless -Gateway is
+    passed too, which then runs that suite's quarantined tests alone: it is one run per machine at a time, and a
+    quick look at the quarantine must not queue behind someone's two-hour release gate. Its result gates
+    nothing: it is never recorded as a release gate, and nothing waits on it.
+
+    A QUARANTINED TEST IS OUT OF EVERY GATE RUN. Every run without this switch adds "Gate!=Quarantine" to the
+    filter each suite is given, so a test that depends on the machine and cannot yet be made independent of
+    it is marked, not left to redden the gate at random (Reliable Tests, owner ruling 2026-10-11). This switch
+    is how such a test is still run and watched while it is fixed or deleted. The trait is spelled exactly
+    Gate / Quarantine; any other spelling is not excluded.
+
 .PARAMETER Filter
-    An xUnit filter passed through to every project (e.g. "FullyQualifiedName~Dictation").
+    An xUnit filter passed through to every project (e.g. "FullyQualifiedName~Dictation"). It is combined
+    with the quarantine clause above, so a quarantined test is excluded (or, with -Quarantine, selected) even
+    when a filter names it.
 
     EVERY "FullyQualifiedName~" TERM MUST MATCH SOMETHING. A composite filter whose second term is a typo
     used to collect from the first, exit 0, and read as a pass. Exit 5 means part of the filter matched
@@ -144,6 +159,7 @@ param(
     [switch]$Parked,
     [switch]$Fast,
     [switch]$KeepRun,
+    [switch]$Quarantine,
     [string]$Filter = "",
     [int]$ExpectTests = 0,
     [string]$Configuration = "Debug"
@@ -156,6 +172,12 @@ $sln = Join-Path $repoRoot "cc-director.sln"
 
 if ($Gateway -and $Parked) {
     Write-Error "-Gateway already runs a parked suite on its own; pass one or the other."
+    exit 2
+}
+if ($Quarantine -and $Parked) {
+    # -Parked is the release gate, and a quarantined test is exactly what it must not run. -Quarantine already
+    # runs the parked suites, so the two together would only blur which run a result belongs to.
+    Write-Error "-Quarantine already runs the parked suites (and -Quarantine -Gateway the Gateway suite); -Parked is the release gate, which runs no quarantined test. Pass one or the other."
     exit 2
 }
 
@@ -287,7 +309,17 @@ if ($Gateway) {
 } else {
     $toRun = $defaultProjects + $installerProjects
     if ($Parked) { $toRun += $parkedProjects }
+    # A quarantined test can sit in any suite, so the quarantine run looks in all of them - except the Gateway
+    # suite, one run per machine at a time, which -Quarantine -Gateway runs on its own (see the header).
+    if ($Quarantine) { $toRun += @($parkedProjects | Where-Object { $_ -ne $gatewayProject }) }
 }
+
+# THE FILTER EACH SUITE IS GIVEN: the caller's -Filter, AND the quarantine clause. $Filter itself stays exactly
+# as the caller typed it, because the checks below read it - a term that matched nothing, and "no filter was
+# passed" - and the quarantine clause is not a filter the caller chose. xUnit keeps a test with no Gate trait
+# under "Gate!=Quarantine" (measured 2026-10-11: 106 untraited tests kept, 20 traited dropped).
+$quarantineClause = if ($Quarantine) { "Gate=Quarantine" } else { "Gate!=Quarantine" }
+$runFilter = if ($Filter -ne "") { "($Filter)&$quarantineClause" } else { $quarantineClause }
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -330,6 +362,7 @@ $runRecord = [ordered]@{
     dirtyFiles    = @($dirtyFiles | Select-Object -First 50)
     parked        = [bool] $Parked
     gateway       = [bool] $Gateway
+    quarantine    = [bool] $Quarantine
     configuration = $Configuration
     filter        = $Filter
     expectTests   = $ExpectTests
@@ -556,6 +589,7 @@ if ($toRun -contains $gatewayProject) {
     $command = "test-local.ps1"
     if ($Parked) { $command += " -Parked" }
     if ($Gateway) { $command += " -Gateway" }
+    if ($Quarantine) { $command += " -Quarantine" }
     $command += " -Configuration $Configuration"
     if ($Filter -ne "") { $command += " -Filter `"$Filter`"" }
     $suiteLockPath = Get-GatewaySuiteLockPath
@@ -635,8 +669,7 @@ try {
         }
     }
 
-    $filterArgs = @()
-    if ($Filter -ne "") { $filterArgs = @("--filter", $Filter) }
+    $filterArgs = @("--filter", $runFilter)
 
     # Hang and crash detection for the runs that have no ceiling (see $HangTimeoutMinutes). A hung test is
     # dumped and named in Sequence_<guid>.xml inside the run folder, and its host is killed; the suite then
@@ -644,7 +677,7 @@ try {
     # Mini dumps: the name of the hung test is the finding, and a full dump of a Gateway host is hundreds of
     # megabytes nobody opens.
     $blameArgs = @()
-    if ($Parked -or $Gateway) {
+    if ($Parked -or $Gateway -or $Quarantine) {
         $blameArgs = @("--blame-hang", "--blame-hang-timeout", "${HangTimeoutMinutes}m", "--blame-hang-dump-type", "mini",
                        "--blame-crash", "--blame-crash-dump-type", "mini")
     }
@@ -711,7 +744,7 @@ try {
         Write-Host "Waiting. This run holds the release-gate lock ($gateLockPath); another run that includes"
         Write-Host "the Gateway suite is refused at once rather than queued behind this one."
     } else {
-        Write-Host "Waiting. No parked suite is in this run, so it takes no lock and nothing queues behind it."
+        Write-Host "Waiting. The Gateway suite is not in this run, so it takes no lock and nothing queues behind it."
     }
     Write-Host ""
 
@@ -723,7 +756,7 @@ try {
         # the whole gate, and record it separately from a real failure. -Parked and -Gateway deliberately
         # suspend the ceiling: that run is the release gate and is EXPECTED to be slow, and a hung test in it
         # is caught by the hang timeout instead.
-        if ($Parked -or $Gateway) {
+        if ($Parked -or $Gateway -or $Quarantine) {
             $r.Process.WaitForExit()
         } else {
             $remainingMs = [int] [Math]::Max(0, ($deadline - (Get-Date)).TotalMilliseconds)
@@ -802,9 +835,9 @@ try {
 
     Write-Host ""
     Write-Host "TRX verdict - THIS is the gate. Every suite must report outcome=Completed:"
-    Write-Host ("  commit {0}  tree {1}  parked={2} configuration={3}{4}" -f $commit,
+    Write-Host ("  commit {0}  tree {1}  parked={2} quarantine={3} configuration={4} suite filter={5}" -f $commit,
         $(if ($treeClean) { "clean" } else { "DIRTY ($($dirtyFiles.Count) changed or untracked)" }),
-        [bool] $Parked, $Configuration, $(if ($Filter -ne "") { " filter=$Filter" } else { "" }))
+        [bool] $Parked, [bool] $Quarantine, $Configuration, $runFilter)
     foreach ($r in $running) {
         Write-Host ("  {0,-40} outcome={1,-12} total={2,-6} executed={3}" -f $r.Name, $r.Outcome, $r.Total, $r.Executed)
     }
@@ -852,12 +885,12 @@ try {
         if ($overBudget -contains $r.Name) { continue }
         $why = $null
         if ($r.Outcome -eq "NO-TRX") {
-            if ($r.Process.ExitCode -ne 0 -and $Filter -eq "") { $why = "wrote no result file and exited $($r.Process.ExitCode)" }
+            if ($r.Process.ExitCode -ne 0 -and $Filter -eq "" -and -not $Quarantine) { $why = "wrote no result file and exited $($r.Process.ExitCode)" }
         } elseif ($finishedOutcomes -notcontains $r.Outcome) {
             $why = "reported outcome=$($r.Outcome), which is not a finished run"
         } elseif ($r.Aborted) {
             $why = "says in its result file that the active test run was aborted (total=$($r.Total), executed=$($r.Executed))"
-        } elseif ($Filter -eq "" -and $r.Executed -eq 0) {
+        } elseif ($Filter -eq "" -and -not $Quarantine -and $r.Executed -eq 0) {
             $why = "executed zero tests with no filter (outcome=$($r.Outcome), total=$($r.Total))"
         }
         if ($null -ne $why) { $neverRan += [pscustomobject]@{ Name = $r.Name; Why = $why; Log = $r.Log } }
@@ -892,7 +925,7 @@ try {
     # removed. So the fast gate stands, and the reader is told exactly what it did not cover.
     $parkedNames = @($parkedProjects | ForEach-Object { Split-Path -Leaf ([System.IO.Path]::GetDirectoryName((Join-Path $repoRoot $_))) })
     $coverageGap = @()
-    if (-not $Parked -and -not $Gateway) {
+    if (-not $Parked -and -not $Gateway -and -not $Quarantine) {
         try {
             $sel = & (Join-Path $PSScriptRoot "select-tests.ps1")
             $coverageGap = @($sel.Suites | Where-Object { $parkedNames -contains $_ })
@@ -1076,7 +1109,11 @@ try {
 
     if ($failed.Count -eq 0) {
         Write-Host ("RESULT: GREEN at commit {0}, tree {1}. Check the TRX outcome and totals above before calling it green." -f $commit, $(if ($treeClean) { "clean" } else { "DIRTY" }))
-        Write-Host "This is the gate - you do not need to wait for GitHub CI to merge."
+        if ($Quarantine) {
+            Write-Host "QUARANTINE RUN: these are the quarantined tests only. This result gates nothing."
+        } else {
+            Write-Host "This is the gate - you do not need to wait for GitHub CI to merge."
+        }
         Stop-Gate 0 "GREEN"
     }
 
