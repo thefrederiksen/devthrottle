@@ -1,96 +1,128 @@
-using System.Collections.Concurrent;
 using CcDirector.Core.Tenancy;
+using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 
 namespace CcDirector.Gateway.Licenses;
 
 /// <summary>
-/// THE RECENT READINGS the forecast takes its rates from (License Switching): for each account of each tenant, the
-/// readings of the last <see cref="Kept"/> of each window, kept in memory and fed by every accepted usage report.
+/// THE RECENT USAGE READINGS OF EVERY ACCOUNT, per tenant, kept in memory (License Switching). The forecast needs a
+/// rate of use, and a rate needs more than the one freshest reading the store keeps; this is the short series
+/// <see cref="LicenseForecaster"/> takes as <see cref="LicenseAccountHistory"/>.
 ///
-/// IN MEMORY ON PURPOSE. A rate needs minutes of readings, not months, and a report arrives every two minutes; after a
-/// Gateway restart the series is empty and fills again from the next reports, and until it holds two readings the
-/// forecast simply shows no rate. Nothing is written to the database for it.
+/// Every ACCEPTED usage report adds one point per window for each holding it carries, at the time the Gateway judges
+/// that reading by (its read time corrected for clock skew, contract section 5.2). A holding whose read failed
+/// carries its previous numbers and their old read time (contract section 2.2), so it adds nothing new: a point at a
+/// time already held is not added again.
 ///
-/// A reading is one point per (account, window, read time). A failed read repeats the previous numbers with their old
-/// read time (contract section 2.2), and several machines can hold one account, so the same point arrives many times
-/// and is kept once. A read time the Gateway judges to be ahead of its own clock by more than the skew limit is not
-/// kept: it could never age out.
-///
-/// Logging: none. <see cref="Record"/> runs on every accepted report, whose acceptance the ingest already logs, and
-/// <see cref="Read"/> is a pure read of memory.
+/// Kept in memory on purpose: it is two hours of numbers that the Directors send again every two minutes, so after a
+/// Gateway restart the forecast has a rate again within two reports. Until then it says there are not enough readings.
+/// Nothing here can carry a sign-in: account emails, percentages and times.
 /// </summary>
 public sealed class LicenseUsageHistory
 {
-    /// <summary>How long a reading is kept.</summary>
+    /// <summary>How long a point is kept.</summary>
     public static readonly TimeSpan Kept = TimeSpan.FromHours(2);
+
+    /// <summary>The most points kept for one window of one account - far more than two hours of two-minute reports
+    /// from several machines, and a ceiling on what a misbehaving Director can make the Gateway hold.</summary>
+    public const int MaxPointsPerWindow = 600;
 
     private sealed class Series
     {
-        public readonly SortedDictionary<DateTime, double> FiveHour = new();
-        public readonly SortedDictionary<DateTime, double> SevenDay = new();
+        public readonly List<LicenseUsagePoint> FiveHour = new();
+        public readonly List<LicenseUsagePoint> SevenDay = new();
     }
 
-    private readonly ConcurrentDictionary<TenantId, ConcurrentDictionary<string, Series>> _tenants = new();
+    private readonly object _gate = new();
+    private readonly Dictionary<TenantId, Dictionary<string, Series>> _byTenant = new();
 
     /// <summary>
-    /// Keep the readings of one ACCEPTED report. <paramref name="readAtShift"/> is what the ingest adds to each
-    /// <c>ReadAtUtc</c> to get the time the Gateway judges the read by (contract section 5.2), so a machine with a wrong
-    /// clock lands its points where the Gateway's clock puts them.
+    /// Add the readings of one accepted report. <paramref name="readAtShift"/> is what the ingest adds to every
+    /// <c>ReadAtUtc</c> to get the time staleness is judged by; <paramref name="nowUtc"/> is the Gateway's clock, and
+    /// points older than <see cref="Kept"/> before it are dropped.
     /// </summary>
-    public void Record(TenantId tenant, LicenseUsageReport report, DateTime receivedAtUtc, TimeSpan readAtShift)
+    public void Record(TenantId tenant, LicenseUsageReport report, TimeSpan readAtShift, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(report);
-        var accounts = _tenants.GetOrAdd(tenant, _ => new ConcurrentDictionary<string, Series>(StringComparer.Ordinal));
-        var oldest = receivedAtUtc - Kept;
-        var newest = receivedAtUtc + LicenseContract.ClockSkewLoggedAbove;
-        foreach (var holding in report.Holdings)
+        var added = 0;
+        lock (_gate)
         {
-            if (holding.ReadAtUtc is not { } readAt)
-                continue;
-            var at = readAt + readAtShift;
-            if (at < oldest || at > newest)
-                continue;
-            var series = accounts.GetOrAdd(LicenseStore.NormalizeEmail(holding.AccountEmail), _ => new Series());
-            lock (series)
+            if (!_byTenant.TryGetValue(tenant, out var accounts))
+                _byTenant[tenant] = accounts = new Dictionary<string, Series>(StringComparer.Ordinal);
+
+            foreach (var holding in report.Holdings)
             {
-                if (holding.FiveHour is { } five)
-                    series.FiveHour[at] = five.Utilization;
-                if (holding.SevenDay is { } week)
-                    series.SevenDay[at] = week.Utilization;
-                Prune(series.FiveHour, oldest);
-                Prune(series.SevenDay, oldest);
+                if (holding.ReadAtUtc is not { } readAt)
+                    continue; // never read: there is no number to keep
+                var at = AsUtc(readAt) + readAtShift;
+                var email = LicenseStore.NormalizeEmail(holding.AccountEmail);
+                if (!accounts.TryGetValue(email, out var series))
+                    accounts[email] = series = new Series();
+                if (holding.FiveHour is { } five && Add(series.FiveHour, at, five.Utilization)) added++;
+                if (holding.SevenDay is { } week && Add(series.SevenDay, at, week.Utilization)) added++;
             }
+            Trim(accounts, nowUtc);
+            if (accounts.Count == 0)
+                _byTenant.Remove(tenant);
         }
+        FileLog.Write($"[LicenseUsageHistory] Record: tenant={tenant.ToLogString()}, holdings={report.Holdings.Count}, pointsAdded={added}");
     }
 
-    /// <summary>The readings of the last <see cref="Kept"/> for every account of <paramref name="tenant"/> that has any,
-    /// in account order, each window oldest first.</summary>
+    /// <summary>The kept readings of every account of <paramref name="tenant"/>, in account email order, each window
+    /// oldest first. An account with no point left is not listed.</summary>
     public IReadOnlyList<LicenseAccountHistory> Read(TenantId tenant, DateTime nowUtc)
     {
-        if (!_tenants.TryGetValue(tenant, out var accounts))
-            return Array.Empty<LicenseAccountHistory>();
-        var oldest = nowUtc - Kept;
-        var histories = new List<LicenseAccountHistory>();
-        foreach (var (email, series) in accounts.OrderBy(a => a.Key, StringComparer.Ordinal))
+        List<LicenseAccountHistory> histories;
+        lock (_gate)
         {
-            lock (series)
+            if (!_byTenant.TryGetValue(tenant, out var accounts))
+                histories = new List<LicenseAccountHistory>();
+            else
             {
-                var five = Points(series.FiveHour, oldest);
-                var week = Points(series.SevenDay, oldest);
-                if (five.Count > 0 || week.Count > 0)
-                    histories.Add(new LicenseAccountHistory(email, five, week));
+                Trim(accounts, nowUtc);
+                histories = accounts
+                    .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+                    .Select(pair => new LicenseAccountHistory(pair.Key, pair.Value.FiveHour.ToList(), pair.Value.SevenDay.ToList()))
+                    .ToList();
+                if (accounts.Count == 0)
+                    _byTenant.Remove(tenant);
             }
         }
+        FileLog.Write($"[LicenseUsageHistory] Read: tenant={tenant.ToLogString()}, accounts={histories.Count}");
         return histories;
     }
 
-    private static List<LicenseUsagePoint> Points(SortedDictionary<DateTime, double> window, DateTime oldest)
-        => window.Where(p => p.Key >= oldest).Select(p => new LicenseUsagePoint(p.Key, p.Value)).ToList();
-
-    private static void Prune(SortedDictionary<DateTime, double> window, DateTime oldest)
+    // Kept oldest first. A point at a time already held is the same reading sent again (another report carrying
+    // the numbers of the last successful read), so it is not added twice.
+    private static bool Add(List<LicenseUsagePoint> points, DateTime atUtc, double utilization)
     {
-        while (window.Count > 0 && window.First().Key < oldest)
-            window.Remove(window.First().Key);
+        var index = points.Count;
+        while (index > 0 && points[index - 1].AtUtc > atUtc)
+            index--;
+        if (index > 0 && points[index - 1].AtUtc == atUtc)
+            return false;
+        points.Insert(index, new LicenseUsagePoint(atUtc, utilization));
+        if (points.Count > MaxPointsPerWindow)
+            points.RemoveRange(0, points.Count - MaxPointsPerWindow);
+        return true;
     }
+
+    private static void Trim(Dictionary<string, Series> accounts, DateTime nowUtc)
+    {
+        var oldest = nowUtc - Kept;
+        foreach (var (email, series) in accounts.ToList())
+        {
+            series.FiveHour.RemoveAll(p => p.AtUtc < oldest);
+            series.SevenDay.RemoveAll(p => p.AtUtc < oldest);
+            if (series.FiveHour.Count == 0 && series.SevenDay.Count == 0)
+                accounts.Remove(email);
+        }
+    }
+
+    private static DateTime AsUtc(DateTime value) => value.Kind switch
+    {
+        DateTimeKind.Utc => value,
+        DateTimeKind.Unspecified => DateTime.SpecifyKind(value, DateTimeKind.Utc),
+        _ => value.ToUniversalTime(),
+    };
 }

@@ -410,8 +410,11 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>The license picture the decision engine and the Licenses page read.</summary>
     internal Licenses.LicenseReadModel LicenseReads { get; }
 
-    /// <summary>The recent license usage readings the forecast takes its rates from: two hours, in memory.</summary>
+    /// <summary>The recent usage readings of every account, kept in memory, for the forecast's rate of use.</summary>
     internal Licenses.LicenseUsageHistory LicenseHistory { get; }
+
+    /// <summary>The one place the decision engine's picture of an account is built from the store.</summary>
+    internal Licenses.LicenseSnapshotSource LicenseSnapshots { get; }
 
     /// <summary>License Switching's minute check and Switch now: decides, sends each switch and records what came back.</summary>
     internal Licenses.LicenseSwitchService LicenseSwitches { get; }
@@ -2260,13 +2263,14 @@ public sealed class GatewayHost : IAsyncDisposable
         LicenseHistory = new Licenses.LicenseUsageHistory();
         LicenseUsage = new Licenses.LicenseUsageIngest(LicenseStore, LicenseHistory);
         LicenseReads = new Licenses.LicenseReadModel(LicenseStore);
+        LicenseSnapshots = new Licenses.LicenseSnapshotSource(LicenseStore, LicenseReads);
         // The owner email goes the way POST /account/email sends on hosted: by tenant, the account service resolving
         // the owner. A self-hosted Gateway has no tenant account, so its mailer logs and sends nothing.
         var licenseOwnerMailer = new Licenses.LicenseOwnerMailer(_tenantBoundary.IsHosted,
             new Core.Account.AccountNotifyByTenantClient(new HttpClient { Timeout = TimeSpan.FromSeconds(30) }),
             tenant => TenantRegistry.SubjectForTenant(tenant),
             Core.Account.AccountNotifyByTenantClient.ResolveServiceToken);
-        LicenseSwitches = new Licenses.LicenseSwitchService(LicenseStore, LicenseReads, LicenseHistory,
+        LicenseSwitches = new Licenses.LicenseSwitchService(LicenseStore, LicenseSnapshots,
             SendCommandAsync, licenseOwnerMailer.SendAsync, () => DateTime.UtcNow);
         // Per-tenant dictation transcript store (issue #509): every transcribed turn's raw and cleaned text
         // lands in the caller tenant's partition of the dictation_transcripts table, write-only, for later

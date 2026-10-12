@@ -68,7 +68,7 @@ public sealed class LicenseUsageIngest
 
     public LicenseUsageIngest(LicenseStore store) : this(store, new LicenseUsageHistory()) { }
 
-    /// <param name="history">The recent readings the forecast reads; every ACCEPTED report is added to it.</param>
+    /// <summary><paramref name="history"/> takes the readings of every accepted report, for the forecast's rate of use.</summary>
     public LicenseUsageIngest(LicenseStore store, LicenseUsageHistory history) : this(store, history, null, null) { }
 
     /// <summary>For tests: <paramref name="waitingForWriteGate"/> runs (with the connection id) just before a report asks
@@ -172,8 +172,8 @@ public sealed class LicenseUsageIngest
             var shift = ReadAtShift(tenant, report!, receivedAtUtc);
             _insideWrite?.Invoke(connectionId);
             var applied = _store.ApplyReport(tenant, directorId, sequence, report!, receivedAtUtc, shift);
-            // Only a report that landed feeds the forecast: a refused one never reaches this line.
-            _history.Record(tenant, report!, receivedAtUtc, shift);
+            // Only a report the store took adds to the history: a refused or failed one never reaches this line.
+            _history.Record(tenant, report!, shift, receivedAtUtc);
             lock (owner)
             {
                 // A reconnect during the write started a fresh baseline for the new connection; this one's number must
