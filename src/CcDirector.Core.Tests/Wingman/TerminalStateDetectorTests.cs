@@ -23,7 +23,7 @@ public sealed class TerminalStateDetectorTests : System.IDisposable
 
     public void Dispose() => _manager.Dispose();
 
-    private Session CreateTestSession() => _manager.CreateSession(System.IO.Path.GetTempPath());
+    private Session CreateTestSession() => _manager.CreateEmbeddedSession(System.IO.Path.GetTempPath(), null, new BufferOnlyBackend());
 
 
     [Fact]
@@ -52,7 +52,6 @@ public sealed class TerminalStateDetectorTests : System.IDisposable
         Assert.True(WingmanLlmThrottle.TryAcquire(other));  // a different session is independent
     }
 
-    [Trait("Gate", "Quarantine")]
     [Fact]
     public void SuppressActivityUntilUtc_defaults_to_the_past_so_bytes_count_as_work()
     {
@@ -62,7 +61,6 @@ public sealed class TerminalStateDetectorTests : System.IDisposable
         Assert.True(session.SuppressActivityUntilUtc < System.DateTime.UtcNow);
     }
 
-    [Trait("Gate", "Quarantine")]
     [Fact]
     public void SuppressActivityFor_pushes_the_window_into_the_future()
     {
@@ -73,7 +71,6 @@ public sealed class TerminalStateDetectorTests : System.IDisposable
         Assert.True(session.SuppressActivityUntilUtc > System.DateTime.UtcNow);
     }
 
-    [Trait("Gate", "Quarantine")]
     [Fact]
     public void StampBodyActivity_advances_the_body_activity_clock()
     {
@@ -86,7 +83,6 @@ public sealed class TerminalStateDetectorTests : System.IDisposable
         Assert.True(session.LastBodyActivityAtUtc > before);
     }
 
-    [Trait("Gate", "Quarantine")]
     [Fact]
     public void SuppressActivityFor_only_extends_never_shortens()
     {
