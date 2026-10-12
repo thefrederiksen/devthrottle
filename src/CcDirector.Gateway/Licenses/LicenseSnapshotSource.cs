@@ -101,8 +101,8 @@ public sealed class LicenseSnapshotSource
                 m.Holdings.FirstOrDefault(h => h.IsActive)?.SignInExpiresAtUtc))
             .ToList();
 
+        // The store hands over only the bars still in force, and the engine ignores one whose time has passed.
         var inForce = bars
-            .Where(b => b.UntilUtc > nowUtc)
             .Select(b => new LicenseBar(b.AccountEmail, b.Window, b.UntilUtc))
             .ToList();
 

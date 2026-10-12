@@ -550,7 +550,8 @@ public static class LicenseDisplayFold
 
     private static string? TimingText(LicenseSwitchLogEntity row)
     {
-        if (row.DirectorStartedAtUtc is not { } started || row.DirectorFinishedAtUtc is not { } finished || finished < started)
+        // A refusal is answered at once: it began and ended at the same moment, and there is no length of time to give.
+        if (row.DirectorStartedAtUtc is not { } started || row.DirectorFinishedAtUtc is not { } finished || finished <= started)
             return null;
         var took = finished - started;
         var text = took < TimeSpan.FromSeconds(1)

@@ -723,9 +723,18 @@ public sealed class LicenseDisplayFoldTests : IDisposable
     }
 
     [Fact]
-    public void LogEntry_ARowThatNeverReachedTheMachine_HasNoTimingText()
+    public void LogEntry_ARowThatNeverReachedTheMachine_OrWasRefusedAtOnce_HasNoTimingText()
     {
+        var refusedAtOnce = Row(LicenseLogKinds.Switch, LicenseLogStates.Failed, LicenseSwitchReasonCodes.SpareNotHeld);
+        refusedAtOnce.DirectorStartedAtUtc = T0;
+        refusedAtOnce.DirectorFinishedAtUtc = T0;
+        var quick = Row(LicenseLogKinds.Switch, LicenseLogStates.Switched);
+        quick.DirectorStartedAtUtc = T0;
+        quick.DirectorFinishedAtUtc = T0.AddMilliseconds(250);
+
         Assert.Null(LicenseDisplayFold.LogEntry(Row(LicenseLogKinds.Switch, LicenseLogStates.Failed, LicenseGatewayReasonCodes.DirectorOffline)).TimingText);
+        Assert.Null(LicenseDisplayFold.LogEntry(refusedAtOnce).TimingText);
+        Assert.Equal("Took 250 milliseconds on the machine", LicenseDisplayFold.LogEntry(quick).TimingText);
     }
 
     [Theory]
