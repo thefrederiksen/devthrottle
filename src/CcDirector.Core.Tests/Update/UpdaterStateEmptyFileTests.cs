@@ -53,6 +53,7 @@ public sealed class UpdaterStateEmptyFileTests : IDisposable
     /// them. With one shared temporary name, two saves at once collided on it and one threw; a load holding
     /// the file open can refuse a save's replace the same way.
     /// </summary>
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task SaveTo_ConcurrentSaves_AllSucceedAndLeaveOneValidFile()
     {

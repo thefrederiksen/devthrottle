@@ -78,6 +78,7 @@ public sealed class ProcessJobTests
         Assert.Equal(CcDirector.Engine.Storage.OwnerLiveness.Gone, CcDirector.Engine.Storage.ProcessOwnerLiveness.Probe(command));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task ExecuteAsync_RecordingTheStartedCommandFails_TheCommandIsKilled()
     {

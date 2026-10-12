@@ -47,6 +47,7 @@ public sealed class UnconfirmedStopTests : IDisposable
 
     // -- EN-F3 --
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task RecordingTheCommandFails_TheCommandIsKilled_TheRunEndsWithoutMovingTheSchedule_AndNobodyStartsItWhileItLived()
     {

@@ -999,7 +999,7 @@ try {
                 $tests = @($targets | Where-Object { $_.Project -eq $proj } | ForEach-Object { $_.Test })
                 # A quarantined test is excluded here as everywhere: quarantining a flaky test takes it out of the
                 # gate, but it is not a fix, so it must not clear one (it then reads as NOT DELETED).
-                $r = Start-TestSuite $proj $label (@("--filter", "(" + (New-ExactTestFilter $tests) + ")&$QuarantineExclude") + $targetBlame)
+                $r = Start-TestSuite $proj $label (@("--filter", ("(" + (New-ExactTestFilter $tests) + ")&$QuarantineExclude")) + $targetBlame)
                 $started += $r
                 $script:targetedRuns += $r
                 Write-Host "  pass $pass started $($r.Name)"
