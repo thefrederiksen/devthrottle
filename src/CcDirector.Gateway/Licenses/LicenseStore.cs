@@ -370,6 +370,48 @@ public sealed class LicenseStore
         return changed;
     }
 
+    /// <summary>
+    /// Take the machine's active account from a switch answer's read-back (contract section 3.5) - but ONLY when that
+    /// answer is newer than everything the machine has reported since. The answer's <c>FinishedAtUtc</c> is the
+    /// Director's clock, so it is moved onto the Gateway's clock by the machine's measured skew before it is compared
+    /// with the Gateway's receive time of the last report. An answer with <c>Replayed = true</c> is a STORED answer to an
+    /// earlier send: its finish time is the original one, so the same comparison refuses it whenever a report has
+    /// arrived since - the after-switch report the Director sends after every switch is such a report. One conditional
+    /// update, so a report landing at the same moment cannot be overwritten. True when the account was taken.
+    /// </summary>
+    public bool ApplySwitchReadBack(TenantId tenant, Guid machineId, LicenseSwitchResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        var after = NormalizeEmail(result.ActiveAccountEmailAfter);
+        FileLog.Write($"[LicenseStore] ApplySwitchReadBack: tenant={tenant.ToLogString()}, machine={machineId}, switch={result.SwitchId}, replayed={result.Replayed}");
+        if (after.Length == 0)
+        {
+            FileLog.Write("[LicenseStore] ApplySwitchReadBack: the answer read back no active account, nothing taken");
+            return false;
+        }
+        using var ctx = _db.CreateContext(tenant);
+        var machine = ctx.LicenseMachines.AsNoTracking().FirstOrDefault(m => m.Id == machineId);
+        if (machine is null)
+        {
+            FileLog.Write($"[LicenseStore] ApplySwitchReadBack: REFUSED, no machine {machineId} in this account");
+            return false;
+        }
+        var finishedOnGatewayClock = Utc(result.FinishedAtUtc) + TimeSpan.FromSeconds(machine.ClockSkewSeconds);
+        // The machine row and its holdings say who is active in two places, and the read model reads both; they move
+        // together or not at all, so the Licenses page never shows the machine on one account and the holding on another.
+        using var transaction = ctx.Database.BeginTransaction();
+        var taken = ctx.LicenseMachines
+            .Where(m => m.Id == machineId && m.LastReportAtUtc < finishedOnGatewayClock)
+            .ExecuteUpdate(u => u.SetProperty(m => m.ActiveAccountEmail, after)) == 1;
+        if (taken)
+            ctx.LicenseHoldings
+                .Where(h => h.MachineId == machineId)
+                .ExecuteUpdate(u => u.SetProperty(h => h.IsActive, h => h.AccountEmail == after));
+        transaction.Commit();
+        FileLog.Write($"[LicenseStore] ApplySwitchReadBack: taken={taken} (finished {finishedOnGatewayClock:O}, last report {machine.LastReportAtUtc:O})");
+        return taken;
+    }
+
     private static IQueryable<LicenseSwitchLogEntity> OpenSwitch(GatewayDbContext ctx, string id)
         => ctx.LicenseSwitchLog.Where(r => r.SwitchId == id && r.Kind == LicenseLogKinds.Switch
                                            && (r.State == LicenseLogStates.Pending || r.State == LicenseLogStates.Unknown));
