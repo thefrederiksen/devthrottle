@@ -134,4 +134,57 @@ public sealed class DirectoryJunctionTests : IDisposable
         Assert.Equal(@"C:\t", Encoding.Unicode.GetString(buffer, 16 + substitute.Length + 2, print.Length));
         Assert.Equal(buffer.Length, 8 + BitConverter.ToUInt16(buffer, 4));
     }
+
+    [Fact]
+    public void Create_ALinkPathPast260Characters_IsMade_LikeMklink()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        // Arrange: a parent folder deep enough that the link path is well past the old 260-character limit.
+        var target = Directory.CreateDirectory(Path.Combine(_root, "target")).FullName;
+        var deep = Directory.CreateDirectory(Path.Combine(_root, new string('d', 120), new string('e', 120))).FullName;
+        var link = Path.Combine(deep, "link-" + new string('f', 40));
+        Assert.True(link.Length > 260, $"the link path is only {link.Length} characters");
+
+        // Act
+        DirectoryJunction.Create(link, target);
+
+        // Assert
+        Assert.Equal(target, new DirectoryInfo(link).LinkTarget);
+        Directory.Delete(link);
+    }
+
+    [Fact]
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")] // the lambda below hides the guard from the analyzer
+    public void Create_TheLinksParentFolderIsMissing_ThrowsAndCreatesNothing_LikeMklink()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        // Arrange
+        var target = Directory.CreateDirectory(Path.Combine(_root, "target")).FullName;
+        var missingParent = Path.Combine(_root, "missing");
+
+        // Act + Assert
+        Assert.Throws<System.ComponentModel.Win32Exception>(() => DirectoryJunction.Create(Path.Combine(missingParent, "link"), target));
+        Assert.False(Directory.Exists(missingParent), "the missing parent folder was created");
+    }
+
+    [Fact]
+    public void MountPointReparseData_ATargetPastWhatWindowsAccepts_IsRefusedWithAClearError()
+    {
+        // Arrange: a target whose reparse data would pass the 16 KB Windows accepts.
+        var target = @"C:\" + new string('x', DirectoryJunction.MaximumReparseDataBufferSize / 4);
+
+        // Act + Assert
+        Assert.Throws<PathTooLongException>(() => DirectoryJunction.MountPointReparseData(@"\??\" + target, target));
+    }
+
+    [Theory]
+    [InlineData(@"C:\a\b", @"\\?\C:\a\b")]
+    [InlineData(@"\\server\share\a", @"\\?\UNC\server\share\a")]
+    [InlineData(@"\\?\C:\a", @"\\?\C:\a")]
+    public void ExtendedLengthPath_PrefixesAFullPathOnce(string fullPath, string expected)
+    {
+        Assert.Equal(expected, DirectoryJunction.ExtendedLengthPath(fullPath));
+    }
 }

@@ -23,14 +23,20 @@ public static class DirectoryJunction
     private const uint FileFlagBackupSemantics = 0x02000000;
     private const uint FsctlSetReparsePoint = 0x000900A4;
     private const uint IoReparseTagMountPoint = 0xA0000003;
+    private const int ErrorAlreadyExists = 183;
+
+    /// <summary>The most reparse data Windows accepts, header included (MAXIMUM_REPARSE_DATA_BUFFER_SIZE).</summary>
+    internal const int MaximumReparseDataBufferSize = 16 * 1024;
 
     /// <summary>The prefix the kernel expects in front of a junction's target (an NT path).</summary>
     private const string NonInterpretedPathPrefix = @"\??\";
 
     /// <summary>
     /// Create the junction <paramref name="linkPath"/> pointing at <paramref name="targetPath"/>. Like
-    /// <c>mklink /J</c>, it refuses when something already exists at the link path. The target need not exist.
-    /// Throws, and leaves nothing behind, when the junction cannot be made.
+    /// <c>mklink /J</c>, it refuses when anything already exists at the link path or the link's parent folder is
+    /// missing, and the target need not exist. The folder is created by a call that itself fails when the path
+    /// exists, so there is no window in which someone else's folder could be turned into a junction. Throws, and
+    /// leaves nothing behind, when the junction cannot be made.
     /// </summary>
     [SupportedOSPlatform("windows")]
     public static void Create(string linkPath, string targetPath)
@@ -39,31 +45,60 @@ public static class DirectoryJunction
         ArgumentException.ThrowIfNullOrWhiteSpace(targetPath);
         FileLog.Write($"[DirectoryJunction] Create: {linkPath} -> {targetPath}");
 
-        if (Directory.Exists(linkPath) || File.Exists(linkPath) || new FileInfo(linkPath).LinkTarget is not null)
-            throw new IOException($"Could not create the junction '{linkPath}': something already exists there.");
-
         var target = Path.TrimEndingDirectorySeparator(Path.GetFullPath(targetPath));
         var buffer = MountPointReparseData(NonInterpretedPathPrefix + target, target);
+        var link = ExtendedLengthPath(Path.GetFullPath(linkPath));
 
-        Directory.CreateDirectory(linkPath);
-        try
+        if (!CreateDirectoryW(link, IntPtr.Zero))
         {
-            using var handle = CreateFileW(linkPath, GenericWrite, 0, IntPtr.Zero, OpenExisting,
-                FileFlagOpenReparsePoint | FileFlagBackupSemantics, IntPtr.Zero);
-            if (handle.IsInvalid)
-                throw new Win32Exception(Marshal.GetLastWin32Error(), $"Could not open '{linkPath}' to make it a junction");
-
-            if (!DeviceIoControl(handle, FsctlSetReparsePoint, buffer, buffer.Length, IntPtr.Zero, 0, out _, IntPtr.Zero))
-                throw new Win32Exception(Marshal.GetLastWin32Error(), $"Could not make '{linkPath}' a junction to '{target}'");
+            var error = Marshal.GetLastWin32Error();
+            FileLog.Write($"[DirectoryJunction] Create FAILED: {linkPath}: could not create its folder, error {error}");
+            if (error == ErrorAlreadyExists)
+                throw new IOException($"Could not create the junction '{linkPath}': something already exists there.");
+            throw new Win32Exception(error, $"Could not create the folder for the junction '{linkPath}'");
         }
-        catch (Exception ex)
+
+        string? failure = null;
+        var failureCode = 0;
+        using (var handle = CreateFileW(link, GenericWrite, 0, IntPtr.Zero, OpenExisting,
+                   FileFlagOpenReparsePoint | FileFlagBackupSemantics, IntPtr.Zero))
         {
-            FileLog.Write($"[DirectoryJunction] Create FAILED: {linkPath} -> {target}: {ex.Message}");
-            Directory.Delete(linkPath);
-            throw;
+            if (handle.IsInvalid)
+            {
+                failureCode = Marshal.GetLastWin32Error();
+                failure = $"Could not open '{linkPath}' to make it a junction";
+            }
+            else if (!DeviceIoControl(handle, FsctlSetReparsePoint, buffer, buffer.Length, IntPtr.Zero, 0, out _, IntPtr.Zero))
+            {
+                failureCode = Marshal.GetLastWin32Error();
+                failure = $"Could not make '{linkPath}' a junction to '{target}'";
+            }
+        }
+
+        if (failure is not null)
+        {
+            FileLog.Write($"[DirectoryJunction] Create FAILED: {failure}, error {failureCode}");
+            // The folder this call made is removed. If even that fails it is logged, and the ORIGINAL error is the
+            // one thrown, because it is the one that says why there is no junction.
+            if (!RemoveDirectoryW(link))
+                FileLog.Write($"[DirectoryJunction] Create: could not remove the folder it made at '{linkPath}', error {Marshal.GetLastWin32Error()}");
+            throw new Win32Exception(failureCode, failure);
         }
 
         FileLog.Write($"[DirectoryJunction] Created: {linkPath} -> {target}");
+    }
+
+    /// <summary>
+    /// The extended-length form of a full path, so a direct Windows call accepts a path past 260 characters the way
+    /// .NET's own file calls, which add the prefix themselves, do.
+    /// </summary>
+    internal static string ExtendedLengthPath(string fullPath)
+    {
+        if (fullPath.StartsWith(@"\\?\", StringComparison.Ordinal) || fullPath.StartsWith(@"\\.\", StringComparison.Ordinal))
+            return fullPath;
+        if (fullPath.StartsWith(@"\\", StringComparison.Ordinal))
+            return @"\\?\UNC\" + fullPath[2..];
+        return @"\\?\" + fullPath;
     }
 
     /// <summary>
@@ -76,7 +111,7 @@ public static class DirectoryJunction
         var print = Encoding.Unicode.GetBytes(printName);
         const int nameHeader = 8; // four ushort offsets and lengths
         var dataLength = nameHeader + substitute.Length + 2 + print.Length + 2;
-        if (dataLength > ushort.MaxValue)
+        if (8 + dataLength > MaximumReparseDataBufferSize)
             throw new PathTooLongException($"The junction target is too long: '{printName}'.");
 
         var buffer = new byte[8 + dataLength];
@@ -94,6 +129,14 @@ public static class DirectoryJunction
         writer.Write((ushort)0);
         return buffer;
     }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CreateDirectoryW(string pathName, IntPtr securityAttributes);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool RemoveDirectoryW(string pathName);
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern SafeFileHandle CreateFileW(string fileName, uint desiredAccess, uint shareMode,
