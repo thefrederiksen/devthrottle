@@ -38,6 +38,14 @@ public sealed record GatewayHostOptions
     public bool Hosted { get; init; }
 
     /// <summary>
+    /// The folder the built React Cockpit is served from. Production serves <see cref="Cockpit.CockpitReactApp.WebRoot"/>,
+    /// <c>wwwroot/c</c> beside the running executable, and that is the default. A test that fabricates a Cockpit to
+    /// prove how it is served states its own folder here: the default folder is in the build output, which every test
+    /// process run from that output shares, so a test that wrote there raced every other process reading it.
+    /// </summary>
+    public string CockpitWebRoot { get; init; } = Cockpit.CockpitReactApp.WebRoot;
+
+    /// <summary>
     /// The ONE place production reads the host's options from the process environment. Called by the
     /// <see cref="GatewayHost"/> constructor when a caller passes no options, which is what the production entry
     /// points do. Everything a test used to set through <c>Environment.SetEnvironmentVariable</c> is a property on

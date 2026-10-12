@@ -4368,7 +4368,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // Browser-aware front door (the Cockpit sitemap): a PERSON navigating to /sessions,
         // /directors, or /cockpit (Accept: text/html) gets the React Cockpit shell; programs keep
         // getting JSON from the explicit endpoints below. After auth, before routing.
-        Cockpit.CockpitReactApp.UseBrowserPageRoutes(_app);
+        Cockpit.CockpitReactApp.UseBrowserPageRoutes(_app, Options.CockpitWebRoot);
 
         // Enable ASP.NET WebSocket support so the per-session proxy can recognize an inbound WS
         // upgrade (ctx.WebSockets.IsWebSocketRequest) and accept it (AcceptWebSocketAsync) for the
@@ -4511,6 +4511,7 @@ public sealed class GatewayHost : IAsyncDisposable
             _sessionHistory.FactoryOf,
             AuthEnabled,
             netDiagRollup: _netDiagRollup,
+            cockpitWebRoot: Options.CockpitWebRoot,
             // Issue #2017: the snooze-default consumer at POST /sessions/{sid}/hold reads the caller tenant's
             // default through the resolver instead of the process-global config.
             tenantSettings: _tenantSettingsResolver,
@@ -5778,7 +5779,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // client-side routes, and the hashed static assets (built into wwwroot/c by the release-gated
         // MSBuild target) - resolves here. Mapped LAST by design, exactly like /mobile above. The Blazor
         // Server Cockpit and its fallback reverse-proxy were retired in this cutover.
-        Cockpit.CockpitReactApp.Map(_app);
+        Cockpit.CockpitReactApp.Map(_app, Options.CockpitWebRoot);
 
         // Every route is now mapped, which is the earliest moment the FINALISED route space exists - and the
         // only moment a conflict between a hosted refusal and anything else can be seen. A refusal that ties
@@ -5793,8 +5794,8 @@ public sealed class GatewayHost : IAsyncDisposable
         // returns an EMPTY set and the validation silently does nothing. The app's own
         // IEndpointRouteBuilder.DataSources carry the group endpoints (prefix and metadata conventions
         // applied) as soon as they are mapped, which is what lets this fail the start BEFORE any listener
-        // binds rather than after. That source selection lives in ONE place - SelectFinalisedEndpoints - shared
-        // with the pre-start test harness through ValidateBeforeStart, so reverting it to the DI composite reddens the tie tests rather
+        // binds rather than after. That source selection lives in ONE place - ValidateBeforeStart - shared
+        // with the pre-start test harness, so reverting it to the DI composite reddens the tie tests rather
         // than silently regressing this path.
         //
         // The finalised route table is also kept, for the route-surface guard tests (the auth allowlist for the
@@ -5802,8 +5803,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // stays exactly what the allowlist was written against - the guard pins that set, so a new route
         // under a shell prefix fails a test until it is consciously ruled public or gated). It is read ONCE
         // and validated from that one read: every read of the app's data sources builds every endpoint again.
-        MappedEndpoints = Tenancy.HostedRefusalRouteSpace.SelectFinalisedEndpoints(_app);
-        Tenancy.HostedRefusalRouteSpace.Validate(MappedEndpoints);
+        MappedEndpoints = Tenancy.HostedRefusalRouteSpace.ValidateBeforeStart(_app);
 
         await _app.StartAsync();
 

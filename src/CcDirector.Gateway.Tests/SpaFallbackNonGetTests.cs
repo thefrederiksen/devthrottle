@@ -25,8 +25,7 @@ public sealed class SpaFallbackNonGetTests : IAsyncLifetime
     private readonly string _root;
     private readonly string? _prevRoot;
     private readonly string _instancesDir = Path.Combine(Path.GetTempPath(), "cc-spa-fallback-" + Guid.NewGuid().ToString("N"));
-    private readonly string _webRoot = Path.Combine(AppContext.BaseDirectory, "wwwroot", "c");
-    private bool _createdWebRoot;
+    private readonly string _webRoot = Path.Combine(Path.GetTempPath(), "cc-spa-fallback-web-" + Guid.NewGuid().ToString("N"));
 
     private GatewayHost _gateway = null!;   // set in InitializeAsync
     private HttpClient _http = null!;       // set in InitializeAsync
@@ -41,19 +40,15 @@ public sealed class SpaFallbackNonGetTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         // Force the Cockpit shell to be present so the fallback WOULD serve it - the CI condition that
-        // exposed the bug. Only write index.html if a real built host has not already put one there.
-        var indexPath = Path.Combine(_webRoot, "index.html");
-        if (!File.Exists(indexPath))
-        {
-            Directory.CreateDirectory(_webRoot);
-            await File.WriteAllTextAsync(indexPath, "<!doctype html><title>cockpit shell</title>");
-            _createdWebRoot = true;
-        }
+        // exposed the bug. In this test's own folder, handed to the host, never the build output's wwwroot/c.
+        Directory.CreateDirectory(_webRoot);
+        await File.WriteAllTextAsync(Path.Combine(_webRoot, "index.html"), "<!doctype html><title>cockpit shell</title>");
 
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: Token, authEnabled: true,
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
-            streamMode: false);
+            streamMode: false,
+            options: new GatewayHostOptions { CockpitWebRoot = _webRoot });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token);
@@ -64,11 +59,7 @@ public sealed class SpaFallbackNonGetTests : IAsyncLifetime
         _http.Dispose();
         await _gateway.StopAsync();
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _prevRoot);
-        // Remove ONLY the shell we created, so other tests see the original wwwroot/c state.
-        if (_createdWebRoot)
-        {
-            try { Directory.Delete(_webRoot, true); } catch (Exception) { /* best effort */ }
-        }
+        try { if (Directory.Exists(_webRoot)) Directory.Delete(_webRoot, true); } catch (Exception) { /* best effort */ }
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); } catch (Exception) { /* best effort */ }
         try { if (Directory.Exists(_root)) Directory.Delete(_root, true); } catch (Exception) { /* best effort */ }
     }
