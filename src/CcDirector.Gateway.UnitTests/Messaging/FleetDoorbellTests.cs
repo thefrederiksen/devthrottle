@@ -591,11 +591,9 @@ public sealed class FleetDoorbellTests : IDisposable
             ? new TaskCompletionSource<FleetRingResponse?>().Task // never answers, ignores cancellation
             : Task.FromResult<FleetRingResponse?>(new FleetRingResponse { Outcome = FleetRingOutcomes.Rung });
 
-        var clock = System.Diagnostics.Stopwatch.StartNew();
-        await rig.Doorbell.SweepAsync();
-        clock.Stop();
-
-        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(3), $"the tick took {clock.Elapsed}");
+        // The hung ring never answers, so a tick that waited for it would never end. Thirty seconds is a hundred
+        // times the ring timeout: reaching it means the tick is held, not that the machine is slow.
+        await rig.Doorbell.SweepAsync().WaitAsync(TimeSpan.FromSeconds(30));
         Assert.Equal(0, Peek(ids[0]).RingCount);
         Assert.All(ids.Skip(1), id => Assert.Equal(1, Peek(id).RingCount));
     }

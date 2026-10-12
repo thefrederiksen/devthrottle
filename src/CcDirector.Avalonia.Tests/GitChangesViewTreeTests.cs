@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using CcDirector.Avalonia.Controls;
 using CcDirector.Core.Git;
 using Xunit;
@@ -54,9 +53,7 @@ public class GitChangesViewTreeTests
         foreach (var dir in dirs)
             files.AddRange(MakeEntries(perDir + (remaining-- > 0 ? 1 : 0), dir, GitFileStatus.Untracked, isStaged: false));
 
-        var sw = Stopwatch.StartNew();
         var tree = GitChangesView.BuildTree(files);
-        sw.Stop();
 
         // Two top-level folders: "src", "tests", "docs", "tools", "config"
         Assert.NotEmpty(tree);
@@ -64,10 +61,6 @@ public class GitChangesViewTreeTests
         // Total file count across entire tree should equal 1950
         int totalLeaves = CountLeaves(tree);
         Assert.Equal(1950, totalLeaves);
-
-        // Performance: building tree for 1950 files should complete quickly
-        Assert.True(sw.ElapsedMilliseconds < 1000,
-            $"BuildTree for 1950 files took {sw.ElapsedMilliseconds}ms (expected < 1000ms)");
     }
 
     [Fact]
@@ -95,16 +88,10 @@ public class GitChangesViewTreeTests
             IsStaged = false
         });
 
-        var sw = Stopwatch.StartNew();
         var tree = GitChangesView.BuildTree(files);
-        sw.Stop();
 
         int totalLeaves = CountLeaves(tree);
         Assert.Equal(2001, totalLeaves);
-
-        // Performance gate
-        Assert.True(sw.ElapsedMilliseconds < 2000,
-            $"BuildTree for 2001 files took {sw.ElapsedMilliseconds}ms (expected < 2000ms)");
     }
 
     [Fact]

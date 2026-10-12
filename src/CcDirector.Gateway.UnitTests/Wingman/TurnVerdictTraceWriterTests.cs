@@ -34,13 +34,11 @@ public sealed class TurnVerdictTraceWriterTests
         var written = new List<string>();
         using var writer = new TurnVerdictTraceWriter((_, t) => { release.Wait(TimeSpan.FromSeconds(30)); lock (written) written.Add(t.TraceId); });
 
-        var clock = System.Diagnostics.Stopwatch.StartNew();
         Assert.True(writer.Enqueue(Tenant, Trace("first")));
         Assert.True(writer.Enqueue(Tenant, Trace("second")));
-        clock.Stop();
 
-        // The write is held for up to thirty seconds; the two enqueues did not wait for it.
-        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(2), $"enqueue waited {clock.Elapsed}");
+        // The write is held until the test releases it (or thirty seconds pass), so an enqueue that waited for it
+        // would come back with a trace already written. Nothing is written: the two enqueues did not wait.
         Assert.Empty(written);
 
         release.Set();

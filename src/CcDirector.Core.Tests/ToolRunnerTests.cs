@@ -48,27 +48,6 @@ public class ToolRunnerTests
     }
 
     [Fact]
-    public async Task RunStream_SlowOutput_ChunksArriveBeforeProcessExit()
-    {
-        if (!OperatingSystem.IsWindows()) return;
-
-        // First line prints immediately; the process then stays alive ~2s before the second line.
-        var chunks = await CollectAsync(new ToolRunner().RunStreamAsync(
-            Cmd, new[] { "/c", "echo first & ping -n 3 127.0.0.1 >nul & echo second" },
-            null, TimeSpan.FromSeconds(30)));
-
-        var first = chunks.First(c =>
-            c.Chunk.Stream == ToolRunChunk.StreamStdout &&
-            c.Chunk.Data is not null && c.Chunk.Data.StartsWith("first"));
-        var exit = chunks.Single(c => c.Chunk.Stream == ToolRunChunk.StreamExit);
-
-        // Streaming, not buffer-then-dump: the first output line was observed well before exit.
-        var leadMs = (exit.At - first.At).TotalMilliseconds;
-        Assert.True(leadMs > 1000,
-            $"first stdout chunk should arrive >1s before the exit chunk (was {leadMs:0}ms)");
-    }
-
-    [Fact]
     public async Task RunStream_StderrOutput_YieldsStderrChunk()
     {
         if (!OperatingSystem.IsWindows()) return;

@@ -237,7 +237,10 @@ public sealed class SessionKeyRegistryTests : IDisposable
             Assert.True(registry.Register(Account, "director-1", session.ToString(), hash, initialExpiry));
             now = now.AddSeconds(10);
             Assert.True(registry.Register(Account, "director-1", session.ToString(), hash, now + TimeSpan.FromDays(1)));
-            registrationLines = log.DrainAndReadLines();
+            // Only this session's lines: the capture is process-wide, and a background task left by another class
+            // can write into it while this test runs.
+            registrationLines = log.DrainAndReadLines()
+                .Where(l => l.Contains($"session={session}", StringComparison.OrdinalIgnoreCase)).ToList();
         }
 
         using var ctx = _harness.Open().CreateUnscopedContext();
@@ -248,7 +251,6 @@ public sealed class SessionKeyRegistryTests : IDisposable
         // Presence proves the capture worked; exactly one proves the ten-second refresh added no cap or
         // success line. Naming the first expiry also distinguishes that control from the later refresh.
         var recorded = Assert.Single(registrationLines);
-        Assert.Contains($"session={session}", recorded, StringComparison.OrdinalIgnoreCase);
         Assert.Contains($"expires={initialExpiry:O}", recorded, StringComparison.Ordinal);
     }
 
