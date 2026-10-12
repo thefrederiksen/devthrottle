@@ -8,6 +8,9 @@ in the AXI shape (docs/axi-standard.md).
   `authorize-url: <url>` and reads the code back as one line on standard input.
 - `license approve --email <email> --browser <profile> <url>` is that other machine's half: it approves the URL in
   its browser profile and prints the code alone, for the caller to hand back.
+- With `--json`, `sign-in` and `approve` also answer a FAILURE as one JSON object on standard output
+  (`result` "failed" or "refused", and the `reason` word), because the Director reads these answers and writes its
+  own sentences. The sentence for a person still goes to standard error.
 - `license renew` signs in again every account held (the active one too) whose sign-in ends within five days, with
   the profile set for it by
   `license set-browser`. It exits non-zero when any renewal failed, so a scheduler sees the failure.
@@ -33,7 +36,11 @@ _LIST = license_ops.LIST
 _USAGE_SIGNED_IN = "cc-devthrottle license usage --fields account,state,sign-in-expires"
 
 
-def _fail(ex: SignInError) -> None:
+def _fail(ex: SignInError, json_answer: Optional[dict] = None) -> None:
+    """Say why it failed and exit 1. With `json_answer`, standard output first carries the failure as one JSON
+    object - `result` and the `reason` word, never the sentence - so the Director reads it and writes its own."""
+    if json_answer is not None:
+        print(json.dumps({**json_answer, "reason": ex.kind}, indent=2), flush=True)
     axi_cli.fail(f"{ex} (reason: {ex.kind})", ex.next_steps or [_LIST])
 
 
@@ -61,7 +68,7 @@ def sign_in(email: str, browser: Optional[str], remote_approval: bool, default_c
             approve = license_signin.browser_approver(browser or license_signin.browser_for(store, email))
         result = license_signin.sign_in(store, email, approve)
     except SignInError as ex:
-        _fail(ex)
+        _fail(ex, {"accountEmail": email.strip().lower(), "result": "failed"} if json_output else None)
     license_ops._report_recovery(store)
     if json_output:
         print(json.dumps(result.to_json(), indent=2))
@@ -74,11 +81,15 @@ def sign_in(email: str, browser: Optional[str], remote_approval: bool, default_c
     axi_cli.print_next([_LIST, _USAGE_SIGNED_IN])
 
 
-def approve(url: str, email: str, browser: str) -> None:
+def approve(url: str, email: str, browser: str, json_output: bool = False) -> None:
     try:
         code = license_signin.approve_in_browser(url, email, browser)
     except SignInError as ex:
-        _fail(ex)
+        _fail(ex, {"accountEmail": email.strip().lower(), "result": "refused"} if json_output else None)
+    if json_output:
+        print(json.dumps({"accountEmail": email.strip().lower(), "result": "approved", "code": code}, indent=2),
+              flush=True)
+        return
     # Only the code, so the caller can hand it to the waiting login as it is.
     print(code, flush=True)
 

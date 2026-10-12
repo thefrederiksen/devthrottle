@@ -11,6 +11,10 @@ namespace CcDirector.Gateway.Contracts;
 // instance field of ANY License* type here - class, struct, record, abstract or static, static or instance member -
 // is named with "Token", "Secret", "Credential", "Key" or "Code" (other than ReasonCode).
 //
+// The ONE stated exception (contract 8.3): LicenseApprovalResult.SealedApproval carries the answer to a sign-in
+// approved on another machine. It is sealed to the waiting machine's public key before it leaves the approving
+// Director, the Gateway cannot open it, and it completes only the one login that holds the matching verifier.
+//
 // Every time in this file is in Coordinated Universal Time, which is what the "Utc" ending of a name says.
 
 /// <summary>
@@ -80,6 +84,16 @@ public sealed class LicenseHolding
     /// <summary>When the Director expects this sign-in to stop working, however often it is refreshed; null when not
     /// known. The Director fills it; the Gateway never computes it (contract section 2.2).</summary>
     public DateTime? SignInExpiresAtUtc { get; set; }
+
+    /// <summary>The LAST renewal of this holding's sign-in failed at this time; null when the last one worked, or none
+    /// was tried (contract section 8.1).</summary>
+    public DateTime? RenewalFailedAtUtc { get; set; }
+
+    /// <summary>A <see cref="LicenseRenewalErrors"/> code when the last renewal failed, else null.</summary>
+    public string? RenewalError { get; set; }
+
+    /// <summary>One plain sentence the Director writes; never a page's or a process's text.</summary>
+    public string? RenewalErrorDetail { get; set; }
 }
 
 /// <summary>One usage window as the provider reports it.</summary>
@@ -166,6 +180,161 @@ public sealed class LicenseSwitchResult
 
     /// <summary>This answer is a stored one for a repeated <see cref="SwitchId"/>.</summary>
     public bool Replayed { get; set; }
+}
+
+/// <summary>
+/// A target Director asks the Gateway to have a sign-in approved on another machine (contract section 8.3), with
+/// <c>DirectorHub.RequestLicenseApproval</c>. The call returns at once; the answer arrives later as the
+/// <see cref="LicenseContract.ApprovalResultVerb"/> command.
+/// </summary>
+public sealed class LicenseApprovalRequest
+{
+    /// <summary>Made by the target Director: 32 lower-case hexadecimal digits. Logged and correlated.</summary>
+    public string SignInId { get; set; } = "";
+
+    public string AccountEmail { get; set; } = "";
+
+    /// <summary>What the sign-in printed: it carries a challenge, never the verifier that answers it.</summary>
+    public string AuthorizeUrl { get; set; } = "";
+
+    /// <summary>The target's waiting login gives up after this.</summary>
+    public DateTime NotAfterUtc { get; set; }
+}
+
+/// <summary>The payload of the <see cref="LicenseContract.ApproveVerb"/> command, Gateway to the APPROVING machine's
+/// Director (contract section 8.3). Its answer is a <see cref="LicenseApprovalResult"/>.</summary>
+public sealed class LicenseApproveRequest
+{
+    public string SignInId { get; set; } = "";
+
+    public string AccountEmail { get; set; } = "";
+
+    public string AuthorizeUrl { get; set; } = "";
+
+    /// <summary>The browser profile on the approving machine that is signed in to claude.ai as the account.</summary>
+    public string BrowserProfile { get; set; } = "";
+
+    /// <summary>The TARGET Director's public half for receiving a sealed value, as it sent it in its Hello.</summary>
+    public string SealToRecipient { get; set; } = "";
+
+    public DateTime NotAfterUtc { get; set; }
+}
+
+/// <summary>The answer to <see cref="LicenseContract.ApproveVerb"/>, and the payload of the
+/// <see cref="LicenseContract.ApprovalResultVerb"/> command the Gateway sends on to the target Director.</summary>
+public sealed class LicenseApprovalResult
+{
+    public string SignInId { get; set; } = "";
+
+    /// <summary>One of <see cref="LicenseApprovalOutcomes"/>.</summary>
+    public string Outcome { get; set; } = "";
+
+    /// <summary>A <see cref="LicenseRenewalErrors"/> code when refused, else null.</summary>
+    public string? ReasonCode { get; set; }
+
+    /// <summary>One plain sentence.</summary>
+    public string? Message { get; set; }
+
+    /// <summary>When approved: the authorize answer, sealed to <see cref="LicenseApproveRequest.SealToRecipient"/>. The
+    /// one field in this file that carries anything derived from a sign-in; see the note at the top.</summary>
+    public string? SealedApproval { get; set; }
+}
+
+/// <summary>The payload of the <see cref="LicenseContract.SignInVerb"/> command, Gateway to the target Director, for
+/// "Add a spare" and "Renew now" (contract section 8.4).</summary>
+public sealed class LicenseSignInRequest
+{
+    /// <summary>Made by the Gateway: 32 lower-case hexadecimal digits.</summary>
+    public string SignInId { get; set; } = "";
+
+    public string AccountEmail { get; set; } = "";
+
+    /// <summary>One of <see cref="LicenseSignInReasons"/>.</summary>
+    public string Reason { get; set; } = "";
+
+    /// <summary>The Director refuses to START this sign-in after this time.</summary>
+    public DateTime NotAfterUtc { get; set; }
+}
+
+/// <summary>The answer to <see cref="LicenseContract.SignInVerb"/>. A failure is a successful answer carrying a reason.</summary>
+public sealed class LicenseSignInResult
+{
+    public string SignInId { get; set; } = "";
+
+    /// <summary>One of <see cref="LicenseSignInOutcomes"/>.</summary>
+    public string Outcome { get; set; } = "";
+
+    /// <summary>A <see cref="LicenseRenewalErrors"/> code, or <see cref="LicenseSwitchReasonCodes.NotKeyHolder"/>, when failed.</summary>
+    public string? ReasonCode { get; set; }
+
+    public string? Message { get; set; }
+
+    public DateTime? SignedInAtUtc { get; set; }
+
+    public DateTime? SignInExpiresAtUtc { get; set; }
+
+    /// <summary>When the Director finished it; a stored answer is kept <see cref="LicenseContract.SignInResultRetention"/> from here.</summary>
+    public DateTime FinishedAtUtc { get; set; }
+
+    /// <summary>This answer is a stored one for a repeated <see cref="SignInId"/>.</summary>
+    public bool Replayed { get; set; }
+}
+
+/// <summary>Why the last renewal of a sign-in failed (contract section 8.1). The words <c>license renew --json</c>
+/// writes, without their <c>failed-</c> prefix, plus the two only the relay can produce.</summary>
+public static class LicenseRenewalErrors
+{
+    /// <summary>The sign-in command did not start, or ended without a sign-in.</summary>
+    public const string LoginFailed = "login-failed";
+
+    /// <summary>The approval in the browser did not complete.</summary>
+    public const string ApprovalFailed = "approval-failed";
+
+    /// <summary>The approving browser profile is signed in to claude.ai as someone else, or the request named another account.</summary>
+    public const string WrongAccount = "wrong-account";
+
+    /// <summary>The approving browser profile is not signed in to claude.ai.</summary>
+    public const string BrowserNotSignedIn = "browser-not-signed-in";
+
+    /// <summary>No browser profile is set for the account, here or on another machine.</summary>
+    public const string NoApprover = "no-approver";
+
+    /// <summary>The machine that approves the account has no Director connected. Only the relay produces it.</summary>
+    public const string ApproverOffline = "approver-offline";
+
+    /// <summary>No approval came back before the sign-in's deadline. Only the relay produces it.</summary>
+    public const string Expired = "expired";
+
+    /// <summary>The key store would not take the sign-in (a switch was running, or what it holds changed).</summary>
+    public const string StoreRefused = "store-refused";
+
+    /// <summary>Every word above. A value outside it is never carried: it could be anything a tool printed.</summary>
+    public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
+    {
+        LoginFailed, ApprovalFailed, WrongAccount, BrowserNotSignedIn, NoApprover, ApproverOffline, Expired, StoreRefused,
+    };
+}
+
+/// <summary>The outcome of an approval on another machine (contract section 8.3).</summary>
+public static class LicenseApprovalOutcomes
+{
+    public const string Approved = "approved";
+    public const string Refused = "refused";
+}
+
+/// <summary>The outcome of a sign-in started by the Gateway (contract section 8.4).</summary>
+public static class LicenseSignInOutcomes
+{
+    public const string Added = "added";
+    public const string Renewed = "renewed";
+    public const string Failed = "failed";
+}
+
+/// <summary>Why the Gateway asked for a sign-in (contract section 8.4).</summary>
+public static class LicenseSignInReasons
+{
+    public const string Manual = "manual";
+    public const string Renewal = "renewal";
 }
 
 /// <summary>Why a <see cref="LicenseUsageReport"/> was sent (contract section 2.3).</summary>
@@ -265,4 +434,47 @@ public static class LicenseContract
     /// <summary>A holding whose <see cref="LicenseHolding.SignInExpiresAtUtc"/> is within this of now is shown as
     /// "expires soon" (contract section 5.7).</summary>
     public static readonly TimeSpan SignInExpiryWarning = TimeSpan.FromDays(3);
+
+    // ---- Section 8: renewing a sign-in, and approving one on another machine ----
+
+    /// <summary>The hub method a target Director calls to have a sign-in approved on another machine; the Director
+    /// calls it only when the Gateway lists it.</summary>
+    public const string RequestApprovalHubMethod = "RequestLicenseApproval";
+
+    /// <summary>The verb of the command to the APPROVING machine's Director. It addresses no session.</summary>
+    public const string ApproveVerb = "license-approve";
+
+    /// <summary>The verb of the command that brings the approval back to the target Director.</summary>
+    public const string ApprovalResultVerb = "license-approval-result";
+
+    /// <summary>The verb of the command that starts a sign-in on the target Director.</summary>
+    public const string SignInVerb = "license-sign-in";
+
+    /// <summary>The shape of a SignInId: 32 lower-case hexadecimal digits, as a SwitchId.</summary>
+    public static readonly Regex SignInIdShape = SwitchIdShape;
+
+    /// <summary>What the sealed approval is sealed for (<c>cc-secrets seal --purpose</c>); with the SignInId it is
+    /// bound into the envelope, so it opens for this one sign-in only.</summary>
+    public const string ApprovalSealPurpose = "license-approval";
+
+    /// <summary>A renewal is due when the sign-in ends within this of now (matches <c>license_signin.RENEW_AHEAD</c>).</summary>
+    public static readonly TimeSpan RenewAhead = TimeSpan.FromDays(5);
+
+    /// <summary>The key holder runs the renewal this often, and once at start.</summary>
+    public static readonly TimeSpan RenewalRunInterval = TimeSpan.FromDays(1);
+
+    /// <summary>How long the Gateway waits for a <see cref="SignInVerb"/> answer.</summary>
+    public static readonly TimeSpan SignInCommandTimeout = TimeSpan.FromMinutes(5);
+
+    /// <summary>How long the Gateway waits for a <see cref="ApproveVerb"/> answer.</summary>
+    public static readonly TimeSpan ApproveCommandTimeout = TimeSpan.FromMinutes(3);
+
+    /// <summary>How long the Gateway waits for a <see cref="ApprovalResultVerb"/> answer.</summary>
+    public static readonly TimeSpan ApprovalResultCommandTimeout = TimeSpan.FromSeconds(60);
+
+    /// <summary>A sign-in's NotAfterUtc is the time it was asked for plus this.</summary>
+    public static readonly TimeSpan SignInNotAfter = TimeSpan.FromMinutes(10);
+
+    /// <summary>The Director keeps finished sign-in results this long, so a repeated SignInId is answered, not rerun.</summary>
+    public static readonly TimeSpan SignInResultRetention = TimeSpan.FromHours(24);
 }

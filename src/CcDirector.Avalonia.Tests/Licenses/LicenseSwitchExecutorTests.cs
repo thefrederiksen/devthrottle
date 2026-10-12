@@ -116,5 +116,18 @@ public sealed class LicenseSwitchExecutorTests : IDisposable
                 ActiveAccountEmailAfter = _active,
             });
         }
+
+        // The sign-in commands are not this test's subject; LicenseSignInExecutorTests has its own tool.
+        public Task<IReadOnlyList<LicenseRenewalRow>> RenewAsync(CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<LicenseSignInAnswer> SignInAsync(string accountEmail, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<LicenseRemoteSignInStart> StartRemoteSignInAsync(string accountEmail, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<LicenseApproveAnswer> ApproveAsync(string authorizeUrl, string accountEmail, string browserProfile, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 }

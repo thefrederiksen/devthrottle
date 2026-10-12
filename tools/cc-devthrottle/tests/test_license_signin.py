@@ -409,6 +409,38 @@ def test_cli_signInRemoteApproval_NoCode_FailsAndKeepsNothing(machine):
     assert (machine / "store" / "spares").is_dir() and not (machine / "store" / "spares" / "account-b-example.com").exists()
 
 
+def _first_json(text):
+    # Click below 8.2 mixes standard error into stdout, so the JSON is found, not assumed.
+    answer, _ = json.JSONDecoder().raw_decode(text[text.index("{"):])
+    return answer
+
+
+def test_cli_signInJson_Failure_AnswersTheReasonWordAsJson_NeverTheSentence(machine):
+    # The Director reads this answer and writes its own sentence (contract 8.1), so the word must be on standard
+    # output as JSON, after the authorize-url line.
+    result = _run("sign-in", ACCOUNT_B, "--remote-approval", "--json", input="\n")
+
+    assert result.exit_code == 1
+    assert result.stdout.splitlines()[0] == f"authorize-url: {URL}"
+    assert _first_json(result.stdout) == {"accountEmail": ACCOUNT_B, "result": "failed", "reason": "approval-failed"}
+    assert not (machine / "store" / "spares" / "account-b-example.com").exists()
+
+
+def test_cli_approveJson_AnswersTheCode_OrTheReasonWord(machine, monkeypatch):
+    monkeypatch.setattr(license_signin, "approve_in_browser", lambda url, email, browser: CODE)
+    approved = _run("approve", URL, "--email", ACCOUNT_B, "--browser", "Profile B", "--json")
+    assert approved.exit_code == 0
+    assert _first_json(approved.stdout) == {"accountEmail": ACCOUNT_B, "result": "approved", "code": CODE}
+
+    def refuse(url, email, browser):
+        raise SignInError(license_signin.WRONG_ACCOUNT, "the profile is signed in as someone else")
+
+    monkeypatch.setattr(license_signin, "approve_in_browser", refuse)
+    refused = _run("approve", URL, "--email", ACCOUNT_B, "--browser", "Profile B", "--json")
+    assert refused.exit_code == 1
+    assert _first_json(refused.stdout) == {"accountEmail": ACCOUNT_B, "result": "refused", "reason": "wrong-account"}
+
+
 def test_cli_signIn_BrowserAndRemoteApproval_IsAUsageError(machine):
     assert _run("sign-in", ACCOUNT_B, "--browser", "P", "--remote-approval").exit_code == 2
 

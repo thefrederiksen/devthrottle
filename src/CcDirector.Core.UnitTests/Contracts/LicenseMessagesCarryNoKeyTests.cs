@@ -18,6 +18,8 @@ public sealed class LicenseMessagesCarryNoKeyTests
     {
         typeof(LicenseUsageReport), typeof(LicenseHolding), typeof(LicenseWindow), typeof(LicenseExtraUsage),
         typeof(LicenseSwitchRequest), typeof(LicenseSwitchResult),
+        typeof(LicenseApprovalRequest), typeof(LicenseApproveRequest), typeof(LicenseApprovalResult),
+        typeof(LicenseSignInRequest), typeof(LicenseSignInResult),
     };
 
     // Every member that could carry a value: static and instance properties of any visibility, and instance fields.
@@ -107,6 +109,76 @@ public sealed class LicenseMessagesCarryNoKeyTests
     public void LicenseTypes_NoMemberNamedLikeASignInKey()
     {
         Assert.Empty(Offenders(LicenseTypes()));
+    }
+
+    [Fact]
+    public void SealedApproval_IsTheOneMemberThatCarriesAnythingFromASignIn_ByName()
+    {
+        // Contract 8.3, the one stated exception to rule 6.1: the answer to a sign-in approved on another machine
+        // travels SEALED to the waiting machine's public half, in LicenseApprovalResult.SealedApproval and nowhere
+        // else. Any other member named as sealed, or as an approval's content, would be a second place for it.
+        var carriers = LicenseTypes()
+            .SelectMany(MemberNames)
+            .Where(x => x.Name.Contains("Sealed", StringComparison.OrdinalIgnoreCase)
+                        || x.Name.Equals("Approval", StringComparison.OrdinalIgnoreCase))
+            .Select(x => $"{x.Type.Name}.{x.Name}")
+            .ToList();
+
+        Assert.Equal(new[] { $"{nameof(LicenseApprovalResult)}.{nameof(LicenseApprovalResult.SealedApproval)}" }, carriers);
+        // What the approving machine is told to seal TO is a public half; it is named for what it is.
+        Assert.NotNull(typeof(LicenseApproveRequest).GetProperty(nameof(LicenseApproveRequest.SealToRecipient)));
+    }
+
+    [Fact]
+    public void SignInMessages_WebJson_UseTheContractNames()
+    {
+        var web = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var notAfter = new DateTime(2026, 10, 12, 3, 22, 30, DateTimeKind.Utc);
+
+        var request = JsonSerializer.Serialize(new LicenseApprovalRequest
+        {
+            SignInId = "6f1c2a9e4b7d4e0f9a3c5b8d2e1f7a40", AccountEmail = "account-b@example.com", AuthorizeUrl = "https://claude.ai/oauth/authorize", NotAfterUtc = notAfter,
+        }, web);
+        var approve = JsonSerializer.Serialize(new LicenseApproveRequest { SignInId = "6f1c2a9e4b7d4e0f9a3c5b8d2e1f7a40", BrowserProfile = "P", SealToRecipient = "R" }, web);
+        var result = JsonSerializer.Serialize(new LicenseApprovalResult { Outcome = LicenseApprovalOutcomes.Approved, SealedApproval = "S" }, web);
+        var holding = JsonSerializer.Serialize(new LicenseHolding { RenewalFailedAtUtc = notAfter, RenewalError = LicenseRenewalErrors.NoApprover, RenewalErrorDetail = "d" }, web);
+
+        Assert.Contains("\"signInId\":\"6f1c2a9e4b7d4e0f9a3c5b8d2e1f7a40\"", request);
+        Assert.Contains("\"authorizeUrl\":", request);
+        Assert.Contains("\"notAfterUtc\":\"2026-10-12T03:22:30Z\"", request);
+        Assert.Contains("\"browserProfile\":\"P\"", approve);
+        Assert.Contains("\"sealToRecipient\":\"R\"", approve);
+        Assert.Contains("\"sealedApproval\":\"S\"", result);
+        Assert.Contains("\"renewalFailedAtUtc\":\"2026-10-12T03:22:30Z\"", holding);
+        Assert.Contains("\"renewalError\":\"no-approver\"", holding);
+        Assert.Contains("\"renewalErrorDetail\":\"d\"", holding);
+    }
+
+    [Fact]
+    public void RenewalErrors_AreTheContractsEightWords()
+    {
+        Assert.Equal(
+            new[] { "approval-failed", "approver-offline", "browser-not-signed-in", "expired", "login-failed", "no-approver", "store-refused", "wrong-account" },
+            LicenseRenewalErrors.All.Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void Constants_MatchContractSectionEight()
+    {
+        Assert.Equal("RequestLicenseApproval", LicenseContract.RequestApprovalHubMethod);
+        Assert.Equal("license-approve", LicenseContract.ApproveVerb);
+        Assert.Equal("license-approval-result", LicenseContract.ApprovalResultVerb);
+        Assert.Equal("license-sign-in", LicenseContract.SignInVerb);
+        Assert.Equal("license-approval", LicenseContract.ApprovalSealPurpose);
+        Assert.Equal(TimeSpan.FromDays(5), LicenseContract.RenewAhead);
+        Assert.Equal(TimeSpan.FromDays(1), LicenseContract.RenewalRunInterval);
+        Assert.Equal(TimeSpan.FromMinutes(5), LicenseContract.SignInCommandTimeout);
+        Assert.Equal(TimeSpan.FromMinutes(3), LicenseContract.ApproveCommandTimeout);
+        Assert.Equal(TimeSpan.FromSeconds(60), LicenseContract.ApprovalResultCommandTimeout);
+        Assert.Equal(TimeSpan.FromMinutes(10), LicenseContract.SignInNotAfter);
+        Assert.Equal(TimeSpan.FromHours(24), LicenseContract.SignInResultRetention);
+        Assert.Matches(LicenseContract.SignInIdShape, "6f1c2a9e4b7d4e0f9a3c5b8d2e1f7a40");
+        Assert.DoesNotMatch(LicenseContract.SignInIdShape, "../../etc");
     }
 
     [Fact]

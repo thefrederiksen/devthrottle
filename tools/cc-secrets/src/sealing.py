@@ -92,3 +92,60 @@ def open_envelope(envelope: str, receiver: X25519PrivateKey, sender_public: byte
     except (InvalidTag, ValueError, KeyError, TypeError, UnicodeDecodeError) as exc:
         raise EnvelopeError("The sealed entry could not be opened: it was changed on the way, or it was sealed for "
                             "another transfer or another machine. Nothing was stored.") from exc
+
+
+# ---- A sealed value: one short value for one machine, for one stated purpose ------------------------------------
+#
+# The License Switching mission: the answer to a sign-in approved in a browser on one machine travels to the machine
+# that is waiting for it. It is not a store entry and no owner approved a transfer, so it has its own envelope with
+# its own key derivation - an envelope of one kind never opens as the other.
+#
+# It is sealed with a fresh ephemeral key only. That keeps the value from everything that carries it (the Gateway,
+# both Directors' logs); it does NOT say which machine sealed it. The receiver does not rely on that: what it opens
+# completes only the one login that is waiting with the matching verifier.
+
+VALUE_KIND = "value"
+VALUE_INFO = b"cc-secrets sealed value v1"
+VALUE_FACTS = ("purpose", "id", "receiverFingerprint")
+
+
+def _value_associated_data(facts: Dict[str, object]) -> bytes:
+    missing = [name for name in VALUE_FACTS if not facts.get(name)]
+    if missing:
+        raise CcSecretsError(f"The sealed value is missing {', '.join(missing)}.")
+    return json.dumps({name: str(facts[name]) for name in VALUE_FACTS}, sort_keys=True, separators=(",", ":"),
+                      ensure_ascii=True).encode("ascii")
+
+
+def _value_key(shared: bytes, facts: Dict[str, object]) -> bytes:
+    return HKDF(algorithm=hashes.SHA256(), length=32, salt=str(facts["id"]).encode("utf-8"),
+                info=VALUE_INFO).derive(shared)
+
+
+def seal_value(plaintext: bytes, receiver_public: bytes, facts: Dict[str, object]) -> str:
+    """Seal `plaintext` to the receiving machine's public key, for this purpose and id. Returns base64 text."""
+    aad = _value_associated_data(facts)
+    ephemeral = X25519PrivateKey.generate()
+    key = _value_key(ephemeral.exchange(X25519PublicKey.from_public_bytes(receiver_public)), facts)
+    nonce = os.urandom(12)
+    document = {"v": VERSION, "kind": VALUE_KIND,
+                "eph": base64.b64encode(_raw(ephemeral.public_key())).decode("ascii"),
+                "nonce": base64.b64encode(nonce).decode("ascii"),
+                "ct": base64.b64encode(AESGCM(key).encrypt(nonce, plaintext, aad)).decode("ascii")}
+    return base64.b64encode(json.dumps(document, separators=(",", ":")).encode("ascii")).decode("ascii")
+
+
+def open_value(envelope: str, receiver: X25519PrivateKey, facts: Dict[str, object]) -> bytes:
+    """Open a value sealed to this machine for exactly this purpose and id."""
+    aad = _value_associated_data(facts)
+    try:
+        document = json.loads(base64.b64decode(envelope, validate=True).decode("ascii"))
+        if not isinstance(document, dict) or document.get("v") != VERSION or document.get("kind") != VALUE_KIND:
+            raise ValueError("not a version 1 sealed value")
+        ephemeral = X25519PublicKey.from_public_bytes(base64.b64decode(document["eph"], validate=True))
+        nonce = base64.b64decode(document["nonce"], validate=True)
+        sealed = base64.b64decode(document["ct"], validate=True)
+        return AESGCM(_value_key(receiver.exchange(ephemeral), facts)).decrypt(nonce, sealed, aad)
+    except (InvalidTag, ValueError, KeyError, TypeError, UnicodeDecodeError) as exc:
+        raise EnvelopeError("The sealed value could not be opened: it was changed on the way, or it was sealed for "
+                            "another machine, another purpose or another id.") from exc

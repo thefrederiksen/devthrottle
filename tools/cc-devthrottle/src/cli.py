@@ -1822,9 +1822,12 @@ def license_approve(
     url: str = typer.Argument(..., help="The authorize URL that license sign-in --remote-approval printed."),
     email: str = typer.Option(..., "--email", help="The account the URL signs in. Anything else is refused."),
     browser: str = typer.Option(..., "--browser", help="The browser profile signed in to claude.ai as that account."),
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output JSON: {accountEmail, result, code} or, refused, {accountEmail, result, reason}."
+    ),
 ) -> None:
     """Approve another machine's sign-in in a browser profile here; prints the code."""
-    license_signin_ops.approve(url, email, browser)
+    license_signin_ops.approve(url, email, browser, json_output)
 
 
 @license_app.command("renew")
