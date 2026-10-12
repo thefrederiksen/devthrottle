@@ -387,8 +387,6 @@ real-clock | src/CcDirector.Gateway.Tests/GatewayPromptSinkTests.cs | 1
 delay | src/CcDirector.Gateway.Tests/GatewayStreamClientTests.cs | 1
 fixed-port | src/CcDirector.Gateway.Tests/GatewayStreamClientTests.cs | 1
 real-clock | src/CcDirector.Gateway.Tests/GatewayStreamClientTests.cs | 3
-real-clock | src/CcDirector.Gateway.Tests/GatewayTestSuiteLock.cs | 9
-sleep | src/CcDirector.Gateway.Tests/GatewayTestSuiteLock.cs | 1
 delay | src/CcDirector.Gateway.Tests/GhostSessionReapableTests.cs | 1
 fixed-port | src/CcDirector.Gateway.Tests/HealthzTenantLeakTests.cs | 1
 real-clock | src/CcDirector.Gateway.Tests/HealthzTenantLeakTests.cs | 1
