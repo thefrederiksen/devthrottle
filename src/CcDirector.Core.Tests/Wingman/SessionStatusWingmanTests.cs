@@ -530,7 +530,7 @@ public sealed class SessionStatusWingmanTests
         try
         {
             var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, new BufferOnlyBackend());
-            if (session.Buffer is null) return; // no grid (Embedded backend); skip
+            Assert.NotNull(session.Buffer); // the buffer-only backend always has a grid
             session.Buffer.Write(System.Text.Encoding.UTF8.GetBytes("HELLO_GRID_MARKER_42"));
 
             var rows = session.SnapshotScreenRows();
@@ -917,7 +917,7 @@ public sealed class SessionStatusWingmanTests
         {
             wingman.Start();
             var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, new BufferOnlyBackend());
-            if (session.Buffer is null) return;
+            Assert.NotNull(session.Buffer);
 
             int pushCount = 0;
             session.OnPendingPromptTextChanged += (_, source) =>
