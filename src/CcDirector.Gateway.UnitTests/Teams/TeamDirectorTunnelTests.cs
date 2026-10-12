@@ -53,6 +53,7 @@ public sealed class TeamDirectorTunnelTests : IDisposable
     private readonly TestEs256Key _key = new();
     private readonly JwtAccessTokenValidator _validator;
     private int _connectionCount;
+    private DateTime _now = DateTime.UtcNow;
     private readonly string _teamA;
     private readonly string _teamB;
 
@@ -62,7 +63,8 @@ public sealed class TeamDirectorTunnelTests : IDisposable
         // read made outside the team's scope fails here instead of quietly answering from a fixed tenant.
         _db = _harness.Open(_tenantContext);
         _turns = new SessionTurnStore(_db);
-        _sessionKeys = new SessionKeyRegistry(_db, isHosted: true);
+        // The key registry's clock is the test's, so a key's expiry is passed by moving it, not by sleeping.
+        _sessionKeys = new SessionKeyRegistry(_db, isHosted: true, clock: () => _now);
         _tenants = new TenantRegistry(_db);
         _teams = new TeamRegistry(_db, _tenants);
         _devices = new DeviceRegistry(_db, _harness.LegacyPath("devices.json"), isHosted: true, teamsReleased: true);
@@ -881,7 +883,7 @@ public sealed class TeamDirectorTunnelTests : IDisposable
         var sid = Guid.NewGuid().ToString("D");
         var raw = "raw-key-of-bobs-session-2";
         var bob = Hello(_teamA, Bob, "director-bob");
-        R4Register(bob, sid, raw, DateTime.UtcNow.AddSeconds(2));
+        R4Register(bob, sid, raw, _now.AddSeconds(2));
         bob.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = sid } });
 
         var alice = Hello(_teamA, Alice, "director-alice");
@@ -889,7 +891,7 @@ public sealed class TeamDirectorTunnelTests : IDisposable
 
         // Bob's refresh of the row that already names his Director is accepted.
         R4Register(bob, sid, raw, DateTime.UtcNow.AddHours(1));
-        Thread.Sleep(2500);
+        _now += TimeSpan.FromSeconds(2.5); // past the first, two-second expiry
         Assert.Equal(SessionCredentialResolutionKind.Active, _sessionKeys.ResolveCredential(raw).Kind);
         Assert.Equal("director-bob", _sessionKeys.DirectorOfSession(new TenantId(_teamA), sid));
         // Alice still cannot write it.
@@ -908,13 +910,13 @@ public sealed class TeamDirectorTunnelTests : IDisposable
         var sid = Guid.NewGuid().ToString("D");
         var raw = "raw-key-of-bobs-session-3";
         var bob = Hello(_teamA, Bob, "director-bob");
-        R4Register(bob, sid, raw, DateTime.UtcNow.AddSeconds(2));
+        R4Register(bob, sid, raw, _now.AddSeconds(2));
         bob.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = sid } });
         var alice = Hello(_teamA, Alice, "director-alice");
         alice.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = sid } });
 
         R4Register(bob, sid, raw, DateTime.UtcNow.AddHours(1));
-        Thread.Sleep(2500);
+        _now += TimeSpan.FromSeconds(2.5); // past the first, two-second expiry
         Assert.Equal(0, _sessionKeys.SweepExpired());
         alice.Hub.PushSnapshot(2, Array.Empty<SessionDto>());
         R4Register(bob, sid, raw, DateTime.UtcNow.AddHours(1));

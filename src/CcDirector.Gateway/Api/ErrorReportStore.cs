@@ -169,14 +169,18 @@ internal sealed class ErrorReportStore
     private readonly string _instance;
     private readonly Func<DateTime> _clock;
     private readonly object _writeLock = new();
+    private readonly TimeSpan _writeLockTimeout;
     private DateTime _lastPruneUtc = DateTime.MinValue;
 
-    public ErrorReportStore(string root, Func<DateTime>? clock = null)
+    /// <param name="writeLockTimeout">How long a write waits for the one before it; production omits it and gets
+    /// <see cref="WriteLockTimeout"/>. A test of the refusal passes a short one, so it does not wait two seconds.</param>
+    public ErrorReportStore(string root, Func<DateTime>? clock = null, TimeSpan? writeLockTimeout = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(root);
         _root = root;
         _instance = Guid.NewGuid().ToString("N")[..12];
         _clock = clock ?? (() => DateTime.UtcNow);
+        _writeLockTimeout = writeLockTimeout ?? WriteLockTimeout;
     }
 
     public string Root => _root;
@@ -208,9 +212,9 @@ internal sealed class ErrorReportStore
         foreach (var r in stamped)
             sb.Append(JsonSerializer.Serialize(r, LineJson)).Append('\n');
 
-        if (!Monitor.TryEnter(_writeLock, WriteLockTimeout))
+        if (!Monitor.TryEnter(_writeLock, _writeLockTimeout))
             throw new StoreBusyException(
-                $"the error store did not free up within {WriteLockTimeout.TotalSeconds:0} seconds; the storage share may be stalled");
+                $"the error store did not free up within {_writeLockTimeout.TotalSeconds:0.##} seconds; the storage share may be stalled");
         try
         {
             var dir = Path.Combine(_root, DayName(day));
@@ -350,9 +354,9 @@ internal sealed class ErrorReportStore
     {
         if (!ErrorFingerprint.IsFingerprint(fingerprint))
             throw new ArgumentException("a fingerprint is 16 lower-case hexadecimal characters", nameof(fingerprint));
-        if (!Monitor.TryEnter(_writeLock, WriteLockTimeout))
+        if (!Monitor.TryEnter(_writeLock, _writeLockTimeout))
             throw new StoreBusyException(
-                $"the error store did not free up within {WriteLockTimeout.TotalSeconds:0} seconds; the storage share may be stalled");
+                $"the error store did not free up within {_writeLockTimeout.TotalSeconds:0.##} seconds; the storage share may be stalled");
         try
         {
             var existing = ReadSummary(fingerprint);

@@ -551,7 +551,6 @@ real-clock | src/CcDirector.Gateway.UnitTests/Api/AdminTurnLogEndpointScopeTests
 real-clock | src/CcDirector.Gateway.UnitTests/Api/AdminTurnVerdictFeedbackEndpointScopeTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/Api/ClientErrorEndpointsTests.cs | 3
 real-clock | src/CcDirector.Gateway.UnitTests/Api/DirectorErrorEndToEndTests.cs | 4
-sleep | src/CcDirector.Gateway.UnitTests/Api/ErrorGroupsAndSummariesTests.cs | 2
 real-clock | src/CcDirector.Gateway.UnitTests/Api/FleetManagerEndpointsTests.cs | 33
 real-clock | src/CcDirector.Gateway.UnitTests/Api/GatewayRequestErrorsTests.cs | 6
 real-clock | src/CcDirector.Gateway.UnitTests/Api/SessionKeyErrorReportTests.cs | 4
@@ -675,8 +674,7 @@ real-clock | src/CcDirector.Gateway.UnitTests/Teams/TeamBillOnTheRequestPathTest
 real-clock | src/CcDirector.Gateway.UnitTests/Teams/TeamCallerOwnershipTests.cs | 2
 real-clock | src/CcDirector.Gateway.UnitTests/Teams/TeamDirectorKeyTests.cs | 2
 real-clock | src/CcDirector.Gateway.UnitTests/Teams/TeamDirectorRoutesTests.cs | 2
-real-clock | src/CcDirector.Gateway.UnitTests/Teams/TeamDirectorTunnelTests.cs | 16
-sleep | src/CcDirector.Gateway.UnitTests/Teams/TeamDirectorTunnelTests.cs | 2
+real-clock | src/CcDirector.Gateway.UnitTests/Teams/TeamDirectorTunnelTests.cs | 15
 real-clock | src/CcDirector.Gateway.UnitTests/Teams/TeamFleetMapTests.cs | 4
 real-clock | src/CcDirector.Gateway.UnitTests/Teams/TeamLibraryEndpointsTests.cs | 2
 real-clock | src/CcDirector.Gateway.UnitTests/Teams/TeamRegistryTests.cs | 1
