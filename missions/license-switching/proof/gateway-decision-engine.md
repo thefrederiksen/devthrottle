@@ -80,4 +80,26 @@ Passed!  - Failed: 0, Passed: 1022, Skipped: 0, Total: 1022
 First run, on the engine before the expiry addition: the ten default suites all passed again (Core.UnitTests
 1456, Avalonia.Tests 1022 and the eight above). It was STOPPED by me before the three parked suites
 (Gateway.Tests, Core.Tests, Gateway.UnitTests) finished, because the Tech Lead asked every Developer to hold
-gates while the machine was short of memory. The parked suites have not yet run on this branch: GATE_PENDING
+gates while the machine was short of memory.
+
+Second run, after the review fixes, at commit f2bb52c8c (rebased on origin/main 1d8a4c2e2), tree clean -
+`RESULT: GREEN`, exit 0, every suite `outcome=Completed` with executed equal to total:
+
+| Suite | Passed |
+|---|---|
+| CcDirector.Core.UnitTests | 1602 |
+| CcDirector.Avalonia.Tests | 1044 |
+| CcDirector.Engine.Tests | 103 |
+| CcDirector.HostedAgent.Tests | 89 |
+| CcDirector.Launcher.Tests | 218 |
+| CcDirector.Terminal.Avalonia.Tests | 82 |
+| CcDirector.Reclaim.Tests | 310 |
+| cc-director-setup.Tests | 39 |
+| cc-director-setup-engine.Tests | 875 |
+| cc-director-setup-cli.Tests | 74 |
+| CcDirector.Gateway.Tests (parked) | 3077 |
+| CcDirector.Core.Tests (parked) | 4841 |
+| CcDirector.Gateway.UnitTests (parked) | 10519 |
+
+This run includes every default suite, so it is also the default gate for this commit. The only change
+after it is this proof file.
