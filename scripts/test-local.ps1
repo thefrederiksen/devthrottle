@@ -28,8 +28,9 @@
     behind -Parked because none can meet the budget:
 
       CcDirector.Gateway.Tests   - host-bound. Run as several concurrent processes, each given part of
-                                   the suite (scripts\gateway-test-shards.ps1); it took 2 hours 9 minutes
-                                   as one process on the v2.18.0 candidate. It no longer has a lock of
+                                   the suite (scripts\gateway-test-shards.ps1): about 10 minutes in
+                                   Release on SOREN_NORTH (October 2026), where it took 2 hours 9
+                                   minutes as one process on the v2.18.0 candidate. It no longer has a lock of
                                    its own, so a hand-run "dotnet test" of it blocks nobody. Its pure tests were
                                    split out into CcDirector.Gateway.UnitTests, which was in the default
                                    run until 2026-09-13 and is now parked beside it (issue #2824); what is
@@ -179,7 +180,7 @@
 .PARAMETER Parked
     Also run the three parked suites - Gateway.Tests, Core.Tests and Gateway.UnitTests. This is the
     RELEASE gate. Takes the release-gate lock before building; a second one on this machine is refused
-    with exit 6, not queued. Expect the Gateway suite's own running time, which is most of an hour.
+    with exit 6, not queued. The Gateway suite takes about 10 minutes of it (four processes side by side).
 
 .PARAMETER Fast
     Retained for callers that pass it. The default IS fast now, so this is a no-op.
