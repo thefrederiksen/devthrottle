@@ -1,6 +1,6 @@
 # Proof - Gateway decision engine and forecast (phase 2, first part)
 
-Branch `license-switching-gw-engine`, cut from origin/main at 54fd5da0d. Pure code only: nothing is wired
+Branch `license-switching-gw-engine`, cut from origin/main at 54fd5da0d and rebased on 1d8a4c2e2 for the review round. Pure code only: nothing is wired
 to the store, the hub, the command router or a mailer yet - that is the second pull request, after the
 storage work merges.
 
@@ -11,31 +11,35 @@ storage work merges.
 - `src/CcDirector.Gateway/Licenses/LicenseDecisionEngine.cs` - the tick (`Decide`), Switch now
   (`DecideManual`), and the target choice they and the forecast share.
 - `src/CcDirector.Gateway/Licenses/LicenseForecaster.cs` - rate, expected time to 97%, next switch.
-- Tests: `src/CcDirector.Gateway.UnitTests/Licenses/` - 52 tests.
+- Tests: `src/CcDirector.Gateway.UnitTests/Licenses/` - 67 tests.
 
 ## The check (MISSION.md section 7), test by test
 
 | Case | Test |
 |---|---|
-| Under 97% does nothing | `Decide_UnderThreshold_DoesNothing` |
+| Under 97% does nothing; 96.99 / 97.0 on each window separately | `Decide_UnderThreshold_DoesNothing`, `Decide_ThresholdBoundary_OnEachWindowSeparately` (4 rows) |
 | 97% on the 5-hour window switches | `Decide_FiveHourWindowAtThreshold_Switches` |
 | 97% on the week switches | `Decide_WeekAtThreshold_Switches` |
 | Target choice order | `Decide_TargetChoiceOrder_LowestWeekThenFiveHourThenEmail` (3 cases) |
 | No target: one email, no switch | `Decide_NoTarget_SendsOneEmailAndSwitchesNothing` |
 | A second tick sends no second email | `Decide_NoTargetOnTheSecondTick_SendsNoSecondEmail` |
+| A reading taken before a passed reset never triggers, opens an event or emails | `Decide_PreResetReadingOverSeveralTicksAfterTheReset_SendsNoEmail`, `Decide_PreResetReadingAfterTheReset_DoesNotSwitchOrBar`, `Forecast_ReadingTakenBeforeAPassedReset_IsNotTiredNow` |
+| A new event after the reset emails once | `Decide_ReadingTakenAfterTheResetAgainAtThreshold_IsANewEventWithOneEmail` |
+| An event closes on a fresh reading under 97%, not on a stale one | `Decide_ExhaustionWithAFreshReadingUnderThreshold_ClosesBeforeItsEnd`, `Decide_ExhaustionWithAStaleReadingUnderThreshold_StaysOpen` |
+| A candidate at 97.0 has no room, at 96.99 it does, on each window | `Decide_CandidateRoomBoundary_OnEachWindowSeparately` (4 rows) |
 | Triggered account not chosen before its reset, and is after | `Decide_AccountThatTriggered_IsNotChosenBeforeItsResetAndIsAfter` |
 | Switch now | `DecideManual_*` (8 tests) |
 | Every machine on the tired account switched | `Decide_EveryMachineOnTheTiredAccount_IsSwitched` |
 | A machine missing the spare blocks that target | `Decide_MachineMissingTheSpare_BlocksThatTarget`, `Decide_NoTargetHeldByEveryMachine_EmailsAndSwitchesNothing` |
 | Stale cases (contract 5.2) | `Decide_StaleReadingOfTheAccountInUse_DoesNotTrigger`, `Decide_StaleCandidate_IsNeverChosen`, `Decide_StaleMachine_IsSkippedAndTheOthersStillGo`, `IsReadingStale_ActiveAndSpareLimits_AndNeverRead` |
 | A spare whose sign-in expires at or before now + 10 minutes is never a target (Tech Lead's contract addition) | `Decide_SpareSignInExpiringWithinTheCommandLifetime_IsNotChosen`, `DecideManual_NamedTargetWhoseSpareSignInIsExpiring_IsRefused` |
-| Forecast, with each holding's sign-in expiry verdict (expired / expires soon within 3 days / fine / unknown) | `LicenseForecasterTests` (15 tests) |
+| Forecast, with each holding's sign-in expiry verdict (expired / expires soon within 3 days / fine / not known); next-switch target matches the engine | `LicenseForecasterTests` (17 tests) |
 
 ## Commands run, and their results
 
 ```
 dotnet test src/CcDirector.Gateway.UnitTests/CcDirector.Gateway.UnitTests.csproj --filter "FullyQualifiedName~CcDirector.Gateway.Tests.Licenses"
-Passed!  - Failed: 0, Passed: 52, Skipped: 0, Total: 52
+Passed!  - Failed: 0, Passed: 67, Skipped: 0, Total: 67
 ```
 
 Revert proof (each mutation applied to the committed engine, the license tests run, then `git checkout` restored it):
@@ -48,11 +52,17 @@ Revert proof (each mutation applied to the committed engine, the license tests r
 | Restored | 44 passed |
 | (after the expiry addition) spare expiry check disabled | 2 failed: both expiry tests |
 | Restored | 52 passed |
+| (review round) tired check `>=` changed to `>` | 23 failed, 44 passed |
+| (review round) 5-hour room check `<` changed to `<=` | 1 failed: `Decide_CandidateRoomBoundary_OnEachWindowSeparately(97, 10, False)` |
+| (review round) event not closed by a fresh reading under 97% | 1 failed: `Decide_ExhaustionWithAFreshReadingUnderThreshold_ClosesBeforeItsEnd` |
+| (review round) a passed reset still counts as tired | 2 failed: both pre-reset tests |
+| (review round) forecast passes every machine, not the switchable ones | 1 failed: `Forecast_NextSwitchTarget_IgnoresAStaleMachineTheWayTheEngineDoes` |
+| Restored | 67 passed |
 
 ```
 .\scripts\test-local.ps1
 ```
-Eight suites passed (Engine 103, HostedAgent 89, Launcher 218, Terminal.Avalonia 82, Reclaim 310, setup 39,
+First round, before the review. Eight suites passed (Engine 103, HostedAgent 89, Launcher 218, Terminal.Avalonia 82, Reclaim 310, setup 39,
 setup-engine 875, setup-cli 74). `CcDirector.Core.UnitTests` and `CcDirector.Avalonia.Tests` were STOPPED
 by the 120-second budget - not failed - while the machine was at 100% processor with 93 dotnet and test
 host processes from other sessions. Neither suite is touched by this change. Run in full directly:
