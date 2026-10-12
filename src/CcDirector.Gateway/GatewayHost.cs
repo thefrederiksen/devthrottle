@@ -5376,6 +5376,15 @@ public sealed class GatewayHost : IAsyncDisposable
             announceWaiting: (forTenant, transfer) => { _ = _secretTransferPush.NotifyWaitingAsync(transfer, CancellationToken.None); },
             nowUtc: () => DateTime.UtcNow);
 
+        // The Licenses routes (the License Switching mission): what the Licenses page of the Cockpit reads - the accounts
+        // and machines, the forecast, and the switch log. Reads only; the three are in SessionKeyGuard's allow list.
+        Api.LicenseEndpoints.Map(_app,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            snapshots: LicenseSnapshots,
+            history: LicenseHistory,
+            store: LicenseStore,
+            nowUtc: () => DateTime.UtcNow);
+
         // Requests for a message link (issue #3548): a session asks, the owner - or a raised session - answers. Asking is
         // in SessionKeyGuard's ordinary allow list; the list and the answer are on RaisedGrant.MessageLinks.
         FleetMessageLinkRequestEndpoints.Map(_app,

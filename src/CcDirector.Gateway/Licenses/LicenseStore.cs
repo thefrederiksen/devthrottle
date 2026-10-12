@@ -300,6 +300,29 @@ public sealed class LicenseStore
         }, rows => $"count={rows.Count}");
     }
 
+    /// <summary>
+    /// One page of the log for the Licenses page, newest first: the rows written at or before <paramref name="untilUtc"/>,
+    /// skipping the first <paramref name="skip"/> of them, at most <paramref name="take"/>. Rows are only ever added and
+    /// a row's time never changes, so with one fixed <paramref name="untilUtc"/> the pages of a walk never overlap and
+    /// never miss a row, however many rows are written while it goes on. Rows of every kind are returned, including
+    /// kinds a later build writes.
+    /// </summary>
+    public IReadOnlyList<LicenseSwitchLogEntity> ListLogPage(TenantId tenant, DateTime untilUtc, int skip, int take)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(skip);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(take);
+        var until = Utc(untilUtc);
+        return Logged(nameof(ListLogPage), $"tenant={tenant.ToLogString()}, until={until:O}, skip={skip}, take={take}", () =>
+        {
+            using var ctx = _db.CreateContext(tenant);
+            return (IReadOnlyList<LicenseSwitchLogEntity>)ctx.LicenseSwitchLog.AsNoTracking()
+                .Where(r => r.CreatedAtUtc <= until)
+                .OrderByDescending(r => r.CreatedAtUtc).ThenBy(r => r.Id)
+                .Skip(skip).Take(take)
+                .ToList();
+        }, rows => $"count={rows.Count}");
+    }
+
     /// <summary>Record one send of an OPEN switch: the count, the time and the Director. False when it is no longer open.</summary>
     public bool RecordSend(TenantId tenant, string switchId, string directorId, DateTime nowUtc)
     {

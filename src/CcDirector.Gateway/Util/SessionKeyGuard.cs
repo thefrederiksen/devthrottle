@@ -362,6 +362,14 @@ public static class SessionKeyGuard
                 case "gateway/secrets/machines":
                 // The account's secret transfers and their approvals: names, machines, reasons, answers - never a value.
                 case "gateway/secrets/transfers":
+                // The Licenses page's reads (the License Switching mission): the account's Claude subscriptions and
+                // machines, the forecast, and the switch log - emails, percentages, times and sentences, never a
+                // sign-in key, which the Gateway does not hold. An agent can say which account a machine is on and
+                // when the next switch is expected. Switch now is NOT here: moving every machine of the owner's
+                // subscription to another one is the owner's own action, from the Cockpit.
+                case "gateway/licenses":
+                case "gateway/licenses/forecast":
+                case "gateway/licenses/log":
                     return true;
             }
 
