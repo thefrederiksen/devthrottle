@@ -13,7 +13,6 @@ namespace CcDirector.Core.Tests.Skills;
 /// every skill after it was abandoned, no link was made, and no placement was recorded. The entry is the person's: it
 /// is left exactly as it is, reported as <see cref="SkillPlacementFault.Shadowed"/>, and the reconcile goes on.
 /// </summary>
-[Trait("Gate", "Quarantine")]
 public sealed class SkillRound7SharedRootCollisionTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "skill-round7-" + Guid.NewGuid().ToString("N"));
