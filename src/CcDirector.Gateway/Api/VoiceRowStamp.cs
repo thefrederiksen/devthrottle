@@ -64,7 +64,17 @@ internal static class VoiceRowStamp
         var unavailable = facts.Unavailable?.Invoke(s.SessionId);
         // Null - voice is fine - leaves the field unset, which is what a client reads as "no shared
         // call to action to show".
-        if (unavailable is Core.HostedAi.HostedAiState reason)
+        //
+        // RETRYING IS NOT STAMPED ON A ROW THAT HOLDS AUDIO. "Retrying" says one thing - the audio is still
+        // coming - and it is false the moment the clip is here. A transcript read that failed AFTER the
+        // clip was made keeps reporting Retrying for as long as the sweep chases it, and on 2026-10-12 six
+        // sessions went out with a ready clip, a "Voice ready" verdict from the fold below, and this field
+        // still set. The phone's roster reads this field before it reads the audio, so every one of them
+        // lost its play triangle and the voice queue emptied. The fold already ranks a playable clip above
+        // Retrying; this makes the raw field agree with it. Every OTHER reason is the account's own
+        // condition (credit, a cap, a key) and still travels beside a clip, because it is still true.
+        var retryingBesideAudio = unavailable == Core.HostedAi.HostedAiState.Retrying && s.VoiceAudioReady;
+        if (unavailable is Core.HostedAi.HostedAiState reason && !retryingBesideAudio)
             s.VoiceUnavailable = HostedAi.HostedAiHttp.Dto(reason);
 
         var agentWorking = string.Equals(s.ActivityState, "Working", StringComparison.OrdinalIgnoreCase)
