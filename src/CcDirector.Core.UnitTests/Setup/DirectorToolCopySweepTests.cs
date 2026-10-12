@@ -1,6 +1,6 @@
+using CcDirector.Core.Utilities;
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -504,7 +504,7 @@ public class DirectorToolCopySweepTests
     /// <summary>
     /// Make a real directory LINK at <paramref name="link"/> pointing at <paramref name="target"/>.
     ///
-    /// A JUNCTION ON WINDOWS, VIA mklink, AND NOT <c>Directory.CreateSymbolicLink</c>. A symbolic link
+    /// A JUNCTION ON WINDOWS (DirectoryJunction, what mklink /J makes), AND NOT <c>Directory.CreateSymbolicLink</c>. A symbolic link
     /// needs SeCreateSymbolicLinkPrivilege - an administrator, or Developer Mode switched on - and a
     /// junction needs nothing at all. That is not a convenience: a junction is precisely the thing the
     /// finding is about, because a person short of disk can make one with no permission from anybody.
@@ -522,17 +522,7 @@ public class DirectorToolCopySweepTests
         }
         else
         {
-            using var mklink = Process.Start(new ProcessStartInfo("cmd.exe", $"/c mklink /J \"{link}\" \"{target}\"")
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            });
-            Assert.NotNull(mklink);
-            var output = mklink!.StandardOutput.ReadToEnd() + mklink.StandardError.ReadToEnd();
-            mklink.WaitForExit();
-            Assert.True(mklink.ExitCode == 0, $"mklink /J \"{link}\" \"{target}\" failed: {output}");
+            DirectoryJunction.Create(link, target);
         }
 
         Assert.True(File.GetAttributes(link).HasFlag(FileAttributes.ReparsePoint),

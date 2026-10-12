@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.RegularExpressions;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Storage;
@@ -1095,11 +1094,10 @@ public static class SkillDirectoryInstaller
     /// <summary>
     /// Point <paramref name="linkPath"/> at <paramref name="targetPath"/>.
     ///
-    /// On Windows this is a directory JUNCTION and not a symlink. Creating a directory symlink needs
-    /// administrator rights or Developer Mode, and the Director runs as the ordinary signed-in user; a
-    /// junction needs neither. There is no managed API that creates a junction, so it is made with the
-    /// command Windows ships for it. A failure throws rather than silently degrading to a copy: a copy
-    /// that looks like a link is exactly the drift this design removed.
+    /// On Windows this is a directory JUNCTION and not a symlink, made in this process by
+    /// <see cref="DirectoryJunction"/>: a directory symlink needs administrator rights or Developer Mode,
+    /// and the Director runs as the ordinary signed-in user. A failure throws rather than silently
+    /// degrading to a copy: a copy that looks like a link is exactly the drift this design removed.
     /// </summary>
     private static void CreateDirectoryLink(string linkPath, string targetPath)
     {
@@ -1109,20 +1107,7 @@ public static class SkillDirectoryInstaller
             return;
         }
 
-        using var process = Process.Start(new ProcessStartInfo("cmd.exe")
-        {
-            Arguments = $"/c mklink /J \"{linkPath}\" \"{targetPath}\"",
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        }) ?? throw new InvalidOperationException("Could not start cmd.exe to create a skill junction.");
-
-        var output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
-        process.WaitForExit();
-        if (process.ExitCode != 0 || !Directory.Exists(linkPath))
-            throw new InvalidOperationException(
-                $"Could not create the skill junction '{linkPath}' -> '{targetPath}': {output.Trim()}");
+        DirectoryJunction.Create(linkPath, targetPath);
     }
 
     private const UnixFileMode ReadWriteExecute =

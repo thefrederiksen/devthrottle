@@ -169,10 +169,7 @@ real-clock | src/CcDirector.Core.Tests/Sessions/SkillIndexStoreTests.cs | 3
 real-clock | src/CcDirector.Core.Tests/Sessions/WorkflowIndexStoreTests.cs | 4
 fixed-port | src/CcDirector.Core.Tests/Setup/FleetToolReachabilityTests.cs | 1
 real-clock | src/CcDirector.Core.Tests/SimpleChatSummarizerTests.cs | 1
-process | src/CcDirector.Core.Tests/Skills/SkillLinkAndStagingOwnershipTests.cs | 2
-process | src/CcDirector.Core.Tests/Skills/SkillRound6BoundaryTests.cs | 2
 delay | src/CcDirector.Core.Tests/Skills/SkillStoreRefreshTests.cs | 1
-process | src/CcDirector.Core.Tests/Skills/SkillSwapTests.cs | 2
 delay | src/CcDirector.Core.Tests/Storage/ConversationIngestorTests.cs | 2
 real-clock | src/CcDirector.Core.Tests/Storage/ConversationIngestorTests.cs | 21
 delay | src/CcDirector.Core.Tests/Storage/ScreenshotCaptureWatcherTests.cs | 4
@@ -183,7 +180,6 @@ real-clock | src/CcDirector.Core.Tests/StubGitHubClient.cs | 3
 fixed-port | src/CcDirector.Core.Tests/TailnetIdentityResolverTests.cs | 6
 delay | src/CcDirector.Core.Tests/TerminalPromptInjectionChokepointTests.cs | 2
 stopwatch | src/CcDirector.Core.Tests/TerminalThroughputTests.cs | 4
-process | src/CcDirector.Core.Tests/TestTempRootTests.cs | 2
 delay | src/CcDirector.Core.Tests/ToolRunnerTests.cs | 1
 real-clock | src/CcDirector.Core.Tests/ToolRunnerTests.cs | 1
 stopwatch | src/CcDirector.Core.Tests/ToolRunnerTests.cs | 1
@@ -251,7 +247,6 @@ real-clock | src/CcDirector.Core.UnitTests/Sessions/TerminalTypingIsATurnTests.c
 delay | src/CcDirector.Core.UnitTests/Sessions/UsageLimitDialogTests.cs | 2
 fixed-port | src/CcDirector.Core.UnitTests/Sessions/UsageLimitDialogTests.cs | 1
 real-clock | src/CcDirector.Core.UnitTests/Sessions/UsageLimitDialogTests.cs | 2
-process | src/CcDirector.Core.UnitTests/Setup/DirectorToolCopySweepTests.cs | 2
 fixed-port | src/CcDirector.Core.UnitTests/TailscaleIdentityTests.cs | 2
 real-clock | src/CcDirector.Core.UnitTests/Teams/DirectorTeamTests.cs | 1
 real-clock | src/CcDirector.Core.UnitTests/Utilities/FileLogWriterSpentQueueTests.cs | 1
