@@ -67,16 +67,30 @@ public static class LicenseEndpoints
         app.MapGet(LicenseRoutes.Log, (HttpContext ctx) => Log(ctx, resolveTenant, store, nowUtc));
         // The answer is executed here, by hand: a lambda that takes only the HttpContext is mapped as a plain request
         // delegate, and a result it merely RETURNED would be dropped - every call would answer 200 with no body.
+        // WHO IS ASKING, AND HOW, IS JUDGED BEFORE A BYTE OF THE BODY IS READ: a caller that is not the owner's own
+        // device is refused without its body being read at all, and so is a body not sent as application/json.
         app.MapPut(LicenseRoutes.AccountRenewal, async (HttpContext ctx) =>
         {
+            const string what = "set the renewal date of a subscription";
+            if ((OwnerOnly(ctx, what) ?? NotJson(ctx)) is { } refusedBeforeTheBody)
+            {
+                await refusedBeforeTheBody.ExecuteAsync(ctx);
+                return;
+            }
             var (body, renewsOnGiven) = ParseRenewalBody(await ReadBodyTextAsync(ctx));
-            await SetRenewalDate(ctx, c => OwnerOnly(c, "set the renewal date of a subscription"), resolveTenant, store, nowUtc,
-                body, renewsOnGiven).ExecuteAsync(ctx);
+            await SetRenewalDate(ctx, c => OwnerOnly(c, what), resolveTenant, store, nowUtc, body, renewsOnGiven).ExecuteAsync(ctx);
         });
         app.MapPost(LicenseRoutes.SwitchNow, async (HttpContext ctx) =>
-            await (await SwitchNowAsync(ctx, c => OwnerOnly(c, "switch the machines of a subscription to another one"),
-                resolveTenant, tenantInScope, switches, store,
-                ParseBody<LicenseSwitchNowRequest>(await ReadBodyTextAsync(ctx)))).ExecuteAsync(ctx));
+        {
+            const string what = "switch the machines of a subscription to another one";
+            if ((OwnerOnly(ctx, what) ?? NotJson(ctx)) is { } refusedBeforeTheBody)
+            {
+                await refusedBeforeTheBody.ExecuteAsync(ctx);
+                return;
+            }
+            await (await SwitchNowAsync(ctx, c => OwnerOnly(c, what), resolveTenant, tenantInScope, switches, store,
+                ParseBody<LicenseSwitchNowRequest>(await ReadBodyTextAsync(ctx)))).ExecuteAsync(ctx);
+        });
         FileLog.Write($"[LicenseEndpoints] mapped GET {LicenseRoutes.Overview}, GET {LicenseRoutes.Forecast}, GET {LicenseRoutes.Log}, PUT {LicenseRoutes.AccountRenewal}, POST {LicenseRoutes.SwitchNow}");
     }
 
@@ -276,15 +290,27 @@ public static class LicenseEndpoints
     /// <summary>The longest an account email may be: the width of the column it is stored in.</summary>
     public const int MaxAccountEmailLength = 320;
 
-    // True for text that cannot be an account email of the store: longer than its column, or holding a control
-    // character. Such text is refused before it is looked up, logged or said back in a sentence - a line break in it
-    // would otherwise write what looks like a second line of the log.
-    private static bool NotAnAccountEmail(string text)
-        => text.Length > MaxAccountEmailLength || text.Any(char.IsControl);
+    // True for text that cannot be an account email of the store: longer than its column, or holding a character
+    // that is not text to be read - a control character, a line or paragraph separator, or a format character such
+    // as the one that reverses the direction of what follows. Such text is refused before it is looked up, logged or
+    // said back in a sentence: a line break in it would otherwise write what looks like a second line of the log.
+    internal static bool NotAnAccountEmail(string text)
+        => text.Length > MaxAccountEmailLength || text.Any(NotReadable);
+
+    private static bool NotReadable(char c)
+        => char.GetUnicodeCategory(c) is UnicodeCategory.Control or UnicodeCategory.Format
+            or UnicodeCategory.LineSeparator or UnicodeCategory.ParagraphSeparator;
 
     private static IResult InvalidAccount(string field)
         => Refuse(StatusCodes.Status400BadRequest, "invalid_account",
-            $"{field} is at most {MaxAccountEmailLength} characters and holds no control character.");
+            $"{field} is at most {MaxAccountEmailLength} characters and holds no control, format or line-breaking character.");
+
+    /// <summary>The refusal for a body that was not sent as <c>application/json</c>, or null when it was. A page of
+    /// another site can make a browser send text/plain without asking first; it cannot make it send this.</summary>
+    internal static IResult? NotJson(HttpContext ctx)
+        => ctx.Request.HasJsonContentType()
+            ? null
+            : Refuse(StatusCodes.Status400BadRequest, "invalid_body", "The body must be sent as application/json.");
 
     private static readonly System.Text.Json.JsonSerializerOptions BodyOptions = new(System.Text.Json.JsonSerializerDefaults.Web);
 

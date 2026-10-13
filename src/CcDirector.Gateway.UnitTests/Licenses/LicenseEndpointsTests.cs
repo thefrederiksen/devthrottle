@@ -299,6 +299,51 @@ public sealed class LicenseEndpointsTests : IDisposable
         Assert.Equal((404, "unknown_account"), (asLongAsItMayBe.Status, asLongAsItMayBe.Json.GetProperty("code").GetString()));
     }
 
+    [Theory]
+    [InlineData(0x2028)]    // line separator
+    [InlineData(0x2029)]    // paragraph separator
+    [InlineData(0x202E)]    // right-to-left override: reverses what follows it on a screen and in a log
+    [InlineData(0x200B)]    // zero width space
+    [InlineData(0x0085)]    // next line
+    [InlineData(0x007F)]    // delete
+    public void AnAccountEmail_HoldingACharacterThatBreaksALineOrIsNotSeen_IsNotAnAccountEmail(int character)
+    {
+        Assert.True(LicenseEndpoints.NotAnAccountEmail("x" + (char)character + "y@example.com"));
+        Apply(TenantOne, Report("m1", Holding(A, true)));
+
+        var (status, _, answer) = PutRenewal(TenantOne, new LicenseRenewalDateRequest { AccountEmail = "x" + (char)character + "y@example.com", RenewsOn = "2026-10-17" });
+
+        Assert.Equal((400, "invalid_account"), (status, answer.GetProperty("code").GetString()));
+    }
+
+    [Theory]
+    [InlineData("account-a@example.com")]
+    [InlineData("first.last+tag@sub.example.com")]
+    [InlineData("o'brien@example.com")]
+    [InlineData("name with space@example.com")]     // odd, and looked up like any other text
+    public void AnAccountEmail_OfOrdinaryCharacters_IsNotRefusedForItsCharacters(string email)
+    {
+        Assert.False(LicenseEndpoints.NotAnAccountEmail(email));
+    }
+
+    [Theory]
+    [InlineData("application/json", false)]
+    [InlineData("application/json; charset=utf-8", false)]
+    [InlineData("text/plain", true)]
+    [InlineData("application/x-www-form-urlencoded", true)]
+    [InlineData(null, true)]
+    public void ABody_NotSentAsJson_IsRefused400(string? contentType, bool refused)
+    {
+        var ctx = Context();
+        ctx.Request.ContentType = contentType;
+
+        var refusal = LicenseEndpoints.NotJson(ctx);
+
+        Assert.Equal(refused, refusal is not null);
+        if (refusal is not null)
+            Assert.Equal((400, "invalid_body"), (Read(ctx, refusal).Status, Read(Context(), refusal).Json.GetProperty("code").GetString()));
+    }
+
     [Fact]
     public void RenewalDate_FromACallerThatIsNotTheOwnersOwnDevice_IsRefusedFirst_AndNothingIsStored()
     {

@@ -206,11 +206,6 @@ public sealed class LicenseStore
     }
 
     /// <summary>
-    /// Set, or with null clear, the date an account's SUBSCRIPTION is billed again - a date a person gives from the
-    /// Licenses page. False when this DevThrottle account holds no such Claude account: a date is never stored for an
-    /// account no machine has reported.
-    /// </summary>
-    /// <summary>
     /// What is stored as a holding's renewal reason when the Director gave a reason word this build does not know. The
     /// word itself is never stored - it could be whatever a newer or a broken tool printed - but that there WAS a
     /// reason is kept, so nothing that acts on a failed renewal (the owner email of contract section 8.1, still to be
@@ -219,6 +214,11 @@ public sealed class LicenseStore
     /// </summary>
     public const string RenewalErrorNotKnown = "not-known";
 
+    /// <summary>
+    /// Set, or with null clear, the date an account's SUBSCRIPTION is billed again - a date a person gives from the
+    /// Licenses page. False when this DevThrottle account holds no such Claude account: a date is never stored for an
+    /// account no machine has reported.
+    /// </summary>
     public bool SetRenewalDate(TenantId tenant, string accountEmail, DateOnly? renewsOn)
     {
         var email = NormalizeEmail(accountEmail);

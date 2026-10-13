@@ -258,6 +258,40 @@ public sealed class LicenseHostTests : IAsyncLifetime
         Assert.Equal(switchesBefore, _gateway.LicenseStore.ListOpenSwitches(_tenantOne).Select(r => r.Id).ToList());
     }
 
+    private async Task<(HttpStatusCode Status, string Text)> WriteAs(HttpClient http, string verb, string path, string body, string contentType)
+    {
+        using var request = new HttpRequestMessage(new HttpMethod(verb), path) { Content = new StringContent(body, System.Text.Encoding.UTF8, contentType) };
+        using var resp = await http.SendAsync(request);
+        var text = await resp.Content.ReadAsStringAsync();
+        _out.WriteLine($"{verb} {path} as {contentType} -> {(int)resp.StatusCode}: {text}");
+        return (resp.StatusCode, text);
+    }
+
+    [Fact]
+    public async Task BothWrites_WithABodyNotSentAsJson_AreRefused400_EvenWhenTheTextIsTheRightJson()
+    {
+        var switchesBefore = _gateway.LicenseStore.ListOpenSwitches(_tenantOne).Select(r => r.Id).ToList();
+
+        var renewal = await WriteAs(_ownerOne, "PUT", "gateway/licenses/accounts/renewal", RenewalBody, "text/plain");
+        var switchNow = await WriteAs(_ownerOne, "POST", "gateway/licenses/switch-now", SwitchBody, "text/plain");
+
+        foreach (var answer in new[] { renewal, switchNow })
+            Assert.Equal((HttpStatusCode.BadRequest, "invalid_body"), (answer.Status, Json(answer.Text).GetProperty("code").GetString()));
+        Assert.Null(await RenewsOn(_ownerOne, AccountA));
+        Assert.Equal(switchesBefore, _gateway.LicenseStore.ListOpenSwitches(_tenantOne).Select(r => r.Id).ToList());
+    }
+
+    [Fact]
+    public async Task BothWrites_JudgeTheCallerBeforeTheBody_SoARefusedCallerIsToldOwnerOnly_WhateverItSent()
+    {
+        // The same text/plain body that the owner is answered 400 for: the machine's credential never gets that far.
+        var renewal = await WriteAs(_machineOne, "PUT", "gateway/licenses/accounts/renewal", "not the request at all", "text/plain");
+        var switchNow = await WriteAs(_machineOne, "POST", "gateway/licenses/switch-now", "not the request at all", "text/plain");
+
+        foreach (var answer in new[] { renewal, switchNow })
+            Assert.Equal((HttpStatusCode.Forbidden, "owner_only"), (answer.Status, Json(answer.Text).GetProperty("code").GetString()));
+    }
+
     [Fact]
     public async Task BothWrites_AskedByTheOwnersPhone_AreAllowed_LikeTheOwnersBrowser()
     {

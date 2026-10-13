@@ -244,7 +244,9 @@ show nothing. Section 6 has the sentences and the tone rule.
           "unavailableText": "the-mac holds no usable spare for account-c@example.com.",
           "isAutomaticChoice": false
         }
-      ]
+      ],
+      "barredUntilUtc": null,
+      "barredText": null
     },
     {
       "accountEmail": "account-b@example.com",
@@ -312,7 +314,9 @@ show nothing. Section 6 has the sentences and the tone rule.
       "canSwitchNow": false,
       "switchNowText": "No machine on account-b@example.com can be switched now: none is on it.",
       "switchNowTargetAccountEmail": null,
-      "switchTargets": []
+      "switchTargets": [],
+      "barredUntilUtc": null,
+      "barredText": null
     },
     {
       "accountEmail": "account-c@example.com",
@@ -374,7 +378,9 @@ show nothing. Section 6 has the sentences and the tone rule.
       "canSwitchNow": false,
       "switchNowText": "No machine on account-c@example.com can be switched now: none is on it.",
       "switchNowTargetAccountEmail": null,
-      "switchTargets": []
+      "switchTargets": [],
+      "barredUntilUtc": null,
+      "barredText": null
     }
   ],
   "machines": [
@@ -492,6 +498,14 @@ show nothing. Section 6 has the sentences and the tone rule.
     }
   ]
 }
+```
+
+An account that is barred from the automatic choice carries the bar in its last two fields - the rest of the account
+is as above, and it can still be chosen by hand:
+
+```json
+"barredUntilUtc": "2026-10-11T05:12:00Z",
+"barredText": "Left out of the automatic choice for 2 hours, until its 5-hour window resets: it triggered a switch. It can still be chosen by hand."
 ```
 
 ## 3. `GET /gateway/licenses/forecast` - the forecast and the schedule
@@ -916,9 +930,9 @@ What is refused, each with `code` and a sentence in `error` (rule 6):
 
 | Status | `code` | When |
 |---|---|---|
-| 400 | `invalid_body` | The body is not a JSON object of this shape, or it does not name `renewsOn`. |
+| 400 | `invalid_body` | The body was not sent as `application/json`, is not a JSON object of this shape, or does not name `renewsOn`. |
 | 400 | `account_required` | `accountEmail` is missing or blank. |
-| 400 | `invalid_account` | `accountEmail` is longer than 320 characters or holds a control character. |
+| 400 | `invalid_account` | `accountEmail` is longer than 320 characters, or holds a character that is not text to be read: a control character, a line or paragraph separator, or a format character. |
 | 400 | `invalid_date` | `renewsOn` is text that is not a real date written `yyyy-MM-dd` ("17 Oct", "2026-02-30", a date with a time). |
 | 404 | `unknown_account` | No machine of this DevThrottle account holds that Claude account. The answer is the same whether the account exists in another DevThrottle account or nowhere. |
 | 403 | `owner_only` | The caller is not the owner's own signed-in phone or browser ("Who may call the writes", below). |
@@ -1008,9 +1022,9 @@ Nothing was written and nothing was sent:
 | 409 | `target-stale` | The latest reading of the target is too old to show it has room. |
 | 409 | `target-full` | The target has no room. |
 | 409 | `no-target` | No target was named and no other account has room for the machines. |
-| 400 | `invalid_body` | The body is not a JSON object of this shape. |
+| 400 | `invalid_body` | The body was not sent as `application/json`, or is not a JSON object of this shape. |
 | 400 | `account_required` | `accountEmail` is missing or blank. |
-| 400 | `invalid_account` | `accountEmail` or `targetAccountEmail` is longer than 320 characters or holds a control character. |
+| 400 | `invalid_account` | `accountEmail` or `targetAccountEmail` is longer than 320 characters, or holds a control character, a line or paragraph separator, or a format character. |
 | 403 | `owner_only` | The caller is not the owner's own signed-in phone or browser. |
 | 403 | `no_account` | The caller's credential belongs to no DevThrottle account. |
 
@@ -1048,6 +1062,14 @@ actions, from the Cockpit. Everything else that can READ the license routes is r
 ```json
 {"code":"owner_only","error":"only the owner on their own signed-in phone or browser may set the renewal date of a subscription; this request was made with a device (workstation) credential"}
 ```
+
+**A self-hosted Cockpit opened with the machine token reads the page and is refused both writes.** On a
+self-hosted Gateway the login page can store the shared machine token as the browser's credential. With it the page
+reads all three routes - and is told `canSwitchNow: true`, because that is about the machines, not about who is
+looking - and both writes answer `403` `owner_only`. That is not an error of the page: the page shows the sentence in
+`error` as it is given, and the owner signs in as a person to use the writes.
+
+The caller is judged before the body is read, and a body must be sent as `application/json`.
 
 It is the one rule the Fleet Manager's owner-only routes use (`FleetManagerOwnerDevice.Require`). Tests hold every
 row of the table over real HTTP (`LicenseHostTests`, `LicenseWritesSelfHostedTests`) and the guard's half in

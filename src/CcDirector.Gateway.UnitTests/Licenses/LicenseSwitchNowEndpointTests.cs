@@ -308,7 +308,7 @@ public sealed class LicenseSwitchNowEndpointTests : IDisposable
         Reports(TenantOne, Windows, "dir-win", A, new[] { B });
         var tooLong = new string('a', 321);
 
-        foreach (var body in new[] { Body(tooLong), Body("x\ny"), Body(A, tooLong), Body(A, "x\ry"), Body(A, "x\u0000y") })
+        foreach (var body in new[] { Body(tooLong), Body("x\ny"), Body(A, tooLong), Body(A, "x\ry"), Body(A, "x\u0000y"), Body("x\u2028y"), Body(A, "x\u202Ey") })
         {
             var (status, text, json) = Post(TenantOne, body);
 

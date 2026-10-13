@@ -130,8 +130,10 @@ public sealed class LicenseHoldingEntity : GatewayMintedKeyEntity
     /// last one worked, or none was tried (contract section 8.1). Nothing to do with the subscription's renewal date.</summary>
     public DateTime? RenewalFailedAtUtc { get; set; }
 
-    /// <summary>A <see cref="CcDirector.Gateway.Contracts.LicenseRenewalErrors"/> word when the last renewal failed and
-    /// the Director named a reason this Gateway knows; null otherwise. A word outside that list is never stored.</summary>
+    /// <summary>Why the last renewal failed: a <see cref="CcDirector.Gateway.Contracts.LicenseRenewalErrors"/> word when
+    /// the Director named a reason this Gateway knows; <c>not-known</c>
+    /// (<see cref="CcDirector.Gateway.Licenses.LicenseStore.RenewalErrorNotKnown"/>) when it named one this Gateway does
+    /// not know - that word itself is never stored; null when it named none, or when the last renewal did not fail.</summary>
     public string? RenewalError { get; set; }
 
     /// <summary>The Director's one sentence about the failed renewal; null when it gave none.</summary>
