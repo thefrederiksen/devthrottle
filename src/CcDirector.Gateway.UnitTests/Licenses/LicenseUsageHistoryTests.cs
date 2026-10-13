@@ -167,10 +167,11 @@ public sealed class LicenseUsageHistoryTests
     [Fact]
     public async Task RecordAndRead_FromSeveralThreadsAtOnce_NeverSeeAHalfWrittenSeries()
     {
-        // Four writers and two readers on the same account. Without the lock a reader copies a list while a writer
-        // inserts into it, which throws or hands out a torn list; with it every copy is whole and in order.
+        // Four writers on one account, and four readers that read for as long as the writers write. Without the
+        // lock a reader copies a list while a writer inserts into it: the copy throws, or comes out torn. With it
+        // every copy is whole and in order. The readers stop when the writers do, so nothing here waits on a clock.
         var history = new LicenseUsageHistory();
-        const int perWriter = 400;
+        const int perWriter = 3000;
         using var go = new ManualResetEventSlim();
         var writers = Enumerable.Range(0, 4).Select(w => Task.Run(() =>
         {
@@ -178,22 +179,31 @@ public sealed class LicenseUsageHistoryTests
             for (var i = 0; i < perWriter; i++)
                 history.Record(TenantA, Report("m" + w, Holding(A, true, 1, readAt: T0.AddTicks(w * perWriter + i + 1))), TimeSpan.Zero, T0.AddMinutes(1));
         })).ToArray();
-        var readers = Enumerable.Range(0, 2).Select(_ => Task.Run(() =>
+        var written = Task.WhenAll(writers);
+        var readers = Enumerable.Range(0, 4).Select(_ => Task.Run(() =>
         {
             go.Wait();
-            for (var i = 0; i < perWriter; i++)
+            var reads = 0;
+            while (!written.IsCompleted)
+            {
                 foreach (var account in history.Read(TenantA, T0.AddMinutes(1)))
                 {
                     var times = account.FiveHour.Select(p => p.AtUtc).ToList();
                     Assert.Equal(times.OrderBy(t => t), times);
+                    Assert.True(times.Count <= LicenseUsageHistory.MaxPointsPerWindow);
                 }
+                reads++;
+            }
+            return reads;
         })).ToArray();
 
         go.Set();
-        await Task.WhenAll(writers.Concat(readers));
+        await written;
+        var reads = await Task.WhenAll(readers);
 
+        Assert.All(reads, count => Assert.True(count > 0, "a reader never read while the writers wrote"));
         var points = history.Read(TenantA, T0.AddMinutes(1)).Single().FiveHour;
-        Assert.Equal(LicenseUsageHistory.MaxPointsPerWindow, points.Count); // 1,600 written, the newest 600 kept
+        Assert.Equal(LicenseUsageHistory.MaxPointsPerWindow, points.Count); // 12,000 written, the newest 600 kept
         Assert.Equal(T0.AddTicks(4 * perWriter), points[^1].AtUtc);
     }
 
