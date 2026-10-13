@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Net;
 using System.Text.Json;
 using CcDirector.Core;
@@ -1019,6 +1019,8 @@ public sealed class GatewayHost : IAsyncDisposable
     // active-tenant sweep that re-reads entitlement and cuts off a cancelled tenant within the sweep bound.
     private Tenancy.TenantAccessRevoker? _accessRevoker;
     private Tenancy.HostedAccessLeaseService? _accessLeases;
+    // Non-null exactly on a hosted Gateway, like the lease service it is built beside.
+    private Tenancy.RemoteAccessRule? _remoteAccess;
     private Tenancy.EntitlementLeaseMonitor? _leaseMonitor;
     private System.Threading.Timer? _leaseSweepTimer;
     private int _leaseSweepInFlight;
@@ -1969,11 +1971,11 @@ public sealed class GatewayHost : IAsyncDisposable
         // the hosted enrollment boundary (which validates the account token and stamps the resolved tenant on
         // the device) in the follow-up increment. Unused on the single-tenant local install.
         TenantRegistry = new Tenancy.TenantRegistry(_gatewayDb);
-        // The free-trial ledger (issue #2117): the Gateway's OWN record of the 14-day Pro trial the public
-        // pricing page promises every new account. It is passed INTO the entitlement registry rather than
-        // consulted beside it, so the enrollment gate, the request-path lease and the 60s sweep all read one
-        // decision and can never disagree about whether an account may use hosted today - which is also what
-        // makes the trial EXPIRE on the request path instead of only at enrollment.
+        // The free-trial ledger (issue #2117): the Gateway's OWN record of the 14-day Pro trials it granted. No
+        // new trial is granted since the Pricing Change mission (B3); a trial already running is honoured to its
+        // end. It is passed INTO the entitlement registry rather than consulted beside it, so the enrollment gate,
+        // the request-path lease and the 60s sweep all read one decision and can never disagree about whether an
+        // account may use hosted today - which is also what makes a trial EXPIRE on the request path.
         TrialRegistry = new Tenancy.TrialRegistry(_gatewayDb);
         EntitlementRegistry = new Tenancy.EntitlementRegistry(_gatewayDb, requireLivemode: Hosted, trials: TrialRegistry);
         // Teams (devthrottle_internal#2300): told about new teams through the tenant registry, so the census every
@@ -2005,8 +2007,14 @@ public sealed class GatewayHost : IAsyncDisposable
         if (Hosted)
         {
             _accessRevoker = new Tenancy.TenantAccessRevoker(Devices, _directorConnections);
+            // The remote access rule (Pricing Change mission, B2 and B4): ONE instance, asked by the lease on the
+            // request path and by the Cockpit and phone door where a key is minted, so the two cannot disagree about
+            // a plan or about the pre-launch grace.
+            // Its team half exists only where Teams is released; dark, there are no teams to ask about.
+            _remoteAccess = new Tenancy.RemoteAccessRule(Options.RemoteAccessGrace,
+                TeamsReleased ? new Teams.TeamRemoteAccess(TeamRegistry, EntitlementRegistry) : null);
             _accessLeases = new Tenancy.HostedAccessLeaseService(EntitlementRegistry, TenantRegistry, _accessRevoker,
-                teams: TeamsReleased ? TeamMemberEntitlement : null);
+                teams: TeamsReleased ? TeamMemberEntitlement : null, remoteAccess: _remoteAccess);
             _leaseMonitor = new Tenancy.EntitlementLeaseMonitor(_accessLeases);
             // TEST ONLY: a hosted gateway that is NOT a real hosted image (a test forcing hosted mode via env,
             // with no baked image marker) auto-provisions the entitlement production requires at the paid
@@ -4977,7 +4985,9 @@ public sealed class GatewayHost : IAsyncDisposable
             ? new Api.HostedEnrollDependencies(
                 Devices, TenantRegistry,
                 CcDirector.Gateway.Account.GatewayAccountFactory.BuildAuthorizationValidator(),
-                EntitlementRegistry, TrialRegistry)
+                EntitlementRegistry,
+                _remoteAccess ?? throw new InvalidOperationException(
+                    "A hosted Gateway builds its remote access rule beside its access lease; it is missing."))
             : null;
 
         // POST /devices/enroll-hosted (Hosted Multi-Tenancy increment 1): the HOSTED counterpart - a REMOTE
@@ -4998,7 +5008,7 @@ public sealed class GatewayHost : IAsyncDisposable
                 : null;
             Api.HostedEnrollmentEndpoint.Map(_app, hostedEnrollDeps.Devices, hostedEnrollDeps.Tenants,
                 hostedEnrollDeps.AccountTokenValidator, entitlements: hostedEnrollDeps.Entitlements,
-                trials: hostedEnrollDeps.Trials, teams: teamEnrollment);
+                teams: teamEnrollment);
         }
 
         // Wingman-voice surface for the Cockpit's Voice tab (issue #531): drive one turn of a

@@ -356,8 +356,23 @@ internal static class AuthMiddleware
                     && tenant != CcDirector.Core.Tenancy.TenantId.Local
                     && tenant != CcDirector.Core.Tenancy.TenantId.System)
                 {
+                    // A COCKPIT OR PHONE REQUEST ALSO NEEDS REMOTE ACCESS (Pricing Change mission, B2). Which kind of
+                    // caller this is comes from the verified device key and nothing else: the type on a browser or
+                    // phone key was written by the Gateway when it minted the key, so no header, route or claim from
+                    // the client can change it. A Director's key and a session key are not such a request.
+                    var cockpitOrPhone = CcDirector.Gateway.Tenancy.RemoteAccessRule.IsCockpitOrPhoneDevice(
+                        AuthenticatedDevice(ctx)?.DeviceType);
                     var access = await cfg.Leases.AuthorizeAsync(tenant,
-                        () => cfg.TeamPerson?.Invoke(tenant, AuthenticatedDevice(ctx), CallingSession(ctx)));
+                        () => cfg.TeamPerson?.Invoke(tenant, AuthenticatedDevice(ctx), CallingSession(ctx)),
+                        cockpitOrPhone: cockpitOrPhone);
+                    if (access == CcDirector.Gateway.Tenancy.HostedAccessDecision.DenyNoRemoteAccess)
+                    {
+                        // The account is entitled and its Director is served; this Cockpit or phone request is not.
+                        // The request is refused and nothing else happens: no key is revoked, and the same key is
+                        // served again once the account has the Remote plan and the lease is next read.
+                        await CcDirector.Gateway.Tenancy.RemoteAccessRefusal.WriteAsync(ctx);
+                        return;
+                    }
                     if (access == CcDirector.Gateway.Tenancy.HostedAccessDecision.DenyNotAMember)
                     {
                         // In a team's tenant, the request names nobody who is a member (devthrottle_internal#2311). A

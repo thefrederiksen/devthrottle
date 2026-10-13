@@ -43,11 +43,20 @@ public static class EntitlementScopes
     public const string Wingman = "wingman";
 
     /// <summary>
-    /// Hosted gateway capacity: a tenant on our infrastructure, a device key against the hosted Gateway, and
-    /// everything that key unlocks (the tunnel, the cockpit, the mobile application). This is the scope that
-    /// costs us money to serve, and the one a self-host plan must never obtain.
+    /// Hosted gateway capacity for a DIRECTOR: a tenant on our infrastructure, a Director's device key against the
+    /// hosted Gateway, the tunnel that key opens, and the recording of the account's usage. It is the scope a
+    /// self-host plan must never obtain. Since the Pricing Change mission (B2) it no longer includes the Cockpit or
+    /// the phone app: those are <see cref="RemoteAccess"/>.
     /// </summary>
     public const string HostedGateway = "hosted_gateway";
+
+    /// <summary>
+    /// Remote access (Pricing Change mission, B2): signing in to the Cockpit, enrolling the phone app, and every
+    /// request either of them makes afterwards, the relay to a Director included. Asked in two places and answered
+    /// by one rule, <see cref="RemoteAccessRule"/>: where a Cockpit or phone key is minted, and on every request such
+    /// a key makes.
+    /// </summary>
+    public const string RemoteAccess = "remote_access";
 
     // The three artificial-intelligence scopes every paid plan includes. Named once so a plan's entry states
     // what is DIFFERENT about it rather than repeating the common part four times.
@@ -58,46 +67,47 @@ public static class EntitlementScopes
     private static readonly IReadOnlyDictionary<string, IReadOnlySet<string>> ByTier =
         new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal)
         {
-            // The hosted plan: everything, including the hosted capacity it is named for.
-            [EntitlementRegistry.TierHosted] = Set(Dictation, Tts, Wingman, HostedGateway),
+            // The hosted plan: everything, including the hosted capacity it is named for. Retired from sale and
+            // still honoured, so it keeps the Cockpit and the phone app it was sold with.
+            [EntitlementRegistry.TierHosted] = Set(Dictation, Tts, Wingman, HostedGateway, RemoteAccess),
 
-            // The pro plan: today this grants hosted capacity as well. That is EXISTING, TESTED behaviour
-            // (Enrollment_grants_on_any_active_entitlement_regardless_of_tier) and this table preserves it
-            // rather than changing it - narrowing "pro" is a separate decision with its own billing meaning.
-            [EntitlementRegistry.TierPro] = Set(Dictation, Tts, Wingman, HostedGateway),
+            // The pro plan: everything.
+            [EntitlementRegistry.TierPro] = Set(Dictation, Tts, Wingman, HostedGateway, RemoteAccess),
 
             // The pro SELF-HOST plan: the artificial-intelligence features and NOTHING ELSE. The absence of
-            // HostedGateway on this line is the whole point of the plan and of this file.
+            // HostedGateway on this line is the whole point of the plan and of this file, and it holds no
+            // RemoteAccess either: there is no hosted Cockpit for a Gateway the customer runs themselves.
             [EntitlementRegistry.TierProSelfHost] = Set(AiScopes),
 
-            // The FREE plan: hosted capacity and NOTHING ELSE - the exact mirror of the self-host line above.
-            // An account with no paid row and no running trial holds this, so this single line is what makes
-            // the end of a trial a downgrade instead of a cutoff: the member keeps the tunnel, the cockpit, the
-            // mobile application and every session on every machine, and loses dictation, spoken replies and
-            // the wingman.
+            // The FREE plan: a Director on the hosted Gateway and NOTHING ELSE (Pricing Change mission, decision
+            // D2). An account with no paid row and no running trial holds this. Its Director signs in, tunnels and
+            // has its usage recorded as much as the member likes. It has no Cockpit and no phone app - that is
+            // RemoteAccess, which this line does not carry - and no dictation, spoken replies or wingman.
             //
-            // THE THREE ABSENT SCOPES ARE THE PRICE OF THE PLAN. Free costs us hosting, which is small and
-            // fixed; it must never cost us a model call, which is neither. If a future feature runs a model on
-            // our meter, it belongs behind one of the artificial-intelligence scopes and therefore behind Pro -
-            // adding it to this line would give away the thing the plans are drawn around.
+            // THE ABSENT SCOPES ARE THE PRICE OF THE PLAN. Free costs us a tunnel, which is small and fixed; it
+            // must never cost us a model call, which is neither. If a future feature runs a model on our meter, it
+            // belongs behind one of the artificial-intelligence scopes and therefore behind Pro.
             //
-            // The hosted Gateway polices the three artificial-intelligence scopes itself: every model call it
-            // makes on a tenant's behalf asks TenantAiGate, which reads this table (Pricing Change mission, B1).
+            // An account created before the launch of these plans keeps the Cockpit and the phone app for a while,
+            // and a member of a team with a running bill has them, without this line changing: both are added
+            // beside the table by RemoteAccessRule. The hosted Gateway polices the three artificial-intelligence
+            // scopes through TenantAiGate.
             [EntitlementRegistry.TierFree] = Set(HostedGateway),
 
             // A TEAM seat (#2299): exactly what Pro grants. Stated as its own line rather than aliased to Pro so
             // the day a team seat and a personal Pro are priced or scoped differently, it is one edit here.
-            [EntitlementRegistry.TierTeam] = Set(Dictation, Tts, Wingman, HostedGateway),
+            [EntitlementRegistry.TierTeam] = Set(Dictation, Tts, Wingman, HostedGateway, RemoteAccess),
 
-            // The REMOTE plan (Pricing Change mission, decision D3): hosted capacity and NONE of the
-            // artificial-intelligence scopes. Today that is the same set as free; what will separate the two (the
-            // Cockpit and the phone app) is a later phase of the same mission, and it lands on these two lines.
-            [EntitlementRegistry.TierRemote] = Set(HostedGateway),
+            // The REMOTE plan (Pricing Change mission, decision D3): a Director on the hosted Gateway, the Cockpit
+            // and the phone app, and NONE of the artificial-intelligence scopes. RemoteAccess is the one scope that
+            // separates this line from the free line above, and it is what the plan is sold for.
+            [EntitlementRegistry.TierRemote] = Set(HostedGateway, RemoteAccess),
         };
 
     // The pre-column row. Carried separately from the table because its key is null and because its reason is
-    // historical rather than commercial - see the class remarks.
-    private static readonly IReadOnlySet<string> LegacyRowScopes = Set(Dictation, Tts, Wingman, HostedGateway);
+    // historical rather than commercial - see the class remarks. An old hosted row had the Cockpit and the phone
+    // app, so it keeps them.
+    private static readonly IReadOnlySet<string> LegacyRowScopes = Set(Dictation, Tts, Wingman, HostedGateway, RemoteAccess);
 
     // Nothing. The answer for a tier string this code has never been taught.
     private static readonly IReadOnlySet<string> NoScopes = Set();
@@ -137,6 +147,14 @@ public static class EntitlementScopes
     /// </summary>
     /// <param name="tier">The tier as the payment-side row records it, or null for a pre-column row.</param>
     public static bool GrantsHostedGateway(string? tier) => Grants(tier, HostedGateway);
+
+    /// <summary>
+    /// Does this tier's PLAN include the Cockpit and the phone app? This is the plan's half of the answer only:
+    /// the whole answer, with the pre-launch grace and a person's teams, is <see cref="RemoteAccessRule.Decide"/>, and
+    /// a caller deciding whether to serve a person asks that rule and never this method alone.
+    /// </summary>
+    /// <param name="tier">The tier as the payment-side row records it, or null for a pre-column row.</param>
+    public static bool GrantsRemoteAccess(string? tier) => Grants(tier, RemoteAccess);
 
     private static IReadOnlySet<string> Set(params string[] scopes)
         => new HashSet<string>(scopes, StringComparer.Ordinal);

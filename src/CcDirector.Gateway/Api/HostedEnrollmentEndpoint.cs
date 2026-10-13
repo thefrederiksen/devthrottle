@@ -44,6 +44,37 @@ internal static class HostedEnrollmentEndpoint
 {
     public const string Path = "/devices/enroll-hosted";
 
+    /// <summary>
+    /// WHICH DOOR <see cref="Enroll"/> WAS CALLED THROUGH (Pricing Change mission, B2). There are two, and the one
+    /// mint is told which, because what an account may be handed differs: every plan may set up a Director, and only
+    /// an account with remote access (<see cref="Tenancy.RemoteAccessRule"/>) may be handed a Cockpit's or a phone's
+    /// key. The door is stated by the Gateway's own endpoint, never read from the request.
+    /// </summary>
+    public enum EnrollDoor
+    {
+        /// <summary><c>POST /devices/enroll-hosted</c>: a Director. Refuses a request that asks for the device type
+        /// <c>phone</c> or <c>browser</c>, so this door is not a way round the other one.</summary>
+        Director,
+
+        /// <summary><c>POST /mobile/enroll</c> (and the old <c>/m/enroll</c>): the Cockpit and the phone app. The
+        /// device type is decided by the Gateway from the platform, and the account needs remote access.</summary>
+        CockpitOrPhone,
+    }
+
+    /// <summary>What the Director door tells a request that asks for a Cockpit's or a phone's key.</summary>
+    public const string DirectorDoorDeviceTypeRefusal =
+        "This route sets up a Director, so it does not issue a key for a browser or a phone. Sign in through the Cockpit or the phone app instead. Nothing was changed.";
+
+    /// <summary>The machine-readable code beside <see cref="DirectorDoorDeviceTypeRefusal"/>.</summary>
+    public const string DirectorDoorDeviceTypeCode = "device_type_not_allowed";
+
+    /// <summary>The machine-readable code on the 503 a mint answers when the plan could not be read - the same code
+    /// the request path answers.</summary>
+    public const string EntitlementUnknownCode = "entitlement_unknown";
+
+    /// <summary>How many seconds a caller is told to wait before asking again after a plan that could not be read.</summary>
+    public const string RetryAfterSeconds = "10";
+
     /// <summary>The outcome of <see cref="Enroll"/>, extracted so the enrollment logic is unit-tested without a
     /// web host. <see cref="Response"/> is set only on <see cref="Status"/> 200.</summary>
     public sealed record EnrollResult(int Status, DeviceRegistrationResponse? Response, string Error, string? Code = null);
@@ -53,19 +84,19 @@ internal static class HostedEnrollmentEndpoint
     /// and no boundary, and enrollment behaves exactly as it always has. On hosted this is REQUIRED, and the
     /// gate is what makes hosted a paid product rather than a free one.
     /// </param>
-    /// <param name="trials">
-    /// The free-trial ledger (issue #2117). NULL means no trial concept - the behaviour before trials existed.
-    /// When supplied, an account with no paid entitlement that this Gateway has never seen before is GRANTED
-    /// the 14-day Pro trial here, at its first arrival, and enrolls on it.
-    /// </param>
     /// <param name="teams">
     /// The Teams half (devthrottle_internal#2311), or null where Teams is not released. Null: the two team routes are
     /// not mapped (a request to either is answered as for any route that does not exist) and an enrollment naming a
     /// team is refused - so the dark Gateway's enrollment is exactly what it was.
     /// </param>
+    /// <remarks>
+    /// NO TRIAL IS GRANTED HERE ANY MORE (Pricing Change mission, B3). This route used to hand a 14-day Pro trial to
+    /// an account arriving for the first time; it no longer does, for anyone. A trial that is already running is
+    /// still honoured, because <see cref="Tenancy.EntitlementRegistry.Evaluate"/> reads the ledger itself.
+    /// </remarks>
     public static void Map(IEndpointRouteBuilder app, DeviceRegistry devices,
         Tenancy.TenantRegistry tenants, JwtAccessTokenValidator accountTokenValidator,
-        Tenancy.EntitlementRegistry? entitlements = null, Tenancy.TrialRegistry? trials = null,
+        Tenancy.EntitlementRegistry? entitlements = null,
         TeamEnrollment? teams = null)
     {
         if (devices is null) throw new ArgumentNullException(nameof(devices));
@@ -82,20 +113,40 @@ internal static class HostedEnrollmentEndpoint
                     : Results.Json(new { error = result.Error }, statusCode: result.Status);
             });
             app.MapPost(MovePath, (MoveDirectorRequest req, HttpContext ctx) =>
-                Answer(Move(BearerToken.Read(ctx), req, devices, tenants, accountTokenValidator, teams, entitlements, DateTime.UtcNow, trials)));
+                Answer(ctx, Move(BearerToken.Read(ctx), req, devices, tenants, accountTokenValidator, teams, entitlements, DateTime.UtcNow)));
         }
 
         app.MapPost(Path, (EnrollSignedInRequest req, HttpContext ctx) =>
-            Answer(Enroll(BearerToken.Read(ctx), req, devices, tenants, accountTokenValidator, entitlements, DateTime.UtcNow, trials,
-                teams)));
+            Answer(ctx, Enroll(BearerToken.Read(ctx), req, devices, tenants, accountTokenValidator, entitlements, DateTime.UtcNow,
+                teams, EnrollDoor.Director)));
     }
 
-    /// <summary>The HTTP answer for an enrollment or a move: the key on 200, the payment sentence on 402, and the
-    /// plain error shape otherwise.</summary>
-    private static IResult Answer(EnrollResult result)
+    /// <summary>The HTTP answer for an enrollment or a move: the key on 200, otherwise <see cref="Refusal"/>.</summary>
+    private static IResult Answer(HttpContext ctx, EnrollResult result)
+        => result.Status == StatusCodes.Status200OK
+            ? Results.Json(result.Response, statusCode: StatusCodes.Status200OK)
+            : Refusal(ctx, result);
+
+    /// <summary>
+    /// THE ONE HTTP ANSWER FOR A MINT THAT DID NOT ISSUE A KEY, written alike by the Director door and by the Cockpit
+    /// and phone door: the remote access refusal, the payment sentence on any other 402, a 503 that says when to ask
+    /// again, and the plain error shape otherwise.
+    /// </summary>
+    internal static IResult Refusal(HttpContext ctx, EnrollResult result)
     {
-        if (result.Status == StatusCodes.Status200OK)
-            return Results.Json(result.Response, statusCode: StatusCodes.Status200OK);
+        ArgumentNullException.ThrowIfNull(ctx);
+        ArgumentNullException.ThrowIfNull(result);
+
+        // The Cockpit or the phone app, on an account with no remote access (Pricing Change mission, B2): the same
+        // body a request on such an account is answered with, so a client reads one refusal and not two.
+        if (result.Status == StatusCodes.Status402PaymentRequired
+            && string.Equals(result.Code, Tenancy.EntitlementRegistry.RemotePlanRequiredCode, StringComparison.Ordinal))
+            return Tenancy.RemoteAccessRefusal.ToResult();
+
+        // A plan that could not be read is a temporary condition: the caller is told when to ask again, exactly as
+        // the request path tells it.
+        if (result.Status == StatusCodes.Status503ServiceUnavailable)
+            ctx.Response.Headers.RetryAfter = RetryAfterSeconds;
 
         // A payment refusal has to say what to do about it, not just that it happened (issue #2117): the
         // member is told, in one finished sentence the Gateway owns, that access has ended and where to
@@ -125,16 +176,36 @@ internal static class HostedEnrollmentEndpoint
     /// </summary>
     /// <param name="teams">The Teams half, or null on a Gateway where Teams is not released - and then a request naming
     /// a team is refused and no other key of the Director is looked at (devthrottle_internal#2311).</param>
+    /// <param name="door">Which door the request came through (<see cref="EnrollDoor"/>). The default is the Director
+    /// door, which refuses a Cockpit's or a phone's device type - so a caller that does not say is never handed one.</param>
+    /// <param name="remoteAccess">The remote access rule, asked on the Cockpit and phone door of a Gateway that has an
+    /// entitlement gate. Required there.</param>
     public static EnrollResult Enroll(string? bearer, EnrollSignedInRequest? req, DeviceRegistry devices,
         Tenancy.TenantRegistry tenants, JwtAccessTokenValidator accountTokenValidator,
         Tenancy.EntitlementRegistry? entitlements = null, DateTime? nowUtc = null,
-        Tenancy.TrialRegistry? trials = null, TeamEnrollment? teams = null)
+        TeamEnrollment? teams = null, EnrollDoor door = EnrollDoor.Director,
+        Tenancy.RemoteAccessRule? remoteAccess = null)
     {
         if (req is null || string.IsNullOrWhiteSpace(req.DeviceId))
             return new EnrollResult(StatusCodes.Status400BadRequest, null, "deviceId is required");
         var badDeviceId = DeviceIdRefusal(req.DeviceId);
         if (badDeviceId is not null)
             return badDeviceId;
+
+        // THE DEVICE TYPE FOLLOWS THE DOOR (Pricing Change mission, B2). The type on a key is what tells every later
+        // request apart - a Cockpit or phone request needs remote access, a Director's does not - so it must not be
+        // something the Director door will write on request. Through the Cockpit and phone door the Gateway's own
+        // endpoint decided the type from the platform; anything else there is a wiring defect, not a request to serve.
+        var cockpitOrPhoneType = Tenancy.RemoteAccessRule.IsCockpitOrPhoneDevice(req.DeviceType);
+        if (door == EnrollDoor.Director && cockpitOrPhoneType)
+        {
+            FileLog.Write("[HostedEnrollment] REFUSED: the Director door was asked for a browser's or a phone's key (no tenant minted, no device key issued)");
+            return new EnrollResult(StatusCodes.Status400BadRequest, null, DirectorDoorDeviceTypeRefusal, DirectorDoorDeviceTypeCode);
+        }
+        if (door == EnrollDoor.CockpitOrPhone && !cockpitOrPhoneType)
+            throw new InvalidOperationException(
+                $"The Cockpit and phone door was given the device type '{req.DeviceType}', which is neither a browser nor a phone. " +
+                "That door decides the type itself (MobileDeviceEnrollmentService.DeviceTypeForPlatform); it never takes one from a caller.");
 
         if (bearer is null)
             return new EnrollResult(StatusCodes.Status401Unauthorized, null, "an account access token is required");
@@ -150,7 +221,7 @@ internal static class HostedEnrollmentEndpoint
         if (teamId is not null)
             return EnrollIntoTeam(validation.Subject, teamId, req, devices, teams);
 
-        var refusal = PersonalAccountGate(validation.Subject, tenants, entitlements, nowUtc, trials);
+        var refusal = PersonalAccountGate(validation.Subject, tenants, entitlements, nowUtc, door, remoteAccess);
         if (refusal is not null)
             return refusal;
 
@@ -206,22 +277,25 @@ internal static class HostedEnrollmentEndpoint
     }
 
     /// <summary>
-    /// THE PERSONAL ACCOUNT'S PAID GATE: whether this account may hold a hosted tenant of its own today - granting the
-    /// free trial on a first arrival. Null means it may; otherwise the refusal to return. Asked by enrollment for the
-    /// person's own account and by a move back to it (devthrottle_internal#2311), so both doors are one door. NEVER
-    /// asked for a team: a team has no trial, and a member is never refused for the team's bill here (the team's bill
-    /// is the team's, read by the request-path lease).
+    /// THE PERSONAL ACCOUNT'S GATE: whether this account may be handed a key to a hosted tenant of its own today,
+    /// through this door. Null means it may; otherwise the refusal to return. Asked by enrollment for the person's
+    /// own account and by a move back to it (devthrottle_internal#2311), so both doors are one door. NEVER asked for a
+    /// team: a member is never refused for the team's bill here (the team's bill is the team's, read by the
+    /// request-path lease).
+    ///
+    /// NO TRIAL IS GRANTED HERE (Pricing Change mission, B3). Until that mission an account arriving for the first
+    /// time was handed a 14-day Pro trial at this point. Nobody is any more. A trial already running is still
+    /// honoured, to its end: <see cref="Tenancy.EntitlementRegistry.Evaluate"/> reads the ledger and answers such an
+    /// account at the Pro tier, which is why nothing about a trial is asked here at all.
     /// </summary>
     private static EnrollResult? PersonalAccountGate(string subject, Tenancy.TenantRegistry tenants,
-        Tenancy.EntitlementRegistry? entitlements, DateTime? nowUtc, Tenancy.TrialRegistry? trials)
+        Tenancy.EntitlementRegistry? entitlements, DateTime? nowUtc, EnrollDoor door, Tenancy.RemoteAccessRule? remoteAccess)
     {
-        // THE PAID GATE, between subject-verification and tenant-mint. It sits here, and not later, because
-        // minting a tenant is itself giving something away: an unpaid account must leave no trace and hold no
-        // key. No device key means no tunnel, no cockpit and no mobile, which is the whole meaning of
-        // "approval before you can use a hosted tenant".
+        // THE GATE, between subject-verification and tenant-mint. It sits here, and not later, because minting a
+        // tenant is itself giving something away: an account that is refused must leave no trace and hold no key.
         //
         // THREE OUTCOMES, and keeping them apart is the entire correctness of this gate:
-        //  - Entitled     -> fall through and enroll.
+        //  - Entitled     -> go on to the plan questions below.
         //  - NotEntitled  -> 402. We LOOKED and the account has no valid entitlement. This is knowledge.
         //  - Unknown      -> 503 and RETRY. The read FAILED, so we do not know. It must not deny and it must
         //                    not grant.
@@ -232,107 +306,77 @@ internal static class HostedEnrollmentEndpoint
         // confirmed entitlement: ignorance mints nothing, denies nothing, and says try again.
         //
         // Null entitlements is the SELF-HOST case - no gate at all, unchanged behaviour. That is the control.
-        if (entitlements is not null)
+        if (entitlements is null)
+            return null;
+
+        var now = nowUtc ?? DateTime.UtcNow;
+
+        // Evaluate rather than LookupBySubject, because the plan questions below need the tier from the SAME read
+        // the outcome came from - one read, one row, so they can never disagree. Evaluate folds a RUNNING trial
+        // (the Pro tier, to the trial's end instant) and the free plan (an account with no paid row and no running
+        // trial is Entitled on the free tier), so on the hosted Gateway a successful read is always Entitled.
+        var decision = entitlements.Evaluate(subject, now);
+
+        if (decision.Outcome == Tenancy.EntitlementOutcome.Unknown)
         {
-            var now = nowUtc ?? DateTime.UtcNow;
+            FileLog.Write("[HostedEnrollment] RETRY: the entitlement read failed, so entitlement is UNKNOWN - " +
+                          "not enrolling and NOT refusing (no tenant minted, no device key issued)");
+            return new EnrollResult(StatusCodes.Status503ServiceUnavailable, null,
+                "the entitlement service is temporarily unavailable; please try again", EntitlementUnknownCode);
+        }
 
-            // Evaluate rather than LookupBySubject, because the PLAN gate below needs the tier from the SAME
-            // read the outcome came from - one read, one row, so the two questions can never disagree. Evaluate
-            // already folds a RUNNING trial (returning the Pro tier and the trial's end instant); the block
-            // below is the separate act of CREATING one on a first arrival.
-            var decision = entitlements.Evaluate(subject, now);
-            var outcome = decision.Outcome;
-            var tier = decision.Tier;
+        // Reachable only where the free plan is not in play - a Gateway wired with no trial ledger at all, which
+        // answers an account with no paid row NotEntitled. On the hosted service a successful read yields the free
+        // tier instead, and the doors below are plan questions, not a paywall.
+        if (decision.Outcome == Tenancy.EntitlementOutcome.NotEntitled)
+        {
+            FileLog.Write("[HostedEnrollment] REFUSED: the entitlement read succeeded and this account has no active entitlement (no tenant minted, no device key issued)");
+            return new EnrollResult(StatusCodes.Status402PaymentRequired, null,
+                "this account does not have an active hosted subscription");
+        }
 
-            // THE FREE TRIAL GRANT (issue #2117), and this is the ONLY place a trial is created. The public
-            // pricing page promises every new account 14 days of Pro with no card, so an account that the
-            // entitlement read just refused gets one more question asked of it: is this its FIRST arrival at
-            // the hosted Gateway? If it is, the trial is granted here and the account enrolls on it.
-            //
-            // It sits AFTER the paid read, so a paying account never reaches it and can never be handed a
-            // trial it does not need. It reads NotEntitled only - an Unknown falls through to the 503 below
-            // untouched, because granting a trial on a failed paid read would hand a free window to an account
-            // whose subscription we simply could not see.
-            //
-            // "Never seen before" is the tenant mapping: an account that already holds a tenant was using
-            // hosted before the trial existed, and the owner's rollout rule grants it nothing (issue #2117).
-            // TrialRegistry re-checks its own ledger, so an account whose trial has already ended is refused
-            // here rather than being handed a second one.
-            // "NOT PAYING" IS THE CONDITION, AND IT IS NOT THE SAME AS "NOT ENTITLED" ANY MORE. Since the free
-            // plan arrived (2026-09-02) an account with no paid row and no running trial comes back ENTITLED, on
-            // tier free - so a test for NotEntitled alone would silently stop handing out trials, and every new
-            // member would be enrolled straight onto free and quietly lose the fourteen days they are owed.
-            // Nothing would look broken: enrolment would simply succeed. The question this gate has always been
-            // asking is "is this account PAYING", so it now asks exactly that.
-            //
-            // Unknown is still excluded, for the reason stated above: a trial granted on a failed read hands a
-            // free window to an account whose subscription we could not see.
-            var notPaying = outcome == Tenancy.EntitlementOutcome.NotEntitled
-                            || (outcome == Tenancy.EntitlementOutcome.Entitled
-                                && Tenancy.EntitlementRegistry.IsFree(tier));
+        // THE PLAN GATE: does what the account holds INCLUDE a place on the hosted Gateway at all - which a self-host
+        // plan deliberately does not. Without this, every paid plan would provision hosted capacity, because the
+        // entitlement read is tier-agnostic on purpose and passes the plan through unexamined.
+        //
+        // The verdict is not computed here. It is read from the ONE table that owns what a plan grants
+        // (EntitlementScopes), so adding a plan is one edit there and never a new branch at a call site.
+        if (!Tenancy.EntitlementScopes.GrantsHostedGateway(decision.Tier))
+        {
+            FileLog.Write("[HostedEnrollment] REFUSED: the account pays, but its plan does not include hosted " +
+                          "gateway capacity (no tenant minted, no device key issued)");
+            return new EnrollResult(StatusCodes.Status402PaymentRequired, null,
+                "this plan does not include the hosted gateway");
+        }
 
-            if (notPaying && trials is not null)
+        // THE REMOTE ACCESS GATE (Pricing Change mission, B2), asked ONLY through the Cockpit and phone door. Every
+        // plan above may set up a Director; the Cockpit and the phone app need remote access, which is the plan's, the
+        // pre-launch grace's, or a team's with a running bill. It is asked of the SAME rule the request path asks on every later request
+        // (RemoteAccessRule, through the access lease), so a key this door issues is one the request path serves and
+        // a key it refuses is one the request path would have refused. Refused BEFORE any tenant is minted or key
+        // issued, and nothing the account already holds is touched: its Director's keys are as they were.
+        if (door == EnrollDoor.CockpitOrPhone)
+        {
+            if (remoteAccess is null)
+                throw new InvalidOperationException(
+                    "The Cockpit and phone door was reached on a Gateway with an entitlement gate and no remote access rule. " +
+                    "HostedEnrollDependencies carries the rule; an entry point that mints a browser's or a phone's key must pass it.");
+
+            var remote = remoteAccess.Decide(decision.Tier, subject, tenants.CreatedAtUtcForSubject(subject), now);
+            if (remote == Tenancy.RemoteAccessAnswer.Unknown)
             {
-                var alreadyKnown = tenants.LookupBySubject(subject) is not null;
-                var trial = trials.GrantIfFirstArrival(subject, alreadyKnown, now);
-
-                if (trial.Outcome == Tenancy.TrialOutcome.Active)
-                {
-                    FileLog.Write("[HostedEnrollment] enrolling on the free Pro trial (no paid entitlement; the account is inside its trial window)");
-                    outcome = Tenancy.EntitlementOutcome.Entitled;
-
-                    // The trial grants the PRO plan - the same tier Evaluate returns for a running trial on
-                    // every later read - so the plan gate below sees the trial for what it is rather than
-                    // judging it on the absent paid row's null tier. Stated explicitly here so a freshly
-                    // granted trial and an already-running one are ruled on identically.
-                    tier = Tenancy.EntitlementRegistry.TierPro;
-                }
-                else if (trial.Outcome == Tenancy.TrialOutcome.Unknown)
-                {
-                    // The trial ledger could not be read or written. We do not know what covers this account,
-                    // so this is the SAME temporary condition as an unreadable entitlement table: retry, never
-                    // refuse, never grant.
-                    outcome = Tenancy.EntitlementOutcome.Unknown;
-                }
-            }
-
-            if (outcome == Tenancy.EntitlementOutcome.Unknown)
-            {
-                FileLog.Write("[HostedEnrollment] RETRY: the entitlement read failed, so entitlement is UNKNOWN - " +
-                              "not enrolling and NOT refusing (no tenant minted, no device key issued)");
+                // What would have decided it - the person's teams, or a team's bill - could not be read. The same
+                // temporary condition as an unreadable plan: ask again, never a refusal and never a key.
+                FileLog.Write("[HostedEnrollment] RETRY: remote access could not be read (no tenant minted, no device key issued)");
                 return new EnrollResult(StatusCodes.Status503ServiceUnavailable, null,
-                    "the entitlement service is temporarily unavailable; please try again");
+                    "the entitlement service is temporarily unavailable; please try again", EntitlementUnknownCode);
             }
-
-            // Reachable only where the free plan is not in play - a Gateway wired with no trial ledger at all,
-            // which is the self-host control. On the hosted service a successful pair of reads now yields free
-            // rather than a refusal, which is the whole point of the change: the door below is the plan gate,
-            // not a paywall.
-            if (outcome == Tenancy.EntitlementOutcome.NotEntitled)
+            if (remote == Tenancy.RemoteAccessAnswer.NotGranted)
             {
-                FileLog.Write("[HostedEnrollment] REFUSED: the entitlement read succeeded and this account has no active entitlement (no tenant minted, no device key issued)");
+                FileLog.Write("[HostedEnrollment] REFUSED: the Cockpit or the phone app, on an account with no remote access " +
+                              "(no tenant minted, no device key issued, nothing revoked)");
                 return new EnrollResult(StatusCodes.Status402PaymentRequired, null,
-                    "this account does not have an active hosted subscription");
-            }
-
-            // THE PLAN GATE, and it is a SECOND question the first one cannot answer. Above we established
-            // that this account pays. Here we establish that what it pays for INCLUDES hosted capacity - which
-            // a self-host plan deliberately does not. Both refusals are a 402, but for different reasons: the
-            // first is "you have not paid", this one is "your plan does not include this".
-            //
-            // Without this, every paid plan would provision hosted capacity, because the entitlement read is
-            // tier-agnostic on purpose and passes the plan through unexamined. A self-host subscriber would
-            // then obtain a tenant and a device key - the tunnel, the cockpit, the mobile application - on a
-            // plan priced to exclude exactly that. Nothing would look wrong: enrolment would simply succeed.
-            //
-            // The verdict is not computed here. It is read from the ONE table that owns what a plan grants
-            // (EntitlementScopes), so adding a plan is one edit there and never a new branch at a call site.
-            if (!Tenancy.EntitlementScopes.GrantsHostedGateway(tier))
-            {
-                FileLog.Write("[HostedEnrollment] REFUSED: the account pays, but its plan does not include hosted " +
-                              "gateway capacity (no tenant minted, no device key issued)");
-                return new EnrollResult(StatusCodes.Status402PaymentRequired, null,
-                    "this plan does not include the hosted gateway");
+                    Tenancy.EntitlementRegistry.RemotePlanRequiredError, Tenancy.EntitlementRegistry.RemotePlanRequiredCode);
             }
         }
 
@@ -427,8 +471,8 @@ internal static class HostedEnrollmentEndpoint
     /// <summary>
     /// Set a Director up for a TEAM: the key is bound to the team's tenant, for this person. Refused unless Teams is
     /// released and the role table lets this person run sessions on their own computers in that team - not a member
-    /// and a Collaborator are both refused, with one answer whether or not the team exists. The personal trial and
-    /// paid gate are never reached: a team has no trial, and the team's bill is not read here.
+    /// and a Collaborator are both refused, with one answer whether or not the team exists. The personal account's
+    /// gate is never reached: the team's bill is the team's and is not read here.
     /// </summary>
     private static EnrollResult EnrollIntoTeam(string subject, string teamId, EnrollSignedInRequest req,
         DeviceRegistry devices, TeamEnrollment? teams)
@@ -592,11 +636,12 @@ internal static class HostedEnrollmentEndpoint
     /// registered on the Gateway. On success the old key is revoked FIRST - so it never works again, and a failure
     /// after that point leaves the Director with no working key (it is set up again), never with two - its old tunnel
     /// is cut, and a new key bound to the new team is returned. The permission check is enrollment's:
-    /// <see cref="TeamRefusal"/> for a team, <see cref="PersonalAccountGate"/> for the person's own account.
+    /// <see cref="TeamRefusal"/> for a team, <see cref="PersonalAccountGate"/> for the person's own account. Only a
+    /// Director's key is moved: a browser's or a phone's is refused.
     /// </summary>
     public static EnrollResult Move(string? bearer, MoveDirectorRequest? req, DeviceRegistry devices,
         Tenancy.TenantRegistry tenants, JwtAccessTokenValidator accountTokenValidator, TeamEnrollment teams,
-        Tenancy.EntitlementRegistry? entitlements = null, DateTime? nowUtc = null, Tenancy.TrialRegistry? trials = null)
+        Tenancy.EntitlementRegistry? entitlements = null, DateTime? nowUtc = null)
     {
         ArgumentNullException.ThrowIfNull(devices);
         ArgumentNullException.ThrowIfNull(tenants);
@@ -638,6 +683,17 @@ internal static class HostedEnrollmentEndpoint
         var current = mine[0];
         var from = new TenantId(current.TenantId!);
 
+        // A MOVE IS FOR A DIRECTOR (Pricing Change mission, B2). A browser's or a phone's key is found by the same
+        // lookup, because the Cockpit and phone door registers it under its own device id, and moving one would
+        // re-issue it without that door's remote access question. It is refused, as the Director door refuses to
+        // issue one.
+        var display = devices.DisplayOfDevice(current.DeviceId);
+        if (Tenancy.RemoteAccessRule.IsCockpitOrPhoneDevice(display?.DeviceType))
+        {
+            FileLog.Write("[HostedEnrollment] Move REFUSED: the key named is a browser's or a phone's, not a Director's");
+            return new EnrollResult(StatusCodes.Status400BadRequest, null, DirectorDoorDeviceTypeRefusal, DirectorDoorDeviceTypeCode);
+        }
+
         // Where to: the team named, after the same question enrollment asks, or the person's own account, after its
         // paid gate.
         var teamId = string.IsNullOrWhiteSpace(req.TeamId) ? null : req.TeamId.Trim();
@@ -656,7 +712,7 @@ internal static class HostedEnrollmentEndpoint
         }
         else
         {
-            var refusal = PersonalAccountGate(subject, tenants, entitlements, nowUtc, trials);
+            var refusal = PersonalAccountGate(subject, tenants, entitlements, nowUtc, EnrollDoor.Director, remoteAccess: null);
             if (refusal is not null)
                 return refusal;
             to = tenants.MintOrLookupBySubject(subject, JwtIdentityReader.Read(bearer)?.Email);
@@ -672,7 +728,6 @@ internal static class HostedEnrollmentEndpoint
         // The same step setting a Director up again takes: refused while it has sessions where it is leaving, else
         // the old key revoked and its tunnel cut - BEFORE the new key is issued, so a failure after this point leaves
         // the Director with no working key, never with two.
-        var display = devices.DisplayOfDevice(current.DeviceId);
         var left = LeaveOtherPlaces(subject, directorId, to, newDeviceId, MovedReason, devices, teams);
         if (left.Refusal is not null)
             return left.Refusal;

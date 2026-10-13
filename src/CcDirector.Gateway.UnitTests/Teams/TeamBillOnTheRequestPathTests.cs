@@ -231,6 +231,43 @@ public sealed class TeamBillOnTheRequestPathTests : IDisposable
         Assert.Equal(new[] { new LiveLease(other, Alice) }, leases.LiveLeases().ToArray());
     }
 
+    [Fact]
+    public async Task AuthorizeAsync_InATeam_EveryMemberHasRemoteAccess_WhileTheSamePersonsOwnFreeAccountDoesNot()
+    {
+        // TEAMS ARE UNCHANGED BY THE PRICING CHANGE (B2). A Collaborator, and the Owner of a team with no running bill,
+        // sit on the free tier inside the team - and the free line no longer carries remote access. That must not
+        // reach a team: the team read grants remote access to every member, by one stated line. The same two people's
+        // OWN accounts are personal free accounts created after launch, and those are refused the Cockpit and the phone
+        // while their Directors are still served.
+        //
+        // WHAT THIS PINS, AND WHAT IT CANNOT: it is the lease's rule for a request in a team's tenant. No Cockpit or
+        // phone key is bound to a team's tenant today (that door enrols into the person's own account), so there is no
+        // route to drive this through; the lease is asked directly, with the real team and entitlement registries.
+        //
+        // HOW THIS FAILS ON PURPOSE: read the team lease's remote access from the scope table instead of the stated
+        // line and the three team answers below go to DenyNoRemoteAccess.
+        var launch = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var leases = new HostedAccessLeaseService(_entitlements, _tenants, _revoker, teams: _teamEntitlement,
+            remoteAccess: new RemoteAccessRule(new PreLaunchGrace(launch, CutOffUtc: null)));
+        var now = DateTime.UtcNow;
+        Assert.Equal(EntitlementRegistry.TierFree, _teamEntitlement.Decide(new TenantId(_unpaidTeam), Owner, now).Entitlement!.Tier);
+        Assert.Equal(EntitlementRegistry.TierFree, _teamEntitlement.Decide(new TenantId(_paidTeam), Carol, now).Entitlement!.Tier);
+
+        Assert.Equal(HostedAccessDecision.Allow, await leases.AuthorizeAsync(new TenantId(_unpaidTeam), () => Owner, cockpitOrPhone: true));
+        Assert.Equal(HostedAccessDecision.Allow, await leases.AuthorizeAsync(new TenantId(_paidTeam), () => Carol, cockpitOrPhone: true));
+        Assert.Equal(HostedAccessDecision.Allow, await leases.AuthorizeAsync(new TenantId(_unpaidTeam), () => Carol, cockpitOrPhone: true));
+        // Answered from the lease the read just wrote, as well as by the read.
+        Assert.Equal(HostedAccessDecision.Allow, await leases.AuthorizeAsync(new TenantId(_paidTeam), () => Carol, cockpitOrPhone: true));
+
+        foreach (var person in new[] { Owner, Carol })
+        {
+            var own = _tenants.MintOrLookupBySubject(person, null);
+            Assert.Equal(HostedAccessDecision.DenyNoRemoteAccess, await leases.AuthorizeAsync(own, cockpitOrPhone: true));
+            Assert.Equal(HostedAccessDecision.Allow, await leases.AuthorizeAsync(own));
+        }
+        Assert.Empty(_revoker.Revoked);
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
