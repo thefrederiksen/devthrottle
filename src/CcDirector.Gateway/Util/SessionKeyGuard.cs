@@ -1193,10 +1193,11 @@ public static class SessionKeyGuard
         if (s.Length == 3) return verb is "GET" or "HEAD" or "PUT" or "DELETE";
 
         // /cron/jobs/{id}/run - run it now. /cron/jobs/{id}/runs - its history. /cron/jobs/{id}/plan - a random
-        // schedule's planned fires (#3622).
+        // schedule's planned fires (#3622). /cron/jobs/{id}/unlink - take it off its factory seat (`schedule unlink`);
+        // the route limits a factory's schedule to that factory's own sessions, the same as editing or pausing it.
         if (s.Length == 4)
         {
-            if (s[3] == "run") return verb == "POST";
+            if (s[3] is "run" or "unlink") return verb == "POST";
             if (s[3] is "runs" or "plan") return verb is "GET" or "HEAD";
         }
 

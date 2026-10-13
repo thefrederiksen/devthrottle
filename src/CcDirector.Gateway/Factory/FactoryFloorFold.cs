@@ -195,7 +195,7 @@ public static class FactoryFloorFold
         var seat = f.Seats.First(s => string.Equals(s.Id, id, StringComparison.OrdinalIgnoreCase));
         rows.TryGetValue(id, out var row);
         bay.Title = Clip(seat.Name, 22);
-        bay.Sub = Clip(row?.WhenText ?? "Not scheduled", 30);
+        bay.Sub = Clip(row?.WhenText ?? FactoriesScreenFold.SeatTalkOnly, 30);
         bay.Tone = row?.LastRunTone ?? FactoryTone.Idle;
         bay.ToneText = row?.LastRunText ?? "Not run yet";
         bay.Dashed = node is { Built: false };
