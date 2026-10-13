@@ -69,13 +69,13 @@ Run on devlinux on the rebased branch.
 | `npm run typecheck` | clean, all four workspaces |
 | `npm test --workspace @devthrottle/client-core` | 2,022 passed of 2,022 |
 | `npm test --workspace @devthrottle/cockpit` | 1,122 passed of 1,123. The one red is `src/licenses/fixtures.test.ts`: see below |
-| `python3 -m pytest tools/cc-devthrottle/tests -q -k "factory or schedule"` | PYTEST_RESULT |
+| `python3 -m pytest tools/cc-devthrottle/tests -q -k "factory or schedule"` | 859 passed, 1 skipped |
 
 Beyond the check:
 
 | Command | Result |
 | --- | --- |
-| `dotnet test src/CcDirector.Gateway.UnitTests` (the whole suite) | FULL_RESULT |
+| `dotnet test src/CcDirector.Gateway.UnitTests` (the whole suite) | 11,489 passed, 3 failed, 2 skipped of 11,494. The three reds are below |
 | `python3 -m pytest tools/cc-devthrottle/tests -q -k "help or schedule or factory or axi"` | 2,731 passed, 2 skipped |
 
 **How the commands were run here, where it differs from the mission document:**
@@ -89,6 +89,13 @@ Beyond the check:
   rich --with requests --with ./tools/cc_storage --with ./tools/cc_shared python -m pytest ...`), because this
   machine's Python has no pytest.
 
+**The three reds in the whole Gateway unit suite are in files this branch does not touch**, and none is reached by
+the mission's check: `VoiceUnheardCountTests.NotePlayed_AResetWhoseSaveFailed_IsWrittenAgainByTheNextPlay`,
+`VoiceAutoOffLineTests.ClearForVoiceOn_WhenTheSaveFails_DoesNotThrowAndTheNextVoiceOnWritesIt` and
+`HeldDeliveryDriverTests.ARecordWriteThatThrowsAfterTheClaimMark_IsPressedAgainByTheDriver_ResolvedWithNoRestart`.
+Each makes a save fail and expects the failure; on this Linux machine the save does not fail. They fail the same way
+run alone. They were not run on origin/main here, so "red on main too" is likely and not proven.
+
 **The one red in the Cockpit suite is not this branch's.** `src/licenses/fixtures.test.ts` compares
 `apps/cockpit/src/licenses/fixtures.ts` with `missions/license-switching/cockpit-api.md` and finds 28 examples where
 it expects 16. This branch changes neither file (`git diff origin/main -- apps/cockpit/src/licenses missions` is
@@ -96,7 +103,10 @@ empty), so the test is red on origin/main too. It belongs to the License Switchi
 
 ## Revert proof
 
-REVERT_PROOF
+With the work committed, the factory rule was taken out of the unlink route (the `FactoryNaming.TryAct` call in
+`CronJobEndpoints.cs`), the Gateway rebuilt and `FactorySeatRoutesTests` run: 3 failed, 15 passed. The three are
+exactly the refusals - a session outside the factory, a session in no factory, and a session the Gateway does not
+know yet. Put back and rebuilt: all 54 `FactorySeat` tests pass.
 
 ## Screenshots, from a local Gateway
 
