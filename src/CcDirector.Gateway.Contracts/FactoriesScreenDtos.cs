@@ -599,16 +599,16 @@ public sealed class FactoryProblemItemDto
     /// <summary>The seat and the schedule: "Scout - WarmForward Factory - Scout - daily scan".</summary>
     public string SeatText { get; set; } = "";
 
-    /// <summary>What went wrong: "did not report - its session ended without reporting how the run went".</summary>
+    /// <summary>What went wrong: "Did not report: its session ended without reporting how the run went.".</summary>
     public string What { get; set; } = "";
 
-    /// <summary>When it ran: "Started today 06:15", or "Due today 06:15, never started".</summary>
+    /// <summary>When it ran: "Started Sun 11 Oct 06:15", or "Due Sun 11 Oct 06:15".</summary>
     public string WhenText { get; set; } = "";
 
     /// <summary>The shift: "night shift, Sat 11 Oct, 00:00-08:00".</summary>
     public string ShiftText { get; set; } = "";
 
-    /// <summary>How long it has been open: "open 3h 12m".</summary>
+    /// <summary>How long it has been open: "open 3 hours".</summary>
     public string OpenForText { get; set; } = "";
 
     /// <summary>The session to read, or null when the run never started one.</summary>

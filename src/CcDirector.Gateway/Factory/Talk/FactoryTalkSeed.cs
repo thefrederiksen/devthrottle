@@ -162,7 +162,7 @@ public static class FactoryTalkSeed
         sb.AppendLine();
         sb.Append("- when: due ").Append(At(problem.ScheduledUtc, zone));
         sb.Append(problem.StartedUtc is { } started ? $", started {At(started, zone)}" : ", never started");
-        sb.Append(", in the ").Append(problem.ShiftText).Append("; recorded ").Append(At(problem.RecordedUtc, zone)).AppendLine();
+        sb.Append(", in the ").Append(problem.ShiftText).Append("; recorded ").Append(At(problem.RaisedAtUtc, zone)).AppendLine();
         if (problem.SessionId is { } sid)
         {
             sb.Append("- the session to read: ").Append(sid).AppendLine(". While it is still open, cc-devthrottle session buffer "

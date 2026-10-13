@@ -237,13 +237,13 @@ export interface FactoryProblemItem {
   runId: string;
   /** "Scout - Tallyhand - Scout - daily scan". */
   seatText: string;
-  /** "did not report - its session ended without reporting how the run went". */
+  /** "Did not report: its session ended without reporting how the run went.". */
   what: string;
-  /** "Started today 06:15", or "Due today 06:15, never started". */
+  /** "Started Sun 11 Oct 06:15", or "Due Sun 11 Oct 06:15". */
   whenText: string;
   /** "morning shift, Sun 11 Oct, 08:00-16:00". */
   shiftText: string;
-  /** "open 3h 12m". */
+  /** "open 3 hours". */
   openForText: string;
   sessionId: string | null;
   sessionLabel: string | null;

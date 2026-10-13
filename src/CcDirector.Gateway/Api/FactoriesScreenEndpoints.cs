@@ -65,8 +65,7 @@ internal static class FactoriesScreenEndpoints
                 if (sources.Registry.Find(tenant, factory) is not { } registered) return NotRegistered(factory);
                 var input = Inputs(sources, tenant, FactoryAgentsFold.WindowLast7d, registered.Factory);
                 var dto = FactoriesScreenFold.Page(registered, input);
-                dto.Problems = FactoryProblemsFold.Card(registered, sources.Problems(tenant, registered.Factory),
-                    input.Activity.Zone, input.Activity.NowUtc);
+                dto.Problems = FactoryProblemsFold.Card(registered, sources.Problems(tenant, registered.Factory));
                 dto.Emails = FactoryEmailsFold.Card(registered, sources.Emails(tenant, registered.Factory),
                     input.Activity.Zone, input.Activity.NowUtc);
                 FileLog.Write($"[FactoriesScreenEndpoints] GET page: {registered.Factory} status={dto.StatusWord}, waiting={dto.Waiting.Items.Count}, problems={dto.Problems.Items.Count}, emails={dto.Emails.Items.Count}");

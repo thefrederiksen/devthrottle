@@ -7,8 +7,9 @@ namespace CcDirector.Gateway.Factory;
 /// <summary>
 /// A factory's open problems, as its page shows them (Factory Control, step 1b). It does NOT decide what a problem is,
 /// when one is open, or what its words are - <see cref="CronRunResultFold.Problems"/> does that once for the page, the
-/// morning email and the Factory Manager. This only lays that answer out for the page: who it was, when, how long it
-/// has been open, and the two actions on it - Handle the issue, routed by <see cref="FactoryProblemHandoff"/>, and
+/// morning email and the Factory Manager, and the sentence, the "Started ..." text and the "open ..." text shown here
+/// are that list's own, word for word. This only lays that answer out for the page: the seat by its role word, the
+/// session to read, and the two actions on it - Handle the issue, routed by <see cref="FactoryProblemHandoff"/>, and
 /// Resolve.
 /// </summary>
 public static class FactoryProblemsFold
@@ -18,18 +19,15 @@ public static class FactoryProblemsFold
     /// <summary>The problems card for one factory, from the problems fold's answer for that factory.</summary>
     /// <param name="factory">The registered factory.</param>
     /// <param name="problems">The open problems of this factory, as <c>GET /cron/problems?factory=</c> answers.</param>
-    /// <param name="zone">The account's time zone.</param>
-    /// <param name="nowUtc">Now.</param>
-    public static FactoryPageProblemsDto Card(RegisteredFactoryDto factory, CronRunProblemsDto problems, TimeZoneInfo zone, DateTime nowUtc)
+    public static FactoryPageProblemsDto Card(RegisteredFactoryDto factory, CronRunProblemsDto problems)
     {
         ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(problems);
-        ArgumentNullException.ThrowIfNull(zone);
         var handoff = FactoryProblemHandoff.Route(factory);
         var items = problems.Problems
             .Where(p => p.State == CronRunProblemStates.Open
                         && string.Equals(p.Factory, factory.Factory, StringComparison.OrdinalIgnoreCase))
-            .Select(p => Item(factory, p, handoff, zone, nowUtc))
+            .Select(p => Item(factory, p, handoff))
             .ToList();
         return new FactoryPageProblemsDto
         {
@@ -41,8 +39,7 @@ public static class FactoryProblemsFold
         };
     }
 
-    private static FactoryProblemItemDto Item(RegisteredFactoryDto factory, CronRunProblemDto p,
-        FactoryProblemHandoff.Target handoff, TimeZoneInfo zone, DateTime nowUtc)
+    private static FactoryProblemItemDto Item(RegisteredFactoryDto factory, CronRunProblemDto p, FactoryProblemHandoff.Target handoff)
     {
         // A seat is named by its role word, never its id. A run of a seat the factory no longer has says so in words
         // rather than showing the old id.
@@ -54,12 +51,13 @@ public static class FactoryProblemsFold
         {
             RunId = p.RunId,
             SeatText = seatText,
-            What = string.IsNullOrWhiteSpace(p.Reason) ? p.KindText : $"{p.KindText} - {p.Reason.Trim()}",
-            WhenText = p.StartedUtc is { } started
-                ? $"Started {FactoriesScreenFold.When(started, zone, nowUtc, capital: false)}"
-                : $"Due {FactoriesScreenFold.When(p.ScheduledUtc, zone, nowUtc, capital: false)}, never started",
+            What = p.Sentence,
+            WhenText = p.WhenText,
             ShiftText = p.ShiftText,
-            OpenForText = $"open {CronRunEndingFold.Duration(nowUtc - p.RecordedUtc)}",
+            // The list says how long every OPEN problem has been open, and only open ones are laid out here, so a
+            // missing text means the list was built without its as-of instant.
+            OpenForText = p.OpenForText ?? throw new InvalidOperationException(
+                $"Open problem {p.RunId} carries no open-for text. The problems list sets it on every open problem."),
             SessionId = p.SessionId,
             SessionLabel = p.SessionId is null ? null : FactoryAgentsFold.SessionLabel(p.SessionId),
             NoSessionText = p.SessionId is null ? "No session - the run never started one." : null,

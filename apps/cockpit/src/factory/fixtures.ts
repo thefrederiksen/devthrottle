@@ -408,10 +408,10 @@ export const FACTORY_PAGE: FactoryPageView = {
       {
         runId: "3f1c2b7a-0000-4000-8000-0000000000a1",
         seatText: "Scout - WarmForward - Scout - daily scan (fixture)",
-        what: "did not report - its session ended without reporting how the run went (fixture)",
-        whenText: "Started today 06:15 (fixture)",
+        what: "Did not report: its session ended without reporting how the run went. (fixture)",
+        whenText: "Started Sun 11 Oct 06:15 (fixture)",
         shiftText: "night shift, Sun 11 Oct, 00:00-08:00 (fixture)",
-        openForText: "open 3h 12m (fixture)",
+        openForText: "open 3 hours (fixture)",
         sessionId: "5b0e9d1c-0000-4000-8000-0000000000b2",
         sessionLabel: "5b0e9d1c (fixture)",
         noSessionText: null,

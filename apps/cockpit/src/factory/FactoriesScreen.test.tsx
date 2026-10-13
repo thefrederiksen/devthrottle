@@ -850,10 +850,10 @@ describe("Open problems on a factory's page (Factory Control, step 1b)", () => {
     const item = await screen.findByTestId(`fa-problem-${PROBLEM.runId}`);
     expect(within(screen.getByTestId("fa-page-problems")).getByText("Open problems (fixture)")).toBeTruthy();
     expect(within(item).getByText("Scout - WarmForward - Scout - daily scan (fixture)")).toBeTruthy();
-    expect(within(item).getByText("did not report - its session ended without reporting how the run went (fixture)")).toBeTruthy();
-    expect(within(item).getByText("Started today 06:15 (fixture)")).toBeTruthy();
+    expect(within(item).getByText("Did not report: its session ended without reporting how the run went. (fixture)")).toBeTruthy();
+    expect(within(item).getByText("Started Sun 11 Oct 06:15 (fixture)")).toBeTruthy();
     expect(within(item).getByText("night shift, Sun 11 Oct, 00:00-08:00 (fixture)")).toBeTruthy();
-    expect(within(item).getByText("open 3h 12m (fixture)")).toBeTruthy();
+    expect(within(item).getByText("open 3 hours (fixture)")).toBeTruthy();
     expect(within(item).getByTestId("fa-problem-session").getAttribute("href")).toBe(`/session/${PROBLEM.sessionId}`);
   });
 

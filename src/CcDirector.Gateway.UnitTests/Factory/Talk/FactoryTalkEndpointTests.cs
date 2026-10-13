@@ -71,7 +71,7 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
         Kind = CronRunProblems.DidNotReport,
         KindText = "did not report",
         Reason = "its session ended without reporting how the run went (stopped by you after 12 min)",
-        RecordedUtc = new DateTime(2026, 10, 11, 10, 30, 0, DateTimeKind.Utc),
+        RaisedAtUtc = new DateTime(2026, 10, 11, 10, 30, 0, DateTimeKind.Utc),
         SessionId = "5b0e9d1c-0000-4000-8000-0000000000b2",
         State = CronRunProblemStates.Open,
     };

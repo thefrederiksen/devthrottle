@@ -45,7 +45,12 @@ public sealed class FactoryProblemsFoldTests
         Kind = session is null ? CronRunProblems.DidNotRun : CronRunProblems.DidNotReport,
         KindText = session is null ? "did not run" : "did not report",
         Reason = session is null ? "it was due and never started a session" : "its session ended without reporting how the run went",
-        RecordedUtc = Now.AddHours(-2).AddMinutes(-30),
+        Sentence = session is null
+            ? "Did not run: it was due and never started a session."
+            : "Did not report: its session ended without reporting how the run went.",
+        WhenText = session is null ? "Due Sun 11 Oct 09:00" : "Started Sun 11 Oct 09:01",
+        RaisedAtUtc = Now.AddHours(-2).AddMinutes(-30),
+        OpenForText = state == CronRunProblemStates.Open ? "open 2 hours" : null,
         SessionId = session,
         State = state,
     };
@@ -60,17 +65,17 @@ public sealed class FactoryProblemsFoldTests
     [Fact]
     public void Card_AnOpenProblem_IsLaidOutInTheGatewaysWords()
     {
-        var card = FactoryProblemsFold.Card(Factory("boss"), Answer(Problem()), TimeZoneInfo.Utc, Now);
+        var card = FactoryProblemsFold.Card(Factory("boss"), Answer(Problem()));
 
         var item = Assert.Single(card.Items);
         Assert.Equal("Open problems", card.Heading);
         Assert.Null(card.EmptyText);
         Assert.Equal("3f1c2b7a-0000-4000-8000-0000000000a1", item.RunId);
         Assert.Equal("Scout - Tallyhand - Scout - daily scan", item.SeatText);
-        Assert.Equal("did not report - its session ended without reporting how the run went", item.What);
-        Assert.Equal("Started today 09:01", item.WhenText);
+        Assert.Equal("Did not report: its session ended without reporting how the run went.", item.What);
+        Assert.Equal("Started Sun 11 Oct 09:01", item.WhenText);
         Assert.Equal("morning shift, Sun 11 Oct, 08:00-16:00", item.ShiftText);
-        Assert.Equal("open 2h 30m", item.OpenForText);
+        Assert.Equal("open 2 hours", item.OpenForText);
         Assert.Equal("5b0e9d1c-1111-4000-8000-0000000000b2", item.SessionId);
         Assert.NotNull(item.SessionLabel);
         Assert.Null(item.NoSessionText);
@@ -81,9 +86,9 @@ public sealed class FactoryProblemsFoldTests
     [Fact]
     public void Card_ARunThatNeverStarted_SaysSoAndHasNoSession()
     {
-        var item = Assert.Single(FactoryProblemsFold.Card(Factory("boss"), Answer(Problem(session: null)), TimeZoneInfo.Utc, Now).Items);
+        var item = Assert.Single(FactoryProblemsFold.Card(Factory("boss"), Answer(Problem(session: null))).Items);
 
-        Assert.Equal("Due today 09:00, never started", item.WhenText);
+        Assert.Equal("Due Sun 11 Oct 09:00", item.WhenText);
         Assert.Null(item.SessionId);
         Assert.Null(item.SessionLabel);
         Assert.Equal("No session - the run never started one.", item.NoSessionText);
@@ -93,8 +98,7 @@ public sealed class FactoryProblemsFoldTests
     public void Card_OnlyOpenProblemsOfThisFactory_AreListed()
     {
         var card = FactoryProblemsFold.Card(Factory("boss"),
-            Answer(Problem(state: CronRunProblemStates.Resolved), Problem(state: CronRunProblemStates.Cleared), Problem(factory: "warmforward")),
-            TimeZoneInfo.Utc, Now);
+            Answer(Problem(state: CronRunProblemStates.Resolved), Problem(state: CronRunProblemStates.Cleared), Problem(factory: "warmforward")));
 
         Assert.Empty(card.Items);
         Assert.Equal("No open problems.", card.EmptyText);
@@ -103,7 +107,7 @@ public sealed class FactoryProblemsFoldTests
     [Fact]
     public void Card_AFactoryWithABoss_OffersHandleTheIssue()
     {
-        var handle = Assert.Single(FactoryProblemsFold.Card(Factory("boss"), Answer(Problem()), TimeZoneInfo.Utc, Now).Items).Handle;
+        var handle = Assert.Single(FactoryProblemsFold.Card(Factory("boss"), Answer(Problem())).Items).Handle;
 
         Assert.True(handle.Available);
         Assert.Null(handle.UnavailableText);
@@ -115,7 +119,7 @@ public sealed class FactoryProblemsFoldTests
     [Fact]
     public void Card_AFactoryWithNoBoss_ShowsTheButtonUnavailableWithPlainWords()
     {
-        var handle = Assert.Single(FactoryProblemsFold.Card(Factory(null), Answer(Problem()), TimeZoneInfo.Utc, Now).Items).Handle;
+        var handle = Assert.Single(FactoryProblemsFold.Card(Factory(null), Answer(Problem())).Items).Handle;
 
         Assert.False(handle.Available);
         Assert.Equal("Tallyhand has no boss, so this goes to the Factory Manager, which is not built yet. " +
@@ -196,7 +200,7 @@ public sealed class FactoryProblemsFoldTests
         var f = Factory("boss");
         f.Seats[1].Role = " ";
 
-        var ex = Assert.Throws<InvalidOperationException>(() => FactoryProblemsFold.Card(f, Answer(Problem()), TimeZoneInfo.Utc, Now));
+        var ex = Assert.Throws<InvalidOperationException>(() => FactoryProblemsFold.Card(f, Answer(Problem())));
         Assert.Contains("has no role", ex.Message);
     }
 
@@ -206,7 +210,7 @@ public sealed class FactoryProblemsFoldTests
         var f = Factory("boss");
         f.Seats.RemoveAt(1);
 
-        var item = Assert.Single(FactoryProblemsFold.Card(f, Answer(Problem()), TimeZoneInfo.Utc, Now).Items);
+        var item = Assert.Single(FactoryProblemsFold.Card(f, Answer(Problem())).Items);
 
         Assert.Equal("A seat no longer on this factory - Tallyhand - Scout - daily scan", item.SeatText);
     }
