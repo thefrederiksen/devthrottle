@@ -96,8 +96,11 @@ renewal), `qa-writes/answer-overview-barred.json` (the barred account and the ac
 
 Run on 13 October 2026 on the Windows machine, one at a time, in the foreground:
 
-- `apps/cockpit` (`npx vitest run`): 106 files, **1109 passed, 0 failed**. The page's own are 46: 21 in
-  `LicensesView.test.tsx`, 12 in `LicensesViewRows.test.tsx` and 13 new ones in `LicensesViewWrites.test.tsx`.
+- `apps/cockpit` (`npx vitest run`): 108 files, **1112 passed, 0 failed**. The page's own are 47: 21 in
+  `LicensesView.test.tsx`, 12 in `LicensesViewRows.test.tsx`, 13 new ones in `LicensesViewWrites.test.tsx` and the one
+  of `fixtures.test.ts`, which holds every fixture to its example in the shapes document. Two more are the shared
+  confirmation's own (`components/ConfirmDialog.test.tsx`). These counts are from after the review of this pull
+  request; `../review-3944-answer.md` answers each of its findings.
 - `packages/client-core` (`npx vitest run`): 163 files, **2016 passed, 0 failed**. The client's own are 15, 6 of
   them new.
 - `npm run typecheck` (all four workspaces): clean. `npx eslint` over the changed folders: clean.
@@ -117,8 +120,9 @@ null target on confirmation" is now "selects nothing and never calls Switch now 
 ### Each test proved by breaking the code
 
 `python missions\license-switching\phase-3\mutations.py`; its output is `mutations-output.txt`. It makes one wrong
-change at a time, runs the Licenses tests, records which went red and puts the file back. **57 wrong changes, every
-one caught**: the 31 of the first pull request, all still caught, and these 26:
+change at a time, runs the Licenses tests, records which went red and puts the file back. **61 wrong changes, every
+one caught**: the 31 of the first pull request, all still caught, the 26 below, and 4 from the review of this pull
+request - its two that had left every test green, and one each for the two tests it asked for:
 
 | Wrong change | Tests that went red |
 |---|---|
