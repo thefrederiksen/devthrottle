@@ -252,5 +252,19 @@ one way:
 | `open 23 hours` | `open 22 hours` | counted from when the problem was raised (ten minutes after the start in the sample), not from the run's start |
 | `open 2 days` | `open 38 hours` | the list says hours up to 48, then whole days |
 
+Four more things differ from the approved mockup (the weekday is also noted above). The review of pull request 3919 found them by comparing the
+mockups' visible text with the composed emails:
+
+| The approved mockup | The email now | Why |
+|---|---|---|
+| `open 6 hours` | `open 5 hours` | the same cause as 23 to 22 above: counted from when the problem was raised, not from the run's start |
+| the problem cards in the mockup's own order | the problem cards newest first | the list's order: the run that started last, or was due last if it never started, is first |
+| the factory table with Docs last | the factory table in alphabetical order | one order every time, whichever factories the account has |
+| `Saturday 11 October` | `Sunday 11 October` | a correction: 11 October 2026 is a Sunday, and the email works the weekday out from the date |
+
 `composed-0800.html` and `composed-1600.html` are the email as composed now. `match-0800.png` and `match-1600.png`
-were taken before this and still show the three older wordings.
+were taken before this and still show the older wordings and orders.
+
+**A send that times out** is an attempt like any other. The send client gives up after 30 seconds; the sweep counts
+that attempt, records "The owner-email service did not answer in time", and tries again on the next tick until the
+slot's late window closes. A sweep stopped because the Gateway is shutting down is not counted as a failed send.
