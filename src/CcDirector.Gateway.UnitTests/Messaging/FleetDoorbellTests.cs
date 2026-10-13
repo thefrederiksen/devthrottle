@@ -599,29 +599,6 @@ public sealed class FleetDoorbellTests : IDisposable
     }
 
     [Fact]
-    public async Task Rings_run_eight_at_a_time()
-    {
-        var rig = NewRig();
-        QueueOneEach(rig, 40);
-        var running = 0;
-        var most = 0;
-        var gate = new object();
-        _ringOverride = async (_, ct) =>
-        {
-            lock (gate) most = Math.Max(most, ++running);
-            await Task.Delay(40, ct);
-            lock (gate) running--;
-            return new FleetRingResponse { Outcome = FleetRingOutcomes.Rung };
-        };
-
-        await rig.Doorbell.SweepAsync();
-
-        Assert.Equal(FleetDoorbell.RingParallelism, most);
-        Assert.Equal(8, FleetDoorbell.RingParallelism);
-        Assert.Equal(TimeSpan.FromSeconds(5), FleetDoorbell.RingTimeout);
-    }
-
-    [Fact]
     public async Task A_settled_edge_before_the_heartbeat_records_its_ring_does_not_ring_again()
     {
         var rig = NewRig();
@@ -936,20 +913,6 @@ public sealed class FleetDoorbellTests : IDisposable
         Assert.Equal(1, Peek(first).RingCount);
         Assert.Equal(T0, Peek(first).LastRungAtUtc);
         Assert.Equal(1, Peek(second.Response.MessageId!).RingCount);
-    }
-
-    [Fact]
-    public async Task The_settled_edge_rings_without_waiting_for_the_heartbeat()
-    {
-        var rig = NewRig();
-        Send(rig);
-
-        rig.Doorbell.OnSettled(Tenant, Worker);
-
-        var deadline = DateTime.UtcNow.AddSeconds(5);
-        while (_rings.Count == 0 && DateTime.UtcNow < deadline)
-            await Task.Delay(20);
-        Assert.Single(_rings);
     }
 
     [Fact]

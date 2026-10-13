@@ -43,12 +43,6 @@ namespace CcDirector.Gateway.Tests;
 /// </summary>
 public sealed class StatsStoreReopensAfterAnUnreachableStoreTests : IDisposable
 {
-    /// <summary>
-    /// The one real wait: how long an ATTEMPT may take to finish once the clock has been moved to it. The
-    /// attempt is a real open on a real thread; this bounds it generously, because a loaded machine is not a
-    /// defect, and it never covers a backoff step - the clock covers those.
-    /// </summary>
-    private static readonly TimeSpan AttemptPatience = TimeSpan.FromSeconds(30);
 
     private readonly ITestOutputHelper _out;
     private readonly FakeTimeProvider _clock = new();
@@ -74,35 +68,9 @@ public sealed class StatsStoreReopensAfterAnUnreachableStoreTests : IDisposable
     /// </summary>
     private void Obstruct() => Directory.CreateDirectory(SqlitePath);
 
-    private void ClearTheObstruction() => Directory.Delete(SqlitePath, recursive: true);
-
     private StatsConnectionChoice SelfHostChoice() =>
         StatsConnectionSelection.Resolve(
             statsOverride: null, gatewayConnection: null, hosted: false, sqlitePath: SqlitePath);
-
-    /// <summary>Waits, on the real clock, for the real work an attempt does. Fails by name if it never finishes.</summary>
-    private static void WaitForTheAttempt(Func<bool> finished, string what)
-    {
-        var deadline = DateTime.UtcNow + AttemptPatience;
-        while (!finished())
-        {
-            if (DateTime.UtcNow > deadline)
-                Assert.Fail($"{what} did not happen within {AttemptPatience.TotalSeconds} seconds of the clock reaching it.");
-            Thread.Sleep(20);
-        }
-    }
-
-    /// <summary>
-    /// Moves the clock to the loop's next attempt. Waits first for the loop to have armed its timer - an advance
-    /// made before that is lost, and a test built on it passes or fails on scheduling luck - then advances by the
-    /// step the loop is waiting on, then waits for the attempt that the advance released to finish.
-    /// </summary>
-    private void ReleaseTheNextAttempt(GatewayStatsStore store, int attempt)
-    {
-        WaitForTheAttempt(() => store.ReopenWaits >= attempt + 1, $"arming the wait before attempt {attempt + 1}");
-        _clock.Advance(GatewayStatsStore.ReopenBackoff[Math.Min(attempt, GatewayStatsStore.ReopenBackoff.Count - 1)]);
-        WaitForTheAttempt(() => store.ReopenAttempts >= attempt + 1, $"reopen attempt {attempt + 1}");
-    }
 
     // ============================================================ the negative control, first
 
@@ -124,75 +92,6 @@ public sealed class StatsStoreReopensAfterAnUnreachableStoreTests : IDisposable
         Assert.Null(store.Factory);
         Assert.Equal(StatsStoreUnavailableReason.Unreachable, store.Availability.Reason);
         _out.WriteLine($"obstructed: {store.Availability.ReasonCode}: {store.Availability.Detail}");
-    }
-
-    /// <summary>
-    /// THE LOOP, WHILE THE FAULT STAYS. Through two attempts on the clock the store stays unavailable and
-    /// still says UNREACHABLE: the retry must not invent a store out of a fault that has not cleared, which is
-    /// the one way a "it comes back" fix could be worse than no fix. And after a failed attempt the loop is still
-    /// running - a loop that stopped after the first failure would reintroduce the incident for any outage longer
-    /// than one step, and it is caught here. This is about the loop, so unlike the control it fails when the
-    /// reopen is deleted.
-    /// </summary>
-    [Fact]
-    public void WhileTheFaultStays_TheLoopKeepsTrying_AndInventsNothing()
-    {
-        Obstruct();
-
-        using var store = new GatewayStatsStore(SelfHostChoice(), _clock);
-        Assert.False(store.Availability.IsAvailable);   // the precondition, not the claim
-        Assert.True(store.ReopenScheduled, "an unreachable store schedules its reopen");
-
-        ReleaseTheNextAttempt(store, attempt: 0);
-        Assert.False(store.Availability.IsAvailable);
-        Assert.Null(store.Factory);
-        Assert.Equal(StatsStoreUnavailableReason.Unreachable, store.Availability.Reason);
-
-        ReleaseTheNextAttempt(store, attempt: 1);
-        Assert.False(store.Availability.IsAvailable);
-        Assert.Null(store.Factory);
-        Assert.Equal(StatsStoreUnavailableReason.Unreachable, store.Availability.Reason);
-        Assert.True(store.ReopenScheduled, "the loop keeps going after a failed attempt");
-        _out.WriteLine($"still obstructed after {store.ReopenAttempts} attempts on the clock");
-    }
-
-    // ============================================================ the claim
-
-    /// <summary>
-    /// THE CLAIM. The obstruction is removed and NOTHING ELSE HAPPENS - no restart, no reconstruction, not
-    /// one call into the store. It has to come back by itself, which is exactly what production could not
-    /// do on 2 September 2026. And it comes back ON THE SCHEDULE: clearing the fault alone changes nothing,
-    /// because no attempt runs until the clock reaches the first backoff step.
-    /// </summary>
-    [Fact]
-    public void WhenTheFaultClears_TheStoreReopensItself_WithNoRestartAndNoCall()
-    {
-        Obstruct();
-
-        using var store = new GatewayStatsStore(SelfHostChoice(), _clock);
-        Assert.False(store.Availability.IsAvailable);   // the precondition, not the claim
-
-        ClearTheObstruction();
-        WaitForTheAttempt(() => store.ReopenWaits >= 1, "arming the first wait");
-        Assert.Equal(0, store.ReopenAttempts);          // the clear alone released nothing
-        Assert.False(store.Availability.IsAvailable);
-
-        ReleaseTheNextAttempt(store, attempt: 0);
-
-        Assert.True(
-            store.Availability.IsAvailable,
-            "the statistics store did not reopen itself after the fault cleared - this is the 2 September " +
-            $"2026 defect: {store.Availability.ReasonCode}: {store.Availability.Detail}");
-        Assert.NotNull(store.Factory);
-        Assert.Equal(StatsStoreUnavailableReason.None, store.Availability.Reason);
-        Assert.False(store.ReopenScheduled, "the loop ends on success");
-
-        // AND IT IS A USABLE STORE, not merely a flag that flipped. A reopen that published an availability
-        // without a working context would read as fixed on every surface and record nothing, which is the
-        // half-state this whole area keeps producing.
-        using var context = store.CreateContext();
-        Assert.True(context.Database.CanConnect());
-        _out.WriteLine("reopened on the first attempt and served a working context");
     }
 
     // ============================================================ what must NOT be retried

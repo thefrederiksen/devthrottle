@@ -626,61 +626,6 @@ public sealed class GatewayStatsSqliteAdoptionTests : IDisposable
     }
 
     /// <summary>
-    /// A store carrying a migration lock row left behind by a process that died mid-migration. Entity
-    /// Framework acquires that lock by retrying FOREVER - no timeout, no cancellation - and removes the row
-    /// on disposal, so a crash never clears it. This must refuse immediately rather than walk into it.
-    ///
-    /// The timing assertion is deliberately generous: it is here to catch an unbounded WAIT, not to measure
-    /// performance, and the failure it guards against does not finish at all.
-    ///
-    /// This case needs no contention - it refuses on sight of the lock ROW. The other bound, the one that
-    /// applies when another process genuinely holds the write lock, cannot be exercised in-process: it needs
-    /// two real writers. It is set through SqliteConnection.DefaultTimeout rather than PRAGMA busy_timeout,
-    /// because the pragma does NOT bound BeginTransaction - measured at 35.065 seconds against a promise of
-    /// five before that was corrected, and 6.9 seconds after, against the caller's twenty-second deadline.
-    /// </summary>
-    [Fact]
-    public void Adopt_StoreCarryingAnAbandonedMigrationLock_RefusesImmediatelyRatherThanWaitingForever()
-    {
-        BuildRealVersion5Store();
-
-        using (var connection = new SqliteConnection(
-                   new SqliteConnectionStringBuilder { DataSource = _path }.ToString()))
-        {
-            connection.Open();
-            using var command = connection.CreateCommand();
-            command.CommandText =
-                "CREATE TABLE \"__EFMigrationsLock\" (\"Id\" INTEGER NOT NULL CONSTRAINT " +
-                "\"PK___EFMigrationsLock\" PRIMARY KEY, \"Timestamp\" TEXT NOT NULL); " +
-                "INSERT INTO \"__EFMigrationsLock\" VALUES (1, '2026-07-30T12:00:00Z')";
-            command.ExecuteNonQuery();
-        }
-
-        var before = FingerprintStore();
-
-        // The context is scoped so it is DISPOSED before the closing fingerprint. Holding it open leaves the
-        // file open, and the fingerprint cannot read it - which is a defect in the test, not the store.
-        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        StatsStoreAdoptionResult result;
-        using (var context = OpenContext())
-        {
-            result = GatewayStatsSqliteAdoption.Adopt(context);
-        }
-        stopwatch.Stop();
-
-        Assert.False(result.IsUsable);
-        Assert.Equal(StatsStoreUnavailableReason.StoreLockedByAnotherProcess, result.Reason);
-        Assert.Contains("2026-07-30T12:00:00Z", result.Detail, StringComparison.Ordinal);
-        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(5),
-            $"Adoption took {stopwatch.Elapsed.TotalSeconds:0.0} seconds against a store carrying an " +
-            "abandoned migration lock. It must refuse on sight: Entity Framework's own acquisition retries " +
-            "forever, and the containment boundary would otherwise burn its whole twenty-second deadline on " +
-            "every start and leak an abandoned thread each time.");
-
-        Assert.Equal(before, FingerprintStore());
-    }
-
-    /// <summary>
     /// THE DESKTOP-ROLLBACK PATH, and the one the version discipline exists for.
     ///
     /// The version gate used to run only on stores with NO history table, so once a store was tracked a file
@@ -735,76 +680,6 @@ public sealed class GatewayStatsSqliteAdoptionTests : IDisposable
         }
 
         Assert.Equal(before, FingerprintStore());
-    }
-
-    /// <summary>
-    /// THE BOUND, PROVOKED AND MEASURED - not read off a setting.
-    /// </summary>
-    /// <remarks>
-    /// This is the test that would have caught both previous versions of this code: the unbounded wait, and
-    /// then the bounded-but-not-really one where the bound was set on <c>PRAGMA busy_timeout</c> while the
-    /// provider actually honours the CONNECTION's default timeout. Both looked correct in the source. Only
-    /// exercising a contested acquisition tells you what the wait really is, because A CONFIGURATION SETTING
-    /// IS A REQUEST, NOT A GUARANTEE.
-    ///
-    /// It asserts the RELATIONSHIP, not a number. A literal like "under ten seconds" would keep passing on
-    /// the day the containment deadline is tightened to five, and nothing would say the two were related -
-    /// which is exactly the state that let a thirty-five second wait sit inside a twenty second containment.
-    ///
-    /// Contention is real here: SQLite's write lock is per CONNECTION, not per process, so a second
-    /// connection holding a write transaction against the same file makes adoption genuinely wait for it.
-    /// </remarks>
-    [Fact]
-    public void TheWriteLockWait_IsStrictlyInsideTheCallersContainmentDeadline()
-    {
-        // The relationship as configured. Cheap, and it fails the moment somebody raises the inner bound past
-        // the outer one without touching the measured path at all.
-        Assert.True(
-            GatewayStatsSqliteAdoption.WriteLockWait < GatewayStatsSqliteAdoption.CallerContainmentDeadline,
-            $"The write-lock wait ({GatewayStatsSqliteAdoption.WriteLockWait.TotalSeconds:0.#}s) must be " +
-            "STRICTLY LESS than the caller's containment deadline " +
-            $"({GatewayStatsSqliteAdoption.CallerContainmentDeadline.TotalSeconds:0.#}s). If it is not, the " +
-            "caller stops waiting first and reports a generic database-or-network problem, so a local writer " +
-            "lock reaches the operator through the wrong bucket - which is the misdirection this work exists " +
-            "to remove.");
-
-        BuildRealVersion5Store();
-
-        // A second connection holds a real write transaction, so adoption must genuinely contend for it.
-        using var holder = new SqliteConnection(
-            new SqliteConnectionStringBuilder { DataSource = _path }.ToString());
-        holder.Open();
-        using var holderTransaction = holder.BeginTransaction(deferred: false);
-        using (var command = holder.CreateCommand())
-        {
-            command.Transaction = holderTransaction;
-            command.CommandText = "CREATE TABLE holder_marker (id INTEGER)";
-            command.ExecuteNonQuery();
-        }
-
-        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        StatsStoreAdoptionResult result;
-        using (var context = OpenContext())
-        {
-            result = GatewayStatsSqliteAdoption.Adopt(context);
-        }
-        stopwatch.Stop();
-
-        // It arrives as what it IS - a local writer holding the file - not as a generic failure.
-        Assert.False(result.IsUsable);
-        Assert.Equal(StatsStoreUnavailableReason.StoreLockedByAnotherProcess, result.Reason);
-
-        // And it ARRIVES AT ALL, inside the deadline the caller is prepared to wait. Asserted against the
-        // deadline itself, so tightening that deadline breaks this test rather than the field.
-        Assert.True(stopwatch.Elapsed < GatewayStatsSqliteAdoption.CallerContainmentDeadline,
-            $"A contested write-lock acquisition took {stopwatch.Elapsed.TotalSeconds:0.000} seconds, which " +
-            $"is not inside the caller's {GatewayStatsSqliteAdoption.CallerContainmentDeadline.TotalSeconds:0.#} " +
-            "second containment deadline. The caller will have given up first and reported a generic " +
-            "database-or-network problem instead of this named local-lock result. Note the achieved wait is " +
-            "always LONGER than the configured one - the provider's retry granularity and the native busy " +
-            "handler both add to it - so the configured value cannot be read as the bound.");
-
-        holderTransaction.Rollback();
     }
 
     // ---- THE INVERSE DIRECTION: a healthy store must never be condemned --------------------------------

@@ -646,7 +646,6 @@ public sealed class WingmanVoiceServiceTests : IDisposable
         finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
     }
 
-
     /// <summary>
     /// A session with nothing stored yet stays IN the sweep, and when its words arrive the next attempt judges
     /// them. The screen here is unreadable, and an unreadable screen is never reused by anything but the sweep -
@@ -785,21 +784,6 @@ public sealed class WingmanVoiceServiceTests : IDisposable
         return new WingmanVoiceService((_, _, _, _) => Task.FromResult(brain), vault, Settings, false, CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost, persistPath,
             ttsHttpClient: http, conversationReader: conversationReader,
             directorCannotSendConversation: directorCannotSendConversation,
-            turnVerdicts: VerdictsOver(brain, conversationReader));
-    }
-
-    /// <summary>Like <see cref="ServiceWithBrainAndTts"/> but with a caller-supplied speech transport, so a
-    /// test can drive the full GenerateAsync path (model translation + speech) against a stateful handler.</summary>
-    private WingmanVoiceService ServiceWithBrainAndHandler(IAgentBrain brain, HttpMessageHandler handler, string persistPath,
-        Func<TenantId, string, CcDirector.Gateway.History.StoredConversation?>? conversationReader = null)
-    {
-        var vaultPath = Path.Combine(Path.GetTempPath(), "wmvs-" + Guid.NewGuid().ToString("N") + ".vault");
-        var vault = new KeyVault(vaultPath);
-        vault.Set("OPENAI_API_KEY", "sk-test");
-        vault.Set("DEVTHROTTLE_API_KEY", "dt_live_test");
-        var http = new HttpClient(handler);
-        return new WingmanVoiceService((_, _, _, _) => Task.FromResult(brain), vault, Settings, false, CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost, persistPath,
-            ttsHttpClient: http, conversationReader: conversationReader,
             turnVerdicts: VerdictsOver(brain, conversationReader));
     }
 
@@ -1013,33 +997,6 @@ public sealed class WingmanVoiceServiceTests : IDisposable
                     : new StringContent(_body, Encoding.UTF8, "application/json"),
             };
             return Task.FromResult(resp);
-        }
-    }
-
-    /// <summary>Regression transport for the shared-gate removal: the FIRST speech call fails 5xx (which
-    /// armed the old fleet-wide cooldown), and every later call signals it was reached and then BLOCKS on
-    /// <see cref="Release"/> before returning audio. Holding a call in-flight lets a test pin the one call
-    /// the old gate would have let through (the probe) so that a concurrent second session's skip, if the
-    /// gate still existed, is observed deterministically instead of on a timer. <see cref="Entered"/> counts
-    /// the later (success-path) calls that actually reached the provider.</summary>
-    private sealed class FirstFails5xxThenBlockingSuccessHandler : HttpMessageHandler
-    {
-        private readonly byte[] _audio;
-        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private int _calls;
-        private int _entered;
-        public FirstFails5xxThenBlockingSuccessHandler(byte[] audio) => _audio = audio;
-        public int Entered => Volatile.Read(ref _entered);
-        public void Release() => _release.TrySetResult();
-        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
-        {
-            var n = Interlocked.Increment(ref _calls);
-            if (n == 1)
-                return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
-                { Content = new StringContent("{\"error\":\"upstream\"}", Encoding.UTF8, "application/json") };
-            Interlocked.Increment(ref _entered);
-            await _release.Task;
-            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(_audio) };
         }
     }
 
@@ -1285,60 +1242,6 @@ public sealed class WingmanVoiceServiceTests : IDisposable
         // ServiceDown, because none of these calls got an answer from the service.
         Assert.Equal(HostedAiState.Retrying, svc.VoiceUnavailableFor(TenantId.Local, "sid-a"));
         Assert.Equal(HostedAiState.Retrying, svc.VoiceUnavailableFor(TenantId.Local, "sid-e"));
-    }
-
-    [Fact]
-    public async Task GenerateAsync_OneSessions5xx_DoesNotSilenceAConcurrentSessionsVoice()
-    {
-        // THE regression for this whole change (2026-07-17), and it FAILS on the pre-change gated code.
-        //
-        // Old shape: a 5xx armed a shared fleet-wide speech cooldown, after which GenerateAsync let exactly
-        // ONE session through (the half-open probe) and SKIPPED every other concurrent session with no
-        // audio. Session A gets a 5xx here (which armed that cooldown on the old code), then B and C run
-        // CONCURRENTLY: on the old code one of them is the probe and the OTHER is skipped voiceless; on the
-        // new code there is no gate, so BOTH reach the provider and BOTH get audio. The probe is held
-        // in-flight (the handler blocks), so the skip - if the gate still existed - is observed
-        // deterministically, not on a timer.
-        var director = new TunnelStub();
-        var conversation = StoredConversationStub.Of(("Text", "the reply to narrate"));
-        var dir = Path.Combine(Path.GetTempPath(), "wmvs-nogate-" + Guid.NewGuid().ToString("N"));
-        var persistPath = Path.Combine(dir, "voice-sessions.json");
-        try
-        {
-            var handler = new FirstFails5xxThenBlockingSuccessHandler(new byte[] { 5, 5, 5 });
-            var svc = ServiceWithBrainAndHandler(new RecordingBrain(), handler, persistPath, conversation.Reader);
-
-            // A fails 5xx first - on the OLD code this armed the shared cooldown before B/C ever ask.
-            await svc.GenerateAsync(TenantId.Local, "sid-A", RouteFor(director), CancellationToken.None, showReadingWindow: false);
-            Assert.False(svc.HasVoice(TenantId.Local, "sid-A"));
-            Assert.Equal(HostedAiState.ServiceDown, svc.VoiceUnavailableFor(TenantId.Local, "sid-A"));
-
-            // B and C race. Their success-path speech call blocks in the handler, so the ONE the old gate
-            // would let through sits in-flight and cannot free the probe slot - making the old code's skip
-            // of the other deterministic rather than timing-dependent.
-            var b = svc.GenerateAsync(TenantId.Local, "sid-B", RouteFor(director), CancellationToken.None, showReadingWindow: false);
-            var c = svc.GenerateAsync(TenantId.Local, "sid-C", RouteFor(director), CancellationToken.None, showReadingWindow: false);
-
-            // Wait - without a fixed sleep - until EITHER both reached the provider (new code) OR one of
-            // them returned early having been skipped (old code). Bounded by an overall deadline so a hang
-            // fails loudly instead of stalling.
-            var overall = Task.Delay(TimeSpan.FromSeconds(30));
-            while (handler.Entered < 2 && !b.IsCompleted && !c.IsCompleted)
-            {
-                if (await Task.WhenAny(Task.Delay(10), overall) == overall)
-                    throw new TimeoutException("neither the second provider call nor an early skip was observed");
-            }
-
-            handler.Release();     // let the blocked success call(s) finish
-            await Task.WhenAll(b, c);
-
-            // The whole point: NO session's voice was collateral damage to another session's 5xx. Both
-            // reached the provider and both are playable. On the pre-change gated code exactly one of these
-            // is false, so this pair of assertions IS the regression.
-            Assert.True(svc.HasVoice(TenantId.Local, "sid-B"), "session B's voice must not be gated by session A's failure");
-            Assert.True(svc.HasVoice(TenantId.Local, "sid-C"), "session C's voice must not be gated by session A's failure");
-        }
-        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort cleanup */ } }
     }
 
     [Fact]

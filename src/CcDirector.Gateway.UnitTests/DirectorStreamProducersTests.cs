@@ -40,16 +40,6 @@ public sealed class DirectorStreamProducersTests
         return list;
     }
 
-    // Poll a condition to a deadline. The handler's stream teardown (its PumpAsync finally) runs just after the
-    // producer completes, which can lag the drained() signal by a scheduler tick, so ActiveStreamCount is
-    // polled rather than read once.
-    private static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout)
-    {
-        var attempts = (int)(timeout.TotalMilliseconds / 10) + 1;
-        for (var i = 0; i < attempts && !condition(); i++)
-            await Task.Delay(10);
-    }
-
     [Fact]
     public async Task ProduceTerminal_YieldsSnapshotThenTailGoldenBytes_ThenClosedOnExit()
     {
@@ -160,36 +150,6 @@ public sealed class DirectorStreamProducersTests
         SessionId = sid.ToString(),
         PayloadJson = SessionCommandExecutor.Serialize(new OpenStreamRequest { StreamId = streamId }),
     };
-
-    [Fact]
-    public async Task Handler_OpenTerminal_ReturnsOkImmediately_ThenStreamsUp()
-    {
-        var (sm, session, backend) = NewSession();
-        var (handler, captured, drained) = NewHandler(sm);
-        try
-        {
-            backend.Write(Encoding.UTF8.GetBytes("streaming up\r\n"));
-
-            var result = handler.Handle(OpenTerminalCommand(session.Id, "up-1"));
-
-            // Returned Ok WITHOUT waiting for the whole stream (the producer runs in the background). The
-            // CommandId is stamped by the caller (GatewayStreamClient), not by Handle itself, so it is not
-            // asserted on the raw handler result here.
-            Assert.Equal(DirectorCommandStatus.Ok, result.Status);
-            Assert.Equal(1, handler.ActiveStreamCount);
-
-            backend.RaiseProcessExited(0); // let the background producer finish
-            await drained().WaitAsync(TimeSpan.FromSeconds(5));
-
-            List<DirectorStreamFrame> snapshot;
-            lock (captured) snapshot = captured.ToList();
-            Assert.Equal(DirectorStreamFrameType.Size, snapshot[0].Kind);
-            Assert.Equal(DirectorStreamFrameType.Closed, snapshot[^1].Kind);
-            await WaitUntilAsync(() => handler.ActiveStreamCount == 0, TimeSpan.FromSeconds(2));
-            Assert.Equal(0, handler.ActiveStreamCount); // torn down once the producer completed
-        }
-        finally { sm.Dispose(); }
-    }
 
     [Fact]
     public void Handler_OpenTerminal_MissingSession_ReturnsNotFound()

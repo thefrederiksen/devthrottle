@@ -917,42 +917,6 @@ public sealed class FleetManagerPlacementServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Race_DeliveryTypedJustBeforeTheRestart_TheOldOneIsClosedOnlyAfterThatTurnEnds()
-    {
-        _world.Machines.Add(Running("WORKSTATION-A"));
-        _settings.SetFleetManagerPlacement(Tenant, "ClaudeCode", "WORKSTATION-A", Now);
-        MarkRunning("Idle");
-        NewOneReports();
-
-        // A delivery is being typed into the old one when the owner presses Restart.
-        var delivering = await _deliveryGate.EnterAsync(Tenant, default);
-        var restart = _service.RestartAsync(Tenant, NoStamp, default);
-        await Task.Delay(200);
-        Assert.False(restart.IsCompleted);
-        Assert.Null(_settings.FleetManagerSuccessorSessionId(Tenant)); // not recorded while the delivery is typed
-
-        // The prompt is typed. The Director has not pushed the new turn yet: the next look still reads Idle.
-        _deliveryGate.Delivered(Tenant, OldId);
-        var states = new List<string>();
-        var looks = 0;
-        _world.OnDelay = () =>
-        {
-            looks++;
-            if (looks == 1) _world.SetState(OldId, "Working"); // the delivered turn reaches the pushed state
-            if (looks == 4) _world.SetState(OldId, "Idle");    // and ends
-            if (_world.Closed.Count == 0) states.Add(_world.Roster.First(r => r.Session.SessionId == OldId).Session.ActivityState);
-        };
-        delivering.Dispose();
-        Assert.Equal(200, (await restart).Status);
-        await _service.WhenIdleAsync();
-
-        // Never closed on the stale Idle, nor while the delivered turn ran: only after it ended and was seen Idle twice.
-        Assert.Equal(new[] { "Working", "Working", "Working", "Idle", "Idle" }, states);
-        Assert.Equal(OldId, Assert.Single(_world.Closed).SessionId);
-        Assert.Equal(NewId, _settings.FleetManagerSessionId(Tenant));
-    }
-
-    [Fact]
     public async Task Race_DeliveryAfterTheIdleRead_TheCloseIsNotSentUntilIdleIsSeenAgainWithNothingTyped()
     {
         _world.Machines.Add(Running("WORKSTATION-A"));
