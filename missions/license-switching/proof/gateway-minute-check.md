@@ -216,10 +216,43 @@ origin/main moved once more after that gate (`982091146`) and was merged in; bot
 merged tree and fail the same way, so they are still main's. The default run was not run on its own this round: the
 `-Parked` run is the same suites and three more.
 
+## The second review round
+
+The re-review and its answers are `missions/license-switching/reviews/3923-re-review.md` and
+`3923-round-2-answers.md`. origin/main was merged in first; the shared license files are main's.
+
+| Change | Test | Break, and tests red (of 396) |
+|---|---|---|
+| The host starts a pass every minute; only a tenant whose own check is still waiting is skipped | `TickEveryTenant_WhileOneTenantsDirectorHasNotAnswered_ASecondPassStillChecksAndSwitchesTheOthers` | None in the service turns it red: it holds the behaviour the host relies on, and the host's change is read, not tested |
+| A tenant cannot overlap itself | `NoTarget_WhileTheMailServiceHasNotAnswered_ASecondCheckOfTheSameTenantSendsNoSecondEmail` | The guard never skips: 1 |
+| The email wait is forgotten when the email goes and when the event ends | `NoTarget_TheWaitIsForgotten_SoANewEventStartsAgainAtOneMinute` (2 cases) | Nothing is forgotten: 2 |
+| The wait stops growing at an hour | `NoTarget_TheWaitBetweenTriesStopsGrowingAtAnHour` | The limit raised to ten hours: 1 |
+| A fresh answer is judged by the Gateway's own send time, never the Director's clock | `ApplySwitchReadBack_AFreshAnswer_IsJudgedByTheGatewaysSendTime_NotTheDirectorsClock` (2 cases), `..._NoReportSinceTheCommandWasSent_...`, `..._TheMachineReportedSinceTheCommandWasSent_IsRefused`, `AFreshAnswer_FromADirectorWhoseClockIsBehind_StillSetsTheMachinesAccount` | Judged by the Director's finish time again: 3 |
+| The one send after expiry is counted when it goes | `Restart_AfterNotAfter_ASendThatNeverLeftIsNotTheOneSend_TheDirectorIsStillAskedOnce` | Counted when planned: 1 |
+
+```
+dotnet test src\CcDirector.Gateway.UnitTests\CcDirector.Gateway.UnitTests.csproj --filter "FullyQualifiedName~Tests.Licenses"
+    Passed: 396, Failed: 0      (this branch's tests and the Licenses page's, which came in with main)
+dotnet test src\CcDirector.Gateway.Tests\CcDirector.Gateway.Tests.csproj --filter "FullyQualifiedName~License"
+    Passed: 10, Failed: 0
+.\scripts	est-database.ps1
+    RESULT: GREEN - 70 executed against the throwaway PostgreSQL, none failed, none skipped
+.\scripts	est-local.ps1                    (commit 6488a3105, clean tree)
+    RESULT: FAILED in 1 project - the two guards below; every other suite green
+.\scripts	est-local.ps1 -Parked            (commit 6488a3105, clean tree, 23,253 tests in 16 suites)
+    RESULT: FAILED in 1 project - the same two; 23,251 passed
+```
+
+Every Gateway suite is green: Gateway.Tests 3,066 of 3,066, Gateway.UnitTests 11,040 of 11,040. The two red tests are
+the same two as in the first review round - `GateTestsDoNotDependOnTheMachineTests` and `BackgroundWorkRegisterTests`
+in `CcDirector.Core.UnitTests` - guards that main fails by itself and that name no file this branch touches.
+
 ## What a reviewer should know
 
-- Tenants are decided one after another and their sends go together: a Director that does not answer holds up
-  nobody else (changed in the review round; it used to hold the tenants after it).
+- Tenants are decided one after another and their sends go together, and the host starts a pass every minute whether
+  or not the last one has finished. A Director that does not answer holds up only its own tenant, inside a check and
+  across checks (changed in the two review rounds; it used to hold the tenants after it, and then everyone's next
+  minute).
 - The Gateway marks an event emailed after the mail service confirms. A Gateway that stops between the
   confirmation and the mark sends that one email once more after it starts again. Sending nothing would
   be the worse mistake, so the mark comes second.
