@@ -140,6 +140,15 @@ its window resets), and one can still be chosen by hand; `switchNowText` says so
 | `active` | Its active sign-in (the shape below); null when signed in to none. |
 | `spares` | The spares it holds, in account email order. |
 | `switchInProgress` | Null, or `switchId`, `fromAccountEmail`, `toAccountEmail`, `text` - the switch it is in the middle of and one sentence saying where it stands. The two emails are "" when only the machine's own report says a switch is running. |
+| `heldUntilUtc`, `heldText` | **Both null unless the machine is held out of the automatic switch** because its switch keeps failing the same way (contract section 5.8). Then: the time it is held until, and the Gateway's sentence saying so, why and until when. Show `heldText` on the machine as given; never compare `heldUntilUtc` with now. Switch now is still offered for its account, and still sends the machine a switch at once. |
+
+**A machine that is held** (`heldUntilUtc`, `heldText`). The sentence is "Held out of the automatic switch for
+{how long}, until {yyyy-MM-dd HH:mm UTC}: its switch from {account} to {account} has failed more than once in a row
+({the reason}). Switch now still sends it at once." The reason in brackets is the Gateway's own sentence for the
+machine's reason word, or "the machine's reason word: {word}" when this Gateway has no sentence for it. Both fields
+are null again as soon as the hold has passed, a later switch of the machine is recorded, or the machine reports
+another account as active. They are not in the example below, which shows no machine held; a page built against the
+example reads them as absent, which is the same as null.
 
 A sign-in a machine holds (`LicenseMachineHoldingDto`): `accountEmail`, `isActive`, `signedInAtUtc`, `signedInText`
 ("Signed in 21 days ago", or "Sign-in date not known"), `signInExpiresAtUtc`, `expiryVerdict`, `expiryText`,
@@ -519,10 +528,10 @@ than any window lasts - is not expected to reach it, whatever its reset time.
 | Field | Meaning |
 |---|---|
 | `nextSwitch` | Null when no switch is expected. Otherwise the soonest one: `fromAccountEmail`, `expectedAtUtc`, `window` (`five-hour` or `seven-day`), `windowText` ("5-hour window" or "weekly limit"), `targetAccountEmail` (null when nothing would be switched), `machines` (the machines that would be switched, each the four fields of rule 9). |
-| `nextSwitchText` | The sentence for it, or "No switch is expected.". When there is no target it gives the reason: no account has room, or no machine on the account can be sent a switch. |
+| `nextSwitchText` | The sentence for it, or "No switch is expected.". When there is no target it gives the reason: no account has room, or no machine on the account can be sent a switch. When every machine that could be switched is held because its switch keeps failing (contract section 5.8), the sentence ends "The automatic switch keeps failing and is held: it is tried again in {how long}, at {yyyy-MM-dd HH:mm UTC}. Switch now still sends it at once." - and so does that account's own `nextSwitchText`. |
 | `accounts[]` | Per account: `isInUse`, `isStale`, the two windows, `expectedAtLimitUtc` and `expectedText` (when it is expected to reach 97% on either window), `nextSwitchTargetAccountEmail` and `nextSwitchText` (where its machines go at its next switch). |
 | `accounts[].fiveHour`, `.sevenDay` | The window in the overview's own words - `utilization`, `utilizationText`, `level`, `resetsAtUtc`, `resetsText`, exactly as section 2 gives them for the same window - and then the forecast: `percentPerHour` (null when there is no rate), `rateText` ("28.5% an hour", "Not rising", "No rate yet"), `expectedAtLimitUtc`, `expectedText`. The schedule colours a window by `level` and shows `resetsText`; it never compares `utilization` with 97 or `resetsAtUtc` with now, and it does not need the overview to do either. |
-| `machines[]` | Per machine: `machineId`, `machineName`, `osUser`, `label` (rule 9), `activeAccountEmail`, `nextAccountEmail` (the account it moves to next; null when there is none), `expectedSwitchAtUtc` (null when no switch is expected yet), and `text`, which says it all: "Next: account-b@example.com, in about 2 minutes.", "Next: account-b@example.com, when account-a@example.com reaches its limit. No switch is expected yet.", "Would not be switched now: its last report is too old.", "Signed in to no account, so there is nothing to switch." |
+| `machines[]` | Per machine: `machineId`, `machineName`, `osUser`, `label` (rule 9), `activeAccountEmail`, `nextAccountEmail` (the account it moves to next; null when there is none), `expectedSwitchAtUtc` (null when no switch is expected yet), and `text`, which says it all: "Next: account-b@example.com, in about 2 minutes.", "Next: account-b@example.com, when account-a@example.com reaches its limit. No switch is expected yet.", "Would not be switched now: its last report is too old.", "Signed in to no account, so there is nothing to switch." **For a machine that is held, `text` is its `heldText` of section 2**, and `expectedSwitchAtUtc` is never earlier than the time it is held until. |
 
 ### Example
 
@@ -693,7 +702,7 @@ than any window lasts - is not expected to reach it, whatever its reset time.
 | Field | Meaning |
 |---|---|
 | `entryId` | The row's identity, for the page's list. |
-| `kind`, `kindText` | `switch` (Switch), `spare-added` (Spare added), `spare-removed` (Spare removed), `no-room` (No account had room), `renewal-failed` (Renewal failing). **A kind a later build writes is shown as "Note"** - the row is still listed, and its `summary` is its message. Never branch on a kind you do not know; show `kindText` and `summary`. |
+| `kind`, `kindText` | `switch` (Switch), `spare-added` (Spare added), `spare-removed` (Spare removed), `no-room` (Nothing was switched), `renewal-failed` (Renewal failing). **A kind a later build writes is shown as "Note"** - the row is still listed, and its `summary` is its message. Never branch on a kind you do not know; show `kindText` and `summary`. |
 | `atUtc` | When the Gateway decided the switch or saw the change. |
 | `machineId`, `machineName`, `osUser`, `label` | The machine the row is about, as the four fields of rule 9: `machineId` is the `machineId` of its row in the overview's `machines`, and `label` is what the row's `summary` calls it. One switch of an account is one row per machine, and the page lists one row per machine (section 1). On a row about no machine (a `no-room` row) `machineId` is null and the other three are "". A machine that is no longer listed in the overview still has its identifier and its label here. |
 | `fromAccountEmail`, `toAccountEmail` | A switch's from and to. On `spare-added` and `renewal-failed` only `to` is set (on `renewal-failed` it is the account whose sign-in could not be renewed), on `spare-removed` and `no-room` only `from`. |
@@ -704,6 +713,7 @@ than any window lasts - is not expected to reach it, whatever its reset time.
 | `summary` | The row in one sentence. Always set. |
 | `sendCount`, `lastSentAtUtc` | How many times the command was sent, and when last. |
 | `startedOnMachineAtUtc`, `finishedOnMachineAtUtc`, `exchangeMilliseconds`, `finishedAtUtc` | The timings: the machine's own start and finish, the exchange step alone, and when the row reached its end by the Gateway's clock. Null when not known. |
+| `heldUntilUtc` | On a failed switch row that held its machine out of the automatic switch (contract section 5.8): the time it was held until. Null on every other row. It is a record of the moment, not a state: it stays on the row after the hold has passed. The row's `summary` says it; the page needs nothing else. |
 | `timingText` | "Took 2.0 seconds on the machine (the exchange itself 41 milliseconds)"; null when there is nothing to say. |
 | `verifiedByUsageRead`, `verifiedText` | After the switch the new sign-in answered a usage read; null when the machine gave no answer. `verifiedText` is the sentence, and it is set only on a row whose switch was made (`switched` or `already-active`): "The new sign-in answered a usage read." or "The new sign-in did not answer a usage read." On every other row it is null and the page shows nothing - a switch that was refused or failed carries `verifiedByUsageRead: false` and has nothing to confirm. Show `verifiedText`; never put words to the boolean. |
 
@@ -723,7 +733,16 @@ than any window lasts - is not expected to reach it, whatever its reset time.
 The `summary` of a switch row says "is switching" only while it is `pending` or `unknown`. A switch row in a state
 a later build writes is not said to be under way: its `summary` is its message, or a sentence naming the state.
 
-A `no-room` row is open while its `finishedAtUtc` is null (the account is still out of room), whatever its state word.
+A `no-room` row is open while its `finishedAtUtc` is null (nothing on the account can be switched yet), whatever
+its state word. **It is the row of one event in which a tired account's machines could not be switched, for either
+of two reasons, and its `message` and `summary` say which**: no account had room, or - since the whole-phase review -
+every machine that could be switched is held because its switch keeps failing (contract section 5.8). That is why
+its `kindText` is "Nothing was switched" and no longer "No account had room": the word `no-room` is the stored kind
+and is kept, the label must be true of both.
+
+A failed switch row whose machine was held by it says so at the end of its `summary`: "It was not the first time in
+a row that this switch failed this way, so the automatic switch left {the machine} out until {yyyy-MM-dd HH:mm
+UTC}." The first failure of a run holds nothing and has no such sentence.
 
 A `renewal-failed` row is one FAILURE STREAK of one sign-in on one machine (contract section 8.1): written when a
 machine's renewal of a sign-in is failing and that sign-in ends within three days, and open until the machine
@@ -972,7 +991,9 @@ Nothing is stored by a refused call. A date is kept through every later usage re
 No route: the Gateway stores what each usage report says of a holding's last renewal (contract section 8.1) and the
 overview fills the three fields on that holding. When the sign-in also ends within three days the Gateway emails
 the owner once for that failure streak and writes a `renewal-failed` row in the switch log (section 4); the page
-does nothing for that. A holding whose renewal failed three hours ago, with one day of
+does nothing for that. Sign-ins that become due in the same minute check go out in ONE email, one line each, and
+each still has its own row; the `summary` of each then ends "the owner was emailed, in one email about {N}
+sign-ins". A holding whose renewal failed three hours ago, with one day of
 sign-in left:
 
 ```json

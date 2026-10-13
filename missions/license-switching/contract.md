@@ -472,6 +472,41 @@ Director never acts on the Gateway's out-of-date picture (3.3 step 7).
   `not known` when `SignInExpiresAtUtc` is null. The Gateway folds the verdict and the Cockpit shows it
   as given (`CLAUDE.md` rule 7); the Cockpit does not compare times itself.
 
+### 5.8 A switch that keeps failing the same way
+
+A machine whose Director answers `failed` to the same switch again and again is not sent that switch every minute
+for ever (the whole-phase review, finding one). The rule, exactly as built:
+
+- **What counts.** A switch row that ended `failed` on an ANSWER of the machine's Director: the body's `Outcome`
+  was `failed`, or the Director returned `BadRequest` or `Error` (`director-error`), or its answer could not be read.
+  A switch that was never sent (`director-offline`) is not a failure of the machine and is never held.
+- **In a row.** The machine's switch rows, newest first, whatever asked for them (the minute check or **Switch
+  now**). The run is the rows that are the same failure: the same reason word, the same account switched from and
+  the same account switched to. Anything else ends the run - a switch that worked, another reason, another from or
+  to, a switch that was never sent.
+- **The hold.** The first failure of a run holds nothing. The second holds the machine out of the AUTOMATIC decision
+  for one minute from when that row ended; each further one twice as long - two minutes, four, eight ... up to one
+  hour, and one hour from then on. The time the machine is held until is written on the failed row itself
+  (`license_switch_log.HeldUntilUtc`), so a Gateway that restarts keeps it.
+- **While it lasts.** A hold is in force while its time is ahead, its row is still the machine's latest switch row,
+  and the machine still reports the account the failing switch was from as active. A held machine is left out of the
+  minute check's decision exactly as a stale machine is: it is not sent a switch, and the account's other machines
+  still are. At the hold's time the machine is switched again like any other.
+- **Every machine held is the no-room case.** When a tired account has a target with room, and every machine that
+  could be switched to it is held, nothing is switched and the Gateway treats it as "no account has room": the same
+  event, the same row of kind `no-room` in the log, and the same one-email rule, so the owner is told ONCE for the
+  event and not again while it lasts. The email and the row say what is true - that the switch keeps failing, on
+  which machines, to which account, with which reason and until when each is held - not that no account had room.
+  The event ends as the no-room event ends: when a machine of the account is switched, or the account is no longer
+  tired. A run of failures after that is a new event and a new email. An event that was opened because no account
+  had room is not emailed about again when its cause becomes a switch that keeps failing, nor the other way round:
+  it is one event for as long as nothing can be switched.
+- **Switch now ignores the hold**, as it ignores a bar: a held machine is sent the switch at once. If that fails
+  the same way it is one more failure of the run, and the hold grows.
+- **The page.** The Gateway says it in its own sentences (`cockpit-api.md` sections 2, 3 and 4): on the machine,
+  that it is held, why and until when; in the forecast, where the page shows what is next; and on the failed row of
+  the log. The page compares no times.
+
 ## 6. Rules the contract enforces
 
 1. **The Gateway never receives or stores a sign-in key.** Nothing in this contract carries an access
@@ -514,6 +549,10 @@ Director never acts on the Gateway's out-of-date picture (3.3 step 7).
 | Director keeps switch results for | 24 hours |
 | Clock skew logged above | 2 minutes |
 | A sign-in "expires soon" within (`SignInExpiryWarning`) | 3 days |
+| A machine is held after (5.8) | 2 failures in a row with the same reason, from and to |
+| The hold (5.8) | 1 minute, doubling with each further failure, at most 1 hour |
+
+The two rows for 5.8 are the Gateway's alone (`LicenseStore.FailureHold`); the Director knows nothing of a hold.
 
 These live as named constants in `LicenseMessages.cs` (`LicenseContract.ReportInterval` and so on),
 so the two sides cannot drift.
@@ -557,10 +596,19 @@ is one of `LicenseRenewalErrors`; any other word is stored as `not-known` (`Lice
 a failure reported with no word has none - so the email is keyed on `RenewalFailedAtUtc`, never on the word.
 
 A holding with `RenewalFailedAtUtc` set and `SignInExpiresAtUtc` within `LicenseContract.SignInExpiryWarning`
-(3 days) - or already past - makes the Gateway send the owner ONE email per holding per failure streak (the same
+(3 days) - or already past - makes the Gateway email the owner ONCE for that holding's failure streak (the same
 email channel as "no account has room", `MISSION.md` section 4), and the Licenses page shows the error beside the
 expiry verdict (5.7). A failed renewal is therefore always seen twice: on the page, and by email before the sign-in
 dies. The rule, exactly as built:
+
+- ONE EMAIL FOR EACH CHECK, NOT ONE FOR EACH SIGN-IN (the whole-phase review, finding two). Every holding of one
+  DevThrottle account whose email is due in the same minute check goes into ONE email, one line each: the machine,
+  the account, when the sign-in ends, and the machine's reason. A machine that fails to renew three sign-ins in one
+  night is one email, not three. A holding that becomes due on a later check gets its own email, and the ones
+  already emailed about are not sent again. Each holding still has its own row and its own streak, and every
+  guarantee below holds for each row: every row in one email is marked from the same confirmation of the mail
+  service, an email that fails is tried again as one on its wait, and a Gateway with no account to email records
+  that on every row. One holding alone gets the email it always got.
 
 - A FAILURE STREAK of one sign-in on one machine starts when the Gateway first sees that holding failing inside the
   window. IT ENDS ON SOMETHING PRESENT, NEVER ON SOMETHING MISSING. The Director keeps its failed renewals in memory
@@ -581,8 +629,9 @@ dies. The rule, exactly as built:
   middle of a streak does not email again, and a row recorded as emailed is never changed back. THE ONE EXCEPTION:
   a Gateway that stops between the mail service's confirmation and the row being marked emails once more after it
   restarts. While a Gateway keeps running, an email the mail service confirmed is remembered in memory until its
-  row is marked, so a database that refuses the mark costs no second email. The same holds for the "no account has
-  room" email.
+  row is marked, so a database that refuses the mark costs no second email. For an email about several sign-ins
+  the confirmation is remembered for EVERY one of its rows before the first is marked, so a database that refuses
+  one mark costs no second email for any of them. The same holds for the "no account has room" email.
 - What became of the email is the row's reason word, the same three the "no account has room" row uses:
   `owner-emailed`, `owner-email-failed` (tried again, waiting one minute, then two, four ... up to one hour, or as
   long as the mail service asked; a mail sender that throws counts as a failed send with the same wait),
