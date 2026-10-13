@@ -312,55 +312,6 @@ public sealed class FactoryAgentsFoldTests
     }
 
     [Fact]
-    public void AgentPage_PausedTrigger_IsShownPausedWithResume_AndTheDefinitionSentence()
-    {
-        var rows = new List<FactoryActivityDto> { Row("front-desk", "paused", "Checked - paused, not started", Now.AddMinutes(-5)) };
-        var page = FactoryAgentsFold.AgentPage(Factory, "front-desk",
-            Inputs(rows, new[] { Trigger(paused: true) }, windowKey: FactoryAgentsFold.WindowLast7d));
-
-        Assert.Equal("PAUSED", page.StatusWord);
-        Assert.Equal("resume", page.Pause!.Action);
-        Assert.Equal("Resume factory agent", page.Pause.Label);
-        Assert.Equal("Definition not stored yet - #2177 mission 1", page.DefinitionText);
-        var woken = Assert.Single(page.WokenBy);
-        Assert.Equal("PAUSED", woken.StatusWord);
-        Assert.Contains("/fleet-manager?ask=", page.AskHref);
-    }
-
-    [Fact]
-    public void AgentPage_TheLatestCheckAcrossTriggers_IsSaidOnlyWhenThereAreTwoOrMore()
-    {
-        // One trigger: its own Woken by line says its last check, so the page does not say it a second time.
-        var one = FactoryAgentsFold.AgentPage(Factory, "front-desk",
-            Inputs(Array.Empty<FactoryActivityDto>(), new[] { Trigger() }, windowKey: FactoryAgentsFold.WindowLast7d));
-        Assert.Null(one.LastCheck);
-        Assert.NotEmpty(Assert.Single(one.WokenBy).LastCheck);
-
-        // None: the empty text already says nothing checks for it.
-        var none = FactoryAgentsFold.AgentPage(Factory, "scout",
-            Inputs(Array.Empty<FactoryActivityDto>(), windowKey: FactoryAgentsFold.WindowLast7d));
-        Assert.Null(none.LastCheck);
-
-        // Two: the page says the latest of them.
-        var two = FactoryAgentsFold.AgentPage(Factory, "front-desk",
-            Inputs(Array.Empty<FactoryActivityDto>(), new[] { Trigger(id: "t1"), Trigger(id: "t2") }, windowKey: FactoryAgentsFold.WindowLast7d));
-        Assert.Equal(2, two.WokenBy.Count);
-        Assert.NotNull(two.LastCheck);
-    }
-
-    [Fact]
-    public void AgentPage_NoTrigger_OffersNoPauseAndSaysWhy()
-    {
-        var page = FactoryAgentsFold.AgentPage(Factory, "scout",
-            Inputs(new[] { Row("scout", "started", "Morning batch", Now.AddHours(-1), "s135") }, windowKey: FactoryAgentsFold.WindowLast7d));
-
-        Assert.Null(page.Pause);
-        Assert.NotNull(page.PauseUnavailableText);
-        Assert.NotNull(page.WokenByEmptyText);
-        Assert.Equal("IDLE", page.StatusWord);
-    }
-
-    [Fact]
     public void Factories_ALiveSessionTheAgentStarted_IsWorkingAndItsLastRunIsSummarised()
     {
         var rows = new[]
@@ -453,7 +404,7 @@ public sealed class FactoryAgentsFoldTests
 
         Assert.Equal("Scout v2 - Website Business", factorySession.FactoryAgent!.Text);
         Assert.Equal("Factory agent", factorySession.FactoryAgent.Label);
-        Assert.Equal("/factories/website-business/agents/scout", factorySession.FactoryAgent.Href);
+        Assert.Equal("/factories/website-business/seats/scout", factorySession.FactoryAgent.Href);
         Assert.Null(plain.FactoryAgent);
     }
 }

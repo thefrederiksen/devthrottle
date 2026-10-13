@@ -34,14 +34,24 @@ export function OldFactoryPageRedirect() {
   return <Navigate to={withQuery(tab === undefined ? page : `${page}/${tab}`, params)} replace />;
 }
 
-/** /factory-agents/<factory>/<agent> -> /factories/<factory>/agents/<agent> */
+function seatPage(factory: string, seat: string): string {
+  return `/factories/${encodeURIComponent(factory)}/seats/${encodeURIComponent(seat)}`;
+}
+
+/** /factory-agents/<factory>/<agent> -> /factories/<factory>/seats/<agent> */
 export function OldFactoryAgentRedirect() {
   const { factory = "", agent = "" } = useParams();
   const params = new URLSearchParams(useLocation().search);
-  return (
-    <Navigate
-      to={withQuery(`/factories/${encodeURIComponent(factory)}/agents/${encodeURIComponent(agent)}`, params)}
-      replace
-    />
-  );
+  return <Navigate to={withQuery(seatPage(factory, agent), params)} replace />;
+}
+
+/**
+ * /factories/<factory>/agents/<agent> -> /factories/<factory>/seats/<agent> (Factory Seats mission). The factory
+ * agent's read-only page became the seat page; a bookmark, a link in an old report or a session's factory agent chip
+ * from before then lands on the seat.
+ */
+export function FactoryAgentToSeatRedirect() {
+  const { factory = "", agent = "" } = useParams();
+  const params = new URLSearchParams(useLocation().search);
+  return <Navigate to={withQuery(seatPage(factory, agent), params)} replace />;
 }

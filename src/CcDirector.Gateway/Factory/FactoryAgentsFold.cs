@@ -94,8 +94,6 @@ public sealed class FactoryViewValidationException : Exception
 /// </summary>
 public static class FactoryAgentsFold
 {
-    public const string DefinitionNotStored = "Definition not stored yet - #2177 mission 1";
-
     public const string WindowLast24h = "last-24h";
     public const string WindowLast7d = "last-7d";
     public const string WindowLast30d = "last-30d";
@@ -351,60 +349,10 @@ public static class FactoryAgentsFold
     }
 
     // ---------------------------------------------------------------------------------------------------------
-    // Screen 2: one factory agent
+    // One seat's triggers and numbers. The factory agent's own page (Screen 2) became the seat page
+    // (FactorySeatPageFold, Factory Seats mission); these are the parts of it that page still reads.
 
-    /// <summary>
-    /// A factory agent's page. <paramref name="input"/>'s window is the last 7 days and its rows are this factory's.
-    /// </summary>
-    public static FactoryAgentPageDto AgentPage(string factory, string agent, FactoryFoldInputs input)
-    {
-        ArgumentNullException.ThrowIfNull(input);
-        var title = Title(factory);
-        var triggers = input.Triggers.Where(t => SameId(t.Factory, factory) && SameId(t.FactoryAgent, agent)).ToList();
-        var rows = input.WindowRows.Where(r => SameId(r.Factory, factory) && SameId(r.FactoryAgent, agent))
-            .OrderBy(r => r.OccurredUtc).ToList();
-
-        // Its status is judged on the last day, like its card: seven days of rows would hide a trigger that
-        // stopped checking this morning.
-        var dayAgo = input.NowUtc.AddHours(-24);
-        var lastDay = rows.Where(r => r.OccurredUtc >= dayAgo).ToList();
-        var (word, tone) = AgentStatus(triggers, lastDay, input.LiveSessionIds);
-        var name = AgentName(agent, rows);
-
-        var corrections = AllCorrections(input);
-        var lines = Collapse(rows, input.Window, input.Zone, corrections, rows);
-
-        return new FactoryAgentPageDto
-        {
-            FactoryId = factory,
-            FactoryTitle = title,
-            FactoryHref = MapHref(factory),
-            AgentId = agent,
-            Name = name,
-            StatusWord = word,
-            StatusTone = tone,
-            DefinitionText = DefinitionNotStored,
-            WokenBy = triggers.Select(t => WokenBy(t, input.Window, input.Zone)).ToList(),
-            WokenByEmptyText = triggers.Count == 0
-                ? "No trigger names this factory agent. A schedule, a person or another factory agent may still start it."
-                : null,
-            LastCheck = LastCheck(triggers, input.Window, input.Zone),
-            Last7DaysTitle = "Last 7 days",
-            Last7Days = Last7Days(rows),
-            Pause = PauseFor(triggers, $"the factory agent {name}", "factory agent"),
-            PauseUnavailableText = triggers.Count == 0
-                ? "Nothing to pause: no trigger wakes this factory agent. Pausing one that a schedule starts needs its stored definition (#2177 mission 1)."
-                : null,
-            AskLabel = "Ask the Fleet Manager to change it",
-            AskHref = "/fleet-manager?ask=" + Uri.EscapeDataString(
-                $"Please change the factory agent {name} in {title} ({factory} / {agent}): "),
-            RecentTitle = "Recent activity",
-            Recent = lines.Count > 15 ? lines.Skip(lines.Count - 15).ToList() : lines,
-            RecentEmptyText = lines.Count == 0 ? "Nothing recorded in the last 7 days." : null,
-        };
-    }
-
-    private static FactoryWokenByDto WokenBy(FactoryTriggerFacts t, FactoryWindow window, TimeZoneInfo zone)
+    internal static FactoryWokenByDto WokenBy(FactoryTriggerFacts t, FactoryWindow window, TimeZoneInfo zone)
     {
         string word, tone;
         if (t.Red) { word = "FAULT"; tone = FactoryTone.Red; }
@@ -423,18 +371,7 @@ public static class FactoryAgentsFold
         };
     }
 
-    // The latest check across a factory agent's triggers. Only said when it has two or more: with one, its own "Woken
-    // by" line already says it, and with none the empty text already says nothing checks for it.
-    private static string? LastCheck(IReadOnlyList<FactoryTriggerFacts> triggers, FactoryWindow window, TimeZoneInfo zone)
-    {
-        if (triggers.Count < 2) return null;
-        var last = triggers.Where(t => t.LastCheckUtc is not null).OrderByDescending(t => t.LastCheckUtc).FirstOrDefault();
-        return last is null
-            ? "Never checked"
-            : $"{DateTimeText(last.LastCheckUtc!.Value, zone)} - {last.LastResult ?? "no result"}";
-    }
-
-    private static List<FactoryNumberDto> Last7Days(IReadOnlyList<FactoryActivityDto> rows)
+    internal static List<FactoryNumberDto> Last7Days(IReadOnlyList<FactoryActivityDto> rows)
     {
         var numbers = new List<FactoryNumberDto>
         {
@@ -896,7 +833,7 @@ public static class FactoryAgentsFold
             .OrderBy(Title, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-    private static FactoryPauseDto? PauseFor(IReadOnlyList<FactoryTriggerFacts> triggers, string what, string noun)
+    internal static FactoryPauseDto? PauseFor(IReadOnlyList<FactoryTriggerFacts> triggers, string what, string noun)
     {
         if (triggers.Count == 0) return null;
         if (triggers.All(t => t.Paused))
@@ -926,9 +863,9 @@ public static class FactoryAgentsFold
     /// <summary>A factory's page (the Factories screen's; it once opened on the Map tab, issue #3383).</summary>
     public static string MapHref(string factory) => FactoriesScreenFold.PageHref(factory);
 
-    /// <summary>A factory agent's own page, under its factory's page.</summary>
-    public static string AgentHref(string factory, string agent) =>
-        $"{FactoriesScreenFold.PageHref(factory)}/agents/{Uri.EscapeDataString(agent)}";
+    /// <summary>A factory agent's own page: its seat page (Factory Seats mission). It was a read-only page of its own
+    /// at <c>/factories/&lt;factory&gt;/agents/&lt;agent&gt;</c> until then; the Cockpit redirects that address here.</summary>
+    public static string AgentHref(string factory, string agent) => FactoriesScreenFold.SeatHref(factory, agent);
 
     private static string TriggerText(FactoryTriggerFacts t) =>
         $"Trigger: {t.Name}, every {IntervalText(t.IntervalSeconds)}{(t.Paused ? " (paused)" : "")}";

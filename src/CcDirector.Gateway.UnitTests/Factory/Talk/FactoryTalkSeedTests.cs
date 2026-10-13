@@ -122,7 +122,7 @@ public sealed class FactoryTalkSeedTests
         var seed = FactoryTalkSeed.Compose(f, Nora(f), "cj_a721e6", MorningRun);
 
         Assert.Contains("- the factory's status as the owner sees it on the Factories screen: cc-devthrottle factory status --factory warmforward", seed);
-        Assert.Contains("FAILING, NEEDS YOU, PAUSED or RUNNING", seed);
+        Assert.Contains("FAILING, NEEDS YOU, PAUSED, RUNNING or TALK ONLY", seed);
         Assert.Contains("Say that word to the owner when you open.", seed);
         Assert.Contains("3. Run cc-devthrottle factory status --factory warmforward again.", seed);
         Assert.Contains("and only if it is resolved", seed);

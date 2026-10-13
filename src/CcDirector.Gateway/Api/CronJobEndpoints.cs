@@ -22,6 +22,7 @@ namespace CcDirector.Gateway.Api;
 ///   GET    /cron/jobs/{id}/plan?days=N -> CronPlanDto | 400 (not random, bad days) | 404   (issue #3622)
 ///   PUT    /cron/jobs/{id}       body CronJobDto    -> 200 CronJobDto | 400 | 404
 ///   DELETE /cron/jobs/{id}       -> { id, deleted } | 404
+///   POST   /cron/jobs/{id}/unlink -> CronUnlinkResultDto | 403 | 404 | 409   (take it off its factory seat)
 /// </summary>
 internal static class CronJobEndpoints
 {
@@ -391,6 +392,55 @@ internal static class CronJobEndpoints
                 + "keeps running, and cannot be placed again until its after= names a schedule that exists.";
             FileLog.Write($"[CronJobEndpoints] DELETE /cron/jobs/{id}: {warning}");
             return Results.Json(new { id, deleted = true, warning });
+        });
+
+        // TAKE A SCHEDULE OFF ITS SEAT (Factory Seats mission, phase 1). The owner's ruling of 13 October 2026 is that a
+        // seat may have no schedule, and until this route there was no way to say so: a blank factory on an update
+        // means "said nothing" and keeps the stored one (FactoryNaming). The schedule stays, switched as it was, and
+        // belongs to no factory. It changes what a factory's member is started by, so it obeys the same rule as
+        // pausing or editing it: a person, or a session of that factory.
+        app.MapPost("/cron/jobs/{id}/unlink", (string id, HttpContext ctx) =>
+        {
+            var route = $"POST /cron/jobs/{id}/unlink";
+            var job = store.Get(id);
+            if (job is null)
+                return Results.NotFound(new { error = "no such cron job", id });
+            if (!Api.FactoryNaming.TryAct(ctx, sessionFactoryOf, job.Factory, "schedule", route, out var actError))
+                return actError!;
+            if (string.IsNullOrWhiteSpace(job.Factory))
+            {
+                FileLog.Write($"[CronJobEndpoints] {route}: REFUSED - the schedule is in no factory");
+                return Results.Json(new { error = $"'{job.Name}' is on no seat of any factory, so there is nothing to take off.", id },
+                    statusCode: StatusCodes.Status409Conflict);
+            }
+            var factory = findFactory(ctx, job.Factory);
+            // What an archive switched off is what its Restore switches back on, by id. Taken off now, Restore would
+            // switch on a schedule that is no longer the factory's.
+            if (factory is { ArchivedAtUtc: not null } && factory.ArchivedSchedules.Contains(id, StringComparer.Ordinal))
+            {
+                FileLog.Write($"[CronJobEndpoints] {route}: REFUSED - {job.Factory} is archived and its archive switched this schedule off");
+                return Results.Json(new
+                {
+                    error = $"{factory.Title} is archived, and '{job.Name}' is one of the schedules its archive switched off. " +
+                            "Restore the factory from the Factories screen first, then take the schedule off.",
+                    id,
+                }, statusCode: StatusCodes.Status409Conflict);
+            }
+            var updated = store.Unlink(id);
+            if (updated is null)
+                return Results.NotFound(new { error = "no such cron job", id });
+            var now = DateTime.UtcNow;
+            var stamped = Describe(CronSchedule.StampDisplay(updated, now));
+            StampShifts(ctx, new[] { stamped }, now);
+            var result = new CronUnlinkResultDto
+            {
+                Text = Factory.FactorySeatPageFold.UnlinkedText(job, factory),
+                Factory = job.Factory,
+                Seat = job.Seat,
+                Job = stamped,
+            };
+            FileLog.Write($"[CronJobEndpoints] {route}: taken off {job.Factory}/{job.Seat ?? "none"}, enabled={updated.Enabled}");
+            return Results.Json(result);
         });
 
         FileLog.Write("[CronJobEndpoints] mapped /cron/jobs routes");

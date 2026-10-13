@@ -5201,6 +5201,11 @@ public sealed class GatewayHost : IAsyncDisposable
         Api.FactoriesScreenEndpoints.Map(factoryGate,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             sources: factoriesScreenSources);
+        // One seat's own page (Factory Seats mission): opened from every seat row, with or without a schedule.
+        Api.FactoriesScreenEndpoints.MapSeatPage(factoryGate,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            sources: factoriesScreenSources,
+            memoryNoteCount: (tenant, factory) => _factoryMemory.List(tenant, factory).Count);
         // The owner's actions on a factory (round 2): mark old waiting items handled, archive, restore. Owner-only,
         // and mapped OUTSIDE the gate's group like Talk, so a switch-off refusal can carry a sentence.
         Api.FactoryOwnerActionEndpoints.Map(_app, FactoryAgentsSwitch,

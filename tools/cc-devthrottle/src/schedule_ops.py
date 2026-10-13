@@ -166,6 +166,9 @@ class ScheduleClient:
     def get_plan(self, job_id: str, days: int) -> Dict[str, Any]:
         return self._ok_or_raise(self._request("GET", f"/cron/jobs/{job_id}/plan?days={days}"))
 
+    def unlink_job(self, job_id: str) -> Dict[str, Any]:
+        return self._ok_or_raise(self._request("POST", f"/cron/jobs/{job_id}/unlink"))
+
     def set_enabled(self, job_id: str, enabled: bool) -> Dict[str, Any]:
         job = self.get_job(job_id)
         job["enabled"] = enabled
@@ -831,6 +834,43 @@ def link_job(job_id: str, factory: str, seat: str, json_output: bool) -> None:
     _write_load_warning(linked)
     job_ref = axi_cli.bare(linked.get("id"), "<schedule-id>")
     axi_cli.print_next([f"cc-devthrottle schedule get {job_ref}", "cc-devthrottle factory list"])
+
+
+def unlink_job(job_id: str, json_output: bool) -> None:
+    """Take a schedule off its factory seat (Factory Seats mission). The schedule stays on the Gateway, switched as it
+    was, in no factory; a seat left with no schedule is talk only. The Gateway refuses a session outside that factory,
+    exactly as it refuses one that tries to pause the schedule, and its sentence is shown as it wrote it."""
+    try:
+        answer = _client().unlink_job(job_id)
+    except GatewayError as ex:
+        _fail(str(ex), [_FIND_A_SCHEDULE, "cc-devthrottle factory list"])
+        return
+
+    job = answer.get("job") if isinstance(answer, dict) else None
+    if not isinstance(job, dict) or not isinstance(answer.get("text"), str) or not answer["text"].strip():
+        # Absent is not done: an answer that does not say what happened must never read as "taken off".
+        _fail(
+            f"the Gateway answered the unlink of {_fmt(job_id)} without saying what it did; "
+            "this tool will not report that as taken off.",
+            [f"cc-devthrottle schedule get {axi_cli.bare(job_id, '<schedule-id>')}"],
+        )
+        return
+
+    if json_output:
+        print(json.dumps(answer, indent=2))
+        return
+    axi_cli.write_lines(f"{axi_cli.ascii_text(answer['text'])} ({_fmt(job.get('id'))})")
+    job_ref = axi_cli.bare(job.get("id"), "<schedule-id>")
+    seat, factory = answer.get("seat"), answer.get("factory")
+    put_back = (
+        f"cc-devthrottle schedule link {job_ref} --factory {axi_cli.bare(factory, '<factory>')} "
+        f"--seat {axi_cli.bare(seat, '<seat>')}"
+    )
+    next_commands = [f"cc-devthrottle schedule get {job_ref}", put_back]
+    if job.get("enabled") is True:
+        # It keeps running as a plain schedule, so the command that stops it is offered first.
+        next_commands.insert(0, f"cc-devthrottle schedule disable {job_ref}")
+    axi_cli.print_next(next_commands)
 
 
 def enable_job(job_id: str) -> None:

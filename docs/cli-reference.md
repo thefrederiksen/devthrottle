@@ -1730,7 +1730,7 @@ USAGE: cc-devthrottle factory status [--factory ID] [--json]
 ```
 
 Without `--factory`, one line per registered factory: its id, its status word - exactly one of `FAILING`,
-`NEEDS YOU`, `PAUSED`, `RUNNING`, worst first - what is waiting on the owner, and the line shown under the
+`NEEDS YOU`, `PAUSED`, `RUNNING`, `TALK ONLY`, worst first - what is waiting on the owner, and the line shown under the
 word. With `--factory`, that factory's page: the word, the reason, how many items wait on the owner, then
 every failing item and every waiting item, each with its row id first, who wrote it and when, its subject
 and its words. A failing item with `(no row)` is a schedule that could not start its run; it is not a row,
@@ -1862,7 +1862,17 @@ registered - so register the seat first, then create its schedule:
 cc-devthrottle factory register --manifest factory.json          the seat is in the manifest
 cc-devthrottle schedule create --name "..." ... --factory devthrottle --seat mail-desk
 cc-devthrottle schedule link cj_abc123 --factory devthrottle --seat mail-desk     an existing schedule
+cc-devthrottle schedule unlink cj_abc123                                          take it off its seat again
 ```
+
+**A seat may have no schedule (the owner, 13 October 2026).** `schedule unlink <id>` takes a schedule off
+its seat. The schedule stays on the Gateway, switched on or off as it was, and belongs to no factory: one
+that is switched on keeps running at its times as a plain schedule, so the command offers `schedule
+disable` first. A seat left with no schedule and no trigger reads "Talk only", and a factory nothing is
+scheduled for reads TALK ONLY, not PAUSED. Only a person or a session of that factory may take a schedule
+off, the same rule as pausing it; anyone else is refused with the Gateway's own sentence and nothing
+changes. A schedule that is on no seat is refused rather than answered as done. `--json` prints what the
+Gateway did (`text`, `factory`, `seat`) with the schedule as it is now (`job`).
 
 An unknown factory or seat, a factory without a seat, or a seat without a factory is refused with the
 fix, and nothing is stored. The seat's schedule list that `list` and the Factories screen show is the
