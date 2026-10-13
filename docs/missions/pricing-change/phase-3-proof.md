@@ -173,3 +173,83 @@ without first taking Remote or Pro, or being in grace.
   intent, and nobody has checked the production rows for how many accounts that is.
 - **`TrialRegistry.GrantIfFirstArrival` now has no caller in the product.** It is kept as the ledger's
   one writer and is used by tests to seed a running trial.
+
+## Review findings
+
+The review is `phase-3-review.md` in this folder: no must-fix finding, one should-fix finding and seven
+notes. Every one is answered here. The fix is commit `c13593d67`.
+
+### Should-fix 1: fixed
+
+**What changed.** Either door now refuses a device id that an ACTIVE device of the other class already
+holds on the same account: 409, with
+`{ "error", "code": "device_id_in_use_by_another_device_class" }`. It is refused before any write, so no
+key is issued and the device that holds the id keeps its key. The check is one read
+(`DeviceRegistry.DeviceTypeOfActiveDevice`) placed in `HostedEnrollmentEndpoint.Enroll` straight after
+the scoped device id is computed. It reads the same row, by the same "active" test, that the registration
+would have kept the type of. A row with no active key is not in the way: the registration then writes the
+type the door decided.
+
+This is a new answer a client can meet. A browser or a phone meets it only if its stored install id
+equals a Director's id on the same account, which does not happen by accident.
+
+**Tests, through the real routes, in both directions:**
+
+- `TheCockpitDoor_SentADirectorsDeviceId_Is409_AndNoBrowserIsHandedAKeyThatReadsAsADirectors`: a Remote account's Director is enrolled, the Cockpit signs in with the same device id and is refused; no key is added, the Director's key is still active, still typed `workstation` and still served.
+- `TheDirectorDoor_SentABrowsersDeviceId_Is409_AndNoDirectorIsHandedAKeyThatNeedsRemoteAccess`: the reverse, with the browser's key still active, still typed `browser` and still served.
+- `TheSameDoorSentTheSameDeviceIdAgain_IsServed_AndKeepsItsType`: the control. Signing the same browser in again, or setting the same Director up again, is still 200.
+
+**They fail without the fix.** With the refusal switched off and the project rebuilt, `RemoteAccessMatrixTests`
+answered `Failed: 2, Passed: 33, Total: 35` (the two collision tests); restored and rebuilt,
+`Failed: 0, Passed: 35, Total: 35`.
+
+### Notes 1 and 2: not mine
+
+Both are about the clients' notice (a way to another account, and the wording of "Try again"). They
+belong to the clients' work and to the owner's wording, and I changed nothing for them.
+
+### Note 3 (one database read per Cockpit request while remote access is not known): declined
+
+Accepted as a fact, not changed. The reads last only as long as the outage that causes them and are
+serialised by the lease's gate. Stopping them means holding a "not known" answer for a few seconds,
+which is a new kind of lease with its own expiry and its own tests, and that is not a small or safe edit
+to make inside a review round. It is worth doing with the client honouring `Retry-After`.
+
+### Note 4 (a 502 that should be a 503): fixed at the door, left on the lease path
+
+A failed read of the account's tenant row at the Cockpit and phone door is now 503 with `Retry-After`
+and the code `entitlement_unknown`, the same answer as an unreadable plan. Test:
+`ATenantRowThatCannotBeRead_AtTheCockpitAndPhoneDoor_Is503WithRetryAfter_NeverA502`. With the fix
+reverted and the project rebuilt it failed (`Failed: 1, Passed: 34, Total: 35`); restored,
+`Failed: 0, Passed: 35`.
+
+The lease path (`AccountOfTenant`) is left as it is. It has the shape the read it replaced had before
+this change, it is on the path of every Director request, and changing how a failed tenant read is
+answered there is outside this mission.
+
+### Note 5 (who counts as created before launch): accepted, no code change
+
+It is the design. An account that never reached the hosted Gateway has no tenant row and is not in
+grace. The owner's notice email should say so; that is the Delivery Lead's to carry.
+
+### Note 6 (the grace is not clipped to the cut-off): declined
+
+A lease written just before the cut-off can grant for up to 60 seconds past it, until the sweep. That
+is the same bound as a cancellation, the reviewer calls it acceptable, and no cut-off is set today.
+
+### Note 7 (the matrix test reads the real clock through the product): declined for now
+
+True. Removing it needs a clock injected into the mint, the tenant registry and the lease together,
+which touches product constructors that other work depends on. The verdict cannot change before 2099,
+because every date the tests write is fixed and far from today.
+
+### Runs after the review fix
+
+On commit `c13593d67`, which has origin/main and the clients' branch merged in (so the counts differ from
+the first table: main removed some tests).
+
+| Command | Result line |
+|---|---|
+| `dotnet test src\CcDirector.Gateway.UnitTests\CcDirector.Gateway.UnitTests.csproj --nologo -v q` | `Passed!  - Failed: 0, Passed: 11531, Skipped: 0, Total: 11531, Duration: 6 m 15 s` |
+| The same `CcDirector.Gateway.Tests` filter as before | `Passed!  - Failed: 0, Passed: 165, Skipped: 0, Total: 165, Duration: 2 m 16 s` |
+| `.\scripts\test-local.ps1` | `RESULT: GREEN at commit c13593d67ca0ea908828de6cf3d563292c7a6a19`; ten suites, every one `outcome=Completed`: 1685, 1041, 86, 85, 214, 71, 305, 39, 866 and 74 tests |
