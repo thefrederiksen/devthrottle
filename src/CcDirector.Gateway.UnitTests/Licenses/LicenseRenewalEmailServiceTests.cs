@@ -498,6 +498,24 @@ public sealed class LicenseRenewalEmailServiceTests : IDisposable
         Assert.Throws<ArgumentException>(() => log.RecordEmail(One, Guid.NewGuid(), LicenseGatewayReasonCodes.OwnerEmailFailed, "x", _now));
     }
 
+    [Fact]
+    public async Task ARowRecordedAsEmailed_IsNeverChangedBack_ByALaterResultOfTheSameStreak()
+    {
+        // Two Gateways can check one account in the same minute: the slower one's result must not undo the email.
+        Reports(One, Mac, Failing(A, TwoDays));
+        await Tick();
+        var emailed = TheRow();
+        var log = new LicenseRenewalFailureLog(_db);
+
+        Assert.False(log.RecordEmail(One, emailed.Id, LicenseGatewayReasonCodes.OwnerEmailFailed, "the later result", null));
+        Assert.False(log.RecordEmail(One, emailed.Id, LicenseGatewayReasonCodes.NoOwnerAccount, "the later result", null));
+        Assert.False(log.RecordEmail(One, emailed.Id, LicenseGatewayReasonCodes.OwnerEmailed, "the later result", _now.AddMinutes(1)));
+
+        var row = TheRow();
+        Assert.Equal((LicenseGatewayReasonCodes.OwnerEmailed, emailed.Message, emailed.LastSentAtUtc, 1),
+            (row.ReasonCode, row.Message, row.LastSentAtUtc, row.SendCount));
+    }
+
     private JsonElement LogEntries()
     {
         var ctx = new DefaultHttpContext { RequestServices = new ServiceCollection().AddLogging().BuildServiceProvider() };
