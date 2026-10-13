@@ -186,6 +186,36 @@ awaited a check that was waiting on an answer that never came. It now judges the
 run reported "Passed: 179" of 201, which is why the count of a run is always read beside its total here.
 
 
+### The gate after the review round
+
+```
+dotnet test src\CcDirector.Gateway.UnitTests\CcDirector.Gateway.UnitTests.csproj --filter "FullyQualifiedName~Tests.Licenses"
+    Passed: 201, Failed: 0
+dotnet test src\CcDirector.Gateway.Tests\CcDirector.Gateway.Tests.csproj --filter "FullyQualifiedName~Licenses"
+    Passed: 2, Failed: 0
+.\scripts	est-database.ps1
+    RESULT: GREEN - 70 executed against the throwaway PostgreSQL, none failed, none skipped
+.\scripts	est-local.ps1 -Parked            (commit 20f0a2b09, clean tree, 23,051 tests in 16 suites)
+    RESULT: FAILED in 1 project - 2 tests in CcDirector.Core.UnitTests, neither from this change; 23,049 passed
+```
+
+Every Gateway suite is green: Gateway.Tests 3,058 of 3,058 in its four parts, Gateway.UnitTests 10,846 of 10,846, and
+the three mission route tests that failed once in the first gate passed.
+
+The two red tests are bookkeeping guards that main fails by itself. Neither names a file this branch touches, and
+every file they name is identical to origin/main:
+
+1. `GateTestsDoNotDependOnTheMachineTests` - now "fewer machine-dependent uses than the baseline allows": tests in
+   `GitHubActionsBackendTests.cs`, `SessionKeysAreNeverHeldTests.cs` and `DevReportShapeCheckTests.cs` were fixed on
+   main and the baseline file was not lowered with them. (The `CronRunResultTests.cs` failure of the first gate is
+   gone.)
+2. `BackgroundWorkRegisterTests` - `docs/BackgroundWork.md` says `GitHubActionsBackend.cs` has two waiting sites and
+   the code now has one.
+
+origin/main moved once more after that gate (`982091146`) and was merged in; both guards were run again on the
+merged tree and fail the same way, so they are still main's. The default run was not run on its own this round: the
+`-Parked` run is the same suites and three more.
+
 ## What a reviewer should know
 
 - Tenants are decided one after another and their sends go together: a Director that does not answer holds up

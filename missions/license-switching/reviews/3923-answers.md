@@ -112,3 +112,11 @@ Lead to say whether that is done in the pull request that merges second or as it
   `TheMinuteCheck_WhileSwitchNowsSendIsInFlight_DoesNotSendThatSwitchAgain` awaited a check that waited on an answer
   that never came. It now asserts that the check has finished, so the same break is a red test in seconds.
 - origin/main was merged in again before the gate.
+
+## The gate after this round
+
+License unit tests 201 passed; hosted license tests 2 passed; `.\scripts	est-database.ps1` green, 70 executed, none
+skipped; `.\scripts	est-local.ps1 -Parked` on `20f0a2b09` 23,049 of 23,051. The two red tests are guards main fails
+by itself (a baseline file not lowered after tests were fixed on main, and the background work register one count
+out for `GitHubActionsBackend.cs`); neither names a file this branch touches. The detail is in
+`missions/license-switching/proof/gateway-minute-check.md`.
