@@ -868,21 +868,26 @@ describe("Seats that do not close themselves (Factory Control, step 2)", () => {
 
   it("gives each seat its marker verbatim, coloured by the Gateway's tone", async () => {
     // Seats are named by role words; the boss's seat id here is "boss", never a person's name.
+    // The Seats tab renders the Gateway's shift groups, so the seats are given there: the boss under night, the
+    // Value Hunter under "none".
     const [boss0, hunter0] = FACTORY_SEATS.rows;
+    const boss1 = { ...boss0, seatId: "boss", talk: { ...boss0.talk, seatId: "boss" } };
+    const [night, none] = FACTORY_SEATS.groups;
     screenClient.getFactorySeats.mockResolvedValue({
       ...FACTORY_SEATS,
-      rows: [
-        { ...boss0, seatId: "boss", talk: { ...boss0.talk, seatId: "boss" } },
-        hunter0,
+      rows: [boss1, hunter0],
+      groups: [
+        { ...night, rows: [boss1] },
+        { ...none, rows: [hunter0] },
       ],
     });
     renderAt("/factories/warmforward/seats");
 
     const table = await screen.findByTestId("fa-seats-table");
-    const boss = within(within(table).getByTestId("fa-seat-boss")).getByTestId("fa-seat-closing");
+    const boss = within(within(table).getByTestId("fa-seat-night-boss")).getByTestId("fa-seat-closing");
     expect(boss.textContent).toBe("stayed open 3 of its last 7 runs (fixture)");
     expect(boss.className).toContain("fa-tone-amber");
-    const hunter = within(within(table).getByTestId("fa-seat-value-hunter")).getByTestId("fa-seat-closing");
+    const hunter = within(within(table).getByTestId("fa-seat-none-value-hunter")).getByTestId("fa-seat-closing");
     expect(hunter.textContent).toBe("no runs recorded yet (fixture)");
     expect(hunter.className).toContain("fa-tone-grey");
   });
