@@ -672,6 +672,12 @@ merges; the shapes above are not:
   its sentence, folded like a log row), and the machines left out with the reason for each.
 - Refused: `409` with the refusal word and the same sentence `switchTargets[].unavailableText` or `switchNowText`
   already shows, so the page shows nothing new.
+- **One case the follow-up must close.** The page takes `canSwitchNow` from the picture in which a machine is mid-switch
+  whenever its log row is `pending` or `unknown`. The Switch now method is a little narrower when it decides: a row that
+  is `pending` because the machine's Director is offline was never sent, so it does not hold the machine back. Until the
+  follow-up, the page therefore does NOT offer Switch now for an account whose only machine is waiting for an offline
+  Director, although the route would accept it. The follow-up makes the fold ask the same narrowed picture, so the page
+  offers exactly what the route accepts. The page needs no change for it.
 - **Refused to a session key.** Moving every machine of the owner's subscription to another one is the owner's own
   action, from the Cockpit; `SessionKeyGuard` does not list the route, and a test holds it to that
   (`LicenseGuardTests`).
