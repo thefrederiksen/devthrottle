@@ -298,6 +298,7 @@ delay | src/CcDirector.Gateway.Tests/GhostSessionReapableTests.cs | 1
 fixed-port | src/CcDirector.Gateway.Tests/HealthzTenantLeakTests.cs | 1
 real-clock | src/CcDirector.Gateway.Tests/HealthzTenantLeakTests.cs | 1
 real-clock | src/CcDirector.Gateway.Tests/HelloCapabilityCompatibilityTests.cs | 1
+real-clock | src/CcDirector.Gateway.Tests/HostedAiGateMenuCheckRouteTests.cs | 5
 real-clock | src/CcDirector.Gateway.Tests/HostedCommQueueDenyTests.cs | 1
 real-clock | src/CcDirector.Gateway.Tests/HostedContentReadDenyTests.cs | 1
 delay | src/CcDirector.Gateway.Tests/HostedDictationWiringCanaryTests.cs | 1
@@ -571,7 +572,7 @@ delay | src/CcDirector.Gateway.UnitTests/Teams/Questions/TeamQuestionsTests.cs |
 real-clock | src/CcDirector.Gateway.UnitTests/Teams/Questions/TeamQuestionsTests.cs | 2
 real-clock | src/CcDirector.Gateway.UnitTests/Teams/Reports/TeamReportsTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/Teams/TeamAccessTests.cs | 1
-real-clock | src/CcDirector.Gateway.UnitTests/Teams/TeamBillOnTheRequestPathTests.cs | 9
+real-clock | src/CcDirector.Gateway.UnitTests/Teams/TeamBillOnTheRequestPathTests.cs | 8
 real-clock | src/CcDirector.Gateway.UnitTests/Teams/TeamCallerOwnershipTests.cs | 2
 real-clock | src/CcDirector.Gateway.UnitTests/Teams/TeamDirectorKeyTests.cs | 2
 real-clock | src/CcDirector.Gateway.UnitTests/Teams/TeamDirectorRoutesTests.cs | 2
@@ -581,6 +582,7 @@ real-clock | src/CcDirector.Gateway.UnitTests/Teams/TeamLibraryEndpointsTests.cs
 real-clock | src/CcDirector.Gateway.UnitTests/Teams/TeamRegistryTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/Teams/TeamRequestEndpointsTests.cs | 2
 real-clock | src/CcDirector.Gateway.UnitTests/Teams/TeamSessionHolderRuleTests.cs | 6
+real-clock | src/CcDirector.Gateway.UnitTests/Tenancy/TenantAiGateTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/Throttle/ThrottleLedgerReaderTests.cs | 2
 real-clock | src/CcDirector.Gateway.UnitTests/TranscriptionHistoryTests.cs | 3
 delay | src/CcDirector.Gateway.UnitTests/TunnelStreamLegsTests.cs | 2
