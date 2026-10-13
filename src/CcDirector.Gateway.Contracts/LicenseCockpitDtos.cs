@@ -561,9 +561,17 @@ public sealed class LicenseLogEntryDto
     /// <summary>When the Gateway decided the switch or saw the change.</summary>
     public DateTime AtUtc { get; set; }
 
+    /// <summary>The identifier of the machine's row in the overview's machines; null when the row is about no
+    /// machine. A machine that has since stopped being listed still has its identifier here.</summary>
+    public string? MachineId { get; set; }
+
     /// <summary>The machine the row is about; "" when the row is about no machine.</summary>
     public string MachineName { get; set; } = "";
     public string OsUser { get; set; } = "";
+
+    /// <summary>What to call the machine: see <see cref="LicenseMachineRefDto.Label"/>. "" when the row is about no
+    /// machine. The row's <see cref="Summary"/> calls it this.</summary>
+    public string Label { get; set; } = "";
 
     public string FromAccountEmail { get; set; } = "";
     public string ToAccountEmail { get; set; } = "";

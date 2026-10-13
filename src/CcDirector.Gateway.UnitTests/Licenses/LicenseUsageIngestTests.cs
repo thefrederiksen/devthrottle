@@ -155,6 +155,105 @@ public sealed class LicenseUsageIngestTests : IDisposable
         Assert.Null(StoredFiveHour());
     }
 
+    // ---- a number or a read time that cannot be a reading ----
+
+    public static TheoryData<string, double, double?, int> ReadingsThatCannotBe() => new()
+    {
+        // what, the 5-hour number, the extra usage number, seconds the read time is after the sent time
+        { "not a number", double.NaN, null, 0 },
+        { "infinite", double.PositiveInfinity, null, 0 },
+        { "minus infinite", double.NegativeInfinity, null, 0 },
+        { "the reviewer's -1e308", -1e308, null, 0 },
+        { "the reviewer's 1e308", 1e308, null, 0 },
+        { "just below nought", -0.001, null, 0 },
+        { "just above the most", LicenseUsageIngest.MaxUtilization + 0.001, null, 0 },
+        { "an extra usage number that is infinite", 10, double.PositiveInfinity, 0 },
+        { "read one second after it was sent", 10, null, 1 },
+    };
+
+    [Theory]
+    [MemberData(nameof(ReadingsThatCannotBe))]
+    public void Ingest_AUsageNumberOrAReadTimeThatCannotBeAReading_IsRefused_AndStoresNothing(string what, double fiveHour, double? extraUsage, int readSecondsAfterSent)
+    {
+        var holding = Holding(A, true, fiveHour, readAt: T0.AddSeconds(readSecondsAfterSent));
+        holding.ExtraUsage = new CcDirector.Gateway.Contracts.LicenseExtraUsage { IsEnabled = true, Utilization = extraUsage };
+
+        Assert.True(LicenseIngestOutcome.Malformed == _ingest.Ingest(Tenant, "dir-1", "conn-1", 1, Report("m1", holding, Holding(B, false)), T0), what);
+        Assert.Null(StoredFiveHour());
+    }
+
+    [Fact]
+    public void Ingest_TheSevenDayNumberIsHeldToTheSameRule()
+    {
+        Assert.Equal(LicenseIngestOutcome.Malformed,
+            _ingest.Ingest(Tenant, "dir-1", "conn-1", 1, Report("m1", Holding(A, true, 10, sevenDay: double.PositiveInfinity)), T0));
+        Assert.Null(StoredFiveHour());
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(100)]
+    [InlineData(103.5)]                            // the provider can pass 100 a little
+    [InlineData(LicenseUsageIngest.MaxUtilization)]
+    public void Ingest_AUsageNumberAtEitherEdgeOfWhatIsAllowed_IsAccepted(double fiveHour)
+    {
+        Assert.Equal(LicenseIngestOutcome.Accepted, _ingest.Ingest(Tenant, "dir-1", "conn-1", 1, Report("m1", Holding(A, true, fiveHour)), T0));
+        Assert.Equal(fiveHour, StoredFiveHour());
+    }
+
+    [Fact]
+    public void Ingest_AReadTimeIsJudgedAgainstTheReportsOwnSentTime_AtEachEdge()
+    {
+        // Read at the very moment it was sent, and read exactly the longest allowed before it: both are readings.
+        Assert.Equal(LicenseIngestOutcome.Accepted, _ingest.Ingest(Tenant, "dir-1", "conn-1", 1, Report("m1", Holding(A, true, 10, readAt: T0)), T0));
+        Assert.Equal(LicenseIngestOutcome.Accepted,
+            _ingest.Ingest(Tenant, "dir-1", "conn-1", 2, Report("m1", Holding(A, true, 11, readAt: T0 - LicenseUsageIngest.MaxReadingAge)), T0));
+        // One second older than that is not.
+        Assert.Equal(LicenseIngestOutcome.Malformed,
+            _ingest.Ingest(Tenant, "dir-1", "conn-1", 3, Report("m1", Holding(A, true, 12, readAt: T0 - LicenseUsageIngest.MaxReadingAge - TimeSpan.FromSeconds(1))), T0));
+        Assert.Equal(11, StoredFiveHour());
+    }
+
+    [Fact]
+    public void Ingest_AMachineWhoseWholeClockIsWrong_IsStillAccepted_BecauseItsReadTimeIsNotAfterItsOwnSentTime()
+    {
+        // A clock 400 days fast moves the sent time and the read time together. That is a wrong clock, which the
+        // skew correction handles - not a defect, and not refused.
+        var fast = T0.AddDays(400);
+
+        Assert.Equal(LicenseIngestOutcome.Accepted,
+            _ingest.Ingest(Tenant, "dir-1", "conn-1", 1, Report("m1", fast, Holding(A, true, 10, readAt: fast.AddSeconds(-2))), T0));
+        Assert.False(new LicenseReadModel(_store).Read(Tenant, T0.AddSeconds(1)).Accounts.Single().IsStale);
+        Assert.True(new LicenseReadModel(_store).Read(Tenant, T0.AddMinutes(7)).Accounts.Single().IsStale); // and it does go stale
+    }
+
+    [Theory]
+    [InlineData(false)]   // the read time in the last minutes of the year 9999, sent on time
+    [InlineData(true)]    // the same with the whole clock there: the sum of the read time and the correction
+    public void Ingest_AReadTimeAtTheEdgeOfTheCalendar_IsRefusedOrCorrected_AndNeverThrows(bool wholeClock)
+    {
+        var edge = DateTime.SpecifyKind(DateTime.MaxValue, DateTimeKind.Utc).AddMinutes(-3);
+        var sent = wholeClock ? edge.AddMinutes(1) : T0;
+
+        var outcome = _ingest.Ingest(Tenant, "dir-1", "conn-1", 1, Report("m1", sent, Holding(A, true, 50, readAt: edge)), T0);
+
+        Assert.Equal(wholeClock ? LicenseIngestOutcome.Accepted : LicenseIngestOutcome.Malformed, outcome);
+        if (wholeClock)
+            Assert.Equal(T0.AddMinutes(-1), new LicenseReadModel(_store).Read(Tenant, T0).Accounts.Single().Freshest!.JudgedReadAtUtc);
+    }
+
+    [Fact]
+    public void Ingest_AReadTimeAtTheStartOfTheCalendar_IsRefused_AndNeverThrows()
+    {
+        var start = DateTime.SpecifyKind(DateTime.MinValue, DateTimeKind.Utc).AddMinutes(3);
+
+        // Sent on time, and sent from a clock that is itself years slow: the sum would pass the start of the calendar.
+        Assert.Equal(LicenseIngestOutcome.Malformed, _ingest.Ingest(Tenant, "dir-1", "conn-1", 1, Report("m1", Holding(A, true, 50, readAt: start)), T0));
+        Assert.Equal(LicenseIngestOutcome.Malformed,
+            _ingest.Ingest(Tenant, "dir-1", "conn-1", 2, Report("m1", T0.AddYears(-20), Holding(A, true, 50, readAt: start)), T0));
+        Assert.Null(StoredFiveHour());
+    }
+
     [Fact]
     public void Ingest_NullReport_IsRefused()
         => Assert.Equal(LicenseIngestOutcome.Malformed, _ingest.Ingest(Tenant, "dir-1", "conn-1", 1, null, T0));

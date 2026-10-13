@@ -357,6 +357,12 @@ public static class LicenseDisplayFold
             ExpiryVerdict = holding.ExpiryVerdict,
             ExpiryText = expiryText,
             ExpiryTone = expiryTone,
+            // A failed renewal of this sign-in: null when the last renewal worked or is not known. The Gateway does not
+            // store what a report says of a renewal yet, so it is not known for any holding. The pull request that
+            // stores it fills these three in here.
+            RenewalFailedAtUtc = null,
+            RenewalFailedText = null,
+            RenewalFailedTone = null,
             IsReadingStale = holding.IsReadingStale,
             ReadError = holding.ReadError,
             ReadErrorText = ReadErrorText(holding.ReadError, null),
@@ -552,9 +558,36 @@ public static class LicenseDisplayFold
 
     /// <summary>One row of the switch log in words. A row of a kind, a state or a reason this build does not know is
     /// still a row: its kind is "Note", its state and reason are the stored words, and its summary is its message.</summary>
-    public static LicenseLogEntryDto LogEntry(LicenseSwitchLogEntity row)
+    public static LicenseLogEntryDto LogEntry(LicenseSwitchLogEntity row) => LogEntry(row, NoRepeatedNames);
+
+    private static readonly IReadOnlySet<string> NoRepeatedNames = new HashSet<string>();
+
+    /// <summary>
+    /// One page of the log in words, each row's machine called what the overview calls it: its name, with the
+    /// operating system user in brackets when another machine has the same name. <paramref name="machines"/> is every
+    /// machine of the account; the machines of the rows themselves count too, so two users of a machine that is no
+    /// longer listed are still told apart.
+    /// </summary>
+    public static List<LicenseLogEntryDto> LogEntries(IReadOnlyList<LicenseSwitchLogEntity> rows,
+        IReadOnlyList<(string MachineName, string OsUser)> machines)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(machines);
+        var repeated = machines
+            .Concat(rows.Where(r => r.MachineName.Length > 0).Select(r => (r.MachineName, r.OsUser)))
+            .Select(m => (Name: m.Item1.ToLowerInvariant(), User: m.Item2.ToLowerInvariant()))
+            .Distinct()
+            .GroupBy(m => m.Name, StringComparer.Ordinal)
+            .Where(g => g.Count() > 1)
+            .Select(g => g.Key)
+            .ToHashSet(StringComparer.Ordinal);
+        return rows.Select(r => LogEntry(r, repeated)).ToList();
+    }
+
+    private static LicenseLogEntryDto LogEntry(LicenseSwitchLogEntity row, IReadOnlySet<string> repeatedNames)
     {
         ArgumentNullException.ThrowIfNull(row);
+        var label = repeatedNames.Contains(row.MachineName.ToLowerInvariant()) ? $"{row.MachineName} ({row.OsUser})" : row.MachineName;
         var (stateText, stateTone) = row.State switch
         {
             LicenseLogStates.Pending when row.ReasonCode == LicenseGatewayReasonCodes.DirectorOffline => ("Waiting for the machine", LicenseTones.Warning),
@@ -581,8 +614,10 @@ public static class LicenseDisplayFold
             Kind = row.Kind,
             KindText = kindText,
             AtUtc = Utc(row.CreatedAtUtc),
+            MachineId = row.MachineId == Guid.Empty ? null : row.MachineId.ToString("N"),
             MachineName = row.MachineName,
             OsUser = row.OsUser,
+            Label = label,
             FromAccountEmail = row.FromAccountEmail,
             ToAccountEmail = row.ToAccountEmail,
             Why = row.Reason,
@@ -603,12 +638,14 @@ public static class LicenseDisplayFold
             Summary = row.Kind == LicenseLogKinds.Switch
                 ? row.State switch
                 {
-                    LicenseLogStates.Switched => $"{row.MachineName} switched from {row.FromAccountEmail} to {row.ToAccountEmail}.",
-                    LicenseLogStates.AlreadyActive => $"{row.MachineName} was already on {row.ToAccountEmail}.",
-                    LicenseLogStates.Failed => $"{row.MachineName} was not switched from {row.FromAccountEmail} to {row.ToAccountEmail}.",
-                    LicenseLogStates.Pending or LicenseLogStates.Unknown => $"{row.MachineName} is switching from {row.FromAccountEmail} to {row.ToAccountEmail}.",
+                    LicenseLogStates.Switched => $"{label} switched from {row.FromAccountEmail} to {row.ToAccountEmail}.",
+                    LicenseLogStates.AlreadyActive => $"{label} was already on {row.ToAccountEmail}.",
+                    LicenseLogStates.Failed => $"{label} was not switched from {row.FromAccountEmail} to {row.ToAccountEmail}.",
+                    LicenseLogStates.Pending or LicenseLogStates.Unknown => $"{label} is switching from {row.FromAccountEmail} to {row.ToAccountEmail}.",
                     // A state this build does not know: what happened is not known here, so nothing is claimed.
-                    _ => message ?? $"{row.MachineName}: a switch from {row.FromAccountEmail} to {row.ToAccountEmail}, in a state this Gateway does not know ({stateText}).",
+                    _ => message ?? (string.IsNullOrWhiteSpace(row.State)
+                        ? $"{label}: a switch from {row.FromAccountEmail} to {row.ToAccountEmail}, with no state recorded."
+                        : $"{label}: a switch from {row.FromAccountEmail} to {row.ToAccountEmail}, in a state this Gateway does not know ({row.State})."),
                 }
                 : message ?? kindText,
             SendCount = row.SendCount,

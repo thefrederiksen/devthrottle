@@ -116,7 +116,7 @@ public static class LicenseEndpoints
             // One more row than the page holds says whether an older page exists, without a second query.
             var rows = store.ListLogPage(tenant, cursor.UntilUtc, cursor.Skip, limit + 1);
             var hasMore = rows.Count > limit;
-            var entries = rows.Take(limit).Select(LicenseDisplayFold.LogEntry).ToList();
+            var entries = LicenseDisplayFold.LogEntries(rows.Take(limit).ToList(), store.ListMachineNames(tenant));
             var empty = string.IsNullOrEmpty(cursorText) && entries.Count == 0;
             FileLog.Write($"[LicenseEndpoints] GET log: tenant={tenant.ToLogString()}, entries={entries.Count}, hasMore={hasMore}");
             return Results.Json(new LicenseLogResponse

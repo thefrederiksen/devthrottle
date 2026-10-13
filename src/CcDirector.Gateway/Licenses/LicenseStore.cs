@@ -323,6 +323,19 @@ public sealed class LicenseStore
         }, rows => $"count={rows.Count}");
     }
 
+    /// <summary>The machine name and operating system user of every machine of this account, for naming the machines
+    /// of the log's rows the way the overview names them.</summary>
+    public IReadOnlyList<(string MachineName, string OsUser)> ListMachineNames(TenantId tenant)
+    {
+        return Logged(nameof(ListMachineNames), $"tenant={tenant.ToLogString()}", () =>
+        {
+            using var ctx = _db.CreateContext(tenant);
+            return (IReadOnlyList<(string, string)>)ctx.LicenseMachines.AsNoTracking()
+                .Select(m => new { m.MachineName, m.OsUser }).ToList()
+                .Select(m => (m.MachineName, m.OsUser)).ToList();
+        }, rows => $"count={rows.Count}");
+    }
+
     /// <summary>Record one send of an OPEN switch: the count, the time and the Director. False when it is no longer open.</summary>
     public bool RecordSend(TenantId tenant, string switchId, string directorId, DateTime nowUtc)
     {

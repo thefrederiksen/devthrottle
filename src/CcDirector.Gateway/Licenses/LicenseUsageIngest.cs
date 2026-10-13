@@ -222,6 +222,43 @@ public sealed class LicenseUsageIngest
         if (report.Holdings.Count(h => h.IsActive) > 1) return "more than one active holding";
         if (!string.IsNullOrWhiteSpace(report.SwitchInProgressId) && !LicenseContract.SwitchIdShape.IsMatch(report.SwitchInProgressId.Trim()))
             return "a switch in progress id of the wrong shape";
+        return report.Holdings.Select(h => UnreadableReading(h, report.SentAtUtc)).FirstOrDefault(why => why is not null);
+    }
+
+    /// <summary>The most a usage number may be. The provider reports 0 to 100 and can pass 100 a little; nothing real
+    /// is near this.</summary>
+    public const double MaxUtilization = 1000;
+
+    /// <summary>The longest a reading may be older than the report that carries it. A holding whose read keeps failing
+    /// carries its last good read time for as long as that lasts; nothing real is near this.</summary>
+    public static readonly TimeSpan MaxReadingAge = TimeSpan.FromDays(3650);
+
+    /// <summary>
+    /// Why one holding's numbers or read time cannot be a reading, or null when they can. Everything downstream - the
+    /// rate, the forecast, the staleness of an account - does arithmetic on these, so what is refused here cannot
+    /// become an infinite rate, a date past the end of the calendar or a reading that is never stale:
+    /// a usage number that is not a number, is below 0 or is above <see cref="MaxUtilization"/>; a read time LATER than
+    /// the report's own sent time (one clock wrote both, so that is a defect, not a wrong clock); and a read time more
+    /// than <see cref="MaxReadingAge"/> before it. Both times are judged against the report's sent time, never a clock.
+    /// </summary>
+    internal static string? UnreadableReading(LicenseHolding holding, DateTime sentAtUtc)
+    {
+        static bool Bad(double? value) => value is { } v && (!double.IsFinite(v) || v < 0 || v > MaxUtilization);
+        if (Bad(holding.FiveHour?.Utilization) || Bad(holding.SevenDay?.Utilization) || Bad(holding.ExtraUsage?.Utilization))
+            return "a usage number that is not between 0 and " + MaxUtilization;
+        if (holding.ReadAtUtc is not { } readAt)
+            return null;
+        var read = Utc(readAt);
+        var sent = Utc(sentAtUtc);
+        if (read > sent) return "a read time later than the report's sent time";
+        if (sent - read > MaxReadingAge) return "a read time more than ten years before the report's sent time";
         return null;
     }
+
+    private static DateTime Utc(DateTime value) => value.Kind switch
+    {
+        DateTimeKind.Utc => value,
+        DateTimeKind.Unspecified => DateTime.SpecifyKind(value, DateTimeKind.Utc),
+        _ => value.ToUniversalTime(),
+    };
 }

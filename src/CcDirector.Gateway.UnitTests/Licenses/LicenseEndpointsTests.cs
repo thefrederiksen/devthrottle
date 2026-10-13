@@ -214,6 +214,63 @@ public sealed class LicenseEndpointsTests : IDisposable
         Assert.StartsWith($"Next: {B}, in about ", machine.GetProperty("text").GetString());
     }
 
+    // ---- the reviewer's three reports: refused at the door, and the forecast still answers ----
+
+    [Theory]
+    [InlineData("infinite-rate")]      // -1e308 and then 96: the rise over the time overflows to an infinite rate
+    [InlineData("year-9999")]          // a read time in the last minutes of the year 9999, with use rising
+    [InlineData("edge-of-calendar")]   // the same read time from a clock corrected by years: the sum passes the end
+    public void Forecast_AfterAReportNoRealDirectorSends_StillAnswers_BecauseTheReportWasRefusedAtTheIngest(string which)
+    {
+        var ingest = new LicenseUsageIngest(_store, _history);
+        ingest.RegisterConnection(TenantOne, "dir-1", "conn-1");
+        var edge = DateTime.SpecifyKind(DateTime.MaxValue, DateTimeKind.Utc).AddMinutes(-5);
+        var later = T0.AddMinutes(2);
+        var (first, second) = which switch
+        {
+            "infinite-rate" => (Report("m1", Holding(A, true, -1e308), Holding(B, false)), Report("m1", later, Holding(A, true, 96, readAt: later), Holding(B, false, readAt: later))),
+            "year-9999" => (Report("m1", Holding(A, true, 50, readAt: edge), Holding(B, false)), Report("m1", later, Holding(A, true, 60, readAt: edge.AddMinutes(2)), Holding(B, false, readAt: later))),
+            _ => (Report("m1", T0.AddYears(-3), Holding(A, true, 50, readAt: edge), Holding(B, false, readAt: T0.AddYears(-3))),
+                  Report("m1", T0.AddYears(-3).AddMinutes(2), Holding(A, true, 60, readAt: edge.AddMinutes(2)), Holding(B, false, readAt: T0.AddYears(-3)))),
+        };
+
+        var outcomes = new[] { ingest.Ingest(TenantOne, "dir-1", "conn-1", 1, first, T0), ingest.Ingest(TenantOne, "dir-1", "conn-1", 2, second, later) };
+        _now = later;
+        var (forecastStatus, forecastText, _) = Forecast(TenantOne);
+        var (overviewStatus, overviewText, _) = Overview(TenantOne);
+
+        Assert.Contains(LicenseIngestOutcome.Malformed, outcomes);
+        Assert.Equal((200, 200), (forecastStatus, overviewStatus));
+        Assert.DoesNotContain("Infinity", forecastText + overviewText);
+        Assert.DoesNotContain("9999", forecastText + overviewText);
+    }
+
+    [Fact]
+    public void Log_NamesTwoUsersOfOneMachineApart_WithTheIdentifierOfEachRowInTheOverview()
+    {
+        var anna = Report("m1", Holding(A, true), Holding(B, false));
+        anna.OsUser = "anna";
+        var ben = Report("M1", Holding(A, true), Holding(B, false));
+        ben.OsUser = "ben";
+        var annaId = Apply(TenantOne, anna);
+        var benId = Apply(TenantOne, ben);
+        var otherId = Apply(TenantOne, Report("m2", Holding(A, true), Holding(B, false)));
+        _store.CreatePendingSwitch(TenantOne, annaId, A, B, LicenseSwitchReasons.Manual, T0);
+        _store.CreatePendingSwitch(TenantOne, benId, A, B, LicenseSwitchReasons.Manual, T0);
+        _store.CreatePendingSwitch(TenantOne, otherId, A, B, LicenseSwitchReasons.Manual, T0);
+
+        var entries = Log(TenantOne).Json.GetProperty("entries").EnumerateArray()
+            .ToDictionary(e => e.GetProperty("machineId").GetString()!, e => (Label: e.GetProperty("label").GetString(), Summary: e.GetProperty("summary").GetString()));
+        var overview = Overview(TenantOne).Json.GetProperty("machines").EnumerateArray()
+            .ToDictionary(m => m.GetProperty("machineId").GetString()!, m => m.GetProperty("label").GetString());
+
+        Assert.Equal(("m1 (anna)", $"m1 (anna) is switching from {A} to {B}."), entries[annaId.ToString("N")]);
+        Assert.Equal(("M1 (ben)", $"M1 (ben) is switching from {A} to {B}."), entries[benId.ToString("N")]);
+        Assert.Equal(("m2", $"m2 is switching from {A} to {B}."), entries[otherId.ToString("N")]);
+        // The same identifiers and the same labels as the overview's machine rows: the page joins on machineId.
+        Assert.Equal(overview.OrderBy(p => p.Key).Select(p => (p.Key, p.Value)), entries.OrderBy(p => p.Key).Select(p => (p.Key, p.Value.Label)));
+    }
+
     [Fact]
     public void Log_AnswersTheExactShapeTheLicensesPageIsBuiltFrom()
     {
@@ -226,7 +283,7 @@ public sealed class LicenseEndpointsTests : IDisposable
         var entry = Assert.Single(json.GetProperty("entries").EnumerateArray().ToList());
         Assert.Equal(new[]
         {
-            "entryId", "kind", "kindText", "atUtc", "machineName", "osUser", "fromAccountEmail", "toAccountEmail", "why", "whyText",
+            "entryId", "kind", "kindText", "atUtc", "machineId", "machineName", "osUser", "label", "fromAccountEmail", "toAccountEmail", "why", "whyText",
             "state", "stateText", "stateTone", "isOpen", "reasonCode", "reasonText", "message", "summary", "sendCount", "lastSentAtUtc",
             "startedOnMachineAtUtc", "finishedOnMachineAtUtc", "exchangeMilliseconds", "finishedAtUtc", "timingText", "verifiedByUsageRead",
             "verifiedText",

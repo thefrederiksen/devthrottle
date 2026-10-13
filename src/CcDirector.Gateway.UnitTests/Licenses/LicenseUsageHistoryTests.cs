@@ -232,9 +232,9 @@ public sealed class LicenseUsageHistoryTests
             ingest.Ingest(TenantA, "dir-1", "conn-1", 2, Report("m1", later, Holding(A, true, 60, readAt: later)), later));
         // Refused twice over: an old sequence, and a connection that does not own the Director. Neither is recorded.
         Assert.Equal(LicenseIngestOutcome.StaleSequence,
-            ingest.Ingest(TenantA, "dir-1", "conn-1", 2, Report("m1", later, Holding(A, true, 99, readAt: later.AddMinutes(1))), later));
+            ingest.Ingest(TenantA, "dir-1", "conn-1", 2, Report("m1", later, Holding(A, true, 99, readAt: later.AddSeconds(-1))), later));
         Assert.Equal(LicenseIngestOutcome.NotActiveConnection,
-            ingest.Ingest(TenantA, "dir-1", "conn-other", 9, Report("m1", later, Holding(A, true, 99, readAt: later.AddMinutes(2))), later));
+            ingest.Ingest(TenantA, "dir-1", "conn-other", 9, Report("m1", later, Holding(A, true, 99, readAt: later.AddSeconds(-2))), later));
 
         var points = history.Read(TenantA, later).Single().FiveHour;
         Assert.Equal(new[] { 50d, 60d }, points.Select(p => p.Utilization));

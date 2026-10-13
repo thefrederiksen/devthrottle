@@ -893,6 +893,47 @@ public sealed class LicenseDisplayFoldTests : IDisposable
     }
 
     [Fact]
+    public void LogEntries_CallAMachineWhatTheOverviewCallsIt_AndARowAboutNoMachineHasNoIdentifierAndNoLabel()
+    {
+        var id = Guid.NewGuid();
+        var alone = Row(LicenseLogKinds.Switch, LicenseLogStates.Switched);
+        alone.MachineId = id;
+        var shared = Row(LicenseLogKinds.Switch, LicenseLogStates.Failed);
+        shared.MachineName = "m2";
+        var noMachine = Row(LicenseDisplayFold.NoRoomKind, "open", message: "No account had room.", reason: null);
+        noMachine.MachineName = "";
+        noMachine.OsUser = "";
+        // m2 is shared by two users - one of them known only from the account's machines, not from any row here.
+        var machines = new[] { ("m1", "owner"), ("m2", "owner"), ("M2", "second") };
+
+        var entries = LicenseDisplayFold.LogEntries([alone, shared, noMachine], machines);
+
+        Assert.Equal((id.ToString("N"), "m1", $"m1 switched from {A} to {B}."), (entries[0].MachineId, entries[0].Label, entries[0].Summary));
+        Assert.Equal(("m2 (owner)", $"m2 (owner) was not switched from {A} to {B}."), (entries[1].Label, entries[1].Summary));
+        Assert.Equal((null, "", "", "No account had room."), (entries[2].MachineId, entries[2].Label, entries[2].MachineName, entries[2].Summary));
+    }
+
+    [Fact]
+    public void LogEntries_TwoUsersOfAMachineNoLongerListed_AreStillToldApart_FromTheRowsThemselves()
+    {
+        var first = Row(LicenseLogKinds.Switch, LicenseLogStates.Switched);
+        var second = Row(LicenseLogKinds.Switch, LicenseLogStates.Switched);
+        second.OsUser = "second";
+
+        var entries = LicenseDisplayFold.LogEntries([first, second], []);
+
+        Assert.Equal(new[] { "m1 (owner)", "m1 (second)" }, entries.Select(e => e.Label));
+    }
+
+    [Fact]
+    public void LogEntry_ASwitchRowWithNoStateWord_SaysNoStateWasRecorded_NotThatRecordedIsAnUnknownState()
+    {
+        var entry = LicenseDisplayFold.LogEntry(Row(LicenseLogKinds.Switch, ""));
+
+        Assert.Equal($"m1: a switch from {A} to {B}, with no state recorded.", entry.Summary);
+    }
+
+    [Fact]
     public void LogEntry_ASwitchByHand_SaysSo_AndCarriesItsTimings()
     {
         var row = Row(LicenseLogKinds.Switch, LicenseLogStates.Switched, message: "Switched from account-a@example.com to account-b@example.com.", reason: LicenseSwitchReasons.Manual);
