@@ -28,8 +28,33 @@ reports of two machines ("the-windows-machine" and "the-mac") and three accounts
 6. **An account whose machines have never reported** is not an error: `200`, `isEmpty: true`, empty lists, and
    `emptyText` holds the sentence to show (section 5).
 7. **Never a sign-in key.** The Gateway holds none. These answers carry emails, plan words, numbers, times, words
-   and sentences, and a test (`LicenseMessagesCarryNoKeyTests`) holds every member name of these types to that.
+   and sentences, and a test (`LicenseMessagesCarryNoKeyTests`) holds every member NAME of these types to that.
+   What that test does not and cannot show: two values are free text a Director wrote and the Gateway passes on
+   unchanged - the detail of a read error whose word this build does not know (`readErrorText`), and a log row's
+   `message`. The contract obliges the Director never to put anything from a sign-in in them, and the Gateway caps
+   their length; nothing on the Gateway's side reads their content.
 8. **JSON** property names are camel case. A list is never null; a missing value is `null`.
+9. **A machine is a machine name AND an operating system user.** Two users of one computer are two machines here,
+   each with its own sign-ins. Wherever a list names a machine it is the same four fields - `machineId`,
+   `machineName`, `osUser`, `label` - and `machineId` is the `machineId` of its row in the overview's `machines`.
+   `label` is what to call it: the machine name, with the user in brackets only when another machine has the same
+   name ("the-windows-machine (owner)"). Every sentence in these answers calls a machine by its label. Show `label`;
+   never build a name from the other fields.
+
+**Decided here (the Tech Lead's rulings on the review of this pull request):**
+
+- **Any session key can read these three routes.** That means every agent session of the DevThrottle account can
+  read all of its Claude account emails, its machine names, their operating system users and the switch log. That
+  is accepted: an agent has to be able to say which account a machine is on and why it was switched. No session key
+  can switch anything (section 6).
+- **The log is one row per machine, and the page lists it that way.** One switch of an account that is on three
+  machines is three rows, each with its own state, reason and timings, because each machine can end differently.
+  The rows carry no identifier that groups them and the page does not group them.
+- **The renewal date of a subscription is not in these answers, and no report can carry it.** Goal 1's "renewal
+  date" is the date the SUBSCRIPTION is billed again. No Director can read that from a sign-in, so it will be an
+  optional date per account that a person sets, and it arrives in the follow-up (section 6): "Renews <date>" or
+  "Not set", never a guess. What IS here is `signInExpiry` - when a machine must be signed in to the account again.
+  It is a different date, it is named sign-in expiry everywhere, and the page must never label it "renewal".
 
 Who may call them: the Cockpit and the phone (a device key), a machine's own credential, and a session key (an
 agent) may call the three reads - they are in `SessionKeyGuard`'s allow list. Switch now is refused to a session
@@ -52,7 +77,8 @@ key (section 6).
 | `readAtUtc`, `readAgeText` | When the numbers were read and the sentence saying how old they are and on which machine ("Read 7 minutes ago on the-mac", or "Never read"). |
 | `readError`, `readErrorText` | The word and the sentence when the last read failed; both null when it worked. |
 | `extraUsage` | `state` (`on`, `off`, `not-known`), `text`, and `utilization` when the provider gave one. |
-| `activeOnMachines`, `spareOnMachines` | The machines working on it, and the machines holding it as a spare. |
+| `signInExpiry` | The sign-in for this account that expires FIRST, across every machine holding it: `expiresAtUtc`, `machine` (the machine it is on, rule 9), `verdict` (the expiry verdict below), `text` ("Sign-in on the-windows-machine expires in 2 days 5 hours", "Sign-in on the-mac expired 3 hours ago") and `tone`. When no machine holding the account gave an expiry: `expiresAtUtc` and `machine` are null, `verdict` is `not known` and `text` is "Sign-in expiry not known". When no machine holds the account: the same, with "Not signed in on any machine". This is the sign-in expiry, not the subscription's renewal date (section 1). |
+| `activeOnMachines`, `spareOnMachines` | The machines working on it, and the machines holding it as a spare - each one the four fields of rule 9. |
 | `canSwitchNow` | The Switch now control is offered for this account. |
 | `switchNowText` | What Switch now would do ("Moves the-mac and the-windows-machine to account-b@example.com."), or the sentence saying why it is not offered. Always a sentence. |
 | `switchNowTargetAccountEmail` | The target Switch now takes when none is named; null when it would take none. |
@@ -72,8 +98,12 @@ Gateway handles by itself:
 | 7 | `has-room` | Has room | good | Not in use, and both windows are under 97%. |
 | 8 | `use-not-known` | Use not known | warning | The reading is fresh but does not say what its use is now: a window is missing, or a window reset since the reading. |
 
-**The level of a window** (`level`): `normal` (under 97%), `at-limit` (97% or more, reset still ahead), `reset-since`
-(the window has reset since the reading, so the number is from before the reset), `not-known` (no number).
+**The level of a window** (`level`), the first that applies: `not-known` (no number), `stale` (the account's
+reading is too old to trust - the number is still given, and it says nothing about the window now), `reset-since`
+(the window has reset since the reading, so the number is from before the reset), `at-limit` (97% or more, reset
+still ahead), `normal` (under 97%). **The level alone is enough to colour a bar.** A stale account's windows are
+`stale`, never `at-limit` and never `normal`, so the page never has to weigh a window's level against its account's
+status.
 
 **Switch now on the page.** Offer the control when `canSwitchNow` is true and show `switchNowText` beside it; when it
 is false show `switchNowText` in its place. If the page lets the owner pick a target, list `switchTargets`: an entry
@@ -86,7 +116,7 @@ its window resets), and one can still be chosen by hand; `switchNowText` says so
 | Field | Meaning |
 |---|---|
 | `machineId` | Stable for this machine and operating system user; use it as the list item's identity. |
-| `machineName`, `osUser` | The machine, and the operating system user whose Claude sign-ins these are. |
+| `machineName`, `osUser`, `label` | The machine, the operating system user whose Claude sign-ins these are, and what to call it (rule 9). |
 | `activeAccountEmail` | The account it is on; null when it is signed in to none. |
 | `status`, `statusText`, `statusTone` | `not-reporting` (Not reporting, warning), `switching` (Switching, neutral), `signed-out` (Signed out, warning), `reporting` (Reporting, good) - the first that applies. |
 | `isStale` | Its last report is older than 6 minutes. It is not sent a switch until it reports again. |
@@ -145,9 +175,31 @@ A sign-in a machine holds (`LicenseMachineHoldingDto`): `accountEmail`, `isActiv
         "text": "Paid extra usage is off",
         "utilization": null
       },
+      "signInExpiry": {
+        "expiresAtUtc": "2026-10-20T03:12:00Z",
+        "machine": {
+          "machineId": "f524eeb70fdc48e09d36286ddbcc759e",
+          "machineName": "the-windows-machine",
+          "osUser": "owner",
+          "label": "the-windows-machine"
+        },
+        "verdict": "fine",
+        "text": "Sign-in on the-windows-machine expires in 9 days",
+        "tone": "good"
+      },
       "activeOnMachines": [
-        "the-mac",
-        "the-windows-machine"
+        {
+          "machineId": "7294b05d11294c2599f079720d15aa18",
+          "machineName": "the-mac",
+          "osUser": "owner",
+          "label": "the-mac"
+        },
+        {
+          "machineId": "f524eeb70fdc48e09d36286ddbcc759e",
+          "machineName": "the-windows-machine",
+          "osUser": "owner",
+          "label": "the-windows-machine"
+        }
       ],
       "spareOnMachines": [],
       "canSwitchNow": true,
@@ -202,10 +254,32 @@ A sign-in a machine holds (`LicenseMachineHoldingDto`): `accountEmail`, `isActiv
         "text": "Paid extra usage is off",
         "utilization": null
       },
+      "signInExpiry": {
+        "expiresAtUtc": "2026-10-13T08:12:00Z",
+        "machine": {
+          "machineId": "f524eeb70fdc48e09d36286ddbcc759e",
+          "machineName": "the-windows-machine",
+          "osUser": "owner",
+          "label": "the-windows-machine"
+        },
+        "verdict": "expires soon",
+        "text": "Sign-in on the-windows-machine expires in 2 days 5 hours",
+        "tone": "warning"
+      },
       "activeOnMachines": [],
       "spareOnMachines": [
-        "the-mac",
-        "the-windows-machine"
+        {
+          "machineId": "7294b05d11294c2599f079720d15aa18",
+          "machineName": "the-mac",
+          "osUser": "owner",
+          "label": "the-mac"
+        },
+        {
+          "machineId": "f524eeb70fdc48e09d36286ddbcc759e",
+          "machineName": "the-windows-machine",
+          "osUser": "owner",
+          "label": "the-windows-machine"
+        }
       ],
       "canSwitchNow": false,
       "switchNowText": "No machine on account-b@example.com can be switched now: none is on it.",
@@ -246,9 +320,26 @@ A sign-in a machine holds (`LicenseMachineHoldingDto`): `accountEmail`, `isActiv
         "text": "Paid extra usage is off",
         "utilization": null
       },
+      "signInExpiry": {
+        "expiresAtUtc": "2026-11-09T03:12:00Z",
+        "machine": {
+          "machineId": "f524eeb70fdc48e09d36286ddbcc759e",
+          "machineName": "the-windows-machine",
+          "osUser": "owner",
+          "label": "the-windows-machine"
+        },
+        "verdict": "fine",
+        "text": "Sign-in on the-windows-machine expires in 29 days",
+        "tone": "good"
+      },
       "activeOnMachines": [],
       "spareOnMachines": [
-        "the-windows-machine"
+        {
+          "machineId": "f524eeb70fdc48e09d36286ddbcc759e",
+          "machineName": "the-windows-machine",
+          "osUser": "owner",
+          "label": "the-windows-machine"
+        }
       ],
       "canSwitchNow": false,
       "switchNowText": "No machine on account-c@example.com can be switched now: none is on it.",
@@ -258,9 +349,10 @@ A sign-in a machine holds (`LicenseMachineHoldingDto`): `accountEmail`, `isActiv
   ],
   "machines": [
     {
-      "machineId": "187fc71ed757489987f11c901897e964",
+      "machineId": "7294b05d11294c2599f079720d15aa18",
       "machineName": "the-mac",
       "osUser": "owner",
+      "label": "the-mac",
       "activeAccountEmail": "account-a@example.com",
       "status": "reporting",
       "statusText": "Reporting",
@@ -299,9 +391,10 @@ A sign-in a machine holds (`LicenseMachineHoldingDto`): `accountEmail`, `isActiv
       "switchInProgress": null
     },
     {
-      "machineId": "b7e2cfe53d0149efb7028d2d8e38504c",
+      "machineId": "f524eeb70fdc48e09d36286ddbcc759e",
       "machineName": "the-windows-machine",
       "osUser": "owner",
+      "label": "the-windows-machine",
       "activeAccountEmail": "account-a@example.com",
       "status": "reporting",
       "statusText": "Reporting",
@@ -361,15 +454,16 @@ A sign-in a machine holds (`LicenseMachineHoldingDto`): `accountEmail`, `isActiv
 `LicenseForecastResponse`. The rate of use comes from the readings of the last two hours, which the Gateway keeps in
 memory: after a Gateway restart the rate is back within two reports (about four minutes), and until then the
 sentences say there are not enough readings. A target is always "on today's numbers": the forecast does not project
-the other accounts forward.
+the other accounts forward. A window rising so slowly that it would need longer than a week to reach 97% - longer
+than any window lasts - is not expected to reach it, whatever its reset time.
 
 | Field | Meaning |
 |---|---|
-| `nextSwitch` | Null when no switch is expected. Otherwise the soonest one: `fromAccountEmail`, `expectedAtUtc`, `window` (`five-hour` or `seven-day`), `windowText` ("5-hour window" or "weekly limit"), `targetAccountEmail` (null when nothing would be switched), `machines` (the machines that would be switched). |
+| `nextSwitch` | Null when no switch is expected. Otherwise the soonest one: `fromAccountEmail`, `expectedAtUtc`, `window` (`five-hour` or `seven-day`), `windowText` ("5-hour window" or "weekly limit"), `targetAccountEmail` (null when nothing would be switched), `machines` (the machines that would be switched, each the four fields of rule 9). |
 | `nextSwitchText` | The sentence for it, or "No switch is expected.". When there is no target it gives the reason: no account has room, or no machine on the account can be sent a switch. |
 | `accounts[]` | Per account: `isInUse`, `isStale`, the two windows, `expectedAtLimitUtc` and `expectedText` (when it is expected to reach 97% on either window), `nextSwitchTargetAccountEmail` and `nextSwitchText` (where its machines go at its next switch). |
-| `accounts[].fiveHour`, `.sevenDay` | `utilization`, `resetsAtUtc`, `percentPerHour` (null when there is no rate), `rateText` ("28.5% an hour", "Not rising", "No rate yet"), `expectedAtLimitUtc`, `expectedText`. |
-| `machines[]` | Per machine: `activeAccountEmail`, `nextAccountEmail` (the account it moves to next; null when there is none), `expectedSwitchAtUtc` (null when no switch is expected yet), and `text`, which says it all: "Next: account-b@example.com, in about 2 minutes.", "Next: account-b@example.com, when account-a@example.com reaches its limit. No switch is expected yet.", "Would not be switched now: its last report is too old.", "Signed in to no account, so there is nothing to switch." |
+| `accounts[].fiveHour`, `.sevenDay` | The window in the overview's own words - `utilization`, `utilizationText`, `level`, `resetsAtUtc`, `resetsText`, exactly as section 2 gives them for the same window - and then the forecast: `percentPerHour` (null when there is no rate), `rateText` ("28.5% an hour", "Not rising", "No rate yet"), `expectedAtLimitUtc`, `expectedText`. The schedule colours a window by `level` and shows `resetsText`; it never compares `utilization` with 97 or `resetsAtUtc` with now, and it does not need the overview to do either. |
+| `machines[]` | Per machine: `machineId`, `machineName`, `osUser`, `label` (rule 9), `activeAccountEmail`, `nextAccountEmail` (the account it moves to next; null when there is none), `expectedSwitchAtUtc` (null when no switch is expected yet), and `text`, which says it all: "Next: account-b@example.com, in about 2 minutes.", "Next: account-b@example.com, when account-a@example.com reaches its limit. No switch is expected yet.", "Would not be switched now: its last report is too old.", "Signed in to no account, so there is nothing to switch." |
 
 ### Example
 
@@ -385,8 +479,18 @@ the other accounts forward.
     "windowText": "5-hour window",
     "targetAccountEmail": "account-b@example.com",
     "machines": [
-      "the-mac",
-      "the-windows-machine"
+      {
+        "machineId": "7294b05d11294c2599f079720d15aa18",
+        "machineName": "the-mac",
+        "osUser": "owner",
+        "label": "the-mac"
+      },
+      {
+        "machineId": "f524eeb70fdc48e09d36286ddbcc759e",
+        "machineName": "the-windows-machine",
+        "osUser": "owner",
+        "label": "the-windows-machine"
+      }
     ]
   },
   "nextSwitchText": "account-a@example.com is expected to reach 97% of its 5-hour window in about 2 minutes; its machines then move to account-b@example.com, the account the Gateway would choose today.",
@@ -397,7 +501,10 @@ the other accounts forward.
       "isStale": false,
       "fiveHour": {
         "utilization": 96,
+        "utilizationText": "96%",
+        "level": "normal",
         "resetsAtUtc": "2026-10-11T05:00:00Z",
+        "resetsText": "Resets in 1 hour 48 minutes",
         "percentPerHour": 28.547579298831383,
         "rateText": "28.5% an hour",
         "expectedAtLimitUtc": "2026-10-11T03:14:04.1052631Z",
@@ -405,7 +512,10 @@ the other accounts forward.
       },
       "sevenDay": {
         "utilization": 61,
+        "utilizationText": "61%",
+        "level": "normal",
         "resetsAtUtc": "2026-10-15T09:00:00Z",
+        "resetsText": "Resets in 4 days 5 hours",
         "percentPerHour": 3.005008347245409,
         "rateText": "3% an hour",
         "expectedAtLimitUtc": "2026-10-11T15:10:46Z",
@@ -422,7 +532,10 @@ the other accounts forward.
       "isStale": false,
       "fiveHour": {
         "utilization": 4,
+        "utilizationText": "4%",
+        "level": "normal",
         "resetsAtUtc": "2026-10-11T05:00:00Z",
+        "resetsText": "Resets in 1 hour 48 minutes",
         "percentPerHour": null,
         "rateText": "No rate yet",
         "expectedAtLimitUtc": null,
@@ -430,7 +543,10 @@ the other accounts forward.
       },
       "sevenDay": {
         "utilization": 22,
+        "utilizationText": "22%",
+        "level": "normal",
         "resetsAtUtc": "2026-10-15T09:00:00Z",
+        "resetsText": "Resets in 4 days 5 hours",
         "percentPerHour": null,
         "rateText": "No rate yet",
         "expectedAtLimitUtc": null,
@@ -447,7 +563,10 @@ the other accounts forward.
       "isStale": false,
       "fiveHour": {
         "utilization": 99,
+        "utilizationText": "99%",
+        "level": "at-limit",
         "resetsAtUtc": "2026-10-11T05:00:00Z",
+        "resetsText": "Resets in 1 hour 48 minutes",
         "percentPerHour": null,
         "rateText": "No rate yet",
         "expectedAtLimitUtc": "2026-10-11T03:12:00Z",
@@ -455,7 +574,10 @@ the other accounts forward.
       },
       "sevenDay": {
         "utilization": 40,
+        "utilizationText": "40%",
+        "level": "normal",
         "resetsAtUtc": "2026-10-15T09:00:00Z",
+        "resetsText": "Resets in 4 days 5 hours",
         "percentPerHour": null,
         "rateText": "No rate yet",
         "expectedAtLimitUtc": null,
@@ -469,16 +591,20 @@ the other accounts forward.
   ],
   "machines": [
     {
+      "machineId": "7294b05d11294c2599f079720d15aa18",
       "machineName": "the-mac",
       "osUser": "owner",
+      "label": "the-mac",
       "activeAccountEmail": "account-a@example.com",
       "nextAccountEmail": "account-b@example.com",
       "expectedSwitchAtUtc": "2026-10-11T03:14:04.1052631Z",
       "text": "Next: account-b@example.com, in about 2 minutes."
     },
     {
+      "machineId": "f524eeb70fdc48e09d36286ddbcc759e",
       "machineName": "the-windows-machine",
       "osUser": "owner",
+      "label": "the-windows-machine",
       "activeAccountEmail": "account-a@example.com",
       "nextAccountEmail": "account-b@example.com",
       "expectedSwitchAtUtc": "2026-10-11T03:14:04.1052631Z",
@@ -495,8 +621,12 @@ the other accounts forward.
 - `?limit=` is a whole number from 1 to 200; 50 when it is left out.
 - `?cursor=` is the `nextCursor` of the page before, passed back exactly as it was given. The page never reads it.
 - `hasMore` says older rows exist; `nextCursor` is then the cursor of the next (older) page, and null otherwise.
-- A walk through the pages reads the log as it stood when the walk began: a row written during the walk never
-  appears in it and never moves a row from one page to another. Read the first page again (no cursor) to see new rows.
+- A walk through the pages is held to the rows dated at or before the moment the walk began, so a row dated later
+  never appears in it. Read the first page again (no cursor) to see new rows. One rare case is not excluded: a row
+  is dated when the Gateway RECEIVED the report that caused it, and saved a moment later. A report received just
+  before the first page was read and saved just after it puts one more row inside the walk, and the next page then
+  repeats the last row of the page before. Nothing is ever lost. The page should key its list on `entryId`, which
+  makes a repeated row harmless.
 - A limit or a cursor that cannot be read is answered `400` with `{ "code": "invalid_limit" | "invalid_cursor", "error": "..." }`.
 
 ### A row (`LicenseLogEntryDto`)
@@ -506,7 +636,7 @@ the other accounts forward.
 | `entryId` | The row's identity, for the page's list. |
 | `kind`, `kindText` | `switch` (Switch), `spare-added` (Spare added), `spare-removed` (Spare removed), `no-room` (No account had room). **A kind a later build writes is shown as "Note"** - the row is still listed, and its `summary` is its message. Never branch on a kind you do not know; show `kindText` and `summary`. |
 | `atUtc` | When the Gateway decided the switch or saw the change. |
-| `machineName`, `osUser` | The machine the row is about. One switch of an account is one row per machine. "" on a row about no machine (a `no-room` row). |
+| `machineName`, `osUser` | The machine the row is about. One switch of an account is one row per machine, and the page lists one row per machine (section 1). "" on a row about no machine (a `no-room` row). |
 | `fromAccountEmail`, `toAccountEmail` | A switch's from and to. On `spare-added` only `to` is set, on `spare-removed` and `no-room` only `from`. |
 | `why`, `whyText` | Why a switch was asked for: `threshold` (Threshold reached) or `manual` (By hand). Null and "" on other rows. |
 | `state`, `stateText`, `stateTone`, `isOpen` | Where the row stands, in the table below. `isOpen` is true while it has not reached its end. |
@@ -516,7 +646,7 @@ the other accounts forward.
 | `sendCount`, `lastSentAtUtc` | How many times the command was sent, and when last. |
 | `startedOnMachineAtUtc`, `finishedOnMachineAtUtc`, `exchangeMilliseconds`, `finishedAtUtc` | The timings: the machine's own start and finish, the exchange step alone, and when the row reached its end by the Gateway's clock. Null when not known. |
 | `timingText` | "Took 2.0 seconds on the machine (the exchange itself 41 milliseconds)"; null when there is nothing to say. |
-| `verifiedByUsageRead` | After the switch the new sign-in answered a usage read; null when the machine gave no answer. |
+| `verifiedByUsageRead`, `verifiedText` | After the switch the new sign-in answered a usage read; null when the machine gave no answer. `verifiedText` is the sentence, and it is set only on a row whose switch was made (`switched` or `already-active`): "The new sign-in answered a usage read." or "The new sign-in did not answer a usage read." On every other row it is null and the page shows nothing - a switch that was refused or failed carries `verifiedByUsageRead: false` and has nothing to confirm. Show `verifiedText`; never put words to the boolean. |
 
 | `state` | `stateText` | Tone | Open |
 |---|---|---|---|
@@ -529,9 +659,12 @@ the other accounts forward.
 | `recorded` | Recorded | neutral | no |
 | any other word | the word itself | neutral | no |
 
+The `summary` of a switch row says "is switching" only while it is `pending` or `unknown`. A switch row in a state
+a later build writes is not said to be under way: its `summary` is its message, or a sentence naming the state.
+
 A `no-room` row is open while its `finishedAtUtc` is null (the account is still out of room), whatever its state word.
 
-### Example (`?limit=3`)
+### Example (`?limit=4`)
 
 ```json
 {
@@ -540,7 +673,7 @@ A `no-room` row is open while its `finishedAtUtc` is null (the account is still 
   "emptyText": null,
   "entries": [
     {
-      "entryId": "1f382b223a644957b2fae5fd1c7d0c6e",
+      "entryId": "697c72388bc94e80803c5f59915386dd",
       "kind": "spare-added",
       "kindText": "Spare added",
       "atUtc": "2026-10-11T03:12:00Z",
@@ -565,10 +698,11 @@ A `no-room` row is open while its `finishedAtUtc` is null (the account is still 
       "exchangeMilliseconds": null,
       "finishedAtUtc": "2026-10-11T03:12:00Z",
       "timingText": null,
-      "verifiedByUsageRead": null
+      "verifiedByUsageRead": null,
+      "verifiedText": null
     },
     {
-      "entryId": "5ff8d05a20424d1a9053230d19a9f5ee",
+      "entryId": "894811e63e6041eb9b79bbdb6162b200",
       "kind": "switch",
       "kindText": "Switch",
       "atUtc": "2026-10-11T01:12:00Z",
@@ -593,10 +727,40 @@ A `no-room` row is open while its `finishedAtUtc` is null (the account is still 
       "exchangeMilliseconds": 0,
       "finishedAtUtc": "2026-10-11T01:12:01Z",
       "timingText": null,
-      "verifiedByUsageRead": false
+      "verifiedByUsageRead": false,
+      "verifiedText": null
     },
     {
-      "entryId": "e3525d2b71de479d876622b87040a5b6",
+      "entryId": "441d48cf9e17474f925810c22432d2c2",
+      "kind": "spare-removed",
+      "kindText": "Spare removed",
+      "atUtc": "2026-10-10T23:12:00Z",
+      "machineName": "the-windows-machine",
+      "osUser": "owner",
+      "fromAccountEmail": "account-c@example.com",
+      "toAccountEmail": "",
+      "why": null,
+      "whyText": "",
+      "state": "recorded",
+      "stateText": "Recorded",
+      "stateTone": "neutral",
+      "isOpen": false,
+      "reasonCode": null,
+      "reasonText": null,
+      "message": "The machine's report no longer shows the active sign-in for account-c@example.com.",
+      "summary": "The machine's report no longer shows the active sign-in for account-c@example.com.",
+      "sendCount": 0,
+      "lastSentAtUtc": null,
+      "startedOnMachineAtUtc": null,
+      "finishedOnMachineAtUtc": null,
+      "exchangeMilliseconds": null,
+      "finishedAtUtc": "2026-10-10T23:12:00Z",
+      "timingText": null,
+      "verifiedByUsageRead": null,
+      "verifiedText": null
+    },
+    {
+      "entryId": "6a63143a24a749c3b591c86ed5a1e39e",
       "kind": "switch",
       "kindText": "Switch",
       "atUtc": "2026-10-10T22:12:00Z",
@@ -621,11 +785,12 @@ A `no-room` row is open while its `finishedAtUtc` is null (the account is still 
       "exchangeMilliseconds": 41,
       "finishedAtUtc": "2026-10-10T22:12:03Z",
       "timingText": "Took 2.0 seconds on the machine (the exchange itself 41 milliseconds)",
-      "verifiedByUsageRead": true
+      "verifiedByUsageRead": true,
+      "verifiedText": "The new sign-in answered a usage read."
     }
   ],
   "hasMore": true,
-  "nextCursor": "639272851200000000.3"
+  "nextCursor": "639272851200000000.4"
 }
 ```
 
@@ -655,7 +820,7 @@ A refusal, here `GET /gateway/licenses/log?limit=0`:
 }
 ```
 
-## 6. Switch now - the route is a follow-up, not in this pull request
+## 6. Switch now and the renewal date - the follow-up, not in this pull request
 
 Everything the page needs to DRAW the control is in section 2 (`canSwitchNow`, `switchNowText`,
 `switchNowTargetAccountEmail`, `switchTargets`). The route that performs it is not built here: it calls one method,
@@ -681,3 +846,8 @@ merges; the shapes above are not:
 - **Refused to a session key.** Moving every machine of the owner's subscription to another one is the owner's own
   action, from the Cockpit; `SessionKeyGuard` does not list the route, and a test holds it to that
   (`LicenseGuardTests`).
+
+**The renewal date** arrives in the same follow-up: an optional date per account that a person sets, stored by the
+Gateway (a migration, both database providers), a write route for the caller's own account that is refused to a
+session key like Switch now, and the read on each account of the overview - "Renews <date>" or "Not set", never a
+guess. Until then the overview carries no renewal date at all, and `signInExpiry` is not one.

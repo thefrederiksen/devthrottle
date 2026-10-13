@@ -116,8 +116,18 @@ public sealed class LicenseEndpointsTests : IDisposable
         {
             "accountEmail", "plan", "planText", "rateLimitTier", "status", "statusText", "statusTone", "statusDetail", "isInUse",
             "fiveHour", "sevenDay", "isStale", "readAtUtc", "readAgeText", "readError", "readErrorText", "extraUsage",
-            "activeOnMachines", "spareOnMachines", "canSwitchNow", "switchNowText", "switchNowTargetAccountEmail", "switchTargets",
+            "signInExpiry", "activeOnMachines", "spareOnMachines", "canSwitchNow", "switchNowText", "switchNowTargetAccountEmail", "switchTargets",
         }, Names(account));
+        Assert.Equal(new[] { "expiresAtUtc", "machine", "verdict", "text", "tone" }, Names(account.GetProperty("signInExpiry")));
+        Assert.Equal(new[] { "machineId", "machineName", "osUser", "label" }, Names(account.GetProperty("activeOnMachines")[0]));
+        var spareAccount = json.GetProperty("accounts")[1];
+        Assert.Equal(new[] { "machineId", "machineName", "osUser", "label" }, Names(spareAccount.GetProperty("spareOnMachines")[0]));
+        Assert.Equal(new[] { "machineId", "machineName", "osUser", "label" }, Names(spareAccount.GetProperty("signInExpiry").GetProperty("machine")));
+        Assert.Equal(("2026-10-20T03:12:00Z", "fine", "Sign-in on the-windows-machine expires in 9 days", "good"),
+            (spareAccount.GetProperty("signInExpiry").GetProperty("expiresAtUtc").GetString(), spareAccount.GetProperty("signInExpiry").GetProperty("verdict").GetString(),
+             spareAccount.GetProperty("signInExpiry").GetProperty("text").GetString(), spareAccount.GetProperty("signInExpiry").GetProperty("tone").GetString()));
+        Assert.Equal(json.GetProperty("machines")[0].GetProperty("machineId").GetString(),
+            account.GetProperty("activeOnMachines")[0].GetProperty("machineId").GetString());
         Assert.Equal((A, "in-use", "In use", "good"),
             (account.GetProperty("accountEmail").GetString(), account.GetProperty("status").GetString(), account.GetProperty("statusText").GetString(), account.GetProperty("statusTone").GetString()));
         Assert.Equal(new[] { "utilization", "utilizationText", "level", "resetsAtUtc", "resetsText" }, Names(account.GetProperty("fiveHour")));
@@ -132,7 +142,7 @@ public sealed class LicenseEndpointsTests : IDisposable
         var machine = json.GetProperty("machines")[0];
         Assert.Equal(new[]
         {
-            "machineId", "machineName", "osUser", "activeAccountEmail", "status", "statusText", "statusTone", "isStale",
+            "machineId", "machineName", "osUser", "label", "activeAccountEmail", "status", "statusText", "statusTone", "isStale",
             "lastReportAtUtc", "lastReportText", "active", "spares", "switchInProgress",
         }, Names(machine));
         Assert.Equal(("the-windows-machine", "owner", A), (machine.GetProperty("machineName").GetString(), machine.GetProperty("osUser").GetString(), machine.GetProperty("activeAccountEmail").GetString()));
@@ -175,6 +185,7 @@ public sealed class LicenseEndpointsTests : IDisposable
         Assert.Equal(new[] { "fromAccountEmail", "expectedAtUtc", "window", "windowText", "targetAccountEmail", "machines" }, Names(next));
         Assert.Equal((A, "five-hour", "5-hour window", B),
             (next.GetProperty("fromAccountEmail").GetString(), next.GetProperty("window").GetString(), next.GetProperty("windowText").GetString(), next.GetProperty("targetAccountEmail").GetString()));
+        Assert.Equal(new[] { "machineId", "machineName", "osUser", "label" }, Names(next.GetProperty("machines")[0]));
         Assert.EndsWith("Z", next.GetProperty("expectedAtUtc").GetString());
         Assert.Contains("is expected to reach 97% of its 5-hour window in about", json.GetProperty("nextSwitchText").GetString());
 
@@ -184,11 +195,16 @@ public sealed class LicenseEndpointsTests : IDisposable
             "accountEmail", "isInUse", "isStale", "fiveHour", "sevenDay", "expectedAtLimitUtc", "expectedText",
             "nextSwitchTargetAccountEmail", "nextSwitchText",
         }, Names(account));
-        Assert.Equal(new[] { "utilization", "resetsAtUtc", "percentPerHour", "rateText", "expectedAtLimitUtc", "expectedText" }, Names(account.GetProperty("fiveHour")));
+        Assert.Equal(new[] { "utilization", "utilizationText", "level", "resetsAtUtc", "resetsText", "percentPerHour", "rateText", "expectedAtLimitUtc", "expectedText" },
+            Names(account.GetProperty("fiveHour")));
+        Assert.Equal(("96%", "normal", "Resets in 2 hours"),
+            (account.GetProperty("fiveHour").GetProperty("utilizationText").GetString(), account.GetProperty("fiveHour").GetProperty("level").GetString(),
+             account.GetProperty("fiveHour").GetProperty("resetsText").GetString()));
         Assert.Equal("30% an hour", account.GetProperty("fiveHour").GetProperty("rateText").GetString());
 
         var machine = json.GetProperty("machines")[0];
-        Assert.Equal(new[] { "machineName", "osUser", "activeAccountEmail", "nextAccountEmail", "expectedSwitchAtUtc", "text" }, Names(machine));
+        Assert.Equal(new[] { "machineId", "machineName", "osUser", "label", "activeAccountEmail", "nextAccountEmail", "expectedSwitchAtUtc", "text" }, Names(machine));
+        Assert.Equal(32, machine.GetProperty("machineId").GetString()!.Length);
         Assert.Equal(("machine-of-one", A, B), (machine.GetProperty("machineName").GetString(), machine.GetProperty("activeAccountEmail").GetString(), machine.GetProperty("nextAccountEmail").GetString()));
         Assert.StartsWith($"Next: {B}, in about ", machine.GetProperty("text").GetString());
     }
@@ -208,6 +224,7 @@ public sealed class LicenseEndpointsTests : IDisposable
             "entryId", "kind", "kindText", "atUtc", "machineName", "osUser", "fromAccountEmail", "toAccountEmail", "why", "whyText",
             "state", "stateText", "stateTone", "isOpen", "reasonCode", "reasonText", "message", "summary", "sendCount", "lastSentAtUtc",
             "startedOnMachineAtUtc", "finishedOnMachineAtUtc", "exchangeMilliseconds", "finishedAtUtc", "timingText", "verifiedByUsageRead",
+            "verifiedText",
         }, Names(entry));
         Assert.Equal(("switch", "Switch", "machine-of-one", A, B, "manual", "By hand", "pending", "Waiting to be sent", true, "2026-10-11T03:12:00Z"),
             (entry.GetProperty("kind").GetString(), entry.GetProperty("kindText").GetString(), entry.GetProperty("machineName").GetString(),

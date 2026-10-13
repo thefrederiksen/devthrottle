@@ -108,6 +108,132 @@ public sealed class LicenseDisplayFoldTests : IDisposable
     }
 
     [Fact]
+    public void Account_Stale_ItsWindowsAreStaleToo_NeverAtLimitOrNormal_SoTheLevelAloneIsEnough()
+    {
+        Apply(Report("m1", Holding(A, true, 99, 20), Holding(B, false)));
+
+        var fresh = Account(A, T0.AddMinutes(6));
+        var stale = Account(A, T0.AddMinutes(6) + OneSecond);
+
+        Assert.Equal((LicenseWindowLevels.AtLimit, LicenseWindowLevels.Normal), (fresh.FiveHour.Level, fresh.SevenDay.Level));
+        Assert.Equal((LicenseWindowLevels.Stale, LicenseWindowLevels.Stale), (stale.FiveHour.Level, stale.SevenDay.Level));
+        Assert.Equal(("99%", "20%"), (stale.FiveHour.UtilizationText, stale.SevenDay.UtilizationText)); // the old numbers are still shown
+    }
+
+    [Fact]
+    public void Window_OfAStaleReading_IsStale_WhateverItsNumber_AndAMissingOneIsStillNotKnown()
+    {
+        var atLimit = LicenseDisplayFold.Window(new LicenseWindowReading(99, T0.AddHours(1)), T0, true);
+        var resetSince = LicenseDisplayFold.Window(new LicenseWindowReading(99, T0.AddHours(-1)), T0, true);
+        var missing = LicenseDisplayFold.Window(null, T0, true);
+
+        Assert.Equal(LicenseWindowLevels.Stale, atLimit.Level);
+        Assert.Equal((LicenseWindowLevels.Stale, "Has reset since this reading"), (resetSince.Level, resetSince.ResetsText));
+        Assert.Equal(LicenseWindowLevels.NotKnown, missing.Level);
+    }
+
+    // ---- the sign-in expiry on the account row ----
+
+    [Fact]
+    public void Account_SignInExpiry_IsTheSoonestAcrossItsMachines_WithTheMachineTheVerdictAndTheSentence()
+    {
+        Apply(Report("m1", Holding(A, true), Expiring(Holding(B, false), T0.AddDays(9))));
+        var second = Apply(Report("m2", Holding(A, true), Expiring(Holding(B, false), T0.AddDays(2))));
+        Apply(Report("m3", Holding(A, true), Holding(B, false))); // gave no expiry: it cannot be the soonest
+
+        var expiry = Account(B, T0).SignInExpiry;
+
+        Assert.Equal((T0.AddDays(2), LicenseSignInExpiry.ExpiresSoon, "Sign-in on m2 expires in 2 days", LicenseTones.Warning),
+            (expiry.ExpiresAtUtc, expiry.Verdict, expiry.Text, expiry.Tone));
+        Assert.Equal((second.ToString("N"), "m2", "owner", "m2"), (expiry.Machine!.MachineId, expiry.Machine.MachineName, expiry.Machine.OsUser, expiry.Machine.Label));
+    }
+
+    [Theory]
+    [InlineData(0, LicenseSignInExpiry.Expired, "Sign-in on m1 expired less than a minute ago", LicenseTones.Bad)]
+    [InlineData(1, LicenseSignInExpiry.ExpiresSoon, "Sign-in on m1 expires in less than a minute", LicenseTones.Warning)]
+    [InlineData(3 * 24 * 3600, LicenseSignInExpiry.ExpiresSoon, "Sign-in on m1 expires in 3 days", LicenseTones.Warning)]
+    [InlineData(3 * 24 * 3600 + 1, LicenseSignInExpiry.Fine, "Sign-in on m1 expires in 3 days", LicenseTones.Good)]
+    public void Account_SignInExpiry_CarriesTheSameVerdictItsHoldingDoes_AtEachBoundary(int secondsFromNow, string verdict, string text, string tone)
+    {
+        Apply(Report("m1", Holding(A, true), Expiring(Holding(B, false), T0.AddSeconds(secondsFromNow))));
+
+        var overview = Overview(T0);
+        var expiry = overview.Accounts.Single(a => a.AccountEmail == B).SignInExpiry;
+
+        Assert.Equal((verdict, text, tone), (expiry.Verdict, expiry.Text, expiry.Tone));
+        Assert.Equal(overview.Machines.Single().Spares.Single().ExpiryVerdict, expiry.Verdict);
+    }
+
+    [Fact]
+    public void Account_SignInExpiry_WhenNoMachineGaveOne_IsNotKnown_AndWhenNoMachineHoldsIt_SaysSo()
+    {
+        Apply(Report("m1", Holding(A, true), Holding(B, false)));
+        var notKnown = Account(B, T0).SignInExpiry;
+        Apply(Report("m1", T0.AddMinutes(2), Holding(A, true, readAt: T0.AddMinutes(2))), seq: 2, at: T0.AddMinutes(2));
+        var notHeld = Account(B, T0.AddMinutes(2)).SignInExpiry;
+
+        Assert.Equal((null, null, LicenseSignInExpiry.NotKnown, "Sign-in expiry not known", LicenseTones.Neutral),
+            (notKnown.ExpiresAtUtc, notKnown.Machine, notKnown.Verdict, notKnown.Text, notKnown.Tone));
+        Assert.Equal((null, null, LicenseSignInExpiry.NotKnown, "Not signed in on any machine", LicenseTones.Neutral),
+            (notHeld.ExpiresAtUtc, notHeld.Machine, notHeld.Verdict, notHeld.Text, notHeld.Tone));
+    }
+
+    // ---- a machine is a name AND a user ----
+
+    private static LicenseUsageReport ReportAs(string machine, string osUser, params LicenseHolding[] holdings)
+    {
+        var report = Report(machine, holdings);
+        report.OsUser = osUser;
+        return report;
+    }
+
+    [Fact]
+    public void TwoUsersOfOneMachine_AreToldApartInEveryListAndEverySentence_AndAMachineWithItsOwnNameIsNot()
+    {
+        var first = Apply(ReportAs("m1", "anna", Holding(A, true, 60.25), Holding(B, false)));
+        var second = Apply(ReportAs("m1", "ben", Holding(A, true, 60.25), Holding(B, false)));
+        var other = Apply(ReportAs("m2", "anna", Holding(A, true, 60.25), Holding(B, false)));
+        var history = new LicenseUsageHistory();
+        history.Record(Tenant, Report("m1", Holding(A, true, 50.25, readAt: T0.AddMinutes(-20))), TimeSpan.Zero, T0);
+        history.Record(Tenant, Report("m1", Holding(A, true, 60.25)), TimeSpan.Zero, T0);
+
+        var overview = Overview(T0);
+        var a = overview.Accounts.Single(x => x.AccountEmail == A);
+        var b = overview.Accounts.Single(x => x.AccountEmail == B);
+        var forecast = Forecast(T0, history);
+
+        var labels = new[] { "m1 (anna)", "m1 (ben)", "m2" };
+        var ids = new[] { first.ToString("N"), second.ToString("N"), other.ToString("N") };
+        Assert.Equal(labels, overview.Machines.Select(m => m.Label));
+        Assert.Equal(labels, a.ActiveOnMachines.Select(m => m.Label));
+        Assert.Equal(ids, a.ActiveOnMachines.Select(m => m.MachineId));
+        Assert.Equal(ids, overview.Machines.Select(m => m.MachineId));
+        Assert.Equal(labels, b.SpareOnMachines.Select(m => m.Label));
+        Assert.Equal("In use on m1 (anna), m1 (ben) and m2.", a.StatusDetail);
+        Assert.Equal("Not in use. Held as a spare on m1 (anna), m1 (ben) and m2.", b.StatusDetail);
+        Assert.Equal($"Moves m1 (anna), m1 (ben) and m2 to {B}.", a.SwitchNowText);
+        Assert.Equal(labels, forecast.NextSwitch!.Machines.Select(m => m.Label));
+        Assert.Equal(ids, forecast.NextSwitch.Machines.Select(m => m.MachineId));
+        Assert.Equal(labels, forecast.Machines.Select(m => m.Label));
+        Assert.Equal(ids, forecast.Machines.Select(m => m.MachineId));
+    }
+
+    [Fact]
+    public void TwoUsersOfOneMachine_TheOneLeftOutOfSwitchNow_AndTheOneWhoseSignInExpires_AreNamedWithTheirUser()
+    {
+        Apply(ReportAs("m1", "anna", Holding(A, true), Holding(B, false)));
+        var ben = Apply(ReportAs("m1", "ben", Holding(A, true), Expiring(Holding(B, false), T0.AddDays(1))));
+        _store.CreatePendingSwitch(Tenant, ben, A, B, LicenseSwitchReasons.Threshold, T0);
+
+        var overview = Overview(T0);
+
+        Assert.Contains("m1 (ben) is not switched: ", overview.Accounts.Single(x => x.AccountEmail == A).SwitchNowText);
+        Assert.Equal("The sign-in on m1 (ben) expires in 1 day.", overview.Accounts.Single(x => x.AccountEmail == B).StatusDetail);
+        Assert.Equal("Sign-in on m1 (ben) expires in 1 day", overview.Accounts.Single(x => x.AccountEmail == B).SignInExpiry.Text);
+        Assert.StartsWith("Read less than a minute ago on m1 (", overview.Accounts.Single(x => x.AccountEmail == A).ReadAgeText);
+    }
+
+    [Fact]
     public void Account_NeverRead_IsStale_AndSaysNoReadingHasArrived()
     {
         var never = Holding(B, false);
@@ -227,9 +353,9 @@ public sealed class LicenseDisplayFoldTests : IDisposable
         var b = overview.Accounts.Single(x => x.AccountEmail == B);
 
         Assert.Equal((LicenseAccountStatuses.InUse, "In use on m1 and m2."), (a.Status, a.StatusDetail));
-        Assert.Equal(new[] { "m1", "m2" }, a.ActiveOnMachines);
+        Assert.Equal(new[] { "m1", "m2" }, a.ActiveOnMachines.Select(m => m.Label));
         Assert.Equal((LicenseAccountStatuses.HasRoom, "Has room", "Not in use. Held as a spare on m1 and m2."), (b.Status, b.StatusText, b.StatusDetail));
-        Assert.Equal(new[] { "m1", "m2" }, b.SpareOnMachines);
+        Assert.Equal(new[] { "m1", "m2" }, b.SpareOnMachines.Select(m => m.Label));
         Assert.False(b.IsInUse);
     }
 
@@ -254,8 +380,8 @@ public sealed class LicenseDisplayFoldTests : IDisposable
         var afterReset = T0.AddHours(2);
 
         var atTheReset = _source.ReadPicture(Tenant, afterReset, Array.Empty<LicenseExhaustion>());
-        var window = LicenseDisplayFold.Window(atTheReset.Snapshot.Accounts.Single(r => r.AccountEmail == B).FiveHour, afterReset);
-        var justBefore = LicenseDisplayFold.Window(atTheReset.Snapshot.Accounts.Single(r => r.AccountEmail == B).FiveHour, afterReset - OneSecond);
+        var window = LicenseDisplayFold.Window(atTheReset.Snapshot.Accounts.Single(r => r.AccountEmail == B).FiveHour, afterReset, false);
+        var justBefore = LicenseDisplayFold.Window(atTheReset.Snapshot.Accounts.Single(r => r.AccountEmail == B).FiveHour, afterReset - OneSecond, false);
 
         Assert.Equal((LicenseWindowLevels.ResetSince, "Has reset since this reading"), (window.Level, window.ResetsText));
         Assert.Equal((LicenseWindowLevels.AtLimit, "Resets in less than a minute"), (justBefore.Level, justBefore.ResetsText));
@@ -270,7 +396,7 @@ public sealed class LicenseDisplayFoldTests : IDisposable
     [InlineData(0, LicenseWindowLevels.Normal, "0%")]
     public void Window_Level_IsAtLimitFromExactlyTheThreshold(double utilization, string level, string text)
     {
-        var window = LicenseDisplayFold.Window(new LicenseWindowReading(utilization, T0.AddHours(1).AddMinutes(48)), T0);
+        var window = LicenseDisplayFold.Window(new LicenseWindowReading(utilization, T0.AddHours(1).AddMinutes(48)), T0, false);
 
         Assert.Equal((level, text, "Resets in 1 hour 48 minutes"), (window.Level, window.UtilizationText, window.ResetsText));
         Assert.Equal(utilization, window.Utilization);
@@ -279,8 +405,8 @@ public sealed class LicenseDisplayFoldTests : IDisposable
     [Fact]
     public void Window_WithNoResetTime_SaysSo_AndAMissingWindowIsNotKnown()
     {
-        var noReset = LicenseDisplayFold.Window(new LicenseWindowReading(98, null), T0);
-        var missing = LicenseDisplayFold.Window(null, T0);
+        var noReset = LicenseDisplayFold.Window(new LicenseWindowReading(98, null), T0, false);
+        var missing = LicenseDisplayFold.Window(null, T0, false);
 
         Assert.Equal((LicenseWindowLevels.AtLimit, "Reset time not known"), (noReset.Level, noReset.ResetsText));
         Assert.Equal((LicenseWindowLevels.NotKnown, "Not known", (double?)null), (missing.Level, missing.UtilizationText, missing.Utilization));
@@ -542,7 +668,7 @@ public sealed class LicenseDisplayFoldTests : IDisposable
         Assert.False(forecast.IsEmpty);
         Assert.Equal((A, B, LicenseWindowNames.FiveHour, "5-hour window"),
             (forecast.NextSwitch!.FromAccountEmail, forecast.NextSwitch.TargetAccountEmail, forecast.NextSwitch.Window, forecast.NextSwitch.WindowText));
-        Assert.Equal(new[] { "m1" }, forecast.NextSwitch.Machines);
+        Assert.Equal(new[] { "m1" }, forecast.NextSwitch.Machines.Select(m => m.Label));
         Assert.Equal(T0.AddMinutes(73.5), forecast.NextSwitch.ExpectedAtUtc, TimeSpan.FromSeconds(1));
         Assert.Equal($"{A} is expected to reach 97% of its 5-hour window in about 1 hour 13 minutes; its machines then move to {B}, the account the Gateway would choose today.",
             forecast.NextSwitchText);
@@ -551,6 +677,12 @@ public sealed class LicenseDisplayFoldTests : IDisposable
         Assert.Equal("Expected to reach 97% of its 5-hour window in about 1 hour 13 minutes.", a.ExpectedText);
         Assert.Equal((B, $"Next: {B}, in about 1 hour 13 minutes."), (a.NextSwitchTargetAccountEmail, a.NextSwitchText));
         Assert.Equal(("30% an hour", "Expected to reach 97% in about 1 hour 13 minutes."), (a.FiveHour.RateText, a.FiveHour.ExpectedText));
+        // The window's own words, the same ones the overview gives, so the schedule compares nothing itself.
+        var overviewWindow = Account(A, T0).FiveHour;
+        Assert.Equal(("60.2%", LicenseWindowLevels.Normal, "Resets in 2 hours", T0.AddHours(2)),
+            (a.FiveHour.UtilizationText, a.FiveHour.Level, a.FiveHour.ResetsText, a.FiveHour.ResetsAtUtc));
+        Assert.Equal((overviewWindow.UtilizationText, overviewWindow.Level, overviewWindow.ResetsText, overviewWindow.ResetsAtUtc, overviewWindow.Utilization),
+            (a.FiveHour.UtilizationText, a.FiveHour.Level, a.FiveHour.ResetsText, a.FiveHour.ResetsAtUtc, a.FiveHour.Utilization));
         Assert.Equal(("Not rising", "Not rising, so not expected to reach 97%."), (a.SevenDay.RateText, a.SevenDay.ExpectedText));
         Assert.Equal(("No rate yet", "No forecast yet: there are not enough readings to show a rate."), (b.FiveHour.RateText, b.FiveHour.ExpectedText));
 
@@ -576,6 +708,37 @@ public sealed class LicenseDisplayFoldTests : IDisposable
         Assert.Equal($"Next: {B}, when this account reaches its limit. No switch is expected yet.", a.NextSwitchText);
         Assert.Equal($"Next: {B}, when {A} reaches its limit. No switch is expected yet.", forecast.Machines.Single().Text);
         Assert.Null(forecast.Machines.Single().ExpectedSwitchAtUtc);
+    }
+
+    [Fact]
+    public void Forecast_AWindowAtItsLimit_OrOfAStaleReading_SaysSoInItsLevel()
+    {
+        Apply(Report("m1", Holding(A, true, 98, 20), Holding(B, false)));
+
+        var fresh = Forecast(T0, new LicenseUsageHistory()).Accounts.Single(x => x.AccountEmail == A);
+        var stale = Forecast(T0.AddMinutes(6) + OneSecond, new LicenseUsageHistory()).Accounts.Single(x => x.AccountEmail == A);
+
+        Assert.Equal((LicenseWindowLevels.AtLimit, LicenseWindowLevels.Normal), (fresh.FiveHour.Level, fresh.SevenDay.Level));
+        Assert.Equal((LicenseWindowLevels.Stale, LicenseWindowLevels.Stale), (stale.FiveHour.Level, stale.SevenDay.Level));
+    }
+
+    [Fact]
+    public void Forecast_AWindowRisingSoSlowlyItWouldTakeLongerThanAnyWindowLasts_IsNotExpectedToReachItsLimit_AndNothingThrows()
+    {
+        // The reviewer's case: two readings 1.9 hours apart that differ by a millionth of a percent. The time to the
+        // threshold at that rate is past the end of the calendar.
+        var history = new LicenseUsageHistory();
+        history.Record(Tenant, Report("m1", Holding(A, true, 10, readAt: T0.AddHours(-1.9))), TimeSpan.Zero, T0);
+        history.Record(Tenant, Report("m1", Holding(A, true, 10.000001)), TimeSpan.Zero, T0);
+        Apply(Report("m1", Holding(A, true, 10.000001), Holding(B, false)));
+
+        var forecast = Forecast(T0, history);
+        var a = forecast.Accounts.Single(x => x.AccountEmail == A);
+
+        Assert.Null(forecast.NextSwitch);
+        Assert.Null(a.FiveHour.ExpectedAtLimitUtc);
+        Assert.Equal("Not expected to reach 97% before it resets.", a.FiveHour.ExpectedText);
+        Assert.Equal("Not expected to reach its limit.", a.ExpectedText);
     }
 
     [Fact]
@@ -698,6 +861,35 @@ public sealed class LicenseDisplayFoldTests : IDisposable
         Assert.Equal(known.Length, known.Select(LicenseDisplayFold.ReasonText).Distinct().Count());
         Assert.Equal("a-later-reason", LicenseDisplayFold.ReasonText("a-later-reason"));
         Assert.Null(LicenseDisplayFold.ReasonText(null));
+    }
+
+    [Fact]
+    public void LogEntry_ASwitchRowInAStateThisBuildDoesNotKnow_NeverSaysItIsSwitching()
+    {
+        var withMessage = LicenseDisplayFold.LogEntry(Row(LicenseLogKinds.Switch, "cancelled", message: "The switch was cancelled."));
+        var bare = LicenseDisplayFold.LogEntry(Row(LicenseLogKinds.Switch, "cancelled"));
+
+        Assert.Equal(("cancelled", false, "The switch was cancelled."), (withMessage.StateText, withMessage.IsOpen, withMessage.Summary));
+        Assert.Equal("m1: a switch from account-a@example.com to account-b@example.com, in a state this Gateway does not know (cancelled).", bare.Summary);
+        Assert.DoesNotContain("is switching", withMessage.Summary + bare.Summary);
+    }
+
+    [Theory]
+    [InlineData(LicenseLogKinds.Switch, LicenseLogStates.Switched, true, "The new sign-in answered a usage read.")]
+    [InlineData(LicenseLogKinds.Switch, LicenseLogStates.Switched, false, "The new sign-in did not answer a usage read.")]
+    [InlineData(LicenseLogKinds.Switch, LicenseLogStates.AlreadyActive, true, "The new sign-in answered a usage read.")]
+    [InlineData(LicenseLogKinds.Switch, LicenseLogStates.Switched, null, null)]
+    [InlineData(LicenseLogKinds.Switch, LicenseLogStates.Failed, false, null)]    // refused or failed: nothing to confirm
+    [InlineData(LicenseLogKinds.Switch, LicenseLogStates.Pending, null, null)]
+    [InlineData(LicenseLogKinds.Switch, LicenseLogStates.Unknown, false, null)]
+    [InlineData(LicenseLogKinds.SpareAdded, LicenseLogStates.Recorded, false, null)]
+    [InlineData("a-kind-from-a-later-build", LicenseLogStates.Switched, true, null)]
+    public void LogEntry_SaysWhetherTheSwitchWasConfirmed_OnlyOnARowWhoseSwitchWasMade(string kind, string state, bool? verified, string? text)
+    {
+        var row = Row(kind, state);
+        row.VerifiedByUsageRead = verified;
+
+        Assert.Equal(text, LicenseDisplayFold.LogEntry(row).VerifiedText);
     }
 
     [Fact]

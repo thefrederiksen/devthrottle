@@ -76,6 +76,10 @@ public static class LicenseWindowLevels
 
     /// <summary>The reading carried no number for this window.</summary>
     public const string NotKnown = "not-known";
+
+    /// <summary>The account's reading is too old to trust, so the number shown says nothing about the window now. It
+    /// is never "at-limit" and never "normal": the page mutes it.</summary>
+    public const string Stale = "stale";
 }
 
 /// <summary>Whether an account's paid extra usage is switched on.</summary>
@@ -120,6 +124,43 @@ public sealed class LicenseOverviewResponse
 
     /// <summary>In machine name order.</summary>
     public List<LicenseMachineDto> Machines { get; set; } = new();
+}
+
+/// <summary>One machine, named the same way wherever a list or a sentence names a machine. A machine is a machine
+/// name AND an operating system user: two users of one computer are two machines here.</summary>
+public sealed class LicenseMachineRefDto
+{
+    /// <summary>The identifier of its row in <see cref="LicenseOverviewResponse.Machines"/>.</summary>
+    public string MachineId { get; set; } = "";
+
+    public string MachineName { get; set; } = "";
+    public string OsUser { get; set; } = "";
+
+    /// <summary>What to call it: the machine name, with the user in brackets when another machine has the same name
+    /// ("the-windows-machine (owner)"). Every sentence in these answers calls it this.</summary>
+    public string Label { get; set; } = "";
+}
+
+/// <summary>The sign-in of one account that expires first, across every machine holding it. This is the SIGN-IN
+/// expiry - when a machine must be signed in to the account again. It is not the date the subscription renews:
+/// no report carries that.</summary>
+public sealed class LicenseAccountSignInExpiryDto
+{
+    /// <summary>When the soonest sign-in expires; null when no machine holding the account gave an expiry.</summary>
+    public DateTime? ExpiresAtUtc { get; set; }
+
+    /// <summary>The machine that sign-in is on; null when <see cref="ExpiresAtUtc"/> is.</summary>
+    public LicenseMachineRefDto? Machine { get; set; }
+
+    /// <summary>"expired", "expires soon", "fine" or "not known" - the same words a machine's holding carries.</summary>
+    public string Verdict { get; set; } = "";
+
+    /// <summary>"Sign-in on the-windows-machine expires in 5 days 2 hours", "Sign-in on the-windows-machine expired
+    /// 3 hours ago", "Sign-in expiry not known", or "Not signed in on any machine".</summary>
+    public string Text { get; set; } = "";
+
+    /// <summary>One of <see cref="LicenseTones"/>.</summary>
+    public string Tone { get; set; } = "";
 }
 
 /// <summary>One Claude account as the Licenses page shows it.</summary>
@@ -172,11 +213,14 @@ public sealed class LicenseAccountDto
 
     public LicenseExtraUsageDto ExtraUsage { get; set; } = new();
 
+    /// <summary>The sign-in for this account that expires first, on whichever machine holds it.</summary>
+    public LicenseAccountSignInExpiryDto SignInExpiry { get; set; } = new();
+
     /// <summary>The machines working on it now.</summary>
-    public List<string> ActiveOnMachines { get; set; } = new();
+    public List<LicenseMachineRefDto> ActiveOnMachines { get; set; } = new();
 
     /// <summary>The machines holding it as a spare.</summary>
-    public List<string> SpareOnMachines { get; set; } = new();
+    public List<LicenseMachineRefDto> SpareOnMachines { get; set; } = new();
 
     /// <summary>The Switch now control is offered for this account: at least one entry of
     /// <see cref="SwitchTargets"/> can be chosen.</summary>
@@ -248,6 +292,9 @@ public sealed class LicenseMachineDto
 
     public string MachineName { get; set; } = "";
     public string OsUser { get; set; } = "";
+
+    /// <summary>What to call it: see <see cref="LicenseMachineRefDto.Label"/>.</summary>
+    public string Label { get; set; } = "";
 
     /// <summary>The account the machine is on; null when it is signed in to none.</summary>
     public string? ActiveAccountEmail { get; set; }
@@ -376,7 +423,7 @@ public sealed class LicenseNextSwitchDto
     public string? TargetAccountEmail { get; set; }
 
     /// <summary>The machines that would be switched.</summary>
-    public List<string> Machines { get; set; } = new();
+    public List<LicenseMachineRefDto> Machines { get; set; } = new();
 }
 
 /// <summary>The forecast for one account.</summary>
@@ -410,7 +457,17 @@ public sealed class LicenseAccountForecastDto
 public sealed class LicenseWindowForecastDto
 {
     public double? Utilization { get; set; }
+
+    /// <summary>"96%", or "Not known" - the same words as the overview's window.</summary>
+    public string UtilizationText { get; set; } = "";
+
+    /// <summary>One of <see cref="LicenseWindowLevels"/> - the same word as the overview's window.</summary>
+    public string Level { get; set; } = "";
+
     public DateTime? ResetsAtUtc { get; set; }
+
+    /// <summary>"Resets in 1 hour 48 minutes", "Has reset since this reading", or "Reset time not known".</summary>
+    public string ResetsText { get; set; } = "";
 
     /// <summary>The current rate of use in percent an hour; null when the recent readings cannot show one.</summary>
     public double? PercentPerHour { get; set; }
@@ -428,8 +485,14 @@ public sealed class LicenseWindowForecastDto
 /// <summary>Which account one machine moves to next.</summary>
 public sealed class LicenseMachineForecastDto
 {
+    /// <summary>The identifier of its row in the overview's machines.</summary>
+    public string MachineId { get; set; } = "";
+
     public string MachineName { get; set; } = "";
     public string OsUser { get; set; } = "";
+
+    /// <summary>What to call it: see <see cref="LicenseMachineRefDto.Label"/>.</summary>
+    public string Label { get; set; } = "";
     public string? ActiveAccountEmail { get; set; }
 
     /// <summary>The account the machine moves to at its next switch, on today's numbers; null when there is none.</summary>
@@ -538,4 +601,9 @@ public sealed class LicenseLogEntryDto
 
     /// <summary>After the switch the new sign-in answered a usage read; null when the machine gave no answer.</summary>
     public bool? VerifiedByUsageRead { get; set; }
+
+    /// <summary>The sentence for <see cref="VerifiedByUsageRead"/>, on a row whose switch was made: "The new sign-in
+    /// answered a usage read." or "The new sign-in did not answer a usage read." Null on every other row - a switch
+    /// that was refused or failed has nothing to confirm, and the page shows nothing there.</summary>
+    public string? VerifiedText { get; set; }
 }

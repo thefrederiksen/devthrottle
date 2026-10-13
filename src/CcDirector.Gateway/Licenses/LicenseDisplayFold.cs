@@ -27,6 +27,20 @@ namespace CcDirector.Gateway.Licenses;
 /// <item><c>sign-in-expires-soon</c> - still working, and the owner has days to renew it.</item>
 /// <item><c>in-use</c>, then <c>has-room</c>, then <c>use-not-known</c>.</item>
 /// </list>
+///
+/// A STALE ACCOUNT'S WINDOWS ARE STALE TOO. Each window carries its own level, and for an account whose reading is
+/// too old that level is <c>stale</c>, never <c>at-limit</c> or <c>normal</c> - so the level alone is enough to
+/// colour a bar, and no page has to weigh a window's level against its account's status.
+///
+/// A MACHINE IS CALLED THE SAME THING EVERYWHERE: its name, with the operating system user in brackets when
+/// another machine has the same name. Every list that names a machine carries its identifier beside that.
+///
+/// LOGGING. <see cref="Overview"/> and <see cref="Forecast"/> log entry and exit. The per-row methods
+/// (<see cref="Account"/>, <see cref="Window"/>, <see cref="Machine"/>, <see cref="Holding"/>,
+/// <see cref="LogEntry"/>, <see cref="ReasonText"/>, <see cref="ReadErrorText"/>, <see cref="Span"/>) write no line:
+/// each is called once for every row of every read of the page, and a line per row would bury the lines that say a
+/// switch was decided. For the same reason the fold asks the engine through
+/// <see cref="LicenseDecisionEngine.PreviewManual"/>, which answers as Switch now would and logs nothing.
 /// </summary>
 public static class LicenseDisplayFold
 {
@@ -58,7 +72,7 @@ public static class LicenseDisplayFold
             IsEmpty = empty,
             EmptyText = empty ? NothingReportedText : null,
             Accounts = picture.Overview.Accounts.Select(a => Account(a, picture)).ToList(),
-            Machines = picture.Overview.Machines.Select(m => Machine(m, picture.OpenSwitches, now)).ToList(),
+            Machines = picture.Overview.Machines.Select(m => Machine(m, picture)).ToList(),
         };
         FileLog.Write($"[LicenseDisplayFold] Overview: empty={empty}, canSwitchNow={response.Accounts.Count(a => a.CanSwitchNow)}");
         return response;
@@ -72,6 +86,7 @@ public static class LicenseDisplayFold
         var snapshot = picture.Snapshot;
         var now = snapshot.NowUtc;
         var reading = snapshot.Accounts.First(r => r.AccountEmail == view.AccountEmail);
+        var names = new MachineNames(picture.Overview.Machines);
         var held = picture.Overview.Machines
             .SelectMany(m => m.Holdings.Where(h => h.AccountEmail == view.AccountEmail).Select(h => (Machine: m, Holding: h)))
             .ToList();
@@ -83,26 +98,57 @@ public static class LicenseDisplayFold
             PlanText = PlanText(view.Plan),
             RateLimitTier = view.RateLimitTier,
             IsInUse = view.ActiveOnMachines.Count > 0,
-            FiveHour = Window(reading.FiveHour, now),
-            SevenDay = Window(reading.SevenDay, now),
+            FiveHour = Window(reading.FiveHour, now, view.IsStale),
+            SevenDay = Window(reading.SevenDay, now, view.IsStale),
             IsStale = view.IsStale,
             ReadAtUtc = view.Freshest is { } read ? Utc(read.JudgedReadAtUtc) : null,
             ReadAgeText = view.Freshest is { } freshest
-                ? $"Read {Ago(now - freshest.JudgedReadAtUtc)} on {freshest.MachineName}"
+                ? $"Read {Ago(now - freshest.JudgedReadAtUtc)} on {names.Label(freshest.MachineName, freshest.OsUser)}"
                 : "Never read",
             ReadError = view.Freshest?.ReadError,
             ReadErrorText = ReadErrorText(view.Freshest?.ReadError, view.Freshest?.ReadErrorDetail),
             ExtraUsage = ExtraUsage(view.Freshest?.ExtraUsageEnabled, view.Freshest?.ExtraUsageUtilization),
-            ActiveOnMachines = view.ActiveOnMachines.ToList(),
-            SpareOnMachines = view.SpareOnMachines.ToList(),
+            SignInExpiry = SignInExpiry(held, names, now),
+            ActiveOnMachines = held.Where(h => h.Holding.IsActive).Select(h => names.Ref(h.Machine)).ToList(),
+            SpareOnMachines = held.Where(h => !h.Holding.IsActive).Select(h => names.Ref(h.Machine)).ToList(),
         };
-        ApplyStatus(dto, view, reading, held, now);
-        ApplySwitchNow(dto, snapshot);
+        ApplyStatus(dto, view, reading, held, names, now);
+        ApplySwitchNow(dto, snapshot, names);
         return dto;
     }
 
+    // The sign-in of this account that expires first, on whichever machine holds it. A holding that gave no expiry
+    // cannot be the soonest; when none gave one, the expiry is not known - never read as fine.
+    private static LicenseAccountSignInExpiryDto SignInExpiry(
+        IReadOnlyList<(LicenseMachineView Machine, LicenseHoldingView Holding)> held, MachineNames names, DateTime now)
+    {
+        if (held.Count == 0)
+            return new LicenseAccountSignInExpiryDto { Verdict = LicenseSignInExpiry.NotKnown, Text = "Not signed in on any machine", Tone = LicenseTones.Neutral };
+        var known = held.Where(h => h.Holding.SignInExpiresAtUtc is not null).OrderBy(h => h.Holding.SignInExpiresAtUtc).ToList();
+        if (known.Count == 0)
+            return new LicenseAccountSignInExpiryDto { Verdict = LicenseSignInExpiry.NotKnown, Text = "Sign-in expiry not known", Tone = LicenseTones.Neutral };
+
+        var (machine, holding) = known[0];
+        var expires = holding.SignInExpiresAtUtc!.Value;
+        var label = names.Label(machine);
+        var (text, tone) = holding.ExpiryVerdict switch
+        {
+            LicenseSignInExpiry.Expired => ($"Sign-in on {label} expired {Ago(now - expires)}", LicenseTones.Bad),
+            LicenseSignInExpiry.ExpiresSoon => ($"Sign-in on {label} expires in {Span(expires - now)}", LicenseTones.Warning),
+            _ => ($"Sign-in on {label} expires in {Span(expires - now)}", LicenseTones.Good),
+        };
+        return new LicenseAccountSignInExpiryDto
+        {
+            ExpiresAtUtc = Utc(expires),
+            Machine = names.Ref(machine),
+            Verdict = holding.ExpiryVerdict,
+            Text = text,
+            Tone = tone,
+        };
+    }
+
     private static void ApplyStatus(LicenseAccountDto dto, LicenseAccountView view, LicenseAccountReading reading,
-        IReadOnlyList<(LicenseMachineView Machine, LicenseHoldingView Holding)> held, DateTime now)
+        IReadOnlyList<(LicenseMachineView Machine, LicenseHoldingView Holding)> held, MachineNames names, DateTime now)
     {
         var expired = held.Where(h => h.Holding.ExpiryVerdict == LicenseSignInExpiry.Expired).ToList();
         var refused = held.Where(h => h.Holding.ReadError is LicenseReadErrors.Unauthorized or LicenseReadErrors.RefreshFailed).ToList();
@@ -116,7 +162,7 @@ public static class LicenseDisplayFold
         }
         else if (expired.Count > 0 || refused.Count > 0)
         {
-            var machines = Names(expired.Concat(refused).Select(h => h.Machine.MachineName).Distinct(StringComparer.Ordinal).ToList());
+            var machines = Names(expired.Concat(refused).Select(h => names.Label(h.Machine)).Distinct(StringComparer.Ordinal).ToList());
             var what = refused.Count == 0 ? "has expired" : expired.Count == 0 ? "was refused by the provider" : "has expired or was refused by the provider";
             Status(dto, LicenseAccountStatuses.SignInNeeded, "Sign-in needed", LicenseTones.Bad,
                 $"The sign-in on {machines} {what}. This account needs a new sign-in there.");
@@ -137,16 +183,16 @@ public static class LicenseDisplayFold
         {
             var soonest = expiringSoon.OrderBy(h => h.Holding.SignInExpiresAtUtc).First();
             Status(dto, LicenseAccountStatuses.SignInExpiresSoon, "Sign-in expires soon", LicenseTones.Warning,
-                $"The sign-in on {soonest.Machine.MachineName} expires in {Span(soonest.Holding.SignInExpiresAtUtc!.Value - now)}.");
+                $"The sign-in on {names.Label(soonest.Machine)} expires in {Span(soonest.Holding.SignInExpiresAtUtc!.Value - now)}.");
         }
         else if (dto.IsInUse)
         {
-            Status(dto, LicenseAccountStatuses.InUse, "In use", LicenseTones.Good, $"In use on {Names(view.ActiveOnMachines)}.");
+            Status(dto, LicenseAccountStatuses.InUse, "In use", LicenseTones.Good, $"In use on {Names(dto.ActiveOnMachines.Select(m => m.Label).ToList())}.");
         }
         else if (LicenseDecisionEngine.HasRoom(reading))
         {
             Status(dto, LicenseAccountStatuses.HasRoom, "Has room", LicenseTones.Good,
-                $"Not in use. Held as a spare on {Names(view.SpareOnMachines)}.");
+                $"Not in use. Held as a spare on {Names(dto.SpareOnMachines.Select(m => m.Label).ToList())}.");
         }
         else
         {
@@ -165,11 +211,11 @@ public static class LicenseDisplayFold
         dto.StatusDetail = detail;
     }
 
-    // Switch now is the engine's own answer (DecideManual), asked once with no target and once per other account, so
-    // the page offers exactly what the route would accept.
-    private static void ApplySwitchNow(LicenseAccountDto dto, LicenseSnapshot snapshot)
+    // Switch now is the engine's own answer (the one DecideManual gives), asked once with no target and once per other
+    // account, so the page offers exactly what the route would accept.
+    private static void ApplySwitchNow(LicenseAccountDto dto, LicenseSnapshot snapshot, MachineNames names)
     {
-        var automatic = LicenseDecisionEngine.DecideManual(snapshot, dto.AccountEmail, null);
+        var automatic = LicenseDecisionEngine.PreviewManual(snapshot, dto.AccountEmail, null);
         if (automatic.RefusalCode == LicenseManualRefusals.NoMachineToSwitch)
         {
             dto.CanSwitchNow = false;
@@ -180,7 +226,7 @@ public static class LicenseDisplayFold
         var chosen = automatic.Accepted ? automatic.Switches[0].TargetAccountEmail : null;
         foreach (var other in snapshot.Accounts.Select(a => a.AccountEmail).Where(e => e != dto.AccountEmail).OrderBy(e => e, StringComparer.Ordinal))
         {
-            var named = LicenseDecisionEngine.DecideManual(snapshot, dto.AccountEmail, other);
+            var named = LicenseDecisionEngine.PreviewManual(snapshot, dto.AccountEmail, other);
             dto.SwitchTargets.Add(new LicenseSwitchTargetDto
             {
                 AccountEmail = other,
@@ -192,17 +238,18 @@ public static class LicenseDisplayFold
 
         dto.CanSwitchNow = dto.SwitchTargets.Any(t => t.CanChoose);
         dto.SwitchNowTargetAccountEmail = chosen;
-        var notSwitched = string.Concat(automatic.Skipped.Select(s => $" {s.MachineName} is not switched: {s.Why}."));
+        var notSwitched = string.Concat(automatic.Skipped.Select(s => $" {names.Label(s.MachineName, s.OsUser)} is not switched: {s.Why}."));
         if (automatic.Accepted)
-            dto.SwitchNowText = $"Moves {Names(automatic.Switches.Select(s => s.MachineName).ToList())} to {chosen}." + notSwitched;
+            dto.SwitchNowText = $"Moves {Names(automatic.Switches.Select(s => names.Label(s.MachineName, s.OsUser)).ToList())} to {chosen}." + notSwitched;
         else if (dto.CanSwitchNow)
             dto.SwitchNowText = $"{automatic.RefusalMessage} A target can still be chosen by hand." + notSwitched;
         else
             dto.SwitchNowText = automatic.RefusalMessage + notSwitched;
     }
 
-    /// <summary>One usage window. Its level is the engine's own reading of it.</summary>
-    public static LicenseWindowDto Window(LicenseWindowReading? window, DateTime nowUtc)
+    /// <summary>One usage window. Its level is the engine's own reading of it - unless
+    /// <paramref name="readingIsStale"/>, when the number is too old to say anything and the level is "stale".</summary>
+    public static LicenseWindowDto Window(LicenseWindowReading? window, DateTime nowUtc, bool readingIsStale)
     {
         if (window is null)
             return new LicenseWindowDto
@@ -217,7 +264,8 @@ public static class LicenseDisplayFold
         {
             Utilization = window.Utilization,
             UtilizationText = Percent(window.Utilization),
-            Level = hasReset ? LicenseWindowLevels.ResetSince
+            Level = readingIsStale ? LicenseWindowLevels.Stale
+                : hasReset ? LicenseWindowLevels.ResetSince
                 : LicenseDecisionEngine.IsTired(window, nowUtc) ? LicenseWindowLevels.AtLimit
                 : LicenseWindowLevels.Normal,
             ResetsAtUtc = window.ResetsAtUtc is { } at ? Utc(at) : null,
@@ -228,10 +276,12 @@ public static class LicenseDisplayFold
     }
 
     /// <summary>One machine: how it is doing, its active sign-in, its spares and any switch it is in the middle of.</summary>
-    public static LicenseMachineDto Machine(LicenseMachineView machine, IReadOnlyList<LicenseSwitchLogEntity> openSwitches, DateTime nowUtc)
+    public static LicenseMachineDto Machine(LicenseMachineView machine, LicensePicture picture)
     {
         ArgumentNullException.ThrowIfNull(machine);
-        ArgumentNullException.ThrowIfNull(openSwitches);
+        ArgumentNullException.ThrowIfNull(picture);
+        var openSwitches = picture.OpenSwitches;
+        var nowUtc = picture.Snapshot.NowUtc;
         var inProgress = SwitchInProgress(machine, openSwitches);
         var (status, text, tone) = machine.IsStale ? (LicenseMachineStatuses.NotReporting, "Not reporting", LicenseTones.Warning)
             : inProgress is not null ? (LicenseMachineStatuses.Switching, "Switching", LicenseTones.Neutral)
@@ -243,6 +293,7 @@ public static class LicenseDisplayFold
             MachineId = machine.MachineId.ToString("N"),
             MachineName = machine.MachineName,
             OsUser = machine.OsUser,
+            Label = new MachineNames(picture.Overview.Machines).Label(machine),
             ActiveAccountEmail = machine.ActiveAccountEmail,
             Status = status,
             StatusText = text,
@@ -318,11 +369,13 @@ public static class LicenseDisplayFold
         var now = snapshot.NowUtc;
         FileLog.Write($"[LicenseDisplayFold] Forecast: accounts={forecast.Accounts.Count}, nextSwitch={(forecast.NextSwitch is null ? "none" : "one")}");
 
+        var names = new MachineNames(picture.Overview.Machines);
         var inUse = LicenseDecisionEngine.AccountsInUse(snapshot);
         // What Switch now with no target would do for each account in use: the same choice the minute check makes.
-        var moves = inUse.ToDictionary(e => e, e => LicenseDecisionEngine.DecideManual(snapshot, e, null), StringComparer.Ordinal);
+        var moves = inUse.ToDictionary(e => e, e => LicenseDecisionEngine.PreviewManual(snapshot, e, null), StringComparer.Ordinal);
+        var readings = snapshot.Accounts.ToDictionary(r => r.AccountEmail, StringComparer.Ordinal);
         var accounts = forecast.Accounts
-            .Select(a => AccountForecast(a, moves.GetValueOrDefault(a.AccountEmail), now))
+            .Select(a => AccountForecast(a, readings[a.AccountEmail], moves.GetValueOrDefault(a.AccountEmail), now))
             .ToList();
         var expectedByAccount = accounts.ToDictionary(a => a.AccountEmail, a => a.ExpectedAtLimitUtc, StringComparer.Ordinal);
 
@@ -340,40 +393,42 @@ public static class LicenseDisplayFold
                     Window = next.Window,
                     WindowText = WindowLabel(next.Window),
                     TargetAccountEmail = next.TargetAccountEmail,
-                    Machines = LicenseDecisionEngine.SwitchableMachines(snapshot, next.FromAccountEmail).Select(m => m.MachineName).ToList(),
+                    Machines = LicenseDecisionEngine.SwitchableMachines(snapshot, next.FromAccountEmail).Select(m => names.Ref(m.MachineName, m.OsUser)).ToList(),
                 }
                 : null,
             NextSwitchText = forecast.NextSwitch is { } expected
-                ? NextSwitchText(expected, moves.GetValueOrDefault(expected.FromAccountEmail), now)
+                ? NextSwitchText(expected, moves[expected.FromAccountEmail], now)
                 : NoSwitchExpectedText,
             Accounts = accounts,
-            Machines = picture.Overview.Machines.Select(m => MachineForecast(m, moves, expectedByAccount, now)).ToList(),
+            Machines = picture.Overview.Machines.Select(m => MachineForecast(m, names, moves, expectedByAccount, now)).ToList(),
         };
         FileLog.Write($"[LicenseDisplayFold] Forecast: empty={empty}, machines={response.Machines.Count}");
         return response;
     }
 
     // With no target the sentence gives the engine's own reason - no account has room, or no machine on the account
-    // can be sent a switch - rather than assuming which it is.
-    private static string NextSwitchText(LicenseNextSwitch next, LicenseManualSwitchVerdict? move, DateTime now)
+    // can be sent a switch - rather than assuming which it is. The forecaster and the engine choose a target by the
+    // same code, so "no target" with no refusal is a defect, and it is not papered over with a guessed reason.
+    private static string NextSwitchText(LicenseNextSwitch next, LicenseManualSwitchVerdict move, DateTime now)
     {
         var when = next.ExpectedAtUtc <= now
             ? $"{next.FromAccountEmail} has reached {Threshold} of its {WindowLabel(next.Window)}"
             : $"{next.FromAccountEmail} is expected to reach {Threshold} of its {WindowLabel(next.Window)} in about {Span(next.ExpectedAtUtc - now)}";
         return next.TargetAccountEmail is { } target
             ? $"{when}; its machines then move to {target}, the account the Gateway would choose today."
-            : $"{when}. {move?.RefusalMessage ?? $"No other account has room for the machines on {next.FromAccountEmail}."} Nothing would be switched.";
+            : $"{when}. {move.RefusalMessage ?? throw new InvalidOperationException("The forecast gives no target for the next switch, and Switch now would not refuse one.")} Nothing would be switched.";
     }
 
-    private static LicenseAccountForecastDto AccountForecast(LicenseAccountForecast account, LicenseManualSwitchVerdict? move, DateTime now)
+    private static LicenseAccountForecastDto AccountForecast(LicenseAccountForecast account, LicenseAccountReading reading,
+        LicenseManualSwitchVerdict? move, DateTime now)
     {
         var dto = new LicenseAccountForecastDto
         {
             AccountEmail = account.AccountEmail,
             IsInUse = move is not null,
             IsStale = account.IsStale,
-            FiveHour = WindowForecast(account.FiveHour, account.IsStale, now),
-            SevenDay = WindowForecast(account.SevenDay, account.IsStale, now),
+            FiveHour = WindowForecast(account.FiveHour, reading.FiveHour, account.IsStale, now),
+            SevenDay = WindowForecast(account.SevenDay, reading.SevenDay, account.IsStale, now),
             ExpectedAtLimitUtc = account.ExpectedTiredAtUtc is { } at ? Utc(at) : null,
         };
         dto.ExpectedText = account switch
@@ -406,12 +461,18 @@ public static class LicenseDisplayFold
         return dto;
     }
 
-    private static LicenseWindowForecastDto WindowForecast(LicenseWindowForecast window, bool accountIsStale, DateTime now)
+    // The number, its level and its reset are the overview's own words for the same window (Window), so the schedule
+    // never has to compare a percentage with the threshold or a reset time with now, or look the account up elsewhere.
+    private static LicenseWindowForecastDto WindowForecast(LicenseWindowForecast window, LicenseWindowReading? reading, bool accountIsStale, DateTime now)
     {
+        var words = Window(reading, now, accountIsStale);
         var dto = new LicenseWindowForecastDto
         {
-            Utilization = window.Utilization,
-            ResetsAtUtc = window.ResetsAtUtc is { } resets ? Utc(resets) : null,
+            Utilization = words.Utilization,
+            UtilizationText = words.UtilizationText,
+            Level = words.Level,
+            ResetsAtUtc = words.ResetsAtUtc,
+            ResetsText = words.ResetsText,
             PercentPerHour = window.PercentPerHour,
             RateText = window.PercentPerHour switch
             {
@@ -435,13 +496,15 @@ public static class LicenseDisplayFold
         return dto;
     }
 
-    private static LicenseMachineForecastDto MachineForecast(LicenseMachineView machine,
+    private static LicenseMachineForecastDto MachineForecast(LicenseMachineView machine, MachineNames names,
         IReadOnlyDictionary<string, LicenseManualSwitchVerdict> moves, IReadOnlyDictionary<string, DateTime?> expectedByAccount, DateTime now)
     {
         var dto = new LicenseMachineForecastDto
         {
+            MachineId = machine.MachineId.ToString("N"),
             MachineName = machine.MachineName,
             OsUser = machine.OsUser,
+            Label = names.Label(machine),
             ActiveAccountEmail = machine.ActiveAccountEmail,
         };
         if (machine.ActiveAccountEmail is not { } active || !moves.TryGetValue(active, out var move))
@@ -458,7 +521,10 @@ public static class LicenseDisplayFold
         var mine = move.Switches.FirstOrDefault(s => SameMachine(s.MachineName, s.OsUser, machine));
         if (mine is null)
         {
-            dto.Text = move.RefusalMessage ?? "No next account is known.";
+            // Every machine on an account the engine was asked about is switched, left out with a reason, or covered
+            // by the refusal. Anything else is a defect, and it is not shown to the owner as a guessed sentence.
+            dto.Text = move.RefusalMessage ?? throw new InvalidOperationException(
+                "Switch now would move the machines of an account and names neither a switch nor a reason for one of them.");
             return dto;
         }
         dto.NextAccountEmail = mine.TargetAccountEmail;
@@ -534,7 +600,9 @@ public static class LicenseDisplayFold
                     LicenseLogStates.Switched => $"{row.MachineName} switched from {row.FromAccountEmail} to {row.ToAccountEmail}.",
                     LicenseLogStates.AlreadyActive => $"{row.MachineName} was already on {row.ToAccountEmail}.",
                     LicenseLogStates.Failed => $"{row.MachineName} was not switched from {row.FromAccountEmail} to {row.ToAccountEmail}.",
-                    _ => $"{row.MachineName} is switching from {row.FromAccountEmail} to {row.ToAccountEmail}.",
+                    LicenseLogStates.Pending or LicenseLogStates.Unknown => $"{row.MachineName} is switching from {row.FromAccountEmail} to {row.ToAccountEmail}.",
+                    // A state this build does not know: what happened is not known here, so nothing is claimed.
+                    _ => message ?? $"{row.MachineName}: a switch from {row.FromAccountEmail} to {row.ToAccountEmail}, in a state this Gateway does not know ({stateText}).",
                 }
                 : message ?? kindText,
             SendCount = row.SendCount,
@@ -545,6 +613,13 @@ public static class LicenseDisplayFold
             FinishedAtUtc = UtcOrNull(row.FinishedAtUtc),
             TimingText = TimingText(row),
             VerifiedByUsageRead = row.VerifiedByUsageRead,
+            VerifiedText = row.Kind != LicenseLogKinds.Switch || row.State is not (LicenseLogStates.Switched or LicenseLogStates.AlreadyActive) ? null
+                : row.VerifiedByUsageRead switch
+                {
+                    true => "The new sign-in answered a usage read.",
+                    false => "The new sign-in did not answer a usage read.",
+                    null => null,
+                },
         };
     }
 
@@ -656,6 +731,40 @@ public static class LicenseDisplayFold
         1 => names[0],
         _ => string.Join(", ", names.Take(names.Count - 1)) + " and " + names[^1],
     };
+
+    /// <summary>What each machine is called. A machine is a name and an operating system user; the user is said only
+    /// when the name alone would not tell two machines apart.</summary>
+    private sealed class MachineNames
+    {
+        private readonly IReadOnlyList<LicenseMachineView> _machines;
+        private readonly HashSet<string> _repeated;
+
+        public MachineNames(IReadOnlyList<LicenseMachineView> machines)
+        {
+            _machines = machines;
+            _repeated = machines.GroupBy(m => m.MachineName, StringComparer.OrdinalIgnoreCase)
+                .Where(g => g.Count() > 1).Select(g => g.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        }
+
+        public string Label(LicenseMachineView machine) => Label(machine.MachineName, machine.OsUser);
+
+        public string Label(string machineName, string osUser)
+            => _repeated.Contains(machineName) ? $"{machineName} ({osUser})" : machineName;
+
+        public LicenseMachineRefDto Ref(LicenseMachineView machine) => new()
+        {
+            MachineId = machine.MachineId.ToString("N"),
+            MachineName = machine.MachineName,
+            OsUser = machine.OsUser,
+            Label = Label(machine),
+        };
+
+        /// <summary>The machine the engine names by its name and user. The engine's picture is built from these same
+        /// machines, so one it names that is not among them is a defect.</summary>
+        public LicenseMachineRefDto Ref(string machineName, string osUser)
+            => Ref(_machines.FirstOrDefault(m => SameMachine(machineName, osUser, m))
+                   ?? throw new InvalidOperationException("The engine names a machine that is not in the picture it was given."));
+    }
 
     private static bool IsEmpty(LicenseOverview overview) => overview.Accounts.Count == 0 && overview.Machines.Count == 0;
 

@@ -130,10 +130,25 @@ public static class LicenseDecisionEngine
     /// </summary>
     public static LicenseManualSwitchVerdict DecideManual(LicenseSnapshot snapshot, string sourceAccountEmail, string? targetAccountEmail)
     {
+        FileLog.Write($"[LicenseDecisionEngine] DecideManual: targetNamed={targetAccountEmail is not null}");
+        var verdict = PreviewManual(snapshot, sourceAccountEmail, targetAccountEmail);
+        FileLog.Write(verdict.Accepted
+            ? $"[LicenseDecisionEngine] DecideManual: switches={verdict.Switches.Count}, skipped={verdict.Skipped.Count}"
+            : $"[LicenseDecisionEngine] DecideManual: refused {verdict.RefusalCode}");
+        return verdict;
+    }
+
+    /// <summary>
+    /// The answer <see cref="DecideManual"/> would give, for a display that asks about every account and every
+    /// target on each read of the Licenses page. It is the same code and so the same answer; it writes no log line,
+    /// because a line per question would bury the lines of the switches that are really decided. Anything that is
+    /// about to SEND a switch calls <see cref="DecideManual"/>.
+    /// </summary>
+    public static LicenseManualSwitchVerdict PreviewManual(LicenseSnapshot snapshot, string sourceAccountEmail, string? targetAccountEmail)
+    {
         ArgumentNullException.ThrowIfNull(snapshot);
         if (string.IsNullOrWhiteSpace(sourceAccountEmail))
             throw new ArgumentException("The account to switch away from is required", nameof(sourceAccountEmail));
-        FileLog.Write($"[LicenseDecisionEngine] DecideManual: targetNamed={targetAccountEmail is not null}");
 
         var source = sourceAccountEmail.Trim().ToLowerInvariant();
         var target = string.IsNullOrWhiteSpace(targetAccountEmail) ? null : targetAccountEmail.Trim().ToLowerInvariant();
@@ -175,7 +190,6 @@ public static class LicenseDecisionEngine
         var switches = eligible
             .Select(m => new LicenseSwitchDecision(m.MachineName, m.OsUser, source, target, LicenseSwitchReasons.Manual, explanation))
             .ToList();
-        FileLog.Write($"[LicenseDecisionEngine] DecideManual: switches={switches.Count}, skipped={skipped.Count}");
         return new LicenseManualSwitchVerdict(switches, skipped, null, null);
     }
 
@@ -444,10 +458,7 @@ public static class LicenseDecisionEngine
     // ----- small helpers -----
 
     private static LicenseManualSwitchVerdict Refuse(List<LicenseSkippedMachine> skipped, string code, string message)
-    {
-        FileLog.Write($"[LicenseDecisionEngine] DecideManual: refused {code}");
-        return new LicenseManualSwitchVerdict(Array.Empty<LicenseSwitchDecision>(), skipped, code, message);
-    }
+        => new(Array.Empty<LicenseSwitchDecision>(), skipped, code, message);
 
     private static Dictionary<string, LicenseAccountReading> IndexReadings(IReadOnlyList<LicenseAccountReading> accounts)
     {
