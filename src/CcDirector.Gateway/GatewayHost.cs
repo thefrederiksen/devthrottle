@@ -476,9 +476,10 @@ public sealed class GatewayHost : IAsyncDisposable
     public TimeProvider DeliveryClock { get; set; } = TimeProvider.System;
 
     /// <summary>
-    /// The clock the license code is judged by (License Switching): the time a usage report is taken at and the time
-    /// the once-a-minute check decides at. The real clock in production; a test sets its own, and it is read on every
-    /// use, so it may be set any time before the first report arrives.
+    /// The clock the license code is judged by (License Switching): the time a usage report is taken at, the time the
+    /// once-a-minute check decides at, and what the Licenses routes judge by - how old a reading is, whether a sign-in
+    /// has expired, how long until a window resets. The real clock in production; a test sets its own BEFORE
+    /// <see cref="StartAsync"/>, where the routes are mapped with it, so no license test reads the machine's clock.
     /// </summary>
     public TimeProvider LicenseClock { get; set; } = TimeProvider.System;
 
@@ -5471,6 +5472,15 @@ public sealed class GatewayHost : IAsyncDisposable
             // holds up the agent that asked.
             announceWaiting: (forTenant, transfer) => { _ = _secretTransferPush.NotifyWaitingAsync(transfer, CancellationToken.None); },
             nowUtc: () => DateTime.UtcNow);
+
+        // The Licenses routes (the License Switching mission): what the Licenses page of the Cockpit reads - the accounts
+        // and machines, the forecast, and the switch log. Reads only; the three are in SessionKeyGuard's allow list.
+        Api.LicenseEndpoints.Map(_app,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            snapshots: LicenseSnapshots,
+            history: LicenseHistory,
+            store: LicenseStore,
+            nowUtc: () => LicenseClock.GetUtcNow().UtcDateTime);
 
         // Requests for a message link (issue #3548): a session asks, the owner - or a raised session - answers. Asking is
         // in SessionKeyGuard's ordinary allow list; the list and the answer are on RaisedGrant.MessageLinks.

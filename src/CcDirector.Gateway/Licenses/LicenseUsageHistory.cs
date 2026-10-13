@@ -11,8 +11,21 @@ namespace CcDirector.Gateway.Licenses;
 ///
 /// Every ACCEPTED usage report adds one point per window for each holding it carries, at the time the Gateway judges
 /// that reading by (its read time corrected for clock skew, contract section 5.2). A holding whose read failed
-/// carries its previous numbers and their old read time (contract section 2.2), so it adds nothing new: a point at a
-/// time already held is not added again.
+/// carries its previous numbers and their old read time (contract section 2.2), so it adds nothing new: a reading is
+/// known by the machine's OWN read time, as it was sent, and one already held is not added again. The corrected time
+/// cannot be used for that - the correction of a machine whose clock is wrong differs by milliseconds from one
+/// report to the next, and the same reading would be kept again by every report.
+///
+/// WHAT ONE DEVTHROTTLE ACCOUNT CAN MAKE THE GATEWAY HOLD IS BOUNDED, whatever its Directors send:
+/// <list type="bullet">
+/// <item>at most <see cref="MaxAccountsPerTenant"/> accounts - past that, the account heard from longest ago goes;</item>
+/// <item>at most <see cref="MaxPointsPerWindow"/> points for one window of one account;</item>
+/// <item>no point later than the Gateway's own clock. A reading stamped in the future - a machine with a wrong
+/// clock, or a Director with a defect - is kept at now, so it ages out in <see cref="Kept"/> like any other
+/// instead of staying for ever.</item>
+/// </list>
+/// A DevThrottle account whose machines stop reporting keeps its last two hours until it is read or the Gateway
+/// restarts: that is at most the bound above, once.
 ///
 /// Kept in memory on purpose: it is two hours of numbers that the Directors send again every two minutes, so after a
 /// Gateway restart the forecast has a rate again within two reports. Until then it says there are not enough readings.
@@ -27,10 +40,20 @@ public sealed class LicenseUsageHistory
     /// from several machines, and a ceiling on what a misbehaving Director can make the Gateway hold.</summary>
     public const int MaxPointsPerWindow = 600;
 
+    /// <summary>The most accounts kept for one DevThrottle account. One report may name
+    /// <see cref="LicenseUsageIngest.MaxHoldings"/> accounts, so this is every account of a fleet many times the size
+    /// of any real one, and still a fixed ceiling.</summary>
+    public const int MaxAccountsPerTenant = 256;
+
+    // One kept reading: when the Gateway judges it by, its number, and the machine's own read time as it was sent.
+    private readonly record struct Reading(DateTime AtUtc, double Utilization, DateTime ReadAtUtc);
+
     private sealed class Series
     {
-        public readonly List<LicenseUsagePoint> FiveHour = new();
-        public readonly List<LicenseUsagePoint> SevenDay = new();
+        public readonly List<Reading> FiveHour = new();
+        public readonly List<Reading> SevenDay = new();
+
+        public DateTime NewestAtUtc => new[] { FiveHour.Count > 0 ? FiveHour[^1].AtUtc : DateTime.MinValue, SevenDay.Count > 0 ? SevenDay[^1].AtUtc : DateTime.MinValue }.Max();
     }
 
     private readonly object _gate = new();
@@ -54,14 +77,19 @@ public sealed class LicenseUsageHistory
             {
                 if (holding.ReadAtUtc is not { } readAt)
                     continue; // never read: there is no number to keep
-                var at = AsUtc(readAt) + readAtShift;
+                var read = AsUtc(readAt);
+                var at = read + readAtShift;
+                if (at > nowUtc)
+                    at = nowUtc; // never later than the Gateway's clock: see the class comment
                 var email = LicenseStore.NormalizeEmail(holding.AccountEmail);
                 if (!accounts.TryGetValue(email, out var series))
                     accounts[email] = series = new Series();
-                if (holding.FiveHour is { } five && Add(series.FiveHour, at, five.Utilization)) added++;
-                if (holding.SevenDay is { } week && Add(series.SevenDay, at, week.Utilization)) added++;
+                if (holding.FiveHour is { } five && Add(series.FiveHour, at, five.Utilization, read)) added++;
+                if (holding.SevenDay is { } week && Add(series.SevenDay, at, week.Utilization, read)) added++;
             }
             Trim(accounts, nowUtc);
+            while (accounts.Count > MaxAccountsPerTenant)
+                accounts.Remove(accounts.MinBy(pair => pair.Value.NewestAtUtc).Key);
             if (accounts.Count == 0)
                 _byTenant.Remove(tenant);
         }
@@ -82,7 +110,7 @@ public sealed class LicenseUsageHistory
                 Trim(accounts, nowUtc);
                 histories = accounts
                     .OrderBy(pair => pair.Key, StringComparer.Ordinal)
-                    .Select(pair => new LicenseAccountHistory(pair.Key, pair.Value.FiveHour.ToList(), pair.Value.SevenDay.ToList()))
+                    .Select(pair => new LicenseAccountHistory(pair.Key, Points(pair.Value.FiveHour), Points(pair.Value.SevenDay)))
                     .ToList();
                 if (accounts.Count == 0)
                     _byTenant.Remove(tenant);
@@ -92,16 +120,19 @@ public sealed class LicenseUsageHistory
         return histories;
     }
 
-    // Kept oldest first. A point at a time already held is the same reading sent again (another report carrying
-    // the numbers of the last successful read), so it is not added twice.
-    private static bool Add(List<LicenseUsagePoint> points, DateTime atUtc, double utilization)
+    private static List<LicenseUsagePoint> Points(List<Reading> kept)
+        => kept.Select(k => new LicenseUsagePoint(k.AtUtc, k.Utilization)).ToList();
+
+    // Kept oldest first. A reading with a read time already held is the same reading sent again (another report
+    // carrying the numbers of the last successful read), so it is not added twice.
+    private static bool Add(List<Reading> points, DateTime atUtc, double utilization, DateTime readAtUtc)
     {
+        if (points.Exists(p => p.ReadAtUtc == readAtUtc))
+            return false;
         var index = points.Count;
         while (index > 0 && points[index - 1].AtUtc > atUtc)
             index--;
-        if (index > 0 && points[index - 1].AtUtc == atUtc)
-            return false;
-        points.Insert(index, new LicenseUsagePoint(atUtc, utilization));
+        points.Insert(index, new Reading(atUtc, utilization, readAtUtc));
         if (points.Count > MaxPointsPerWindow)
             points.RemoveRange(0, points.Count - MaxPointsPerWindow);
         return true;

@@ -76,6 +76,37 @@ public sealed class LicenseForecasterTests
         Assert.Null(forecast.NextSwitch);
     }
 
+    [Theory]
+    [InlineData(0.000001)]   // a date past the end of the calendar: this threw before
+    [InlineData(0.01)]       // 87 hours away at a hundredth of a percent in... still far past the weekly window
+    public void Forecast_ARateSoSlowTheWindowWouldNeedLongerThanAWeek_IsNotExpected_EvenWithNoResetTime(double rise)
+    {
+        var reading = new LicenseAccountReading(A, new LicenseWindowReading(10 + rise, null), new LicenseWindowReading(5, Now.AddDays(3)), Now, true);
+        var snapshot = Snapshot([reading], [Machine("m1", A)]);
+        var history = new LicenseAccountHistory(A, [new LicenseUsagePoint(Now.AddHours(-1.9), 10), new LicenseUsagePoint(Now, 10 + rise)], []);
+
+        var forecast = LicenseForecaster.Forecast(snapshot, [history]);
+
+        Assert.Null(forecast.Accounts.Single().FiveHour.ExpectedAtThresholdUtc);
+        Assert.Null(forecast.NextSwitch);
+    }
+
+    [Fact]
+    public void Forecast_AWindowThatNeedsExactlyAWeek_IsStillExpected_AndOneHourMoreIsNot()
+    {
+        // 87% to go. At 87/168 percent an hour that is exactly the length of the weekly window.
+        LicenseForecast At(double hoursNeeded)
+        {
+            var perHour = 87.0 / hoursNeeded;
+            var reading = new LicenseAccountReading(A, new LicenseWindowReading(10, null), new LicenseWindowReading(5, Now.AddDays(3)), Now, true);
+            var history = new LicenseAccountHistory(A, [new LicenseUsagePoint(Now.AddHours(-1), 10 - perHour), new LicenseUsagePoint(Now, 10)], []);
+            return LicenseForecaster.Forecast(Snapshot([reading], [Machine("m1", A)]), [history]);
+        }
+
+        Assert.NotNull(At(167).Accounts.Single().FiveHour.ExpectedAtThresholdUtc);
+        Assert.Null(At(169).Accounts.Single().FiveHour.ExpectedAtThresholdUtc);
+    }
+
     [Fact]
     public void Forecast_AlreadyAtThreshold_IsExpectedNow()
     {

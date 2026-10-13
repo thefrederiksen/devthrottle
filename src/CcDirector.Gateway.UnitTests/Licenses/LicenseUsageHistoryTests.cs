@@ -96,6 +96,118 @@ public sealed class LicenseUsageHistoryTests
     }
 
     [Fact]
+    public void Record_TheSameReadingSentAgain_AddsNothing_EvenWhenTheClockCorrectionDiffersEachTime()
+    {
+        // A machine whose clock is wrong: the correction is the receive time less the sent time, and it differs by
+        // milliseconds from one report to the next. The reading is the same one - its own read time has not changed.
+        var history = new LicenseUsageHistory();
+        for (var i = 0; i < 5; i++)
+            history.Record(TenantA, Report("m1", Holding(A, true, 50, readAt: T0, readError: i == 0 ? null : "network")),
+                TimeSpan.FromMinutes(7) + TimeSpan.FromMilliseconds(i * 13), T0.AddMinutes(8 + 2 * i));
+
+        var points = history.Read(TenantA, T0.AddMinutes(16)).Single().FiveHour;
+
+        Assert.Single(points);
+        Assert.Null(LicenseForecaster.RatePerHour(points)); // one reading shows no rate: "No rate yet", never "Not rising"
+    }
+
+    [Fact]
+    public void Record_AReadingStampedInTheFuture_IsKeptAtNow_AndAgesOutLikeAnyOther()
+    {
+        var history = new LicenseUsageHistory();
+        history.Record(TenantA, Report("m1", Holding(A, true, 50, readAt: T0.AddYears(10))), TimeSpan.Zero, T0);
+
+        Assert.Equal(T0, history.Read(TenantA, T0).Single().FiveHour.Single().AtUtc);
+        Assert.Single(history.Read(TenantA, T0 + LicenseUsageHistory.Kept));
+        Assert.Empty(history.Read(TenantA, T0 + LicenseUsageHistory.Kept + TimeSpan.FromSeconds(1)));
+    }
+
+    [Fact]
+    public void Record_AReadingAtExactlyNow_KeepsItsOwnTime()
+    {
+        var history = new LicenseUsageHistory();
+        history.Record(TenantA, Report("m1", Holding(A, true, 50, readAt: T0)), TimeSpan.Zero, T0);
+
+        Assert.Equal(T0, history.Read(TenantA, T0).Single().FiveHour.Single().AtUtc);
+    }
+
+    [Fact]
+    public void Record_MoreAccountsThanTheMostKept_DropsTheOnesHeardFromLongestAgo()
+    {
+        // The reviewer's case: report after report, each naming new accounts with readings stamped years ahead.
+        var history = new LicenseUsageHistory();
+        var now = T0;
+        for (var report = 0; report < 50; report++)
+        {
+            now = T0.AddMinutes(report);
+            var holdings = Enumerable.Range(0, LicenseUsageIngest.MaxHoldings)
+                .Select(i => Holding($"account-{report:000}-{i:00}@example.com", false, 1, readAt: T0.AddYears(10).AddSeconds(report * 100 + i)))
+                .ToArray();
+            history.Record(TenantA, Report("m1", holdings), TimeSpan.Zero, now);
+        }
+
+        var kept = history.Read(TenantA, now);
+
+        Assert.Equal(LicenseUsageHistory.MaxAccountsPerTenant, kept.Count);
+        Assert.Contains(kept, h => h.AccountEmail.StartsWith("account-049-", StringComparison.Ordinal));  // the newest stay
+        Assert.DoesNotContain(kept, h => h.AccountEmail.StartsWith("account-000-", StringComparison.Ordinal)); // the oldest went
+        Assert.Empty(history.Read(TenantA, now.AddDays(3))); // and three days later nothing is left at all
+    }
+
+    [Fact]
+    public void Record_ExactlyTheMostAccountsKept_DropsNone()
+    {
+        var history = new LicenseUsageHistory();
+        for (var i = 0; i < LicenseUsageHistory.MaxAccountsPerTenant; i++)
+            history.Record(TenantA, Report("m1", Holding($"account-{i:000}@example.com", false, 1, readAt: T0.AddSeconds(i))), TimeSpan.Zero, T0.AddSeconds(i));
+
+        Assert.Equal(LicenseUsageHistory.MaxAccountsPerTenant, history.Read(TenantA, T0.AddSeconds(LicenseUsageHistory.MaxAccountsPerTenant)).Count);
+    }
+
+    [Fact]
+    public async Task RecordAndRead_FromSeveralThreadsAtOnce_NeverSeeAHalfWrittenSeries()
+    {
+        // Four writers on one account, and four readers that read for as long as the writers write. Without the
+        // lock a reader copies a list while a writer inserts into it: the copy throws, or comes out torn. With it
+        // every copy is whole and in order. The readers stop when the writers do, so nothing here waits on a clock.
+        var history = new LicenseUsageHistory();
+        const int perWriter = 25000;
+        using var go = new ManualResetEventSlim();
+        var writers = Enumerable.Range(0, 4).Select(w => Task.Run(() =>
+        {
+            go.Wait();
+            for (var i = 0; i < perWriter; i++)
+                history.Record(TenantA, Report("m" + w, Holding(A, true, 1, readAt: T0.AddTicks(w * perWriter + i + 1))), TimeSpan.Zero, T0.AddMinutes(1));
+        })).ToArray();
+        var written = Task.WhenAll(writers);
+        var readers = Enumerable.Range(0, 4).Select(_ => Task.Run(() =>
+        {
+            go.Wait();
+            var reads = 0;
+            while (!written.IsCompleted)
+            {
+                foreach (var account in history.Read(TenantA, T0.AddMinutes(1)))
+                {
+                    var times = account.FiveHour.Select(p => p.AtUtc).ToList();
+                    Assert.Equal(times.OrderBy(t => t), times);
+                    Assert.True(times.Count <= LicenseUsageHistory.MaxPointsPerWindow);
+                }
+                reads++;
+            }
+            return reads;
+        })).ToArray();
+
+        go.Set();
+        await written;
+        var reads = await Task.WhenAll(readers);
+
+        Assert.All(reads, count => Assert.True(count > 0, "a reader never read while the writers wrote"));
+        var points = history.Read(TenantA, T0.AddMinutes(1)).Single().FiveHour;
+        Assert.Equal(LicenseUsageHistory.MaxPointsPerWindow, points.Count); // 100,000 written, the newest 600 kept
+        Assert.Equal(T0.AddTicks(4 * perWriter), points[^1].AtUtc);
+    }
+
+    [Fact]
     public void Read_OneAccount_NeverReadsAnothers()
     {
         var history = new LicenseUsageHistory();
@@ -120,9 +232,9 @@ public sealed class LicenseUsageHistoryTests
             ingest.Ingest(TenantA, "dir-1", "conn-1", 2, Report("m1", later, Holding(A, true, 60, readAt: later)), later));
         // Refused twice over: an old sequence, and a connection that does not own the Director. Neither is recorded.
         Assert.Equal(LicenseIngestOutcome.StaleSequence,
-            ingest.Ingest(TenantA, "dir-1", "conn-1", 2, Report("m1", later, Holding(A, true, 99, readAt: later.AddMinutes(1))), later));
+            ingest.Ingest(TenantA, "dir-1", "conn-1", 2, Report("m1", later, Holding(A, true, 99, readAt: later.AddSeconds(-1))), later));
         Assert.Equal(LicenseIngestOutcome.NotActiveConnection,
-            ingest.Ingest(TenantA, "dir-1", "conn-other", 9, Report("m1", later, Holding(A, true, 99, readAt: later.AddMinutes(2))), later));
+            ingest.Ingest(TenantA, "dir-1", "conn-other", 9, Report("m1", later, Holding(A, true, 99, readAt: later.AddSeconds(-2))), later));
 
         var points = history.Read(TenantA, later).Single().FiveHour;
         Assert.Equal(new[] { 50d, 60d }, points.Select(p => p.Utilization));
