@@ -221,7 +221,7 @@ public sealed class DictionarySuggestionDailySweepTests
         using (var raw = db.CreateUnscopedContext())
             raw.Database.ExecuteSqlRaw(
                 "INSERT INTO entitlements (subject, status, current_period_end, livemode, tier) VALUES ({0}, {1}, {2}, {3}, {4})",
-                "sub-sweep", EntitlementRegistry.StatusActive, DateTime.UtcNow.AddYears(1), true, EntitlementRegistry.TierPro);
+                "sub-sweep", EntitlementRegistry.StatusActive, new DateTime(2099, 1, 1, 0, 0, 0, DateTimeKind.Utc), true, EntitlementRegistry.TierPro);
         await sweep.SweepAsync();
 
         Assert.Equal(1, brain.Calls);
