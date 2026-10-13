@@ -518,6 +518,57 @@ describe("A factory's Seats tab (mockup 3)", () => {
     expect(within(hunter).queryByRole("button", { name: /Pause|Resume/ })).toBeNull();
   });
 
+  it("keeps a paused schedule on the tab with its Resume, when the seat's other schedule still runs", async () => {
+    // The boss has two night schedules. Pausing one moves it, on the Gateway's next answer, under "No run in the
+    // next 7 days" - the seat is then in both groups, and the paused schedule keeps its words, its Edit and its Resume.
+    const [boss0, hunter0] = FACTORY_SEATS.rows;
+    const noRun = "No run in the next 7 days";
+    const first = { jobId: "cj_boss", whenText: "Daily 06:15", editLabel: "Edit schedule", paused: false, toggleLabel: "Pause", shiftText: "Night shift" };
+    const second = { jobId: "cj_boss_2", whenText: "Daily 07:00", editLabel: "Edit schedule", paused: false, toggleLabel: "Pause", shiftText: "Night shift" };
+    const secondPaused = { ...second, whenText: "Daily 07:00 (paused)", paused: true, toggleLabel: "Resume", shiftText: noRun };
+    const both = { ...boss0, whenText: "Daily 06:15; Daily 07:00", schedules: [first, second] };
+    const before = {
+      ...FACTORY_SEATS,
+      rows: [both, hunter0],
+      groups: [
+        { shift: "night", title: "Night shift, 00:00-08:00 (fixture)", rows: [both] },
+        { shift: "none", title: "No run in the next 7 days (fixture)", rows: [hunter0] },
+      ],
+    };
+    const after = {
+      ...FACTORY_SEATS,
+      rows: [{ ...both, schedules: [first, secondPaused] }, hunter0],
+      groups: [
+        { shift: "night", title: "Night shift, 00:00-08:00 (fixture)", rows: [{ ...boss0, schedules: [first] }] },
+        {
+          shift: "none",
+          title: "No run in the next 7 days (fixture)",
+          rows: [{ ...boss0, whenText: "Daily 07:00 (paused)", schedules: [secondPaused] }, hunter0],
+        },
+      ],
+    };
+    screenClient.getFactorySeats.mockResolvedValue(before);
+    cronClient.setCronJobEnabled.mockImplementation(async () => {
+      screenClient.getFactorySeats.mockResolvedValue(after);
+      return { id: "cj_boss_2", enabled: false };
+    });
+    renderAt("/factories/warmforward/seats");
+    const night = await screen.findByTestId("fa-seat-night-nora-hale");
+    const line = within(night).getByText("Daily 07:00").parentElement as HTMLElement;
+
+    fireEvent.click(within(line).getByRole("button", { name: "Pause" }));
+
+    await waitFor(() => expect(cronClient.setCronJobEnabled).toHaveBeenCalledWith("cj_boss_2", false));
+    const idle = await screen.findByTestId("fa-seat-none-nora-hale");
+    const pausedLine = within(idle).getByText("Daily 07:00 (paused)").parentElement as HTMLElement;
+    expect(within(pausedLine).getByRole("button", { name: "Resume" })).toBeTruthy();
+    expect(within(pausedLine).getByRole("button", { name: "Edit schedule" })).toBeTruthy();
+    // The seat is still under the night shift with the schedule that runs, and only that one.
+    const stillNight = screen.getByTestId("fa-seat-night-nora-hale");
+    expect(within(stillNight).getByText("Daily 06:15")).toBeTruthy();
+    expect(within(stillNight).queryByText("Daily 07:00 (paused)")).toBeNull();
+  });
+
   it("resumes a paused seat schedule with one tap, where it reads (paused)", async () => {
     // The owner's own example from 12 October: the state was shown, with no control next to it.
     // A paused schedule will not run, so the Gateway lists its seat under "No run in the next 7 days".

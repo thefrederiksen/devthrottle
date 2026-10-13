@@ -728,10 +728,46 @@ public sealed class FactoriesScreenFoldTests
         Assert.Equal("mixed", evening.SeatId);
         Assert.Equal(new[] { "cj_evening" }, evening.Schedules.Select(s => s.JobId));
         Assert.Equal("Evening shift", evening.ShiftText);
-        var none = view.Groups[1].Rows.Single();
-        Assert.Equal("stopped", none.SeatId);
+        // Both seats are under "none": the one that works no shift with both its schedules, and "mixed" with its
+        // paused one - which is where that schedule IS, with its words and its Resume.
+        Assert.Equal(new[] { "stopped", "mixed" }, view.Groups[1].Rows.Select(r => r.SeatId));
+        var none = view.Groups[1].Rows[0];
+        Assert.Equal(new[] { "cj_paused", "cj_spent" }, none.Schedules.Select(s => s.JobId));
         Assert.Equal("No run in the next 7 days", none.ShiftText);
         Assert.All(none.Schedules, s => Assert.Equal("No run in the next 7 days", s.ShiftText));
+        var mixedNone = view.Groups[1].Rows[1];
+        var pausedLine = mixedNone.Schedules.Single();
+        Assert.Equal("cj_paused", pausedLine.JobId);
+        Assert.Equal("Daily 09:00 (paused)", pausedLine.WhenText);
+        Assert.True(pausedLine.Paused);
+        Assert.Equal("Resume", pausedLine.ToggleLabel);
+        Assert.Equal("Edit schedule", pausedLine.EditLabel);
+        Assert.Equal("No run in the next 7 days", pausedLine.ShiftText);
+        // The row still says the shift the seat does work in.
+        Assert.Equal("Evening shift", mixedNone.ShiftText);
+    }
+
+    [Fact]
+    public void Seats_EveryScheduleASeatNames_IsInSomeGroup_MissingAndFarAwayOnesUnderNoRun()
+    {
+        // One seat, four schedules: one running tonight, one the store no longer has, one whose only run is more
+        // than 7 days away, one paused.
+        var far = Fires("cj_far", "0 9 * * *");
+        far.ScheduleKind = CronSchedule.KindOneOff;
+        far.CronExpression = null;
+        far.RunAt = Now.AddDays(20).ToString("yyyy-MM-dd'T'09:00:00", System.Globalization.CultureInfo.InvariantCulture);
+        var paused = Fires("cj_paused", "0 9 * * *");
+        paused.Enabled = false;
+        var f = Factory("x", "X", null, Seat("a", "A", "A", "cj_evening", "cj_gone", "cj_far", "cj_paused"));
+
+        var view = FactoriesScreenFold.Seats(f, Inputs(new[] { f }, jobs: new[] { Fires("cj_evening", "0 18 * * *"), far, paused }));
+
+        Assert.Equal(new[] { "evening", "none" }, view.Groups.Select(g => g.Shift));
+        Assert.Equal(new[] { "cj_evening" }, view.Groups[0].Rows.Single().Schedules.Select(s => s.JobId));
+        Assert.Equal(new[] { "cj_gone", "cj_far", "cj_paused" }, view.Groups[1].Rows.Single().Schedules.Select(s => s.JobId));
+        // Each schedule the seat names is listed exactly once across the groups.
+        Assert.Equal(f.Seats.Single().Schedules.OrderBy(id => id),
+            view.Groups.SelectMany(g => g.Rows).SelectMany(r => r.Schedules).Select(s => s.JobId).OrderBy(id => id));
     }
 
     [Fact]

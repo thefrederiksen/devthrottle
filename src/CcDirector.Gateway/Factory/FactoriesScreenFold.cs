@@ -379,8 +379,16 @@ public static class FactoriesScreenFold
             if (rows.Count > 0)
                 groups.Add(new FactorySeatGroupDto { Shift = shift, Title = ScheduleShifts.Heading(shift), Rows = rows });
         }
-        var idle = seats.Where(s => !s.Shifts.Values.Any(v => v.Count > 0))
-            .Select(s => SeatRow(factory, s.Seat, input, s.Shifts, only: null))
+        // EVERY SCHEDULE A SEAT NAMES IS SOMEWHERE ON THE TAB. A schedule with no shift - paused, a one-off that has
+        // run, one the store no longer has, or one whose next run is more than 7 days away - is in no shift's group,
+        // so its seat is ALSO listed here with those schedules, even when the seat works a shift with another one.
+        // Left out, pausing one of a seat's two schedules would take it off the tab together with its Edit and its
+        // Resume. A seat that names no schedule at all is here too, with nothing to narrow.
+        var idle = seats.Where(s => s.Shifts.Count == 0 || s.Shifts.Values.Any(v => v.Count == 0))
+            .Select(s => SeatRow(factory, s.Seat, input, s.Shifts,
+                s.Shifts.Count == 0
+                    ? null
+                    : s.Shifts.Where(kv => kv.Value.Count == 0).Select(kv => kv.Key).ToHashSet(StringComparer.Ordinal)))
             .ToList();
         if (idle.Count > 0)
             groups.Add(new FactorySeatGroupDto { Shift = "none", Title = ScheduleShifts.Text(Array.Empty<string>()), Rows = idle });
@@ -394,7 +402,8 @@ public static class FactoriesScreenFold
             Rows = seats.Select(s => SeatRow(factory, s.Seat, input, s.Shifts, only: null)).ToList(),
             Groups = groups,
             Note = "Only seats the boss hired are listed. Sessions that only wrote activity rows are not seats and do not appear. "
-                + $"Shifts are counted in {a.Zone.Id}. A seat that works in two shifts is listed under each, with that shift's schedules.",
+                + $"Shifts are counted in {a.Zone.Id}. A seat that works in two shifts is listed under each, with that shift's schedules, "
+                + "and a seat with a schedule that has no run in the next 7 days is also listed under that heading with it.",
         };
     }
 
