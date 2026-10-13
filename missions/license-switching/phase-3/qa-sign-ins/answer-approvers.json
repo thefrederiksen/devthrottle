@@ -1,20 +1,33 @@
 {
-  "asOfUtc": "2026-10-13T20:43:02.3999054Z",
+  "asOfUtc": "2026-10-13T21:12:58.6444964Z",
   "isEmpty": false,
   "emptyText": null,
   "approvers": [
     {
+      "accountEmail": "account-a@example.com",
+      "machineName": "the-windows-machine",
+      "osUser": "owner",
+      "browserProfile": "work",
+      "machineId": "f5c3d5816335431893197e5abbbcfadd",
+      "label": "the-windows-machine",
+      "canApproveNow": true,
+      "status": "ready",
+      "statusText": "Ready",
+      "statusTone": "good",
+      "text": "Sign-ins for account-a@example.com are approved on the-windows-machine, in the browser profile work."
+    },
+    {
       "accountEmail": "account-b@example.com",
       "machineName": "the-mac",
       "osUser": "owner",
-      "browserProfile": "work",
-      "machineId": "18fa5867248b469a98d3dd767f478561",
+      "browserProfile": "personal",
+      "machineId": "7c096802282c4a58aaeb9bf6dad090f2",
       "label": "the-mac",
       "canApproveNow": false,
       "status": "not-connected",
       "statusText": "Not connected",
       "statusTone": "warning",
-      "text": "Sign-ins for account-b@example.com are approved on the-mac, in the browser profile work. The Director on the-mac is not connected, so no sign-in can be approved there now."
+      "text": "Sign-ins for account-b@example.com are approved on the-mac, in the browser profile personal. The Director on the-mac is not connected, so no sign-in can be approved there now."
     },
     {
       "accountEmail": "account-e@example.com",

@@ -295,8 +295,6 @@ try:
               and approver_row(page, E).locator("[data-testid=lic-approver-status]").text_content() == body["statusText"]
               and approver_row(page, E).locator("[data-testid=lic-approver-text]").text_content() == body["text"])
         shot(page, "approver-set-machine-never-reported", approver_row(page, E))
-        _, approvers = get(port, APPROVERS, OWNER)
-        save("answer-approvers.json", approvers)
 
         say("  refused by the Gateway (400): a browser profile that is not a name")
         writes_before = len(sent)
@@ -329,6 +327,21 @@ try:
         check("the page lists the new browser profile, from its next read", until(page, lambda: approver_row(page, B).locator("td").nth(2).text_content() == "personal", 10000))
         shot(page, "approver-changed", approver_row(page, B))
 
+        say("  a machine whose Director is connected:")
+        page.get_by_role("button", name="Set an approver").click()
+        fill_approver(page, A, WINDOWS, "owner", "work")
+        status, body = save_approver(page)
+        said(sent[-1])
+        say(f"  the Gateway answered {status}: {json.dumps(body)}")
+        check("an approver on a machine whose Director is connected is stored, and the Gateway says it can approve now", status == 200 and body["status"] == "ready" and body["canApproveNow"] is True)
+        check("the page lists it with the Gateway's status in its tone, and its sentence", until(page, lambda: approver_row(page, A).count() == 1, 10000)
+              and approver_row(page, A).locator("[data-testid=lic-approver-status]").text_content() == body["statusText"]
+              and ("lic-tone-" + body["statusTone"]) in approver_row(page, A).locator("[data-testid=lic-approver-status]").get_attribute("class")
+              and approver_row(page, A).locator("[data-testid=lic-approver-text]").text_content() == body["text"])
+        shot(page, "approver-set-ready", approver_row(page, A))
+        _, approvers = get(port, APPROVERS, OWNER)
+        save("answer-approvers.json", approvers)
+
         say("  removed:")
         writes_before = len(sent)
         approver_row(page, E).get_by_role("button", name="Remove").click()
@@ -342,7 +355,7 @@ try:
         check("it names the account in the query and has no body", sent[-1]["path"] == APPROVERS + "?accountEmail=account-e%40example.com" and sent[-1]["body"] is None)
         check("the page shows the Gateway's sentence for it, whole", until(page, lambda: page.locator("[data-testid=lic-approver-answer]").text_content() == body["text"], 10000))
         check("the page read the approvers again: the row is gone and the other is still there", until(page, lambda: approver_row(page, E).count() == 0, 10000) and approver_row(page, B).count() == 1)
-        check("the Gateway lists one approver", [a["accountEmail"] for a in get(port, APPROVERS, OWNER)[1]["approvers"]] == [B])
+        check("the Gateway lists the two that are left", [a["accountEmail"] for a in get(port, APPROVERS, OWNER)[1]["approvers"]] == [A, B])
         shot(page, "approver-removed", page.locator("[data-testid=lic-approver-answer]"))
 
         # ---- 3. Add a spare ----
@@ -496,7 +509,7 @@ try:
         check("that credential reads the page, the approvers with it", page2.locator("[data-testid=lic-account]").count() > 0 and approver_row(page2, B).count() == 1)
 
         page2.get_by_role("button", name="Set an approver").click()
-        fill_approver(page2, A, MAC, "owner", "work")
+        fill_approver(page2, E, MAC, "owner", "work")
         status, body = save_approver(page2)
         said(sent2[-1])
         say(f"  the Gateway answered {status}: {json.dumps(body)}")

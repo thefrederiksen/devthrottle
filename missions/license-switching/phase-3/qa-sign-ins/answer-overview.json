@@ -1,5 +1,5 @@
 {
-  "asOfUtc": "2026-10-13T20:42:56.4729171Z",
+  "asOfUtc": "2026-10-13T21:12:48.6673195Z",
   "isEmpty": false,
   "emptyText": null,
   "accounts": [
@@ -17,18 +17,18 @@
         "utilization": 30,
         "utilizationText": "30%",
         "level": "normal",
-        "resetsAtUtc": "2026-10-13T22:52:51.751311Z",
+        "resetsAtUtc": "2026-10-13T23:22:41.6135736Z",
         "resetsText": "Resets in 2 hours 9 minutes"
       },
       "sevenDay": {
         "utilization": 20,
         "utilizationText": "20%",
         "level": "normal",
-        "resetsAtUtc": "2026-10-18T01:42:51.751311Z",
+        "resetsAtUtc": "2026-10-18T02:12:41.6135736Z",
         "resetsText": "Resets in 4 days 4 hours"
       },
       "isStale": false,
-      "readAtUtc": "2026-10-13T20:42:52.7628925Z",
+      "readAtUtc": "2026-10-13T21:12:43.8920131Z",
       "readAgeText": "Read less than a minute ago on the-windows-machine",
       "readError": null,
       "readErrorText": null,
@@ -40,9 +40,9 @@
       "renewsOn": null,
       "renewsText": "Renewal date not set",
       "signInExpiry": {
-        "expiresAtUtc": "2026-10-22T20:42:51.751311Z",
+        "expiresAtUtc": "2026-10-22T21:12:41.6135736Z",
         "machine": {
-          "machineId": "758aabe6452f4c0daf7d91938cf0c5fd",
+          "machineId": "f5c3d5816335431893197e5abbbcfadd",
           "machineName": "the-windows-machine",
           "osUser": "owner",
           "label": "the-windows-machine"
@@ -53,13 +53,13 @@
       },
       "activeOnMachines": [
         {
-          "machineId": "18fa5867248b469a98d3dd767f478561",
+          "machineId": "7c096802282c4a58aaeb9bf6dad090f2",
           "machineName": "the-mac",
           "osUser": "owner",
           "label": "the-mac"
         },
         {
-          "machineId": "758aabe6452f4c0daf7d91938cf0c5fd",
+          "machineId": "f5c3d5816335431893197e5abbbcfadd",
           "machineName": "the-windows-machine",
           "osUser": "owner",
           "label": "the-windows-machine"
@@ -97,18 +97,18 @@
         "utilization": 4,
         "utilizationText": "4%",
         "level": "normal",
-        "resetsAtUtc": "2026-10-13T22:52:51.751311Z",
+        "resetsAtUtc": "2026-10-13T23:22:41.6135736Z",
         "resetsText": "Resets in 2 hours 9 minutes"
       },
       "sevenDay": {
         "utilization": 22,
         "utilizationText": "22%",
         "level": "normal",
-        "resetsAtUtc": "2026-10-18T01:42:51.751311Z",
+        "resetsAtUtc": "2026-10-18T02:12:41.6135736Z",
         "resetsText": "Resets in 4 days 4 hours"
       },
       "isStale": false,
-      "readAtUtc": "2026-10-13T20:42:52.7628971Z",
+      "readAtUtc": "2026-10-13T21:12:43.8920177Z",
       "readAgeText": "Read less than a minute ago on the-windows-machine",
       "readError": null,
       "readErrorText": null,
@@ -120,9 +120,9 @@
       "renewsOn": null,
       "renewsText": "Renewal date not set",
       "signInExpiry": {
-        "expiresAtUtc": "2026-10-16T01:30:51.751311Z",
+        "expiresAtUtc": "2026-10-16T02:00:41.6135736Z",
         "machine": {
-          "machineId": "758aabe6452f4c0daf7d91938cf0c5fd",
+          "machineId": "f5c3d5816335431893197e5abbbcfadd",
           "machineName": "the-windows-machine",
           "osUser": "owner",
           "label": "the-windows-machine"
@@ -134,13 +134,13 @@
       "activeOnMachines": [],
       "spareOnMachines": [
         {
-          "machineId": "18fa5867248b469a98d3dd767f478561",
+          "machineId": "7c096802282c4a58aaeb9bf6dad090f2",
           "machineName": "the-mac",
           "osUser": "owner",
           "label": "the-mac"
         },
         {
-          "machineId": "758aabe6452f4c0daf7d91938cf0c5fd",
+          "machineId": "f5c3d5816335431893197e5abbbcfadd",
           "machineName": "the-windows-machine",
           "osUser": "owner",
           "label": "the-windows-machine"
@@ -159,7 +159,7 @@
   ],
   "machines": [
     {
-      "machineId": "18fa5867248b469a98d3dd767f478561",
+      "machineId": "7c096802282c4a58aaeb9bf6dad090f2",
       "machineName": "the-mac",
       "osUser": "owner",
       "label": "the-mac",
@@ -168,14 +168,14 @@
       "statusText": "Reporting",
       "statusTone": "good",
       "isStale": false,
-      "lastReportAtUtc": "2026-10-13T20:42:51.751311Z",
+      "lastReportAtUtc": "2026-10-13T21:12:41.6135736Z",
       "lastReportText": "Last report less than a minute ago",
       "active": {
         "accountEmail": "account-a@example.com",
         "isActive": true,
-        "signedInAtUtc": "2026-10-08T20:42:51.751311Z",
+        "signedInAtUtc": "2026-10-08T21:12:41.6135736Z",
         "signedInText": "Signed in 5 days ago",
-        "signInExpiresAtUtc": "2026-11-07T20:42:51.751311Z",
+        "signInExpiresAtUtc": "2026-11-07T21:12:41.6135736Z",
         "expiryVerdict": "fine",
         "expiryText": "Sign-in expires in 24 days 23 hours",
         "expiryTone": "good",
@@ -192,9 +192,9 @@
         {
           "accountEmail": "account-b@example.com",
           "isActive": false,
-          "signedInAtUtc": "2026-10-03T20:42:51.751311Z",
+          "signedInAtUtc": "2026-10-03T21:12:41.6135736Z",
           "signedInText": "Signed in 10 days ago",
-          "signInExpiresAtUtc": "2026-11-02T20:42:51.751311Z",
+          "signInExpiresAtUtc": "2026-11-02T21:12:41.6135736Z",
           "expiryVerdict": "fine",
           "expiryText": "Sign-in expires in 19 days 23 hours",
           "expiryTone": "good",
@@ -214,7 +214,7 @@
       "signInsInProgress": []
     },
     {
-      "machineId": "758aabe6452f4c0daf7d91938cf0c5fd",
+      "machineId": "f5c3d5816335431893197e5abbbcfadd",
       "machineName": "the-windows-machine",
       "osUser": "owner",
       "label": "the-windows-machine",
@@ -223,14 +223,14 @@
       "statusText": "Reporting",
       "statusTone": "good",
       "isStale": false,
-      "lastReportAtUtc": "2026-10-13T20:42:52.8038951Z",
+      "lastReportAtUtc": "2026-10-13T21:12:43.9523187Z",
       "lastReportText": "Last report less than a minute ago",
       "active": {
         "accountEmail": "account-a@example.com",
         "isActive": true,
-        "signedInAtUtc": "2026-09-22T20:42:51.751311Z",
+        "signedInAtUtc": "2026-09-22T21:12:41.6135736Z",
         "signedInText": "Signed in 21 days ago",
-        "signInExpiresAtUtc": "2026-10-22T20:42:51.751311Z",
+        "signInExpiresAtUtc": "2026-10-22T21:12:41.6135736Z",
         "expiryVerdict": "fine",
         "expiryText": "Sign-in expires in 8 days 23 hours",
         "expiryTone": "good",
@@ -247,9 +247,9 @@
         {
           "accountEmail": "account-b@example.com",
           "isActive": false,
-          "signedInAtUtc": "2026-09-16T01:30:51.751311Z",
+          "signedInAtUtc": "2026-09-16T02:00:41.6135736Z",
           "signedInText": "Signed in 27 days 19 hours ago",
-          "signInExpiresAtUtc": "2026-10-16T01:30:51.751311Z",
+          "signInExpiresAtUtc": "2026-10-16T02:00:41.6135736Z",
           "expiryVerdict": "expires soon",
           "expiryText": "Sign-in expires in 2 days 4 hours",
           "expiryTone": "warning",
