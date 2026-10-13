@@ -23,6 +23,13 @@ namespace CcDirector.Gateway.Licenses;
 /// open switch is skipped and does not take part in the target choice, because its holdings are not known
 /// to be current - letting it veto a target would hold back the machines whose state is known.
 ///
+/// A SWITCH THAT KEEPS FAILING. A machine whose latest switch was at least the second in a row to fail the same
+/// way is HELD (<see cref="IsHeld"/>): the automatic decision leaves it out until its hold has passed, and it takes
+/// no part in the target choice, so the same switch is not decided again every minute for as long as a window
+/// stays tired. When every machine that could be sent a switch is held, nothing can be switched, and that is
+/// treated as the no-room case: the same event, and its one owner email, which then says that the switch keeps
+/// failing. Switch now ignores a hold, as it ignores a bar: a person asking has decided to try.
+///
 /// A window whose reset time has passed is never tired: its numbers were read before the reset and say
 /// nothing about now. Without this, the tick at a reset would see the last pre-reset reading (fresh for up
 /// to 6 minutes) still at 97% or more, open a new exhaustion event and email the owner again every tick.
@@ -74,33 +81,28 @@ public static class LicenseDecisionEngine
 
         foreach (var source in AccountsInUse(snapshot))
         {
-            if (!readings.TryGetValue(source, out var reading) || IsReadingStale(reading, now))
-                continue; // stale numbers never trigger (contract 5.2)
+            if (JudgeTired(snapshot, readings, source) is not { } judged)
+                continue; // stale numbers never trigger (contract 5.2), and an account under the threshold is left alone
 
-            var tired = TiredWindows(reading, now);
-            if (tired.Count == 0)
-                continue;
-
-            var (eligible, skippedHere) = SplitMachines(snapshot, source);
-            skipped.AddRange(skippedHere);
-            if (eligible.Count == 0)
-                continue; // every machine on it is stale or mid-switch; nothing can be sent this tick
-
-            var target = ChooseTarget(snapshot, readings, source, eligible);
-            if (target is null)
+            var tired = judged.Tired;
+            skipped.AddRange(judged.Skipped);
+            if (NothingSwitchedEmail(snapshot, readings, source, judged) is { } email)
             {
+                // No target, or every machine that could be sent a switch is held because its switch keeps failing.
                 if (!stillOpen.Contains(source))
                 {
                     var exhaustion = new LicenseExhaustion(source, now, ExhaustionEnd(tired, now));
                     opened.Add(exhaustion);
                     stillOpen.Add(source);
-                    emails.Add(BuildNoRoomEmail(snapshot, readings, source, tired, eligible, skippedHere));
+                    emails.Add(email);
                 }
                 continue;
             }
+            if (judged.Target is not { } target)
+                continue; // every machine on it is stale or mid-switch; nothing can be sent this tick
 
             var explanation = ThresholdExplanation(source, tired, target);
-            foreach (var machine in eligible)
+            foreach (var machine in judged.Free)
                 switches.Add(new LicenseSwitchDecision(machine.MachineName, machine.OsUser, source, target,
                     LicenseSwitchReasons.Threshold, explanation));
 
@@ -196,7 +198,9 @@ public static class LicenseDecisionEngine
     /// <summary>
     /// The owner email for <paramref name="accountEmail"/>'s no-room event as things stand NOW, or null when it
     /// cannot truthfully be written now: the account's reading is stale or shows no tired window, no machine on
-    /// it can be sent a switch, or a target exists. <see cref="Decide"/> writes the email once, on the tick that
+    /// it can be sent a switch, or a switch can be sent - a target exists and a machine that is not held can take
+    /// it. It is the "no account has room" email, or the "switch keeps failing" one when a target has room and
+    /// every machine that could be sent the switch is held. <see cref="Decide"/> writes the email once, on the tick that
     /// opens the event; this is for the minute check to write it again when that send failed, from the facts
     /// of the later tick rather than a stored copy of the first one.
     /// </summary>
@@ -205,18 +209,37 @@ public static class LicenseDecisionEngine
         ArgumentNullException.ThrowIfNull(snapshot);
         if (string.IsNullOrWhiteSpace(accountEmail))
             throw new ArgumentException("The account the event is about is required", nameof(accountEmail));
-        var now = snapshot.NowUtc;
         var source = Normalize(accountEmail);
         var readings = IndexReadings(snapshot.Accounts);
-        if (!readings.TryGetValue(source, out var reading) || IsReadingStale(reading, now))
+        return JudgeTired(snapshot, readings, source) is { } judged
+            ? NothingSwitchedEmail(snapshot, readings, source, judged)
+            : null;
+    }
+
+    /// <summary>
+    /// True when the automatic decision leaves <paramref name="machine"/> out at <paramref name="nowUtc"/> because its
+    /// switch keeps failing: its hold is still ahead, and it is still on the account the failing switch was to leave.
+    /// A machine that has since been moved to another account is a new case, and is not held.
+    /// </summary>
+    public static bool IsHeld(LicenseMachineState machine, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(machine);
+        return machine.Hold is { } hold && hold.HeldUntilUtc > nowUtc
+            && machine.ActiveAccountEmail is { } active && SameAccount(active, hold.FromAccountEmail);
+    }
+
+    /// <summary>
+    /// What the Gateway says of a held machine, as one clause with no full stop, for a sentence that names the machine
+    /// itself: which switch keeps failing, why in the Gateway's own words, and until when it is held. Null when the
+    /// machine is not held at <paramref name="nowUtc"/>.
+    /// </summary>
+    public static string? HeldWhy(LicenseMachineState machine, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(machine);
+        if (!IsHeld(machine, nowUtc) || machine.Hold is not { } hold)
             return null;
-        var tired = TiredWindows(reading, now);
-        if (tired.Count == 0)
-            return null;
-        var (eligible, skipped) = SplitMachines(snapshot, source);
-        if (eligible.Count == 0 || ChooseTarget(snapshot, readings, source, eligible) is not null)
-            return null;
-        return BuildNoRoomEmail(snapshot, readings, source, tired, eligible, skipped);
+        return $"its switch from {hold.FromAccountEmail} to {hold.ToAccountEmail} has failed more than once in a row{HoldReason(hold)}, "
+               + $"so the automatic switch leaves it out until {Time(hold.HeldUntilUtc)}";
     }
 
     /// <summary>
@@ -307,6 +330,54 @@ public static class LicenseDecisionEngine
     // ----- the rule's parts -----
 
     private sealed record TiredWindow(string Name, double Utilization, DateTime? ResetsAtUtc);
+
+    /// <summary>What one account in use comes to when a fresh reading shows a tired window.</summary>
+    /// <param name="Tired">The windows at or over the threshold.</param>
+    /// <param name="Free">The machines on it that can be sent a switch and are not held.</param>
+    /// <param name="Held">The machines on it that could be sent a switch, and are held because theirs keeps failing.</param>
+    /// <param name="Skipped">Every machine on it that is not sent a switch now, and why - the held ones included.</param>
+    /// <param name="Target">The target for <see cref="Deciding"/>, or null when none qualifies.</param>
+    private sealed record TiredAccount(List<TiredWindow> Tired, List<LicenseMachineState> Free, List<LicenseMachineState> Held,
+        List<LicenseSkippedMachine> Skipped, string? Target)
+    {
+        /// <summary>The machines the target was chosen for: the free ones - and when there is none, the held ones,
+        /// because whether a target exists for them says WHICH reason nothing can be switched for.</summary>
+        public List<LicenseMachineState> Deciding => Free.Count > 0 ? Free : Held;
+    }
+
+    // Null when the account's reading is stale or shows no tired window.
+    private static TiredAccount? JudgeTired(LicenseSnapshot snapshot, IReadOnlyDictionary<string, LicenseAccountReading> readings, string source)
+    {
+        var now = snapshot.NowUtc;
+        if (!readings.TryGetValue(source, out var reading) || IsReadingStale(reading, now))
+            return null;
+        var tired = TiredWindows(reading, now);
+        if (tired.Count == 0)
+            return null;
+        var (eligible, skipped) = SplitMachines(snapshot, source);
+        var free = eligible.Where(m => !IsHeld(m, now)).ToList();
+        var held = eligible.Where(m => IsHeld(m, now)).ToList();
+        skipped.AddRange(held.Select(m => new LicenseSkippedMachine(m.MachineName, m.OsUser, source,
+            HeldWhy(m, now) ?? throw new InvalidOperationException("A held machine has no hold to describe."))));
+        var judged = new TiredAccount(tired, free, held, skipped, null);
+        return judged with { Target = ChooseTarget(snapshot, readings, source, judged.Deciding) };
+    }
+
+    // The one owner email of the event when nothing can be switched for a tired account, or null when something
+    // can - or when no machine on it could be sent a switch at all (stale or mid-switch), which is no event.
+    private static LicenseOwnerEmail? NothingSwitchedEmail(LicenseSnapshot snapshot,
+        IReadOnlyDictionary<string, LicenseAccountReading> readings, string source, TiredAccount judged)
+    {
+        if (judged.Deciding.Count == 0)
+            return null;
+        if (judged.Target is null)
+            return BuildNoRoomEmail(snapshot, readings, source, judged.Tired, judged.Deciding,
+                judged.Skipped.Where(s => !judged.Deciding.Any(m => IsMachine(m, s))).ToList());
+        return judged.Free.Count == 0 ? BuildSwitchKeepsFailingEmail(snapshot, source, judged) : null;
+    }
+
+    private static bool IsMachine(LicenseMachineState machine, LicenseSkippedMachine skipped)
+        => machine.MachineName == skipped.MachineName && machine.OsUser == skipped.OsUser;
 
     private static string? ChooseTarget(LicenseSnapshot snapshot, IReadOnlyDictionary<string, LicenseAccountReading> readings,
         string source, IReadOnlyList<LicenseMachineState> machines)
@@ -479,7 +550,48 @@ public static class LicenseDecisionEngine
         foreach (var other in others)
             body.Append(CultureInfo.InvariantCulture, $"{other.AccountEmail} was not chosen: {WhyNotTarget(snapshot, other, source, machines)}.\r\n");
         body.Append("\r\nThis is the only email for this event. Sessions on these machines will stop when the limit is reached.");
-        return new LicenseOwnerEmail(source, subject, body.ToString());
+        return new LicenseOwnerEmail(source, subject, body.ToString(), LicenseStore.NoRoomHappened(source));
+    }
+
+    // The email of the same event when a target HAS room and every machine that could be sent the switch is held
+    // because its switch keeps failing.
+    private static LicenseOwnerEmail BuildSwitchKeepsFailingEmail(LicenseSnapshot snapshot, string source, TiredAccount judged)
+    {
+        var tired = judged.Tired;
+        var subject = $"DevThrottle: the switch away from {source} keeps failing - it is at {DescribeWindows(tired)}";
+        var body = new StringBuilder();
+        body.Append(CultureInfo.InvariantCulture, $"{source} has reached {DescribeWindows(tired)}. {judged.Target} has room for its machines, but the switch keeps failing, so nothing is being switched for now.\r\n\r\n");
+        foreach (var skipped in judged.Skipped)
+        {
+            var held = judged.Held.Any(m => IsMachine(m, skipped));
+            body.Append(CultureInfo.InvariantCulture, $"{Label(snapshot, skipped.MachineName, skipped.OsUser)}: {(held ? skipped.Why : "not sent a switch, because " + skipped.Why)}.\r\n");
+        }
+        body.Append("\r\n");
+        foreach (var window in tired)
+            body.Append(CultureInfo.InvariantCulture, $"Its {WindowLabel(window.Name)} resets {(window.ResetsAtUtc is { } r ? "at " + Time(r) : "at a time the provider did not give")}.\r\n");
+        body.Append("\r\nThe switch is tried again by itself each time a machine's hold has passed, and the hold grows each time the switch fails the same way, up to one hour. ");
+        body.Append("Switch now on the Licenses page of the Cockpit sends the switch at once, and the switch log there has a row for each try.\r\n");
+        body.Append("\r\nThis is the only email for this event. Sessions on these machines will stop when the limit is reached.");
+        return new LicenseOwnerEmail(source, subject, body.ToString(), SwitchKeepsFailingHappened(source));
+    }
+
+    /// <summary>What the event's row of the Licenses log says happened when every machine that could be switched is
+    /// held: one clause with no full stop.</summary>
+    public static string SwitchKeepsFailingHappened(string accountEmail)
+        => $"The switch of the machines on {Normalize(accountEmail)} keeps failing and is tried again later each time, so nothing is switched for now";
+
+    // Why the held switch failed, in brackets at the end of a clause: the Gateway's own sentence for the reason
+    // word, or the word itself when this build does not know it.
+    internal static string HoldReason(LicenseHold hold)
+    {
+        ArgumentNullException.ThrowIfNull(hold);
+        if (string.IsNullOrWhiteSpace(hold.ReasonCode))
+            return "";
+        var text = LicenseDisplayFold.ReasonText(hold.ReasonCode);
+        // The sentence is put inside another, so it loses its capital and its full stop.
+        return text is null || text == hold.ReasonCode
+            ? $" (the machine's reason word: {hold.ReasonCode})"
+            : $" ({char.ToLowerInvariant(text[0])}{text[1..].TrimEnd('.')})";
     }
 
     private static string DescribeWindows(IReadOnlyList<TiredWindow> tired) =>

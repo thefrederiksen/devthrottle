@@ -144,6 +144,62 @@ public sealed class LicenseSwitchCheckHostedTests : IAsyncLifetime
             JsonSerializer.Deserialize<LicenseSwitchRequest>(sentToBob[0].PayloadJson, FakeTunnelDirector.WebJson)!.SwitchId);
     }
 
+    /// <summary>Make the Director refuse every switch it is sent, the same way each time; returns what it was sent.</summary>
+    private static List<DirectorCommand> RefusesEverySwitch(FakeTunnelDirector director)
+    {
+        var received = new List<DirectorCommand>();
+        director.OnCommand(command =>
+        {
+            lock (received) received.Add(command);
+            var request = JsonSerializer.Deserialize<LicenseSwitchRequest>(command.PayloadJson, FakeTunnelDirector.WebJson)
+                          ?? throw new InvalidOperationException("The command carried no switch request.");
+            return FakeTunnelDirector.Ok(new LicenseSwitchResult
+            {
+                SwitchId = request.SwitchId,
+                Outcome = LicenseSwitchOutcomes.Failed,
+                ReasonCode = LicenseSwitchReasonCodes.ExchangeFailedRestored,
+                Message = "The exchange failed and was undone.",
+                PreviousActiveAccountEmail = request.ExpectedActiveAccountEmail,
+                ActiveAccountEmailAfter = request.ExpectedActiveAccountEmail,
+                StartedAtUtc = Now,
+                FinishedAtUtc = Now,
+            });
+        });
+        return received;
+    }
+
+    [Fact]
+    public async Task RunLicenseSwitchCheckAsync_ADirectorThatRefusesTheSameSwitchTwiceInARow_IsNotSentAThird_AndTheHostsOwnPictureSaysTheMachineIsHeld()
+    {
+        var sentToAlice = RefusesEverySwitch(_aliceDirector);
+        var sentToBob = RunsEverySwitch(_bobDirector);
+        await _aliceDirector.PushLicenseUsageAsync(AtTheThreshold("MACHINE_OF_ALICE"));
+        await _bobDirector.PushLicenseUsageAsync(AtTheThreshold("MACHINE_OF_BOB"));
+
+        // The host's check, four times over. Before the hold, each one sent Alice's machine a new switch.
+        for (var check = 0; check < 4; check++)
+            await _gateway.RunLicenseSwitchCheckAsync();
+
+        Assert.Equal(2, sentToAlice.Count);
+        var rows = _gateway.LicenseStore.ListLog(_alice.Tenant, Now.AddHours(-1)).Where(r => r.Kind == LicenseLogKinds.Switch).ToList();
+        Assert.Equal(2, rows.Count);
+        Assert.All(rows, row => Assert.Equal((LicenseLogStates.Failed, LicenseSwitchReasonCodes.ExchangeFailedRestored), (row.State, row.ReasonCode)));
+        // The hold is on the second failed row, one minute from when it ended; the first carries none.
+        Assert.Equal(new DateTime?[] { null, Now.AddMinutes(1) }, rows.Select(r => r.HeldUntilUtc).OrderBy(h => h));
+
+        // What the Licenses page is given comes from the host's own picture, which reads the hold from the store.
+        var machine = Assert.Single(LicenseDisplayFold.Overview(_gateway.LicenseSnapshots.ReadPicture(_alice.Tenant, Now, Array.Empty<LicenseExhaustion>())).Machines);
+        Assert.Equal(Now.AddMinutes(1), machine.HeldUntilUtc);
+        Assert.StartsWith("Held out of the automatic switch for 1 minute, until 2026-10-12 12:01 UTC: ", machine.HeldText);
+        // The only machine of the tired account is held: the event of the no-room case is open, once, and says why.
+        var noRoom = Assert.Single(_gateway.LicenseStore.ListLog(_alice.Tenant, Now.AddHours(-1)), r => r.Kind == LicenseLogKinds.NoRoom);
+        Assert.StartsWith(LicenseDecisionEngine.SwitchKeepsFailingHappened(A) + "; ", noRoom.Message);
+
+        // Another account's machine is not held by it: Bob's was switched on the first check, once.
+        Assert.Single(sentToBob);
+        Assert.Null(Assert.Single(LicenseDisplayFold.Overview(_gateway.LicenseSnapshots.ReadPicture(_bob.Tenant, Now, Array.Empty<LicenseExhaustion>())).Machines).HeldText);
+    }
+
     [Fact]
     public async Task TheHostsCheck_ForAnAccountWhoseMachinesNeverReported_DoesNothing()
     {

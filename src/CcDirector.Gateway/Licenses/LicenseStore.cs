@@ -553,6 +553,106 @@ public sealed class LicenseStore
         return taken;
     }
 
+    // ---- A switch that keeps failing (written by the minute check and Switch now, read by the decision) ----
+
+    /// <summary>The longest a machine is held out of the automatic decision after one more failure of the same switch.</summary>
+    public static readonly TimeSpan LongestFailureHold = TimeSpan.FromHours(1);
+
+    /// <summary>
+    /// How long a machine is held after its <paramref name="failuresInARow"/>-th failure in a row of the same switch:
+    /// nothing after the first, then one minute, two, four ... up to <see cref="LongestFailureHold"/> - the way the
+    /// wait between two tries of an owner email grows.
+    /// </summary>
+    public static TimeSpan? FailureHold(int failuresInARow)
+    {
+        if (failuresInARow < 2)
+            return null;
+        var doublings = failuresInARow - 2;
+        return doublings >= 6 ? LongestFailureHold : TimeSpan.FromMinutes(1 << doublings);
+    }
+
+    // The eighth failure in a row is the first held for the longest time, so no more than seven earlier rows count.
+    private const int EarlierRowsCounted = 7;
+
+    /// <summary>
+    /// A SWITCH THAT KEEPS FAILING IS NOT DECIDED AGAIN EVERY MINUTE. Call this when a switch row has ended
+    /// <c>failed</c> on an answer of the machine's Director. When it is at least the second switch row in a row on
+    /// that machine to fail with the same reason word for the same from and to, the hold is recorded ON THE ROW
+    /// (<see cref="LicenseSwitchLogEntity.HeldUntilUtc"/> = when the row ended + <see cref="FailureHold"/>), so a
+    /// Gateway that restarts keeps it. "In a row" is the machine's switch rows newest first: any row that is not the
+    /// same failure - a switch that worked, another reason, another from or to, a switch that was never sent - ends the
+    /// run. Returns the time the machine is held until, or null when nothing is held: the row is not a failed switch
+    /// with a reason, or it is the first of its run.
+    /// </summary>
+    public DateTime? HoldAfterRepeatedFailure(TenantId tenant, string switchId)
+    {
+        var id = SwitchKey(switchId) ?? throw new ArgumentException($"'{switchId}' is not a switch identifier.", nameof(switchId));
+        FileLog.Write($"[LicenseStore] HoldAfterRepeatedFailure: tenant={tenant.ToLogString()}, switch={id}");
+        try
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var row = ctx.LicenseSwitchLog.FirstOrDefault(r => r.SwitchId == id && r.Kind == LicenseLogKinds.Switch);
+            if (row is null || !IsAnsweredFailure(row) || row.FinishedAtUtc is not { } finished)
+            {
+                FileLog.Write("[LicenseStore] HoldAfterRepeatedFailure: not a failed switch with a reason, nothing held");
+                return null;
+            }
+            var earlier = ctx.LicenseSwitchLog.AsNoTracking()
+                .Where(r => r.Kind == LicenseLogKinds.Switch && r.MachineId == row.MachineId && r.CreatedAtUtc <= row.CreatedAtUtc && r.Id != row.Id)
+                .OrderByDescending(r => r.CreatedAtUtc).ThenByDescending(r => r.FinishedAtUtc)
+                .Take(EarlierRowsCounted)
+                .ToList();
+            var failures = 1 + earlier.TakeWhile(r => IsAnsweredFailure(r) && r.ReasonCode == row.ReasonCode
+                && r.FromAccountEmail == row.FromAccountEmail && r.ToAccountEmail == row.ToAccountEmail).Count();
+            if (FailureHold(failures) is not { } hold)
+            {
+                FileLog.Write("[LicenseStore] HoldAfterRepeatedFailure: the first failure of its run, nothing held");
+                return null;
+            }
+            row.HeldUntilUtc = Utc(finished) + hold;
+            ctx.SaveChanges();
+            FileLog.Write($"[LicenseStore] HoldAfterRepeatedFailure: machine={row.MachineId}, failuresInARow={failures}, heldUntil={row.HeldUntilUtc:O}");
+            return row.HeldUntilUtc;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[LicenseStore] HoldAfterRepeatedFailure FAILED: {ex.Message}");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// The holds in force at <paramref name="nowUtc"/>: for each machine, its LATEST switch row when that row carries a
+    /// <see cref="LicenseSwitchLogEntity.HeldUntilUtc"/> still ahead. A machine's later switch row, of any state, ends
+    /// the hold of an earlier one - a Switch now that was sent since is a new fact about the machine.
+    /// </summary>
+    /// <remarks>Quiet, like <see cref="ListOpenNoRoom"/>: the minute check and every read of the Licenses page ask
+    /// this. A failure is logged by the caller that asked.</remarks>
+    public IReadOnlyList<LicenseSwitchLogEntity> ListHolds(TenantId tenant, DateTime nowUtc)
+    {
+        var now = Utc(nowUtc);
+        using var ctx = _db.CreateContext(tenant);
+        var held = ctx.LicenseSwitchLog.AsNoTracking()
+            .Where(r => r.Kind == LicenseLogKinds.Switch && r.HeldUntilUtc != null && r.HeldUntilUtc > now)
+            .ToList();
+        if (held.Count == 0)
+            return held;
+        var machines = held.Select(r => r.MachineId).Distinct().ToList();
+        var latest = ctx.LicenseSwitchLog.AsNoTracking()
+            .Where(r => r.Kind == LicenseLogKinds.Switch && machines.Contains(r.MachineId))
+            .GroupBy(r => r.MachineId)
+            .Select(g => new { MachineId = g.Key, CreatedAtUtc = g.Max(r => r.CreatedAtUtc) })
+            .ToDictionary(g => g.MachineId, g => g.CreatedAtUtc);
+        return held.Where(r => r.CreatedAtUtc == latest[r.MachineId])
+            .OrderBy(r => r.MachineName, StringComparer.Ordinal).ThenBy(r => r.OsUser, StringComparer.Ordinal).ToList();
+    }
+
+    /// <summary>True for a switch row that ended <c>failed</c> on an answer of the machine's Director: a failure with
+    /// a reason word other than "the Director was not connected", which is a switch that was never sent.</summary>
+    private static bool IsAnsweredFailure(LicenseSwitchLogEntity row)
+        => row.State == LicenseLogStates.Failed && row.ReasonCode is { Length: > 0 } reason
+           && reason != LicenseGatewayReasonCodes.DirectorOffline;
+
     private static IQueryable<LicenseSwitchLogEntity> OpenSwitch(GatewayDbContext ctx, string id)
         => ctx.LicenseSwitchLog.Where(r => r.SwitchId == id && r.Kind == LicenseLogKinds.Switch
                                            && (r.State == LicenseLogStates.Pending || r.State == LicenseLogStates.Unknown));
@@ -595,10 +695,14 @@ public sealed class LicenseStore
 
     /// <summary>
     /// Record that an exhaustion event began: an account in use is at the threshold and no account has room (one row,
-    /// kind <c>no-room</c>, open while its <c>FinishedAtUtc</c> is null; <c>NotAfterUtc</c> holds the event's end). An
+    /// kind <c>no-room</c>, open while its <c>FinishedAtUtc</c> is null; <c>NotAfterUtc</c> holds the event's end). The
+    /// same row records the event of a switch that keeps failing on every machine that could be sent it. An
     /// account has at most one open event: when one is already open it is returned unchanged.
     /// </summary>
-    public LicenseSwitchLogEntity OpenNoRoom(TenantId tenant, string accountEmail, DateTime startedAtUtc, DateTime endsAtUtc)
+    /// <param name="happened">What happened, as one clause with no full stop, when it is not "no account had room":
+    /// the event of a switch that keeps failing (<see cref="LicenseDecisionEngine.SwitchKeepsFailingHappened"/>).</param>
+    public LicenseSwitchLogEntity OpenNoRoom(TenantId tenant, string accountEmail, DateTime startedAtUtc, DateTime endsAtUtc,
+        string? happened = null)
     {
         var email = NormalizeEmail(accountEmail);
         FileLog.Write($"[LicenseStore] OpenNoRoom: tenant={tenant.ToLogString()}, account={email}, ends={endsAtUtc:O}");
@@ -616,7 +720,7 @@ public sealed class LicenseStore
             FromAccountEmail = email,
             Reason = LicenseSwitchReasons.Threshold,
             State = LicenseLogStates.Open,
-            Message = NoRoomMessage(email, "the owner has not been emailed yet"),
+            Message = Cap(EventMessage(happened ?? NoRoomHappened(email), "the owner has not been emailed yet"), MaxMessageLength),
             CreatedAtUtc = Utc(startedAtUtc),
             NotAfterUtc = Utc(endsAtUtc),
             TenantId = ctx.ActiveTenant!,
@@ -629,7 +733,15 @@ public sealed class LicenseStore
 
     /// <summary>The sentence a no-room row shows: what happened, then what became of the owner email.</summary>
     public static string NoRoomMessage(string accountEmail, string ownerEmailClause)
-        => $"No account had room for the machines on {NormalizeEmail(accountEmail)}, so nothing was switched; {ownerEmailClause}.";
+        => EventMessage(NoRoomHappened(accountEmail), ownerEmailClause);
+
+    /// <summary>What a no-room row says happened when no account had room: one clause with no full stop.</summary>
+    public static string NoRoomHappened(string accountEmail)
+        => $"No account had room for the machines on {NormalizeEmail(accountEmail)}, so nothing was switched";
+
+    /// <summary>The sentence the row of an exhaustion event shows: what happened - no account had room, or the switch
+    /// keeps failing - then what became of the owner email.</summary>
+    public static string EventMessage(string happened, string ownerEmailClause) => $"{happened}; {ownerEmailClause}.";
 
     /// <summary>Every no-room event still open, oldest first.</summary>
     /// <remarks>Quiet, like <see cref="HasMachines"/>: the minute check reads this for every tenant every minute, and

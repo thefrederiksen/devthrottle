@@ -7104,6 +7104,13 @@ public sealed class GatewayHost : IAsyncDisposable
             return null;
         }
         FileLog.Write($"[GatewayHost] SendCommandAsync: director={directorId}, verb={command.Verb}, sid={command.SessionId}, cmdId={command.CommandId}");
+        // THIS MUST STAY InvokeAsync (a client result), NEVER SendAsync. The license sign-in relay (contract
+        // section 8.3) depends on it: a Director answering a long license-sign-in is sent its approval as a
+        // second "Command" on the same connection, and the SignalR client runs client-result invocations
+        // concurrently but fire-and-forget ones one after another. Sent with SendAsync, the approval would wait
+        // behind the sign-in it answers and the sign-in would end expired. The Director's side of this is the
+        // "Command" registration in GatewayStreamClient. Measured out of tree, not by a test here:
+        // missions/license-switching/review-phases-2-and-4-whole.md.
         return await hub.Clients.Client(connectionId).InvokeAsync<DirectorCommandResult>("Command", command, ct);
     }
 

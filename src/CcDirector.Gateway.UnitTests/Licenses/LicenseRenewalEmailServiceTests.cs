@@ -21,7 +21,8 @@ namespace CcDirector.Gateway.Tests.Licenses;
 ///
 /// What these hold down: the email goes out when a sign-in's renewal has failed AND the sign-in ends within the
 /// warning time; it is keyed on the failure's time being set, never on a reason word; it goes out once for each
-/// sign-in for each failure streak, also across a restart of the Gateway; a send that failed is tried again, later
+/// sign-in for each failure streak, also across a restart of the Gateway; every sign-in due in one check goes out in
+/// ONE email, one line each, and every row of it is marked from the same confirmation; a send that failed is tried again, later
 /// each time, and then never again once it has gone out; a streak that ends closes its row and the next failure is a
 /// new one; and one DevThrottle account is never emailed about another's machine.
 /// </summary>
@@ -669,21 +670,167 @@ public sealed class LicenseRenewalEmailServiceTests : IDisposable
         Assert.Single(_sent);
     }
 
-    [Fact]
-    public async Task EachFailingSignIn_GetsItsOwnEmail_OnePerMachineAndAccount()
-    {
-        Reports(One, Mac, Failing(A, TwoDays), Failing(B, TimeSpan.FromHours(4), active: false));
-        Reports(One, "the-windows-machine", Failing(A, TimeSpan.FromHours(30)), Renewed(C, TimeSpan.FromDays(20), active: false));
+    // ----- one email for each check, not one for each sign-in (the review of phases 2 and 4, finding 2) -----
 
-        Assert.Equal(3, await Tick());
+    private const string Windows = "the-windows-machine";
+
+    /// <summary>Three sign-ins on two machines whose renewal failed in the same minute, as one signed-out browser
+    /// that approves them all leaves them; a fourth sign-in is fine.</summary>
+    private void ThreeSignInsFailAtOnce()
+    {
+        Reports(One, Mac, Failing(A, TwoDays), Failing(B, TimeSpan.FromHours(4), active: false, error: LicenseRenewalErrors.BrowserNotSignedIn));
+        Reports(One, Windows, Failing(A, TimeSpan.FromHours(-3), error: "a-word-this-gateway-does-not-know", detail: "The browser asked\r\nto log in again."),
+            Renewed(C, TimeSpan.FromDays(20), active: false));
+    }
+
+    [Fact]
+    public async Task TickAsync_SeveralSignInsDueInOneCheck_SendsOneEmailWithOneLineForEach()
+    {
+        ThreeSignInsFailAtOnce();
+
+        Assert.Equal(1, await Tick());
         _now = T0.AddMinutes(1);
         Assert.Equal(0, await Tick());
 
-        Assert.Equal(3, _sent.Count);
-        Assert.Equal(new[] { (Mac, A), (Mac, B), ("the-windows-machine", A) },
+        var email = Assert.Single(_sent).Email;
+        Assert.Equal("DevThrottle: 3 sign-ins are about to end or have ended, and could not be renewed", email.Subject);
+        Assert.Equal(string.Join("\r\n",
+            "3 sign-ins could not be renewed, and each is about to end or has already ended. One line for each:",
+            "",
+            "- the-mac, account-a@example.com (the account it is on now): the sign-in expires in 2 days (at 2026-10-13 03:12 UTC). The last try to renew it failed at 2026-10-11 03:07 UTC by the machine's clock: the machine that approves this account was not connected. Last report less than a minute ago (at 2026-10-11 03:12 UTC).",
+            "- the-mac, account-b@example.com (a spare): the sign-in expires in 4 hours (at 2026-10-11 07:12 UTC). The last try to renew it failed at 2026-10-11 03:07 UTC by the machine's clock: the approving browser is not signed in. Last report less than a minute ago (at 2026-10-11 03:12 UTC).",
+            // The Gateway does not know this reason word, so the machine's own sentence is given, on one line.
+            "- the-windows-machine, account-a@example.com (the account it is on now): the sign-in expired 3 hours ago (at 2026-10-11 00:12 UTC). The last try to renew it failed at 2026-10-11 03:07 UTC by the machine's clock: the machine gave no reason this Gateway knows. The machine said: The browser asked to log in again. Last report less than a minute ago (at 2026-10-11 03:12 UTC).",
+            "",
+            "Each line is written from that machine's last report; what a machine has done since is not known here.",
+            "",
+            "Sign each machine in to its account again, from the Licenses page of the Cockpit or on the machine itself.",
+            "",
+            "This is the only email for these failures. Another is sent about a sign-in only when its machine has reported a newer sign-in, or has stopped holding this one, and a later renewal fails."), email.BodyText);
+        // One row for each sign-in, as before: the streak is still each sign-in's own.
+        Assert.Equal(new[] { (Mac, A), (Mac, B), (Windows, A) },
             Rows().Select(r => (r.MachineName, r.ToAccountEmail)).OrderBy(r => r.MachineName).ThenBy(r => r.ToAccountEmail));
-        Assert.All(Rows(), row => Assert.Equal(LicenseGatewayReasonCodes.OwnerEmailed, row.ReasonCode));
-        Assert.Contains(_sent, s => s.Email.Subject.Contains("for account-a@example.com on the-windows-machine "));
+    }
+
+    [Fact]
+    public async Task TickAsync_SeveralSignInsDueInOneCheck_MarksEveryRowFromTheSameConfirmation()
+    {
+        ThreeSignInsFailAtOnce();
+
+        await Tick();
+
+        Assert.Single(_sent);
+        Assert.Equal(3, Rows().Count);
+        Assert.All(Rows(), row =>
+        {
+            Assert.Equal((LicenseGatewayReasonCodes.OwnerEmailed, T0, 1), (row.ReasonCode, row.LastSentAtUtc, row.SendCount));
+            Assert.EndsWith("; the owner was emailed, in one email about 3 sign-ins.", row.Message);
+        });
+    }
+
+    [Fact]
+    public async Task TickAsync_ASignInThatBecomesDueOnALaterCheck_GetsItsOwnEmail_AndTheEarlierOnesAreNotSentAgain()
+    {
+        ThreeSignInsFailAtOnce();
+        Assert.Equal(1, await Tick());
+
+        // An hour on the fourth sign-in's renewal fails too: its own email, about it alone.
+        _now = T0.AddHours(1);
+        Reports(One, Windows, Failing(A, TimeSpan.FromHours(-4)), Failing(C, TwoDays, active: false));
+        Assert.Equal(1, await Tick());
+        _now = T0.AddHours(2);
+        Assert.Equal(0, await Tick());
+
+        Assert.Equal(2, _sent.Count);
+        Assert.Equal("DevThrottle: the sign-in for account-c@example.com on the-windows-machine expires in 2 days and could not be renewed", _sent[1].Email.Subject);
+        Assert.DoesNotContain("account-a@example.com", _sent[1].Email.BodyText);
+        Assert.EndsWith("; the owner was emailed.", Rows().Single(r => r.ToAccountEmail == C).Message);
+        Assert.Equal(4, Rows().Count);
+        Assert.All(Rows(), row => Assert.Equal(1, row.SendCount));
+    }
+
+    [Fact]
+    public async Task TickAsync_OneEmailOfSeveralThatFails_IsTriedAgainAsOneOnItsWait_AndGoesOutOnce()
+    {
+        ThreeSignInsFailAtOnce();
+        _mailAnswers = () => new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Failed, "the DevThrottle account service could not be reached");
+
+        Assert.Equal(1, await Tick());
+        Assert.All(Rows(), row => Assert.Equal((LicenseGatewayReasonCodes.OwnerEmailFailed, 0), (row.ReasonCode, row.SendCount)));
+        _now = T0.AddSeconds(59);
+        Assert.Equal(0, await Tick());
+        _mailAnswers = () => new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Sent, null);
+        _now = T0.AddMinutes(1);
+        Assert.Equal(1, await Tick());
+        _now = T0.AddMinutes(2);
+        Assert.Equal(0, await Tick());
+
+        // Two tries, each ONE email about all three; the second went, and every row says so with its time.
+        Assert.Equal(2, _sent.Count);
+        Assert.All(_sent, s => Assert.StartsWith("DevThrottle: 3 sign-ins ", s.Email.Subject));
+        Assert.All(Rows(), row => Assert.Equal((LicenseGatewayReasonCodes.OwnerEmailed, T0.AddMinutes(1), 1), (row.ReasonCode, row.LastSentAtUtc, row.SendCount)));
+    }
+
+    [Fact]
+    public async Task TickAsync_OneEmailOfSeveral_IsNotSentAgainByAGatewayThatRestarted()
+    {
+        ThreeSignInsFailAtOnce();
+        await Tick();
+
+        _service = NewService();
+        _now = T0.AddMinutes(1);
+        Assert.Equal(0, await Tick());
+        _now = T0.AddHours(6);
+        Assert.Equal(0, await Tick());
+
+        Assert.Single(_sent);
+    }
+
+    [Fact]
+    public async Task TickAsync_OneEmailOfSeveral_IsNeverSentAgain_WhileTheDatabaseRefusesToMarkItsRows()
+    {
+        // The three rows are written by a check whose send fails, so the next check has only rows to change.
+        ThreeSignInsFailAtOnce();
+        _mailAnswers = () => new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Failed, "the DevThrottle account service could not be reached");
+        await Tick();
+        _sent.Clear();
+        _mailAnswers = () => new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Sent, null);
+        TheDatabaseRefusesToChangeARow();
+
+        // The one email goes out and is confirmed; marking the first row fails, and the check fails with it.
+        _now = T0.AddMinutes(1);
+        await Assert.ThrowsAnyAsync<Exception>(() => Tick());
+        Assert.Single(_sent);
+        for (var minute = 2; minute <= 6; minute++)
+        {
+            _now = T0.AddMinutes(minute);
+            await Assert.ThrowsAnyAsync<Exception>(() => Tick());
+        }
+        Assert.Single(_sent);
+
+        // The database takes writes again: EVERY row of that email is marked with the moment it really went.
+        TheDatabaseTakesChangesAgain();
+        _now = T0.AddMinutes(7);
+        Assert.Equal(0, await Tick());
+        _now = T0.AddMinutes(8);
+        Assert.Equal(0, await Tick());
+
+        Assert.Single(_sent);
+        Assert.All(Rows(), row => Assert.Equal((LicenseGatewayReasonCodes.OwnerEmailed, T0.AddMinutes(1), 1), (row.ReasonCode, row.LastSentAtUtc, row.SendCount)));
+    }
+
+    [Fact]
+    public async Task TickAsync_SeveralSignInsDue_OnAGatewayWithNoAccountToEmail_RecordsThatOnEveryRow_AndNeverTriesAgain()
+    {
+        ThreeSignInsFailAtOnce();
+        _mailAnswers = () => new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.NoAccount, "this self-hosted Gateway has no DevThrottle account to email");
+
+        Assert.Equal(1, await Tick());
+        _now = T0.AddHours(3);
+        Assert.Equal(0, await Tick());
+
+        Assert.Single(_sent);
+        Assert.All(Rows(), row => Assert.Equal((LicenseGatewayReasonCodes.NoOwnerAccount, 0), (row.ReasonCode, row.SendCount)));
     }
 
     [Fact]

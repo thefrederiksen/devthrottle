@@ -2236,6 +2236,9 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasMaxLength(320)
                         .HasColumnType("TEXT");
 
+                    b.Property<DateTime?>("HeldUntilUtc")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Kind")
                         .IsRequired()
                         .HasMaxLength(16)

@@ -507,6 +507,16 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         // DirectorCommand and awaits the DirectorCommandResult over the same connection (SignalR client
         // results). This handler is a boundary, so it catches: a dispatcher fault becomes an Error result
         // the Gateway can fall back on, never a faulted hub invocation.
+        //
+        // THE LICENSE SIGN-IN RELAY DEPENDS ON "Command" BEING A CLIENT RESULT (contract section 8.3). The
+        // SignalR client runs client-result invocations concurrently and fire-and-forget invocations one
+        // after another. A license-sign-in command waits here for minutes for its approval, and that
+        // approval arrives as a second "Command" (license-approval-result) on this same connection: it is
+        // delivered only because this handler is registered with a result and the Gateway sends it with
+        // InvokeAsync. Registered without a result, or sent with SendAsync, the approval would wait behind
+        // the sign-in it answers and the sign-in would end expired. For the same reason no fire-and-forget
+        // handler on this connection may wait on anything. Measured out of tree, not by a test here:
+        // missions/license-switching/review-phases-2-and-4-whole.md.
         _connection.On<DirectorCommand, DirectorCommandResult>("Command",
             cmd => HandleCommandAsync(cmd, _upStreamHandler, _commandDispatcher));
 

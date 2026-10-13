@@ -84,6 +84,15 @@ public sealed record LicenseSwitchNowMachine(
 /// decided and written (rows, bars, events) happens under a short per-tenant gate that the minute check and Switch now
 /// share, so the two can never write two open rows for one machine; the gate is released before anything is sent.
 ///
+/// A SWITCH THAT KEEPS FAILING IS NOT DECIDED AGAIN EVERY MINUTE. When a Director answers a switch <c>failed</c> - or
+/// answers with an error - and that is at least the second switch in a row on that machine to fail with the same
+/// reason word for the same from and to, the machine is held out of the AUTOMATIC decision for a wait that grows: one
+/// minute, two, four, up to an hour (<see cref="LicenseStore.HoldAfterRepeatedFailure"/>). The hold is recorded on the
+/// failed row itself, so a Gateway that restarts keeps it. When every machine of a tired account that could be sent a
+/// switch is held, the engine treats it as the no-room case, so the owner is told once, by the one email of the
+/// event. Switch now ignores a hold, as it ignores a bar, and a Switch now that fails the same way again is one more
+/// failure of the run.
+///
 /// ONE OWNER EMAIL PER EVENT. The event is recorded as emailed only when the mail service confirmed the send. A send
 /// that failed is tried again on a later check, with the text rebuilt from that check's facts
 /// (<see cref="LicenseDecisionEngine.NoRoomEmail"/>); once it has gone out it never goes again. The tries of one
@@ -118,8 +127,9 @@ public sealed class LicenseSwitchService
     private readonly ConcurrentDictionary<(TenantId Tenant, string AccountEmail), DateTime> _emailNotBefore = new();
     // How many tries of this event's email have failed in a row; it sets the growing wait.
     private readonly ConcurrentDictionary<(TenantId Tenant, string AccountEmail), int> _emailFailures = new();
-    // Emails the mail service confirmed whose event's row is not marked yet: never sent again by this process.
-    private readonly ConcurrentDictionary<(TenantId Tenant, string AccountEmail), DateTime> _emailConfirmed = new();
+    // Emails the mail service confirmed whose event's row is not marked yet: never sent again by this process. With
+    // when it went, and what the event's row says happened.
+    private readonly ConcurrentDictionary<(TenantId Tenant, string AccountEmail), (DateTime SentAtUtc, string Happened)> _emailConfirmed = new();
 
     /// <summary>The longest the Gateway itself waits between two tries of one event's owner email.</summary>
     internal static readonly TimeSpan LongestOwnEmailWait = TimeSpan.FromHours(1);
@@ -503,7 +513,12 @@ public sealed class LicenseSwitchService
         // 6. No-room events: opened, moved, closed - and the one owner email of each.
         var emails = new List<PlannedEmail>();
         foreach (var opened in decisions.OpenedExhaustions)
-            _store.OpenNoRoom(tenant, opened.AccountEmail, opened.StartedAtUtc, opened.EndsAtUtc);
+        {
+            // An event is opened together with its one email, and the email says which of the two it is: no
+            // account had room, or the switch keeps failing.
+            var its = decisions.Emails.Single(e => LicenseStore.NormalizeEmail(e.AccountEmail) == LicenseStore.NormalizeEmail(opened.AccountEmail));
+            _store.OpenNoRoom(tenant, opened.AccountEmail, opened.StartedAtUtc, opened.EndsAtUtc, Happened(its));
+        }
         foreach (var extended in decisions.ExtendedExhaustions)
             _store.ExtendNoRoom(tenant, extended.AccountEmail, extended.EndsAtUtc);
         foreach (var closed in decisions.ClosedExhaustions)
@@ -669,21 +684,34 @@ public sealed class LicenseSwitchService
                     _sentAfterExpiry[(tenant, send.SwitchId)] = 0;
                 return;
             case DirectorCommandStatus.Ok when ReadAnswer(result, send.SwitchId) is { } answer:
-                _store.TrySettle(tenant, answer, now);
+                var settled = _store.TrySettle(tenant, answer, now);
                 _store.ApplySwitchReadBack(tenant, send.MachineId, answer, sentAtUtc);
+                if (settled && answer.Outcome == LicenseSwitchOutcomes.Failed)
+                    HoldIfItKeepsFailing(tenant, send);
                 break;
             case DirectorCommandStatus.Ok:
-                _store.TryMark(tenant, send.SwitchId, LicenseLogStates.Failed, LicenseGatewayReasonCodes.DirectorError,
-                    $"The Director on {send.MachineName} answered, but its answer could not be read as the result of this switch.", now);
+                if (_store.TryMark(tenant, send.SwitchId, LicenseLogStates.Failed, LicenseGatewayReasonCodes.DirectorError,
+                        $"The Director on {send.MachineName} answered, but its answer could not be read as the result of this switch.", now))
+                    HoldIfItKeepsFailing(tenant, send);
                 break;
             default:
-                _store.TryMark(tenant, send.SwitchId, LicenseLogStates.Failed, LicenseGatewayReasonCodes.DirectorError,
-                    result.Error ?? $"The Director on {send.MachineName} returned {result.Status}.", now);
+                if (_store.TryMark(tenant, send.SwitchId, LicenseLogStates.Failed, LicenseGatewayReasonCodes.DirectorError,
+                        result.Error ?? $"The Director on {send.MachineName} returned {result.Status}.", now))
+                    HoldIfItKeepsFailing(tenant, send);
                 break;
         }
         // Every other result ends the row, and a row that has ended keeps no entry.
         _sentAfterExpiry.TryRemove((tenant, send.SwitchId), out _);
         FileLog.Write($"[LicenseSwitchService] switch={send.SwitchId}: director={send.DirectorId}, status={result.Status}");
+    }
+
+    /// <summary>A switch has just ended <c>failed</c> on what the machine's Director answered. When it is the same
+    /// failure as the machine's switch before it, the machine is held out of the automatic decision, and the hold is
+    /// written on the row (the class summary).</summary>
+    private void HoldIfItKeepsFailing(TenantId tenant, PlannedSend send)
+    {
+        if (_store.HoldAfterRepeatedFailure(tenant, send.SwitchId) is { } until)
+            FileLog.Write($"[LicenseSwitchService] switch={send.SwitchId}: the same switch failed again on {send.MachineName}; the automatic switch leaves it out until {until:O}");
     }
 
     /// <summary>The Director's answer, or null when the body is not the result of THIS switch with an outcome this
@@ -730,19 +758,19 @@ public sealed class LicenseSwitchService
         {
             case LicenseOwnerEmailOutcome.Sent:
                 // Remembered BEFORE the row is marked: if the mark fails, no later check of this process sends again.
-                _emailConfirmed[(tenant, account)] = now;
+                _emailConfirmed[(tenant, account)] = (now, Happened(planned.Email));
                 MarkEmailConfirmed(tenant, account);
                 break;
             case LicenseOwnerEmailOutcome.NoAccount:
                 _store.RecordNoRoomEmail(tenant, account, LicenseGatewayReasonCodes.NoOwnerAccount,
-                    LicenseStore.NoRoomMessage(account, $"no owner email was sent because {result.Detail}"), null);
+                    LicenseStore.EventMessage(Happened(planned.Email), $"no owner email was sent because {result.Detail}"), null);
                 ForgetEmailWait(tenant, account);
                 break;
             default:
                 // The wait is set before the row is written, so a database that refuses the write still gets the wait.
                 _emailNotBefore[(tenant, account)] = now + NextEmailWait(tenant, account, result.RetryAfter);
                 _store.RecordNoRoomEmail(tenant, account, LicenseGatewayReasonCodes.OwnerEmailFailed,
-                    LicenseStore.NoRoomMessage(account, $"the owner has not been emailed yet because {result.Detail}"), null);
+                    LicenseStore.EventMessage(Happened(planned.Email), $"the owner has not been emailed yet because {result.Detail}"), null);
                 break;
         }
         FileLog.Write($"[LicenseSwitchService] owner email for a no-room event: tenant={tenant.ToLogString()}, outcome={result.Outcome}");
@@ -752,12 +780,17 @@ public sealed class LicenseSwitchService
     /// marked, so a database that refuses the mark costs no second email while this Gateway runs.</summary>
     private void MarkEmailConfirmed(TenantId tenant, string account)
     {
-        var sentAt = _emailConfirmed[(tenant, account)];
+        var (sentAt, happened) = _emailConfirmed[(tenant, account)];
         _store.RecordNoRoomEmail(tenant, account, LicenseGatewayReasonCodes.OwnerEmailed,
-            LicenseStore.NoRoomMessage(account, "the owner was emailed"), sentAt);
+            LicenseStore.EventMessage(happened, "the owner was emailed"), sentAt);
         _emailConfirmed.TryRemove((tenant, account), out _);
         ForgetEmailWait(tenant, account);
     }
+
+    /// <summary>What the event's row says happened, from the event's email: the engine writes it on every email of an
+    /// exhaustion event, so one without it is a defect and is not replaced by a guessed sentence.</summary>
+    private static string Happened(LicenseOwnerEmail email)
+        => email.Happened ?? throw new InvalidOperationException("The email of an exhaustion event does not say what happened.");
 
     /// <summary>
     /// How long to wait before the next try of an event's owner email after a failed one: the Gateway's own wait,

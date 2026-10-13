@@ -56,6 +56,9 @@ public static class LicenseDisplayFold
 
     public const string NoSwitchExpectedText = "No switch is expected.";
 
+    /// <summary>What a <c>no-room</c> row is called: an account in use is at its limit and nothing could be switched.</summary>
+    public const string NothingSwitchedKindText = "Nothing was switched";
+
     /// <summary>What an account's renewal date says while none is set. The date is one a person sets.</summary>
     public const string RenewalDateNotSetText = "Renewal date not set";
 
@@ -403,6 +406,7 @@ public static class LicenseDisplayFold
             : machine.ActiveAccountEmail is null ? (LicenseMachineStatuses.SignedOut, "Signed out", LicenseTones.Warning)
             : (LicenseMachineStatuses.Reporting, "Reporting", LicenseTones.Good);
         var holdings = machine.Holdings.Select(h => Holding(h, nowUtc)).ToList();
+        var hold = HoldInForce(picture.Snapshot, machine);
         return new LicenseMachineDto
         {
             MachineId = machine.MachineId.ToString("N"),
@@ -419,8 +423,26 @@ public static class LicenseDisplayFold
             Active = holdings.FirstOrDefault(h => h.IsActive),
             Spares = holdings.Where(h => !h.IsActive).ToList(),
             SwitchInProgress = inProgress,
+            HeldUntilUtc = hold is null ? null : Utc(hold.HeldUntilUtc),
+            HeldText = hold is null ? null : HeldText(hold, nowUtc),
         };
     }
+
+    // The hold that keeps this machine out of the AUTOMATIC switch now, or null. Whether a hold is in force is the
+    // engine's own answer, so the page never says "held" of a machine the minute check would switch.
+    private static LicenseHold? HoldInForce(LicenseSnapshot snapshot, LicenseMachineView machine)
+    {
+        var state = snapshot.Machines.FirstOrDefault(m => SameMachine(m.MachineName, m.OsUser, machine));
+        return state is not null && LicenseDecisionEngine.IsHeld(state, snapshot.NowUtc) ? state.Hold : null;
+    }
+
+    // A hold stops the automatic switch only: a person can still use Switch now, and the sentence says so.
+    private static string HeldText(LicenseHold hold, DateTime now)
+        => $"Held out of the automatic switch for {Span(hold.HeldUntilUtc - now)}, until {Clock(hold.HeldUntilUtc)}: "
+           + $"its switch from {hold.FromAccountEmail} to {hold.ToAccountEmail} has failed more than once in a row{LicenseDecisionEngine.HoldReason(hold)}. "
+           + "Switch now still sends it at once.";
+
+    private static string Clock(DateTime utc) => Utc(utc).ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture);
 
     private static LicenseSwitchInProgressDto? SwitchInProgress(LicenseMachineView machine, IReadOnlyList<LicenseSwitchLogEntity> openSwitches)
     {
@@ -498,7 +520,7 @@ public static class LicenseDisplayFold
         var moves = inUse.ToDictionary(e => e, e => LicenseDecisionEngine.PreviewManual(snapshot, e, null), StringComparer.Ordinal);
         var readings = snapshot.Accounts.ToDictionary(r => r.AccountEmail, StringComparer.Ordinal);
         var accounts = forecast.Accounts
-            .Select(a => AccountForecast(a, readings[a.AccountEmail], moves.GetValueOrDefault(a.AccountEmail), now))
+            .Select(a => AccountForecast(a, readings[a.AccountEmail], moves.GetValueOrDefault(a.AccountEmail), EveryMachineHeldText(snapshot, a.AccountEmail), now))
             .ToList();
         var expectedByAccount = accounts.ToDictionary(a => a.AccountEmail, a => a.ExpectedAtLimitUtc, StringComparer.Ordinal);
 
@@ -520,10 +542,10 @@ public static class LicenseDisplayFold
                 }
                 : null,
             NextSwitchText = forecast.NextSwitch is { } expected
-                ? NextSwitchText(expected, moves[expected.FromAccountEmail], now)
+                ? NextSwitchText(expected, moves[expected.FromAccountEmail], now) + (EveryMachineHeldText(snapshot, expected.FromAccountEmail) is { } held ? " " + held : "")
                 : NoSwitchExpectedText,
             Accounts = accounts,
-            Machines = picture.Overview.Machines.Select(m => MachineForecast(m, names, moves, expectedByAccount, now)).ToList(),
+            Machines = picture.Overview.Machines.Select(m => MachineForecast(m, names, moves, expectedByAccount, HoldInForce(snapshot, m), now)).ToList(),
         };
         FileLog.Write($"[LicenseDisplayFold] Forecast: empty={empty}, machines={response.Machines.Count}");
         return response;
@@ -542,8 +564,19 @@ public static class LicenseDisplayFold
             : $"{when}. {move.RefusalMessage ?? throw new InvalidOperationException("The forecast gives no target for the next switch, and Switch now would not refuse one.")} Nothing would be switched.";
     }
 
+    // When every machine on the account that could be sent a switch is held because its switch keeps failing: the
+    // sentence saying so, and when the automatic switch is next tried. Null otherwise.
+    private static string? EveryMachineHeldText(LicenseSnapshot snapshot, string accountEmail)
+    {
+        var switchable = LicenseDecisionEngine.SwitchableMachines(snapshot, accountEmail);
+        if (switchable.Count == 0 || !switchable.All(m => LicenseDecisionEngine.IsHeld(m, snapshot.NowUtc)))
+            return null;
+        var next = switchable.Min(m => m.Hold!.HeldUntilUtc);
+        return $"The automatic switch keeps failing and is held: it is tried again in {Span(next - snapshot.NowUtc)}, at {Clock(next)}. Switch now still sends it at once.";
+    }
+
     private static LicenseAccountForecastDto AccountForecast(LicenseAccountForecast account, LicenseAccountReading reading,
-        LicenseManualSwitchVerdict? move, DateTime now)
+        LicenseManualSwitchVerdict? move, string? everyMachineHeld, DateTime now)
     {
         var dto = new LicenseAccountForecastDto
         {
@@ -581,6 +614,8 @@ public static class LicenseDisplayFold
             (_, "now") => $"{move.RefusalMessage} It is at its limit now.",
             _ => $"{move.RefusalMessage} It reaches its limit {when}.",
         };
+        if (everyMachineHeld is not null)
+            dto.NextSwitchText += " " + everyMachineHeld;
         return dto;
     }
 
@@ -620,7 +655,8 @@ public static class LicenseDisplayFold
     }
 
     private static LicenseMachineForecastDto MachineForecast(LicenseMachineView machine, MachineNames names,
-        IReadOnlyDictionary<string, LicenseManualSwitchVerdict> moves, IReadOnlyDictionary<string, DateTime?> expectedByAccount, DateTime now)
+        IReadOnlyDictionary<string, LicenseManualSwitchVerdict> moves, IReadOnlyDictionary<string, DateTime?> expectedByAccount,
+        LicenseHold? hold, DateTime now)
     {
         var dto = new LicenseMachineForecastDto
         {
@@ -652,6 +688,14 @@ public static class LicenseDisplayFold
         }
         dto.NextAccountEmail = mine.TargetAccountEmail;
         dto.ExpectedSwitchAtUtc = expectedByAccount.GetValueOrDefault(active);
+        if (hold is not null)
+        {
+            // Held: the automatic switch is not tried before the hold has passed, whatever the numbers say.
+            if (dto.ExpectedSwitchAtUtc is { } expected && expected < hold.HeldUntilUtc)
+                dto.ExpectedSwitchAtUtc = Utc(hold.HeldUntilUtc);
+            dto.Text = HeldText(hold, now);
+            return dto;
+        }
         dto.Text = dto.ExpectedSwitchAtUtc switch
         {
             null => $"Next: {mine.TargetAccountEmail}, when {active} reaches its limit. No switch is expected yet.",
@@ -721,7 +765,9 @@ public static class LicenseDisplayFold
             LicenseLogKinds.Switch => "Switch",
             LicenseLogKinds.SpareAdded => "Spare added",
             LicenseLogKinds.SpareRemoved => "Spare removed",
-            NoRoomKind => "No account had room",
+            // One kind for both reasons nothing could be switched: no account had room, or the switch keeps failing
+            // on every machine. The row's message says which.
+            NoRoomKind => NothingSwitchedKindText,
             LicenseRenewalFailureLog.Kind => "Renewal failing",
             _ => "Note",
         };
@@ -758,7 +804,11 @@ public static class LicenseDisplayFold
                 {
                     LicenseLogStates.Switched => $"{label} switched from {row.FromAccountEmail} to {row.ToAccountEmail}.",
                     LicenseLogStates.AlreadyActive => $"{label} was already on {row.ToAccountEmail}.",
-                    LicenseLogStates.Failed => $"{label} was not switched from {row.FromAccountEmail} to {row.ToAccountEmail}.",
+                    LicenseLogStates.Failed => $"{label} was not switched from {row.FromAccountEmail} to {row.ToAccountEmail}."
+                        + (row.HeldUntilUtc is { } heldUntil
+                            // A moment, never a distance: the stored row is read long after the hold has passed.
+                            ? $" It was not the first time in a row that this switch failed this way, so the automatic switch left {label} out until {Clock(heldUntil)}."
+                            : ""),
                     LicenseLogStates.Pending or LicenseLogStates.Unknown => $"{label} is switching from {row.FromAccountEmail} to {row.ToAccountEmail}.",
                     // A state this build does not know: what happened is not known here, so nothing is claimed.
                     _ => message ?? (string.IsNullOrWhiteSpace(row.State)
@@ -773,6 +823,7 @@ public static class LicenseDisplayFold
             FinishedOnMachineAtUtc = UtcOrNull(row.DirectorFinishedAtUtc),
             ExchangeMilliseconds = row.ExchangeMilliseconds,
             FinishedAtUtc = UtcOrNull(row.FinishedAtUtc),
+            HeldUntilUtc = row.Kind == LicenseLogKinds.Switch ? UtcOrNull(row.HeldUntilUtc) : null,
             TimingText = TimingText(row),
             VerifiedByUsageRead = row.VerifiedByUsageRead,
             VerifiedText = row.Kind != LicenseLogKinds.Switch || row.State is not (LicenseLogStates.Switched or LicenseLogStates.AlreadyActive) ? null

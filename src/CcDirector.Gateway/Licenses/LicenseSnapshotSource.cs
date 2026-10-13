@@ -19,7 +19,7 @@ public sealed record LicensePicture(
 /// THE ONE PLACE A <see cref="LicenseSnapshot"/> IS BUILT FROM THE STORE (License Switching). The minute check, Switch
 /// now, the forecast and the Licenses page all take the engine's picture from here, so they judge the same facts:
 /// the freshest reading of every account and every machine from <see cref="LicenseReadModel"/>, whether a machine has
-/// an open switch from the switch log, and the bars still in force.
+/// an open switch from the switch log, whether it is held because its switch keeps failing, and the bars still in force.
 ///
 /// The open "no account has room" events are an INPUT, not read here: the minute check owns where they are kept. A
 /// caller that does not judge them (the forecast, the Licenses page) passes an empty list.
@@ -53,7 +53,8 @@ public sealed class LicenseSnapshotSource
             var overview = _reads.Read(tenant, nowUtc);
             var open = _store.ListOpenSwitches(tenant);
             var bars = _store.ListActiveBars(tenant, nowUtc);
-            var snapshot = Build(overview, open, bars, openExhaustions, nowUtc);
+            var holds = _store.ListHolds(tenant, nowUtc);
+            var snapshot = Build(overview, open, bars, openExhaustions, nowUtc, holds);
             return new LicensePicture(overview, snapshot, open);
         }
         catch (Exception ex)
@@ -66,10 +67,12 @@ public sealed class LicenseSnapshotSource
     /// <summary>
     /// The snapshot, as pure code. An account's reading is its freshest one, judged by the time the store corrected
     /// for clock skew; an account never read has no windows and no read time, which the engine reads as stale. A
-    /// machine has an open switch when the log holds a <c>pending</c> or <c>unknown</c> row for it.
+    /// machine has an open switch when the log holds a <c>pending</c> or <c>unknown</c> row for it, and a hold when
+    /// <paramref name="holds"/> - <see cref="LicenseStore.ListHolds"/> - has a row for it.
     /// </summary>
     public static LicenseSnapshot Build(LicenseOverview overview, IReadOnlyList<LicenseSwitchLogEntity> openSwitches,
-        IReadOnlyList<LicenseBarEntity> bars, IReadOnlyList<LicenseExhaustion> openExhaustions, DateTime nowUtc)
+        IReadOnlyList<LicenseBarEntity> bars, IReadOnlyList<LicenseExhaustion> openExhaustions, DateTime nowUtc,
+        IReadOnlyList<LicenseSwitchLogEntity>? holds = null)
     {
         ArgumentNullException.ThrowIfNull(overview);
         ArgumentNullException.ThrowIfNull(openSwitches);
@@ -89,6 +92,10 @@ public sealed class LicenseSnapshotSource
             .Where(r => r.Kind == LicenseLogKinds.Switch && LicenseLogStates.IsOpen(r.State))
             .Select(r => r.MachineId)
             .ToHashSet();
+        var holdByMachine = (holds ?? Array.Empty<LicenseSwitchLogEntity>())
+            .Where(r => r.Kind == LicenseLogKinds.Switch && r.HeldUntilUtc is not null)
+            .GroupBy(r => r.MachineId)
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(r => r.CreatedAtUtc).First());
         var machines = overview.Machines
             .Select(m => new LicenseMachineState(
                 m.MachineName,
@@ -100,7 +107,10 @@ public sealed class LicenseSnapshotSource
                 m.LastReportAtUtc,
                 machinesMidSwitch.Contains(m.MachineId),
                 m.SwitchInProgressId,
-                m.Holdings.FirstOrDefault(h => h.IsActive)?.SignInExpiresAtUtc))
+                m.Holdings.FirstOrDefault(h => h.IsActive)?.SignInExpiresAtUtc,
+                holdByMachine.TryGetValue(m.MachineId, out var held)
+                    ? new LicenseHold(DateTime.SpecifyKind(held.HeldUntilUtc!.Value, DateTimeKind.Utc), held.FromAccountEmail, held.ToAccountEmail, held.ReasonCode)
+                    : null))
             .ToList();
 
         // The store hands over only the bars still in force, and the engine ignores one whose time has passed.

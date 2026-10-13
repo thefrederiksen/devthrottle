@@ -150,7 +150,8 @@ public sealed class LicenseEndpointsTests : IDisposable
         Assert.Equal(new[]
         {
             "machineId", "machineName", "osUser", "label", "activeAccountEmail", "status", "statusText", "statusTone", "isStale",
-            "lastReportAtUtc", "lastReportText", "active", "spares", "switchInProgress", "canAddSpare", "addSpareText", "signInsInProgress",
+            "lastReportAtUtc", "lastReportText", "active", "spares", "switchInProgress", "heldUntilUtc", "heldText", "canAddSpare", "addSpareText",
+            "signInsInProgress",
         }, Names(machine));
         Assert.Equal(("the-windows-machine", "owner", A), (machine.GetProperty("machineName").GetString(), machine.GetProperty("osUser").GetString(), machine.GetProperty("activeAccountEmail").GetString()));
         var spare = machine.GetProperty("spares")[0];
@@ -522,7 +523,7 @@ public sealed class LicenseEndpointsTests : IDisposable
         {
             "entryId", "kind", "kindText", "atUtc", "machineId", "machineName", "osUser", "label", "fromAccountEmail", "toAccountEmail", "why", "whyText",
             "state", "stateText", "stateTone", "isOpen", "reasonCode", "reasonText", "message", "summary", "sendCount", "lastSentAtUtc",
-            "startedOnMachineAtUtc", "finishedOnMachineAtUtc", "exchangeMilliseconds", "finishedAtUtc", "timingText", "verifiedByUsageRead",
+            "startedOnMachineAtUtc", "finishedOnMachineAtUtc", "exchangeMilliseconds", "finishedAtUtc", "heldUntilUtc", "timingText", "verifiedByUsageRead",
             "verifiedText",
         }, Names(entry));
         Assert.Equal(("switch", "Switch", "machine-of-one", A, B, "manual", "By hand", "pending", "Waiting to be sent", true, "2026-10-11T03:12:00Z"),
@@ -744,7 +745,7 @@ public sealed class LicenseEndpointsTests : IDisposable
         Assert.Equal(4, entries.Count);
         Assert.Equal(("a-kind-from-a-later-build", "Note", "Something a later build wrote."),
             (entries[0].GetProperty("kind").GetString(), entries[0].GetProperty("kindText").GetString(), entries[0].GetProperty("summary").GetString()));
-        Assert.Equal(("no-room", "No account had room", true),
+        Assert.Equal(("no-room", "Nothing was switched", true),
             (entries[1].GetProperty("kind").GetString(), entries[1].GetProperty("kindText").GetString(), entries[1].GetProperty("isOpen").GetBoolean()));
         Assert.Equal(new[] { "Spare added", "Spare removed" }, entries.Skip(2).Select(e => e.GetProperty("kindText").GetString()).OrderBy(t => t));
         Assert.All(entries.Skip(2), e => Assert.Equal("Recorded", e.GetProperty("stateText").GetString()));

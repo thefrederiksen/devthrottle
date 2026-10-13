@@ -359,6 +359,14 @@ public sealed class LicenseMachineDto
     /// <summary>The switch this machine is in the middle of; null when there is none.</summary>
     public LicenseSwitchInProgressDto? SwitchInProgress { get; set; }
 
+    /// <summary>The AUTOMATIC switch leaves this machine out until this time, because its switch has failed the same
+    /// way more than once in a row; null when it is not held. Switch now is not affected.</summary>
+    public DateTime? HeldUntilUtc { get; set; }
+
+    /// <summary>The sentence saying that the machine is held, why, and until when; null when it is not held. The
+    /// machine's sentence in the forecast (<see cref="LicenseMachineForecastDto.Text"/>) says the same.</summary>
+    public string? HeldText { get; set; }
+
     /// <summary>"Add a spare" is offered for this machine: a sign-in can be started on it now.</summary>
     public bool CanAddSpare { get; set; }
 
@@ -619,7 +627,8 @@ public sealed class LicenseLogEntryDto
     /// <summary>The kind as stored: "switch", "spare-added", "spare-removed", "no-room", or a later one.</summary>
     public string Kind { get; set; } = "";
 
-    /// <summary>"Switch", "Spare added", "Spare removed", "No account had room", or "Note" for a kind not known.</summary>
+    /// <summary>"Switch", "Spare added", "Spare removed", "Nothing was switched", "Renewal failing", or "Note" for a
+    /// kind not known.</summary>
     public string KindText { get; set; } = "";
 
     /// <summary>When the Gateway decided the switch or saw the change.</summary>
@@ -685,6 +694,11 @@ public sealed class LicenseLogEntryDto
 
     /// <summary>When the row reached its end, by the Gateway's clock; null while it is open.</summary>
     public DateTime? FinishedAtUtc { get; set; }
+
+    /// <summary>On a failed switch that was at least the second in a row to fail the same way: the automatic switch
+    /// left the machine out until this time after it. Null on every other row. The row's <see cref="Summary"/> says so
+    /// in words.</summary>
+    public DateTime? HeldUntilUtc { get; set; }
 
     /// <summary>"Took 2.0 seconds on the machine (the exchange itself 41 milliseconds)"; null when there are no timings.</summary>
     public string? TimingText { get; set; }
