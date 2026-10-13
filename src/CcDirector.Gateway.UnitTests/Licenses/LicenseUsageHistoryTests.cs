@@ -167,44 +167,70 @@ public sealed class LicenseUsageHistoryTests
     [Fact]
     public async Task RecordAndRead_FromSeveralThreadsAtOnce_NeverSeeAHalfWrittenSeries()
     {
-        // Four writers on one account, and four readers that read for as long as the writers write. Without the
-        // lock a reader copies a list while a writer inserts into it: the copy throws, or comes out torn. With it
-        // every copy is whole and in order. The readers stop when the writers do, so nothing here waits on a clock.
+        // Four writers on one account, and four readers that read while the writers write. Without the lock a reader
+        // copies a list while a writer inserts into it or drops its oldest point: the copy throws, or comes out torn -
+        // a point twice, or one more than the most kept. With the lock every copy is whole, in order, and each read
+        // time is in it once.
+        //
+        // The overlap is arranged, not hoped for. A writer does not stop until it has written its share AND every
+        // reader has finished its share of reads, so each of those reads is made while all four writers are still
+        // writing - however the machine schedules the eight of them. Each runs on a thread of its own, so none
+        // waits in the pool's queue behind the others. Nothing here waits on a clock.
+        //
+        // The writers' read times interleave (writer 0 writes ticks 1, 5, 9; writer 1 writes 2, 6, 10), so every
+        // write lands among the newest points and pushes the oldest out: the list is being shifted all the time.
         var history = new LicenseUsageHistory();
-        const int perWriter = 25000;
+        const int writerCount = 4;
+        const int readerCount = 4;
+        const int writesEach = 10000;
+        const int readsEach = 2000;
+        var now = T0.AddHours(1); // later than any read time written, and inside the two hours kept
         using var go = new ManualResetEventSlim();
-        var writers = Enumerable.Range(0, 4).Select(w => Task.Run(() =>
+        using var readersDone = new CountdownEvent(readerCount);
+
+        var writers = Enumerable.Range(0, writerCount).Select(w => Task.Factory.StartNew(() =>
         {
             go.Wait();
-            for (var i = 0; i < perWriter; i++)
-                history.Record(TenantA, Report("m" + w, Holding(A, true, 1, readAt: T0.AddTicks(w * perWriter + i + 1))), TimeSpan.Zero, T0.AddMinutes(1));
-        })).ToArray();
-        var written = Task.WhenAll(writers);
-        var readers = Enumerable.Range(0, 4).Select(_ => Task.Run(() =>
-        {
-            go.Wait();
-            var reads = 0;
-            while (!written.IsCompleted)
+            long written = 0;
+            while (written < writesEach || !readersDone.IsSet)
             {
-                foreach (var account in history.Read(TenantA, T0.AddMinutes(1)))
-                {
-                    var times = account.FiveHour.Select(p => p.AtUtc).ToList();
-                    Assert.Equal(times.OrderBy(t => t), times);
-                    Assert.True(times.Count <= LicenseUsageHistory.MaxPointsPerWindow);
-                }
-                reads++;
+                history.Record(TenantA, Report("m" + w, Holding(A, true, 1, readAt: T0.AddTicks(written * writerCount + w + 1))), TimeSpan.Zero, now);
+                written++;
             }
-            return reads;
-        })).ToArray();
+            return written;
+        }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default)).ToArray();
+
+        var readers = Enumerable.Range(0, readerCount).Select(_ => Task.Factory.StartNew(() =>
+        {
+            go.Wait();
+            try
+            {
+                for (var read = 0; read < readsEach; read++)
+                {
+                    foreach (var account in history.Read(TenantA, now))
+                    {
+                        var times = account.FiveHour.Select(p => p.AtUtc).ToList();
+                        Assert.True(times.Count <= LicenseUsageHistory.MaxPointsPerWindow, $"a reader was handed {times.Count} points, more than the most kept");
+                        for (var i = 1; i < times.Count; i++)
+                            Assert.True(times[i - 1] < times[i], $"a reader was handed a series out of order or with a point twice, at index {i}");
+                    }
+                }
+            }
+            finally
+            {
+                readersDone.Signal(); // also when a read failed: the writers stop, and the failure is what the test reports
+            }
+        }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default)).ToArray();
 
         go.Set();
-        await written;
-        var reads = await Task.WhenAll(readers);
+        await Task.WhenAll(readers);
+        var written = await Task.WhenAll(writers);
 
-        Assert.All(reads, count => Assert.True(count > 0, "a reader never read while the writers wrote"));
-        var points = history.Read(TenantA, T0.AddMinutes(1)).Single().FiveHour;
-        Assert.Equal(LicenseUsageHistory.MaxPointsPerWindow, points.Count); // 100,000 written, the newest 600 kept
-        Assert.Equal(T0.AddTicks(4 * perWriter), points[^1].AtUtc);
+        Assert.All(written, count => Assert.True(count >= writesEach));
+        var points = history.Read(TenantA, now).Single().FiveHour;
+        Assert.Equal(LicenseUsageHistory.MaxPointsPerWindow, points.Count); // 40,000 or more written, the newest 600 kept
+        var newestWritten = Enumerable.Range(0, writerCount).Max(w => (written[w] - 1) * writerCount + w + 1);
+        Assert.Equal(T0.AddTicks(newestWritten), points[^1].AtUtc);
     }
 
     [Fact]

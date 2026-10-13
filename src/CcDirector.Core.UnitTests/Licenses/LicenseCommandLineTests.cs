@@ -247,23 +247,36 @@ public sealed class LicenseCommandLineTests
     [Fact]
     public void ResolveOwnCopy_EmptyToolDirectory_IsNullEvenWhenPathHasOne()
     {
-        // The Director runs its OWN copy, never whatever PATH resolves. This machine's PATH has a cc-devthrottle (the
-        // test proves it first), and an empty tool directory still resolves nothing.
-        Assert.NotNull(CcDirector.Core.Utilities.ExecutableResolver.Resolve(CcDevthrottleLicenseCommandLine.ToolName));
-        var empty = Path.Combine(Path.GetTempPath(), "license-tool-dir-" + Guid.NewGuid().ToString("N"));
+        // The Director runs its OWN copy, never whatever the search path resolves. The test builds its own search
+        // path holding a cc-devthrottle (and proves the resolver finds it there first), so it does not depend on
+        // what this machine has installed; an empty tool directory still resolves nothing.
+        var root = Path.Combine(Path.GetTempPath(), "license-tool-dir-" + Guid.NewGuid().ToString("N"));
+        var empty = Path.Combine(root, "own");
+        var onSearchPath = Path.Combine(root, "on-search-path");
         Directory.CreateDirectory(empty);
+        Directory.CreateDirectory(onSearchPath);
         try
         {
-            Assert.Null(CcDevthrottleLicenseCommandLine.ResolveOwnCopy(empty));
+            var other = WriteTool(onSearchPath);
+            const string? pathExt = null; // the resolver's own default list, which holds .CMD
+            Assert.Equal(other, CcDirector.Core.Utilities.ExecutableResolver.Resolve(CcDevthrottleLicenseCommandLine.ToolName, onSearchPath, pathExt), ignoreCase: true);
 
-            var own = Path.Combine(empty, CcDevthrottleLicenseCommandLine.ToolName + (OperatingSystem.IsWindows() ? ".cmd" : ""));
-            File.WriteAllText(own, "");
-            if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(own, UnixFileMode.UserRead | UnixFileMode.UserExecute);
-            Assert.Equal(Path.GetFullPath(own), Path.GetFullPath(CcDevthrottleLicenseCommandLine.ResolveOwnCopy(empty)!), ignoreCase: true);
+            Assert.Null(CcDevthrottleLicenseCommandLine.ResolveOwnCopy(empty, onSearchPath, pathExt));
+
+            var own = WriteTool(empty);
+            Assert.Equal(own, CcDevthrottleLicenseCommandLine.ResolveOwnCopy(empty, onSearchPath, pathExt), ignoreCase: true);
         }
         finally
         {
-            Directory.Delete(empty, recursive: true);
+            Directory.Delete(root, recursive: true);
         }
+    }
+
+    private static string WriteTool(string folder)
+    {
+        var tool = Path.Combine(folder, CcDevthrottleLicenseCommandLine.ToolName + (OperatingSystem.IsWindows() ? ".cmd" : ""));
+        File.WriteAllText(tool, "");
+        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(tool, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        return Path.GetFullPath(tool);
     }
 }

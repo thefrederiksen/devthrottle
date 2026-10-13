@@ -487,3 +487,21 @@ def test_usage_error_OutsideTheAsciiLine_IsRefused():
     for message in ("two\nlines", "café"):
         with pytest.raises(ValueError):
             usage_errors.usage_error(message)
+
+
+def test_no_source_file_ImportsTheClickPackage():
+    # Typer 0.16.1, the declared floor, installs the Click package; later Typer releases carry their own copy and
+    # do not. A source file that imports click therefore passes on the floor and fails to import on current
+    # packages, taking every test module down with it. Take what is needed from typer instead.
+    import re
+
+    source = Path(__file__).parent.parent / "src"
+    files = sorted(source.rglob("*.py"))
+    assert files, f"no source files found under {source}"
+    importing = [
+        f"{path.relative_to(source).as_posix()}:{number}"
+        for path in files
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1)
+        if re.match(r"\s*(import\s+click\b|from\s+click\b)", line)
+    ]
+    assert importing == [], f"these lines import the click package: {importing}"
