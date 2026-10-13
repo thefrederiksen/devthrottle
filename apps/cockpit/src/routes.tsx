@@ -26,6 +26,7 @@ import {
 } from "./factory/FactoryRedirects";
 import { DirectorsView } from "./fleet/DirectorsView";
 import { DirectorDetailView } from "./fleet/DirectorDetailView";
+import { LicensesView } from "./licenses/LicensesView";
 import { ScheduleView } from "./schedule/ScheduleView";
 import { WorkflowsView } from "./workflows/WorkflowsView";
 import { WorkflowDetail } from "./workflows/WorkflowDetail";
@@ -168,6 +169,10 @@ export const COCKPIT_ROUTES: RouteObject[] = [
           { path: "/missions", element: <Navigate to="/fleet-map" replace /> },
           { path: "/directors", element: <DirectorsView /> },
           { path: "/directors/:directorId", element: <DirectorDetailView /> },
+          // The Licenses page (the License Switching mission, phase 3): every Claude account, which machine is on
+          // which, when the next switch is expected, the switch log and Switch now. It reads the Gateway's
+          // /gateway/licenses routes through client-core and shows every verdict as the Gateway folded it.
+          { path: "/licenses", element: <LicensesView /> },
           // The Schedule page (issue #976): a one-to-one port of the Blazor Schedule.razor (cron
           // jobs, /cron/jobs surface) over the same Gateway REST surface, with a Fleet-section nav
           // entry (issue #1247). The Wingman Pipeline page that used to sit beside it was removed:

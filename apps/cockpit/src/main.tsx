@@ -12,6 +12,7 @@ import "./components/components.css";
 import "./fleetmanager/fleetmanager.css";
 import "./fleet/fleet.css";
 import "./fleet/fleetmap.css";
+import "./licenses/licenses.css";
 import "./history/history.css";
 import "./missions/missions.css";
 import "./schedule/schedule.css";
