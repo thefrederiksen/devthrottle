@@ -1557,3 +1557,107 @@ a:focus .ff-bay rect {
 .fa-fm-findings li + li {
   margin-top: 4px;
 }
+
+/* A factory nothing is scheduled for (Factory Seats mission): neither a problem nor a pause, so it carries no colour. */
+.fa-group-heading.fa-group-talk {
+  color: var(--text-dim);
+}
+
+.fa-card-talk {
+  border-left-color: var(--text-dim);
+}
+
+/* "Open seat" under a seat's name on the Seats tab: every seat opens its own page, with or without a schedule. */
+.fa-seat-open {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 13px;
+}
+
+/* One seat's page. A label beside its value; on a phone the value drops under its label. */
+.fa-seat-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 16px;
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+
+.fa-seat-facts dt {
+  color: var(--text-dim);
+}
+
+.fa-seat-facts dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.fa-seat-subtitle {
+  margin: 14px 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.fa-seat-talk-only {
+  margin: 0;
+  font-size: 14px;
+}
+
+/* One schedule on the seat's page: its words on the left, its buttons on the right. */
+.fa-seat-start {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px 16px;
+  flex-wrap: wrap;
+  padding: 8px 0;
+}
+
+.fa-seat-start + .fa-seat-start,
+.fa-seat-start + .fa-woken,
+.fa-woken + .fa-woken {
+  border-top: 1px solid var(--border);
+}
+
+.fa-seat-start + .fa-woken,
+.fa-woken + .fa-woken {
+  padding-top: 8px;
+}
+
+.fa-seat-start-words {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.fa-seat-start-when {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.fa-seat-start-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.fa-seat-trigger-actions {
+  margin-top: 8px;
+}
+
+@media (max-width: 560px) {
+  .fa-seat-facts {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px 0;
+  }
+
+  .fa-seat-facts dd {
+    margin-bottom: 6px;
+  }
+}

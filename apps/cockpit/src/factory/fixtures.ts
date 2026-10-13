@@ -1,6 +1,5 @@
 import type {
   FactoryActivityView,
-  FactoryAgentPage,
   FactoryReportView,
   FactoryWaitingView,
   FactoryWindow,
@@ -9,6 +8,7 @@ import type {
 import type {
   FactoriesListView,
   FactoryPageView,
+  FactorySeatPageView,
   FactorySeatRow,
   FactorySeatsView,
 } from "@devthrottle/client-core/factory/factoriesScreenClient";
@@ -128,41 +128,6 @@ export const ACTIVITY_NO_CHECKS: FactoryActivityView = {
   rows: [],
   faults: ["Silent Factory: No checks ran in the last 24 hours. That is a fault, not a quiet night."],
   emptyText: "Nothing matches these filters in the last 24 hours.",
-};
-
-export const AGENT_PAGE: FactoryAgentPage = {
-  factoryId: "website-business",
-  factoryTitle: "Website Business",
-  factoryHref: "/factories/website-business",
-  agentId: "front-desk",
-  name: "Front Desk v3",
-  statusWord: "PAUSED",
-  statusTone: "paused",
-  definitionText: "Definition not stored yet - #2177 mission 1",
-  wokenBy: [
-    {
-      triggerId: "t1",
-      text: "Trigger: New business mail, every 5 min (paused)",
-      statusWord: "PAUSED",
-      statusTone: "paused",
-      statusText: null,
-      lastCheck: "22 Sep 07:55 - paused, not started",
-    },
-  ],
-  wokenByEmptyText: null,
-  lastCheck: null,
-  last7DaysTitle: "Last 7 days",
-  last7Days: [
-    { text: "14 runs", tone: "neutral", target: null, outcome: null, href: null },
-    { text: "3 escalated", tone: "neutral", target: null, outcome: null, href: null },
-  ],
-  pause: { action: "resume", label: "Resume factory agent", busyLabel: "Resuming...", confirm: null },
-  pauseUnavailableText: null,
-  askLabel: "Ask the Fleet Manager to change it",
-  askHref: "/fleet-manager?ask=Please%20change%20the%20factory%20agent%20Front%20Desk",
-  recentTitle: "Recent activity",
-  recent: [ACTIVITY.rows[2]],
-  recentEmptyText: null,
 };
 
 export const WAITING: FactoryWaitingView = {
@@ -549,6 +514,8 @@ const SEAT_BOSS: FactorySeatRow = {
   shiftText: "Night shift",
   talk: { label: "Talk", busyLabel: "Starting the talk with nora-hale (fixture)...", factoryId: "warmforward", seatId: "nora-hale" },
   schedules: [{ jobId: "cj_boss", whenText: "Daily 06:15", editLabel: "Edit schedule", paused: false, toggleLabel: "Pause", shiftText: "Night shift" }],
+  openLabel: "Open seat (fixture)",
+  href: "/factories/warmforward/seats/nora-hale",
 };
 
 const SEAT_VALUE: FactorySeatRow = {
@@ -564,6 +531,8 @@ const SEAT_VALUE: FactorySeatRow = {
   shiftText: "No run in the next 7 days",
   talk: { label: "Talk", busyLabel: "Starting the talk with value-hunter (fixture)...", factoryId: "warmforward", seatId: "value-hunter" },
   schedules: [{ jobId: "cj_value", whenText: "Schedule cj_value is missing", editLabel: null, paused: false, toggleLabel: null, shiftText: "No run in the next 7 days" }],
+  openLabel: "Open seat (fixture)",
+  href: "/factories/warmforward/seats/value-hunter",
 };
 
 export const FACTORY_SEATS: FactorySeatsView = {
@@ -577,4 +546,155 @@ export const FACTORY_SEATS: FactorySeatsView = {
     { shift: "none", title: "No run in the next 7 days (fixture)", rows: [SEAT_VALUE] },
   ],
   note: "Only seats the boss hired are listed.",
+};
+
+// One seat's page (Factory Seats mission). Three seats: one with a schedule, one with nothing scheduled, and one
+// whose schedule the Gateway no longer has. Words that are the Gateway's carry "(fixture)" where a test must prove
+// the page shows what it was handed rather than words of its own.
+
+const SEAT_PAGE_GOAL = {
+  goal: { heading: "Goal", text: "Cut the propane bill by a third this season.", note: "Only you change the goal. (fixture)", emptyText: null },
+  goalNumber: {
+    heading: "Goal number - posted by Boss, today 06:20",
+    valueText: "Litres saved: 212",
+    asOfText: "As of 5 Oct 2026",
+    linkHref: "https://example.test/measured",
+    linkLabel: "How it is measured",
+    emptyText: null,
+  },
+};
+
+export const SEAT_PAGE_SCHEDULED: FactorySeatPageView = {
+  factoryId: "warmforward",
+  factoryTitle: "WarmForward",
+  seatId: "scout",
+  crumb: "Factories / WarmForward / Seats / Scout",
+  crumbHrefs: ["/factories", "/factories/warmforward", "/factories/warmforward/seats"],
+  name: "Scout",
+  role: "Scout",
+  computerText: "runs on SOREN_NORTH",
+  startsWord: "Scheduled (fixture)",
+  startsTone: "ok",
+  talk: { label: "Talk to Scout", busyLabel: "Starting the talk with Scout...", factoryId: "warmforward", seatId: "scout" },
+  brief: {
+    heading: "What this seat does",
+    pathLabel: "Brief file",
+    pathText: "/home/soren/factories/warmforward/agents/scout.yaml",
+    computerLabel: "Computer",
+    computerText: "SOREN_NORTH",
+    note: "The brief is a file on SOREN_NORTH. It is not held on the Gateway yet. (fixture)",
+  },
+  starts: {
+    heading: "How it starts",
+    talkOnlyText: null,
+    schedules: [
+      {
+        jobId: "cj_scout",
+        name: "WarmForward Factory - Scout - daily scan",
+        whenText: "Daily 06:15",
+        shiftText: "Night shift",
+        pausedText: null,
+        missingText: null,
+        editLabel: "Edit schedule",
+        paused: false,
+        toggleLabel: "Pause",
+        unlink: {
+          jobId: "cj_scout",
+          label: "Take off this seat",
+          busyLabel: "Taking it off... (fixture)",
+          confirmTitle: "Take this schedule off Scout? (fixture)",
+          confirmLines: [
+            "'WarmForward Factory - Scout - daily scan' stops being a schedule of Scout. (fixture)",
+            "It stays switched on and keeps running at its times, as a plain schedule in no factory. (fixture)",
+            "Scout will then be talk only. (fixture)",
+          ],
+          confirmLabel: "Take it off (fixture)",
+        },
+      },
+    ],
+    triggers: [],
+    triggersPause: null,
+  },
+  ...SEAT_PAGE_GOAL,
+  leftBehind: {
+    heading: "What it has left behind",
+    lastTalkLabel: "Last talk",
+    lastTalkText: "Talked with you, 27 Sep 10:00 - agreed to scan twice a day",
+    lastRunLabel: "Last run",
+    lastRunText: "Today 06:20 - succeeded",
+    lastRunTone: "ok",
+    closingText: "closes itself - its last 7 runs (fixture)",
+    closingTone: "ok",
+    numbersTitle: "Last 7 days",
+    numbers: [{ text: "7 runs", tone: "neutral", target: null, outcome: null, href: null }],
+    recentTitle: "Recent activity",
+    recent: [ACTIVITY.rows[2]],
+    recentEmptyText: null,
+    allLabel: "All activity of this seat",
+    allHref: "/factories?tab=activity&factory=warmforward&agent=scout",
+    memoryLabel: "Memory",
+    memoryText: "3 notes in the factory's memory. (fixture)",
+    memoryLinkLabel: "Open Memory",
+    memoryHref: "/factories/warmforward/memory",
+  },
+  truncatedText: null,
+};
+
+/** The boss with nothing scheduled: every panel is there, and it reads talk only. */
+export const SEAT_PAGE_TALK_ONLY: FactorySeatPageView = {
+  ...SEAT_PAGE_SCHEDULED,
+  seatId: "boss",
+  crumb: "Factories / WarmForward / Seats / Boss",
+  name: "Boss",
+  role: "Boss",
+  startsWord: "Talk only (fixture)",
+  startsTone: "idle",
+  talk: { label: "Talk to the boss", busyLabel: "Starting the talk with the boss...", factoryId: "warmforward", seatId: "boss" },
+  brief: { ...SEAT_PAGE_SCHEDULED.brief, pathText: "/home/soren/factories/warmforward/agents/boss.yaml" },
+  starts: {
+    heading: "How it starts",
+    talkOnlyText: "Talk only. Nothing is scheduled for this seat. (fixture)",
+    schedules: [],
+    triggers: [],
+    triggersPause: null,
+  },
+  leftBehind: {
+    ...SEAT_PAGE_SCHEDULED.leftBehind,
+    lastTalkText: "None yet. (fixture)",
+    lastRunText: "Not run yet",
+    lastRunTone: "grey",
+    closingText: null,
+    closingTone: null,
+    numbers: [{ text: "0 runs", tone: "neutral", target: null, outcome: null, href: null }],
+    recent: [],
+    recentEmptyText: "Nothing recorded in the last 7 days. (fixture)",
+    allHref: "/factories?tab=activity&factory=warmforward&agent=boss",
+  },
+};
+
+/** A seat that names a schedule the Gateway no longer has: its sentence, and nothing to press. */
+export const SEAT_PAGE_MISSING: FactorySeatPageView = {
+  ...SEAT_PAGE_SCHEDULED,
+  startsWord: "Schedule missing (fixture)",
+  startsTone: "amber",
+  starts: {
+    heading: "How it starts",
+    talkOnlyText: null,
+    schedules: [
+      {
+        jobId: "cj_gone",
+        name: null,
+        whenText: "Schedule cj_gone is missing",
+        shiftText: "No run in the next 7 days",
+        pausedText: null,
+        missingText: "This seat names a schedule the Gateway does not have, so nothing runs from it. (fixture)",
+        editLabel: null,
+        paused: false,
+        toggleLabel: null,
+        unlink: null,
+      },
+    ],
+    triggers: [],
+    triggersPause: null,
+  },
 };

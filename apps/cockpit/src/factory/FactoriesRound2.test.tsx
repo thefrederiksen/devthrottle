@@ -29,7 +29,6 @@ const agentsClient = vi.hoisted(() => ({
   getFactoryActivity: vi.fn(),
   getFactoryReports: vi.fn(),
   getFactoryWaiting: vi.fn(),
-  getFactoryAgent: vi.fn(),
   markFactoryItemHandled: vi.fn(),
   setFactoryPaused: vi.fn(),
   saveFactoryReport: vi.fn(),

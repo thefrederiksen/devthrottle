@@ -33,7 +33,6 @@ const agentsClient = vi.hoisted(() => ({
   getFactoryActivity: vi.fn(),
   getFactoryReports: vi.fn(),
   getFactoryWaiting: vi.fn(),
-  getFactoryAgent: vi.fn(),
   markFactoryItemHandled: vi.fn(),
   setFactoryPaused: vi.fn(),
   saveFactoryReport: vi.fn(),
@@ -73,8 +72,8 @@ function row(id: string, title: string, statusRank: number, extra: Partial<Facto
   return {
     id,
     title,
-    statusWord: ["FAILING", "NEEDS YOU", "PAUSED", "RUNNING"][statusRank],
-    statusTone: (["red", "amber", "paused", "ok"] as const)[statusRank],
+    statusWord: ["FAILING", "NEEDS YOU", "PAUSED", "RUNNING", "TALK ONLY"][statusRank],
+    statusTone: (["red", "amber", "paused", "ok", "idle"] as const)[statusRank],
     statusRank,
     statusReason: `reason ${id}`,
     statusLine: statusRank === 3 ? null : `line ${id}`,
@@ -153,7 +152,7 @@ describe("Factories as cards - the count strip", () => {
       row("d", "D", 3),
       row("e", "E", 3),
     ]);
-    expect(counts).toEqual({ total: 5, running: 2, needsFixing: 2, paused: 1, waiting: 3 });
+    expect(counts).toEqual({ total: 5, running: 2, needsFixing: 2, paused: 1, talkOnly: 0, waiting: 3 });
   });
 });
 
@@ -191,6 +190,28 @@ describe("Factories as cards - the groups", () => {
     expect(screen.queryByTestId("fa-group-heading-fixing")).toBeNull();
     expect(screen.queryByTestId("fa-group-heading-paused")).toBeNull();
     expect(screen.getByTestId("fa-group-heading-running").textContent).toBe("Running on its own (1)");
+  });
+
+  // Factory Seats mission (13 October 2026): a factory nothing is scheduled for is not a paused one. It has a group
+  // of its own, last, and is counted as talk only - never as paused and never as needing fixing.
+  it("puts a TALK ONLY factory in its own group, last, and counts it as talk only", async () => {
+    screenClient.getFactoriesList.mockResolvedValue(
+      listOf([row("talk", "Talk", 4), row("off", "Off", 2), row("run", "Run", 3), row("bad", "Bad", 0)]),
+    );
+    renderList();
+    await screen.findByTestId("fa-factories-cards");
+
+    const headings = screen.getAllByTestId(/^fa-group-heading-/).map((h) => h.textContent);
+    expect(headings).toEqual(["Needs fixing (1)", "Paused (1)", "Running on its own (1)", "Talk only (1)"]);
+    expect(within(screen.getByTestId("fa-group-talk")).getAllByTestId("fa-card-name").map((n) => n.textContent)).toEqual(["Talk"]);
+    expect(within(screen.getByTestId("fa-group-paused")).getAllByTestId("fa-card-name").map((n) => n.textContent)).toEqual(["Off"]);
+    expect(screen.getByTestId("fa-card-talk").className).toContain("fa-card-talk");
+
+    expect(screen.getByTestId("fa-strip-talk").textContent).toBe("1talk only");
+    expect(screen.getByTestId("fa-strip-paused").textContent).toBe("1paused");
+    expect(screen.getByTestId("fa-strip-fixing").textContent).toBe("1needs fixing");
+    expect(screen.getByTestId("fa-strip-running").textContent).toBe("1running");
+    expect(countFactoryRows([row("talk", "Talk", 4), row("off", "Off", 2)])).toMatchObject({ paused: 1, talkOnly: 1, needsFixing: 0, running: 0 });
   });
 
   it("groups by the Gateway's statusRank and drops empty groups", () => {

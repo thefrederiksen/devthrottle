@@ -15,10 +15,11 @@ import { HistoryView } from "./history/HistoryView";
 import { FactoryAreaGate } from "./factory/FactoryAreaGate";
 import { FactoriesView } from "./factory/FactoriesView";
 import { FactoryView } from "./factory/FactoryView";
-import { FactoryAgentPageView } from "./factory/FactoryAgentPageView";
+import { FactorySeatView } from "./factory/FactorySeatView";
 import { FactoryEmailView } from "./factory/FactoryEmails";
 import { FactoryWaitingView } from "./factory/FactoryWaitingView";
 import {
+  FactoryAgentToSeatRedirect,
   OldFactoriesListRedirect,
   OldFactoryAgentRedirect,
   OldFactoryPageRedirect,
@@ -142,13 +143,15 @@ export const COCKPIT_ROUTES: RouteObject[] = [
           // Factories (Factories screen mission): every factory as one row, a factory's page with its goal, goal
           // number and Seats, and a Talk button on the boss and every seat. Behind the Gateway's factoryAgents.enabled
           // switch: while the Gateway says it is off, every one of these routes is the ordinary "Page not found".
-          // "waiting" is a static route and wins over a factory id; "agents/:agent" is the factory agent's own page
-          // (where a session's factory agent chip links).
+          // "waiting" is a static route and wins over a factory id. "seats/:seat" is one seat's own page (Factory
+          // Seats mission): every seat has one, with or without a schedule. "agents/:agent" was the factory agent's
+          // read-only page; the seat page replaced it, and the old address lands there.
           { path: "/factories", element: <FactoryAreaGate><FactoriesView /></FactoryAreaGate> },
           { path: "/factories/waiting", element: <FactoryAreaGate><FactoryWaitingView /></FactoryAreaGate> },
           { path: "/factories/:factory", element: <FactoryAreaGate><FactoryView /></FactoryAreaGate> },
           { path: "/factories/:factory/:tab", element: <FactoryAreaGate><FactoryView /></FactoryAreaGate> },
-          { path: "/factories/:factory/agents/:agent", element: <FactoryAreaGate><FactoryAgentPageView /></FactoryAreaGate> },
+          { path: "/factories/:factory/seats/:seat", element: <FactoryAreaGate><FactorySeatView /></FactoryAreaGate> },
+          { path: "/factories/:factory/agents/:agent", element: <FactoryAgentToSeatRedirect /> },
           // A kept factory email, read again exactly as it was sent (Factory Control, brief 5's store).
           { path: "/factories/:factory/emails/:id", element: <FactoryAreaGate><FactoryEmailView /></FactoryAreaGate> },
           // The area was "Factory Agents" until the Factories screen; its old addresses land on their new equivalents.
