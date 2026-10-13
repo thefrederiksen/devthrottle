@@ -1,0 +1,148 @@
+# Proof - the Gateway routes the Licenses page reads
+
+Task: phase 2, the HTTP routes of the Gateway for the Licenses page of the Cockpit (MISSION.md goals 1, 2, 3 and the
+drawing of 5). The response shapes, with a real example of each, are in `missions/license-switching/cockpit-api.md`.
+
+## What is in it
+
+- `src/CcDirector.Gateway.Contracts/LicenseCockpitDtos.cs` - the response types and the fixed words (account
+  statuses, tones, window levels, machine statuses). Every member name is held to "never a sign-in key" by
+  `LicenseMessagesCarryNoKeyTests`, which scans every `License*` type in that namespace.
+- `src/CcDirector.Gateway/Api/LicenseEndpoints.cs` - three reads, each for the caller's own account:
+  `GET /gateway/licenses`, `GET /gateway/licenses/forecast`, `GET /gateway/licenses/log`.
+- `src/CcDirector.Gateway/Licenses/LicenseDisplayFold.cs` - the one place every verdict the page shows is decided.
+  What is at its limit, what has room, what is stale and what Switch now would accept are the decision engine's own
+  answers on the same picture the minute check judges; the fold adds the order of the statuses and the words.
+- `src/CcDirector.Gateway/Licenses/LicenseSnapshotSource.cs` - the one place the engine's picture is built from the
+  store (shared with the minute check's pull request, which cherry-picked it).
+- `src/CcDirector.Gateway/Licenses/LicenseUsageHistory.cs` - two hours of readings per account in memory, fed by
+  every usage report the ingest accepts, for the forecast's rate of use. No table and no migration.
+- `LicenseStore.ListLogPage` - one page of the log, newest first, held to the moment the walk began.
+- `SessionKeyGuard` - the three reads are in the allow list. Switch now is not.
+- `GatewayHost.LicenseClock` - the routes take the Gateway's clock from the host, so their host tests run on a
+  fixed one.
+
+No migration was added, so `.\scripts\test-database.ps1` has nothing new to cover and was not run.
+
+## Not in it: `POST /gateway/licenses/switch-now`
+
+The brief: add it in this pull request if the method it calls had merged to main, otherwise it becomes a small
+follow-up. `LicenseSwitchService.SwitchNowAsync` is on `origin/license-switching-gw-tick` and was not on main when
+this pull request was opened, so the route is the follow-up. Everything the page needs to DRAW the control is in
+the overview answer already (`canSwitchNow`, `switchNowText`, `switchNowTargetAccountEmail`, `switchTargets`), and
+section 6 of `cockpit-api.md` says what the follow-up adds and the one case it must close (a machine waiting for
+an offline Director).
+
+## Tests, and what each holds down
+
+All in `src/CcDirector.Gateway.UnitTests/Licenses/` unless said otherwise. Every fold and route test puts its facts
+in the way production does - usage reports applied to the real store on a throwaway SQLite file and read back
+through the snapshot source - rather than a picture built by hand.
+
+| File | Tests | What it holds down |
+|---|---|---|
+| `LicenseDisplayFoldTests.cs` | 86 | Every verdict at its boundary: at limit from exactly 97.0 and not at 96.99, on each window; stale one second past 6 minutes (active) and 30 minutes (spare); a sign-in expired at exactly now, expiring soon up to exactly 3 days, fine one second later; the order of the statuses; Switch now offered while a target is under 97.0 and not at it; a machine not reporting one second past 6 minutes; the forecast's sentences; every log state, reason and kind, and a kind, state and reason this build does not know. |
+| `LicenseEndpointsTests.cs` | 25 | The exact property names of each answer (a rename fails here); one account never sees another's accounts, machines, forecast, rate or log; no account bound is a 403; an account that never reported gets empty answers with a sentence; the log pages without overlap or loss while rows are written and when rows share a time; a page size or cursor that cannot be read is a 400; a log row of an unknown kind does not break the log. |
+| `LicenseGuardTests.cs` | 18 | A session key may call exactly the three reads, and Switch now is refused even to a raised session. |
+| `LicenseSnapshotSourceTests.cs` | 9 | The picture comes from the latest reports, the open switch rows and the bars in force; the open no-room events are passed in; one account never sees another's. |
+| `LicenseUsageHistoryTests.cs` | 8 | One point per window at the judged read time; the same reading sent again adds nothing; kept two hours and no longer; only a report the ingest accepted is recorded, and the forecaster gets its rate from it. |
+| `src/CcDirector.Gateway.Tests/LicenseHostTests.cs` | 8 | Over real HTTP through the real `AuthMiddleware` and `SessionKeyGuard` on a hosted host: a session key, the owner's browser and a machine's own credential read all three routes; no credential is a 401; Switch now is a 403 for a session key; one account never sees another's; the reports go in through the host's own ingest and the forecast has their rate. |
+
+## Commands and results (2026-10-12, the Windows machine, other sessions running)
+
+At commit `af3ce994e` (this branch with `origin/main` at `faffafcdc` merged in):
+
+- `dotnet test src/CcDirector.Gateway.UnitTests/CcDirector.Gateway.UnitTests.csproj --filter "FullyQualifiedName~Licenses"`:
+  passed 252, failed 0 (106 were there before this work).
+- `dotnet test src/CcDirector.Gateway.Tests/CcDirector.Gateway.Tests.csproj --filter "FullyQualifiedName~LicenseHostTests"`:
+  passed 8, failed 0.
+- `dotnet test src/CcDirector.Core.UnitTests/CcDirector.Core.UnitTests.csproj --filter "FullyQualifiedName~LicenseMessagesCarryNoKey"`:
+  passed, with the new types in its scan.
+
+## The gate
+
+`.\scripts\test-local.ps1 -Parked` at commit `af3ce994e` (the code of this pull request; `origin/main` at
+`faffafcdc` merged in), 2026-10-13 01:38 to 01:54 UTC, with other sessions' test runs on the machine. `-Parked`
+runs every suite of the default run and the three parked ones, so this one run is both gates.
+
+| Suite | Outcome | Tests |
+|---|---|---|
+| CcDirector.Core.UnitTests | Failed | 1,624 of 1,625 passed |
+| CcDirector.Avalonia.Tests | Completed | 1,043 |
+| CcDirector.Engine.Tests | Completed | 86 |
+| CcDirector.HostedAgent.Tests | Completed | 89 |
+| CcDirector.Launcher.Tests | Completed | 218 |
+| CcDirector.Terminal.Avalonia.Tests | Completed | 82 |
+| CcDirector.Reclaim.Tests | Completed | 305 |
+| cc-director-setup.Tests | Completed | 39 |
+| cc-director-setup-engine.Tests | Completed | 870 |
+| cc-director-setup-cli.Tests | Completed | 74 |
+| CcDirector.Gateway.Tests, four shards | Completed | 829 + 755 + 667 + 810 = 3,061 |
+| CcDirector.Core.Tests | Completed | 4,585 |
+| CcDirector.Gateway.UnitTests | Failed | 10,788 of 10,790 passed |
+
+Three tests were red. None is in a file this pull request touches. Then, as the gate's own rule says, only those
+three were run again, once, on the same commit: `.\scripts\test-local.ps1 -RerunFailed <the run folder>`.
+
+- `GateTestsDoNotDependOnTheMachineTests.No_gate_test_adds_a_sleep_a_real_clock_a_real_process_docker_or_a_fixed_port`
+  failed AGAIN. Its message names one file: `src/CcDirector.Gateway.UnitTests/CronRunResultTests.cs`, four new
+  reads of the real clock. That file came to main with pull request 3799 and is red on `origin/main` at `faffafcdc`
+  without this branch: `git grep -n "DateTime.UtcNow" origin/main -- src/CcDirector.Gateway.UnitTests/CronRunResultTests.cs`
+  lists the four reads (lines 512, 524, 1032, 1048). This pull request does not touch that file and does not fix
+  it; the Tech Lead was told. The same test caught a real-clock read in this pull request's own host tests on the
+  first default run, which is why the routes now take the Gateway's clock from the host (`GatewayHost.LicenseClock`).
+- `HeldDeliveryReachabilityTests.APermanentFailureOnADriverAttempt_IsHandedBack_TheOutcomeReadAnswers422_AndARetryReEnters`
+  and `PromptIncidentErrorReportTests.ASendStillDelivering_TheLateWatchsWaitLinesNeverCarryThePromptsWords_AndCarryTheCommandId`
+  failed once and PASSED on the re-run: flaky under this machine's load, in the held delivery and prompt incident
+  tests, which nothing here calls.
+
+So the gate is green for everything this pull request changes and red on one test that is red on main.
+
+One defect of this pull request was found by a suite outside the license filter, before the gate, by running all
+of `CcDirector.Gateway.UnitTests` by hand: `GatewayHttpFailureLineShapeTests` refused the three failure lines of
+the new routes, which named their route through a constant the check does not read as a route. They now write
+the route itself (`GET /gateway/licenses FAILED`), commit `af3ce994e`. That hand run (10,793 of 10,796) had two
+other reds, `StatsStoreReopensAfterAnUnreachableStoreTests.AnObstructedStore_IsUnavailableToBeginWith` and
+`HeldDeliveryReachabilityTests.QACase8_...`; both passed when run again alone and neither failed in the gate run.
+
+## Mutation proof
+
+Each line is one change to the product code, made alone, with every license unit test then run
+(`--filter "FullyQualifiedName~Licenses"`, 252 tests) and the file restored from its original bytes in a `finally`
+block. After the last one `git status` was clean and the rebuilt tree passed 252 of 252. The script is not committed;
+its mutations are exactly the lines below.
+
+| | The behaviour broken | Failed | Went red |
+|---|---|---|---|
+| 1 | A window is at its limit from exactly 97% (engine `IsTired`: `>=` to `>`) | 28 | In the fold: `Account_AtLimit_StartsAtExactlyTheThreshold_OnEitherWindow` (both 97.0 rows), `Window_Level_IsAtLimitFromExactlyTheThreshold(97)`, `SwitchNow_IsOfferedOnlyWhileATargetHasRoom...(97)`, `Account_AtLimit_OutranksSignInExpiresSoon`; and 23 engine and forecaster tests |
+| 2 | Stale no longer outranks at limit | 1 | `Account_Stale_OutranksAtLimit_BecauseOldNumbersCannotSayItIsAtItsLimit` |
+| 3 | Sign-in needed no longer outranks stale and at limit | 1 | `Account_SignInNeeded_OutranksStaleAndAtLimit_BecauseOnlyTheOwnerCanFixIt` |
+| 4 | A percentage is rounded to nearest, not down (96.99 reads "97%") | 1 | `Window_Level_IsAtLimitFromExactlyTheThreshold(96.99)` |
+| 5 | Switch now offered only when a target is chosen automatically | 1 | `SwitchNow_ATargetBarredFromTheAutomaticChoice_CanStillBeChosenByHand` |
+| 6 | A log row of a kind this build does not know throws | 2 | `LogEntry_AKindThisBuildDoesNotKnow_IsRenderedAsItsMessage_AndNeverFails`, `Log_ListsSpareRowsAndARowOfAKindThisBuildDoesNotKnow_AndNeverFailsOnIt` |
+| 7 | The overview route answers for a fixed account, not the caller's | 1 | `EveryRoute_AnswersOnlyTheCallersOwnAccount` |
+| 8 | The session key guard forgets the log route | 2 | `TheGuard_AllowsASessionKey_ExactlyTheLicenseReads(GET /gateway/licenses/log)`, `TheGuard_KnowsEveryRouteTheGatewayMaps` |
+| 9 | A log page is no longer held to the moment its walk began | 1 | `Log_IsNewestFirst_AndPagesWithoutOverlapOrLoss_EvenWhileRowsAreWritten` |
+| 10 | The ingest no longer records an accepted report in the history | 1 | `Ingest_OnlyAnAcceptedReport_IsRecorded_AndTheForecastGetsItsRate` |
+| 11 | The snapshot never says a machine has an open switch | 4 | `Read_AMachineWithAnOpenSwitchRow_HasAnOpenSwitch_UntilTheRowIsSettled`, `SwitchNow_SaysWhichMachineIsLeftOut_WhenOneIsMidSwitch`, and two forecast tests |
+| 12 | An account with a machine but no sign-in is called empty | 1 | `Overview_OnceAMachineHasReported_IsNotEmpty_EvenWhenItHoldsNoSignIn` |
+| 13 | The same reading sent again is added to the history twice | 1 | `Record_TheSameReadingSentAgain_AddsNothing` |
+| 14 | A sign-in that expires soon is no longer a status | 3 | `Account_SignInExpiry_...(1 second)`, `...(exactly 3 days)`, `Account_SignInExpiresSoon_SaysWhereAndInHowLong` |
+| 15 | Exactly one hour is said in minutes | 1 | `Span_SaysALengthOfTimeInWords_RoundedDown(3600)` |
+| 16 | A log page may be any size | 1 | `Log_APageSizeOrCursorItCannotRead_IsRefused_NotGuessed(?limit=201)` |
+| 17 | A window that resets exactly now is read as before its reset | 1 | `Account_AReadingTakenBeforeItsWindowReset_IsNotAtLimit_AndItsWindowSaysItHasReset` |
+| 18 | A request with no account bound is not refused by the log route | 1 | `EveryRoute_WithNoAccountBoundToTheRequest_IsRefused` |
+
+All eighteen were caught. The boundaries of staleness and of the sign-in expiry verdict are decided in
+`LicenseReadModel` (already on main, with its own tests); the fold tests above pin them again through the answers.
+
+## What these tests do not show
+
+- The routes have not been called by a real Cockpit page or against the deployed Gateway; that is phase 3 and
+  phase 5.
+- The host tests reach the routes with keys minted in the test host. They do not sign in through the account
+  sign-in flow.
+- The forecast's rate after a Gateway restart is empty until two reports have arrived; that is by design and is
+  tested only as "no readings means no rate", not across a real restart.
+- Two things the examples in `cockpit-api.md` could not show because they are not built yet: a failed renewal on
+  a holding (contract section 8.1, agreed and not built) and the Switch now route.
