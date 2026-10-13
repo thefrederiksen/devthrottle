@@ -9,7 +9,7 @@
 #
 # It stops, and writes nothing, when the document does not hold exactly the examples it expects in the order it
 # expects them.
-import io, json, os, re, subprocess, sys
+import io, json, os, re, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
@@ -35,13 +35,13 @@ WANTED = [
     (None, None, None, "accountEmail", False),  # the body of Switch now
     ("SWITCH_NOW_ACCEPTED", "LicenseSwitchNowResult", "POST /gateway/licenses/switch-now, accepted: one machine, whose switch waits for its Director.", "switches", False),
     ("SWITCH_NOW_REFUSED", "{ code: string; error: string }", "POST /gateway/licenses/switch-now, refused 409.", "error", False),
-    ("OWNER_ONLY", "{ code: string; error: string }", "Either write, asked by a caller that is not the owner's own signed-in phone or browser: 403.", "error", False),
+    ("RENEWAL_OWNER_ONLY", "{ code: string; error: string }", "The renewal date, asked by a caller that is not the owner's own signed-in phone or browser: 403.", "error", False),
+    ("SWITCH_NOW_OWNER_ONLY", "{ code: string; error: string }", "Switch now, asked by the same caller: 403, with its own sentence.", "error", False),
 ]
 
 if len(blocks) != len(WANTED):
     sys.exit(f"the document holds {len(blocks)} examples, {len(WANTED)} were expected - nothing was written")
 
-commit = subprocess.run(["git", "log", "-1", "--format=%h", "--", DOC], cwd=ROOT, capture_output=True, text=True).stdout.strip()
 out = [
     "import type {",
     "  LicenseAccount,",
@@ -54,10 +54,10 @@ out = [
     '} from "@devthrottle/client-core/licenses/licensesClient";',
     "",
     "// THE GATEWAY'S OWN ANSWERS, NOT HAND-WRITTEN ONES. Each constant below is the real example of its route from",
-    f"// missions/license-switching/cockpit-api.md (as that file stood at commit {commit}), which the Gateway",
-    "// produced by running its route handlers over a store filled with the reports of its machines and accounts.",
-    "// A test that draws these draws what the Gateway sends. This file is written by",
-    "// missions/license-switching/phase-3/copy_fixtures.py; when the shapes move, run it again and do not edit here.",
+    "// missions/license-switching/cockpit-api.md, which the Gateway produced by running its route handlers over a",
+    "// store filled with the reports of its machines and accounts. A test that draws these draws what the Gateway",
+    "// sends. This file is written by missions/license-switching/phase-3/copy_fixtures.py and is not edited by hand:",
+    "// fixtures.test.ts fails when a constant here differs from its example in the document. Run the script again.",
     "",
 ]
 for block, (name, kind, comment, key, fragment) in zip(blocks, WANTED):
@@ -77,4 +77,4 @@ out += [
     "",
 ]
 io.open(OUT, "w", encoding="utf-8", newline="\n").write("\n".join(out))
-print(f"wrote {os.path.relpath(OUT, ROOT)} from {len([w for w in WANTED if w[0]])} examples of {os.path.relpath(DOC, ROOT)} at {commit}")
+print(f"wrote {os.path.relpath(OUT, ROOT)} from {len([w for w in WANTED if w[0]])} examples of {os.path.relpath(DOC, ROOT)}")

@@ -9,10 +9,10 @@ import type {
 } from "@devthrottle/client-core/licenses/licensesClient";
 
 // THE GATEWAY'S OWN ANSWERS, NOT HAND-WRITTEN ONES. Each constant below is the real example of its route from
-// missions/license-switching/cockpit-api.md (as that file stood at commit 94dcfcc8b), which the Gateway
-// produced by running its route handlers over a store filled with the reports of its machines and accounts.
-// A test that draws these draws what the Gateway sends. This file is written by
-// missions/license-switching/phase-3/copy_fixtures.py; when the shapes move, run it again and do not edit here.
+// missions/license-switching/cockpit-api.md, which the Gateway produced by running its route handlers over a
+// store filled with the reports of its machines and accounts. A test that draws these draws what the Gateway
+// sends. This file is written by missions/license-switching/phase-3/copy_fixtures.py and is not edited by hand:
+// fixtures.test.ts fails when a constant here differs from its example in the document. Run the script again.
 
 /** GET /gateway/licenses: three accounts (in use, sign-in expires soon, at limit) on two machines. */
 export const OVERVIEW: LicenseOverview = {
@@ -697,10 +697,16 @@ export const SWITCH_NOW_REFUSED: { code: string; error: string } = {
   "error": "No machine on account-a@example.com can be switched now: every machine on it is stale or already mid-switch. machine-of-one is not switched: a switch sent to it has not finished."
 };
 
-/** Either write, asked by a caller that is not the owner's own signed-in phone or browser: 403. */
-export const OWNER_ONLY: { code: string; error: string } = {
+/** The renewal date, asked by a caller that is not the owner's own signed-in phone or browser: 403. */
+export const RENEWAL_OWNER_ONLY: { code: string; error: string } = {
   "code": "owner_only",
   "error": "only the owner on their own signed-in phone or browser may set the renewal date of a subscription; this request was made with a device (workstation) credential"
+};
+
+/** Switch now, asked by the same caller: 403, with its own sentence. */
+export const SWITCH_NOW_OWNER_ONLY: { code: string; error: string } = {
+  "code": "owner_only",
+  "error": "only the owner on their own signed-in phone or browser may switch the machines of a subscription to another one; this request was made with a device (workstation) credential"
 };
 
 /** A fresh copy of a fixture, so a test may change it without changing it for the next test. */

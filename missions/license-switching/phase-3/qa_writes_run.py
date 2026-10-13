@@ -221,8 +221,8 @@ try:
         rows = page.locator("[data-testid=lic-switch-answer-machine]")
         check("one row per machine that was sent a switch", rows.count() == len(body["switches"]) and rows.count() > 0)
         for index, machine in enumerate(body["switches"]):
-            check(f"the row of {machine['label']} is the Gateway's: \"{machine['stateText']}\" - {machine['summary']}",
-                  machine["stateText"] in rows.nth(index).inner_text() and machine["summary"] in rows.nth(index).inner_text())
+            check(f"the whole row of {machine['label']} is the Gateway's, nothing added: \"{machine['stateText']}\" - {machine['summary']}",
+                  rows.nth(index).text_content() == machine["stateText"] + " " + machine["summary"])
         page.locator("[data-testid=lic-switch-answer]").scroll_into_view_if_needed()
         shot(page, "switch-now-accepted")
         # The page read the log again; the rows of this switch are in it, found by the entryId of the answer.
@@ -297,7 +297,7 @@ try:
         check("the Gateway offers Switch now on account A and chooses no target", account["canSwitchNow"] is True and account["switchNowTargetAccountEmail"] is None)
         page, sent = open_as(seeded["barredKey"])
         line = card(page, B).locator("[data-testid=lic-account-barred]")
-        check("the card of account B shows the Gateway's barredText", line.count() == 1 and barred["barredText"] in line.inner_text())
+        check("the whole barred line on the card of account B is the Gateway's barredText and its time, nothing added", line.count() == 1 and line.text_content() == barred["barredText"] + " (" + line.locator("time").text_content() + ")")
         check("and the time the Gateway gave, as that time", line.count() == 1 and line.locator("time").get_attribute("datetime") == barred["barredUntilUtc"])
         check("no other card says it is barred", page.locator("[data-testid=lic-account-barred]").count() == 1)
         shot(card(page, B), "barred-account")

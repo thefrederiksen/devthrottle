@@ -58,6 +58,10 @@ M = [
  ("W15 the page puts a name of its own before a left-out machine's sentence", V, '              {machine.why}', '              {machine.machineName}: {machine.why}', "cockpit"),
  ("W16 how a switch ended is never read from the switch log", V, 'log.find((entry) => entry.entryId === machine.entryId) ?? machine', 'machine', "cockpit"),
  ("W17 a failed renewal is drawn on every sign-in of the card", C, '{holding.renewalFailedText !== null && (', '{true && (', "cockpit"),
+ ("V1 the page puts a word of its own before the barred sentence (the review of 3944)", C, '          {account.barredText}', '          Barred: {account.barredText}', "cockpit"),
+ ("V2 the page puts the machine's label before the Gateway's row sentence in the Switch now answer (the review of 3944)", V, '/> {row.summary}', '/> {machine.label}: {row.summary}', "cockpit"),
+ ("V3 the confirmation dialog can be confirmed while it is shut (its own test)", D, 'disabled={busy || confirmDisabled}', 'disabled={busy}', "dialog"),
+ ("V4 a fixture is edited by hand and no longer the document's example", "apps/cockpit/src/licenses/fixtures.ts", '"renewsText": "Renews 17 Oct"', '"renewsText": "Renews on 17 Oct"', "fixtures"),
  ("K1 the writes lose their content type", K, '"Content-Type": "application/json", ...authHeaders()', '...authHeaders()', "core"),
  ("K1b the writes lose their content type (seen from the page)", K, '"Content-Type": "application/json", ...authHeaders()', '...authHeaders()', "cockpit"),
  ("K2 clearing the renewal date leaves renewsOn out of the body", K, 'body: JSON.stringify({ accountEmail, renewsOn }),', 'body: JSON.stringify(renewsOn === null ? { accountEmail } : { accountEmail, renewsOn }),', "core"),
@@ -69,8 +73,9 @@ M = [
  ("K7 a refused Switch now loses the Gateway's sentence (seen from the page)", K, 'if (!res.ok) throw await GatewayError.from(res, "switch the account");', 'if (!res.ok) throw new GatewayError(res.status, "The account could not be switched.");', "cockpit"),
 ]
 def run(kind):
-    cwd = os.path.join(ROOT, "apps", "cockpit") if kind == "cockpit" else os.path.join(ROOT, "packages", "client-core")
-    r = subprocess.run("npx vitest run src/licenses --reporter=json", cwd=cwd, shell=True, capture_output=True)
+    cwd = os.path.join(ROOT, "packages", "client-core") if kind == "core" else os.path.join(ROOT, "apps", "cockpit")
+    what = {"dialog": "src/components/ConfirmDialog.test.tsx", "fixtures": "src/licenses/fixtures.test.ts"}.get(kind, "src/licenses")
+    r = subprocess.run(f"npx vitest run {what} --reporter=json", cwd=cwd, shell=True, capture_output=True)
     out = r.stdout.decode("utf-8", "replace")
     j = json.loads(out[out.index("{"):])
     failed = [a["title"] for f in j["testResults"] for a in f["assertionResults"] if a["status"] != "passed"]

@@ -20,11 +20,12 @@ import {
   FORECAST,
   LOG_PAGE,
   OVERVIEW,
-  OWNER_ONLY,
   RENEWAL_CLEARED,
   RENEWAL_FAILED_FIELDS,
+  RENEWAL_OWNER_ONLY,
   RENEWAL_SET,
   SWITCH_NOW_ACCEPTED,
+  SWITCH_NOW_OWNER_ONLY,
   SWITCH_NOW_REFUSED,
   copyOf,
 } from "./fixtures";
@@ -131,9 +132,9 @@ describe("LicensesView: Switch now at the wire", () => {
     expect(writes()[0].body).toEqual({ accountEmail: ACCOUNT_A, targetAccountEmail: ACCOUNT_B });
     // The whole outcome in the Gateway's one sentence, then the machine's row in the Gateway's words and tone.
     expect(within(answer).getByTestId("lic-switch-answer-text").textContent).toBe(SWITCH_NOW_ACCEPTED.text);
+    // The WHOLE row is the Gateway's label, a space and the Gateway's sentence: the page adds no word anywhere in it.
     const machine = within(answer).getByTestId("lic-switch-answer-machine");
-    expect(machine.textContent).toContain("Waiting for the machine");
-    expect(machine.textContent).toContain(SWITCH_NOW_ACCEPTED.switches[0].summary);
+    expect(machine.textContent).toBe(`Waiting for the machine ${SWITCH_NOW_ACCEPTED.switches[0].summary}`);
     expect(machine.querySelector(".lic-pill")?.className).toContain("lic-tone-warning");
     expect(screen.queryByRole("alertdialog")).toBeNull();
   });
@@ -175,21 +176,21 @@ describe("LicensesView: Switch now at the wire", () => {
     const answer = await screen.findByTestId("lic-switch-answer");
     await waitFor(() => expect(within(answer).getByTestId("lic-switch-answer-machine").textContent).toContain("Switched"));
     const machine = within(answer).getByTestId("lic-switch-answer-machine");
-    expect(machine.textContent).toContain("machine-of-one switched from account-a@example.com to account-b@example.com.");
-    expect(machine.textContent).not.toContain("Waiting for the machine");
+    expect(machine.textContent).toBe("Switched machine-of-one switched from account-a@example.com to account-b@example.com.");
     expect(machine.querySelector(".lic-pill")?.className).toContain("lic-tone-good");
     expect(writes().length).toBe(1);
   });
 
   it("shows a 403 owner_only in the Gateway's sentence, word for word, and keeps the confirmation open", async () => {
-    answers[SWITCH_NOW] = () => json(403, OWNER_ONLY);
+    answers[SWITCH_NOW] = () => json(403, SWITCH_NOW_OWNER_ONLY);
     render(<LicensesView />);
     const dialog = await openSwitchNow();
 
     fireEvent.click(confirmButton(dialog));
 
     await waitFor(() => expect(dialog.querySelector(".ui-confirm-error")).not.toBeNull());
-    expect(dialog.querySelector(".ui-confirm-error")?.textContent).toBe(OWNER_ONLY.error);
+    expect(dialog.querySelector(".ui-confirm-error")?.textContent).toBe(SWITCH_NOW_OWNER_ONLY.error);
+    expect(SWITCH_NOW_OWNER_ONLY.error).toContain("may switch the machines of a subscription to another one");
     expect(screen.getByRole("alertdialog")).toBeTruthy();
     expect(screen.queryByTestId("lic-switch-answer")).toBeNull();
     expect(writes().length).toBe(1);
@@ -293,7 +294,7 @@ describe("LicensesView: the renewal date of a subscription", () => {
   });
 
   it("shows a 403 owner_only in the Gateway's sentence, word for word, and leaves the date as it was", async () => {
-    answers[RENEWAL] = () => json(403, OWNER_ONLY);
+    answers[RENEWAL] = () => json(403, RENEWAL_OWNER_ONLY);
     render(<LicensesView />);
     const drawn = await edit(ACCOUNT_A);
 
@@ -301,7 +302,7 @@ describe("LicensesView: the renewal date of a subscription", () => {
     fireEvent.click(within(drawn).getByRole("button", { name: "Save" }));
 
     const refusal = await within(drawn).findByTestId("lic-renewal-error");
-    expect(refusal.textContent).toBe(OWNER_ONLY.error);
+    expect(refusal.textContent).toBe(RENEWAL_OWNER_ONLY.error);
     expect(within(drawn).getByTestId("lic-account-renewal").textContent).toBe("Max - Renewal date not set");
     // The editor stays open with what was typed, and can be used again.
     expect(dateField(drawn, ACCOUNT_A).value).toBe("2026-10-17");
@@ -326,8 +327,11 @@ describe("LicensesView: an account barred from the automatic choice, and a store
     render(<LicensesView />);
 
     const barred = within(await card(ACCOUNT_B)).getByTestId("lic-account-barred");
-    expect(barred.textContent).toContain(BARRED_FIELDS.barredText as string);
-    expect(barred.querySelector("time")?.getAttribute("datetime")).toBe(BARRED_FIELDS.barredUntilUtc);
+    const until = barred.querySelector("time");
+    expect(until?.getAttribute("datetime")).toBe(BARRED_FIELDS.barredUntilUtc);
+    expect((until?.textContent ?? "").length).toBeGreaterThan(0);
+    // The WHOLE line is the Gateway's sentence and then its time in brackets: the page adds no word before or after.
+    expect(barred.textContent).toBe(`${BARRED_FIELDS.barredText} (${until?.textContent})`);
     // The Gateway sends no tone for it, so the page gives it none.
     expect(barred.className).not.toContain("lic-tone-");
     expect(within(await card(ACCOUNT_A)).queryByTestId("lic-account-barred")).toBeNull();
