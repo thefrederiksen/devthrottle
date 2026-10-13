@@ -9,7 +9,8 @@ failure streak". 13 October 2026.
   sign-in a machine holds. No table and no column is added. The row is what makes the email go out once: what
   became of the email is its reason word (`owner-emailed`, `owner-email-failed`, `no-owner-account`), a row recorded
   as emailed is never changed back, and it is stored, so a Gateway that restarts in the middle of a streak does not
-  email again.
+  email again - with one exception: a Gateway that stops between the mail service's confirmation and the row being
+  marked emails once more after it starts.
 - `LicenseRenewalEmailService` - run by the host's minute check for every DevThrottle account. A sign-in whose
   renewal the machine reports as failed (the failure's time is set - never a reason word) and which ends within the
   warning time opens a row and emails the account's owner. A send that failed is tried again, later each time, and
@@ -76,9 +77,11 @@ count is "at least 4".
 
 ## What this does not show
 
-- **Break 13 is not proven.** The guard it would remove is the one that leaves alone an account no Director has
-  reported for. The break as written did not compile, and no other break was made for it. The test
-  `AnAccountNoDirectorHasReportedFor_IsLeftAlone` is green, and it has never been seen red.
+- **The guard of break 13 is held by reading only.** It is the guard that leaves alone an account no Director has
+  reported for. The break as written did not compile. The review took the guard out, out of tree, and every test
+  stayed green: without it the check reads the account four times instead of once and still does nothing. So no
+  test of behaviour can see it; `AnAccountNoDirectorHasReportedFor_IsLeftAlone` is a test of "an account with
+  nothing to do does nothing", not of the guard. No test counts the reads.
 - **The PostgreSQL test was not broken.** It ran green against a real PostgreSQL, and that is all that is claimed.
 - **No email was sent.** Every test uses a sender the test controls. Nothing here shows that the mail service
   accepts the message or that it reaches an inbox.
@@ -111,3 +114,13 @@ gate on main itself, so that main is red on this test is read from the identical
 NOT run after this merge: the whole `Gateway.UnitTests` suite, `-Parked`, and the nineteen breaks. Of the four
 product files the breaks were made in, the merge changed `GatewayHost.cs` (the conflict above) and brought main's
 changes into `LicenseDisplayFold.cs`; the hosted tests of break 16 and the unit tests are green after it.
+
+## The review round (13 October 2026)
+
+The review (`../reviews/3948-review.md`) asked for changes; `../reviews/3948-answers.md` answers each finding and
+holds the runs of the round. Everything above this section describes the code BEFORE that round. In particular the
+streak no longer ends on a report that lacks the failure time, the row's sentence and the email changed, and the
+test of break 11 that "renewed" with an earlier end is rewritten.
+
+**No break of this round has been run yet.** The tests the round added are green and none has been seen red. The
+table of breaks is owed and follows in a later commit.
