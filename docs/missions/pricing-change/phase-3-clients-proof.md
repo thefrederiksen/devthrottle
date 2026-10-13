@@ -260,3 +260,60 @@ Left, each with its reason:
   `devthrottle_internal` is what will confirm these three passages against a real screen.
 - **These pages now describe a Director that is not released.** Until the next Director release, an
   installed wizard still shows the old card while the pages describe the new one.
+
+## Review findings
+
+The review of pull request 3953 (`phase-3-review.md` on `pricing-change/phase-3`, head reviewed
+`c32d4b02d`) gave this seat two notes. Both are accepted. The should-fix finding and notes 3 to 7 are
+the Gateway's and are not answered here.
+
+**Note 1, accepted: a browser holding two accounts had no visible way out of the notice.** True as
+written: `RemotePlanGate` replaces the whole app, the account switcher included, and "Try again"
+reloads into the same account. The notice in a signed-in session now carries "Sign in with another
+account", which opens the shell's own sign-in screen with a full page load. That screen already reads
+"Add an account" when the browser holds one, and the account signed in there becomes the active one.
+At sign-in the action is not shown, because "Try again" there already is the sign-in screen.
+
+Why sign-in and not a switch or a sign-out on the notice: switching would need the list of stored
+accounts drawn on the notice, and signing out needs the Gateway to clear its cookie, a request the
+Gateway would refuse for this very account. Sign-in needs neither and covers a second account whether
+or not it is already stored. It costs a holder of two stored accounts one round trip through
+devthrottle.com.
+
+**Note 2, accepted: "Press Try again" did not say a new subscription can take a minute.** The hint now
+reads "Subscribed already? Press Try again. It can take a minute after subscribing."
+
+### Tests added (2), one sentence each
+
+- The hint says it can take a minute after subscribing, and the notice shows no another-account action when none is passed, which is the sign-in case.
+- On the gate, pressing "Sign in with another account" calls the way out once and does not reload.
+
+Each fails without its behaviour: with the gate passing no action, 1 failed of 6 in
+`RemotePlanNotice.test.tsx`; with the minute removed from the hint, 1 failed of 6; restored, 6 passed of 6.
+
+### In the built app
+
+The four screenshots were retaken from a fresh build of both shells against the same stub. In the two
+signed-in runs the script then pressed "Sign in with another account": the phone landed on
+`/mobile/signin` and the Cockpit on `/signin`, both showing "Add an account", and four seconds later the
+notice had not come back while the stub went on refusing every Gateway call.
+
+### Rerun on 2026-10-13 after these changes
+
+| Command | Where | Result |
+|---|---|---|
+| `npm run typecheck` | repository root | exit 0 |
+| `npm test` | `packages/client-core` | Test Files 166 passed (166), Tests 2040 passed (2040) |
+| `npm test` | `apps/mobile` | Test Files 29 passed (29), Tests 138 passed (138) |
+| `npm test` | `apps/cockpit` | Test Files 1 failed, 107 passed (108); Tests 1 failed, 1111 passed (1112) |
+| `npm run build` | `apps/mobile`, `apps/cockpit` | exit 0 for both |
+
+The one Cockpit failure is still `licenses/fixtures.test.ts`, described above. The .NET gate was not
+rerun: nothing outside `packages/client-core` and this folder changed.
+
+### What this does not cover
+
+- The way out was pressed against a stub. With the real Gateway, the sign-in screen and the round trip
+  that follows were not exercised, and neither was coming back as an account that has the plan.
+- "Sign in with another account" is one more sentence of the client's own on the notice.
+- Nothing tests the minute itself. The wording rests on the reviewer's reading of the 60 second sweep.
