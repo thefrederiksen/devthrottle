@@ -13,6 +13,10 @@ public static class LicenseLogKinds
     public const string Switch = "switch";
     public const string SpareAdded = "spare-added";
     public const string SpareRemoved = "spare-removed";
+
+    /// <summary>An exhaustion event: an account in use reached the threshold and no account had room, so nothing was
+    /// switched. One row per event, open while its <c>FinishedAtUtc</c> is null.</summary>
+    public const string NoRoom = "no-room";
 }
 
 /// <summary>Where a switch log row stands. <see cref="Pending"/> and <see cref="Unknown"/> are open; the rest are final.</summary>
@@ -31,6 +35,12 @@ public static class LicenseLogStates
     /// <summary>A spare row: final when written.</summary>
     public const string Recorded = "recorded";
 
+    /// <summary>A no-room row while its event lasts.</summary>
+    public const string Open = "open";
+
+    /// <summary>A no-room row whose event is over.</summary>
+    public const string Ended = "ended";
+
     public static bool IsOpen(string state) => state is Pending or Unknown;
 }
 
@@ -40,6 +50,15 @@ public static class LicenseGatewayReasonCodes
 {
     public const string DirectorOffline = "director-offline";
     public const string DirectorError = "director-error";
+
+    /// <summary>On a no-room row: the one owner email for the event was sent.</summary>
+    public const string OwnerEmailed = "owner-emailed";
+
+    /// <summary>On a no-room row: the owner email has not gone out yet; it is tried again on a later minute check.</summary>
+    public const string OwnerEmailFailed = "owner-email-failed";
+
+    /// <summary>On a no-room row: this Gateway has no DevThrottle account to email, so no email is sent for the event.</summary>
+    public const string NoOwnerAccount = "no-owner-account";
 }
 
 /// <summary>The two usage windows, as the bar table names them.</summary>
@@ -224,11 +243,13 @@ public sealed class LicenseStore
 
     /// <summary>
     /// Write a switch row in <c>pending</c> BEFORE the command is sent (contract section 5.5), with a fresh switch identifier and
-    /// <c>NotAfterUtc</c> = now + <see cref="LicenseContract.SwitchNotAfter"/>. Null when the machine is unknown to this
-    /// account.
+    /// <c>NotAfterUtc</c> = now + <see cref="LicenseContract.SwitchNotAfter"/>. <paramref name="explanation"/> is the
+    /// engine's sentence saying why, kept on the row until an outcome replaces it. Null when the machine is unknown to
+    /// this account, or when it already has a switch row in <c>pending</c> or <c>unknown</c>: a machine is never sent a
+    /// second switch identifier while one is open (contract section 5.4).
     /// </summary>
     public LicenseSwitchLogEntity? CreatePendingSwitch(TenantId tenant, Guid machineId, string fromEmail, string toEmail,
-        string reason, DateTime nowUtc)
+        string reason, DateTime nowUtc, string? explanation = null)
     {
         FileLog.Write($"[LicenseStore] CreatePendingSwitch: tenant={tenant.ToLogString()}, machine={machineId}, from={fromEmail}, to={toEmail}, reason={reason}");
         if (reason is not (LicenseSwitchReasons.Threshold or LicenseSwitchReasons.Manual))
@@ -239,6 +260,13 @@ public sealed class LicenseStore
         if (machine is null)
         {
             FileLog.Write($"[LicenseStore] CreatePendingSwitch: REFUSED, no machine {machineId} in this account");
+            return null;
+        }
+        var open = ctx.LicenseSwitchLog.AsNoTracking().FirstOrDefault(r => r.MachineId == machineId && r.Kind == LicenseLogKinds.Switch
+            && (r.State == LicenseLogStates.Pending || r.State == LicenseLogStates.Unknown));
+        if (open is not null)
+        {
+            FileLog.Write($"[LicenseStore] CreatePendingSwitch: REFUSED, machine {machineId} already has open switch {open.SwitchId}");
             return null;
         }
         var row = new LicenseSwitchLogEntity
@@ -253,6 +281,7 @@ public sealed class LicenseStore
             ToAccountEmail = NormalizeEmail(toEmail),
             Reason = reason,
             State = LicenseLogStates.Pending,
+            Message = Trimmed(explanation, MaxMessageLength),
             CreatedAtUtc = now,
             NotAfterUtc = now + LicenseContract.SwitchNotAfter,
             TenantId = ctx.ActiveTenant!,
@@ -286,7 +315,8 @@ public sealed class LicenseStore
                 .OrderBy(r => r.CreatedAtUtc).ThenBy(r => r.SwitchId, StringComparer.Ordinal).ToList();
         }, rows => $"count={rows.Count}");
 
-    /// <summary>The log, newest first: every row written at or after <paramref name="sinceUtc"/>, and every open switch.</summary>
+    /// <summary>The log, newest first: every row written at or after <paramref name="sinceUtc"/>, every open switch, and
+    /// every no-room event still open.</summary>
     public IReadOnlyList<LicenseSwitchLogEntity> ListLog(TenantId tenant, DateTime sinceUtc)
     {
         var since = Utc(sinceUtc);
@@ -294,7 +324,8 @@ public sealed class LicenseStore
         {
             using var ctx = _db.CreateContext(tenant);
             return (IReadOnlyList<LicenseSwitchLogEntity>)ctx.LicenseSwitchLog.AsNoTracking()
-                .Where(r => r.CreatedAtUtc >= since || r.State == LicenseLogStates.Pending || r.State == LicenseLogStates.Unknown)
+                .Where(r => r.CreatedAtUtc >= since || r.State == LicenseLogStates.Pending || r.State == LicenseLogStates.Unknown
+                            || r.State == LicenseLogStates.Open)
                 .ToList()
                 .OrderByDescending(r => r.CreatedAtUtc).ThenBy(r => r.Id).ToList();
         }, rows => $"count={rows.Count}");
@@ -352,13 +383,14 @@ public sealed class LicenseStore
 
     /// <summary>
     /// Move an OPEN switch to another open state or to a final state the GATEWAY decided (<c>pending</c> with
-    /// <c>director-offline</c>, <c>unknown</c>, or <c>failed</c> with <c>director-error</c> / <c>director-offline</c>).
-    /// A final row is never changed again. True when this call changed it.
+    /// <c>director-offline</c>, <c>unknown</c>, <c>failed</c> with <c>director-error</c> / <c>director-offline</c>, or
+    /// <c>switched</c> / <c>failed</c> settled from the machine's own report when no answer could be had, contract
+    /// section 5.5). A final row is never changed again. True when this call changed it.
     /// </summary>
     public bool TryMark(TenantId tenant, string switchId, string state, string? reasonCode, string? message, DateTime nowUtc)
     {
         var id = SwitchKey(switchId) ?? throw new ArgumentException($"'{switchId}' is not a switch identifier.", nameof(switchId));
-        if (state is not (LicenseLogStates.Pending or LicenseLogStates.Unknown or LicenseLogStates.Failed))
+        if (state is not (LicenseLogStates.Pending or LicenseLogStates.Unknown or LicenseLogStates.Failed or LicenseLogStates.Switched))
             throw new ArgumentException($"'{state}' is not a state the Gateway decides.", nameof(state));
         var now = Utc(nowUtc);
         DateTime? finished = LicenseLogStates.IsOpen(state) ? null : now;
@@ -406,6 +438,64 @@ public sealed class LicenseStore
         return changed;
     }
 
+    /// <summary>
+    /// Take the machine's active account from a switch answer's read-back (contract section 3.5) - but never over a
+    /// report that is newer than the answer. "Newer" is judged on the Gateway's own clock only. The Director's clock
+    /// is not used at all: a clock that is ahead or behind by less than the skew that is measured would make an
+    /// answer look newer or older than it is.
+    ///
+    /// - An answer to a command this Gateway has just sent (<c>Replayed = false</c>) describes the machine after that
+    ///   command. It is taken unless the machine has reported since <paramref name="sentAtUtc"/>, the moment this
+    ///   Gateway sent it: such a report was written after the switch, and the after-switch report the Director
+    ///   sends after every switch is one.
+    /// - An answer with <c>Replayed = true</c> is a STORED answer to an earlier send, so the send it answers may be
+    ///   long past. Its read-back is never taken once the machine has reported after the switch row was written.
+    ///
+    /// One conditional update, so a report landing at the same moment cannot be overwritten. True when the account
+    /// was taken.
+    /// </summary>
+    /// <param name="sentAtUtc">When this Gateway sent the command the answer came back to, on the Gateway's clock.</param>
+    public bool ApplySwitchReadBack(TenantId tenant, Guid machineId, LicenseSwitchResult result, DateTime sentAtUtc)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        var after = NormalizeEmail(result.ActiveAccountEmailAfter);
+        FileLog.Write($"[LicenseStore] ApplySwitchReadBack: tenant={tenant.ToLogString()}, machine={machineId}, switch={result.SwitchId}, replayed={result.Replayed}");
+        if (after.Length == 0)
+        {
+            FileLog.Write("[LicenseStore] ApplySwitchReadBack: the answer read back no active account, nothing taken");
+            return false;
+        }
+        using var ctx = _db.CreateContext(tenant);
+        var notReportedSince = Utc(sentAtUtc);
+        if (result.Replayed)
+        {
+            var id = SwitchKey(result.SwitchId);
+            var written = ctx.LicenseSwitchLog.AsNoTracking()
+                .Where(r => r.SwitchId == id && r.Kind == LicenseLogKinds.Switch)
+                .Select(r => (DateTime?)r.CreatedAtUtc)
+                .FirstOrDefault();
+            if (written is not { } rowWrittenAt)
+            {
+                FileLog.Write("[LicenseStore] ApplySwitchReadBack: REFUSED, a replayed answer for a switch this account has no row for");
+                return false;
+            }
+            notReportedSince = rowWrittenAt;
+        }
+        // The machine row and its holdings say who is active in two places, and the read model reads both; they move
+        // together or not at all, so the Licenses page never shows the machine on one account and the holding on another.
+        using var transaction = ctx.Database.BeginTransaction();
+        var taken = ctx.LicenseMachines
+            .Where(m => m.Id == machineId && m.LastReportAtUtc <= notReportedSince)
+            .ExecuteUpdate(u => u.SetProperty(m => m.ActiveAccountEmail, after)) == 1;
+        if (taken)
+            ctx.LicenseHoldings
+                .Where(h => h.MachineId == machineId)
+                .ExecuteUpdate(u => u.SetProperty(h => h.IsActive, h => h.AccountEmail == after));
+        transaction.Commit();
+        FileLog.Write($"[LicenseStore] ApplySwitchReadBack: taken={taken} (the machine must not have reported since {notReportedSince:O})");
+        return taken;
+    }
+
     private static IQueryable<LicenseSwitchLogEntity> OpenSwitch(GatewayDbContext ctx, string id)
         => ctx.LicenseSwitchLog.Where(r => r.SwitchId == id && r.Kind == LicenseLogKinds.Switch
                                            && (r.State == LicenseLogStates.Pending || r.State == LicenseLogStates.Unknown));
@@ -444,7 +534,123 @@ public sealed class LicenseStore
         }, rows => $"count={rows.Count}");
     }
 
+    // ---- No-room events (written by the minute check) ----
+
+    /// <summary>
+    /// Record that an exhaustion event began: an account in use is at the threshold and no account has room (one row,
+    /// kind <c>no-room</c>, open while its <c>FinishedAtUtc</c> is null; <c>NotAfterUtc</c> holds the event's end). An
+    /// account has at most one open event: when one is already open it is returned unchanged.
+    /// </summary>
+    public LicenseSwitchLogEntity OpenNoRoom(TenantId tenant, string accountEmail, DateTime startedAtUtc, DateTime endsAtUtc)
+    {
+        var email = NormalizeEmail(accountEmail);
+        FileLog.Write($"[LicenseStore] OpenNoRoom: tenant={tenant.ToLogString()}, account={email}, ends={endsAtUtc:O}");
+        using var ctx = _db.CreateContext(tenant);
+        var open = ctx.LicenseSwitchLog.AsNoTracking()
+            .FirstOrDefault(r => r.Kind == LicenseLogKinds.NoRoom && r.FromAccountEmail == email && r.FinishedAtUtc == null);
+        if (open is not null)
+        {
+            FileLog.Write($"[LicenseStore] OpenNoRoom: already open since {open.CreatedAtUtc:O}");
+            return open;
+        }
+        var row = new LicenseSwitchLogEntity
+        {
+            Kind = LicenseLogKinds.NoRoom,
+            FromAccountEmail = email,
+            Reason = LicenseSwitchReasons.Threshold,
+            State = LicenseLogStates.Open,
+            Message = NoRoomMessage(email, "the owner has not been emailed yet"),
+            CreatedAtUtc = Utc(startedAtUtc),
+            NotAfterUtc = Utc(endsAtUtc),
+            TenantId = ctx.ActiveTenant!,
+        };
+        ctx.LicenseSwitchLog.Add(row);
+        ctx.SaveChanges();
+        FileLog.Write($"[LicenseStore] OpenNoRoom: row={row.Id}");
+        return row;
+    }
+
+    /// <summary>The sentence a no-room row shows: what happened, then what became of the owner email.</summary>
+    public static string NoRoomMessage(string accountEmail, string ownerEmailClause)
+        => $"No account had room for the machines on {NormalizeEmail(accountEmail)}, so nothing was switched; {ownerEmailClause}.";
+
+    /// <summary>Every no-room event still open, oldest first.</summary>
+    /// <remarks>Quiet, like <see cref="HasMachines"/>: the minute check reads this for every tenant every minute, and
+    /// a check that finds nothing to do leaves no line. A failure is logged by the check that asked.</remarks>
+    public IReadOnlyList<LicenseSwitchLogEntity> ListOpenNoRoom(TenantId tenant)
+    {
+        using var ctx = _db.CreateContext(tenant);
+        return ctx.LicenseSwitchLog.AsNoTracking()
+            .Where(r => r.Kind == LicenseLogKinds.NoRoom && r.FinishedAtUtc == null)
+            .ToList()
+            .OrderBy(r => r.CreatedAtUtc).ThenBy(r => r.FromAccountEmail, StringComparer.Ordinal).ToList();
+    }
+
+    /// <summary>Move the end of the account's open no-room event. False when it has none open.</summary>
+    public bool ExtendNoRoom(TenantId tenant, string accountEmail, DateTime endsAtUtc)
+    {
+        var email = NormalizeEmail(accountEmail);
+        DateTime? ends = Utc(endsAtUtc);
+        using var ctx = _db.CreateContext(tenant);
+        var changed = OpenNoRoomRows(ctx, email).ExecuteUpdate(u => u.SetProperty(r => r.NotAfterUtc, ends)) > 0;
+        FileLog.Write($"[LicenseStore] ExtendNoRoom: tenant={tenant.ToLogString()}, account={email}, ends={ends:O}, changed={changed}");
+        return changed;
+    }
+
+    /// <summary>End the account's open no-room event. False when it has none open.</summary>
+    public bool CloseNoRoom(TenantId tenant, string accountEmail, DateTime nowUtc)
+    {
+        var email = NormalizeEmail(accountEmail);
+        DateTime? now = Utc(nowUtc);
+        using var ctx = _db.CreateContext(tenant);
+        var changed = OpenNoRoomRows(ctx, email).ExecuteUpdate(u => u
+            .SetProperty(r => r.State, LicenseLogStates.Ended)
+            .SetProperty(r => r.FinishedAtUtc, now)) > 0;
+        FileLog.Write($"[LicenseStore] CloseNoRoom: tenant={tenant.ToLogString()}, account={email}, changed={changed}");
+        return changed;
+    }
+
+    /// <summary>
+    /// Record what became of the owner email for the account's open no-room event: <paramref name="emailState"/> is
+    /// <see cref="LicenseGatewayReasonCodes.OwnerEmailed"/> (with <paramref name="sentAtUtc"/>),
+    /// <see cref="LicenseGatewayReasonCodes.OwnerEmailFailed"/> or <see cref="LicenseGatewayReasonCodes.NoOwnerAccount"/>.
+    /// An event already recorded as emailed is never changed: one email per event. True when this call changed it.
+    /// </summary>
+    public bool RecordNoRoomEmail(TenantId tenant, string accountEmail, string emailState, string message, DateTime? sentAtUtc)
+    {
+        if (emailState is not (LicenseGatewayReasonCodes.OwnerEmailed or LicenseGatewayReasonCodes.OwnerEmailFailed
+            or LicenseGatewayReasonCodes.NoOwnerAccount))
+            throw new ArgumentException($"'{emailState}' is not an owner email state.", nameof(emailState));
+        if ((emailState == LicenseGatewayReasonCodes.OwnerEmailed) != sentAtUtc.HasValue)
+            throw new ArgumentException("A sent time is given exactly when the email was sent.", nameof(sentAtUtc));
+        var email = NormalizeEmail(accountEmail);
+        var sent = UtcOrNull(sentAtUtc);
+        var sends = sent is null ? 0 : 1;
+        var text = Cap(message, MaxMessageLength);
+        using var ctx = _db.CreateContext(tenant);
+        var changed = OpenNoRoomRows(ctx, email)
+            .Where(r => r.ReasonCode == null || r.ReasonCode != LicenseGatewayReasonCodes.OwnerEmailed)
+            .ExecuteUpdate(u => u
+                .SetProperty(r => r.ReasonCode, emailState)
+                .SetProperty(r => r.Message, text)
+                .SetProperty(r => r.LastSentAtUtc, sent)
+                .SetProperty(r => r.SendCount, r => r.SendCount + sends)) > 0;
+        FileLog.Write($"[LicenseStore] RecordNoRoomEmail: tenant={tenant.ToLogString()}, account={email}, state={emailState}, changed={changed}");
+        return changed;
+    }
+
+    private static IQueryable<LicenseSwitchLogEntity> OpenNoRoomRows(GatewayDbContext ctx, string email)
+        => ctx.LicenseSwitchLog.Where(r => r.Kind == LicenseLogKinds.NoRoom && r.FromAccountEmail == email && r.FinishedAtUtc == null);
+
     // ---- Reads for the read model ----
+
+    /// <summary>True when any machine of this account has ever reported. Asked once a minute for every account with a
+    /// Director connected, so it writes no log line: an account with no machines must leave no trace of the check.</summary>
+    public bool HasMachines(TenantId tenant)
+    {
+        using var ctx = _db.CreateContext(tenant);
+        return ctx.LicenseMachines.AsNoTracking().Any();
+    }
 
     /// <summary>Everything the read model folds, in one context: accounts, machines and holdings.</summary>
     internal (List<LicenseAccountEntity> Accounts, List<LicenseMachineEntity> Machines, List<LicenseHoldingEntity> Holdings) ReadAll(TenantId tenant)

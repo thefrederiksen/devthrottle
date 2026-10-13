@@ -194,6 +194,32 @@ public static class LicenseDecisionEngine
     }
 
     /// <summary>
+    /// The owner email for <paramref name="accountEmail"/>'s no-room event as things stand NOW, or null when it
+    /// cannot truthfully be written now: the account's reading is stale or shows no tired window, no machine on
+    /// it can be sent a switch, or a target exists. <see cref="Decide"/> writes the email once, on the tick that
+    /// opens the event; this is for the minute check to write it again when that send failed, from the facts
+    /// of the later tick rather than a stored copy of the first one.
+    /// </summary>
+    public static LicenseOwnerEmail? NoRoomEmail(LicenseSnapshot snapshot, string accountEmail)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (string.IsNullOrWhiteSpace(accountEmail))
+            throw new ArgumentException("The account the event is about is required", nameof(accountEmail));
+        var now = snapshot.NowUtc;
+        var source = Normalize(accountEmail);
+        var readings = IndexReadings(snapshot.Accounts);
+        if (!readings.TryGetValue(source, out var reading) || IsReadingStale(reading, now))
+            return null;
+        var tired = TiredWindows(reading, now);
+        if (tired.Count == 0)
+            return null;
+        var (eligible, skipped) = SplitMachines(snapshot, source);
+        if (eligible.Count == 0 || ChooseTarget(snapshot, readings, source, eligible) is not null)
+            return null;
+        return BuildNoRoomEmail(snapshot, readings, source, tired, eligible, skipped);
+    }
+
+    /// <summary>
     /// The best target for <paramref name="machines"/> - pass <see cref="SwitchableMachines"/> - or null when
     /// none qualifies. Used by the tick, by Switch now, and by the forecast, so all three agree.
     /// </summary>

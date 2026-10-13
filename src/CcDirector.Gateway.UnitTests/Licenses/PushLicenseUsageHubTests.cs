@@ -48,7 +48,8 @@ public sealed class PushLicenseUsageHubTests : IDisposable
     private DirectorHub NewHub(string connectionId) => new(_store, _registry, InputStatsHandle.Available(_inputStats),
         new GatewayStreamRegistry(),
         new CcDirector.Gateway.Tenancy.HostedTenantBoundary(new SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: false),
-        licenseUsage: _ingest) { Context = new FakeHubCallerContext(connectionId) };
+        licenseUsage: _ingest,
+        licenseClock: new LicenseGatewayClock(() => new DateTime(2026, 10, 12, 12, 0, 0, DateTimeKind.Utc))) { Context = new FakeHubCallerContext(connectionId) };
 
     private static DirectorStreamHello Hello() => new() { DirectorId = "dir-A", Version = "test" };
 

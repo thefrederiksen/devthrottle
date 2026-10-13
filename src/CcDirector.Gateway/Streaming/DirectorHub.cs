@@ -83,10 +83,15 @@ public sealed class DirectorHub : Hub
         Fleet.FleetManagerLessonsObserver? fleetManagerLessons = null,
         Teams.TeamCallerOwnership? teamOwnership = null,
         Secrets.SecretMachineRegistry? secretMachines = null,
-        Licenses.LicenseUsageIngest? licenseUsage = null)
+        Licenses.LicenseUsageIngest? licenseUsage = null,
+        Licenses.LicenseGatewayClock? licenseClock = null)
     {
         _secretMachines = secretMachines;
         _licenseUsage = licenseUsage;
+        // A license ingest with no clock would take its reports at one time while the check judges them at another.
+        if (licenseUsage is not null && licenseClock is null)
+            throw new ArgumentNullException(nameof(licenseClock), "A license ingest needs the Gateway's license clock.");
+        _licenseClock = licenseClock;
         _fleetManagerLessons = fleetManagerLessons;
         _teamOwnership = teamOwnership;
         _voiceAnswers = voiceAnswers;
@@ -169,6 +174,9 @@ public sealed class DirectorHub : Hub
     /// logged.</summary>
     private readonly Licenses.LicenseUsageIngest? _licenseUsage;
 
+    /// <summary>The clock a usage report is taken at - the same one the minute check decides by. Set whenever the ingest is.</summary>
+    private readonly Licenses.LicenseGatewayClock? _licenseClock;
+
     /// <summary>
     /// License Switching (missions/license-switching/contract.md section 2.1): the bound Director's complete snapshot of
     /// the Claude sign-ins its machine holds and their usage numbers - never a key. Shaped like
@@ -182,14 +190,14 @@ public sealed class DirectorHub : Hub
         var directorId = RequireBoundDirector();
         var tenant = RequireBoundTenant();
         using var tenantScope = EnterBoundTenantScope();
-        if (_licenseUsage is null)
+        if (_licenseUsage is null || _licenseClock is null)
         {
             FileLog.Write($"[DirectorHub] PushLicenseUsage: no license ingest on this Gateway, report dropped: director={directorId} seq={sequence}");
             return;
         }
         try
         {
-            var outcome = _licenseUsage.Ingest(tenant, directorId, Context.ConnectionId, sequence, report, DateTime.UtcNow);
+            var outcome = _licenseUsage.Ingest(tenant, directorId, Context.ConnectionId, sequence, report, _licenseClock.UtcNow());
             FileLog.Write($"[DirectorHub] PushLicenseUsage: director={directorId} seq={sequence} outcome={outcome}");
         }
         catch (Exception ex)

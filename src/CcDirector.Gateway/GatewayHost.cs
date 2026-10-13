@@ -416,6 +416,9 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>The one place the decision engine's picture of an account is built from the store.</summary>
     internal Licenses.LicenseSnapshotSource LicenseSnapshots { get; }
 
+    /// <summary>License Switching's minute check and Switch now: decides, sends each switch and records what came back.</summary>
+    internal Licenses.LicenseSwitchService LicenseSwitches { get; }
+
     /// <summary>The record of every message link set up and stopped, and every message a link carried, in the
     /// governance audit trail.</summary>
     internal Messaging.FleetMessageLinkRecord MessageLinkRecord { get; }
@@ -473,11 +476,15 @@ public sealed class GatewayHost : IAsyncDisposable
     public TimeProvider DeliveryClock { get; set; } = TimeProvider.System;
 
     /// <summary>
-    /// The clock the Licenses routes judge by (License Switching): how old a reading is, whether a sign-in has expired,
-    /// how long until a window resets. The real clock in production; a test sets its own BEFORE <see cref="StartAsync"/>,
-    /// where the routes are mapped with it, so no test of those routes reads the machine's clock.
+    /// The clock the license code is judged by (License Switching): the time a usage report is taken at, the time the
+    /// once-a-minute check decides at, and what the Licenses routes judge by - how old a reading is, whether a sign-in
+    /// has expired, how long until a window resets. The real clock in production; a test sets its own BEFORE
+    /// <see cref="StartAsync"/>, where the routes are mapped with it, so no license test reads the machine's clock.
     /// </summary>
     public TimeProvider LicenseClock { get; set; } = TimeProvider.System;
+
+    /// <summary>The same clock, as the one object the Director hub and the minute check both read.</summary>
+    internal Licenses.LicenseGatewayClock LicenseNow { get; }
 
     /// <summary>
     /// The Gateway's driver of held deliveries (Voice Delivery phase 5): once a recording's delivery is taken over, the
@@ -1002,6 +1009,14 @@ public sealed class GatewayHost : IAsyncDisposable
     private int _activityRetentionInFlight;
     private static readonly TimeSpan ActivityRetentionInterval = TimeSpan.FromHours(6);
     private static readonly TimeSpan ActivityRetentionStartupDelay = TimeSpan.FromMinutes(5);
+
+    // License Switching's minute check (missions/license-switching/MISSION.md section 5): once a minute, for each
+    // tenant with a Director connected, decide and send every switch that is due. A pass is started every minute whether
+    // or not the last one has finished: only a tenant whose own check is still waiting on a Director is skipped, by
+    // the service. Created in StartAsync, disposed in StopAsync, which also cancels the sends in flight.
+    private System.Threading.Timer? _licenseSwitchTimer;
+    private readonly CancellationTokenSource _licenseSwitchLifetime = new();
+    private static readonly TimeSpan LicenseSwitchInterval = TimeSpan.FromMinutes(1);
 
     // The judged stops' seven-day retention purge (the Wingman-on-every-turn mission): the same shape as
     // the activity sweep above, on the same per-tenant worker seam, with the same overlap guard. Created
@@ -2272,6 +2287,15 @@ public sealed class GatewayHost : IAsyncDisposable
         LicenseUsage = new Licenses.LicenseUsageIngest(LicenseStore, LicenseHistory);
         LicenseReads = new Licenses.LicenseReadModel(LicenseStore);
         LicenseSnapshots = new Licenses.LicenseSnapshotSource(LicenseStore, LicenseReads);
+        // The owner email goes the way POST /account/email sends on hosted: by tenant, the account service resolving
+        // the owner. A self-hosted Gateway has no tenant account, so its mailer logs and sends nothing.
+        var licenseOwnerMailer = new Licenses.LicenseOwnerMailer(_tenantBoundary.IsHosted,
+            new Core.Account.AccountNotifyByTenantClient(new HttpClient { Timeout = TimeSpan.FromSeconds(30) }),
+            tenant => TenantRegistry.SubjectForTenant(tenant),
+            Core.Account.AccountNotifyByTenantClient.ResolveServiceToken);
+        LicenseNow = new Licenses.LicenseGatewayClock(() => LicenseClock.GetUtcNow().UtcDateTime);
+        LicenseSwitches = new Licenses.LicenseSwitchService(LicenseStore, LicenseSnapshots,
+            SendCommandAsync, licenseOwnerMailer.SendAsync, LicenseNow.UtcNow);
         // Per-tenant dictation transcript store (issue #509): every transcribed turn's raw and cleaned text
         // lands in the caller tenant's partition of the dictation_transcripts table, write-only, for later
         // mistranscription mining (devthrottle #2075). Same store on SQLite (self-host) and Postgres (hosted) -
@@ -4193,6 +4217,7 @@ public sealed class GatewayHost : IAsyncDisposable
         builder.Services.AddSingleton(SecretMachines);
         // License Switching: DirectorHub.PushLicenseUsage hands each report to the ingest.
         builder.Services.AddSingleton(LicenseUsage);
+        builder.Services.AddSingleton(LicenseNow);
         // Gateway Cleanup mission (Wave 4b): the Gateway-native mission store, so the mission endpoints and
         // spawn validation share the one instance.
         builder.Services.AddSingleton(Missions);
@@ -5972,6 +5997,11 @@ public sealed class GatewayHost : IAsyncDisposable
             ActivityRetentionStartupDelay, ActivityRetentionInterval);
         FileLog.Write($"[GatewayHost] activity retention sweep started: every {ActivityRetentionInterval.TotalHours:0}h, retention {Activity.ActivityRetentionSweep.RetentionPeriod.TotalDays:0} days");
 
+        // License Switching's minute check. Inert for a tenant none of whose machines has sent a usage report.
+        _licenseSwitchTimer = new System.Threading.Timer(_ => CheckLicenseSwitches(), null,
+            LicenseSwitchInterval, LicenseSwitchInterval);
+        FileLog.Write($"[GatewayHost] license switch check started: every {LicenseSwitchInterval.TotalSeconds:0}s");
+
         // The judged stops' seven-day retention purge. Offset from the activity sweep's startup delay so two
         // bulk deletes do not contend on the same database at the same minute of every boot.
         _turnVerdictRetentionTimer = new System.Threading.Timer(_ => SweepTurnVerdictRetention(), null,
@@ -6516,6 +6546,37 @@ public sealed class GatewayHost : IAsyncDisposable
     }
 
     /// <summary>
+    /// License Switching's minute-check timer callback (a boundary - it owns the overlap guard and the try/catch so a
+    /// failed check never crashes the timer thread). One check at a time: a check can wait up to 60 seconds for a
+    /// Director's answer, and the next minute's check is skipped rather than run beside it.
+    /// </summary>
+    private void CheckLicenseSwitches()
+    {
+        // A pass is started every minute whether or not the last one has finished. There is no overlap guard here on
+        // purpose: one Director that does not answer keeps its own tenant's check open for up to the 60-second
+        // command wait, and a guard on the whole pass would make that cost EVERY tenant its next minute. The
+        // service skips, and logs, only the tenant whose own check is still running (LicenseSwitchService.TickAsync).
+        _ = RunLicenseSwitchCheckAsync();
+    }
+
+    internal async Task RunLicenseSwitchCheckAsync()
+    {
+        try
+        {
+            // Inside ITenantPass.ForEachTenantAsync: SendCommandAsync drops a command sent with no tenant scope.
+            await LicenseSwitches.TickEveryTenantAsync(_tenantPass, _licenseSwitchLifetime.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (_licenseSwitchLifetime.IsCancellationRequested)
+        {
+            FileLog.Write("[GatewayHost] license switch check stopped: the Gateway is stopping");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayHost] license switch check FAILED: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// The judged-stop retention timer callback (a boundary - it owns the overlap guard and the try/catch so
     /// a purge failure never crashes the timer thread). One sweep at a time; a skipped tick simply purges on
     /// the next one, which retention granularity is indifferent to.
@@ -6968,6 +7029,9 @@ public sealed class GatewayHost : IAsyncDisposable
         _cronTimer = null;
         try { _activityRetentionTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] activity retention timer dispose error: {ex.Message}"); }
         try { _turnVerdictRetentionTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] turn verdict retention timer dispose error: {ex.Message}"); }
+        try { _licenseSwitchTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] license switch timer dispose error: {ex.Message}"); }
+        _licenseSwitchTimer = null;
+        try { _licenseSwitchLifetime.Cancel(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] license switch lifetime cancel error: {ex.Message}"); }
         try { _fleetDoorbellTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] fleet doorbell timer dispose error: {ex.Message}"); }
         _fleetDoorbellTimer = null;
         try { _promptRetentionTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] prompt-log retention timer dispose error: {ex.Message}"); }

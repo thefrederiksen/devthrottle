@@ -381,7 +381,13 @@ public sealed class LicenseEndpointsTests : IDisposable
         var machine = Apply(TenantOne, Report("m1", Holding(A, true), Holding(B, false)));
         var newestFirst = new List<string>();
         for (var i = 0; i < switches; i++)
-            newestFirst.Insert(0, _store.CreatePendingSwitch(TenantOne, machine, A, B, LicenseSwitchReasons.Manual, T0.AddMinutes(i))!.SwitchId!);
+        {
+            var switchId = _store.CreatePendingSwitch(TenantOne, machine, A, B, LicenseSwitchReasons.Manual, T0.AddMinutes(i))!.SwitchId!;
+            newestFirst.Insert(0, switchId);
+            // A machine never has two open switches (contract section 5.4), so each one ends before the next is written.
+            Assert.True(_store.TryMark(TenantOne, switchId, LicenseLogStates.Failed, LicenseGatewayReasonCodes.DirectorError,
+                "The Director refused.", T0.AddMinutes(i).AddSeconds(5)));
+        }
         _now = T0.AddHours(1);
         return newestFirst;
     }
@@ -393,11 +399,12 @@ public sealed class LicenseEndpointsTests : IDisposable
     [Fact]
     public void Log_IsNewestFirst_AndPagesWithoutOverlapOrLoss_EvenWhileRowsAreWritten()
     {
-        var expected = SeedLog(5).Select(RowIdOf).ToList();
+        var seeded = SeedLog(5);
+        var expected = seeded.Select(RowIdOf).ToList();
 
         var first = Log(TenantOne, "?limit=2").Json;
         // A switch written while the page is being walked: it belongs to a later walk, never to this one.
-        var machine = _store.FindSwitch(TenantOne, _store.ListOpenSwitches(TenantOne)[0].SwitchId)!.MachineId;
+        var machine = _store.FindSwitch(TenantOne, seeded[0])!.MachineId;
         _store.CreatePendingSwitch(TenantOne, machine, A, B, LicenseSwitchReasons.Manual, _now.AddMinutes(1));
         _now = _now.AddMinutes(2);
         var second = Log(TenantOne, "?limit=2&cursor=" + first.GetProperty("nextCursor").GetString()).Json;
