@@ -244,8 +244,9 @@ public static class CronRunResultFold
             {
                 if (run.Result == CronRunResults.Ok && InWindow(run.FiredUtc, fromUtc, toUtc))
                     day.Done++;
+                // The last row of a long outage also stands for the due times past the row limit.
                 if (run.Problem == CronRunProblems.DidNotRun && InWindow(run.ScheduledUtc, fromUtc, toUtc))
-                    day.DidNotRun++;
+                    day.DidNotRun += 1 + run.MissedNotListed;
                 if (!string.IsNullOrWhiteSpace(run.SessionId) && endingOf(run) == CronRunEndings.StillOpen)
                     openSeats[factory].Add(string.IsNullOrWhiteSpace(job.Seat) ? job.Id : job.Seat);
             }

@@ -150,7 +150,7 @@ public static class FactoryEmailComposer
         var fresh = open.Where(p => IsNew(p, slot)).ToList();
         if (fresh.Count == 0)
             return NotSent($"the {slot.EndedShift.Name} shift raised no new problem");
-        var older = open.Count(p => p.RecordedUtc <= slot.PreviousCutoffUtc);
+        var older = open.Count(p => p.RaisedAtUtc <= slot.PreviousCutoffUtc);
 
         var boundary = Local(slot.BoundaryUtc, input.Zone);
         var shiftLocal = Local(slot.EndedShift.StartUtc, input.Zone);
@@ -198,12 +198,12 @@ public static class FactoryEmailComposer
             Covered(fresh, Array.Empty<CronFactoryDayDto>()));
     }
 
-    /// <summary>A problem is NEW at a check when it was recorded after the previous slot's cut-off and by this one's.</summary>
+    /// <summary>A problem is NEW at a check when it was raised after the previous slot's cut-off and by this one's.</summary>
     public static bool IsNew(CronRunProblemDto problem, FactoryEmailSlot slot)
     {
         ArgumentNullException.ThrowIfNull(problem);
         ArgumentNullException.ThrowIfNull(slot);
-        return problem.RecordedUtc > slot.PreviousCutoffUtc && problem.RecordedUtc <= slot.CutoffUtc;
+        return problem.RaisedAtUtc > slot.PreviousCutoffUtc && problem.RaisedAtUtc <= slot.CutoffUtc;
     }
 
     // ------------------------------------------------------------------------------------------------------------
@@ -256,7 +256,7 @@ public static class FactoryEmailComposer
             html.Append($"<div style=\"font-size:15px;font-weight:700;\">{FactoryName(input, p.Factory, Ink, linkWhenProblem: true)}</div>\n");
             html.Append($"<div style=\"font-size:13.5px;color:{Ink};padding-top:3px;\">{E(SeatLine(input, p))}</div>\n");
             html.Append($"<div style=\"font-size:13.5px;color:{Bad};padding-top:3px;font-weight:600;\">{E(p.Sentence)}</div>\n");
-            html.Append($"<div style=\"font-size:12.5px;color:{Muted};padding-top:3px;\">{E(WhenLine(input, p, showOpenFor))}</div>\n");
+            html.Append($"<div style=\"font-size:12.5px;color:{Muted};padding-top:3px;\">{E(WhenLine(p, showOpenFor))}</div>\n");
             html.Append("</td></tr>\n");
         }
         html.Append("</table>\n</td></tr>\n");
@@ -324,32 +324,22 @@ public static class FactoryEmailComposer
         return $"{seat} - {p.JobName}";
     }
 
-    /// <summary>"Started Fri 10 Oct 09:00 - morning shift - open 23 hours", or "Due ..." for a run that never started.</summary>
-    private static string WhenLine(FactoryEmailInput input, CronRunProblemDto p, bool showOpenFor)
+    /// <summary>"Started Fri 10 Oct 09:00 - morning shift - open 22 hours", or "Due ..." for a run that never started.
+    /// When it started and how long it has been open are the problems fold's own words (<c>WhenText</c>,
+    /// <c>OpenForText</c>), counted at the instant the email describes; nothing is worked out again here.</summary>
+    private static string WhenLine(CronRunProblemDto p, bool showOpenFor)
     {
-        var at = p.StartedUtc ?? p.ScheduledUtc;
-        var verb = p.StartedUtc is null ? "Due" : "Started";
-        var line = $"{verb} {Local(at, input.Zone).ToString("ddd d MMM HH:mm", CultureInfo.InvariantCulture)} - {p.Shift} shift";
-        if (showOpenFor)
-            line += " - open " + OpenFor(input.Slot.BoundaryUtc - DateTime.SpecifyKind(at, DateTimeKind.Utc));
+        var line = $"{p.WhenText} - {p.Shift} shift";
+        if (showOpenFor && !string.IsNullOrWhiteSpace(p.OpenForText))
+            line += " - " + p.OpenForText;
         return line;
-    }
-
-    /// <summary>How long a problem has been open, in the email's words: minutes, then hours, then whole days.</summary>
-    public static string OpenFor(TimeSpan span)
-    {
-        if (span < TimeSpan.FromHours(1))
-            return Count(Math.Max(1, (int)span.TotalMinutes), "minute");
-        if (span < TimeSpan.FromHours(24))
-            return Count((int)span.TotalHours, "hour");
-        return Count((int)Math.Round(span.TotalDays, MidpointRounding.AwayFromZero), "day");
     }
 
     private static void TextProblem(StringBuilder text, FactoryEmailInput input, CronRunProblemDto p, bool showOpenFor)
     {
         text.AppendLine($"- {(p.Factory is null ? NoFactoryTitle : TitleOf(input, p.Factory))}: {SeatLine(input, p)}");
         text.AppendLine($"  {p.Sentence}");
-        text.AppendLine($"  {WhenLine(input, p, showOpenFor)}");
+        text.AppendLine($"  {WhenLine(p, showOpenFor)}");
         if (p.Factory is not null && input.BaseUrl is not null)
             text.AppendLine($"  {input.BaseUrl.TrimEnd('/')}/factories/{Uri.EscapeDataString(p.Factory)}#problems");
     }

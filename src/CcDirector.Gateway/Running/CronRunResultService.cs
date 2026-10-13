@@ -345,11 +345,12 @@ public sealed class CronRunResultService
     /// <param name="tenant">The account. The schedules and the work history are read in the ambient scope.</param>
     /// <param name="fromUtc">The start of the day's window.</param>
     /// <param name="toUtc">The end of the day's window (exclusive).</param>
-    public (CronRunProblemsDto Problems, IReadOnlyList<CronFactoryDayDto> Days) ProblemsAndFactoryDays(TenantId tenant, DateTime fromUtc, DateTime toUtc)
+    /// <param name="asOfUtc">The instant the problems are described at (<see cref="CronRunResultFold.Problems"/>).</param>
+    public (CronRunProblemsDto Problems, IReadOnlyList<CronFactoryDayDto> Days) ProblemsAndFactoryDays(TenantId tenant, DateTime fromUtc, DateTime toUtc, DateTime asOfUtc)
     {
         var jobs = _allJobs().ToDictionary(j => j.Id, StringComparer.Ordinal);
         var runsByJob = _runs.AllByJob(tenant);
-        var problems = CronRunResultFold.Problems(runsByJob, jobs, _zoneOf(tenant), factory: null, includeClosed: false);
+        var problems = CronRunResultFold.Problems(runsByJob, jobs, _zoneOf(tenant), factory: null, includeClosed: false, asOfUtc);
 
         var sessionIds = runsByJob.Values.SelectMany(r => r).Select(r => r.SessionId)
             .Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s!).Distinct(StringComparer.Ordinal).ToList();
@@ -358,7 +359,7 @@ public sealed class CronRunResultService
             : _endingsOf(sessionIds);
         var days = CronRunResultFold.FactoryDays(runsByJob, jobs, run => CronRunEndingFold.EndingOf(run, endings).Ending,
             problems.Problems, fromUtc, toUtc);
-        FileLog.Write($"[CronRunResultService] ProblemsAndFactoryDays: tenant={tenant.ToLogString()}, open={problems.Count}, factories={days.Count}");
+        FileLog.Write($"[CronRunResultService] ProblemsAndFactoryDays: tenant={tenant.ToLogString()}, asOf={asOfUtc:O}, open={problems.Count}, factories={days.Count}");
         return (problems, days);
     }
 

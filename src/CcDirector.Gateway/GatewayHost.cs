@@ -2428,7 +2428,7 @@ public sealed class GatewayHost : IAsyncDisposable
         _factoryEmailSweep = new Factory.Email.FactoryEmailSweep(_tenantBoundary, TenantRegistry, _tenantContext,
             enabled: _tenantSettingsResolver.FactoryEmailEnabled,
             zoneOf: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)),
-            facts: (tenant, from, to) => _cronRunResults.ProblemsAndFactoryDays(tenant, from, to),
+            facts: (tenant, from, to, asOf) => _cronRunResults.ProblemsAndFactoryDays(tenant, from, to, asOf),
             factories: tenant => FactoryRegistry.List(tenant).ToDictionary(
                 f => f.Factory,
                 f => new Factory.Email.FactoryEmailFactory(f.Title,

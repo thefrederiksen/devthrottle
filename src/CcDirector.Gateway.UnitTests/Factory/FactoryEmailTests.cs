@@ -60,7 +60,7 @@ public sealed class FactoryEmailTests : IDisposable
         allJobs: () => _jobs.Values.ToList(),
         endingsOf: ids => _endings.Where(e => ids.Contains(e.Key)).ToDictionary(e => e.Key, e => e.Value, StringComparer.Ordinal),
         zoneOf: _ => Toronto,
-        appendActivity: (tenant, row) => new FactoryActivityRecord(Db).Append(tenant, row, callingActor: null).Id,
+        writeActivity: (tenant, run, row, correction) => Runs.WriteActivityRow(tenant, run, row, correction),
         nowUtc: () => _now);
 
     private FactoryEmailStore? _store;
@@ -74,7 +74,7 @@ public sealed class FactoryEmailTests : IDisposable
             new HostedTenantBoundary(_ctx, new DeviceRegistry(), hosted: false), new TenantRegistry(Db), _ctx,
             enabled: _ => _enabled,
             zoneOf: _ => Toronto,
-            facts: (tenant, from, to) => service.ProblemsAndFactoryDays(tenant, from, to),
+            facts: (tenant, from, to, asOf) => service.ProblemsAndFactoryDays(tenant, from, to, asOf),
             factories: _ => Factories(),
             baseUrl: () => "https://gateway.example.test",
             store: Store,
@@ -94,6 +94,14 @@ public sealed class FactoryEmailTests : IDisposable
         var job = new CronJobDto { Id = id, Name = name, Factory = factory, Seat = seat };
         _jobs[id] = job;
         return job;
+    }
+
+    // A run recorded the way the dispatcher records one: with its schedule's factory, seat and name fixed on it, which
+    // is where the problems fold reads them from.
+    private void AppendRun(string jobId, CronRunRecord run)
+    {
+        CronRunResultFold.StampFactoryLink(run, _jobs[jobId]);
+        Runs.Append(jobId, run);
     }
 
     private static CronRunRecord Run(string? sessionId, DateTime firedUtc, string result, string? problem = null,
@@ -189,22 +197,22 @@ public sealed class FactoryEmailTests : IDisposable
         Job("cj_send", "Morning send", "outreach", "sender");
         Job("cj_scan", "Night scan", "research", "scout");
         // Fixed yesterday: the Sender's 09:00 run failed, and its 13:00 run reported ok, which clears it.
-        Runs.Append("cj_send", Run("s1", TorontoTime(2026, 10, 10, 9), CronRunResults.Problem, CronRunProblems.Reported, "the inbox would not load"));
-        Runs.Append("cj_send", Run("s2", TorontoTime(2026, 10, 10, 13), CronRunResults.Ok));
+        AppendRun("cj_send", Run("s1", TorontoTime(2026, 10, 10, 9), CronRunResults.Problem, CronRunProblems.Reported, "the inbox would not load"));
+        AppendRun("cj_send", Run("s2", TorontoTime(2026, 10, 10, 13), CronRunResults.Ok));
         // Still open: the Scout's 02:00 run never started.
-        Runs.Append("cj_scan", Run(null, TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.DidNotRun,
+        AppendRun("cj_scan", Run(null, TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.DidNotRun,
             "its machine was offline when it was due"));
         _now = TorontoTime(2026, 10, 11, 8, 5);
         var slot = FactoryEmailSlots.DueAt(_now, Toronto)!;
 
-        var (problems, days) = Service().ProblemsAndFactoryDays(TenantId.Local, slot.DayStartUtc, slot.BoundaryUtc);
+        var (problems, days) = Service().ProblemsAndFactoryDays(TenantId.Local, slot.DayStartUtc, slot.BoundaryUtc, slot.CutoffUtc);
         var email = FactoryEmailComposer.Compose(new FactoryEmailInput(slot, Toronto, problems.Problems, days, Factories(), "https://gateway.example.test"));
 
         Assert.True(email.Send);
         Assert.Equal("Factories: 1 problem still open - Sunday 11 October", email.Subject);
         Assert.Contains("Did not run: its machine was offline when it was due.", email.Html);
         Assert.Contains("Scout - Night scan", email.Html);
-        Assert.Contains("Due Sun 11 Oct 02:00 - night shift - open 6 hours", email.Html);
+        Assert.Contains("Due Sun 11 Oct 02:00 - night shift - open 5 hours", email.Html); // raised 02:10, counted at the 08:05 cut-off
         Assert.DoesNotContain("the inbox would not load", email.Html);
         Assert.Contains("https://gateway.example.test/factories/research#problems", email.Html);
         Assert.Equal(1, email.ProblemCount);
@@ -215,15 +223,15 @@ public sealed class FactoryEmailTests : IDisposable
     {
         Job("cj_send", "Morning send", "outreach", "sender");
         Job("cj_scan", "Night scan", "research", "scout");
-        Runs.Append("cj_send", Run("s1", TorontoTime(2026, 10, 10, 9), CronRunResults.Ok));
-        Runs.Append("cj_send", Run("s2", TorontoTime(2026, 10, 10, 17), CronRunResults.Ok));
-        Runs.Append("cj_send", Run("s0", TorontoTime(2026, 10, 9, 9), CronRunResults.Ok)); // before the window
-        Runs.Append("cj_scan", Run(null, TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.DidNotRun, "offline"));
-        Runs.Append("cj_scan", Run("s3", TorontoTime(2026, 10, 10, 20), CronRunResults.Problem, CronRunProblems.Reported, "stuck"));
+        AppendRun("cj_send", Run("s1", TorontoTime(2026, 10, 10, 9), CronRunResults.Ok));
+        AppendRun("cj_send", Run("s2", TorontoTime(2026, 10, 10, 17), CronRunResults.Ok));
+        AppendRun("cj_send", Run("s0", TorontoTime(2026, 10, 9, 9), CronRunResults.Ok)); // before the window
+        AppendRun("cj_scan", Run(null, TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.DidNotRun, "offline"));
+        AppendRun("cj_scan", Run("s3", TorontoTime(2026, 10, 10, 20), CronRunResults.Problem, CronRunProblems.Reported, "stuck"));
         _endings["s3"] = new SessionEndingFact(null, null); // still open
         _now = TorontoTime(2026, 10, 11, 8, 5);
 
-        var (_, days) = Service().ProblemsAndFactoryDays(TenantId.Local, TorontoTime(2026, 10, 10, 8), TorontoTime(2026, 10, 11, 8));
+        var (_, days) = Service().ProblemsAndFactoryDays(TenantId.Local, TorontoTime(2026, 10, 10, 8), TorontoTime(2026, 10, 11, 8), _now);
 
         var outreach = days.Single(d => d.Factory == "outreach");
         var research = days.Single(d => d.Factory == "research");
@@ -278,7 +286,7 @@ public sealed class FactoryEmailTests : IDisposable
     {
         Job("cj_scan", "Night scan", "research", "scout");
         // Open, but recorded at 02:00 - already in the 08:00 report.
-        Runs.Append("cj_scan", Run(null, TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.DidNotRun, "offline",
+        AppendRun("cj_scan", Run(null, TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.DidNotRun, "offline",
             resultUtc: TorontoTime(2026, 10, 11, 2)));
         _now = TorontoTime(2026, 10, 11, 16, 5);
         var sender = new FakeSender();
@@ -295,10 +303,10 @@ public sealed class FactoryEmailTests : IDisposable
     {
         Job("cj_scan", "Night scan", "research", "scout");
         Job("cj_send", "Morning send", "outreach", "sender");
-        Runs.Append("cj_scan", Run(null, TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.DidNotRun, "offline",
+        AppendRun("cj_scan", Run(null, TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.DidNotRun, "offline",
             resultUtc: TorontoTime(2026, 10, 11, 2)));
         // New: the Sender's 14:30 run was still going at 16:00, recorded a minute after the boundary.
-        Runs.Append("cj_send", Run("s9", TorontoTime(2026, 10, 11, 14, 30), CronRunResults.Problem, CronRunProblems.RanPastShift,
+        AppendRun("cj_send", Run("s9", TorontoTime(2026, 10, 11, 14, 30), CronRunResults.Problem, CronRunProblems.RanPastShift,
             "it had not reported and was still open when its morning shift ended", resultUtc: TorontoTime(2026, 10, 11, 16, 1)));
         _now = TorontoTime(2026, 10, 11, 16, 5);
         var sender = new FakeSender();
@@ -320,7 +328,7 @@ public sealed class FactoryEmailTests : IDisposable
     public async Task SweepTenantAsync_ARestartInsideTheSameSlot_DoesNotSendTwice()
     {
         Job("cj_scan", "Night scan", "research", "scout");
-        Runs.Append("cj_scan", Run(null, TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.DidNotRun, "offline"));
+        AppendRun("cj_scan", Run(null, TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.DidNotRun, "offline"));
         var sender = new FakeSender();
         _now = TorontoTime(2026, 10, 11, 8, 5);
         await Sweep(sender).SweepTenantAsync(TenantId.Local);
@@ -337,7 +345,7 @@ public sealed class FactoryEmailTests : IDisposable
     public async Task SweepTenantAsync_SwitchedOff_ComposesKeepsAndSendsNothing()
     {
         Job("cj_scan", "Night scan", "research", "scout");
-        Runs.Append("cj_scan", Run(null, TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.DidNotRun, "offline"));
+        AppendRun("cj_scan", Run(null, TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.DidNotRun, "offline"));
         _enabled = false;
         _now = TorontoTime(2026, 10, 11, 8, 5);
         var sender = new FakeSender();
@@ -353,7 +361,7 @@ public sealed class FactoryEmailTests : IDisposable
     public async Task SweepTenantAsync_AFailedSend_IsTriedAgainWithTheKeptBody()
     {
         Job("cj_scan", "Night scan", "research", "scout");
-        Runs.Append("cj_scan", Run(null, TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.DidNotRun, "offline"));
+        AppendRun("cj_scan", Run(null, TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.DidNotRun, "offline"));
         var sender = new FakeSender { Answer = () => FactoryEmailSendResult.Failed("the service said no") };
         _now = TorontoTime(2026, 10, 11, 8, 5);
         await Sweep(sender).SweepTenantAsync(TenantId.Local);
@@ -373,7 +381,7 @@ public sealed class FactoryEmailTests : IDisposable
     public async Task SweepTenantAsync_ATeamAccount_IsNotSupported_AndNotTriedAgain()
     {
         Job("cj_scan", "Night scan", "research", "scout");
-        Runs.Append("cj_scan", Run(null, TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.DidNotRun, "offline"));
+        AppendRun("cj_scan", Run(null, TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.DidNotRun, "offline"));
         var calls = 0;
         var sender = new FakeSender { Answer = () => { calls++; return FactoryEmailSendResult.NotSupported(FactoryEmailSender.TeamNotSupported); } };
         _now = TorontoTime(2026, 10, 11, 8, 5);
@@ -393,13 +401,13 @@ public sealed class FactoryEmailTests : IDisposable
     {
         Job("cj_scan", "Night scan", "research", "scout");
         Job("cj_send", "Morning send", "outreach", "sender");
-        Runs.Append("cj_scan", Run(null, TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.DidNotRun, "offline"));
+        AppendRun("cj_scan", Run(null, TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.DidNotRun, "offline"));
         var sender = new FakeSender();
         _now = TorontoTime(2026, 10, 11, 8, 5);
         await Sweep(sender).SweepTenantAsync(TenantId.Local);        // sent, covers outreach and research
         _now = TorontoTime(2026, 10, 11, 16, 5);
         await Sweep(sender).SweepTenantAsync(TenantId.Local);        // nothing new: kept, not sent
-        Runs.Append("cj_send", Run("s9", TorontoTime(2026, 10, 11, 18), CronRunResults.Problem, CronRunProblems.Reported, "bounced",
+        AppendRun("cj_send", Run("s9", TorontoTime(2026, 10, 11, 18), CronRunResults.Problem, CronRunProblems.Reported, "bounced",
             resultUtc: TorontoTime(2026, 10, 11, 18, 30)));
         _now = TorontoTime(2026, 10, 12, 0, 5);
         await Sweep(sender).SweepTenantAsync(TenantId.Local);        // sent, covers outreach only
@@ -460,16 +468,16 @@ public sealed class FactoryEmailTests : IDisposable
         Assert.Equal("Factories: 3 problems still open - Sunday 11 October", report.Subject);
         Assert.Contains("4 factories, 19 runs done, 1 run did not run.", report.Html);
         Assert.Contains("Did not report: the session ended without saying how it went.", report.Html);
-        Assert.Contains("Started Sat 10 Oct 09:00 - morning shift - open 23 hours", report.Html);
-        Assert.Contains("Problem: &quot;Build failed - two pages are missing their images.&quot;", report.Html);
-        Assert.Contains("Started Fri 9 Oct 17:05 - evening shift - open 2 days", report.Html);
+        Assert.Contains("Started Sat 10 Oct 09:00 - morning shift - open 22 hours", report.Html);
+        Assert.Contains("Reported a problem: Build failed - two pages are missing their images.", report.Html);
+        Assert.Contains("Started Fri 9 Oct 17:05 - evening shift - open 38 hours", report.Html);
         Assert.Contains("Sent at 08:00 Toronto time to the account that set up these factories.", report.Html);
         Assert.Contains(">Docs</td>", report.Html); // no problem: not a link
 
         var check = FactoryEmailSlots.AtBoundary(TorontoTime(2026, 10, 11, 16), Toronto);
         var fresh = Problem("docs", "writer", "Release notes", TorontoTime(2026, 10, 11, 14, 30), CronRunProblems.RanPastShift,
             "still working at 16:00 and has not said how it went", recordedUtc: TorontoTime(2026, 10, 11, 16, 1));
-        var older = problems.Select(p => { p.RecordedUtc = TorontoTime(2026, 10, 11, 3); return p; });
+        var older = problems.Select(p => { p.RaisedAtUtc = TorontoTime(2026, 10, 11, 3); return p; });
         var checkEmail = FactoryEmailComposer.Compose(new FactoryEmailInput(check, Toronto, older.Append(fresh).ToList(),
             Array.Empty<CronFactoryDayDto>(), factories, "https://gateway.devthrottle.com"));
 
@@ -483,16 +491,6 @@ public sealed class FactoryEmailTests : IDisposable
         File.WriteAllText(Path.Combine(dir, "check-1600.html"), checkEmail.Html);
     }
 
-    [Theory]
-    [InlineData(40, "40 minutes")]
-    [InlineData(60 * 23, "23 hours")]
-    [InlineData(60 * 39, "2 days")]
-    [InlineData(60 * 25, "1 day")]
-    public void OpenFor_ASpan_IsMinutesThenHoursThenDays(int minutes, string expected)
-    {
-        Assert.Equal(expected, FactoryEmailComposer.OpenFor(TimeSpan.FromMinutes(minutes)));
-    }
-
     [Fact]
     public void ZoneName_Toronto_IsTheCity()
     {
@@ -500,8 +498,14 @@ public sealed class FactoryEmailTests : IDisposable
     }
 
     private static CronRunProblemDto Problem(string factory, string seat, string job, DateTime atUtc, string kind, string reason,
-        bool started = true, DateTime? recordedUtc = null) => new()
+        bool started = true, DateTime? recordedUtc = null)
     {
+        // Filled the way the problems fold fills them, as of the morning cut-off the fixture's report is for.
+        var raised = recordedUtc ?? atUtc.AddMinutes(10);
+        var asOf = TorontoTime(2026, 10, 11, 8, 5);
+        var local = TimeZoneInfo.ConvertTimeFromUtc(atUtc, Toronto).ToString("ddd d MMM HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+        return new()
+        {
         RunId = Guid.NewGuid().ToString("D"),
         JobId = "cj_" + seat,
         JobName = job,
@@ -513,7 +517,10 @@ public sealed class FactoryEmailTests : IDisposable
         Kind = kind,
         Reason = reason,
         Sentence = CronRunResultFold.SentenceOf(kind, reason),
-        RecordedUtc = recordedUtc ?? atUtc.AddMinutes(10),
+        WhenText = (started ? "Started " : "Due ") + local,
+        RaisedAtUtc = raised,
+        OpenForText = raised <= asOf ? CronRunResultFold.OpenFor(asOf - raised) : null,
         State = CronRunProblemStates.Open,
-    };
+        };
+    }
 }

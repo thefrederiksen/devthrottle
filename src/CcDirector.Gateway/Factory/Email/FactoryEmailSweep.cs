@@ -5,10 +5,10 @@ using CcDirector.Gateway.Tenancy;
 
 namespace CcDirector.Gateway.Factory.Email;
 
-/// <summary>The facts one factory email is composed from: the account's open problems and each factory's last day,
-/// read together from the one problems fold.</summary>
+/// <summary>The facts one factory email is composed from: the account's open problems as of one instant, and each
+/// factory's last day, read together from the one problems fold.</summary>
 public delegate (CronRunProblemsDto Problems, IReadOnlyList<CronFactoryDayDto> Days) FactoryEmailFacts(
-    TenantId tenant, DateTime dayStartUtc, DateTime dayEndUtc);
+    TenantId tenant, DateTime dayStartUtc, DateTime dayEndUtc, DateTime asOfUtc);
 
 /// <summary>
 /// THE GATEWAY CHECKS AND SENDS THE FACTORY EMAIL, AS PLAIN CODE - NOT AN AGENT (the owner, 10 October 2026). For each
@@ -85,7 +85,10 @@ public sealed class FactoryEmailSweep : TenantScopedSweep
         if (row is null)
         {
             FileLog.Write($"[FactoryEmailSweep] SweepTenantAsync: composing slot={slot.Key}, kind={slot.Kind}, tenant={tenant.ToLogString()}");
-            var (problems, days) = _facts(tenant, slot.DayStartUtc, slot.BoundaryUtc);
+            // As of the slot's own cut-off, not of this tick: an email composed late in its window still describes
+            // its slot - a problem raised after the cut-off waits for the next email, and one resolved after it is
+            // still listed here, as it was open then.
+            var (problems, days) = _facts(tenant, slot.DayStartUtc, slot.BoundaryUtc, slot.CutoffUtc);
             var email = FactoryEmailComposer.Compose(new FactoryEmailInput(
                 slot, zone, problems.Problems, days, _factories(tenant), _baseUrl()));
             if (!email.Send)

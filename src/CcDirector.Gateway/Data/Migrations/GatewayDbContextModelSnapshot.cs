@@ -1014,6 +1014,83 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.ToTable("factory_activity", (string)null);
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FactoryEmailReportEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("BoundaryUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("ComposedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Detail")
+                        .HasMaxLength(1024)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FactoriesJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Html")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ProblemCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ProviderId")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("SentAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SlotKey")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "BoundaryUtc");
+
+                    b.HasIndex("TenantId", "SlotKey")
+                        .IsUnique();
+
+                    b.ToTable("factory_email_reports", (string)null);
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FactoryGoalNumberEntity", b =>
                 {
                     b.Property<Guid>("Id")

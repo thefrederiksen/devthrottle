@@ -228,3 +228,29 @@ The composed email beside the approved mockup, from the same sample data: `match
 
 - Problems are listed newest first, and factories alphabetically by title; the mockup's order was hand-placed.
 - The weekdays are right: 11 October 2026 is a Sunday. The mockup's sample said Saturday.
+
+## After the run-results work merged (12 October 2026)
+
+The branch was replayed onto main once pull request 3799 had merged, and the email now reads the merged problems list
+as it is instead of working the same things out a second time:
+
+- **As of the slot.** The facts are asked for as of the slot's own cut-off (the boundary plus five minutes), not as of
+  the tick that composes. An email composed late in its two-hour window still describes its slot: a problem raised
+  after the cut-off waits for the next email, and one resolved after it is still listed, as it was open then.
+- **When a problem was raised** is the list's `raisedAtUtc`. "New at this check" compares that to the two cut-offs.
+- **The sentence, the "Started ..." or "Due ..." text and the "open ..." text** are the list's own `sentence`,
+  `whenText` and `openForText`. The composer's own versions are deleted.
+- **A long outage.** The last row of a long outage stands for more due times than rows; the "Did not run" count of
+  the last 24 hours adds those in.
+
+Three words therefore differ from the approved mockup, because the page, the command line and the email now say them
+one way:
+
+| The approved mockup | The email now | Why |
+|---|---|---|
+| `Problem: "Build failed ..."` | `Reported a problem: Build failed ...` | the list's sentence |
+| `open 23 hours` | `open 22 hours` | counted from when the problem was raised (ten minutes after the start in the sample), not from the run's start |
+| `open 2 days` | `open 38 hours` | the list says hours up to 48, then whole days |
+
+`composed-0800.html` and `composed-1600.html` are the email as composed now. `match-0800.png` and `match-1600.png`
+were taken before this and still show the three older wordings.
