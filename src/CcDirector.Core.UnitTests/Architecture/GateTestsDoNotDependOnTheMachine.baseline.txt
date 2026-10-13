@@ -79,8 +79,6 @@ fixed-port | src/CcDirector.Core.Tests/EndpointProbeTests.cs | 4
 real-clock | src/CcDirector.Core.Tests/FleetReachabilityFoldTests.cs | 1
 real-clock | src/CcDirector.Core.Tests/GatewayDisplayStateSignalTests.cs | 6
 real-clock | src/CcDirector.Core.Tests/GatewayResolvedRoleSignalTests.cs | 1
-process | src/CcDirector.Core.Tests/Git/GitRepositoryTemplate.cs | 2
-process | src/CcDirector.Core.Tests/GitBranchServiceTests.cs | 2
 real-clock | src/CcDirector.Core.Tests/GitHubActionsBackendTests.cs | 2
 real-clock | src/CcDirector.Core.Tests/GitHubRestClientLiveTests.cs | 1
 process | src/CcDirector.Core.Tests/GitLargeRepoTests.cs | 2
@@ -90,7 +88,6 @@ real-clock | src/CcDirector.Core.Tests/History/SessionHistoryReaderTests.cs | 1
 real-clock | src/CcDirector.Core.Tests/Input/SessionPromptDeliveryFailureTests.cs | 1
 real-clock | src/CcDirector.Core.Tests/Input/TerminalSubmitComposerEvidenceTests.cs | 5
 fixed-port | src/CcDirector.Core.Tests/LanIdentityResolverTests.cs | 2
-stopwatch | src/CcDirector.Core.Tests/LifecycleSignalCrossProcessTests.cs | 2
 fixed-port | src/CcDirector.Core.Tests/LinkDetectorExactTextTests.cs | 2
 fixed-port | src/CcDirector.Core.Tests/LinkDetectorTests.cs | 2
 fixed-port | src/CcDirector.Core.Tests/McpConfigManagerTests.cs | 2
@@ -99,7 +96,6 @@ real-clock | src/CcDirector.Core.Tests/MissionStoreTests.cs | 12
 real-clock | src/CcDirector.Core.Tests/NamedSessionStoreTests.cs | 2
 real-clock | src/CcDirector.Core.Tests/Pi/PiPreambleWriterTests.cs | 1
 real-clock | src/CcDirector.Core.Tests/Recording/RecordingIngestServiceTests.cs | 12
-process | src/CcDirector.Core.Tests/RepoStateSnapshotCollectorTests.cs | 2
 real-clock | src/CcDirector.Core.Tests/RepositoryMonitorTests.cs | 3
 real-clock | src/CcDirector.Core.Tests/RepositoryUsageRecorderTests.cs | 3
 real-clock | src/CcDirector.Core.Tests/SessionAlternateScreenTests.cs | 1
@@ -145,8 +141,6 @@ real-clock | src/CcDirector.Core.Tests/Wingman/TurnDetectionShadowRetentionTests
 real-clock | src/CcDirector.Core.Tests/Wingman/WingmanAskTests.cs | 2
 real-clock | src/CcDirector.Core.Tests/Wingman/WingmanServiceTests.cs | 2
 real-clock | src/CcDirector.Core.Tests/WorkflowStoreTests.cs | 3
-process | src/CcDirector.Core.Tests/WorktreeReaperServiceTests.cs | 2
-real-clock | src/CcDirector.Core.Tests/WorktreeReaperServiceTests.cs | 1
 fixed-port | src/CcDirector.Core.UnitTests/ErrorReports/ErrorReporterTests.cs | 1
 real-clock | src/CcDirector.Core.UnitTests/Licenses/FakeLicenseCommandLine.cs | 1
 real-clock | src/CcDirector.Core.UnitTests/Licenses/LicenseSwitchingSettingTests.cs | 4

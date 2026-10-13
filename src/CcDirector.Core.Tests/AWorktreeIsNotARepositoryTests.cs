@@ -26,15 +26,12 @@ namespace CcDirector.Core.Tests;
 public sealed class AWorktreeIsNotARepositoryTests : IDisposable
 {
     private readonly string _root;
-    private readonly RepositoryRegistry _registry;
     private readonly SessionManager _sessions;
 
     public AWorktreeIsNotARepositoryTests()
     {
         _root = TestTempRoot.For("AWorktreeIsNotARepository_");
         Directory.CreateDirectory(_root);
-        _registry = new RepositoryRegistry(Path.Combine(_root, "repositories.json"));
-        _registry.Load();
         _sessions = new SessionManager(new AgentOptions());
     }
 
@@ -61,8 +58,6 @@ public sealed class AWorktreeIsNotARepositoryTests : IDisposable
 
         Assert.Null(session.PrimaryRepoPath);
     }
-
-    // -------------------------------------------------------- what the Director's own list records
 
     // -------------------------------------------------------------------------------- helpers
 

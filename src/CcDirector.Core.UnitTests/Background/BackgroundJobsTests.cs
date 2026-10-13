@@ -12,12 +12,6 @@ public sealed class BackgroundJobsTests
 {
     private static readonly DateTime T0 = new(2026, 9, 22, 12, 0, 0, DateTimeKind.Utc);
 
-    private sealed class Clock
-    {
-        public DateTime Now = T0;
-        public Func<DateTime> Read => () => Now;
-    }
-
     /// <summary>
     /// A gate the job body opens as its FIRST act, so a test can wait for the run to have really
     /// begun.

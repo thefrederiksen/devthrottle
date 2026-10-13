@@ -568,18 +568,6 @@ public sealed class ErrorReporterTests
         }
     }
 
-    private sealed class FirstCallHeldThenFailsHandler(Task release) : HttpMessageHandler
-    {
-        public int Calls;
-
-        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
-        {
-            if (Interlocked.Increment(ref Calls) > 1) return new HttpResponseMessage(HttpStatusCode.Accepted);
-            await release;
-            return new HttpResponseMessage(HttpStatusCode.InternalServerError);
-        }
-    }
-
     [Fact]
     public void FlushAndKeep_NothingPending_SendsNothing()
     {
