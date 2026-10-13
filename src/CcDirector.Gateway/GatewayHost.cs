@@ -473,6 +473,13 @@ public sealed class GatewayHost : IAsyncDisposable
     public TimeProvider DeliveryClock { get; set; } = TimeProvider.System;
 
     /// <summary>
+    /// The clock the Licenses routes judge by (License Switching): how old a reading is, whether a sign-in has expired,
+    /// how long until a window resets. The real clock in production; a test sets its own BEFORE <see cref="StartAsync"/>,
+    /// where the routes are mapped with it, so no test of those routes reads the machine's clock.
+    /// </summary>
+    public TimeProvider LicenseClock { get; set; } = TimeProvider.System;
+
+    /// <summary>
     /// The Gateway's driver of held deliveries (Voice Delivery phase 5): once a recording's delivery is taken over, the
     /// Gateway itself finishes it - when its Director's tunnel comes back, on a steady tick, and when the Gateway starts.
     /// Created in <see cref="StartAsync"/>; null before it.
@@ -5404,7 +5411,7 @@ public sealed class GatewayHost : IAsyncDisposable
             snapshots: LicenseSnapshots,
             history: LicenseHistory,
             store: LicenseStore,
-            nowUtc: () => DateTime.UtcNow);
+            nowUtc: () => LicenseClock.GetUtcNow().UtcDateTime);
 
         // Requests for a message link (issue #3548): a session asks, the owner - or a raised session - answers. Asking is
         // in SessionKeyGuard's ordinary allow list; the list and the answer are on RaisedGrant.MessageLinks.

@@ -29,6 +29,14 @@ public sealed class LicenseHostTests : IAsyncLifetime
 
     private static readonly string[] Routes = { "gateway/licenses", "gateway/licenses/forecast", "gateway/licenses/log" };
 
+    /// <summary>The Gateway's clock for the Licenses routes in this class: fixed, so no test here reads the machine's.</summary>
+    private static readonly DateTime Now = new(2026, 10, 11, 3, 12, 0, DateTimeKind.Utc);
+
+    private sealed class FixedClock : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => new(Now);
+    }
+
     private readonly ITestOutputHelper _out;
     private GatewayHost _gateway = null!;
     private TenantId _tenantOne;
@@ -53,6 +61,7 @@ public sealed class LicenseHostTests : IAsyncLifetime
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             streamMode: true,
             options: new GatewayHostOptions { Hosted = true });
+        _gateway.LicenseClock = new FixedClock();
         await _gateway.StartAsync();
 
         var one = HostedTestEnrollment.Enroll(_gateway, $"sub-lic-one-{_runId}", $"lic-one-{_runId}@example.com", $"dev-lic-dir-one-{_runId}", "machine-of-one");
@@ -94,18 +103,17 @@ public sealed class LicenseHostTests : IAsyncLifetime
     private string SessionKey(TenantId tenant, string directorId, string sessionId)
     {
         var key = GatewaySessionKey.Mint();
-        Assert.True(_gateway.SessionKeys.Register(tenant, directorId, sessionId, GatewaySessionKey.Hash(key), DateTime.UtcNow.AddHours(1)));
+        Assert.True(_gateway.SessionKeys.Register(tenant, directorId, sessionId, GatewaySessionKey.Hash(key), new DateTime(2099, 1, 1, 0, 0, 0, DateTimeKind.Utc)));
         return key;
     }
 
     /// <summary>
     /// Two usage reports from one machine through the host's own ingest, twenty minutes of readings apart: the active
-    /// account rises from 50% to 60% of its 5-hour window, and a spare sits at 4%. The times are taken from the
-    /// Gateway's clock so the readings are fresh; nothing here stands near a boundary a slow run could cross.
+    /// account rises from 50% to 60% of its 5-hour window, and a spare sits at 4%. Every time is the fixed clock's.
     /// </summary>
     private void Report(TenantId tenant, string directorId, string machine, string active, string spare)
     {
-        var now = DateTime.UtcNow;
+        var now = Now;
         _gateway.LicenseUsage.RegisterConnection(tenant, directorId, "conn-" + directorId);
         Assert.Equal(LicenseIngestOutcome.Accepted, _gateway.LicenseUsage.Ingest(tenant, directorId, "conn-" + directorId, 1,
             UsageReport(machine, now, Holding(active, true, 50, now.AddMinutes(-20), now), Holding(spare, false, 4, now.AddMinutes(-20), now)), now));
