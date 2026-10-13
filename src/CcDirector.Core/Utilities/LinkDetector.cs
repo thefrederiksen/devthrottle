@@ -20,8 +20,10 @@ public static class LinkDetector
     /// </summary>
     internal readonly record struct QuotedSpan(int OuterStart, int OuterEnd, int InnerStart, int InnerEnd, string InnerText);
 
-    // 50ms timeout to prevent catastrophic backtracking
-    private static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(50);
+    // A timeout to stop catastrophic backtracking. A terminal line matches in microseconds, so one second is only
+    // ever reached by a runaway pattern. It was 50 milliseconds, which a loaded machine reached on an ordinary
+    // compiler error line - the first match of a compiled pattern includes its compilation - and threw.
+    private static readonly TimeSpan RegexTimeout = TimeSpan.FromSeconds(1);
 
     // EVERY PATTERN STOPS AT BOX-DRAWING CHARACTERS (U+2500-U+257F). An agent draws separator rules
     // and frames right up against text, and a rule is never part of an address or a path.

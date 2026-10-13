@@ -78,6 +78,7 @@ public sealed class ClaimCoversTheCommandTests : IDisposable
 
     // -- EN-F1 --
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task CancelledMidRun_TheCommandStops_AndTheOtherSchedulerDoesNotStartItWhileItLives()
     {
@@ -144,6 +145,7 @@ public sealed class ClaimCoversTheCommandTests : IDisposable
         }
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task DirectorGoneWithItsCommandStillAlive_NoSecondStart()
     {

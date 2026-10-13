@@ -17,6 +17,9 @@ import { join } from "node:path";
 //   * Table is the row list as it was.
 
 const screenClient = vi.hoisted(() => ({
+  // The Factory Manager card loads beside the list; it stays loading here (FactoryManagerCard.test.tsx covers it).
+  getFactoryManagerCard: vi.fn(() => new Promise(() => {})),
+  startFactoryManagerTalk: vi.fn(),
   getFactoriesList: vi.fn(),
   getFactoryPage: vi.fn(),
   getFactorySeats: vi.fn(),

@@ -23,7 +23,7 @@ public sealed class TerminalStateDetectorTests : System.IDisposable
 
     public void Dispose() => _manager.Dispose();
 
-    private Session CreateTestSession() => _manager.CreateSession(System.IO.Path.GetTempPath());
+    private Session CreateTestSession() => _manager.CreateEmbeddedSession(System.IO.Path.GetTempPath(), null, new BufferOnlyBackend());
 
 
     [Fact]

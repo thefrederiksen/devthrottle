@@ -153,8 +153,7 @@ baseline ran.
 
 - `src/TestInfrastructure/MutationProofPinGuard.cs` - the mechanism. Read the comment at the top before
   changing it.
-- `src/TestInfrastructure/MutationProofPinGuardTests.cs` - the proof that it fires, with both controls.
-- `Directory.Build.props` - links both into every project whose name ends in `.Tests`, so a test project
+- `Directory.Build.props` - links the mechanism and its per-assembly sentinel (`MutationProofPinGuardArmedTests.cs`) into every project whose name ends in `.Tests`, so a test project
   added next year is covered without anybody remembering. It keys on the project name rather than the
   `IsTestProject` flag because one of the seven existing test projects does not set that flag.
 - `scripts/mutation-proof-pin.ps1` - set, status, release, ledger.

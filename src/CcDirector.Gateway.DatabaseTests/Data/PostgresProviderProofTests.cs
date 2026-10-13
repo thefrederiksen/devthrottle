@@ -214,6 +214,12 @@ public sealed class PostgresProviderProofTests
             ("device_import_markers", "SourcePath"),
             ("dictation_suggestion_dismissals", "Term"),
             ("dictation_suggestion_verdicts", "Term"),
+            // The kept factory emails (Factory Control, step 4). The slot key is half of the unique index that makes a
+            // slot handled exactly once, so the two providers must agree on its equality or one of them sends a slot
+            // twice; the kind and the state are closed words the sweep and the read routes compare exactly.
+            ("factory_email_reports", "Kind"),
+            ("factory_email_reports", "SlotKey"),
+            ("factory_email_reports", "State"),
             // The Fleet Manager's stop events (the Fleet Manager mission): the event kind selects and groups, the
             // session the event is about and the session it was delivered to are the two inbox reads, the verdict id
             // binds an event to the stop it was about, and the outcome id binds it to the record it was filed on -
@@ -261,6 +267,18 @@ public sealed class PostgresProviderProofTests
             ("fleet_outcomes", "Status"),
             ("known_repositories", "MachineKey"),
             ("known_repositories", "PathKey"),
+            // License Switching: the account emails, the machine identity (folded to lower case before it is stored),
+            // the minted switch id and the closed words the engine selects on. Two emails Postgres considered equal and
+            // SQLite did not would be one subscription on one provider and two on the other.
+            ("license_accounts", "AccountEmail"),
+            ("license_bars", "AccountEmail"),
+            ("license_bars", "Window"),
+            ("license_holdings", "AccountEmail"),
+            ("license_machines", "MachineKey"),
+            ("license_machines", "OsUserKey"),
+            ("license_switch_log", "FromAccountEmail"),
+            ("license_switch_log", "State"),
+            ("license_switch_log", "SwitchId"),
             ("mission_notes", "Key"),
             ("push_subscriptions", "Endpoint"),
             // The account's raised sessions (the Fleet Manager Improvement mission): the session id is the exact key
@@ -268,6 +286,10 @@ public sealed class PostgresProviderProofTests
             // Postgres considered raised and SQLite did not would be a permission that depends on the provider.
             ("raised_sessions", "SessionId"),
             ("raised_sessions", "Source"),
+            // The secret transfers (the Secret Handoff mission): the minted transfer id and the closed state word.
+            // Declared "C" when the table was added and missed here.
+            ("secret_transfers", "State"),
+            ("secret_transfers", "TransferId"),
             ("session_history", "SessionId"),
             ("session_history_rollups", "RepoKey"),
             ("session_keys", "KeyHash"),

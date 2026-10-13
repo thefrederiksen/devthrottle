@@ -67,31 +67,67 @@ public sealed class CronRunHistoryStore
         lock (_gate)
         {
             using var ctx = _db.CreateContext();
-
-            // Read the job's current rows (oldest-first) so the insert and the prune are decided together
-            // and committed in ONE SaveChanges - the whole capped list moves as a single durable state,
-            // exactly like the old JSON store's single whole-list rewrite. There is no intermediate save, so
-            // a crash or failure can never leave the job holding more than the cap. Two separate SaveChanges
-            // (the earlier shape) could persist the insert and then die before the prune - that is the
-            // atomicity regression this closes.
-            var existing = ctx.CronRuns
-                .Where(e => e.JobId == jobId)
-                .OrderBy(e => e.Sequence)
-                .ToList();
-
-            var nextSeq = (ctx.CronRuns.Max(e => (long?)e.Sequence) ?? 0) + 1;
-            ctx.CronRuns.Add(ToEntity(jobId, record, nextSeq, ctx.ActiveTenant!));
-
-            // Prune the oldest beyond the cap (lowest Sequence = oldest) in the SAME change set as the insert.
-            var overflow = existing.Count + 1 - MaxRecordsPerJob;
-            if (overflow > 0)
-                ctx.CronRuns.RemoveRange(existing.Take(overflow));
-
+            // The insert and the prune are decided together and committed in ONE SaveChanges, so a crash can never
+            // leave the job holding more than the cap (the atomicity regression the earlier two-save shape had).
+            var entity = AddInContext(ctx, ctx.ActiveTenant!, jobId, record);
             ctx.SaveChanges();
-
-            var kept = Math.Min(existing.Count + 1, MaxRecordsPerJob);
-            FileLog.Write($"[CronRunHistoryStore] Append: job={jobId}, firedUtc={record.FiredUtc:o}, infra={record.InfraStatus}, task={record.TaskStatus}, count={kept}");
+            FileLog.Write($"[CronRunHistoryStore] Append: job={jobId}, run={entity.Id}, firedUtc={record.FiredUtc:o}, infra={record.InfraStatus}, task={record.TaskStatus}, result={entity.Result}");
         }
+    }
+
+    /// <summary>
+    /// Add one run to <paramref name="ctx"/> and remove what the cap lets go, WITHOUT saving: the caller's SaveChanges
+    /// commits both at once. Used by <see cref="Append"/> and by the schedule store, which records the runs missed
+    /// while the Gateway was down in the same write that moves those schedules on (so the evidence cannot be lost
+    /// between the two). Stamps the minted id onto <paramref name="record"/>.
+    /// </summary>
+    internal static CronRunEntity AddInContext(GatewayDbContext ctx, string tenantId, string jobId, CronRunRecord record)
+    {
+        // Rows already added to this context but not yet saved count too, so several adds in one write stay ordered.
+        var pending = ctx.ChangeTracker.Entries<CronRunEntity>()
+            .Where(x => x.State == EntityState.Added).Select(x => x.Entity).ToList();
+        var nextSeq = Math.Max(ctx.CronRuns.Max(e => (long?)e.Sequence) ?? 0,
+            pending.Count == 0 ? 0 : pending.Max(p => p.Sequence)) + 1;
+        var entity = ToEntity(jobId, record, nextSeq, tenantId);
+        ctx.CronRuns.Add(entity);
+        record.RunId = entity.Id.ToString("D");
+
+        var rows = ctx.CronRuns.Where(e => e.JobId == jobId).ToList()
+            .Concat(pending.Where(p => p.JobId == jobId))
+            .Append(entity)
+            .OrderBy(e => e.Sequence)
+            .ToList();
+        foreach (var gone in PrunableBeyondCap(rows))
+        {
+            if (ctx.Entry(gone).State == EntityState.Added)
+                ctx.Entry(gone).State = EntityState.Detached;
+            else
+                ctx.CronRuns.Remove(gone);
+        }
+        return entity;
+    }
+
+    /// <summary>
+    /// Which of a schedule's rows (oldest first) the cap removes. The history is bounded at
+    /// <see cref="MaxRecordsPerJob"/>, but a row that still MEANS something is never removed for space: a problem
+    /// that is still open (unresolved, and no later run of the schedule reported ok) stays until it is cleared or
+    /// resolved, and a row still owing the factory activity record its row stays until the row is written. Only
+    /// the oldest rows that are neither are removed, so the history can stand above the cap while problems are open.
+    /// </summary>
+    internal static IReadOnlyList<CronRunEntity> PrunableBeyondCap(IReadOnlyList<CronRunEntity> oldestFirst)
+    {
+        var overflow = oldestFirst.Count - MaxRecordsPerJob;
+        if (overflow <= 0) return Array.Empty<CronRunEntity>();
+        var newestOk = -1;
+        for (var i = 0; i < oldestFirst.Count; i++)
+            if (oldestFirst[i].Result == CronRunResults.Ok) newestOk = i;
+        return oldestFirst
+            .Select((row, i) => (row, keep: row.ActivityDue
+                || (row.Result == CronRunResults.Problem && row.ResolvedUtc is null && i > newestOk)))
+            .Where(x => !x.keep)
+            .Take(overflow)
+            .Select(x => x.row)
+            .ToList();
     }
 
     /// <summary>One job's runs as defensive copies, newest first; empty when the job has no runs.</summary>
@@ -197,6 +233,216 @@ public sealed class CronRunHistoryStore
         }
     }
 
+    /// <summary>
+    /// True when this schedule already has a run recorded for the time it was due - how a missed run that a failed
+    /// sweep already recorded is not recorded twice when the sweep retries.
+    /// </summary>
+    public bool HasRunScheduledAt(string jobId, DateTime scheduledUtc)
+    {
+        if (string.IsNullOrWhiteSpace(jobId)) return false;
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext();
+            return ctx.CronRuns.AsNoTracking().Any(e => e.JobId == jobId && e.ScheduledUtc == scheduledUtc);
+        }
+    }
+
+    /// <summary>A recorded run with the schedule it belongs to, and the factory activity rows written for it.</summary>
+    public sealed record JobRun(string JobId, CronRunRecord Run, Guid? ActivityId, Guid? ResolveActivityId);
+
+    private static JobRun ToJobRun(CronRunEntity e) => new(e.JobId, ToRecord(e), e.ActivityId, e.ResolveActivityId);
+
+    /// <summary>
+    /// The scheduled run this session is: the newest run that names it. Null when no schedule of this account started
+    /// the session - which is every session that is not a scheduled run.
+    /// </summary>
+    public JobRun? FindBySession(Core.Tenancy.TenantId tenant, string sessionId)
+    {
+        if (!tenant.IsValid || string.IsNullOrWhiteSpace(sessionId)) return null;
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var row = ctx.CronRuns.AsNoTracking()
+                .Where(e => e.SessionId == sessionId)
+                .OrderByDescending(e => e.Sequence)
+                .FirstOrDefault();
+            return row is null ? null : ToJobRun(row);
+        }
+    }
+
+    /// <summary>One run by its id, or null when this account has no such run.</summary>
+    public JobRun? Find(Core.Tenancy.TenantId tenant, Guid runId)
+    {
+        if (!tenant.IsValid) return null;
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var row = ctx.CronRuns.AsNoTracking().FirstOrDefault(e => e.Id == runId);
+            return row is null ? null : ToJobRun(row);
+        }
+    }
+
+    /// <summary>Every run of this account still waiting on its session's report, oldest first.</summary>
+    public IReadOnlyList<JobRun> PendingRuns(Core.Tenancy.TenantId tenant) =>
+        RunsWhere(tenant, e => e.Result == CronRunResults.Pending);
+
+    /// <summary>Every run of this account that still owes the factory activity record a row, oldest first.</summary>
+    public IReadOnlyList<JobRun> ActivityDueRuns(Core.Tenancy.TenantId tenant) =>
+        RunsWhere(tenant, e => e.ActivityDue);
+
+    private IReadOnlyList<JobRun> RunsWhere(Core.Tenancy.TenantId tenant, System.Linq.Expressions.Expression<Func<CronRunEntity, bool>> where)
+    {
+        if (!tenant.IsValid) return Array.Empty<JobRun>();
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            return ctx.CronRuns.AsNoTracking().Where(where).OrderBy(e => e.Sequence).ToList().Select(ToJobRun).ToList();
+        }
+    }
+
+    /// <summary>
+    /// Every run of this account, grouped by schedule, newest first - what the problems fold reads. Bounded by the
+    /// per-schedule cap <see cref="Append"/> keeps, plus the problems still open that the cap never removes.
+    /// </summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<CronRunRecord>> AllByJob(Core.Tenancy.TenantId tenant)
+    {
+        if (!tenant.IsValid) return new Dictionary<string, IReadOnlyList<CronRunRecord>>(StringComparer.Ordinal);
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            return ctx.CronRuns.AsNoTracking()
+                .OrderByDescending(e => e.Sequence)
+                .ToList()
+                .GroupBy(e => e.JobId, StringComparer.Ordinal)
+                .ToDictionary(g => g.Key, g => (IReadOnlyList<CronRunRecord>)g.Select(ToRecord).ToList(), StringComparer.Ordinal);
+        }
+    }
+
+    /// <summary>What a conditional write found: whether it was applied, and the run as it now stands (null: no such run).</summary>
+    public sealed record ResultWrite(bool Applied, CronRunRecord? Run);
+
+    /// <summary>
+    /// Write how a run went onto it - ONLY when the run is still in the state the caller read
+    /// (<paramref name="expectedResult"/>, and <paramref name="expectedReason"/> when given). The check and the write
+    /// happen under this store's lock, so a session's report and the sweep's "did not report" cannot both land: the
+    /// second finds the state moved on and is not applied. <paramref name="problem"/> is null for an ok result.
+    /// The same write marks the run as owing its factory activity row.
+    /// </summary>
+    public ResultWrite RecordResult(Core.Tenancy.TenantId tenant, Guid runId, string expectedResult, string? expectedReason,
+        string result, string? problem, string? reason, DateTime nowUtc)
+    {
+        if (result is not (CronRunResults.Ok or CronRunResults.Problem))
+            throw new ArgumentException($"only ok or problem may be recorded, not '{result}'", nameof(result));
+        if (result == CronRunResults.Problem && string.IsNullOrWhiteSpace(problem))
+            throw new ArgumentException("a problem needs its kind", nameof(problem));
+        if (!tenant.IsValid) return new ResultWrite(false, null);
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var row = ctx.CronRuns.FirstOrDefault(e => e.Id == runId);
+            if (row is null) return new ResultWrite(false, null);
+            if (row.Result != expectedResult || (expectedReason is not null && row.ResultReason != expectedReason))
+            {
+                FileLog.Write($"[CronRunHistoryStore] RecordResult NOT APPLIED: run={runId}, expected={expectedResult}, found={row.Result}");
+                return new ResultWrite(false, ToRecord(row));
+            }
+            row.Result = result;
+            row.Problem = result == CronRunResults.Problem ? problem : null;
+            row.ResultReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
+            // When the result was first recorded is when a problem was raised. A later write only adds to it (a session's
+            // report on a run already recorded as past its shift), so it keeps that time.
+            if (expectedResult is CronRunResults.Pending or CronRunResults.Untracked || row.ResultUtc is null)
+                row.ResultUtc = nowUtc;
+            row.ActivityDue = row.ActivityDue || row.ActivityId is null;
+            ctx.SaveChanges();
+            FileLog.Write($"[CronRunHistoryStore] RecordResult: run={runId}, job={row.JobId}, result={result}, problem={row.Problem ?? "-"}");
+            return new ResultWrite(true, ToRecord(row));
+        }
+    }
+
+    /// <summary>
+    /// Mark a run's problem resolved by hand, keeping who did it and why - only when it is a problem not already
+    /// resolved. The same write marks the run as owing the correcting factory activity row.
+    /// </summary>
+    public ResultWrite Resolve(Core.Tenancy.TenantId tenant, Guid runId, string resolvedBy, string reason, DateTime nowUtc)
+    {
+        if (string.IsNullOrWhiteSpace(resolvedBy)) throw new ArgumentException("who resolved it is required", nameof(resolvedBy));
+        if (string.IsNullOrWhiteSpace(reason)) throw new ArgumentException("a reason is required", nameof(reason));
+        if (!tenant.IsValid) return new ResultWrite(false, null);
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var row = ctx.CronRuns.FirstOrDefault(e => e.Id == runId);
+            if (row is null) return new ResultWrite(false, null);
+            if (row.Result != CronRunResults.Problem || row.ResolvedUtc is not null)
+                return new ResultWrite(false, ToRecord(row));
+            row.ResolvedUtc = nowUtc;
+            row.ResolvedBy = resolvedBy.Trim();
+            row.ResolvedReason = reason.Trim();
+            row.ActivityDue = true;
+            ctx.SaveChanges();
+            FileLog.Write($"[CronRunHistoryStore] Resolve: run={runId}, job={row.JobId}, by={row.ResolvedBy}");
+            return new ResultWrite(true, ToRecord(row));
+        }
+    }
+
+    /// <summary>
+    /// Clear what a run in NO factory is marked as owing: it has no factory activity record to write to. A run in a
+    /// factory is settled only by <see cref="WriteActivityRow"/>, in the write that records its row.
+    /// </summary>
+    public void SettleInNoFactory(Core.Tenancy.TenantId tenant, Guid runId)
+    {
+        if (!tenant.IsValid) throw new ArgumentException("a valid account is required", nameof(tenant));
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var row = ctx.CronRuns.FirstOrDefault(e => e.Id == runId)
+                ?? throw new InvalidOperationException($"there is no run {runId} to settle the activity of");
+            if (row.Factory is not null)
+                throw new InvalidOperationException($"run {runId} belongs to factory {row.Factory}; its rows are owed, not settled away");
+            row.ActivityDue = false;
+            ctx.SaveChanges();
+            FileLog.Write($"[CronRunHistoryStore] SettleInNoFactory: run={runId}");
+        }
+    }
+
+    /// <summary>
+    /// Write one factory activity row a run owes - its result row (<paramref name="correction"/> false) or the row
+    /// that marks its resolved problem handled (true) - in the SAME database write that notes it on the run. The row
+    /// and the note land together or not at all, so no failure can leave a written row still marked as owed, and a
+    /// retry can never write it twice: a run whose row is already noted answers with that row and writes nothing.
+    /// Throws when the row is refused or the write fails; the run then still owes it.
+    /// </summary>
+    public Guid WriteActivityRow(Core.Tenancy.TenantId tenant, Guid runId, AppendFactoryActivityRequest request, bool correction)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (!tenant.IsValid) throw new ArgumentException("a valid account is required", nameof(tenant));
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var row = ctx.CronRuns.FirstOrDefault(e => e.Id == runId)
+                ?? throw new InvalidOperationException($"there is no run {runId} to write the factory activity row of");
+            if ((correction ? row.ResolveActivityId : row.ActivityId) is { } already)
+            {
+                FileLog.Write($"[CronRunHistoryStore] WriteActivityRow: run={runId}, correction={correction} already written as {already}");
+                return already;
+            }
+            var activity = Factory.FactoryActivityRecord.NewRow(ctx, request, callingActor: null, DateTime.UtcNow);
+            ctx.FactoryActivity.Add(activity);
+            if (correction) row.ResolveActivityId = activity.Id;
+            else row.ActivityId = activity.Id;
+            row.ActivityDue = OwesActivity(row);
+            ctx.SaveChanges();
+            FileLog.Write($"[CronRunHistoryStore] WriteActivityRow: run={runId}, correction={correction}, row={activity.Id}, due={row.ActivityDue}");
+            return activity.Id;
+        }
+    }
+
+    // A run still owes a row while its result row, or - once resolved - its correcting row, is unwritten.
+    private static bool OwesActivity(CronRunEntity row) =>
+        ((row.Result is CronRunResults.Ok or CronRunResults.Problem) && row.ActivityId is null)
+        || (row.ResolvedUtc is not null && row.ResolveActivityId is null);
+
     /// <summary>The task status a fire writes, before anything is known about how the work ended.</summary>
     public const string TaskStatusUnknown = "unknown";
 
@@ -256,10 +502,25 @@ public sealed class CronRunHistoryStore
         SessionId = r.SessionId,
         InfraStatus = r.InfraStatus,
         TaskStatus = r.TaskStatus,
+        Result = string.IsNullOrWhiteSpace(r.Result) ? CronRunResults.Untracked : r.Result,
+        Problem = r.Problem,
+        ResultReason = r.ResultReason,
+        ResultUtc = r.ResultUtc,
+        // A run recorded WITH its result (a run that did not run) owes its factory activity row from the start.
+        ActivityDue = r.Result is CronRunResults.Ok or CronRunResults.Problem,
+        Factory = r.Factory,
+        Seat = r.Seat,
+        JobName = r.JobName,
+        MissedNotListed = r.MissedNotListed,
     };
+
+    /// <summary>True when the schedule belongs to a factory and runs as one of its seats.</summary>
+    public static bool IsFactoryLinked(CronJobDto? job) =>
+        job is not null && !string.IsNullOrWhiteSpace(job.Factory) && !string.IsNullOrWhiteSpace(job.Seat);
 
     private static CronRunRecord ToRecord(CronRunEntity e) => new()
     {
+        RunId = e.Id.ToString("D"),
         ScheduledUtc = e.ScheduledUtc,
         FiredUtc = e.FiredUtc,
         Machine = e.Machine,
@@ -267,7 +528,21 @@ public sealed class CronRunHistoryStore
         SessionId = e.SessionId,
         InfraStatus = e.InfraStatus,
         TaskStatus = e.TaskStatus,
+        Result = e.Result,
+        Problem = e.Problem,
+        ResultReason = e.ResultReason,
+        ResultUtc = SpecifyUtc(e.ResultUtc),
+        ResolvedUtc = SpecifyUtc(e.ResolvedUtc),
+        ResolvedBy = e.ResolvedBy,
+        ResolvedReason = e.ResolvedReason,
+        Factory = e.Factory,
+        Seat = e.Seat,
+        JobName = e.JobName,
+        MissedNotListed = e.MissedNotListed,
     };
+
+    private static DateTime? SpecifyUtc(DateTime? value) =>
+        value is { } v ? DateTime.SpecifyKind(v, DateTimeKind.Utc) : null;
 
     // ---- one-time legacy JSON import --------------------------------------------------------------
 

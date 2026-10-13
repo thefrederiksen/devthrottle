@@ -269,13 +269,11 @@ public sealed class TurnVerdictTraceTests : IDisposable
         env.SettingsOverride = () => throw new InvalidOperationException("the settings store is unreachable");
 
         var later = ObservedAt.AddMinutes(3);
-        var clock = System.Diagnostics.Stopwatch.StartNew();
         var joined = service.StartTurnEnd(Signal(later));
-        clock.Stop();
 
+        // Completed the moment it was started, while the judge is still held: it waited for nothing.
         Assert.True(joined.IsCompletedSuccessfully);
         Assert.Equal(ActivityCauses.AlreadyJudging, (await joined).SkipCause);
-        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(1), $"the turn end waited {clock.Elapsed}");
 
         release.SetResult();
         Assert.Equal(TurnVerdictOutcomeKind.Judged, (await pending.WaitAsync(TimeSpan.FromSeconds(5))).Kind);

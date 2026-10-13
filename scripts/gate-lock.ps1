@@ -1,15 +1,14 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    The locks the test gate takes. Dot-source this file; it defines functions and runs nothing.
+    The lock the test gate takes. Dot-source this file; it defines functions and runs nothing.
 
 .DESCRIPTION
-    TWO LOCKS, ONE RULE: A HELD LOCK IS A REFUSAL, NEVER A QUEUE.
+    ONE LOCK, ONE RULE: A HELD LOCK IS A REFUSAL, NEVER A QUEUE.
 
-    1. THE RELEASE-GATE LOCK (release-gate.lock). Taken by scripts\test-local.ps1 BEFORE it builds,
-       whenever its run includes the Gateway suite (-Parked or -Gateway), and by
-       scripts\test-qualification.ps1 for the whole soak. It says "a run that includes the Gateway suite
-       is in progress on this machine for this user". A second such run finds it held and stops within
+    THE RELEASE-GATE LOCK (release-gate.lock). Taken by scripts\test-local.ps1 BEFORE it builds,
+       whenever its run includes the Gateway suite (-Parked or -Gateway). It says "a release gate is in
+       progress on this machine for this user". A second such run finds it held and stops within
        seconds, naming the holder's process, session, commit and command. It never waits.
 
        WHY. Between 8 and 10 October 2026, nineteen release-gate runs each waited forty-five minutes for
@@ -19,13 +18,12 @@
        expired. A refusal in the first second is the fix: the conflict is visible at once, the loser
        builds nothing, and the holder's name is on the screen so the right person can be asked.
 
-    2. THE GATEWAY SUITE LOCK (gateway-test-suite.lock). Owned by the test process itself - see
-       src\CcDirector.Gateway.Tests\GatewayTestSuiteLock.cs, which takes it in a module initializer so
-       that a plain "dotnet test" of that project serializes without the caller knowing. This file never
-       takes it for the gate. It PROBES it, so a gate can refuse before building when a hand-run
-       "dotnet test" of the Gateway suite is in progress, instead of building for minutes and then
-       having its child queue behind that run. The qualification soak does hold it, on purpose, for the
-       whole soak: its children bypass it, and nothing else may join them.
+    THERE IS NO GATEWAY SUITE LOCK ANY MORE (October 2026, the Reliable Tests mission). Gateway.Tests
+       used to take a per-user lock of its own so that two runs of it could never overlap. Every test
+       process keeps its files under its own temporary root and every host binds a port the operating
+       system assigns, so runs share nothing that can corrupt each other, and the gate itself now runs
+       the suite as several concurrent processes on every run. A lock that serialized them would only
+       make the suite slower, and make a hand-run "dotnet test" in one worktree block every other one.
 
     HOW OWNERSHIP IS DECIDED: by the operating system, never by what is written in the file. The lock is
     a file opened for writing with FileShare.Read and held open for the lifetime of the process. A second
@@ -36,14 +34,14 @@
 
     WHERE THE LOCKS LIVE. Per user, per machine, in a place the process environment cannot move: the
     per-user local application data folder on Windows, /tmp with the user name in the file name
-    elsewhere. The same derivation as GatewayTestSuiteLock.cs, for the same reason - a lock whose path
-    follows TEMP is a lock two shells with different TEMP values never share.
+    elsewhere. A lock whose path followed TEMP would be a lock two shells with different TEMP values
+    never share.
 
     WINDOWS IS THE ONLY PLATFORM THIS IS VERIFIED ON. The sharing-violation test is exact there. The
-    non-Windows branch mirrors the C# lock's, which that file itself calls unverified: .NET maps every
-    FileShare other than None to a SHARED advisory lock on Unix, so two writers with FileShare.Read may
-    both be admitted and nothing is excluded. Nobody runs this gate on a Mac or Linux box today; the day
-    somebody does, this file and the C# lock need a real exclusive lock there, not a wider claim here.
+    non-Windows branch is unverified: .NET maps every FileShare other than None to a SHARED advisory lock
+    on Unix, so two writers with FileShare.Read may both be admitted and nothing is excluded. Nobody runs
+    this gate on a Mac or Linux box today; the day somebody does, this file needs a real exclusive lock
+    there, not a wider claim here.
 #>
 
 function Test-GateLockOnWindows {
@@ -76,7 +74,16 @@ function Get-GateRecordDirectory {
     return Join-Path (Join-Path (Split-Path -Parent $locks) "test-gate") "gated"
 }
 
-function Get-GatewaySuiteLockPath { return Get-GateLockPath "gateway-test-suite.lock" }
+<#
+.SYNOPSIS
+    Where scripts\test-local.ps1 -ClearFlaky records that every flaky test a candidate's release gate named
+    has been deleted or fixed on main. One JSON file per clearance, named by the CANDIDATE it clears.
+    scripts\assert-gated.ps1 reads it beside the gate record. Kept apart from the gate records because a
+    clearance is not a run of the gate, and must never be mistaken for one.
+#>
+function Get-GateClearanceDirectory {
+    return Join-Path (Split-Path -Parent (Get-GateRecordDirectory)) "cleared"
+}
 
 # PowerShell hands a .NET constructor's exception back wrapped in a MethodInvocationException. The
 # sharing-violation code is on the IOException inside it, so unwrap before reading HResult.
@@ -197,8 +204,7 @@ function Get-GateLockField($Holder, [string] $Key) {
 <#
 .SYNOPSIS
     One line a person can act on: who holds the lock, since when, from where. Only the fields the holder
-    wrote: the release-gate lock carries commit and command, the suite lock (written by the C# test
-    process) carries neither, and a field that was never written is left out rather than shown as unknown.
+    wrote: a field that was never written is left out rather than shown as unknown.
 #>
 function Format-GateLockHolder($Holder) {
     if ($null -eq $Holder) { return "(the lock file carries no readable diagnostics)" }

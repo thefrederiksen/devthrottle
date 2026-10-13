@@ -43,6 +43,7 @@ import hmac
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import unicodedata
@@ -67,6 +68,11 @@ JOURNAL_FILE = "journal.json"
 LOG_FILE = "license-store.log"
 LOCK_FILE = "store.lock"
 SPARES_DIR = "spares"
+#: When each held account's sign-in was made, by email. Written by `finish_sign_in`; see `signed_in_at`.
+SIGN_INS_FILE = "sign-ins.json"
+#: A sign-in's end date is fixed when it is made and a refresh does not move it (spare-refresh.md), but each
+#: refresh recomputes it from "now + seconds left", so two readings of one sign-in differ by seconds.
+SIGN_IN_MATCH_TOLERANCE_SECONDS = 60 * 60
 
 ROLE_ACTIVE = "active"
 ROLE_SPARE = "spare"
@@ -610,6 +616,10 @@ class LicenseStore:
         return os.path.join(self.spares_dir, spare_slug(email))
 
     @property
+    def _sign_ins_path(self) -> Path:
+        return Path(self.store_dir) / SIGN_INS_FILE
+
+    @property
     def _journal_path(self) -> Path:
         return Path(self.store_dir) / JOURNAL_FILE
 
@@ -1061,6 +1071,132 @@ class LicenseStore:
                 reason_code=REASON_VERIFY_FAILED,
             )
 
+    # ----- a new sign-in, made straight into the folder it belongs in -----
+    #
+    # A sign-in is never MOVED. Moving a key between two places has a moment, however short, when it is in both, and
+    # a refresh of one copy kills the other (MISSION.md trap 2). So `claude auth login` runs straight into the folder
+    # the account is held in, and Claude Code's own single write is the only write: a new spare signs in into its
+    # spare folder, a renewal into the folder already holding the account - its spare folder, or the default folder
+    # for the ACTIVE account, where Claude Code replaces the key the running sessions read. The store lock is held
+    # only around that write, after checking the folder still holds what the plan said: the login itself waits for
+    # a browser, sometimes on another machine, and must not block a switch for minutes.
+
+    def sign_in_target(self, email: str) -> "SignInTarget":
+        """Where a sign-in for ``email`` goes: the folder holding it now, or a new spare folder. A new spare folder is
+        created empty; it holds no key, so it is not listed until the sign-in lands in it."""
+        wanted = email.strip()
+        with self._lock:
+            self.recover()
+            held = self._find(wanted)
+            if held is not None:
+                return SignInTarget(wanted.lower(), held.config_dir, held.role, True,
+                                    held.read_key().fingerprint())
+            folder = self.spare_folder(wanted)
+            if self.backend.exists(folder):
+                raise LicenseStoreError(
+                    f"the spare folder {folder} already holds a key that is not {wanted}'s",
+                    ["cc-devthrottle license list"],
+                )
+            os.makedirs(folder, exist_ok=True)
+            self._log("sign-in-planned", account=wanted.lower(), folder=folder, renewing=False)
+            return SignInTarget(wanted.lower(), folder, ROLE_SPARE, False, None)
+
+    def finish_sign_in(self, target: "SignInTarget", write: Callable[[], None],
+                       now: Callable[[], _dt.datetime]) -> "AdoptResult":
+        """Let ``write`` - typing the code into the waiting ``claude auth login`` - make its one write into
+        ``target.folder``, holding the store lock, once the folder is checked to be as planned. Then read it back and
+        record when the sign-in was made.
+
+        As planned means: a renewal's folder still holds ``target.email``'s sign-in in the same role (a switch since
+        the plan would have put another account's key there, and the write would destroy it); a new spare's folder
+        still holds no key and the account is held nowhere else. Anything else ends with ``write`` never called."""
+        with self._lock:
+            self.recover()
+            folder = target.folder
+            held = self._find(target.email)
+            if target.renewing:
+                if held is None or not _same_folder(held.config_dir, folder) or held.role != target.role:
+                    raise LicenseStoreError(
+                        f"{target.email} moved while it was being signed in (a switch ran); nothing was written",
+                        ["cc-devthrottle license list", f"cc-devthrottle license sign-in {target.email}"],
+                    )
+            elif held is not None or self.backend.exists(folder):
+                raise LicenseStoreError(
+                    f"{target.email} came to be held here, or its folder gained a key, while it was being signed in; "
+                    "nothing was written",
+                    ["cc-devthrottle license list"],
+                )
+            self._checkpoint("sign-in-write")
+            write()
+            made = now()
+            key = self.backend.read(folder)
+            email = _email_of(read_oauth_account(folder))
+            if key is None:
+                raise LicenseStoreError(f"the sign-in finished but {folder} holds no sign-in key",
+                                        ["cc-devthrottle license list"])
+            if email is None or email.strip().lower() != target.email:
+                self._log("sign-in-wrong-account", account=target.email, folder=folder, found=email)
+                raise LicenseStoreError(
+                    f"the sign-in written into {folder} is for {email or 'an unknown account'}, not {target.email}",
+                    ["cc-devthrottle license list", f"Read {self._log_path}"],
+                )
+            if target.renewing and hmac.compare_digest(key.fingerprint(), target.old_fingerprint or ""):
+                raise LicenseStoreError(f"the sign-in finished but {folder} still holds the old sign-in",
+                                        ["cc-devthrottle license list"])
+            ends = sign_in_ends(key)
+            self._record_sign_in(target.email, made, ends)
+            self._log("sign-in-finished", account=target.email, folder=folder, renewed=target.renewing,
+                      role=target.role)
+            return AdoptResult(self._account_at(folder, target.role), target.renewing, made, ends)
+
+    def abandon_sign_in(self, target: "SignInTarget") -> None:
+        """After a sign-in that did not finish: remove the NEW spare folder it created. A renewal's folder is never
+        touched - it holds the sign-in it had. A new folder holding ``target.email``'s own key is kept (that sign-in
+        exists nowhere else); one holding ANOTHER account's key - a login the browser approved for the wrong account,
+        made a moment ago and held nowhere else - is deleted, so no folder named for one account holds another."""
+        if target.renewing:
+            return
+        with self._lock:
+            if self.backend.exists(target.folder):
+                found = _email_of(read_oauth_account(target.folder))
+                if found is not None and found.strip().lower() == target.email:
+                    self._log("sign-in-abandoned-with-key", account=target.email, folder=target.folder)
+                    return
+                self._checkpoint("abandon-key")
+                self.backend.delete(target.folder)
+            if os.path.isdir(target.folder):
+                shutil.rmtree(target.folder)
+            self._log("sign-in-abandoned", account=target.email, folder=target.folder)
+
+    def _record_sign_in(self, email: str, signed_in_at: _dt.datetime, ends: Optional[_dt.datetime]) -> None:
+        data = _read_json_object(self._sign_ins_path) or {}
+        accounts = data.get("accounts") if isinstance(data.get("accounts"), dict) else {}
+        accounts[email.strip().lower()] = {
+            "signedInAtUtc": _iso(signed_in_at),
+            "signInExpiresAtUtc": _iso(ends) if ends else None,
+        }
+        _atomic_write_text(self._sign_ins_path, json.dumps({"accounts": accounts}, indent=2), private=False)
+
+    def signed_in_at(self, email: str, sign_in_ends: Optional[_dt.datetime]) -> Optional[_dt.datetime]:
+        """When the sign-in held now for ``email`` was made, or None when that is not known.
+
+        The record is keyed by email, but an account can be signed in again by hand (``claude auth login``) without
+        this store seeing it. So the record counts only when its end date matches the end date of the key held
+        now: one sign-in keeps one end date for life, and another sign-in has another."""
+        if sign_in_ends is None:
+            return None
+        data = _read_json_object(self._sign_ins_path) or {}
+        accounts = data.get("accounts")
+        row = accounts.get(email.strip().lower()) if isinstance(accounts, dict) else None
+        if not isinstance(row, dict):
+            return None
+        made, ends = _parse_iso(row.get("signedInAtUtc")), _parse_iso(row.get("signInExpiresAtUtc"))
+        if made is None or ends is None:
+            return None
+        if abs((ends - sign_in_ends).total_seconds()) > SIGN_IN_MATCH_TOLERANCE_SECONDS:
+            return None
+        return made
+
     def exclusive(self) -> "_StoreLock":
         """The store lock, for a caller that must read, act and write as ONE step with no switch in between.
 
@@ -1083,6 +1219,54 @@ class LicenseStore:
             self._checkpoint("refresh-key")
             self.backend.write(account.config_dir, HeldKey(credentials_json, keychain_account=old.keychain_account))
             self._log("key-refreshed", account=account.email)
+
+
+@dataclass(frozen=True)
+class SignInTarget:
+    """Where one sign-in goes. ``renewing`` is True when the account is held already, in ``folder`` as ``role``;
+    ``old_fingerprint`` then names the sign-in the new one replaces, so the read-back can prove it changed."""
+
+    email: str
+    folder: str
+    role: str
+    renewing: bool
+    old_fingerprint: Optional[str]
+
+
+@dataclass(frozen=True)
+class AdoptResult:
+    """What a finished sign-in did: the account as it is now held, whether it renewed one held already, and the new
+    sign-in's time and end date (None when the key carries no end date)."""
+
+    account: HeldAccount
+    renewed: bool
+    signed_in_at: _dt.datetime
+    sign_in_ends: Optional[_dt.datetime]
+
+
+def _iso(moment: _dt.datetime) -> str:
+    return moment.astimezone(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _parse_iso(value: object) -> Optional[_dt.datetime]:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = _dt.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        return None
+    return parsed.replace(tzinfo=_dt.timezone.utc)
+
+
+def sign_in_ends(key: HeldKey) -> Optional[_dt.datetime]:
+    """The end date of a key's sign-in (``claudeAiOauth.refreshTokenExpiresAt``, milliseconds), or None."""
+    try:
+        value = json.loads(key.reveal())["claudeAiOauth"]["refreshTokenExpiresAt"]
+    except (ValueError, KeyError, TypeError):
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return _dt.datetime.fromtimestamp(value / 1000.0, _dt.timezone.utc)
 
 
 def _inside(child: str, parent: str) -> bool:

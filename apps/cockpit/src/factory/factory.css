@@ -717,6 +717,51 @@ a.fa-left-open {
   cursor: auto;
 }
 
+/* A factory's open problems (Factory Control, step 1b): the run, what went wrong, when, and its two actions. */
+.fa-problem-open {
+  color: var(--warn);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.fa-problem-what {
+  overflow-wrap: anywhere;
+}
+
+.fa-problem-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.fa-problem-resolve {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.fa-problem-resolve-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 220px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.fa-problem-reason {
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
 .fa-factory-head {
   display: flex;
   justify-content: space-between;
@@ -813,6 +858,24 @@ a.fa-tab {
   min-width: 600px;
 }
 
+/* One heading row per shift (Factory Control, step 3): the groups are the Gateway's, the heading is plain text. */
+.fa-seats .fa-shift-head th {
+  text-align: left;
+  padding: 14px 8px 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+}
+
+.fa-seats tbody:first-of-type .fa-shift-head th {
+  padding-top: 6px;
+}
+
+.fa-seat-shift {
+  font-size: 12px;
+}
+
 /* Phone width (mockup 4): the list's rows become cards - name and status on top, then what is waiting, then Talk -
    and nothing scrolls sideways at 390px. The page's tabs wrap; its tables scroll inside their own frame. */
 @media (max-width: 640px) {
@@ -896,6 +959,18 @@ a.fa-tab {
   .fa-seats .fa-seat-talk {
     text-align: left;
     padding-top: 6px;
+  }
+  /* A shift heading is a heading on the phone too, not a card. */
+  .fa-seats tr.fa-shift-head {
+    border: none;
+    background: transparent;
+    padding: 8px 0 4px;
+    margin-bottom: 4px;
+  }
+  .fa-seats .fa-shift-head th {
+    display: block;
+    padding: 0;
+    border-bottom: none;
   }
 }
 
@@ -1399,4 +1474,86 @@ a:focus .ff-bay rect {
 
 .fa-seat-schedule + .fa-seat-schedule {
   margin-top: 6px;
+}
+
+/* A kept factory email, shown exactly as sent in a sandboxed frame. Emails are written on a white page. */
+.fa-email-frame {
+  width: 100%;
+  min-height: 70vh;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+}
+
+/* The Factory Manager card (Factory Control, step 5): one card over the factory list, the same surface as a factory
+   card, with the placement form, the talk button and the name check. */
+.fa-fm-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.fa-fm-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.fa-fm-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.fa-fm-placement .fa-dim {
+  margin: 0 0 6px;
+}
+
+.fa-fm-folder {
+  flex: 1;
+  min-width: 200px;
+}
+
+.fa-fm-names {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.fa-fm-subtitle {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.fa-fm-names .fa-dim,
+.fa-fm-pass {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.fa-fm-pass {
+  color: var(--ok-text);
+}
+
+.fa-fm-findings {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--needsyou-text);
+  overflow-wrap: anywhere;
+}
+
+.fa-fm-findings li + li {
+  margin-top: 4px;
 }

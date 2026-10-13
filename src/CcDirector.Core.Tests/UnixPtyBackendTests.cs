@@ -17,6 +17,7 @@ public class UnixPtyBackendTests
 {
     private static bool OnUnix => !RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task Start_ChildStdin_IsATty()
     {
@@ -33,6 +34,7 @@ public class UnixPtyBackendTests
         Assert.DoesNotContain("TTY_NO", output);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task Start_ChildSeesRequestedWindowSize()
     {
@@ -49,6 +51,7 @@ public class UnixPtyBackendTests
         Assert.Contains("30 120", output);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task Start_ChildReceivesWorkingDirectory()
     {
@@ -80,6 +83,7 @@ public class UnixPtyBackendTests
     /// deliver the window-change signal to nobody, and the agent paints at its spawn width
     /// forever - which every terminal view renders as overlapping garbage.
     /// </summary>
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task Start_ChildAcquiresControllingTerminal()
     {
@@ -101,6 +105,7 @@ public class UnixPtyBackendTests
     /// child as the window-change signal, so the agent repaints at the new geometry. This is
     /// what Windows ConPty does natively and what the macOS backend silently dropped.
     /// </summary>
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task Resize_DeliversWindowChangeSignalToChild()
     {

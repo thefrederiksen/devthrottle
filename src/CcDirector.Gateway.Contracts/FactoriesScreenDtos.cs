@@ -283,6 +283,14 @@ public sealed class FactoryPageViewDto
     /// <summary>What is failing now, where FAILING links to (<c>#failing</c>). Null when nothing is.</summary>
     public FactoryPageFailuresDto? Failures { get; set; }
 
+    /// <summary>The open problems of this factory's scheduled runs (Factory Control, step 1b), from the one problems
+    /// fold, each with Handle the issue and Resolve. Null when the view was folded without them (the floor).</summary>
+    public FactoryPageProblemsDto? Problems { get; set; }
+
+    /// <summary>The factory emails the account was sent that covered this factory, newest first, each readable again
+    /// as sent (Factory Control, step 1b on brief 5's store). Null when the view was folded without them (the floor).</summary>
+    public FactoryPageEmailsDto? Emails { get; set; }
+
     public FactoryPageWaitingDto Waiting { get; set; } = new();
     public FactoryBossLatestDto BossLatest { get; set; } = new();
     public FactoryLastTalkDto LastTalk { get; set; } = new();
@@ -450,6 +458,13 @@ public sealed class FactorySeatsViewDto
 
     public List<FactorySeatRowDto> Rows { get; set; } = new();
 
+    /// <summary>
+    /// The seats grouped by the shift they work in (Factory Control, step 3): night, morning, evening, then the seats
+    /// with no run in the next 7 days. A seat that works in two shifts is in both groups, and each of its rows there
+    /// lists only the schedules that start runs in that shift. A shift no seat works in has no group.
+    /// </summary>
+    public List<FactorySeatGroupDto> Groups { get; set; } = new();
+
     /// <summary>"Only seats the boss hired are listed. ..."</summary>
     public string Note { get; set; } = "";
 }
@@ -485,6 +500,9 @@ public sealed class FactorySeatRowDto
     /// open, <see cref="FactoryTone.Grey"/> when nothing is recorded yet.</summary>
     public string ClosingTone { get; set; } = "";
 
+    /// <summary>Every shift the seat works in, in words: "Morning shift", "Night and evening shifts", "No run in the next 7 days".</summary>
+    public string ShiftText { get; set; } = "";
+
     public FactoryTalkDto Talk { get; set; } = new();
 
     /// <summary>
@@ -507,4 +525,162 @@ public sealed class FactorySeatScheduleDto
 
     /// <summary>"Edit schedule"; null for a schedule the store no longer has, which has nothing to edit.</summary>
     public string? EditLabel { get; set; }
+
+    /// <summary>True when this schedule is switched off. The button beside it then resumes it.</summary>
+    public bool Paused { get; set; }
+
+    /// <summary>
+    /// The one-tap button beside Edit (issue #3910): "Pause" for a schedule that is switched on, "Resume" for one
+    /// that is paused. Null for a schedule the store no longer has, and for a one-off that has already run.
+    /// </summary>
+    public string? ToggleLabel { get; set; }
+
+    /// <summary>The shifts this schedule starts runs in, in words: "Morning shift", "No run in the next 7 days".</summary>
+    public string ShiftText { get; set; } = "";
+}
+
+/// <summary>One shift's group on the Seats tab: its heading and the seats that work in it.</summary>
+public sealed class FactorySeatGroupDto
+{
+    /// <summary>"night", "morning", "evening", or "none" for the seats with no run in the next 7 days.</summary>
+    public string Shift { get; set; } = "";
+
+    /// <summary>"Morning shift, 08:00-16:00", or "No run in the next 7 days".</summary>
+    public string Title { get; set; } = "";
+
+    /// <summary>The seats of this shift, the boss first, each listing only this shift's schedules.</summary>
+    public List<FactorySeatRowDto> Rows { get; set; } = new();
+}
+
+/// <summary>
+/// The factory emails the account was sent that covered one factory, on its page (Factory Control, step 1b on brief 5's
+/// store). Every word here is the Gateway's (FactoryEmailsFold).
+/// </summary>
+public sealed class FactoryPageEmailsDto
+{
+    /// <summary>"Reports emailed to you".</summary>
+    public string Heading { get; set; } = "";
+
+    /// <summary>What is kept and for how long.</summary>
+    public string Note { get; set; } = "";
+
+    /// <summary>Newest first.</summary>
+    public List<FactoryPageEmailItemDto> Items { get; set; } = new();
+
+    /// <summary>Set when no kept email covered this factory.</summary>
+    public string? EmptyText { get; set; }
+}
+
+/// <summary>One kept factory email, in the Gateway's words.</summary>
+public sealed class FactoryPageEmailItemDto
+{
+    /// <summary>The kept email's id, as <c>GET /gateway/factory-emails/{id}</c> takes it.</summary>
+    public string Id { get; set; } = "";
+
+    /// <summary>Its subject line, as sent.</summary>
+    public string Title { get; set; } = "";
+
+    /// <summary>"Morning report" or "Shift check".</summary>
+    public string KindText { get; set; } = "";
+
+    /// <summary>"Sent today 08:00".</summary>
+    public string WhenText { get; set; } = "";
+
+    /// <summary>"3 problems listed".</summary>
+    public string ProblemText { get; set; } = "";
+
+    /// <summary>"Read".</summary>
+    public string ReadLabel { get; set; } = "";
+
+    /// <summary>The Cockpit page that shows it as sent.</summary>
+    public string Href { get; set; } = "";
+}
+
+/// <summary>
+/// The open problems of a factory's scheduled runs, on its page (Factory Control, step 1b). Read from the one problems
+/// fold (<c>GET /cron/problems</c>), so the page, the morning email and the Factory Manager list the same problems in
+/// the same words; every word here is the Gateway's.
+/// </summary>
+public sealed class FactoryPageProblemsDto
+{
+    /// <summary>"Open problems".</summary>
+    public string Heading { get; set; } = "";
+
+    /// <summary>How a problem stops being open.</summary>
+    public string Note { get; set; } = "";
+
+    /// <summary>Newest first.</summary>
+    public List<FactoryProblemItemDto> Items { get; set; } = new();
+
+    /// <summary>"No open problems." when there are none, else null.</summary>
+    public string? EmptyText { get; set; }
+}
+
+/// <summary>One open problem of one scheduled run.</summary>
+public sealed class FactoryProblemItemDto
+{
+    /// <summary>The run, as <c>cc-devthrottle run resolve</c> names it; Resolve sends it back.</summary>
+    public string RunId { get; set; } = "";
+
+    /// <summary>The seat and the schedule: "Scout - WarmForward Factory - Scout - daily scan".</summary>
+    public string SeatText { get; set; } = "";
+
+    /// <summary>What went wrong: "Did not report: its session ended without reporting how the run went.".</summary>
+    public string What { get; set; } = "";
+
+    /// <summary>When it ran: "Started Sun 11 Oct 06:15", or "Due Sun 11 Oct 06:15".</summary>
+    public string WhenText { get; set; } = "";
+
+    /// <summary>The shift: "night shift, Sat 11 Oct, 00:00-08:00".</summary>
+    public string ShiftText { get; set; } = "";
+
+    /// <summary>How long it has been open: "open 3 hours".</summary>
+    public string OpenForText { get; set; } = "";
+
+    /// <summary>The session to read, or null when the run never started one.</summary>
+    public string? SessionId { get; set; }
+
+    /// <summary>The session's short label, or null with no session.</summary>
+    public string? SessionLabel { get; set; }
+
+    /// <summary>"No session - the run never started one." when <see cref="SessionId"/> is null, else null.</summary>
+    public string? NoSessionText { get; set; }
+
+    /// <summary>The Handle the issue button.</summary>
+    public FactoryProblemHandleDto Handle { get; set; } = new();
+
+    /// <summary>"Resolve".</summary>
+    public string ResolveLabel { get; set; } = "";
+
+    /// <summary>The prompt over the reason box: "Why is it resolved? One line.".</summary>
+    public string ResolvePrompt { get; set; } = "";
+
+    /// <summary>The button that sends the reason: "Resolve with this reason".</summary>
+    public string ResolveConfirmLabel { get; set; } = "";
+
+    /// <summary>What the button says while the Gateway records it.</summary>
+    public string ResolveBusyLabel { get; set; } = "";
+}
+
+/// <summary>
+/// Handle the issue on one problem: opens a talk with the factory's boss, already told about the problem. For a
+/// factory with no boss the talk goes to the Factory Manager (Factory Control, step 5), briefed the same way - decided on
+/// the Gateway, never by the Cockpit.
+/// </summary>
+public sealed class FactoryProblemHandleDto
+{
+    /// <summary>"Handle the issue".</summary>
+    public string Label { get; set; } = "";
+
+    /// <summary>"Starting the talk with the boss...".</summary>
+    public string BusyLabel { get; set; } = "";
+
+    public string FactoryId { get; set; } = "";
+    public string RunId { get; set; } = "";
+
+    /// <summary>True when pressing it opens a talk.</summary>
+    public bool Available { get; set; }
+
+    /// <summary>Why it cannot, in plain words, when <see cref="Available"/> is false; else null.</summary>
+    public string? UnavailableText { get; set; }
 }

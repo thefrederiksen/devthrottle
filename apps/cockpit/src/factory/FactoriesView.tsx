@@ -8,6 +8,8 @@ import {
 import { EmptyState, ErrorBanner, LoadingState, PageHeader } from "../components";
 import { ActivityTab, ReportsTab, useView } from "./FactoryActivityTabs";
 import { OwnerActionButton, StatusWord, TalkButton, ToneChip } from "./FactoryParts";
+import { FactoryManagerCard } from "./FactoryManagerCard";
+import { PauseEverythingButton, PausedBanner, useSchedulerPause } from "../schedule/SchedulerPause";
 import {
   FACTORY_VIEW_MODES,
   countFactoryRows,
@@ -55,11 +57,19 @@ export function FactoriesView() {
   // The frame (title, subtitle, tab labels) is the list fold's; it is read whichever tab is open.
   const frame = useView<FactoriesListView>((s) => getFactoriesList(s), "frame", "load the factories");
 
+  // Pause everything (issue #3910): the same switch and banner as the Schedule page.
+  const schedulerPause = useSchedulerPause("cockpit-factories");
+
   const selectTab = (t: TabKey) => setParams(t === "factories" ? {} : { tab: t });
 
   return (
     <div className="fa-page" data-testid="factories-page">
-      <PageHeader title={frame.data?.title ?? "Factories"} subtitle={frame.data?.subtitle} />
+      <PageHeader
+        title={frame.data?.title ?? "Factories"}
+        subtitle={frame.data?.subtitle}
+        actions={<PauseEverythingButton control={schedulerPause} />}
+      />
+      <PausedBanner control={schedulerPause} />
       {frame.data !== null && (
         <div className="fa-tabs" role="tablist" aria-label="Factories view">
           {frame.data.tabs.map((t) => (
@@ -79,6 +89,7 @@ export function FactoriesView() {
       {/* error-reported-by: useView */}
       {frame.error !== null && <ErrorBanner message={frame.error} onRetry={frame.reload} />}
       {frame.data === null && frame.error === null && <LoadingState />}
+      {frame.data !== null && tab === "factories" && <FactoryManagerCard />}
       {frame.data !== null && tab === "factories" && <FactoriesList view={frame.data} onChanged={frame.reload} />}
       {tab === "activity" && <ActivityTab />}
       {tab === "reports" && <ReportsTab />}
@@ -402,7 +413,7 @@ function LeftOpenFlag({ row }: { row: FactoryListRow }) {
   );
 }
 
-// Schedules outside any factory (issue #3650): every enabled schedule that is no seat of a factory, always shown, so
+// Schedules outside any factory (issue #3650): every active schedule that is no seat of a factory, always shown, so
 // a stray one is seen the day it appears. Which schedules, the order and every word are the Gateway's.
 function OutsideAnyFactory({ view }: { view: FactoriesListView }) {
   return (

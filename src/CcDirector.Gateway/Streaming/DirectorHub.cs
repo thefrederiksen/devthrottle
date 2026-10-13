@@ -82,9 +82,16 @@ public sealed class DirectorHub : Hub
         Messaging.FleetMessageLinkRecord? messageLinkRecord = null,
         Fleet.FleetManagerLessonsObserver? fleetManagerLessons = null,
         Teams.TeamCallerOwnership? teamOwnership = null,
-        Secrets.SecretMachineRegistry? secretMachines = null)
+        Secrets.SecretMachineRegistry? secretMachines = null,
+        Licenses.LicenseUsageIngest? licenseUsage = null,
+        Licenses.LicenseGatewayClock? licenseClock = null)
     {
         _secretMachines = secretMachines;
+        _licenseUsage = licenseUsage;
+        // A license ingest with no clock would take its reports at one time while the check judges them at another.
+        if (licenseUsage is not null && licenseClock is null)
+            throw new ArgumentNullException(nameof(licenseClock), "A license ingest needs the Gateway's license clock.");
+        _licenseClock = licenseClock;
         _fleetManagerLessons = fleetManagerLessons;
         _teamOwnership = teamOwnership;
         _voiceAnswers = voiceAnswers;
@@ -162,6 +169,42 @@ public sealed class DirectorHub : Hub
     private readonly FleetManagerHomeCapabilityRegistry? _fleetManagerHomeCapabilities;
     /// <summary>The machines that can receive a secret (the Secret Handoff mission) - learned here, from Hello.</summary>
     private readonly Secrets.SecretMachineRegistry? _secretMachines;
+    /// <summary>License Switching: takes each usage report and owns which connection may send it. Null (older callers, tests
+    /// that do not exercise licenses): Hello does not offer PushLicenseUsage, and a report that arrives anyway is dropped,
+    /// logged.</summary>
+    private readonly Licenses.LicenseUsageIngest? _licenseUsage;
+
+    /// <summary>The clock a usage report is taken at - the same one the minute check decides by. Set whenever the ingest is.</summary>
+    private readonly Licenses.LicenseGatewayClock? _licenseClock;
+
+    /// <summary>
+    /// License Switching (missions/license-switching/contract.md section 2.1): the bound Director's complete snapshot of
+    /// the Claude sign-ins its machine holds and their usage numbers - never a key. Shaped like
+    /// <see cref="PushRepoSnapshot"/>: refused before Hello, the tenant is the connection's binding, the work runs in that
+    /// tenant's scope, and only the Director's ACTIVE connection with a higher sequence is taken. A refused report is
+    /// logged and dropped; it is never an error to the Director, and neither is a store failure, which is contained here
+    /// so a database that is slow or not open yet cannot fail the Director's push.
+    /// </summary>
+    public void PushLicenseUsage(long sequence, LicenseUsageReport report)
+    {
+        var directorId = RequireBoundDirector();
+        var tenant = RequireBoundTenant();
+        using var tenantScope = EnterBoundTenantScope();
+        if (_licenseUsage is null || _licenseClock is null)
+        {
+            FileLog.Write($"[DirectorHub] PushLicenseUsage: no license ingest on this Gateway, report dropped: director={directorId} seq={sequence}");
+            return;
+        }
+        try
+        {
+            var outcome = _licenseUsage.Ingest(tenant, directorId, Context.ConnectionId, sequence, report, _licenseClock.UtcNow());
+            FileLog.Write($"[DirectorHub] PushLicenseUsage: director={directorId} seq={sequence} outcome={outcome}");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorHub] PushLicenseUsage: the license store FAILED (contained): director={directorId} seq={sequence}: {ex.Message}");
+        }
+    }
 
     /// <summary>
     /// A full repository/worktree snapshot from the bound Director (repositories mission, #510
@@ -356,6 +399,9 @@ public sealed class DirectorHub : Hub
         // The repository store follows the same ownership discipline: only this - the current -
         // connection may push repository snapshots from now on.
         _repositoryStore?.RegisterConnection(tenant, directorId, Context.ConnectionId);
+        // And the license ingest, which keeps its own record of who owns this Director. Hello takes only its short
+        // ownership lock and never waits for a database write; reports are checked and applied under a separate write gate.
+        _licenseUsage?.RegisterConnection(tenant, directorId, Context.ConnectionId);
         // MTR-15 cancellation cutoff: index this live tunnel by tenant with a server-side abort, so a revoked
         // tenant's connection is severed the moment the sweep (or a request re-read) finds it NotEntitled. The
         // durable device tombstone denies NEW auth; this ends the tunnel already up. Cleared on disconnect.
@@ -409,7 +455,12 @@ public sealed class DirectorHub : Hub
     private GatewayCapabilities CapabilitiesFor(TenantId tenant, string directorId)
     {
         var shared = Capabilities;
-        var answer = new GatewayCapabilities { Version = shared.Version, Commit = shared.Commit, HubMethods = shared.HubMethods };
+        // A Gateway with no license ingest does not offer PushLicenseUsage: a Director told it may send reports must
+        // never be sending them into a method that drops every one (pull request 3871 review, finding 2).
+        var methods = _licenseUsage is null
+            ? shared.HubMethods.Where(m => m != LicenseContract.PushUsageHubMethod).ToList()
+            : shared.HubMethods;
+        var answer = new GatewayCapabilities { Version = shared.Version, Commit = shared.Commit, HubMethods = methods };
         if (_sessionTurns is null) return answer;
         // ONCE PER CONNECTION (devthrottle_internal#2199). A Director sends Hello on every re-push - every ten
         // seconds - and not only when it connects, and this read returns every conversation that Director has
@@ -1089,6 +1140,7 @@ public sealed class DirectorHub : Hub
             // The tenant is the one bound at Hello (Hello sets both, so a bound director always has a tenant).
             _store.UnregisterConnection(t, directorId, Context.ConnectionId);
             _repositoryStore?.UnregisterConnection(t, directorId, Context.ConnectionId);
+            _licenseUsage?.UnregisterConnection(t, directorId, Context.ConnectionId);
         }
         // MTR-15: drop this connection's abort entry (it is gone now). Keyed by connection id, so it is cleared
         // whether or not a tenant was bound.

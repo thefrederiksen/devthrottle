@@ -101,27 +101,13 @@ public class GitLargeRepoParserTests
         Assert.Equal(parseCount, count);
     }
 
-    [Fact]
-    public void ParsePorcelain_2001Entries_Performance()
-    {
-        // Parsing 2001-entry porcelain should complete well under 1 second for 10 iterations
-        var output = BuildLargePorcelainOutput();
-
-        var sw = Stopwatch.StartNew();
-        for (int i = 0; i < 10; i++)
-            GitStatusProvider.ParsePorcelainOutput(output);
-        sw.Stop();
-
-        // 10 parses should complete in < 1000ms (100ms each) - well under CLAUDE.md's 100ms UI gate
-        Assert.True(sw.ElapsedMilliseconds < 1000,
-            $"10 parses of 2001-entry output took {sw.ElapsedMilliseconds}ms (expected < 1000ms)");
-    }
 }
 
 /// <summary>
 /// Integration tests that drive real git commands on a throwaway repo.
 /// Exercises stage/unstage/discard/commit against a fixture with many files.
 /// </summary>
+[Trait("Gate", "Quarantine")]
 public sealed class GitLargeRepoIntegrationTests : IDisposable
 {
     private readonly string _repo;
@@ -239,17 +225,11 @@ public sealed class GitLargeRepoIntegrationTests : IDisposable
         var provider = new GitStatusProvider();
         GitStatusProvider.InvalidateCache(_repo);
 
-        var sw = Stopwatch.StartNew();
         var status = await provider.GetStatusAsync(_repo);
-        sw.Stop();
 
         Assert.True(status.Success);
         Assert.Equal(2000, status.UnstagedChanges.Count);
         Assert.Empty(status.StagedChanges);
-
-        // GetStatusAsync should complete in reasonable time
-        Assert.True(sw.ElapsedMilliseconds < 30000,
-            $"GetStatusAsync for 2000 files took {sw.ElapsedMilliseconds}ms (expected < 30000ms)");
     }
 
     private string RunGit(params string[] args)

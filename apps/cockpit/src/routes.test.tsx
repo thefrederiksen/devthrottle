@@ -23,6 +23,7 @@ vi.mock("./fleetmanager/FleetManagerView", () => ({ FleetManagerView: () => <div
 vi.mock("./sessions/SessionsView", () => ({ SessionsView: () => <Outlet />, SessionsEmpty: () => <div>sessions page</div> }));
 vi.mock("./fleet/FleetMapView", () => ({ FleetMapView: () => <div>fleet map page</div> }));
 vi.mock("./fleetmanager/WalkthroughView", () => ({ WalkthroughView: () => <div>walkthrough page</div> }));
+vi.mock("./licenses/LicensesView", () => ({ LicensesView: () => <div>licenses page</div> }));
 
 import { COCKPIT_ROUTES } from "./routes";
 
@@ -67,6 +68,13 @@ describe("Cockpit routes", () => {
 
     expect(await screen.findByText("fleet manager page")).toBeTruthy();
     expect(screen.getByTestId("where").textContent).toBe("/fleet-manager");
+  });
+
+  it("serves the Licenses page at its own address", async () => {
+    renderAt("/licenses");
+
+    expect(await screen.findByText("licenses page")).toBeTruthy();
+    expect(screen.getByTestId("where").textContent).toBe("/licenses");
   });
 
   it("still serves the Fleet Map at its own address", async () => {

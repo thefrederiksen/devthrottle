@@ -2,7 +2,6 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Sockets;
 using CcDirector.Gateway;
-using CcDirector.Gateway.Cockpit;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests;
@@ -16,9 +15,11 @@ namespace CcDirector.Gateway.Tests;
 /// fallback reverse-proxy are gone.
 ///
 /// The built React app normally lands in <c>wwwroot/c</c> via a release-gated MSBuild target; these
-/// tests fabricate a tiny shell there (index.html + one hashed asset) so the serving behavior can be
-/// proven without running the front-end build. The directory is created under the test's own base
-/// directory and removed on teardown.
+/// tests fabricate a tiny shell (index.html + one hashed asset) in a folder of their own and hand it to the
+/// host as <see cref="GatewayHostOptions.CockpitWebRoot"/>, so the serving behavior can be proven without
+/// running the front-end build. They used to write it into <c>wwwroot/c</c> in the build output itself,
+/// deleting whatever was there - the real built Cockpit included - while every other test process run from
+/// that output read the same folder.
 /// </summary>
 public sealed class CockpitReactAppServingTests : IAsyncLifetime
 {
@@ -35,8 +36,7 @@ public sealed class CockpitReactAppServingTests : IAsyncLifetime
     {
         // Fabricate the built shell the release pipeline would stage into wwwroot/c. Assets are
         // root-relative now (Vite base "/"), matching how the Gateway serves the app at the site root.
-        var webRoot = CockpitReactApp.WebRoot;
-        if (Directory.Exists(webRoot)) Directory.Delete(webRoot, true);
+        var webRoot = Path.Combine(_instancesDir, "cockpit-web-root");
         Directory.CreateDirectory(Path.Combine(webRoot, "assets"));
         await File.WriteAllTextAsync(Path.Combine(webRoot, "index.html"),
             "<!doctype html><html><head><script type=\"module\" src=\"/assets/index-abc123.js\"></script></head>"
@@ -45,7 +45,8 @@ public sealed class CockpitReactAppServingTests : IAsyncLifetime
 
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: "test-token", authEnabled: true,
             instancesDirectory: _instancesDir,
-            workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"));
+            workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
+            options: new GatewayHostOptions { CockpitWebRoot = webRoot });
         await _gateway.StartAsync();
 
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
@@ -56,8 +57,6 @@ public sealed class CockpitReactAppServingTests : IAsyncLifetime
     {
         _http.Dispose();
         await _gateway.StopAsync();
-        try { if (Directory.Exists(CockpitReactApp.WebRoot)) Directory.Delete(CockpitReactApp.WebRoot, true); }
-        catch { }
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
         catch { }
     }

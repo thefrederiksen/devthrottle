@@ -41,7 +41,7 @@ public sealed class StateChangeLogTests : IDisposable
         var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
         try
         {
-            var session = manager.CreateSession(Path.GetTempPath());
+            var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, new BufferOnlyBackend());
             session.ApplyTerminalActivityState(ActivityState.Working);
             session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
 
@@ -60,7 +60,7 @@ public sealed class StateChangeLogTests : IDisposable
         var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
         try
         {
-            var session = manager.CreateSession(Path.GetTempPath());
+            var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, new BufferOnlyBackend());
             // Alternate so every call is a real transition (same-state writes are no-ops).
             for (int i = 0; i < 130; i++)
                 session.ApplyTerminalActivityState(i % 2 == 0 ? ActivityState.Working : ActivityState.WaitingForInput);
@@ -75,7 +75,7 @@ public sealed class StateChangeLogTests : IDisposable
         var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
         try
         {
-            var session = manager.CreateSession(Path.GetTempPath());
+            var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, new BufferOnlyBackend());
             var fired = 0;
             session.OnStateChangeRecorded += () => fired++;
             session.ApplyTerminalActivityState(ActivityState.Working);
@@ -90,7 +90,7 @@ public sealed class StateChangeLogTests : IDisposable
         var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
         try
         {
-            var session = manager.CreateSession(Path.GetTempPath());
+            var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, new BufferOnlyBackend());
             session.ApplyTerminalActivityState(ActivityState.Working);
             var countAfterFirst = session.RecentStateChanges.Count;
             session.ApplyTerminalActivityState(ActivityState.Working); // identical -> ignored
@@ -105,7 +105,7 @@ public sealed class StateChangeLogTests : IDisposable
         var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
         try
         {
-            var session = manager.CreateSession(Path.GetTempPath());
+            var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, new BufferOnlyBackend());
             // Initialized to construction time, not DateTime default -- the tab subtracts
             // it from "now", so a default would render a nonsense multi-millennium age.
             Assert.True(session.LastOutputAtUtc > DateTime.UtcNow.AddMinutes(-5));

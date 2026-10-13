@@ -157,6 +157,84 @@ public sealed class LicenseCommandLineTests
     }
 
     [Fact]
+    public async Task ReadUsageAsync_EveryHolding_RunsTheToolWithRefreshSoAnUnusedSpareIsRenewed()
+    {
+        // Whole-phase review of phase 1, finding 1: the reporter's spare read never asked the tool to renew a spare,
+        // so an unused spare's key expired and the spare stopped being a switch target. This runs the real adapter
+        // against a stand-in tool that records the arguments it was given.
+        using var tool = RecordingTool.Create();
+        var adapter = new CcDevthrottleLicenseCommandLine(new LicenseCommandLineOptions("C:/isolated/default", "C:/isolated/store"), () => tool.Path);
+
+        var rows = await adapter.ReadUsageAsync(activeOnly: false, CancellationToken.None);
+
+        Assert.Equal("account-a@example.com", rows.Single().AccountEmail);
+        Assert.Equal(new[] { "license", "usage", "--refresh", "--json", "--default-config-dir", "C:/isolated/default", "--store-dir", "C:/isolated/store" },
+            tool.Arguments());
+    }
+
+    [Fact]
+    public async Task ReadUsageAsync_ActiveOnly_RunsTheToolWithoutRefresh()
+    {
+        // The active key is the sessions' to renew; the active-only read never asks the tool to renew anything.
+        using var tool = RecordingTool.Create();
+        var adapter = new CcDevthrottleLicenseCommandLine(new LicenseCommandLineOptions(null, null), () => tool.Path);
+
+        await adapter.ReadUsageAsync(activeOnly: true, CancellationToken.None);
+
+        Assert.Equal(new[] { "license", "usage", "--active", "--json" }, tool.Arguments());
+    }
+
+    /// <summary>A stand-in for <c>cc-devthrottle</c>: writes each argument it was given on its own line, and answers
+    /// one usage row.</summary>
+    private sealed class RecordingTool : IDisposable
+    {
+        private readonly string _folder;
+        private readonly string _argumentsFile;
+
+        private RecordingTool(string folder)
+        {
+            _folder = folder;
+            _argumentsFile = System.IO.Path.Combine(folder, "arguments.txt");
+            const string answer = "{\"accounts\": [{\"accountEmail\": \"account-a@example.com\", \"isActive\": true}]}";
+            if (OperatingSystem.IsWindows())
+            {
+                Path = System.IO.Path.Combine(folder, "cc-devthrottle.cmd");
+                File.WriteAllText(Path,
+                    "@echo off\r\n" +
+                    ":next\r\n" +
+                    "if \"%~1\"==\"\" goto done\r\n" +
+                    ">>\"" + _argumentsFile + "\" echo %~1\r\n" +
+                    "shift\r\n" +
+                    "goto next\r\n" +
+                    ":done\r\n" +
+                    "echo " + answer + "\r\n");
+            }
+            else
+            {
+                Path = System.IO.Path.Combine(folder, "cc-devthrottle");
+                File.WriteAllText(Path,
+                    "#!/bin/sh\n" +
+                    "for a in \"$@\"; do printf '%s\\n' \"$a\" >> '" + _argumentsFile + "'; done\n" +
+                    "printf '%s\\n' '" + answer + "'\n");
+                File.SetUnixFileMode(Path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            }
+        }
+
+        public string Path { get; }
+
+        public static RecordingTool Create()
+        {
+            var folder = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "license-recording-tool-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
+            return new RecordingTool(folder);
+        }
+
+        public string[] Arguments() => File.ReadAllLines(_argumentsFile).Select(l => l.TrimEnd()).ToArray();
+
+        public void Dispose() => Directory.Delete(_folder, recursive: true);
+    }
+
+    [Fact]
     public void OwnToolDirectory_IsTheInstallersPythonScriptFolder()
     {
         // The installer (tools/cc-director-setup-engine InstallLayout.PyenvBinDir) puts every Python tool's console
@@ -169,23 +247,36 @@ public sealed class LicenseCommandLineTests
     [Fact]
     public void ResolveOwnCopy_EmptyToolDirectory_IsNullEvenWhenPathHasOne()
     {
-        // The Director runs its OWN copy, never whatever PATH resolves. This machine's PATH has a cc-devthrottle (the
-        // test proves it first), and an empty tool directory still resolves nothing.
-        Assert.NotNull(CcDirector.Core.Utilities.ExecutableResolver.Resolve(CcDevthrottleLicenseCommandLine.ToolName));
-        var empty = Path.Combine(Path.GetTempPath(), "license-tool-dir-" + Guid.NewGuid().ToString("N"));
+        // The Director runs its OWN copy, never whatever the search path resolves. The test builds its own search
+        // path holding a cc-devthrottle (and proves the resolver finds it there first), so it does not depend on
+        // what this machine has installed; an empty tool directory still resolves nothing.
+        var root = Path.Combine(Path.GetTempPath(), "license-tool-dir-" + Guid.NewGuid().ToString("N"));
+        var empty = Path.Combine(root, "own");
+        var onSearchPath = Path.Combine(root, "on-search-path");
         Directory.CreateDirectory(empty);
+        Directory.CreateDirectory(onSearchPath);
         try
         {
-            Assert.Null(CcDevthrottleLicenseCommandLine.ResolveOwnCopy(empty));
+            var other = WriteTool(onSearchPath);
+            const string? pathExt = null; // the resolver's own default list, which holds .CMD
+            Assert.Equal(other, CcDirector.Core.Utilities.ExecutableResolver.Resolve(CcDevthrottleLicenseCommandLine.ToolName, onSearchPath, pathExt), ignoreCase: true);
 
-            var own = Path.Combine(empty, CcDevthrottleLicenseCommandLine.ToolName + (OperatingSystem.IsWindows() ? ".cmd" : ""));
-            File.WriteAllText(own, "");
-            if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(own, UnixFileMode.UserRead | UnixFileMode.UserExecute);
-            Assert.Equal(Path.GetFullPath(own), Path.GetFullPath(CcDevthrottleLicenseCommandLine.ResolveOwnCopy(empty)!), ignoreCase: true);
+            Assert.Null(CcDevthrottleLicenseCommandLine.ResolveOwnCopy(empty, onSearchPath, pathExt));
+
+            var own = WriteTool(empty);
+            Assert.Equal(own, CcDevthrottleLicenseCommandLine.ResolveOwnCopy(empty, onSearchPath, pathExt), ignoreCase: true);
         }
         finally
         {
-            Directory.Delete(empty, recursive: true);
+            Directory.Delete(root, recursive: true);
         }
+    }
+
+    private static string WriteTool(string folder)
+    {
+        var tool = Path.Combine(folder, CcDevthrottleLicenseCommandLine.ToolName + (OperatingSystem.IsWindows() ? ".cmd" : ""));
+        File.WriteAllText(tool, "");
+        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(tool, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        return Path.GetFullPath(tool);
     }
 }

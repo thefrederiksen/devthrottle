@@ -4,6 +4,7 @@ using CcDirector.Core.Drivers;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.UnitTests.Sessions;
 using CcDirector.Gateway.Contracts;
+using CcDirector.TestInfrastructure;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests;
@@ -30,20 +31,24 @@ public sealed class VerbWaitNoticeTests : IDisposable
     public async Task SendPromptAsync_SendOutlastsALongBudget_TheBudgetWaitSaysWhatItWaitsForAndHowItEnded()
     {
         // Arrange: typed text echoes after thirty seconds; the budget is six, so the wait runs past the notice.
+        // Every wait is on one fake clock: the echo's, the session's and the budget's.
+        var clock = VirtualTime.NewClock();
         var (session, terminal) = ScriptedTerminal.NewWaitingSession();
+        session.Clock = clock;
         session.AgentKind = AgentKind.Gemini;
         terminal.Echo = false;
         terminal.OnWrite = text =>
         {
             if (text == "\r") return;
             var bytes = Encoding.UTF8.GetBytes(text);
-            _ = Task.Delay(TimeSpan.FromSeconds(30)).ContinueWith(_ => terminal.Buffer!.Write(bytes), TaskScheduler.Default);
+            _ = Task.Delay(TimeSpan.FromSeconds(30), clock).ContinueWith(_ => terminal.Buffer!.Write(bytes),
+                CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         };
 
         // Act
-        await ControlApi.SessionCommandExecutor.SendPromptAsync(session,
+        await VirtualTime.RunAsync(clock, () => ControlApi.SessionCommandExecutor.SendPromptAsync(session,
             new PromptRequest { Text = "Token VERBWAIT1. Reply: ACK", AppendEnter = true, Surface = "cockpit" },
-            answerBudget: TimeSpan.FromSeconds(6));
+            answerBudget: TimeSpan.FromSeconds(6)));
 
         // Assert
         var lines = Lines(session.Id.ToString());
@@ -79,11 +84,12 @@ public sealed class VerbWaitNoticeTests : IDisposable
         var command = new DirectorCommand { CommandId = "cmd-" + Guid.NewGuid().ToString("N"), Verb = "delivery-state", SessionId = Guid.NewGuid().ToString() };
 
         // Act
-        var result = await ControlApi.CommandAnswerTiming.AnswerAsync(command, async () =>
+        var clock = VirtualTime.NewClock();
+        var result = await VirtualTime.RunAsync(clock, () => ControlApi.CommandAnswerTiming.AnswerAsync(command, async () =>
         {
-            await Task.Delay(TimeSpan.FromSeconds(6));
+            await Task.Delay(TimeSpan.FromSeconds(6), clock);
             return DirectorCommandResult.Success();
-        });
+        }, clock));
 
         // Assert
         Assert.True(result.Ok);

@@ -370,12 +370,22 @@ public sealed class GatewayDbContext : DbContext
     public DbSet<FleetMessageLinkRequestEntity> FleetMessageLinkRequests => Set<FleetMessageLinkRequestEntity>();
     public DbSet<SecretTransferEntity> SecretTransfers => Set<SecretTransferEntity>();
 
+    /// <summary>License Switching: the Claude subscriptions this account's machines hold, the machines, each machine's
+    /// holdings with their latest usage reading, the switch log, and the accounts barred as targets until a reset.
+    /// Never a sign-in key.</summary>
+    public DbSet<LicenseAccountEntity> LicenseAccounts => Set<LicenseAccountEntity>();
+    public DbSet<LicenseMachineEntity> LicenseMachines => Set<LicenseMachineEntity>();
+    public DbSet<LicenseHoldingEntity> LicenseHoldings => Set<LicenseHoldingEntity>();
+    public DbSet<LicenseSwitchLogEntity> LicenseSwitchLog => Set<LicenseSwitchLogEntity>();
+    public DbSet<LicenseBarEntity> LicenseBars => Set<LicenseBarEntity>();
+
     /// <summary>The factory triggers (the Website Business Factory mission, product track): a model-free check a
     /// Director runs on an interval, which has the Gateway start a session only when the check counts work.</summary>
     public DbSet<TriggerEntity> Triggers => Set<TriggerEntity>();
 
     /// <summary>Every check of every trigger, whatever it came to - at least the newest 500 per trigger.</summary>
     public DbSet<TriggerRunEntity> TriggerRuns => Set<TriggerRunEntity>();
+    public DbSet<FactoryEmailReportEntity> FactoryEmailReports => Set<FactoryEmailReportEntity>();
     /// <summary>The events about sessions a Fleet Manager owns (<c>fleet_manager_events</c>, step 4): one stop or
     /// death per row, kept until the Fleet Manager acknowledges it.</summary>
     public DbSet<FleetManagerEventEntity> FleetManagerEvents => Set<FleetManagerEventEntity>();
@@ -556,6 +566,22 @@ public sealed class GatewayDbContext : DbContext
             b.HasKey(e => e.Id);
             // Newest-first within a job is served by ordering on Sequence DESC; index the lookup+order path.
             b.HasIndex(e => new { e.JobId, e.Sequence });
+            // Factory Control, step 1: how the run went. Every row recorded before results existed is untracked, so
+            // no old run is condemned for not reporting.
+            b.Property(e => e.Result).HasMaxLength(32).HasDefaultValue(Contracts.CronRunResults.Untracked);
+            b.Property(e => e.Problem).HasMaxLength(32);
+            b.Property(e => e.ResultReason).HasMaxLength(500);
+            b.Property(e => e.ResolvedBy).HasMaxLength(256);
+            b.Property(e => e.ResolvedReason).HasMaxLength(500);
+            // Step 6: the factory link the run's activity rows are written to, kept on the run itself.
+            b.Property(e => e.Factory).HasMaxLength(128);
+            b.Property(e => e.Seat).HasMaxLength(128);
+            b.Property(e => e.JobName).HasMaxLength(256);
+            // The sweep reads the runs still waiting on a report; the session lookup finds a session's own run.
+            b.HasIndex(e => e.Result);
+            b.HasIndex(e => e.SessionId);
+            // The sweep writes every factory activity row a run still owes.
+            b.HasIndex(e => e.ActivityDue);
         });
 
         modelBuilder.Entity<WorkListEntity>(b =>
@@ -1070,6 +1096,22 @@ public sealed class GatewayDbContext : DbContext
             b.HasIndex(e => new { e.TenantId, e.Name }).IsUnique();
         });
 
+        // The factory email (Factory Control, step 4): one row per account and slot - the record that the slot was
+        // handled, and the composed report kept for the factory page.
+        modelBuilder.Entity<FactoryEmailReportEntity>(b =>
+        {
+            b.ToTable("factory_email_reports");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.SlotKey).HasMaxLength(16);
+            b.Property(e => e.Kind).HasMaxLength(16);
+            b.Property(e => e.State).HasMaxLength(16);
+            b.Property(e => e.Detail).HasMaxLength(1024);
+            b.Property(e => e.Subject).HasMaxLength(300);
+            b.Property(e => e.ProviderId).HasMaxLength(128);
+            b.HasIndex(e => new { e.TenantId, e.SlotKey }).IsUnique();
+            b.HasIndex(e => new { e.TenantId, e.BoundaryUtc });
+        });
+
         modelBuilder.Entity<TriggerRunEntity>(b =>
         {
             b.ToTable("trigger_runs");
@@ -1157,6 +1199,77 @@ public sealed class GatewayDbContext : DbContext
             b.HasIndex(e => new { e.TenantId, e.TransferId }).IsUnique();
             b.HasIndex(e => new { e.TenantId, e.State });
             b.HasIndex(e => new { e.TenantId, e.CreatedAtUtc });
+        });
+
+        // License Switching (missions/license-switching/contract.md). Emails and words only, never a sign-in key.
+        modelBuilder.Entity<LicenseAccountEntity>(b =>
+        {
+            b.ToTable("license_accounts");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.AccountEmail).HasMaxLength(320);
+            b.Property(e => e.Plan).HasMaxLength(64);
+            b.Property(e => e.RateLimitTier).HasMaxLength(128);
+            b.HasIndex(e => new { e.TenantId, e.AccountEmail }).IsUnique();
+        });
+
+        modelBuilder.Entity<LicenseMachineEntity>(b =>
+        {
+            b.ToTable("license_machines");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.MachineName).HasMaxLength(128);
+            b.Property(e => e.OsUser).HasMaxLength(128);
+            b.Property(e => e.MachineKey).HasMaxLength(128);
+            b.Property(e => e.OsUserKey).HasMaxLength(128);
+            b.Property(e => e.DirectorId).HasMaxLength(128);
+            b.Property(e => e.LastTrigger).HasMaxLength(32);
+            b.Property(e => e.ActiveAccountEmail).HasMaxLength(320);
+            b.Property(e => e.SwitchInProgressId).HasMaxLength(32);
+            b.HasIndex(e => new { e.TenantId, e.MachineKey, e.OsUserKey }).IsUnique();
+        });
+
+        modelBuilder.Entity<LicenseHoldingEntity>(b =>
+        {
+            b.ToTable("license_holdings");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.AccountEmail).HasMaxLength(320);
+            b.Property(e => e.Plan).HasMaxLength(64);
+            b.Property(e => e.RateLimitTier).HasMaxLength(128);
+            b.Property(e => e.ReadError).HasMaxLength(32);
+            b.Property(e => e.ReadErrorDetail).HasMaxLength(500);
+            b.Property(e => e.RenewalError).HasMaxLength(32);
+            b.Property(e => e.RenewalErrorDetail).HasMaxLength(500);
+            b.HasIndex(e => new { e.TenantId, e.MachineId, e.AccountEmail }).IsUnique();
+            b.HasIndex(e => new { e.TenantId, e.AccountEmail });
+        });
+
+        modelBuilder.Entity<LicenseSwitchLogEntity>(b =>
+        {
+            b.ToTable("license_switch_log");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Kind).HasMaxLength(16);
+            b.Property(e => e.SwitchId).HasMaxLength(32);
+            b.Property(e => e.MachineName).HasMaxLength(128);
+            b.Property(e => e.OsUser).HasMaxLength(128);
+            b.Property(e => e.DirectorId).HasMaxLength(128);
+            b.Property(e => e.FromAccountEmail).HasMaxLength(320);
+            b.Property(e => e.ToAccountEmail).HasMaxLength(320);
+            b.Property(e => e.Reason).HasMaxLength(16);
+            b.Property(e => e.State).HasMaxLength(16);
+            b.Property(e => e.ReasonCode).HasMaxLength(32);
+            b.Property(e => e.Message).HasMaxLength(500);
+            b.Property(e => e.ActiveAccountEmailAfter).HasMaxLength(320);
+            b.HasIndex(e => new { e.TenantId, e.SwitchId }).IsUnique();
+            b.HasIndex(e => new { e.TenantId, e.State });
+            b.HasIndex(e => new { e.TenantId, e.CreatedAtUtc });
+        });
+
+        modelBuilder.Entity<LicenseBarEntity>(b =>
+        {
+            b.ToTable("license_bars");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.AccountEmail).HasMaxLength(320);
+            b.Property(e => e.Window).HasMaxLength(16);
+            b.HasIndex(e => new { e.TenantId, e.AccountEmail, e.Window }).IsUnique();
         });
 
         modelBuilder.Entity<FleetManagerEventEntity>(b =>
@@ -1947,8 +2060,14 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<FleetMessageLinkEntity>(modelBuilder);
         ApplyTenantScope<FleetMessageLinkRequestEntity>(modelBuilder);
         ApplyTenantScope<SecretTransferEntity>(modelBuilder);
+        ApplyTenantScope<LicenseAccountEntity>(modelBuilder);
+        ApplyTenantScope<LicenseMachineEntity>(modelBuilder);
+        ApplyTenantScope<LicenseHoldingEntity>(modelBuilder);
+        ApplyTenantScope<LicenseSwitchLogEntity>(modelBuilder);
+        ApplyTenantScope<LicenseBarEntity>(modelBuilder);
         ApplyTenantScope<TriggerEntity>(modelBuilder);
         ApplyTenantScope<TriggerRunEntity>(modelBuilder);
+        ApplyTenantScope<FactoryEmailReportEntity>(modelBuilder);
         ApplyTenantScope<FleetManagerEventEntity>(modelBuilder);
         ApplyTenantScope<FleetManagerOwnedSessionEntity>(modelBuilder);
         ApplyTenantScope<TeamRequestEntity>(modelBuilder);
@@ -2074,11 +2193,28 @@ public sealed class GatewayDbContext : DbContext
             // secret_transfers: the id and the state are exact keys, compared byte-ordinally.
             modelBuilder.Entity<SecretTransferEntity>().Property(e => e.TransferId).UseCollation("C");
             modelBuilder.Entity<SecretTransferEntity>().Property(e => e.State).UseCollation("C");
+            // license tables: emails, machine keys, ids and closed words are exact keys, compared byte-ordinally (the
+            // case-insensitive machine identity is folded to lower case before it is stored, never left to a collation).
+            modelBuilder.Entity<LicenseAccountEntity>().Property(e => e.AccountEmail).UseCollation("C");
+            modelBuilder.Entity<LicenseMachineEntity>().Property(e => e.MachineKey).UseCollation("C");
+            modelBuilder.Entity<LicenseMachineEntity>().Property(e => e.OsUserKey).UseCollation("C");
+            modelBuilder.Entity<LicenseHoldingEntity>().Property(e => e.AccountEmail).UseCollation("C");
+            modelBuilder.Entity<LicenseSwitchLogEntity>().Property(e => e.SwitchId).UseCollation("C");
+            modelBuilder.Entity<LicenseSwitchLogEntity>().Property(e => e.State).UseCollation("C");
+            // The account a log row is about is looked up by its email (one open "no account had room" event per
+            // account), so it is compared the way every other account email column is.
+            modelBuilder.Entity<LicenseSwitchLogEntity>().Property(e => e.FromAccountEmail).UseCollation("C");
+            modelBuilder.Entity<LicenseBarEntity>().Property(e => e.AccountEmail).UseCollation("C");
+            modelBuilder.Entity<LicenseBarEntity>().Property(e => e.Window).UseCollation("C");
             // triggers: the name is the key a caller looks a trigger up by, and the machine is compared to a
             // Director's registered machine name; trigger_runs: the outcome is a closed word.
             modelBuilder.Entity<TriggerEntity>().Property(e => e.Name).UseCollation("C");
             modelBuilder.Entity<TriggerEntity>().Property(e => e.Machine).UseCollation("C");
             modelBuilder.Entity<TriggerRunEntity>().Property(e => e.Outcome).UseCollation("C");
+            // factory_email_reports: the slot key, the kind and the state are exact keys.
+            modelBuilder.Entity<FactoryEmailReportEntity>().Property(e => e.SlotKey).UseCollation("C");
+            modelBuilder.Entity<FactoryEmailReportEntity>().Property(e => e.Kind).UseCollation("C");
+            modelBuilder.Entity<FactoryEmailReportEntity>().Property(e => e.State).UseCollation("C");
             // fleet_manager_events: the kind and the session ids are compared byte-ordinally for the same reason.
             modelBuilder.Entity<FleetManagerEventEntity>().Property(e => e.Kind).UseCollation("C");
             modelBuilder.Entity<FleetManagerEventEntity>().Property(e => e.SessionId).UseCollation("C");

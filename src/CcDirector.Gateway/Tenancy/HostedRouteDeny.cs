@@ -315,6 +315,10 @@ public sealed class HostedDenyGroup
     /// <summary>This family's refusal payload, so a test can assert against the same strings that are served.</summary>
     public HostedDenial Denial => _denial;
 
+    // These five pass a handler through as a Delegate, which the compile-time request delegate generator cannot
+    // read (RDG002), so the routes mapped through a deny group are built at runtime instead, exactly as every
+    // route was before the generator was turned on. The behaviour is the framework's own; only the cost differs.
+#pragma warning disable RDG002
     public IEndpointConventionBuilder MapGet(string pattern, Delegate handler)
         => Map(pattern, handler, () => _group.MapGet(pattern, handler));
 
@@ -329,6 +333,7 @@ public sealed class HostedDenyGroup
 
     public IEndpointConventionBuilder MapMethods(string pattern, IEnumerable<string> methods, Delegate handler)
         => Map(pattern, handler, () => _group.MapMethods(pattern, methods, handler));
+#pragma warning restore RDG002
 
     /// <summary>
     /// Maps the single catch-all refusal for an exclusive-prefix family, and records the exclusivity claim

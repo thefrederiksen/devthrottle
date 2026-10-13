@@ -133,6 +133,9 @@ internal static partial class GatewayEndpoints
         // client speed-test results into (home/away split on the measured path). The monitor folds into the
         // same instance. Null in tests / when diagnostics are off.
         NetDiagRollupStore? netDiagRollup = null,
+        // The folder this host serves the React Cockpit from, so /gateway/about stamps the bundle the host
+        // actually serves. Null means the production folder, CockpitReactApp.WebRoot.
+        string? cockpitWebRoot = null,
         // Issue #1176 (Phase 1a): the roster source. Epic #1159 step A: /sessions serves a Director's LAST
         // KNOWN sessions from this store unconditionally - age no longer decides whether a machine is served,
         // only what the roster says about it. streamStaleAfter still decides which serves count as confirmed
@@ -1013,7 +1016,7 @@ internal static partial class GatewayEndpoints
                 // The served bundles name themselves through the build.json each Vite build emits; the
                 // Gateway cannot read the commit compiled into their JavaScript. Null when no built bundle
                 // is staged, which the page reports as such rather than guessing a build.
-                Cockpit = BundleStamp.Read(CockpitReactApp.WebRoot),
+                Cockpit = BundleStamp.Read(cockpitWebRoot ?? CockpitReactApp.WebRoot),
                 Mobile = BundleStamp.Read(MobileApp.WebRoot),
                 // Folded here, not in the client (CLAUDE.md rule 7).
                 Deployment = hosted ? "Hosted service" : "Self-hosted",

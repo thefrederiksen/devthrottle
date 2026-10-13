@@ -347,6 +347,10 @@ public static class SessionKeyGuard
                 // the route is only mapped while the factory agents switch is on.
                 case "gateway/factory/registry":
                 case "gateway/factory/goal-numbers":
+                // The name check (Factory Control, step 5): which seats say CEO or carry a person's name instead of a
+                // role word. `cc-devthrottle factory name-check`, which the Factory Manager reads. Account data, folded
+                // from the registry above; the route is only reachable while the factory agents switch is on.
+                case "gateway/factory/name-check":
                 // The Factories screen's list (issue #3685): the status word of every factory in the account, as the
                 // owner sees it. A factory's boss reads it with `factory status`, so it sees FAILING the moment the
                 // owner does and can act. Account data; the route is only mapped while the factory agents switch is on.
@@ -362,6 +366,17 @@ public static class SessionKeyGuard
                 case "gateway/secrets/machines":
                 // The account's secret transfers and their approvals: names, machines, reasons, answers - never a value.
                 case "gateway/secrets/transfers":
+                // The Licenses page's reads (the License Switching mission): the account's Claude subscriptions and
+                // machines, the forecast, and the switch log - emails, percentages, times and sentences, never a
+                // sign-in key, which the Gateway does not hold. An agent can say which account a machine is on and
+                // when the next switch is expected. The WRITES are NOT here and are refused to every session key, raised
+                // or not: Switch now (moving every machine of the owner's subscription to another one) and the renewal
+                // date of a subscription (PUT gateway/licenses/accounts/renewal) are the owner's own actions, from the
+                // Cockpit. This guard is only the session key's half of that: the routes themselves also refuse a
+                // Director's own device key and the shared machine token (LicenseEndpoints.Map).
+                case "gateway/licenses":
+                case "gateway/licenses/forecast":
+                case "gateway/licenses/log":
                     return true;
             }
 
@@ -457,6 +472,11 @@ public static class SessionKeyGuard
             if (IsDirectorSettings(s)) return true;
             if (IsApplicationSetting(s)) return true;
             if (IsHandoverRead(s)) return true;
+
+            // The account's kept factory emails (Factory Control, step 4): the 08:00 reports and 16:00 / midnight
+            // checks as they were sent - the list and one email by id - which a factory's boss and the Factory Manager
+            // read. The same facts as /cron/problems, rendered; reading them changes nothing.
+            if (s.Length is 2 or 3 && s[0] == "gateway" && s[1] == "factory-emails") return true;
 
             return false;
         }
@@ -986,6 +1006,16 @@ public static class SessionKeyGuard
         // how the product behaves - and admits nobody: the mark names a session already inside the account.
         // The Fleet Manager sets it through the command line, so a session key must reach it.
         "gateway/fleet-manager" => true,
+        // Whether the account is sent the factory email (Factory Control, step 4). It says how the product behaves -
+        // whether it mails the account its own factories' report - and admits nobody: the email can only ever go to
+        // the account's own address, resolved by the account service. The rollout switches it on from a session.
+        "gateway/factory-email" => true,
+        // Which session is the account's Factory Manager (Factory Control, step 5). Unlike the Fleet Manager's mark,
+        // this one GRANTS something: the marked session may resolve any of the account's problems. So a session key
+        // reaches this route only to READ the mark and to CLEAR it (`cc-devthrottle factory manager show|clear`).
+        // SETTING it is refused by the route itself, which reads the body this guard never consults: only the
+        // owner's own phone or browser may set it (FactoryManagerEndpoints.PutBindingAsync).
+        "gateway/factory-manager" => true,
         _ => false,
     };
 
@@ -1137,6 +1167,18 @@ public static class SessionKeyGuard
         if (s.Length == 2 && s[0] == "cron" && s[1] == "load") return verb is "GET" or "HEAD";
         // /cron/seat-choices - the factories and seats a schedule may be linked to (the editor's picker).
         if (s.Length == 2 && s[0] == "cron" && s[1] == "seat-choices") return verb is "GET" or "HEAD";
+        // /cron/problems - the account's scheduled-run problems (Factory Control, step 1), which a factory's boss and
+        // the Factory Manager read with `run problems`.
+        if (s.Length == 2 && s[0] == "cron" && s[1] == "problems") return verb is "GET" or "HEAD";
+        // /cron/runs/result - a scheduled run's own session reports how it went (`run result`). The route reads the run
+        // off the calling key, so a session can only ever report on its own run.
+        if (s.Length == 3 && s[0] == "cron" && s[1] == "runs" && s[2] == "result") return verb == "POST";
+        // /cron/runs/{runId}/resolve - resolve a problem with a reason (`run resolve`). The route limits a factory's
+        // problem to that factory's own sessions, the same as acting on its schedule.
+        if (s.Length == 4 && s[0] == "cron" && s[1] == "runs" && s[3] == "resolve") return verb == "POST";
+        // /cron/pause - the pause-everything switch (issue #3910). READ ONLY: it tells an agent why nothing is
+        // firing. Setting it is the owner's control, so PUT is deliberately not here.
+        if (s.Length == 2 && s[0] == "cron" && s[1] == "pause") return verb is "GET" or "HEAD";
 
         if (s.Length < 2 || s[0] != "cron" || s[1] != "jobs") return false;
 

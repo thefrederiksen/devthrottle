@@ -364,7 +364,7 @@ public sealed class MicAudioCapture : IAudioMeterSource, IAudioCaptureDiagnostic
     /// an FFT, averages magnitude within each log-spaced speech band, then
     /// applies a noise gate + sqrt perceptual curve.
     /// </summary>
-    private double[] ComputeBands(byte[] pcm)
+    internal static double[] ComputeBands(byte[] pcm)
     {
         var bands = new double[BandCount];
         if (pcm.Length < 2) return bands;
@@ -417,7 +417,7 @@ public sealed class MicAudioCapture : IAudioMeterSource, IAudioCaptureDiagnostic
     }
 
     /// <summary>Root-mean-square of a PCM16 chunk on the raw int16 scale (0..32767).</summary>
-    private static double ComputeInt16Rms(byte[] pcm)
+    internal static double ComputeInt16Rms(byte[] pcm)
     {
         if (pcm.Length < 2) return 0.0;
         long sumSq = 0;

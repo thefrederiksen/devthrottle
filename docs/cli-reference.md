@@ -1749,6 +1749,46 @@ The word turns the moment the last open item is corrected. `--json` prints the G
 the Seats tab, the bulk Handled, archive, restore and Talk stay the owner's. The route answers 404 while
 factory agents are switched off, and the command says so.
 
+#### Factory Manager and the name check
+
+The Factory Manager is the one standing session over all of an account's factories (Factory Control, step
+5). It points the owner to the right factory's boss, chases each open problem with the boss concerned, and
+deals itself with what no single boss owns. The owner starts it from the Factories screen's Factory Manager
+card - a visible session, like Talk to the boss - and a problem of a factory with no boss is handed to it by
+Handle the issue.
+
+```
+USAGE: cc-devthrottle factory manager show [--json]
+       cc-devthrottle factory manager clear [--json]
+       cc-devthrottle factory name-check [--json]
+```
+
+`factory manager` is the mark that says which session is the account's Factory Manager, held on the
+Gateway (`GET` and `PUT /gateway/factory-manager`). Starting a Factory Manager from the card sets it.
+Only the owner's own phone or browser may SET the mark, because the mark grants the right described below,
+so there is no `set` command: `cc-devthrottle factory manager set` fails as an unknown command. A session
+may `show` the mark and `clear` it. `show` prints the full id and the name, or `factory-manager: none` and who sets it, and
+the computer and folder the card starts it on.
+`--json` prints the Gateway's answer: `{"sessionId": ..., "computer": ..., "folder": ...}`.
+
+The marked session may resolve ANY open problem of the account with `cc-devthrottle run resolve <run id>
+"<reason>"`; the reason is kept and the resolver is recorded as the Factory Manager. Any other session
+outside the problem's factory is still refused. A session that was the Factory Manager earlier and has lost
+the mark is refused the same way, and is told that the mark has moved to another session or was cleared.
+
+`factory name-check` prints the Gateway's name check over every factory that is not archived: a seat is
+flagged when its id, name or role says CEO (a factory has a boss, not a CEO), or when its name is not a
+role word of its factory - one of the roles its seats are registered with, or Boss for the boss seat. It
+prints `count:`, how many factories were checked, the rule in the Gateway's words, and one row per finding
+(factory, seat, kind - `ceo` or `not-a-role-word` - and the sentence). `count: 0` with the Gateway's pass
+sentence means nothing was flagged; an answer with no list of findings, no count of factories checked or
+no rule is an error, never a pass and never a zero. The rule
+cannot tell a role word from a person's name when a seat's ROLE is itself a name; it checks that names are
+role words.
+
+All four answer 404 while factory agents are switched off, and the commands say so. A session key reaches
+the mark, to read and clear it, and the name check; setting the mark, the card and the talk are the owner's.
+
 #### Factory registry and goal number
 
 The factory registry: one entry per factory, on the Gateway, saying what the owner's Factories screen
@@ -1875,6 +1915,80 @@ and `delete` keeps current. A note this session never read is sent as version 0 
 exist yet"). When another session wrote the note since, nothing is written: the command exits 1, prints
 the current text, says another writer got there first, and records that version - so the next `set`,
 carrying the merged text, goes through. Without the folder, pass `--expected-version`.
+
+### Run
+
+How each scheduled run went (Factory Control, step 1). Every run says how it went - ok, or a problem with
+one line why - and then closes its own session; only a run with a problem stays open.
+
+```
+USAGE: cc-devthrottle run result ok ["<optional note>"] [--json]
+       cc-devthrottle run result problem "<one line why>" [--json]
+       cc-devthrottle run resolve <run> "<one line reason>" [--json]
+       cc-devthrottle run problems [--factory ID] [--all] [--json]
+```
+
+`run result` is called at the END of a scheduled run, by the run's own session. The Gateway finds the run
+from the calling session's key, so there is no run id to pass; a session no schedule started is refused
+and nothing is recorded. After `ok` the session closes itself exactly as `session done` does (undo it with
+`session done --undo`); after `problem` it stays open for someone to look at. A problem needs its one line
+why.
+
+The Gateway records three problems by itself:
+
+- **did not report** - the run's session ended without calling `run result`;
+- **ran past its shift** - the run had not reported and was still open when its shift ended. The shifts
+  are night 00:00-08:00, morning 08:00-16:00 and evening 16:00-24:00 in the account's time zone, and a
+  run belongs to the shift it started in;
+- **did not run** - a due run that never started a session: its machine could not be reached, it was
+  reached only after its deadline, or the Gateway was not running when it was due.
+
+A problem stays open until the next run of the same schedule reports ok, or someone resolves it with
+`run resolve` and a one-line reason (an empty one is refused). The reason and who resolved it are kept. A
+factory's problem may be resolved by the owner or a session of that factory - its boss among them.
+
+`run problems` lists the open problems, newest first: the run id, the schedule, its factory, the run's
+shift, the kind of problem and its one line why, the session to read, and the state. `--all` adds the ones
+already cleared or resolved; `--factory` narrows to one factory's schedules, and both apply to `--json`,
+which prints the Gateway's answer verbatim. No problems prints `count: 0`. The factory page, the morning
+email and the Factory Manager read the same list.
+
+Every result of a schedule linked to a factory also leaves a row in that factory's activity record - `done`
+for ok, `failed` for a problem - so no factory is silent on its dashboard. Resolving the problem marks its
+failed row handled.
+
+### Factory email
+
+The factory email (Factory Control, step 4). The Gateway composes and sends it itself - no session is
+involved - to the account that set up the factories, never a fixed address.
+
+```
+USAGE: cc-devthrottle factory email status [--json]
+       cc-devthrottle factory email on [--json]
+       cc-devthrottle factory email off [--json]
+       cc-devthrottle factory email list [--factory ID] [--kind morning-report|check] [--count N] [--all] [--json]
+       cc-devthrottle factory email show <id> [--json]
+```
+
+It ships OFF. Switched on, the account is sent:
+
+- **08:00, every day** - every problem still open (from the same list `run problems` reads; a problem fixed
+  yesterday is not open, so it is not there), then one line per factory for the last 24 hours: runs done,
+  runs that did not run, seats left open. Each factory with a problem links to its factory page.
+- **16:00 and midnight, only when something went wrong** - only when the shift that just ended raised a NEW
+  problem. Older open problems are one line pointing to the 08:00 report.
+
+The times are the account's own time zone. Each slot is sent once, whatever restarts; a failed send is tried
+again for two hours, then the slot is closed. A team account is told it is not supported yet - the email is
+not sent, and no address is guessed.
+
+`factory email list` lists the kept emails that were sent, newest first: the id, the slot (local date and
+hour), when it was sent, its title, the factories it covered and how many problems it listed. `--factory`
+narrows to the emails that covered one factory; `--all` adds the slots that had nothing to send or whose send
+failed or was not supported, with the reason. Every filter applies to `--json` too. Nothing kept prints
+`count: 0`. `factory email show <id>` prints one email with its HTML exactly as sent. The factory page reads
+the same two routes: `GET /gateway/factory-emails?factory=&kind=&limit=&state=all` and
+`GET /gateway/factory-emails/{id}`.
 
 ### Trigger
 
@@ -2426,6 +2540,13 @@ asked for itself.
 approved; payload on standard input, one JSON line out, never the secret), and `check-text` (reads UTF-8 text on standard input and answers only
 `{"containsSecret": true|false, "storeFound": true|false}`, never which entry; `storeFound` false means the machine
 holds no store, so there was nothing to find). They are not for agents to call.
+
+`seal --to KEY --purpose WORD --id ID` and `open --purpose WORD --id ID` carry one short value between two machines
+(the License Switching mission: the answer to a sign-in approved in a browser on one machine, for the machine waiting
+for it). `seal` reads the value on standard input and prints text only the machine holding KEY's private half can
+open, and only for the same purpose and id. `open` reads that text on standard input and writes the value to standard
+output for the Director; it refuses inside a session and refuses to write to a terminal. Neither stores anything, and
+neither opens what a secret transfer carries.
 
 ## cc-transcribe
 

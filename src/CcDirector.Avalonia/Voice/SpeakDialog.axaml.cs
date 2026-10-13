@@ -127,10 +127,26 @@ public partial class SpeakDialog : Window
 
     /// <summary>
     /// TEST SEAM (issue #3672): whether this machine can capture from a microphone. Null in production, where
-    /// the answer is <see cref="OperatingSystem.IsWindows"/>: capture is NAudio's winmm and Core Audio, both
-    /// Windows COM, so on Linux and macOS every device query throws "COM is not supported".
+    /// the answer is <see cref="CaptureUnavailableMessage"/>: Windows captures through NAudio, Linux through the
+    /// sound system's own recorder, and macOS has no capture, so every device query there throws "COM is not
+    /// supported".
     /// </summary>
     internal Func<bool>? CaptureSupportedForTests;
+
+    private const string CaptureNotOfferedMessage = "Desktop dictation is not available on this system yet. It works on Windows and Linux.";
+
+    /// <summary>
+    /// Why this machine cannot capture from a microphone, in words for the user, or null when it can. Windows
+    /// always can. Linux can when PipeWire's or ALSA's recorder is installed. Nothing else can yet.
+    /// </summary>
+    internal static string? CaptureUnavailableMessage(bool isWindows, bool isLinux, bool linuxCaptureToolsPresent)
+    {
+        if (isWindows) return null;
+        if (!isLinux) return CaptureNotOfferedMessage;
+        return linuxCaptureToolsPresent
+            ? null
+            : "Desktop dictation needs a recorder to reach the microphone. Install PipeWire's pw-record (package pipewire-bin) or ALSA's arecord (package alsa-utils), then open Dictate again.";
+    }
 
     // Inspection two, finding 3: device resolution can outlast the GETTING READY window. While it is
     // outstanding these say so, so the timeout can name what it was waiting for. Set and read on the
@@ -288,15 +304,17 @@ public partial class SpeakDialog : Window
         _eqTimer.Start();
         try
         {
-            // Issue #3672: desktop capture is Windows-only. Say so before any hosted-AI check or device query,
+            // Issue #3672: a machine that cannot capture says so before any hosted-AI check or device query,
             // instead of letting the first COM call fail with "COM is not supported".
-            var captureSupported = CaptureSupportedForTests is not null ? CaptureSupportedForTests() : OperatingSystem.IsWindows();
+            var captureUnavailable = CaptureUnavailableMessage(
+                OperatingSystem.IsWindows(), OperatingSystem.IsLinux(), OperatingSystem.IsLinux() && LinuxAudioTools.CaptureToolsPresent);
+            var captureSupported = CaptureSupportedForTests is not null ? CaptureSupportedForTests() : captureUnavailable is null;
             if (!captureSupported)
             {
-                FileLog.Write($"[SpeakDialog] desktop dictation needs Windows audio capture; not offered on "
+                FileLog.Write($"[SpeakDialog] desktop dictation cannot capture audio here; not offered on "
                     + $"{System.Runtime.InteropServices.RuntimeInformation.OSDescription}");
-                // shown-error-exempt (not an error): this platform does not offer desktop dictation; nothing failed
-                SwitchToFailed("Desktop dictation is only available on Windows.");
+                // shown-error-exempt (not an error): this machine does not offer desktop dictation; nothing failed
+                SwitchToFailed(captureUnavailable ?? CaptureNotOfferedMessage);
                 return;
             }
 

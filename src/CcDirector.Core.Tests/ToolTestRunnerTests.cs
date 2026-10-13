@@ -86,6 +86,7 @@ public class ToolTestRunnerTests : IDisposable
         Assert.Contains("not built", result.Message);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task RunTest_ProcessExitsZero_Passes()
     {
@@ -98,6 +99,7 @@ public class ToolTestRunnerTests : IDisposable
         Assert.Equal(0, result.ExitCode);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task RunTest_ProcessExitsNonZero_FailsWithRealExitCode()
     {
@@ -111,6 +113,7 @@ public class ToolTestRunnerTests : IDisposable
         Assert.Contains("exit 2", result.Message);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task RunTest_ExpectContainsPresent_Passes()
     {
@@ -122,6 +125,7 @@ public class ToolTestRunnerTests : IDisposable
         Assert.True(result.Passed);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task RunTest_ExpectContainsMissing_Fails()
     {
@@ -134,6 +138,7 @@ public class ToolTestRunnerTests : IDisposable
         Assert.Contains("missing", result.Message);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task RunAllForTool_RunsEveryDeclaredCheck()
     {

@@ -27,11 +27,11 @@
     WHAT THE DEFAULT NO LONGER RUNS - AND THIS IS DELIBERATE, NOT AN OVERSIGHT. Three suites are PARKED
     behind -Parked because none can meet the budget:
 
-      CcDirector.Gateway.Tests   - host-bound, and one run of it at a time per user per machine
-                                   (GatewayTestSuiteLock). Its own running time is most of an hour. Until
-                                   October 2026 its cost was the QUEUE behind every other working tree -
-                                   waits of 45 minutes that executed ZERO tests - which the release-gate
-                                   lock above now turns into an immediate refusal. Its pure tests were
+      CcDirector.Gateway.Tests   - host-bound. Run as several concurrent processes, each given part of
+                                   the suite (scripts\gateway-test-shards.ps1): about 10 minutes in
+                                   Release on SOREN_NORTH (October 2026), where it took 2 hours 9
+                                   minutes as one process on the v2.18.0 candidate. It no longer has a lock of
+                                   its own, so a hand-run "dotnet test" of it blocks nobody. Its pure tests were
                                    split out into CcDirector.Gateway.UnitTests, which was in the default
                                    run until 2026-09-13 and is now parked beside it (issue #2824); what is
                                    parked here is the host-bound remainder.
@@ -54,12 +54,10 @@
     be invoked by hand; a gate that depends on remembering two extra commands is one that will eventually
     be run without them, and a release is the one place there is no fixing it forward.
 
-    ONE RUN THAT INCLUDES THE GATEWAY SUITE AT A TIME, AND A SECOND ONE IS REFUSED, NEVER QUEUED. Before
-    building, a -Parked or -Gateway run takes the release-gate lock (scripts\gate-lock.ps1) and probes
-    the Gateway suite's own lock. If either is held by a live process, this run stops within seconds
-    with exit 6 naming the holder - the release-gate lock carries its process, session, commit and
-    command; the suite's own lock, written by the test process, carries its process, session and
-    directory - and it does not build, it does not start, and it does not wait. Between 8 and 10 October 2026 nineteen release-gate runs each
+    ONE RELEASE GATE AT A TIME, AND A SECOND ONE IS REFUSED, NEVER QUEUED. Before building, a -Parked
+    or -Gateway run takes the release-gate lock (scripts\gate-lock.ps1). If it is held by a live
+    process, this run stops within seconds with exit 6 naming the holder's process, session, commit and
+    command - and it does not build, it does not start, and it does not wait. Between 8 and 10 October 2026 nineteen release-gate runs each
     queued forty-five minutes behind another and then executed nothing: fourteen hours that proved
     nothing, with up to seven gates overlapping. A queue hides a conflict; a refusal shows it. The
     default run takes no lock, because it includes no suite that cannot overlap.
@@ -76,8 +74,10 @@
     ran. Red-first evidence is gathered with this command, so that shape of green is now a failure:
     exit 3 means zero tests were collected anywhere, exit 4 means a project exited zero without writing a
     result file, exit 5 means part of the filter matched nothing (or -ExpectTests was not met), exit 6
-    means another run holding the Gateway suite is in progress and this one was refused before building
-    (and exit 2, as for a bad argument, means the lock's own location is broken), and exit 9 means a
+    means another release gate is in progress and this one was refused before building
+    (and exit 2, as for a bad argument, means the lock's own location is broken), exit 7 means a -Parked
+    or -Gateway run was refused before building because the disk is too full to finish it, exit 10 means
+    a -RerunFailed found every failed test FLAKY (still a failure - see THE FLAKY TEST RULE), and exit 9 means a
     suite NEVER RAN or did not finish: it executed zero tests with no filter, its result file says the
     run was aborted, or its outcome is one of the unfinished ones. None of them is a test failure
     (exit 1) and none of them is ever evidence.
@@ -93,9 +93,86 @@
     A crashed host leaves a dump the same way. The default run does not need it - its ceiling is two
     minutes and the kill is already here.
 
+    EVERY TEST PROCESS WRITES ITS TEMPORARY FILES INSIDE THE RUN FOLDER, AND THEY ARE DELETED WHEN THE RUN
+    ENDS, green or red. Test runs had left tens of thousands of folders in the user's TEMP and filled the
+    disk under the v2.18.0 gate; see $tempRoot below. A -Parked or -Gateway run also refuses to start
+    (exit 7) when the disk is too full to finish it.
+
     EVERY RUN WRITES A TRX FILE AND PRINTS ITS OUTCOME AND TEST COUNT. That pair, not the console
     "Passed!" line, is the verdict - see the comment above the run loop for why. A green with a collapsed
     count is the result most worth being able to go back and check.
+
+    QUARANTINED TESTS NEVER DECIDE A VERDICT. A test tagged [Trait("Gate", "Quarantine")] is excluded from
+    EVERY run of this script - default, -Parked, -Gateway - by a filter added to each suite, and runs only
+    under -Quarantine, whose result never fails anything. Quarantine is where a test goes that depends on
+    the machine (real git, real processes, the clock) while it is being rewritten against a fake or
+    deleted: out of the gate the same day, so the gate's red keeps meaning a code defect. It is a waiting
+    room, not a home - a quarantined test is fixed or deleted, and the trait is removed when it is fixed.
+
+.PARAMETER Quarantine
+    Run ONLY the quarantined tests (trait Gate=Quarantine), in every suite including the parked Core.Tests
+    and Gateway.UnitTests. Gateway.Tests is left out unless -Gateway is passed too, and -Quarantine -Gateway
+    then runs that suite's quarantined tests alone: a run that includes the Gateway suite takes the
+    release-gate lock, and with it included a look at the quarantine was REFUSED for the whole length of
+    someone else's release gate (found on 2026-10-11, when another session's full run held the lock for
+    about two hours).
+    Prints what passed and failed and exits 0 whenever the tests ran, failures or not: a quarantined test
+    never decides a verdict. (A build failure, a held lock or too little disk space still stop it, because
+    then nothing ran.) Writes no gate record, keeps its run folder so the failures can be read, and takes
+    the release-gate lock only with -Gateway, the one quarantine run that includes the Gateway suite.
+
+    A SUITE MAY NOT BE QUARANTINED WHOLE. Every gate suite must execute at least one test; a suite with
+    every test quarantined executes none and the run ends NEVER RAN. Delete such a suite from the list, or
+    fix its tests.
+
+    THE FLAKY TEST RULE - A FAILURE IS RE-RUN TEST BY TEST, NEVER BY RE-RUNNING THE GATE (issue #3879).
+    A test failure must mean a code defect. When the release gate fails:
+
+      1. Re-run ONLY its failed tests, on the same commit and configuration, once:
+             .\scripts\test-local.ps1 -RerunFailed <the run folder the red run printed>
+         It refuses a run that did not finish (a crash, a hang, a full disk: fix that and run the gate
+         again), more than 50 distinct failed tests (that is the machine or a real defect, not flakiness),
+         a different commit, a dirty tree, and a second re-run of the same run.
+      2. A test that fails AGAIN is a code defect. Exit 1: fix it on main and cut a new candidate.
+      3. A test that PASSES on the re-run is FLAKY - a defective test. Exit 10, and the gate still fails:
+         a FLAKY gate record is written beside the green ones, naming each flaky test, and
+         scripts\assert-gated.ps1 refuses it on its own. The flaky test is fixed or deleted THE SAME DAY,
+         in a test-only pull request merged to main (deleting it is pre-approved by the owner).
+      4. Then, from a clean checkout of main that contains the fix:
+             .\scripts\test-local.ps1 -ClearFlaky <candidate>
+         builds a throwaway worktree of the CANDIDATE'S product code with MAIN'S test projects, and runs
+         each flaky test there five times. A test is cleared as DELETED when it is no longer collected AND
+         no method of that name is left in any test project on main (a rename or a move is not a delete),
+         or as FIXED when it passes all five AND a file declaring its class changed since the candidate.
+         A test that passes five times with nobody having changed it is NOT cleared: a flaky test that
+         happened to pass is still flaky. If main's tests do not build or do not pass against the
+         candidate's product code, the fix needed a product change: the candidate is not cleared, and the
+         answer is a new candidate. All cleared: a clearance is recorded, exit 0.
+      5. scripts\assert-gated.ps1 then accepts the candidate, once the commit the clearance was made at is
+         on origin/main and the runs log shows this was the candidate's ONLY failed release gate (a second
+         whole gate followed by a re-run of the better one is a re-roll). It is tagged AS IT IS. Nothing
+         re-runs the whole gate to learn whether a failure was flaky, and nothing accepts a flaky test
+         without fixing or deleting it.
+
+    WHAT "FLAKY" DOES AND DOES NOT PROVE. It proves the test passed when run on its own, on the same
+    commit. A real product defect that only shows under the load of the full parallel suite - a race, an
+    ordering fault - can pass alone, and would then read as FLAKY. That is why a flaky test is never
+    accepted as it is: it must be fixed (and the fix must pass against the candidate's own product code)
+    or deleted, and whoever fixes it is looking straight at the place the defect would be. A suite that
+    exited nonzero without naming a failed test cannot be re-run test by test and is refused.
+
+    A re-run that hangs or crashes is named the same way as in the release gate (hang and crash
+    detection is always on for a targeted run), and its result is written into the red run's own run.json
+    as well as its own folder.
+
+.PARAMETER RerunFailed
+    The folder of a red run (verdict FAILED). Re-runs exactly its failed tests, by fully qualified method
+    name, on the same commit and configuration. Exit 10 when every one passes (FLAKY), 1 when any fails
+    again. See THE FLAKY TEST RULE above.
+
+.PARAMETER ClearFlaky
+    A candidate commit whose release gate was found FLAKY. Run on a clean checkout of main after the fix
+    merged; records the clearance assert-gated.ps1 needs. See THE FLAKY TEST RULE above.
 
 .PARAMETER Gateway
     Run ONLY the parked Gateway suite (host-bound). Takes the release-gate lock; refused with exit 6 if
@@ -104,7 +181,7 @@
 .PARAMETER Parked
     Also run the three parked suites - Gateway.Tests, Core.Tests and Gateway.UnitTests. This is the
     RELEASE gate. Takes the release-gate lock before building; a second one on this machine is refused
-    with exit 6, not queued. Expect the Gateway suite's own running time, which is most of an hour.
+    with exit 6, not queued. The Gateway suite takes about 10 minutes of it (four processes side by side).
 
 .PARAMETER Fast
     Retained for callers that pass it. The default IS fast now, so this is a no-op.
@@ -138,20 +215,37 @@ param(
     [switch]$Parked,
     [switch]$Fast,
     [switch]$KeepRun,
+    [switch]$Quarantine,
     [string]$Filter = "",
     [int]$ExpectTests = 0,
-    [string]$Configuration = "Debug"
+    [string]$Configuration = "Debug",
+    [string]$RerunFailed = "",
+    [string]$ClearFlaky = ""
 )
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $sln = Join-Path $repoRoot "cc-director.sln"
 . (Join-Path $PSScriptRoot "gate-lock.ps1")
+. (Join-Path $PSScriptRoot "gateway-test-shards.ps1")
 
 if ($Gateway -and $Parked) {
     Write-Error "-Gateway already runs a parked suite on its own; pass one or the other."
     exit 2
 }
+if ($Quarantine -and ($Parked -or $ExpectTests -gt 0)) {
+    Write-Error "-Quarantine runs the quarantined tests of every suite except Gateway.Tests (add -Gateway for that suite alone) and never gates; it cannot be combined with -Parked or -ExpectTests."
+    exit 2
+}
+
+# THE QUARANTINE TRAIT (see the header). Every suite run gets "Gate!=Quarantine" ANDed onto its filter, so
+# a quarantined test never runs in a gate; -Quarantine flips it to run only them.
+$QuarantineExclude = "Gate!=Quarantine"
+$QuarantineOnly = "Gate=Quarantine"
+# The caller's filter, ANDed with the quarantine trait: what each suite is actually given. $Filter itself stays
+# the caller's words, because the per-term check below reads its "FullyQualifiedName~" terms.
+$traitFilter = $(if ($Quarantine) { $QuarantineOnly } else { $QuarantineExclude })
+$suiteFilter = $(if ($Filter -ne "") { "($Filter)&$traitFilter" } else { $traitFilter })
 
 # THE TWO-MINUTE BUDGET IS THE RULE THIS LIST ENCODES. A suite is in the default run if it finishes
 # inside it, and parked if it does not. DURATIONS ONLY - the test counts live once in the header, with
@@ -207,7 +301,7 @@ $installerProjects = @(
 )
 
 # PARKED. Not deleted, not broken - excluded from the default because they cannot meet the budget.
-# Gateway.Tests runs for most of an hour and one at a time; Core.Tests costs 11 to 33 minutes of its
+# Gateway.Tests runs as several processes (see gateway-test-shards.ps1); Core.Tests costs 11 to 33 minutes of its
 # own; Gateway.UnitTests grew past the ceiling (see its block below). Run them with -Parked before a
 # release, and move any of them back into the list above the day it fits.
 $gatewayProject = "src\CcDirector.Gateway.Tests\CcDirector.Gateway.Tests.csproj"
@@ -281,6 +375,9 @@ if ($Gateway) {
 } else {
     $toRun = $defaultProjects + $installerProjects
     if ($Parked) { $toRun += $parkedProjects }
+    # Every parked suite but the Gateway one, which takes the machine's one release-gate lock; -Quarantine -Gateway
+    # runs it on its own (see the header).
+    if ($Quarantine) { $toRun += @($parkedProjects | Where-Object { $_ -ne $gatewayProject }) }
 }
 
 
@@ -297,8 +394,199 @@ if ($Gateway) {
 $commit = (& git -C $repoRoot rev-parse HEAD).Trim()
 $dirtyFiles = @(& git -C $repoRoot status --porcelain | Where-Object { $_ -ne "" })
 $treeClean = ($dirtyFiles.Count -eq 0)
+
+# THE TEST NAME A RE-RUN USES is the fully qualified METHOD name - TestMethod/@className plus "." plus
+# TestMethod/@name from the result file's definitions - never the display name in UnitTestResult/@testName,
+# which carries a theory's arguments and cannot be passed to a filter. Every row of a theory shares the one
+# method name, so a theory with one failing row is re-run whole: stricter, never weaker.
+function Read-TrxTestOutcomes([string] $TrxPath) {
+    $raw = [string] (Get-Content $TrxPath -Raw)
+    if ([string]::IsNullOrWhiteSpace($raw)) { return @() }
+    [xml] $doc = $raw
+    $methodById = @{}
+    foreach ($def in @($doc.TestRun.TestDefinitions.UnitTest)) {
+        if ($null -eq $def) { continue }
+        $methodById[[string] $def.id] = ([string] $def.TestMethod.className) + "." + ([string] $def.TestMethod.name)
+    }
+    $rows = @()
+    foreach ($u in @($doc.TestRun.Results.UnitTestResult)) {
+        if ($null -eq $u) { continue }
+        # A result with no definition keeps Test = $null rather than being dropped, so a caller can refuse
+        # a failure it cannot name instead of losing it.
+        $rows += [pscustomobject]@{ Test = $methodById[[string] $u.testId]; Outcome = [string] $u.outcome; Display = [string] $u.testName }
+    }
+    return $rows
+}
+
+function Get-TrxFailedTests([string] $TrxPath) {
+    $failed = @(Read-TrxTestOutcomes $TrxPath | Where-Object { $_.Outcome -eq "Failed" })
+    $unnamed = @($failed | Where-Object { $null -eq $_.Test })
+    if ($unnamed.Count -gt 0) {
+        Stop-Refused ("{0} failed result(s) in {1} have no test definition, so they cannot be re-run by name (first: {2}). Read the result file; a re-run that dropped them would hide a failure." -f $unnamed.Count, $TrxPath, $unnamed[0].Display)
+    }
+    return @($failed | ForEach-Object { $_.Test } | Sort-Object -Unique)
+}
+
+# A filter that names exactly these methods. The filter language gives \ ( ) & | = ! ~ a meaning, so each
+# is escaped with a backslash; a name is matched by equality, never by "contains", so a re-run of one
+# test cannot quietly pick up its neighbours.
+function New-ExactTestFilter([string[]] $Tests) {
+    $terms = foreach ($t in $Tests) {
+        $escaped = ($t -replace '([\\()&|=!~])', '\$1')
+        "FullyQualifiedName=$escaped"
+    }
+    return ($terms -join "|")
+}
+
+# ---------------------------------------------------------------------------------------------------
+# A TARGETED RUN: -RerunFailed or -ClearFlaky. Each runs a short, named list of tests instead of whole
+# suites, and the rule they carry out is in the header (THE FLAKY TEST RULE). Everything here is decided
+# BEFORE the run folder exists, so a refusal leaves nothing behind.
+$targetMode = ""
+$targets = @()          # one entry per test: Suite, Project, Test (the fully qualified method name)
+$targetRepeat = 1
+$sourceRun = $null      # -RerunFailed: the red run being re-run
+$sourceRunFolder = ""
+$flakyRecord = $null    # -ClearFlaky: the FLAKY gate record being cleared
+$flakyRecordPath = ""
+$candidate = ""
+# A re-run of more than this many distinct tests is not a re-run: that many failures at once is the
+# machine (a full disk, a dead service) or a real defect, and the answer is to fix that and run the gate.
+$MaxRerunTests = 50
+# How many times -ClearFlaky runs each repaired test. A flaky test passes most of the time by
+# definition, so one pass proves little; five in a row, with its code changed, is the bar.
+$ClearFlakyRepeat = 5
+
+function Stop-Refused([string] $Message) {
+    Write-Host ""
+    Write-Host "RESULT: REFUSED - $Message"
+    Write-Host ""
+    exit 2
+}
+
+# Every suite this script knows, by the name used for its result file.
+function Get-ProjectForSuite([string] $Suite) {
+    $Suite = Get-SuiteBaseName $Suite
+    foreach ($proj in ($defaultProjects + $installerProjects + $parkedProjects)) {
+        if ((Split-Path -Leaf ([System.IO.Path]::GetDirectoryName((Join-Path $repoRoot $proj)))) -eq $Suite) { return $proj }
+    }
+    return $null
+}
+
+if ($RerunFailed -ne "" -or $ClearFlaky -ne "") {
+    if ($RerunFailed -ne "" -and $ClearFlaky -ne "") { Stop-Refused "pass -RerunFailed or -ClearFlaky, not both." }
+    if ($Gateway -or $Parked -or $Quarantine -or $Filter -ne "" -or $ExpectTests -gt 0) {
+        Stop-Refused "-RerunFailed and -ClearFlaky choose their own tests; they cannot be combined with -Gateway, -Parked, -Quarantine, -Filter or -ExpectTests."
+    }
+    if (-not $treeClean) {
+        Stop-Refused ("the tree is dirty ({0} changed or untracked files). A targeted run proves something about a COMMIT, so it runs only on a clean one." -f $dirtyFiles.Count)
+    }
+}
+
+if ($RerunFailed -ne "") {
+    $targetMode = "RERUN"
+    $resolved = Resolve-Path -LiteralPath $RerunFailed -ErrorAction SilentlyContinue
+    if ($null -eq $resolved) { Stop-Refused "the run folder '$RerunFailed' does not exist. A red run's folder is kept; its path is printed at the end of that run." }
+    $sourceRunFolder = [string] $resolved
+    $sourceJson = Join-Path $sourceRunFolder "run.json"
+    if (-not (Test-Path $sourceJson)) { Stop-Refused "'$sourceRunFolder' holds no run.json, so it is not a run folder of this script." }
+    $sourceRun = Get-Content $sourceJson -Raw | ConvertFrom-Json
+    if ($sourceRun.verdict -ne "FAILED" -or $sourceRun.exitCode -ne 1) {
+        Stop-Refused ("that run's verdict was '{0}' (exit {1}). Only a run that FINISHED with failing tests can be re-run test by test. A run that never ran, did not finish, or did not build has no list of failures to trust - fix its cause and run it again." -f $sourceRun.verdict, $sourceRun.exitCode)
+    }
+    if ($null -ne $sourceRun.PSObject.Properties["rerun"] -and $null -ne $sourceRun.rerun) {
+        Stop-Refused "that run has already been re-run (verdict $($sourceRun.rerun.verdict), in $($sourceRun.rerun.runFolder)). A failure gets ONE re-run: re-running until it passes is exactly how a flaky test gets quietly accepted."
+    }
+    if ($sourceRun.commit -ne $commit) {
+        Stop-Refused "that run was on commit $($sourceRun.commit) and this checkout is at $commit. A re-run must be on the SAME commit, or it proves nothing about the run it is re-running. Check out $($sourceRun.commit) (detached, in its own worktree) and run this there."
+    }
+    if ($PSBoundParameters.ContainsKey("Configuration") -and $Configuration -ne $sourceRun.configuration) {
+        Stop-Refused "that run was $($sourceRun.configuration) and this asks for $Configuration. A re-run uses the configuration of the run it re-runs; leave -Configuration off."
+    }
+    $Configuration = [string] $sourceRun.configuration
+    foreach ($suite in @($sourceRun.suites)) {
+        # A suite that exited nonzero WITHOUT a failed test - a crash after its results were written, a
+        # fixture that failed outside any one test - failed for a reason no re-run of named tests can
+        # reach, so it is refused here instead of being left out of the re-run and so out of the verdict.
+        if ($suite.outcome -ne "Failed" -and $null -ne $suite.exitCode -and [int] $suite.exitCode -ne 0) {
+            Stop-Refused "suite $($suite.name) exited $($suite.exitCode) with outcome=$($suite.outcome) - it failed outside any single test, so re-running failed tests cannot judge it. Read $(Join-Path $sourceRunFolder "$($suite.name).log"), fix the cause, and run the gate again."
+        }
+        if ($suite.outcome -ne "Failed") { continue }
+        $trxPath = Join-Path $sourceRunFolder "$($suite.name).trx"
+        if (-not (Test-Path $trxPath)) { Stop-Refused "suite $($suite.name) failed in that run but its result file $trxPath is missing." }
+        $proj = Get-ProjectForSuite $suite.name
+        if ($null -eq $proj) { Stop-Refused "suite $($suite.name) is not a suite this script knows." }
+        $failedHere = @(Get-TrxFailedTests $trxPath)
+        if ($failedHere.Count -eq 0) { Stop-Refused "suite $($suite.name) reported outcome=Failed but its result file names no failed test, so there is no list to re-run. Read $trxPath." }
+        foreach ($test in $failedHere) {
+            # A Gateway.Tests shard's failures re-run as Gateway.Tests tests: the re-run runs each project once, by
+            # name, and keys what it saw by the suite's base name.
+            $targets += [pscustomobject]@{ Suite = (Get-SuiteBaseName ([string] $suite.name)); Project = $proj; Test = $test }
+        }
+    }
+    if ($targets.Count -eq 0) { Stop-Refused "no suite in that run reported failed tests, so there is nothing to re-run." }
+    if ($targets.Count -gt $MaxRerunTests) {
+        Stop-Refused ("{0} distinct tests failed in that run; a re-run takes at most {1}. That many failures at once is the machine (a full disk, a service that is down) or a real defect, not a flaky test. Read the logs in {2}, fix the cause, and run the gate again." -f $targets.Count, $MaxRerunTests, $sourceRunFolder)
+    }
+}
+
+if ($ClearFlaky -ne "") {
+    $targetMode = "CLEAR"
+    $targetRepeat = $ClearFlakyRepeat
+    $candidate = (& git -C $repoRoot rev-parse --verify --quiet "$ClearFlaky^{commit}" 2>$null)
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($candidate)) { Stop-Refused "'$ClearFlaky' is not a commit in this repository." }
+    $candidate = $candidate.Trim()
+    $recordDir = Get-GateRecordDirectory
+    $flakyFiles = @()
+    if (Test-Path $recordDir) { $flakyFiles = @(Get-ChildItem -Path $recordDir -Filter "$candidate-*.json" | Sort-Object Name) }
+    foreach ($f in $flakyFiles) {
+        $rec = Get-Content $f.FullName -Raw | ConvertFrom-Json
+        if ($rec.verdict -eq "FLAKY") { $flakyRecord = $rec; $flakyRecordPath = $f.FullName }
+    }
+    if ($null -eq $flakyRecord) {
+        Stop-Refused "no FLAKY gate record exists for $candidate in $recordDir. -ClearFlaky clears the flaky tests that a -RerunFailed of that candidate's red release gate named."
+    }
+    & git -C $repoRoot merge-base --is-ancestor $candidate $commit
+    if ($LASTEXITCODE -ne 0) {
+        Stop-Refused "this checkout ($commit) does not contain the candidate $candidate. Clear the flaky tests on main AFTER the fix merged: check out main in its own worktree and run this there."
+    }
+    if ($PSBoundParameters.ContainsKey("Configuration") -and $Configuration -ne $flakyRecord.configuration) {
+        Stop-Refused "the candidate was gated in $($flakyRecord.configuration) and this asks for $Configuration; leave -Configuration off."
+    }
+    $Configuration = [string] $flakyRecord.configuration
+    foreach ($t in @($flakyRecord.rerun.flaky)) {
+        $proj = Get-ProjectForSuite $t.suite
+        if ($null -eq $proj) {
+            Stop-Refused "the flaky test $($t.test) was in suite $($t.suite), which this script no longer runs. Removing a whole suite is not clearing a test."
+        }
+        $targets += [pscustomobject]@{ Suite = [string] $t.suite; Project = $proj; Test = [string] $t.test }
+    }
+    if ($targets.Count -eq 0) { Stop-Refused "the FLAKY record $flakyRecordPath names no flaky test." }
+}
+
+if ($targetMode -ne "") {
+    $toRun = @($targets | ForEach-Object { $_.Project } | Select-Object -Unique)
+}
 $logDir = Join-Path ([System.IO.Path]::GetTempPath()) ("cc-test-local-" + [Guid]::NewGuid().ToString("N").Substring(0,8))
 New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+
+# EVERY TEST PROCESS GETS ITS OWN TEMPORARY FOLDER INSIDE THE RUN FOLDER, AND IT IS DELETED WHEN THE RUN
+# ENDS - green or red. The result files and logs sit beside it and are kept as before.
+#
+# WHY. Thousands of tests create a folder under Path.GetTempPath() and never remove it. Measured on
+# 2026-10-11: one run of Gateway.UnitTests alone left 263 folders and 83 MB behind, the user's TEMP held
+# 35,849 folders, and 20,505 of them - 44 GB - had been written in the previous 24 hours. During the
+# v2.18.0 release gate drive C: filled: all 1,675 Gateway.UnitTests failures and all 45 Core.Tests
+# failures in that run were "not enough space on the disk", and the "SQLite Error 10: disk I/O error"
+# failures (issue #3880) are very likely the same thing. A gate that fills the disk fails for a reason
+# that has nothing to do with the code, which is exactly the kind of red this gate must never produce.
+#
+# TEMP and TMP are set for each child, so Path.GetTempPath() inside the test host lands here. The lock
+# does not move with it: gate-lock.ps1 derives its path from the local application data folder precisely
+# so that a changed TEMP cannot split it. The folder names are kept
+# SHORT (t\0, t\1, ...) because tests build deep paths under it and Windows still has a 260-character
+# limit in places; run.json maps each number to its suite.
+$tempRoot = Join-Path $logDir "t"
 
 $runRecord = [ordered]@{
     commit        = $commit
@@ -306,8 +594,10 @@ $runRecord = [ordered]@{
     dirtyFiles    = @($dirtyFiles | Select-Object -First 50)
     parked        = [bool] $Parked
     gateway       = [bool] $Gateway
+    quarantine    = [bool] $Quarantine
     configuration = $Configuration
     filter        = $Filter
+    suiteFilter   = $suiteFilter
     expectTests   = $ExpectTests
     startedUtc    = (Get-Date).ToUniversalTime().ToString("o")
     machine       = [Environment]::MachineName
@@ -318,8 +608,106 @@ $runRecord = [ordered]@{
     finishedUtc   = $null
     exitCode      = $null
     verdict       = "RUNNING"
+    mode          = $(if ($targetMode -eq "") { "SUITES" } else { $targetMode })
+    tempLeftBehind = $null
     suites        = @()
 }
+# What each suite left in its temporary folder, measured just before the folder is deleted, keyed by
+# suite name. Recorded per suite in run.json and the runs log, so the free-space floor below can be set
+# from real runs instead of from one measurement.
+$tempUsage = @{}
+$running = $null
+$targetedRuns = @()
+
+# Deletes a folder tree and returns how many items are left in it (0: it is gone). rd with the \\?\ prefix,
+# because Remove-Item in Windows PowerShell 5.1 fails on paths over 260 characters and tests do build
+# paths that deep; rd also removes a junction without following it into its target.
+function Remove-FolderTree([string] $Path) {
+    if (-not (Test-Path -LiteralPath $Path)) { return 0 }
+    if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
+        & $env:ComSpec /d /c "rd /s /q `"\\?\$Path`" >nul 2>&1"
+    } else {
+        Remove-Item -Recurse -Force -LiteralPath $Path -ErrorAction SilentlyContinue
+    }
+    if (-not (Test-Path -LiteralPath $Path)) { return 0 }
+    return [Math]::Max(1, @(Get-ChildItem -LiteralPath $Path -Recurse -Force -ErrorAction SilentlyContinue).Count)
+}
+
+# Measures what a folder holds. This is a MEASUREMENT for run.json, never part of the verdict, so it
+# must not throw: under "Stop" a throw here would skip Stop-Gate's records and exit code entirely. Windows
+# PowerShell 5.1 refuses the \\?\ long-path prefix in System.IO ("Illegal characters in path"), so a
+# folder too deep to read - or a junction a test left broken, or one deleted mid-walk - is COUNTED as
+# unreadable, never silently treated as empty. Junctions and symbolic links are not followed.
+function Measure-FolderTree([string] $Path) {
+    $files = 0; $bytes = [long] 0; $unreadable = 0
+    $stack = New-Object System.Collections.Stack
+    $stack.Push($Path)
+    while ($stack.Count -gt 0) {
+        $dirPath = [string] $stack.Pop()
+        try {
+            $d = New-Object System.IO.DirectoryInfo $dirPath
+            foreach ($f in $d.GetFiles()) { $files++; $bytes += $f.Length }
+            foreach ($sub in $d.GetDirectories()) {
+                if (($sub.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) { $stack.Push($sub.FullName) }
+            }
+        } catch {
+            $unreadable++
+        }
+    }
+    return [ordered]@{ files = $files; bytes = $bytes; megabytes = [Math]::Round($bytes / 1MB, 1); unreadableFolders = $unreadable }
+}
+
+# Ends every test process this run started that is still alive, with its whole tree. Only reached when
+# the run is stopped before its verdict (Ctrl+C, an exception): deleting the temporary folders under a
+# live test host would pull files out from under it. Only processes THIS run started are touched.
+function Stop-RunProcesses {
+    foreach ($r in @(@($running) + @($targetedRuns))) {
+        if ($null -eq $r -or $null -eq $r.Process -or $r.Process.HasExited) { continue }
+        if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
+            & $env:ComSpec /d /c "taskkill /T /F /PID $($r.Process.Id) >nul 2>&1"
+        } else {
+            $r.Process.Kill()
+        }
+        $null = $r.Process.WaitForExit(10000)
+    }
+}
+
+# Measures and deletes the run's temporary folders. Called on every path that ends a run. A folder that
+# survives is NAMED, never ignored: it means a process the run started is still alive and holding a
+# file, which the person running the gate needs to know.
+function Remove-RunTemp {
+    if (-not (Test-Path -LiteralPath $tempRoot)) { return }
+    foreach ($dir in @(Get-ChildItem -LiteralPath $tempRoot -Directory)) {
+        $m = Measure-FolderTree $dir.FullName
+        $suite = $dir.Name
+        $match = @(@($running) + @($targetedRuns) | Where-Object { $null -ne $_ -and $_.TempName -eq $dir.Name })
+        if ($match.Count -eq 1) { $suite = $match[0].Name }
+        # A targeted run starts one suite several times; its passes add up under the one suite name.
+        if ($tempUsage.Contains($suite)) {
+            $m.files += $tempUsage[$suite].files
+            $m.bytes += [long] ($tempUsage[$suite].bytes)
+            $m.megabytes = [Math]::Round($m.bytes / 1MB, 1)
+            $m.unreadableFolders += $tempUsage[$suite].unreadableFolders
+        }
+        $tempUsage[$suite] = $m
+    }
+    $left = Remove-FolderTree $tempRoot
+    $runRecord.tempLeftBehind = $left
+    if ($left -gt 0) {
+        Write-Host ("ERROR: the run's temporary folder could not be fully deleted - {0} item(s) remain in {1}." -f $left, $tempRoot)
+        Write-Host "  A process this run started is still alive and holding a file. Find it (a testhost or dotnet process"
+        Write-Host "  whose working files are under that folder), end it, and delete the folder by hand."
+    } else {
+        $total = 0.0; $unreadable = 0
+        foreach ($v in $tempUsage.Values) { $total += $v.megabytes; $unreadable += $v.unreadableFolders }
+        if ($unreadable -gt 0) {
+            Write-Host ("Temporary folders deleted: the test processes had left at least {0} MB in them; {1} folder(s) were too deep or broken to measure." -f [Math]::Round($total, 1), $unreadable)
+        } else {
+            Write-Host ("Temporary folders deleted: the test processes had left {0} MB in them." -f [Math]::Round($total, 1))
+        }
+    }
+}
+
 function Write-RunRecord {
     if (Test-Path $logDir) {
         $runRecord | ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $logDir "run.json") -Encoding Ascii
@@ -341,6 +729,10 @@ Write-RunRecord
 # that file is what scripts\assert-gated.ps1 reads, and it outlives the run folder. "exit" here flows
 # through the finally block below, so the release-gate lock is released as on every other path.
 function Stop-Gate([int] $Code, [string] $Verdict) {
+    # A verdict can be reached while other suites of the same pass are still running (a targeted run stops
+    # at the first suite that did not finish). End them before their folders are deleted under them.
+    Stop-RunProcesses
+    Remove-RunTemp
     $runRecord.finishedUtc = (Get-Date).ToUniversalTime().ToString("o")
     $runRecord.exitCode = $Code
     $runRecord.verdict = $Verdict
@@ -352,12 +744,13 @@ function Stop-Gate([int] $Code, [string] $Verdict) {
                 total    = $(if ($null -ne $_.PSObject.Properties["Total"]) { [int] $_.Total } else { 0 })
                 executed = $(if ($null -ne $_.PSObject.Properties["Executed"]) { [int] $_.Executed } else { 0 })
                 exitCode = $_.Process.ExitCode
+                temp     = $tempUsage[$_.Name]
             }
         })
     }
     Write-RunRecord
     Write-RunsLog
-    if ($Code -eq 0 -and $Parked -and $Filter -eq "") {
+    if ($Code -eq 0 -and $Parked -and $Filter -eq "" -and -not $Quarantine) {
         $recordDir = Get-GateRecordDirectory
         New-Item -ItemType Directory -Force $recordDir | Out-Null
         $stamp = ([DateTime]::Parse($runRecord.startedUtc)).ToUniversalTime().ToString("yyyyMMddTHHmmssZ")
@@ -371,70 +764,100 @@ function Stop-Gate([int] $Code, [string] $Verdict) {
     # A green run's folder is deleted, a red run's is kept, and -KeepRun keeps a green one. The folder is
     # only ever removed AFTER the records above are written - run.json's content is in the runs log by
     # then - so nothing a later reader needs goes with it.
-    if ($Code -eq 0 -and -not $KeepRun) {
-        Remove-Item -Recurse -Force $logDir
-        Write-Host "Run folder deleted (green run; pass -KeepRun to keep the result files)."
+    if ($Code -eq 0 -and -not $KeepRun -and $runRecord.tempLeftBehind -gt 0) {
+        Write-Host "Run folder kept, although the run is green, because its temporary folder could not be deleted: $logDir"
+    } elseif ($Code -eq 0 -and -not $KeepRun) {
+        $leftInRun = Remove-FolderTree $logDir
+        if ($leftInRun -gt 0) {
+            Write-Host "ERROR: the run folder could not be fully deleted - $leftInRun item(s) remain in $logDir. Delete it by hand."
+        } else {
+            Write-Host "Run folder deleted (green run; pass -KeepRun to keep the result files)."
+        }
     } elseif ($Code -ne 0) {
         Write-Host "Run folder kept: $logDir"
     }
     exit $Code
 }
 
-# ONE RUN HOLDING THE GATEWAY SUITE AT A TIME. A SECOND ONE IS REFUSED HERE, BEFORE THE BUILD, NEVER
-# QUEUED. See the header and scripts\gate-lock.ps1 for why: a queue hid nineteen conflicting release
-# gates for forty-five minutes each, and every one of them then executed nothing.
+# A RELEASE GATE DOES NOT START ON A DISK THAT IS ABOUT TO FILL. The v2.18.0 gate ran drive C: out of
+# space part way through and every failure after that was the disk, not the code - hours of run that
+# certified nothing. So a -Parked or -Gateway run checks first and refuses with exit 7, before taking a
+# lock or building anything.
 #
-# Two locks are consulted. The Gateway suite's OWN lock is only probed: the test process takes that one
-# itself when it starts, so a hand-run "dotnet test" of the suite holds it and a gate that built for
-# minutes would then find its child queued behind that run. The release-gate lock is TAKEN and held
-# until this script ends, in the finally block below - held in a variable, not in a scope, so that a
-# script run from an interactive shell (whose process survives "exit") releases it too.
+# THE NUMBERS, AND WHERE THEY COME FROM. The temporary folders and the run folder live on the TEMP drive;
+# the build output lives on the repository's drive. Measured 2026-10-11: a Release build of the solution
+# is 3.8 GB; one Gateway.UnitTests run left 83 MB in its temporary folder, and the Gateway.Tests suite,
+# which writes a SQLite database per test, leaves several times that; a crash or hang dump of a test host
+# is hundreds of megabytes. 15 GB on the TEMP drive and 10 GB on the repository drive leaves a wide
+# margin over all of that. Every run now records what each suite actually left (run.json, "temp"), so
+# tune these from those records, not by guessing.
+$MinFreeTempGB = 15
+$MinFreeRepoGB = 10
+# A FILTERED run writes a fraction of that, so the floor applies to the unfiltered runs only.
+if (($Parked -or $Gateway -or $Quarantine) -and $Filter -eq "") {
+    $short = @()
+    foreach ($check in @(@{ Path = $logDir; Min = $MinFreeTempGB; What = "the TEMP drive (run folder and test temporary folders)" },
+                         @{ Path = $repoRoot; Min = $MinFreeRepoGB; What = "the repository drive (build output)" })) {
+        $root = [System.IO.Path]::GetPathRoot($check.Path)
+        if ($root.StartsWith("\\")) {
+            $short += ("  {0} {1}: a network path, whose free space this script cannot read. Run the release gate from a local drive." -f $root, $check.What)
+            continue
+        }
+        $drive = New-Object System.IO.DriveInfo $root
+        $freeGB = [Math]::Round($drive.AvailableFreeSpace / 1GB, 1)
+        if ($freeGB -lt $check.Min) { $short += ("  {0} {1}: {2} GB free, at least {3} GB needed" -f $drive.Name, $check.What, $freeGB, $check.Min) }
+    }
+    if ($short.Count -gt 0) {
+        Write-Host ""
+        Write-Host "RESULT: REFUSED - NOT ENOUGH FREE DISK SPACE for a release gate. Nothing was built and nothing was started."
+        foreach ($s in $short) { Write-Host $s }
+        Write-Host ""
+        Write-Host "A gate that fills the disk fails for a reason that has nothing to do with the code. Free space first -"
+        Write-Host "old cc-test-local-* and other test folders in TEMP are the usual culprit (the reclaim-disk skill) -"
+        Write-Host "and run this again."
+        Remove-Item $logDir -Recurse -Force
+        exit 7
+    }
+}
+
+# ONE RELEASE GATE AT A TIME. A SECOND ONE IS REFUSED HERE, BEFORE THE BUILD, NEVER QUEUED. See the
+# header and scripts\gate-lock.ps1 for why: a queue hid nineteen conflicting release gates for
+# forty-five minutes each, and every one of them then executed nothing.
+#
+# The release-gate lock is TAKEN and held until this script ends, in the finally block below - held in a
+# variable, not in a scope, so that a script run from an interactive shell (whose process survives "exit")
+# releases it too. Gateway.Tests no longer has a lock of its own (scripts\gate-lock.ps1 says why).
 $gateLock = $null
 if ($toRun -contains $gatewayProject) {
     $command = "test-local.ps1"
     if ($Parked) { $command += " -Parked" }
     if ($Gateway) { $command += " -Gateway" }
+    if ($Quarantine) { $command += " -Quarantine" }
+    if ($RerunFailed -ne "") { $command += " -RerunFailed `"$RerunFailed`"" }
+    if ($ClearFlaky -ne "") { $command += " -ClearFlaky $ClearFlaky" }
     $command += " -Configuration $Configuration"
     if ($Filter -ne "") { $command += " -Filter `"$Filter`"" }
-    $suiteLockPath = Get-GatewaySuiteLockPath
     $gateLockPath = Get-ReleaseGateLockPath
-    $suiteHeld = $false
     try {
-        $suiteHeld = Test-GateLockHeld $suiteLockPath
-        if (-not $suiteHeld) {
-            $gateLock = Enter-GateLock $gateLockPath ([ordered]@{
-                session = (Get-GateLockSessionName); commit = $commit; command = $command
-                directory = $repoRoot; runFolder = $logDir })
-        }
+        $gateLock = Enter-GateLock $gateLockPath ([ordered]@{
+            session = (Get-GateLockSessionName); commit = $commit; command = $command
+            directory = $repoRoot; runFolder = $logDir })
     } catch {
         # Only a sharing conflict means "held", and the helper answers that without throwing. Anything that
         # reaches here is a fault in the lock's home - permissions, a directory at the path, a read-only
-        # file, a full disk - which no amount of waiting clears. Named here, as the C# lock names it,
-        # instead of dying with a raw constructor error and an empty run folder left behind.
+        # file, a full disk - which no amount of waiting clears. Named here instead of dying with a raw
+        # constructor error and an empty run folder left behind.
         $fault = Get-GateLockInnerException $_.Exception
         Write-Host ""
         Write-Host "RESULT: CANNOT SET UP THE GATE LOCK - nothing was built and nothing was started."
         Write-Host ("  " + $fault.GetType().Name + ": " + $fault.Message)
-        Write-Host "  Lock files: $gateLockPath and $suiteLockPath"
+        Write-Host "  Lock file: $gateLockPath"
         Write-Host ""
         Write-Host "This is NOT another run holding the lock. It is a fault in the lock's location that will not"
         Write-Host "clear by waiting: fix the path above (permissions, a directory or read-only file sitting at it,"
         Write-Host "a full disk) and run this again."
         Remove-Item $logDir -Recurse -Force
         exit 2
-    }
-    if ($suiteHeld) {
-        Write-Host ""
-        Write-Host "RESULT: REFUSED - a run of CcDirector.Gateway.Tests is in progress on this machine, and this"
-        Write-Host "run includes that suite. Nothing was built and nothing was started."
-        Write-Host ("  Holder: " + (Format-GateLockHolder (Read-GateLockHolder $suiteLockPath)))
-        Write-Host "  Lock file: $suiteLockPath"
-        Write-Host ""
-        Write-Host "Two runs of that suite corrupt each other, so there is one at a time per user per machine."
-        Write-Host "This run does not queue: a queue hides the conflict until it expires. Wait for the holder to"
-        Write-Host "finish - or, if it is stuck, end that process - and run this again."
-        Remove-Item $logDir -Recurse -Force
-        exit 6
     }
     if ($null -eq $gateLock) {
         Write-Host ""
@@ -451,9 +874,87 @@ if ($toRun -contains $gatewayProject) {
     }
 }
 
+# STARTS ONE TEST PROJECT and returns what the verdict needs to read back. $Label is appended to the
+# result and log file names, so a targeted run that starts one suite several times keeps every pass.
+# The child inherits this script's environment at Start-Process, so TEMP and TMP are pointed at the
+# suite's own folder just for the launch and put back straight after (see $tempRoot above).
+$script:suiteIndex = 0
+function Start-TestSuite([string] $Proj, [string] $Label, [string[]] $ExtraArgs) {
+    $name = Split-Path -Leaf ([System.IO.Path]::GetDirectoryName((Join-Path $repoRoot $Proj)))
+    $out = Join-Path $logDir "$name$Label.log"
+    $trxName = "$name$Label.trx"
+    $tempName = [string] $script:suiteIndex
+    $script:suiteIndex++
+    $suiteTemp = Join-Path $tempRoot $tempName
+    New-Item -ItemType Directory -Force $suiteTemp | Out-Null
+    $testArgs = @("test", (Join-Path $repoRoot $Proj), "--no-build", "-c", $Configuration, "--nologo", "-v", "q",
+                  "--logger", "trx;LogFileName=$trxName", "--results-directory", $logDir) + $ExtraArgs
+    $savedTemp = $env:TEMP
+    $savedTmp = $env:TMP
+    try {
+        $env:TEMP = $suiteTemp
+        $env:TMP = $suiteTemp
+        $p = Start-Process -FilePath "dotnet" -ArgumentList $testArgs -NoNewWindow -PassThru `
+                           -RedirectStandardOutput $out -RedirectStandardError "$out.err"
+    } finally {
+        $env:TEMP = $savedTemp
+        $env:TMP = $savedTmp
+    }
+
+    # Touching .Handle keeps the process handle OPEN, which is the only reason ExitCode is readable
+    # after the process ends. Without it Start-Process -PassThru hands back an object whose ExitCode
+    # is EMPTY once the child exits - and "$null -eq 0" is false, so every project was classified
+    # FAIL. This script is the merge gate, and it was reporting "RESULT: FAILED in 7 project(s)"
+    # over seven lines that each said "Passed!  - Failed: 0". A gate that fails on green is worse
+    # than no gate: it trains everyone to ignore it, or to go and wait fifty minutes for CI.
+    #
+    # This mission met the same bug independently and wrote the same fix; main's landed first and is kept
+    # as the incumbent, with the duplicate dropped. TWO copies would cache the handle twice, and a
+    # careless resolution of the same conflict would leave NEITHER - the original bug back, with two
+    # commits in the history each claiming to have fixed it.
+    $null = $p.Handle
+
+    return [pscustomobject]@{ Name = $name; Process = $p; Log = $out; Trx = (Join-Path $logDir $trxName); TempName = $tempName }
+}
+
+$originalRoot = $repoRoot
+$clearTree = $null
 try {
+    # -ClearFlaky TESTS THE CANDIDATE'S PRODUCT CODE, NOT MAIN'S. The candidate is what gets tagged, so a
+    # flaky test is cleared against it: a throwaway worktree at the candidate, with every test project
+    # (and the shared test infrastructure) replaced by main's. If main's tests only pass because of a
+    # product change made after the candidate, they fail here or do not build - and then the "flaky test"
+    # was a product defect, the candidate is not cleared, and the answer is a new candidate.
+    if ($targetMode -eq "CLEAR") {
+        $testDirs = @(@($defaultProjects + $installerProjects + $parkedProjects | ForEach-Object { (Split-Path -Parent $_) -replace '\\', '/' }) +
+                      @("src/TestInfrastructure") | Select-Object -Unique)
+        $clearTree = Join-Path (Split-Path -Parent $originalRoot) ((Split-Path -Leaf $originalRoot) + ".clear-" + (Split-Path -Leaf $logDir))
+        Write-Host "Building the candidate's product code with main's tests in $clearTree ..."
+        & git -C $originalRoot worktree add -q --detach $clearTree $candidate
+        if ($LASTEXITCODE -ne 0) { $clearTree = $null; Write-Host "RESULT: could not create the clearance worktree."; Stop-Gate 1 "CLEARANCE TREE FAILED" }
+        & git -C $clearTree rm -r -q --ignore-unmatch -- @($testDirs)
+        if ($LASTEXITCODE -ne 0) { Write-Host "RESULT: could not remove the candidate's test projects from $clearTree."; Stop-Gate 1 "CLEARANCE TREE FAILED" }
+        # ls-tree answers an absent path with no output and no error; a native error under "Stop" would throw.
+        $onMain = @($testDirs | Where-Object { @(& git -C $originalRoot ls-tree --name-only $commit -- $_).Count -gt 0 })
+        & git -C $clearTree checkout $commit -- @($onMain)
+        if ($LASTEXITCODE -ne 0) { Write-Host "RESULT: could not bring main's test projects into $clearTree."; Stop-Gate 1 "CLEARANCE TREE FAILED" }
+        $repoRoot = $clearTree
+        $sln = Join-Path $repoRoot "cc-director.sln"
+    }
+
     Write-Host "Building once, then running $($toRun.Count) test project(s)..."
-    & dotnet build $sln -c $Configuration -v q --nologo
+    $buildServerArgs = @()
+    # A build server would keep files in the throwaway clearance worktree open, and it could not be removed.
+    if ($null -ne $clearTree) { $buildServerArgs = @("--disable-build-servers") }
+    & dotnet build $sln -c $Configuration -v q --nologo @buildServerArgs
+    if ($LASTEXITCODE -ne 0 -and $null -ne $clearTree) {
+        Write-Host ""
+        Write-Host "RESULT: NOT CLEARED - main's test projects do not build against the candidate's product code: some test"
+        Write-Host "on main (not necessarily the flaky one) uses a product change made after the candidate, so this candidate"
+        Write-Host "cannot be cleared. The build output above names it. Cut a new candidate - and clear on the same day,"
+        Write-Host "while main is still close to the candidate."
+        Stop-Gate 1 "NOT CLEARED"
+    }
     if ($LASTEXITCODE -ne 0) {
         Write-Host ""
         Write-Host "RESULT: BUILD FAILED - no tests were run."
@@ -473,8 +974,246 @@ try {
         }
     }
 
-    $filterArgs = @()
-    if ($Filter -ne "") { $filterArgs = @("--filter", $Filter) }
+    # =================================================================================================
+    # THE TARGETED RUN (-RerunFailed, -ClearFlaky). It never falls through to the whole-suite run below:
+    # every path out of this block is a Stop-Gate. See THE FLAKY TEST RULE in the header.
+    if ($targetMode -ne "") {
+        # Hang and crash detection always: a targeted run has no ceiling, and a re-run that hangs must name
+        # the test, not hold the release.
+        $targetBlame = @("--blame-hang", "--blame-hang-timeout", "${HangTimeoutMinutes}m", "--blame-hang-dump-type", "mini",
+                         "--blame-crash", "--blame-crash-dump-type", "mini")
+        $outcomes = @{}
+        foreach ($t in $targets) { $outcomes["$($t.Suite)|$($t.Test)"] = New-Object System.Collections.Generic.List[string] }
+        $presentIn = @{}
+        foreach ($t in $targets) { $presentIn["$($t.Suite)|$($t.Test)"] = 0 }
+
+        Write-Host ("{0}: {1} test(s) in {2} suite(s), {3} pass(es)." -f $(if ($targetMode -eq "RERUN") { "RE-RUNNING THE FAILED TESTS" } else { "CLEARING THE FLAKY TESTS" }),
+            $targets.Count, $toRun.Count, $targetRepeat)
+        foreach ($t in $targets) { Write-Host "  $($t.Suite)  $($t.Test)" }
+        Write-Host ""
+
+        for ($pass = 1; $pass -le $targetRepeat; $pass++) {
+            $label = if ($targetMode -eq "RERUN") { ".rerun" } else { ".pass$pass" }
+            $started = @()
+            foreach ($proj in $toRun) {
+                $tests = @($targets | Where-Object { $_.Project -eq $proj } | ForEach-Object { $_.Test })
+                # A quarantined test is excluded here as everywhere: quarantining a flaky test takes it out of the
+                # gate, but it is not a fix, so it must not clear one (it then reads as NOT DELETED).
+                $r = Start-TestSuite $proj $label (@("--filter", ("(" + (New-ExactTestFilter $tests) + ")&$QuarantineExclude")) + $targetBlame)
+                $started += $r
+                $script:targetedRuns += $r
+                Write-Host "  pass $pass started $($r.Name)"
+            }
+            foreach ($r in $started) {
+                $r.Process.WaitForExit()
+                # The same instrument check as the whole-suite run: a result file that is missing, empty,
+                # unfinished or aborted is a run that did not happen, and its silence is not a pass.
+                $raw = ""
+                if (Test-Path $r.Trx) { $raw = [string] (Get-Content $r.Trx -Raw) }
+                $outcome = "NO-TRX"; $total = 0; $executed = 0
+                if (-not [string]::IsNullOrWhiteSpace($raw)) {
+                    [xml] $doc = $raw
+                    $outcome = [string] $doc.TestRun.ResultSummary.outcome
+                    $total = [int] $doc.TestRun.ResultSummary.Counters.total
+                    $executed = [int] $doc.TestRun.ResultSummary.Counters.executed
+                } elseif (Test-Path $r.Trx) {
+                    $outcome = "EMPTY-TRX"
+                }
+                $r | Add-Member -NotePropertyName Outcome -NotePropertyValue $outcome
+                $r | Add-Member -NotePropertyName Total -NotePropertyValue $total
+                $r | Add-Member -NotePropertyName Executed -NotePropertyValue $executed
+                Write-Host ("  pass {0} {1,-40} outcome={2,-12} total={3,-4} executed={4}" -f $pass, $r.Name, $outcome, $total, $executed)
+                $running = $script:targetedRuns
+                if (@("Completed", "Failed") -notcontains $outcome -or $raw.Contains("The active test run was aborted")) {
+                    Write-Host ""
+                    Write-Host "RESULT: NEVER RAN - $($r.Name) did not finish in pass $pass (outcome=$outcome). A targeted run"
+                    Write-Host "that did not finish proves nothing either way. Read $($r.Log), fix that, and run this again."
+                    foreach ($l in (Get-Content $r.Log -Tail 12 -ErrorAction SilentlyContinue)) { Write-Host "      $l" }
+                    Stop-Gate 9 "NEVER RAN"
+                }
+                $suiteTargets = @($targets | Where-Object { $_.Suite -eq $r.Name })
+                $before = @{}
+                foreach ($t in $suiteTargets) { $before["$($t.Suite)|$($t.Test)"] = $outcomes["$($t.Suite)|$($t.Test)"].Count }
+                foreach ($row in (Read-TrxTestOutcomes $r.Trx)) {
+                    $key = "$($r.Name)|$($row.Test)"
+                    if ($outcomes.ContainsKey($key)) { $outcomes[$key].Add($row.Outcome) }
+                }
+                # presentIn counts the PASSES that saw the test at all; a theory's rows count once per pass.
+                foreach ($t in $suiteTargets) {
+                    $key = "$($t.Suite)|$($t.Test)"
+                    if ($outcomes[$key].Count -gt $before[$key]) { $presentIn[$key] = $presentIn[$key] + 1 }
+                }
+            }
+        }
+        $running = $script:targetedRuns
+
+        if ($targetMode -eq "RERUN") {
+            $flaky = @(); $stillFailing = @(); $notRun = @()
+            foreach ($t in $targets) {
+                $seen = @($outcomes["$($t.Suite)|$($t.Test)"])
+                $entry = [ordered]@{ suite = $t.Suite; test = $t.Test }
+                if (@($seen | Where-Object { $_ -eq "Passed" -or $_ -eq "Failed" }).Count -eq 0) { $notRun += $entry }
+                elseif ($seen -contains "Failed") { $stillFailing += $entry }
+                else { $flaky += $entry }
+            }
+            $rerunResult = [ordered]@{
+                runFolder    = $logDir
+                startedUtc   = $runRecord.startedUtc
+                verdict      = $(if ($notRun.Count -gt 0) { "NEVER RAN" } elseif ($stillFailing.Count -gt 0) { "FAILED" } else { "FLAKY" })
+                flaky        = $flaky
+                stillFailing = $stillFailing
+                notRun       = $notRun
+            }
+            $runRecord.rerunOf = $sourceRunFolder
+            $runRecord.rerun = $rerunResult
+            # The re-run is written INTO the red run's own record, so that run cannot be re-run a second
+            # time and anyone reading it sees what the re-run found.
+            $sourceRun | Add-Member -NotePropertyName rerun -NotePropertyValue $rerunResult -Force
+            $sourceRun | ConvertTo-Json -Depth 6 | Set-Content -Path (Join-Path $sourceRunFolder "run.json") -Encoding Ascii
+
+            Write-Host ""
+            if ($notRun.Count -gt 0) {
+                Write-Host "RESULT: NEVER RAN - these failed tests were not found on the re-run of the same commit:"
+                foreach ($e in $notRun) { Write-Host "  $($e.suite)  $($e.test)" }
+                Write-Host "The re-run cannot judge a test it did not run. Check the name against the result file in"
+                Write-Host "$sourceRunFolder and report it as a defect in this script."
+                Stop-Gate 9 "NEVER RAN"
+            }
+            if ($stillFailing.Count -gt 0) {
+                Write-Host "RESULT: FAILED AGAIN - these tests failed on the release gate AND on the re-run of the same commit."
+                Write-Host "Treat them as code defects: fix on main and cut a new candidate."
+                foreach ($e in $stillFailing) { Write-Host "  $($e.suite)  $($e.test)" }
+                if ($flaky.Count -gt 0) {
+                    Write-Host ""
+                    Write-Host "And these failed once and passed on the re-run - FLAKY, to be fixed or deleted today as well:"
+                    foreach ($e in $flaky) { Write-Host "  $($e.suite)  $($e.test)" }
+                }
+                Stop-Gate 1 "FAILED"
+            }
+            Write-Host "RESULT: FLAKY - every failed test passed on the re-run of the same commit. The code is not what failed;"
+            Write-Host "these TESTS are defective:"
+            foreach ($e in $flaky) { Write-Host "  $($e.suite)  $($e.test)" }
+            Write-Host ""
+            Write-Host "This is still a failure. Fix or delete each test above TODAY, in a test-only pull request on main."
+            $isReleaseGate = ([bool] $sourceRun.parked) -and [string]::IsNullOrEmpty([string] $sourceRun.filter)
+            if ($isReleaseGate) {
+                $gateRecord = [ordered]@{}
+                foreach ($prop in $sourceRun.PSObject.Properties) { $gateRecord[$prop.Name] = $prop.Value }
+                $gateRecord.verdict = "FLAKY"
+                $gateRecord.exitCode = 10
+                $gateRecord.rerun = $rerunResult
+                $recordDir = Get-GateRecordDirectory
+                New-Item -ItemType Directory -Force $recordDir | Out-Null
+                $stamp = ([DateTime]::Parse([string] $sourceRun.startedUtc)).ToUniversalTime().ToString("yyyyMMddTHHmmssZ")
+                $recordPath = Join-Path $recordDir ("$commit-$stamp.json")
+                $gateRecord | ConvertTo-Json -Depth 6 | Set-Content -Path $recordPath -Encoding Ascii
+                Write-Host "Then, once that fix is merged, clear them from a clean checkout of main (not of this candidate):"
+                Write-Host "  .\scripts\test-local.ps1 -ClearFlaky $commit"
+                Write-Host "scripts\assert-gated.ps1 accepts this candidate only after that clearance is recorded."
+                Write-Host "Gate record written: $recordPath"
+            } else {
+                Write-Host "(The run re-run here was not an unfiltered -Parked run, so no gate record was written.)"
+            }
+            Stop-Gate 10 "FLAKY"
+        }
+
+        # CLEAR: every flaky test must now be DELETED (no longer collected) or FIXED (its source changed
+        # since the candidate AND it passed every one of the passes).
+        $changed = @(& git -C $originalRoot diff --name-only $candidate $commit)
+        $cleared = @(); $notCleared = @()
+        foreach ($t in $targets) {
+            $key = "$($t.Suite)|$($t.Test)"
+            $seen = @($outcomes[$key])
+            $entry = [ordered]@{ suite = $t.Suite; test = $t.Test; resolution = ""; passes = $presentIn[$key] }
+            if ($seen.Count -eq 0) {
+                # Not collected is not yet DELETED: a rename, or a move to another class or project, also
+                # makes the exact name vanish while the flaky code lives on. So a method of that name must
+                # be gone from every test project on main as well. A different test that happens to share the
+                # name is refused too - stricter, never weaker; rename one of them.
+                $method = $t.Test.Substring($t.Test.LastIndexOf(".") + 1)
+                $still = @(& git -C $originalRoot grep -l -E "\b$method\s*\(" $commit -- @($testDirs) |
+                           ForEach-Object { $_.Substring($_.IndexOf(":") + 1) })
+                # A RENAME: the file that declared the class lost this method and gained another test method.
+                $className = $t.Test.Substring(0, $t.Test.LastIndexOf("."))
+                $simple = ($className.Substring($className.LastIndexOf(".") + 1) -split '\+')[0]
+                $projDir = (Split-Path -Parent $t.Project) -replace '\\', '/'
+                $renamedIn = @()
+                foreach ($f in @(& git -C $originalRoot grep -l -E "\b(class|record|struct)\s+$simple\b" $candidate -- $projDir |
+                                 ForEach-Object { $_.Substring($_.IndexOf(":") + 1) })) {
+                    $diff = @(& git -C $originalRoot diff $candidate $commit -- $f)
+                    $removed = @($diff | Where-Object { $_ -match "^-.*\b$method\s*\(" }).Count -gt 0
+                    # Any added test attribute, or any added method declaration whatever it returns (ValueTask, async ...).
+                    $added = @($diff | Where-Object { $_ -match '^\+\s*\[(Fact|Theory)\b' -or $_ -match '^\+\s*(public|internal|private|protected)\b[^=;]*\b\w+\s*\(' }).Count -gt 0
+                    if ($removed -and $added) { $renamedIn += $f }
+                }
+                if ($still.Count -gt 0) {
+                    $entry.resolution = "NOT DELETED: no longer collected under that name, but a method named $method is still in " + ($still -join ", ")
+                    $notCleared += $entry
+                } elseif ($renamedIn.Count -gt 0) {
+                    $entry.resolution = "NOT DELETED: the change that removed $method also added a test method in " + ($renamedIn -join ", ") + " - a rename is not a delete"
+                    $notCleared += $entry
+                } else {
+                    $entry.resolution = "DELETED"
+                    $cleared += $entry
+                }
+                continue
+            }
+            if ($presentIn[$key] -ne $targetRepeat -or @($seen | Where-Object { $_ -ne "Passed" }).Count -gt 0) {
+                $entry.resolution = ("FAILS: outcomes {0}" -f (($seen | Group-Object | ForEach-Object { "$($_.Name) x$($_.Count)" }) -join ", "))
+                $notCleared += $entry
+                continue
+            }
+            $className = $t.Test.Substring(0, $t.Test.LastIndexOf("."))
+            $simple = ($className.Substring($className.LastIndexOf(".") + 1) -split '\+')[0]
+            $projDir = (Split-Path -Parent $t.Project) -replace '\\', '/'
+            $files = @(& git -C $originalRoot grep -l -E "\b(class|record|struct)\s+$simple\b" $commit -- $projDir |
+                       ForEach-Object { $_.Substring($_.IndexOf(":") + 1) })
+            $touched = @($files | Where-Object { $changed -contains $_ })
+            if ($touched.Count -gt 0) {
+                $entry.resolution = "FIXED in " + ($touched -join ", ")
+                $cleared += $entry
+            } else {
+                $entry.resolution = "UNCHANGED: passed $targetRepeat times, but no file declaring $simple changed since $candidate"
+                $notCleared += $entry
+            }
+        }
+        $runRecord.clears = $candidate
+        $runRecord.clearance = @($cleared + $notCleared)
+        Write-Host ""
+        foreach ($e in ($cleared + $notCleared)) { Write-Host ("  {0}  {1}  -> {2}" -f $e.suite, $e.test, $e.resolution) }
+        Write-Host ""
+        if ($notCleared.Count -gt 0) {
+            Write-Host "RESULT: NOT CLEARED - a flaky test is cleared only by deleting it or by changing its code so that it"
+            Write-Host "passes $targetRepeat times in a row. A flaky test that happened to pass is still flaky."
+            Stop-Gate 1 "NOT CLEARED"
+        }
+        $clearance = [ordered]@{
+            candidate     = $candidate
+            clearedAt     = $commit
+            configuration = $Configuration
+            verdict       = "CLEARED"
+            startedUtc    = $runRecord.startedUtc
+            machine       = [Environment]::MachineName
+            session       = (Get-GateLockSessionName)
+            directory     = $originalRoot
+            testedTree    = "the candidate's product code with the test projects of $commit"
+            flakyRecord   = $flakyRecordPath
+            tests         = $cleared
+        }
+        $clearDir = Get-GateClearanceDirectory
+        New-Item -ItemType Directory -Force $clearDir | Out-Null
+        $stamp = ([DateTime]::Parse($runRecord.startedUtc)).ToUniversalTime().ToString("yyyyMMddTHHmmssZ")
+        $clearPath = Join-Path $clearDir ("$candidate-$stamp.json")
+        $clearance | ConvertTo-Json -Depth 6 | Set-Content -Path $clearPath -Encoding Ascii
+        Write-Host "RESULT: CLEARED - every flaky test of $candidate is deleted or fixed at $commit."
+        Write-Host "Clearance written: $clearPath"
+        Write-Host "scripts\assert-gated.ps1 $candidate accepts it once $commit is on origin/main."
+        Stop-Gate 0 "CLEARED"
+    }
+
+    $filterArgs = @("--filter", $suiteFilter)
+    # Each Gateway.Tests shard runs this same filter, ANDed with the shard's own part of the suite.
+    $shardScopeFilter = $suiteFilter
 
     # Hang and crash detection for the runs that have no ceiling (see $HangTimeoutMinutes). A hung test is
     # dumped and named in Sequence_<guid>.xml inside the run folder, and its host is killed; the suite then
@@ -482,7 +1221,7 @@ try {
     # Mini dumps: the name of the hung test is the finding, and a full dump of a Gateway host is hundreds of
     # megabytes nobody opens.
     $blameArgs = @()
-    if ($Parked -or $Gateway) {
+    if ($Parked -or $Gateway -or $Quarantine) {
         $blameArgs = @("--blame-hang", "--blame-hang-timeout", "${HangTimeoutMinutes}m", "--blame-hang-dump-type", "mini",
                        "--blame-crash", "--blame-crash-dump-type", "mini")
     }
@@ -498,34 +1237,30 @@ try {
     # The TRX file carries the two things that make the difference checkable: ResultSummary/@outcome, which
     # says whether the run COMPLETED rather than merely whether its assertions passed, and Counters/@total,
     # which says how many tests there were. Judge a run by those two against a recorded baseline, never by
-    # the console line. scripts/test-qualification.ps1 already judges its soak this way.
+    # the console line.
+    #
+    # GATEWAY.TESTS RUNS AS SEVERAL PROCESSES, each with a disjoint part of the suite (scripts\gateway-test-shards.ps1
+    # says how it is split and why that is safe). Each shard is its own entry below, with its own log, result file
+    # and verdict line, so a failure names the shard it was in.
     $running = @()
     $deadline = (Get-Date).AddSeconds($BudgetSeconds)
     foreach ($proj in $toRun) {
-        $name = Split-Path -Leaf ([System.IO.Path]::GetDirectoryName((Join-Path $repoRoot $proj)))
-        $out = Join-Path $logDir "$name.log"
-        $trx = Join-Path $logDir "$name.trx"
-        $args = @("test", (Join-Path $repoRoot $proj), "--no-build", "-c", $Configuration, "--nologo", "-v", "q",
-                  "--logger", "trx;LogFileName=$name.trx", "--results-directory", $logDir) + $filterArgs + $blameArgs
-        $p = Start-Process -FilePath "dotnet" -ArgumentList $args -NoNewWindow -PassThru `
-                           -RedirectStandardOutput $out -RedirectStandardError "$out.err"
-
-        # Touching .Handle keeps the process handle OPEN, which is the only reason ExitCode is readable
-        # after the process ends. Without it Start-Process -PassThru hands back an object whose ExitCode
-        # is EMPTY once the child exits - and "$null -eq 0" is false, so every project was classified
-        # FAIL. This script is the merge gate, and it was reporting "RESULT: FAILED in 7 project(s)"
-        # over seven lines that each said "Passed!  - Failed: 0". A gate that fails on green is worse
-        # than no gate: it trains everyone to ignore it, or to go and wait fifty minutes for CI.
-        #
-        # This mission met the same bug independently and wrote the same fix; main's landed first and is kept
-        # as the incumbent, with the duplicate dropped. TWO copies would cache the handle twice, and a
-        # careless resolution of the same conflict would leave NEITHER - the original bug back, with two
-        # commits in the history each claiming to have fixed it.
-        $null = $p.Handle
-
-
-        $running += [pscustomobject]@{ Name = $name; Process = $p; Log = $out; Trx = $trx }
-        Write-Host "  started $name"
+        if ($proj -eq $gatewayProject) {
+            $shardFilters = Get-GatewayTestShardFilters
+            for ($i = 0; $i -lt $shardFilters.Count; $i++) {
+                $label = ".shard{0}of{1}" -f ($i + 1), $shardFilters.Count
+                $r = Start-TestSuite $proj $label (@("--filter", (Join-GatewayTestShardFilter $shardScopeFilter $shardFilters[$i])) + $blameArgs)
+                # The shard's name is the suite's name with its label, matching its log and result file, so the
+                # verdict line, run.json and a later -RerunFailed all name the shard (Get-SuiteBaseName undoes it).
+                $r.Name = $r.Name + $label
+                $running += $r
+                Write-Host "  started $($r.Name)"
+            }
+            continue
+        }
+        $r = Start-TestSuite $proj "" ($filterArgs + $blameArgs)
+        $running += $r
+        Write-Host "  started $($r.Name)"
     }
 
     Write-Host ""
@@ -533,7 +1268,7 @@ try {
         Write-Host "Waiting. This run holds the release-gate lock ($gateLockPath); another run that includes"
         Write-Host "the Gateway suite is refused at once rather than queued behind this one."
     } else {
-        Write-Host "Waiting. No parked suite is in this run, so it takes no lock and nothing queues behind it."
+        Write-Host "Waiting. The Gateway suite is not in this run, so it takes no lock and nothing queues behind it."
     }
     Write-Host ""
 
@@ -545,7 +1280,7 @@ try {
         # the whole gate, and record it separately from a real failure. -Parked and -Gateway deliberately
         # suspend the ceiling: that run is the release gate and is EXPECTED to be slow, and a hung test in it
         # is caught by the hang timeout instead.
-        if ($Parked -or $Gateway) {
+        if ($Parked -or $Gateway -or $Quarantine) {
             $r.Process.WaitForExit()
         } else {
             $remainingMs = [int] [Math]::Max(0, ($deadline - (Get-Date)).TotalMilliseconds)
@@ -603,7 +1338,7 @@ try {
             # run can report total=1, executed=0 and "Test Run Successful". Anything that asks "did this run
             # actually enforce something" has to read executed.
             $executed = [int] $doc.TestRun.ResultSummary.Counters.executed
-            # A host that was killed, crashed, or stopped by the suite lock writes outcome="Failed" with
+            # A host that was killed or crashed, or that a suite lock once stopped, writes outcome="Failed" with
             # total=0 - the same outcome as an ordinary red - and says what happened only in a RunInfo text:
             # "The active test run was aborted". Observed three times in October 2026, each read as a test
             # failure by the check below instead of as a suite that never ran.
@@ -622,11 +1357,39 @@ try {
         }
     }
 
+    if ($Quarantine) {
+        # NEVER A VERDICT. What ran, what failed, and exit 0 whatever happened - including a suite that did
+        # not finish, which is printed as such rather than hidden.
+        Write-Host ""
+        Write-Host "QUARANTINE - these results decide nothing. Quarantined tests are being fixed or deleted:"
+        Write-Host "  suite filter=$suiteFilter"
+        $qFailed = @()
+        foreach ($r in $running) {
+            Write-Host ("  {0,-40} outcome={1,-12} total={2,-6} executed={3}" -f $r.Name, $r.Outcome, $r.Total, $r.Executed)
+            if (-not (Test-Path $r.Trx)) { continue }
+            $raw = [string] (Get-Content $r.Trx -Raw)
+            if ([string]::IsNullOrWhiteSpace($raw)) { continue }
+            [xml] $doc = $raw
+            foreach ($u in @($doc.TestRun.Results.UnitTestResult)) {
+                if ($null -ne $u -and [string] $u.outcome -eq "Failed") { $qFailed += "  $($r.Name)  $($u.testName)" }
+            }
+        }
+        $qTotal = 0
+        foreach ($r in $running) { $qTotal += [int] $r.Total }
+        Write-Host ""
+        Write-Host ("RESULT: QUARANTINE RAN {0} test(s); {1} failed. This never fails a run." -f $qTotal, $qFailed.Count)
+        foreach ($l in $qFailed) { Write-Host $l }
+        # The folder is the point of a quarantine run - the failures are read from it - so it is always kept.
+        $KeepRun = $true
+        Write-Host "Run folder kept: $logDir"
+        Stop-Gate 0 "QUARANTINE"
+    }
+
     Write-Host ""
     Write-Host "TRX verdict - THIS is the gate. Every suite must report outcome=Completed:"
-    Write-Host ("  commit {0}  tree {1}  parked={2} configuration={3}{4}" -f $commit,
+    Write-Host ("  commit {0}  tree {1}  parked={2} configuration={3} suite filter={4}" -f $commit,
         $(if ($treeClean) { "clean" } else { "DIRTY ($($dirtyFiles.Count) changed or untracked)" }),
-        [bool] $Parked, $Configuration, $(if ($Filter -ne "") { " filter=$Filter" } else { "" }))
+        [bool] $Parked, $Configuration, $suiteFilter)
     foreach ($r in $running) {
         Write-Host ("  {0,-40} outcome={1,-12} total={2,-6} executed={3}" -f $r.Name, $r.Outcome, $r.Total, $r.Executed)
     }
@@ -680,7 +1443,7 @@ try {
         } elseif ($r.Aborted) {
             $why = "says in its result file that the active test run was aborted (total=$($r.Total), executed=$($r.Executed))"
         } elseif ($Filter -eq "" -and $r.Executed -eq 0) {
-            $why = "executed zero tests with no filter (outcome=$($r.Outcome), total=$($r.Total))"
+            $why = "executed zero tests with no filter (outcome=$($r.Outcome), total=$($r.Total)) - or every test in it is quarantined, which is not allowed"
         }
         if ($null -ne $why) { $neverRan += [pscustomobject]@{ Name = $r.Name; Why = $why; Log = $r.Log } }
     }
@@ -840,7 +1603,8 @@ try {
             Write-Host ""
             Write-Host "$($names.Count) test(s) were collected in total, so the run is not empty - which is exactly"
             Write-Host "why it would otherwise have passed. A term that matches nothing is a test name that has"
-            Write-Host "drifted, a test that has been removed, or a typo; in all three the claim this run was"
+            Write-Host "drifted, a test that has been removed, a typo - or a QUARANTINED test (trait Gate=Quarantine),"
+            Write-Host "which no gate run includes; run it with -Quarantine. In every case the claim this run was"
             Write-Host "gathered to support is unproven."
             Stop-Gate 5 "FILTER MATCHED NOTHING"
         }
@@ -886,7 +1650,8 @@ try {
             Write-Host "The filter was: $Filter"
             Write-Host "No test in any project matched it. Check the test name, and check that the test file is"
             Write-Host "actually in THIS checkout - a filter naming a class that does not exist here exits zero"
-            Write-Host "with 'No test matches', which is the shape of a green and the substance of nothing."
+            Write-Host "with 'No test matches', which is the shape of a green and the substance of nothing. A test tagged"
+            Write-Host "Gate=Quarantine is excluded from every gate run too; run it with -Quarantine."
         } else {
             Write-Host "No filter was passed, so a total of zero means the run did not execute at all."
         }
@@ -912,16 +1677,34 @@ try {
     Write-Host "Logs kept in $logDir"
     Stop-Gate 1 "FAILED"
 } finally {
-    # Released here on EVERY path - a normal end, every exit code above, an exception, Ctrl+C. The next
-    # run on this machine is refused only while a live process holds the handle, so the handle must not
-    # outlive the run.
-    if ($null -ne $gateLock) { Exit-GateLock $gateLock }
-    # A run that ends by exception or Ctrl+C never reached Stop-Gate, and its run.json would say RUNNING
-    # forever - exactly the shape a reader mistakes for a live run. Stamp it as stopped without a verdict.
-    if ($null -eq $runRecord.exitCode) {
-        $runRecord.verdict = "STOPPED BEFORE A VERDICT"
-        $runRecord.finishedUtc = (Get-Date).ToUniversalTime().ToString("o")
-        Write-RunRecord
-        Write-RunsLog
+    try {
+        # A run that ends by exception or Ctrl+C never reached Stop-Gate, and its run.json would say RUNNING
+        # forever - exactly the shape a reader mistakes for a live run. Stamp it as stopped without a verdict,
+        # after ending the test processes it started, so nothing is deleted from under a live test host.
+        if ($null -eq $runRecord.exitCode) {
+            Stop-RunProcesses
+            Remove-RunTemp
+            $runRecord.verdict = "STOPPED BEFORE A VERDICT"
+            $runRecord.finishedUtc = (Get-Date).ToUniversalTime().ToString("o")
+            Write-RunRecord
+            Write-RunsLog
+        }
+        # The throwaway -ClearFlaky worktree goes on every path; one that cannot be removed is named.
+        if ($null -ne $clearTree -and (Test-Path -LiteralPath $clearTree)) {
+            & git -C $originalRoot worktree remove --force $clearTree
+            if (Test-Path -LiteralPath $clearTree) {
+                $null = Remove-FolderTree $clearTree
+                & git -C $originalRoot worktree prune
+            }
+            if (Test-Path -LiteralPath $clearTree) {
+                Write-Host "ERROR: the clearance worktree $clearTree could not be removed. Delete it by hand, then run 'git worktree prune'."
+            }
+        }
+    } finally {
+        # Released here on EVERY path - a normal end, every exit code above, an exception, Ctrl+C - and
+        # LAST, after this run's processes are ended and its folders deleted, so a second gate cannot start
+        # while this one's test hosts are still being stopped. The next run on this machine is refused only
+        # while a live process holds the handle, so the handle must not outlive the run.
+        if ($null -ne $gateLock) { Exit-GateLock $gateLock }
     }
 }

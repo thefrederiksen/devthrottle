@@ -42,8 +42,11 @@ public sealed class TunnelShutdownHandoverProofTests : IAsyncLifetime
     private Session _session = null!;
     private string _sid = "";
 
-    private readonly List<DirectorCommand> _sourceCommands = new();
-    private readonly List<DirectorCommand> _targetCommands = new();
+    // Written by the tunnel's callback thread while a test reads them, and the Gateway sends commands of its own
+    // accord (a pushed waiting session has its screen read on a background task), so a plain list could be changed
+    // under a test that was reading it. These collections may be read while they are written.
+    private readonly System.Collections.Concurrent.ConcurrentQueue<DirectorCommand> _sourceCommands = new();
+    private readonly System.Collections.Concurrent.ConcurrentQueue<DirectorCommand> _targetCommands = new();
     private static readonly JsonSerializerOptions WebJson = new(JsonSerializerDefaults.Web);
 
     public TunnelShutdownHandoverProofTests()
@@ -88,7 +91,7 @@ public sealed class TunnelShutdownHandoverProofTests : IAsyncLifetime
         });
     }
 
-    private async Task<HubConnection> ConnectAsync(string directorId, List<DirectorCommand> sink)
+    private async Task<HubConnection> ConnectAsync(string directorId, System.Collections.Concurrent.ConcurrentQueue<DirectorCommand> sink)
     {
         var conn = new HubConnectionBuilder()
             .WithUrl($"http://127.0.0.1:{_gateway.Port}/director-stream", o => o.AccessTokenProvider = () => Task.FromResult<string?>(Token))
@@ -100,9 +103,9 @@ public sealed class TunnelShutdownHandoverProofTests : IAsyncLifetime
         return conn;
     }
 
-    private static DirectorCommandResult Dispatch(string directorId, DirectorCommand cmd, List<DirectorCommand> sink)
+    private static DirectorCommandResult Dispatch(string directorId, DirectorCommand cmd, System.Collections.Concurrent.ConcurrentQueue<DirectorCommand> sink)
     {
-        sink.Add(cmd);
+        sink.Enqueue(cmd);
         return cmd.Verb switch
         {
             "shutdown" => DirectorCommandResult.Success(),

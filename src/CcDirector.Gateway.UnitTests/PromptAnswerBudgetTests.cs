@@ -6,7 +6,6 @@ using CcDirector.Core.Sessions;
 using CcDirector.Core.UnitTests.Sessions;
 using CcDirector.Gateway.Contracts;
 using CcDirector.TestInfrastructure;
-using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests;
@@ -25,7 +24,7 @@ namespace CcDirector.Gateway.Tests;
 /// </summary>
 public sealed class PromptAnswerBudgetTests : IDisposable
 {
-    private readonly FakeTimeProvider _clock = VirtualTime.NewClock();
+    private readonly VirtualClock _clock = VirtualTime.NewClock();
 
     /// <summary>A terminal session whose agent takes <paramref name="echoDelay"/> to show typed text - a busy machine.
     /// The agent is one the Director has no conversation records for, so the send is judged by the terminal alone.</summary>
@@ -142,7 +141,10 @@ public sealed class PromptAnswerBudgetTests : IDisposable
     /// </summary>
     private async Task<(string Outcome, DateTimeOffset WrittenAt)> LateOutcomeFor(string deliveryId, Func<Task> act)
     {
-        var seen = new TaskCompletionSource<(string, DateTimeOffset)>(TaskCreationOptions.RunContinuationsAsynchronously);
+        // A plain completion source, on purpose: its continuation - the end of the timed work - then runs inline, on
+        // the thread moving the fake clock. One that continues on the thread pool lets the spinner carry the clock on
+        // for as long as the pool takes.
+        var seen = new TaskCompletionSource<(string, DateTimeOffset)>();
         void Observe(string id, string state) { if (id == deliveryId) seen.TrySetResult((state, _clock.GetUtcNow())); }
         ControlApi.SessionCommandExecutor.LateOutcomeObserver += Observe;
         try

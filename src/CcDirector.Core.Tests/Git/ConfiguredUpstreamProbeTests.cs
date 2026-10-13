@@ -14,7 +14,13 @@ namespace CcDirector.Core.Tests.Git;
 /// first and last tests fail against that code: one records every git command the probe runs
 /// and refuses any that reaches for the network; the other points origin at a path that does
 /// not exist, which the old probe reported as "could not inspect".
+///
+/// QUARANTINED (Reliable Tests, 11 October 2026): it runs real git processes, which gate tests may no longer do,
+/// but its answers decide whether the reaper may delete a branch's worktree, and its 'do not guess' cases are
+/// covered nowhere else, so it is kept and run on its own: test-local.ps1 leaves it out of every gate run and runs
+/// it under -Quarantine, whose result never decides a release.
 /// </summary>
+[Trait("Gate", "Quarantine")]
 public sealed class ConfiguredUpstreamProbeTests : IClassFixture<ConfiguredUpstreamProbeTests.Template>, IDisposable
 {
     private readonly string _root;

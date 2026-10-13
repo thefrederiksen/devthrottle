@@ -302,6 +302,15 @@ public sealed class GatewayHost : IAsyncDisposable
         Maps: FactoryMaps);
 
     // The sessions alive in the account's roster: what every one of its Directors last pushed.
+    /// <summary>
+    /// The calling account's display time zone, which a schedule's and a run's shifts are counted in (Factory Control,
+    /// step 3). Null when the request resolves to no account - those routes then answer without shifts.
+    /// </summary>
+    private TimeZoneInfo? AccountZoneOf(HttpContext ctx) =>
+        Api.GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary) is { } tenant
+            ? TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant))
+            : null;
+
     private IReadOnlySet<string> LiveSessionIdsFor(Core.Tenancy.TenantId tenant)
     {
         var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -401,6 +410,24 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>Moves an approved secret transfer between the two machines' Directors (the Secret Handoff mission).</summary>
     internal Secrets.SecretTransferDelivery SecretDelivery { get; }
 
+    /// <summary>License Switching: the accounts, machines, readings, switch log and bars - never a sign-in key.</summary>
+    internal Licenses.LicenseStore LicenseStore { get; }
+
+    /// <summary>Takes or refuses each Director's license usage report (contract section 2.1).</summary>
+    internal Licenses.LicenseUsageIngest LicenseUsage { get; }
+
+    /// <summary>The license picture the decision engine and the Licenses page read.</summary>
+    internal Licenses.LicenseReadModel LicenseReads { get; }
+
+    /// <summary>The recent usage readings of every account, kept in memory, for the forecast's rate of use.</summary>
+    internal Licenses.LicenseUsageHistory LicenseHistory { get; }
+
+    /// <summary>The one place the decision engine's picture of an account is built from the store.</summary>
+    internal Licenses.LicenseSnapshotSource LicenseSnapshots { get; }
+
+    /// <summary>License Switching's minute check and Switch now: decides, sends each switch and records what came back.</summary>
+    internal Licenses.LicenseSwitchService LicenseSwitches { get; }
+
     /// <summary>The record of every message link set up and stopped, and every message a link carried, in the
     /// governance audit trail.</summary>
     internal Messaging.FleetMessageLinkRecord MessageLinkRecord { get; }
@@ -456,6 +483,17 @@ public sealed class GatewayHost : IAsyncDisposable
     /// a test sets its own BEFORE <see cref="StartAsync"/>, where the routes are mapped with it.
     /// </summary>
     public TimeProvider DeliveryClock { get; set; } = TimeProvider.System;
+
+    /// <summary>
+    /// The clock the license code is judged by (License Switching): the time a usage report is taken at, the time the
+    /// once-a-minute check decides at, and what the Licenses routes judge by - how old a reading is, whether a sign-in
+    /// has expired, how long until a window resets. The real clock in production; a test sets its own BEFORE
+    /// <see cref="StartAsync"/>, where the routes are mapped with it, so no license test reads the machine's clock.
+    /// </summary>
+    public TimeProvider LicenseClock { get; set; } = TimeProvider.System;
+
+    /// <summary>The same clock, as the one object the Director hub and the minute check both read.</summary>
+    internal Licenses.LicenseGatewayClock LicenseNow { get; }
 
     /// <summary>
     /// The Gateway's driver of held deliveries (Voice Delivery phase 5): once a recording's delivery is taken over, the
@@ -954,9 +992,12 @@ public sealed class GatewayHost : IAsyncDisposable
     private readonly CronJobStore _cronJobs;
     private readonly CronRunHistoryStore _cronRuns;
     private readonly Running.CronEngine _cronEngine;
+    // Factory Control, step 1: how each scheduled run went - its own report, and the problems the Gateway records.
+    private readonly Running.CronRunResultService _cronRunResults;
     // G8 increment 2: the cron sweep now fires through the per-tenant tenancy seam (TenantScopedSweep) so it
     // can run ON hosted, tenant-isolated, instead of being disabled. Constructed alongside _cronEngine.
     private Running.CronTenantSweep? _cronSweep;
+    private readonly Running.CronPauseSwitch _cronPause;
     // Reentrancy guard for the cron sweep. On hosted the per-tenant fan-out can take longer than the 60s tick,
     // so a later tick must NOT start a second overlapping sweep (that could double-fire a job in the window
     // between a tenant's ListAll and MarkFired). 0 = idle, 1 = a sweep is in flight (Interlocked-owned).
@@ -984,6 +1025,14 @@ public sealed class GatewayHost : IAsyncDisposable
     private int _activityRetentionInFlight;
     private static readonly TimeSpan ActivityRetentionInterval = TimeSpan.FromHours(6);
     private static readonly TimeSpan ActivityRetentionStartupDelay = TimeSpan.FromMinutes(5);
+
+    // License Switching's minute check (missions/license-switching/MISSION.md section 5): once a minute, for each
+    // tenant with a Director connected, decide and send every switch that is due. A pass is started every minute whether
+    // or not the last one has finished: only a tenant whose own check is still waiting on a Director is skipped, by
+    // the service. Created in StartAsync, disposed in StopAsync, which also cancels the sends in flight.
+    private System.Threading.Timer? _licenseSwitchTimer;
+    private readonly CancellationTokenSource _licenseSwitchLifetime = new();
+    private static readonly TimeSpan LicenseSwitchInterval = TimeSpan.FromMinutes(1);
 
     // The judged stops' seven-day retention purge (the Wingman-on-every-turn mission): the same shape as
     // the activity sweep above, on the same per-tenant worker seam, with the same overlap guard. Created
@@ -1018,6 +1067,16 @@ public sealed class GatewayHost : IAsyncDisposable
     private int _suggestionSweepInFlight;
     private static readonly TimeSpan SuggestionSweepInterval = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan SuggestionSweepStartupDelay = TimeSpan.FromMinutes(2);
+
+    // The factory email (Factory Control, step 4): the 08:00 report and the 16:00 / midnight checks, composed and sent
+    // by the Gateway itself. The sweep ticks every few minutes for every account; an account whose factory email is off
+    // costs one setting read. Guarded against overlap; created in StartAsync, disposed in StopAsync.
+    private Factory.Email.FactoryEmailSweep? _factoryEmailSweep;
+    internal Factory.Email.FactoryEmailStore? FactoryEmailReports { get; private set; }
+    private System.Threading.Timer? _factoryEmailTimer;
+    private int _factoryEmailSweepInFlight;
+    private static readonly TimeSpan FactoryEmailSweepInterval = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan FactoryEmailSweepStartupDelay = TimeSpan.FromMinutes(1);
 
     // The Mentor's weekly run (devthrottle_internal#2305). Null unless BOTH CC_GATEWAY_TEAMS=1 and
     // CC_GATEWAY_TEAM_MENTOR=1 - switching on a Mentor that writes about people is the owner's decision.
@@ -2249,6 +2308,20 @@ public sealed class GatewayHost : IAsyncDisposable
             enterScope: tenant => _tenantBoundary.EnterScope(tenant),
             nowUtc: () => DateTime.UtcNow);
         MessageLinkRecord = new Messaging.FleetMessageLinkRecord(_governanceAudit, tenant => _tenantBoundary.EnterScope(tenant));
+        LicenseStore = new Licenses.LicenseStore(_gatewayDb);
+        LicenseHistory = new Licenses.LicenseUsageHistory();
+        LicenseUsage = new Licenses.LicenseUsageIngest(LicenseStore, LicenseHistory);
+        LicenseReads = new Licenses.LicenseReadModel(LicenseStore);
+        LicenseSnapshots = new Licenses.LicenseSnapshotSource(LicenseStore, LicenseReads);
+        // The owner email goes the way POST /account/email sends on hosted: by tenant, the account service resolving
+        // the owner. A self-hosted Gateway has no tenant account, so its mailer logs and sends nothing.
+        var licenseOwnerMailer = new Licenses.LicenseOwnerMailer(_tenantBoundary.IsHosted,
+            new Core.Account.AccountNotifyByTenantClient(new HttpClient { Timeout = TimeSpan.FromSeconds(30) }),
+            tenant => TenantRegistry.SubjectForTenant(tenant),
+            Core.Account.AccountNotifyByTenantClient.ResolveServiceToken);
+        LicenseNow = new Licenses.LicenseGatewayClock(() => LicenseClock.GetUtcNow().UtcDateTime);
+        LicenseSwitches = new Licenses.LicenseSwitchService(LicenseStore, LicenseSnapshots,
+            SendCommandAsync, licenseOwnerMailer.SendAsync, LicenseNow.UtcNow);
         // Per-tenant dictation transcript store (issue #509): every transcribed turn's raw and cleaned text
         // lands in the caller tenant's partition of the dictation_transcripts table, write-only, for later
         // mistranscription mining (devthrottle #2075). Same store on SQLite (self-host) and Postgres (hosted) -
@@ -2384,6 +2457,19 @@ public sealed class GatewayHost : IAsyncDisposable
             // than filed under a guessed owner. On self-host this is always Local.
             resolveTenant: () => _tenantPass.Current);
         var cronClock = new Running.SystemClock();
+        // Factory Control, step 1 and 6: every run says how it went, and a factory-linked run leaves an activity row.
+        // The schedules and the work history are read in the ambient scope the route or the sweep entered; the run
+        // history and the activity record are told the account explicitly.
+        _cronRunResults = new Running.CronRunResultService(
+            _cronRuns,
+            jobById: id => _cronJobs.Get(id),
+            allJobs: () => _cronJobs.ListAll(),
+            // Assigned further down this constructor, before the first sweep or request can call this.
+            endingsOf: ids => _sessionHistory!.EndingsOf(ids),
+            zoneOf: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)),
+            writeActivity: (tenant, run, row, correction) => _cronRuns.WriteActivityRow(tenant, run, row, correction),
+            nowUtc: () => cronClock.UtcNow);
+        _cronPause = new Running.CronPauseSwitch(_tenantSettings);
         _cronEngine = new Running.CronEngine(
             _cronJobs, _cronRuns, new Running.DirectorCronSessionStarter(_machineSessionSpawner, cronClock,
                 // Issue #3650: a job whose factory or seat the registry does not have never starts. The fire runs in
@@ -2394,10 +2480,43 @@ public sealed class GatewayHost : IAsyncDisposable
             // MTR (audit MED): partition the overlap guard by the tenant of the CURRENT unit of work - the
             // run-now request scope on hosted, the single Local scope on self-host - the same seam the notifier
             // reads. A run-now for tenant A's cj_ id must never be refused by tenant B's in-flight same-id job.
-            resolveTenant: () => _tenantPass.Current);
+            resolveTenant: () => _tenantPass.Current,
+            onResultRecorded: (tenant, job, run) => _cronRunResults.Announce(tenant, job, run),
+            // Issue #3910: the account's pause-everything switch, read at the top of every sweep and run-now.
+            isPaused: _cronPause.IsPaused);
         // G8 increment 2: wrap the cron engine in the per-tenant worker seam so the background sweep enters
-        // each tenant's scope before it reads the tenant-scoped cron_jobs store.
-        _cronSweep = new Running.CronTenantSweep(_tenantBoundary, TenantRegistry, _cronEngine);
+        // each tenant's scope before it reads the tenant-scoped cron_jobs store. The same pass records the runs that
+        // did not report or ran past their shift (Factory Control, step 1).
+        // Factory Control, step 4: the factory email reads the same problems fold, keeps each composed email, and sends
+        // it through the owner-email primitive - tenant-addressed on hosted, the account token on self-host.
+        FactoryEmailReports = new Factory.Email.FactoryEmailStore(_gatewayDb);
+        var factoryEmailSender = new Factory.Email.FactoryEmailSender(
+            Hosted,
+            isTeam: tenant => TeamRegistry.IsTeam(tenant),
+            subjectOf: TenantRegistry.SubjectForTenant,
+            serviceToken: Core.Account.AccountNotifyByTenantClient.ResolveServiceToken,
+            accountToken: () => Account?.GetAccessTokenForForwarding(),
+            byTenant: new Core.Account.AccountNotifyByTenantClient(new HttpClient { Timeout = TimeSpan.FromSeconds(30) }),
+            byToken: new Core.Account.AccountNotifyClient(new HttpClient { Timeout = TimeSpan.FromSeconds(30) }));
+        _factoryEmailSweep = new Factory.Email.FactoryEmailSweep(_tenantBoundary, TenantRegistry, _tenantContext,
+            enabled: _tenantSettingsResolver.FactoryEmailEnabled,
+            zoneOf: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)),
+            facts: (tenant, from, to, asOf) => _cronRunResults.ProblemsAndFactoryDays(tenant, from, to, asOf),
+            factories: tenant => FactoryRegistry.List(tenant).ToDictionary(
+                f => f.Factory,
+                f => new Factory.Email.FactoryEmailFactory(f.Title,
+                    f.Seats.ToDictionary(s => s.Id, s => s.Name, StringComparer.Ordinal)),
+                StringComparer.OrdinalIgnoreCase),
+            baseUrl: () => GatewayPublicUrl.ResolveBase(Hosted),
+            store: FactoryEmailReports,
+            sender: factoryEmailSender);
+
+        _cronSweep = new Running.CronTenantSweep(_tenantBoundary, TenantRegistry, _cronEngine,
+            sweepResults: () =>
+            {
+                if (_tenantPass.Current is { } tenant)
+                    _cronRunResults.Sweep(tenant);
+            });
 
         // The factory triggers (Website Business Factory, product track). A trigger's session starts through the
         // SAME single resolve-then-create method a schedule's does, stamped with its own origin surface; whether
@@ -4111,6 +4230,9 @@ public sealed class GatewayHost : IAsyncDisposable
         builder.Services.AddSingleton(_turnPushCapabilities);
         builder.Services.AddSingleton(_fleetManagerHomeCapabilities);
         builder.Services.AddSingleton(SecretMachines);
+        // License Switching: DirectorHub.PushLicenseUsage hands each report to the ingest.
+        builder.Services.AddSingleton(LicenseUsage);
+        builder.Services.AddSingleton(LicenseNow);
         // Gateway Cleanup mission (Wave 4b): the Gateway-native mission store, so the mission endpoints and
         // spawn validation share the one instance.
         builder.Services.AddSingleton(Missions);
@@ -4360,7 +4482,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // Browser-aware front door (the Cockpit sitemap): a PERSON navigating to /sessions,
         // /directors, or /cockpit (Accept: text/html) gets the React Cockpit shell; programs keep
         // getting JSON from the explicit endpoints below. After auth, before routing.
-        Cockpit.CockpitReactApp.UseBrowserPageRoutes(_app);
+        Cockpit.CockpitReactApp.UseBrowserPageRoutes(_app, Options.CockpitWebRoot);
 
         // Enable ASP.NET WebSocket support so the per-session proxy can recognize an inbound WS
         // upgrade (ctx.WebSockets.IsWebSocketRequest) and accept it (AcceptWebSocketAsync) for the
@@ -4504,6 +4626,7 @@ public sealed class GatewayHost : IAsyncDisposable
             AiGate,
             AuthEnabled,
             netDiagRollup: _netDiagRollup,
+            cockpitWebRoot: Options.CockpitWebRoot,
             // Issue #2017: the snooze-default consumer at POST /sessions/{sid}/hold reads the caller tenant's
             // default through the resolver instead of the process-global config.
             tenantSettings: _tenantSettingsResolver,
@@ -5027,7 +5150,9 @@ public sealed class GatewayHost : IAsyncDisposable
         // The Factories screen (Factories screen mission, phase B): the list, a factory's page and its Seats tab, built
         // from the registry, the record and the schedules.
         var factoriesScreenSources = new Api.FactoriesScreenSources(FactoryAgentsViewSources(), FactoryRegistry, tenant => _cronJobs.ListAll(tenant),
-            (tenant, ids, now) => Running.CronRunRecordReader.RecentRunsOf(_cronRuns, _sessionHistory, tenant, ids, now));
+            (tenant, ids, now) => Running.CronRunRecordReader.RecentRunsOf(_cronRuns, _sessionHistory, tenant, ids, now),
+            (tenant, factory) => _cronRunResults.Problems(tenant, factory, includeClosed: false),
+            (tenant, factory) => FactoryEmailReports!.List(tenant, factory, kind: null, Factory.FactoryEmailsFold.Shown, allStates: false));
         Api.FactoriesScreenEndpoints.Map(factoryGate,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             sources: factoriesScreenSources);
@@ -5049,13 +5174,32 @@ public sealed class GatewayHost : IAsyncDisposable
             Missions, _workflowRuns, _workspaces);
         // Mapped OUTSIDE the gate's group on purpose: it asks the same switch question itself, after proving the owner
         // is calling, so its switch-off refusal can carry a sentence (phase C review, finding 2).
+        var factoryManagerSources = new Api.FactoryManagerSources(
+            Bound: tenant => _tenantSettingsResolver.FactoryManagerSessionId(tenant),
+            Bind: (tenant, sid) => _tenantSettingsResolver.SetFactoryManagerSessionId(tenant, sid, DateTime.UtcNow),
+            Placement: tenant => _tenantSettingsResolver.FactoryManagerPlacement(tenant),
+            SavePlacement: (tenant, machine, folder) => _tenantSettingsResolver.SetFactoryManagerPlacement(tenant, machine, folder, DateTime.UtcNow),
+            Factories: tenant => FactoryRegistry.List(tenant),
+            ListDirectors: tenant => Registry.ListDirectors(tenant),
+            StartOnDirector: (ctx, directorId, request) =>
+                GatewayEndpoints.StartSessionOnDirectorAsync(ctx, directorId, request, talkSpawnDoor),
+            LastKnownSession: (tenant, sid) => GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, sid),
+            TimeZone: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)));
         Api.FactoryTalkEndpoints.Map(_app, FactoryAgentsSwitch,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             registry: FactoryRegistry,
             listDirectors: tenant => Registry.ListDirectors(tenant),
             schedule: (tenant, id) => _cronJobs.Get(tenant, id),
             startOnDirector: (ctx, directorId, request) =>
-                GatewayEndpoints.StartSessionOnDirectorAsync(ctx, directorId, request, talkSpawnDoor));
+                GatewayEndpoints.StartSessionOnDirectorAsync(ctx, directorId, request, talkSpawnDoor),
+            // Handle the issue (Factory Control, step 1b) reads the one problems fold, as GET /cron/problems does.
+            problems: (tenant, factory) => _cronRunResults.Problems(tenant, factory, includeClosed: false),
+            timeZone: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)),
+            factoryManager: factoryManagerSources);
+        // The Factory Manager seat (Factory Control, step 5): its binding, the name check, the screen's card and its talk.
+        Api.FactoryManagerEndpoints.Map(_app, factoryGate, FactoryAgentsSwitch,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            sources: factoryManagerSources);
         // Who the switch is on for: the administrator route that switches ONE account on or off, recording who and
         // why. Same admin service token as the turn-log switch; exact-match public in AuthMiddleware.
         Api.AdminFactoryAgentsEndpoint.Map(_app, FactoryAgentsSwitch, TenantRegistry);
@@ -5361,6 +5505,19 @@ public sealed class GatewayHost : IAsyncDisposable
             announceWaiting: (forTenant, transfer) => { _ = _secretTransferPush.NotifyWaitingAsync(transfer, CancellationToken.None); },
             nowUtc: () => DateTime.UtcNow);
 
+        // The Licenses routes (the License Switching mission): what the Licenses page of the Cockpit reads - the accounts
+        // and machines, the forecast, and the switch log - and the two things a person does there: Switch now, and
+        // setting the renewal date of an account's subscription. The three reads are in SessionKeyGuard's allow list;
+        // the two writes are not, and the routes refuse every caller but the owner's own signed-in phone or browser.
+        Api.LicenseEndpoints.Map(_app,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            snapshots: LicenseSnapshots,
+            history: LicenseHistory,
+            store: LicenseStore,
+            nowUtc: () => LicenseClock.GetUtcNow().UtcDateTime,
+            switches: LicenseSwitches,
+            tenantInScope: () => _tenantPass.Current);
+
         // Requests for a message link (issue #3548): a session asks, the owner - or a raised session - answers. Asking is
         // in SessionKeyGuard's ordinary allow list; the list and the answer are on RaisedGrant.MessageLinks.
         FleetMessageLinkRequestEndpoints.Map(_app,
@@ -5557,11 +5714,17 @@ public sealed class GatewayHost : IAsyncDisposable
             findFactory: (ctx, factory) => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary) is { } tenant
                 ? FactoryRegistry.Find(tenant, factory)
                 : null,
-            runRecords: cronRunRecords);
+            runRecords: cronRunRecords,
+            accountZoneOf: AccountZoneOf);
         // The schedule editor's factory and seat picker (the owner, 2026-10-10): the same registry the write checks.
         Api.CronSeatChoicesEndpoint.Map(_app, ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary) is { } tenant
             ? FactoryRegistry.List(tenant)
             : null);
+
+        // Pause everything (issue #3910): the account's one switch that stops the scheduler firing.
+        Api.CronPauseEndpoint.Map(_app, _cronPause, _cronJobs,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            nowUtc: () => DateTime.UtcNow);
 
         // Cron firing surface (epic #479, part 2 = #483): run-now and run-history over the engine.
         // Scheduled firing runs on the background sweep timer started below in StartAsync.
@@ -5578,7 +5741,25 @@ public sealed class GatewayHost : IAsyncDisposable
             // Factory Memory mission: running a factory's schedule on demand is limited to a person or a session
             // of that factory, so this route needs the schedule's factory and the caller's.
             jobById: id => _cronJobs.Get(id),
-            sessionFactoryOf: _sessionHistory.FactoryOf);
+            sessionFactoryOf: _sessionHistory.FactoryOf,
+            accountZoneOf: AccountZoneOf);
+
+        // Factory Control, step 1: a scheduled run reports how it went, a problem is resolved with a reason, and the
+        // account's problems are read through the one fold the factory page, the email and the Factory Manager share.
+        Api.CronRunResultEndpoints.Map(_app, _cronRunResults,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            sessionFactoryOf: _sessionHistory.FactoryOf,
+            findRun: (tenant, runId) => _cronRuns.Find(tenant, runId),
+            factoryManagerOf: tenant => _tenantSettingsResolver.FactoryManagerSessionId(tenant),
+            wasFactoryManager: (tenant, sid) => _tenantSettingsResolver.WasFactoryManager(tenant, sid));
+
+        // Factory Control, step 4: the factory email's switch (off unless turned on) and the kept emails the factory page
+        // reads to show yesterday's report again.
+        Api.FactoryEmailEndpoints.Map(_app,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            isEnabled: _tenantSettingsResolver.FactoryEmailEnabled,
+            setEnabled: (tenant, on) => _tenantSettingsResolver.SetFactoryEmailEnabled(tenant, on, DateTime.UtcNow),
+            store: FactoryEmailReports!);
 
         // Factory triggers (Website Business Factory, product track): the definitions, the run history, and the
         // Director's half - fetch its checks, report each result. Behind the factory agents switch PER ACCOUNT: for
@@ -5772,7 +5953,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // client-side routes, and the hashed static assets (built into wwwroot/c by the release-gated
         // MSBuild target) - resolves here. Mapped LAST by design, exactly like /mobile above. The Blazor
         // Server Cockpit and its fallback reverse-proxy were retired in this cutover.
-        Cockpit.CockpitReactApp.Map(_app);
+        Cockpit.CockpitReactApp.Map(_app, Options.CockpitWebRoot);
 
         // Every route is now mapped, which is the earliest moment the FINALISED route space exists - and the
         // only moment a conflict between a hosted refusal and anything else can be seen. A refusal that ties
@@ -5790,13 +5971,13 @@ public sealed class GatewayHost : IAsyncDisposable
         // binds rather than after. That source selection lives in ONE place - ValidateBeforeStart - shared
         // with the pre-start test harness, so reverting it to the DI composite reddens the tie tests rather
         // than silently regressing this path.
-        Tenancy.HostedRefusalRouteSpace.ValidateBeforeStart(_app);
-
-        // The finalised route table, kept for the route-surface guard tests (the auth allowlist for the
+        //
+        // The finalised route table is also kept, for the route-surface guard tests (the auth allowlist for the
         // shell prefixes is complete ONLY while the set of endpoints mapped under /mobile, /m and /assets
         // stays exactly what the allowlist was written against - the guard pins that set, so a new route
-        // under a shell prefix fails a test until it is consciously ruled public or gated).
-        MappedEndpoints = Tenancy.HostedRefusalRouteSpace.SelectFinalisedEndpoints(_app);
+        // under a shell prefix fails a test until it is consciously ruled public or gated). It is read ONCE
+        // and validated from that one read: every read of the app's data sources builds every endpoint again.
+        MappedEndpoints = Tenancy.HostedRefusalRouteSpace.ValidateBeforeStart(_app);
 
         await _app.StartAsync();
 
@@ -5857,6 +6038,11 @@ public sealed class GatewayHost : IAsyncDisposable
             ActivityRetentionStartupDelay, ActivityRetentionInterval);
         FileLog.Write($"[GatewayHost] activity retention sweep started: every {ActivityRetentionInterval.TotalHours:0}h, retention {Activity.ActivityRetentionSweep.RetentionPeriod.TotalDays:0} days");
 
+        // License Switching's minute check. Inert for a tenant none of whose machines has sent a usage report.
+        _licenseSwitchTimer = new System.Threading.Timer(_ => CheckLicenseSwitches(), null,
+            LicenseSwitchInterval, LicenseSwitchInterval);
+        FileLog.Write($"[GatewayHost] license switch check started: every {LicenseSwitchInterval.TotalSeconds:0}s");
+
         // The judged stops' seven-day retention purge. Offset from the activity sweep's startup delay so two
         // bulk deletes do not contend on the same database at the same minute of every boot.
         _turnVerdictRetentionTimer = new System.Threading.Timer(_ => SweepTurnVerdictRetention(), null,
@@ -5890,6 +6076,12 @@ public sealed class GatewayHost : IAsyncDisposable
         _suggestionSweepTimer = new System.Threading.Timer(_ => SweepSuggestions(), null,
             SuggestionSweepStartupDelay, SuggestionSweepInterval);
         FileLog.Write($"[GatewayHost] dictionary-suggestion sweep started: tick every {SuggestionSweepInterval.TotalMinutes:0}m, daily per tenant at local 00:05");
+
+        // The factory email (Factory Control, step 4). The timer always runs; each account's own switch decides whether
+        // anything is composed or sent for it, and it is off unless turned on.
+        _factoryEmailTimer = new System.Threading.Timer(_ => SweepFactoryEmail(), null,
+            FactoryEmailSweepStartupDelay, FactoryEmailSweepInterval);
+        FileLog.Write($"[GatewayHost] factory email sweep started: tick every {FactoryEmailSweepInterval.TotalMinutes:0}m, 08:00 / 16:00 / 00:00 in each account's time zone, only for accounts that switched it on");
 
         // The Mentor's weekly run (devthrottle_internal#2305), only when it is switched on.
         if (_teamMentorSweep is not null)
@@ -6395,6 +6587,37 @@ public sealed class GatewayHost : IAsyncDisposable
     }
 
     /// <summary>
+    /// License Switching's minute-check timer callback (a boundary - it owns the overlap guard and the try/catch so a
+    /// failed check never crashes the timer thread). One check at a time: a check can wait up to 60 seconds for a
+    /// Director's answer, and the next minute's check is skipped rather than run beside it.
+    /// </summary>
+    private void CheckLicenseSwitches()
+    {
+        // A pass is started every minute whether or not the last one has finished. There is no overlap guard here on
+        // purpose: one Director that does not answer keeps its own tenant's check open for up to the 60-second
+        // command wait, and a guard on the whole pass would make that cost EVERY tenant its next minute. The
+        // service skips, and logs, only the tenant whose own check is still running (LicenseSwitchService.TickAsync).
+        _ = RunLicenseSwitchCheckAsync();
+    }
+
+    internal async Task RunLicenseSwitchCheckAsync()
+    {
+        try
+        {
+            // Inside ITenantPass.ForEachTenantAsync: SendCommandAsync drops a command sent with no tenant scope.
+            await LicenseSwitches.TickEveryTenantAsync(_tenantPass, _licenseSwitchLifetime.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (_licenseSwitchLifetime.IsCancellationRequested)
+        {
+            FileLog.Write("[GatewayHost] license switch check stopped: the Gateway is stopping");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayHost] license switch check FAILED: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// The judged-stop retention timer callback (a boundary - it owns the overlap guard and the try/catch so
     /// a purge failure never crashes the timer thread). One sweep at a time; a skipped tick simply purges on
     /// the next one, which retention granularity is indifferent to.
@@ -6460,6 +6683,32 @@ public sealed class GatewayHost : IAsyncDisposable
     /// a scan failure never crashes the timer thread). One sweep at a time; a skipped tick simply checks on
     /// the next one, which a daily schedule is indifferent to.
     /// </summary>
+    /// <summary>The factory email timer callback (a boundary: it owns the overlap guard and the try/catch, so a failure
+    /// never crashes the timer thread). One sweep at a time; a skipped tick is picked up by the next one.</summary>
+    private void SweepFactoryEmail()
+    {
+        if (Interlocked.CompareExchange(ref _factoryEmailSweepInFlight, 1, 0) != 0)
+            return;
+        _ = RunFactoryEmailSweepAsync();
+    }
+
+    private async Task RunFactoryEmailSweepAsync()
+    {
+        try
+        {
+            if (_factoryEmailSweep is not null)
+                await _factoryEmailSweep.SweepAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayHost] factory email sweep FAILED: {ex.Message}");
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _factoryEmailSweepInFlight, 0);
+        }
+    }
+
     private void SweepTeamMentor()
     {
         if (Interlocked.CompareExchange(ref _teamMentorSweepInFlight, 1, 0) != 0)
@@ -6821,11 +7070,16 @@ public sealed class GatewayHost : IAsyncDisposable
         _cronTimer = null;
         try { _activityRetentionTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] activity retention timer dispose error: {ex.Message}"); }
         try { _turnVerdictRetentionTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] turn verdict retention timer dispose error: {ex.Message}"); }
+        try { _licenseSwitchTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] license switch timer dispose error: {ex.Message}"); }
+        _licenseSwitchTimer = null;
+        try { _licenseSwitchLifetime.Cancel(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] license switch lifetime cancel error: {ex.Message}"); }
         try { _fleetDoorbellTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] fleet doorbell timer dispose error: {ex.Message}"); }
         _fleetDoorbellTimer = null;
         try { _promptRetentionTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] prompt-log retention timer dispose error: {ex.Message}"); }
         _promptRetentionTimer = null;
         try { _teamMentorTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] team Mentor timer dispose error: {ex.Message}"); }
+        try { _factoryEmailTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] factory email timer dispose error: {ex.Message}"); }
+        _factoryEmailTimer = null;
         try { _suggestionSweepTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] dictionary-suggestion timer dispose error: {ex.Message}"); }
         try { _sessionHistoryTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] session history timer dispose error: {ex.Message}"); }
         _sessionHistoryTimer = null;

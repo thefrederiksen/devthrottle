@@ -57,7 +57,9 @@ public sealed class FactoryTalkLastTalkEndToEndTests : IDisposable
                 Maps: new FactoryMapStore(settings)),
             registry,
             _ => Array.Empty<CronJobDto>(),
-            (_, _, _) => new Dictionary<string, IReadOnlyList<CronRunRecord>>());
+            (_, _, _) => new Dictionary<string, IReadOnlyList<CronRunRecord>>(),
+            (_, f) => new CronRunProblemsDto { Factory = f },
+            (_, f) => new FactoryEmailsDto { Factory = f });
 
         FactoryPageViewDto Page() => FactoriesScreenFold.Page(registered,
             FactoriesScreenEndpoints.Inputs(sources, TenantId.Local, FactoryAgentsFold.WindowLast7d, "warmforward"));

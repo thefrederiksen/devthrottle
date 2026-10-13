@@ -34,6 +34,19 @@ namespace CcDirector.Gateway.Briefing;
 public sealed class NeedsYouClock
 {
     private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), DateTime> _since = new();
+    private readonly TimeProvider _time;
+
+    /// <summary>A clock on the system time - what the Gateway runs.</summary>
+    public NeedsYouClock() : this(TimeProvider.System) { }
+
+    /// <summary>A clock that stamps from <paramref name="time"/>; tests hand it a fake one and advance it.</summary>
+    public NeedsYouClock(TimeProvider time)
+    {
+        ArgumentNullException.ThrowIfNull(time);
+        _time = time;
+    }
+
+    private DateTime UtcNow => _time.GetUtcNow().UtcDateTime;
 
     /// <summary>What <see cref="Stamp"/> would answer right now, WITHOUT entering or leaving red. For a fold that must
     /// not move this clock (the Wingman inspector's trace colour).</summary>
@@ -41,7 +54,7 @@ public sealed class NeedsYouClock
     {
         ArgumentException.ThrowIfNullOrEmpty(sessionId);
         if (!isRed) return null;
-        return _since.TryGetValue((tenant, sessionId), out var since) ? since : DateTime.UtcNow;
+        return _since.TryGetValue((tenant, sessionId), out var since) ? since : UtcNow;
     }
 
     /// <summary>
@@ -68,7 +81,7 @@ public sealed class NeedsYouClock
         var since = _since.GetOrAdd(key, _ =>
         {
             added = true;
-            return DateTime.UtcNow;
+            return UtcNow;
         });
         if (added)
             FileLog.Write($"[NeedsYouClock] tenant={tenant.ToLogString()} sid={sessionId}: entered red, NeedsYouSince={since:o}");

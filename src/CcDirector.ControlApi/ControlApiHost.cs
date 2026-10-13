@@ -1100,10 +1100,17 @@ public sealed class ControlApiHost : IAsyncDisposable
     /// connection. The reporter's loop is started by the Director application, never by a host - a host stood up by a
     /// test must not run the license tool.
     /// </summary>
+    private static readonly CcSecretsLicenseApprovalSeal LicenseApprovalSeal = new();
+
     private static void AttachLicenseReporting(GatewayStreamClient? streamClient)
     {
         var licenses = Core.Licenses.LicenseSwitching.Shared;
         licenses.Reporter.AttachSink(streamClient is null ? null : new GatewayLicenseReportSink(streamClient));
+        // Contract 8.3: the same tunnel carries an approval request up, and the machine's cc-secrets seals and opens
+        // the answer. The seal needs no tunnel, so it stays attached when the tunnel goes.
+        licenses.SignIns.AttachRelay(streamClient is null ? null : new GatewayLicenseApprovalRelay(streamClient));
+        licenses.SignIns.AttachSeal(LicenseApprovalSeal);
+        licenses.Approver.AttachSeal(LicenseApprovalSeal);
         FileLog.Write($"[ControlApiHost] AttachLicenseReporting: tunnel={(streamClient is null ? "none" : "attached")}");
     }
 
@@ -1137,7 +1144,7 @@ public sealed class ControlApiHost : IAsyncDisposable
             // silence, and reconciling against a silence would re-push every conversation from the start.
             onHello: capabilities =>
             {
-                if (capabilities.TurnWatermarksKnown) _turnPusher?.SeedWatermarks(capabilities.TurnWatermarks);
+                if (capabilities.TurnWatermarksKnown) _ = _turnPusher?.SeedWatermarks(capabilities.TurnWatermarks);
                 // License Switching contract 2.3: the first Hello on a new connection is answered with a "connected"
                 // usage report, so a restarted Gateway has the facts within seconds rather than two minutes. After
                 // the Hello, because only then does the Director know the Gateway has PushLicenseUsage at all.
@@ -1951,6 +1958,7 @@ public sealed class ControlApiHost : IAsyncDisposable
         if (_streamClient is not null)
         {
             Core.Licenses.LicenseSwitching.Shared.Reporter.AttachSink(null);
+            Core.Licenses.LicenseSwitching.Shared.SignIns.AttachRelay(null);
             try { await _streamClient.StopAsync(); }
             catch (Exception ex) { FileLog.Write($"[ControlApiHost] GatewayStreamClient.StopAsync ERROR: {ex.Message}"); }
             await _streamClient.DisposeAsync();

@@ -1,0 +1,38 @@
+/* Pause everything (issue #3910): the banner shown on the Schedule page, the Factories screen and a factory's Seats
+   tab while the scheduler is paused. Amber, the colour "paused" already has on the Factories screen. */
+.sched-pause-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 0;
+  padding: 12px 14px;
+  background: rgba(245, 158, 11, 0.14);
+  border: 1px solid rgba(245, 158, 11, 0.6);
+  border-left-width: 4px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.sched-pause-banner-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.sched-pause-error {
+  margin: 12px 0;
+  padding: 10px 12px;
+  background: rgba(241, 76, 76, 0.1);
+  border: 1px solid rgba(241, 76, 76, 0.4);
+  border-radius: 8px;
+  color: var(--attention);
+  font-size: 13px;
+}
+
+@media (max-width: 640px) {
+  .sched-pause-banner {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

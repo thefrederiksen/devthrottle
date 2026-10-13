@@ -72,3 +72,50 @@ filter:
   `["LicenseContract.RefreshToken", "LicenseFutureMessage.AccessToken"]`.
 - Restored with `git checkout -- src/CcDirector.Gateway.Contracts/LicenseMessages.cs`, rebuilt, ran the
   filter again: passed 12, failed 0.
+
+## After-merge review
+
+Review: `missions/license-switching/reviews/3854-round-2-review.md`. Answers:
+`missions/license-switching/reviews/3854-round-2-answers.md`. Commands and results, 2026-10-11, Windows machine,
+fix committed as `511918231` before any mutation.
+
+`dotnet test src/CcDirector.Core.UnitTests --filter "FullyQualifiedName~LicenseMessages"`
+- Passed 12, failed 0. (`Offenders_EveryDeclarationForm_IsCaught` is renamed
+  `Scan_EveryDeclarationFormAndInheritedMember_IsCaught`, so the count is unchanged.)
+
+Mutation for finding 1, on the real file: in `LicenseMessages.cs`, added
+`public abstract class MessageBase { public string? AccessToken { get; init; } }` and made
+`LicenseWindow : MessageBase`. Same filter:
+- Failed 1, passed 11. `LicenseTypes_NoMemberNamedLikeASignInKey` reported `["LicenseWindow.AccessToken"]`.
+- With the same mutation, the guard as it is on origin/main (`git checkout origin/main --` the test file):
+  passed 12, failed 0 - the inherited key went unseen, which is the gap the review found.
+- Restored both files with `git checkout HEAD --`; `git status` clean; same filter: passed 12, failed 0.
+
+Mutation for finding 2: added `&& t.IsClass` to the discovery in `LicenseTypes(candidates, namespace)`. Same filter:
+- Failed 1, passed 11. `Scan_EveryDeclarationFormAndInheritedMember_IsCaught` lost
+  `LicenseProbeStruct.AccessToken`.
+- Restored with `git checkout HEAD --`; same filter: passed 12, failed 0.
+
+`.\scripts\test-local.ps1`
+- GREEN at commit `511918231`, tree clean, every suite outcome Completed: Core.UnitTests 1600, Avalonia.Tests 1044,
+  Engine 103, HostedAgent 89, Launcher 218, Terminal.Avalonia 82, Reclaim 310, setup 39, setup-engine 875,
+  setup-cli 74 - 4,434 passed, 0 failed.
+- Parked suites not run: this change touches only a Director unit test file and mission documents, no Gateway code.
+
+### Review of 3876
+
+Review: `missions/license-switching/reviews/3876-review.md`. Answers: `missions/license-switching/reviews/3876-answers.md`.
+Fix committed as `02659d9d7` before the mutation.
+
+`dotnet test src/CcDirector.Core.UnitTests --filter "FullyQualifiedName~LicenseMessages"`
+- Passed 12, failed 0. `Scan_EveryDeclarationFormAndInheritedMember_IsCaught` now expects eight offenders,
+  including `LicenseProbeInterface.InterfaceToken`.
+
+Mutation: removed the `foreach (var i in type.GetInterfaces()) yield return i;` lines from `SelfAndAncestors`. Same filter:
+- Failed 1, passed 11. `Scan_EveryDeclarationFormAndInheritedMember_IsCaught` lost `LicenseProbeInterface.InterfaceToken`.
+- Restored with `git checkout HEAD --`; `git status` clean; same filter: passed 12, failed 0.
+
+`dotnet build src/CcDirector.Core.UnitTests --no-incremental`: 0 warnings, 0 errors.
+
+`.\scripts\test-local.ps1`
+- GREEN at commit `02659d9d7`, tree clean, every suite outcome Completed, the same counts as above - 4,434 passed, 0 failed.

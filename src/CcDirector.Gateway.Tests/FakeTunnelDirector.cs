@@ -37,8 +37,24 @@ public sealed class FakeTunnelDirector : IAsyncDisposable
     /// <summary>The id this Director registered + connected under.</summary>
     public string DirectorId { get; }
 
-    /// <summary>The last command the Gateway sent over the tunnel, so a test can assert the verb + payload.</summary>
-    public DirectorCommand? LastCommand { get; private set; }
+    // Every command the Gateway sent over the tunnel, in the order it arrived.
+    private readonly System.Collections.Concurrent.ConcurrentQueue<DirectorCommand> _received = new();
+
+    /// <summary>
+    /// The most recent command of ONE verb the Gateway sent over the tunnel, or null when it never sent that verb.
+    ///
+    /// A TEST ASKS FOR ITS OWN VERB, NEVER FOR "THE LAST COMMAND". The Gateway sends a Director commands of its own
+    /// accord - pushing a waiting session makes it read that session's screen (the "screen-grid" verb) on a
+    /// background task - so which command arrived last depends on how busy the machine is. This fake used to expose
+    /// a single LastCommand, and on 12 October 2026 a release gate went red because a "screen-grid" landed after the
+    /// "handover" a test had just been answered. There is no such property any more, on purpose.
+    /// </summary>
+    public DirectorCommand? LastOf(string verb) =>
+        _received.LastOrDefault(c => string.Equals(c.Verb, verb, StringComparison.Ordinal));
+
+    /// <summary>Every command of one verb the Gateway sent over the tunnel, in the order it arrived.</summary>
+    public IReadOnlyList<DirectorCommand> AllOf(string verb) =>
+        _received.Where(c => string.Equals(c.Verb, verb, StringComparison.Ordinal)).ToList();
 
     private FakeTunnelDirector(string directorId, HubConnection conn, Func<DirectorCommand, DirectorCommandResult> dispatch, DeadPortReservation deadEndpoint)
     {
@@ -94,7 +110,7 @@ public sealed class FakeTunnelDirector : IAsyncDisposable
 
         conn.On<DirectorCommand, DirectorCommandResult>("Command", cmd =>
         {
-            fake.LastCommand = cmd;
+            fake._received.Enqueue(cmd);
             return fake._dispatch(cmd);
         });
 
@@ -159,6 +175,11 @@ public sealed class FakeTunnelDirector : IAsyncDisposable
     /// </summary>
     public Task PushDeltaAsync(SessionDto session) =>
         _conn.InvokeAsync("PushDelta", ++_sequence, session);
+
+    /// <summary>Send the machine's license usage report (License Switching, contract section 2.1), the way the key
+    /// holder Director does. Each call bumps the sequence.</summary>
+    public Task PushLicenseUsageAsync(LicenseUsageReport report) =>
+        _conn.InvokeAsync("PushLicenseUsage", ++_sequence, report);
 
     /// <summary>Serialize a verb result body the way the real Director cores do.</summary>
     public static DirectorCommandResult Ok(object body) =>

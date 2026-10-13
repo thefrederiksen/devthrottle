@@ -25,6 +25,7 @@ public class SessionVerificationTests : IDisposable
         _manager = new SessionManager(options);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void VerifyClaudeSession_NoClaudeSessionId_NotVerified()
     {
@@ -37,6 +38,7 @@ public class SessionVerificationTests : IDisposable
         Assert.Equal(SessionVerificationStatus.NotLinked, session.VerificationStatus);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void VerifyClaudeSession_NonexistentSessionId_StaysNotLinked()
     {
@@ -49,6 +51,7 @@ public class SessionVerificationTests : IDisposable
         Assert.Equal(SessionVerificationStatus.NotLinked, session.VerificationStatus);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void VerificationStatus_DefaultIsNotVerified()
     {

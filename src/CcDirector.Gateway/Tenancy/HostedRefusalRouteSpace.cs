@@ -96,8 +96,14 @@ internal static class HostedRefusalRouteSpace
     /// unnoticed. See <see cref="SelectFinalisedEndpoints"/> for why the app's own data sources are the only
     /// correct source here.
     /// </summary>
-    public static void ValidateBeforeStart(IEndpointRouteBuilder app)
-        => Validate(SelectFinalisedEndpoints(app));
+    /// <returns>The finalised endpoints it validated. Every read of the app's data sources builds every endpoint
+    /// again, so the caller keeps this one read rather than selecting a second time.</returns>
+    public static IReadOnlyList<Endpoint> ValidateBeforeStart(IEndpointRouteBuilder app)
+    {
+        var endpoints = SelectFinalisedEndpoints(app);
+        Validate(endpoints);
+        return endpoints;
+    }
 
     /// <summary>
     /// The pre-start source SELECTION, factored to a single definition. The finalised endpoints are read from

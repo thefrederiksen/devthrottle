@@ -13,13 +13,17 @@ from . import __version__
 from . import browser_ops
 from . import diag_ops
 from . import email_ops
+from . import factory_email_ops
 from . import factory_ops
 from . import factory_memory_ops
 from . import factory_registry_ops
 from . import factory_status_ops
+from . import factory_manager_ops
+from . import run_ops
 from . import fleet_manager_ops
 from . import fleet_ops
 from . import license_ops
+from . import license_signin_ops
 from . import license_usage_ops
 from . import link_ops
 from . import mission_ops
@@ -119,9 +123,21 @@ fleet_manager_app = typer.Typer(
     add_completion=False,
     no_args_is_help=True,
 )
+factory_manager_app = typer.Typer(
+    cls=AxiGroup,
+    help="Show or clear the account's Factory Manager mark. Only the owner sets it.",
+    add_completion=False,
+    no_args_is_help=True,
+)
 settings_app = typer.Typer(
     cls=AxiGroup,
     help="Read and write CC Director settings.", add_completion=False, no_args_is_help=True
+)
+run_app = typer.Typer(
+    cls=AxiGroup,
+    help="How scheduled runs went: report a result, resolve a problem, list problems.",
+    add_completion=False,
+    no_args_is_help=True,
 )
 schedule_app = typer.Typer(
     cls=AxiGroup,
@@ -147,6 +163,13 @@ factory_goal_number_app = typer.Typer(
     no_args_is_help=True,
 )
 factory_app.add_typer(factory_goal_number_app, name="goal-number")
+factory_email_app = typer.Typer(
+    cls=AxiGroup,
+    help="The factory email: the 08:00 report and the 16:00 and midnight checks.",
+    add_completion=False,
+    no_args_is_help=True,
+)
+factory_app.add_typer(factory_email_app, name="email")
 trigger_app = typer.Typer(
     cls=AxiGroup,
     help="Checks with no model that start a session when there is work.",
@@ -216,7 +239,8 @@ license_app = typer.Typer(
         "List, add, remove and switch the Claude accounts this machine holds.\n\n"
         "The active sign-in is in the default config folder; each spare has a folder of its own in the store. "
         "A switch exchanges the active sign-in with a spare's. 'usage' reads each account's limits, and "
-        "'refresh' keeps a spare's sign-in fresh. Never prints a key."
+        "'refresh' keeps a spare's sign-in fresh. 'sign-in' adds a spare by signing it in through a browser "
+        "profile, and 'renew' signs accounts in again before their sign-in ends (about a month). Never prints a key."
     ),
     add_completion=False,
     no_args_is_help=True,
@@ -231,6 +255,7 @@ app.add_typer(director_app, name="director")
 app.add_typer(mission_app, name="mission")
 app.add_typer(message_app, name="message")
 app.add_typer(fleet_manager_app, name="fleet-manager")
+factory_app.add_typer(factory_manager_app, name="manager")
 app.add_typer(settings_app, name="settings")
 app.add_typer(schedule_app, name="schedule")
 app.add_typer(factory_app, name="factory")
@@ -244,6 +269,7 @@ app.add_typer(autostart_app, name="autostart")
 app.add_typer(browser_app, name="browser")
 app.add_typer(fleet_app, name="fleet")
 app.add_typer(license_app, name="license")
+app.add_typer(run_app, name="run")
 console = Console()
 
 _ACTIONS = [
@@ -1032,6 +1058,49 @@ _ACTIONS = [
         "args": [{"name": "factory", "required": False}],
     },
     {
+        "id": "factory-name-check",
+        "description": "The name check over every factory: each seat that says CEO, or whose name is not a role word of its factory (a factory has a boss, not a CEO; seats are role words, never a person's name).",
+        "command": "cc-devthrottle factory name-check",
+        "mutatesState": False,
+        "args": [],
+    },
+    {
+        "id": "factory-email-status",
+        "description": "Show whether this account is sent the factory email (the 08:00 report and the 16:00 / midnight checks).",
+        "command": "cc-devthrottle factory email status",
+        "mutatesState": False,
+        "args": [],
+    },
+    {
+        "id": "factory-email-on",
+        "description": "Switch the factory email on for this account. It ships off.",
+        "command": "cc-devthrottle factory email on",
+        "mutatesState": True,
+        "args": [],
+    },
+    {
+        "id": "factory-email-off",
+        "description": "Switch the factory email off for this account.",
+        "command": "cc-devthrottle factory email off",
+        "mutatesState": True,
+        "args": [],
+    },
+    {
+        "id": "factory-email-list",
+        "description": "List the kept factory emails, newest first: id, slot, when sent, title and the factories covered (--all adds slots with nothing sent).",
+        "command": "cc-devthrottle factory email list [--factory <id>] [--kind <morning-report|check>] [--count <n>] [--all]",
+        "mutatesState": False,
+        "args": [{"name": "factory", "required": False}, {"name": "kind", "required": False},
+                 {"name": "count", "required": False}, {"name": "all", "required": False}],
+    },
+    {
+        "id": "factory-email-show",
+        "description": "Show one kept factory email with its HTML exactly as sent.",
+        "command": "cc-devthrottle factory email show <id>",
+        "mutatesState": False,
+        "args": [{"name": "id", "required": True}],
+    },
+    {
         "id": "factory-goal-number-post",
         "description": "Post a factory's goal number (value, unit, as-of date, link to how it was measured); a boss runs it on every run.",
         "command": "cc-devthrottle factory goal-number post --factory <id> --value <text> --unit <text> --date <YYYY-MM-DD> --link <url>",
@@ -1388,6 +1457,20 @@ _ACTIONS = [
         "id": "fleet-manager-clear",
         "description": "Remove this account's Fleet Manager mark.",
         "command": "cc-devthrottle fleet-manager clear",
+        "mutatesState": True,
+        "args": [],
+    },
+    {
+        "id": "factory-manager-show",
+        "description": "Show which session is this account's one Factory Manager, or none, and the computer and folder it starts on.",
+        "command": "cc-devthrottle factory manager show",
+        "mutatesState": False,
+        "args": [],
+    },
+    {
+        "id": "factory-manager-clear",
+        "description": "Remove this account's Factory Manager mark.",
+        "command": "cc-devthrottle factory manager clear",
         "mutatesState": True,
         "args": [],
     },
@@ -1784,6 +1867,86 @@ def license_refresh(
 ) -> None:
     """Renew a spare account's sign-in key in its own folder when it is due."""
     license_usage_ops.refresh(account, force, json_output, fields, default_config_dir, store_dir)
+
+
+@license_app.command("sign-in")
+def license_sign_in(
+    account: str = typer.Argument(..., help="The email of the Claude account to sign in."),
+    browser: Optional[str] = typer.Option(
+        None, "--browser",
+        help="The browser profile on this machine that is signed in to claude.ai as the account (cc-devthrottle "
+        "browser list). Default: the one set with license set-browser.",
+    ),
+    remote_approval: bool = typer.Option(
+        False, "--remote-approval",
+        help="Approve on another machine: print 'authorize-url: <url>', then read the code from standard input "
+        "(that machine runs license approve).",
+    ),
+    ask_when_no_browser: bool = typer.Option(
+        False, "--ask-when-no-browser",
+        help="Approve in the profile set here for the account; with none set, do as --remote-approval does.",
+    ),
+    default_config_dir: Optional[str] = typer.Option(None, "--default-config-dir", help=_LICENSE_DEFAULT_DIR_HELP),
+    store_dir: Optional[str] = typer.Option(None, "--store-dir", help=_LICENSE_STORE_DIR_HELP),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
+) -> None:
+    """Sign an account in here as a spare, or renew the sign-in of one held already."""
+    license_signin_ops.sign_in(account, browser, remote_approval, default_config_dir, store_dir, json_output,
+                               ask_when_no_browser)
+
+
+@license_app.command("approve")
+def license_approve(
+    url: str = typer.Argument(..., help="The authorize URL that license sign-in --remote-approval printed."),
+    email: str = typer.Option(..., "--email", help="The account the URL signs in. Anything else is refused."),
+    browser: str = typer.Option(..., "--browser", help="The browser profile signed in to claude.ai as that account."),
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output JSON: {accountEmail, result, code} or, refused, {accountEmail, result, reason}."
+    ),
+) -> None:
+    """Approve another machine's sign-in in a browser profile here; prints the code."""
+    license_signin_ops.approve(url, email, browser, json_output)
+
+
+@license_app.command("renew")
+def license_renew(
+    account: Optional[str] = typer.Argument(None, help="One account's email. Default: every account held."),
+    force: bool = typer.Option(False, "--force", help="Sign in again even when the sign-in is not due."),
+    check: bool = typer.Option(False, "--check", help="Sign nothing in: answer which accounts are due."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output JSON: {count, failed, accounts}."),
+    fields: Optional[str] = typer.Option(
+        None, "--fields",
+        help="Fields to show, comma separated. Default: account,role,result,sign-in-expires. Valid: account, role, "
+        "result, sign-in-expires, signed-in, browser, detail.",
+    ),
+    default_config_dir: Optional[str] = typer.Option(None, "--default-config-dir", help=_LICENSE_DEFAULT_DIR_HELP),
+    store_dir: Optional[str] = typer.Option(None, "--store-dir", help=_LICENSE_STORE_DIR_HELP),
+) -> None:
+    """Sign in again every account held whose sign-in ends within five days."""
+    license_signin_ops.renew(account, force, json_output, fields, default_config_dir, store_dir, check)
+
+
+@license_app.command("set-browser")
+def license_set_browser(
+    account: str = typer.Argument(..., help="The Claude account's email."),
+    browser: str = typer.Argument(..., help="The browser profile signed in to claude.ai as that account."),
+    default_config_dir: Optional[str] = typer.Option(None, "--default-config-dir", help=_LICENSE_DEFAULT_DIR_HELP),
+    store_dir: Optional[str] = typer.Option(None, "--store-dir", help=_LICENSE_STORE_DIR_HELP),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
+) -> None:
+    """Record which browser profile signs an account in on this machine."""
+    license_signin_ops.set_browser(account, browser, default_config_dir, store_dir, json_output)
+
+
+@license_app.command("get-browser")
+def license_get_browser(
+    account: str = typer.Argument(..., help="The Claude account's email."),
+    default_config_dir: Optional[str] = typer.Option(None, "--default-config-dir", help=_LICENSE_DEFAULT_DIR_HELP),
+    store_dir: Optional[str] = typer.Option(None, "--store-dir", help=_LICENSE_STORE_DIR_HELP),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
+) -> None:
+    """Say which browser profile signs an account in on this machine, if one is set."""
+    license_signin_ops.get_browser(account, default_config_dir, store_dir, json_output)
 
 
 @app.callback()
@@ -2991,6 +3154,24 @@ def fleet_manager_clear(
     fleet_manager_ops.clear(json_output)
 
 
+@factory_manager_app.command("show")
+def factory_manager_show(
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output JSON: {\"sessionId\": <id or null>, \"computer\": ..., \"folder\": ...}."
+    ),
+) -> None:
+    """Show this account's Factory Manager, or none, and where it starts."""
+    factory_manager_ops.show(json_output)
+
+
+@factory_manager_app.command("clear")
+def factory_manager_clear(
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Remove this account's Factory Manager mark."""
+    factory_manager_ops.clear(json_output)
+
+
 @mission_app.command("create")
 def mission_create(
     name: str = typer.Argument(..., help="Human-friendly name for the Mission."),
@@ -3958,6 +4139,18 @@ def factory_status(
     factory_status_ops.status(factory, json_output)
 
 
+@factory_app.command("name-check")
+def factory_name_check(
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Flag every seat that says CEO, or whose name is not a role word.
+
+    A factory has a boss, not a CEO, and seats are role words, never a person's name. The rule and every
+    sentence are the Gateway's, from the one fold the Factory Manager and the Factories screen read.
+    """
+    factory_manager_ops.name_check(json_output)
+
+
 @factory_goal_number_app.command("post")
 def factory_goal_number_post(
     factory: str = typer.Option(..., "--factory", help="The registered factory the number is for."),
@@ -3993,6 +4186,60 @@ def factory_goal_number_show(
 ) -> None:
     """Show a factory's goal numbers, newest first."""
     factory_registry_ops.show_goal_numbers(factory, count, json_output, fields, full)
+
+
+@factory_email_app.command("status")
+def factory_email_status(
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Show whether this account is sent the factory email. It ships off."""
+    factory_email_ops.switch(None, json_output)
+
+
+@factory_email_app.command("on")
+def factory_email_on(
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Switch the factory email on for this account.
+
+    It is sent at 08:00 every day, and at 16:00 and midnight only when something went wrong.
+    """
+    factory_email_ops.switch("on", json_output)
+
+
+@factory_email_app.command("off")
+def factory_email_off(
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Switch the factory email off for this account.
+
+    Nothing is composed, kept or sent for this account while it is off.
+    """
+    factory_email_ops.switch("off", json_output)
+
+
+@factory_email_app.command("list")
+def factory_email_list(
+    factory: Optional[str] = typer.Option(None, "--factory", help="Only the emails that covered this factory."),
+    kind: Optional[str] = typer.Option(None, "--kind", help="Only one kind: morning-report or check."),
+    count: Optional[int] = typer.Option(None, "--count", "-n", help="Largest number of emails to show (1-100, default 20)."),
+    all_states: bool = typer.Option(False, "--all", help="Every slot, also those with nothing to send or a failed send."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """List the kept factory emails, newest first.
+
+    Each sent email is listed with its id, slot, when it was sent, its title and the factories it covered.
+    """
+    factory_email_ops.list_emails(factory, kind, count, all_states, json_output)
+
+
+@factory_email_app.command("show")
+def factory_email_show(
+    email_id: str = typer.Argument(..., help="The email's id, from 'factory email list'."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Show one kept factory email with its HTML exactly as sent."""
+    factory_email_ops.show(email_id, json_output)
 
 
 @factory_memory_app.command("list")
@@ -4439,6 +4686,49 @@ def fleet_forget(
     """Remove one standing preference, or an unconfirmed lesson you kept yourself."""
     fleet_ops.forget_preference(preference_id, json_output)
 
+
+@run_app.command("result")
+def run_result(
+    outcome: str = typer.Argument(..., help="ok, or problem."),
+    reason: Optional[str] = typer.Argument(None, help="The one line why. Required for a problem; an optional note for ok."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Say how this scheduled run went. Called at its end, by the run's own session.
+
+    `run result ok` records that the run went well, and then this session closes itself - the same as
+    `session done`. `run result problem "<one line why>"` records a problem, and the session stays open for
+    someone to look at. A session no schedule started is refused, and nothing is recorded.
+    """
+    run_ops.result(outcome, reason, json_output)
+
+
+@run_app.command("resolve")
+def run_resolve(
+    run: str = typer.Argument(..., help="The run id, from `run problems`."),
+    reason: str = typer.Argument(..., help="The one-line reason the problem is resolved. Required."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Resolve a run's problem with a one-line reason, which is kept.
+
+    Who resolved it is kept with the reason.
+    A factory's problem may be resolved by the owner or a session of that factory - its boss among them.
+    A problem also clears by itself when the next run of the same schedule reports ok.
+    """
+    run_ops.resolve(run, reason, json_output)
+
+
+@run_app.command("problems")
+def run_problems(
+    factory: Optional[str] = typer.Option(None, "--factory", help="Only this factory's schedules."),
+    include_closed: bool = typer.Option(False, "--all", help="Also list problems already cleared or resolved."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """List the scheduled-run problems still open (every one, with --all).
+
+    Each carries the schedule, its factory, the run and its shift, the kind of problem and its one line why,
+    and the session to read. The same list the factory page, the morning email and the Factory Manager read.
+    """
+    run_ops.problems(factory, include_closed, json_output)
 
 def tool_main() -> None:
     """The console-script entry point. The tool runs through the shared failure reporter (issue #3642): a

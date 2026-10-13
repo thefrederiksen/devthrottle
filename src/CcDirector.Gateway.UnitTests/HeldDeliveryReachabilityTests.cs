@@ -460,7 +460,9 @@ public sealed class HeldDeliveryReachabilityTests : IDisposable
         _transcriber.OutOfCredits = true;
         driver.OnSessionsArrived(TenantId.Local, DirectorId);
         var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (_store.ReadRecord(uploadId) is not { State: DictationDeliveryState.Failed } && DateTime.UtcNow < deadline)
+        // The record is written before the driver lets go of it, so the wait is for both, not the record alone.
+        while ((_store.ReadRecord(uploadId) is not { State: DictationDeliveryState.Failed } || driver.HeldCount != 0)
+               && DateTime.UtcNow < deadline)
             await Task.Delay(50);
 
         // The driver stopped driving it and said why.
@@ -491,21 +493,20 @@ public sealed class HeldDeliveryReachabilityTests : IDisposable
         Assert.Equal(DictationDeliveryState.Delivered, _store.ReadRecord(uploadId)!.State);
     }
 
-    // Windows only, and SKIPPED elsewhere rather than silently green.
-    [CcDirector.Core.Tests.WindowsOnlyFact("the failing-ffmpeg script this test hands the transcoder is a batch file")]
+    [Fact]
     public async Task APermanentFailureOnADriverAttempt_IsHandedBack_TheOutcomeReadAnswers422_AndARetryReEnters()
     {
         // The same ruling for a clip that can never be transcribed: nothing before ownership proved it
         // (the first attempt held at the reachability gate), so the DRIVER's attempt is the first to hear
         // the permanent failure. The outcome read answers the same 422 the complete path gives, and the
         // owner's Retry re-enters PENDING and is owned again - no dead end.
-        // The clip is over-budget non-WAV, so the pipeline transcodes it - and the ffmpeg this driver is HANDED
-        // cannot decode anything, which is the REAL permanent path: a clip ffmpeg cannot decode is a permanent
-        // failure, never retried forever. The transcoder is passed in; nothing here touches the process environment,
-        // which the other three threads of this assembly are reading.
-        var failingFfmpeg = Path.Combine(_root, "failing-ffmpeg.bat");
-        File.WriteAllText(failingFfmpeg, "@exit /b 1\r\n");
-        var (driver, _) = NewDriver(transcoder: new FfmpegAudioTranscoder(failingFfmpeg));
+        // The clip is over-budget non-WAV, so the pipeline transcodes it - and the transcoder this driver is HANDED
+        // cannot decode anything: it throws exactly what FfmpegAudioTranscoder throws when ffmpeg exits non-zero,
+        // the real permanent path (a clip that cannot be decoded is never retried forever). It is a fake, not a
+        // batch file standing in for ffmpeg: starting a script written a moment earlier can be refused while the
+        // machine still holds the new file, that refusal is not a permanent failure, so the delivery stayed held
+        // and the test waited out its deadline. FfmpegAudioTranscoderTests covers the real ffmpeg's exit.
+        var (driver, _) = NewDriver(transcoder: new UndecodableTranscoder());
         var sid = Seat();
         var uploadId = await StagedBigNonWavClipAsync(sid);
         _pushed.UnregisterConnection(TenantId.Local, DirectorId, "conn-1");
@@ -520,7 +521,9 @@ public sealed class HeldDeliveryReachabilityTests : IDisposable
         Assert.True(_pushed.ApplySnapshot(TenantId.Local, DirectorId, "conn-2", ++_pushedSeq, new[] { Session(sid) }));
         driver.OnSessionsArrived(TenantId.Local, DirectorId);
         var deadline = DateTime.UtcNow.AddSeconds(30);
-        while (_store.ReadRecord(uploadId) is not { State: DictationDeliveryState.Failed } && DateTime.UtcNow < deadline)
+        // The record is written before the driver lets go of it, so the wait is for both, not the record alone.
+        while ((_store.ReadRecord(uploadId) is not { State: DictationDeliveryState.Failed } || driver.HeldCount != 0)
+               && DateTime.UtcNow < deadline)
             await Task.Delay(50);
 
         Assert.Equal(0, driver.HeldCount);
@@ -568,9 +571,11 @@ public sealed class HeldDeliveryReachabilityTests : IDisposable
         driver.OnSessionsArrived(TenantId.Local, DirectorId);
 
         // The director-connected wake runs off the caller's thread, exactly as it does in the host: wait for
-        // the handback to land, bounded.
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (_store.ReadRecord(uploadId) is not { State: DictationDeliveryState.Pending, Owned: null }
+        // the handback to land, bounded. The record is written before the driver lets go of it, so the wait is
+        // for both - waiting on the record alone read the held count a moment early.
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        while ((_store.ReadRecord(uploadId) is not { State: DictationDeliveryState.Pending, Owned: null }
+                || driver.HeldCount != 0)
                && DateTime.UtcNow < deadline)
             await Task.Delay(50);
 
@@ -899,6 +904,14 @@ public sealed class HeldDeliveryReachabilityTests : IDisposable
         history: new TranscriptionHistoryLog(Path.Combine(_root, "history")),
         audioArchive: new TranscriptionAudioArchive(false, Path.Combine(_root, "archive")),
         transcoder: transcoder);
+
+    /// <summary>A transcoder that can decode nothing, failing as FfmpegAudioTranscoder does on a non-zero ffmpeg exit.</summary>
+    private sealed class UndecodableTranscoder : IAudioTranscoder
+    {
+        public byte[] ToPcmWav(byte[] audio, string fileName, CancellationToken ct = default)
+            => throw new TranscriptionPermanentException(TranscriptionPermanentException.UnsupportedFormat,
+                "ffmpeg could not decode the audio (exit 1): (test transcoder)");
+    }
 
     /// <summary>
     /// The delivery's clock: the moment the recording was sent, plus whatever the test puts it ahead by, or a fixed

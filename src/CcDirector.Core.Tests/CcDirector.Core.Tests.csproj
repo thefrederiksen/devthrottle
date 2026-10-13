@@ -28,5 +28,6 @@
 
   <ItemGroup>
     <Compile Include="..\TestInfrastructure\VirtualTime.cs" Link="TestInfrastructure\VirtualTime.cs" />
+    <Compile Include="..\TestInfrastructure\VirtualClock.cs" Link="TestInfrastructure\VirtualClock.cs" />
   </ItemGroup>
 </Project>

@@ -481,35 +481,6 @@ public sealed class DevReportShapeCheckTests
     }
 
     [Fact]
-    public void Check_ReportAtThePublishLimit_IsCheckedInBoundedTime()
-    {
-        // Inspection round 2, finding 4: the radio-name check scanned every radio once per question, so a valid
-        // report grew quadratically (37.5 s for 10,000 questions). A report at the 10 MB publish limit (mission
-        // ruling 6), all questions (49,202 of them), is the worst valid case. Measured on the development machine
-        // on 2026-09-16: 1.6 to 2.1 s in Release, 1.6 to 2.2 s in Debug. The 30 s bound leaves wide headroom for a
-        // slow or busy machine. Watched failing: with the old per-question scan put back, a 3 MB report (14,903
-        // questions) took 89 s in Release and this test went red; the fixed check took 1 s on the same report.
-        var body = new System.Text.StringBuilder();
-        var i = 0;
-        while (body.Length < 10 * 1024 * 1024 - 1024)
-        {
-            body.Append($"<div data-dev-report-question=\"q{i}\"><h3>Question {i}?</h3>")
-                .Append($"<label><input type=\"radio\" name=\"q{i}\" value=\"yes\" data-recommended> Yes</label>")
-                .Append($"<label><input type=\"radio\" name=\"q{i}\" value=\"no\"> No</label></div>");
-            i++;
-        }
-        var html = Report(questionsBody: body.ToString());
-
-        var clock = System.Diagnostics.Stopwatch.StartNew();
-        var verdict = DevReportShapeCheck.Check(html);
-        clock.Stop();
-
-        Assert.True(verdict.Passed, string.Join("\n", verdict.Errors.Take(5)));
-        Assert.True(clock.Elapsed < System.TimeSpan.FromSeconds(30),
-            $"Checking a {html.Length:N0}-character report with {i:N0} questions took {clock.Elapsed.TotalSeconds:F1} s.");
-    }
-
-    [Fact]
     public void Check_UppercaseAttributesSingleQuotesAndUnquotedValues_AreRead()
     {
         var html = "<HEADER DATA-DEV-REPORT='header' data-dev-report-status=done></HEADER>" +

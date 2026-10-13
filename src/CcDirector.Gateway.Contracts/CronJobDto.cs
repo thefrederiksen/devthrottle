@@ -135,6 +135,19 @@ public sealed class CronJobDto
     public string? Lifecycle { get; set; }
 
     /// <summary>
+    /// The schedule's state in the one word every surface shows (issue #3910): "Active", "Paused", or "Finished" for
+    /// a one-off that has run. Folded by the Gateway from <see cref="Lifecycle"/> on every read, so no client turns
+    /// the enabled flag into a word of its own. Read-only.
+    /// </summary>
+    public string? StateLabel { get; set; }
+
+    /// <summary>
+    /// What one tap on the schedule's state does now: "Pause" for one that is switched on, "Resume" for one that is
+    /// not. Folded by the Gateway on every read. Read-only.
+    /// </summary>
+    public string? ToggleLabel { get; set; }
+
+    /// <summary>
     /// Whether this schedule's recent sessions closed themselves, folded by the Gateway from the run history on a
     /// list read. Null when the read did not fold it (a single-job read or a write). Read-only.
     /// </summary>
@@ -169,6 +182,26 @@ public sealed class CronJobDto
     /// The schedule is saved either way: this is a warning, not a refusal. Read-only.
     /// </summary>
     public string? LoadWarning { get; set; }
+
+    /// <summary>
+    /// The shifts this schedule's runs start in over the next 7 days, in the account's time zone, in the order a day
+    /// has them: "night", "morning", "evening" (Factory Control, step 3). Folded by <c>ScheduleShifts</c> on every
+    /// read. Read-only.
+    /// </summary>
+    public List<string>? Shifts { get; set; }
+
+    /// <summary>The shifts in words: "Morning shift", "Night and evening shifts", "No run in the next 7 days". Read-only.</summary>
+    public string? ShiftText { get; set; }
+
+    /// <summary>
+    /// Set when a run of this schedule in the next 7 days would end after its shift ends (or, with no finished run to
+    /// measure, starts in the last 30 minutes of a shift), naming the first such run. Null when every run fits. A
+    /// warning, never a refusal. Read-only.
+    /// </summary>
+    public string? ShiftWarning { get; set; }
+
+    /// <summary>The rule behind <see cref="ShiftWarning"/>, in words, set with it. Read-only.</summary>
+    public string? ShiftRule { get; set; }
 }
 
 /// <summary>

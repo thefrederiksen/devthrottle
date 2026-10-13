@@ -308,22 +308,21 @@ public sealed class DirectorErrorEndpointsTests : IDisposable
     {
         // A write stuck on a stalled share holds the lock. Every other report must be refused at once rather
         // than park a Gateway thread behind it - and must not use up the device's hourly allowance.
-        var store = NewStore();
+        var store = new ErrorReportStore(_root, () => Now, writeLockTimeout: TimeSpan.FromMilliseconds(50));
         var device = UniqueDevice();
         var full = Batch(Enumerable.Range(0, ErrorReportLimits.MaxReportsPerBatch).Select(i => Item($"E{i} FAILED")).ToArray());
         IResult result = Results.Ok();
-        var clock = System.Diagnostics.Stopwatch.StartNew();
         // The lock is thread-affine, so it is taken and released on this thread and the write runs on another.
+        // The lock is held until the writer has answered, so a post that waited for it would never answer: the
+        // writer finishing at all, refused, is the proof it gave up. Thirty seconds only bounds a hang.
         using (store.HoldWriteLockForTests())
         {
             var writer = new Thread(() => result = DirectorErrorEndpoints.HandlePost(store, TenantA, device, full, Now));
             writer.Start();
-            writer.Join();
+            Assert.True(writer.Join(TimeSpan.FromSeconds(30)), "the post waited for the held lock instead of refusing");
         }
-        clock.Stop();
 
         Assert.Equal(StatusCodes.Status503ServiceUnavailable, Status(result));
-        Assert.True(clock.Elapsed < ErrorReportStore.WriteLockTimeout + TimeSpan.FromSeconds(3), $"took {clock.Elapsed}");
         Assert.Empty(store.Query(Everything()).Records);
         // The refused batch was refunded: the device still has its whole allowance.
         var accepted = 0;

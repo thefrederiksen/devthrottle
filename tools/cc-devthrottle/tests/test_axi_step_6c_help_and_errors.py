@@ -366,6 +366,11 @@ _ACTIONS_ADDED_SINCE_PIN = {
     "factory-register", "factory-list", "factory-purpose", "factory-goal-number-post", "factory-goal-number-show",
     # Issue #3685: a factory's boss reads its own Factories screen.
     "factory-status",
+    # Factory Control, step 4: the factory email's switch and its kept reports.
+    "factory-email-status", "factory-email-on", "factory-email-off", "factory-email-list", "factory-email-show",
+    # Factory Control, step 5: the Factory Manager's mark and the name check. There is no set: only the owner's
+    # own device sets the mark.
+    "factory-manager-show", "factory-manager-clear", "factory-name-check",
     # The Schedule page work (the owner, 2026-10-09): each machine's scheduled load over the next 24 hours.
     "schedule-load",
 }

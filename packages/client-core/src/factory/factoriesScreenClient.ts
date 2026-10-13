@@ -118,13 +118,13 @@ export interface FactoriesListView {
   outsideTitle: string;
   /** What the list is and what to do about a row on it. */
   outsideText: string;
-  /** Every enabled schedule that is no seat of any factory, as the Gateway ordered them. */
+  /** Every active schedule that is no seat of any factory, as the Gateway ordered them. */
   outsideRows: FactoryOutsideScheduleRow[];
   /** Set when there are none. */
   outsideEmptyText: string | null;
 }
 
-/** One enabled schedule that is no seat of any registered factory (issue #3650). */
+/** One active schedule that is no seat of any registered factory (issue #3650). */
 export interface FactoryOutsideScheduleRow {
   id: string;
   name: string;
@@ -183,6 +183,97 @@ export interface FactoryFailureItem {
   note: string | null;
 }
 
+/** The factory emails that covered a factory, kept for 30 days. Every word is the Gateway's. */
+export interface FactoryPageEmails {
+  /** "Reports emailed to you". */
+  heading: string;
+  note: string;
+  /** Newest first. */
+  items: FactoryPageEmailItem[];
+  emptyText: string | null;
+}
+
+/** One kept factory email. */
+export interface FactoryPageEmailItem {
+  /** As GET /gateway/factory-emails/{id} takes it. */
+  id: string;
+  /** Its subject line, as sent. */
+  title: string;
+  /** "Morning report" or "Shift check". */
+  kindText: string;
+  /** "Sent today 08:00". */
+  whenText: string;
+  /** "3 problems listed". */
+  problemText: string;
+  /** "Read". */
+  readLabel: string;
+  /** The Cockpit page that shows it as sent. */
+  href: string;
+}
+
+/** One kept factory email with its HTML exactly as sent (GET /gateway/factory-emails/{id}). */
+export interface FactoryEmail {
+  id: string;
+  title: string;
+  /** The email's body, exactly as it was sent. */
+  html: string;
+}
+
+/** A factory's open problems, from the one problems fold. Every word is the Gateway's. */
+export interface FactoryPageProblems {
+  /** "Open problems". */
+  heading: string;
+  /** How a problem stops being open. */
+  note: string;
+  /** Newest first. */
+  items: FactoryProblemItem[];
+  /** "No open problems." when there are none. */
+  emptyText: string | null;
+}
+
+/** One open problem of one scheduled run. */
+export interface FactoryProblemItem {
+  /** The run, as `cc-devthrottle run resolve` names it. */
+  runId: string;
+  /** "Scout - Tallyhand - Scout - daily scan". */
+  seatText: string;
+  /** "Did not report: its session ended without reporting how the run went.". */
+  what: string;
+  /** "Started Sun 11 Oct 06:15", or "Due Sun 11 Oct 06:15". */
+  whenText: string;
+  /** "morning shift, Sun 11 Oct, 08:00-16:00". */
+  shiftText: string;
+  /** "open 3 hours". */
+  openForText: string;
+  sessionId: string | null;
+  sessionLabel: string | null;
+  /** Set when the run never started a session. */
+  noSessionText: string | null;
+  handle: FactoryProblemHandle;
+  /** "Resolve". */
+  resolveLabel: string;
+  /** "Why is it resolved? One line." */
+  resolvePrompt: string;
+  /** "Resolve with this reason". */
+  resolveConfirmLabel: string;
+  /** "Resolving...". */
+  resolveBusyLabel: string;
+}
+
+/** Handle the issue: opens a talk with the factory's boss, briefed on the problem - or, for a factory with no boss, a
+ *  talk with the Factory Manager, briefed in the same words. */
+export interface FactoryProblemHandle {
+  /** "Handle the issue". */
+  label: string;
+  /** "Starting the talk with the boss...", or "...with the Factory Manager..." for a factory with no boss. */
+  busyLabel: string;
+  factoryId: string;
+  runId: string;
+  available: boolean;
+  /** Why it cannot, when available is false. */
+  unavailableText: string | null;
+}
+
 export interface FactoryPageFailures {
   /** "Failing". */
   heading: string;
@@ -233,6 +324,12 @@ export interface FactoryPageView {
   goalNumber: FactoryGoalNumberCard;
   /** What is failing now (where FAILING links to); null when nothing is. */
   failures: FactoryPageFailures | null;
+  /** The open problems of this factory's scheduled runs, each with Handle the issue and Resolve (Factory Control,
+   *  step 1b); null when the view was folded without them. */
+  problems: FactoryPageProblems | null;
+  /** The factory emails sent to the account that covered this factory, newest first, each readable again as sent;
+   *  null when the view was folded without them. */
+  emails: FactoryPageEmails | null;
   waiting: FactoryPageWaiting;
   bossLatest: FactoryBossLatest;
   lastTalk: FactoryLastTalk;
@@ -260,6 +357,8 @@ export interface FactorySeatRow {
   closingText: string;
   /** ok, amber or grey. */
   closingTone: FactoryTone;
+  /** Every shift the seat works in, in words: "Morning shift", "Night and evening shifts", "No run in the next 7 days". */
+  shiftText: string;
   talk: FactoryTalkTarget;
   /** Every schedule the seat names, with its words and the button that edits it; empty when it has none. */
   schedules: FactorySeatSchedule[];
@@ -272,6 +371,25 @@ export interface FactorySeatSchedule {
   whenText: string;
   /** "Edit schedule"; null for a schedule that no longer exists. */
   editLabel: string | null;
+  /** True when the schedule is paused; the button beside it then resumes it. */
+  paused: boolean;
+  /** "Pause" or "Resume" (issue #3910); null for a schedule that no longer exists or a one-off that has run. */
+  toggleLabel: string | null;
+  /** The shifts this schedule starts runs in, in words: "Morning shift". */
+  shiftText: string;
+}
+
+/**
+ * One shift's group on the Seats tab (Factory Control, step 3), folded by the Gateway: night, morning, evening, then
+ * "none" for the seats with no run in the next 7 days. A seat in two shifts is in both, each row with only that
+ * shift's schedules. Render in the order given.
+ */
+export interface FactorySeatGroup {
+  /** "night", "morning", "evening" or "none". */
+  shift: string;
+  /** "Morning shift, 08:00-16:00", or "No run in the next 7 days". */
+  title: string;
+  rows: FactorySeatRow[];
 }
 
 export interface FactorySeatsView {
@@ -282,6 +400,8 @@ export interface FactorySeatsView {
   /** "Seat", "When it runs", "Last run", "Computer". */
   columns: string[];
   rows: FactorySeatRow[];
+  /** The seats grouped by shift; the Seats tab renders these. */
+  groups: FactorySeatGroup[];
   note: string;
 }
 
@@ -485,6 +605,43 @@ export async function startFactoryTalk(target: FactoryTalkTarget, signal?: Abort
   return (await res.json()) as FactoryTalkStarted;
 }
 
+/**
+ * Handle the issue: the Gateway opens a talk with the factory's boss, already told about the problem, as the person's
+ * own session. A refusal (no boss yet, the problem already resolved, no Director on the boss's computer) throws a
+ * GatewayError carrying the Gateway's own sentence.
+ */
+export async function startProblemTalk(handle: FactoryProblemHandle, signal?: AbortSignal): Promise<FactoryTalkStarted> {
+  const path = `${TALK_PREFIX}/${encodeURIComponent(handle.factoryId)}/problems/${encodeURIComponent(handle.runId)}/handle`;
+  const res = await fetch(path, { method: "POST", headers: { Accept: "application/json", ...authHeaders() }, signal });
+  if (!res.ok) throw await GatewayError.from(res, "start the talk");
+  assertJson(res);
+  return (await res.json()) as FactoryTalkStarted;
+}
+
+/**
+ * Resolve a run's problem with a one-line reason - the same route `cc-devthrottle run resolve` calls. The reason is
+ * sent as typed: the Gateway decides whether it is acceptable, and a refusal (no reason, several lines, already
+ * resolved) throws a GatewayError carrying its own sentence.
+ */
+export async function resolveRunProblem(runId: string, reason: string, signal?: AbortSignal): Promise<void> {
+  const res = await fetch(`/cron/runs/${encodeURIComponent(runId)}/resolve`, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ reason }),
+    signal,
+  });
+  if (!res.ok) throw await GatewayError.from(res, "resolve it");
+  assertJson(res);
+}
+
+/**
+ * One kept factory email, with its HTML exactly as sent. A refusal (no such email in this account, a malformed id)
+ * throws a GatewayError carrying the Gateway's own sentence.
+ */
+export async function getFactoryEmail(id: string, signal?: AbortSignal): Promise<FactoryEmail> {
+  return getJson<FactoryEmail>(`/gateway/factory-emails/${encodeURIComponent(id)}`, "load the report", signal);
+}
+
 const OWNER_ACTION_PATH: Record<FactoryOwnerAction["action"], string> = {
   "handled-older": "waiting/handled-older",
   archive: "archive",
@@ -507,4 +664,87 @@ export async function runFactoryOwnerAction(action: FactoryOwnerAction, signal?:
   if (!res.ok) throw await GatewayError.from(res, action.label.toLowerCase());
   assertJson(res);
   return (await res.json()) as FactoryOwnerActionResult;
+}
+
+// ---- the Factory Manager (Factory Control, step 5) ----------------------------------------------------------------
+// Mirrors FactoryManagerDtos.cs. Every word, tone and finding is the Gateway's (FactoryManagerEndpoints.CardOf and
+// FactoryNameCheck), rendered verbatim.
+
+/** One seat the name check flagged. */
+export interface FactoryNameFinding {
+  factory: string;
+  factoryTitle: string;
+  seatId: string;
+  /** "ceo" or "not-a-role-word". */
+  kind: string;
+  /** The Gateway's sentence. */
+  text: string;
+}
+
+/** The name check over every factory that is not archived. */
+export interface FactoryNameCheck {
+  count: number;
+  factoriesChecked: number;
+  /** "Name check: 2 seats flagged", or "Name check: nothing flagged". */
+  headingText: string;
+  ruleText: string;
+  /** "Every factory passes." when nothing is flagged; null otherwise. */
+  passText: string | null;
+  findings: FactoryNameFinding[];
+}
+
+/** The Factories screen's Factory Manager card. */
+export interface FactoryManagerCard {
+  title: string;
+  purpose: string;
+  stateText: string;
+  stateTone: FactoryTone;
+  /** Where the running Factory Manager opens; null when none runs. */
+  sessionHref: string | null;
+  /** "Talk to the Factory Manager", or "Open the Factory Manager" while one runs. */
+  actionLabel: string;
+  busyLabel: string;
+  /** True when no computer and folder are saved: the card asks for them before the first start. */
+  needsPlacement: boolean;
+  /** The computers with a running Director, to choose from; empty once a placement is saved. */
+  computers: string[];
+  placementText: string | null;
+  /** The computer picker's label; null once a placement is saved. */
+  computerLabel: string | null;
+  /** The folder field's label; null once a placement is saved. */
+  folderLabel: string | null;
+  placementSavedText: string | null;
+  nameCheck: FactoryNameCheck;
+}
+
+/** Where a first start puts the Factory Manager: both, or neither (the saved ones). */
+export interface FactoryManagerPlacement {
+  computer: string;
+  folder: string;
+}
+
+const FACTORY_MANAGER_PREFIX = "/gateway/factory-agents/factory-manager";
+
+export function getFactoryManagerCard(signal?: AbortSignal): Promise<FactoryManagerCard> {
+  return getJson<FactoryManagerCard>(FACTORY_MANAGER_PREFIX, "load the Factory Manager", signal);
+}
+
+/**
+ * Talk to the Factory Manager: the Gateway answers with the running one, or starts a new top-level session owned by
+ * the person who pressed it - on the placement sent, or the saved one - and binds it. A refusal (no placement yet, no
+ * Director on the computer, the switch off) throws a GatewayError carrying the Gateway's own sentence.
+ */
+export async function startFactoryManagerTalk(
+  placement: FactoryManagerPlacement | null,
+  signal?: AbortSignal,
+): Promise<FactoryTalkStarted> {
+  const res = await fetch(`${FACTORY_MANAGER_PREFIX}/talk`, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json", ...authHeaders() },
+    body: placement === null ? undefined : JSON.stringify(placement),
+    signal,
+  });
+  if (!res.ok) throw await GatewayError.from(res, "start the Factory Manager");
+  assertJson(res);
+  return (await res.json()) as FactoryTalkStarted;
 }

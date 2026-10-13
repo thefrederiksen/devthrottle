@@ -363,6 +363,7 @@ public sealed class SessionStatusWingmanTests
         finally { wingman.Dispose(); manager.Dispose(); }
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void CreateSession_stamps_ControllerSessionId_and_IsControlled()
     {
@@ -391,7 +392,7 @@ public sealed class SessionStatusWingmanTests
         try
         {
             wingman.Start();
-            var session = manager.CreateSession(Path.GetTempPath());
+            var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, new BufferOnlyBackend());
             // Past the first turn: red "needs you" at a turn-end only applies once the
             // session is no longer brand-new (a brand-new session is green "ready").
             session.IsBrandNew = false;
@@ -415,7 +416,7 @@ public sealed class SessionStatusWingmanTests
         var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
         try
         {
-            var session = manager.CreateSession(Path.GetTempPath());
+            var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, new BufferOnlyBackend());
             Assert.Equal(StatusColor.Blue, session.StatusColor);
             Assert.Equal("session created", session.LastStatusReason);
         }
@@ -428,7 +429,7 @@ public sealed class SessionStatusWingmanTests
         var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
         try
         {
-            var session = manager.CreateSession(Path.GetTempPath());
+            var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, new BufferOnlyBackend());
 
             string? captured = null;
             session.OnStatusColorChanged += (oldC, newC, reason) =>
@@ -450,7 +451,7 @@ public sealed class SessionStatusWingmanTests
         var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
         try
         {
-            var session = manager.CreateSession(Path.GetTempPath());
+            var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, new BufferOnlyBackend());
             session.SetStatusColor(StatusColor.Blue, "working");
             session.SetStatusColor(StatusColor.Red, "needs you");
             session.SetStatusColor(StatusColor.Blue, "working again");
@@ -489,7 +490,7 @@ public sealed class SessionStatusWingmanTests
         var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
         try
         {
-            var session = manager.CreateSession(Path.GetTempPath());
+            var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, new BufferOnlyBackend());
             for (int i = 0; i < 80; i++)
             {
                 var c = (i % 2 == 0) ? StatusColor.Blue : StatusColor.Red;
@@ -507,7 +508,7 @@ public sealed class SessionStatusWingmanTests
         var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
         try
         {
-            var session = manager.CreateSession(Path.GetTempPath());
+            var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, new BufferOnlyBackend());
             int fires = 0;
             session.OnStatusColorChanged += (_, _, _) => fires++;
 
@@ -528,8 +529,8 @@ public sealed class SessionStatusWingmanTests
         var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
         try
         {
-            var session = manager.CreateSession(Path.GetTempPath());
-            if (session.Buffer is null) return; // no grid (Embedded backend); skip
+            var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, new BufferOnlyBackend());
+            Assert.NotNull(session.Buffer); // the buffer-only backend always has a grid
             session.Buffer.Write(System.Text.Encoding.UTF8.GetBytes("HELLO_GRID_MARKER_42"));
 
             var rows = session.SnapshotScreenRows();
@@ -548,7 +549,7 @@ public sealed class SessionStatusWingmanTests
         var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
         try
         {
-            var session = manager.CreateSession(Path.GetTempPath());
+            var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, new BufferOnlyBackend());
             // Wingman.Start wires sessions restored from persistence on Director boot.
             // Restored sessions already have history, so they are not brand-new: a turn-end
             // maps to red "needs you" (a brand-new session would be green "ready").
@@ -575,7 +576,7 @@ public sealed class SessionStatusWingmanTests
         try
         {
             wingman.Start();
-            var session = manager.CreateSession(Path.GetTempPath());
+            var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, new BufferOnlyBackend());
             // A real session end is surfaced by the detector as the Exited state; the
             // wingman maps that to gray ("unknown" colour).
             session.ApplyTerminalActivityState(ActivityState.Exited);
@@ -595,7 +596,7 @@ public sealed class SessionStatusWingmanTests
             wingman.Start();
             try
             {
-                var session = manager.CreateSession(Path.GetTempPath());
+                var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, new BufferOnlyBackend());
                 // Phase 2.3: the brand-new "green ready" overlay is gone from the Director. A brand-new
                 // session is born WaitingForInput, which the dumb standalone map paints red "needs you".
                 // The Gateway still folds a green "ready" for brand-new sessions from the IsBrandNew raw
@@ -817,7 +818,7 @@ public sealed class SessionStatusWingmanTests
         var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
         try
         {
-            var session = manager.CreateSession(Path.GetTempPath());
+            var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, new BufferOnlyBackend());
             Assert.True(session.IsBrandNew);
         }
         finally { manager.Dispose(); }
@@ -877,7 +878,7 @@ public sealed class SessionStatusWingmanTests
         try
         {
             wingman.Start();
-            var session = manager.CreateSession(Path.GetTempPath());
+            var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, new BufferOnlyBackend());
             Assert.NotNull(session.CachedExplainText);
             Assert.Contains("brand new session", session.CachedExplainText, StringComparison.OrdinalIgnoreCase);
             Assert.Equal("system", session.CachedExplainModel);
@@ -891,7 +892,7 @@ public sealed class SessionStatusWingmanTests
         var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
         try
         {
-            var session = manager.CreateSession(Path.GetTempPath());
+            var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, new BufferOnlyBackend());
             int fires = 0;
             session.OnCachedExplainChanged += () => fires++;
 
@@ -915,8 +916,8 @@ public sealed class SessionStatusWingmanTests
         try
         {
             wingman.Start();
-            var session = manager.CreateSession(Path.GetTempPath());
-            if (session.Buffer is null) return;
+            var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, new BufferOnlyBackend());
+            Assert.NotNull(session.Buffer);
 
             int pushCount = 0;
             session.OnPendingPromptTextChanged += (_, source) =>

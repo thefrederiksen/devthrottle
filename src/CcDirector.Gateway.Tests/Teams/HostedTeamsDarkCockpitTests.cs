@@ -4,7 +4,6 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Threading.Tasks;
-using CcDirector.Gateway.Cockpit;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests.Teams;
@@ -32,17 +31,15 @@ public sealed class HostedTeamsDarkCockpitTests : IAsyncLifetime
     private GatewayHost _gateway = null!;
     private HttpClient _http = null!;
     private string? _priorRoot;
-    private bool _wroteWebRoot;
 
     public async Task InitializeAsync()
     {
-        var index = Path.Combine(CockpitReactApp.WebRoot, "index.html");
-        if (!File.Exists(index))
-        {
-            _wroteWebRoot = !Directory.Exists(CockpitReactApp.WebRoot);
-            Directory.CreateDirectory(CockpitReactApp.WebRoot);
-            await File.WriteAllTextAsync(index, "<!doctype html><html><body><div id=\"root\"></div>" + ShellMarker + "</body></html>");
-        }
+        // The Cockpit this host serves, in a folder of the test's own - never the build output's wwwroot/c,
+        // which every test process run from that output shares.
+        var webRoot = Path.Combine(_instancesDir, "cockpit-web-root");
+        Directory.CreateDirectory(webRoot);
+        await File.WriteAllTextAsync(Path.Combine(webRoot, "index.html"),
+            "<!doctype html><html><body><div id=\"root\"></div>" + ShellMarker + "</body></html>");
 
         _priorRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _instancesDir);
@@ -52,7 +49,7 @@ public sealed class HostedTeamsDarkCockpitTests : IAsyncLifetime
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
             streamMode: true, teamsReleased: false,
-            options: new GatewayHostOptions { Hosted = true });
+            options: new GatewayHostOptions { Hosted = true, CockpitWebRoot = webRoot });
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
     }
@@ -62,16 +59,7 @@ public sealed class HostedTeamsDarkCockpitTests : IAsyncLifetime
         _http.Dispose();
         await _gateway.StopAsync();
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
-        try
-        {
-            var index = Path.Combine(CockpitReactApp.WebRoot, "index.html");
-            if (File.Exists(index) && File.ReadAllText(index).Contains(ShellMarker, StringComparison.Ordinal))
-            {
-                if (_wroteWebRoot) Directory.Delete(CockpitReactApp.WebRoot, true);
-                else File.Delete(index);
-            }
-            if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true);
-        }
+        try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
         catch { /* best-effort */ }
     }
 

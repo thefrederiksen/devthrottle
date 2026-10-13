@@ -16,6 +16,7 @@ import { FactoryAreaGate } from "./factory/FactoryAreaGate";
 import { FactoriesView } from "./factory/FactoriesView";
 import { FactoryView } from "./factory/FactoryView";
 import { FactoryAgentPageView } from "./factory/FactoryAgentPageView";
+import { FactoryEmailView } from "./factory/FactoryEmails";
 import { FactoryWaitingView } from "./factory/FactoryWaitingView";
 import {
   OldFactoriesListRedirect,
@@ -25,6 +26,7 @@ import {
 } from "./factory/FactoryRedirects";
 import { DirectorsView } from "./fleet/DirectorsView";
 import { DirectorDetailView } from "./fleet/DirectorDetailView";
+import { LicensesView } from "./licenses/LicensesView";
 import { ScheduleView } from "./schedule/ScheduleView";
 import { WorkflowsView } from "./workflows/WorkflowsView";
 import { WorkflowDetail } from "./workflows/WorkflowDetail";
@@ -147,6 +149,8 @@ export const COCKPIT_ROUTES: RouteObject[] = [
           { path: "/factories/:factory", element: <FactoryAreaGate><FactoryView /></FactoryAreaGate> },
           { path: "/factories/:factory/:tab", element: <FactoryAreaGate><FactoryView /></FactoryAreaGate> },
           { path: "/factories/:factory/agents/:agent", element: <FactoryAreaGate><FactoryAgentPageView /></FactoryAreaGate> },
+          // A kept factory email, read again exactly as it was sent (Factory Control, brief 5's store).
+          { path: "/factories/:factory/emails/:id", element: <FactoryAreaGate><FactoryEmailView /></FactoryAreaGate> },
           // The area was "Factory Agents" until the Factories screen; its old addresses land on their new equivalents.
           { path: "/factory-agents", element: <OldFactoriesListRedirect /> },
           { path: "/factory-agents/waiting", element: <OldFactoryWaitingRedirect /> },
@@ -165,6 +169,10 @@ export const COCKPIT_ROUTES: RouteObject[] = [
           { path: "/missions", element: <Navigate to="/fleet-map" replace /> },
           { path: "/directors", element: <DirectorsView /> },
           { path: "/directors/:directorId", element: <DirectorDetailView /> },
+          // The Licenses page (the License Switching mission, phase 3): every Claude account, which machine is on
+          // which, when the next switch is expected, the switch log and Switch now. It reads the Gateway's
+          // /gateway/licenses routes through client-core and shows every verdict as the Gateway folded it.
+          { path: "/licenses", element: <LicensesView /> },
           // The Schedule page (issue #976): a one-to-one port of the Blazor Schedule.razor (cron
           // jobs, /cron/jobs surface) over the same Gateway REST surface, with a Fleet-section nav
           // entry (issue #1247). The Wingman Pipeline page that used to sit beside it was removed:

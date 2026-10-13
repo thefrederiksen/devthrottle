@@ -208,15 +208,17 @@ public class LinkDetectorExactTextTests
     }
 
     [Fact]
-    public void LongTailOfBrackets_IsTrimmedQuickly()
+    public async Task LongTailOfBrackets_IsTrimmedQuickly()
     {
-        string line = "https://example.com/a" + new string(')', 10000);
-        var watch = System.Diagnostics.Stopwatch.StartNew();
+        // Every step over this line must be linear in its length. No stopwatch decides that: the tail is long enough
+        // that a linear pass takes milliseconds, while a step that is quadratic in the length - a pattern that
+        // backtracks, a trim or scan that starts again for each character - needs tens of billions of reads and
+        // takes minutes (or trips the regular expression timeout). Thirty seconds tells the two apart on any machine.
+        string line = "https://example.com/a" + new string(')', 300_000);
 
-        var (underlined, _, _) = OnlyLink(line);
+        var (underlined, _, _) = await Task.Run(() => OnlyLink(line)).WaitAsync(TimeSpan.FromSeconds(30));
 
         Assert.Equal("https://example.com/a", underlined);
-        Assert.True(watch.ElapsedMilliseconds < 50, $"took {watch.ElapsedMilliseconds} ms");
     }
 
     // ---- paths ---------------------------------------------------------------------------------

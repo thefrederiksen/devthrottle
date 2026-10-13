@@ -1,4 +1,4 @@
-using System.Diagnostics;
+using CcDirector.Core.Utilities;
 using Xunit;
 
 namespace CcDirector.Core.Tests;
@@ -56,20 +56,6 @@ public sealed class TestTempRootTests
             return;
         }
 
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = "cmd.exe",
-            Arguments = $"/c mklink /J \"{link}\" \"{target}\"",
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-        using var process = Process.Start(startInfo)!;
-        process.StandardOutput.ReadToEnd();
-        var error = process.StandardError.ReadToEnd();
-        process.WaitForExit();
-        if (process.ExitCode != 0)
-            throw new InvalidOperationException($"mklink /J failed (exit {process.ExitCode}): {error}");
+        DirectoryJunction.Create(link, target);
     }
 }

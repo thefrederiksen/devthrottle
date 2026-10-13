@@ -359,6 +359,12 @@ public sealed class RepoHistoryStoreTests : IDisposable
         Assert.Equal(4, store.WeeklyTrends(tenant, 1, day)[^1].MaxWorktrees);
     }
 
+    /// <summary>
+    /// A file time no write made today can carry. A rewrite test stamps the file with it and asks whether it is still
+    /// there, instead of sleeping and hoping the file system's clock ticks between two writes.
+    /// </summary>
+    private static readonly DateTime Untouched = new(2001, 2, 3, 4, 5, 6, DateTimeKind.Utc);
+
     // ---------------------------------------------------------------------------------------
     // REGRESSION (issue 516): an accepted push whose values did not change must NOT rewrite the
     // whole global history file. Every Director re-pushes its full snapshot on a periodic cadence,
@@ -374,13 +380,12 @@ public sealed class RepoHistoryStoreTests : IDisposable
         store.ObserveSnapshot(tenant, "d1", new[] { Repo("a", worktrees: 5) }, day);
         store.SaveIfChanged();
         Assert.True(File.Exists(_path));
-        var firstWrite = File.GetLastWriteTimeUtc(_path);
+        File.SetLastWriteTimeUtc(_path, Untouched);
 
-        Thread.Sleep(80);
         store.ObserveSnapshot(tenant, "d1", new[] { Repo("a", worktrees: 5) }, day); // identical values
         store.SaveIfChanged();
 
-        Assert.Equal(firstWrite, File.GetLastWriteTimeUtc(_path)); // no rewrite for an unchanged observation
+        Assert.Equal(Untouched, File.GetLastWriteTimeUtc(_path)); // no rewrite for an unchanged observation
     }
 
     // A genuinely changed value still rewrites (the change-detection is not too eager).
@@ -393,13 +398,12 @@ public sealed class RepoHistoryStoreTests : IDisposable
 
         store.ObserveSnapshot(tenant, "d1", new[] { Repo("a", worktrees: 5) }, day);
         store.SaveIfChanged();
-        var firstWrite = File.GetLastWriteTimeUtc(_path);
+        File.SetLastWriteTimeUtc(_path, Untouched);
 
-        Thread.Sleep(80);
         store.ObserveSnapshot(tenant, "d1", new[] { Repo("a", worktrees: 6) }, day); // a real change
         store.SaveIfChanged();
 
-        Assert.True(File.GetLastWriteTimeUtc(_path) > firstWrite);
+        Assert.NotEqual(Untouched, File.GetLastWriteTimeUtc(_path));
         Assert.Equal(6, store.WeeklyTrends(tenant, 1, day)[^1].MaxWorktrees);
     }
 
@@ -493,12 +497,11 @@ public sealed class RepoHistoryStoreTests : IDisposable
         var store = new RepoHistoryStore(_path);
         store.ObserveSnapshot(tenant, "d1", new[] { Repo("a", worktrees: 5) }, day);
         store.SaveIfChanged();
-        var firstWrite = File.GetLastWriteTimeUtc(_path);
+        File.SetLastWriteTimeUtc(_path, Untouched);
 
-        Thread.Sleep(80);
         Assert.True(store.SaveIfChanged());
 
-        Assert.Equal(firstWrite, File.GetLastWriteTimeUtc(_path));
+        Assert.Equal(Untouched, File.GetLastWriteTimeUtc(_path));
     }
 
     // REGRESSION (inspection): a readable-but-corrupt live file lost row B, so the load must recover

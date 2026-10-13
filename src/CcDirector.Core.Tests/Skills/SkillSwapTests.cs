@@ -1,4 +1,4 @@
-using System.Diagnostics;
+using CcDirector.Core.Utilities;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Skills;
 using Xunit;
@@ -279,12 +279,7 @@ public sealed class SkillSwapTests : IDisposable
             Directory.CreateSymbolicLink(link, target);
             return;
         }
-        using var process = Process.Start(new ProcessStartInfo("cmd.exe", $"/c mklink /J \"{link}\" \"{target}\"")
-        {
-            UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true,
-        })!;
-        process.WaitForExit();
-        Assert.Equal(0, process.ExitCode);
+        DirectoryJunction.Create(link, target);
     }
 
     private void Reset()

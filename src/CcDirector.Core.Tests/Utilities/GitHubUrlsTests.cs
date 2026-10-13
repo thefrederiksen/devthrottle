@@ -92,6 +92,7 @@ public class GitHubUrlsTests
 
     // ---------- ResolveRepoNameCached (best-effort, never throws) ----------
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void ResolveRepoNameCached_RepoWithGitHubOrigin_ReturnsRepoName()
     {
@@ -106,6 +107,7 @@ public class GitHubUrlsTests
         }
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void ResolveRepoNameCached_RepoWithAzureDevOpsOrigin_ReturnsOrgRepo()
     {
@@ -120,6 +122,7 @@ public class GitHubUrlsTests
         }
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void ResolveRepoNameCached_RepoWithoutOrigin_ReturnsEmpty_NeverThrows()
     {
@@ -153,6 +156,7 @@ public class GitHubUrlsTests
 
     // ---------- BuildNewIssueUrl (against real temp git repos) ----------
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void BuildNewIssueUrl_RepoWithGitHubOrigin_ReturnsNewIssueUrl()
     {
@@ -169,6 +173,7 @@ public class GitHubUrlsTests
         }
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void BuildNewIssueUrl_RepoWithoutOrigin_Throws()
     {

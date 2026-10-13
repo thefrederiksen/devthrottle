@@ -22,8 +22,9 @@ internal static class CommandAnswerTiming
     /// Gateway, which this assembly does not reference.</summary>
     internal const string GatewayLimit = "the Gateway stops waiting at 30s";
 
-    /// <summary>Runs <paramref name="dispatch"/> and returns its answer untouched, saying so when the answer runs long.</summary>
-    internal static async Task<DirectorCommandResult> AnswerAsync(DirectorCommand command, Func<Task<DirectorCommandResult>> dispatch)
+    /// <summary>Runs <paramref name="dispatch"/> and returns its answer untouched, saying so when the answer runs long.
+    /// <paramref name="clock"/> is the clock the notice waits on: the system clock unless a test hands it a fake one.</summary>
+    internal static async Task<DirectorCommandResult> AnswerAsync(DirectorCommand command, Func<Task<DirectorCommandResult>> dispatch, TimeProvider? clock = null)
     {
         ArgumentNullException.ThrowIfNull(command);
         ArgumentNullException.ThrowIfNull(dispatch);
@@ -31,11 +32,12 @@ internal static class CommandAnswerTiming
         var answering = dispatch();
         if (answering.IsCompleted) return await answering;
 
+        var time = clock ?? TimeProvider.System;
         var notice = new SendWaitNotice("GatewayStreamClient",
-            $"the answer to verb={command.Verb}, sid={command.SessionId}, cmdId={command.CommandId}", GatewayLimit);
+            $"the answer to verb={command.Verb}, sid={command.SessionId}, cmdId={command.CommandId}", GatewayLimit, time);
         using (var cts = new CancellationTokenSource())
         {
-            if (await Task.WhenAny(answering, Task.Delay(SendWaitNotice.NoticeAfter, cts.Token)) != answering)
+            if (await Task.WhenAny(answering, Task.Delay(SendWaitNotice.NoticeAfter, time, cts.Token)) != answering)
                 notice.Check();
             cts.Cancel();
         }

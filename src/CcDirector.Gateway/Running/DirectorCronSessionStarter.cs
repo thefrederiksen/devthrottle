@@ -58,7 +58,10 @@ public sealed class DirectorCronSessionStarter : ICronSessionStarter
             // seeded agent to rename itself. A job always has a name (required by CronSchedule.Validate),
             // so this is never the bare-folder name the Director would reject.
             Name = $"{job.Name} - {CronSchedule.LocalRunLabel(job, _clock.UtcNow)}",
-            PrePrompt = job.Action.Seed,
+            // The run is told to report how it went (Factory Control, step 1). Added HERE, to the text this run is
+            // given - the schedule's stored prompt is not touched. Every way a seed schedule starts a session comes
+            // through this method (its own time, a late catch-up, run-now), so this is the one place that adds it.
+            PrePrompt = ScheduledRunClosingInstruction.PromptFor(job.Action.Seed),
             // Scheduled-run auto-dismiss (issue #1200): a seed run defaults to closing itself when it
             // finishes with nothing needing a human, so an hourly job stops piling leftover sessions into
             // the rail. The job can opt out (AutoDismiss=false) to keep the run open like a normal session.

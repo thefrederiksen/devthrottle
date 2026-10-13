@@ -236,6 +236,10 @@ public sealed class SessionKeyGuardTests
     [InlineData("GET", "/cron/jobs/cj_abc/plan")]
     // The load strip and `schedule load`: each machine's next 24 hours.
     [InlineData("GET", "/cron/load")]
+    // Factory Control, step 1: `run result`, `run resolve` and `run problems`.
+    [InlineData("POST", "/cron/runs/result")]
+    [InlineData("POST", "/cron/runs/6a000000-0000-4000-8000-000000000001/resolve")]
+    [InlineData("GET", "/cron/problems")]
     // Factory triggers: `cc-devthrottle trigger add|list|show|pause|resume|runs`.
     [InlineData("GET", "/triggers")]
     [InlineData("POST", "/triggers")]
@@ -256,6 +260,11 @@ public sealed class SessionKeyGuardTests
     // factory's boss reads the same status word and the same failing and waiting rows the owner sees.
     [InlineData("GET", "/gateway/factories")]
     [InlineData("GET", "/gateway/factories/website-business")]
+    // The Factory Manager's binding and the name check (Factory Control, step 5):
+    // `cc-devthrottle factory manager show|set|clear` and `cc-devthrottle factory name-check`.
+    [InlineData("GET", "/gateway/factory-manager")]
+    [InlineData("PUT", "/gateway/factory-manager")]
+    [InlineData("GET", "/gateway/factory/name-check")]
     public void The_methods_and_paths_the_shipped_clients_send_are_allowed(string method, string path)
         => Assert.True(SessionKeyGuard.Check(method, path).Allowed,
             $"{method} {path} is what the shipped client sends; refusing it returns 403 to every agent");
@@ -280,6 +289,19 @@ public sealed class SessionKeyGuardTests
     public void Workspace_shapes_the_Gateway_does_not_route_stay_refused(string method, string path)
         => Assert.False(SessionKeyGuard.Check(method, path).Allowed,
             $"{method} {path} is not a routed workspace shape and must not be authorized");
+
+    [Theory]
+    // The Factory Manager's own talk and the owner's card are the owner's: a session starts no talk and reads no
+    // owner screen. The binding is a mark, not a verb set - there is nothing to POST or DELETE.
+    [InlineData("POST", "/gateway/factory-agents/factory-manager/talk")]
+    [InlineData("GET", "/gateway/factory-agents/factory-manager")]
+    [InlineData("POST", "/gateway/factory-manager")]
+    [InlineData("DELETE", "/gateway/factory-manager")]
+    [InlineData("PUT", "/gateway/factory/name-check")]
+    [InlineData("POST", "/gateway/factory/name-check")]
+    public void Factory_manager_shapes_a_session_must_not_reach_stay_refused(string method, string path)
+        => Assert.False(SessionKeyGuard.Check(method, path).Allowed,
+            $"{method} {path} is the owner's or is not routed, and must not be authorized for a session key");
 
     [Theory]
     // The registry and goal number routes are allowed in exactly the shapes the commands send. A delete, a
@@ -326,6 +348,19 @@ public sealed class SessionKeyGuardTests
     [InlineData("GET", "/triggers/website-new-mail/pause")]
     [InlineData("POST", "/triggers/website-new-mail/checks")]
     public void Trigger_shapes_a_session_may_not_call_are_refused(string method, string path)
+        => Assert.False(SessionKeyGuard.Check(method, path).Allowed,
+            $"{method} {path} must not be open to a session key");
+
+    [Theory]
+    // Factory Control, step 1: only the three shapes the run commands send. A result is posted, never read or
+    // replaced; a problem is resolved, never deleted; the problems are read, never written.
+    [InlineData("GET", "/cron/runs/result")]
+    [InlineData("PUT", "/cron/runs/result")]
+    [InlineData("GET", "/cron/runs/6a000000-0000-4000-8000-000000000001/resolve")]
+    [InlineData("DELETE", "/cron/runs/6a000000-0000-4000-8000-000000000001")]
+    [InlineData("POST", "/cron/problems")]
+    [InlineData("GET", "/cron/runs")]
+    public void Run_result_shapes_the_commands_do_not_send_stay_refused(string method, string path)
         => Assert.False(SessionKeyGuard.Check(method, path).Allowed,
             $"{method} {path} must not be open to a session key");
 
@@ -540,6 +575,11 @@ public sealed class SessionKeyGuardTests
     // The account's Fleet Manager mark: read it, and set or clear it (both are the one PUT).
     [InlineData("GET", "/gateway/fleet-manager")]
     [InlineData("PUT", "/gateway/fleet-manager")]
+    // The factory email (Factory Control, step 4): read and set its switch, and read the kept reports.
+    [InlineData("GET", "/gateway/factory-email")]
+    [InlineData("PUT", "/gateway/factory-email")]
+    [InlineData("GET", "/gateway/factory-emails")]
+    [InlineData("GET", "/gateway/factory-emails/4b0f0c6e-0000-4000-8000-000000000001")]
     // Handovers: list, read one, write one, remove one. Moving a session needs the first three.
     [InlineData("GET", "/directors/d-1/handovers")]
     [InlineData("GET", "/directors/d-1/handovers/content")]
@@ -667,6 +707,13 @@ public sealed class SessionKeyGuardTests
     [InlineData("POST", "/gateway/fleet-manager")]
     [InlineData("DELETE", "/gateway/fleet-manager")]
     [InlineData("PUT", "/gateway/fleet-manager/anything")]
+    // The factory email's switch is GET and PUT only; its kept reports are read-only.
+    [InlineData("POST", "/gateway/factory-email")]
+    [InlineData("DELETE", "/gateway/factory-email")]
+    [InlineData("PUT", "/gateway/factory-emails")]
+    [InlineData("DELETE", "/gateway/factory-emails/4b0f0c6e-0000-4000-8000-000000000001")]
+    [InlineData("GET", "/gateway/factory-emails/4b0f0c6e-0000-4000-8000-000000000001/html")]
+    [InlineData("GET", "/gateway/factory-email/reports")]
     // And nothing hung off a verdict path later is reachable by accident - the allow matches a length
     // of exactly three segments.
     [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict/options")]

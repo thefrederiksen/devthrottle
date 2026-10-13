@@ -89,7 +89,12 @@ public sealed class CronEngineTests : IDisposable
 
         Assert.Empty(fired);
         Assert.Equal(0, starter.StartCount);
-        Assert.Empty(history.List(created.Id));
+        // Not started - but no longer skipped in silence: the run is recorded as one that did not run (Factory Control).
+        var skipped = Assert.Single(history.List(created.Id));
+        Assert.Null(skipped.SessionId);
+        Assert.Equal(CronRunResults.Problem, skipped.Result);
+        Assert.Equal(CronRunProblems.DidNotRun, skipped.Problem);
+        Assert.Equal(created.NextRunUtc, skipped.ScheduledUtc);
         var after = store.Get(created.Id)!;
         Assert.Equal(CronEngine.SkippedPastDeadline, after.LastStatus);
         Assert.Null(after.LastFiredUtc);
@@ -191,11 +196,15 @@ public sealed class CronEngineTests : IDisposable
         await engine.EvaluateDueAsync(CancellationToken.None);     // a second sweep at the same instant
 
         Assert.Equal(1, starter.StartCount);                        // AC6: exactly one catch-up fire
-        Assert.Single(history.List(created.Id));
         var after = store.Get(created.Id);
         Assert.NotNull(after);
         Assert.True(after.NextRunUtc!.Value > clock.UtcNow);        // advanced to the next FUTURE occurrence
-        Assert.Equal("catch-up", history.List(created.Id)[0].InfraStatus);
+        // The one fire is the catch-up for the first missed day. The three later days it moved past never ran, and each
+        // is recorded as a run that did not run (Factory Control) - once, though the sweep ran twice.
+        var runs = history.List(created.Id);
+        Assert.Single(runs, r => r.InfraStatus == "catch-up");
+        Assert.Equal(3, runs.Count(r => r.Problem == CronRunProblems.DidNotRun));
+        Assert.Equal(4, runs.Count);
     }
 
     [Fact]

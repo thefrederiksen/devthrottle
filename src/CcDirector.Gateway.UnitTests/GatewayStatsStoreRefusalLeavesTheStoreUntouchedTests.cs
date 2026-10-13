@@ -35,6 +35,12 @@ namespace CcDirector.Gateway.Tests;
 /// </summary>
 public sealed class GatewayStatsStoreRefusalLeavesTheStoreUntouchedTests : IDisposable
 {
+    // A clock that stands still. The store bounds its open by eight seconds on its clock; on a busy machine the open
+    // of a fresh local file has taken longer than that, and the store then reports "did not answer in time" for a
+    // test that is about something else. With this clock that deadline never runs out, so every test here is
+    // decided by what the store did and not by how long the machine took.
+    private static readonly Microsoft.Extensions.Time.Testing.FakeTimeProvider StoodStill = new();
+
     private readonly ITestOutputHelper _out;
     private readonly string _dir =
         Path.Combine(Path.GetTempPath(), "cc-stats-refusal-" + Guid.NewGuid().ToString("N"));
@@ -78,7 +84,7 @@ public sealed class GatewayStatsStoreRefusalLeavesTheStoreUntouchedTests : IDisp
         // schema version moved and reported a phantom mutation of a file nothing had touched.
         var versionBefore = UserVersion();
 
-        using (var store = new GatewayStatsStore(SelfHostChoice()))
+        using (var store = new GatewayStatsStore(SelfHostChoice(), StoodStill))
         {
             // DECLINED - the first obligation.
             Assert.False(store.IsAvailable);
@@ -130,7 +136,7 @@ public sealed class GatewayStatsStoreRefusalLeavesTheStoreUntouchedTests : IDisp
         var tablesBefore = CountUserTables();
         Assert.True(tablesBefore >= 16);
 
-        using (var store = new GatewayStatsStore(SelfHostChoice()))
+        using (var store = new GatewayStatsStore(SelfHostChoice(), StoodStill))
         {
             Assert.False(store.IsAvailable);
             Assert.Equal(StatsStoreUnavailableReason.IncompatibleSchemaVersion, store.Availability.Reason);

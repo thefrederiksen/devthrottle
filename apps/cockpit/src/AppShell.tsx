@@ -104,11 +104,13 @@ const NAV_WORK: ReadonlyArray<NavItem> = [
 ];
 
 // SET UP - the fleet, changed now and then (owner, 8 Oct 2026): Directors first (which computers are on the fleet),
+// then Licenses (which Claude account each of those computers is working on, the License Switching mission),
 // then Skills and Workflows - a skill is what an agent reaches for mid-task, a workflow governs how a whole mission is
 // run (devthrottle_internal issue 995) - then the Schedule that runs them, then Network, how phones and Directors reach
 // the Gateway.
 const NAV_SETUP: ReadonlyArray<NavItem> = [
   { to: "/directors", label: "Directors", icon: "directors" },
+  { to: "/licenses", label: "Licenses", icon: "licenses" },
   { to: "/skills", label: "Skills", icon: "skills" },
   { to: "/workflows", label: "Workflows", icon: "workflows" },
   { to: "/schedule", label: "Schedule", icon: "schedule" },

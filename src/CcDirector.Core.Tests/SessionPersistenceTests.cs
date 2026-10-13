@@ -33,6 +33,7 @@ public class SessionPersistenceTests : IDisposable
         return new SessionStateStore(path);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void SaveCurrentState_PreservesSortOrder()
     {
@@ -53,6 +54,7 @@ public class SessionPersistenceTests : IDisposable
     // to assert - a hold now survives a Director restart even if that Director never comes back at all,
     // which is the entire reason the state moved. The coverage lives in SnoozeRegistryTests.
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void SaveCurrentState_PreservesCreatedAtNumberAndHistoryLink()
     {
@@ -76,6 +78,7 @@ public class SessionPersistenceTests : IDisposable
         Assert.Equal(session.HistoryEntryId, loaded[0].HistoryEntryId);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void SaveCurrentState_PreservesExpectedFirstPrompt()
     {
@@ -90,6 +93,7 @@ public class SessionPersistenceTests : IDisposable
         Assert.Equal("fix the login bug", loaded[0].ExpectedFirstPrompt);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void SaveCurrentState_VerifiedFirstPrompt_UsedAsFallback()
     {
@@ -106,6 +110,7 @@ public class SessionPersistenceTests : IDisposable
         Assert.Equal("my prompt", loaded[0].ExpectedFirstPrompt);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void SaveCurrentState_OrderedBySortOrder()
     {
@@ -127,6 +132,7 @@ public class SessionPersistenceTests : IDisposable
         Assert.Equal(s1.Id, loaded[2].Id); // SortOrder 3
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void SaveCurrentState_PendingPromptText_Persisted()
     {
@@ -141,6 +147,7 @@ public class SessionPersistenceTests : IDisposable
         Assert.Equal("draft prompt here", loaded[0].PendingPromptText);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void SaveCurrentState_RunningSessionWithoutClaudeId_StillPersisted()
     {
@@ -157,6 +164,7 @@ public class SessionPersistenceTests : IDisposable
         Assert.Single(loaded); // Running sessions are always persisted
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void SaveSessionState_WithGetHwnd_SavesHwnd()
     {

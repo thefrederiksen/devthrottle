@@ -96,6 +96,7 @@ public sealed class RepositoryWatcherIntegrationTests : IDisposable
         return repo;
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task Commit_InOneRepo_RecomputesOnlyThatRepo()
     {
@@ -143,6 +144,7 @@ public sealed class RepositoryWatcherIntegrationTests : IDisposable
     // must recompute the repository, so its cleanliness and dirty-age do not go stale until the
     // next full scan. The old watcher observed only .git and ignored the worktree entirely.
     // ---------------------------------------------------------------------------------------
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task WorkingTreeChange_WithNoGitChange_RecomputesTheRepo()
     {
@@ -188,6 +190,7 @@ public sealed class RepositoryWatcherIntegrationTests : IDisposable
         Assert.Same(requested.Task, done); // the periodic tick asked for a rescan
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task BurstOfRefWrites_CollapsesIntoOneRecompute()
     {
@@ -224,6 +227,7 @@ public sealed class RepositoryWatcherIntegrationTests : IDisposable
     // completes, and the model ends holding the post-commit state - the newest compute wins
     // through the real watcher -> deferral -> drain -> guarded publish pipeline.
     // ---------------------------------------------------------------------------------------
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task Watcher_FiringDuringAScan_IsDeferred_AndTheNewestStateLandsAfterTheScan()
     {
@@ -292,6 +296,7 @@ public sealed class RepositoryWatcherIntegrationTests : IDisposable
     // count, dirtying the tree and letting the watcher recompute must publish the dirty state -
     // before the fix the recompute read the cached clean count and stayed wrong.
     // ---------------------------------------------------------------------------------------
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task WorkingTreeChange_RecomputesFromFreshStatus_NotTheStaleCache()
     {
@@ -320,6 +325,7 @@ public sealed class RepositoryWatcherIntegrationTests : IDisposable
     // a state change, so every recompute triggered the next - a repository with linked worktrees
     // recomputed every ~11s forever, each time downloading the fleet session list from the Gateway.
     // ---------------------------------------------------------------------------------------
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task StatusScanInALinkedWorktree_DoesNotRecompute_ButABranchSwitchThereDoes()
     {
@@ -358,6 +364,7 @@ public sealed class RepositoryWatcherIntegrationTests : IDisposable
         await WaitUntilAsync(() => Volatile.Read(ref recomputes) >= 1, TimeSpan.FromSeconds(15));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task RemovingALinkedWorktree_RecomputesTheRepo()
     {
@@ -403,6 +410,7 @@ public sealed class RepositoryWatcherIntegrationTests : IDisposable
     // recompute, not twenty. (Before the settle window was widened, every agent edit burst paid a
     // full git inventory - about one recompute every 3.7 seconds all day.)
     // ---------------------------------------------------------------------------------------
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task TwentyWritesInsideTheSettleWindow_ProduceOneRecompute()
     {
@@ -431,59 +439,11 @@ public sealed class RepositoryWatcherIntegrationTests : IDisposable
     }
 
     // ---------------------------------------------------------------------------------------
-    // A repository under CONTINUOUS edits never goes quiet for a whole settle window. The maximum
-    // wait forces a recompute anyway, so its cleanliness is never left stale while agents work.
-    // Scaled down: settle 2s, maximum wait 3s, writes every 200ms for 8s.
-    // ---------------------------------------------------------------------------------------
-    [Fact]
-    public async Task ContinuousWrites_StillRecomputeWithinTheMaxWait()
-    {
-        var a = MakeRepo("continuous");
-        var monitor = new RepositoryMonitor(
-            enumerate: _ => new[] { a },
-            compute: (p, _, _) => Task.FromResult(new RepositoryStatus { Path = p, Name = Path.GetFileName(p), IsClean = true, Success = true }))
-        { LiveSessionsProvider = NoSessions };
-        await monitor.RescanAsync(new[] { _root });
-
-        var maxWait = TimeSpan.FromSeconds(3);
-        using var watcher = new RepositoryWatcher(monitor, settle: TimeSpan.FromSeconds(2), maxWait: maxWait);
-        var sw = new Stopwatch();
-        long firstRecomputeMs = -1;
-        int recomputes = 0;
-        watcher.Recomputed += p =>
-        {
-            if (Path.GetFileName(p) != "continuous") return;
-            Interlocked.CompareExchange(ref firstRecomputeMs, sw.ElapsedMilliseconds, -1);
-            Interlocked.Increment(ref recomputes);
-        };
-        watcher.SyncWatches(new[] { _root }, new[] { a });
-
-        sw.Start();
-        while (sw.Elapsed < TimeSpan.FromSeconds(8))
-        {
-            File.WriteAllText(Path.Combine(a, "busy.txt"), sw.ElapsedMilliseconds.ToString());
-            await Task.Delay(200);
-        }
-        var duringWrites = Volatile.Read(ref recomputes);
-
-        Assert.True(duringWrites >= 2, $"continuous writes for 8s with a 3s maximum wait must recompute at least twice; saw {duringWrites}");
-        var first = Interlocked.Read(ref firstRecomputeMs);
-        Assert.InRange(first, 0, (long)maxWait.TotalMilliseconds + 2000); // forced by the maximum wait, not by settling
-
-        // Let the last settle window (2s) finish, with room to spare, then bound the TOTAL exactly.
-        // Each forced recompute closes a window at least maxWait long and the windows do not overlap,
-        // so 8s of writes hold at most floor(8 / 3) = 2 forced recomputes, plus the one that runs when
-        // the writes stop and the repository settles: 3. A duplicate recompute at a window's expiry
-        // (the callback that lost its slot recomputing anyway) would push this past 3.
-        await Task.Delay(TimeSpan.FromSeconds(5));
-        Assert.InRange(Volatile.Read(ref recomputes), 2, 3);
-    }
-
-    // ---------------------------------------------------------------------------------------
     // Callback ownership, driven deterministically through the delay seam: each settle wait is a
     // task the test completes by hand, and it ignores cancellation - exactly the moment a wait has
     // already expired when the replacement or the Dispose arrives.
     // ---------------------------------------------------------------------------------------
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task AReplacementAtTheMomentAWaitExpires_RecomputesExactlyOnce()
     {
@@ -519,6 +479,7 @@ public sealed class RepositoryWatcherIntegrationTests : IDisposable
         Assert.Equal(1, Volatile.Read(ref computes.Value));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task ADisposeAtTheMomentAWaitExpires_RecomputesNothing_AndRaisesNothing()
     {

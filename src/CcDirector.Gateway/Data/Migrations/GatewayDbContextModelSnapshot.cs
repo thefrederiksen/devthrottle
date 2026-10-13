@@ -249,6 +249,16 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("ActivityDue")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid?>("ActivityId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Factory")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime>("FiredUtc")
                         .HasColumnType("TEXT");
 
@@ -260,11 +270,54 @@ namespace CcDirector.Gateway.Data.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("JobName")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Machine")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<int>("MissedNotListed")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Problem")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("ResolveActivityId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ResolvedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ResolvedReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ResolvedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Result")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("untracked");
+
+                    b.Property<string>("ResultReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ResultUtc")
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime>("ScheduledUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Seat")
+                        .HasMaxLength(128)
                         .HasColumnType("TEXT");
 
                     b.Property<long>("Sequence")
@@ -287,6 +340,12 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasColumnName("tenant_id");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ActivityDue");
+
+                    b.HasIndex("Result");
+
+                    b.HasIndex("SessionId");
 
                     b.HasIndex("TenantId");
 
@@ -953,6 +1012,83 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.HasIndex("TenantId", "SessionId", "Outcome", "OccurredUtc");
 
                     b.ToTable("factory_activity", (string)null);
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FactoryEmailReportEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("BoundaryUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("ComposedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Detail")
+                        .HasMaxLength(1024)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FactoriesJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Html")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ProblemCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ProviderId")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("SentAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SlotKey")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "BoundaryUtc");
+
+                    b.HasIndex("TenantId", "SlotKey")
+                        .IsUnique();
+
+                    b.ToTable("factory_email_reports", (string)null);
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FactoryGoalNumberEntity", b =>
@@ -1827,6 +1963,355 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.HasIndex("TenantId", "MachineKey", "LastUsedUtc");
 
                     b.ToTable("known_repositories", (string)null);
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.LicenseAccountEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AccountEmail")
+                        .IsRequired()
+                        .HasMaxLength(320)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("FirstSeenAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("LastSeenAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Plan")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RateLimitTier")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateOnly?>("RenewsOn")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "AccountEmail")
+                        .IsUnique();
+
+                    b.ToTable("license_accounts", (string)null);
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.LicenseBarEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AccountEmail")
+                        .IsRequired()
+                        .HasMaxLength(320)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("BarredAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTime>("UntilUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Window")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "AccountEmail", "Window")
+                        .IsUnique();
+
+                    b.ToTable("license_bars", (string)null);
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.LicenseHoldingEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AccountEmail")
+                        .IsRequired()
+                        .HasMaxLength(320)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool?>("ExtraUsageEnabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double?>("ExtraUsageUtilization")
+                        .HasColumnType("REAL");
+
+                    b.Property<DateTime?>("FiveHourResetsAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<double?>("FiveHourUtilization")
+                        .HasColumnType("REAL");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("JudgedReadAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("MachineId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Plan")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RateLimitTier")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ReadAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ReadError")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ReadErrorDetail")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RenewalError")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RenewalErrorDetail")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("RenewalFailedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("SevenDayResetsAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<double?>("SevenDayUtilization")
+                        .HasColumnType("REAL");
+
+                    b.Property<DateTime?>("SignInExpiresAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("SignedInAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "AccountEmail");
+
+                    b.HasIndex("TenantId", "MachineId", "AccountEmail")
+                        .IsUnique();
+
+                    b.ToTable("license_holdings", (string)null);
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.LicenseMachineEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ActiveAccountEmail")
+                        .HasMaxLength(320)
+                        .HasColumnType("TEXT");
+
+                    b.Property<double>("ClockSkewSeconds")
+                        .HasColumnType("REAL");
+
+                    b.Property<string>("DirectorId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("LastReportAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("LastSentAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("LastSequence")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("LastTrigger")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MachineKey")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MachineName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OsUser")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OsUserKey")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SwitchInProgressId")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "MachineKey", "OsUserKey")
+                        .IsUnique();
+
+                    b.ToTable("license_machines", (string)null);
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.LicenseSwitchLogEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ActiveAccountEmailAfter")
+                        .HasMaxLength(320)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("DirectorFinishedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DirectorId")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("DirectorStartedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("ExchangeMilliseconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("FinishedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FromAccountEmail")
+                        .IsRequired()
+                        .HasMaxLength(320)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastSentAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("MachineId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MachineName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Message")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("NotAfterUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OsUser")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ReasonCode")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool?>("Replayed")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("SendCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SwitchId")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("ToAccountEmail")
+                        .IsRequired()
+                        .HasMaxLength(320)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool?>("VerifiedByUsageRead")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "CreatedAtUtc");
+
+                    b.HasIndex("TenantId", "State");
+
+                    b.HasIndex("TenantId", "SwitchId")
+                        .IsUnique();
+
+                    b.ToTable("license_switch_log", (string)null);
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.MissionNoteEntity", b =>

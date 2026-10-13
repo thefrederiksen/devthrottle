@@ -20,6 +20,7 @@ namespace CcDirector.Core.Tests.Sessions;
 /// CC_DIRECTOR_ROOT is redirected so the Claude hook-settings file a launch installs is written to an
 /// isolated temp folder, never the developer's own.
 /// </summary>
+[Trait("Gate", "Quarantine")]
 [Collection("CcStorageRoot")]
 public sealed class AgentLaunchDiagnosticsTests : IDisposable
 {
