@@ -36,18 +36,22 @@ Said plainly, so nobody reads more into the pictures than they show:
   session behind it (brief 4 hit the same limit). So each draws what the Gateway sent, next to the session the
   Gateway lists and the address the Cockpit moved to. The rig checks the address names that session.
 - **Screenshot 6 is the transcript drawn on a page**, not a terminal capture.
-- The branch has the run results work (pull request 3799) and brief 4's Handle the issue merged into it locally,
-  because this step builds on both.
+- The screenshots were taken with the run results work and brief 4's Handle the issue merged into the branch
+  locally. Both have since merged to main (pull requests 3799 and 3926) and the branch was replayed onto main on
+  13 October 2026. The screenshots were not taken again; a problem's words on them are the older wording, which the
+  problems list now says its own way (see `../handle-the-issue/README.md`).
 
 ## Tests
 
+Run on 13 October 2026 after the branch was replayed onto main, each suite on its own, one at a time.
+
 | Command | Result |
 |---|---|
-| `dotnet test src\CcDirector.Gateway.UnitTests` | 10,565 passed, 0 failed |
-| `.\scripts\test-local.ps1` | GREEN, 10 suites, 4,294 tests, every TRX outcome Completed. It flags the parked suites as a coverage gap; Gateway.UnitTests was run in full on its own (above). `-Parked` (Gateway.Tests and Core.Tests, which need Docker) was not run. |
-| `python -m pytest tests` in `tools\cc-devthrottle` | 3,926 passed, 3 skipped |
-| `npx vitest run` in `apps\cockpit` | 1,033 passed (after the error-display fix; the first run caught a missing `error-reported-by` note) |
-| `npx vitest run` in `packages\client-core` | 1,988 passed |
+| `dotnet test src\CcDirector.Gateway.UnitTests` | 10,812 passed, 0 failed |
+| `.\scripts\test-local.ps1` | Nine suites passed. `CcDirector.Core.UnitTests`: 1,718 of 1,720. The two failures are red on main and are in files this change does not touch: the background-work register's count for `GitHubActionsBackend.cs`, and a machine-dependence baseline that another merged change left to be lowered. `-Parked` was not run. |
+| `python -m pytest tests` in `tools\cc-devthrottle` | 4,314 passed, 3 skipped, 2 failed. Both failures are in the license sign-in commands, which this change does not touch: a `license get-browser` summary three characters over the limit, and a sign-in test. |
+| `npx vitest run` in `apps\cockpit` | 1,057 passed |
+| `npx vitest run` in `packages\client-core` | 1,999 passed. The first run of three reported 57 failures in the factory client's tests; run again twice with nothing changed, all 1,999 passed both times. |
 | `npx tsc --noEmit` in both | clean |
 
 The new tests:
@@ -99,4 +103,4 @@ Each rule was broken on purpose, the tests that guard it were run, and the sourc
 | Any name passes the role-word rule | 2 name-check tests |
 | A start does not bind the new session | 3 talk tests |
 
-After the restore, the same tests passed: 83 of 83.
+After the restore, the same tests passed: 83 of 83. This proof was run on 11 October 2026, before the branch was replayed onto main, and was not run again.

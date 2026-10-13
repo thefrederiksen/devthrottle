@@ -1,14 +1,10 @@
 # The Factory Manager seat - design (Factory Control, step 5)
 
-Written before building, as brief 7 asks. Branch `factory-control/manager`. The branch has two dependencies
-merged locally:
+Written before building, as brief 7 asks. Branch `factory-control/manager`. It builds on two things that have since
+merged to main, and now sits directly on them:
 
-- `origin/factory-control/runresult` (pull request 3799, as revised after review);
-- brief 4's commit "Factory page: open problems with Handle the issue and Resolve", cherry-picked.
-
-The rest of brief 4's branch is its email-reading commit, which this seat does not need, and an older run results
-merge. On the revised 3799 brief 4's code needs one rename (`RecordedUtc` became `RaisedAtUtc`). That rename is its
-own commit here.
+- the run results and the one problems list (pull request 3799);
+- brief 4's factory page, with Handle the issue and Resolve (pull request 3926).
 
 ## What the seat is
 
