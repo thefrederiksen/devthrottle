@@ -204,11 +204,16 @@ public sealed class LicenseRenewalEmailHostedTests : IAsyncLifetime
         try
         {
             await theSwitchArrived.Task.WaitAsync(TimeSpan.FromSeconds(60));
-            // The switch pass is waiting for Bob's Director. Alice's email goes out all the same.
-            await _anEmailWasSent.Task.WaitAsync(TimeSpan.FromSeconds(60));
+            // The switch pass is waiting for Bob's Director. Alice's email goes out all the same - and well inside
+            // the minute the Gateway waits for a switch, so an email that only went once that wait had ended is a
+            // red test here, not a late green one.
+            await _anEmailWasSent.Task.WaitAsync(LicenseContract.SwitchCommandTimeout / 2);
 
-            Assert.False(check.IsCompleted);
             Assert.Equal(_alice.Tenant, Assert.Single(_sent).Tenant);
+            // Bob's switch is still with his Director: no answer yet, and not given up on (that would read unknown).
+            var held = Assert.Single(_gateway.LicenseStore.ListOpenSwitches(_bob.Tenant));
+            Assert.Equal(LicenseLogStates.Pending, held.State);
+            Assert.False(check.IsCompleted);
         }
         finally
         {

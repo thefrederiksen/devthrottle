@@ -468,25 +468,84 @@ public sealed class LicenseRenewalEmailServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ASendThatHadFailed_IsNotTriedWhileTheMachineReportsNoFailureTime_AndIsTriedWhenItFailsAgain()
+    public async Task ASendThatHadFailed_IsTriedAgainOnItsWait_AlsoWhenTheMachineNoLongerReportsTheFailureTime()
     {
         _mailAnswers = () => new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Failed, "the DevThrottle account service could not be reached");
         Reports(One, Mac, Failing(A, TwoDays));
         Assert.Equal(1, await Tick());
 
-        // Nothing says the renewal is failing now, so nobody is emailed; nothing says it worked, so the row stays.
-        _now = T0.AddMinutes(5);
+        // The Director restarted: no failure time. The row is open and its email has not gone out, so it is still
+        // owed - on the same growing wait, not before.
+        _now = T0.AddSeconds(59);
         Reports(One, Mac, SaidWithNoFailureTime(A, endsAt: T0 + TwoDays));
         Assert.Equal(0, await Tick());
         Assert.Equal((LicenseLogStates.Open, LicenseGatewayReasonCodes.OwnerEmailFailed), (TheRow().State, TheRow().ReasonCode));
 
         _mailAnswers = () => new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Sent, null);
-        _now = T0.AddMinutes(6);
-        Reports(One, Mac, Failing(A, TwoDays - TimeSpan.FromMinutes(6), failedAt: _now));
+        _now = T0.AddMinutes(1);
         Assert.Equal(1, await Tick());
+        _now = T0.AddMinutes(2);
+        Assert.Equal(0, await Tick());
 
         Assert.Equal(2, _sent.Count);
-        Assert.Equal(LicenseGatewayReasonCodes.OwnerEmailed, Assert.Single(Rows()).ReasonCode);
+        var row = Assert.Single(Rows());
+        Assert.Equal((LicenseLogStates.Open, LicenseGatewayReasonCodes.OwnerEmailed), (row.State, row.ReasonCode));
+        // The email says what is known and no more: no time and no reason the last report does not carry.
+        var body = _sent[1].Email.BodyText;
+        Assert.Contains("An earlier report of the-mac said the renewal had failed. Its last report does not say when or why, and it does not show a newer sign-in.", body);
+        Assert.DoesNotContain("Why the last try failed", body);
+        Assert.DoesNotContain("The last try to renew it failed", body);
+    }
+
+    [Theory]
+    [InlineData(2, false)]
+    [InlineData(59 * 60, false)]
+    [InlineData(60 * 60, false)]
+    [InlineData(60 * 60 + 1, true)]
+    [InlineData(24 * 60 * 60, true)]
+    public async Task ASignInWhoseEndMovesLater_IsANewerSignInOnlyWhenItMovesByMoreThanOneSignInsEndCanDiffer(int secondsLater, bool aNewerSignIn)
+    {
+        Reports(One, Mac, Failing(A, TwoDays));
+        Assert.Equal(1, await Tick());
+
+        // A key refresh writes the end again as "now + the seconds left": the same sign-in, an end a little later.
+        _now = T0.AddMinutes(1);
+        var moved = Failing(A, TwoDays, failedAt: _now);
+        moved.SignInExpiresAtUtc = T0 + TwoDays + TimeSpan.FromSeconds(secondsLater);
+        Reports(One, Mac, moved);
+        await Tick();
+
+        if (aNewerSignIn)
+        {
+            // A newer sign-in whose renewal is failing inside the warning time: the old streak ended, a new one began.
+            Assert.Equal(new[] { LicenseLogStates.Ended, LicenseLogStates.Open }, Rows().Select(r => r.State));
+            Assert.Equal(2, _sent.Count);
+        }
+        else
+        {
+            var row = Assert.Single(Rows());
+            Assert.Equal((LicenseLogStates.Open, (DateTime?)null), (row.State, row.FinishedAtUtc));
+            Assert.Single(_sent);
+        }
+    }
+
+    [Fact]
+    public async Task AnEndThatMovesBySecondsOnEveryRefresh_ForThreeDays_IsOneStreakAndOneEmail()
+    {
+        Reports(One, Mac, Failing(A, TwoDays));
+        await Tick();
+
+        for (var refresh = 1; refresh <= 60; refresh++)
+        {
+            _now = T0.AddMinutes(refresh * 45);
+            var moved = Failing(A, TwoDays, failedAt: _now);
+            moved.SignInExpiresAtUtc = T0 + TwoDays + TimeSpan.FromSeconds(refresh % 7);
+            Reports(One, Mac, moved);
+            Assert.Equal(0, await Tick());
+        }
+
+        Assert.Single(_sent);
+        Assert.Equal(LicenseLogStates.Open, Assert.Single(Rows()).State);
     }
 
     // ----- two checks at once, a database that refuses, a sender that throws -----

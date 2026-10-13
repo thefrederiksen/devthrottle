@@ -26,9 +26,14 @@ namespace CcDirector.Gateway.Licenses;
 /// A STREAK ENDS ON SOMETHING PRESENT, NEVER ON SOMETHING MISSING. A Director keeps its failed renewals in memory, so
 /// one that has just started reports the same sign-in with NO failure time until its next try fails. A report that
 /// only lacks the failure time therefore says nothing, and the row stays open. The streak ends as renewed when the
-/// machine reports a NEWER sign-in: its <c>SignInExpiresAtUtc</c> is later than the end the row holds, or its
-/// <c>SignedInAtUtc</c> is later than the one the machine reported when the row was opened. It also ends when the
-/// machine no longer holds the sign-in at all. A failure after that is a new streak with its own email.
+/// machine reports a NEWER sign-in: its <c>SignInExpiresAtUtc</c> is later than the end the row holds by more than
+/// <see cref="LicenseContract.SignInEndTolerance"/> (one sign-in's reported end moves by seconds on every key
+/// refresh, and that is not a renewal), or its <c>SignedInAtUtc</c> is later than the one the machine reported when
+/// the row was opened. It also ends when the machine no longer holds the sign-in at all. A failure after that is a
+/// new streak with its own email.
+///
+/// AN OPEN ROW WHOSE EMAIL HAS NOT GONE OUT IS TRIED AGAIN whether or not the machine's last report still carries the
+/// failure time: the owner is owed that email until the streak ends.
 ///
 /// THE SAME CARE AS THE "NO ACCOUNT HAS ROOM" EMAIL. The same channel (<see cref="LicenseOwnerMailer"/>). The row is
 /// recorded as emailed only when the mail service confirmed the send; a send that failed - also a sender that threw -
@@ -166,17 +171,31 @@ public sealed class LicenseRenewalEmailService
                 marked.Add(row.Id);
             }
 
-            // 3. A failing sign-in that is about to end, or has ended: its one email, unless it has gone out.
+            // 3. A failing sign-in that is about to end, or has ended: its one email, unless it has gone out. And an
+            //    open row whose email has not gone out, also when the machine's last report no longer carries the
+            //    failure time: the row is still open, so the owner is still owed its email.
+            var due = new List<(LicenseMachineView Machine, LicenseHoldingView Holding, DateTime Expires, LicenseSwitchLogEntity? Row)>();
+            foreach (var (machine, holding) in failing)
+            {
+                if (holding.SignInExpiresAtUtc is { } expires && expires - now <= LicenseContract.SignInExpiryWarning)
+                    due.Add((machine, holding, expires, open.FirstOrDefault(r => IsFor(r, machine, holding))));
+            }
+            foreach (var row in open.Where(r => !failing.Any(f => IsFor(r, f.Machine, f.Holding))))
+            {
+                // Still held, or step 1 would have ended it.
+                var machine = machines.First(m => m.MachineId == row.MachineId);
+                var holding = machine.Holdings.First(h => h.AccountEmail == row.ToAccountEmail);
+                due.Add((machine, holding, holding.SignInExpiresAtUtc ?? row.NotAfterUtc!.Value, row));
+            }
+
             var emails = new List<Task>();
             try
             {
-                foreach (var (machine, holding) in failing)
+                foreach (var (machine, holding, expires, known) in due)
                 {
-                    if (holding.SignInExpiresAtUtc is not { } expires || expires - now > LicenseContract.SignInExpiryWarning)
-                        continue;
                     var label = Label(machines, machine.MachineName, machine.OsUser);
                     var facts = new Facts(label, holding, expires, machine.LastReportAtUtc);
-                    var row = open.FirstOrDefault(r => IsFor(r, machine, holding))
+                    var row = known
                               ?? _log.Open(tenant, machine, holding.AccountEmail, expires, holding.SignedInAtUtc,
                                   WarningMessage(facts, "the owner has not been emailed yet"), now);
                     if (marked.Contains(row.Id)
@@ -271,10 +290,12 @@ public sealed class LicenseRenewalEmailService
         => row.MachineId == machine.MachineId && row.ToAccountEmail == holding.AccountEmail;
 
     /// <summary>True when the machine reports a sign-in NEWER than the one the row was opened for: it ends later than
-    /// the end the row holds, or it was made later than the one the machine reported then. Both are times of the
-    /// machine's own clock compared with each other, never with the Gateway's.</summary>
+    /// the end the row holds by more than <see cref="LicenseContract.SignInEndTolerance"/>, or it was made later than
+    /// the one the machine reported then. Both are times of the machine's own clock compared with each other, never
+    /// with the Gateway's. The sign-in time has no drift - the tool reads it from its own record - so it needs no
+    /// tolerance.</summary>
     private static bool IsNewerSignIn(LicenseSwitchLogEntity row, LicenseHoldingView holding)
-        => (holding.SignInExpiresAtUtc is { } ends && row.NotAfterUtc is { } endedBefore && ends > endedBefore)
+        => (holding.SignInExpiresAtUtc is { } ends && row.NotAfterUtc is { } endedBefore && ends > endedBefore + LicenseContract.SignInEndTolerance)
            || (holding.SignedInAtUtc is { } signedIn && LicenseRenewalFailureLog.SignedInWhenOpened(row) is { } signedInBefore && signedIn > signedInBefore);
 
     /// <summary>What one warning is written from: the machine's label, the sign-in as last reported, when it ends, and
@@ -307,18 +328,23 @@ public sealed class LicenseRenewalEmailService
             body.Append(at <= nowUtc
                 ? $"The last try to renew it failed {LicenseDisplayFold.Span(nowUtc - at)} ago (at {Time(at)} by the machine's clock).\r\n"
                 : $"The last try to renew it failed at {Time(at)} by the machine's clock.\r\n");
+        else
+            body.Append(CultureInfo.InvariantCulture, $"An earlier report of {label} said the renewal had failed. Its last report does not say when or why, and it does not show a newer sign-in.\r\n");
         body.Append(CultureInfo.InvariantCulture, $"{label} last reported to DevThrottle {LicenseDisplayFold.Span(nowUtc - lastReportAtUtc)} ago (at {Time(lastReportAtUtc)}). This email is written from that report; what {label} has done since is not known here.\r\n\r\n");
 
         // The Gateway's own sentence for the reason. The machine's own sentence only when the Gateway knows no
         // reason, as the Licenses page does - on one line, with nothing that is not text, and cut short.
-        body.Append("Why the last try failed: ");
-        if (LicenseDisplayFold.RenewalWhy(holding.RenewalError) is { } why)
-            body.Append(CultureInfo.InvariantCulture, $"{why}.");
-        else if (OneLine(holding.RenewalErrorDetail, MachineSentenceLength) is { Length: > 0 } said)
-            body.Append(CultureInfo.InvariantCulture, $"the machine gave no reason this Gateway knows. The machine said: {said}");
-        else
-            body.Append("the machine gave no reason this Gateway knows.");
-        body.Append("\r\n\r\n");
+        if (failedAt is not null)
+        {
+            body.Append("Why the last try failed: ");
+            if (LicenseDisplayFold.RenewalWhy(holding.RenewalError) is { } why)
+                body.Append(CultureInfo.InvariantCulture, $"{why}.");
+            else if (OneLine(holding.RenewalErrorDetail, MachineSentenceLength) is { Length: > 0 } said)
+                body.Append(CultureInfo.InvariantCulture, $"the machine gave no reason this Gateway knows. The machine said: {said}");
+            else
+                body.Append("the machine gave no reason this Gateway knows.");
+            body.Append("\r\n\r\n");
+        }
 
         body.Append((holding.IsActive, ended) switch
         {
