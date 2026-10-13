@@ -476,6 +476,16 @@ public sealed class GatewayHost : IAsyncDisposable
     public TimeProvider DeliveryClock { get; set; } = TimeProvider.System;
 
     /// <summary>
+    /// The clock the license code is judged by (License Switching): the time a usage report is taken at and the time
+    /// the once-a-minute check decides at. The real clock in production; a test sets its own, and it is read on every
+    /// use, so it may be set any time before the first report arrives.
+    /// </summary>
+    public TimeProvider LicenseClock { get; set; } = TimeProvider.System;
+
+    /// <summary>The same clock, as the one object the Director hub and the minute check both read.</summary>
+    internal Licenses.LicenseGatewayClock LicenseNow { get; }
+
+    /// <summary>
     /// The Gateway's driver of held deliveries (Voice Delivery phase 5): once a recording's delivery is taken over, the
     /// Gateway itself finishes it - when its Director's tunnel comes back, on a steady tick, and when the Gateway starts.
     /// Created in <see cref="StartAsync"/>; null before it.
@@ -2272,8 +2282,9 @@ public sealed class GatewayHost : IAsyncDisposable
             new Core.Account.AccountNotifyByTenantClient(new HttpClient { Timeout = TimeSpan.FromSeconds(30) }),
             tenant => TenantRegistry.SubjectForTenant(tenant),
             Core.Account.AccountNotifyByTenantClient.ResolveServiceToken);
+        LicenseNow = new Licenses.LicenseGatewayClock(() => LicenseClock.GetUtcNow().UtcDateTime);
         LicenseSwitches = new Licenses.LicenseSwitchService(LicenseStore, LicenseSnapshots,
-            SendCommandAsync, licenseOwnerMailer.SendAsync, () => DateTime.UtcNow);
+            SendCommandAsync, licenseOwnerMailer.SendAsync, LicenseNow.UtcNow);
         // Per-tenant dictation transcript store (issue #509): every transcribed turn's raw and cleaned text
         // lands in the caller tenant's partition of the dictation_transcripts table, write-only, for later
         // mistranscription mining (devthrottle #2075). Same store on SQLite (self-host) and Postgres (hosted) -
@@ -4168,6 +4179,7 @@ public sealed class GatewayHost : IAsyncDisposable
         builder.Services.AddSingleton(SecretMachines);
         // License Switching: DirectorHub.PushLicenseUsage hands each report to the ingest.
         builder.Services.AddSingleton(LicenseUsage);
+        builder.Services.AddSingleton(LicenseNow);
         // Gateway Cleanup mission (Wave 4b): the Gateway-native mission store, so the mission endpoints and
         // spawn validation share the one instance.
         builder.Services.AddSingleton(Missions);

@@ -21,6 +21,14 @@ public sealed class LicenseSwitchCheckHostedTests : IAsyncLifetime
     private const string A = "account-a@example.com";
     private const string B = "account-b@example.com";
 
+    /// <summary>The one moment every test here happens at.</summary>
+    private static readonly DateTime Now = new(2026, 10, 12, 12, 0, 0, DateTimeKind.Utc);
+
+    private sealed class FixedClock : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => new(Now);
+    }
+
     private GatewayHost _gateway = null!;
     private HostedTestDevice _alice;
     private HostedTestDevice _bob;
@@ -38,6 +46,8 @@ public sealed class LicenseSwitchCheckHostedTests : IAsyncLifetime
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
             streamMode: true,
             options: new GatewayHostOptions { Hosted = true });
+        // The host takes reports and decides by this clock, so the test's reports are exactly as old as it says.
+        _gateway.LicenseClock = new FixedClock();
         await _gateway.StartAsync();
 
         // The Gateway database is shared by every host this test process starts, so the two accounts are new ones
@@ -61,7 +71,7 @@ public sealed class LicenseSwitchCheckHostedTests : IAsyncLifetime
     /// <summary>A machine on A at 97% of its 5-hour window, holding a spare for B with room.</summary>
     private static LicenseUsageReport AtTheThreshold(string machine)
     {
-        var now = DateTime.UtcNow;
+        var now = Now;
         LicenseHolding Holding(string email, bool active, double fiveHour) => new()
         {
             AccountEmail = email,
@@ -97,8 +107,8 @@ public sealed class LicenseSwitchCheckHostedTests : IAsyncLifetime
                 PreviousActiveAccountEmail = request.ExpectedActiveAccountEmail,
                 ActiveAccountEmailAfter = request.TargetAccountEmail,
                 VerifiedByUsageRead = true,
-                StartedAtUtc = DateTime.UtcNow,
-                FinishedAtUtc = DateTime.UtcNow.AddSeconds(1),
+                StartedAtUtc = Now,
+                FinishedAtUtc = Now.AddSeconds(1),
                 ExchangeMilliseconds = 41,
             });
         });
@@ -125,9 +135,9 @@ public sealed class LicenseSwitchCheckHostedTests : IAsyncLifetime
             Assert.Equal(LicenseContract.SwitchNotAfter, request.NotAfterUtc - request.RequestedAtUtc);
 
             // The row this account's Director was sent is this account's row, and it ended switched.
-            var row = Assert.Single(_gateway.LicenseStore.ListLog(device.Tenant, DateTime.UtcNow.AddHours(-1)), r => r.Kind == LicenseLogKinds.Switch);
+            var row = Assert.Single(_gateway.LicenseStore.ListLog(device.Tenant, Now.AddHours(-1)), r => r.Kind == LicenseLogKinds.Switch);
             Assert.Equal((request.SwitchId, LicenseLogStates.Switched, machine), (row.SwitchId, row.State, row.MachineName));
-            Assert.Equal(B, Assert.Single(_gateway.LicenseReads.Read(device.Tenant, DateTime.UtcNow).Machines).ActiveAccountEmail);
+            Assert.Equal(B, Assert.Single(_gateway.LicenseReads.Read(device.Tenant, Now).Machines).ActiveAccountEmail);
         }
         Assert.NotEqual(
             JsonSerializer.Deserialize<LicenseSwitchRequest>(sentToAlice[0].PayloadJson, FakeTunnelDirector.WebJson)!.SwitchId,
@@ -145,6 +155,6 @@ public sealed class LicenseSwitchCheckHostedTests : IAsyncLifetime
 
         Assert.Single(sentToAlice);
         Assert.Empty(sentToBob);
-        Assert.Empty(_gateway.LicenseStore.ListLog(_bob.Tenant, DateTime.UtcNow.AddHours(-1)));
+        Assert.Empty(_gateway.LicenseStore.ListLog(_bob.Tenant, Now.AddHours(-1)));
     }
 }
