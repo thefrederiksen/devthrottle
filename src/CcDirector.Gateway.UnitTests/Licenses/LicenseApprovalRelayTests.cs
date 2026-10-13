@@ -150,6 +150,9 @@ public sealed class LicenseApprovalRelayTests : IDisposable
     [InlineData("not-an-identifier")]
     [InlineData("1111111111111111111111111111111")]
     [InlineData("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")]
+    // 32 lower-case hex with a line break after them: it would put a line break into the relay's log lines.
+    [InlineData("11111111111111111111111111111111\n")]
+    [InlineData("11111111111111111111111111111111\r\n")]
     public async Task Accept_ARequestWhoseIdentifierIsNotASignInIdentifier_IsRefusedOnTheCall_AndNothingIsSent(string signInId)
     {
         OneIsSetUp();

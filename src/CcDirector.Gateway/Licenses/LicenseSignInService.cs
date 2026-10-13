@@ -42,15 +42,24 @@ public sealed record LicenseSignInStart(bool Accepted, int Status, string? Refus
 /// Director could still be running it, in this order:
 ///
 /// 1. THE DIRECTOR IS ASKED AGAIN, with the same identifier (contract sections 8.4 and 3.6). A Director that ran the
-///    sign-in answers with its stored result; one that never saw it answers <c>failed</c> / <c>expired</c>, because
-///    the request is past its own <c>NotAfterUtc</c>. Either is what really happened, and neither can start anything.
-/// 2. ONLY WHEN NO SUCH ANSWER CAN BE HAD - the Director is not connected, or did not answer - the row is settled
-///    from the machine's report, and then only from a report the Gateway accepted AFTER the last moment a Director
-///    could still have been running the sign-in. A report from before that says nothing about how it ended, so until
-///    one arrives the row stays open. A new spare is <c>added</c> when that report shows the machine holds it. A
-///    renewal is <c>renewed</c> when the sign-in's own time in that report DIFFERS from the one the machine had
-///    reported before the sign-in was asked for - never by comparing the machine's clock with the Gateway's, which
-///    may be minutes apart.
+///    sign-in answers with its stored result, marked as a replay, and that ends the row. An answer that is NOT a
+///    replay ends the row only when the command had never gone out before: a Director keeps a result for a day, so
+///    for a command that had gone out "I have no record of it" is not how the sign-in ended, and the report decides.
+///    A MACHINE WHOSE CLOCK IS FAR FROM THE GATEWAY'S IS NOT ASKED. The Director judges the deadline by its own
+///    clock; one far enough behind would see a deadline still ahead and START the sign-in. The Gateway keeps each
+///    machine's measured clock difference, and a machine within <see cref="ClockMarginForAskingAgain"/> of the
+///    margin, or beyond it, goes straight to step 2. And a pass whose ask got NO ANSWER IN TIME settles nothing:
+///    the Director may be running it now.
+/// 2. ONLY WHEN NO SUCH ANSWER CAN BE HAD - the Director is not connected, was not asked, or gave no answer that
+///    says how it ended - the row is settled from the machine's report, and then only from a report the Gateway
+///    accepted AFTER the last moment a Director could still have been running the sign-in. A report from before that
+///    says nothing about how it ended, so until one arrives the row stays open. A new spare is <c>added</c> when that
+///    report shows the machine holds it. A renewal is <c>renewed</c> when the sign-in's own time in that report
+///    DIFFERS from the one the machine had reported before the sign-in was asked for - never by comparing the
+///    machine's clock with the Gateway's, which may be minutes apart.
+/// 3. A MACHINE THAT HAS SENT NO REPORT FOR <see cref="MachineNotSeenAfter"/> ends the row <c>failed</c>, with a
+///    sentence that says the machine has not been seen and so how the sign-in ended is not known. Without this a
+///    machine that never comes back would keep "Add a spare" refused for good.
 ///
 /// The host calls it once a minute. While a row is open, a second sign-in for that machine and account is refused.
 ///
@@ -69,6 +78,13 @@ public sealed class LicenseSignInService
     /// <summary>How long the Gateway waits for a Director's answer to a sign-in asked again. The answer is a stored
     /// result or a refusal, so it comes at once or not at all.</summary>
     public static readonly TimeSpan AskAgainWait = TimeSpan.FromSeconds(60);
+
+    /// <summary>A machine is asked again only when its measured clock difference is smaller than the time between a
+    /// sign-in's deadline and the first ask (<see cref="LicenseContract.SignInCommandTimeout"/>) less this much.</summary>
+    public static readonly TimeSpan ClockMarginForAskingAgain = TimeSpan.FromMinutes(1);
+
+    /// <summary>An open row whose machine has sent no report for this long is ended: the machine has not been seen.</summary>
+    public static readonly TimeSpan MachineNotSeenAfter = TimeSpan.FromHours(24);
 
     private readonly LicenseSignInLog _log;
     private readonly LicenseReadModel _reads;
@@ -167,7 +183,8 @@ public sealed class LicenseSignInService
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[LicenseSignInService] Start FAILED: {ex.Message}");
+            // The TYPE only, as everywhere in this class.
+            FileLog.Write($"[LicenseSignInService] Start FAILED: {ex.GetType().Name}");
             throw;
         }
     }
@@ -265,9 +282,15 @@ public sealed class LicenseSignInService
         var signInId = row.SwitchId!;
         var machine = _reads.Read(tenant, _nowUtc()).Machines.FirstOrDefault(m => m.MachineId == row.MachineId);
 
-        // 1. Ask the Director again. The request is past its NotAfterUtc, so a Director that never saw it starts
-        //    nothing and says so; one that ran it answers with what it stored.
-        if (machine is not null && _isConnected(tenant, machine.DirectorId))
+        // 1. Ask the Director again. The request is past its NotAfterUtc by the Gateway's clock, so a Director whose
+        //    clock is near the Gateway's and that never saw it starts nothing and says so; one that ran it answers
+        //    with what it stored. A machine whose clock is too far off is not asked: it could start the sign-in.
+        if (machine is not null && _isConnected(tenant, machine.DirectorId) && !ClockIsSafeForAskingAgain(machine))
+        {
+            FileLog.Write($"[LicenseSignInService] signIn={signInId}: not asked again, the clock of director={machine.DirectorId} "
+                          + $"is {machine.ClockSkewSeconds:F0} seconds from the Gateway's");
+        }
+        else if (machine is not null && _isConnected(tenant, machine.DirectorId))
         {
             var request = new LicenseSignInRequest
             {
@@ -281,7 +304,22 @@ public sealed class LicenseSignInService
                 .ConfigureAwait(false);
             if (result is not null)
                 _log.RecordSend(tenant, signInId, machine.DirectorId, sentAt);
-            if (result is { Status: DirectorCommandStatus.Ok } && ReadAnswer(result, signInId) is { } answer)
+            if (result is { Status: DirectorCommandStatus.Timeout })
+            {
+                // No answer in time: the Director may be running the sign-in at this moment, so nothing is settled
+                // in this pass - not from a report either.
+                FileLog.Write($"[LicenseSignInService] signIn={signInId}: asked again, director={machine.DirectorId}, no answer in time - left open");
+                return false;
+            }
+            var answer = result is { Status: DirectorCommandStatus.Ok } ? ReadAnswer(result, signInId) : null;
+            if (answer is { Replayed: false } && row.SendCount > 0)
+            {
+                // The command had gone out before, and this is not the stored result of it: the Director no longer
+                // has one. That is not how the sign-in ended; the report decides.
+                FileLog.Write($"[LicenseSignInService] signIn={signInId}: asked again, director={machine.DirectorId}, outcome={answer.Outcome}, "
+                              + $"reason={answer.ReasonCode ?? "-"}, not a replay of a command that had gone out - left to the report");
+            }
+            else if (answer is not null)
             {
                 var ended = _log.TryFinish(tenant, signInId, answer.Outcome, answer.ReasonCode, answer.Message, _nowUtc(),
                     answer.FinishedAtUtc == default ? null : answer.FinishedAtUtc, answer.Replayed);
@@ -289,8 +327,11 @@ public sealed class LicenseSignInService
                               + $"reason={answer.ReasonCode ?? "-"}, replayed={answer.Replayed}, ended={ended}");
                 return ended;
             }
-            FileLog.Write($"[LicenseSignInService] signIn={signInId}: asked again, director={machine.DirectorId}, no answer that settles it "
-                          + $"({(result is null ? "not connected" : result.Status.ToString())})");
+            else
+            {
+                FileLog.Write($"[LicenseSignInService] signIn={signInId}: asked again, director={machine.DirectorId}, no answer that settles it "
+                              + $"({(result is null ? "not connected" : result.Status.ToString())})");
+            }
         }
 
         // 2. The machine's report - but only one the Gateway accepted after the last moment a Director could still
@@ -298,10 +339,19 @@ public sealed class LicenseSignInService
         var now = _nowUtc();
         var machines = _reads.Read(tenant, now).Machines;
         machine = machines.FirstOrDefault(m => m.MachineId == row.MachineId);
-        if (machine is null || machine.LastReportAtUtc <= row.CreatedAtUtc + UnansweredAfter)
+        if (machine is null)
             return false;
-
         var label = LicenseSignInFold.Label(machines, row.MachineName, row.OsUser);
+        if (machine.LastReportAtUtc <= row.CreatedAtUtc + UnansweredAfter)
+        {
+            // 3. No report since - and none at all for a day: the machine has not been seen, and the row ends saying so.
+            if (now - machine.LastReportAtUtc < MachineNotSeenAfter)
+                return false;
+            FileLog.Write($"[LicenseSignInService] signIn={signInId}: the machine has sent no report since {machine.LastReportAtUtc:O} - ended");
+            return _log.TryFinish(tenant, signInId, LicenseSignInOutcomes.Failed, null,
+                LicenseSignInFold.MachineNotSeenText(label, row.ToAccountEmail, row.Reason), now);
+        }
+
         var holding = machine.Holdings.FirstOrDefault(h => h.AccountEmail == row.ToAccountEmail);
         var isRenewal = row.Reason == LicenseSignInReasons.Renewal;
         // A renewal was made when the sign-in's own time is not the one the machine had reported before the ask
@@ -313,6 +363,11 @@ public sealed class LicenseSignInService
         return _log.TryFinish(tenant, signInId, state, null,
             LicenseSignInFold.SettledFromReportText(label, row.ToAccountEmail, row.Reason, made), now);
     }
+
+    /// <summary>False when the machine's clock, as measured from its last report, is so far from the Gateway's that a
+    /// Director asked again might judge the deadline as still ahead and start the sign-in.</summary>
+    private static bool ClockIsSafeForAskingAgain(LicenseMachineView machine)
+        => Math.Abs(machine.ClockSkewSeconds) < (LicenseContract.SignInCommandTimeout - ClockMarginForAskingAgain).TotalSeconds;
 
     /// <summary>One sign-in: send it, and write what came back on its row. The entry point of a background task, so
     /// nothing above it would see a failure: it never throws.</summary>
@@ -341,7 +396,7 @@ public sealed class LicenseSignInService
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[LicenseSignInService] signIn={signInId} FAILED: {ex.GetType().Name}: {ex.Message}");
+            FileLog.Write($"[LicenseSignInService] signIn={signInId} FAILED: {ex.GetType().Name}");
             _log.TryFinish(tenant, signInId, LicenseSignInOutcomes.Failed, LicenseGatewayReasonCodes.DirectorError,
                 $"The Gateway failed while sending the sign-in to {label} ({ex.GetType().Name}).", _nowUtc());
         }
@@ -396,7 +451,7 @@ public sealed class LicenseSignInService
         }
         catch (JsonException ex)
         {
-            FileLog.Write($"[LicenseSignInService] signIn={signInId}: the Director's answer is not readable: {ex.Message}");
+            FileLog.Write($"[LicenseSignInService] signIn={signInId}: the Director's answer is not readable: {ex.GetType().Name}");
             return null;
         }
         return answer is not null

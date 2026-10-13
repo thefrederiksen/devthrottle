@@ -57,6 +57,12 @@ public static class LicenseSignInFold
             : $"{how}, and the report does not show a sign-in for {accountEmail} on {label}.";
     }
 
+    /// <summary>The sentence of a row that was ended because its machine has sent no report for a day.</summary>
+    public static string MachineNotSeenText(string label, string accountEmail, string? reason)
+        => reason == LicenseSignInReasons.Renewal
+            ? $"Ended without an answer: {label} has not been seen for a day, so it is not known whether the sign-in for {accountEmail} was renewed. Renew now can be asked for again when the machine is back."
+            : $"Ended without an answer: {label} has not been seen for a day, so it is not known whether it signed in to {accountEmail}. Add a spare can be asked for again when the machine is back.";
+
     /// <summary>What a machine is called among <paramref name="machines"/>: its name, with the user in brackets when
     /// another machine has the same name.</summary>
     public static string Label(IReadOnlyList<LicenseMachineView> machines, string machineName, string osUser)

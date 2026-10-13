@@ -401,7 +401,7 @@ public static class LicenseContract
 
     /// <summary>The shape of <see cref="LicenseSwitchRequest.SwitchId"/>: 32 lower-case hexadecimal digits (a
     /// <see cref="Guid"/> written with the "N" format).</summary>
-    public static readonly Regex SwitchIdShape = new("^[0-9a-f]{32}$", RegexOptions.CultureInvariant);
+    public static readonly Regex SwitchIdShape = new(@"^[0-9a-f]{32}\z", RegexOptions.CultureInvariant);
 
     /// <summary>The Director sends a report this often while the tunnel is connected.</summary>
     public static readonly TimeSpan ReportInterval = TimeSpan.FromMinutes(2);
