@@ -381,7 +381,7 @@ public sealed class HostedTeamEnrollmentTests : IDisposable
         // Director routes that could re-issue or issue such a key - a move, and enrollment naming a team - refuse it.
         var cockpit = HostedEnrollmentEndpoint.Enroll(Token(Owner),
             new EnrollSignedInRequest { DeviceId = "cockpit-o", MachineName = "Cockpit", Platform = "browser", DeviceType = "browser" },
-            _devices, _tenants, _validator, Entitlements(), DateTime.UtcNow, TeamEnrollment(),
+            _devices, _tenants, _validator, Entitlements(), new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc), TeamEnrollment(),
             HostedEnrollmentEndpoint.EnrollDoor.CockpitOrPhone, new RemoteAccessRule(PreLaunchGrace.NotSet));
         Assert.Equal(200, cockpit.Status);
         var personal = _tenants.LookupBySubject(Owner)!.Value.Value;
@@ -398,7 +398,7 @@ public sealed class HostedTeamEnrollmentTests : IDisposable
         {
             var intoTeam = HostedEnrollmentEndpoint.Enroll(Token(Owner),
                 new EnrollSignedInRequest { DeviceId = "surface-" + deviceType, MachineName = "M", Platform = "windows", DeviceType = deviceType, TeamId = _team },
-                _devices, _tenants, _validator, Entitlements(), DateTime.UtcNow, TeamEnrollment());
+                _devices, _tenants, _validator, Entitlements(), new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc), TeamEnrollment());
             Assert.Equal(400, intoTeam.Status);
             Assert.Equal(HostedEnrollmentEndpoint.DirectorDoorDeviceTypeCode, intoTeam.Code);
         }

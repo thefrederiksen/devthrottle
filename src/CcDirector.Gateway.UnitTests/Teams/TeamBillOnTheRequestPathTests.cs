@@ -249,7 +249,7 @@ public sealed class TeamBillOnTheRequestPathTests : IDisposable
         var launch = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var leases = new HostedAccessLeaseService(_entitlements, _tenants, _revoker, teams: _teamEntitlement,
             remoteAccess: new RemoteAccessRule(new PreLaunchGrace(launch, CutOffUtc: null)));
-        var now = DateTime.UtcNow;
+        var now = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc);
         Assert.Equal(EntitlementRegistry.TierFree, _teamEntitlement.Decide(new TenantId(_unpaidTeam), Owner, now).Entitlement!.Tier);
         Assert.Equal(EntitlementRegistry.TierFree, _teamEntitlement.Decide(new TenantId(_paidTeam), Carol, now).Entitlement!.Tier);
 

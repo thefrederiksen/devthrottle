@@ -55,6 +55,8 @@ public sealed class RemoteAccessMatrixTests : IAsyncLifetime
     private static readonly DateTime Launch = new(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
     private static readonly DateTime BeforeLaunch = new(2024, 6, 1, 0, 0, 0, DateTimeKind.Utc);
     private static readonly DateTime CutOffPassed = new(2025, 6, 1, 0, 0, 0, DateTimeKind.Utc);
+    // Every date a test writes is fixed. A paid period and a running trial end here, far past any day this runs on.
+    private static readonly DateTime FarFuture = new(2099, 1, 1, 0, 0, 0, DateTimeKind.Utc);
     private static readonly PreLaunchGrace LaunchedNoCutOff = new(Launch, CutOffUtc: null);
     private static readonly PreLaunchGrace LaunchedCutOffPassed = new(Launch, CutOffPassed);
 
@@ -151,7 +153,7 @@ public sealed class RemoteAccessMatrixTests : IAsyncLifetime
         using var ctx = _db.CreateUnscopedContext();
         ctx.Database.ExecuteSqlRaw(
             "INSERT INTO entitlements (subject, status, current_period_end, livemode, tier) VALUES ({0}, {1}, {2}, {3}, {4})",
-            Subject, EntitlementRegistry.StatusActive, DateTime.UtcNow.AddYears(1), true, tier);
+            Subject, EntitlementRegistry.StatusActive, FarFuture, true, tier);
     }
 
     /// <summary>An account that reached this Gateway at <paramref name="createdAtUtc"/>: its tenant row, dated then.</summary>
@@ -308,7 +310,7 @@ public sealed class RemoteAccessMatrixTests : IAsyncLifetime
                 break;
             case Account.RunningTrial:
                 // Granted before the change, by the ledger's own writer; enrolment itself grants none.
-                Assert.Equal(TrialOutcome.Active, _trials.GrantIfFirstArrival(Subject, alreadyKnownToGateway: false, DateTime.UtcNow).Outcome);
+                Assert.Equal(TrialOutcome.Active, _trials.GrantIfFirstArrival(Subject, alreadyKnownToGateway: false, FarFuture).Outcome);
                 break;
             case Account.FreeCreatedBeforeLaunchNoCutOff:
             case Account.FreeCreatedBeforeLaunchCutOffPassed:
@@ -568,7 +570,7 @@ public sealed class RemoteAccessMatrixTests : IAsyncLifetime
         Assert.Equal(200, cockpit.Status);
         Assert.Equal(200, (await RequestAsync(cockpit.DeviceKey!)).Status);
 
-        Assert.Equal(EntitlementRegistry.TierFree, _entitlements.Evaluate(Subject, DateTime.UtcNow).Tier);
+        Assert.Equal(EntitlementRegistry.TierFree, _entitlements.Evaluate(Subject, CutOffPassed).Tier);
         Assert.Equal(402, await DictationStatusAsync());
         Assert.Equal(0, TrialRows());
     }
@@ -607,7 +609,7 @@ public sealed class RemoteAccessMatrixTests : IAsyncLifetime
         Assert.Equal(200, cockpit.Status);
         Assert.Equal(200, (await RequestAsync(cockpit.DeviceKey!)).Status);
 
-        Assert.Equal(EntitlementRegistry.TierFree, _entitlements.Evaluate(Subject, DateTime.UtcNow).Tier);
+        Assert.Equal(EntitlementRegistry.TierFree, _entitlements.Evaluate(Subject, CutOffPassed).Tier);
         Assert.Equal(402, await DictationStatusAsync());
         Assert.Empty(_revoker.Revoked);
     }
