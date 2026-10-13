@@ -37,7 +37,7 @@ internal sealed record FactoryManagerSources(
 /// THE FACTORY MANAGER SEAT (Factory Control, step 5; design in docs/qa/factory-control/factory-manager/DESIGN.md).
 ///
 ///   GET  /gateway/factory-manager                         -> FactoryManagerBindingDto   (cc-devthrottle factory manager show)
-///   PUT  /gateway/factory-manager  { sessionId | null }   -> FactoryManagerBindingDto   (factory-manager set / clear)
+///   PUT  /gateway/factory-manager  { sessionId | null }   -> FactoryManagerBindingDto   (factory manager set / clear) | 403 (set, not the owner's device)
 ///   GET  /gateway/factory/name-check                      -> FactoryNameCheckDto        (cc-devthrottle factory name-check)
 ///   GET  /gateway/factory-agents/factory-manager          -> FactoryManagerCardDto      (the Factories screen's card)
 ///   POST /gateway/factory-agents/factory-manager/talk     -> 200 (it runs) | 201 (started) FactoryTalkStartedDto
@@ -45,8 +45,10 @@ internal sealed record FactoryManagerSources(
 /// The first three sit in the factory switch's group (404 with no body when it is off) and are reachable by a session
 /// key, so the seat itself can read them. The card and the talk are the owner's own views.
 ///
-/// WHO MAY SET THE BINDING: the owner's own device, or any session key of the account - the Fleet Manager's rule, with
-/// its stated gap (a session can mark itself). Every change is logged with who made it.
+/// WHO MAY SET THE BINDING: only the owner's own phone or browser. The mark grants the right to resolve any problem of
+/// the account, so a session key - and a Director's key, and the machine token - is refused when it asks to set it.
+/// Any caller of the account may still READ the mark and CLEAR it: clearing grants nothing. Every change is logged with
+/// who made it. The talk below is the owner's own request, and binds the session it starts.
 ///
 /// THE TALK is a new, visible, top-level session owned by the person, started through the path a person's New Session
 /// takes - exactly as Talk to the boss is - on the saved computer, in the saved folder. When the bound Factory Manager
@@ -62,6 +64,12 @@ internal static class FactoryManagerEndpoints
 
     /// <summary>The seat id a Factory Manager talk answers with, where a factory talk names its seat.</summary>
     public const string SeatId = "factory-manager";
+
+    /// <summary>What a session key is answered with when it asks to set the mark. Held here so tests can pin it.</summary>
+    internal const string SessionMaySetSentence =
+        "a session may not set the Factory Manager, itself included: the mark lets a session resolve any problem of the "
+        + "account, so only the owner sets it, from their own phone or browser. Talk to the Factory Manager on the "
+        + "Factories screen starts one and marks it. A session may still read the mark and clear it";
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -116,6 +124,11 @@ internal static class FactoryManagerEndpoints
         var raw = value.ValueKind == JsonValueKind.String ? value.GetString() : null;
         if (raw is null || !Guid.TryParse(raw.Trim(), out var id))
             return Refused(StatusCodes.Status400BadRequest, "\"sessionId\" must be a full session id or null");
+        // SETTING the mark is the owner's alone: the mark lets a session resolve any problem of the account, so a
+        // session that could set it could give itself that right, and take it from the real Factory Manager.
+        if (FleetManagerOwnerDevice.Require(ctx, "set the Factory Manager", SessionMaySetSentence,
+                nameof(FactoryManagerEndpoints), out var notOwner) is null)
+            return notOwner!;
         s.Bind(tenant, id.ToString("D"));
         FileLog.Write($"[FactoryManagerEndpoints] binding set to {id:D} for tenant={tenant.ToLogString()} by {who}");
         return Results.Json(Binding(tenant, s));
@@ -158,6 +171,8 @@ internal static class FactoryManagerEndpoints
             PlacementText = placement is null
                 ? "Choose the computer it runs on and a folder there for it to work in - for example the folder that holds your factories. They are saved for every later start."
                 : null,
+            ComputerLabel = placement is null ? "Computer" : null,
+            FolderLabel = placement is null ? "Folder" : null,
             PlacementSavedText = placement is { } p ? $"Runs on {p.Machine} in {p.Folder}" : null,
             NameCheck = FactoryNameCheck.Check(Live(s.Factories(tenant))),
         };

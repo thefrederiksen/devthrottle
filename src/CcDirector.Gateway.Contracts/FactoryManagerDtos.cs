@@ -59,10 +59,16 @@ public sealed class FactoryManagerCardDto
     /// <summary>The computers it may run on: the account's running Directors' computers. Only when placement is needed.</summary>
     public List<string> Computers { get; set; } = new();
 
-    /// <summary>"Computer" and "Folder" labels, and a sentence saying what the folder is for. Only when placement is needed.</summary>
+    /// <summary>A sentence saying what the computer and the folder are for. Only when placement is needed.</summary>
     public string? PlacementText { get; set; }
 
-    /// <summary>"Runs on SOREN_NORTH in D:\ReposFred\factories" when placement is saved; null otherwise.</summary>
+    /// <summary>The computer picker's label, "Computer". Only when placement is needed; null otherwise.</summary>
+    public string? ComputerLabel { get; set; }
+
+    /// <summary>The folder field's label, "Folder". Only when placement is needed; null otherwise.</summary>
+    public string? FolderLabel { get; set; }
+
+    /// <summary>"Runs on (the saved computer) in (the saved folder)" when placement is saved; null otherwise.</summary>
     public string? PlacementSavedText { get; set; }
 
     /// <summary>The name check, as on the command line.</summary>

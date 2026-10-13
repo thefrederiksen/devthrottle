@@ -32,6 +32,9 @@ const NOT_STARTED: CardView = {
   needsPlacement: true,
   computers: ["DEVLINUX", "SOREN_NORTH"],
   placementText: "Choose the computer it runs on and a folder there for it to work in.",
+  // Not the words the Gateway sends today, on purpose: a label written in the Cockpit would not match these.
+  computerLabel: "Runs on this computer",
+  folderLabel: "Works in this folder",
   placementSavedText: null,
   nameCheck: {
     count: 2,
@@ -57,6 +60,8 @@ const RUNNING: CardView = {
   needsPlacement: false,
   computers: [],
   placementText: null,
+  computerLabel: null,
+  folderLabel: null,
   placementSavedText: "Runs on SOREN_NORTH in D:\\ReposFred\\factories",
   nameCheck: { count: 0, factoriesChecked: 3, headingText: "Name check: nothing flagged", ruleText: "rule", passText: "Every factory passes.", findings: [] },
 };
@@ -94,6 +99,20 @@ describe("FactoryManagerCard", () => {
     expect(screen.getByText("Name check: 2 seats flagged")).toBeTruthy();
     expect(screen.getByTestId("fa-fm-finding-warmforward-ceo").textContent).toBe(NOT_STARTED.nameCheck.findings[0].text);
     expect(screen.getByTestId("fa-fm-finding-tallyhand-boss").textContent).toBe(NOT_STARTED.nameCheck.findings[1].text);
+  });
+
+  it("labels the computer and the folder with the Gateway's words, and shows no path of its own in the folder field", async () => {
+    screenClient.getFactoryManagerCard.mockResolvedValue(NOT_STARTED);
+    show();
+
+    const computer = await screen.findByTestId("fa-fm-computer");
+    const folder = screen.getByTestId("fa-fm-folder");
+
+    expect(screen.getByLabelText("Runs on this computer")).toBe(computer);
+    expect(screen.getByLabelText("Works in this folder")).toBe(folder);
+    expect(screen.queryByText("Computer")).toBeNull();
+    expect(screen.queryByText("Folder")).toBeNull();
+    expect(folder.getAttribute("placeholder")).toBeNull();
   });
 
   it("sends the chosen computer and folder on the first start, shows busy at once, and opens the session", async () => {

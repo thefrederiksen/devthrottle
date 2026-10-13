@@ -29,6 +29,9 @@ public sealed class CronRunResultEndpointsTests : IDisposable
     // The account's bound Factory Manager (Factory Control, step 5); none unless a test binds it.
     private string? _factoryManager;
 
+    // The sessions that were the Factory Manager earlier and lost the mark; none unless a test says so.
+    private readonly HashSet<string> _earlierFactoryManagers = new(StringComparer.OrdinalIgnoreCase);
+
     private readonly GatewayDbTestHarness _harness = new();
     private readonly CronRunHistoryStore _runs;
     private readonly CronRunResultService _service;
@@ -86,7 +89,13 @@ public sealed class CronRunResultEndpointsTests : IDisposable
 
     private IResult Resolve(HttpContext ctx, string runId, string? reason) =>
         CronRunResultEndpoints.Resolve(ctx, runId, new CronRunResolveRequest { Reason = reason }, _service, Local,
-            FactoryOf, (t, id) => _runs.Find(t, id), _ => _factoryManager);
+            FactoryOf, (t, id) => _runs.Find(t, id), _ => _factoryManager, (_, sid) => _earlierFactoryManagers.Contains(sid));
+
+    private static string ErrorOf(IResult result)
+    {
+        var value = Assert.IsAssignableFrom<IValueHttpResult>(result).Value!;
+        return (string)value.GetType().GetProperty("error")!.GetValue(value)!;
+    }
 
     private string ReportProblem()
     {
@@ -170,6 +179,60 @@ public sealed class CronRunResultEndpointsTests : IDisposable
 
         Assert.Equal(403, Status(result));
         Assert.Null(_runs.List("cj_mail").Single().ResolvedUtc);
+    }
+
+    [Fact]
+    public void Resolve_BySessionThatIsNotTheBoundFactoryManager_IsRefusedInTheOldWords_WithNothingAboutTheMark()
+    {
+        var runId = ReportProblem();
+        _factoryManager = FactoryManagerSession;
+
+        var error = ErrorOf(Resolve(Request(OutsideSession), runId, "not mine to fix"));
+
+        Assert.Equal(FactoryNaming.ActRefusal("run", "mail"), error);
+        Assert.DoesNotContain("Factory Manager", error);
+    }
+
+    [Fact]
+    public void Resolve_BySessionThatWasTheFactoryManager_IsRefused_AndToldTheMarkHasMovedAndToWhom()
+    {
+        var runId = ReportProblem();
+        _factoryManager = FactoryManagerSession;
+        _earlierFactoryManagers.Add(OutsideSession);
+
+        var result = Resolve(Request(OutsideSession), runId, "I fixed the machine");
+
+        Assert.Equal(403, Status(result));
+        Assert.Null(_runs.List("cj_mail").Single().ResolvedUtc);
+        var error = ErrorOf(result);
+        Assert.StartsWith($"This session is no longer the Factory Manager: the mark has moved to session {FactoryManagerSession}", error);
+        // The sentence about the run's factory is still said, in the same words as for any other session.
+        Assert.EndsWith(FactoryNaming.ActRefusal("run", "mail"), error);
+    }
+
+    [Fact]
+    public void Resolve_BySessionThatWasTheFactoryManager_WhenTheMarkWasCleared_IsToldItWasCleared()
+    {
+        var runId = ReportProblem();
+        _earlierFactoryManagers.Add(OutsideSession);
+
+        var result = Resolve(Request(OutsideSession), runId, "I fixed the machine");
+
+        Assert.Equal(403, Status(result));
+        Assert.StartsWith("This session is no longer the Factory Manager: the mark was cleared", ErrorOf(result));
+    }
+
+    [Fact]
+    public void Resolve_BySessionThatWasTheFactoryManager_AndIsOfTheRunsFactory_IsStillAllowed()
+    {
+        var runId = ReportProblem();
+        _factoryManager = FactoryManagerSession;
+        _earlierFactoryManagers.Add(MailSession);
+
+        var problem = Assert.IsType<JsonHttpResult<CronRunProblemDto>>(Resolve(Request(MailSession), runId, "fixed the inbox")).Value!;
+
+        Assert.Equal(CronRunProblemStates.Resolved, problem.State);
+        Assert.Equal($"session {MailSession}", problem.ResolvedBy);
     }
 
     [Fact]

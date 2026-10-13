@@ -40,9 +40,18 @@ hand-off: it is a talk that the owner opens.
     `sessionId` is refused, exactly as the Fleet Manager's route refuses it.
 - **Command line:** `cc-devthrottle factory manager show | set <id> | clear` (under `factory`, next to `factory name-check`, rather than a top-level `factory-manager`: the longer top-level name would have pushed three existing one-line helps past one row) (AXI: `--json` keeps its shape, and
   unknown flags fail).
-- **Who may set the mark:** the owner's own device, or any session key of the account. This is the same rule as
-  the Fleet Manager, and it has the same stated gap: a session can mark itself. The change is logged with who made
-  it. Narrowing it later is one check in one route.
+- **Who may set the mark:** only the owner's own phone or browser. This is NOT the Fleet Manager's rule, because
+  this mark grants something the Fleet Manager's does not: the right to resolve any problem of the account
+  (section 4). A session key that asks to set it is refused with 403, and so are a Director's key and the machine
+  token; the session key's refusal says who sets the mark and what a session may still do. So
+  `cc-devthrottle factory manager set` run by a session prints that refusal. The talk in section 2 is the owner's
+  own request, and still binds the session it starts.
+- **Who may read and clear the mark:** any caller of the account, a session key included. Reading and clearing
+  grant nothing.
+- **What is remembered.** `factory_manager_earlier_session_ids` holds the sessions that held the mark before the
+  current one (the newest twenty), written in the same save that moves or clears the mark. It grants nothing; it
+  exists so that a session which lost the mark can be told so (section 4).
+- Every change is logged with who made it.
 
 ### 2. Starting it: a talk, like "Talk to the boss"
 
@@ -95,6 +104,11 @@ resolve any problem of its account. Its reason is kept, and the resolver is reco
 `the Factory Manager (session <id>)`. A session that is neither of the factory nor the bound Factory Manager is
 still refused, in the same words as before.
 
+A session that WAS the Factory Manager and has lost the mark is refused the same way, but is told why first:
+"This session is no longer the Factory Manager: the mark has moved to session <id> ..." (or "the mark was
+cleared"), followed by the same sentence about the run's factory, and a detail saying who can resolve the problem
+now. If that session happens to be of the run's factory, it may still resolve, like any session of that factory.
+
 ### 5. Hand-over for a factory with no boss
 
 Brief 4's named point is `FactoryProblemHandoff`. It now answers one of three things:
@@ -134,7 +148,9 @@ The Factory Manager card sits on the Factories list. It is folded on the Gateway
 
 - whether the seat is running, and its session;
 - the button: "Talk to the Factory Manager", or "Open the Factory Manager" when it is running;
-- the computer picker and the folder field, but only when no placement is saved;
+- the computer picker and the folder field, but only when no placement is saved. Their labels ("Computer",
+  "Folder") are sent by the Gateway with the card, and the folder field shows no example path: a path that exists
+  on one machine is not an example for every account;
 - the name-check findings.
 
 ## Not built
@@ -142,7 +158,8 @@ The Factory Manager card sits on the Factories list. It is folded on the Gateway
 - **A Director-made home folder for the Factory Manager.** It needs a Director release; see section 2.
 - **Events pushed to the Factory Manager** in the way the Fleet Manager has them. The seat reads
   `run problems` when the owner talks to it; it is not woken by new problems.
-- **Narrowing who may set the mark.** This is the same gap the Fleet Manager has, stated in section 1.
+- **A way for the owner to move the mark to an existing session.** Only a talk sets it now (section 1); no
+  screen calls `PUT /gateway/factory-manager` with a session id, and a session's command line is refused.
 
 ## A behaviour to know
 
@@ -150,4 +167,5 @@ Handle the issue on a factory with no boss always starts a NEW Factory Manager s
 and binds it - even while an earlier Factory Manager talk is still running. That is deliberate: the problem talk must
 hold the binding to resolve the problem (it is in no factory), and there is one Factory Manager per account. The
 earlier session keeps running but is no longer the Factory Manager, so it can no longer resolve problems; the QA rig
-shows exactly that refusal (screenshot 6). The card's button then opens the newest one.
+shows exactly that refusal (screenshot 6, taken before the refusal was reworded). The refusal now tells that
+session the mark has moved, and to which session (section 4). The card's button then opens the newest one.

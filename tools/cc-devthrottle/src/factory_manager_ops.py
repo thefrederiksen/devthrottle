@@ -6,8 +6,10 @@ same kind of mark as the Fleet Manager's. The bound Factory Manager may resolve 
 (`run resolve`); the Gateway reads the mark and records the resolver as the Factory Manager.
 
 - `factory manager show` prints the mark, and the computer and folder the Factory Manager starts on.
-- `factory manager set [<session>]` marks a session (number, id prefix or name), or this session.
-- `factory manager clear` removes the mark.
+- `factory manager set [<session>]` asks the Gateway to mark a session (number, id prefix or name), or this
+  session. The Gateway lets only the owner's own phone or browser set the mark, because the mark grants the
+  right to resolve any problem; a session that asks is refused, and the Gateway's sentence is printed.
+- `factory manager clear` removes the mark. A session may.
 - `factory name-check` prints the Gateway's name check: every seat that says CEO, or whose name is not a
   role word of its factory. The rule and every sentence are the Gateway's; nothing is decided here.
 
@@ -44,6 +46,10 @@ FEATURE_OFF = (
 
 _SET = "cc-devthrottle factory manager set <session>"
 _CLEAR = "cc-devthrottle factory manager clear"
+_NAME_CHECK = "cc-devthrottle factory name-check"
+
+#: Who sets the mark, said where a session might otherwise be pointed at `set`.
+SET_BY_THE_OWNER = "the owner, with Talk to the Factory Manager on the Factories screen (a session may not set it)"
 
 
 def _reason(exc: gateway.GatewayError) -> str:
@@ -68,6 +74,7 @@ def _print_binding(payload: Dict[str, Any], name: Optional[str], verb: str) -> N
     lines = []
     if not session_id:
         lines.append(f"factory-manager: none{verb}")
+        lines.append(f"  set-by: {SET_BY_THE_OWNER}")
     else:
         lines.append(f"factory-manager{verb}:")
         lines.append(f"  id: {session_id}")
@@ -75,7 +82,7 @@ def _print_binding(payload: Dict[str, Any], name: Optional[str], verb: str) -> N
     lines.append(f"  computer: {axi_cli.ascii_text(computer) if computer else '(not chosen yet)'}")
     lines.append(f"  folder: {axi_cli.ascii_text(folder) if folder else '(not chosen yet)'}")
     axi_cli.write_lines(*lines)
-    axi_cli.print_next([_CLEAR, f"cc-devthrottle session buffer {session_id}"] if session_id else [_SET])
+    axi_cli.print_next([_CLEAR, f"cc-devthrottle session buffer {session_id}"] if session_id else [_NAME_CHECK])
 
 
 def show(json_output: bool) -> None:
@@ -95,7 +102,10 @@ def show(json_output: bool) -> None:
 
 
 def set_mark(target: Optional[str], json_output: bool) -> None:
-    """Mark one session as this account's Factory Manager - the named one, or this session."""
+    """Ask the Gateway to mark one session as this account's Factory Manager - the named one, or this session.
+
+    Only the owner's own phone or browser may set the mark; the Gateway refuses a session, and its sentence is printed.
+    """
     if target:
         session = session_ops.resolve_session(target, command_name="cc-devthrottle factory manager set")
         session_id = gateway.field(session, "sessionId", "SessionId")
@@ -141,6 +151,16 @@ def name_check(json_output: bool) -> None:
         # Absent is not empty: an answer with no list must never read as "every factory passes".
         axi_cli.fail("the Gateway answered with no list of findings; this command will not report that as a pass.",
                      [axi_cli.CHECK_GATEWAY])
+    # The same holds for the two facts printed beside the findings: a missing count is not "0 factories checked",
+    # and a missing rule is not an empty rule. A bool is not a count, though Python calls it an int.
+    checked = answer.get("factoriesChecked")
+    if not isinstance(checked, int) or isinstance(checked, bool):
+        axi_cli.fail("the Gateway's answer does not say how many factories it checked; this command will not "
+                     "report that as none.", [axi_cli.CHECK_GATEWAY])
+    rule = answer.get("ruleText")
+    if not isinstance(rule, str) or not rule.strip():
+        axi_cli.fail("the Gateway's answer does not state the rule it checked the names against; this command "
+                     "will not print findings without it.", [axi_cli.CHECK_GATEWAY])
     if json_output:
         print(json.dumps(answer, indent=2))
         return
@@ -151,8 +171,8 @@ def name_check(json_output: bool) -> None:
     ]
     blocks = [
         axi_output.format_count(len(records)),
-        f"factories-checked: {answer.get('factoriesChecked', 0)}",
-        axi_cli.ascii_text(f"rule: {answer.get('ruleText') or ''}"),
+        f"factories-checked: {checked}",
+        axi_cli.ascii_text(f"rule: {rule}"),
     ]
     if records:
         blocks.append(axi_output.render_list("findings", ["factory", "seat", "kind", "text"], records))

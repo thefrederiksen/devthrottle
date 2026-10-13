@@ -1470,8 +1470,9 @@ _ACTIONS = [
     {
         "id": "factory-manager-set",
         "description": (
-            "Mark a session as this account's one Factory Manager, replacing any earlier mark. "
-            "With no session, marks the session running the command. The Factory Manager may resolve any problem of the account."
+            "Ask the Gateway to mark a session as this account's one Factory Manager. The Gateway REFUSES a session: "
+            "the mark grants the right to resolve any problem of the account, so only the owner sets it, from their own "
+            "phone or browser (Talk to the Factory Manager on the Factories screen). A session may show and clear the mark."
         ),
         "command": "cc-devthrottle factory manager set [<session>]",
         "mutatesState": True,
@@ -3181,7 +3182,7 @@ def factory_manager_set(
     ),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
 ) -> None:
-    """Mark a session as the one Factory Manager, replacing any earlier mark."""
+    """Mark a session as the Factory Manager. Owner only: a session is refused."""
     factory_manager_ops.set_mark(session, json_output)
 
 

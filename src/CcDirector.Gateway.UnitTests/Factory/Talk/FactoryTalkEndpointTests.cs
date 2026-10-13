@@ -616,10 +616,12 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
         => Assert.False(SessionKeyGuard.Check("POST", "/gateway/factory-agents/factory-manager/talk").Allowed,
             "a talk is the owner's own session; a session must not be able to start one");
 
-    [Fact]
-    public async Task Binding_SetThenShowThenClear_RoundTrips()
+    [Theory]
+    [InlineData(Caller.OwnerBrowser)]
+    [InlineData(Caller.OwnerPhone)]
+    public async Task Binding_SetByTheOwnersOwnDevice_ThenShowThenClear_RoundTrips(Caller owner)
     {
-        await StartAsync(caller: Caller.SessionKey);
+        await StartAsync(caller: owner);
         const string id = "22222222-0000-4000-8000-000000000002";
 
         var set = await PutBinding("{\"sessionId\":\"" + id + "\"}");
@@ -630,6 +632,50 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
         Assert.Equal(id, shown!.SessionId);
         Assert.Equal(HttpStatusCode.OK, cleared.StatusCode);
         Assert.Null((await cleared.Content.ReadFromJsonAsync<FactoryManagerBindingDto>(Web))!.SessionId);
+        Assert.Null(_factoryManager);
+    }
+
+    [Theory]
+    [InlineData(Caller.SessionKey)]
+    [InlineData(Caller.DirectorDeviceKey)]
+    [InlineData(Caller.MachineToken)]
+    public async Task Binding_SetByACredentialThatIsNotTheOwnersBrowserOrPhone_Is403_AndTheMarkStaysWhereItWas(Caller caller)
+    {
+        await StartAsync(caller: caller);
+        _factoryManager = "11111111-0000-4000-8000-000000000001";
+
+        var response = await PutBinding("{\"sessionId\":\"22222222-0000-4000-8000-000000000002\"}");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal("11111111-0000-4000-8000-000000000001", _factoryManager);
+    }
+
+    [Fact]
+    public async Task Binding_ASessionMarkingItself_Is403_InASentenceThatSaysWhoSetsItAndWhatASessionMayStillDo()
+    {
+        await StartAsync(caller: Caller.SessionKey);
+
+        var response = await PutBinding("{\"sessionId\":\"" + CallingSessionId + "\"}");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Null(_factoryManager);
+        var error = await ErrorOf(response);
+        Assert.Equal(FactoryManagerEndpoints.SessionMaySetSentence, error);
+        Assert.Contains("only the owner sets it", error);
+        Assert.Contains("may still read the mark and clear it", error);
+    }
+
+    [Fact]
+    public async Task Binding_ASessionKey_MayStillReadTheMarkAndClearIt()
+    {
+        await StartAsync(caller: Caller.SessionKey);
+        _factoryManager = "11111111-0000-4000-8000-000000000001";
+
+        var shown = await _http!.GetFromJsonAsync<FactoryManagerBindingDto>("gateway/factory-manager", Web);
+        var cleared = await PutBinding("{\"sessionId\":null}");
+
+        Assert.Equal("11111111-0000-4000-8000-000000000001", shown!.SessionId);
+        Assert.Equal(HttpStatusCode.OK, cleared.StatusCode);
         Assert.Null(_factoryManager);
     }
 
@@ -672,6 +718,9 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
         Assert.Null(card.SessionHref);
         Assert.True(card.NeedsPlacement);
         Assert.Equal(new[] { "OTHER-PC", "SOREN_NORTH" }, card.Computers);
+        // The form's labels are the Gateway's, as the contract says; the Cockpit writes none of its own.
+        Assert.Equal("Computer", card.ComputerLabel);
+        Assert.Equal("Folder", card.FolderLabel);
     }
 
     [Fact]
@@ -688,6 +737,8 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
         Assert.Equal("Open the Factory Manager", card.ActionLabel);
         Assert.Equal("/session/" + _factoryManager, card.SessionHref);
         Assert.False(card.NeedsPlacement);
+        Assert.Null(card.ComputerLabel);
+        Assert.Null(card.FolderLabel);
         Assert.Equal("Runs on SOREN_NORTH in " + Folder, card.PlacementSavedText);
     }
 

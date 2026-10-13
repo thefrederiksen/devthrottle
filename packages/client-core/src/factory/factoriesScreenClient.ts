@@ -709,6 +709,10 @@ export interface FactoryManagerCard {
   /** The computers with a running Director, to choose from; empty once a placement is saved. */
   computers: string[];
   placementText: string | null;
+  /** The computer picker's label; null once a placement is saved. */
+  computerLabel: string | null;
+  /** The folder field's label; null once a placement is saved. */
+  folderLabel: string | null;
   placementSavedText: string | null;
   nameCheck: FactoryNameCheck;
 }

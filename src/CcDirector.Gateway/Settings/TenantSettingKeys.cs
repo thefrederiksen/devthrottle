@@ -313,6 +313,14 @@ public static class TenantSettingKeys
     /// <summary>The folder the Factory Manager runs in, on <see cref="FactoryManagerMachine"/>. Saved with it.</summary>
     public const string FactoryManagerFolder = "factory_manager_folder";
 
+    /// <summary>
+    /// THE SESSIONS THAT WERE THIS ACCOUNT'S FACTORY MANAGER BEFORE THE CURRENT ONE: full session ids, newest first,
+    /// separated by commas, at most <c>TenantSettingsResolver.FactoryManagerEarlierKept</c>. Written in the same save
+    /// that moves or clears <see cref="FactoryManagerSessionId"/>. It grants nothing: it exists so a session that lost
+    /// the mark and is refused on resolve can be told that is why (<c>CronRunResultEndpoints</c>).
+    /// </summary>
+    public const string FactoryManagerEarlierSessionIds = "factory_manager_earlier_session_ids";
+
     /// <summary>Every key this resolver serves, for validation and enumeration.</summary>
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -330,7 +338,7 @@ public static class TenantSettingKeys
         FleetManagerReplacementStartingAt,
         FactoryReports, FactoryAgentsSwitch, FactoryMaps,
         SchedulesPaused,
-        FactoryManagerSessionId, FactoryManagerMachine, FactoryManagerFolder,
+        FactoryManagerSessionId, FactoryManagerMachine, FactoryManagerFolder, FactoryManagerEarlierSessionIds,
         GatewayInstanceId,
         DemoMode,
         FactoryEmailEnabled,

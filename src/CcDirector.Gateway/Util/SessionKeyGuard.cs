@@ -1010,10 +1010,11 @@ public static class SessionKeyGuard
         // whether it mails the account its own factories' report - and admits nobody: the email can only ever go to
         // the account's own address, resolved by the account service. The rollout switches it on from a session.
         "gateway/factory-email" => true,
-        // Which session is the account's Factory Manager (Factory Control, step 5) - the same kind of mark as the
-        // Fleet Manager's, with the same reason: it names a session already inside the account and admits nobody.
-        // `cc-devthrottle factory manager show|set|clear`. What the mark GRANTS - resolving any of the account's
-        // problems - is decided by the resolve route, which reads the mark; the guard admits only the setting.
+        // Which session is the account's Factory Manager (Factory Control, step 5). Unlike the Fleet Manager's mark,
+        // this one GRANTS something: the marked session may resolve any of the account's problems. So a session key
+        // reaches this route only to READ the mark and to CLEAR it (`cc-devthrottle factory manager show|clear`).
+        // SETTING it is refused by the route itself, which reads the body this guard never consults: only the
+        // owner's own phone or browser may set it (FactoryManagerEndpoints.PutBindingAsync).
         "gateway/factory-manager" => true,
         _ => false,
     };

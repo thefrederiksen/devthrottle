@@ -5742,7 +5742,8 @@ public sealed class GatewayHost : IAsyncDisposable
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             sessionFactoryOf: _sessionHistory.FactoryOf,
             findRun: (tenant, runId) => _cronRuns.Find(tenant, runId),
-            factoryManagerOf: tenant => _tenantSettingsResolver.FactoryManagerSessionId(tenant));
+            factoryManagerOf: tenant => _tenantSettingsResolver.FactoryManagerSessionId(tenant),
+            wasFactoryManager: (tenant, sid) => _tenantSettingsResolver.WasFactoryManager(tenant, sid));
 
         // Factory Control, step 4: the factory email's switch (off unless turned on) and the kept emails the factory page
         // reads to show yesterday's report again.

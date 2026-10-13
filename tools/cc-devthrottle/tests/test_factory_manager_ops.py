@@ -75,16 +75,17 @@ def _flat(plain, result):
     return " ".join(plain(result.output).split())
 
 
-def test_show_WithNoMark_SaysNoneAndHowToSetOne(monkeypatch, plain):
+def test_show_WithNoMark_SaysNoneAndThatTheOwnerSetsIt_NeverPointingASessionAtSet(monkeypatch, plain):
     _stub(monkeypatch)
 
     result = runner.invoke(app, ["factory", "manager", "show"])
 
     assert result.exit_code == 0
-    out = plain(result.output)
+    out = _flat(plain, result)
     assert "factory-manager: none" in out
     assert "computer: (not chosen yet)" in out
-    assert "cc-devthrottle factory manager set <session>" in out
+    assert "set-by: the owner, with Talk to the Factory Manager on the Factories screen" in out
+    assert "factory manager set" not in out
 
 
 def test_show_WithAMark_PrintsTheFullIdTheNameAndWhereItStarts(monkeypatch, plain):
@@ -141,6 +142,25 @@ def test_set_WithNoTargetOutsideASession_FailsAndSendsNothing(monkeypatch, plain
     assert "factory manager set <session>" in _flat(plain, result)
 
 
+def test_set_RefusedByTheGateway_PrintsItsSentence_AndReportsNoMark(monkeypatch, plain):
+    sentence = "a session may not set the Factory Manager, itself included: only the owner sets it"
+    gw = factory_manager_ops.gateway
+
+    def refuse(path, body, timeout=30):
+        assert path == "gateway/factory-manager", path
+        raise gw.GatewayError(sentence, status=403)
+
+    monkeypatch.setattr(gw, "put_json", refuse)
+    monkeypatch.setenv("CC_SESSION_ID", FM_ID)
+
+    result = runner.invoke(app, ["factory", "manager", "set"])
+
+    assert result.exit_code == 1
+    out = _flat(plain, result)
+    assert sentence in out
+    assert "factory-manager set:" not in out
+
+
 def test_clear_SendsANullSessionId(monkeypatch, plain):
     state = _stub(monkeypatch, stored=FM_ID)
 
@@ -194,6 +214,39 @@ def test_nameCheck_AnAnswerWithNoFindingsList_FailsRatherThanPassing(monkeypatch
 
     assert result.exit_code == 1
     assert "will not report that as a pass" in _flat(plain, result)
+
+
+def test_nameCheck_AnAnswerWithNoFactoryCount_FailsRatherThanPrintingZero(monkeypatch, plain):
+    _stub(monkeypatch, name_check={k: v for k, v in FINDINGS.items() if k != "factoriesChecked"})
+
+    result = runner.invoke(app, ["factory", "name-check"])
+
+    assert result.exit_code == 1
+    out = _flat(plain, result)
+    assert "does not say how many factories it checked" in out
+    assert "factories-checked:" not in out
+
+
+def test_nameCheck_AnAnswerWithNoRule_FailsRatherThanPrintingAnEmptyRule(monkeypatch, plain):
+    for rule in ({}, {"ruleText": None}, {"ruleText": "  "}):
+        answer = {k: v for k, v in FINDINGS.items() if k != "ruleText"}
+        answer.update(rule)
+        _stub(monkeypatch, name_check=answer)
+
+        result = runner.invoke(app, ["factory", "name-check"])
+
+        assert result.exit_code == 1, rule
+        out = _flat(plain, result)
+        assert "does not state the rule" in out
+        assert "rule:" not in out
+
+
+def test_nameCheck_Json_AnAnswerMissingItsCountOrRule_IsRefusedToo(monkeypatch, plain):
+    _stub(monkeypatch, name_check={"count": 0, "findings": []})
+
+    result = runner.invoke(app, ["factory", "name-check", "--json"])
+
+    assert result.exit_code == 1
 
 
 def test_nameCheck_Json_IsTheGatewaysAnswer(monkeypatch, plain):
