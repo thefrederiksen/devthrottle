@@ -192,13 +192,13 @@ actually be seen rather than five screens in.
 
 ![The setup wizard on step 2 of 8, Your gateway, showing three cards with Hosted pre-selected](assets/setup-02-gateway.png)
 
-*Setup wizard, **step 2 of 8** - Your gateway. The counter beside the dots reads "Step 2 of 8": the gateway is the second screen, not the seventh. Hosted is pre-selected, marked RECOMMENDED, and priced as "Part of Pro" with no figure.*
+*Setup wizard, **step 2 of 8** - Your gateway. The counter beside the dots reads "Step 2 of 8": the gateway is the second screen, not the seventh. Hosted is pre-selected and marked RECOMMENDED. Its card names no plan and no price, and points at the pricing page.*
 
 Three cards:
 
 | Card | What it means |
 |---|---|
-| **Hosted gateway** *(recommended, pre-selected)* | We run it. Sign in and this machine is enrolled -- phone access, voice and the morning report work immediately. Part of **Pro**; see [pricing](https://devthrottle.com/pricing). |
+| **Hosted gateway** *(recommended, pre-selected)* | We run it. Sign in and this machine is enrolled. What the hosted gateway includes depends on your plan; see [pricing](https://devthrottle.com/pricing). |
 | **Self-hosted gateway** | Run your own gateway and join it. For advanced setups. |
 | **Not now** | Local-only on this machine. Connect any time from Settings. |
 

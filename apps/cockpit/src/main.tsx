@@ -6,6 +6,7 @@ import { ensureGatewayCookie, configureUnauthorizedRedirect, cockpitSignInRedire
 import { configureEnrollment, COCKPIT_ENROLLMENT_PROFILE } from "@devthrottle/client-core/auth/enrollRequest";
 import { ensurePushSubscribed } from "@devthrottle/client-core/push/register";
 import { installGlobalErrorReporting } from "@devthrottle/client-core/errors/reportClientError";
+import { RemotePlanGate } from "@devthrottle/client-core/plan/RemotePlanNotice";
 import { registerCockpitServiceWorker } from "./push/registerSw";
 import "./styles.css";
 import "./components/components.css";
@@ -83,6 +84,10 @@ if (rootElement === null) {
 
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
-    <RouterProvider router={router} future={{ v7_startTransition: true }} />
+    {/* An account that has lost the Remote plan is refused on every request; the shared gate then shows
+        the one notice in place of the app, the same one the phone shows (the Pricing Change mission). */}
+    <RemotePlanGate>
+      <RouterProvider router={router} future={{ v7_startTransition: true }} />
+    </RemotePlanGate>
   </React.StrictMode>
 );
