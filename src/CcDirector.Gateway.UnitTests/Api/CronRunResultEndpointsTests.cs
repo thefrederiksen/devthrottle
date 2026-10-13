@@ -116,6 +116,20 @@ public sealed class CronRunResultEndpointsTests : IDisposable
     }
 
     [Fact]
+    public void Result_Ok_WhenTheScheduleIsSetNotToCloseItself_AnswersThatTheSessionStaysOpen()
+    {
+        // The command line closes the session only when this answer says so, so the answer is the whole decision.
+        _jobs["cj_mail"].Action.AutoDismiss = false;
+
+        var result = CronRunResultEndpoints.Result(Request(RunSession), new CronRunResultRequest { Result = "ok" }, _service, Local);
+
+        var answer = Assert.IsType<JsonHttpResult<CronRunResultResponse>>(result).Value!;
+        Assert.False(answer.CloseSession);
+        Assert.EndsWith(CronRunResultService.StaysOpenBySetting, answer.Text);
+        Assert.Equal(CronRunResults.Ok, _runs.List("cj_mail").Single().Result);
+    }
+
+    [Fact]
     public void Result_FromASessionNoScheduleStarted_IsRefused()
     {
         var result = CronRunResultEndpoints.Result(Request(OutsideSession), new CronRunResultRequest { Result = "ok" }, _service, Local);

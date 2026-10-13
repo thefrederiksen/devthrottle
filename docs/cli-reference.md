@@ -1759,19 +1759,15 @@ Handle the issue.
 
 ```
 USAGE: cc-devthrottle factory manager show [--json]
-       cc-devthrottle factory manager set [SESSION] [--json]
        cc-devthrottle factory manager clear [--json]
        cc-devthrottle factory name-check [--json]
-
-ARGUMENTS:
-  SESSION  The session to mark: its number, an id prefix, or its name. Omit to mark this session.
 ```
 
 `factory manager` is the mark that says which session is the account's Factory Manager, held on the
 Gateway (`GET` and `PUT /gateway/factory-manager`). Starting a Factory Manager from the card sets it.
-Only the owner's own phone or browser may SET the mark, because the mark grants the right described below:
-`set` run by a session is refused, and the command prints the Gateway's sentence. A session may `show` the
-mark and `clear` it. `show` prints the full id and the name, or `factory-manager: none` and who sets it, and
+Only the owner's own phone or browser may SET the mark, because the mark grants the right described below,
+so there is no `set` command: `cc-devthrottle factory manager set` fails as an unknown command. A session
+may `show` the mark and `clear` it. `show` prints the full id and the name, or `factory-manager: none` and who sets it, and
 the computer and folder the card starts it on.
 `--json` prints the Gateway's answer: `{"sessionId": ..., "computer": ..., "folder": ...}`.
 
