@@ -1,10 +1,15 @@
 import type {
   LicenseAccount,
+  LicenseApprover,
+  LicenseApproverRemoved,
+  LicenseApprovers,
   LicenseForecast,
   LicenseHolding,
   LicenseLogPage,
+  LicenseMachine,
   LicenseOverview,
   LicenseRenewalResult,
+  LicenseSignInStarted,
   LicenseSwitchNowResult,
 } from "@devthrottle/client-core/licenses/licensesClient";
 
@@ -13,6 +18,20 @@ import type {
 // store filled with the reports of its machines and accounts. A test that draws these draws what the Gateway
 // sends. This file is written by missions/license-switching/phase-3/copy_fixtures.py and is not edited by hand:
 // fixtures.test.ts fails when a constant here differs from its example in the document. Run the script again.
+//
+// In OVERVIEW no approver is set and no Director is connected, so no sign-in is offered anywhere and each sentence
+// says why. A test of a sign-in lays OVERVIEW_SIGN_IN_FIELDS, the Gateway's example of those fields, over it.
+
+/** The sign-in fields of an overview, as section 7.6 of the document shows them: these fields and no others. */
+export interface LicenseOverviewSignInFields {
+  accounts: Array<Pick<LicenseAccount, "accountEmail" | "approver" | "approverText" | "approverTone">>;
+  machines: Array<
+    Pick<LicenseMachine, "machineName" | "canAddSpare" | "addSpareText" | "signInsInProgress"> & {
+      active: Pick<LicenseHolding, "accountEmail" | "canRenewNow" | "renewNowText"> | null;
+      spares: Array<Pick<LicenseHolding, "accountEmail" | "canRenewNow" | "renewNowText">>;
+    }
+  >;
+}
 
 /** GET /gateway/licenses: three accounts (in use, sign-in expires soon, at limit) on two machines. */
 export const OVERVIEW: LicenseOverview = {
@@ -101,7 +120,10 @@ export const OVERVIEW: LicenseOverview = {
         }
       ],
       "barredUntilUtc": null,
-      "barredText": null
+      "barredText": null,
+      "approver": null,
+      "approverText": "No machine is set to approve sign-ins for this account. A machine that has its own browser profile for it approves there.",
+      "approverTone": "neutral"
     },
     {
       "accountEmail": "account-b@example.com",
@@ -171,7 +193,10 @@ export const OVERVIEW: LicenseOverview = {
       "switchNowTargetAccountEmail": null,
       "switchTargets": [],
       "barredUntilUtc": null,
-      "barredText": null
+      "barredText": null,
+      "approver": null,
+      "approverText": "No machine is set to approve sign-ins for this account. A machine that has its own browser profile for it approves there.",
+      "approverTone": "neutral"
     },
     {
       "accountEmail": "account-c@example.com",
@@ -235,7 +260,10 @@ export const OVERVIEW: LicenseOverview = {
       "switchNowTargetAccountEmail": null,
       "switchTargets": [],
       "barredUntilUtc": null,
-      "barredText": null
+      "barredText": null,
+      "approver": null,
+      "approverText": "No machine is set to approve sign-ins for this account. A machine that has its own browser profile for it approves there.",
+      "approverTone": "neutral"
     }
   ],
   "machines": [
@@ -265,7 +293,9 @@ export const OVERVIEW: LicenseOverview = {
         "renewalFailedTone": null,
         "isReadingStale": false,
         "readError": null,
-        "readErrorText": null
+        "readErrorText": null,
+        "canRenewNow": false,
+        "renewNowText": "The Director on the-mac is not connected, so a sign-in cannot be started there."
       },
       "spares": [
         {
@@ -282,10 +312,15 @@ export const OVERVIEW: LicenseOverview = {
           "renewalFailedTone": null,
           "isReadingStale": false,
           "readError": null,
-          "readErrorText": null
+          "readErrorText": null,
+          "canRenewNow": false,
+          "renewNowText": "The Director on the-mac is not connected, so a sign-in cannot be started there."
         }
       ],
-      "switchInProgress": null
+      "switchInProgress": null,
+      "canAddSpare": false,
+      "addSpareText": "The Director on the-mac is not connected, so a sign-in cannot be started there.",
+      "signInsInProgress": []
     },
     {
       "machineId": "f26a799d85a244129a27ba10b8cb3427",
@@ -313,7 +348,9 @@ export const OVERVIEW: LicenseOverview = {
         "renewalFailedTone": null,
         "isReadingStale": false,
         "readError": null,
-        "readErrorText": null
+        "readErrorText": null,
+        "canRenewNow": false,
+        "renewNowText": "The Director on the-windows-machine is not connected, so a sign-in cannot be started there."
       },
       "spares": [
         {
@@ -330,7 +367,9 @@ export const OVERVIEW: LicenseOverview = {
           "renewalFailedTone": null,
           "isReadingStale": false,
           "readError": null,
-          "readErrorText": null
+          "readErrorText": null,
+          "canRenewNow": false,
+          "renewNowText": "The Director on the-windows-machine is not connected, so a sign-in cannot be started there."
         },
         {
           "accountEmail": "account-c@example.com",
@@ -346,10 +385,15 @@ export const OVERVIEW: LicenseOverview = {
           "renewalFailedTone": null,
           "isReadingStale": false,
           "readError": null,
-          "readErrorText": null
+          "readErrorText": null,
+          "canRenewNow": false,
+          "renewNowText": "The Director on the-windows-machine is not connected, so a sign-in cannot be started there."
         }
       ],
-      "switchInProgress": null
+      "switchInProgress": null,
+      "canAddSpare": false,
+      "addSpareText": "The Director on the-windows-machine is not connected, so a sign-in cannot be started there.",
+      "signInsInProgress": []
     }
   ]
 };
@@ -707,6 +751,353 @@ export const RENEWAL_OWNER_ONLY: { code: string; error: string } = {
 export const SWITCH_NOW_OWNER_ONLY: { code: string; error: string } = {
   "code": "owner_only",
   "error": "only the owner on their own signed-in phone or browser may switch the machines of a subscription to another one; this request was made with a device (workstation) credential"
+};
+
+/** Setting an approver, asked by a caller that is not the owner's own signed-in phone or browser: 403. */
+export const APPROVER_SET_OWNER_ONLY: { code: string; error: string } = {
+  "code": "owner_only",
+  "error": "only the owner on their own signed-in phone or browser may set which machine approves an account's sign-ins; this request was made with a device (workstation) credential"
+};
+
+/** Removing an approver, asked by the same caller: 403, with its own sentence. */
+export const APPROVER_REMOVE_OWNER_ONLY: { code: string; error: string } = {
+  "code": "owner_only",
+  "error": "only the owner on their own signed-in phone or browser may remove the machine that approves an account's sign-ins; this request was made with a device (workstation) credential"
+};
+
+/** Add a spare or Renew now, asked by the same caller: 403, with its own sentence. */
+export const SIGN_IN_OWNER_ONLY: { code: string; error: string } = {
+  "code": "owner_only",
+  "error": "only the owner on their own signed-in phone or browser may start a sign-in on a machine; this request was made with a device (workstation) credential"
+};
+
+/** GET /gateway/licenses/approvers with no approver set for any account. */
+export const APPROVERS_EMPTY: LicenseApprovers = {
+  "asOfUtc": "2026-10-11T03:12:00Z",
+  "isEmpty": true,
+  "emptyText": "No machine is set to approve sign-ins for any account. A machine that has its own browser profile for an account approves its sign-ins there.",
+  "approvers": []
+};
+
+/** GET /gateway/licenses/approvers with two set: one whose Director is connected, one on a machine that never reported. */
+export const APPROVERS: LicenseApprovers = {
+  "asOfUtc": "2026-10-11T03:12:00Z",
+  "isEmpty": false,
+  "emptyText": null,
+  "approvers": [
+    {
+      "accountEmail": "account-a@example.com",
+      "machineName": "the-mac",
+      "osUser": "owner",
+      "browserProfile": "work",
+      "machineId": "527062dd720c4d28a144183033cf93c1",
+      "label": "the-mac",
+      "canApproveNow": true,
+      "status": "ready",
+      "statusText": "Ready",
+      "statusTone": "good",
+      "text": "Sign-ins for account-a@example.com are approved on the-mac, in the browser profile work."
+    },
+    {
+      "accountEmail": "account-b@example.com",
+      "machineName": "the-laptop",
+      "osUser": "owner",
+      "browserProfile": "personal",
+      "machineId": null,
+      "label": "the-laptop",
+      "canApproveNow": false,
+      "status": "never-reported",
+      "statusText": "Not reporting yet",
+      "statusTone": "warning",
+      "text": "Sign-ins for account-b@example.com are approved on the-laptop, in the browser profile personal. No Director on the-laptop has reported to this account, so no sign-in can be approved there yet."
+    }
+  ]
+};
+
+/** PUT /gateway/licenses/approvers, the approver as stored. */
+export const APPROVER_SET: LicenseApprover = {
+  "accountEmail": "account-a@example.com",
+  "machineName": "the-mac",
+  "osUser": "owner",
+  "browserProfile": "work",
+  "machineId": "527062dd720c4d28a144183033cf93c1",
+  "label": "the-mac",
+  "canApproveNow": true,
+  "status": "ready",
+  "statusText": "Ready",
+  "statusTone": "good",
+  "text": "Sign-ins for account-a@example.com are approved on the-mac, in the browser profile work."
+};
+
+/** PUT /gateway/licenses/approvers, refused 400: the browser profile is not a name. */
+export const APPROVER_REFUSED: { code: string; error: string } = {
+  "code": "invalid_browser_profile",
+  "error": "browserProfile is the name of a browser profile on the approving machine: letters, digits, spaces, dots, underscores and hyphens, at most 64 characters."
+};
+
+/** DELETE /gateway/licenses/approvers, one removed. */
+export const APPROVER_REMOVED: LicenseApproverRemoved = {
+  "accountEmail": "account-b@example.com",
+  "removed": true,
+  "text": "No machine is set to approve sign-ins for account-b@example.com any more."
+};
+
+/** POST /gateway/licenses/sign-ins/renew, answered 202: the sign-in's row of the log as it stands. */
+export const SIGN_IN_STARTED: LicenseSignInStarted = {
+  "signInId": "501d61535066417d966ef172151b00bc",
+  "accountEmail": "account-a@example.com",
+  "machine": {
+    "machineId": "2f9cea24fe1b44f4951e48ed1748f105",
+    "machineName": "the-windows-machine",
+    "osUser": "owner",
+    "label": "the-windows-machine"
+  },
+  "text": "Asked the Director on the-windows-machine to renew the sign-in for account-a@example.com. It can take a few minutes; the outcome appears in the log.",
+  "entry": {
+    "entryId": "1e080484ba78433982ea385e8ffa04f4",
+    "kind": "sign-in",
+    "kindText": "Sign-in",
+    "atUtc": "2026-10-11T03:14:00Z",
+    "machineId": "2f9cea24fe1b44f4951e48ed1748f105",
+    "machineName": "the-windows-machine",
+    "osUser": "owner",
+    "label": "the-windows-machine",
+    "fromAccountEmail": "",
+    "toAccountEmail": "account-a@example.com",
+    "why": "renewal",
+    "whyText": "Renew now",
+    "state": "pending",
+    "stateText": "Signing in",
+    "stateTone": "neutral",
+    "isOpen": true,
+    "reasonCode": null,
+    "reasonText": null,
+    "message": "Asked the Director on the-windows-machine to renew the sign-in for account-a@example.com.",
+    "summary": "the-windows-machine is renewing its sign-in for account-a@example.com.",
+    "sendCount": 0,
+    "lastSentAtUtc": null,
+    "startedOnMachineAtUtc": null,
+    "finishedOnMachineAtUtc": null,
+    "exchangeMilliseconds": null,
+    "finishedAtUtc": null,
+    "timingText": null,
+    "verifiedByUsageRead": null,
+    "verifiedText": null
+  }
+};
+
+/** A sign-in refused 409: one for that machine and account has not ended. */
+export const SIGN_IN_RUNNING: { code: string; error: string } = {
+  "code": "sign_in_running",
+  "error": "A sign-in for account-a@example.com on the-windows-machine is already running."
+};
+
+/** A sign-in refused 409: the machine's Director is not connected. */
+export const SIGN_IN_DIRECTOR_OFFLINE: { code: string; error: string } = {
+  "code": "director_offline",
+  "error": "The Director on the-mac is not connected, so a sign-in cannot be started there."
+};
+
+/** Add a spare refused 409: the machine holds the account. */
+export const SIGN_IN_ALREADY_HELD: { code: string; error: string } = {
+  "code": "already_held",
+  "error": "the-windows-machine already holds a sign-in for account-a@example.com. Use Renew now to renew it."
+};
+
+/** A sign-in refused 404: no machine with that identifier has reported. */
+export const SIGN_IN_UNKNOWN_MACHINE: { code: string; error: string } = {
+  "code": "unknown_machine",
+  "error": "No machine with that identifier has reported to this account."
+};
+
+/** GET /gateway/licenses/log with three sign-ins: one running, one that signed in, one that failed. */
+export const SIGN_IN_LOG: LicenseLogPage = {
+  "asOfUtc": "2026-10-11T03:14:00Z",
+  "isEmpty": false,
+  "emptyText": null,
+  "entries": [
+    {
+      "entryId": "1e080484ba78433982ea385e8ffa04f4",
+      "kind": "sign-in",
+      "kindText": "Sign-in",
+      "atUtc": "2026-10-11T03:14:00Z",
+      "machineId": "2f9cea24fe1b44f4951e48ed1748f105",
+      "machineName": "the-windows-machine",
+      "osUser": "owner",
+      "label": "the-windows-machine",
+      "fromAccountEmail": "",
+      "toAccountEmail": "account-a@example.com",
+      "why": "renewal",
+      "whyText": "Renew now",
+      "state": "pending",
+      "stateText": "Signing in",
+      "stateTone": "neutral",
+      "isOpen": true,
+      "reasonCode": null,
+      "reasonText": null,
+      "message": "Asked the Director on the-windows-machine to renew the sign-in for account-a@example.com.",
+      "summary": "the-windows-machine is renewing its sign-in for account-a@example.com.",
+      "sendCount": 0,
+      "lastSentAtUtc": null,
+      "startedOnMachineAtUtc": null,
+      "finishedOnMachineAtUtc": null,
+      "exchangeMilliseconds": null,
+      "finishedAtUtc": null,
+      "timingText": null,
+      "verifiedByUsageRead": null,
+      "verifiedText": null
+    },
+    {
+      "entryId": "4cf0cc4873ce48f19fd29486681980fc",
+      "kind": "sign-in",
+      "kindText": "Sign-in",
+      "atUtc": "2026-10-11T03:13:00Z",
+      "machineId": "2f9cea24fe1b44f4951e48ed1748f105",
+      "machineName": "the-windows-machine",
+      "osUser": "owner",
+      "label": "the-windows-machine",
+      "fromAccountEmail": "",
+      "toAccountEmail": "account-c@example.com",
+      "why": "manual",
+      "whyText": "Add a spare",
+      "state": "added",
+      "stateText": "Signed in",
+      "stateTone": "good",
+      "isOpen": false,
+      "reasonCode": null,
+      "reasonText": null,
+      "message": "Signed in to account-c@example.com and stored as a spare.",
+      "summary": "the-windows-machine was signed in to account-c@example.com and holds it as a spare.",
+      "sendCount": 1,
+      "lastSentAtUtc": "2026-10-11T03:13:00Z",
+      "startedOnMachineAtUtc": null,
+      "finishedOnMachineAtUtc": "2026-10-11T03:13:50Z",
+      "exchangeMilliseconds": null,
+      "finishedAtUtc": "2026-10-11T03:13:00Z",
+      "timingText": null,
+      "verifiedByUsageRead": null,
+      "verifiedText": null
+    },
+    {
+      "entryId": "843e95a632854de7a66b40391b14d647",
+      "kind": "sign-in",
+      "kindText": "Sign-in",
+      "atUtc": "2026-10-11T03:12:00Z",
+      "machineId": "2f9cea24fe1b44f4951e48ed1748f105",
+      "machineName": "the-windows-machine",
+      "osUser": "owner",
+      "label": "the-windows-machine",
+      "fromAccountEmail": "",
+      "toAccountEmail": "account-b@example.com",
+      "why": "renewal",
+      "whyText": "Renew now",
+      "state": "failed",
+      "stateText": "Failed",
+      "stateTone": "bad",
+      "isOpen": false,
+      "reasonCode": "approver-offline",
+      "reasonText": "The machine set to approve this account had no Director connected.",
+      "message": "The machine that approves sign-ins for account-b@example.com had no Director connected.",
+      "summary": "The sign-in for account-b@example.com on the-windows-machine was not renewed.",
+      "sendCount": 1,
+      "lastSentAtUtc": "2026-10-11T03:12:00Z",
+      "startedOnMachineAtUtc": null,
+      "finishedOnMachineAtUtc": "2026-10-11T03:12:04Z",
+      "exchangeMilliseconds": null,
+      "finishedAtUtc": "2026-10-11T03:12:00Z",
+      "timingText": null,
+      "verifiedByUsageRead": null,
+      "verifiedText": null
+    }
+  ],
+  "hasMore": false,
+  "nextCursor": null
+};
+
+/** The sign-in fields of GET /gateway/licenses, and only those, while a renewal was running on the-windows-machine and the Director on the-mac was not connected. It is another picture than OVERVIEW: there the-mac is on account C. */
+export const OVERVIEW_SIGN_IN_FIELDS: LicenseOverviewSignInFields = {
+  "accounts": [
+    {
+      "accountEmail": "account-a@example.com",
+      "approver": {
+        "accountEmail": "account-a@example.com",
+        "machineName": "the-mac",
+        "osUser": "owner",
+        "browserProfile": "work",
+        "machineId": "527062dd720c4d28a144183033cf93c1",
+        "label": "the-mac",
+        "canApproveNow": false,
+        "status": "not-connected",
+        "statusText": "Not connected",
+        "statusTone": "warning",
+        "text": "Sign-ins for account-a@example.com are approved on the-mac, in the browser profile work. The Director on the-mac is not connected, so no sign-in can be approved there now."
+      },
+      "approverText": "Sign-ins for account-a@example.com are approved on the-mac, in the browser profile work. The Director on the-mac is not connected, so no sign-in can be approved there now.",
+      "approverTone": "warning"
+    },
+    {
+      "accountEmail": "account-b@example.com",
+      "approver": {
+        "accountEmail": "account-b@example.com",
+        "machineName": "the-laptop",
+        "osUser": "owner",
+        "browserProfile": "personal",
+        "machineId": null,
+        "label": "the-laptop",
+        "canApproveNow": false,
+        "status": "never-reported",
+        "statusText": "Not reporting yet",
+        "statusTone": "warning",
+        "text": "Sign-ins for account-b@example.com are approved on the-laptop, in the browser profile personal. No Director on the-laptop has reported to this account, so no sign-in can be approved there yet."
+      },
+      "approverText": "Sign-ins for account-b@example.com are approved on the-laptop, in the browser profile personal. No Director on the-laptop has reported to this account, so no sign-in can be approved there yet.",
+      "approverTone": "warning"
+    },
+    {
+      "accountEmail": "account-c@example.com",
+      "approver": null,
+      "approverText": "No machine is set to approve sign-ins for this account. A machine that has its own browser profile for it approves there.",
+      "approverTone": "neutral"
+    }
+  ],
+  "machines": [
+    {
+      "machineName": "the-mac",
+      "canAddSpare": false,
+      "addSpareText": "The Director on the-mac is not connected, so a sign-in cannot be started there.",
+      "signInsInProgress": [],
+      "active": {
+        "accountEmail": "account-c@example.com",
+        "canRenewNow": false,
+        "renewNowText": "The Director on the-mac is not connected, so a sign-in cannot be started there."
+      },
+      "spares": []
+    },
+    {
+      "machineName": "the-windows-machine",
+      "canAddSpare": true,
+      "addSpareText": "Signs the-windows-machine in to another account, to be held there as a spare.",
+      "signInsInProgress": [
+        {
+          "signInId": "501d61535066417d966ef172151b00bc",
+          "accountEmail": "account-a@example.com",
+          "text": "the-windows-machine is renewing its sign-in for account-a@example.com."
+        }
+      ],
+      "active": {
+        "accountEmail": "account-a@example.com",
+        "canRenewNow": false,
+        "renewNowText": "A sign-in for account-a@example.com on the-windows-machine is already running."
+      },
+      "spares": [
+        {
+          "accountEmail": "account-b@example.com",
+          "canRenewNow": true,
+          "renewNowText": "Signs the-windows-machine in to account-b@example.com again, replacing the sign-in it holds."
+        }
+      ]
+    }
+  ]
 };
 
 /** A fresh copy of a fixture, so a test may change it without changing it for the next test. */

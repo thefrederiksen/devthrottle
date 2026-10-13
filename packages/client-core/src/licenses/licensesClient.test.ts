@@ -1,9 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   SWITCH_NOW_TIMEOUT_MS,
+  addLicenseSpare,
+  getLicenseApprovers,
   getLicenseForecast,
   getLicenseLog,
   getLicenseOverview,
+  removeLicenseApprover,
+  renewLicenseSignIn,
+  setLicenseApprover,
   setLicenseRenewalDate,
   switchLicenseNow,
 } from "./licensesClient";
@@ -184,5 +189,159 @@ describe("the renewal date of a subscription", () => {
     stubFetch(200, { accountEmail: "account-a@example.com", renewsOn: "2026-10-17" });
 
     await expect(setLicenseRenewalDate("account-a@example.com", "2026-10-17")).rejects.toThrow(/'renewsText'/);
+  });
+});
+
+// The sign-ins of the Licenses page, at the wire: who approves an account (read, set, remove), Add a spare and Renew
+// now. What these pin: each call goes to its own route by its own method; a write with a body is application/json and
+// carries exactly the fields the Gateway reads; the removal names its account in the query and has no body; a refusal
+// carries the Gateway's own sentence, word for word; and an answer that lost what the page shows is an error.
+const APPROVER = {
+  accountEmail: "account-a@example.com",
+  machineName: "the-mac",
+  osUser: "owner",
+  browserProfile: "work",
+  machineId: "527062dd720c4d28a144183033cf93c1",
+  label: "the-mac",
+  canApproveNow: true,
+  status: "ready",
+  statusText: "Ready",
+  statusTone: "good",
+  text: "Sign-ins for account-a@example.com are approved on the-mac, in the browser profile work.",
+};
+const STARTED = {
+  signInId: "501d61535066417d966ef172151b00bc",
+  accountEmail: "account-a@example.com",
+  machine: { machineId: "2f9cea24fe1b44f4951e48ed1748f105", machineName: "the-windows-machine", osUser: "owner", label: "the-windows-machine" },
+  text: "Asked the Director on the-windows-machine to renew the sign-in for account-a@example.com. It can take a few minutes; the outcome appears in the log.",
+  entry: { entryId: "1e080484ba78433982ea385e8ffa04f4", kind: "sign-in", stateText: "Signing in", stateTone: "neutral", summary: "the-windows-machine is renewing its sign-in for account-a@example.com." },
+};
+const OWNER_ONLY =
+  "only the owner on their own signed-in phone or browser may start a sign-in on a machine; this request was made with a device (workstation) credential";
+
+describe("who approves the sign-ins of an account", () => {
+  it("reads the approvers from /gateway/licenses/approvers", async () => {
+    const calls = stubFetch(200, { asOfUtc: "2026-10-11T03:12:00Z", isEmpty: false, emptyText: null, approvers: [APPROVER] });
+
+    const answer = await getLicenseApprovers();
+
+    expect(calls.map((c) => c.url)).toEqual(["/gateway/licenses/approvers"]);
+    expect(calls[0].init?.method).toBe("GET");
+    expect(answer.approvers).toEqual([APPROVER]);
+  });
+
+  it("refuses a read that has lost its list, rather than showing that nobody approves anything", async () => {
+    stubFetch(200, { asOfUtc: "", isEmpty: true, emptyText: "None." });
+
+    await expect(getLicenseApprovers()).rejects.toThrow(/without a 'approvers' list/);
+  });
+
+  it("puts the account, the machine, its user and the browser profile as application/json, and nothing else", async () => {
+    const calls = stubFetch(200, APPROVER);
+
+    const stored = await setLicenseApprover({ accountEmail: "account-a@example.com", machineName: "the-mac", osUser: "owner", browserProfile: "work" });
+
+    expect(calls.length).toBe(1);
+    expect(calls[0].url).toBe("/gateway/licenses/approvers");
+    expect(calls[0].init?.method).toBe("PUT");
+    expect(new Headers(calls[0].init?.headers).get("Content-Type")).toBe("application/json");
+    expect(String(calls[0].init?.body)).toBe('{"accountEmail":"account-a@example.com","machineName":"the-mac","osUser":"owner","browserProfile":"work"}');
+    expect(stored).toEqual(APPROVER);
+  });
+
+  it("throws the Gateway's own sentence when the approver is refused", async () => {
+    const sentence =
+      "browserProfile is the name of a browser profile on the approving machine: letters, digits, spaces, dots, underscores and hyphens, at most 64 characters.";
+    stubFetch(400, { code: "invalid_browser_profile", error: sentence });
+
+    const refusal = await setLicenseApprover({ accountEmail: "account-a@example.com", machineName: "the-mac", osUser: "owner", browserProfile: "a/b" }).catch((err: unknown) => err);
+
+    expect(refusal).toMatchObject({ status: 400, code: "invalid_browser_profile", message: sentence });
+    expect(gatewayErrorMessage(refusal, "set who approves the sign-ins")).toBe(sentence);
+  });
+
+  it("refuses a stored approver that has lost its sentence", async () => {
+    stubFetch(200, { ...APPROVER, text: undefined });
+
+    await expect(setLicenseApprover({ accountEmail: "a@example.com", machineName: "m", osUser: "u", browserProfile: "p" })).rejects.toThrow(/'text'/);
+  });
+
+  it("removes an approver with a DELETE that names the account in the query and sends no body", async () => {
+    const answer = { accountEmail: "account+b@example.com", removed: true, text: "No machine is set to approve sign-ins for account+b@example.com any more." };
+    const calls = stubFetch(200, answer);
+
+    const removed = await removeLicenseApprover("account+b@example.com");
+
+    expect(calls.length).toBe(1);
+    // The account is escaped: a plus sign sent bare would reach the Gateway as a space.
+    expect(calls[0].url).toBe("/gateway/licenses/approvers?accountEmail=account%2Bb%40example.com");
+    expect(calls[0].init?.method).toBe("DELETE");
+    expect(calls[0].init?.body).toBeUndefined();
+    expect(removed).toEqual(answer);
+  });
+
+  it("throws the Gateway's own sentence when the removal is refused", async () => {
+    const sentence =
+      "only the owner on their own signed-in phone or browser may remove the machine that approves an account's sign-ins; this request was made with a device (workstation) credential";
+    stubFetch(403, { code: "owner_only", error: sentence });
+
+    const refusal = await removeLicenseApprover("account-b@example.com").catch((err: unknown) => err);
+
+    expect(refusal).toMatchObject({ status: 403, code: "owner_only", message: sentence });
+    expect(gatewayErrorMessage(refusal, "remove who approves the sign-ins")).toBe(sentence);
+  });
+
+  it("refuses a removal answered without its sentence", async () => {
+    stubFetch(200, { accountEmail: "account-b@example.com", removed: true });
+
+    await expect(removeLicenseApprover("account-b@example.com")).rejects.toThrow(/'text'/);
+  });
+});
+
+describe("Add a spare and Renew now", () => {
+  it("posts the account and the machine's identifier to /gateway/licenses/sign-ins/add-spare as application/json", async () => {
+    const calls = stubFetch(202, STARTED);
+
+    const started = await addLicenseSpare("account-c@example.com", "2f9cea24fe1b44f4951e48ed1748f105");
+
+    expect(calls.length).toBe(1);
+    expect(calls[0].url).toBe("/gateway/licenses/sign-ins/add-spare");
+    expect(calls[0].init?.method).toBe("POST");
+    expect(new Headers(calls[0].init?.headers).get("Content-Type")).toBe("application/json");
+    expect(String(calls[0].init?.body)).toBe('{"accountEmail":"account-c@example.com","machineId":"2f9cea24fe1b44f4951e48ed1748f105"}');
+    expect(started).toEqual(STARTED);
+  });
+
+  it("posts the same body to /gateway/licenses/sign-ins/renew, and to no other route", async () => {
+    const calls = stubFetch(202, STARTED);
+
+    const started = await renewLicenseSignIn("account-a@example.com", "2f9cea24fe1b44f4951e48ed1748f105");
+
+    expect(calls.map((c) => c.url)).toEqual(["/gateway/licenses/sign-ins/renew"]);
+    expect(calls[0].init?.method).toBe("POST");
+    expect(new Headers(calls[0].init?.headers).get("Content-Type")).toBe("application/json");
+    expect(String(calls[0].init?.body)).toBe('{"accountEmail":"account-a@example.com","machineId":"2f9cea24fe1b44f4951e48ed1748f105"}');
+    expect(started.entry.entryId).toBe("1e080484ba78433982ea385e8ffa04f4");
+  });
+
+  it("carries each refusal to the screen as the Gateway's sentence, word for word", async () => {
+    stubFetch(403, { code: "owner_only", error: OWNER_ONLY });
+    const forbidden = await addLicenseSpare("account-c@example.com", "m").catch((err: unknown) => err);
+    expect(forbidden).toMatchObject({ status: 403, code: "owner_only", message: OWNER_ONLY });
+    expect(gatewayErrorMessage(forbidden, "add a spare")).toBe(OWNER_ONLY);
+
+    const running = "A sign-in for account-a@example.com on the-windows-machine is already running.";
+    stubFetch(409, { code: "sign_in_running", error: running });
+    const conflict = await renewLicenseSignIn("account-a@example.com", "m").catch((err: unknown) => err);
+    expect(conflict).toMatchObject({ status: 409, code: "sign_in_running", message: running });
+    expect(gatewayErrorMessage(conflict, "renew the sign-in")).toBe(running);
+  });
+
+  it("refuses a started answer that has lost its sentence or its row of the log", async () => {
+    stubFetch(202, { ...STARTED, entry: undefined });
+    await expect(addLicenseSpare("account-c@example.com", "m")).rejects.toThrow(/'text' sentence and its 'entry' row/);
+
+    stubFetch(202, { ...STARTED, text: undefined });
+    await expect(renewLicenseSignIn("account-a@example.com", "m")).rejects.toThrow(/'text' sentence and its 'entry' row/);
   });
 });
