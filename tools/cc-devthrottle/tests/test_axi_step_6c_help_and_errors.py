@@ -360,6 +360,8 @@ _ACTIONS_ADDED_SINCE_PIN = {
     "factory-record", "factory-activity",
     # The Factory Memory mission, phase 3a: a factory session reads and writes its factory's notes.
     "factory-memory-list", "factory-memory-get", "factory-memory-set", "factory-memory-delete", "factory-memory-history",
+    # The Factory Seats mission, phase 2a: a seat's brief held on the Gateway.
+    "factory-brief-get", "factory-brief-history", "factory-brief-set", "factory-brief-publish", "factory-brief-restore",
     # The Website Business Factory mission, product track: factory triggers.
     "trigger-add", "trigger-list", "trigger-show", "trigger-pause", "trigger-resume", "trigger-runs",
     # The Factories screen mission, phase A: the factory registry and the goal number a boss posts.
