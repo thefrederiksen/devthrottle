@@ -137,6 +137,52 @@ public sealed class LicenseStorePostgresTests
     }
 
     [RequiresPostgresFact]
+    public void A_failed_renewal_warning_is_opened_once_emailed_once_closed_and_read_back()
+    {
+        using var db = OpenPostgres();
+        var store = new LicenseStore(db);
+        var log = new LicenseRenewalFailureLog(db);
+        var tenant = TenantId.Local;
+        var name = Unique("machine");
+        var a = Unique("account-a") + "@example.com";
+        var b = Unique("account-b") + "@example.com";
+        var machineId = store.ApplyReport(tenant, Unique("dir"), 1, Report(name, a, b, T0), T0, TimeSpan.Zero).MachineId;
+        var machine = Assert.Single(new LicenseReadModel(store).Read(tenant, T0.AddSeconds(1)).Machines, m => m.MachineId == machineId);
+
+        // One open warning for one sign-in: opening it again is the same row. Another sign-in has its own.
+        var opened = log.Open(tenant, machine, a.ToUpperInvariant(), T0.AddHours(20), "The sign-in could not be renewed.", T0);
+        var again = log.Open(tenant, machine, a, T0.AddHours(21), "Another message.", T0.AddMinutes(1));
+        var other = log.Open(tenant, machine, b, T0.AddHours(22), "The sign-in could not be renewed.", T0.AddMinutes(1));
+        Assert.Equal(opened.Id, again.Id);
+        Assert.NotEqual(opened.Id, other.Id);
+        Assert.Equal((LicenseRenewalFailureLog.Kind, LicenseLogStates.Open, a, T0.AddHours(20)),
+            (opened.Kind, opened.State, opened.ToAccountEmail, opened.NotAfterUtc));
+        Assert.Contains(log.ListOpen(tenant), r => r.Id == opened.Id);
+
+        // The owner email: a failed try is recorded and can be replaced; a sent one is never changed again.
+        Assert.True(log.RecordEmail(tenant, opened.Id, LicenseGatewayReasonCodes.OwnerEmailFailed, "The mail service refused it.", null));
+        Assert.True(log.RecordEmail(tenant, opened.Id, LicenseGatewayReasonCodes.OwnerEmailed, "The owner was emailed.", T0.AddMinutes(2)));
+        Assert.False(log.RecordEmail(tenant, opened.Id, LicenseGatewayReasonCodes.OwnerEmailFailed, "Too late.", null));
+        Assert.False(log.RecordEmail(tenant, opened.Id, LicenseGatewayReasonCodes.OwnerEmailed, "A second email.", T0.AddMinutes(3)));
+        var emailed = Assert.Single(log.ListOpen(tenant), r => r.Id == opened.Id);
+        Assert.Equal((LicenseGatewayReasonCodes.OwnerEmailed, T0.AddMinutes(2), 1, "The owner was emailed."),
+            (emailed.ReasonCode, emailed.LastSentAtUtc, emailed.SendCount, emailed.Message));
+
+        // It ends, once; what became of the email stays on the row; the other sign-in's warning is still open.
+        Assert.True(log.Close(tenant, opened.Id, "The sign-in was renewed.", T0.AddHours(1)));
+        Assert.False(log.Close(tenant, opened.Id, "Again.", T0.AddHours(2)));
+        Assert.False(log.RecordEmail(tenant, opened.Id, LicenseGatewayReasonCodes.NoOwnerAccount, "Too late.", null));
+        Assert.DoesNotContain(log.ListOpen(tenant), r => r.Id == opened.Id);
+        Assert.Contains(log.ListOpen(tenant), r => r.Id == other.Id);
+        var ended = Assert.Single(store.ListLog(tenant, T0.AddHours(-1)), r => r.Id == opened.Id);
+        Assert.Equal((LicenseLogStates.Ended, T0.AddHours(1), LicenseGatewayReasonCodes.OwnerEmailed, "The sign-in was renewed."),
+            (ended.State, ended.FinishedAtUtc, ended.ReasonCode, ended.Message));
+
+        // A streak that starts after this one ended is a new row.
+        Assert.NotEqual(opened.Id, log.Open(tenant, machine, a, T0.AddHours(30), "The sign-in could not be renewed.", T0.AddHours(3)).Id);
+    }
+
+    [RequiresPostgresFact]
     public void A_no_room_event_walks_from_open_to_ended()
     {
         using var db = OpenPostgres();
