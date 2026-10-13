@@ -162,3 +162,40 @@ The default gate leaves out the parked Gateway suites and says so; the whole Gat
 tests in the table are the part of them this change touches. The other shards of `CcDirector.Gateway.Tests` and
 `CcDirector.Core.Tests` were not run in this round. The two tests that were red on main in the earlier `-Parked` run
 are fixed on main now, and the window placement test that failed that day passed in the whole-suite run above.
+
+## Round 2 - the re-review (`3936-re-review.md`, verdict: approve, seven small items)
+
+The branch was rebased onto main `7fd15f0e8` first.
+
+1. **The three example accounts do not carry the two new keys - fixed.** Each of the three whole example accounts in
+   section 2 of `cockpit-api.md` now ends `switchTargets`, `barredUntilUtc`, `barredText` (null), and an example of a
+   barred account follows the whole example, with the values the fold test asserts.
+2. **The same Switch now again sends nothing, also when the Director has come back - ruled: left.** The minute check
+   sends it, within a minute.
+3. **The two writes no longer look at the content type - fixed.** A body not sent as `application/json` is `400`
+   `invalid_body` on both writes, even when its text is the right JSON. And the caller is judged BEFORE the body is
+   read: the owner check and the content type check run first, and a refused caller's body is never read. Tests:
+   `ABody_NotSentAsJson_IsRefused400` (unit), and over real HTTP
+   `BothWrites_WithABodyNotSentAsJson_AreRefused400_EvenWhenTheTextIsTheRightJson` - the reviewer's reproduction, which
+   answered 200 before - and `BothWrites_JudgeTheCallerBeforeTheBody_SoARefusedCallerIsToldOwnerOnly_WhateverItSent`.
+4. **Three characters that break a line or reverse text pass the check - fixed.** An account email is now refused
+   for any control, format, line separator or paragraph separator character. Tests:
+   `AnAccountEmail_HoldingACharacterThatBreaksALineOrIsNotSeen_IsNotAnAccountEmail` (the three the reviewer named, a
+   zero width space, "next line" and delete), `AnAccountEmail_OfOrdinaryCharacters_IsNotRefusedForItsCharacters`, and
+   two more bodies in the Switch now test.
+5. **A self-hosted Cockpit opened with the machine token - one paragraph added** to section 6, "Who may call the
+   writes": it reads the page, is refused both writes with `403` `owner_only`, and the page shows that sentence.
+6. **A comment landed on the wrong member - fixed.** `SetRenewalDate` has its summary back and the constant has only
+   its own; the entity's comment on `RenewalError` says it can hold `not-known`.
+7. **The filter does not run the self-hosted test - noted.** The run below names it.
+
+Run after these changes, on commit `5a4bf7b2e`:
+
+| Run | Result |
+|---|---|
+| License unit tests (the filter `FullyQualifiedName~Licenses`) | 494 passed, 0 failed |
+| The hosted license tests, by name: `LicenseHostTests`, `LicenseWritesSelfHostedTests`, `LicenseSwitchCheckHostedTests` | 22 passed, 0 failed |
+
+Not run again in this round: `scripts\test-database.ps1`, the default gate, the whole Gateway unit suite, and
+mutations. Nothing in this round touches the model or a migration.
+
