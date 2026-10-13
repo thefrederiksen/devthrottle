@@ -99,7 +99,8 @@ public sealed class ScheduledRunClosingInstructionTests : IDisposable
         var (store, history) = Stores();
         var created = store.Create(Job());
 
-        var result = await Engine(store, history, DateTime.UtcNow).RunNowAsync(created.Id, CancellationToken.None);
+        // Well before the schedule is next due: this run is started by hand, not by its time.
+        var result = await Engine(store, history, created.NextRunUtc!.Value.AddHours(-6)).RunNowAsync(created.Id, CancellationToken.None);
 
         Assert.Equal(CronFireOutcome.Fired, result.Outcome);
         Assert.Equal(OwnersPrompt + "\n\n" + ScheduledRunClosingInstruction.Text, _handedToTheDirector!.PrePrompt);
