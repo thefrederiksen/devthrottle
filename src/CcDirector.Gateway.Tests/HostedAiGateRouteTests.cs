@@ -60,7 +60,7 @@ public sealed class HostedAiGateRouteTests : IAsyncLifetime
             foreach (var (subject, tier) in new[] { ("sub-remote", EntitlementRegistry.TierRemote), ("sub-pro", EntitlementRegistry.TierPro) })
                 ctx.Database.ExecuteSqlRaw(
                     "INSERT INTO entitlements (subject, status, current_period_end, livemode, tier) VALUES ({0}, {1}, {2}, {3}, {4})",
-                    subject, EntitlementRegistry.StatusActive, DateTime.UtcNow.AddYears(1), true, tier);
+                    subject, EntitlementRegistry.StatusActive, new DateTime(2099, 1, 1, 0, 0, 0, DateTimeKind.Utc), true, tier);
         }
         var tenants = new TenantRegistry(db);
         _free = tenants.MintOrLookupBySubject("sub-free", "free@example.com");
