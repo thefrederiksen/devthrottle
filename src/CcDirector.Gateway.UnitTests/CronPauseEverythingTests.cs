@@ -105,7 +105,8 @@ public sealed class CronPauseEverythingTests : IAsyncDisposable
         CronRunEndpoints.Map(app, Engine(pause),
             new CronRunRecordReader(History, _ => new Dictionary<string, SessionEndingFact>()),
             jobById: id => Store.Get(id),
-            sessionFactoryOf: _ => SessionFactoryLookup.NotKnown);
+            sessionFactoryOf: _ => SessionFactoryLookup.NotKnown,
+            accountZoneOf: _ => TimeZoneInfo.Utc);
         await app.StartAsync();
         _app = app;
         _http = new HttpClient { BaseAddress = new Uri(app.Urls.First() + "/") };
