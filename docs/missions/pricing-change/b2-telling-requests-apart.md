@@ -84,16 +84,29 @@ answered at the mint and on a request.
 
 ## Pre-launch grace (B4)
 
-Two values in configuration, both absent by default, read the way the hosted Gateway reads its other
-settings:
+Two values, held in a committed file: the repository's `Dockerfile`, which builds the hosted Gateway
+image. Each is an `ENV` line there, beside the image's own `CC_GATEWAY_HOSTED=1`, because the deploy
+writes no application setting of its own and the image is the one place a hosted setting can be stated
+and reviewed. The Gateway reads them once, when it starts, and only when it is hosted; a self-hosted
+Gateway never reads either.
+
+- `CC_GATEWAY_PRICING_LAUNCH_UTC` is the launch instant. It is committed as `2026-10-13T20:32:00Z`, the
+  moment the new prices went live (Delivery Lead, 13 October 2026).
+- `CC_GATEWAY_REMOTE_ACCESS_GRACE_CUTOFF_UTC` is the cut-off instant. It is not in the file, so the grace
+  does not end. The owner sets it later with a one-line pull request.
+
+Each is one instant in Coordinated Universal Time written as `yyyy-MM-ddTHH:mm:ssZ`. A value that is
+present and cannot be read in that form stops the Gateway at startup with an error naming the setting;
+it is never read as absent.
+
+What each means in code, whatever the file holds:
 
 - **the launch instant.** An account is "created before launch" when its tenant row
   (`TenantEntity.CreatedAtUtc`, written the first time the account reached the hosted Gateway) is older
   than this. **Absent means every account counts as created before launch**, so a deploy with nothing
   set takes nothing from anyone.
 - **the cut-off instant.** Grace ends at this moment. **Absent means no cut-off: grace does not end.**
-  No date is written in code or in a committed configuration file; the owner sets it when he approves
-  the notice email.
+  No date is written in code. The owner sets the cut-off when he approves the notice email.
 
 Grace grants `remote_access` and nothing else. It never grants an AI scope and it does not change the
 tier the account is on. It is computed in the same place as the plan's answer, so the mint and the

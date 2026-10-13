@@ -7,8 +7,8 @@ namespace CcDirector.Gateway.Tenancy;
 
 /// <summary>
 /// THE PRE-LAUNCH GRACE (Pricing Change mission, B4): an account that reached the hosted Gateway before the new plans
-/// launched keeps the Cockpit and the phone app until a cut-off the owner sets. Two instants, BOTH ABSENT BY DEFAULT,
-/// and no date is written anywhere in code or in a committed configuration file:
+/// launched keeps the Cockpit and the phone app until a cut-off the owner sets. Two instants, BOTH ABSENT UNLESS
+/// STATED, and no date is written in code:
 ///
 ///  - <see cref="LaunchUtc"/>: an account is "created before launch" when its tenant row was minted before this
 ///    instant. ABSENT MEANS EVERY ACCOUNT COUNTS AS CREATED BEFORE LAUNCH, so a deploy with nothing set takes nothing
@@ -19,8 +19,9 @@ namespace CcDirector.Gateway.Tenancy;
 /// The grace grants remote access and nothing else. It never grants an artificial-intelligence scope and it does not
 /// change the tier an account is on.
 ///
-/// HOW THE HOSTED GATEWAY IS GIVEN THEM: two environment variables (an app setting each on the hosted service), read
-/// once when the host is built, the same way its other run-time settings are supplied. Each is one instant in
+/// HOW THE HOSTED GATEWAY IS GIVEN THEM: two environment variables, stated as ENV lines in the repository's Dockerfile
+/// so they are part of the hosted image (the deploy writes no application setting of its own), and read once when the
+/// host is built. Only a hosted Gateway reads them. Each is one instant in
 /// Coordinated Universal Time written as <c>yyyy-MM-ddTHH:mm:ssZ</c>. A value that is set and cannot be read in that
 /// form stops the Gateway from starting: reading a mistyped cut-off as "no cut-off" would leave the grace on for good
 /// with nobody told.

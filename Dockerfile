@@ -135,6 +135,21 @@ ENV CC_DIRECTOR_ROOT=/home/gateway/cc-director
 # Gateway refuses to start (HostedStartupContract) if any of the three is missing.
 ENV CC_GATEWAY_HOSTED=1
 
+# THE PRE-LAUNCH GRACE (Pricing Change mission, B4). An account that reached the hosted Gateway BEFORE the
+# launch instant below keeps the Cockpit and the phone app on the free plan; an account created at or after
+# it needs the Remote plan or Pro. Baked into the image for the reason the toggle above is: the deploy
+# writes no application setting of its own, so the image is the one place a hosted setting can be stated
+# and reviewed. Each value is one instant in Coordinated Universal Time written as yyyy-MM-ddTHH:mm:ssZ,
+# and the Gateway refuses to start on a value it cannot read (PreLaunchGrace).
+#
+# The launch instant is the moment the new prices went live.
+#
+# THE CUT-OFF IS DELIBERATELY NOT SET, so the grace does not end. The owner ends it with a one-line pull
+# request that adds, directly below, a line of the form
+#     ENV CC_GATEWAY_REMOTE_ACCESS_GRACE_CUTOFF_UTC=<instant>
+# A self-hosted Gateway never reads either value.
+ENV CC_GATEWAY_PRICING_LAUNCH_UTC=2026-10-13T20:32:00Z
+
 # Bake the source commit into the RUNTIME image so the Gateway process can report it at /healthz. ARG does
 # not cross stage boundaries, so the build-stage COCKPIT_COMMIT (used to stamp the cockpit assets) is not
 # visible here - it must be re-declared. The deploy pipeline reads /healthz .commit to tell the old

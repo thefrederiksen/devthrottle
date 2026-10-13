@@ -1,4 +1,5 @@
 using CcDirector.Gateway.Tenancy;
+using CcDirector.TestInfrastructure;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests.Tenancy;
@@ -137,6 +138,30 @@ public sealed class RemoteAccessRuleTests
     {
         // No date lives in code: a host built with no options stated is a host with the grace unset.
         Assert.Equal(PreLaunchGrace.NotSet, new GatewayHostOptions().RemoteAccessGrace);
+    }
+
+    [Fact]
+    public void TheCommittedDockerfile_StatesALaunchInstantTheGatewayCanRead_AndNoCutOff()
+    {
+        // The ONE test that reads the committed values; every other test uses instants of its own. The hosted image
+        // is given the grace by ENV lines in the repository's Dockerfile. A launch instant the Gateway cannot read
+        // would stop the hosted Gateway at startup, so it is read here with the Gateway's own parser.
+        //
+        // THIS TEST IS EXPECTED TO CHANGE when the owner sets the cut-off: that pull request adds the cut-off line to
+        // the Dockerfile and turns the last assertion into "the cut-off is read, and is later than the launch".
+        var dockerfile = File.ReadAllLines(Path.Combine(RepositorySourceIndex.Root, "Dockerfile"));
+        string? Stated(string name)
+        {
+            var prefix = "ENV " + name + "=";
+            var lines = dockerfile.Select(l => l.Trim()).Where(l => l.StartsWith(prefix, StringComparison.Ordinal)).ToArray();
+            Assert.True(lines.Length <= 1, $"{name} is stated {lines.Length} times in the Dockerfile; the last one would silently win");
+            return lines.Length == 0 ? null : lines[0][prefix.Length..];
+        }
+
+        var grace = PreLaunchGrace.Parse(Stated(PreLaunchGrace.LaunchEnvVar), Stated(PreLaunchGrace.CutOffEnvVar));
+
+        Assert.NotNull(grace.LaunchUtc);
+        Assert.Null(grace.CutOffUtc);
     }
 
     // ================================================================= the one rule
