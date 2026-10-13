@@ -66,7 +66,7 @@ public sealed class TurnVerdictAnswerRouteExitTests : IDisposable
     {
         var result = await GatewayEndpoints.AnswerTurnVerdictAsync(new DefaultHttpContext(), "not-a-session-id",
             SelfHostBoundary(), new TurnVerdictAnswerService(_records), tenantSettings: null, _registry,
-            pushedSessions: null, streamStale: TimeSpan.FromSeconds(30), owners: null, sendCommand: null, wingmanTranslator: null);
+            pushedSessions: null, streamStale: TimeSpan.FromSeconds(30), owners: null, sendCommand: null, wingmanTranslator: null, aiGate: CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost);
 
         Assert.Equal(StatusCodes.Status400BadRequest, Status(result));
         var line = OnlyLine();
@@ -83,7 +83,7 @@ public sealed class TurnVerdictAnswerRouteExitTests : IDisposable
 
         var result = await GatewayEndpoints.AnswerTurnVerdictAsync(new DefaultHttpContext(), sid,
             SelfHostBoundary(), new TurnVerdictAnswerService(_records), tenantSettings: null, _registry,
-            pushedSessions: null, streamStale: TimeSpan.FromSeconds(30), owners: null, sendCommand: null, wingmanTranslator: null);
+            pushedSessions: null, streamStale: TimeSpan.FromSeconds(30), owners: null, sendCommand: null, wingmanTranslator: null, aiGate: CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost);
 
         Assert.Equal(StatusCodes.Status404NotFound, Status(result));
         var line = OnlyLine();
@@ -105,7 +105,7 @@ public sealed class TurnVerdictAnswerRouteExitTests : IDisposable
 
         var result = await GatewayEndpoints.AnswerTurnVerdictAsync(new DefaultHttpContext(), sid,
             SelfHostBoundary(), turnVerdictAnswers: null, tenantSettings: null, _registry,
-            pushedSessions: null, streamStale: TimeSpan.FromSeconds(30), owners: null, sendCommand: null, wingmanTranslator: null,
+            pushedSessions: null, streamStale: TimeSpan.FromSeconds(30), owners: null, sendCommand: null, wingmanTranslator: null, aiGate: CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost,
             turnVerdictLedger: _records.Record);
 
         Assert.Equal(StatusCodes.Status404NotFound, Status(result));

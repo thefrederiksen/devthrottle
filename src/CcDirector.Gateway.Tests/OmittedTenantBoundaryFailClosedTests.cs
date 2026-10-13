@@ -146,7 +146,7 @@ public sealed class OmittedTenantBoundaryFailClosedTests : IAsyncLifetime
             DateTime.UtcNow, TenantId.Local);
 
         await using (var unwired = await Host.StartAsync(_tenant,
-            app => GatewayEndpoints.Map(app, true, unwiredRegistry, "test", "test-token", tenantBoundary: null!, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown)))
+            app => GatewayEndpoints.Map(app, true, unwiredRegistry, "test", "test-token", tenantBoundary: null!, aiGate: CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown)))
         {
             var (status, body) = await Get(unwired.Http, "/directors");
             AssertRefusal(status, body);
@@ -163,7 +163,7 @@ public sealed class OmittedTenantBoundaryFailClosedTests : IAsyncLifetime
             DateTime.UtcNow, _tenant);
 
         await using var wired = await Host.StartAsync(_tenant,
-            app => GatewayEndpoints.Map(app, true, wiredRegistry, "test", "test-token", tenantBoundary: WiredBoundary(), sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown));
+            app => GatewayEndpoints.Map(app, true, wiredRegistry, "test", "test-token", tenantBoundary: WiredBoundary(), aiGate: CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown));
         var (wiredStatus, wiredBody) = await Get(wired.Http, "/directors");
         Assert.Equal(HttpStatusCode.OK, wiredStatus);
         Assert.Contains("own-director", wiredBody, StringComparison.Ordinal);

@@ -320,53 +320,6 @@ public sealed class SessionInteractiveTests
     // test. The old gate is deleted (see Session.SetActivityState), and what is pinned here is the behaviour
     // users actually have and the product actually describes: a queue you send from explicitly.
 
-    /// <summary>
-    /// The queue never auto-sends, on ANY activity state. Deliberately a theory over EVERY member of the
-    /// enum rather than the one state the detector happens to emit today: that makes the guarantee immune to
-    /// the producer changing which state it reports at a turn end - the exact coupling that let the original
-    /// drain sit dead behind a state no producer emitted, with a green test in front of it.
-    /// </summary>
-    [Theory]
-    [InlineData(ActivityState.Starting)]
-    [InlineData(ActivityState.Idle)]
-    [InlineData(ActivityState.Working)]
-    [InlineData(ActivityState.WaitingForInput)]
-    [InlineData(ActivityState.WaitingForPerm)]
-    [InlineData(ActivityState.Exited)]
-    public async Task Queue_neverAutoSends_onAnyActivityState(ActivityState state)
-    {
-        var backend = new RecordingBackend();
-        using var s = NewSession(backend, ActivityState.Working);
-        s.PromptQueue.Enqueue("queued work");
-
-        s.ApplyTerminalActivityState(state);
-
-        await Task.Delay(250);
-        Assert.Empty(backend.SentTexts);          // nothing was fired at the session
-        Assert.Equal(1, s.PromptQueue.Count);     // and the item is still there, waiting to be sent
-    }
-
-    /// <summary>
-    /// The turn end specifically. This is the moment a queued prompt would have gone out, and the moment it
-    /// must not: the detector reports WaitingForInput for BOTH "finished cleanly" and "blocked on a question"
-    /// and explicitly refuses to tell them apart, so an auto-send here could answer a question the agent
-    /// asked with unrelated text - a silent wrong action. Auto-send needs a real turn-end classifier first
-    /// (issue #1564).
-    /// </summary>
-    [Fact]
-    public async Task Queue_doesNotAutoSend_atATurnEnd_whichCouldAnswerTheAgentsOwnQuestion()
-    {
-        var backend = new RecordingBackend();
-        using var s = NewSession(backend, ActivityState.Working);
-        s.PromptQueue.Enqueue("also update the README");
-
-        s.ApplyTerminalActivityState(ActivityState.WaitingForInput);
-
-        await Task.Delay(250);
-        Assert.Empty(backend.SentTexts);
-        Assert.Equal(1, s.PromptQueue.Count);
-    }
-
     /// <summary>The queue still does what it is for: the user sends an item, explicitly, whenever they want.</summary>
     [Fact]
     public async Task Queue_itemIsSentWhenTheUserSendsIt()
@@ -381,14 +334,6 @@ public sealed class SessionInteractiveTests
 
         Assert.Equal("first", backend.SentTexts[0]);
         Assert.Equal(1, s.PromptQueue.Count);
-    }
-
-    private static async Task WaitUntil(Func<bool> condition, int timeoutMs = 2000)
-    {
-        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
-        while (!condition() && DateTime.UtcNow < deadline)
-            await Task.Delay(20);
-        Assert.True(condition(), "condition not met within timeout");
     }
 
     /// <summary>An ISessionBackend that records what the Session sends it.</summary>

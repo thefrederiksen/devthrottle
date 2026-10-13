@@ -262,7 +262,7 @@ public sealed class WingmanVoiceTenantPartitionTests : IDisposable
         Func<TenantId, Core.Configuration.WingmanModelRole, string, CancellationToken, Task<IAgentBrain>> brain =
             (_, _, _, _) => Task.FromResult<IAgentBrain>(null!);
         var vault = new KeyVault(Path.Combine(baseDir, "vault.json"));
-        return Warmed(new WingmanVoiceService(brain, vault, Settings, hosted, Path.Combine(baseDir, "voice-sessions.json")));
+        return Warmed(new WingmanVoiceService(brain, vault, Settings, hosted, CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost, Path.Combine(baseDir, "voice-sessions.json")));
     }
 
     // ===== cross-tenant isolation, each with its same-tenant control =========================

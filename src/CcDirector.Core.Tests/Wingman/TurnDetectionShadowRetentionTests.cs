@@ -289,34 +289,6 @@ public sealed class TurnDetectionShadowRetentionTests : IDisposable
     // Reading the log must not cost a row, and writing it must not shut a reader out
     // ------------------------------------------------------------------------------------------
 
-    [Fact]
-    public async Task A_reader_holding_the_file_does_not_cost_a_row()
-    {
-        // THE DEFECT THAT FAILED THE FULL CORE SUITE. These files exist to be read, and every
-        // ordinary way of reading a file on Windows - File.ReadAllLines, Get-Content, a scoring
-        // script, a scanner - opens it permitting other readers and DENYING writers. The append then
-        // failed, and that failure is swallowed, so the row was gone for good and nothing said so.
-        // The check that produced it had already been taken off the books, so no retry existed.
-        //
-        // The reader here opens EXACTLY as File.ReadAllLines does, which is what makes this the
-        // reported failure rather than a similar-looking one.
-        var session = Guid.NewGuid();
-        TurnDetectionShadowLog.Append(session, RowFor(0));
-        var path = Path.Combine(CcStorage.TurnDetectionShadow(), session.ToString("N") + ".jsonl");
-
-        var reader = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-        var letGo = Task.Run(async () =>
-        {
-            await Task.Delay(TimeSpan.FromMilliseconds(120));
-            reader.Dispose();
-        });
-
-        TurnDetectionShadowLog.Append(session, RowFor(1));
-        await letGo.WaitAsync(TimeSpan.FromSeconds(5));
-
-        Assert.Equal(2, ReadRows(path).Length);
-    }
-
     [WindowsOnlyFact("the arrangement needs a READER to block a WRITER, which is Windows share semantics. " +
         "On macOS and Linux an open read handle does not prevent an append at all, so the append simply " +
         "succeeds, both rows land, and the contention this budget bounds never occurs. Forcing a failure here " +

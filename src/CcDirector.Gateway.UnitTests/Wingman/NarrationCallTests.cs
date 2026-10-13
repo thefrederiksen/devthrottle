@@ -91,7 +91,7 @@ public sealed class NarrationCallTests : IDisposable
         var verdicts = new TurnVerdictService(env);
         var speech = new CountingSpeech();
         var translator = new CountingBrain(() => "a translation nobody should have asked for");
-        var voice = new WingmanVoiceService((_, _, _, _) => Task.FromResult<IAgentBrain>(translator), vault, settings, false,
+        var voice = new WingmanVoiceService((_, _, _, _) => Task.FromResult<IAgentBrain>(translator), vault, settings, false, CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost,
             Path.Combine(_dir, "voice-sessions.json"), ttsHttpClient: new HttpClient(speech), turnVerdicts: verdicts);
         env.VoiceSession = sid => voice.IsVoiceSession(Tenant, sid);
         return new Rig(voice, verdicts, env, speech);
@@ -224,10 +224,15 @@ public sealed class NarrationCallTests : IDisposable
         Assert.Null(owned.Env.Latest(Tenant, Sid)!.Narration);
     }
 
-    // ================================================================= the narration needs a Pro account
+    // ================================================================= the Wingman is on the plan
+
+    // Pricing Change mission, B1: the judgement is itself a Wingman model call, so a stop whose owner's plan lacks the
+    // Wingman is not judged at all - and with no reading there is nothing to narrate and no model call of any kind.
+    // (Before B1 the judge was still asked for such a stop and the narration was replaced by the Pro sentence; that
+    // judge call was a model call on our meter for a plan that does not include it.)
 
     [Fact]
-    public async Task AnAccountWhosePlanLacksTheWingman_GetsTheProSentenceAsItsNarration_AndNoModelCall()
+    public async Task AnAccountWhosePlanLacksTheWingman_IsNotJudgedOrNarrated_AndNoModelIsCalled()
     {
         var rig = Build();
         rig.Env.Narrator = (_, _) => Task.FromResult(Answer(Narrated));
@@ -236,27 +241,14 @@ public sealed class NarrationCallTests : IDisposable
 
         await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
 
+        Assert.Equal(0, rig.Env.JudgeCalls);
         Assert.Equal(0, rig.Env.NarratorCalls);
-        Assert.Equal(NarrationPlanRule.NeedsProText, rig.Env.Latest(Tenant, Sid)!.Narration);
+        Assert.Null(rig.Env.Latest(Tenant, Sid));
+        Assert.Contains(rig.Env.Records, r => r.Cause == ActivityCauses.NotOnPlan);
     }
 
     [Fact]
-    public async Task AVoiceSessionOnAPlanWithoutTheWingman_HearsTheProSentence()
-    {
-        var rig = Build();
-        rig.Env.Narrator = (_, _) => Task.FromResult(Answer(Narrated));
-        rig.Env.Plan = () => NarrationPlan.NeedsPro;
-        rig.Voice.Mark(Tenant, Sid);
-
-        await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
-        await rig.Voice.WaitForNarrationCallsAsync();
-
-        Assert.Equal(0, rig.Env.NarratorCalls);
-        Assert.EndsWith(NarrationPlanRule.NeedsProText, rig.Voice.Get(Tenant, Sid)!.Spoken);
-    }
-
-    [Fact]
-    public async Task AnAccountWhosePlanCouldNotBeRead_GetsNoNarration_AndIsNeverToldToUpgrade()
+    public async Task AnAccountWhosePlanCouldNotBeRead_IsNotJudged_AndIsNeverToldToUpgrade()
     {
         var rig = Build();
         rig.Env.Narrator = (_, _) => Task.FromResult(Answer(Narrated));
@@ -264,8 +256,10 @@ public sealed class NarrationCallTests : IDisposable
 
         await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
 
+        Assert.Equal(0, rig.Env.JudgeCalls);
         Assert.Equal(0, rig.Env.NarratorCalls);
-        Assert.Null(rig.Env.Latest(Tenant, Sid)!.Narration);
+        Assert.Null(rig.Env.Latest(Tenant, Sid));
+        Assert.Contains(rig.Env.Records, r => r.Cause == ActivityCauses.PlanUnknown);
     }
 
     [Fact]

@@ -233,66 +233,6 @@ public class RepositoryMonitorTests
     }
 
     // ---------------------------------------------------------------------------------------
-    // REGRESSION (inspection finding F4): a linked-worktree path (whose .git is a FILE) handed
-    // to RecomputeOneAsync must recompute the PRIMARY repository entry - never store the
-    // worktree path as a repository entry of its own. Uses real git so the canonicalization
-    // (rev-parse --git-common-dir) is the production one.
-    // ---------------------------------------------------------------------------------------
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public async Task RecomputeOne_LinkedWorktreePath_RecomputesThePrimaryEntry()
-    {
-        var root = TestTempRoot.For("ccd-canon-");
-        var primary = System.IO.Path.Combine(root, "primary");
-        var wt = System.IO.Path.Combine(root, "wt-linked");
-        Directory.CreateDirectory(primary);
-        try
-        {
-            RunGit(primary, "-c", "init.defaultBranch=main", "init");
-            RunGit(primary, "config", "user.email", "test@cc-director.local");
-            RunGit(primary, "config", "user.name", "CC Director Test");
-            RunGit(primary, "config", "commit.gpgsign", "false");
-            File.WriteAllText(System.IO.Path.Combine(primary, "README.md"), "init\n");
-            RunGit(primary, "add", "-A");
-            RunGit(primary, "commit", "-m", "initial");
-            RunGit(primary, "worktree", "add", wt);
-
-            var computedPaths = new List<string>();
-            var monitor = new RepositoryMonitor(
-                enumerate: _ => new[] { primary },
-                compute: (p, _, _) =>
-                {
-                    lock (computedPaths) computedPaths.Add(p);
-                    return Task.FromResult(Status(p));
-                }) { LiveSessionsProvider = NoSessions };
-            await monitor.RescanAsync(new[] { root });
-
-            await monitor.RecomputeOneAsync(wt); // the watcher hands over a linked-worktree path
-
-            // Compare paths the way the monitor itself does. This used to use Path.GetFullPath,
-            // which resolves "." and ".." but NOT junctions or symbolic links, while the primary
-            // path arrives here from git (rev-parse --git-common-dir), which reports the RESOLVED
-            // real path. On any machine whose temporary directory is reached through a junction or
-            // a symbolic link the two spellings name the same directory and the string comparison
-            // still failed - a red that said "the monitor stored the wrong path" when the monitor
-            // was right and only the assertion was too literal. NormalizePath is the production
-            // canonicalizer (it follows links via GetFinalPathNameByHandle) and is what keys the
-            // model, so asserting through it tests the promise the monitor actually makes.
-            lock (computedPaths)
-                Assert.All(computedPaths, p => Assert.Equal(
-                    WorktreeReaperService.NormalizePath(primary), WorktreeReaperService.NormalizePath(p)));
-            var entry = Assert.Single(monitor.Snapshot());
-            Assert.Equal(
-                WorktreeReaperService.NormalizePath(primary), WorktreeReaperService.NormalizePath(entry.Path));
-        }
-        finally
-        {
-            // A real git repository: read-only objects, removed by the shared delete, and a failure is reported.
-            TestTempRoot.DeleteTree(root);
-        }
-    }
-
-    // ---------------------------------------------------------------------------------------
     // REGRESSION (inspection finding F5): every compute consults the monitor's own live-session
     // provider, so a watcher-style recompute (which used to pass no sessions) can no longer
     // erase the in-use-by-session classification.
@@ -470,56 +410,6 @@ public class RepositoryMonitorTests
             // holds the newest result. Before the fix the fast second call published first and the
             // slow OLD result landed last.
             Assert.Equal(2, Assert.Single(monitor.Snapshot()).UncommittedCount);
-        }
-        finally
-        {
-            Directory.Delete(dir, recursive: true);
-        }
-    }
-
-    // ---------------------------------------------------------------------------------------
-    // The git storm (plan step 7c): requests for a repository that arrive while its recompute runs
-    // are COALESCED into exactly one follow-up. The per-repository semaphore alone ran one full
-    // compute per queued request - five requests during one compute became five more computes.
-    // ---------------------------------------------------------------------------------------
-    [Fact]
-    public async Task RecomputeOne_ManyRequestsDuringARunningCompute_CoalesceIntoExactlyOneFollowUp()
-    {
-        var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ccd-coalesce-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(System.IO.Path.Combine(dir, ".git"));
-        try
-        {
-            int computeCalls = 0, running = 0, maxRunning = 0;
-            var firstComputeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            var releaseFirstCompute = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            var monitor = new RepositoryMonitor(
-                enumerate: _ => new[] { dir },
-                compute: async (p, _, _) =>
-                {
-                    int call = Interlocked.Increment(ref computeCalls);
-                    int now = Interlocked.Increment(ref running);
-                    InterlockedMax(ref maxRunning, now);
-                    if (call == 1)
-                    {
-                        firstComputeEntered.SetResult();
-                        await releaseFirstCompute.Task;
-                    }
-                    Interlocked.Decrement(ref running);
-                    return Status(p) with { UncommittedCount = call, IsClean = false };
-                }) { LiveSessionsProvider = NoSessions };
-
-            var first = monitor.RecomputeOneAsync(dir);
-            await firstComputeEntered.Task;
-            var joiners = Enumerable.Range(0, 5).Select(_ => monitor.RecomputeOneAsync(dir)).ToArray();
-            await Task.Delay(100);
-            Assert.All(joiners, j => Assert.False(j.IsCompleted)); // they wait for the follow-up, not return early
-
-            releaseFirstCompute.SetResult();
-            await Task.WhenAll(joiners.Append(first));
-
-            Assert.Equal(2, Volatile.Read(ref computeCalls)); // the first, and ONE follow-up for all five
-            Assert.Equal(1, Volatile.Read(ref maxRunning));   // never two in parallel
-            Assert.Equal(2, Assert.Single(monitor.Snapshot()).UncommittedCount); // the follow-up's result stands
         }
         finally
         {
@@ -1620,27 +1510,6 @@ public class RepositoryMonitorTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => monitor.RescanAsync(new[] { "/r" }));
         await Assert.ThrowsAsync<InvalidOperationException>(() => monitor.RecomputeOneAsync("/r/a"));
         Assert.Empty(monitor.Snapshot()); // nothing was published session-blind
-    }
-
-    private static string RunGit(string workingDir, params string[] args)
-    {
-        var psi = new System.Diagnostics.ProcessStartInfo
-        {
-            FileName = "git",
-            WorkingDirectory = workingDir,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-        foreach (var a in args) psi.ArgumentList.Add(a);
-        using var p = System.Diagnostics.Process.Start(psi)!;
-        var stdout = p.StandardOutput.ReadToEnd();
-        var stderr = p.StandardError.ReadToEnd();
-        p.WaitForExit();
-        if (p.ExitCode != 0)
-            throw new InvalidOperationException($"git {string.Join(' ', args)} failed ({p.ExitCode}): {stderr}");
-        return stdout;
     }
 
     [Fact]

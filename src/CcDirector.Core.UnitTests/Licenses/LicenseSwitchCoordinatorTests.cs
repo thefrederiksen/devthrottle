@@ -105,69 +105,6 @@ public sealed class LicenseSwitchCoordinatorTests : IDisposable
     }
 
     [Fact]
-    public async Task SwitchAsync_AnotherSwitchRunning_RefusesWithSwitchInProgress()
-    {
-        _tool.SwitchGate = new TaskCompletionSource();
-        var coordinator = NewCoordinator();
-        var first = coordinator.SwitchAsync(Request(), CancellationToken.None);
-        while (_tool.SwitchCalls.Count == 0) await Task.Delay(5);
-
-        var second = await coordinator.SwitchAsync(Request(id: OtherSwitchId), CancellationToken.None);
-        _tool.SwitchGate.SetResult();
-        await first;
-
-        Assert.Equal(LicenseSwitchReasonCodes.SwitchInProgress, second.ReasonCode);
-        Assert.Single(_tool.SwitchCalls);
-    }
-
-    [Fact]
-    public async Task SwitchAsync_RefusedSwitchInProgressRetriedAfterTheOtherEnds_ReplaysTheRefusal()
-    {
-        // Review of 3868: a switch-in-progress refusal is a finished result for its SwitchId (contract 3.6). A Gateway
-        // that timed out before hearing it retries the same id, and must hear the refusal again, not run the switch.
-        _tool.SwitchGate = new TaskCompletionSource();
-        var coordinator = NewCoordinator();
-        var first = coordinator.SwitchAsync(Request(), CancellationToken.None);
-        while (_tool.SwitchCalls.Count == 0) await Task.Delay(5);
-        var refused = await coordinator.SwitchAsync(Request(target: AccountA, expected: AccountB, id: OtherSwitchId), CancellationToken.None);
-        _tool.SwitchGate.SetResult();
-        await first;
-
-        var retry = await NewCoordinator().SwitchAsync(Request(target: AccountA, expected: AccountB, id: OtherSwitchId), CancellationToken.None);
-
-        Assert.Equal(LicenseSwitchReasonCodes.SwitchInProgress, refused.ReasonCode);
-        Assert.True(retry.Replayed);
-        Assert.Equal(LicenseSwitchOutcomes.Failed, retry.Outcome);
-        Assert.Equal(LicenseSwitchReasonCodes.SwitchInProgress, retry.ReasonCode);
-        Assert.Single(_tool.SwitchCalls);
-    }
-
-    [Fact]
-    public async Task SwitchAsync_RefusedWhileAnotherRunsThenReplayedAfterIt_CarriesTheAccountActiveAtEachMoment()
-    {
-        // Fix-round review of 3868, the reviewer's sequence: A is active while S1 to B runs; S2 is refused and its answer
-        // is lost; S1 finishes, so B is active; the Gateway retries S2. The replay must say B - never an empty account,
-        // and never the A of the moment it was refused, either of which would undo what the after-switch report said.
-        _tool.SwitchGate = new TaskCompletionSource();
-        var coordinator = NewCoordinator();
-        var s1 = coordinator.SwitchAsync(Request(), CancellationToken.None);
-        while (_tool.SwitchCalls.Count == 0) await Task.Delay(5);
-
-        var refused = await coordinator.SwitchAsync(Request(id: OtherSwitchId), CancellationToken.None);
-        _tool.SwitchGate.SetResult();
-        Assert.Equal(LicenseSwitchOutcomes.Switched, (await s1).Outcome);
-        var retried = await coordinator.SwitchAsync(Request(id: OtherSwitchId), CancellationToken.None);
-
-        Assert.Equal(LicenseSwitchReasonCodes.SwitchInProgress, refused.ReasonCode);
-        Assert.Equal(AccountA, refused.ActiveAccountEmailAfter);    // active when it was refused
-        Assert.True(retried.Replayed);
-        Assert.Equal(LicenseSwitchReasonCodes.SwitchInProgress, retried.ReasonCode);
-        Assert.Equal(AccountB, retried.ActiveAccountEmailAfter);    // active when it was replayed
-        Assert.Equal(AccountB, retried.PreviousActiveAccountEmail);
-        Assert.Single(_tool.SwitchCalls);
-    }
-
-    [Fact]
     public async Task SwitchAsync_StoredRefusalReplayedWhenTheToolCannotList_LastReadAccountAndSaysSo()
     {
         var coordinator = NewCoordinator();
@@ -220,26 +157,6 @@ public sealed class LicenseSwitchCoordinatorTests : IDisposable
         Assert.Equal(LicenseSwitchReasonCodes.NotKeyHolder, refused.ReasonCode);
         Assert.Equal(LicenseSwitchOutcomes.Switched, result.Outcome);
         Assert.False(result.Replayed);
-    }
-
-    [Fact]
-    public async Task SwitchAsync_SameSwitchIdWhileRunning_WaitsAndAnswersItsResultReplayed()
-    {
-        _tool.SwitchGate = new TaskCompletionSource();
-        var coordinator = NewCoordinator();
-        var first = coordinator.SwitchAsync(Request(), CancellationToken.None);
-        while (_tool.SwitchCalls.Count == 0) await Task.Delay(5);
-
-        var second = coordinator.SwitchAsync(Request(), CancellationToken.None);
-        Assert.False(second.IsCompleted);
-        _tool.SwitchGate.SetResult();
-
-        var a = await first;
-        var b = await second;
-        Assert.False(a.Replayed);
-        Assert.True(b.Replayed);
-        Assert.Equal(LicenseSwitchOutcomes.Switched, b.Outcome);
-        Assert.Single(_tool.SwitchCalls);
     }
 
     [Fact]

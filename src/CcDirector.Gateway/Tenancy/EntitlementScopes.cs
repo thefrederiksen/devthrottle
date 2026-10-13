@@ -81,16 +81,18 @@ public static class EntitlementScopes
             // our meter, it belongs behind one of the artificial-intelligence scopes and therefore behind Pro -
             // adding it to this line would give away the thing the plans are drawn around.
             //
-            // Note that this Gateway does not itself police the three artificial-intelligence scopes today -
-            // they are enforced at the website proxy that actually calls the models, and a free account is
-            // refused there because it has neither a subscription row nor a live trial. This line is still the
-            // truthful statement of what the plan grants, and it is what any Gateway-side check must read the
-            // day one is added.
+            // The hosted Gateway polices the three artificial-intelligence scopes itself: every model call it
+            // makes on a tenant's behalf asks TenantAiGate, which reads this table (Pricing Change mission, B1).
             [EntitlementRegistry.TierFree] = Set(HostedGateway),
 
             // A TEAM seat (#2299): exactly what Pro grants. Stated as its own line rather than aliased to Pro so
             // the day a team seat and a personal Pro are priced or scoped differently, it is one edit here.
             [EntitlementRegistry.TierTeam] = Set(Dictation, Tts, Wingman, HostedGateway),
+
+            // The REMOTE plan (Pricing Change mission, decision D3): hosted capacity and NONE of the
+            // artificial-intelligence scopes. Today that is the same set as free; what will separate the two (the
+            // Cockpit and the phone app) is a later phase of the same mission, and it lands on these two lines.
+            [EntitlementRegistry.TierRemote] = Set(HostedGateway),
         };
 
     // The pre-column row. Carried separately from the table because its key is null and because its reason is

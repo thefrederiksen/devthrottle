@@ -276,6 +276,9 @@ public sealed class LicenseMessagesCarryNoKeyTests
     [InlineData("6f1c2a9e-4b7d-4e0f-9a3c-5b8d2e1f7a40", false)]
     [InlineData("../../etc", false)]
     [InlineData("", false)]
+    [InlineData("6f1c2a9e4b7d4e0f9a3c5b8d2e1f7a40\n", false)]
+    [InlineData("6f1c2a9e4b7d4e0f9a3c5b8d2e1f7a40\r\n", false)]
+    [InlineData("\n6f1c2a9e4b7d4e0f9a3c5b8d2e1f7a40", false)]
     public void SwitchIdShape_OnlyGuidN_Matches(string switchId, bool expected)
         => Assert.Equal(expected, LicenseContract.SwitchIdShape.IsMatch(switchId));
 

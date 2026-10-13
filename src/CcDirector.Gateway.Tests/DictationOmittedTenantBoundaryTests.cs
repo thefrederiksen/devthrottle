@@ -452,7 +452,7 @@ public sealed class DictationOmittedTenantBoundaryTests : IAsyncLifetime
             app.Urls.Add("http://127.0.0.1:0");
 
             var transcription = new GatewayTranscriptionService(
-                new KeyVault(Path.Combine(storageRoot, name, "keyvault.json")), new TranscriptionAudioArchive(true, Path.Combine(storageRoot, name, "audio")));
+                new KeyVault(Path.Combine(storageRoot, name, "keyvault.json")), new TranscriptionAudioArchive(true, Path.Combine(storageRoot, name, "audio")), aiGate: CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost);
 
             // The ONE argument under test. The unwired case has to be forced through with null! because the
             // parameter is REQUIRED - the compile-time half of the fix - so the accidental version of this

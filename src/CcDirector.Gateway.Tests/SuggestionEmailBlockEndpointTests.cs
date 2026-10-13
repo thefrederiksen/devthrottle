@@ -67,7 +67,7 @@ public sealed class SuggestionEmailBlockEndpointTests : IDisposable
             tenantBoundary: new CcDirector.Gateway.Tenancy.HostedTenantBoundary(
                 new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: false),
             keyVault: null, history: null, audioArchive: null,
-            suggestions: suggestions, dismissals: dismissals, emailComposer: composer);
+            suggestions: suggestions, dismissals: dismissals, emailComposer: composer, aiGate: CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost);
         await app.StartAsync();
         var baseUrl = $"http://127.0.0.1:{BoundPort.Of(app)}";
 
@@ -148,7 +148,7 @@ public sealed class SuggestionEmailBlockEndpointTests : IDisposable
             tenantBoundary: new CcDirector.Gateway.Tenancy.HostedTenantBoundary(
                 new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: false),
             keyVault: null, history: null, audioArchive: null,
-            suggestions: suggestions, dismissals: dismissals, emailComposer: composer);
+            suggestions: suggestions, dismissals: dismissals, emailComposer: composer, aiGate: CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost);
         await app.StartAsync();
         var baseUrl = $"http://127.0.0.1:{BoundPort.Of(app)}";
 

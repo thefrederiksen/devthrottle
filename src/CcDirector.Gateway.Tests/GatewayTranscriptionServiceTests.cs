@@ -50,7 +50,7 @@ public sealed class GatewayTranscriptionServiceTests : IDisposable
     private TranscriptionAudioArchive ScratchArchive() => new(false, Path.Combine(_root, "archive-scratch"));
 
     private GatewayTranscriptionService Service()
-        => new(new KeyVault(_vaultPath), audioArchive: ScratchArchive());
+        => new(new KeyVault(_vaultPath), audioArchive: ScratchArchive(), aiGate: CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost);
 
     /// <summary>Answers the transcription POST with a fixed status + body (issue #885).</summary>
     private sealed class StatusHandler : HttpMessageHandler
@@ -80,7 +80,7 @@ public sealed class GatewayTranscriptionServiceTests : IDisposable
         var service = new GatewayTranscriptionService(
             new KeyVault(_vaultPath),
             http: new HttpClient(new StatusHandler(HttpStatusCode.OK, "{\"text\":\"only the first sentence\"}")),
-            audioArchive: new TranscriptionAudioArchive(false, archiveDir));
+            audioArchive: new TranscriptionAudioArchive(false, archiveDir), aiGate: CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost);
 
         var audio = Enumerable.Repeat((byte)0x42, 512).ToArray();
         var result = await service.TranscribeAsync(audio, "clip.wav", "audio/wav", applyCorrection: false, default);
@@ -105,7 +105,7 @@ public sealed class GatewayTranscriptionServiceTests : IDisposable
             new KeyVault(_vaultPath),
             http: new HttpClient(new StatusHandler(HttpStatusCode.OK, "{\"text\":\"hello\"}")),
             history: new TranscriptionHistoryLog(historyDir),
-            audioArchive: new TranscriptionAudioArchive(false, archiveDir));
+            audioArchive: new TranscriptionAudioArchive(false, archiveDir), aiGate: CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost);
 
         await service.TranscribeAsync(
             Enumerable.Repeat((byte)0x42, 512).ToArray(), "clip.wav", "audio/wav", applyCorrection: false, default);
@@ -130,7 +130,7 @@ public sealed class GatewayTranscriptionServiceTests : IDisposable
         var service = new GatewayTranscriptionService(
             new KeyVault(_vaultPath),
             http: new HttpClient(new StatusHandler(HttpStatusCode.PaymentRequired, body)),
-            audioArchive: new TranscriptionAudioArchive(false, archiveDir));
+            audioArchive: new TranscriptionAudioArchive(false, archiveDir), aiGate: CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost);
 
         var audio = Enumerable.Repeat((byte)0x42, 512).ToArray();
         await service.TranscribeAsync(audio, "clip.wav", "audio/wav", applyCorrection: false, default);
@@ -151,7 +151,7 @@ public sealed class GatewayTranscriptionServiceTests : IDisposable
         var service = new GatewayTranscriptionService(
             new KeyVault(_vaultPath),
             http: new HttpClient(new StatusHandler(HttpStatusCode.PaymentRequired, body)),
-            audioArchive: ScratchArchive());
+            audioArchive: ScratchArchive(), aiGate: CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost);
 
         var result = await service.TranscribeAsync(new byte[] { 1, 2, 3 }, "clip.webm", "audio/webm", applyCorrection: false, CancellationToken.None);
 
@@ -263,7 +263,7 @@ public sealed class GatewayTranscriptionServiceTests : IDisposable
             new KeyVault(_vaultPath),
             dictionaryProvider: _ => throw new InvalidDataException("dictionary file is malformed"),
             http: new HttpClient(new StatusHandler(HttpStatusCode.OK, "{\"text\":\"the raw words\"}")),
-            audioArchive: ScratchArchive());
+            audioArchive: ScratchArchive(), aiGate: CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost);
 
         var result = await service.TranscribeAsync(
             new byte[] { 1, 2, 3 }, "clip.wav", "audio/wav", applyCorrection: true, CancellationToken.None);
@@ -280,7 +280,7 @@ public sealed class GatewayTranscriptionServiceTests : IDisposable
         var service = new GatewayTranscriptionService(
             new KeyVault(_vaultPath),
             dictionaryProvider: _ => throw new InvalidDataException("dictionary file is malformed"),
-            audioArchive: ScratchArchive());
+            audioArchive: ScratchArchive(), aiGate: CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost);
 
         var outcome = await service.CleanupAsync("the raw words", ct: CancellationToken.None);
 

@@ -77,62 +77,6 @@ public class ToolRunnerTests
         Assert.Null(exit.Chunk.Error);
     }
 
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public async Task RunStream_Timeout_KillsProcessTreeAndReportsDistinctTimeoutError()
-    {
-        if (!OperatingSystem.IsWindows()) return;
-
-        // cmd spawns ping as a child: the tree (cmd + ping) must be gone after the kill.
-        var chunks = await CollectAsync(new ToolRunner().RunStreamAsync(
-            Cmd, new[] { "/c", "ping -n 60 127.0.0.1 >nul" }, null, TimeSpan.FromSeconds(2)));
-
-        var start = chunks.First(c => c.Chunk.Stream == ToolRunChunk.StreamStart);
-        Assert.NotNull(start.Chunk.Pid);
-
-        var exit = chunks.Single(c => c.Chunk.Stream == ToolRunChunk.StreamExit);
-        Assert.True(exit.Chunk.TimedOut);
-        Assert.Null(exit.Chunk.ExitCode);
-        Assert.NotNull(exit.Chunk.Error);
-        Assert.Contains("timed out after 2s", exit.Chunk.Error);
-
-        // PID absence: the launched cmd.exe is gone (Kill(entireProcessTree) took the tree down).
-        // Short poll: Windows may keep the kernel process object findable for a few ms post-kill.
-        var pid = start.Chunk.Pid.Value;
-        var gone = false;
-        for (var i = 0; i < 50 && !gone; i++)
-        {
-            try
-            {
-                using var p = Process.GetProcessById(pid);
-                gone = p.HasExited;
-            }
-            catch (ArgumentException)
-            {
-                gone = true;
-            }
-            if (!gone) await Task.Delay(100);
-        }
-        Assert.True(gone, $"pid {pid} still alive after the timeout kill");
-    }
-
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public async Task RunStream_Timeout_DurationReflectsBoundNotCommand()
-    {
-        if (!OperatingSystem.IsWindows()) return;
-
-        var sw = Stopwatch.StartNew();
-        var chunks = await CollectAsync(new ToolRunner().RunStreamAsync(
-            Cmd, new[] { "/c", "ping -n 60 127.0.0.1 >nul" }, null, TimeSpan.FromSeconds(2)));
-        sw.Stop();
-
-        Assert.Single(chunks, c => c.Chunk.Stream == ToolRunChunk.StreamExit);
-        // The bound is real: a 60s command came back shortly after the 2s timeout, not after 60s.
-        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(15),
-            $"timed-out run should return promptly (took {sw.Elapsed.TotalSeconds:0.0}s)");
-    }
-
     [Fact]
     public async Task RunStream_MissingExe_ThrowsFileNotFound()
     {

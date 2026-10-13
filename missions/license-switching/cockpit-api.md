@@ -1098,3 +1098,547 @@ The caller is judged before the body is read, and a body must be sent as `applic
 It is the one rule the Fleet Manager's owner-only routes use (`FleetManagerOwnerDevice.Require`). Tests hold every
 row of the table over real HTTP (`LicenseHostTests`, `LicenseWritesSelfHostedTests`) and the guard's half in
 `LicenseGuardTests`.
+**Both are refused to a session key.** Moving every machine of the owner's subscription to another one, and setting
+the date a subscription renews, are the owner's own actions, from the Cockpit. `SessionKeyGuard` lists neither route;
+a test holds Switch now to that today (`LicenseGuardTests`), and the follow-up adds the same for the renewal route.
+
+## 7. Sign-ins - who approves an account, Add a spare, Renew now
+
+The Gateway side of the contract's section 8. The types are in
+`src/CcDirector.Gateway.Contracts/LicenseSignInCockpitDtos.cs`, the routes in
+`src/CcDirector.Gateway/Api/LicenseSignInEndpoints.cs`, and every verdict is folded in
+`src/CcDirector.Gateway/Licenses/LicenseSignInFold.cs`. The rules of section 1 hold for all of it. The examples are
+real answers, produced the same way as the others: "the-windows-machine" is on account A and holds a spare for B,
+"the-mac" is on account C, and the clock starts at 2026-10-11 03:12:00 UTC.
+
+Nothing here adds a table or a column. The approvers are one per-account setting; a sign-in is a row of the switch
+log of its own kind.
+
+**The Gateway relays and never keeps.** No route in this section takes or returns the address a sign-in is approved
+at, an approval, or anything else of a sign-in. Those pass between two Directors through the Gateway's memory and
+are never stored and never logged.
+
+### Who may call
+
+| Route | The owner's own phone or browser | A session key, raised by the owner or not | A Director's own key | The shared machine token of a self-hosted Gateway |
+|---|---|---|---|---|
+| `GET /gateway/licenses/approvers` | yes | yes | yes | yes |
+| `PUT /gateway/licenses/approvers` | yes | `403` `session_key_out_of_scope` | `403` `owner_only` | `403` `owner_only` |
+| `DELETE /gateway/licenses/approvers` | yes | `403` `session_key_out_of_scope` | `403` `owner_only` | `403` `owner_only` |
+| `POST /gateway/licenses/sign-ins/add-spare` | yes | `403` `session_key_out_of_scope` | `403` `owner_only` | `403` `owner_only` |
+| `POST /gateway/licenses/sign-ins/renew` | yes | `403` `session_key_out_of_scope` | `403` `owner_only` | `403` `owner_only` |
+
+Naming the machine and browser profile that approve a sign-in, and starting a sign-in, are the owner's own actions:
+the four writes are for a signed-in person only, the same one rule as the two writes of section 6. A session key is
+stopped by `SessionKeyGuard`, which lists only the read - and raising a session does not add these four. Every other
+credential that is not the owner's own device is refused by the route itself, before the body is read.
+
+Each column is held over real HTTP, by a test that sends that credential to all four writes and the read:
+a session key and a Director's own key (`LicenseSignInHostedTests.TheApproverRoutes_AreTheOwnersToWrite_AndASessionKeyMayOnlyRead`),
+a session key the owner raised through the raise route (`...TheFourWrites_AskedWithASessionKeyTheOwnerRaised_AreStillRefused_AndNothingIsStoredOrSent`),
+and the shared machine token on a self-hosted Gateway (`LicenseSignInWritesSelfHostedTests`).
+
+Every refusal is `{ "code": "...", "error": "..." }`, where `error` is a finished sentence to show as it is.
+
+### 7.1 `GET /gateway/licenses/approvers` - who approves each account
+
+One approver per Claude account at most: the machine (its name and operating system user) and the browser profile
+on it that is signed in to claude.ai as that account. With none set:
+
+```json
+{
+  "asOfUtc": "2026-10-11T03:12:00Z",
+  "isEmpty": true,
+  "emptyText": "No machine is set to approve sign-ins for any account. A machine that has its own browser profile for an account approves its sign-ins there.",
+  "approvers": []
+}
+```
+
+With two set - one whose Director is connected, one on a machine that has never reported to this account:
+
+```json
+{
+  "asOfUtc": "2026-10-11T03:12:00Z",
+  "isEmpty": false,
+  "emptyText": null,
+  "approvers": [
+    {
+      "accountEmail": "account-a@example.com",
+      "machineName": "the-mac",
+      "osUser": "owner",
+      "browserProfile": "work",
+      "machineId": "527062dd720c4d28a144183033cf93c1",
+      "label": "the-mac",
+      "canApproveNow": true,
+      "status": "ready",
+      "statusText": "Ready",
+      "statusTone": "good",
+      "text": "Sign-ins for account-a@example.com are approved on the-mac, in the browser profile work."
+    },
+    {
+      "accountEmail": "account-b@example.com",
+      "machineName": "the-laptop",
+      "osUser": "owner",
+      "browserProfile": "personal",
+      "machineId": null,
+      "label": "the-laptop",
+      "canApproveNow": false,
+      "status": "never-reported",
+      "statusText": "Not reporting yet",
+      "statusTone": "warning",
+      "text": "Sign-ins for account-b@example.com are approved on the-laptop, in the browser profile personal. No Director on the-laptop has reported to this account, so no sign-in can be approved there yet."
+    }
+  ]
+}
+```
+
+An approver (`LicenseApproverDto`):
+
+| Field | What it is |
+|---|---|
+| `accountEmail` | The Claude account whose sign-ins it approves. |
+| `machineName`, `osUser` | The approving machine, as the owner set it, or as the machine itself spells it once it has reported. |
+| `browserProfile` | The browser profile on that machine. |
+| `machineId` | The machine's row in the overview; `null` while no such machine has reported to this account. |
+| `label` | What to call the machine (section 1 rule 9). |
+| `canApproveNow` | A sign-in for this account can be approved there now. |
+| `status`, `statusText`, `statusTone` | `ready` "Ready" / `not-connected` "Not connected" / `never-reported` "Not reporting yet". |
+| `text` | The whole of it in one or two sentences. Show this. |
+
+A machine that only approves needs no sign-in of its own: it is listed in the overview as "Signed out" as soon as
+its Director reports, and `status` is `ready` while that Director is connected.
+
+### 7.2 `PUT /gateway/licenses/approvers` - set the approver of one account
+
+Body (`LicenseSetApproverRequest`): `{ "accountEmail": "...", "machineName": "...", "osUser": "...",
+"browserProfile": "..." }`. Setting an account that has an approver replaces it. The machine does not have to have
+reported yet. Answered `200` with the approver as stored:
+
+```json
+{
+  "accountEmail": "account-a@example.com",
+  "machineName": "the-mac",
+  "osUser": "owner",
+  "browserProfile": "work",
+  "machineId": "527062dd720c4d28a144183033cf93c1",
+  "label": "the-mac",
+  "canApproveNow": true,
+  "status": "ready",
+  "statusText": "Ready",
+  "statusTone": "good",
+  "text": "Sign-ins for account-a@example.com are approved on the-mac, in the browser profile work."
+}
+```
+
+Refused `400` with `invalid_account`, `invalid_machine`, `invalid_browser_profile` or `bad_request_body`, and `409`
+with `too_many_approvers` (64 for one DevThrottle account). `machineName` and `osUser` are names of at most 128
+characters, and they and `accountEmail` are refused when they hold a control character, a line or paragraph
+separator, or a format character - a name with a line break in it is `invalid_machine`, and nothing is stored:
+
+```json
+{
+  "code": "invalid_browser_profile",
+  "error": "browserProfile is the name of a browser profile on the approving machine: letters, digits, spaces, dots, underscores and hyphens, at most 64 characters."
+}
+```
+
+### 7.3 `DELETE /gateway/licenses/approvers?accountEmail=...` - remove it
+
+Answered `200` whether or not there was one; `removed` and `text` say which
+(`LicenseApproverRemovedResponse`). Refused `400` `invalid_account` when the query names no account.
+
+```json
+{
+  "accountEmail": "account-b@example.com",
+  "removed": true,
+  "text": "No machine is set to approve sign-ins for account-b@example.com any more."
+}
+```
+
+### 7.4 `POST /gateway/licenses/sign-ins/add-spare` and `POST /gateway/licenses/sign-ins/renew`
+
+Body (`LicenseStartSignInRequest`): `{ "accountEmail": "...", "machineId": "..." }`, where `machineId` is the
+`machineId` of the machine's row in the overview. **Add a spare** signs the machine in to an account it does not
+hold; **Renew now** signs it in again to an account it holds.
+
+**The answer does not wait for the sign-in.** A sign-in takes minutes. The route answers `202` as soon as the
+sign-in's row of the log is written and its command is on its way to the machine's Director
+(`LicenseSignInStartedResponse`):
+
+```json
+{
+  "signInId": "501d61535066417d966ef172151b00bc",
+  "accountEmail": "account-a@example.com",
+  "machine": {
+    "machineId": "2f9cea24fe1b44f4951e48ed1748f105",
+    "machineName": "the-windows-machine",
+    "osUser": "owner",
+    "label": "the-windows-machine"
+  },
+  "text": "Asked the Director on the-windows-machine to renew the sign-in for account-a@example.com. It can take a few minutes; the outcome appears in the log.",
+  "entry": {
+    "entryId": "1e080484ba78433982ea385e8ffa04f4",
+    "kind": "sign-in",
+    "kindText": "Sign-in",
+    "atUtc": "2026-10-11T03:14:00Z",
+    "machineId": "2f9cea24fe1b44f4951e48ed1748f105",
+    "machineName": "the-windows-machine",
+    "osUser": "owner",
+    "label": "the-windows-machine",
+    "fromAccountEmail": "",
+    "toAccountEmail": "account-a@example.com",
+    "why": "renewal",
+    "whyText": "Renew now",
+    "state": "pending",
+    "stateText": "Signing in",
+    "stateTone": "neutral",
+    "isOpen": true,
+    "reasonCode": null,
+    "reasonText": null,
+    "message": "Asked the Director on the-windows-machine to renew the sign-in for account-a@example.com.",
+    "summary": "the-windows-machine is renewing its sign-in for account-a@example.com.",
+    "sendCount": 0,
+    "lastSentAtUtc": null,
+    "startedOnMachineAtUtc": null,
+    "finishedOnMachineAtUtc": null,
+    "exchangeMilliseconds": null,
+    "finishedAtUtc": null,
+    "timingText": null,
+    "verifiedByUsageRead": null,
+    "verifiedText": null
+  }
+}
+```
+
+`entry` is the sign-in's row exactly as `GET /gateway/licenses/log` answers it, so the page can show it at once.
+The outcome arrives on that same row (same `entryId`): read the log again.
+
+Refused, and nothing is written or sent:
+
+| Status | `code` | When |
+|---|---|---|
+| `400` | `invalid_account` | `accountEmail` is not an email. |
+| `400` | `invalid_machine` | `machineId` is not a machine identifier. |
+| `400` | `bad_request_body` | The body is missing or is not JSON. |
+| `404` | `unknown_machine` | No machine with that identifier has reported to the caller's account. |
+| `409` | `already_held` | Add a spare for an account the machine holds. |
+| `409` | `not_held` | Renew now for an account the machine does not hold. |
+| `409` | `sign_in_running` | A sign-in for that machine and account has not ended. |
+| `409` | `director_offline` | The machine's Director is not connected. |
+
+```json
+{
+  "code": "sign_in_running",
+  "error": "A sign-in for account-a@example.com on the-windows-machine is already running."
+}
+```
+
+```json
+{
+  "code": "director_offline",
+  "error": "The Director on the-mac is not connected, so a sign-in cannot be started there."
+}
+```
+
+```json
+{
+  "code": "already_held",
+  "error": "the-windows-machine already holds a sign-in for account-a@example.com. Use Renew now to renew it."
+}
+```
+
+```json
+{
+  "code": "unknown_machine",
+  "error": "No machine with that identifier has reported to this account."
+}
+```
+
+### 7.5 A sign-in in the log
+
+`GET /gateway/licenses/log` (section 4) answers sign-ins among the switches, as rows whose `kind` is `sign-in`.
+The names are those of every other row. What differs:
+
+| Field | For a sign-in |
+|---|---|
+| `kindText` | "Sign-in". |
+| `toAccountEmail` | The account signed in to. `fromAccountEmail` is empty. |
+| `why`, `whyText` | `manual` "Add a spare", or `renewal` "Renew now". |
+| `state`, `stateText`, `stateTone` | `pending` "Signing in" (neutral), `unknown` "Sent, no answer yet" (warning), `added` "Signed in" (good), `renewed` "Renewed" (good), `failed` "Failed" (bad). |
+| `isOpen` | True for `pending` and `unknown`: the sign-in has not ended. |
+| `reasonCode`, `reasonText` | When failed: the word and its sentence (`no-approver`, `approver-offline`, `approval-failed`, `wrong-account`, `browser-not-signed-in`, `login-failed`, `expired`, `store-refused`, `not-key-holder`, `director-offline`, `director-error`). |
+| `message` | The Director's own sentence once it has answered; before that, what was asked. |
+| `summary` | One sentence saying what happened. Show this. |
+| `finishedOnMachineAtUtc` | When the Director says it finished. |
+| `startedOnMachineAtUtc`, `exchangeMilliseconds`, `timingText`, `verifiedByUsageRead`, `verifiedText` | Always `null`: they belong to a switch. |
+
+A row that is sent and gets no answer is `unknown`, and it stays open until the Gateway KNOWS how it ended. Nothing is
+tried until no Director could still be running it (15 minutes after it was asked). Then, once a minute:
+
+1. **The Gateway asks the machine's Director again, with the same sign-in identifier.** A Director that ran the
+   sign-in answers with the result it kept - `added`, `renewed`, or `failed` with its reason and its own sentence -
+   and the row ends with that answer; `replayed` is true and `sendCount` is one higher. Three things keep this step
+   from saying or starting something wrong:
+   - **A machine whose clock is 4 minutes or more from the Gateway's is not asked.** The Director judges the
+     sign-in's deadline by its own clock. Asking again starts nothing only while that clock is within 5 minutes of
+     the Gateway's; a Director further behind would see a deadline still ahead and start the sign-in a quarter of
+     an hour after the owner clicked. The Gateway measures each machine's clock difference from its reports, and a
+     machine at 4 minutes or more goes straight to step 2.
+   - **An answer that is not a replay does not end a row whose command had gone out before.** A Director keeps a
+     result for 24 hours. After that it answers `failed` / `expired` ("nothing was started") for a sign-in it did
+     run, so that answer is not taken as how the sign-in ended: step 2 decides. Only for a row whose command never
+     went out at all (the Gateway stopped before it sent) does that answer end the row.
+   - **When the Director gives no answer in time, nothing is settled that minute** - not from a report either: it
+     may be running the sign-in at that moment.
+2. **Only when step 1 gave nothing that says how it ended** - the Director is not connected, was not asked, or its
+   answer did not settle it - the row is settled from the machine's usage report, and only from a report the
+   Gateway accepted AFTER those 15 minutes. A report from before that says nothing about how the sign-in ended.
+   Then: a new spare is `added` when the report shows the machine holds the account, and `failed` when it does not;
+   a renewal is `renewed` when the report shows a sign-in time other than the one the machine had reported before
+   the renewal was asked for, and `failed` when it is the same. `message` and `summary` begin "Settled from the
+   machine's report:" so the page says how it was known.
+3. **A machine that has sent no report for 24 hours ends the row `failed`**, with no reason word and a sentence that
+   begins "Ended without an answer:" and says the machine has not been seen for a day, so how the sign-in ended is
+   not known. "Add a spare" or "Renew now" for that machine and account is then offered again.
+
+**So a row can stay `unknown` for up to a day**: a machine that was switched off in the middle of a sign-in is shown
+as "Sent, no answer yet" until it comes back or a day has passed. That is the truth - the Gateway does not know -
+and the page shows it as it is. While the row is open, "Add a spare" or "Renew now" for that machine and account is
+refused `sign_in_running`; the overview says so before the owner tries (7.6).
+
+Three sign-ins, the newest first - one running, one that signed in, one that failed:
+
+```json
+{
+  "asOfUtc": "2026-10-11T03:14:00Z",
+  "isEmpty": false,
+  "emptyText": null,
+  "entries": [
+    {
+      "entryId": "1e080484ba78433982ea385e8ffa04f4",
+      "kind": "sign-in",
+      "kindText": "Sign-in",
+      "atUtc": "2026-10-11T03:14:00Z",
+      "machineId": "2f9cea24fe1b44f4951e48ed1748f105",
+      "machineName": "the-windows-machine",
+      "osUser": "owner",
+      "label": "the-windows-machine",
+      "fromAccountEmail": "",
+      "toAccountEmail": "account-a@example.com",
+      "why": "renewal",
+      "whyText": "Renew now",
+      "state": "pending",
+      "stateText": "Signing in",
+      "stateTone": "neutral",
+      "isOpen": true,
+      "reasonCode": null,
+      "reasonText": null,
+      "message": "Asked the Director on the-windows-machine to renew the sign-in for account-a@example.com.",
+      "summary": "the-windows-machine is renewing its sign-in for account-a@example.com.",
+      "sendCount": 0,
+      "lastSentAtUtc": null,
+      "startedOnMachineAtUtc": null,
+      "finishedOnMachineAtUtc": null,
+      "exchangeMilliseconds": null,
+      "finishedAtUtc": null,
+      "timingText": null,
+      "verifiedByUsageRead": null,
+      "verifiedText": null
+    },
+    {
+      "entryId": "4cf0cc4873ce48f19fd29486681980fc",
+      "kind": "sign-in",
+      "kindText": "Sign-in",
+      "atUtc": "2026-10-11T03:13:00Z",
+      "machineId": "2f9cea24fe1b44f4951e48ed1748f105",
+      "machineName": "the-windows-machine",
+      "osUser": "owner",
+      "label": "the-windows-machine",
+      "fromAccountEmail": "",
+      "toAccountEmail": "account-c@example.com",
+      "why": "manual",
+      "whyText": "Add a spare",
+      "state": "added",
+      "stateText": "Signed in",
+      "stateTone": "good",
+      "isOpen": false,
+      "reasonCode": null,
+      "reasonText": null,
+      "message": "Signed in to account-c@example.com and stored as a spare.",
+      "summary": "the-windows-machine was signed in to account-c@example.com and holds it as a spare.",
+      "sendCount": 1,
+      "lastSentAtUtc": "2026-10-11T03:13:00Z",
+      "startedOnMachineAtUtc": null,
+      "finishedOnMachineAtUtc": "2026-10-11T03:13:50Z",
+      "exchangeMilliseconds": null,
+      "finishedAtUtc": "2026-10-11T03:13:00Z",
+      "timingText": null,
+      "verifiedByUsageRead": null,
+      "verifiedText": null
+    },
+    {
+      "entryId": "843e95a632854de7a66b40391b14d647",
+      "kind": "sign-in",
+      "kindText": "Sign-in",
+      "atUtc": "2026-10-11T03:12:00Z",
+      "machineId": "2f9cea24fe1b44f4951e48ed1748f105",
+      "machineName": "the-windows-machine",
+      "osUser": "owner",
+      "label": "the-windows-machine",
+      "fromAccountEmail": "",
+      "toAccountEmail": "account-b@example.com",
+      "why": "renewal",
+      "whyText": "Renew now",
+      "state": "failed",
+      "stateText": "Failed",
+      "stateTone": "bad",
+      "isOpen": false,
+      "reasonCode": "approver-offline",
+      "reasonText": "The machine set to approve this account had no Director connected.",
+      "message": "The machine that approves sign-ins for account-b@example.com had no Director connected.",
+      "summary": "The sign-in for account-b@example.com on the-windows-machine was not renewed.",
+      "sendCount": 1,
+      "lastSentAtUtc": "2026-10-11T03:12:00Z",
+      "startedOnMachineAtUtc": null,
+      "finishedOnMachineAtUtc": "2026-10-11T03:12:04Z",
+      "exchangeMilliseconds": null,
+      "finishedAtUtc": "2026-10-11T03:12:00Z",
+      "timingText": null,
+      "verifiedByUsageRead": null,
+      "verifiedText": null
+    }
+  ],
+  "hasMore": false,
+  "nextCursor": null
+}
+```
+
+### 7.6 What the overview says of sign-ins
+
+`GET /gateway/licenses` (section 2) carries these as well. They are appended to the three shapes; nothing is renamed.
+
+On an account (`LicenseAccountDto`):
+
+| Field | What it is |
+|---|---|
+| `approver` | The account's approver, the same shape as in 7.1; `null` when none is set. |
+| `approverText` | The sentence to show, whether or not one is set. |
+| `approverTone` | `good`, `warning`, or `neutral` when none is set. |
+
+On a machine (`LicenseMachineDto`):
+
+| Field | What it is |
+|---|---|
+| `canAddSpare` | Add a spare is offered for this machine. |
+| `addSpareText` | What it does, or the sentence saying why it is not offered - the same sentence the route refuses with. |
+| `signInsInProgress` | The sign-ins on this machine that have not ended: `signInId`, `accountEmail`, `text`. |
+
+On each sign-in a machine holds (`LicenseMachineHoldingDto`, in `active` and `spares`):
+
+| Field | What it is |
+|---|---|
+| `canRenewNow` | Renew now is offered for this sign-in. |
+| `renewNowText` | What it does, or the sentence saying why it is not offered - the same sentence the route refuses with. |
+
+Which account a new spare is for is the owner's choice; the page offers a free choice of account email and the route
+refuses `already_held` for one the machine holds. Only these fields of the answer are shown here, taken while the
+renewal of 7.4 was running and the Director on "the-mac" was not connected:
+
+```json
+{
+  "accounts": [
+    {
+      "accountEmail": "account-a@example.com",
+      "approver": {
+        "accountEmail": "account-a@example.com",
+        "machineName": "the-mac",
+        "osUser": "owner",
+        "browserProfile": "work",
+        "machineId": "527062dd720c4d28a144183033cf93c1",
+        "label": "the-mac",
+        "canApproveNow": false,
+        "status": "not-connected",
+        "statusText": "Not connected",
+        "statusTone": "warning",
+        "text": "Sign-ins for account-a@example.com are approved on the-mac, in the browser profile work. The Director on the-mac is not connected, so no sign-in can be approved there now."
+      },
+      "approverText": "Sign-ins for account-a@example.com are approved on the-mac, in the browser profile work. The Director on the-mac is not connected, so no sign-in can be approved there now.",
+      "approverTone": "warning"
+    },
+    {
+      "accountEmail": "account-b@example.com",
+      "approver": {
+        "accountEmail": "account-b@example.com",
+        "machineName": "the-laptop",
+        "osUser": "owner",
+        "browserProfile": "personal",
+        "machineId": null,
+        "label": "the-laptop",
+        "canApproveNow": false,
+        "status": "never-reported",
+        "statusText": "Not reporting yet",
+        "statusTone": "warning",
+        "text": "Sign-ins for account-b@example.com are approved on the-laptop, in the browser profile personal. No Director on the-laptop has reported to this account, so no sign-in can be approved there yet."
+      },
+      "approverText": "Sign-ins for account-b@example.com are approved on the-laptop, in the browser profile personal. No Director on the-laptop has reported to this account, so no sign-in can be approved there yet.",
+      "approverTone": "warning"
+    },
+    {
+      "accountEmail": "account-c@example.com",
+      "approver": null,
+      "approverText": "No machine is set to approve sign-ins for this account. A machine that has its own browser profile for it approves there.",
+      "approverTone": "neutral"
+    }
+  ],
+  "machines": [
+    {
+      "machineName": "the-mac",
+      "canAddSpare": false,
+      "addSpareText": "The Director on the-mac is not connected, so a sign-in cannot be started there.",
+      "signInsInProgress": [],
+      "active": {
+        "accountEmail": "account-c@example.com",
+        "canRenewNow": false,
+        "renewNowText": "The Director on the-mac is not connected, so a sign-in cannot be started there."
+      },
+      "spares": []
+    },
+    {
+      "machineName": "the-windows-machine",
+      "canAddSpare": true,
+      "addSpareText": "Signs the-windows-machine in to another account, to be held there as a spare.",
+      "signInsInProgress": [
+        {
+          "signInId": "501d61535066417d966ef172151b00bc",
+          "accountEmail": "account-a@example.com",
+          "text": "the-windows-machine is renewing its sign-in for account-a@example.com."
+        }
+      ],
+      "active": {
+        "accountEmail": "account-a@example.com",
+        "canRenewNow": false,
+        "renewNowText": "A sign-in for account-a@example.com on the-windows-machine is already running."
+      },
+      "spares": [
+        {
+          "accountEmail": "account-b@example.com",
+          "canRenewNow": true,
+          "renewNowText": "Signs the-windows-machine in to account-b@example.com again, replacing the sign-in it holds."
+        }
+      ]
+    }
+  ]
+}
+```
+
+### 7.7 What the page does not see
+
+When a machine has no browser profile of its own for an account, its Director asks the Gateway to have the sign-in
+approved on the approver set in 7.2 (the hub method `RequestLicenseApproval`). The Gateway passes the request to the
+approving machine's Director and passes the answer back; nothing of it is stored and no route shows it. The page sees
+only its result: the sign-in's row ends `added` or `renewed`, or `failed` with `no-approver` (none is set for the
+account), `approver-offline` (the approving machine has no Director connected) or the reason the approving machine
+gave.
+
+The owner's email for a renewal that keeps failing (contract section 8.1) is not part of this section; it follows in
+its own pull request.

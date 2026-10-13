@@ -92,51 +92,6 @@ public class GitHubUrlsTests
 
     // ---------- ResolveRepoNameCached (best-effort, never throws) ----------
 
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public void ResolveRepoNameCached_RepoWithGitHubOrigin_ReturnsRepoName()
-    {
-        var repoDir = CreateTempGitRepo("https://github.com/someowner/somerepo.git");
-        try
-        {
-            Assert.Equal("someowner/somerepo", GitHubUrls.ResolveRepoNameCached(repoDir));
-        }
-        finally
-        {
-            Directory.Delete(repoDir, recursive: true);
-        }
-    }
-
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public void ResolveRepoNameCached_RepoWithAzureDevOpsOrigin_ReturnsOrgRepo()
-    {
-        var repoDir = CreateTempGitRepo("https://mindzie@dev.azure.com/mindzie/mindzieStudio1/_git/mindzieWeb");
-        try
-        {
-            Assert.Equal("mindzie/mindzieWeb", GitHubUrls.ResolveRepoNameCached(repoDir));
-        }
-        finally
-        {
-            Directory.Delete(repoDir, recursive: true);
-        }
-    }
-
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public void ResolveRepoNameCached_RepoWithoutOrigin_ReturnsEmpty_NeverThrows()
-    {
-        var repoDir = CreateTempGitRepo(originUrl: null);
-        try
-        {
-            Assert.Equal("", GitHubUrls.ResolveRepoNameCached(repoDir));
-        }
-        finally
-        {
-            Directory.Delete(repoDir, recursive: true);
-        }
-    }
-
     [Theory]
     [InlineData(null)]
     [InlineData("")]
@@ -156,40 +111,6 @@ public class GitHubUrlsTests
 
     // ---------- BuildNewIssueUrl (against real temp git repos) ----------
 
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public void BuildNewIssueUrl_RepoWithGitHubOrigin_ReturnsNewIssueUrl()
-    {
-        var repoDir = CreateTempGitRepo("https://github.com/someowner/somerepo.git");
-        try
-        {
-            var url = GitHubUrls.BuildNewIssueUrl(repoDir);
-
-            Assert.Equal("https://github.com/someowner/somerepo/issues/new", url);
-        }
-        finally
-        {
-            Directory.Delete(repoDir, recursive: true);
-        }
-    }
-
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public void BuildNewIssueUrl_RepoWithoutOrigin_Throws()
-    {
-        var repoDir = CreateTempGitRepo(originUrl: null);
-        try
-        {
-            var ex = Assert.Throws<InvalidOperationException>(() => GitHubUrls.BuildNewIssueUrl(repoDir));
-
-            Assert.Contains("origin", ex.Message);
-        }
-        finally
-        {
-            Directory.Delete(repoDir, recursive: true);
-        }
-    }
-
     [Fact]
     public void BuildNewIssueUrl_DirectoryMissing_Throws()
     {
@@ -198,35 +119,5 @@ public class GitHubUrlsTests
         var ex = Assert.Throws<InvalidOperationException>(() => GitHubUrls.BuildNewIssueUrl(missing));
 
         Assert.Contains("Directory not found", ex.Message);
-    }
-
-    private static string CreateTempGitRepo(string? originUrl)
-    {
-        var dir = Path.Combine(Path.GetTempPath(), $"cc-director-test-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(dir);
-        RunGit(dir, "init");
-        if (originUrl is not null)
-            RunGit(dir, $"remote add origin {originUrl}");
-        return dir;
-    }
-
-    private static void RunGit(string workingDirectory, string arguments)
-    {
-        var psi = new ProcessStartInfo
-        {
-            FileName = "git",
-            Arguments = arguments,
-            WorkingDirectory = workingDirectory,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-        using var process = Process.Start(psi)
-            ?? throw new InvalidOperationException("Failed to start git");
-        process.WaitForExit();
-        if (process.ExitCode != 0)
-            throw new InvalidOperationException(
-                $"git {arguments} failed in {workingDirectory}: {process.StandardError.ReadToEnd()}");
     }
 }

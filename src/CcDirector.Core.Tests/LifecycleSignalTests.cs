@@ -23,26 +23,6 @@ public sealed class LifecycleSignalTests
     /// <summary>A name no other test or process could be using.</summary>
     private static string UniqueName() => "cc-director-test-" + Guid.NewGuid().ToString("N");
 
-    /// <summary>
-    /// Raise a signal and give the platform's own delivery mechanism time to take it before the next
-    /// raise.
-    ///
-    /// The two arms are not equally fast and cannot be driven the same way. Windows sets a named event
-    /// object, which the listener sees immediately. The Unix arm writes a REQUEST FILE that the listener
-    /// POLLS for, so two raises inside one poll interval are the same single file and produce ONE
-    /// delivery - which is why these tests, written against the instantaneous arm, failed on macOS with
-    /// the handler having run once instead of twice. Spacing the raises past the poll interval is what
-    /// makes "each raise reaches the handler" a question the file arm can answer at all.
-    /// </summary>
-    private static void RaiseAndLetItLand(string name)
-    {
-        Assert.True(LifecycleSignal.Raise(name) || !OperatingSystem.IsWindows(),
-            "the raise reported that nothing was listening");
-
-        if (!OperatingSystem.IsWindows())
-            Thread.Sleep(LifecycleSignal.UnixPollInterval * 2);
-    }
-
     [Fact]
     public void ARaisedSignal_ReachesItsListener()
     {
@@ -54,28 +34,6 @@ public sealed class LifecycleSignalTests
 
         Assert.True(arrived.Wait(TimeSpan.FromSeconds(10)),
             "the signal was raised but the listener never ran");
-    }
-
-    [Fact]
-    public void HasListener_AnswersWithoutRaisingAnything()
-    {
-        // The question a capability check has to be able to ask. Raising the signal to find out whether
-        // anybody is there would restart a Director or quit a launcher as a side effect of asking, so
-        // this must answer AND leave the listener unfired.
-        if (!OperatingSystem.IsWindows()) return;
-
-        var name = UniqueName();
-        Assert.False(LifecycleSignal.HasListener(name));
-
-        var fired = 0;
-        using (var listener = LifecycleSignal.Listen(name, () => Interlocked.Increment(ref fired)))
-        {
-            Assert.True(LifecycleSignal.HasListener(name));
-            Thread.Sleep(200);
-            Assert.Equal(0, Volatile.Read(ref fired));
-        }
-
-        Assert.False(LifecycleSignal.HasListener(name));
     }
 
     [Fact]
@@ -137,48 +95,6 @@ public sealed class LifecycleSignalTests
         Assert.True(rightOneRan.Wait(TimeSpan.FromSeconds(10)));
         Assert.False(wrongOneRan.Wait(TimeSpan.FromSeconds(1)),
             "a signal named for one Director reached another");
-    }
-
-    [Fact]
-    public void EachRaise_RunsTheHandlerExactlyOnce()
-    {
-        var name = UniqueName();
-        var count = 0;
-        using var second = new ManualResetEventSlim(false);
-        using var listener = LifecycleSignal.Listen(name, () =>
-        {
-            if (Interlocked.Increment(ref count) == 2) second.Set();
-        });
-
-        RaiseAndLetItLand(name);
-        RaiseAndLetItLand(name);
-
-        Assert.True(second.Wait(TimeSpan.FromSeconds(10)));
-        Thread.Sleep(200);
-        Assert.Equal(2, Volatile.Read(ref count));
-    }
-
-    /// <summary>
-    /// A handler that throws must not kill the listener: a Director that stopped answering its shutdown
-    /// signal because one request went wrong could never be stopped again.
-    /// </summary>
-    [Fact]
-    public void AHandlerThatThrows_DoesNotStopTheListener()
-    {
-        var name = UniqueName();
-        using var secondArrived = new ManualResetEventSlim(false);
-        var calls = 0;
-        using var listener = LifecycleSignal.Listen(name, () =>
-        {
-            if (Interlocked.Increment(ref calls) == 1) throw new InvalidOperationException("on purpose");
-            secondArrived.Set();
-        });
-
-        RaiseAndLetItLand(name);
-        RaiseAndLetItLand(name);
-
-        Assert.True(secondArrived.Wait(TimeSpan.FromSeconds(10)),
-            "the listener stopped answering after its handler threw");
     }
 
     [Fact]

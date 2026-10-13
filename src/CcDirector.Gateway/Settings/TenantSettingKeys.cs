@@ -321,6 +321,14 @@ public static class TenantSettingKeys
     /// </summary>
     public const string FactoryManagerEarlierSessionIds = "factory_manager_earlier_session_ids";
 
+    /// <summary>
+    /// WHICH MACHINE AND BROWSER PROFILE APPROVE THE SIGN-INS OF EACH CLAUDE ACCOUNT (the License Switching mission,
+    /// contract section 8.3), as one JSON list of account email, machine name, operating system user and browser
+    /// profile. The owner sets it on the Licenses page; no row means no approver is set for any account. It is read
+    /// and written only by <c>Licenses.LicenseApproverStore</c>, and it never holds anything from a sign-in.
+    /// </summary>
+    public const string LicenseApprovers = "license_approvers";
+
     /// <summary>Every key this resolver serves, for validation and enumeration.</summary>
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -342,5 +350,6 @@ public static class TenantSettingKeys
         GatewayInstanceId,
         DemoMode,
         FactoryEmailEnabled,
+        LicenseApprovers,
     };
 }

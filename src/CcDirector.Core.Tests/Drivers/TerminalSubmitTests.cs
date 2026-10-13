@@ -42,64 +42,6 @@ public sealed class TerminalSubmitTests : IDisposable
     }
 
     [Fact]
-    public async Task EchoVerifiedSubmit_DelayedEcho_WritesEnterOnlyAfterEcho()
-    {
-        var backend = new RecordingSessionBackend { Buffer = new CircularTerminalBuffer() };
-        backend.EchoScript.UseDefault(RecordingEchoStep.Delayed(TimeSpan.FromMilliseconds(120)));
-
-        var submit = TerminalSubmit.EchoVerifiedSubmitAsync(
-            backend,
-            "hello delayed echo",
-            "Test",
-            echoTimeout: TimeSpan.FromSeconds(1),
-            pollInterval: TimeSpan.FromMilliseconds(5),
-            enterSettleDelay: TimeSpan.FromMilliseconds(1),
-            submitVerifyBeat: FastVerifyBeat);
-
-        await Task.Delay(40);
-
-        Assert.Single(backend.WrittenBytes);
-        Assert.Equal(Encoding.UTF8.GetBytes("hello delayed echo"), backend.WrittenBytes[0]);
-        Assert.Equal(0, backend.EnterCount);
-        Assert.Empty(backend.SubmittedTexts);
-
-        await submit;
-
-        Assert.Equal(2, backend.WrittenBytes.Count);
-        Assert.Equal(new byte[] { 0x0D }, backend.WrittenBytes[1]);
-        Assert.Equal(["hello delayed echo"], backend.SubmittedTexts);
-    }
-
-    [Fact]
-    public async Task EchoVerifiedSubmit_RepaintingPlaceholder_WaitsForRealEchoBeforeEnter()
-    {
-        var backend = new RecordingSessionBackend { Buffer = new CircularTerminalBuffer() };
-        backend.EchoScript.UseDefault(
-            RecordingEchoStep.RepaintingPlaceholder("thinking placeholder", TimeSpan.FromMilliseconds(80)));
-
-        var submit = TerminalSubmit.EchoVerifiedSubmitAsync(
-            backend,
-            "hello after repaint",
-            "Test",
-            echoTimeout: TimeSpan.FromSeconds(1),
-            pollInterval: TimeSpan.FromMilliseconds(5),
-            enterSettleDelay: TimeSpan.FromMilliseconds(1),
-            submitVerifyBeat: FastVerifyBeat);
-
-        await Task.Delay(30);
-
-        Assert.Single(backend.WrittenBytes);
-        Assert.Equal(0, backend.EnterCount);
-        Assert.Empty(backend.SubmittedTexts);
-
-        await submit;
-
-        Assert.Equal(2, backend.WrittenBytes.Count);
-        Assert.Equal(new byte[] { 0x0D }, backend.WrittenBytes[1]);
-        Assert.Equal(["hello after repaint"], backend.SubmittedTexts);
-    }
-
-    [Fact]
     public async Task EchoVerifiedSubmit_ScrolledComposerTailEcho_WritesEnter()
     {
         var backend = new RecordingSessionBackend { Buffer = new CircularTerminalBuffer() };

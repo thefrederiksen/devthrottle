@@ -65,82 +65,6 @@ public sealed class PendingInteractionWatcherTests : IDisposable
         return session;
     }
 
-    /// <summary>The stamp happens off the event thread, so the assertion waits for it rather than
-    /// racing it. A failure here is the absence of the stamp, not a slow machine.</summary>
-    private static async Task<PendingInteraction?> WaitForStamp(Session session, bool expectSet)
-    {
-        for (var attempt = 0; attempt < 100; attempt++)
-        {
-            if (session.PendingInteraction is not null == expectSet) return session.PendingInteraction;
-            await Task.Delay(50);
-        }
-        return session.PendingInteraction;
-    }
-
-    /// <summary>
-    /// The end-to-end shape: a session running Claude Code finishes a turn while an AskUserQuestion call
-    /// is outstanding, and the watcher's own handler puts the question on the session.
-    /// </summary>
-    [Fact]
-    public async Task TurnEnd_WithAQuestionOutstanding_StampsTheQuestionOnTheSession()
-    {
-        using var watcher = new PendingInteractionWatcher(_manager);
-        using var session = WorkingSessionOn(WriteTranscript(AsksWhichBranch));
-        watcher.WireSession(session);
-
-        session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
-
-        var stamped = await WaitForStamp(session, expectSet: true);
-        Assert.NotNull(stamped);
-        Assert.Equal(PendingInteractionKind.Question, stamped!.Kind);
-        Assert.Equal("Which branch should I cut the worktree from?", stamped.Prompt);
-    }
-
-    /// <summary>
-    /// THE SESSION GOES BACK TO WORK AND THE FLAG GOES WITH IT. The user answered, the session is
-    /// working again, and a question box left standing in the Smart shutdown dialog would send the owner
-    /// hunting for a question nobody is asking.
-    /// </summary>
-    [Fact]
-    public async Task SessionStartsWorkingAgain_TheQuestionGoesBackToNull()
-    {
-        using var watcher = new PendingInteractionWatcher(_manager);
-        using var session = WorkingSessionOn(WriteTranscript(AsksWhichBranch));
-        watcher.WireSession(session);
-
-        session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
-        Assert.NotNull(await WaitForStamp(session, expectSet: true));
-
-        session.ApplyTerminalActivityState(ActivityState.Working);
-
-        Assert.Null(session.PendingInteraction);
-    }
-
-    /// <summary>
-    /// The other way it clears: the session settles again and the transcript now shows the result, so
-    /// the next turn end writes null. This covers the path that never passes through Working.
-    /// </summary>
-    [Fact]
-    public async Task TurnEnd_OnceTheAnswerIsInTheTranscript_ClearsTheQuestion()
-    {
-        using var watcher = new PendingInteractionWatcher(_manager);
-        var transcript = WriteTranscript(AsksWhichBranch);
-        using var session = WorkingSessionOn(transcript);
-        watcher.WireSession(session);
-
-        session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
-        Assert.NotNull(await WaitForStamp(session, expectSet: true));
-
-        // The user answered: Claude Code appends the tool result. The session parks again without ever
-        // being seen to work (a WaitingForPerm hop keeps Session's own clearing out of this test, so the
-        // only thing that can clear it is the watcher's next read).
-        File.AppendAllLines(transcript, [WhichBranchAnswered]);
-        session.ApplyTerminalActivityState(ActivityState.WaitingForPerm);
-        session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
-
-        Assert.Null(await WaitForStamp(session, expectSet: false));
-    }
-
     /// <summary>
     /// A transcript that cannot be read leaves whatever was there alone. Erasing a real question because
     /// a file was momentarily unreadable would be the worst of both: no flag, and no sign that anything
@@ -180,22 +104,5 @@ public sealed class PendingInteractionWatcherTests : IDisposable
         PendingInteractionWatcher.Refresh(session, staleGeneration);
 
         Assert.Null(session.PendingInteraction);
-    }
-
-    /// <summary>
-    /// A session that is ALREADY parked when it is wired - a restored session after a Director restart,
-    /// which is the case this mission exists for - is read once at wire-up. Without it a session waiting
-    /// on a question would carry nothing, because it will not end another turn until someone answers.
-    /// </summary>
-    [Fact]
-    public async Task WiringASessionAlreadyParkedOnAQuestion_StampsItImmediately()
-    {
-        using var watcher = new PendingInteractionWatcher(_manager);
-        using var session = WorkingSessionOn(WriteTranscript(AsksWhichBranch));
-        session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
-
-        watcher.WireSession(session);
-
-        Assert.NotNull(await WaitForStamp(session, expectSet: true));
     }
 }

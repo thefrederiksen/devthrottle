@@ -23,6 +23,10 @@ public interface ISessionNamingEnvironment
     /// switched off.</summary>
     bool JudgeEnabled(TenantId tenant);
 
+    /// <summary>Whether the Wingman is on the session owner's plan (Pricing Change mission, B1). Naming is a Wingman
+    /// model call, so a plan without it names nothing.</summary>
+    NarrationPlan PlanForNarration(TenantId tenant, string sid);
+
     /// <summary>The session's conversation read LIVE from its Director over the tunnel (the <c>turns</c> verb). The
     /// Gateway's stored copy arrives by push and can lag the moment the user presses Enter, so the namer reads the
     /// source. Null when the Director cannot be reached.</summary>
@@ -115,6 +119,13 @@ public sealed class SessionNamingService
         try
         {
             if (!_env.JudgeEnabled(tenant)) return null;
+            // Not on the plan, or the plan could not be read: nothing is asked, and the session is not settled, so a
+            // later Working edge asks again (an account that subscribes gets its sessions named from then on).
+            if (_env.PlanForNarration(tenant, sessionId) != NarrationPlan.Allowed)
+            {
+                FileLog.Write($"[SessionNamingService] the Wingman is not on the plan for sid={sessionId} tenant={tenant.ToLogString()} - no naming call");
+                return null;
+            }
             var state = _env.ReadSessionState(tenant, sessionId);
             if (state.Held || state.Facts is not { } facts) return null;
             if (!IsUnnamed(facts) || !IsNameableAgent(facts) || !IsStartedByAPerson(facts))

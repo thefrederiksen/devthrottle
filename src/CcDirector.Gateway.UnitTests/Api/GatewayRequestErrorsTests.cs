@@ -217,7 +217,7 @@ public sealed class GatewayRequestErrorsTests : IAsyncDisposable
         await StartAsync(
             app => GatewayEndpoints.Map(app, false, registry, version: "test", token: "test-token",
                 tenantBoundary: new HostedTenantBoundary(new AsyncLocalTenantContext(), new DeviceRegistry(), hosted: false),
-                sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown),
+                aiGate: CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown),
             beforeRouting: app => app.Use(async (ctx, next) =>
             {
                 ctx.Items[AuthMiddleware.AuthenticatedSessionItemKey] =

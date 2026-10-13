@@ -157,7 +157,7 @@ public sealed class HostedNetworkDiagEndpointTests
                         new CcDirector.Core.Tenancy.AsyncLocalTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: hosted)
                     : new CcDirector.Gateway.Tenancy.HostedTenantBoundary(
                         new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: hosted),
-                collectNetworkDiagnostic: collectNetworkDiagnostic, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown);
+                collectNetworkDiagnostic: collectNetworkDiagnostic, aiGate: CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown);
             await app.StartAsync();
             var port = BoundPort.Of(app);
             started = true;

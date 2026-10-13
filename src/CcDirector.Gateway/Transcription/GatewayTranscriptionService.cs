@@ -3,6 +3,7 @@ using CcDirector.Core;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Dictation;
 using CcDirector.Core.Dictation.Models;
+using CcDirector.Core.HostedAi;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Transcription;
 using CcDirector.Core.Utilities;
@@ -46,6 +47,10 @@ public sealed class GatewayTranscriptionService
     private readonly IAudioTranscoder? _transcoder;
     private readonly TranscriptStore? _transcripts;
 
+    /// <summary>Whether the tenant's plan includes dictation (Pricing Change mission, B1). Asked before every
+    /// transcription and every dictation-judge call; on a self-hosted Gateway it allows everything.</summary>
+    private readonly Tenancy.TenantAiGate _aiGate;
+
     /// <param name="vault">The Gateway key vault - the single store for the transcription key.</param>
     /// <param name="dictionaryProvider">Supplies the live dictation dictionary the corrector uses FOR
     /// A GIVEN TENANT; invoked fresh per cleanup so a glossary edit takes effect on the next
@@ -67,6 +72,9 @@ public sealed class GatewayTranscriptionService
     /// <param name="audioArchive">Rolling archive of the audio behind each turn. REQUIRED: the archive carries the
     /// deployment mode it writes under (on hosted it writes nothing), and this service cannot build one without knowing
     /// that mode, so the owner - the host, or a mapper that knows its mode - constructs it and passes it in.</param>
+    /// <param name="aiGate">Whether a tenant's plan includes dictation. REQUIRED, so no construction site can build a
+    /// service that transcribes for a tenant without asking: the hosted Gateway passes its gate, a self-hosted one
+    /// passes <see cref="Tenancy.TenantAiGate.SelfHost"/>.</param>
     /// <param name="transcripts">The per-tenant transcript store (issue #509). In production the host owns
     /// one instance (over the Gateway database) and passes it here, so every transcribed turn's raw and
     /// cleaned text lands in the caller tenant's partition for later mistranscription mining. When null (tests
@@ -75,6 +83,7 @@ public sealed class GatewayTranscriptionService
     public GatewayTranscriptionService(
         KeyVault vault,
         TranscriptionAudioArchive audioArchive,
+        Tenancy.TenantAiGate aiGate,
         Func<CcDirector.Core.Tenancy.TenantId, DictationDictionary>? dictionaryProvider = null,
         Func<TranscriptionMode>? modeProvider = null,
         HttpClient? http = null,
@@ -90,6 +99,7 @@ public sealed class GatewayTranscriptionService
         _cleanupModel = string.IsNullOrWhiteSpace(cleanupModel) ? CleanupOrchestrator.DefaultModel : cleanupModel;
         _history = history ?? new TranscriptionHistoryLog();
         _audioArchive = audioArchive ?? throw new ArgumentNullException(nameof(audioArchive));
+        _aiGate = aiGate ?? throw new ArgumentNullException(nameof(aiGate));
         _transcoder = transcoder;
         _transcripts = transcripts;
     }
@@ -139,6 +149,18 @@ public sealed class GatewayTranscriptionService
 
         if (routing.Key is null)
             return GatewayTranscriptionResult.NoKey(mode, routing.Endpoint.Model);
+
+        // THE PLAN, BEFORE ANYTHING IS PAID FOR (Pricing Change mission, B1). A plan without dictation is answered
+        // through the existing out-of-credits outcome with the proxy's own subscription_required code, so every
+        // caller that already turns that outcome into its 402 answers this one the same way, and the phone keeps
+        // the recording. A plan that could not be read is a retryable provider failure: no call, and no claim
+        // about the plan.
+        var plan = _aiGate.ForTenant(tenant, Tenancy.EntitlementScopes.Dictation);
+        if (plan.Verdict == Tenancy.TenantAiVerdict.Refused)
+            return GatewayTranscriptionResult.OutOfCredits(mode, routing.Endpoint.Model,
+                HostedAiErrorMapper.SubscriptionRequiredCode, Tenancy.EntitlementRegistry.SubscribeMessage);
+        if (plan.Verdict == Tenancy.TenantAiVerdict.Unknown)
+            return GatewayTranscriptionResult.ProviderError(mode, routing.Endpoint.Model, "the account's plan could not be read; try again shortly");
 
         var turnId = Guid.NewGuid().ToString("N");
 
@@ -301,6 +323,13 @@ public sealed class GatewayTranscriptionService
                 "No transcription method is available: no key is set for the selected transcription mode. "
                 + "Set the key in the Cockpit Settings > Transcription tab.");
 
+        // The plan (Pricing Change mission, B1), answered the way this method already answers a missing key: the
+        // Notes worker records the segment as a failed transcription and tries the job again later, so a member who
+        // subscribes gets the transcript without re-recording. No model call is made.
+        var plan = _aiGate.ForTenant(tenant, Tenancy.EntitlementScopes.Dictation);
+        if (!plan.IsAllowed)
+            throw new Tenancy.TenantAiRefusedException(plan);
+
         return (await TranscribeCoreAsync(routing, audio, fileName, contentType,
             HostedAi.GatewayAiCallTags.For(tenant, CcDirector.Core.HostedAi.AiFeature.Transcription(source)), ct)).Delivered;
     }
@@ -381,10 +410,18 @@ public sealed class GatewayTranscriptionService
         if (dictionary.Vocabulary.Count == 0 && dictionary.CommonMistranscriptions.Count == 0)
             return new CleanupOutcome(raw, Applied: false, Reason: "empty dictionary");
 
+        // The dictation judge is a model call, so it is on the plan (Pricing Change mission, B1). Without it the
+        // corrector runs with no judge - exactly as it does with no deployment credential: the listed corrections
+        // still apply in-process and no unlisted correction is made.
+        var plan = _aiGate.ForTenant(tenant, Tenancy.EntitlementScopes.Dictation);
+        if (!plan.IsAllowed)
+            FileLog.Write($"[GatewayTranscriptionService] cleanup: the dictation judge is not on the plan ({plan.Verdict}) - listed corrections only, no model call");
         var cleanup = new CleanupOrchestrator(
             model: _cleanupModel,
-            judge: DictationJudgeFactory.FromVault(_vault,
-                HostedAi.GatewayAiCallTags.For(tenant, CcDirector.Core.HostedAi.AiFeature.DictationJudge)),
+            judge: plan.IsAllowed
+                ? DictationJudgeFactory.FromVault(_vault,
+                    HostedAi.GatewayAiCallTags.For(tenant, CcDirector.Core.HostedAi.AiFeature.DictationJudge))
+                : null,
             mode: DictationJudgeMode.Current);
         var outcome = await cleanup.CleanAsync(raw, dictionary, "default", ct);
         FileLog.Write($"[GatewayTranscriptionService] cleanup: applied={outcome.Applied}, changed={outcome.ChangedWords.Count}, reason=\"{outcome.Reason}\"");

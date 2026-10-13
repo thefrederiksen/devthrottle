@@ -604,6 +604,13 @@ public sealed class EntitlementRegistry
     /// decided in <see cref="EntitlementScopes"/>: the same scopes as Pro.
     /// </summary>
     public const string TierTeam = "team";
+
+    /// <summary>
+    /// The REMOTE plan tier (Pricing Change mission, decision D3): the hosted Gateway, the Cockpit and the phone app,
+    /// and none of the artificial-intelligence features - no dictation, no text to speech, no Wingman. Written by the
+    /// payment side when a member buys the Remote plan. What it grants is decided in <see cref="EntitlementScopes"/>.
+    /// </summary>
+    public const string TierRemote = "remote";
 }
 
 /// <summary>

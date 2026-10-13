@@ -66,7 +66,7 @@ public sealed class GatewayTranscriptionServiceTranscriptStoreTests : IDisposabl
             new KeyVault(_vaultPath),
             http: new HttpClient(new StatusHandler(HttpStatusCode.OK, "{\"text\":\"" + okText + "\"}")),
             audioArchive: new TranscriptionAudioArchive(false, Path.Combine(_root, "archive-scratch")),
-            transcripts: transcripts);
+            transcripts: transcripts, aiGate: CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost);
 
     [Fact]
     public async Task Transcribe_WithResolvedTenant_LandsOneRowUnderThatTenant()
@@ -127,7 +127,7 @@ public sealed class GatewayTranscriptionServiceTranscriptStoreTests : IDisposabl
             new KeyVault(_vaultPath),
             http: new HttpClient(new StatusHandler(HttpStatusCode.PaymentRequired, body)),
             audioArchive: new TranscriptionAudioArchive(false, Path.Combine(_root, "archive-scratch")),
-            transcripts: store);
+            transcripts: store, aiGate: CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost);
 
         var result = await service.TranscribeAsync(
             new byte[] { 1, 2, 3 }, "clip.webm", "audio/webm", applyCorrection: false, CancellationToken.None,
@@ -175,7 +175,7 @@ public sealed class GatewayTranscriptionServiceTranscriptStoreTests : IDisposabl
             new KeyVault(_vaultPath),
             http: new HttpClient(new StatusHandler(HttpStatusCode.OK, body)),
             audioArchive: new TranscriptionAudioArchive(false, Path.Combine(_root, "archive-scratch")),
-            transcripts: store);
+            transcripts: store, aiGate: CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost);
 
         var result = await service.TranscribeAsync(
             audio, "clip.wav", "audio/wav", applyCorrection: false, CancellationToken.None,

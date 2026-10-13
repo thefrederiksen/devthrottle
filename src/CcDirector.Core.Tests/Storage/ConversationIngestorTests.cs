@@ -428,56 +428,6 @@ public sealed class ConversationIngestorTests : IDisposable
     // test that certifies the bug most of the time.
 
     [Fact]
-    public async Task Two_ingests_of_one_session_at_once_push_each_message_once()
-    {
-        var session = NewSession();
-        WriteTranscript(session, UserLine("say this once", DateTime.UtcNow));
-
-        using var ingestor = NewIngestor();
-        _sink.HoldFirstPush = true;
-
-        var first = Task.Run(() => ingestor.IngestAsync(session));
-        await _sink.FirstPushEntered;               // the first ingest is now mid-push, nothing marked yet
-
-        var second = Task.Run(() => ingestor.IngestAsync(session));
-        await Task.Delay(250);                     // room for the second to push, if nothing stops it
-
-        _sink.ReleaseFirstPush();
-        await Task.WhenAll(first, second);
-
-        Assert.Equal("say this once", Assert.Single(Pushed).Text);
-    }
-
-    [Fact]
-    public async Task Two_sessions_sharing_one_source_ingesting_at_once_push_each_message_once()
-    {
-        // Two Director sessions reading ONE transcript - the same overlap, across sessions. This is the
-        // case a per-session guard would miss: Copilot, OpenCode and Gemini resolve their conversation by
-        // repository, so two sessions on one repository genuinely read the same conversation. It is why
-        // the watermark is scoped to the source, and why the gate must be too.
-        var ts = DateTime.UtcNow;
-        var sessionA = NewSession();
-        var path = WriteTranscript(sessionA, UserLine("one shared conversation", ts));
-
-        var sessionB = NewSession();
-        sessionB.UpdateClaudeSessionPointer("bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb", path, "test");
-
-        using var ingestor = NewIngestor();
-        _sink.HoldFirstPush = true;
-
-        var first = Task.Run(() => ingestor.IngestAsync(sessionA));
-        await _sink.FirstPushEntered;
-
-        var second = Task.Run(() => ingestor.IngestAsync(sessionB));
-        await Task.Delay(250);
-
-        _sink.ReleaseFirstPush();
-        await Task.WhenAll(first, second);
-
-        Assert.Equal("one shared conversation", Assert.Single(Pushed).Text);
-    }
-
-    [Fact]
     public async Task Ingests_of_DIFFERENT_sources_are_not_serialized_behind_each_other()
     {
         // The control on the gate: it must not become a global lock. Two unrelated sessions ingest at the

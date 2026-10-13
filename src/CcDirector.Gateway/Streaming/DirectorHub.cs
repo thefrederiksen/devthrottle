@@ -34,6 +34,9 @@ public sealed class DirectorHub : Hub
     private const string TeamKeyHolderItemKey = "cc.teamKeyHolder";
     /// <summary>Set on a connection once its turn watermarks have been handed to the Director.</summary>
     private const string TurnWatermarksHandedItemKey = "cc.turnWatermarksHanded";
+    // The public half this connection's Director said in its latest Hello for receiving a sealed value. A sign-in
+    // approved on another machine is sealed to it (License Switching, contract section 8.3).
+    private const string SealToRecipientItemKey = "cc.sealToRecipient";
 
     private readonly PushedSessionStore _store;
     private readonly DirectorRegistry _registry;
@@ -84,10 +87,12 @@ public sealed class DirectorHub : Hub
         Teams.TeamCallerOwnership? teamOwnership = null,
         Secrets.SecretMachineRegistry? secretMachines = null,
         Licenses.LicenseUsageIngest? licenseUsage = null,
-        Licenses.LicenseGatewayClock? licenseClock = null)
+        Licenses.LicenseGatewayClock? licenseClock = null,
+        Licenses.LicenseApprovalRelay? licenseApprovals = null)
     {
         _secretMachines = secretMachines;
         _licenseUsage = licenseUsage;
+        _licenseApprovals = licenseApprovals;
         // A license ingest with no clock would take its reports at one time while the check judges them at another.
         if (licenseUsage is not null && licenseClock is null)
             throw new ArgumentNullException(nameof(licenseClock), "A license ingest needs the Gateway's license clock.");
@@ -176,6 +181,41 @@ public sealed class DirectorHub : Hub
 
     /// <summary>The clock a usage report is taken at - the same one the minute check decides by. Set whenever the ingest is.</summary>
     private readonly Licenses.LicenseGatewayClock? _licenseClock;
+
+    /// <summary>License Switching: has a sign-in approved on the machine the owner set for its account. Null (older
+    /// callers, tests that do not exercise it): Hello does not offer RequestLicenseApproval, and a request that arrives
+    /// anyway is refused.</summary>
+    private readonly Licenses.LicenseApprovalRelay? _licenseApprovals;
+
+    /// <summary>
+    /// License Switching (missions/license-switching/contract.md section 8.3): the bound Director asks to have a
+    /// sign-in approved on another machine. RETURNS AT ONCE - this hub runs one invocation at a time for each Director,
+    /// so nothing here waits for the approving machine; the answer arrives later as the <c>license-approval-result</c>
+    /// command. Refused before Hello; the tenant and the Director are the connection's binding, never the request's;
+    /// and the key the approval is sealed to is the one this Director said in its own Hello. A request that is not
+    /// taken fails this call - an identifier that is not one, an account that is not an email, an address that is
+    /// missing or too long, or one more than the account may have in flight - and the Gateway keeps nothing for it.
+    /// The request is never logged: it carries the address the sign-in is approved at.
+    /// </summary>
+    public void RequestLicenseApproval(LicenseApprovalRequest request)
+    {
+        var directorId = RequireBoundDirector();
+        var tenant = RequireBoundTenant();
+        if (_licenseApprovals is null)
+        {
+            FileLog.Write($"[DirectorHub] RequestLicenseApproval: this Gateway relays no approvals, refused: director={directorId}");
+            throw new HubException("This Gateway does not relay license approvals.");
+        }
+        try
+        {
+            _licenseApprovals.Accept(tenant, directorId, Context.Items[SealToRecipientItemKey] as string, request);
+        }
+        catch (Exception ex) when (ex is ArgumentException or Licenses.LicenseApprovalsBusyException)
+        {
+            // The relay's own sentence, which quotes nothing of the request.
+            throw new HubException(ex.Message);
+        }
+    }
 
     /// <summary>
     /// License Switching (missions/license-switching/contract.md section 2.1): the bound Director's complete snapshot of
@@ -442,6 +482,9 @@ public sealed class DirectorHub : Hub
         _fleetManagerHomeCapabilities?.Record(tenant, directorId, hello.CreatesFleetManagerHome, hello.ChangesOwnerIfExpected);
         _secretMachines?.Record(tenant, directorId, hello.MachineName, hello.SecretTransferPublicKey, DateTime.UtcNow,
             registeringCredential);
+        // Kept against the CONNECTION, from every Hello: an approval for this Director's sign-in is sealed to the key
+        // the Director itself said, and to nothing a request could name.
+        Context.Items[SealToRecipientItemKey] = hello.SecretTransferPublicKey;
         FileLog.Write($"[DirectorHub] Hello: director={directorId} bound to conn={Short(Context.ConnectionId)} (version={hello.Version}, machine={hello.MachineName})");
         return CapabilitiesFor(tenant, directorId);
     }
@@ -460,6 +503,10 @@ public sealed class DirectorHub : Hub
         var methods = _licenseUsage is null
             ? shared.HubMethods.Where(m => m != LicenseContract.PushUsageHubMethod).ToList()
             : shared.HubMethods;
+        // The same for the approval relay: a Director told it may ask for an approval on another machine starts a
+        // sign-in that waits for one, so a Gateway that cannot relay must not offer it (contract section 6 rule 5).
+        if (_licenseApprovals is null)
+            methods = methods.Where(m => m != LicenseContract.RequestApprovalHubMethod).ToList();
         var answer = new GatewayCapabilities { Version = shared.Version, Commit = shared.Commit, HubMethods = methods };
         if (_sessionTurns is null) return answer;
         // ONCE PER CONNECTION (devthrottle_internal#2199). A Director sends Hello on every re-push - every ten

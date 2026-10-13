@@ -327,6 +327,7 @@ public sealed class DictationExitedSessionTests : IDisposable
     /// dependency that would otherwise resolve a shared location is supplied explicitly.</summary>
     private GatewayTranscriptionService Transcription() => new(
         new KeyVault(_vaultPath),
+        aiGate: CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost,
         dictionaryProvider: _ => DictationDictionary.Empty,
         modeProvider: () => TranscriptionMode.DevThrottle,
         http: new HttpClient(_handler, disposeHandler: false),

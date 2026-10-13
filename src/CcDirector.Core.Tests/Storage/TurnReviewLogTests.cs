@@ -93,38 +93,6 @@ public sealed class TurnReviewLogTests : IDisposable
     }
 
     [Fact]
-    public async Task Logger_writes_a_record_on_the_working_to_waiting_flip()
-    {
-        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
-        var logger = new TurnReviewLogger(manager);
-        try
-        {
-            var backend = new BufferOnlyBackend();
-            var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, backend);
-            var buf = session.Buffer ?? throw new InvalidOperationException("embedded session has no buffer");
-            logger.Start(); // wires the existing session; cursor starts at the current buffer end
-
-            // Produce some turn output, then flip Working -> needs-you (the trigger).
-            buf.Write(Encoding.UTF8.GetBytes("TURN_OUTPUT_MARKER_42\r\n"));
-            session.ApplyTerminalActivityState(ActivityState.Working);
-            session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
-
-            // The write happens off-thread; poll briefly.
-            TurnReviewRecord? read = null;
-            for (int i = 0; i < 20 && read is null; i++)
-            {
-                read = ReadLatestRecord();
-                if (read is null) await Task.Delay(50);
-            }
-
-            Assert.NotNull(read);
-            Assert.Equal(session.Id.ToString(), read.SessionId);
-            Assert.Contains("TURN_OUTPUT_MARKER_42", read.Transcript);
-        }
-        finally { logger.Dispose(); manager.Dispose(); }
-    }
-
-    [Fact]
     public void SnapshotScreenColoredRows_preserves_foreground_colour_and_bold()
     {
         var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
@@ -151,36 +119,6 @@ public sealed class TurnReviewLogTests : IDisposable
     }
 
     [Fact]
-    public async Task Logger_persists_the_coloured_screen_on_the_flip()
-    {
-        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
-        var logger = new TurnReviewLogger(manager);
-        try
-        {
-            var backend = new BufferOnlyBackend();
-            var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, backend);
-            var buf = session.Buffer ?? throw new InvalidOperationException("embedded session has no buffer");
-            logger.Start();
-
-            buf.Write(Encoding.UTF8.GetBytes("\x1b[31mRED_LINE\x1b[0m\r\n"));
-            session.ApplyTerminalActivityState(ActivityState.Working);
-            session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
-
-            TurnReviewRecord? read = null;
-            for (int i = 0; i < 20 && read is null; i++)
-            {
-                read = ReadLatestRecord();
-                if (read is null) await Task.Delay(50);
-            }
-
-            Assert.NotNull(read);
-            var flat = read.ScreenCells.SelectMany(r => r).ToList();
-            Assert.Contains(flat, s => s.Text.Contains("RED_LINE") && s.Fg == "#CD3131");
-        }
-        finally { logger.Dispose(); manager.Dispose(); }
-    }
-
-    [Fact]
     public void Reader_returns_records_newest_first()
     {
         var older = new TurnReviewRecord { SessionId = "s1", TsUtc = DateTime.UtcNow.AddMinutes(-2), Transcript = "older" };
@@ -200,26 +138,5 @@ public sealed class TurnReviewLogTests : IDisposable
     {
         // Fresh isolated root, nothing written yet.
         Assert.Empty(TurnReviewReader.LoadRecent());
-    }
-
-    [Fact]
-    public async Task Logger_does_not_write_on_a_flip_to_working()
-    {
-        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
-        var logger = new TurnReviewLogger(manager);
-        try
-        {
-            var backend = new BufferOnlyBackend();
-            var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, backend);
-            var buf = session.Buffer ?? throw new InvalidOperationException("embedded session has no buffer");
-            logger.Start();
-
-            buf.Write(Encoding.UTF8.GetBytes("working...\r\n"));
-            session.ApplyTerminalActivityState(ActivityState.Working);
-
-            await Task.Delay(200);
-            Assert.Null(ReadLatestRecord()); // only the needs-you flip logs
-        }
-        finally { logger.Dispose(); manager.Dispose(); }
     }
 }

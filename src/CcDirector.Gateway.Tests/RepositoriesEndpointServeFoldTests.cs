@@ -125,7 +125,7 @@ public sealed class RepositoriesEndpointServeFoldTests
                 // resolves Local - behaviour identical to the null it used to state.
                 tenantBoundary: new CcDirector.Gateway.Tenancy.HostedTenantBoundary(
                     new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: false),
-                pushedRepositories: store, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown);
+                pushedRepositories: store, aiGate: CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown);
             await app.StartAsync();
             var port = BoundPort.Of(app);
             started = true;

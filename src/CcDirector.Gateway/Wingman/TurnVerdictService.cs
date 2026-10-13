@@ -43,9 +43,9 @@ public interface ITurnVerdictEnvironment
     /// <summary>The account's own narration instructions when it has replaced the shipped default, else null.</summary>
     string? CustomSpokenRules();
 
-    /// <summary>Whether this account's plan includes the Wingman's narration (see <see cref="NarrationPlanRule"/>).</summary>
-    /// <summary>Whether the narration of session <paramref name="sid"/>'s stop is on its owner's plan. In a team's
-    /// tenant that is the session's owner's answer there, not the tenant's (devthrottle_internal#2311).</summary>
+    /// <summary>Whether the Wingman - the judgement of session <paramref name="sid"/>'s stop and its narration - is on
+    /// its owner's plan (<see cref="Tenancy.TenantAiGate"/>). In a team's tenant that is the session's owner's answer
+    /// there, not the tenant's (devthrottle_internal#2311).</summary>
     NarrationPlan PlanForNarration(TenantId tenant, string sid);
 
     /// <summary>The model id the judge runs on for this account, recorded on every verdict including a failed one.</summary>
@@ -1243,6 +1243,18 @@ public sealed class TurnVerdictService : IDisposable
         if (trigger is TurnVerdictTrigger.TurnEnd or TurnVerdictTrigger.SnoozeExpiry or TurnVerdictTrigger.Retry
             && !settings.JudgeEnabled && !_env.IsVoiceSession(tenant, sid))
             return Skip(tenant, directorId, sid, trigger, ActivityCauses.JudgeSwitchOff, settings, observedAt);
+
+        // THE PLAN (Pricing Change mission, B1). The judgement is a Wingman model call, so a stop whose owner's plan
+        // does not include the Wingman is not read and not judged - checked here, before the settle wait and before
+        // any read, so a Free or Remote account costs nothing at a stop. A plan that could not be read stands down the
+        // same way and says nothing about the plan; the next stop asks again.
+        switch (_env.PlanForNarration(tenant, sid))
+        {
+            case NarrationPlan.NeedsPro:
+                return Skip(tenant, directorId, sid, trigger, ActivityCauses.NotOnPlan, settings, observedAt);
+            case NarrationPlan.Unknown:
+                return Skip(tenant, directorId, sid, trigger, ActivityCauses.PlanUnknown, settings, observedAt);
+        }
 
         if (trigger == TurnVerdictTrigger.TurnEnd && settings.SettleMs > 0)
             await _env.DelayAsync(TimeSpan.FromMilliseconds(settings.SettleMs), ct).ConfigureAwait(false);
@@ -2519,7 +2531,9 @@ public sealed class TurnVerdictService : IDisposable
     {
         _env.Record(new TurnVerdictRecord(tenant, directorId ?? "", sid, ActivityEventTypes.TurnVerdictSkipped,
             cause, $"trigger={TriggerWord(trigger)}"));
-        if (trigger == TurnVerdictTrigger.TurnEnd && cause != ActivityCauses.JudgeSwitchOff && observedAt is { } stop)
+        // An account whose judging is off, or whose plan has no Wingman, is never traced: those stand down at every stop.
+        if (trigger == TurnVerdictTrigger.TurnEnd && cause is not (ActivityCauses.JudgeSwitchOff or ActivityCauses.NotOnPlan)
+            && observedAt is { } stop)
             TraceStop(tenant, sid, TriggerWord(trigger), TurnVerdictTraceOutcomes.Skipped, stop, settings,
                 colour => NewUnjudgedTrace(sid, directorId, trigger, TurnVerdictTraceOutcomes.Skipped, cause, stop, colour));
         return new TurnVerdictOutcome { Kind = TurnVerdictOutcomeKind.Skipped, SkipCause = cause };

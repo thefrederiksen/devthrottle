@@ -291,6 +291,7 @@ public sealed class DeliveryIdGatewayTests : IDisposable
 
     private GatewayTranscriptionService Transcription() => new(
         new KeyVault(_vaultPath),
+        aiGate: CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost,
         dictionaryProvider: _ => DictationDictionary.Empty,
         modeProvider: () => TranscriptionMode.DevThrottle,
         http: new HttpClient(_handler, disposeHandler: false),

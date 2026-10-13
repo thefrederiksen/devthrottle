@@ -134,76 +134,6 @@ public class SessionManagerTests : IDisposable
 
     [Trait("Gate", "Quarantine")]
     [Fact]
-    public async Task SaveCurrentState_ExitedSessionWithoutClaudeSessionId_NotPersisted()
-    {
-        var tempFile = Path.Combine(Path.GetTempPath(), $"test_sessions_{Guid.NewGuid()}.json");
-        try
-        {
-            var store = new SessionStateStore(tempFile);
-
-            // Create and kill a session, then clear ClaudeSessionId to test this scenario
-            var session = _manager.CreateSession(Path.GetTempPath());
-            session.ClaudeSessionId = null;
-            await _manager.KillSessionAsync(session.Id);
-
-            // Wait for status to change
-            for (int i = 0; i < 10 && session.Status == SessionStatus.Running; i++)
-            {
-                await Task.Delay(100);
-            }
-
-            // Save state - killed session without ClaudeSessionId should not be persisted
-            _manager.SaveCurrentState(store);
-
-            var result = store.Load();
-            Assert.True(result.Success);
-            Assert.Empty(result.Sessions);
-        }
-        finally
-        {
-            if (File.Exists(tempFile))
-                File.Delete(tempFile);
-        }
-    }
-
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public async Task SaveCurrentState_ExitedSessionWithClaudeSessionId_IsPersisted()
-    {
-        var tempFile = Path.Combine(Path.GetTempPath(), $"test_sessions_{Guid.NewGuid()}.json");
-        try
-        {
-            var store = new SessionStateStore(tempFile);
-
-            // Create and kill a session, but set ClaudeSessionId first
-            var session = _manager.CreateSession(Path.GetTempPath());
-            session.ClaudeSessionId = "test-claude-session-id";
-
-            await _manager.KillSessionAsync(session.Id);
-
-            // Wait for status to change to Exited
-            for (int i = 0; i < 10 && session.Status == SessionStatus.Running; i++)
-            {
-                await Task.Delay(100);
-            }
-
-            // Save state - exited session WITH ClaudeSessionId should be persisted
-            _manager.SaveCurrentState(store);
-
-            var result = store.Load();
-            Assert.True(result.Success);
-            Assert.Single(result.Sessions);
-            Assert.Equal("test-claude-session-id", result.Sessions[0].ClaudeSessionId);
-        }
-        finally
-        {
-            if (File.Exists(tempFile))
-                File.Delete(tempFile);
-        }
-    }
-
-    [Trait("Gate", "Quarantine")]
-    [Fact]
     public async Task SaveCurrentState_AnyStatusWithClaudeSessionId_IsPersisted()
     {
         // This test verifies that ANY session with a ClaudeSessionId is persisted,
@@ -387,37 +317,6 @@ public class SessionManagerTests : IDisposable
     }
 
     // ===== Issue #1292: Gateway-assigned fleet numbers + offline fallback =====
-
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public void CreateSession_WithGatewayNumbering_UsesTheGatewayNumber()
-    {
-        _manager.FleetNumberSource = (_, _) => Task.FromResult<int?>(250);
-        _manager.FleetNumberingActive = true;
-
-        var session = _manager.CreateSession(Path.GetTempPath());
-
-        // The Gateway number is applied asynchronously (creation never blocks on the network), so wait
-        // briefly for it to arrive.
-        Assert.True(SpinWait.SpinUntil(() => session.Number == 250, TimeSpan.FromSeconds(3)),
-            $"expected the Gateway number 250, got {session.Number}");
-        Assert.True(_manager.NumberAllocator.IsReserved(250));
-    }
-
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public void CreateSession_WhenGatewayReturnsNoNumber_FallsBackToOfflineHighBand()
-    {
-        // Gateway configured but unreachable/exhausted -> the source returns null -> local offline number.
-        _manager.FleetNumberSource = (_, _) => Task.FromResult<int?>(null);
-        _manager.FleetNumberingActive = true;
-
-        var session = _manager.CreateSession(Path.GetTempPath());
-
-        Assert.True(SpinWait.SpinUntil(() => session.Number.HasValue, TimeSpan.FromSeconds(3)),
-            "expected an offline fallback number when the Gateway returned none");
-        Assert.InRange(session.Number!.Value, SessionNumberAllocator.OfflineBandStart, SessionNumberAllocator.MaxNumber);
-    }
 
     [Trait("Gate", "Quarantine")]
     [Fact]

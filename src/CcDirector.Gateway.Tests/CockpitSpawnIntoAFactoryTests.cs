@@ -91,7 +91,7 @@ public sealed class CockpitSpawnIntoAFactoryTests : IAsyncDisposable
         var boundary = new HostedTenantBoundary(new SingleTenantContext(), new DeviceRegistry(), hosted: false);
         var lookup = callerFactory ?? SessionFactoryLookup.InNoFactory;
         GatewayEndpoints.Map(app, false, _registry, version: "test", token: "test-token",
-            tenantBoundary: boundary, sendCommand: send, sessionFactoryOf: _ => lookup);
+            tenantBoundary: boundary, sendCommand: send, aiGate: CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost, sessionFactoryOf: _ => lookup);
 
         await app.StartAsync();
         _app = app;

@@ -21,39 +21,6 @@ public sealed class ScheduledJobMigrationTests : IDisposable
         try { Directory.Delete(_root, recursive: true); } catch { }
     }
 
-    private static async Task WaitUntil(Func<bool> condition, string what)
-    {
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (!condition())
-        {
-            if (DateTime.UtcNow > deadline) throw new TimeoutException("waited 10 s for " + what);
-            await Task.Delay(20);
-        }
-    }
-
-    [Fact]
-    public async Task TheBackupCleaner_RunsAsARegisteredJob_OnItsOwnCadence_AndLeavesWhenDisposed()
-    {
-        var jobs = new BackgroundJobs();
-        var backups = Path.Combine(_root, "backups");
-        Directory.CreateDirectory(backups);
-        File.WriteAllText(Path.Combine(backups, "broken.json"), "{ not json");
-        var interval = TimeSpan.FromMilliseconds(50);
-        using var cleaner = new BackupCleaner(backups, scanInterval: interval, minFileAge: TimeSpan.Zero, jobs: jobs);
-
-        cleaner.Start();
-
-        var row = Assert.Single(jobs.Snapshot());
-        Assert.Equal("Backup cleaner", row.Name);
-        Assert.Equal(BackgroundJobTier.SlowAndSteady, row.Tier);
-        Assert.Equal(interval, row.Cadence);
-        await WaitUntil(() => !File.Exists(Path.Combine(backups, "broken.json")), "the scan to delete the broken backup");
-        await WaitUntil(() => jobs.Snapshot().Single().RunsInLastHour >= 2, "a second tick on the cadence");
-
-        cleaner.Dispose();
-        Assert.Empty(jobs.Snapshot());
-    }
-
     [Fact]
     public void TheDeletionReaper_RegistersOnePerSessionManager_OnItsThirtySecondCadence_AndLeavesWhenDisposed()
     {

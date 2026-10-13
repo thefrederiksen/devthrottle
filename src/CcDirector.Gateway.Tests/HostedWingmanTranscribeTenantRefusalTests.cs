@@ -293,7 +293,7 @@ public sealed class HostedWingmanTranscribeTenantRefusalTests : IAsyncLifetime
             var tenantSettings = new TenantSettingsResolver(new TenantSettingsStore(settingsData.Open()));
             Func<TenantId, WingmanModelRole, string, CancellationToken, Task<IAgentBrain>> noBrain =
                 (_, _, _, _) => throw new InvalidOperationException("the brain must not be reached by a refused transcribe");
-            var voice = new WingmanVoiceService(noBrain, vault, tenantSettings, hosted: true,
+            var voice = new WingmanVoiceService(noBrain, vault, tenantSettings, hosted: true, CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost,
                 Path.Combine(root, "probe-voice-sessions.json"));
 
             GatewayWingmanVoiceEndpoint.Map(
@@ -303,7 +303,7 @@ public sealed class HostedWingmanTranscribeTenantRefusalTests : IAsyncLifetime
                 vault,
                 voice,
                 tenantSettings,
-                new HostedTenantBoundary(new AsyncLocalTenantContext(), new DeviceRegistry(), hosted: true));
+                new HostedTenantBoundary(new AsyncLocalTenantContext(), new DeviceRegistry(), hosted: true), aiGate: CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost);
 
             await app.StartAsync();
             return new HostedProbe(app, new HttpClient

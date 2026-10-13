@@ -186,6 +186,22 @@ public sealed class TurnVerdictServiceTests : IDisposable
         AssertSkippedBeforeAnything(env, outcome, ActivityCauses.JudgeSwitchOff);
     }
 
+    [Theory]
+    [InlineData(NarrationPlan.NeedsPro, ActivityCauses.NotOnPlan)]
+    [InlineData(NarrationPlan.Unknown, ActivityCauses.PlanUnknown)]
+    public async Task WingmanNotOnThePlan_SkipsTheStopBeforeAnyReadOrModelCall_EvenForAVoiceSession(NarrationPlan plan, string cause)
+    {
+        // Pricing Change mission, B1: the Wingman's judgement is a model call on our meter, so a stop whose owner's plan
+        // does not include the Wingman (Free, Remote) - or whose plan could not be read - is stood down before the
+        // screen is read and before the judge is asked. Unlike the judge switch, a voice session is NOT an exception:
+        // the plan is what was paid for.
+        var env = Env();
+        env.Plan = () => plan;
+        env.VoiceSession = _ => true;
+        var outcome = await new TurnVerdictService(env).StartTurnEnd(Signal());
+        AssertSkippedBeforeAnything(env, outcome, cause);
+    }
+
     [Fact]
     public async Task JudgeSwitchOff_StillJudgesAVoiceSession_BecauseItsNarrationIsTheVerdict()
     {

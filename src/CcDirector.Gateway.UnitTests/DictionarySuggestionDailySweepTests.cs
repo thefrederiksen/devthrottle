@@ -7,6 +7,7 @@ using CcDirector.Gateway.Settings;
 using CcDirector.Gateway.Tenancy;
 using CcDirector.Gateway.Tests.Data;
 using CcDirector.Gateway.Transcription;
+using Microsoft.EntityFrameworkCore;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests;
@@ -124,6 +125,7 @@ public sealed class DictionarySuggestionDailySweepTests
         var sweep = new DictionarySuggestionDailySweep(
             boundary, registry, ctx, service,
             new TenantSettingsResolver(new TenantSettingsStore(h.Open(ctx))),
+            TenantAiGate.SelfHost,
             now: () => clock);
 
         // No stored scan: the first sweep is due immediately and seeds the stored result.
@@ -138,5 +140,93 @@ public sealed class DictionarySuggestionDailySweepTests
         await sweep.SweepAsync();
         Assert.Equal(1, brain.Calls);
         Assert.Equal(stored.ScannedAtUtc, scans.Get(TenantId.Local)!.ScannedAtUtc);
+    }
+
+    /// <summary>
+    /// Review finding 3 (Pricing Change mission, B1). A tenant whose plan has no dictation is due on every tick,
+    /// because its scan marker never moves - so the skip used to be logged every ten minutes, for every such
+    /// tenant, with no end. It is now one line when the skip starts and one when the plan allows the scan again,
+    /// and the scan still runs on the first tick after that.
+    ///
+    /// HOW THIS FAILS ON PURPOSE: log the skip on every tick, or let the gate write its own line for each of the
+    /// sweep's questions, and the count of lines over three refused ticks is three or more instead of one.
+    /// </summary>
+    [Fact]
+    public async Task Sweep_ATenantWithoutDictation_LogsTheSkipOnce_AndScansOnTheFirstTickAfterThePlanAllowsIt()
+    {
+        using var h = new GatewayDbTestHarness();
+        var ambient = new AsyncLocalTenantContext();
+        var db = h.Open(ambient);
+        using (var raw = db.CreateUnscopedContext())
+            raw.Database.ExecuteSqlRaw(
+                "CREATE TABLE IF NOT EXISTS entitlements (" +
+                "subject TEXT NOT NULL PRIMARY KEY, status TEXT NOT NULL, " +
+                "current_period_end TEXT NULL, stripe_subscription_id TEXT NULL, updated_at TEXT NULL, " +
+                "livemode INTEGER NULL, tier TEXT NULL)");
+        var registry = new TenantRegistry(db);
+        var boundary = new HostedTenantBoundary(ambient, new DeviceRegistry(), hosted: true);
+        var tenant = registry.MintOrLookupBySubject("sub-sweep", "sweep@example.com");
+
+        var lines = new List<string>();
+        void Log(string line) { lock (lines) lines.Add(line); }
+        string[] LinesAboutTheTenant() { lock (lines) return lines.Where(l => l.Contains(tenant.ToLogString())).ToArray(); }
+
+        // The production shape: live money required and the trial ledger wired, so an account with no paid row
+        // reads as the free tier.
+        var gate = new TenantAiGate(new EntitlementRegistry(db, requireLivemode: true, trials: new TrialRegistry(db)),
+            registry, log: Log);
+
+        var transcripts = new TranscriptStore(db);
+        var scans = new DictionarySuggestionScanStore(db);
+        var brain = new CountingBrain();
+        var clock = new DateTime(2026, 7, 24, 12, 0, 0, DateTimeKind.Utc);
+        var emptyDict = new DictationDictionary(
+            Array.Empty<string>(), new Dictionary<string, IReadOnlyList<string>>(),
+            new Dictionary<string, DictationProfile> { ["default"] = new("default", true) });
+        using (boundary.EnterScope(tenant))
+        {
+            var i = 0;
+            foreach (var (spelling, times) in new[] { ("mindzie", 44), ("Mindsee", 20), ("Mindsy", 15), ("Mindzee", 12) })
+                for (var n = 0; n < times; n++)
+                    transcripts.Append(tenant, "dictation", $"the {spelling} change", null, false,
+                        turnId: null, nowUtc: clock.AddSeconds(i++));
+        }
+
+        var service = new DictionarySuggestionService(
+            transcripts,
+            new DictionarySuggestionDismissalStore(db),
+            new DictionarySuggestionVerdictStore(db),
+            scans,
+            _ => emptyDict,
+            (_, _) => Task.FromResult<(IAgentBrain, string)>((brain, "stub-model")),
+            now: () => clock);
+        var sweep = new DictionarySuggestionDailySweep(
+            boundary, registry, ambient, service,
+            new TenantSettingsResolver(new TenantSettingsStore(db)),
+            gate,
+            now: () => clock,
+            log: Log);
+
+        // Three ticks, ten minutes apart, on the free plan: nothing is scanned, and ONE line says so.
+        for (var tick = 0; tick < 3; tick++)
+        {
+            await sweep.SweepAsync();
+            clock = clock.AddMinutes(10);
+        }
+        Assert.Equal(0, brain.Calls);
+        var skipped = Assert.Single(LinesAboutTheTenant());
+        Assert.Contains("SKIPPED", skipped);
+
+        // The member subscribes. The very next tick scans, and one line says the skip is over.
+        using (var raw = db.CreateUnscopedContext())
+            raw.Database.ExecuteSqlRaw(
+                "INSERT INTO entitlements (subject, status, current_period_end, livemode, tier) VALUES ({0}, {1}, {2}, {3}, {4})",
+                "sub-sweep", EntitlementRegistry.StatusActive, DateTime.UtcNow.AddYears(1), true, EntitlementRegistry.TierPro);
+        await sweep.SweepAsync();
+
+        Assert.Equal(1, brain.Calls);
+        Assert.Single(LinesAboutTheTenant(), l => l.Contains("RESUMED"));
+        using (boundary.EnterScope(tenant))
+            Assert.NotNull(scans.Get(tenant));
     }
 }
