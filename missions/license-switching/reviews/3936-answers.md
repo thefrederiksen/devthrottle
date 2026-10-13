@@ -155,8 +155,8 @@ On commit `8d9da5d39` (this branch rebased onto main `8a62ffa29`):
 | License unit tests (`--filter "FullyQualifiedName~Licenses"`) | 479 passed, 0 failed |
 | The whole `CcDirector.Gateway.UnitTests` suite | 11,202 passed, 0 failed |
 | License host tests over real HTTP (`LicenseHostTests`, `LicenseWritesSelfHostedTests`, `LicenseSwitchCheckHostedTests`) | 20 passed, 0 failed |
-| `scripts	est-database.ps1` | GREEN - 71 executed against the throwaway PostgreSQL, none failed, none skipped |
-| `scripts	est-local.ps1` (the default gate, as asked) | GREEN at `8d9da5d39`, tree clean: all ten suites passed |
+| `scripts\test-database.ps1` | GREEN - 71 executed against the throwaway PostgreSQL, none failed, none skipped |
+| `scripts\test-local.ps1` (the default gate, as asked) | GREEN at `8d9da5d39`, tree clean: all ten suites passed |
 
 The default gate leaves out the parked Gateway suites and says so; the whole Gateway unit suite and the license host
 tests in the table are the part of them this change touches. The other shards of `CcDirector.Gateway.Tests` and
