@@ -69,7 +69,7 @@ internal sealed class LinuxRecorderProcess : ILinuxRecorder
 
     public void Kill()
     {
-        if (!_process.HasExited) _process.Kill(entireProcessTree: true);
+        if (!_process.HasExited) _process.Kill();
     }
 
     public void Dispose() => _process.Dispose();
@@ -107,6 +107,9 @@ public sealed class LinuxMicAudioCapture : IAudioMeterSource, IAudioCaptureDiagn
     private Thread? _reader;
     private bool _started;
     private bool _disposed;
+
+    // Set by Stop, which discards: nothing still in the pipe is raised after it.
+    private volatile bool _discard;
 
     // Completed by the reading thread once the recorder's output has ended and every chunk has been delivered.
     private readonly TaskCompletionSource<bool> _ended = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -184,6 +187,7 @@ public sealed class LinuxMicAudioCapture : IAudioMeterSource, IAudioCaptureDiagn
     {
         if (_disposed) throw new ObjectDisposedException(nameof(LinuxMicAudioCapture));
         if (_started) return;
+        if (_recorder is not null) throw new InvalidOperationException("A Linux capture records once; build a new one to record again.");
         try
         {
             _captureClock.Restart();
@@ -207,6 +211,7 @@ public sealed class LinuxMicAudioCapture : IAudioMeterSource, IAudioCaptureDiagn
     {
         if (!_started) return;
         _started = false;
+        _discard = true;
         KillRecorder("Stop");
     }
 
@@ -252,7 +257,7 @@ public sealed class LinuxMicAudioCapture : IAudioMeterSource, IAudioCaptureDiagn
 
                 // Whole samples only; a lone trailing byte can only be the cut end of the stream.
                 int usable = filled & ~1;
-                if (usable > 0) Deliver(buffer, usable);
+                if (usable > 0 && !_discard) Deliver(buffer, usable);
                 if (filled < buffer.Length) break;
             }
         }
@@ -345,6 +350,7 @@ public sealed class LinuxMicAudioCapture : IAudioMeterSource, IAudioCaptureDiagn
         if (_disposed) return;
         _disposed = true;
         _started = false;
+        _discard = true;
         KillRecorder("Dispose");
         try
         {

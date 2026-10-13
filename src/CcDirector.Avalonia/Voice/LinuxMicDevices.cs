@@ -234,7 +234,11 @@ internal static class LinuxMicDevices
         {
             var (exitCode, output, error) = LinuxAudioTools.Run(LinuxAudioTools.PipeWireDump, [], QueryTimeout);
             if (exitCode == 0)
+            {
                 snapshot = ParsePipeWireDump(output);
+                // Asked here, off the interface thread, so starting a capture only has to start the recorder.
+                _ = LinuxAudioTools.PipeWireNeedsRawFlag;
+            }
             else
                 FileLog.Write($"[LinuxMicDevices] {LinuxAudioTools.PipeWireDump} exited with code {exitCode}: {error.Trim()}");
         }

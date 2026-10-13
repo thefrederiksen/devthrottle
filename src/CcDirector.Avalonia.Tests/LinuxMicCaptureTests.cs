@@ -186,6 +186,16 @@ public sealed class LinuxMicCaptureTests
         Assert.Equal("The selected microphone is no longer connected.", ex.Message);
     }
 
+    [Fact]
+    public async Task Start_AfterAStop_IsRefused()
+    {
+        using var capture = new LinuxMicAudioCapture(() => new FakeRecorder(), "test microphone");
+        capture.Start();
+        await capture.StopAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Throws<InvalidOperationException>(capture.Start);
+    }
+
     /// <summary>A recorder whose output the test writes by hand; no process, no clock.</summary>
     private sealed class FakeRecorder : ILinuxRecorder
     {
