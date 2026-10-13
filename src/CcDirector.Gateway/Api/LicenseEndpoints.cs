@@ -66,7 +66,7 @@ public static class LicenseEndpoints
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[LicenseEndpoints] GET {LicenseRoutes.Overview} FAILED: {ex.Message}");
+            FileLog.Write($"[LicenseEndpoints] GET /gateway/licenses FAILED: {ex.Message}");
             throw;
         }
     }
@@ -88,7 +88,7 @@ public static class LicenseEndpoints
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[LicenseEndpoints] GET {LicenseRoutes.Forecast} FAILED: {ex.Message}");
+            FileLog.Write($"[LicenseEndpoints] GET /gateway/licenses/forecast FAILED: {ex.Message}");
             throw;
         }
     }
@@ -131,7 +131,7 @@ public static class LicenseEndpoints
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[LicenseEndpoints] GET {LicenseRoutes.Log} FAILED: {ex.Message}");
+            FileLog.Write($"[LicenseEndpoints] GET /gateway/licenses/log FAILED: {ex.Message}");
             throw;
         }
     }
