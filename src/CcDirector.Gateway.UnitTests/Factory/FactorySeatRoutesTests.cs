@@ -306,10 +306,18 @@ public sealed class FactorySeatRoutesTests : IAsyncDisposable
         var response = await Unlink("cj_scout");
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-        var error = await ErrorOf(response);
+        // The whole answer, as the session reads it: the refusal, and why.
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var error = body.GetProperty("error").GetString();
         Assert.Equal("this schedule belongs to factory 'warmforward', so only a person or a session of 'warmforward' may change or run it", error);
         // The same sentence pausing it is refused with: the one rule, not a second one beside it.
         Assert.Equal(FactoryNaming.ActRefusal("schedule", "warmforward"), error);
+        Assert.Equal(FactoryNaming.ActDetail("schedule", "warmforward"), body.GetProperty("detail").GetString());
+        Assert.Equal(
+            "Everything on a schedule decides what a session of 'warmforward' will be told to do - its prompt, where it runs, " +
+            "and when - and that session may read and write that factory's memory. Changing or running it from outside the " +
+            "factory would therefore direct one of its members. A schedule with no factory on it is open to any session, as before.",
+            body.GetProperty("detail").GetString());
         var after = _schedules.Get("cj_scout")!;
         Assert.Equal("warmforward", after.Factory);
         Assert.Equal("scout", after.Seat);
