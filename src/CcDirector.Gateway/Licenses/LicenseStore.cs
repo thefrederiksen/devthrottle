@@ -406,10 +406,16 @@ public sealed class LicenseStore
     /// Take the machine's active account from a switch answer's read-back (contract section 3.5) - but ONLY when that
     /// answer is newer than everything the machine has reported since. The answer's <c>FinishedAtUtc</c> is the
     /// Director's clock, so it is moved onto the Gateway's clock by the machine's measured skew before it is compared
-    /// with the Gateway's receive time of the last report. An answer with <c>Replayed = true</c> is a STORED answer to an
-    /// earlier send: its finish time is the original one, so the same comparison refuses it whenever a report has
-    /// arrived since - the after-switch report the Director sends after every switch is such a report. One conditional
-    /// update, so a report landing at the same moment cannot be overwritten. True when the account was taken.
+    /// with the Gateway's receive time of the last report.
+    ///
+    /// An answer with <c>Replayed = true</c> is a STORED answer to an earlier send, and for it the Director's clock is
+    /// not trusted at all: a clock that is ahead by less than the skew that is measured would make an old answer look
+    /// newer than a report that came after it. So a replayed answer's read-back is never taken once the machine has
+    /// reported after the switch row was written - both of those times are the Gateway's own. The after-switch report
+    /// the Director sends after every switch is such a report.
+    ///
+    /// One conditional update, so a report landing at the same moment cannot be overwritten. True when the account
+    /// was taken.
     /// </summary>
     public bool ApplySwitchReadBack(TenantId tenant, Guid machineId, LicenseSwitchResult result)
     {
@@ -429,12 +435,25 @@ public sealed class LicenseStore
             return false;
         }
         var finishedOnGatewayClock = Utc(result.FinishedAtUtc) + TimeSpan.FromSeconds(machine.ClockSkewSeconds);
+        var candidates = ctx.LicenseMachines.Where(m => m.Id == machineId && m.LastReportAtUtc < finishedOnGatewayClock);
+        if (result.Replayed)
+        {
+            var id = SwitchKey(result.SwitchId);
+            var written = ctx.LicenseSwitchLog.AsNoTracking()
+                .Where(r => r.SwitchId == id && r.Kind == LicenseLogKinds.Switch)
+                .Select(r => (DateTime?)r.CreatedAtUtc)
+                .FirstOrDefault();
+            if (written is not { } rowWrittenAt)
+            {
+                FileLog.Write("[LicenseStore] ApplySwitchReadBack: REFUSED, a replayed answer for a switch this account has no row for");
+                return false;
+            }
+            candidates = candidates.Where(m => m.LastReportAtUtc <= rowWrittenAt);
+        }
         // The machine row and its holdings say who is active in two places, and the read model reads both; they move
         // together or not at all, so the Licenses page never shows the machine on one account and the holding on another.
         using var transaction = ctx.Database.BeginTransaction();
-        var taken = ctx.LicenseMachines
-            .Where(m => m.Id == machineId && m.LastReportAtUtc < finishedOnGatewayClock)
-            .ExecuteUpdate(u => u.SetProperty(m => m.ActiveAccountEmail, after)) == 1;
+        var taken = candidates.ExecuteUpdate(u => u.SetProperty(m => m.ActiveAccountEmail, after)) == 1;
         if (taken)
             ctx.LicenseHoldings
                 .Where(h => h.MachineId == machineId)
@@ -523,15 +542,16 @@ public sealed class LicenseStore
         => $"No account had room for the machines on {NormalizeEmail(accountEmail)}, so nothing was switched; {ownerEmailClause}.";
 
     /// <summary>Every no-room event still open, oldest first.</summary>
+    /// <remarks>Quiet, like <see cref="HasMachines"/>: the minute check reads this for every tenant every minute, and
+    /// a check that finds nothing to do leaves no line. A failure is logged by the check that asked.</remarks>
     public IReadOnlyList<LicenseSwitchLogEntity> ListOpenNoRoom(TenantId tenant)
-        => Logged(nameof(ListOpenNoRoom), $"tenant={tenant.ToLogString()}", () =>
-        {
-            using var ctx = _db.CreateContext(tenant);
-            return (IReadOnlyList<LicenseSwitchLogEntity>)ctx.LicenseSwitchLog.AsNoTracking()
-                .Where(r => r.Kind == LicenseLogKinds.NoRoom && r.FinishedAtUtc == null)
-                .ToList()
-                .OrderBy(r => r.CreatedAtUtc).ThenBy(r => r.FromAccountEmail, StringComparer.Ordinal).ToList();
-        }, rows => $"count={rows.Count}");
+    {
+        using var ctx = _db.CreateContext(tenant);
+        return ctx.LicenseSwitchLog.AsNoTracking()
+            .Where(r => r.Kind == LicenseLogKinds.NoRoom && r.FinishedAtUtc == null)
+            .ToList()
+            .OrderBy(r => r.CreatedAtUtc).ThenBy(r => r.FromAccountEmail, StringComparer.Ordinal).ToList();
+    }
 
     /// <summary>Move the end of the account's open no-room event. False when it has none open.</summary>
     public bool ExtendNoRoom(TenantId tenant, string accountEmail, DateTime endsAtUtc)

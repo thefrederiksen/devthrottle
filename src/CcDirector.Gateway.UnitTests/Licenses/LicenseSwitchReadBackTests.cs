@@ -81,6 +81,49 @@ public sealed class LicenseSwitchReadBackTests : IDisposable
         Assert.Equal((A, A), Active(store));
     }
 
+    // A machine on A whose switch row was written a minute before T0, and which reported again at T0, still on A.
+    private (LicenseStore Store, Guid MachineId, string SwitchId) MachineThatReportedAfterItsSwitchRowWasWritten()
+    {
+        var store = new LicenseStore(_harness.Open());
+        var machineId = store.ApplyReport(Tenant, "dir-1", 1, Report("the-windows-machine", Holding(A, true), Holding(B, false)),
+            T0.AddMinutes(-2), TimeSpan.Zero).MachineId;
+        var row = store.CreatePendingSwitch(Tenant, machineId, A, B, LicenseSwitchReasons.Threshold, T0.AddMinutes(-1))
+                  ?? throw new InvalidOperationException("The row was not written.");
+        store.ApplyReport(Tenant, "dir-1", 2, Report("the-windows-machine", Holding(A, true), Holding(B, false)), T0, TimeSpan.Zero);
+        return (store, machineId, row.SwitchId ?? throw new InvalidOperationException("The row has no switch identifier."));
+    }
+
+    [Fact]
+    public void ApplySwitchReadBack_ReplayedAnswerFromADirectorWhoseClockIsAhead_IsNotTakenOnceTheMachineHasReportedSinceTheRowWasWritten()
+    {
+        // The Director's clock runs 90 seconds ahead - under the two minutes at which a skew is measured, so nothing
+        // corrects it. The switch ran 30 seconds BEFORE the report the Gateway holds, and is stamped 60 seconds
+        // after it. Judged by the Director's clock the stored answer looks newer than the report; it is not.
+        var (store, machineId, switchId) = MachineThatReportedAfterItsSwitchRowWasWritten();
+        var answer = Answer(T0.AddSeconds(60), replayed: true);
+        answer.SwitchId = switchId;
+
+        var taken = store.ApplySwitchReadBack(Tenant, machineId, answer);
+
+        Assert.False(taken);
+        Assert.Equal((A, A), Active(store));
+    }
+
+    [Fact]
+    public void ApplySwitchReadBack_ReplayedAnswerWhenTheMachineHasNotReportedSinceTheRowWasWritten_IsTaken()
+    {
+        var (store, machineId) = MachineOnA();
+        var row = store.CreatePendingSwitch(Tenant, machineId, A, B, LicenseSwitchReasons.Threshold, T0.AddSeconds(10))
+                  ?? throw new InvalidOperationException("The row was not written.");
+        var answer = Answer(T0.AddSeconds(30), replayed: true);
+        answer.SwitchId = row.SwitchId ?? throw new InvalidOperationException("The row has no switch identifier.");
+
+        var taken = store.ApplySwitchReadBack(Tenant, machineId, answer);
+
+        Assert.True(taken);
+        Assert.Equal((B, B), Active(store));
+    }
+
     [Fact]
     public void ApplySwitchReadBack_DirectorClockBehind_JudgesTheFinishOnTheGatewayClock()
     {

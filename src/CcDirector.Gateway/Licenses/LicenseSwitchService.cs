@@ -72,20 +72,26 @@ public sealed record LicenseSwitchNowMachine(
 ///   settled from the machine's own report: <c>switched</c> when the report shows the target active, otherwise
 ///   <c>failed</c>, and the message says it was settled from the report.
 /// - A machine with a row whose outcome is not known is never sent a second switch identifier (section 5.4).
+/// - "Known never to have left" is true only while nothing is in flight: before such a row is sent again it is
+///   written back to <c>pending</c> with no reason, so a send that is cut off part-way leaves a row that reads as
+///   "outcome not known". <c>director-offline</c> is put back when the send returns nothing.
 ///
-/// SENDS DO NOT WAIT FOR ONE ANOTHER. Every send of a check is started together and each waits at most its own 60
-/// seconds. No database context is open while a send is in flight: the store opens and closes one per call. What is
+/// SENDS DO NOT WAIT FOR ONE ANOTHER, AND TENANTS DO NOT WAIT FOR ONE ANOTHER. Every send of a check is started
+/// together and each waits at most its own 60 seconds; every tenant's check is started inside its own scope and they
+/// are awaited together, so a Director that does not answer holds up nobody else. No database context is open while a send is in flight: the store opens and closes one per call. What is
 /// decided and written (rows, bars, events) happens under a short per-tenant gate that the minute check and Switch now
 /// share, so the two can never write two open rows for one machine; the gate is released before anything is sent.
 ///
 /// ONE OWNER EMAIL PER EVENT. The event is recorded as emailed only when the mail service confirmed the send. A send
 /// that failed is tried again on a later check, with the text rebuilt from that check's facts
-/// (<see cref="LicenseDecisionEngine.NoRoomEmail"/>); once it has gone out it never goes again. A Gateway that stops
+/// (<see cref="LicenseDecisionEngine.NoRoomEmail"/>); once it has gone out it never goes again. The tries of one
+/// event move apart - one minute, two, four, up to an hour, or longer when the mail service asks for longer - so a
+/// send that keeps being refused is not tried every minute for the days an event can last. A Gateway that stops
 /// between the service's confirmation and the row being marked would send once more after it restarts - the only way
 /// to rule that out would be to mark the row before sending, which would lose the email instead.
 ///
 /// INERT UNTIL A DIRECTOR REPORTS. A tenant none of whose machines has ever sent a usage report is left alone: one
-/// quiet read, nothing written, no log line.
+/// quiet read, nothing written, no log line. A check that finds nothing to do writes no line of its own either.
 /// </summary>
 public sealed class LicenseSwitchService
 {
@@ -105,8 +111,14 @@ public sealed class LicenseSwitchService
     private readonly ConcurrentDictionary<(TenantId Tenant, string SwitchId), byte> _inFlight = new();
     // Rows whose outcome is not known and which have had their one send after NotAfterUtc (contract section 5.5).
     private readonly ConcurrentDictionary<(TenantId Tenant, string SwitchId), byte> _sentAfterExpiry = new();
-    // The mail service asked for a wait before the next try of this event's email.
+    // The next try of this event's email is not before this time: the Gateway's own growing wait, or the mail
+    // service's when it asked for a longer one.
     private readonly ConcurrentDictionary<(TenantId Tenant, string AccountEmail), DateTime> _emailNotBefore = new();
+    // How many tries of this event's email have failed in a row; it sets the growing wait.
+    private readonly ConcurrentDictionary<(TenantId Tenant, string AccountEmail), int> _emailFailures = new();
+
+    /// <summary>The longest the Gateway itself waits between two tries of one event's owner email.</summary>
+    internal static readonly TimeSpan LongestOwnEmailWait = TimeSpan.FromHours(1);
 
     /// <param name="store">The switch log, the bars and the no-room events.</param>
     /// <param name="snapshots">The one place the engine's picture of a tenant is built from the store.</param>
@@ -128,26 +140,45 @@ public sealed class LicenseSwitchService
     // ----- the minute check -----
 
     /// <summary>
-    /// The minute check for every tenant: one <see cref="TickAsync"/> per tenant, each awaited inside that tenant's
-    /// scope (contract section 6 rule 4). One tenant's failure is logged and does not stop the next tenant's check.
+    /// The minute check for every tenant: one <see cref="TickAsync"/> per tenant, each STARTED inside that tenant's
+    /// scope (contract section 6 rule 4) and all awaited together. What a check decides and writes happens before its
+    /// first wait, so tenants are decided one after another and only their sends and emails overlap; the scope is
+    /// ambient, so everything a check does after a wait still runs in the scope it was started in. One tenant's
+    /// failure is logged and does not stop another tenant's check, and one tenant's Director that does not answer
+    /// does not delay another tenant's switch.
     /// </summary>
     public async Task TickEveryTenantAsync(ITenantPass tenants, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(tenants);
-        await tenants.ForEachTenantAsync(async () =>
+        var checks = new List<Task>();
+        try
         {
-            if (tenants.Current is not { } tenant)
-                return; // no scope in effect: check nothing, never a tenant of our own choosing
-            try
+            await tenants.ForEachTenantAsync(() =>
             {
-                await TickAsync(tenant, ct).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                // The boundary of one tenant's check: its failure must never cost another tenant its switch.
-                FileLog.Write($"[LicenseSwitchService] TickEveryTenantAsync: the check FAILED for tenant={tenant.ToLogString()} ({ex.GetType().Name}): {ex.Message}");
-            }
-        }, ct).ConfigureAwait(false);
+                // No scope in effect: check nothing, never a tenant of our own choosing.
+                if (tenants.Current is { } tenant)
+                    checks.Add(CheckOneTenantAsync(tenant, ct));
+                return Task.CompletedTask;
+            }, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            // Every check that was started is waited for, also when the pass itself stopped part-way.
+            await Task.WhenAll(checks).ConfigureAwait(false);
+        }
+    }
+
+    private async Task CheckOneTenantAsync(TenantId tenant, CancellationToken ct)
+    {
+        try
+        {
+            await TickAsync(tenant, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The boundary of one tenant's check: its failure must never cost another tenant its switch.
+            FileLog.Write($"[LicenseSwitchService] TickEveryTenantAsync: the check FAILED for tenant={tenant.ToLogString()} ({ex.GetType().Name}): {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -163,7 +194,7 @@ public sealed class LicenseSwitchService
             FileLog.Write($"[LicenseSwitchService] TickAsync: tenant={tenant.ToLogString()}, the previous check has not finished - skipped");
             return;
         }
-        FileLog.Write($"[LicenseSwitchService] TickAsync: tenant={tenant.ToLogString()}");
+        IReadOnlyList<PlannedSend> marked = Array.Empty<PlannedSend>();
         try
         {
             TickPlan plan;
@@ -172,6 +203,9 @@ public sealed class LicenseSwitchService
             try
             {
                 plan = PlanTick(tenant);
+                // Marked only once the whole plan stands, and still under the gate: a plan that failed part-way
+                // marks nothing, so no switch can be left marked with no send to clear it.
+                marked = MarkInFlight(tenant, plan.Sends);
             }
             finally
             {
@@ -182,7 +216,9 @@ public sealed class LicenseSwitchService
                 .Concat(plan.Emails.Select(email => EmailAsync(tenant, email, ct)))
                 .ToList();
             await Task.WhenAll(work).ConfigureAwait(false);
-            FileLog.Write($"[LicenseSwitchService] TickAsync: tenant={tenant.ToLogString()}, sends={plan.Sends.Count}, emails={plan.Emails.Count}");
+            // A check that found nothing to do says nothing: it runs every minute for every tenant, for good.
+            if (plan.Sends.Count + plan.Emails.Count + plan.Written > 0)
+                FileLog.Write($"[LicenseSwitchService] TickAsync: tenant={tenant.ToLogString()}, sends={plan.Sends.Count}, emails={plan.Emails.Count}, written={plan.Written}");
         }
         catch (Exception ex)
         {
@@ -191,6 +227,7 @@ public sealed class LicenseSwitchService
         }
         finally
         {
+            ClearInFlight(tenant, marked);
             _ticking.TryRemove(tenant, out _);
         }
     }
@@ -211,6 +248,7 @@ public sealed class LicenseSwitchService
         if (string.IsNullOrWhiteSpace(sourceAccountEmail))
             throw new ArgumentException("The account to switch away from is required", nameof(sourceAccountEmail));
         FileLog.Write($"[LicenseSwitchService] SwitchNowAsync: tenant={tenant.ToLogString()}, targetNamed={!string.IsNullOrWhiteSpace(targetAccountEmail)}");
+        IReadOnlyList<PlannedSend> marked = Array.Empty<PlannedSend>();
         try
         {
             var sends = new List<PlannedSend>();
@@ -251,6 +289,7 @@ public sealed class LicenseSwitchService
                     else
                         sends.Add(planned);
                 }
+                marked = MarkInFlight(tenant, sends);
             }
             finally
             {
@@ -281,6 +320,10 @@ public sealed class LicenseSwitchService
             FileLog.Write($"[LicenseSwitchService] SwitchNowAsync FAILED: {ex.Message}");
             throw;
         }
+        finally
+        {
+            ClearInFlight(tenant, marked);
+        }
     }
 
     // ----- what one check decides and writes (under the tenant's gate; nothing here waits on a Director) -----
@@ -290,7 +333,25 @@ public sealed class LicenseSwitchService
 
     private sealed record PlannedEmail(string AccountEmail, LicenseOwnerEmail Email);
 
-    private sealed record TickPlan(List<PlannedSend> Sends, List<PlannedEmail> Emails);
+    /// <param name="Written">How many rows, bars and events this plan wrote besides the sends' own rows.</param>
+    private sealed record TickPlan(List<PlannedSend> Sends, List<PlannedEmail> Emails, int Written);
+
+    /// <summary>Mark every planned send as in flight in this process. Called under the tenant's gate, after the whole
+    /// plan was made. Returns what it marked, for <see cref="ClearInFlight"/>.</summary>
+    private IReadOnlyList<PlannedSend> MarkInFlight(TenantId tenant, IReadOnlyList<PlannedSend> sends)
+    {
+        foreach (var send in sends)
+            _inFlight[(tenant, send.SwitchId)] = 0;
+        return sends;
+    }
+
+    /// <summary>Clear the marks of a check or a Switch now on EVERY path out of it - finished, failed or cancelled -
+    /// so a switch is never left marked with no send that will clear it.</summary>
+    private void ClearInFlight(TenantId tenant, IReadOnlyList<PlannedSend> marked)
+    {
+        foreach (var send in marked)
+            _inFlight.TryRemove((tenant, send.SwitchId), out _);
+    }
 
     /// <summary>The open switch rows of one tenant, sorted by what may be done with each.</summary>
     /// <param name="Blocked">Machines that must not be sent another switch identifier: their open row's outcome is not
@@ -329,6 +390,7 @@ public sealed class LicenseSwitchService
         var machinesById = overview.Machines.ToDictionary(m => m.MachineId);
         var open = Classify(tenant, picture.OpenSwitches);
         var sends = new List<PlannedSend>();
+        var written = 0;
 
         // 1. Rows whose outcome is not known: ask again with the same identifier, or settle from the machine's report.
         foreach (var row in open.OutcomeUnknown)
@@ -342,7 +404,7 @@ public sealed class LicenseSwitchService
             var id = IdOf(row);
             if (now <= NotAfterOf(row) || _sentAfterExpiry.TryAdd((tenant, id), 0))
             {
-                sends.Add(PlanResend(tenant, row, machine, outcomeUnknown: true));
+                sends.Add(PlanSend(row, machine, outcomeUnknown: true));
             }
             else if (machine.SwitchInProgressId is null)
             {
@@ -352,6 +414,7 @@ public sealed class LicenseSwitchService
                     $"Settled from the machine's report: no answer to this switch could be had, and the report shows {machine.ActiveAccountEmail ?? "no account"} active.", now);
                 _sentAfterExpiry.TryRemove((tenant, id), out _);
                 open.Blocked.Remove(row.MachineId);
+                written++;
             }
         }
 
@@ -363,6 +426,7 @@ public sealed class LicenseSwitchService
             _store.TryMark(tenant, IdOf(row), LicenseLogStates.Failed, LicenseGatewayReasonCodes.DirectorOffline,
                 $"The Director on {row.MachineName} was not connected until this switch expired at {Time(NotAfterOf(row))}; it was never sent.", now);
             open.NeverSent.Remove(machineId);
+            written++;
         }
 
         // 3. Decide.
@@ -378,11 +442,12 @@ public sealed class LicenseSwitchService
             {
                 if (SameDecision(waiting, decision))
                 {
-                    sends.Add(PlanResend(tenant, waiting, machine, outcomeUnknown: false));
+                    sends.Add(PlanSendOfWaiting(tenant, waiting, machine, now));
                     continue;
                 }
                 _store.TryMark(tenant, IdOf(waiting), LicenseLogStates.Failed, LicenseGatewayReasonCodes.DirectorOffline,
                     $"The Director on {machine.MachineName} was not connected, and the decision changed before this switch could be sent.", now);
+                written++;
             }
             if (PlanNewSwitch(tenant, machine, decision, now) is { } planned)
                 sends.Add(planned);
@@ -396,12 +461,14 @@ public sealed class LicenseSwitchService
                 continue;
             var verdict = LicenseDecisionEngine.DecideManual(snapshot, waiting.FromAccountEmail, waiting.ToAccountEmail);
             if (verdict.Switches.Any(d => MachineKey(d.MachineName, d.OsUser) == MachineKey(machine.MachineName, machine.OsUser)))
-                sends.Add(PlanResend(tenant, waiting, machine, outcomeUnknown: false));
+                sends.Add(PlanSendOfWaiting(tenant, waiting, machine, now));
         }
 
         // 5. Bars.
         foreach (var bar in decisions.NewBars)
             _store.Bar(tenant, bar.AccountEmail, bar.Window, bar.BarredUntilUtc, now);
+        written += decisions.NewBars.Count + decisions.OpenedExhaustions.Count + decisions.ExtendedExhaustions.Count
+                   + decisions.ClosedExhaustions.Count;
 
         // 6. No-room events: opened, moved, closed - and the one owner email of each.
         var emails = new List<PlannedEmail>();
@@ -412,7 +479,7 @@ public sealed class LicenseSwitchService
         foreach (var closed in decisions.ClosedExhaustions)
         {
             _store.CloseNoRoom(tenant, closed, now);
-            _emailNotBefore.TryRemove((tenant, LicenseStore.NormalizeEmail(closed)), out _);
+            ForgetEmailWait(tenant, LicenseStore.NormalizeEmail(closed));
         }
         foreach (var email in decisions.Emails)
             emails.Add(new PlannedEmail(LicenseStore.NormalizeEmail(email.AccountEmail), email));
@@ -430,7 +497,7 @@ public sealed class LicenseSwitchService
                 emails.Add(new PlannedEmail(account, again));
         }
 
-        return new TickPlan(sends, emails);
+        return new TickPlan(sends, emails, written);
     }
 
     private PlannedSend? PlanNewSwitch(TenantId tenant, LicenseMachineView machine, LicenseSwitchDecision decision, DateTime now)
@@ -442,15 +509,29 @@ public sealed class LicenseSwitchService
             FileLog.Write($"[LicenseSwitchService] no switch written for machine={machine.MachineId}: it already has one open");
             return null;
         }
-        return PlanResend(tenant, row, machine, outcomeUnknown: false);
+        return PlanSend(row, machine, outcomeUnknown: false);
+    }
+
+    /// <summary>
+    /// Plan the next send of a row that is waiting for a Director that was not connected. The row says "it never
+    /// left", and that stops being known the moment a command goes out, so the row is FIRST written back to
+    /// <c>pending</c> with no reason. If the Gateway stops, or the result cannot be recorded, while that send is in
+    /// flight, the row then reads as "outcome not known" and its machine is given no second switch identifier
+    /// (contract section 5.4). <c>director-offline</c> is put back when the send returns nothing.
+    /// </summary>
+    private PlannedSend PlanSendOfWaiting(TenantId tenant, LicenseSwitchLogEntity waiting, LicenseMachineView machine, DateTime now)
+    {
+        _store.TryMark(tenant, IdOf(waiting), LicenseLogStates.Pending, null,
+            $"Being sent again to the Director on {machine.MachineName}, which was not connected before.", now);
+        return PlanSend(waiting, machine, outcomeUnknown: false);
     }
 
     /// <summary>Plan one send of <paramref name="row"/> - its first or a repeat, always with the row's own identifier,
-    /// times and accounts - to the Director that sent the machine's last accepted report.</summary>
-    private PlannedSend PlanResend(TenantId tenant, LicenseSwitchLogEntity row, LicenseMachineView machine, bool outcomeUnknown)
+    /// times and accounts - to the Director that sent the machine's last accepted report, which need not be the
+    /// Director the row was first written for (contract sections 2.4 and 6.4).</summary>
+    private static PlannedSend PlanSend(LicenseSwitchLogEntity row, LicenseMachineView machine, bool outcomeUnknown)
     {
         var id = IdOf(row);
-        _inFlight[(tenant, id)] = 0;
         var request = new LicenseSwitchRequest
         {
             SwitchId = id,
@@ -502,6 +583,7 @@ public sealed class LicenseSwitchService
         }
         finally
         {
+            // Cleared as soon as this send has recorded its result; the check clears it again on its way out.
             _inFlight.TryRemove((tenant, send.SwitchId), out _);
         }
     }
@@ -577,20 +659,38 @@ public sealed class LicenseSwitchService
             case LicenseOwnerEmailOutcome.Sent:
                 _store.RecordNoRoomEmail(tenant, account, LicenseGatewayReasonCodes.OwnerEmailed,
                     LicenseStore.NoRoomMessage(account, "the owner was emailed"), now);
-                _emailNotBefore.TryRemove((tenant, account), out _);
+                ForgetEmailWait(tenant, account);
                 break;
             case LicenseOwnerEmailOutcome.NoAccount:
                 _store.RecordNoRoomEmail(tenant, account, LicenseGatewayReasonCodes.NoOwnerAccount,
                     LicenseStore.NoRoomMessage(account, $"no owner email was sent because {result.Detail}"), null);
+                ForgetEmailWait(tenant, account);
                 break;
             default:
                 _store.RecordNoRoomEmail(tenant, account, LicenseGatewayReasonCodes.OwnerEmailFailed,
                     LicenseStore.NoRoomMessage(account, $"the owner has not been emailed yet because {result.Detail}"), null);
-                if (result.RetryAfter is { } wait)
-                    _emailNotBefore[(tenant, account)] = now + wait;
+                _emailNotBefore[(tenant, account)] = now + NextEmailWait(tenant, account, result.RetryAfter);
                 break;
         }
         FileLog.Write($"[LicenseSwitchService] owner email for a no-room event: tenant={tenant.ToLogString()}, outcome={result.Outcome}");
+    }
+
+    /// <summary>
+    /// How long to wait before the next try of an event's owner email after a failed one: the Gateway's own wait,
+    /// which doubles with every failure in a row (one minute, two, four ... up to
+    /// <see cref="LongestOwnEmailWait"/>), or the mail service's when it asked for a longer one.
+    /// </summary>
+    private TimeSpan NextEmailWait(TenantId tenant, string account, TimeSpan? askedFor)
+    {
+        var failures = _emailFailures.AddOrUpdate((tenant, account), 1, (_, n) => n + 1);
+        var own = failures > 6 ? LongestOwnEmailWait : TimeSpan.FromMinutes(1 << (failures - 1));
+        return askedFor is { } asked && asked > own ? asked : own;
+    }
+
+    private void ForgetEmailWait(TenantId tenant, string account)
+    {
+        _emailNotBefore.TryRemove((tenant, account), out _);
+        _emailFailures.TryRemove((tenant, account), out _);
     }
 
     // ----- small helpers -----

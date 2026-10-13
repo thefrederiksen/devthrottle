@@ -6482,7 +6482,11 @@ public sealed class GatewayHost : IAsyncDisposable
     private void CheckLicenseSwitches()
     {
         if (Interlocked.CompareExchange(ref _licenseSwitchInFlight, 1, 0) != 0)
+        {
+            // Never silent: a minute in which no tenant was checked is a minute a machine at 97% went on working.
+            FileLog.Write("[GatewayHost] license switch check SKIPPED this minute: the previous check has not finished");
             return;
+        }
         _ = RunLicenseSwitchCheckAsync();
     }
 

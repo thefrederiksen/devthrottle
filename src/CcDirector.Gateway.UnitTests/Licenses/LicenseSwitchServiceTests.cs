@@ -5,6 +5,7 @@ using CcDirector.Gateway.Data.Entities;
 using CcDirector.Gateway.Licenses;
 using CcDirector.Gateway.Tenancy;
 using CcDirector.Gateway.Tests.Data;
+using Microsoft.EntityFrameworkCore;
 using Xunit;
 using static CcDirector.Gateway.Tests.Licenses.LicenseTestData;
 
@@ -32,6 +33,7 @@ public sealed class LicenseSwitchServiceTests : IDisposable
     private const string Mac = "the-mac";
 
     private readonly GatewayDbTestHarness _harness = new();
+    private readonly CcDirector.Gateway.Data.GatewayDatabase _db;
     private readonly LicenseStore _store;
     private readonly FakeDirectors _directors;
     private readonly FakeMail _mail = new();
@@ -42,7 +44,8 @@ public sealed class LicenseSwitchServiceTests : IDisposable
 
     public LicenseSwitchServiceTests()
     {
-        _store = new LicenseStore(_harness.Open());
+        _db = _harness.Open();
+        _store = new LicenseStore(_db);
         _directors = new FakeDirectors(() => _now);
         _service = new LicenseSwitchService(_store, new LicenseSnapshotSource(_store, new LicenseReadModel(_store)),
             _directors.SendAsync, _mail.SendAsync, () => { _clockReads++; return _now; });
@@ -496,6 +499,194 @@ public sealed class LicenseSwitchServiceTests : IDisposable
         Assert.NotNull(row.FinishedAtUtc);
     }
 
+    [Fact]
+    public async Task Restart_AfterNotAfter_WhileTheMachineSaysThatSwitchIsStillRunning_IsNotSettledFromItsReport()
+    {
+        var left = RowLeftByARestart();
+        MinuteLater(11);
+        OnA(Windows, "dir-win", 50);
+        _directors.TimesOut();
+        await Tick(); // the one resend after NotAfterUtc: no answer
+        Assert.Single(_directors.Sent);
+
+        // The machine reports, and its report says this very switch is still running: its account is not the answer yet.
+        MinuteLater();
+        var running = Report(Windows, _now, Holding(A, true, 50, 20, _now), Holding(B, false, 10, 30, _now));
+        running.SwitchInProgressId = left.SwitchId;
+        _store.ApplyReport(Tenant, "dir-win", ++_sequence, running, _now, TimeSpan.Zero);
+        await Tick();
+        Assert.Equal(LicenseLogStates.Unknown, TheSwitch().State);
+
+        MinuteLater();
+        Reports(Tenant, Windows, "dir-win", (B, true, 10, 30), (A, false, 50, 20));
+        await Tick();
+
+        Assert.Single(_directors.Sent);
+        Assert.Equal(LicenseLogStates.Switched, TheSwitch().State);
+    }
+
+    // ----- paths that do not complete normally: a check that fails, a send that is cut off -----
+
+    /// <summary>An open switch row for a machine this account does not have - a row the check cannot place, so it fails.</summary>
+    private Guid AddOpenRowForAMachineThatDoesNotExist()
+    {
+        using var ctx = _db.CreateContext(Tenant);
+        var row = new LicenseSwitchLogEntity
+        {
+            Kind = LicenseLogKinds.Switch,
+            SwitchId = Guid.NewGuid().ToString("N"),
+            MachineId = Guid.NewGuid(),
+            MachineName = "a-machine-that-is-gone",
+            OsUser = "owner",
+            DirectorId = "dir-gone",
+            FromAccountEmail = A,
+            ToAccountEmail = B,
+            Reason = LicenseSwitchReasons.Threshold,
+            State = LicenseLogStates.Unknown,
+            CreatedAtUtc = _now,
+            NotAfterUtc = _now + LicenseContract.SwitchNotAfter,
+            TenantId = ctx.ActiveTenant!,
+        };
+        ctx.LicenseSwitchLog.Add(row);
+        ctx.SaveChanges();
+        return row.Id;
+    }
+
+    private void RemoveRow(Guid id)
+    {
+        using var ctx = _db.CreateContext(Tenant);
+        Assert.Equal(1, ctx.LicenseSwitchLog.Where(r => r.Id == id).ExecuteDelete());
+    }
+
+    [Fact]
+    public async Task ACheckThatFailsAfterPlanningASend_DoesNotStrandThatSwitch()
+    {
+        OnA(Windows, "dir-win", 97);
+        _directors.TimesOut();
+        await Tick();
+        var first = TheSwitch();
+        Assert.Equal(LicenseLogStates.Unknown, first.State);
+
+        // The next check plans to ask about that switch again, then meets a row it cannot place and fails.
+        MinuteLater();
+        OnA(Windows, "dir-win", 97);
+        var bad = AddOpenRowForAMachineThatDoesNotExist();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Tick());
+        Assert.Single(_directors.Sent); // the failed check sent nothing
+        RemoveRow(bad);
+
+        // A healthy check afterwards: the first switch is asked about again, not left marked as in flight for good.
+        MinuteLater();
+        OnA(Windows, "dir-win", 97);
+        _directors.AnswerWith(request => FakeDirectors.Ok(_directors.Result(request, LicenseSwitchOutcomes.Switched)));
+        await Tick();
+
+        Assert.Equal(new[] { first.SwitchId, first.SwitchId }, _directors.Sent.Select(s => s.Request.SwitchId));
+        Assert.Equal(LicenseLogStates.Switched, TheSwitch().State);
+    }
+
+    [Fact]
+    public async Task AResendCutOffPartWay_ReadsAsOutcomeNotKnown_AndTheMachineIsGivenNoSecondIdentifier()
+    {
+        Reports(Tenant, Windows, "dir-win", (A, true, 97, 20), (B, false, 10, 30), (C, false, 10, 40));
+        _directors.Offline();
+        await Tick();
+        var first = TheSwitch();
+        Assert.Equal((LicenseLogStates.Pending, LicenseGatewayReasonCodes.DirectorOffline), (first.State, first.ReasonCode));
+
+        // The Director is back. The command goes out, and the Gateway stops while it is in flight.
+        MinuteLater();
+        Reports(Tenant, Windows, "dir-win", (A, true, 97, 20), (B, false, 10, 30), (C, false, 10, 40));
+        (string? State, string? ReasonCode) rowWhenTheCommandWentOut = default;
+        using var stopping = new CancellationTokenSource();
+        _directors.Answer = (_, request) =>
+        {
+            var row = _store.FindSwitch(Tenant, request.SwitchId);
+            rowWhenTheCommandWentOut = (row?.State, row?.ReasonCode);
+            stopping.Cancel();
+            return Task.FromCanceled<DirectorCommandResult?>(stopping.Token);
+        };
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => _service.TickAsync(Tenant, stopping.Token));
+
+        // The row no longer says "it never left": it reads as a switch whose outcome is not known.
+        Assert.Equal((LicenseLogStates.Pending, null), rowWhenTheCommandWentOut);
+        Assert.Equal((LicenseLogStates.Pending, null), (TheSwitch().State, TheSwitch().ReasonCode));
+
+        // A new Gateway process over the same store - and by now the best target is another account.
+        var restarted = new LicenseSwitchService(_store, new LicenseSnapshotSource(_store, new LicenseReadModel(_store)),
+            _directors.SendAsync, _mail.SendAsync, () => _now);
+        MinuteLater();
+        Reports(Tenant, Windows, "dir-win", (A, true, 97, 20), (B, false, 99, 30), (C, false, 10, 40));
+        _directors.AnswerWith(request => FakeDirectors.Ok(_directors.Result(request, LicenseSwitchOutcomes.Switched)));
+        await restarted.TickAsync(Tenant, CancellationToken.None);
+
+        // Only ever the one identifier for that machine (contract section 5.4): no new decision was written beside it.
+        Assert.Equal(3, _directors.Sent.Count);
+        Assert.All(_directors.Sent, s => Assert.Equal(first.SwitchId, s.Request.SwitchId));
+        Assert.Equal(first.SwitchId, TheSwitch().SwitchId);
+    }
+
+    [Fact]
+    public async Task AResend_GoesToTheDirectorOfTheMachinesLastReport_NotTheOneTheRowWasWrittenFor()
+    {
+        OnA(Windows, "dir-before", 97);
+        _directors.Offline();
+        await Tick();
+        var first = TheSwitch();
+        Assert.Equal("dir-before", first.DirectorId);
+
+        // The machine's Director was replaced: its next report comes from another one (contract sections 2.4, 6.4).
+        MinuteLater();
+        OnA(Windows, "dir-after", 97);
+        _directors.AnswerWith(request => FakeDirectors.Ok(_directors.Result(request, LicenseSwitchOutcomes.Switched)));
+        await Tick();
+
+        Assert.Equal(new[] { ("dir-before", first.SwitchId), ("dir-after", first.SwitchId) },
+            _directors.Sent.Select(s => (s.DirectorId, (string?)s.Request.SwitchId)));
+        Assert.Equal(LicenseLogStates.Switched, TheSwitch().State);
+    }
+
+    [Fact]
+    public async Task TheMinuteCheck_WhileSwitchNowsSendIsInFlight_DoesNotSendThatSwitchAgain()
+    {
+        OnA(Windows, "dir-win", 50);
+        var answer = new TaskCompletionSource<DirectorCommandResult?>();
+        _directors.Answer = (_, _) => answer.Task;
+        var switchNow = _service.SwitchNowAsync(Tenant, A, null, CancellationToken.None);
+        Assert.False(switchNow.IsCompleted);
+
+        // The machine reports while the command is on its way. For a row with no known outcome and no send in
+        // flight, a report since the row was written is exactly what makes the check ask again.
+        _now = _now.AddSeconds(20);
+        OnA(Windows, "dir-win", 50);
+        await Tick();
+        var sent = Assert.Single(_directors.Sent);
+
+        answer.SetResult(FakeDirectors.Ok(_directors.Result(sent.Request, LicenseSwitchOutcomes.Switched)));
+        var result = await switchNow;
+        Assert.Equal(LicenseLogStates.Switched, Assert.Single(result.Switches).State);
+    }
+
+    [Fact]
+    public async Task SwitchNow_WhileTheMinuteChecksSendIsInFlight_LeavesThatMachineAlone()
+    {
+        OnA(Windows, "dir-win", 97);
+        var answer = new TaskCompletionSource<DirectorCommandResult?>();
+        _directors.Answer = (_, _) => answer.Task;
+        var tick = Tick();
+        Assert.False(tick.IsCompleted);
+
+        var result = await _service.SwitchNowAsync(Tenant, A, null, CancellationToken.None);
+
+        Assert.False(result.Accepted);
+        var sent = Assert.Single(_directors.Sent);
+        Assert.Equal(sent.Request.SwitchId, TheSwitch().SwitchId);
+
+        answer.SetResult(FakeDirectors.Ok(_directors.Result(sent.Request, LicenseSwitchOutcomes.Switched)));
+        await tick;
+        Assert.Equal(LicenseLogStates.Switched, TheSwitch().State);
+    }
+
     // ----- contract section 5.4: never a second identifier while one is open -----
 
     [Fact]
@@ -617,6 +808,28 @@ public sealed class LicenseSwitchServiceTests : IDisposable
         OnAWithNoRoomAnywhere();
         await Tick();
         Assert.Equal(2, _mail.Attempts.Count);
+    }
+
+    [Fact]
+    public async Task NoTarget_AnEmailThatKeepsBeingRefused_IsTriedFurtherAndFurtherApart()
+    {
+        // The mail service refuses every try and names no wait of its own.
+        for (var i = 0; i < 10; i++)
+            _mail.Answers.Enqueue(new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Failed, "the mail service refused it"));
+        var triedAtMinute = new List<int>();
+
+        for (var minute = 0; minute < 40; minute++)
+        {
+            OnAWithNoRoomAnywhere();
+            var before = _mail.Attempts.Count;
+            await Tick();
+            if (_mail.Attempts.Count > before)
+                triedAtMinute.Add(minute);
+            MinuteLater();
+        }
+
+        // One minute, then two, four, eight, sixteen: six tries in forty checks, not forty.
+        Assert.Equal(new[] { 0, 1, 3, 7, 15, 31 }, triedAtMinute);
     }
 
     [Fact]
@@ -814,6 +1027,35 @@ public sealed class LicenseSwitchServiceTests : IDisposable
             }
             Current = null;
         }
+    }
+
+    [Fact]
+    public async Task TickEveryTenant_ADirectorThatDoesNotAnswer_HoldsUpNoOtherTenant_AndEachSendStartsInItsOwnTenantsScope()
+    {
+        OnA(Windows, "dir-of-tenant-one", 97);
+        OnA(Windows, "dir-of-tenant-two", 97, Other);
+        var tenants = new ListedTenants(Tenant, Other);
+        var scopeAtSend = new Dictionary<string, TenantId?>();
+        // Tenant one's Director answers only once tenant two's command has arrived.
+        var answerOfTenantOne = new TaskCompletionSource<DirectorCommandResult?>();
+        _directors.Answer = (directorId, request) =>
+        {
+            scopeAtSend[directorId] = tenants.Current;
+            var answer = FakeDirectors.Ok(_directors.Result(request, LicenseSwitchOutcomes.Switched));
+            if (directorId == "dir-of-tenant-one")
+                return answerOfTenantOne.Task.ContinueWith(_ => (DirectorCommandResult?)answer, TaskContinuationOptions.ExecuteSynchronously);
+            answerOfTenantOne.SetResult(null);
+            return Task.FromResult<DirectorCommandResult?>(answer);
+        };
+
+        var check = _service.TickEveryTenantAsync(tenants, CancellationToken.None);
+
+        // Tenant two's command went out while tenant one's was still unanswered.
+        Assert.Equal(new[] { "dir-of-tenant-one", "dir-of-tenant-two" }, _directors.Sent.Select(s => s.DirectorId));
+        await check;
+        Assert.Equal(LicenseLogStates.Switched, Assert.Single(Rows(LicenseLogKinds.Switch)).State);
+        Assert.Equal(LicenseLogStates.Switched, Assert.Single(Rows(LicenseLogKinds.Switch, Other)).State);
+        Assert.Equal((Tenant, Other), (scopeAtSend["dir-of-tenant-one"], scopeAtSend["dir-of-tenant-two"]));
     }
 
     [Fact]
