@@ -56,6 +56,10 @@ public static class LicenseDisplayFold
 
     public const string NoSwitchExpectedText = "No switch is expected.";
 
+    /// <summary>What an account's renewal date says while none is set. The date is one a person sets; until the
+    /// route that stores it exists, none is set for any account.</summary>
+    public const string RenewalDateNotSetText = "Renewal date not set";
+
     // ----- the overview -----
 
     /// <summary>Every account and every machine, as the Licenses page shows them.</summary>
@@ -108,6 +112,8 @@ public static class LicenseDisplayFold
             ReadError = view.Freshest?.ReadError,
             ReadErrorText = ReadErrorText(view.Freshest?.ReadError, view.Freshest?.ReadErrorDetail),
             ExtraUsage = ExtraUsage(view.Freshest?.ExtraUsageEnabled, view.Freshest?.ExtraUsageUtilization),
+            RenewsOn = null,
+            RenewsText = RenewalDateNotSetText,
             SignInExpiry = SignInExpiry(held, names, now),
             ActiveOnMachines = held.Where(h => h.Holding.IsActive).Select(h => names.Ref(h.Machine)).ToList(),
             SpareOnMachines = held.Where(h => !h.Holding.IsActive).Select(h => names.Ref(h.Machine)).ToList(),

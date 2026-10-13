@@ -50,11 +50,13 @@ reports of two machines ("the-windows-machine" and "the-mac") and three accounts
 - **The log is one row per machine, and the page lists it that way.** One switch of an account that is on three
   machines is three rows, each with its own state, reason and timings, because each machine can end differently.
   The rows carry no identifier that groups them and the page does not group them.
-- **The renewal date of a subscription is not in these answers, and no report can carry it.** Goal 1's "renewal
-  date" is the date the SUBSCRIPTION is billed again. No Director can read that from a sign-in, so it will be an
-  optional date per account that a person sets, and it arrives in the follow-up (section 6): "Renews <date>" or
-  "Not set", never a guess. What IS here is `signInExpiry` - when a machine must be signed in to the account again.
-  It is a different date, it is named sign-in expiry everywhere, and the page must never label it "renewal".
+- **The renewal date of a subscription is a date a person sets, and no report can carry it.** Goal 1's "renewal
+  date" is the date the SUBSCRIPTION is billed again. No Director can read that from a sign-in. Its two fields are
+  on every account now, with their final names - `renewsOn` and `renewsText` - and until the follow-up (section 6)
+  adds the route that sets the date, `renewsOn` is null and `renewsText` is "Renewal date not set" for every
+  account. It is never a guess. `signInExpiry` is a DIFFERENT date - when a machine must be signed in to the account
+  again - and the page must never label it "renewal".
+- **These field names are final.** Phase 3 builds to them. The follow-up fills in values; it renames nothing.
 
 Who may call them: the Cockpit and the phone (a device key), a machine's own credential, and a session key (an
 agent) may call the three reads - they are in `SessionKeyGuard`'s allow list. Switch now is refused to a session
@@ -77,6 +79,7 @@ key (section 6).
 | `readAtUtc`, `readAgeText` | When the numbers were read and the sentence saying how old they are and on which machine ("Read 7 minutes ago on the-mac", or "Never read"). |
 | `readError`, `readErrorText` | The word and the sentence when the last read failed; both null when it worked. |
 | `extraUsage` | `state` (`on`, `off`, `not-known`), `text`, and `utilization` when the provider gave one. |
+| `renewsOn`, `renewsText` | The date the subscription is billed again, as `yyyy-MM-dd` (a date with no time and no zone), and its sentence: "Renews 17 Oct", or "Renewal date not set". `renewsOn` is null when no date is set - and none is set for any account until the follow-up (section 6) adds the route that sets it, so today `renewsOn` is always null and `renewsText` is always "Renewal date not set". Show `renewsText`. |
 | `signInExpiry` | The sign-in for this account that expires FIRST, across every machine holding it: `expiresAtUtc`, `machine` (the machine it is on, rule 9), `verdict` (the expiry verdict below), `text` ("Sign-in on the-windows-machine expires in 2 days 5 hours", "Sign-in on the-mac expired 3 hours ago") and `tone`. When no machine holding the account gave an expiry: `expiresAtUtc` and `machine` are null, `verdict` is `not known` and `text` is "Sign-in expiry not known". When no machine holds the account: the same, with "Not signed in on any machine". This is the sign-in expiry, not the subscription's renewal date (section 1). |
 | `activeOnMachines`, `spareOnMachines` | The machines working on it, and the machines holding it as a spare - each one the four fields of rule 9. |
 | `canSwitchNow` | The Switch now control is offered for this account. |
@@ -127,7 +130,14 @@ its window resets), and one can still be chosen by hand; `switchNowText` says so
 
 A sign-in a machine holds (`LicenseMachineHoldingDto`): `accountEmail`, `isActive`, `signedInAtUtc`, `signedInText`
 ("Signed in 21 days ago", or "Sign-in date not known"), `signInExpiresAtUtc`, `expiryVerdict`, `expiryText`,
-`expiryTone`, `isReadingStale`, `readError`, `readErrorText`.
+`expiryTone`, `renewalFailedAtUtc`, `renewalFailedText`, `renewalFailedTone`, `isReadingStale`, `readError`,
+`readErrorText`.
+
+**A failed renewal** (`renewalFailedAtUtc`, `renewalFailedText`, `renewalFailedTone`): when the machine last tried to
+renew this sign-in and failed, the sentence for it, and its tone. **All three are null when the last renewal worked
+or is not known.** The Gateway does not yet store what a report says about a renewal, so today all three are null on
+every holding; the follow-up (section 6) fills them in. When `renewalFailedText` is not null, show it on the holding
+in its tone; when it is null, show nothing.
 
 **The expiry verdict** (`expiryVerdict`, the words of the contract, section 5.7): `expired` (at or before now, tone
 `bad`), `expires soon` (within 3 days, `warning`), `fine` (`good`), `not known` (the machine did not say, `neutral`).
@@ -175,10 +185,12 @@ A sign-in a machine holds (`LicenseMachineHoldingDto`): `accountEmail`, `isActiv
         "text": "Paid extra usage is off",
         "utilization": null
       },
+      "renewsOn": null,
+      "renewsText": "Renewal date not set",
       "signInExpiry": {
         "expiresAtUtc": "2026-10-20T03:12:00Z",
         "machine": {
-          "machineId": "f524eeb70fdc48e09d36286ddbcc759e",
+          "machineId": "c0910007404f4ab9a4f725c028c0569b",
           "machineName": "the-windows-machine",
           "osUser": "owner",
           "label": "the-windows-machine"
@@ -189,13 +201,13 @@ A sign-in a machine holds (`LicenseMachineHoldingDto`): `accountEmail`, `isActiv
       },
       "activeOnMachines": [
         {
-          "machineId": "7294b05d11294c2599f079720d15aa18",
+          "machineId": "2fef72637c9d41a58d77623fed457e8a",
           "machineName": "the-mac",
           "osUser": "owner",
           "label": "the-mac"
         },
         {
-          "machineId": "f524eeb70fdc48e09d36286ddbcc759e",
+          "machineId": "c0910007404f4ab9a4f725c028c0569b",
           "machineName": "the-windows-machine",
           "osUser": "owner",
           "label": "the-windows-machine"
@@ -254,10 +266,12 @@ A sign-in a machine holds (`LicenseMachineHoldingDto`): `accountEmail`, `isActiv
         "text": "Paid extra usage is off",
         "utilization": null
       },
+      "renewsOn": null,
+      "renewsText": "Renewal date not set",
       "signInExpiry": {
         "expiresAtUtc": "2026-10-13T08:12:00Z",
         "machine": {
-          "machineId": "f524eeb70fdc48e09d36286ddbcc759e",
+          "machineId": "c0910007404f4ab9a4f725c028c0569b",
           "machineName": "the-windows-machine",
           "osUser": "owner",
           "label": "the-windows-machine"
@@ -269,13 +283,13 @@ A sign-in a machine holds (`LicenseMachineHoldingDto`): `accountEmail`, `isActiv
       "activeOnMachines": [],
       "spareOnMachines": [
         {
-          "machineId": "7294b05d11294c2599f079720d15aa18",
+          "machineId": "2fef72637c9d41a58d77623fed457e8a",
           "machineName": "the-mac",
           "osUser": "owner",
           "label": "the-mac"
         },
         {
-          "machineId": "f524eeb70fdc48e09d36286ddbcc759e",
+          "machineId": "c0910007404f4ab9a4f725c028c0569b",
           "machineName": "the-windows-machine",
           "osUser": "owner",
           "label": "the-windows-machine"
@@ -320,10 +334,12 @@ A sign-in a machine holds (`LicenseMachineHoldingDto`): `accountEmail`, `isActiv
         "text": "Paid extra usage is off",
         "utilization": null
       },
+      "renewsOn": null,
+      "renewsText": "Renewal date not set",
       "signInExpiry": {
         "expiresAtUtc": "2026-11-09T03:12:00Z",
         "machine": {
-          "machineId": "f524eeb70fdc48e09d36286ddbcc759e",
+          "machineId": "c0910007404f4ab9a4f725c028c0569b",
           "machineName": "the-windows-machine",
           "osUser": "owner",
           "label": "the-windows-machine"
@@ -335,7 +351,7 @@ A sign-in a machine holds (`LicenseMachineHoldingDto`): `accountEmail`, `isActiv
       "activeOnMachines": [],
       "spareOnMachines": [
         {
-          "machineId": "f524eeb70fdc48e09d36286ddbcc759e",
+          "machineId": "c0910007404f4ab9a4f725c028c0569b",
           "machineName": "the-windows-machine",
           "osUser": "owner",
           "label": "the-windows-machine"
@@ -349,7 +365,7 @@ A sign-in a machine holds (`LicenseMachineHoldingDto`): `accountEmail`, `isActiv
   ],
   "machines": [
     {
-      "machineId": "7294b05d11294c2599f079720d15aa18",
+      "machineId": "2fef72637c9d41a58d77623fed457e8a",
       "machineName": "the-mac",
       "osUser": "owner",
       "label": "the-mac",
@@ -369,6 +385,9 @@ A sign-in a machine holds (`LicenseMachineHoldingDto`): `accountEmail`, `isActiv
         "expiryVerdict": "fine",
         "expiryText": "Sign-in expires in 10 days",
         "expiryTone": "good",
+        "renewalFailedAtUtc": null,
+        "renewalFailedText": null,
+        "renewalFailedTone": null,
         "isReadingStale": false,
         "readError": null,
         "readErrorText": null
@@ -383,6 +402,9 @@ A sign-in a machine holds (`LicenseMachineHoldingDto`): `accountEmail`, `isActiv
           "expiryVerdict": "fine",
           "expiryText": "Sign-in expires in 25 days",
           "expiryTone": "good",
+          "renewalFailedAtUtc": null,
+          "renewalFailedText": null,
+          "renewalFailedTone": null,
           "isReadingStale": false,
           "readError": null,
           "readErrorText": null
@@ -391,7 +413,7 @@ A sign-in a machine holds (`LicenseMachineHoldingDto`): `accountEmail`, `isActiv
       "switchInProgress": null
     },
     {
-      "machineId": "f524eeb70fdc48e09d36286ddbcc759e",
+      "machineId": "c0910007404f4ab9a4f725c028c0569b",
       "machineName": "the-windows-machine",
       "osUser": "owner",
       "label": "the-windows-machine",
@@ -411,6 +433,9 @@ A sign-in a machine holds (`LicenseMachineHoldingDto`): `accountEmail`, `isActiv
         "expiryVerdict": "fine",
         "expiryText": "Sign-in expires in 9 days",
         "expiryTone": "good",
+        "renewalFailedAtUtc": null,
+        "renewalFailedText": null,
+        "renewalFailedTone": null,
         "isReadingStale": false,
         "readError": null,
         "readErrorText": null
@@ -425,6 +450,9 @@ A sign-in a machine holds (`LicenseMachineHoldingDto`): `accountEmail`, `isActiv
           "expiryVerdict": "expires soon",
           "expiryText": "Sign-in expires in 2 days 5 hours",
           "expiryTone": "warning",
+          "renewalFailedAtUtc": null,
+          "renewalFailedText": null,
+          "renewalFailedTone": null,
           "isReadingStale": false,
           "readError": null,
           "readErrorText": null
@@ -438,6 +466,9 @@ A sign-in a machine holds (`LicenseMachineHoldingDto`): `accountEmail`, `isActiv
           "expiryVerdict": "fine",
           "expiryText": "Sign-in expires in 29 days",
           "expiryTone": "good",
+          "renewalFailedAtUtc": null,
+          "renewalFailedText": null,
+          "renewalFailedTone": null,
           "isReadingStale": false,
           "readError": null,
           "readErrorText": null
@@ -480,13 +511,13 @@ than any window lasts - is not expected to reach it, whatever its reset time.
     "targetAccountEmail": "account-b@example.com",
     "machines": [
       {
-        "machineId": "7294b05d11294c2599f079720d15aa18",
+        "machineId": "2fef72637c9d41a58d77623fed457e8a",
         "machineName": "the-mac",
         "osUser": "owner",
         "label": "the-mac"
       },
       {
-        "machineId": "f524eeb70fdc48e09d36286ddbcc759e",
+        "machineId": "c0910007404f4ab9a4f725c028c0569b",
         "machineName": "the-windows-machine",
         "osUser": "owner",
         "label": "the-windows-machine"
@@ -591,7 +622,7 @@ than any window lasts - is not expected to reach it, whatever its reset time.
   ],
   "machines": [
     {
-      "machineId": "7294b05d11294c2599f079720d15aa18",
+      "machineId": "2fef72637c9d41a58d77623fed457e8a",
       "machineName": "the-mac",
       "osUser": "owner",
       "label": "the-mac",
@@ -601,7 +632,7 @@ than any window lasts - is not expected to reach it, whatever its reset time.
       "text": "Next: account-b@example.com, in about 2 minutes."
     },
     {
-      "machineId": "f524eeb70fdc48e09d36286ddbcc759e",
+      "machineId": "c0910007404f4ab9a4f725c028c0569b",
       "machineName": "the-windows-machine",
       "osUser": "owner",
       "label": "the-windows-machine",
@@ -673,7 +704,7 @@ A `no-room` row is open while its `finishedAtUtc` is null (the account is still 
   "emptyText": null,
   "entries": [
     {
-      "entryId": "697c72388bc94e80803c5f59915386dd",
+      "entryId": "fd6f2c59dd514884b4a1d8139670469a",
       "kind": "spare-added",
       "kindText": "Spare added",
       "atUtc": "2026-10-11T03:12:00Z",
@@ -702,7 +733,7 @@ A `no-room` row is open while its `finishedAtUtc` is null (the account is still 
       "verifiedText": null
     },
     {
-      "entryId": "894811e63e6041eb9b79bbdb6162b200",
+      "entryId": "83019e32f08e4a1486d3ac48c3ef6c14",
       "kind": "switch",
       "kindText": "Switch",
       "atUtc": "2026-10-11T01:12:00Z",
@@ -731,7 +762,7 @@ A `no-room` row is open while its `finishedAtUtc` is null (the account is still 
       "verifiedText": null
     },
     {
-      "entryId": "441d48cf9e17474f925810c22432d2c2",
+      "entryId": "e3dc6d1ca06d4cb7ae3bf05c3dc517b6",
       "kind": "spare-removed",
       "kindText": "Spare removed",
       "atUtc": "2026-10-10T23:12:00Z",
@@ -760,7 +791,7 @@ A `no-room` row is open while its `finishedAtUtc` is null (the account is still 
       "verifiedText": null
     },
     {
-      "entryId": "6a63143a24a749c3b591c86ed5a1e39e",
+      "entryId": "4cbca57571e74da6b8b1552b73db78b3",
       "kind": "switch",
       "kindText": "Switch",
       "atUtc": "2026-10-10T22:12:00Z",
@@ -820,16 +851,19 @@ A refusal, here `GET /gateway/licenses/log?limit=0`:
 }
 ```
 
-## 6. Switch now and the renewal date - the follow-up, not in this pull request
+## 6. The follow-up pull request - Switch now, the renewal date, a failed renewal
 
-Everything the page needs to DRAW the control is in section 2 (`canSwitchNow`, `switchNowText`,
-`switchNowTargetAccountEmail`, `switchTargets`). The route that performs it is not built here: it calls one method,
-`LicenseSwitchService.SwitchNowAsync`, which belongs to the pull request that wires the Gateway's once-a-minute
-check, and that pull request had not merged to main when this one was opened
+This section is final: the names and routes below are what the follow-up builds, and phase 3 can be laid out for
+them now. The follow-up is one pull request, "Licenses API: Switch now, renewal date, failed renewal", opened after
+this one and the pull request that wires the Gateway's once-a-minute check have both merged. It adds one migration,
+for both database providers. Nothing in sections 1 to 5 is renamed by it.
+
+### Switch now
+
+Everything the page needs to DRAW the control is in section 2 already (`canSwitchNow`, `switchNowText`,
+`switchNowTargetAccountEmail`, `switchTargets`). The route that performs it calls one method,
+`LicenseSwitchService.SwitchNowAsync`, which belongs to the pull request that wires the once-a-minute check
 (`missions/license-switching/switch-now-method.md` on `origin/license-switching-gw-tick` has its exact signature).
-
-What the follow-up will add, so the page can be laid out for it now. This part is a plan until that pull request
-merges; the shapes above are not:
 
 - `POST /gateway/licenses/switch-now`, body `{ "accountEmail": "...", "targetAccountEmail": "..." | null }` - by
   ACCOUNT, because usage is counted per account and every machine on it moves; the target is optional.
@@ -843,11 +877,22 @@ merges; the shapes above are not:
   follow-up, the page therefore does NOT offer Switch now for an account whose only machine is waiting for an offline
   Director, although the route would accept it. The follow-up makes the fold ask the same narrowed picture, so the page
   offers exactly what the route accepts. The page needs no change for it.
-- **Refused to a session key.** Moving every machine of the owner's subscription to another one is the owner's own
-  action, from the Cockpit; `SessionKeyGuard` does not list the route, and a test holds it to that
-  (`LicenseGuardTests`).
 
-**The renewal date** arrives in the same follow-up: an optional date per account that a person sets, stored by the
-Gateway (a migration, both database providers), a write route for the caller's own account that is refused to a
-session key like Switch now, and the read on each account of the overview - "Renews <date>" or "Not set", never a
-guess. Until then the overview carries no renewal date at all, and `signInExpiry` is not one.
+### The renewal date
+
+- `PUT /gateway/licenses/accounts/renewal`, body `{ "accountEmail": "...", "renewsOn": "yyyy-MM-dd" | null }` - sets
+  or clears the date for one account of the caller's own DevThrottle account. The Gateway stores it in a new column.
+- The overview then answers `renewsOn` with that date and `renewsText` with "Renews 17 Oct"; with no date set they
+  stay null and "Renewal date not set", as they are today.
+
+### A failed renewal
+
+- The Gateway stores what each usage report says of a holding's last renewal (`RenewalFailedAtUtc` and `RenewalError`
+  of the contract, section 8.1), and the overview then fills `renewalFailedAtUtc`, `renewalFailedText` and
+  `renewalFailedTone` on that holding. No route is added for it.
+
+### Who may call the two writes
+
+**Both are refused to a session key.** Moving every machine of the owner's subscription to another one, and setting
+the date a subscription renews, are the owner's own actions, from the Cockpit. `SessionKeyGuard` lists neither route;
+a test holds Switch now to that today (`LicenseGuardTests`), and the follow-up adds the same for the renewal route.

@@ -138,3 +138,18 @@ Names a page built from the first version of `cockpit-api.md` would have used, a
 - New: `signInExpiry` on an account; `label` on a machine and on a forecast machine; `machineId` on a forecast machine;
   `utilizationText`, `level`, `resetsText` on a forecast window; `verifiedText` on a log row; the window level `stale`.
 - Nothing was removed.
+
+## The final field names (the Tech Lead's message after the answers above)
+
+Added to this pull request, with the names phase 3 builds to:
+- On an account: `renewsOn` (a date, `yyyy-MM-dd`, or null) and `renewsText`. No date can be set yet, so `renewsOn`
+  is null and `renewsText` is "Renewal date not set" for every account.
+- On a holding: `renewalFailedAtUtc`, `renewalFailedText`, `renewalFailedTone` - null when the last renewal worked or
+  is not known. The Gateway does not store a report's renewal result yet, so all three are null on every holding.
+`cockpit-api.md` documents all five, and its section 6 is now final: the follow-up pull request "Licenses API: Switch
+now, renewal date, failed renewal" - `POST /gateway/licenses/switch-now`, `PUT /gateway/licenses/accounts/renewal`
+with its stored column, and storing the renewal result from the report, in one migration for both providers.
+The shape test names the five fields and asserts today's values. They are fixed values with no rule behind them yet,
+so there was nothing to prove by mutation; the rules arrive with the follow-up and are tested there.
+Checked after this change: the 288 license unit tests, the 8 host tests and the no-key scan. The whole gate was NOT
+run again for it - the gate result in the proof file is for `c3252762b`, the commit before these five fields.

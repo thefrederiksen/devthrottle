@@ -244,3 +244,10 @@ gate run (`CronRunResultTests.cs`) is gone: main fixed it.
 Not checked: I did not run the gate on `origin/main` alone to watch these two fail there. That they are main's rests
 on what each message names and on this branch touching none of it.
 
+### After the gate: five field names, fixed values
+
+The Tech Lead then gave the final names of five fields phase 3 builds to: `renewsOn` and `renewsText` on an account,
+`renewalFailedAtUtc`, `renewalFailedText` and `renewalFailedTone` on a holding. They are in the response types and the
+shapes document, with the only values they can have until the follow-up: null, and "Renewal date not set". After that
+change the 288 license unit tests, the 8 host tests and the no-key scan were run again and passed. The whole gate was
+not run again: its result above is for `c3252762b`.

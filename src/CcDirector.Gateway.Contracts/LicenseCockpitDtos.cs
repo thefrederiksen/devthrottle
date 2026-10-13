@@ -213,6 +213,14 @@ public sealed class LicenseAccountDto
 
     public LicenseExtraUsageDto ExtraUsage { get; set; } = new();
 
+    /// <summary>The date the SUBSCRIPTION is billed again, as "yyyy-MM-dd": a date a person sets for the account. Null
+    /// when none is set. No report carries it, and it is never worked out from anything else. Until the route that
+    /// sets it exists it is always null.</summary>
+    public string? RenewsOn { get; set; }
+
+    /// <summary>The sentence for <see cref="RenewsOn"/>: "Renews 17 Oct", or "Renewal date not set". Always set.</summary>
+    public string RenewsText { get; set; } = "";
+
     /// <summary>The sign-in for this account that expires first, on whichever machine holds it.</summary>
     public LicenseAccountSignInExpiryDto SignInExpiry { get; set; } = new();
 
@@ -350,6 +358,16 @@ public sealed class LicenseMachineHoldingDto
 
     /// <summary>One of <see cref="LicenseTones"/>.</summary>
     public string ExpiryTone { get; set; } = "";
+
+    /// <summary>When the machine last tried to renew this sign-in and failed. Null when the last renewal worked or is
+    /// not known. Until the Gateway stores what the report says of it, it is always null.</summary>
+    public DateTime? RenewalFailedAtUtc { get; set; }
+
+    /// <summary>The sentence for a failed renewal; null when the last renewal worked or is not known.</summary>
+    public string? RenewalFailedText { get; set; }
+
+    /// <summary>One of <see cref="LicenseTones"/> for a failed renewal; null when the last renewal worked or is not known.</summary>
+    public string? RenewalFailedTone { get; set; }
 
     /// <summary>This machine's own numbers for the account are too old.</summary>
     public bool IsReadingStale { get; set; }

@@ -116,9 +116,11 @@ public sealed class LicenseEndpointsTests : IDisposable
         {
             "accountEmail", "plan", "planText", "rateLimitTier", "status", "statusText", "statusTone", "statusDetail", "isInUse",
             "fiveHour", "sevenDay", "isStale", "readAtUtc", "readAgeText", "readError", "readErrorText", "extraUsage",
-            "signInExpiry", "activeOnMachines", "spareOnMachines", "canSwitchNow", "switchNowText", "switchNowTargetAccountEmail", "switchTargets",
+            "renewsOn", "renewsText", "signInExpiry", "activeOnMachines", "spareOnMachines", "canSwitchNow", "switchNowText", "switchNowTargetAccountEmail", "switchTargets",
         }, Names(account));
         Assert.Equal(new[] { "expiresAtUtc", "machine", "verdict", "text", "tone" }, Names(account.GetProperty("signInExpiry")));
+        // No renewal date is set for any account yet, and the answer says so in words - never a guessed date.
+        Assert.Equal((JsonValueKind.Null, "Renewal date not set"), (account.GetProperty("renewsOn").ValueKind, account.GetProperty("renewsText").GetString()));
         Assert.Equal(new[] { "machineId", "machineName", "osUser", "label" }, Names(account.GetProperty("activeOnMachines")[0]));
         var spareAccount = json.GetProperty("accounts")[1];
         Assert.Equal(new[] { "machineId", "machineName", "osUser", "label" }, Names(spareAccount.GetProperty("spareOnMachines")[0]));
@@ -150,12 +152,15 @@ public sealed class LicenseEndpointsTests : IDisposable
         Assert.Equal(new[]
         {
             "accountEmail", "isActive", "signedInAtUtc", "signedInText", "signInExpiresAtUtc", "expiryVerdict", "expiryText", "expiryTone",
-            "isReadingStale", "readError", "readErrorText",
+            "renewalFailedAtUtc", "renewalFailedText", "renewalFailedTone", "isReadingStale", "readError", "readErrorText",
         }, Names(spare));
         Assert.Equal((B, "fine", "Sign-in expires in 9 days", "2026-10-20T03:12:00Z", "Signed in 21 days ago"),
             (spare.GetProperty("accountEmail").GetString(), spare.GetProperty("expiryVerdict").GetString(), spare.GetProperty("expiryText").GetString(),
              spare.GetProperty("signInExpiresAtUtc").GetString(), spare.GetProperty("signedInText").GetString()));
         Assert.Equal(JsonValueKind.Null, machine.GetProperty("switchInProgress").ValueKind);
+        // Null when the last renewal worked or is not known - and the Gateway does not store it yet.
+        Assert.Equal((JsonValueKind.Null, JsonValueKind.Null, JsonValueKind.Null),
+            (spare.GetProperty("renewalFailedAtUtc").ValueKind, spare.GetProperty("renewalFailedText").ValueKind, spare.GetProperty("renewalFailedTone").ValueKind));
     }
 
     [Fact]
