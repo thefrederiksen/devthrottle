@@ -151,10 +151,21 @@ public sealed class LicenseHoldingEntity : GatewayMintedKeyEntity
 /// <see cref="FromAccountEmail"/> is the account that ran out, <see cref="NotAfterUtc"/> is when the event is expected
 /// to end, <see cref="ReasonCode"/> is what became of the owner email, and <see cref="LastSentAtUtc"/> is when that
 /// email was sent. The row is open while <see cref="FinishedAtUtc"/> is null.
+///
+/// A fourth kind, <c>renewal-failed</c>, records a failed-renewal warning (contract section 8.1): a sign-in a machine
+/// holds is about to end and its renewal keeps failing. One row for each failure streak of each sign-in, about a
+/// MACHINE and an ACCOUNT. It reuses six columns, each named below where it does: <see cref="ToAccountEmail"/> is the
+/// account of the sign-in, <see cref="NotAfterUtc"/> is when that sign-in ends, <see cref="DirectorStartedAtUtc"/> is
+/// when that sign-in was made as the machine reported it when the row was opened, <see cref="ReasonCode"/> is what
+/// became of the owner email, and <see cref="LastSentAtUtc"/> and <see cref="SendCount"/> are when and whether that
+/// email was sent. The row is open while <see cref="FinishedAtUtc"/> is null.
+///
+/// EVERY READER FILTERS BY KIND. The kinds share columns and give them different meanings.
 /// </summary>
 public sealed class LicenseSwitchLogEntity : GatewayMintedKeyEntity
 {
-    /// <summary><c>switch</c>, <c>spare-added</c> or <c>spare-removed</c> (<c>Licenses.LicenseLogKinds</c>), or
+    /// <summary><c>switch</c>, <c>spare-added</c>, <c>spare-removed</c>, <c>no-room</c> or <c>renewal-failed</c>
+    /// (<c>Licenses.LicenseLogKinds</c>), or
     /// <c>sign-in</c> (<c>Licenses.LicenseSignInLog.Kind</c>): a sign-in started from the Cockpit, whose identifier is in
     /// <see cref="SwitchId"/> and whose account is in <see cref="ToAccountEmail"/>.</summary>
     public string Kind { get; set; } = "";
@@ -176,7 +187,8 @@ public sealed class LicenseSwitchLogEntity : GatewayMintedKeyEntity
     /// <summary>A switch's from account; for <c>spare-removed</c>, the account removed; "" on <c>spare-added</c>.</summary>
     public string FromAccountEmail { get; set; } = "";
 
-    /// <summary>A switch's target; for <c>spare-added</c>, the account added; "" on <c>spare-removed</c>.</summary>
+    /// <summary>A switch's target; for <c>spare-added</c>, the account added; "" on <c>spare-removed</c>. On a
+    /// <c>renewal-failed</c> row: the account of the sign-in that cannot be renewed.</summary>
     public string ToAccountEmail { get; set; } = "";
 
     /// <summary>A switch's <c>LicenseSwitchReasons</c> word (threshold or manual); null on a spare row.</summary>
@@ -196,7 +208,8 @@ public sealed class LicenseSwitchLogEntity : GatewayMintedKeyEntity
     /// <summary>When the Gateway decided the switch, or saw the spare change.</summary>
     public DateTime CreatedAtUtc { get; set; }
 
-    /// <summary>The time the Director refuses to start the switch after; null on a spare row.</summary>
+    /// <summary>The time the Director refuses to start the switch after; null on a spare row. On a
+    /// <c>renewal-failed</c> row: when the sign-in ends, as the machine reported it when the row was opened.</summary>
     public DateTime? NotAfterUtc { get; set; }
 
     /// <summary>How many times the command has been sent (a resend reuses <see cref="SwitchId"/>).</summary>
@@ -205,7 +218,9 @@ public sealed class LicenseSwitchLogEntity : GatewayMintedKeyEntity
     /// <summary>When it was last sent, or null.</summary>
     public DateTime? LastSentAtUtc { get; set; }
 
-    /// <summary>The Director's timings, from its result: when it began, when it finished, and the exchange step alone.</summary>
+    /// <summary>The Director's timings, from its result: when it began, when it finished, and the exchange step alone.
+    /// On a <c>renewal-failed</c> row <see cref="DirectorStartedAtUtc"/> is not a timing: it is when the sign-in was
+    /// made, as the machine reported it when the row was opened.</summary>
     public DateTime? DirectorStartedAtUtc { get; set; }
     public DateTime? DirectorFinishedAtUtc { get; set; }
     public int? ExchangeMilliseconds { get; set; }

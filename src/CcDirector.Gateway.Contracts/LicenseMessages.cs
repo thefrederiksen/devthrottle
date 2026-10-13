@@ -435,6 +435,16 @@ public static class LicenseContract
     /// "expires soon" (contract section 5.7).</summary>
     public static readonly TimeSpan SignInExpiryWarning = TimeSpan.FromDays(3);
 
+    /// <summary>
+    /// How far apart two reported ends of ONE sign-in can be. A sign-in's end is fixed when it is made and a key
+    /// refresh does not move it, but the license tool writes it again on every refresh as "the moment of the answer +
+    /// the seconds the provider says are left", so two readings of one sign-in differ by seconds. The tool allows one
+    /// hour when it asks whether two ends are the same sign-in (<c>SIGN_IN_MATCH_TOLERANCE_SECONDS</c> in
+    /// <c>tools/cc-devthrottle/src/license_store.py</c>), and this is that hour. An end later by MORE than this is a
+    /// newer sign-in; a renewal moves the end by weeks.
+    /// </summary>
+    public static readonly TimeSpan SignInEndTolerance = TimeSpan.FromHours(1);
+
     // ---- Section 8: renewing a sign-in, and approving one on another machine ----
 
     /// <summary>The hub method a target Director calls to have a sign-in approved on another machine; the Director
