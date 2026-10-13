@@ -203,7 +203,7 @@ public sealed class FactoryAgentsViewRouteTests
         Assert.Contains($"by session {h.SessionId}", view.SourceText);
         var desk = view.Nodes.Single(n => n.Id == "front-desk");
         Assert.Equal("IDLE", desk.StatusWord);
-        Assert.Equal($"/factories/{factory}/agents/front-desk", desk.Href);
+        Assert.Equal($"/factories/{factory}/seats/front-desk", desk.Href);
         Assert.Contains(desk.Spec, r => r.Label == "Inputs" && r.Text == "mail-threads");
         Assert.Equal("dashed", Assert.Single(view.Edges).Line);
 

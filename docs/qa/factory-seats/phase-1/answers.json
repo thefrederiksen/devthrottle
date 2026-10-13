@@ -1,0 +1,472 @@
+{
+  "seat-page-with-a-schedule": {
+    "request": "GET /gateway/factories/seat-demo/seats/scout",
+    "status": 200,
+    "body": {
+      "factoryId": "seat-demo",
+      "factoryTitle": "Seat Demo",
+      "seatId": "scout",
+      "crumb": "Factories / Seat Demo / Seats / Scout",
+      "crumbHrefs": [
+        "/factories",
+        "/factories/seat-demo",
+        "/factories/seat-demo/seats"
+      ],
+      "name": "Scout",
+      "role": "Scout",
+      "computerText": "runs on RIG_MACHINE",
+      "startsWord": "Scheduled",
+      "startsTone": "ok",
+      "talk": {
+        "label": "Talk to Scout",
+        "busyLabel": "Starting the talk with Scout...",
+        "factoryId": "seat-demo",
+        "seatId": "scout"
+      },
+      "brief": {
+        "heading": "What this seat does",
+        "pathLabel": "Brief file",
+        "pathText": "/home/rig/seat-demo/seats/scout.yaml",
+        "computerLabel": "Computer",
+        "computerText": "RIG_MACHINE",
+        "note": "The brief is a file on RIG_MACHINE. It is not held on the Gateway yet, so it cannot be read or changed here. A talk and a scheduled run of this seat are told this path and read the file from that computer."
+      },
+      "starts": {
+        "heading": "How it starts",
+        "talkOnlyText": null,
+        "schedules": [
+          {
+            "jobId": "cj_0e96e0",
+            "name": "Seat Demo Factory - Scout - morning scan",
+            "whenText": "Daily 06:15",
+            "shiftText": "Night shift",
+            "pausedText": null,
+            "missingText": null,
+            "editLabel": "Edit schedule",
+            "paused": false,
+            "toggleLabel": "Pause",
+            "unlink": {
+              "jobId": "cj_0e96e0",
+              "label": "Take off this seat",
+              "busyLabel": "Taking it off...",
+              "confirmTitle": "Take this schedule off Scout?",
+              "confirmLines": [
+                "'Seat Demo Factory - Scout - morning scan' stops being a schedule of Scout. The sessions it starts no longer belong to Seat Demo.",
+                "It stays switched on and keeps running at its times, as a plain schedule in no factory. Pause it first if it should stop.",
+                "It is kept, not deleted. It is listed on the Schedule page, and cc-devthrottle schedule link puts it back on a seat.",
+                "Scout will then be talk only."
+              ],
+              "confirmLabel": "Take it off"
+            }
+          }
+        ],
+        "triggers": [],
+        "triggersPause": null
+      },
+      "goal": {
+        "heading": "Goal",
+        "text": "Publish one useful page a week and keep every page we publish correct.",
+        "note": "Only you change the goal. Approved 4 Oct 2026.",
+        "emptyText": null
+      },
+      "goalNumber": {
+        "heading": "Goal number",
+        "valueText": null,
+        "asOfText": null,
+        "linkHref": null,
+        "linkLabel": null,
+        "emptyText": "No number posted yet"
+      },
+      "leftBehind": {
+        "heading": "What it has left behind",
+        "lastTalkLabel": "Last talk",
+        "lastTalkText": "None yet.",
+        "lastRunLabel": "Last run",
+        "lastRunText": "Not run yet",
+        "lastRunTone": "grey",
+        "closingText": "no runs recorded yet",
+        "closingTone": "grey",
+        "numbersTitle": "Last 7 days",
+        "numbers": [
+          {
+            "text": "0 runs",
+            "tone": "neutral",
+            "target": null,
+            "outcome": null,
+            "href": null
+          },
+          {
+            "text": "1 done",
+            "tone": "neutral",
+            "target": null,
+            "outcome": null,
+            "href": null
+          }
+        ],
+        "recentTitle": "Recent activity",
+        "recent": [
+          {
+            "key": "0aec1ce4-2694-4daa-acd4-bcf7b05f95d1",
+            "time": "13 Oct 17:08",
+            "factoryTitle": "Seat Demo",
+            "who": "Scout",
+            "what": "found 3 pages with a broken link",
+            "subject": "broken links",
+            "outcomeWord": "DONE",
+            "outcomeTone": "ok",
+            "collapsed": false,
+            "sessionId": null,
+            "sessionLabel": null,
+            "link": null,
+            "note": null
+          }
+        ],
+        "recentEmptyText": null,
+        "allLabel": "All activity of this seat",
+        "allHref": "/factories?tab=activity&factory=seat-demo&agent=scout",
+        "memoryLabel": "Memory",
+        "memoryText": "No notes in the factory's memory yet. Memory belongs to the whole factory, not to one seat.",
+        "memoryLinkLabel": "Open Memory",
+        "memoryHref": "/factories/seat-demo/memory"
+      },
+      "truncatedText": null
+    }
+  },
+  "seat-page-with-no-schedule": {
+    "request": "GET /gateway/factories/seat-demo/seats/boss",
+    "status": 200,
+    "body": {
+      "factoryId": "seat-demo",
+      "factoryTitle": "Seat Demo",
+      "seatId": "boss",
+      "crumb": "Factories / Seat Demo / Seats / Boss",
+      "crumbHrefs": [
+        "/factories",
+        "/factories/seat-demo",
+        "/factories/seat-demo/seats"
+      ],
+      "name": "Boss",
+      "role": "Boss",
+      "computerText": "runs on RIG_MACHINE",
+      "startsWord": "Talk only",
+      "startsTone": "idle",
+      "talk": {
+        "label": "Talk to the boss",
+        "busyLabel": "Starting the talk with the boss...",
+        "factoryId": "seat-demo",
+        "seatId": "boss"
+      },
+      "brief": {
+        "heading": "What this seat does",
+        "pathLabel": "Brief file",
+        "pathText": "/home/rig/seat-demo/seats/boss.yaml",
+        "computerLabel": "Computer",
+        "computerText": "RIG_MACHINE",
+        "note": "The brief is a file on RIG_MACHINE. It is not held on the Gateway yet, so it cannot be read or changed here. A talk and a scheduled run of this seat are told this path and read the file from that computer."
+      },
+      "starts": {
+        "heading": "How it starts",
+        "talkOnlyText": "Talk only. Nothing is scheduled for this seat. You run it by talking to it.",
+        "schedules": [],
+        "triggers": [],
+        "triggersPause": null
+      },
+      "goal": {
+        "heading": "Goal",
+        "text": "Publish one useful page a week and keep every page we publish correct.",
+        "note": "Only you change the goal. Approved 4 Oct 2026.",
+        "emptyText": null
+      },
+      "goalNumber": {
+        "heading": "Goal number",
+        "valueText": null,
+        "asOfText": null,
+        "linkHref": null,
+        "linkLabel": null,
+        "emptyText": "No number posted yet"
+      },
+      "leftBehind": {
+        "heading": "What it has left behind",
+        "lastTalkLabel": "Last talk",
+        "lastTalkText": "Talked with you, today 17:08 - decided: one page a week, checked before it goes out",
+        "lastRunLabel": "Last run",
+        "lastRunText": "Not run yet",
+        "lastRunTone": "grey",
+        "closingText": null,
+        "closingTone": null,
+        "numbersTitle": "Last 7 days",
+        "numbers": [
+          {
+            "text": "0 runs",
+            "tone": "neutral",
+            "target": null,
+            "outcome": null,
+            "href": null
+          }
+        ],
+        "recentTitle": "Recent activity",
+        "recent": [
+          {
+            "key": "73aa0a38-9308-43c8-ac44-a79b0f115909",
+            "time": "13 Oct 17:08",
+            "factoryTitle": "Seat Demo",
+            "who": "Boss",
+            "what": "decided: one page a week, checked before it goes out",
+            "subject": null,
+            "outcomeWord": "TALKED",
+            "outcomeTone": "blue",
+            "collapsed": false,
+            "sessionId": null,
+            "sessionLabel": null,
+            "link": null,
+            "note": null
+          }
+        ],
+        "recentEmptyText": null,
+        "allLabel": "All activity of this seat",
+        "allHref": "/factories?tab=activity&factory=seat-demo&agent=boss",
+        "memoryLabel": "Memory",
+        "memoryText": "No notes in the factory's memory yet. Memory belongs to the whole factory, not to one seat.",
+        "memoryLinkLabel": "Open Memory",
+        "memoryHref": "/factories/seat-demo/memory"
+      },
+      "truncatedText": null
+    }
+  },
+  "seat-the-factory-does-not-have": {
+    "request": "GET /gateway/factories/seat-demo/seats/owner-session",
+    "status": 404,
+    "body": {
+      "error": "Seat Demo has no seat 'owner-session'. Its seats are: boss, scout, writer. Only a registered seat has a page; what any other session wrote is on the factory's Activity tab."
+    }
+  },
+  "seat-of-a-factory-that-is-not-registered": {
+    "request": "GET /gateway/factories/nowhere/seats/boss",
+    "status": 404,
+    "body": {
+      "error": "There is no registered factory 'nowhere'. A factory is registered with cc-devthrottle factory register."
+    }
+  },
+  "unlink-a-schedule-on-no-seat": {
+    "request": "POST /cron/jobs/cj_2a5f2d/unlink",
+    "status": 409,
+    "body": {
+      "error": "'Daily job search' is on no seat of any factory, so there is nothing to take off.",
+      "id": "cj_2a5f2d"
+    }
+  },
+  "unlink-a-schedule-that-does-not-exist": {
+    "request": "POST /cron/jobs/cj_nowhere/unlink",
+    "status": 404,
+    "body": {
+      "error": "no such cron job",
+      "id": "cj_nowhere"
+    }
+  },
+  "factories-list-status-words": {
+    "request": "GET /gateway/factories",
+    "status": 200,
+    "body": [
+      {
+        "id": "paused-demo",
+        "statusWord": "PAUSED",
+        "statusRank": 2,
+        "statusLine": "1 schedule switched off"
+      },
+      {
+        "id": "seat-demo",
+        "statusWord": "RUNNING",
+        "statusRank": 3,
+        "statusLine": null
+      },
+      {
+        "id": "talk-only-demo",
+        "statusWord": "TALK ONLY",
+        "statusRank": 4,
+        "statusLine": "Nothing scheduled. You run it by talking to it."
+      }
+    ]
+  },
+  "old-agent-address-desktop": {
+    "opened": "/factories/seat-demo/agents/boss",
+    "landed": "/factories/seat-demo/seats/boss"
+  },
+  "unlink-by-the-account-desktop": {
+    "request": "POST /cron/jobs/cj_0e96e0/unlink",
+    "status": 200,
+    "body": {
+      "text": "Taken off Scout of Seat Demo. 'Seat Demo Factory - Scout - morning scan' is still switched on and keeps running at its times, as a plain schedule in no factory.",
+      "factory": "seat-demo",
+      "seat": "scout",
+      "job": {
+        "id": "cj_0e96e0",
+        "name": "Seat Demo Factory - Scout - morning scan",
+        "enabled": true,
+        "scheduleKind": "recurring",
+        "cronExpression": "15 6 * * *",
+        "runAt": null,
+        "timeZoneId": "America/Toronto",
+        "factory": null,
+        "seat": null,
+        "target": {
+          "machine": "RIG_MACHINE"
+        },
+        "action": {
+          "repoPath": "/home/rig/seat-demo",
+          "seed": "Morning scan.",
+          "workListName": null,
+          "autoDismiss": true
+        },
+        "preventOverlap": true,
+        "notifyOn": "none",
+        "notifyWebhookUrl": null,
+        "createdUtc": "2026-10-13T21:08:23.9092473Z",
+        "lastFiredUtc": null,
+        "nextRunUtc": "2026-10-14T10:15:00Z",
+        "lastStatus": null,
+        "scheduleText": null,
+        "remainingToday": null,
+        "lifecycle": "active",
+        "stateLabel": "Active",
+        "toggleLabel": "Pause",
+        "runRecord": null,
+        "factoryTitle": null,
+        "factoryHref": null,
+        "shortName": null,
+        "loadWarning": null,
+        "shifts": [
+          "night"
+        ],
+        "shiftText": "Night shift",
+        "shiftWarning": null,
+        "shiftRule": null
+      }
+    }
+  },
+  "unlink-again-refused-desktop": {
+    "request": "POST /cron/jobs/cj_0e96e0/unlink",
+    "status": 409,
+    "body": {
+      "error": "'Seat Demo Factory - Scout - morning scan' is on no seat of any factory, so there is nothing to take off.",
+      "id": "cj_0e96e0"
+    }
+  },
+  "schedule-after-take-off-desktop": {
+    "request": "GET /cron/jobs/cj_0e96e0",
+    "status": 200,
+    "body": {
+      "id": "cj_0e96e0",
+      "name": "Seat Demo Factory - Scout - morning scan",
+      "enabled": true,
+      "factory": null,
+      "seat": null,
+      "cronExpression": "15 6 * * *"
+    }
+  },
+  "old-agent-address-phone": {
+    "opened": "/factories/seat-demo/agents/boss",
+    "landed": "/factories/seat-demo/seats/boss"
+  },
+  "unlink-by-the-account-phone": {
+    "request": "POST /cron/jobs/cj_0e96e0/unlink",
+    "status": 200,
+    "body": {
+      "text": "Taken off Scout of Seat Demo. 'Seat Demo Factory - Scout - morning scan' is still switched on and keeps running at its times, as a plain schedule in no factory.",
+      "factory": "seat-demo",
+      "seat": "scout",
+      "job": {
+        "id": "cj_0e96e0",
+        "name": "Seat Demo Factory - Scout - morning scan",
+        "enabled": true,
+        "scheduleKind": "recurring",
+        "cronExpression": "15 6 * * *",
+        "runAt": null,
+        "timeZoneId": "America/Toronto",
+        "factory": null,
+        "seat": null,
+        "target": {
+          "machine": "RIG_MACHINE"
+        },
+        "action": {
+          "repoPath": "/home/rig/seat-demo",
+          "seed": "Morning scan.",
+          "workListName": null,
+          "autoDismiss": true
+        },
+        "preventOverlap": true,
+        "notifyOn": "none",
+        "notifyWebhookUrl": null,
+        "createdUtc": "2026-10-13T21:08:23.9092473Z",
+        "lastFiredUtc": null,
+        "nextRunUtc": "2026-10-14T10:15:00Z",
+        "lastStatus": null,
+        "scheduleText": null,
+        "remainingToday": null,
+        "lifecycle": "active",
+        "stateLabel": "Active",
+        "toggleLabel": "Pause",
+        "runRecord": null,
+        "factoryTitle": null,
+        "factoryHref": null,
+        "shortName": null,
+        "loadWarning": null,
+        "shifts": [
+          "night"
+        ],
+        "shiftText": "Night shift",
+        "shiftWarning": null,
+        "shiftRule": null
+      }
+    }
+  },
+  "unlink-again-refused-phone": {
+    "request": "POST /cron/jobs/cj_0e96e0/unlink",
+    "status": 409,
+    "body": {
+      "error": "'Seat Demo Factory - Scout - morning scan' is on no seat of any factory, so there is nothing to take off.",
+      "id": "cj_0e96e0"
+    }
+  },
+  "schedule-after-take-off-phone": {
+    "request": "GET /cron/jobs/cj_0e96e0",
+    "status": 200,
+    "body": {
+      "id": "cj_0e96e0",
+      "name": "Seat Demo Factory - Scout - morning scan",
+      "enabled": true,
+      "factory": null,
+      "seat": null,
+      "cronExpression": "15 6 * * *"
+    }
+  },
+  "command-line": [
+    {
+      "what": "take a schedule off its seat",
+      "command": "cc-devthrottle schedule unlink cj_0e96e0",
+      "exit": 0,
+      "stdout": "Taken off Scout of Seat Demo. 'Seat Demo Factory - Scout - morning scan' is still switched on and keeps running at its times, as a plain schedule in no factory. (cj_0e96e0)\nhelp[3]:\n  cc-devthrottle schedule disable cj_0e96e0\n  cc-devthrottle schedule get cj_0e96e0\n  cc-devthrottle schedule link cj_0e96e0 --factory seat-demo --seat scout",
+      "stderr": ""
+    },
+    {
+      "what": "take it off a second time",
+      "command": "cc-devthrottle schedule unlink cj_0e96e0",
+      "exit": 1,
+      "stdout": "",
+      "stderr": "Error: 'Seat Demo Factory - Scout - morning scan' is on no seat of any factory, so there is nothing to take off.\nhelp[2]:\n  cc-devthrottle schedule list\n  cc-devthrottle factory list"
+    },
+    {
+      "what": "a schedule that is on no seat",
+      "command": "cc-devthrottle schedule unlink cj_2a5f2d",
+      "exit": 1,
+      "stdout": "",
+      "stderr": "Error: 'Daily job search' is on no seat of any factory, so there is nothing to take off.\nhelp[2]:\n  cc-devthrottle schedule list\n  cc-devthrottle factory list"
+    },
+    {
+      "what": "a schedule that does not exist",
+      "command": "cc-devthrottle schedule unlink cj_nowhere",
+      "exit": 1,
+      "stdout": "",
+      "stderr": "Error: no such cron job\nhelp[2]:\n  cc-devthrottle schedule list\n  cc-devthrottle factory list"
+    }
+  ]
+}

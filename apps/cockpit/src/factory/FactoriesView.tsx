@@ -167,6 +167,7 @@ function FactoriesList({ view, onChanged }: { view: FactoriesListView; onChanged
         <StripNumber testId="fa-strip-running" n={counts.running} label="running" tone="ok" />
         <StripNumber testId="fa-strip-fixing" n={counts.needsFixing} label={counts.needsFixing === 1 ? "needs fixing" : "need fixing"} tone="red" />
         <StripNumber testId="fa-strip-paused" n={counts.paused} label="paused" tone="amber" />
+        <StripNumber testId="fa-strip-talk" n={counts.talkOnly} label="talk only" tone="" />
         <StripNumber testId="fa-strip-waiting" n={counts.waiting} label="waiting on you" tone="" />
       </div>
       <div className="fa-sortbar" data-testid="fa-sortbar">

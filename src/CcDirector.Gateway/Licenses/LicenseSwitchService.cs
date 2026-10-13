@@ -118,6 +118,8 @@ public sealed class LicenseSwitchService
     private readonly ConcurrentDictionary<(TenantId Tenant, string AccountEmail), DateTime> _emailNotBefore = new();
     // How many tries of this event's email have failed in a row; it sets the growing wait.
     private readonly ConcurrentDictionary<(TenantId Tenant, string AccountEmail), int> _emailFailures = new();
+    // Emails the mail service confirmed whose event's row is not marked yet: never sent again by this process.
+    private readonly ConcurrentDictionary<(TenantId Tenant, string AccountEmail), DateTime> _emailConfirmed = new();
 
     /// <summary>The longest the Gateway itself waits between two tries of one event's owner email.</summary>
     internal static readonly TimeSpan LongestOwnEmailWait = TimeSpan.FromHours(1);
@@ -508,6 +510,7 @@ public sealed class LicenseSwitchService
         {
             _store.CloseNoRoom(tenant, closed, now);
             ForgetEmailWait(tenant, LicenseStore.NormalizeEmail(closed));
+            _emailConfirmed.TryRemove((tenant, LicenseStore.NormalizeEmail(closed)), out _);
         }
         foreach (var email in decisions.Emails)
             emails.Add(new PlannedEmail(LicenseStore.NormalizeEmail(email.AccountEmail), email));
@@ -519,6 +522,14 @@ public sealed class LicenseSwitchService
             if (closedNow.Contains(account)
                 || row.ReasonCode is LicenseGatewayReasonCodes.OwnerEmailed or LicenseGatewayReasonCodes.NoOwnerAccount)
                 continue;
+            if (_emailConfirmed.ContainsKey((tenant, account)))
+            {
+                // The mail service confirmed this event's email on an earlier check and the row could not be marked
+                // then: mark it now, and never send it again.
+                MarkEmailConfirmed(tenant, account);
+                written++;
+                continue;
+            }
             if (_emailNotBefore.TryGetValue((tenant, account), out var notBefore) && now < notBefore)
                 continue;
             if (LicenseDecisionEngine.NoRoomEmail(snapshot, account) is { } again)
@@ -702,15 +713,25 @@ public sealed class LicenseSwitchService
 
     private async Task EmailAsync(TenantId tenant, PlannedEmail planned, CancellationToken ct)
     {
-        var result = await _mail(tenant, planned.Email, ct).ConfigureAwait(false);
+        LicenseOwnerEmailResult result;
+        try
+        {
+            result = await _mail(tenant, planned.Email, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // A sender that throws has sent nothing this Gateway knows of: a failed send, with the growing wait.
+            FileLog.Write($"[LicenseSwitchService] owner email for a no-room event: the sender FAILED ({ex.GetType().Name})");
+            result = new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Failed, $"the mail sender failed ({ex.GetType().Name})");
+        }
         var now = _nowUtc();
         var account = planned.AccountEmail;
         switch (result.Outcome)
         {
             case LicenseOwnerEmailOutcome.Sent:
-                _store.RecordNoRoomEmail(tenant, account, LicenseGatewayReasonCodes.OwnerEmailed,
-                    LicenseStore.NoRoomMessage(account, "the owner was emailed"), now);
-                ForgetEmailWait(tenant, account);
+                // Remembered BEFORE the row is marked: if the mark fails, no later check of this process sends again.
+                _emailConfirmed[(tenant, account)] = now;
+                MarkEmailConfirmed(tenant, account);
                 break;
             case LicenseOwnerEmailOutcome.NoAccount:
                 _store.RecordNoRoomEmail(tenant, account, LicenseGatewayReasonCodes.NoOwnerAccount,
@@ -718,12 +739,24 @@ public sealed class LicenseSwitchService
                 ForgetEmailWait(tenant, account);
                 break;
             default:
+                // The wait is set before the row is written, so a database that refuses the write still gets the wait.
+                _emailNotBefore[(tenant, account)] = now + NextEmailWait(tenant, account, result.RetryAfter);
                 _store.RecordNoRoomEmail(tenant, account, LicenseGatewayReasonCodes.OwnerEmailFailed,
                     LicenseStore.NoRoomMessage(account, $"the owner has not been emailed yet because {result.Detail}"), null);
-                _emailNotBefore[(tenant, account)] = now + NextEmailWait(tenant, account, result.RetryAfter);
                 break;
         }
         FileLog.Write($"[LicenseSwitchService] owner email for a no-room event: tenant={tenant.ToLogString()}, outcome={result.Outcome}");
+    }
+
+    /// <summary>Mark the open no-room event of an email the mail service confirmed. Forgotten only once the row is
+    /// marked, so a database that refuses the mark costs no second email while this Gateway runs.</summary>
+    private void MarkEmailConfirmed(TenantId tenant, string account)
+    {
+        var sentAt = _emailConfirmed[(tenant, account)];
+        _store.RecordNoRoomEmail(tenant, account, LicenseGatewayReasonCodes.OwnerEmailed,
+            LicenseStore.NoRoomMessage(account, "the owner was emailed"), sentAt);
+        _emailConfirmed.TryRemove((tenant, account), out _);
+        ForgetEmailWait(tenant, account);
     }
 
     /// <summary>

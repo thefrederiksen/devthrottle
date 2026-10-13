@@ -729,6 +729,30 @@ public sealed class DeviceRegistry : IDisposable
     }
 
     /// <summary>
+    /// The device type on the row a new key for <paramref name="deviceId"/> in <paramref name="tenant"/> would be
+    /// issued AGAINST - the row whose machine name, platform and type a registration keeps rather than rewrites
+    /// (an ACTIVE row; see the preserve rule in the registration itself). Null when there is no such row, and then a
+    /// registration writes the type it is given. An active row with no type recorded answers the empty string, which
+    /// is not null: the row exists and its type would be kept.
+    ///
+    /// Asked by the mint before it writes (Pricing Change mission, B2), because the type on a key is what tells a
+    /// Cockpit's or a phone's request from a Director's, and a kept type is one the door did not choose.
+    /// </summary>
+    public string? DeviceTypeOfActiveDevice(string deviceId, TenantId tenant)
+    {
+        if (string.IsNullOrWhiteSpace(deviceId) || !tenant.IsValid)
+            return null;
+        using var ctx = _db.CreateUnscopedContext();
+        var row = ctx.DeviceCredentials
+            .AsNoTracking()
+            .Where(d => d.DeviceId == deviceId && d.TenantId == tenant.Value && d.Status == StatusActive)
+            .Select(d => new { d.DeviceType })
+            .FirstOrDefault();
+        FileLog.Write($"[DeviceRegistry] DeviceTypeOfActiveDevice: tenant={tenant.ToLogString()} activeRow={(row is null ? "none" : "type=" + row.DeviceType)}");
+        return row is null ? null : row.DeviceType ?? "";
+    }
+
+    /// <summary>
     /// What a device row shows - machine name, platform and device type - or null when there is no such row. A
     /// Director that moves to another team keeps them on its new row (devthrottle_internal#2311).
     /// </summary>

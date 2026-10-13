@@ -225,6 +225,32 @@ public sealed class CronJobStore
     }
 
     /// <summary>
+    /// Take a job off its factory seat, and nothing else about it (Factory Seats mission, phase 1): its factory and
+    /// its seat are cleared, and it stays switched as it was with the next run it had. Returns the updated copy, or
+    /// null if no job with that id exists.
+    /// </summary>
+    public CronJobDto? Unlink(string id)
+    {
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext();
+            var entity = ctx.CronJobs.FirstOrDefault(e => e.Id == id);
+            if (entity is null)
+            {
+                FileLog.Write($"[CronJobStore] Unlink: no such job id={id}");
+                return null;
+            }
+            var was = $"{entity.Factory ?? "none"}/{entity.Seat ?? "none"}";
+            entity.Factory = null;
+            entity.Seat = null;
+            ctx.SaveChanges();
+            var stored = ToDto(entity);
+            FileLog.Write($"[CronJobStore] Unlink: id={id}, name={stored.Name}, was={was}, enabled={stored.Enabled}");
+            return stored;
+        }
+    }
+
+    /// <summary>
     /// Switch one job of an account the CALLER names on or off, and nothing else about it - for the owner's Archive
     /// and Restore of a factory (Factories screen mission, round 2), which switch exactly the schedules its seats name.
     /// Switching on recomputes the next run from now, so a schedule that was off does not fire the runs it missed.

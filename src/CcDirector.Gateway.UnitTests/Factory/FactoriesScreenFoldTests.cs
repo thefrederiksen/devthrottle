@@ -169,19 +169,68 @@ public sealed class FactoriesScreenFoldTests
     }
 
     [Fact]
-    public void Status_NoScheduleAtAll_IsPaused_AndSaysSo()
+    public void Status_SeatsNameSchedulesTheGatewayDoesNotHave_IsPaused_AndSaysSo()
     {
-        // Ruling of 2026-10-06: a factory whose seats have no enabled schedule at all (Tallyhand) is PAUSED. Here every
-        // seat names a schedule the Gateway does not have, and round 2 says so rather than "Nothing scheduled".
+        // Every seat names a schedule the Gateway does not have. Something WAS set to run this factory and is gone,
+        // so it is PAUSED and says what is missing - it is not a factory nothing was ever scheduled for.
         var row = FactoriesScreenFold.List(Inputs(new[] { WarmForward() })).Rows[0];
         Assert.Equal("PAUSED", row.StatusWord);
         Assert.Equal("4 named schedules no longer exist", row.StatusLine);
+    }
 
-        var unscheduled = Factory("tallyhand", "Tallyhand", "max", Seat("max", "Boss", "Boss"));
+    [Fact]
+    public void Status_NothingScheduledAtAll_IsTalkOnly_NotPaused()
+    {
+        // The owner, 13 October 2026: the boss seat "should not be scheduled", and a factory run by talking to it is
+        // not a paused one. Until then this read PAUSED / "Nothing scheduled" (the ruling of 2026-10-06).
+        var unscheduled = Factory("tallyhand", "Tallyhand", "max", Seat("max", "Boss", "Boss"), Seat("scout", "Scout", "Scout"));
         var bare = FactoriesScreenFold.List(Inputs(new[] { unscheduled })).Rows[0];
-        Assert.Equal("PAUSED", bare.StatusWord);
-        Assert.Equal("Nothing scheduled", bare.StatusReason);
-        Assert.Equal("Nothing scheduled", bare.StatusLine);
+
+        Assert.Equal("TALK ONLY", bare.StatusWord);
+        Assert.Equal("Nothing scheduled. You run it by talking to it.", bare.StatusLine);
+        Assert.Equal("Nothing scheduled. You run it by talking to it.", bare.StatusReason);
+        Assert.Equal(FactoryTone.Idle, bare.StatusTone);
+        Assert.Equal(4, bare.StatusRank);
+        Assert.Equal("/factories/tallyhand/seats", bare.StatusHref);
+
+        var page = FactoriesScreenFold.Page(unscheduled, Inputs(new[] { unscheduled }));
+        Assert.Equal("TALK ONLY", page.StatusWord);
+        Assert.Equal("Nothing scheduled. You run it by talking to it.", page.StatusLine);
+        Assert.Null(page.Failures);
+    }
+
+    [Fact]
+    public void Status_TalkOnly_NeverHidesAProblem_AndRanksLast()
+    {
+        // TALK ONLY is what is left when nothing is wrong: a failure or a waiting question still wins, exactly as it
+        // does over RUNNING, and a talk-only factory sorts after every other status.
+        var talkOnly = Factory("tallyhand", "Tallyhand", "max", Seat("max", "Boss", "Boss"));
+        var failed = new[] { Row("tallyhand", "max", FactoryActivityOutcome.Failed, "could not read the ledger", Now.AddHours(-1)) };
+        Assert.Equal("FAILING", FactoriesScreenFold.List(Inputs(new[] { talkOnly }, failed)).Rows[0].StatusWord);
+        var asked = new[] { Row("tallyhand", "max", FactoryActivityOutcome.Asked, "which ledger?", Now.AddHours(-1)) };
+        Assert.Equal("NEEDS YOU", FactoriesScreenFold.List(Inputs(new[] { talkOnly }, asked)).Rows[0].StatusWord);
+
+        var running = Factory("warmforward", "WarmForward", "nora-hale", Seat("nora-hale", "Boss", "Boss", "cj_ceo"));
+        var list = FactoriesScreenFold.List(Inputs(new[] { talkOnly, running }, jobs: Running()));
+        Assert.Equal(new[] { "RUNNING", "TALK ONLY" }, list.Rows.Select(r => r.StatusWord));
+        Assert.Equal("Worst first: failing, then needs you, then paused, then running, then talk only.", list.FooterText);
+    }
+
+    [Fact]
+    public void Status_EverySchedulesSwitchedOff_StaysPaused()
+    {
+        // Switched off is a pause; it must not turn into TALK ONLY.
+        var f = Factory("warmforward", "WarmForward", "nora-hale", Seat("nora-hale", "Boss", "Boss", "cj_ceo"));
+        var row = FactoriesScreenFold.List(Inputs(new[] { f }, jobs: new[] { Job("cj_ceo", "15 6 * * *", enabled: false) })).Rows[0];
+        Assert.Equal("PAUSED", row.StatusWord);
+        Assert.Equal("1 schedule switched off", row.StatusLine);
+
+        // And a paused trigger with no schedule at all is a pause too.
+        var bare = Factory("tallyhand", "Tallyhand", "max", Seat("max", "Boss", "Boss"));
+        var paused = new[] { new FactoryTriggerFacts("t1", "Mail", "tallyhand", "max", 300, true, false, null, null, null) };
+        var triggered = FactoriesScreenFold.List(Inputs(new[] { bare }, triggers: paused)).Rows[0];
+        Assert.Equal("PAUSED", triggered.StatusWord);
+        Assert.Equal("1 trigger paused", triggered.StatusLine);
     }
 
     // ---------- the card's purpose line and head (the Factories cards, 8 Oct 2026) ----------
@@ -517,7 +566,7 @@ public sealed class FactoriesScreenFoldTests
         // Every word the list shows is also in the seat's own When it runs.
         Assert.All(rows["a"].Schedules, s => Assert.Contains(s.WhenText, rows["a"].WhenText));
         Assert.Empty(rows["b"].Schedules);
-        Assert.Equal("Not scheduled", rows["b"].WhenText);
+        Assert.Equal("Talk only", rows["b"].WhenText);
     }
 
     // ---------- one clock per seat (live QA, 6 Oct 2026) ----------
@@ -625,12 +674,12 @@ public sealed class FactoriesScreenFoldTests
     }
 
     [Fact]
-    public void Seats_AMissingScheduleIsNamed_AndASeatWithNoneSaysNotScheduled()
+    public void Seats_AMissingScheduleIsNamed_AndASeatWithNoneSaysTalkOnly()
     {
         var f = Factory("x", "X", null, Seat("a", "A", "A", "cj_gone"), Seat("b", "B", "B"));
         var rows = FactoriesScreenFold.Seats(f, Inputs(new[] { f })).Rows;
         Assert.Equal("Schedule cj_gone is missing", rows[0].WhenText);
-        Assert.Equal("Not scheduled", rows[1].WhenText);
+        Assert.Equal("Talk only", rows[1].WhenText);
     }
 
     // ---------- schedule words ----------
@@ -668,7 +717,8 @@ public sealed class FactoriesScreenFoldTests
     {
         var job = Job(id, cron);
         job.Target = new CronJobTarget { Machine = "SOREN_NORTH" };
-        job.Action = new CronJobAction { RepoPath = @"D:epo", Seed = "/help" };
+        job.Action = new CronJobAction { RepoPath = @"D:
+epo", Seed = "/help" };
         return job;
     }
 

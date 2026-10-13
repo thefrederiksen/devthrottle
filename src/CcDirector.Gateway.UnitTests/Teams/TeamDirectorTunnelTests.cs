@@ -133,7 +133,7 @@ public sealed class TeamDirectorTunnelTests : IDisposable
     private HostedEnrollmentEndpoint.EnrollResult Enroll(string subject, string directorId, string? teamId) =>
         HostedEnrollmentEndpoint.Enroll(Token(subject),
             new EnrollSignedInRequest { DeviceId = directorId, MachineName = "M", Platform = "windows", DeviceType = "workstation", TeamId = teamId },
-            _devices, _tenants, _validator, entitlements: null, DateTime.UtcNow, trials: null, TeamEnrollment());
+            _devices, _tenants, _validator, entitlements: null, DateTime.UtcNow, TeamEnrollment());
 
     private HostedEnrollmentEndpoint.EnrollResult Move(string subject, string directorId, string? teamId) =>
         HostedEnrollmentEndpoint.Move(Token(subject), new MoveDirectorRequest { DeviceId = directorId, TeamId = teamId },

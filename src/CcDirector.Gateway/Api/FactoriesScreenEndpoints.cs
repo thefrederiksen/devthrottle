@@ -32,6 +32,7 @@ internal sealed record FactoriesScreenSources(
 ///   GET /gateway/factories                       -> FactoriesListViewDto   (the Factories tab)
 ///   GET /gateway/factories/{factory}             -> FactoryPageViewDto     (header, tabs and Overview)
 ///   GET /gateway/factories/{factory}/seats       -> FactorySeatsViewDto    (the Seats tab)
+///   GET /gateway/factories/{factory}/seats/{seat} -> FactorySeatPageViewDto (one seat's page; <see cref="MapSeatPage"/>)
 ///   POST /gateway/factories/{factory}/failures/{id}/handled -> appends the row that marks a failure handled
 ///
 /// Behind the factory agents switch like every factory route. The list and a factory's page are read by the owner
@@ -119,6 +120,45 @@ internal static class FactoriesScreenEndpoints
             }));
 
         FileLog.Write($"[FactoriesScreenEndpoints] mapped {Prefix}, its factory page, its Seats tab and a failure's Handled");
+    }
+
+    /// <summary>
+    /// One seat's page (Factory Seats mission, phase 1): every seat has one, with or without a schedule, folded by
+    /// <see cref="FactorySeatPageFold"/>. The owner's, like the Seats tab it is opened from.
+    /// </summary>
+    /// <param name="memoryNoteCount">How many notes one factory's memory holds now. REQUIRED, so a wiring line that
+    /// forgot it fails to compile rather than showing every factory an empty memory.</param>
+    public static void MapSeatPage(IEndpointRouteBuilder app, Func<HttpContext, TenantId?> resolveTenant,
+        FactoriesScreenSources sources, Func<TenantId, string, int> memoryNoteCount)
+    {
+        ArgumentNullException.ThrowIfNull(resolveTenant);
+        ArgumentNullException.ThrowIfNull(sources);
+        ArgumentNullException.ThrowIfNull(memoryNoteCount);
+
+        app.MapGet(Prefix + "/{factory}/seats/{seat}", (HttpContext ctx, string factory, string seat) =>
+            FactoryAgentsViewEndpoints.Owner(ctx, resolveTenant, $"GET factory seat {factory}/{seat}", tenant =>
+            {
+                if (sources.Registry.Find(tenant, factory) is not { } registered) return NotRegistered(factory);
+                var wanted = seat.Trim();
+                if (registered.Seats.FirstOrDefault(s => string.Equals(s.Id, wanted, StringComparison.OrdinalIgnoreCase)) is not { } found)
+                {
+                    FileLog.Write($"[FactoriesScreenEndpoints] GET seat: {registered.Factory} has no seat '{wanted}'");
+                    return Results.Json(new
+                    {
+                        error = $"{registered.Title} has no seat '{wanted}'. Its seats are: {string.Join(", ", registered.Seats.Select(s => s.Id))}. " +
+                                "Only a registered seat has a page; what any other session wrote is on the factory's Activity tab.",
+                    }, statusCode: StatusCodes.Status404NotFound);
+                }
+                var input = Inputs(sources, tenant, FactoryAgentsFold.WindowLast7d, registered.Factory);
+                // The page's last talk is this seat's own, whatever its age - not the factory's newest.
+                var talks = sources.Activity.Query(tenant,
+                    new FactoryRecordQuery(registered.Factory, found.Id, FactoryActivityOutcome.Talked, null, null, false, 0, 1)).Rows;
+                var dto = FactorySeatPageFold.Page(registered, found, input with { Talks = talks }, memoryNoteCount(tenant, registered.Factory));
+                FileLog.Write($"[FactoriesScreenEndpoints] GET seat: {registered.Factory}/{found.Id} starts={dto.StartsWord}, schedules={dto.Starts.Schedules.Count}, triggers={dto.Starts.Triggers.Count}");
+                return Results.Json(dto);
+            }));
+
+        FileLog.Write($"[FactoriesScreenEndpoints] mapped {Prefix}/{{factory}}/seats/{{seat}}");
     }
 
     /// <summary>Everything a view reads, in one pass. The list reads the last 24 hours (all a status needs); a

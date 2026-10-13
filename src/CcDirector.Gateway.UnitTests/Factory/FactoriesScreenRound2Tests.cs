@@ -324,7 +324,7 @@ public sealed class FactoriesScreenRound2Tests
     // ---------- PAUSED says why ----------
 
     [Fact]
-    public void Paused_NoScheduleAtAll_SaysNothingScheduled_AndLinksToTheSeats()
+    public void NoScheduleAtAll_IsTalkOnly_AndLinksToTheSeats()
     {
         var tally = new RegisteredFactoryDto
         {
@@ -334,8 +334,9 @@ public sealed class FactoriesScreenRound2Tests
 
         var row = FactoriesScreenFold.List(Inputs(new[] { tally }, jobs: Array.Empty<CronJobDto>())).Rows.Single();
 
-        Assert.Equal("PAUSED", row.StatusWord);
-        Assert.Equal("Nothing scheduled", row.StatusLine);
+        // Round 2 called this PAUSED / "Nothing scheduled"; the Factory Seats mission (13 October 2026) made it TALK ONLY.
+        Assert.Equal("TALK ONLY", row.StatusWord);
+        Assert.Equal("Nothing scheduled. You run it by talking to it.", row.StatusLine);
         Assert.Equal("/factories/tallyhand/seats", row.StatusHref);
     }
 

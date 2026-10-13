@@ -20,12 +20,13 @@ namespace CcDirector.Gateway.Api;
 /// <param name="Tenants">The tenant registry that mint-or-looks-up the account's tenant.</param>
 /// <param name="AccountTokenValidator">The account access-token validator (signature, expiry, audience, issuer).</param>
 /// <param name="Entitlements">The paid-entitlement gate that sits between subject verification and tenant mint.</param>
-/// <param name="Trials">The free-trial ledger (issue #2117) - the one place a 14-day Pro trial is granted, at
-/// an account's first arrival. It rides in this bundle for the same reason the entitlement gate does: every
-/// hosted entry point that mints a device key must apply the identical grant rule, never its own.</param>
+/// <param name="RemoteAccess">The remote access rule (Pricing Change mission, B2): whether an account may be handed a
+/// Cockpit's or a phone's key. It rides in this bundle for the same reason the entitlement gate does - an entry point
+/// that mints such a key must ask the identical rule the request path asks, never its own - and it is REQUIRED, so a
+/// hosted entry point cannot be built without it.</param>
 internal sealed record HostedEnrollDependencies(
     DeviceRegistry Devices,
     TenantRegistry Tenants,
     JwtAccessTokenValidator AccountTokenValidator,
     EntitlementRegistry Entitlements,
-    TrialRegistry Trials);
+    RemoteAccessRule RemoteAccess);

@@ -2,8 +2,8 @@ import type { FactoryListRow } from "@devthrottle/client-core/factory/factoriesS
 import { sortFactoryRows, type FactorySortOrder } from "./factoriesSort";
 
 // The Factories list as cards (owner decision, 8 Oct 2026, mockup B "grouped by state"): the rows the Gateway
-// stamped are laid out as cards under three headings - what needs a person, what is paused, what runs on its own -
-// with a strip of counts above them. The Gateway still decides every status, word and tone (rule 7); this module
+// stamped are laid out as cards under four headings - what needs a person, what is paused, what runs on its own, and
+// (Factory Seats mission, 13 October 2026) what is run by talking to it - with a strip of counts above them. The Gateway still decides every status, word and tone (rule 7); this module
 // only ARRANGES the rows it was given, by the statusRank the Gateway stamped on each, and counts them. The owner's
 // Sort by choice (factoriesSort.ts) orders the cards inside each group. Cards or Table is this browser's choice,
 // remembered next to the sort order; Cards the first time.
@@ -19,11 +19,11 @@ export const FACTORY_VIEW_MODES: ReadonlyArray<{ key: FactoriesViewMode; label: 
   { key: "table", label: "Table" },
 ];
 
-export type FactoryGroupKey = "fixing" | "paused" | "running";
+export type FactoryGroupKey = "fixing" | "paused" | "running" | "talk";
 
 export interface FactoryGroup {
   key: FactoryGroupKey;
-  /** "Needs fixing", "Paused", "Running on its own". */
+  /** "Needs fixing", "Paused", "Running on its own", "Talk only". */
   heading: string;
   rows: FactoryListRow[];
 }
@@ -33,16 +33,19 @@ const GROUPS: ReadonlyArray<{ key: FactoryGroupKey; heading: string }> = [
   { key: "fixing", heading: "Needs fixing" },
   { key: "paused", heading: "Paused" },
   { key: "running", heading: "Running on its own" },
+  { key: "talk", heading: "Talk only" },
 ];
 
 /**
- * Which group a row belongs in, read off the Gateway's statusRank (0 FAILING, 1 NEEDS YOU, 2 PAUSED, 3 RUNNING).
- * FAILING and NEEDS YOU both need a person, so both are "Needs fixing".
+ * Which group a row belongs in, read off the Gateway's statusRank (0 FAILING, 1 NEEDS YOU, 2 PAUSED, 3 RUNNING,
+ * 4 TALK ONLY). FAILING and NEEDS YOU both need a person, so both are "Needs fixing". A factory nothing is scheduled
+ * for is neither paused nor running on its own: it has a group of its own, last.
  */
 export function groupKeyOf(row: FactoryListRow): FactoryGroupKey {
   if (row.statusRank <= 1) return "fixing";
   if (row.statusRank === 2) return "paused";
-  return "running";
+  if (row.statusRank === 3) return "running";
+  return "talk";
 }
 
 /** The non-empty groups, in screen order, each with its rows in the owner's sort order. */
@@ -59,6 +62,8 @@ export interface FactoryCounts {
   /** FAILING plus NEEDS YOU: the rows under "Needs fixing". */
   needsFixing: number;
   paused: number;
+  /** TALK ONLY: the factories nothing is scheduled for. */
+  talkOnly: number;
   /** The open items waiting on the owner, summed over every factory. */
   waiting: number;
 }
@@ -68,15 +73,17 @@ export function countFactoryRows(rows: ReadonlyArray<FactoryListRow>): FactoryCo
   let running = 0;
   let needsFixing = 0;
   let paused = 0;
+  let talkOnly = 0;
   let waiting = 0;
   for (const r of rows) {
     const g = groupKeyOf(r);
     if (g === "running") running += 1;
     else if (g === "fixing") needsFixing += 1;
-    else paused += 1;
+    else if (g === "paused") paused += 1;
+    else talkOnly += 1;
     waiting += r.waitingCount;
   }
-  return { total: rows.length, running, needsFixing, paused, waiting };
+  return { total: rows.length, running, needsFixing, paused, talkOnly, waiting };
 }
 
 /** "Nora Hale" -> "NH"; "Cher" -> "C". At most two letters. */

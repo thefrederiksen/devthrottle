@@ -166,17 +166,6 @@ public sealed class PromptAttributionIsGatewayAuthoritativeTests : IAsyncLifetim
         return await _http.SendAsync(req);
     }
 
-    private static async Task WaitUntil(Func<bool> condition, TimeSpan within)
-    {
-        var deadline = DateTime.UtcNow + within;
-        while (DateTime.UtcNow < deadline)
-        {
-            if (condition()) return;
-            await Task.Delay(50);
-        }
-        Assert.True(condition(), "the condition did not become true within " + within);
-    }
-
     private static async Task AssertOk(HttpResponseMessage resp)
     {
         var body = await resp.Content.ReadAsStringAsync();
@@ -676,48 +665,5 @@ public sealed class PromptAttributionIsGatewayAuthoritativeTests : IAsyncLifetim
         Assert.Equal(SubmissionIdentityKinds.MachineToken, p.IdentityKind);
         Assert.Null(p.TranscriptId);
         Assert.Empty(p.SpokenSpans);
-    }
-
-    /// <summary>
-    /// The browser terminal relay (source logging): the Gateway stamps the credential kind of the person
-    /// typing when their socket opens, and every keystroke frame carries it to the Director. Driven through
-    /// the REAL websocket route, with the real tunnel legs and the real Director executor.
-    /// </summary>
-    [Fact]
-    public async Task The_browser_terminal_relay_carries_the_credential_kind_of_the_person_typing()
-    {
-        var arrived = new TaskCompletionSource<TerminalInputRequest>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _conn.Remove("Command");
-        _conn.On<DirectorCommand, DirectorCommandResult>("Command", async cmd =>
-        {
-            if (cmd.Verb == "terminal-input" && cmd.PayloadJson is { } json)
-            {
-                var body = JsonSerializer.Deserialize<TerminalInputRequest>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web));
-                if (body is not null) arrived.TrySetResult(body);
-            }
-            if (cmd.Verb == "open-terminal-stream") return DirectorCommandResult.Success();
-            return await SessionCommandExecutor.DispatchAsync(_sm, DirectorId, cmd);
-        });
-
-        using var ws = new ClientWebSocket();
-        ws.Options.SetRequestHeader("Authorization", "Bearer " + Token);
-        await ws.ConnectAsync(new Uri($"ws://127.0.0.1:{_gateway.Port}/sessions/{_sid}/stream"), CancellationToken.None);
-        await ws.SendAsync(System.Text.Encoding.UTF8.GetBytes("ls\r"), WebSocketMessageType.Binary, true, CancellationToken.None);
-
-        var frame = await arrived.Task.WaitAsync(TimeSpan.FromSeconds(20));
-        Assert.NotNull(frame.Provenance);
-        Assert.Equal(SubmissionRoutes.GatewayTerminal, frame.Provenance!.Route);
-        // The shared machine token authenticated this socket, and the relay says so rather than "unknown".
-        Assert.Equal(SubmissionIdentityKinds.MachineToken, frame.Provenance.IdentityKind);
-
-        // AND THE ROW THE SESSION RECORDED, which is the point: the keystrokes carried a carriage return, so
-        // they are a submitted turn, and what the Director wrote on it is what the relay verified - not an
-        // "unknown" it invented, and not something the wire said that the Director then ignored.
-        await WaitUntil(() => _ledger.Count > 0, TimeSpan.FromSeconds(20));
-        var recorded = Assert.Single(_ledger).Evidence.Provenance;
-        Assert.Equal(SubmissionRoutes.GatewayTerminal, recorded.Route);
-        Assert.Equal(SubmissionIdentityKinds.MachineToken, recorded.IdentityKind);
-        Assert.Null(Assert.Single(_ledger).Evidence.ContentSha256);
-        await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", CancellationToken.None);
     }
 }

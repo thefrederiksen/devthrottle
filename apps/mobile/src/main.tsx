@@ -6,6 +6,7 @@ import { ensureGatewayCookie, configureUnauthorizedRedirect, mobileSignInRedirec
 import { ensurePushSubscribed } from "@devthrottle/client-core/push/register";
 import { installGlobalErrorReporting } from "@devthrottle/client-core/errors/reportClientError";
 import { CreditsNotice } from "./components/CreditsNotice";
+import { RemotePlanGate } from "@devthrottle/client-core/plan/RemotePlanNotice";
 import { recordingSession } from "@devthrottle/client-core/recorder/recordingSession";
 import "./styles.css";
 
@@ -66,7 +67,11 @@ if (rootElement === null) {
 
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
-    <RouterProvider router={router} />
-    <CreditsNotice />
+    {/* An account that has lost the Remote plan is refused on every request; the shared gate then shows
+        the one notice in place of the app (the Pricing Change mission). */}
+    <RemotePlanGate>
+      <RouterProvider router={router} />
+      <CreditsNotice />
+    </RemotePlanGate>
   </React.StrictMode>
 );

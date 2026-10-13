@@ -222,6 +222,39 @@ public sealed class TenantRegistry
         return string.IsNullOrWhiteSpace(row?.AccountSubject) ? null : row!.AccountSubject;
     }
 
+    /// <summary>
+    /// The account a tenant maps to and when its row was minted, in ONE read, or null when the tenant id is unknown or
+    /// maps to no subject. The access lease asks this instead of <see cref="SubjectForTenant"/> because the pre-launch
+    /// grace (<see cref="PreLaunchGrace"/>) is judged against the row's creation instant, and reading both from the
+    /// same row costs no second query. The subject is personally identifying and is never logged.
+    /// </summary>
+    public TenantAccount? AccountOfTenant(TenantId tenant)
+    {
+        if (!tenant.IsValid)
+            return null;
+
+        var id = tenant.Value;
+        using var ctx = _db.CreateUnscopedContext();
+        var row = ctx.Tenants.AsNoTracking().FirstOrDefault(t => t.Id == id);
+        return string.IsNullOrWhiteSpace(row?.AccountSubject) ? null : new TenantAccount(row!.AccountSubject, row.CreatedAtUtc);
+    }
+
+    /// <summary>
+    /// When the tenant row of a verified account subject was minted, or null when the account has no tenant - it has
+    /// never reached the hosted Gateway. Read-only: it never mints. Asked where a Cockpit or phone key is minted,
+    /// before any tenant exists, to judge the pre-launch grace.
+    /// </summary>
+    public DateTime? CreatedAtUtcForSubject(string accountSubject)
+    {
+        if (string.IsNullOrWhiteSpace(accountSubject))
+            return null;
+
+        var subject = accountSubject.Trim();
+        using var ctx = _db.CreateUnscopedContext();
+        var row = ctx.Tenants.AsNoTracking().FirstOrDefault(t => t.AccountSubject == subject);
+        return row?.CreatedAtUtc;
+    }
+
     /// <summary>What <see cref="LookupByAccount"/> concluded. The three outcomes are deliberately distinct:
     /// a caller that folded Ambiguous into NotFound would silently drop a real account, and one that folded
     /// it into Found would have to PICK one of two tenants - which is guessing about whose data to send.</summary>
@@ -317,6 +350,11 @@ public sealed class TenantRegistry
         return string.IsNullOrWhiteSpace(row?.Email) ? null : row!.Email;
     }
 }
+
+/// <summary>The account a personal tenant maps to, and when its row was minted. Personally identifying: never logged.</summary>
+/// <param name="AccountSubject">The verified account subject the tenant maps from.</param>
+/// <param name="CreatedAtUtc">When the tenant row was minted: the first time the account reached the hosted Gateway.</param>
+public sealed record TenantAccount(string AccountSubject, DateTime CreatedAtUtc);
 
 /// <summary>A tenant and the account email recorded for it, which may be absent.</summary>
 /// <param name="TenantId">The tenant's own id.</param>

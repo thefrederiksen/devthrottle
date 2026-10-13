@@ -74,7 +74,7 @@ public static class FactoryTalkSeed
         sb.AppendLine("- the factory's memory: cc-devthrottle factory memory list, then cc-devthrottle factory memory get <name> for each note that matters");
         sb.Append("- the factory's recent activity: cc-devthrottle factory activity --factory ").Append(factory.Factory).AppendLine(" -n 30");
         sb.Append("- the factory's status as the owner sees it on the Factories screen: ").AppendLine(StatusCommand(factory));
-        sb.AppendLine("  It prints the same word the owner sees (FAILING, NEEDS YOU, PAUSED or RUNNING) and every failing and "
+        sb.AppendLine("  It prints the same word the owner sees (FAILING, NEEDS YOU, PAUSED, RUNNING or TALK ONLY) and every failing and "
                       + "waiting item with its row id. Say that word to the owner when you open.");
         sb.AppendLine();
 
@@ -209,7 +209,8 @@ public static class FactoryTalkSeed
 
     // The folder is a path on the factory's own computer, which may not be this one, so it is joined with that
     // folder's own separator rather than this machine's.
-    private static string InFolder(string folder, string relative)
+    /// <summary>A file of the factory, as a full path on its computer, in that computer's own separators.</summary>
+    internal static string InFolder(string folder, string relative)
     {
         var f = (folder ?? "").TrimEnd('\\', '/');
         var sep = f.Contains('\\') ? '\\' : '/';
