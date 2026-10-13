@@ -245,3 +245,27 @@ mutations, all caught. `.\scripts\test-local.ps1 -Parked` - the default gate and
 completed every suite except `CcDirector.Core.UnitTests`, 1,718 of 1,720, with the same two tests red as in the run
 before, each naming only files this branch does not touch. All 14,022 Gateway tests passed. The table is in the proof
 file. The commit that adds this text and the proof's last section changes two markdown files and nothing else.
+
+## One change before the merge (the Tech Lead's message after the re-review answers)
+
+**A read time a little ahead of the sent time is accepted. Accepted and fixed.**
+The check of finding 1 refused the WHOLE report when any holding's read time was later than the sent time by any
+amount. That was too strict, and the reason is real: a spare is read every ten minutes and its read time is kept
+between reads. When time synchronisation steps the machine's clock back, that kept read time is ahead of every report
+for up to ten minutes; every report was refused, the machine went stale and could not be switched.
+The ingest now refuses only a read time more than `LicenseContract.ClockSkewLoggedAbove` (two minutes) later than the
+sent time - the same amount of skew it already ignores between a machine's clock and the Gateway's. The sentences
+above that say "a read time LATER than the report's own sent time" describe the first version; this is the rule now.
+Tests: `Ingest_AReadTimeALittleAheadOfTheSentTime_IsAccepted_BecauseAClockSteppedBackIsNotADefect` (1 second, 90
+seconds and exactly 120 seconds ahead - accepted, the machine is not stale and its spare is listed); the rows "read
+three minutes after it was sent" and "read one second more than two minutes after it was sent" of
+`Ingest_AUsageNumberOrAReadTimeThatCannotBeAReading_...` are refused; and the year 9999 is still refused - both
+year-9999 tests and the edge-of-calendar tests pass unchanged.
+The history: an accepted reading that is ahead of the Gateway's clock is still kept AT now and no later, and ages out
+like any other - `Ingest_AReadTimeALittleAheadOfTheSentTime_IsKeptInTheHistoryAtNow_NeverLaterThanTheGatewaysClock`,
+through the real ingest. (It is kept at now, not dropped: that is what the first review's fix does, and why.)
+What the tolerance costs, said plainly: a reading up to two minutes ahead is judged stale up to two minutes later
+than it truly is, and the sum of a read time and a clock correction can now pass the Gateway's receive time by up to
+two minutes - nowhere near the end of the calendar.
+Mutations T01 to T04 in the proof file, all caught. Run after the change: 319 license unit tests and 8 host tests.
+The whole gate was not run again for this one condition.

@@ -316,3 +316,21 @@ they name. As before, I did not run the gate on `origin/main` alone to watch the
 
 The commit after `521ef729f` adds this section and the answers to the re-review: two markdown files, no code.
 
+## One change before the merge: a read time up to two minutes ahead of the sent time
+
+The Tech Lead asked for it: refusing any read time later than the sent time silenced a machine whose clock had been
+stepped back by time synchronisation. The ingest now refuses only a read time more than two minutes ahead
+(`LicenseContract.ClockSkewLoggedAbove`). It is one condition in `LicenseUsageIngest.UnreadableReading`.
+
+After it: `--filter "FullyQualifiedName~Licenses"` passed 319, failed 0 (314 before); the 8 host tests passed. The
+whole gate was NOT run again; its last result, above, is for `521ef729f`.
+
+| | The behaviour broken | Failed | Went red |
+|---|---|---|---|
+| T01 | No tolerance: any read time later than the sent time is refused (the code before this change) | 4 | All three rows of `Ingest_AReadTimeALittleAheadOfTheSentTime_IsAccepted_...` (1, 90 and 120 seconds), and `..._IsKeptInTheHistoryAtNow_...` |
+| T02 | Exactly two minutes ahead is refused | 1 | The 120 seconds row |
+| T03 | A read time any length ahead is accepted | 5 | Both year-9999 and edge-of-calendar rows of `Forecast_AfterAReportNoRealDirectorSends_...`, `Ingest_AReadTimeAtTheEdgeOfTheCalendar_...(False)`, and the 121 and 180 seconds rows |
+| T04 | The tolerance is ten minutes, not two | 2 | The 121 and 180 seconds rows |
+
+`git status` was clean after the last restore and the rebuilt tree passed 319 of 319.
+
