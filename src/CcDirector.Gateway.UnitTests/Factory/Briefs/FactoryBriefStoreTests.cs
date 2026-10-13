@@ -452,7 +452,7 @@ public sealed class FactoryBriefStoreTests : IDisposable
     [Fact]
     public void BRINGING_BACK_AN_OLDER_VERSION_PUBLISHES_A_COPY_OF_IT_AS_THE_NEWEST_VERSION()
     {
-        // The mission's QA flow: a draft, published; a second version, published; the first brought back.
+        // The flow the mission's check names: a draft, published; a second version, published; the first brought back.
         var store = NewStore();
         SaveBySession(store, "the first brief", expect: 0);
         PublishByOwner(store, 1);
