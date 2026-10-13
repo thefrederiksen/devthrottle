@@ -87,6 +87,7 @@ public sealed class TenantAiGate
     private readonly Func<TenantId, string, string?>? _personOfSession;
     private readonly Func<TenantId, DeviceCredentialIdentity?, SessionCredentialIdentity?, string?>? _personOfCredential;
     private readonly TimeProvider _clock;
+    private readonly Action<string> _log;
 
     /// <summary>The gate a self-hosted Gateway uses: no entitlement registry, so every call is allowed.</summary>
     public static TenantAiGate SelfHost { get; } = new(null, null);
@@ -101,13 +102,15 @@ public sealed class TenantAiGate
     /// <param name="personOfCredential">Who a request's credential names inside a team's tenant
     /// (<see cref="Teams.TeamCallerOwnership.PersonOf"/>). Used by <see cref="ForRequest"/>.</param>
     /// <param name="clock">The clock the entitlement read is judged against.</param>
+    /// <param name="log">Where the gate's log lines go; the Gateway log when null. Injected so a test can count them.</param>
     public TenantAiGate(
         EntitlementRegistry? entitlements,
         TenantRegistry? tenants,
         Teams.TeamMemberEntitlement? teams = null,
         Func<TenantId, string, string?>? personOfSession = null,
         Func<TenantId, DeviceCredentialIdentity?, SessionCredentialIdentity?, string?>? personOfCredential = null,
-        TimeProvider? clock = null)
+        TimeProvider? clock = null,
+        Action<string>? log = null)
     {
         if (entitlements is not null && tenants is null)
             throw new ArgumentNullException(nameof(tenants), "A gate that reads entitlements needs the tenant registry to find the account.");
@@ -117,6 +120,7 @@ public sealed class TenantAiGate
         _personOfSession = personOfSession;
         _personOfCredential = personOfCredential;
         _clock = clock ?? TimeProvider.System;
+        _log = log ?? FileLog.Write;
     }
 
     /// <summary>Whether this gate checks anything at all. False on a self-hosted Gateway.</summary>
@@ -131,6 +135,15 @@ public sealed class TenantAiGate
     /// </summary>
     public TenantAiDecision ForTenant(TenantId? tenant, string scope)
         => Decide(tenant, scope, person: null, personKnown: false, via: "tenant");
+
+    /// <summary>
+    /// <see cref="ForTenant"/> without the gate's own line for the answer, for a caller that asks the SAME question
+    /// on a timer and writes one line itself when the answer changes (the daily dictionary scan asks every ten
+    /// minutes for every tenant that is due; review finding 3). The answer is identical. A read that FAILS is still
+    /// logged here: that is a fault, not a repeated answer.
+    /// </summary>
+    public TenantAiDecision ForTenantOnATimer(TenantId? tenant, string scope)
+        => Decide(tenant, scope, person: null, personKnown: false, via: "tenant", logTheAnswer: false);
 
     /// <summary>The answer for a call about one session: in a team's tenant, for the session's owner there.</summary>
     public TenantAiDecision ForSession(TenantId tenant, string sessionId, string scope)
@@ -164,7 +177,8 @@ public sealed class TenantAiGate
     }
 
     // THE DECISION. Every public question lands here, so there is one reading of the plan for every model call.
-    private TenantAiDecision Decide(TenantId? tenant, string scope, Func<string?>? person, bool personKnown, string via)
+    private TenantAiDecision Decide(TenantId? tenant, string scope, Func<string?>? person, bool personKnown, string via,
+        bool logTheAnswer = true)
     {
         if (string.IsNullOrWhiteSpace(scope))
             throw new ArgumentException("A scope name is required", nameof(scope));
@@ -175,7 +189,7 @@ public sealed class TenantAiGate
         // An AI call on the hosted Gateway with no account to charge it to is not one we can check, so it is not made.
         // The self-host single tenant and the reserved system tenant name no account here.
         if (tenant is not { IsValid: true } t || t.IsLocal || t.IsSystem)
-            return Log(new TenantAiDecision(TenantAiVerdict.Refused, scope, null, "no account tenant to check the plan of"), tenant, via);
+            return Log(new TenantAiDecision(TenantAiVerdict.Refused, scope, null, "no account tenant to check the plan of"), tenant, via, logTheAnswer);
 
         // THE READ CAN FAIL, AND A FAILED READ IS NOT A VERDICT. The tenant mapping and the team table are database
         // reads; when one throws we do not know the plan, so the answer is Unknown - never a refusal (it would tell a
@@ -183,11 +197,11 @@ public sealed class TenantAiGate
         // rule the entitlement read itself keeps, applied to the reads around it.
         try
         {
-            return Log(DecideHosted(t, scope, person, personKnown), t, via);
+            return Log(DecideHosted(t, scope, person, personKnown), t, via, logTheAnswer);
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[TenantAiGate] Decide FAILED: tenant={t.ToLogString()} scope={scope} via={via}: {ex.GetType().Name}: {ex.Message} - the plan is Unknown, no call is made");
+            _log($"[TenantAiGate] Decide FAILED: tenant={t.ToLogString()} scope={scope} via={via}: {ex.GetType().Name}: {ex.Message} - the plan is Unknown, no call is made");
             return new TenantAiDecision(TenantAiVerdict.Unknown, scope, null, "the plan could not be read");
         }
     }
@@ -232,9 +246,10 @@ public sealed class TenantAiGate
         _ => new TenantAiDecision(TenantAiVerdict.Unknown, scope, null, $"{whose} could not be read"),
     };
 
-    private static TenantAiDecision Log(TenantAiDecision decision, TenantId? tenant, string via)
+    private TenantAiDecision Log(TenantAiDecision decision, TenantId? tenant, string via, bool logTheAnswer)
     {
-        FileLog.Write($"[TenantAiGate] tenant={tenant?.ToLogString() ?? "none"} scope={decision.Scope} via={via} " +
+        if (!logTheAnswer) return decision;
+        _log($"[TenantAiGate] tenant={tenant?.ToLogString() ?? "none"} scope={decision.Scope} via={via} " +
                       $"verdict={decision.Verdict} tier={decision.Tier ?? "none"}: {decision.Reason}");
         return decision;
     }
