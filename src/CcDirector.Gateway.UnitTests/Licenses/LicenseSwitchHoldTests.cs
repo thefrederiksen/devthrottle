@@ -170,6 +170,25 @@ public sealed class LicenseSwitchHoldTests : IDisposable
     }
 
     [Fact]
+    public void HoldAfterRepeatedFailure_TwoSwitchesInARowThatWereNeverSent_HoldNothing()
+    {
+        var machine = Machine();
+        var ids = new List<string>();
+        foreach (var minute in new[] { 0, 20 })
+        {
+            var neverSent = _store.CreatePendingSwitch(Tenant, machine, A, B, LicenseSwitchReasons.Threshold, T0.AddMinutes(minute))!;
+            Assert.True(_store.TryMark(Tenant, neverSent.SwitchId!, LicenseLogStates.Failed, LicenseGatewayReasonCodes.DirectorOffline,
+                "Never sent.", T0.AddMinutes(minute + 10)));
+            ids.Add(neverSent.SwitchId!);
+        }
+
+        // The same reason word, the same from and to, twice in a row - and still nothing the machine answered.
+        Assert.Null(Hold(ids[0]));
+        Assert.Null(Hold(ids[1]));
+        Assert.Empty(_store.ListHolds(Tenant, T0.AddMinutes(30)));
+    }
+
+    [Fact]
     public void HoldAfterRepeatedFailure_ASwitchThatDidNotFail_IsNeverHeld()
     {
         var machine = Machine();
