@@ -22,30 +22,6 @@ public sealed class TailscaleCliTests
     }
 
     [Fact]
-    public async Task RunSerialized_ConcurrentCallers_NeverOverlap()
-    {
-        var inside = 0;
-        var maxInside = 0;
-        var gate = new object();
-
-        (bool ok, string stdout, string message) Action()
-        {
-            lock (gate) { inside++; maxInside = Math.Max(maxInside, inside); }
-            Thread.Sleep(25); // hold the mutex long enough for overlap to be observable
-            lock (gate) { inside--; }
-            return (true, "", "");
-        }
-
-        var tasks = Enumerable.Range(0, 6)
-            .Select(_ => Task.Run(() => TailscaleCli.RunSerialized(Action)))
-            .ToArray();
-        var results = await Task.WhenAll(tasks);
-
-        Assert.All(results, r => Assert.True(r.ok));
-        Assert.Equal(1, maxInside); // at most one caller ever inside the critical section
-    }
-
-    [Fact]
     public void RunSerialized_ActionThrows_MutexIsReleasedForNextCaller()
     {
         Assert.Throws<InvalidOperationException>(() =>

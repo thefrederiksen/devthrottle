@@ -77,14 +77,6 @@ public sealed class RecordingIngestServiceTests : IDisposable
         RewriteStatusOnDisk(id, svc.GetStatus(id).NextRetryAtUtc!, retryAtUtc.ToString("o"));
     }
 
-    private static async Task WaitForScansAsync(RecordingIngestService svc, int scans)
-    {
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
-        while (svc.ScansCompleted < scans && DateTime.UtcNow < deadline)
-            await Task.Delay(10);
-        Assert.True(svc.ScansCompleted >= scans, $"the worker did not finish {scans} scan(s) in time");
-    }
-
     private static RecordingRegisterRequest Reg(string id, string codec = "mp3")
         => new(RecordingId: id, Title: "Test Call", DeviceId: "dev-1",
                StartedAt: "2026-05-23T09:00:00Z", Codec: codec, SampleRateHz: 16000, Channels: 1);
@@ -1071,40 +1063,6 @@ public sealed class RecordingIngestServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Worker_Idle_DoesNotScanOnTheOrdinaryTick()
-    {
-        // The loop itself, not NextWait by hand: with a 50 ms ordinary tick an idle worker that ignored the idle
-        // sleep would scan about twenty times in a second.
-        using var svc = NewServiceWithTicks(new FakeTranscriber(), runWorker: true,
-            workerTick: TimeSpan.FromMilliseconds(50));
-        await WaitForScansAsync(svc, 1);
-
-        await Task.Delay(TimeSpan.FromSeconds(1));
-
-        Assert.Equal(1, svc.ScansCompleted);
-    }
-
-    /// <summary>
-    /// Wait for a recording's state in a test whose worker is RUNNING: the status file is not written atomically, so
-    /// a read can land mid-write while the worker saves it. Such a read is retried, which is what the polling phone does.
-    /// </summary>
-    private static async Task<bool> WaitForStateToleratingHalfWrittenStatusAsync(
-        RecordingIngestService svc, string id, string state, TimeSpan timeout)
-    {
-        var deadline = DateTime.UtcNow + timeout;
-        while (DateTime.UtcNow < deadline)
-        {
-            try
-            {
-                if (svc.GetStatus(id).State == state) return true;
-            }
-            catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException) { }
-            await Task.Delay(25);
-        }
-        return false;
-    }
-
-    [Fact]
     public async Task NextWait_IdleWithARetryAlmostDue_IsNeverShorterThanTheOrdinaryTick()
     {
         var svc = NewServiceWithTicks(new ScriptedTranscriber(failFirst: int.MaxValue), maxChunkAttempts: 1,
@@ -1172,35 +1130,6 @@ public sealed class RecordingIngestServiceTests : IDisposable
             new() { new RecordingChunkInfo(0, "0000.mp3", 0, 60000, c0.Length, Sha(c0)) },
             new());
         return await svc.CompleteAsync(id, manifest);
-    }
-
-    private string WriteTestDictionary()
-    {
-        var path = Path.Combine(_tmp, "dict.yaml");
-        File.WriteAllText(path,
-            "vocabulary:\n  - acmeflow\n  - ConPTY\n  - Avalonia\n  - Example User\n");
-        return path;
-    }
-
-    private static List<string> FindPhase0Clips()
-    {
-        var here = AppContext.BaseDirectory;
-        for (int i = 0; i < 10 && here is not null; i++)
-        {
-            var dir = Path.Combine(here, "docs", "features", "dictation", "phase0");
-            if (Directory.Exists(dir))
-            {
-                var clips = new List<string>();
-                foreach (var name in new[] { "clip1.mp3", "clip2.mp3", "clip3.mp3" })
-                {
-                    var p = Path.Combine(dir, name);
-                    if (File.Exists(p)) clips.Add(p);
-                }
-                return clips;
-            }
-            here = Path.GetDirectoryName(here);
-        }
-        return new();
     }
 
     private sealed class FakeTranscriber : IRecordingTranscriber

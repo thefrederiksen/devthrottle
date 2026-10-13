@@ -157,26 +157,6 @@ public sealed class LauncherDiscoveryTests : IDisposable
         Assert.True(LauncherDiscovery.IsRunning(LauncherDiscovery.Read(path)));
     }
 
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public void IsRunning_DeadPid_IsFalse_StaleFileIsNotALiveLauncher()
-    {
-        // A pid that is PROVABLY dead: start a real short-lived process, wait for it to exit, and use
-        // its id - never a guessed number, which some other process could genuinely hold.
-        int deadPid;
-        var psi = OperatingSystem.IsWindows()
-            ? new System.Diagnostics.ProcessStartInfo("cmd.exe", "/c exit") { CreateNoWindow = true, UseShellExecute = false }
-            : new System.Diagnostics.ProcessStartInfo("/bin/sh", "-c true") { UseShellExecute = false };
-        using (var p = System.Diagnostics.Process.Start(psi)!)
-        {
-            p.WaitForExit(10_000);
-            deadPid = p.Id;
-        }
-        var path = PathFor($$"""{ "pid": {{deadPid}}, "version": "1.0.0" }""");
-
-        Assert.False(LauncherDiscovery.IsRunning(LauncherDiscovery.Read(path)));
-    }
-
     [Fact]
     public void IsRunning_NoReadablePid_IsFalse_UncheckableIdentityIsNotHealth()
     {

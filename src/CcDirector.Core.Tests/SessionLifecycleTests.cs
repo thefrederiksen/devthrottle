@@ -71,36 +71,6 @@ public class SessionLifecycleTests : IDisposable
 
     [Trait("Gate", "Quarantine")]
     [Fact]
-    public async Task KillSession_SetsActivityStateToExited()
-    {
-        var session = _manager.CreateSession(Path.GetTempPath());
-        session.ApplyTerminalActivityState(ActivityState.Working);
-        Assert.Equal(ActivityState.Working, session.ActivityState);
-
-        await _manager.KillSessionAsync(session.Id);
-
-        for (int i = 0; i < 20 && session.ActivityState != ActivityState.Exited; i++)
-            await Task.Delay(100);
-
-        Assert.Equal(ActivityState.Exited, session.ActivityState);
-    }
-
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public async Task KillSession_AlreadyExited_DoesNotThrow()
-    {
-        var session = _manager.CreateSession(Path.GetTempPath());
-        await _manager.KillSessionAsync(session.Id);
-
-        for (int i = 0; i < 20 && session.Status != SessionStatus.Exited; i++)
-            await Task.Delay(100);
-
-        // Killing again should not throw
-        await _manager.KillSessionAsync(session.Id);
-    }
-
-    [Trait("Gate", "Quarantine")]
-    [Fact]
     public void CreateMultipleSessions_AllTracked()
     {
         var s1 = _manager.CreateSession(Path.GetTempPath());

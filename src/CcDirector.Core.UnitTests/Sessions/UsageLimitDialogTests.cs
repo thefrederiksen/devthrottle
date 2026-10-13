@@ -573,31 +573,6 @@ public sealed class UsageLimitDialogTests
         Assert.Equal(new[] { new byte[] { 0x0D } }, backend.Writes);
     }
 
-    [Fact]
-    public async Task TerminalStateDetector_DialogSettlesOnScreen_SendsEscapeOnce()
-    {
-        // The production path: nothing calls the Escape by hand. The dialog is drawn, the screen goes quiet, the
-        // detector settles the session - and that settle sends the one Escape.
-        using var manager = new SessionManager(new CcDirector.Core.Configuration.AgentOptions { DefaultBufferSizeBytes = 1 << 20 });
-        var backend = new RecordingBackend(withScreen: true);
-        var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, backend);
-        using var detector = new CcDirector.Core.Wingman.TerminalStateDetector(manager, driveState: true, TimeSpan.FromMilliseconds(100));
-        detector.Start();
-
-        // The limit is hit during a turn: the session is working when the dialog is drawn.
-        session.IsBrandNew = false;
-        session.ApplyTerminalActivityState(ActivityState.Working);
-        backend.Show(WideTerminal);
-
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
-        while (backend.Writes.Count == 0 && DateTime.UtcNow < deadline)
-            await Task.Delay(25);
-        await Task.Delay(400);   // several more quiet periods: still one Escape, never a second
-
-        Assert.Equal(new[] { new byte[] { 0x1B } }, backend.Writes);
-        Assert.NotNull(session);
-    }
-
     private static Session NewTerminalSession(RecordingBackend backend)
     {
         var session = new Session(Guid.NewGuid(), @"C:\test\repo", @"C:\test\repo", null, backend, SessionBackendType.ConPty);

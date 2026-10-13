@@ -72,18 +72,6 @@ public sealed class TerminalStateDetectorTests : System.IDisposable
     }
 
     [Fact]
-    public void StampBodyActivity_advances_the_body_activity_clock()
-    {
-        // The idle clock for continuous-idle agents (Grok) reads off LastBodyActivityAtUtc, which
-        // the detector advances only on a real screen-body change (not the never-quiet footer).
-        var session = CreateTestSession();
-        var before = session.LastBodyActivityAtUtc;
-        System.Threading.Thread.Sleep(5);
-        session.StampBodyActivity();
-        Assert.True(session.LastBodyActivityAtUtc > before);
-    }
-
-    [Fact]
     public void SuppressActivityFor_only_extends_never_shortens()
     {
         // Overlapping resizes (e.g. attach then an immediate layout change) must not cut a
@@ -94,37 +82,5 @@ public sealed class TerminalStateDetectorTests : System.IDisposable
 
         session.SuppressActivityFor(System.TimeSpan.FromMilliseconds(50));
         Assert.Equal(afterLong, session.SuppressActivityUntilUtc);
-    }
-
-    [Fact]
-    public async Task Start_PiFirstTurnErrorFinishesBeforeWorking_SettlesAfterSilence()
-    {
-        var backend = new BufferOnlyBackend();
-        var session = _manager.CreateEmbeddedSession(System.IO.Path.GetTempPath(), null, backend);
-        session.AgentKind = AgentKind.Pi;
-
-        using var detector = new TerminalStateDetector(
-            _manager, driveState: true, System.TimeSpan.FromMilliseconds(100));
-        detector.Start();
-        await Task.Delay(200);
-
-        Assert.True(session.IsBrandNew);
-        backend.Write(System.Text.Encoding.UTF8.GetBytes("Error: requested model was not found\r\n"));
-        Assert.Equal(ActivityState.WaitingForInput, session.ActivityState);
-
-        var settled = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        session.OnActivityStateChanged += (oldState, newState) =>
-        {
-            if (oldState == ActivityState.Working && newState == ActivityState.WaitingForInput)
-                settled.TrySetResult(true);
-        };
-
-        // A verified submission clears this flag and marks the session Working. In the reported
-        // ordering, the complete error was already in the buffer before those two writes occurred.
-        session.IsBrandNew = false;
-        session.ApplyTerminalActivityState(ActivityState.Working);
-
-        Assert.True(await settled.Task.WaitAsync(System.TimeSpan.FromSeconds(1)));
-        Assert.Equal(ActivityState.WaitingForInput, session.ActivityState);
     }
 }

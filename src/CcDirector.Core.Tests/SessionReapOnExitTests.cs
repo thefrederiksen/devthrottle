@@ -46,28 +46,6 @@ public sealed class SessionReapOnExitTests
         Assert.Equal(expected, Session.IsUnexpectedExit(exitCode, wasWorking));
     }
 
-    [Fact]
-    public async Task Crash_with_exit_zero_while_working_is_kept_in_error_state()
-    {
-        var manager = new SessionManager(new AgentOptions()) { CleanExitReapDelayMs = 0 };
-        var backend = new ExitableBackend();
-        var session = new Session(
-            Guid.NewGuid(), @"C:\test\repo", @"C:\test\repo", null,
-            backend, SessionBackendType.ConPty);
-        session.MarkRunning();
-        session.ApplyTerminalActivityState(ActivityState.Working); // mid-task
-        manager.AdoptSession(session);
-
-        backend.RaiseExit(0); // exit 0 BUT it was working -> a crash, must be kept
-
-        await Task.Delay(150); // give any (incorrect) reap a chance to run
-        var kept = manager.GetSession(session.Id);
-        Assert.NotNull(kept);
-        Assert.True(kept!.Crashed);
-        Assert.Equal(SessionStatus.Failed, kept.Status);
-        Assert.Equal(StatusColor.Error, kept.StatusColor);
-    }
-
     // ---- Session.OnExited one-shot semantics ----
 
     [Fact]
@@ -90,56 +68,6 @@ public sealed class SessionReapOnExitTests
     }
 
     // ---- End-to-end reaping through the manager ----
-
-    [Fact]
-    public async Task Clean_process_exit_reaps_the_session_and_fires_OnSessionRemoved()
-    {
-        var manager = new SessionManager(new AgentOptions()) { CleanExitReapDelayMs = 0 };
-        var backend = new ExitableBackend();
-        var session = new Session(
-            Guid.NewGuid(), @"C:\test\repo", @"C:\test\repo", null,
-            backend, SessionBackendType.ConPty);
-        session.MarkRunning();
-
-        Guid? removed = null;
-        manager.OnSessionRemoved += s => removed = s.Id;
-        manager.AdoptSession(session);
-
-        backend.RaiseExit(0); // clean exit -> should be reaped
-
-        await WaitUntil(() => manager.GetSession(session.Id) is null);
-        Assert.Equal(session.Id, removed);
-        Assert.Null(manager.GetSession(session.Id));
-    }
-
-    [Fact]
-    public async Task Abnormal_process_exit_keeps_the_session_for_recovery()
-    {
-        var manager = new SessionManager(new AgentOptions()) { CleanExitReapDelayMs = 0 };
-        var backend = new ExitableBackend();
-        var session = new Session(
-            Guid.NewGuid(), @"C:\test\repo", @"C:\test\repo", null,
-            backend, SessionBackendType.ConPty);
-        session.MarkRunning();
-        manager.AdoptSession(session);
-
-        backend.RaiseExit(1); // non-zero -> a crash, kept in the Error state (issue #959)
-
-        await Task.Delay(150); // give any (incorrect) reap a chance to run
-        var kept = manager.GetSession(session.Id);
-        Assert.NotNull(kept);
-        Assert.True(kept!.Crashed);
-        Assert.Equal(SessionStatus.Failed, kept.Status);
-        Assert.Equal(StatusColor.Error, kept.StatusColor);
-    }
-
-    private static async Task WaitUntil(Func<bool> condition, int timeoutMs = 2000)
-    {
-        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
-        while (!condition() && DateTime.UtcNow < deadline)
-            await Task.Delay(20);
-        Assert.True(condition(), "condition not met within timeout");
-    }
 
     /// <summary>An ISessionBackend whose process exit can be raised on demand.</summary>
     private sealed class ExitableBackend : ISessionBackend

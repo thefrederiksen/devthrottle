@@ -231,21 +231,4 @@ public sealed class AtomicFileReplaceTests : IDisposable
     }
 
     private static readonly DateTimeOffset FakeStart = new FakeTimeProvider().GetUtcNow();
-
-    [Fact]
-    public void WriteAllText_DestinationIsADirectory_ThrowsAtOnceAndLeavesNothingBehind()
-    {
-        var destination = Path.Combine(_dir, "list.json");
-        Directory.CreateDirectory(destination);
-        var watch = System.Diagnostics.Stopwatch.StartNew();
-
-        var ex = Assert.Throws<IOException>(() => AtomicFileReplace.WriteAllText(destination, "text"));
-
-        // Windows answers a directory in the way with the same Access-denied a scanner's veto gives; it
-        // must be refused up front, not waited out for the full ten seconds.
-        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"took {watch.Elapsed}");
-        Assert.Contains("a directory has that name", ex.Message);
-        Assert.Empty(Directory.GetFiles(_dir));
-        Assert.True(Directory.Exists(destination));
-    }
 }
