@@ -20,6 +20,10 @@ public sealed class LicenseRenewalRow
     /// <summary>A <see cref="LicenseRenewalErrors"/> code when <see cref="Result"/> is "failed", else null.</summary>
     public string? Error { get; set; }
 
+    /// <summary>For a row that is due: whether a browser profile is set for the account on this machine. Never the
+    /// profile's name, which is the owner's and stays in the tool.</summary>
+    public bool HasBrowserProfileHere { get; set; }
+
     public DateTime? SignedInAtUtc { get; set; }
 
     public DateTime? SignInExpiresAtUtc { get; set; }
@@ -109,7 +113,7 @@ public sealed partial class CcDevthrottleLicenseCommandLine
     public static readonly TimeSpan SignInTimeout = TimeSpan.FromMinutes(4);
 
     /// <summary>How long the tool may take to finish once its input has ended - the approval typed in, or nothing.</summary>
-    public static readonly TimeSpan FinishTimeout = TimeSpan.FromSeconds(90);
+    public static readonly TimeSpan FinishTimeout = LicenseContract.SignInFinishAllowance;
 
     internal const string AuthorizeUrlPrefix = "authorize-url: ";
 
@@ -124,6 +128,41 @@ public sealed partial class CcDevthrottleLicenseCommandLine
         return rows;
     }
 
+    public async Task<bool?> HasBrowserProfileAsync(string accountEmail, CancellationToken cancellationToken)
+    {
+        FileLog.Write($"[CcDevthrottleLicenseCommandLine] HasBrowserProfileAsync: account={accountEmail}");
+        try
+        {
+            var output = await RunForJsonAsync(new[] { "license", "get-browser", accountEmail }, cancellationToken);
+            var answer = ReadHasBrowserProfile(output);
+            FileLog.Write($"[CcDevthrottleLicenseCommandLine] HasBrowserProfileAsync: account={accountEmail}, profile set here={answer}");
+            return answer;
+        }
+        catch (LicenseCommandLineException ex)
+        {
+            FileLog.Write($"[CcDevthrottleLicenseCommandLine] HasBrowserProfileAsync FAILED: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>The <c>get-browser --json</c> answer: <c>{accountEmail, browser}</c>, where browser is a name or null.</summary>
+    internal static bool ReadHasBrowserProfile(string? output)
+    {
+        if (string.IsNullOrWhiteSpace(output))
+            throw new LicenseCommandLineException($"{ToolName} license get-browser printed nothing.");
+        try
+        {
+            using var document = JsonDocument.Parse(output);
+            if (document.RootElement.ValueKind != JsonValueKind.Object || !document.RootElement.TryGetProperty("browser", out var browser))
+                throw new LicenseCommandLineException($"{ToolName} license get-browser answered no \"browser\" field.");
+            return browser.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(browser.GetString());
+        }
+        catch (JsonException)
+        {
+            throw new LicenseCommandLineException($"{ToolName} license get-browser did not answer JSON.");
+        }
+    }
+
     public async Task<LicenseApproveAnswer> ApproveAsync(string authorizeUrl, string accountEmail, string browserProfile, CancellationToken cancellationToken)
     {
         // The URL is not logged: it names the account in its query and is of no use to a reader of the log.
@@ -133,7 +172,7 @@ public sealed partial class CcDevthrottleLicenseCommandLine
         {
             output = await RunForJsonAsync(
                 new[] { "license", "approve", authorizeUrl, "--email", accountEmail, "--browser", browserProfile },
-                cancellationToken, SignInTimeout, isolated: false);
+                cancellationToken, LicenseContract.ApproveToolTimeout, isolated: false);
         }
         catch (LicenseCommandLineException ex)
         {
@@ -215,6 +254,7 @@ public sealed partial class CcDevthrottleLicenseCommandLine
             {
                 AccountEmail = Normalize(Text(row, "accountEmail"), "renew"),
                 IsActive = role == "active",
+                HasBrowserProfileHere = !string.IsNullOrWhiteSpace(Text(row, "browser")),
                 SignedInAtUtc = Time(row, "signedInAtUtc"),
                 SignInExpiresAtUtc = Time(row, "signInExpiresAtUtc"),
             };

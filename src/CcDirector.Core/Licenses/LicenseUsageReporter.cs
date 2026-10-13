@@ -109,11 +109,18 @@ public sealed class LicenseUsageReporter
         lock (_gate)
         {
             if (failedAtUtc is null || error is null)
-                return _renewalFailures.Remove(email);
+            {
+                var cleared = _renewalFailures.Remove(email);
+                if (cleared) FileLog.Write($"[LicenseUsageReporter] RecordRenewal: account={email}, the earlier renewal failure is cleared");
+                return cleared;
+            }
             // Only the contract's words travel: anything else could be anything a tool printed (rule 6.1).
             var word = LicenseRenewalErrors.All.Contains(error) ? error : LicenseRenewalErrors.LoginFailed;
             var changed = !_renewalFailures.TryGetValue(email, out var previous) || previous.Error != word;
             _renewalFailures[email] = (failedAtUtc.Value, word);
+            // Every failure is named here, whichever route found it: until the Gateway reads these fields this log is
+            // the one place a person can see which account failed and why.
+            FileLog.Write($"[LicenseUsageReporter] RecordRenewal: account={email}, renewal FAILED ({word}) at {failedAtUtc.Value:O}, new={changed}");
             return changed;
         }
     }

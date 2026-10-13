@@ -469,6 +469,19 @@ public static class LicenseContract
     /// <summary>How long the Gateway waits for a <see cref="ApproveVerb"/> answer.</summary>
     public static readonly TimeSpan ApproveCommandTimeout = TimeSpan.FromMinutes(3);
 
+    /// <summary>How long the approving Director lets <c>license approve</c> run. Shorter than
+    /// <see cref="ApproveCommandTimeout"/>, so an approval is never made for a Gateway that has stopped listening:
+    /// the answer can be used once, and one that arrives late is spent for nothing.</summary>
+    public static readonly TimeSpan ApproveToolTimeout = TimeSpan.FromSeconds(150);
+
+    /// <summary>How long, from the moment it starts a sign-in, the target Director waits for another machine's
+    /// approval. With <see cref="SignInFinishAllowance"/> after it, the whole sign-in is answered inside
+    /// <see cref="SignInCommandTimeout"/>, so the Gateway never records a timeout for a sign-in that then succeeds.</summary>
+    public static readonly TimeSpan SignInApprovalWait = TimeSpan.FromMinutes(3);
+
+    /// <summary>How long the target Director allows the login to finish once the approval is typed in.</summary>
+    public static readonly TimeSpan SignInFinishAllowance = TimeSpan.FromSeconds(90);
+
     /// <summary>How long the Gateway waits for a <see cref="ApprovalResultVerb"/> answer.</summary>
     public static readonly TimeSpan ApprovalResultCommandTimeout = TimeSpan.FromSeconds(60);
 

@@ -38,13 +38,20 @@ public interface ILicenseCommandLine
     /// give a readable answer.</summary>
     Task<IReadOnlyList<LicenseRenewalRow>> CheckRenewalsAsync(CancellationToken cancellationToken);
 
+    /// <summary>Whether a browser profile is set for <paramref name="accountEmail"/> on this machine
+    /// (<c>license get-browser</c>). The Director asks before it starts a sign-in that only such a profile could
+    /// approve, so it never starts one that must fail. Null when the tool gave no readable answer.</summary>
+    Task<bool?> HasBrowserProfileAsync(string accountEmail, CancellationToken cancellationToken);
+
     /// <summary>
     /// Starts signing <paramref name="accountEmail"/> in on this machine (<c>license sign-in</c>): a new spare, or a
     /// renewal in place of the sign-in held. With a browser profile set for the account here, the tool approves in it
     /// and the answer comes back <see cref="LicenseSignInStart.Finished"/>. With none, and
     /// <paramref name="askAnotherMachineWhenNoBrowser"/> true (<c>--ask-when-no-browser</c>), it comes back
     /// <see cref="LicenseSignInStart.Waiting"/> with its authorize URL, for another machine to approve; with false it
-    /// finishes failed, <c>no-approver</c>. One call chooses the route - none is made that is expected to fail.
+    /// finishes failed, <c>no-approver</c> - which is why the caller passes false only for an account it knows has a
+    /// profile here (<see cref="HasBrowserProfileAsync"/>, or the renewal check's row). No call is made that is
+    /// expected to fail.
     /// Never throws for an answer the tool gave.
     /// </summary>
     Task<LicenseSignInStart> StartSignInAsync(string accountEmail, bool askAnotherMachineWhenNoBrowser, CancellationToken cancellationToken);

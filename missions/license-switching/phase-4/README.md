@@ -118,12 +118,12 @@ says plainly what that does not reach.
   profile and seals the answer to the asking machine's key before the answer leaves the process.
 
 Two small tool changes carry this, both in `tools/`: `cc-secrets seal` / `open` (a value sealed to one machine),
-and in `cc-devthrottle license` the `renew --check` and `sign-in --ask-when-no-browser` options and JSON answers for
-a failure. Section 8 of the contract says why the renewal asks first.
+and in `cc-devthrottle license` the `renew --check` and `sign-in --ask-when-no-browser` options, `get-browser`,
+and JSON answers for a failure. Section 8 of the contract says why the renewal asks first.
 
 ## The proof: `director-proof/`
 
-`director-proof-2026-10-12.txt` is the output of one run, unedited. Two Directors' license parts run in one
+`director-proof-2026-10-13.txt` is the output of one run, unedited. Two Directors' license parts run in one
 process on one machine - the target, and the approving machine - and every step goes through the code the product
 runs. Run it with:
 
@@ -136,16 +136,22 @@ runs. Run it with:
 | `cc-secrets seal` and `open` from this checkout, as processes, with a separate key folder for each machine | The approving machine's browser: its `license approve` answers a fixed made-up answer, or refuses with `wrong-account` |
 | The Director's log of the run, which the proof then reads | The clock moving a day forward, and the ten-minute deadline arriving |
 
-What the run shows, in its own seven steps: both Directors report, the approving one with no holdings; a sign-in
-with no profile here is approved on the other machine and held as a spare; the same `SignInId` again runs nothing;
-a refused renewal is reported with its reason and leaves the held sign-in as it was; the next day's renewal renews
-it in place and clears the failure; a sign-in nobody answers ends at its deadline with nothing left behind; and the
-answer is in no log line, no stored result and nothing the relay carried.
+What the run shows, in its own steps: both Directors report, the approving one with no holdings; a sign-in with no
+profile here is approved on the other machine and held as a spare; the same `SignInId` again runs nothing; while
+no Gateway relays, a due account with no profile here is recorded `no-approver` and NO sign-in is started, for the
+daily renewal and for a sign-in that was asked for; a refused renewal is reported with its reason and leaves the
+held sign-in as it was; the next day's renewal renews it in place and clears the failure; a sign-in nobody answers
+ends at its deadline with nothing left behind; the answer is in no log line, no stored result and nothing the
+relay carried; and no call in the run filed a tool error report.
 
-The run left no tool error report behind. An earlier run of this proof, on the design before `renew --check`, sent
-three scrubbed error reports to the hosted Gateway, because that design made calls that were expected to fail.
-That is the finding that changed the design; the proof now also points the tool's error reports at a closed local
-address so a run can never send one.
+That last one is a count, not a remark: step 8 counts the report files in the tool's error outbox (0), then starts
+on purpose a sign-in the Director never makes - no profile, told not to ask - and counts again (1), so the count is
+shown to see a report when there is one.
+
+Two findings changed the design. An earlier run of this proof, before `renew --check`, sent three scrubbed error
+reports to the hosted Gateway, because that design made calls that were expected to fail; the proof now points the
+tool's error reports at a closed local address so a run can never send one. And the review of this pull request
+found the case that still filed one a day - no relay, no profile - which is step 4 of the proof now.
 
 ## What the second pull request does not prove, and does not do
 

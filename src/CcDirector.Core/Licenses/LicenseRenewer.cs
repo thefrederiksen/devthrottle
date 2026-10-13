@@ -132,7 +132,7 @@ public sealed class LicenseRenewer
     /// <summary>Signs one due account in again and writes what happened into its row: renewed, or failed with the reason.</summary>
     private async Task RenewAsync(LicenseRenewalRow row, CancellationToken cancellationToken)
     {
-        var answer = await _signIns.RenewAsync(row.AccountEmail, cancellationToken);
+        var answer = await _signIns.RenewAsync(row.AccountEmail, row.HasBrowserProfileHere, cancellationToken);
         if (answer.Succeeded)
         {
             row.Result = LicenseRenewalResults.Renewed;

@@ -134,7 +134,24 @@ internal static class Program
             $"replayed={again.Replayed}, approval requests still {gateway.Requests.Count}, the held sign-in unchanged ({keyB})");
 
         // ---- 4 ----
-        Say("\n--- 4. the daily renewal: account B is due, the other machine REFUSES (its profile is signed in as someone else)");
+        Say("\n--- 4. the daily renewal while NO Gateway relays an approval (every Director today): account B is due and has no profile here");
+        gateway.CanRequest = false;
+        var startedBefore = targetTool.SignInsStarted;
+        var noRelayRun = await target.Renewer.TickAsync(CancellationToken.None);
+        Check("no-approver", Rows(noRelayRun) == $"{AccountA}:not-due {AccountB}:failed:{LicenseRenewalErrors.NoApprover}", Rows(noRelayRun));
+        Check("no-sign-in-started", targetTool.SignInsStarted == startedBefore && gateway.Requests.Count == 1,
+            $"the tool's sign-in was started {targetTool.SignInsStarted - startedBefore} time(s) for it and no approval was asked for: the check's own row said no profile is set here");
+        Check("held-sign-in-untouched-by-it", KeyPrint(storeDir, AccountB) == keyB, $"the sign-in held for account B is the one it had ({keyB})");
+        var noRelayReport = await target.Reporter.TickAsync(CancellationToken.None);
+        Check("no-approver-travels-in-the-report", noRelayReport is { Trigger: LicenseReportTriggers.Changed } && Holding(noRelayReport, AccountB) is { RenewalError: LicenseRenewalErrors.NoApprover },
+            $"trigger={noRelayReport?.Trigger}, renewalError={Holding(noRelayReport, AccountB)?.RenewalError}");
+        var asked = await target.SignIns.SignInAsync(SignIn(Guid.NewGuid().ToString("N"), AccountC), CancellationToken.None);
+        Check("asked-sign-in-is-no-approver-too", asked is { Outcome: LicenseSignInOutcomes.Failed, ReasonCode: LicenseRenewalErrors.NoApprover } && targetTool.SignInsStarted == startedBefore,
+            $"a license-sign-in for account C: outcome={asked.Outcome}, reason={asked.ReasonCode}; the tool was asked whether a profile is set (license get-browser) and no sign-in was started");
+        gateway.CanRequest = true;
+
+        Say("\n--- 4b. a day later a Gateway relays: account B is due, the other machine REFUSES (its profile is signed in as someone else)");
+        _clockOffset = LicenseContract.RenewalRunInterval;
         approverTool.Refuse = LicenseRenewalErrors.WrongAccount;
         var failedRun = await target.Renewer.TickAsync(CancellationToken.None);
         Check("renewal-failed", Rows(failedRun) == $"{AccountA}:not-due {AccountB}:failed:{LicenseRenewalErrors.WrongAccount}", Rows(failedRun));
@@ -149,7 +166,7 @@ internal static class Program
         approverTool.Refuse = null;
         Environment.SetEnvironmentVariable("FAKE_CLAUDE_DAYS", "29");
         Check("not-run-twice-a-day", await target.Renewer.TickAsync(CancellationToken.None) is null, "a second check inside the day runs nothing");
-        _clockOffset = LicenseContract.RenewalRunInterval;
+        _clockOffset = LicenseContract.RenewalRunInterval * 2;
         var renewedRun = await target.Renewer.TickAsync(CancellationToken.None);
         var renewedKey = KeyPrint(storeDir, AccountB);
         Check("renewed", Rows(renewedRun) == $"{AccountA}:not-due {AccountB}:renewed", Rows(renewedRun));
@@ -182,6 +199,18 @@ internal static class Program
         var stored = string.Concat(Directory.EnumerateFiles(LicenseSwitching.DirectorFolder(storeDir), "*.json", SearchOption.AllDirectories).Select(File.ReadAllText));
         Check("answer-not-in-a-stored-result", stored.Contains(signInId) && !stored.Contains(Answer), "not in the stored sign-in results");
 
+        // ---- 8 ----
+        Say("\n--- 8. no call in this run filed a tool error report - counted, and the count is shown to see one");
+        var outbox = Path.Combine(directorRoot, "logs", "error-outbox", "tool");
+        var kept = ReportsKept(outbox);
+        Check("no-error-report-kept", kept == 0, $"{kept} report file(s) in the tool's error outbox after steps 1 to 7 (a refused renewal, a no-approver renewal and a sign-in called off at its deadline among them)");
+        // The control: one sign-in that really fails, started on purpose with no profile and no leave to ask. If the
+        // count above could not see a report, it could not see this one either.
+        var control = await targetTool.StartASignInThatFailsAsync(AccountC);
+        var keptAfter = ReportsKept(outbox);
+        Check("the-count-sees-a-report", control.Finished is { ReasonCode: LicenseRenewalErrors.NoApprover } && keptAfter == 1,
+            $"control: a sign-in the Director never makes (no profile, told not to ask) ended {control.Finished?.ReasonCode} and left {keptAfter} report file in the same outbox");
+
         Say($"\n{(_failed == 0 ? "PASSED" : "FAILED")}: {_failed} check(s) failed. The proof root can be deleted; it holds only made-up sign-ins.");
         return _failed == 0 ? 0 : 1;
     }
@@ -193,6 +222,10 @@ internal static class Program
 
     private static string Holdings(LicenseUsageReport? report) =>
         report is null ? "(no report)" : string.Join(" ", report.Holdings.Select(h => $"{h.AccountEmail}:{(h.IsActive ? "active" : "spare")}"));
+
+    /// <summary>The report files the tool's error reporting keeps on disk before it sends them (cc_shared/tool_errors.py).</summary>
+    private static int ReportsKept(string outbox) =>
+        Directory.Exists(outbox) ? Directory.EnumerateFiles(outbox, "report-*.json").Count() : 0;
 
     private static LicenseHolding? Holding(LicenseUsageReport? report, string email) => report?.Holdings.FirstOrDefault(h => h.AccountEmail == email);
 
@@ -248,7 +281,18 @@ internal static class Program
             (await real.ListAsync(ct)).Where(h => !activeOnly || h.IsActive).ToList();
         public Task<LicenseExchangeAnswer> SwitchAsync(string target, string expected, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlyList<LicenseRenewalRow>> CheckRenewalsAsync(CancellationToken ct) => real.CheckRenewalsAsync(ct);
-        public Task<LicenseSignInStart> StartSignInAsync(string email, bool ask, CancellationToken ct) => real.StartSignInAsync(email, ask, ct);
+        public Task<bool?> HasBrowserProfileAsync(string email, CancellationToken ct) => real.HasBrowserProfileAsync(email, ct);
+        public Task<LicenseSignInStart> StartSignInAsync(string email, bool ask, CancellationToken ct)
+        {
+            SignInsStarted++;
+            return real.StartSignInAsync(email, ask, ct);
+        }
+
+        /// <summary>How many times this Director started the tool's sign-in.</summary>
+        public int SignInsStarted { get; private set; }
+
+        /// <summary>The control for the error report count: a sign-in that really fails, started on purpose.</summary>
+        public Task<LicenseSignInStart> StartASignInThatFailsAsync(string email) => real.StartSignInAsync(email, false, CancellationToken.None);
         public Task<LicenseApproveAnswer> ApproveAsync(string url, string email, string profile, CancellationToken ct) => throw new NotSupportedException();
     }
 
@@ -261,6 +305,7 @@ internal static class Program
         public Task<IReadOnlyList<LicenseHolding>> ReadUsageAsync(bool activeOnly, CancellationToken ct) => ListAsync(ct);
         public Task<LicenseExchangeAnswer> SwitchAsync(string target, string expected, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlyList<LicenseRenewalRow>> CheckRenewalsAsync(CancellationToken ct) => throw new NotSupportedException();
+        public Task<bool?> HasBrowserProfileAsync(string email, CancellationToken ct) => throw new NotSupportedException();
         public Task<LicenseSignInStart> StartSignInAsync(string email, bool ask, CancellationToken ct) => throw new NotSupportedException();
         public Task<LicenseApproveAnswer> ApproveAsync(string url, string email, string profile, CancellationToken ct) =>
             Task.FromResult(Refuse is { } reason ? LicenseApproveAnswer.Refused(reason) : new LicenseApproveAnswer { Approved = true, Approval = Answer });
@@ -271,7 +316,7 @@ internal static class Program
     /// of everything it carried, so the proof can show the answer was in none of it.</summary>
     private sealed class ProofGateway(LicenseSwitching target, LicenseSwitching approver, string targetPublic) : ILicenseApprovalRelay
     {
-        public bool CanRequest => true;
+        public bool CanRequest { get; set; } = true;
         public bool Silent { get; set; }
         public List<LicenseApprovalRequest> Requests { get; } = new();
         public List<string> Carried { get; } = new();

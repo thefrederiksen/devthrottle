@@ -52,10 +52,18 @@ public sealed class LicenseSignInCoordinator
     }
 
     /// <summary>The tunnel to ask for an approval on. Replaced when the Director's Gateway settings change; null while there is none.</summary>
-    public void AttachRelay(ILicenseApprovalRelay? relay) => _relay = relay;
+    public void AttachRelay(ILicenseApprovalRelay? relay)
+    {
+        FileLog.Write($"[LicenseSignInCoordinator] AttachRelay: attached={relay is not null}");
+        _relay = relay;
+    }
 
     /// <summary>How a sealed approval is opened on this machine. Null until the Director's tunnel host supplies it.</summary>
-    public void AttachSeal(ILicenseApprovalSeal? seal) => _seal = seal;
+    public void AttachSeal(ILicenseApprovalSeal? seal)
+    {
+        FileLog.Write($"[LicenseSignInCoordinator] AttachSeal: attached={seal is not null}");
+        _seal = seal;
+    }
 
     /// <summary>Carries out <paramref name="request"/>, whose SignInId has already been checked for shape.</summary>
     public async Task<LicenseSignInResult> SignInAsync(LicenseSignInRequest request, CancellationToken cancellationToken)
@@ -92,7 +100,7 @@ public sealed class LicenseSignInCoordinator
             }
             else
             {
-                answer = await RunAsync(request.SignInId, email, request.NotAfterUtc, cancellationToken);
+                answer = await RunAsync(request.SignInId, email, request.NotAfterUtc, profileHere: null, cancellationToken);
                 _reporter.RecordRenewal(email, answer.Succeeded ? null : _utcNow(), answer.ReasonCode);
                 // Section 8.4: a "changed" report after it, so the Gateway sees the new sign-in or the failure.
                 _reporter.RequestReport(LicenseReportTriggers.Changed);
@@ -111,9 +119,10 @@ public sealed class LicenseSignInCoordinator
 
     /// <summary>
     /// The daily renewal's sign-in for an account that is due: the same sign-in by the same route, under a SignInId
-    /// minted here. The caller records the outcome and reports it.
+    /// minted here. The caller records the outcome and reports it. <paramref name="hasBrowserProfileHere"/> is
+    /// what the renewal check already said of the account, so the tool is not asked again.
     /// </summary>
-    public async Task<LicenseSignInAnswer> RenewAsync(string accountEmail, CancellationToken cancellationToken)
+    public async Task<LicenseSignInAnswer> RenewAsync(string accountEmail, bool hasBrowserProfileHere, CancellationToken cancellationToken)
     {
         var email = Normalize(accountEmail);
         var signInId = Guid.NewGuid().ToString("N");
@@ -121,7 +130,7 @@ public sealed class LicenseSignInCoordinator
         await _oneAtATime.WaitAsync(cancellationToken);
         try
         {
-            var answer = await RunAsync(signInId, email, _utcNow() + LicenseContract.SignInNotAfter, cancellationToken);
+            var answer = await RunAsync(signInId, email, _utcNow() + LicenseContract.SignInNotAfter, hasBrowserProfileHere, cancellationToken);
             FileLog.Write($"[LicenseSignInCoordinator] signInId={signInId} finished: outcome={answer.Outcome}, reason={answer.ReasonCode ?? "-"}");
             return answer;
         }
@@ -132,15 +141,32 @@ public sealed class LicenseSignInCoordinator
     }
 
     /// <summary>One sign-in, by whichever route the tool chooses.</summary>
-    private async Task<LicenseSignInAnswer> RunAsync(string signInId, string email, DateTime notAfterUtc, CancellationToken cancellationToken)
+    /// <param name="profileHere">Whether a browser profile is set for the account on this machine, when the caller
+    /// already knows; null to ask the tool if it matters.</param>
+    private async Task<LicenseSignInAnswer> RunAsync(string signInId, string email, DateTime notAfterUtc, bool? profileHere, CancellationToken cancellationToken)
     {
         var relay = _relay;
         var seal = _seal;
         // The tool is told to wait for another machine's approval only while one can be asked for and opened here.
         var canAsk = relay is { CanRequest: true } && seal is not null;
         if (!canAsk)
-            FileLog.Write($"[LicenseSignInCoordinator] signInId={signInId}: no Gateway relays an approval just now; only a browser profile on this machine can approve");
+        {
+            // Only a profile on this machine could approve. With none set the sign-in cannot happen, and the tool is
+            // not started to find that out: a sign-in that fails by design would file an error report every day.
+            profileHere ??= await _tool.HasBrowserProfileAsync(email, cancellationToken);
+            if (profileHere is null)
+            {
+                FileLog.Write($"[LicenseSignInCoordinator] signInId={signInId} FAILED: the tool did not say whether a browser profile is set here for {email}; no sign-in was started");
+                return LicenseSignInAnswer.Failed(LicenseRenewalErrors.LoginFailed);
+            }
+            if (profileHere == false)
+            {
+                FileLog.Write($"[LicenseSignInCoordinator] signInId={signInId}: no browser profile is set here for {email} and no Gateway relays an approval just now ({LicenseRenewalErrors.NoApprover}); no sign-in was started");
+                return LicenseSignInAnswer.Failed(LicenseRenewalErrors.NoApprover);
+            }
+        }
 
+        var startedUtc = _utcNow();
         var start = await _tool.StartSignInAsync(email, canAsk, cancellationToken);
         if (start.Waiting is null)
             return start.Finished ?? LicenseSignInAnswer.Failed(LicenseRenewalErrors.LoginFailed);
@@ -149,7 +175,11 @@ public sealed class LicenseSignInCoordinator
         await using var waiting = start.Waiting;
         if (relay is null || seal is null || !canAsk)
             return LicenseSignInAnswer.Failed(LicenseRenewalErrors.NoApprover);
-        var wait = notAfterUtc - _utcNow();
+        // The approval must be in hand early enough for the login to finish inside the Gateway's own wait for this
+        // sign-in (contract 8.5), and never later than the request allows.
+        var approveBy = startedUtc + LicenseContract.SignInApprovalWait;
+        if (notAfterUtc < approveBy) approveBy = notAfterUtc;
+        var wait = approveBy - _utcNow();
         if (wait <= TimeSpan.Zero)
             return LicenseSignInAnswer.Failed(LicenseRenewalErrors.Expired);
         using var expected = _approvals.Expect(signInId);
@@ -161,7 +191,7 @@ public sealed class LicenseSignInCoordinator
                 SignInId = signInId,
                 AccountEmail = email,
                 AuthorizeUrl = waiting.AuthorizeUrl,
-                NotAfterUtc = notAfterUtc,
+                NotAfterUtc = approveBy,
             }, cancellationToken);
         }
         catch (LicenseApprovalRelayException ex)
@@ -263,7 +293,11 @@ public sealed class LicenseApprover
     }
 
     /// <summary>How an approval is sealed on this machine. Null until the Director's tunnel host supplies it.</summary>
-    public void AttachSeal(ILicenseApprovalSeal? seal) => _seal = seal;
+    public void AttachSeal(ILicenseApprovalSeal? seal)
+    {
+        FileLog.Write($"[LicenseApprover] AttachSeal: attached={seal is not null}");
+        _seal = seal;
+    }
 
     /// <summary>Carries out <paramref name="request"/>, whose SignInId has already been checked for shape. Every
     /// outcome, a refusal included, is an answer.</summary>

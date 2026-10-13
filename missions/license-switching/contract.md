@@ -566,14 +566,25 @@ finds it taken is tried at the next run.
 1. `license renew --check --json` signs nothing in and exits 0. It answers one row per holding: `due` (with the
    browser profile set for it on this machine, or none), `not-due`, `unknown-expiry`, or `failed` / `store-refused`
    for a stored sign-in it could not read.
-2. For each `due` row, `license sign-in <account> --ask-when-no-browser --json`: the tool approves in the profile
-   set on this machine when there is one, and otherwise prints the authorize URL and waits for the code, which the
-   Director gets through 8.3. One call, and the tool chooses the route, so the owner's local setting always wins.
+2. For each `due` row, one of three things, decided from that row before anything is started:
+   - a Gateway that relays an approval is connected: `license sign-in <account> --ask-when-no-browser --json`. The
+     tool approves in the profile set on this machine when there is one, and otherwise prints the authorize URL
+     and waits for the code, which the Director gets through 8.3. One call, and the tool chooses the route, so the
+     owner's local setting always wins;
+   - no Gateway relays, and the row names a profile here: `license sign-in <account> --json`, approved here;
+   - no Gateway relays, and the row names no profile: **nothing is started.** The Director records `no-approver`
+     for the holding and reports it. This is every Director's state until phase 2 is deployed, and afterwards
+     whenever the tunnel is down when the renewal runs.
+
+A sign-in the Gateway asks for (8.4) is decided the same way. The account may not be held yet, so there is no row
+to read; when no Gateway relays, the Director first asks `license get-browser <account> --json`, which answers the
+profile or none and exits 0.
 
 The reason is that every cc-* tool that exits with a failure files an error report. `license renew --json` exits 1
 when any renewal failed, and a sign-in tried locally first would fail by design for every account whose profile is
 on another machine, so the plain design would have filed a report a day for each such account. Asking first makes
-no call that is expected to fail.
+no call that is expected to fail. (The review of pull request 3916 found the one case the first version of this
+still got wrong - no relay and no profile - and it is the third branch above.)
 
 The renewer wakes every 10 minutes and does nothing until a day has passed since the last run. A run in which the
 tool gave no answer at all does not count as the day's run and is tried again at the next wake. A failure recorded
@@ -686,8 +697,15 @@ sealed to a recipient), not by a second copy of the envelope code in the Directo
 - The Director validates `SignInId` (32 lower-case hex) and `SealToRecipient` (32 bytes, base64) before either
   reaches a command line.
 - The target asks for an approval only when the Gateway it is connected to offers `RequestLicenseApproval` and
-  `cc-secrets` is there to open the answer. Otherwise it tells the tool not to wait, and the attempt is `failed` /
-  `no-approver` with no login left waiting.
+  `cc-secrets` is there to open the answer. Otherwise only a profile on this machine can approve: with one set the
+  sign-in runs here, and with none the attempt is `failed` / `no-approver` and no login is started at all (8.2).
+- **The Director's time limits fit inside the Gateway's waits** (8.5; a test holds them to it). The approving
+  Director lets `license approve` run for 2 minutes 30 seconds, inside the Gateway's 3 minute wait for
+  `license-approve`, so an approval - which can be used once - is never made for a Gateway that has stopped
+  listening. The target waits for an approval for 3 minutes from the moment it starts the sign-in, or until the
+  request's `NotAfterUtc` when that is sooner, and that time is the `NotAfterUtc` it sends in
+  `LicenseApprovalRequest`. With 90 seconds for the login to finish, the whole sign-in is answered inside the
+  Gateway's 5 minute wait for `license-sign-in`.
 - A sign-in the Director gives up on is ended by closing the tool's standard input. The tool treats that as the
   caller calling it off, not as its own failure, so an approval that never came files no error report.
 
@@ -736,7 +754,10 @@ address no session, as `license-switch` does.
 | `license-sign-in` command timeout (Gateway) | 5 minutes |
 | `license-approve` command timeout (Gateway) | 3 minutes |
 | `license-approval-result` command timeout (Gateway) | 60 seconds |
-| A sign-in's `NotAfterUtc` | requested + 10 minutes |
+| A sign-in's `NotAfterUtc` (the Director refuses to START after it) | requested + 10 minutes |
+| The approving Director lets `license approve` run (`ApproveToolTimeout`) | 2 minutes 30 seconds |
+| The target waits for an approval, from the start of the sign-in (`SignInApprovalWait`) | 3 minutes |
+| The target lets the login finish once the approval is typed in (`SignInFinishAllowance`) | 90 seconds |
 | The Director's renewer wakes (a run happens once a day) | every 10 minutes |
 | A stored `LicenseSignInResult` is kept | 24 hours |
 | The seal's purpose word (`LicenseContract.ApprovalSealPurpose`) | `license-approval` |

@@ -19,6 +19,8 @@ in the AXI shape (docs/axi-standard.md).
   there is one, and otherwise behaves as `--remote-approval`. The Director runs these two: it asks what is due once
   a day and signs each due account in, so an account with no profile here is approved on another machine and no
   call is made that is expected to fail.
+- `license get-browser <email>` says which profile is set for an account on this machine, or that none is; exit 0
+  either way.
 - A caller that CLOSES standard input while a sign-in waits for its code has called the sign-in off: the approval
   did not come, and the caller is the one who knows why. That ends as a stopped command - the same `failed` answer
   under `--json`, exit 1 - and not as a tool failure, so it files no error report. A blank line is different: it is
@@ -101,7 +103,7 @@ def sign_in(email: str, browser: Optional[str], remote_approval: bool, default_c
             print(json.dumps({"accountEmail": email.strip().lower(), "result": "failed", "reason": ex.kind},
                              indent=2), flush=True)
         print(f"Stopped: {ex} (reason: {ex.kind})", file=sys.stderr, flush=True)
-        raise click.Abort()
+        raise click.Abort() from None
     except SignInError as ex:
         _fail(ex, {"accountEmail": email.strip().lower(), "result": "failed"} if json_output else None)
     license_ops._report_recovery(store)
@@ -142,6 +144,27 @@ def set_browser(email: str, profile: str, default_config_dir: Optional[str], sto
     axi_cli.write_lines(f"Set: {email.strip().lower()} is signed in with the browser profile \"{profile.strip()}\" "
                         f"(kept in {path}).")
     axi_cli.print_next([f"cc-devthrottle license sign-in {email.strip().lower()}", "cc-devthrottle license renew"])
+
+
+def get_browser(email: str, default_config_dir: Optional[str], store_dir: Optional[str], json_output: bool) -> None:
+    """Which profile is set for the account here. None set is an answer, not a failure: the Director asks this
+    before it starts a sign-in that only a profile on this machine could approve."""
+    store = license_ops._open(default_config_dir, store_dir)
+    account = email.strip().lower()
+    try:
+        profile = license_signin.load_browsers(store).get(account)
+    except SignInError as ex:
+        _fail(ex)
+    if json_output:
+        print(json.dumps({"accountEmail": account, "browser": profile}, indent=2))
+        return
+    if profile:
+        axi_cli.write_lines(f"{account} is signed in with the browser profile \"{profile}\" on this machine.")
+        axi_cli.print_next([f"cc-devthrottle license sign-in {account}"])
+    else:
+        axi_cli.write_lines(f"No browser profile is set for {account} on this machine.")
+        axi_cli.print_next([f"cc-devthrottle license set-browser {account} \"<profile name>\"",
+                            "cc-devthrottle browser list"])
 
 
 def renew(account: Optional[str], force: bool, json_output: bool, fields: Optional[str],

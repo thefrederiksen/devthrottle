@@ -440,6 +440,18 @@ def test_cli_signIn_CallerClosesStandardInput_IsCalledOff_NotAToolFailure(machin
     assert blank.exit_code == 1 and "Aborted" not in blank.output
 
 
+def test_cli_getBrowser_SaysTheProfileSetHere_OrThatNoneIs_AndNeverFails(machine):
+    none = _run("get-browser", ACCOUNT_B, "--json")
+    assert none.exit_code == 0
+    assert json.loads(none.stdout) == {"accountEmail": ACCOUNT_B, "browser": None}
+    assert "No browser profile is set" in _run("get-browser", ACCOUNT_B).output
+
+    assert _run("set-browser", ACCOUNT_B, "Profile B").exit_code == 0
+    one = _run("get-browser", ACCOUNT_B.upper(), "--json")
+    assert one.exit_code == 0
+    assert json.loads(one.stdout) == {"accountEmail": ACCOUNT_B, "browser": "Profile B"}
+
+
 def test_cli_approveJson_AnswersTheCode_OrTheReasonWord(machine, monkeypatch):
     monkeypatch.setattr(license_signin, "approve_in_browser", lambda url, email, browser: CODE)
     approved = _run("approve", URL, "--email", ACCOUNT_B, "--browser", "Profile B", "--json")

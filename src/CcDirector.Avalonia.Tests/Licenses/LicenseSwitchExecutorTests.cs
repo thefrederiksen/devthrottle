@@ -121,6 +121,9 @@ public sealed class LicenseSwitchExecutorTests : IDisposable
         public Task<IReadOnlyList<LicenseRenewalRow>> CheckRenewalsAsync(CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
+        public Task<bool?> HasBrowserProfileAsync(string accountEmail, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
         public Task<LicenseSignInStart> StartSignInAsync(string accountEmail, bool askAnotherMachineWhenNoBrowser, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 

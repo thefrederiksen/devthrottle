@@ -102,10 +102,12 @@ public sealed class LicenseSignInCoordinatorTests : IDisposable
         Assert.Equal(SignInId, asked.SignInId);
         Assert.Equal(AccountB, asked.AccountEmail);
         Assert.Equal(waiting.AuthorizeUrl, asked.AuthorizeUrl);
-        Assert.Equal(_clock.Now + LicenseContract.SignInNotAfter, asked.NotAfterUtc);
+        // The approval is asked for by the Director's own limit, which is inside the Gateway's wait for the sign-in
+        // (contract 8.5) and shorter than the request's ten minutes.
+        Assert.Equal(_clock.Now + LicenseContract.SignInApprovalWait, asked.NotAfterUtc);
         Assert.Equal(FakeRemoteSignIn.ApprovalMarker, waiting.TypedIn);
         Assert.False(waiting.Abandoned);
-        Assert.Equal(LicenseContract.SignInNotAfter, _waitedFor);
+        Assert.Equal(LicenseContract.SignInApprovalWait, _waitedFor);
         // The approval reached the waiting login and nothing else: not the result the Gateway gets.
         Assert.DoesNotContain(FakeRemoteSignIn.ApprovalMarker, JsonSerializer.Serialize(result));
     }
@@ -119,9 +121,57 @@ public sealed class LicenseSignInCoordinatorTests : IDisposable
 
         Assert.Equal(LicenseSignInOutcomes.Failed, result.Outcome);
         Assert.Equal(LicenseRenewalErrors.NoApprover, result.ReasonCode);
-        // The tool was not told to wait for an approval nobody could bring, so no login was left waiting.
-        Assert.Equal((AccountB, false), Assert.Single(_tool.SignInCalls));
+        // The tool was asked one question that cannot fail, and no sign-in was started to find the answer out: a
+        // sign-in that fails by design files an error report (review of 3916, finding 1).
+        Assert.Equal(AccountB, Assert.Single(_tool.BrowserQuestions));
+        Assert.Empty(_tool.SignInCalls);
         Assert.Empty(_tool.RemoteSignIns);
+    }
+
+    [Fact]
+    public async Task SignInAsync_ProfileHereAndNoGatewayThatRelays_SignsInHere()
+    {
+        _relay.CanRequest = false;
+        _tool.LocalSignIns[AccountB] = new LicenseSignInAnswer { Outcome = LicenseSignInOutcomes.Added, SignedInAtUtc = _clock.Now };
+
+        var result = await _licenses.SignIns.SignInAsync(Request(), CancellationToken.None);
+
+        Assert.Equal(LicenseSignInOutcomes.Added, result.Outcome);
+        Assert.Equal((AccountB, false), Assert.Single(_tool.SignInCalls));
+    }
+
+    [Fact]
+    public async Task SignInAsync_NoGatewayThatRelaysAndTheToolCannotSayWhetherAProfileIsSet_FailsWithoutStartingASignIn()
+    {
+        _relay.CanRequest = false;
+        _tool.BrowserQuestionUnanswered = true;
+
+        var result = await _licenses.SignIns.SignInAsync(Request(), CancellationToken.None);
+
+        Assert.Equal(LicenseRenewalErrors.LoginFailed, result.ReasonCode);
+        Assert.Empty(_tool.SignInCalls);
+    }
+
+    [Fact]
+    public async Task SignInAsync_AGatewayThatRelays_NeverAsksTheExtraQuestion()
+    {
+        AnswerWith(Approved);
+        await _licenses.SignIns.SignInAsync(Request(), CancellationToken.None);
+
+        Assert.Empty(_tool.BrowserQuestions);
+    }
+
+    [Fact]
+    public async Task SignInAsync_ARequestThatAllowsLessThanTheDirectorsLimit_WaitsOnlyThatLong()
+    {
+        var request = Request();
+        request.NotAfterUtc = _clock.Now + TimeSpan.FromMinutes(1);
+
+        AnswerWith(Approved);
+        await _licenses.SignIns.SignInAsync(request, CancellationToken.None);
+
+        Assert.Equal(TimeSpan.FromMinutes(1), _waitedFor);
+        Assert.Equal(request.NotAfterUtc, Assert.Single(_relay.Requests).NotAfterUtc);
     }
 
     [Fact]
@@ -132,7 +182,7 @@ public sealed class LicenseSignInCoordinatorTests : IDisposable
         var result = await _licenses.SignIns.SignInAsync(Request(), CancellationToken.None);
 
         Assert.Equal(LicenseRenewalErrors.NoApprover, result.ReasonCode);
-        Assert.Equal((AccountB, false), Assert.Single(_tool.SignInCalls));
+        Assert.Empty(_tool.SignInCalls);
         Assert.Empty(_relay.Requests);
     }
 

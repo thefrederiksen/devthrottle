@@ -128,8 +128,22 @@ internal sealed class FakeLicenseCommandLine : ILicenseCommandLine
         return Task.FromResult<IReadOnlyList<LicenseRenewalRow>>(RenewRows.Select(r => new LicenseRenewalRow
         {
             AccountEmail = r.AccountEmail, IsActive = r.IsActive, Result = r.Result, Error = r.Error,
+            HasBrowserProfileHere = LocalSignIns.ContainsKey(r.AccountEmail),
             SignedInAtUtc = r.SignedInAtUtc, SignInExpiresAtUtc = r.SignInExpiresAtUtc,
         }).ToList());
+    }
+
+    /// <summary>Every account the Director asked "is a profile set here?" about.</summary>
+    public List<string> BrowserQuestions { get; } = new();
+
+    /// <summary>When true the tool gives no readable answer to that question.</summary>
+    public bool BrowserQuestionUnanswered { get; set; }
+
+    /// <summary>An account has a profile here exactly when a local sign-in is scripted for it.</summary>
+    public Task<bool?> HasBrowserProfileAsync(string accountEmail, CancellationToken cancellationToken)
+    {
+        BrowserQuestions.Add(accountEmail);
+        return Task.FromResult<bool?>(BrowserQuestionUnanswered ? null : LocalSignIns.ContainsKey(accountEmail));
     }
 
     public Task<LicenseSignInStart> StartSignInAsync(string accountEmail, bool askAnotherMachineWhenNoBrowser, CancellationToken cancellationToken)

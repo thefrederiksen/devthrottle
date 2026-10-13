@@ -186,7 +186,7 @@ public sealed class LicenseRenewerTests : IDisposable
         var asked = Assert.Single(_relay.Requests);
         Assert.Matches(LicenseContract.SignInIdShape, asked.SignInId);
         Assert.Equal(AccountB, asked.AccountEmail);
-        Assert.Equal(_clock.Now + LicenseContract.SignInNotAfter, asked.NotAfterUtc);
+        Assert.Equal(_clock.Now + LicenseContract.SignInApprovalWait, asked.NotAfterUtc);
         Assert.Equal(FakeRemoteSignIn.ApprovalMarker, Assert.Single(_tool.RemoteSignIns).TypedIn);
         Assert.Equal((AccountB, true), Assert.Single(_tool.SignInCalls));
         Assert.Equal(LicenseRenewalResults.Renewed, rows!.Single().Result);
@@ -209,7 +209,7 @@ public sealed class LicenseRenewerTests : IDisposable
     }
 
     [Fact]
-    public async Task TickAsync_NoProfileHereAndNoGatewayThatRelays_IsNoApprover_AndTheToolIsNotToldToWait()
+    public async Task TickAsync_NoProfileHereAndNoGatewayThatRelays_IsNoApprover_AndNoSignInIsStarted()
     {
         Rows((AccountB, LicenseRenewalResults.Due, null));
         _relay.CanRequest = false;
@@ -217,9 +217,26 @@ public sealed class LicenseRenewerTests : IDisposable
         var rows = await _licenses.Renewer.TickAsync(CancellationToken.None);
 
         Assert.Equal((LicenseRenewalResults.Failed, LicenseRenewalErrors.NoApprover), (rows!.Single().Result, rows!.Single().Error));
-        Assert.Equal((AccountB, false), Assert.Single(_tool.SignInCalls));
+        // The check's own row said no profile is set here, so nothing more was asked and nothing was started: this
+        // is every Director's state until a Gateway relays, once a day, and it must not file an error report a day.
+        Assert.Empty(_tool.SignInCalls);
+        Assert.Empty(_tool.BrowserQuestions);
         Assert.Empty(_tool.RemoteSignIns);
         Assert.Equal(LicenseRenewalErrors.NoApprover, (await ReportedAsync(AccountB)).RenewalError);
+    }
+
+    [Fact]
+    public async Task TickAsync_ProfileHereAndNoGatewayThatRelays_IsStillRenewedHere()
+    {
+        Rows((AccountB, LicenseRenewalResults.Due, null));
+        _tool.LocalSignIns[AccountB] = new LicenseSignInAnswer { Outcome = LicenseSignInOutcomes.Renewed };
+        _relay.CanRequest = false;
+
+        var rows = await _licenses.Renewer.TickAsync(CancellationToken.None);
+
+        Assert.Equal(LicenseRenewalResults.Renewed, rows!.Single().Result);
+        Assert.Equal((AccountB, false), Assert.Single(_tool.SignInCalls));
+        Assert.Empty(_tool.BrowserQuestions);
     }
 
     [Fact]

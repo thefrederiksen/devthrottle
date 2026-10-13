@@ -39,6 +39,9 @@ public sealed class LicenseSignInCommandLineTests
         Assert.Equal(DateTimeKind.Utc, rows[0].SignedInAtUtc!.Value.Kind);
         Assert.Equal(LicenseRenewalResults.NotDue, rows[1].Result);
         Assert.Equal((LicenseRenewalResults.Due, null), (rows[2].Result, rows[2].Error));
+        // Whether a profile is set here is carried, so a due account with none is never signed in just to fail.
+        Assert.False(rows[2].HasBrowserProfileHere);
+        Assert.True(rows[0].HasBrowserProfileHere);
         Assert.Equal((LicenseRenewalResults.Failed, LicenseRenewalErrors.BrowserNotSignedIn), (rows[3].Result, rows[3].Error));
         // A failure word outside the contract could be anything the tool printed: it never travels.
         Assert.Equal((LicenseRenewalResults.Failed, LicenseRenewalErrors.LoginFailed), (rows[4].Result, rows[4].Error));
@@ -166,6 +169,35 @@ public sealed class LicenseSignInCommandLineTests
         Assert.Null(start.Waiting);
         Assert.Equal(LicenseRenewalErrors.StoreRefused, start.Finished!.ReasonCode);
         Assert.True(tool.Released);
+    }
+
+    [Theory]
+    [InlineData("{\"accountEmail\": \"account-b@example.com\", \"browser\": \"P\"}", true)]
+    [InlineData("{\"accountEmail\": \"account-b@example.com\", \"browser\": null}", false)]
+    [InlineData("{\"accountEmail\": \"account-b@example.com\", \"browser\": \"  \"}", false)]
+    public void ReadHasBrowserProfile_ReadsTheToolsAnswer(string output, bool expected) =>
+        Assert.Equal(expected, CcDevthrottleLicenseCommandLine.ReadHasBrowserProfile(output));
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("not json")]
+    [InlineData("{\"accountEmail\": \"account-b@example.com\"}")]
+    [InlineData("[]")]
+    public void ReadHasBrowserProfile_AnAnswerItCannotRead_IsNotGuessed(string output) =>
+        Assert.Throws<LicenseCommandLineException>(() => CcDevthrottleLicenseCommandLine.ReadHasBrowserProfile(output));
+
+    [Fact]
+    public void TheDirectorsTimeLimits_FitInsideTheGatewaysWaits()
+    {
+        // Review of 3916, finding 2. An approval made for a Gateway that stopped listening spends a one-use answer
+        // for nothing; a sign-in that succeeds after the Gateway recorded a timeout is a lie in the Gateway's log.
+        Assert.True(LicenseContract.ApproveToolTimeout < LicenseContract.ApproveCommandTimeout);
+        Assert.True(LicenseContract.SignInApprovalWait + LicenseContract.SignInFinishAllowance < LicenseContract.SignInCommandTimeout);
+        Assert.True(CcDevthrottleLicenseCommandLine.SignInTimeout < LicenseContract.SignInCommandTimeout);
+        Assert.Equal(LicenseContract.SignInFinishAllowance, CcDevthrottleLicenseCommandLine.FinishTimeout);
+        // The other machine's approval, at its slowest, still lands inside the target's wait for it.
+        Assert.True(LicenseContract.ApproveToolTimeout < LicenseContract.SignInApprovalWait);
+        Assert.True(LicenseContract.SignInApprovalWait <= LicenseContract.SignInNotAfter);
     }
 
     [Fact]

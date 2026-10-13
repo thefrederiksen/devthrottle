@@ -229,6 +229,8 @@ public sealed class LicenseSignInExecutorTests : IDisposable
         public Task<IReadOnlyList<LicenseRenewalRow>> CheckRenewalsAsync(CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
+        public Task<bool?> HasBrowserProfileAsync(string accountEmail, CancellationToken cancellationToken) => Task.FromResult<bool?>(true);
+
         public Task<LicenseSignInStart> StartSignInAsync(string accountEmail, bool askAnotherMachineWhenNoBrowser, CancellationToken cancellationToken)
         {
             SignIns.Add(accountEmail);
