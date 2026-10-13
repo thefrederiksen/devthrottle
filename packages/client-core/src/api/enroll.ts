@@ -16,6 +16,7 @@
 //     from that verified token, checks the paid entitlement, resolves the tenant, and mints a
 //     tenant-scoped device key. No device_key is sent in the hosted body.
 import { GatewayError } from "./client";
+import { readRemotePlanRequired, type RemotePlanRequired } from "../plan/remotePlan";
 
 // The ONE enrollment seam every browser shell POSTs to. Canonicalized from /m/enroll to /mobile/enroll
 // with the app's /m -> /mobile re-base; the Gateway still answers the old /m/enroll too (back-compat).
@@ -38,6 +39,27 @@ export const GATEWAY_NOT_SIGNED_IN = 409;
  */
 export function isGatewayNotSignedIn(err: unknown): err is GatewayError {
   return err instanceof GatewayError && err.status === GATEWAY_NOT_SIGNED_IN;
+}
+
+/**
+ * The Gateway answered POST /mobile/enroll with 402 and the code remote_plan_required: the account is
+ * signed in but its plan does not include the phone app and the Cockpit (the Pricing Change mission).
+ *
+ * Like the Gateway-not-signed-in conflict above, this is not a failure of ours and "try again" alone
+ * would fail identically, so it is its own error: the callback screen shows the Gateway's sentence and
+ * the pricing page it named instead of "Something went wrong". Its `message` IS the Gateway's sentence,
+ * so anything that shows `err.message` shows the right words by construction.
+ *
+ * Every OTHER 402 from this endpoint (hosted_subscription_required, or no code at all) is still the
+ * plain GatewayError it always was.
+ */
+export class RemotePlanRequiredError extends GatewayError {
+  readonly info: RemotePlanRequired;
+  constructor(info: RemotePlanRequired) {
+    super(402, info.message, { reason: info.message, code: "remote_plan_required", retryable: false });
+    this.name = "RemotePlanRequiredError";
+    this.info = info;
+  }
 }
 
 /**
@@ -70,7 +92,8 @@ export async function enrollDevice(
  * token, never from anything the client puts in the body).
  * @returns the tenant-scoped per-device key the app must store and send as its Bearer.
  * @throws GatewayError on any non-2xx, carrying the server's reason (401 = token missing/invalid;
- *   402 = the account has no paid entitlement; 409 = the Gateway is not signed in; 502 = the cloud
+ *   402 = the account has no paid entitlement - a RemotePlanRequiredError when the Gateway says the
+ *   Remote plan is what is missing; 409 = the Gateway is not signed in; 502 = the cloud
  *   could not be reached).
  */
 export async function enrollDeviceHosted(
@@ -101,12 +124,15 @@ export async function enrollDeviceHosted(
 async function readLocalDeviceKey(res: Response): Promise<string> {
   if (!res.ok) {
     let detail = `${res.status}`;
+    let body: unknown;
     try {
-      const err = (await res.json()) as { error?: string };
-      detail = err.error ?? detail;
+      body = await res.json();
+      detail = (body as { error?: string }).error ?? detail;
     } catch {
       /* non-JSON error body - keep the status code */
     }
+    const planRequired = readRemotePlanRequired(res.status, body);
+    if (planRequired !== null) throw new RemotePlanRequiredError(planRequired);
     throw new GatewayError(res.status, detail);
   }
   const body = (await res.json()) as { deviceKey?: string };

@@ -5,6 +5,7 @@
   "type": "module",
   "description": "Shared TypeScript client library for the DevThrottle browser shells (the mobile PWA and the React Cockpit). The typed Gateway client, history rendering, the xterm byte-stream engine, dictation, device auth, and session ordering all live here so both shells depend on exactly one copy. It talks only to the Gateway through root-relative URLs.",
   "exports": {
+    "./plan/RemotePlanNotice": "./src/plan/RemotePlanNotice.tsx",
     "./auth/SignIn": "./src/auth/SignIn.tsx",
     "./auth/DeviceCallback": "./src/auth/DeviceCallback.tsx",
     "./auth/AccountsPanel": "./src/auth/AccountsPanel.tsx",

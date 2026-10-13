@@ -595,7 +595,7 @@
 
                         <RadioButton x:Name="GatewayHostedCard" GroupName="GatewayChoice"
                                      Classes="gatewayCard emphasized" IsChecked="True"
-                                     AutomationProperties.Name="Hosted gateway, recommended. We run it for you - sign in and this machine is enrolled. Your agents run on your machines; fleet metadata and conversation history are stored on the hosted gateway so remote history and supervision work. Included with Pro, and with the free 14-day Pro trial that new accounts get when they first connect here. No credit card."
+                                     AutomationProperties.Name="Hosted gateway, recommended. We run it for you - sign in and this machine is enrolled. Your agents run on your machines; fleet metadata and conversation history are stored on the hosted gateway so remote history and supervision work. What the hosted gateway includes depends on your plan - see the plans at devthrottle.com/pricing."
                                      IsCheckedChanged="GatewayCard_IsCheckedChanged">
                             <StackPanel Spacing="6">
                                 <StackPanel Orientation="Horizontal" Spacing="10">
@@ -615,27 +615,18 @@
                                      the /privacy page renders says the same thing in full. -->
                                 <TextBlock TextWrapping="Wrap" FontSize="12.5" Foreground="#5A616B"
                                            Text="Your agents run on your machines. Fleet metadata and conversation history are stored on the hosted gateway so remote history and supervision work." />
-                                <!-- State the plan, never assert what this user already owns: on a
-                                     brand-new free account "included with your subscription" is false.
-                                     "Part of Pro" alone was true but read as a paywall on the card the
-                                     user is one click from taking, because it omitted the trial the
-                                     Gateway actually grants (issue #1044). The trial is stated as a
-                                     general fact about new accounts, NOT as a promise to this user: it
-                                     is granted only on an account's first arrival at the hosted gateway
-                                     and never twice, so "you get 14 days" would be false for someone
-                                     coming back.
-
-                                     WHY THE INCLUSION COMES FIRST (issue #1243). Leading with the plan
-                                     name still read as exclusion to the very person the trial covers:
-                                     someone who signed up minutes ago for fourteen free days of Pro is
-                                     told, on the card they are one click from taking, that it is "part
-                                     of" a thing they have not bought. The trial is REAL and is granted
-                                     at exactly this step, so the sentence now names both ways in - the
-                                     paid plan and the trial - and the reader finds themselves in one of
-                                     them. It still promises this user nothing: "new accounts", not
-                                     "you", because a returning account is granted no second trial. -->
-                                <TextBlock TextWrapping="Wrap" FontSize="12.5" Foreground="#8A909A"
-                                           Text="Included with Pro - and with the free 14-day Pro trial that new accounts get when they first connect here. No credit card." />
+                                <!-- Plan-neutral on purpose (the Pricing Change mission, item B5). This
+                                     line used to say what the hosted gateway was included with, and a
+                                     wizard cannot keep that true: it ships inside the Director and is
+                                     read for as long as that build is installed, while what each plan
+                                     includes is decided on the Gateway and published on the pricing
+                                     page, and both change without a Director release. So it makes no
+                                     offer of its own, names no plan and no amount, and points at the
+                                     one place that is always current. GatewayHostedCardWordingTests
+                                     holds it to that. -->
+                                <TextBlock x:Name="GatewayHostedPlanText"
+                                           TextWrapping="Wrap" FontSize="12.5" Foreground="#8A909A"
+                                           Text="What the hosted gateway includes depends on your plan - see the plans at devthrottle.com/pricing." />
                             </StackPanel>
                         </RadioButton>
 
