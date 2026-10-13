@@ -251,3 +251,68 @@ The Tech Lead then gave the final names of five fields phase 3 builds to: `renew
 shapes document, with the only values they can have until the follow-up: null, and "Renewal date not set". After that
 change the 288 license unit tests, the 8 host tests and the no-key scan were run again and passed. The whole gate was
 not run again: its result above is for `c3252762b`.
+
+## After the re-review
+
+The re-review (`reviews/3925-re-review.md`) closed the must fix and left two should fix; both are answered in
+`reviews/3925-answers.md`. In the product: the ingest refuses a usage number or a read time that cannot be a reading,
+and a log row carries its machine's identifier and label and uses the label in its sentence.
+
+### Counts at `521ef729f`
+
+- `dotnet test src/CcDirector.Gateway.UnitTests/CcDirector.Gateway.UnitTests.csproj --filter "FullyQualifiedName~Licenses"`:
+  passed 314, failed 0 (288 before this round).
+- The 8 host tests and the no-key scan ran inside the gate below and passed.
+
+### Thirteen more mutations
+
+Run the same way: one change, alone, the 314 license unit tests, the file restored in a `finally` block; `git status`
+clean and 314 of 314 afterwards.
+
+| | The behaviour broken | Failed | Went red |
+|---|---|---|---|
+| S01 | The ingest accepts a usage number that is not finite | 1 | `Ingest_AUsageNumberOrAReadTimeThatCannotBeAReading_...(not a number)` |
+| S02 | The ingest accepts a usage number below nought | 3 | The `just below nought` and `-1e308` rows, and `Forecast_AfterAReportNoRealDirectorSends_...(infinite-rate)` |
+| S03 | The ingest accepts a usage number of any size | 2 | The `just above the most` and `1e308` rows |
+| S04 | The most allowed is itself refused | 1 | `Ingest_AUsageNumberAtEitherEdgeOfWhatIsAllowed_IsAccepted(1000)` |
+| S05 | The ingest accepts a read time later than the sent time | 4 | `Forecast_AfterAReportNoRealDirectorSends_...(year-9999)` and `(edge-of-calendar)`, `Ingest_AReadTimeAtTheEdgeOfTheCalendar_...(False)`, the `read one second after it was sent` row |
+| S06 | A reading read at the moment it was sent is refused | 15 | `Ingest_AReadTimeIsJudgedAgainstTheReportsOwnSentTime_AtEachEdge` and fourteen ordinary ingest and hub tests |
+| S07 | The ingest accepts a read time any length before the sent time | 2 | `Ingest_AReadTimeAtTheStartOfTheCalendar_IsRefused_AndNeverThrows`, `Ingest_AReadTimeIsJudgedAgainstTheReportsOwnSentTime_AtEachEdge` |
+| S08 | The seven-day number is not checked | 1 | `Ingest_TheSevenDayNumberIsHeldToTheSameRule` |
+| S09 | The extra usage number is not checked | 1 | The `an extra usage number that is infinite` row |
+| S10 | A log row calls a shared machine by its name alone | 3 | Both `LogEntries_...` tests, `Log_NamesTwoUsersOfOneMachineApart_...` |
+| S11 | A log row carries no machine identifier | 2 | `LogEntries_CallAMachineWhatTheOverviewCallsIt_...`, `Log_NamesTwoUsersOfOneMachineApart_...` |
+| S12 | The log's labels look only at the rows of the page | 1 | `LogEntries_CallAMachineWhatTheOverviewCallsIt_...` |
+| S13 | The log's labels look only at the account's machines | 1 | `LogEntries_TwoUsersOfAMachineNoLongerListed_AreStillToldApart_FromTheRowsThemselves` |
+
+S01 is caught by one row only, and that is as it should be: an infinite number is also above the most allowed, so
+only "not a number" needs the finite check.
+
+### The gate
+
+`.\scripts\test-local.ps1 -Parked` at `521ef729f`, tree clean, finished 2026-10-13 05:57 UTC - the default gate and
+the Gateway suites in one run.
+
+| Suite | Outcome | Tests |
+|---|---|---|
+| CcDirector.Core.UnitTests | Failed | 1,718 of 1,720 passed |
+| CcDirector.Avalonia.Tests | Completed | 1,079 |
+| CcDirector.Engine.Tests | Completed | 86 |
+| CcDirector.HostedAgent.Tests | Completed | 89 |
+| CcDirector.Launcher.Tests | Completed | 218 |
+| CcDirector.Terminal.Avalonia.Tests | Completed | 82 |
+| CcDirector.Reclaim.Tests | Completed | 305 |
+| cc-director-setup.Tests | Completed | 39 |
+| cc-director-setup-engine.Tests | Completed | 870 |
+| cc-director-setup-cli.Tests | Completed | 74 |
+| CcDirector.Gateway.Tests, four shards | Completed | 829 + 757 + 667 + 811 = 3,064 |
+| CcDirector.Core.Tests | Completed | 4,585 |
+| CcDirector.Gateway.UnitTests | Completed | 10,958 |
+
+All 14,022 Gateway tests passed. The two reds are the same two tests as in the run before
+(`BackgroundWorkRegisterTests.EveryTimerWatcherAndWaitingLoop_...` and `GateTestsDoNotDependOnTheMachineTests`), in
+`CcDirector.Core.UnitTests`; `origin/main` had not moved since that run, and this round touched none of the files
+they name. As before, I did not run the gate on `origin/main` alone to watch them fail there.
+
+The commit after `521ef729f` adds this section and the answers to the re-review: two markdown files, no code.
+

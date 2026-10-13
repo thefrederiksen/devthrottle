@@ -85,7 +85,8 @@ reading sent five times with a correction that differs by milliseconds: one poin
 **9. Should fix - one page poll writes dozens of log lines. Accepted and fixed.**
 The engine has `PreviewManual`: the same code as `DecideManual`, and so the same answer, with no log line.
 `DecideManual` is now that preview plus its two lines, so anything that SENDS a switch still logs as before. The fold
-asks only through the preview. A read of the overview now writes the fold's two lines and the route's two.
+asks only through the preview, so no decision line is written by a read of the page. (This sentence first said a read
+"writes the fold's two lines and the route's two". That undercounted: see the answer to note 7 of the re-review below.)
 Tests: `PreviewManual_GivesExactlyTheAnswerDecideManualGives` (four cases) and
 `TheDisplayFold_AsksThroughThePreview_SoAReadOfThePageWritesNoDecisionLines`, which reads the source: the fold never
 calls `DecideManual`, and the preview's body holds no log call. It reads the source rather than the log because the
@@ -153,3 +154,94 @@ The shape test names the five fields and asserts today's values. They are fixed 
 so there was nothing to prove by mutation; the rules arrive with the follow-up and are tested there.
 Checked after this change: the 288 license unit tests, the 8 host tests and the no-key scan. The whole gate was NOT
 run again for it - the gate result in the proof file is for `c3252762b`, the commit before these five fields.
+
+# Answers to the re-review (`3925-re-review.md`)
+
+**1. Should fix - the forecast route still answers 500 on input a Director can send. Accepted and fixed, at the ingest.**
+`LicenseUsageIngest.Malformed` now refuses a holding whose numbers or read time cannot be a reading. The change to
+that file is one line in `Malformed` and one helper below it (`UnreadableReading`), kept small because the minute
+check's pull request edits the same file. Refused:
+- a usage number - 5-hour, weekly or extra usage - that is not a number, is below 0, or is above 1,000. The provider
+  reports 0 to 100 and can pass 100 a little; 1,000 is far outside it;
+- a read time LATER than the report's own sent time. One clock wrote both, so that is a defect and not a wrong clock:
+  a machine whose whole clock is wrong moves both together, is still accepted, and is corrected as before;
+- a read time more than ten years BEFORE the sent time. The re-review did not ask for this one. It is there because
+  with it the sum of a read time and a clock correction can never leave the calendar in either direction: the read
+  time is within ten years of the sent time, and the correction is the receive time less the sent time.
+Both times are judged against the report's sent time, never against a clock.
+This closes the two ways to a 500 the reviewer ran, the "Infinity%" and the three-hundred-digit number on the page,
+and notes 3 and 4 with them: a reading can no longer be stamped later than its report, so it can no longer be fresh
+for ever, and the sum at the edge of the calendar can no longer throw.
+Tests, one for each case the reviewer ran, through the real ingest, the real store and the real route handlers:
+`Forecast_AfterAReportNoRealDirectorSends_StillAnswers_BecauseTheReportWasRefusedAtTheIngest` with three rows -
+the infinite rate (-1e308 then 96), the year 9999, and the edge-of-calendar sum. Each asserts a report was refused,
+both routes answer 200, and neither answer contains "Infinity" or "9999". At the ingest itself:
+`Ingest_AUsageNumberOrAReadTimeThatCannotBeAReading_IsRefused_AndStoresNothing` (nine rows),
+`Ingest_TheSevenDayNumberIsHeldToTheSameRule`, `Ingest_AUsageNumberAtEitherEdgeOfWhatIsAllowed_IsAccepted` (0, 100,
+103.5 and exactly 1,000), `Ingest_AReadTimeIsJudgedAgainstTheReportsOwnSentTime_AtEachEdge`,
+`Ingest_AMachineWhoseWholeClockIsWrong_IsStillAccepted_...` (and it does go stale),
+`Ingest_AReadTimeAtTheEdgeOfTheCalendar_IsRefusedOrCorrected_AndNeverThrows` and
+`Ingest_AReadTimeAtTheStartOfTheCalendar_IsRefused_AndNeverThrows`. Mutations S01 to S09.
+Said plainly: the forecaster itself was not changed in this round. It is safe because what reaches it is now always a
+real percentage and a read time no later than its report - not because it defends itself a second time.
+
+**2. Should fix - the log and the engine's sentences name a machine by its name alone. The log is fixed; the engine's
+sentences are written into rule 9 as an exception, as ruled.**
+- The log row now carries `machineId` and `label` beside `machineName` and `osUser` - the same four fields as every
+  other list - and its `summary` uses the label. The label counts every machine of the account AND the machines of
+  the rows on the page, so two users of a machine that is no longer listed are still told apart. A row about no
+  machine has a null `machineId` and an empty `label`. Tests: `Log_NamesTwoUsersOfOneMachineApart_WithTheIdentifierOfEachRowInTheOverview`
+  (the reviewer's case, with the two spellings of the name, and it asserts the log's identifiers and labels are the
+  overview's), `LogEntries_CallAMachineWhatTheOverviewCallsIt_AndARowAboutNoMachineHasNoIdentifierAndNoLabel` and
+  `LogEntries_TwoUsersOfAMachineNoLongerListed_AreStillToldApart_FromTheRowsThemselves`. Mutations S10 to S13.
+- Rule 9 of `cockpit-api.md` no longer says every sentence uses the label. It says every sentence the FOLD writes
+  does, names the three sentences the decision engine writes that use the machine name alone, says what the page
+  does with them, and names the pull request that removes the exception: "Licenses API: Switch now, renewal date,
+  failed renewal".
+
+**3. Note - a reading stamped later than now is never stale.** Closed by the check of finding 1: such a report is
+refused. `Ingest_AMachineWhoseWholeClockIsWrong_IsStillAccepted_...` shows the honest case (the whole clock 400 days
+fast) is accepted and goes stale after seven minutes like any other.
+
+**4. Note - a read time at the edge of the calendar makes the ingest throw.** Closed by the check of finding 1, at
+both ends of the calendar; the two tests named for the edge and the start of the calendar hold it.
+`LicenseUsageHistory.Record` still does the same sum when called directly with a time no ingest would pass; nothing
+but the ingest calls it.
+
+**5. Note - a flood of new accounts pushes the real ones out of the history.** Not changed. It is the price of the
+bound, it stays inside one DevThrottle account, and it needs more than 256 accounts. It is a known price now.
+
+**6. Note - a repeat is recognised by read time alone, across machines.** Not changed: it needs two machines to read
+one account at the same tick, and the cost is one number in a rate.
+
+**7. Note - the answer to finding 9 undercounted the lines of a read. Corrected.** The reviewer measured it: one read
+of the overview writes 12 lines, the forecast 15 and the log 4, because the store, the read model and the snapshot
+source each log their own. (The log is now one read more: it also reads the machines' names for its labels.) What
+the fix of finding 9 achieved, and all it achieved, is that the count does not grow with the number of accounts and
+that no decision line is among them. The sentence in the first answers is corrected in place. The reviewer's other
+point stands as well: the test reads source text, so a log call added somewhere other than the two places it reads
+would pass it.
+
+**8. Note - "renewal" now means two things. Field names kept, as ruled; the document now keeps them apart.**
+`cockpit-api.md` has a decision in section 1 saying that `renewsOn` and `renewsText` are the SUBSCRIPTION's billing
+renewal and the three `renewalFailed...` fields are a machine renewing its SIGN-IN, that a failed sign-in renewal says
+nothing about the subscription, and where the page shows each. The paragraph on a holding's failed renewal says it
+again.
+
+**9. Note - the three failed renewal fields were not in the fold.** Fixed: `Holding()` now sets the three, to null,
+with a comment saying why and that the pull request storing the renewal result fills them in there.
+
+**10. Note - a switch row with an empty state word.** Fixed: its summary says "with no state recorded" rather than
+calling "Recorded" an unknown state. Test: `LogEntry_ASwitchRowWithNoStateWord_SaysNoStateWasRecorded_...`.
+
+**11. Note - the several-threads test takes seven to ten seconds.** Not changed. It is that size because at a quarter
+of it the missing lock was caught only two times in three. It is in a parked suite. The reviewer's warning is fair
+and is repeated here: it is the first test to look at if this suite shows a red that passes alone.
+
+## After the re-review: what was run
+
+At `521ef729f`, tree clean: 314 license unit tests (288 before this round) and 8 host tests pass. Thirteen more
+mutations, all caught. `.\scripts\test-local.ps1 -Parked` - the default gate and the Gateway suites in one run -
+completed every suite except `CcDirector.Core.UnitTests`, 1,718 of 1,720, with the same two tests red as in the run
+before, each naming only files this branch does not touch. All 14,022 Gateway tests passed. The table is in the proof
+file. The commit that adds this text and the proof's last section changes two markdown files and nothing else.
