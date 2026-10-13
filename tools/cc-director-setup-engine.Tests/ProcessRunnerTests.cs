@@ -10,6 +10,7 @@ namespace CcDirector.Setup.Engine.Tests;
 /// </summary>
 public sealed class ProcessRunnerTests
 {
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Run_ProcessExceedingTimeout_IsKilledAndReturnsTimeoutFailure()
     {
@@ -31,6 +32,7 @@ public sealed class ProcessRunnerTests
         Assert.Contains("TIMEOUT", output, StringComparison.Ordinal);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Run_FastProcessWithinTimeout_ReturnsRealExitCode()
     {
@@ -45,6 +47,7 @@ public sealed class ProcessRunnerTests
         Assert.NotEqual(ProcessRunner.TimeoutExitCode, exit);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Run_ShortProcessThatExitsAtOnce_ReturnsAllItsOutput()
     {

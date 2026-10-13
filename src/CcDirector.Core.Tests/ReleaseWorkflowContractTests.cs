@@ -237,6 +237,27 @@ public sealed class ReleaseWorkflowContractTests
         return next.Success ? rest[..next.Index] : rest;
     }
 
+    /// <summary>
+    /// In PowerShell the comma binds tighter than the plus, so <c>@("--filter", "(" + $x + ")")</c> is the array
+    /// <c>("--filter", "(")</c> with two more elements added, not one filter. The failed-tests-only re-run was
+    /// written that way on 11 October 2026: the test runner was handed "(" as its whole filter, no test ran, and
+    /// every re-run ended NEVER RAN. A filter built from pieces has to be wrapped in its own parentheses.
+    /// </summary>
+    [Fact]
+    public void TestLocalScript_NeverBuildsAFilterFromPiecesInsideAnArrayLiteral()
+    {
+        const string gateScript = "scripts/test-local.ps1";
+        var script = File.ReadAllText(Path.Combine(GetRepoRoot(), gateScript));
+
+        var split = Regex.Matches(script, @"""--filter""\s*,\s*""[^""\r\n]*""\s*\+");
+
+        Assert.True(split.Count == 0,
+            $"{gateScript} builds a --filter value with + directly inside an array literal ({split.Count} place(s), "
+            + $"first: {(split.Count > 0 ? split[0].Value : "")}). The comma binds first, so the filter is split into "
+            + "separate arguments and the test runner receives only its first piece. Wrap the whole expression in "
+            + "parentheses: @(\"--filter\", (\"(\" + $x + \")\")).");
+    }
+
     private static string GetRepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

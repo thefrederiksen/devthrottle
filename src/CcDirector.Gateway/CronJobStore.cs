@@ -344,11 +344,41 @@ public sealed class CronJobStore
             return;
 
         var now = DateTime.UtcNow;
+        var missed = 0;
         foreach (var entity in entities)
+        {
+            // A switched-on schedule whose next run passed while the Gateway was down missed it - and every later time
+            // it was due before now. Each is recorded as a run that did not run (Factory Control, step 1), in THIS
+            // write, the same one that moves the schedule on: the record and the move commit together, so neither can
+            // happen without the other.
+            if (entity.Enabled && entity.NextRunUtc is { } due && due <= now)
+                missed += RecordMissedInContext(ctx, entity, DateTime.SpecifyKind(due, DateTimeKind.Utc), now);
             entity.NextRunUtc = CronSchedule.ComputeNextRunUtc(ToDto(entity), now);
+        }
 
         ctx.SaveChanges();
-        FileLog.Write($"[CronJobStore] Load: {entities.Count} job(s) present; next-run recomputed");
+        FileLog.Write($"[CronJobStore] Load: {entities.Count} job(s) present; next-run recomputed; runs missed while down recorded={missed}");
+    }
+
+    // Every run of one schedule that fell due while the Gateway was down, added to ctx as a run that did not run.
+    private static int RecordMissedInContext(GatewayDbContext ctx, CronJobEntity entity, DateTime firstDueUtc, DateTime nowUtc)
+    {
+        var job = ToDto(entity);
+        // The first missed time is one of the rows the limit allows.
+        var (later, more) = CronSchedule.DueBetween(job, firstDueUtc, nowUtc, CronSchedule.MaxMissedRunsRecorded - 1);
+        var times = new[] { firstDueUtc }.Concat(later).ToList();
+        var why = $"the Gateway was not running when it was due (it started again at {nowUtc:yyyy-MM-dd HH:mm} UTC)";
+        for (var i = 0; i < times.Count; i++)
+        {
+            var last = i == times.Count - 1 && more > 0;
+            var reason = last
+                ? $"{why}; {more} later runs of this schedule were also due before then, past the {CronSchedule.MaxMissedRunsRecorded} recorded one by one"
+                : why;
+            CronRunHistoryStore.AddInContext(ctx, entity.TenantId, entity.Id,
+                Running.CronRunResultFold.DidNotRunRecord(job, times[i], nowUtc, reason, last ? more : 0));
+        }
+        FileLog.Write($"[CronJobStore] missed while down: job={entity.Id}, runs={times.Count}, more={more}");
+        return times.Count + more;
     }
 
     /// <summary>Mint an id not already in use. Short and human-quotable, like <c>cj_7fa3b1</c>.</summary>

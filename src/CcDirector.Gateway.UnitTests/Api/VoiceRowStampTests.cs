@@ -39,6 +39,43 @@ public sealed class VoiceRowStampTests
         Assert.True(row.VoiceDisplay.CanPlay);
     }
 
+    /// <summary>
+    /// A CLIP THAT IS HERE IS NOT "STILL COMING". The phone's roster reads the unavailable field before it
+    /// reads the audio, so a Retrying left beside a ready clip took the play triangle off the row and the
+    /// session out of the voice queue (six sessions, 2026-10-12). The row must agree with its own verdict.
+    /// </summary>
+    [Fact]
+    public void Retrying_is_not_stamped_on_a_row_that_holds_audio()
+    {
+        var row = Row();
+
+        VoiceRowStamp.Apply(row, new VoiceRowStamp.VoiceFacts(
+            AudioReady: _ => true,
+            Unavailable: _ => CcDirector.Core.HostedAi.HostedAiState.Retrying));
+
+        Assert.Null(row.VoiceUnavailable);
+        Assert.Equal("ready", row.VoiceDisplay!.Kind);
+        Assert.True(row.VoiceDisplay.CanPlay);
+    }
+
+    /// <summary>The control for the test above: with no clip, Retrying is true and is still said; and an
+    /// account condition still travels beside a clip, because a clip does not add credit.</summary>
+    [Fact]
+    public void Retrying_without_audio_and_an_account_condition_beside_audio_are_still_stamped()
+    {
+        var waiting = Row();
+        VoiceRowStamp.Apply(waiting, new VoiceRowStamp.VoiceFacts(
+            AudioReady: _ => false,
+            Unavailable: _ => CcDirector.Core.HostedAi.HostedAiState.Retrying));
+        Assert.NotNull(waiting.VoiceUnavailable);
+
+        var outOfCredit = Row();
+        VoiceRowStamp.Apply(outOfCredit, new VoiceRowStamp.VoiceFacts(
+            AudioReady: _ => true,
+            Unavailable: _ => CcDirector.Core.HostedAi.HostedAiState.NeedsCredits));
+        Assert.NotNull(outOfCredit.VoiceUnavailable);
+    }
+
     /// <summary>Being made right now is its own answer, and it is not "there is no voice".</summary>
     [Fact]
     public void Generating_reaches_the_fold_as_its_own_verdict()

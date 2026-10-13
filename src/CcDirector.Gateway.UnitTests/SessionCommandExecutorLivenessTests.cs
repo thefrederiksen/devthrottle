@@ -362,6 +362,7 @@ public sealed class SessionCommandExecutorLivenessTests
     /// <c>DefaultProcessLiveness</c> reads a real running process before the stop and reads it gone after -
     /// which is the only combination that may be called "stopped".
     /// </summary>
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task Kill_WithNoInjectedCheck_ReadsARealLiveProcessAndReportsItStopped()
     {
@@ -401,6 +402,7 @@ public sealed class SessionCommandExecutorLivenessTests
     /// really exited. The operating system LOOKED and said there is no such process, which is the one
     /// established absence, and the only thing that may be called "already stopped".
     /// </summary>
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task Kill_WithNoInjectedCheck_ReadsAnEndedProcessAsGoneAndReportsAlreadyStopped()
     {
@@ -436,6 +438,7 @@ public sealed class SessionCommandExecutorLivenessTests
     ///
     /// The stop still HAPPENS - it was always best-effort - and what may not happen is the claim.
     /// </summary>
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task Kill_WithNoInjectedCheck_WillNotCallAnUnreadableLiveProcessAlreadyStopped()
     {

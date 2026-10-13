@@ -249,6 +249,16 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("ActivityDue")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid?>("ActivityId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Factory")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime>("FiredUtc")
                         .HasColumnType("TEXT");
 
@@ -260,11 +270,54 @@ namespace CcDirector.Gateway.Data.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("JobName")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Machine")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<int>("MissedNotListed")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Problem")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("ResolveActivityId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ResolvedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ResolvedReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ResolvedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Result")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("untracked");
+
+                    b.Property<string>("ResultReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ResultUtc")
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime>("ScheduledUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Seat")
+                        .HasMaxLength(128)
                         .HasColumnType("TEXT");
 
                     b.Property<long>("Sequence")
@@ -287,6 +340,12 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasColumnName("tenant_id");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ActivityDue");
+
+                    b.HasIndex("Result");
+
+                    b.HasIndex("SessionId");
 
                     b.HasIndex("TenantId");
 

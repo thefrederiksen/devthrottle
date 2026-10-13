@@ -236,6 +236,10 @@ public sealed class SessionKeyGuardTests
     [InlineData("GET", "/cron/jobs/cj_abc/plan")]
     // The load strip and `schedule load`: each machine's next 24 hours.
     [InlineData("GET", "/cron/load")]
+    // Factory Control, step 1: `run result`, `run resolve` and `run problems`.
+    [InlineData("POST", "/cron/runs/result")]
+    [InlineData("POST", "/cron/runs/6a000000-0000-4000-8000-000000000001/resolve")]
+    [InlineData("GET", "/cron/problems")]
     // Factory triggers: `cc-devthrottle trigger add|list|show|pause|resume|runs`.
     [InlineData("GET", "/triggers")]
     [InlineData("POST", "/triggers")]
@@ -326,6 +330,19 @@ public sealed class SessionKeyGuardTests
     [InlineData("GET", "/triggers/website-new-mail/pause")]
     [InlineData("POST", "/triggers/website-new-mail/checks")]
     public void Trigger_shapes_a_session_may_not_call_are_refused(string method, string path)
+        => Assert.False(SessionKeyGuard.Check(method, path).Allowed,
+            $"{method} {path} must not be open to a session key");
+
+    [Theory]
+    // Factory Control, step 1: only the three shapes the run commands send. A result is posted, never read or
+    // replaced; a problem is resolved, never deleted; the problems are read, never written.
+    [InlineData("GET", "/cron/runs/result")]
+    [InlineData("PUT", "/cron/runs/result")]
+    [InlineData("GET", "/cron/runs/6a000000-0000-4000-8000-000000000001/resolve")]
+    [InlineData("DELETE", "/cron/runs/6a000000-0000-4000-8000-000000000001")]
+    [InlineData("POST", "/cron/problems")]
+    [InlineData("GET", "/cron/runs")]
+    public void Run_result_shapes_the_commands_do_not_send_stay_refused(string method, string path)
         => Assert.False(SessionKeyGuard.Check(method, path).Allowed,
             $"{method} {path} must not be open to a session key");
 

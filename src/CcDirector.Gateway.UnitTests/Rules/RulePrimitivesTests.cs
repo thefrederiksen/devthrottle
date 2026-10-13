@@ -1,4 +1,4 @@
-using System.Diagnostics;
+using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Rules;
 using Xunit;
 
@@ -172,21 +172,9 @@ public sealed class RulePrimitivesTests : IDisposable
         }
 
         // A Windows SYMBOLIC link needs administrator rights; a JUNCTION is the same reparse point for
-        // this purpose and needs none, and Directory.ResolveLinkTarget resolves both.
-        var psi = new ProcessStartInfo("cmd.exe", "/c mklink /J \"" + link + "\" \"" + target + "\"")
-        {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-        };
-        using var process = Process.Start(psi)!;
-        var stdout = process.StandardOutput.ReadToEnd();
-        var stderr = process.StandardError.ReadToEnd();
-        process.WaitForExit();
-        if (process.ExitCode != 0)
-            throw new InvalidOperationException(
-                "could not create a junction at " + link + " -> " + target +
-                ": exit " + process.ExitCode + " " + stdout + " " + stderr);
+        // this purpose and needs none, and Directory.ResolveLinkTarget resolves both. DirectoryJunction
+        // makes it in this process and throws when it cannot.
+        DirectoryJunction.Create(link, target);
     }
 
     // ---- matches_any ----------------------------------------------------------------------------

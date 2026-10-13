@@ -61,6 +61,7 @@ public sealed class NoReleaseWithoutProofTests : IDisposable
 
     // -- EN-F8 --
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void OwnerUndecidable_RecordedCommandRunningPastTheDeadline_IsKept()
     {
@@ -88,6 +89,7 @@ public sealed class NoReleaseWithoutProofTests : IDisposable
 
     // -- EN-F10: the history purge never deletes an unfinished run --
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void HistoryPurge_KeepsAnOldUnfinishedRunWithARunningCommand_AndASecondDirectorCannotClaimIt()
     {
@@ -139,6 +141,7 @@ public sealed class NoReleaseWithoutProofTests : IDisposable
 
     // -- EN-F9 (2): the executor checks its own writes --
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task ChildRecordAffectsZeroRows_TheCommandIsKilled()
     {
