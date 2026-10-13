@@ -5,7 +5,7 @@ import type {
 } from "@devthrottle/client-core/licenses/licensesClient";
 
 // THE GATEWAY'S OWN ANSWERS, NOT HAND-WRITTEN ONES. Each constant below is the real example of its route from
-// missions/license-switching/cockpit-api.md (copied from the Gateway branch at commit 871fd3d39), which the Gateway
+// missions/license-switching/cockpit-api.md (copied from the Gateway branch at commit 63aa81f61), which the Gateway
 // produced by running its route handlers over a store filled with the reports of two machines and three accounts.
 // A test that draws these draws what the Gateway sends; when the shapes move, copy the examples again.
 
@@ -49,9 +49,33 @@ export const OVERVIEW: LicenseOverview = {
         "text": "Paid extra usage is off",
         "utilization": null
       },
+      "renewsOn": null,
+      "renewsText": "Renewal date not set",
+      "signInExpiry": {
+        "expiresAtUtc": "2026-10-20T03:12:00Z",
+        "machine": {
+          "machineId": "c0910007404f4ab9a4f725c028c0569b",
+          "machineName": "the-windows-machine",
+          "osUser": "owner",
+          "label": "the-windows-machine"
+        },
+        "verdict": "fine",
+        "text": "Sign-in on the-windows-machine expires in 9 days",
+        "tone": "good"
+      },
       "activeOnMachines": [
-        "the-mac",
-        "the-windows-machine"
+        {
+          "machineId": "2fef72637c9d41a58d77623fed457e8a",
+          "machineName": "the-mac",
+          "osUser": "owner",
+          "label": "the-mac"
+        },
+        {
+          "machineId": "c0910007404f4ab9a4f725c028c0569b",
+          "machineName": "the-windows-machine",
+          "osUser": "owner",
+          "label": "the-windows-machine"
+        }
       ],
       "spareOnMachines": [],
       "canSwitchNow": true,
@@ -106,10 +130,34 @@ export const OVERVIEW: LicenseOverview = {
         "text": "Paid extra usage is off",
         "utilization": null
       },
+      "renewsOn": null,
+      "renewsText": "Renewal date not set",
+      "signInExpiry": {
+        "expiresAtUtc": "2026-10-13T08:12:00Z",
+        "machine": {
+          "machineId": "c0910007404f4ab9a4f725c028c0569b",
+          "machineName": "the-windows-machine",
+          "osUser": "owner",
+          "label": "the-windows-machine"
+        },
+        "verdict": "expires soon",
+        "text": "Sign-in on the-windows-machine expires in 2 days 5 hours",
+        "tone": "warning"
+      },
       "activeOnMachines": [],
       "spareOnMachines": [
-        "the-mac",
-        "the-windows-machine"
+        {
+          "machineId": "2fef72637c9d41a58d77623fed457e8a",
+          "machineName": "the-mac",
+          "osUser": "owner",
+          "label": "the-mac"
+        },
+        {
+          "machineId": "c0910007404f4ab9a4f725c028c0569b",
+          "machineName": "the-windows-machine",
+          "osUser": "owner",
+          "label": "the-windows-machine"
+        }
       ],
       "canSwitchNow": false,
       "switchNowText": "No machine on account-b@example.com can be switched now: none is on it.",
@@ -150,9 +198,28 @@ export const OVERVIEW: LicenseOverview = {
         "text": "Paid extra usage is off",
         "utilization": null
       },
+      "renewsOn": null,
+      "renewsText": "Renewal date not set",
+      "signInExpiry": {
+        "expiresAtUtc": "2026-11-09T03:12:00Z",
+        "machine": {
+          "machineId": "c0910007404f4ab9a4f725c028c0569b",
+          "machineName": "the-windows-machine",
+          "osUser": "owner",
+          "label": "the-windows-machine"
+        },
+        "verdict": "fine",
+        "text": "Sign-in on the-windows-machine expires in 29 days",
+        "tone": "good"
+      },
       "activeOnMachines": [],
       "spareOnMachines": [
-        "the-windows-machine"
+        {
+          "machineId": "c0910007404f4ab9a4f725c028c0569b",
+          "machineName": "the-windows-machine",
+          "osUser": "owner",
+          "label": "the-windows-machine"
+        }
       ],
       "canSwitchNow": false,
       "switchNowText": "No machine on account-c@example.com can be switched now: none is on it.",
@@ -162,9 +229,10 @@ export const OVERVIEW: LicenseOverview = {
   ],
   "machines": [
     {
-      "machineId": "187fc71ed757489987f11c901897e964",
+      "machineId": "2fef72637c9d41a58d77623fed457e8a",
       "machineName": "the-mac",
       "osUser": "owner",
+      "label": "the-mac",
       "activeAccountEmail": "account-a@example.com",
       "status": "reporting",
       "statusText": "Reporting",
@@ -181,6 +249,9 @@ export const OVERVIEW: LicenseOverview = {
         "expiryVerdict": "fine",
         "expiryText": "Sign-in expires in 10 days",
         "expiryTone": "good",
+        "renewalFailedAtUtc": null,
+        "renewalFailedText": null,
+        "renewalFailedTone": null,
         "isReadingStale": false,
         "readError": null,
         "readErrorText": null
@@ -195,6 +266,9 @@ export const OVERVIEW: LicenseOverview = {
           "expiryVerdict": "fine",
           "expiryText": "Sign-in expires in 25 days",
           "expiryTone": "good",
+          "renewalFailedAtUtc": null,
+          "renewalFailedText": null,
+          "renewalFailedTone": null,
           "isReadingStale": false,
           "readError": null,
           "readErrorText": null
@@ -203,9 +277,10 @@ export const OVERVIEW: LicenseOverview = {
       "switchInProgress": null
     },
     {
-      "machineId": "b7e2cfe53d0149efb7028d2d8e38504c",
+      "machineId": "c0910007404f4ab9a4f725c028c0569b",
       "machineName": "the-windows-machine",
       "osUser": "owner",
+      "label": "the-windows-machine",
       "activeAccountEmail": "account-a@example.com",
       "status": "reporting",
       "statusText": "Reporting",
@@ -222,6 +297,9 @@ export const OVERVIEW: LicenseOverview = {
         "expiryVerdict": "fine",
         "expiryText": "Sign-in expires in 9 days",
         "expiryTone": "good",
+        "renewalFailedAtUtc": null,
+        "renewalFailedText": null,
+        "renewalFailedTone": null,
         "isReadingStale": false,
         "readError": null,
         "readErrorText": null
@@ -236,6 +314,9 @@ export const OVERVIEW: LicenseOverview = {
           "expiryVerdict": "expires soon",
           "expiryText": "Sign-in expires in 2 days 5 hours",
           "expiryTone": "warning",
+          "renewalFailedAtUtc": null,
+          "renewalFailedText": null,
+          "renewalFailedTone": null,
           "isReadingStale": false,
           "readError": null,
           "readErrorText": null
@@ -249,6 +330,9 @@ export const OVERVIEW: LicenseOverview = {
           "expiryVerdict": "fine",
           "expiryText": "Sign-in expires in 29 days",
           "expiryTone": "good",
+          "renewalFailedAtUtc": null,
+          "renewalFailedText": null,
+          "renewalFailedTone": null,
           "isReadingStale": false,
           "readError": null,
           "readErrorText": null
@@ -271,8 +355,18 @@ export const FORECAST: LicenseForecast = {
     "windowText": "5-hour window",
     "targetAccountEmail": "account-b@example.com",
     "machines": [
-      "the-mac",
-      "the-windows-machine"
+      {
+        "machineId": "2fef72637c9d41a58d77623fed457e8a",
+        "machineName": "the-mac",
+        "osUser": "owner",
+        "label": "the-mac"
+      },
+      {
+        "machineId": "c0910007404f4ab9a4f725c028c0569b",
+        "machineName": "the-windows-machine",
+        "osUser": "owner",
+        "label": "the-windows-machine"
+      }
     ]
   },
   "nextSwitchText": "account-a@example.com is expected to reach 97% of its 5-hour window in about 2 minutes; its machines then move to account-b@example.com, the account the Gateway would choose today.",
@@ -283,7 +377,10 @@ export const FORECAST: LicenseForecast = {
       "isStale": false,
       "fiveHour": {
         "utilization": 96,
+        "utilizationText": "96%",
+        "level": "normal",
         "resetsAtUtc": "2026-10-11T05:00:00Z",
+        "resetsText": "Resets in 1 hour 48 minutes",
         "percentPerHour": 28.547579298831383,
         "rateText": "28.5% an hour",
         "expectedAtLimitUtc": "2026-10-11T03:14:04.1052631Z",
@@ -291,7 +388,10 @@ export const FORECAST: LicenseForecast = {
       },
       "sevenDay": {
         "utilization": 61,
+        "utilizationText": "61%",
+        "level": "normal",
         "resetsAtUtc": "2026-10-15T09:00:00Z",
+        "resetsText": "Resets in 4 days 5 hours",
         "percentPerHour": 3.005008347245409,
         "rateText": "3% an hour",
         "expectedAtLimitUtc": "2026-10-11T15:10:46Z",
@@ -308,7 +408,10 @@ export const FORECAST: LicenseForecast = {
       "isStale": false,
       "fiveHour": {
         "utilization": 4,
+        "utilizationText": "4%",
+        "level": "normal",
         "resetsAtUtc": "2026-10-11T05:00:00Z",
+        "resetsText": "Resets in 1 hour 48 minutes",
         "percentPerHour": null,
         "rateText": "No rate yet",
         "expectedAtLimitUtc": null,
@@ -316,7 +419,10 @@ export const FORECAST: LicenseForecast = {
       },
       "sevenDay": {
         "utilization": 22,
+        "utilizationText": "22%",
+        "level": "normal",
         "resetsAtUtc": "2026-10-15T09:00:00Z",
+        "resetsText": "Resets in 4 days 5 hours",
         "percentPerHour": null,
         "rateText": "No rate yet",
         "expectedAtLimitUtc": null,
@@ -333,7 +439,10 @@ export const FORECAST: LicenseForecast = {
       "isStale": false,
       "fiveHour": {
         "utilization": 99,
+        "utilizationText": "99%",
+        "level": "at-limit",
         "resetsAtUtc": "2026-10-11T05:00:00Z",
+        "resetsText": "Resets in 1 hour 48 minutes",
         "percentPerHour": null,
         "rateText": "No rate yet",
         "expectedAtLimitUtc": "2026-10-11T03:12:00Z",
@@ -341,7 +450,10 @@ export const FORECAST: LicenseForecast = {
       },
       "sevenDay": {
         "utilization": 40,
+        "utilizationText": "40%",
+        "level": "normal",
         "resetsAtUtc": "2026-10-15T09:00:00Z",
+        "resetsText": "Resets in 4 days 5 hours",
         "percentPerHour": null,
         "rateText": "No rate yet",
         "expectedAtLimitUtc": null,
@@ -355,16 +467,20 @@ export const FORECAST: LicenseForecast = {
   ],
   "machines": [
     {
+      "machineId": "2fef72637c9d41a58d77623fed457e8a",
       "machineName": "the-mac",
       "osUser": "owner",
+      "label": "the-mac",
       "activeAccountEmail": "account-a@example.com",
       "nextAccountEmail": "account-b@example.com",
       "expectedSwitchAtUtc": "2026-10-11T03:14:04.1052631Z",
       "text": "Next: account-b@example.com, in about 2 minutes."
     },
     {
+      "machineId": "c0910007404f4ab9a4f725c028c0569b",
       "machineName": "the-windows-machine",
       "osUser": "owner",
+      "label": "the-windows-machine",
       "activeAccountEmail": "account-a@example.com",
       "nextAccountEmail": "account-b@example.com",
       "expectedSwitchAtUtc": "2026-10-11T03:14:04.1052631Z",
@@ -380,7 +496,7 @@ export const LOG_PAGE: LicenseLogPage = {
   "emptyText": null,
   "entries": [
     {
-      "entryId": "1f382b223a644957b2fae5fd1c7d0c6e",
+      "entryId": "fd6f2c59dd514884b4a1d8139670469a",
       "kind": "spare-added",
       "kindText": "Spare added",
       "atUtc": "2026-10-11T03:12:00Z",
@@ -405,10 +521,11 @@ export const LOG_PAGE: LicenseLogPage = {
       "exchangeMilliseconds": null,
       "finishedAtUtc": "2026-10-11T03:12:00Z",
       "timingText": null,
-      "verifiedByUsageRead": null
+      "verifiedByUsageRead": null,
+      "verifiedText": null
     },
     {
-      "entryId": "5ff8d05a20424d1a9053230d19a9f5ee",
+      "entryId": "83019e32f08e4a1486d3ac48c3ef6c14",
       "kind": "switch",
       "kindText": "Switch",
       "atUtc": "2026-10-11T01:12:00Z",
@@ -433,10 +550,40 @@ export const LOG_PAGE: LicenseLogPage = {
       "exchangeMilliseconds": 0,
       "finishedAtUtc": "2026-10-11T01:12:01Z",
       "timingText": null,
-      "verifiedByUsageRead": false
+      "verifiedByUsageRead": false,
+      "verifiedText": null
     },
     {
-      "entryId": "e3525d2b71de479d876622b87040a5b6",
+      "entryId": "e3dc6d1ca06d4cb7ae3bf05c3dc517b6",
+      "kind": "spare-removed",
+      "kindText": "Spare removed",
+      "atUtc": "2026-10-10T23:12:00Z",
+      "machineName": "the-windows-machine",
+      "osUser": "owner",
+      "fromAccountEmail": "account-c@example.com",
+      "toAccountEmail": "",
+      "why": null,
+      "whyText": "",
+      "state": "recorded",
+      "stateText": "Recorded",
+      "stateTone": "neutral",
+      "isOpen": false,
+      "reasonCode": null,
+      "reasonText": null,
+      "message": "The machine's report no longer shows the active sign-in for account-c@example.com.",
+      "summary": "The machine's report no longer shows the active sign-in for account-c@example.com.",
+      "sendCount": 0,
+      "lastSentAtUtc": null,
+      "startedOnMachineAtUtc": null,
+      "finishedOnMachineAtUtc": null,
+      "exchangeMilliseconds": null,
+      "finishedAtUtc": "2026-10-10T23:12:00Z",
+      "timingText": null,
+      "verifiedByUsageRead": null,
+      "verifiedText": null
+    },
+    {
+      "entryId": "4cbca57571e74da6b8b1552b73db78b3",
       "kind": "switch",
       "kindText": "Switch",
       "atUtc": "2026-10-10T22:12:00Z",
@@ -461,11 +608,12 @@ export const LOG_PAGE: LicenseLogPage = {
       "exchangeMilliseconds": 41,
       "finishedAtUtc": "2026-10-10T22:12:03Z",
       "timingText": "Took 2.0 seconds on the machine (the exchange itself 41 milliseconds)",
-      "verifiedByUsageRead": true
+      "verifiedByUsageRead": true,
+      "verifiedText": "The new sign-in answered a usage read."
     }
   ],
   "hasMore": true,
-  "nextCursor": "639272851200000000.3"
+  "nextCursor": "639272851200000000.4"
 };
 
 /** GET /gateway/licenses for an account whose machines have never reported. */

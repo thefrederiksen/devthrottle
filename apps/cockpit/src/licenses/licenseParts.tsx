@@ -38,8 +38,11 @@ export function LocalTime({ iso }: { iso: string }) {
 }
 
 /**
- * One usage window as a labelled bar. A window with no number, or whose number is from before its last reset, is
- * drawn hatched: "not read" is never drawn as an empty bar, because an empty bar reads as zero use.
+ * One usage window as a labelled bar, drawn from the Gateway's level word alone. Only a level that says what the
+ * window is NOW (`normal`, `at-limit`) is a filled meter. A window with no number, one whose reading is too old to
+ * trust (`stale`) and one that has reset since the reading (`reset-since`) are drawn hatched, with the Gateway's
+ * text beside them: "not read" is never drawn as an empty bar, because an empty bar reads as zero use, and an old
+ * number is never drawn as today's.
  */
 export function WindowBar({ label, window, testId }: { label: string; window: LicenseWindow; testId: string }) {
   const known = window.utilization !== null && (window.level === "normal" || window.level === "at-limit");

@@ -28,7 +28,7 @@ vi.mock("@devthrottle/client-core/errors/reportClientError", () => ({
   backgroundRecovered: () => undefined,
 }));
 
-import { LicensesView, mergeLog } from "./LicensesView";
+import { LicensesView, foldNewestLogPage, mergeLog } from "./LicensesView";
 import { EMPTY_OVERVIEW, FORECAST, LOG_PAGE, OVERVIEW, copyOf } from "./fixtures";
 
 const ACCOUNT_A = "account-a@example.com";
@@ -126,10 +126,17 @@ describe("LicensesView: the accounts", () => {
     a.fiveHour = { utilization: null, utilizationText: "Not known", level: "not-known", resetsAtUtc: null, resetsText: null };
     // A number from before the window's last reset says nothing about now either.
     a.sevenDay = { ...a.sevenDay, utilization: 61, level: "reset-since" };
+    // Nor does a number too old to trust: the Gateway still gives it, with the level that says so.
+    const b = overview.accounts[1];
+    b.fiveHour = { ...b.fiveHour, utilization: 4, level: "stale" };
     getLicenseOverview.mockResolvedValue(overview);
     render(<LicensesView />);
 
     const drawn = await card(ACCOUNT_A);
+    const old = within(await card(ACCOUNT_B)).getByTestId("lic-window-five-hour");
+    expect(within(old).queryByRole("meter")).toBeNull();
+    expect(old.querySelector(".lic-bar-unknown")).not.toBeNull();
+    expect(old.textContent).toContain("4%");
     for (const id of ["lic-window-five-hour", "lic-window-seven-day"]) {
       const window = within(drawn).getByTestId(id);
       expect(within(window).queryByRole("meter")).toBeNull();
@@ -162,17 +169,22 @@ describe("LicensesView: the accounts", () => {
     overview.accounts[1].renewsOn = "2026-10-17";
     overview.accounts[1].renewsText = "Renews 17 Oct";
     const spare = overview.machines[0].spares[0];
+    spare.renewalFailedAtUtc = "2026-10-11T00:12:00Z";
     spare.renewalFailedText = "The last renewal of this sign-in failed 3 hours ago.";
+    spare.renewalFailedTone = "bad";
     getLicenseOverview.mockResolvedValue(overview);
     render(<LicensesView />);
 
     const b = await card(ACCOUNT_B);
-    expect(within(b).getByText(/Renews 17 Oct/)).toBeTruthy();
+    expect(within(b).getByText("Max - Renews 17 Oct")).toBeTruthy();
     const failed = within(b).getAllByTestId("lic-holding-renewal-failed");
     expect(failed.length).toBe(1);
     expect(failed[0].textContent).toBe("The last renewal of this sign-in failed 3 hours ago.");
-    // Nothing is drawn for a sign-in the Gateway said nothing about.
+    expect(failed[0].className).toContain("lic-tone-bad");
+    // Nothing is drawn for a sign-in whose last renewal worked: the Gateway sends null for it.
     expect(within(await card(ACCOUNT_A)).queryByTestId("lic-holding-renewal-failed")).toBeNull();
+    // An account with no date set says so, in the Gateway's sentence - never a blank.
+    expect(within(await card(ACCOUNT_A)).getByText("Max - Renewal date not set")).toBeTruthy();
   });
 });
 
@@ -184,6 +196,8 @@ describe("LicensesView: the schedule", () => {
     const rows = within(screen.getByTestId("lic-schedule")).getAllByTestId("lic-schedule-row");
     expect(rows.length).toBe(2);
     expect(rows[0].textContent).toContain("the-mac");
+    // The machine is called by the Gateway's label; the page does not build a name out of the user.
+    expect(rows[0].textContent).not.toContain("owner");
     expect(rows[0].textContent).toContain("Reporting");
     expect(rows[0].textContent).toContain("Last report 1 minute ago");
     expect(rows[0].textContent).toContain(ACCOUNT_A);
@@ -205,7 +219,7 @@ describe("LicensesView: the switch log", () => {
     render(<LicensesView />);
 
     const rows = within(await screen.findByTestId("lic-log")).getAllByTestId("lic-log-row");
-    expect(rows.length).toBe(3);
+    expect(rows.length).toBe(4);
     const failed = rows.find((row) => row.getAttribute("data-state") === "failed") as HTMLElement;
     const state = within(failed).getByTestId("lic-log-state");
     expect(state.textContent).toBe("Failed");
@@ -217,6 +231,9 @@ describe("LicensesView: the switch log", () => {
     const worked = rows.find((row) => row.getAttribute("data-state") === "switched") as HTMLElement;
     expect(worked.textContent).toContain("Threshold reached");
     expect(worked.textContent).toContain("Took 2.0 seconds on the machine (the exchange itself 41 milliseconds)");
+    expect(worked.textContent).toContain("The new sign-in answered a usage read.");
+    // A switch that was not made says nothing about a usage read.
+    expect(failed.textContent).not.toContain("usage read");
   });
 
   it("still lists a row whose kind and state this build does not know, in the Gateway's words", async () => {
@@ -246,10 +263,27 @@ describe("LicensesView: the switch log", () => {
     getLicenseLog.mockResolvedValueOnce({ ...copyOf(LOG_PAGE), entries: [olderRow], hasMore: false, nextCursor: null });
     fireEvent.click(older);
 
-    await waitFor(() => expect(screen.getAllByTestId("lic-log-row").length).toBe(4));
+    await waitFor(() => expect(screen.getAllByTestId("lic-log-row").length).toBe(5));
     expect(getLicenseLog).toHaveBeenLastCalledWith(LOG_PAGE.nextCursor);
     expect(screen.getByText("An older switch.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Show older" })).toBeNull();
+  });
+
+  it("takes a new newest page whole until older rows were read, and after that keeps every row already on screen", () => {
+    const [first, second, third, fourth] = LOG_PAGE.entries;
+    const brandNew: LicenseLogEntry = { ...first, entryId: "brand-new" };
+    const moved = { ...copyOf(LOG_PAGE), entries: [brandNew, first, second], nextCursor: "a-newer-cursor" };
+
+    // Nobody read past the newest page: what is on screen is the new page, with its own cursor.
+    const fresh = foldNewestLogPage(foldNewestLogPage(null, LOG_PAGE), moved);
+    expect(fresh.entries.map((entry) => entry.entryId)).toEqual(["brand-new", first.entryId, second.entryId]);
+    expect(fresh.cursor).toBe("a-newer-cursor");
+
+    // Older rows were read: `third` and `fourth` fell off the newest page and stay, and the walk keeps its own cursor.
+    const walked = { ...foldNewestLogPage(null, LOG_PAGE), walked: true, cursor: "the-walk's-cursor" };
+    const kept = foldNewestLogPage(walked, moved);
+    expect(kept.entries.map((entry) => entry.entryId)).toEqual(["brand-new", first.entryId, second.entryId, third.entryId, fourth.entryId]);
+    expect(kept.cursor).toBe("the-walk's-cursor");
   });
 
   it("lays a newer page on top of the rows already read without losing or repeating one", () => {
@@ -312,6 +346,25 @@ describe("LicensesView: Switch now", () => {
     expect(answer.textContent).toContain("the-windows-machine: Its last report is too old.");
     expect(screen.queryByRole("alertdialog")).toBeNull();
     await waitFor(() => expect(getLicenseOverview.mock.calls.length).toBeGreaterThan(readsBefore));
+  });
+
+  it("sends the target picked by hand, and stops showing the sentence that describes the Gateway's own choice", async () => {
+    const overview = copyOf(OVERVIEW);
+    const toC = overview.accounts[0].switchTargets[1];
+    toC.canChoose = true;
+    toC.unavailableText = null;
+    getLicenseOverview.mockResolvedValue(overview);
+    switchLicenseNow.mockResolvedValue({ targetAccountEmail: ACCOUNT_C, switches: [], skipped: [] });
+    render(<LicensesView />);
+    fireEvent.click(within(await card(ACCOUNT_A)).getByRole("button", { name: "Switch now" }));
+    const dialog = screen.getByRole("alertdialog");
+
+    fireEvent.click(within(dialog).getByRole("radio", { name: /account-c@example\.com/ }));
+    // The sentence names account B, which is no longer where the machines would go.
+    expect(within(dialog).queryByText("Moves the-mac and the-windows-machine to account-b@example.com.")).toBeNull();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Switch now" }));
+
+    await waitFor(() => expect(switchLicenseNow).toHaveBeenCalledWith(ACCOUNT_A, ACCOUNT_C));
   });
 
   it("keeps the confirmation open on a refusal and shows the Gateway's own sentence", async () => {

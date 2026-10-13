@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   getLicenseForecast,
   getLicenseLog,
@@ -36,20 +36,36 @@ const readOverview = (signal?: AbortSignal) => getLicenseOverview(signal);
 const readForecast = (signal?: AbortSignal) => getLicenseForecast(signal);
 const readNewestLog = (signal?: AbortSignal) => getLicenseLog(null, signal);
 
-interface Polled<T> {
-  data: T | null;
+interface Polled<S> {
+  data: S | null;
   error: string | null;
   refresh: (signal?: AbortSignal) => Promise<void>;
+  /** Change what is on screen from something other than a poll (an older page of the log). */
+  update: (change: (current: S | null) => S | null) => void;
 }
 
-/** One polled read. A failed poll keeps the last answer on screen and says so beside it. */
-function usePolled<T>(read: (signal?: AbortSignal) => Promise<T>, action: string): Polled<T> {
-  const [data, setData] = useState<T | null>(null);
+/** A read with nothing to keep from the answer before it: what is on screen is the newest answer. */
+function newest<T>(_current: T | null, answer: T): T {
+  return answer;
+}
+
+/**
+ * One polled read. A failed poll keeps the last answer on screen and says so beside it. `fold` makes what is on
+ * screen from what was there and the new answer, in the same update that takes the answer - so there is never a
+ * frame that shows the new answer with the old rows.
+ */
+function usePolled<T, S>(
+  read: (signal?: AbortSignal) => Promise<T>,
+  action: string,
+  fold: (current: S | null, answer: T) => S,
+): Polled<S> {
+  const [data, setData] = useState<S | null>(null);
   const [error, setError] = useState<string | null>(null);
   const refresh = useCallback(
     async (signal?: AbortSignal) => {
       try {
-        setData(await read(signal));
+        const answer = await read(signal);
+        setData((current) => fold(current, answer));
         setError(null);
         backgroundRecovered(SURFACE, action);
       } catch (err) {
@@ -57,10 +73,10 @@ function usePolled<T>(read: (signal?: AbortSignal) => Promise<T>, action: string
         setError(describeAndReport(SURFACE, action, err, { background: true }));
       }
     },
-    [read, action],
+    [read, action, fold],
   );
   useVisiblePolling(refresh, POLL_MS);
-  return { data, error, refresh };
+  return { data, error, refresh, update: setData };
 }
 
 /** `first` followed by every row of `rest` it does not already hold. The order of each list is kept. */
@@ -69,7 +85,10 @@ export function mergeLog(first: ReadonlyArray<LicenseLogEntry>, rest: ReadonlyAr
   return [...first, ...rest.filter((entry) => !seen.has(entry.entryId))];
 }
 
-interface LogWalk {
+/** The switch log as it is on screen: the newest page, and any older rows the person has read past it. */
+interface LogView {
+  isEmpty: boolean;
+  emptyText: string | null;
   entries: LicenseLogEntry[];
   /** The cursor of the next older page; null when there is none. */
   cursor: string | null;
@@ -77,38 +96,48 @@ interface LogWalk {
   walked: boolean;
 }
 
-export function LicensesView() {
-  const overview = usePolled<LicenseOverview>(readOverview, "read the licenses");
-  const forecast = usePolled<LicenseForecast>(readForecast, "read the license forecast");
-  const newestLog = usePolled<LicenseLogPage>(readNewestLog, "read the switch log");
+/**
+ * The newest page moves as switches happen. Until the person asks for older rows the list IS that page; after,
+ * the rows already read stay and the newest page is laid on top, so a new row never opens a gap in the list.
+ */
+export function foldNewestLogPage(current: LogView | null, page: LicenseLogPage): LogView {
+  if (current !== null && current.walked) {
+    return { ...current, isEmpty: page.isEmpty, emptyText: page.emptyText, entries: mergeLog(page.entries, current.entries) };
+  }
+  return {
+    isEmpty: page.isEmpty,
+    emptyText: page.emptyText,
+    entries: page.entries,
+    cursor: page.hasMore ? page.nextCursor : null,
+    walked: false,
+  };
+}
 
-  const [walk, setWalk] = useState<LogWalk>({ entries: [], cursor: null, walked: false });
+export function LicensesView() {
+  const overview = usePolled<LicenseOverview, LicenseOverview>(readOverview, "read the licenses", newest);
+  const forecast = usePolled<LicenseForecast, LicenseForecast>(readForecast, "read the license forecast", newest);
+  const log = usePolled<LicenseLogPage, LogView>(readNewestLog, "read the switch log", foldNewestLogPage);
+
   const [olderBusy, setOlderBusy] = useState(false);
   const [olderError, setOlderError] = useState<string | null>(null);
-
-  // The newest page moves as switches happen. Until the person asks for older rows the list IS that page; after,
-  // the rows already read stay and the newest page is laid on top, so a new row never opens a gap in the list.
-  useEffect(() => {
-    const page = newestLog.data;
-    if (page === null) return;
-    setWalk((current) =>
-      current.walked
-        ? { ...current, entries: mergeLog(page.entries, current.entries) }
-        : { entries: page.entries, cursor: page.hasMore ? page.nextCursor : null, walked: false },
-    );
-  }, [newestLog.data]);
+  const olderCursor = log.data?.cursor ?? null;
 
   const showOlder = async () => {
-    if (walk.cursor === null) return;
+    if (olderCursor === null) return;
     setOlderBusy(true);
     setOlderError(null);
     try {
-      const page = await getLicenseLog(walk.cursor);
-      setWalk((current) => ({
-        entries: mergeLog(current.entries, page.entries),
-        cursor: page.hasMore ? page.nextCursor : null,
-        walked: true,
-      }));
+      const page = await getLicenseLog(olderCursor);
+      log.update((current) =>
+        current === null
+          ? current
+          : {
+              ...current,
+              entries: mergeLog(current.entries, page.entries),
+              cursor: page.hasMore ? page.nextCursor : null,
+              walked: true,
+            },
+      );
     } catch (err) {
       setOlderError(describeAndReport(SURFACE, "read older rows of the switch log", err));
     } finally {
@@ -129,7 +158,7 @@ export function LicensesView() {
   const refreshAll = () => {
     void overview.refresh();
     void forecast.refresh();
-    void newestLog.refresh();
+    void log.refresh();
   };
 
   // A refusal throws with the Gateway's own sentence; the dialog stays open and shows it.
@@ -196,16 +225,16 @@ export function LicensesView() {
 
           <h2 className="lic-h2">Switch log</h2>
           {/* error-reported-by: usePolled */}
-          {newestLog.error !== null && <ErrorBanner message={newestLog.error} onRetry={() => void newestLog.refresh()} />}
-          {newestLog.data === null ? (
-            newestLog.error === null && <LoadingState />
-          ) : newestLog.data.isEmpty ? (
-            <EmptyState message={newestLog.data.emptyText ?? ""} />
+          {log.error !== null && <ErrorBanner message={log.error} onRetry={() => void log.refresh()} />}
+          {log.data === null ? (
+            log.error === null && <LoadingState />
+          ) : log.data.isEmpty ? (
+            <EmptyState message={log.data.emptyText ?? ""} />
           ) : (
             <>
-              <SwitchLogTable entries={walk.entries} />
+              <SwitchLogTable entries={log.data.entries} />
               {olderError !== null && <ErrorBanner message={olderError} />}
-              {walk.cursor !== null && (
+              {olderCursor !== null && (
                 <div className="lic-older">
                   <Button variant="secondary" disabled={olderBusy} onClick={() => void showOlder()}>
                     {olderBusy ? "Loading..." : "Show older"}
@@ -297,6 +326,7 @@ function SwitchNowAnswer({ result, onDismiss }: { result: LicenseSwitchNowResult
 /** The schedule: one row per machine - the account it is on, the one it moves to next, and the Gateway's sentence. */
 function ScheduleTable({ machines, forecast }: { machines: ReadonlyArray<LicenseMachine>; forecast: LicenseForecast | null }) {
   return (
+    <div className="lic-table-wrap">
     <table className="lic-table" data-testid="lic-schedule">
       <thead>
         <tr>
@@ -309,18 +339,18 @@ function ScheduleTable({ machines, forecast }: { machines: ReadonlyArray<License
       </thead>
       <tbody>
         {machines.map((machine) => {
-          const next = forecast?.machines.find((m) => m.machineName === machine.machineName && m.osUser === machine.osUser);
+          const next = forecast?.machines.find((m) => m.machineId === machine.machineId);
           return (
             <tr key={machine.machineId} data-testid="lic-schedule-row">
-              <td>
-                <span className="lic-strong">{machine.machineName}</span> <span className="lic-dim">{machine.osUser}</span>
+              <td className="lic-nowrap">
+                <span className="lic-strong">{machine.label}</span>
               </td>
               <td>
                 <TonePill text={machine.statusText} tone={machine.statusTone} />
                 <div className="lic-dim">{machine.lastReportText}</div>
               </td>
-              <td>{machine.activeAccountEmail}</td>
-              <td>{next?.nextAccountEmail}</td>
+              <td className="lic-nowrap">{machine.activeAccountEmail}</td>
+              <td className="lic-nowrap">{next?.nextAccountEmail}</td>
               <td>
                 {machine.switchInProgress !== null && <div>{machine.switchInProgress.text}</div>}
                 {next !== undefined && <div>{next.text}</div>}
@@ -330,12 +360,14 @@ function ScheduleTable({ machines, forecast }: { machines: ReadonlyArray<License
         })}
       </tbody>
     </table>
+    </div>
   );
 }
 
 /** The switch log, newest first. A kind or a state this build does not know is still a row: its words are shown. */
 function SwitchLogTable({ entries }: { entries: ReadonlyArray<LicenseLogEntry> }) {
   return (
+    <div className="lic-table-wrap">
     <table className="lic-table" data-testid="lic-log">
       <thead>
         <tr>
@@ -354,20 +386,22 @@ function SwitchLogTable({ entries }: { entries: ReadonlyArray<LicenseLogEntry> }
             <td className="lic-nowrap">
               <LocalTime iso={entry.atUtc} />
             </td>
-            <td>{entry.kindText}</td>
-            <td>{entry.machineName}</td>
-            <td>{entry.fromAccountEmail}</td>
-            <td>{entry.toAccountEmail}</td>
-            <td>{entry.whyText}</td>
+            <td className="lic-nowrap">{entry.kindText}</td>
+            <td className="lic-nowrap">{entry.machineName}</td>
+            <td className="lic-nowrap">{entry.fromAccountEmail}</td>
+            <td className="lic-nowrap">{entry.toAccountEmail}</td>
+            <td className="lic-nowrap">{entry.whyText}</td>
             <td>
               <TonePill text={entry.stateText} tone={entry.stateTone} testId="lic-log-state" />
               <div>{entry.summary}</div>
               {entry.reasonText !== null && <div className="lic-dim">{entry.reasonText}</div>}
               {entry.timingText !== null && <div className="lic-dim">{entry.timingText}</div>}
+              {entry.verifiedText !== null && <div className="lic-dim">{entry.verifiedText}</div>}
             </td>
           </tr>
         ))}
       </tbody>
     </table>
+    </div>
   );
 }

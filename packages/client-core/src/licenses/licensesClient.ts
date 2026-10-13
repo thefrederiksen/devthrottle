@@ -14,13 +14,26 @@ import { authHeaders, gatewayFetch, GatewayError, POLL_TIMEOUT_MS } from "../api
 /** The tone a Gateway label is shown in. A page maps each one to a colour and to nothing else. */
 export type LicenseTone = "good" | "warning" | "bad" | "neutral";
 
+/**
+ * A machine, wherever a list names one. A machine is a machine name AND an operating system user: two users of one
+ * computer are two machines, each with its own sign-ins. `label` is what to call it; a page shows the label and
+ * never builds a name from the other fields. `machineId` is the machineId of its row in the overview's machines.
+ */
+export interface LicenseMachineRef {
+  machineId: string;
+  machineName: string;
+  osUser: string;
+  label: string;
+}
+
 /** One usage window of an account: the 5-hour window or the week. */
 export interface LicenseWindow {
   /** 0 to 100, or null when it was not read. Null is "not read" and is never drawn as zero. */
   utilization: number | null;
   /** "96%", or "Not known". */
   utilizationText: string;
-  /** normal | at-limit | reset-since | not-known. */
+  /** not-known | stale | reset-since | at-limit | normal. The level alone is enough to draw the bar: under
+   *  `stale` and `reset-since` a number is still given, and it says nothing about the window now. */
   level: string;
   resetsAtUtc: string | null;
   /** "Resets in 1 hour 48 minutes", true at the answer's asOfUtc. */
@@ -44,16 +57,27 @@ export interface LicenseSwitchTarget {
   isAutomaticChoice: boolean;
 }
 
+export interface LicenseSignInExpiry {
+  expiresAtUtc: string | null;
+  machine: LicenseMachineRef | null;
+  /** expired | expires soon | fine | not known. */
+  verdict: string;
+  text: string;
+  tone: LicenseTone;
+}
+
 export interface LicenseAccount {
   accountEmail: string;
   plan: string | null;
   planText: string;
   rateLimitTier: string | null;
-  /** The day the SUBSCRIPTION renews, which a person sets per account; null when it is not set. It is not the
-   *  sign-in's expiry, which is on each holding. Absent from a Gateway older than the field. */
-  renewsOn?: string | null;
-  /** "Renews 17 Oct", or the sentence saying it is not set. */
-  renewsText?: string | null;
+  /** The day the SUBSCRIPTION renews (yyyy-MM-dd), which a person sets per account; null when it is not set. It
+   *  is not the sign-in's expiry, which is on each holding. */
+  renewsOn: string | null;
+  /** "Renews 17 Oct", or "Renewal date not set". */
+  renewsText: string;
+  /** The sign-in for this account that expires first, across every machine holding it. Not the renewal date. */
+  signInExpiry: LicenseSignInExpiry;
   status: string;
   statusText: string;
   statusTone: LicenseTone;
@@ -68,8 +92,8 @@ export interface LicenseAccount {
   readError: string | null;
   readErrorText: string | null;
   extraUsage: LicenseExtraUsage;
-  activeOnMachines: string[];
-  spareOnMachines: string[];
+  activeOnMachines: LicenseMachineRef[];
+  spareOnMachines: LicenseMachineRef[];
   canSwitchNow: boolean;
   /** What Switch now would do, or why it is not offered. Always a sentence. */
   switchNowText: string;
@@ -91,9 +115,11 @@ export interface LicenseHolding {
   isReadingStale: boolean;
   readError: string | null;
   readErrorText: string | null;
-  /** The sentence when the last renewal of this sign-in failed; null when it worked. Absent from a Gateway
-   *  older than the field. */
-  renewalFailedText?: string | null;
+  /** When the last renewal of this sign-in failed, the sentence saying so, and its tone. All three are null when
+   *  the last renewal worked or is not known. The expiry text above stays about the expiry only. */
+  renewalFailedAtUtc: string | null;
+  renewalFailedText: string | null;
+  renewalFailedTone: LicenseTone | null;
 }
 
 export interface LicenseSwitchInProgress {
@@ -103,10 +129,7 @@ export interface LicenseSwitchInProgress {
   text: string;
 }
 
-export interface LicenseMachine {
-  machineId: string;
-  machineName: string;
-  osUser: string;
+export interface LicenseMachine extends LicenseMachineRef {
   activeAccountEmail: string | null;
   status: string;
   statusText: string;
@@ -129,9 +152,8 @@ export interface LicenseOverview {
   machines: LicenseMachine[];
 }
 
-export interface LicenseWindowForecast {
-  utilization: number | null;
-  resetsAtUtc: string | null;
+/** A window in the overview's own words, and then its forecast. */
+export interface LicenseWindowForecast extends LicenseWindow {
   percentPerHour: number | null;
   rateText: string;
   expectedAtLimitUtc: string | null;
@@ -150,9 +172,7 @@ export interface LicenseAccountForecast {
   nextSwitchText: string;
 }
 
-export interface LicenseMachineForecast {
-  machineName: string;
-  osUser: string;
+export interface LicenseMachineForecast extends LicenseMachineRef {
   activeAccountEmail: string | null;
   nextAccountEmail: string | null;
   expectedSwitchAtUtc: string | null;
@@ -166,7 +186,7 @@ export interface LicenseNextSwitch {
   window: string;
   windowText: string;
   targetAccountEmail: string | null;
-  machines: string[];
+  machines: LicenseMachineRef[];
 }
 
 /** GET /gateway/licenses/forecast. */
@@ -212,6 +232,8 @@ export interface LicenseLogEntry {
   timingText: string | null;
   /** After the switch the new sign-in answered a usage read; null when the machine gave no answer. */
   verifiedByUsageRead: boolean | null;
+  /** The sentence for it, set only on a row whose switch was made; null on every other row. */
+  verifiedText: string | null;
 }
 
 /** GET /gateway/licenses/log: one page, newest first. */

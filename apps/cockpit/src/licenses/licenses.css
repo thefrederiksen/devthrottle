@@ -138,8 +138,8 @@
 .lic-bar-unknown {
   background: repeating-linear-gradient(
     45deg,
-    var(--border),
-    var(--border) 6px,
+    color-mix(in srgb, var(--text-dim) 45%, transparent),
+    color-mix(in srgb, var(--text-dim) 45%, transparent) 6px,
     var(--surface-2) 6px,
     var(--surface-2) 12px
   );
@@ -176,6 +176,10 @@
   gap: 10px;
   margin-top: 12px;
 }
+.lic-card-switch .ui-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
 .lic-card-switch-text {
   font-size: 12px;
   color: var(--text-dim);
@@ -207,7 +211,14 @@
   padding: 8px 10px;
   border-bottom: 1px solid var(--border);
   vertical-align: top;
-  overflow-wrap: anywhere;
+}
+/* A wide table scrolls inside its own frame on a narrow window; an account or a machine name is never cut in two. */
+.lic-table-wrap {
+  overflow-x: auto;
+}
+.lic-table td.lic-nowrap,
+.lic-table th {
+  white-space: nowrap;
 }
 .lic-strong {
   font-weight: 600;
@@ -215,9 +226,6 @@
 .lic-dim {
   color: var(--text-dim);
   font-size: 12px;
-}
-.lic-nowrap {
-  white-space: nowrap;
 }
 .lic-older {
   margin-top: 10px;

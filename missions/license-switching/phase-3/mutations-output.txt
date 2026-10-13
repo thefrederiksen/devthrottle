@@ -1,0 +1,46 @@
+1 the page works a window's colour out of its number | ran 21 | red 1
+    - never works a verdict out of a number: 99% the Gateway calls normal is drawn normal
+2 a window that was not read is drawn as a meter | ran 21 | red 1
+    - draws a window that was not read hatched, never as a meter at zero
+3 the status word is shown in place of its label | ran 21 | red 2
+    - draws one card per account, with the Gateway's status word in the Gateway's tone
+    - never works a verdict out of a number: 99% the Gateway calls normal is drawn normal
+4 a sign-in's expiry loses the Gateway's tone | ran 21 | red 1
+    - shows, per machine, when the sign-in it holds for the account expires, in the Gateway's tone
+5 Switch now is offered on every account | ran 21 | red 1
+    - offers the control only where the Gateway offers it, and always shows the Gateway's sentence
+6 Switch now sends without asking | ran 21 | red 4
+    - asks first, and sends nothing when the confirmation is cancelled
+    - on confirmation sends the account and the picked target, shows the Gateway's answer, and reads again
+    - sends the target picked by hand, and stops showing the sentence that describes the Gateway's own choice
+    - keeps the confirmation open on a refusal and shows the Gateway's own sentence
+7 Switch now drops the picked target | ran 21 | red 2
+    - on confirmation sends the account and the picked target, shows the Gateway's answer, and reads again
+    - sends the target picked by hand, and stops showing the sentence that describes the Gateway's own choice
+8 the empty answer is drawn as tables | ran 21 | red 1
+    - shows the Gateway's sentence in place of every list
+9 a log row loses its reason | ran 21 | red 1
+    - lists a failed switch with the Gateway's state, tone, sentence and reason
+10 older rows are read without the cursor | ran 21 | red 1
+    - reads older rows with the cursor exactly as the Gateway gave it, and stops offering when there are none
+11 a failed renewal is drawn without the Gateway's tone | ran 21 | red 1
+    - flags a sign-in whose last renewal failed, and the subscription's renewal date, when the Gateway sends them
+12 the log merge repeats a row already on screen | ran 21 | red 2
+    - takes a new newest page whole until older rows were read, and after that keeps every row already on screen
+    - lays a newer page on top of the rows already read without losing or repeating one
+17 a new newest page throws away the older rows already read | ran 21 | red 1
+    - takes a new newest page whole until older rows were read, and after that keeps every row already on screen
+18 the renewal date is not drawn | ran 21 | red 1
+    - flags a sign-in whose last renewal failed, and the subscription's renewal date, when the Gateway sends them
+13 a failed overview read is drawn as an empty page | ran 21 | red 1
+    - says so in a banner, and never shows an empty page as if there were no accounts
+14 the client accepts an answer that lost its list | ran 9 | red 1
+    - refuses a successful answer that has lost its list, rather than showing an account with nothing in it
+15 the client drops the log cursor | ran 9 | red 1
+    - reads the newest log page with no cursor, and an older page with the cursor exactly as given
+16 the client sends Switch now without its target | ran 9 | red 2
+    - posts the account and the target to /gateway/licenses/switch-now
+    - sends a null target when the Gateway is to choose
+RESTORED; baseline:
+cockpit 21 red 0
+core 9 red 0

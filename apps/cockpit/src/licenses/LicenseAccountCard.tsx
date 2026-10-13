@@ -49,8 +49,7 @@ export function LicenseAccountCard({ account, machines, forecast, onSwitchNow }:
         <TonePill text={account.statusText} tone={account.statusTone} testId="lic-account-status" />
       </div>
       <div className="lic-card-meta">
-        {account.planText}
-        {typeof account.renewsText === "string" && account.renewsText.length > 0 && ` - ${account.renewsText}`}
+        {account.planText} - {account.renewsText}
       </div>
 
       <WindowBar label="5-hour window" window={account.fiveHour} testId="lic-window-five-hour" />
@@ -66,15 +65,18 @@ export function LicenseAccountCard({ account, machines, forecast, onSwitchNow }:
         <ul className="lic-holdings" aria-label={`Sign-ins for ${account.accountEmail}`}>
           {held.map(({ machine, holding }) => (
             <li key={machine.machineId} className="lic-holding" data-testid="lic-holding" data-verdict={holding.expiryVerdict}>
-              <span className="lic-holding-machine">{machine.machineName}</span>
+              <span className="lic-holding-machine">{machine.label}</span>
               <span className="lic-holding-role">{holding.isActive ? "Active" : "Spare"}</span>
               <span className={`lic-holding-expiry ${toneClass(holding.expiryTone)}`}>{holding.expiryText}</span>
               <span className="lic-holding-signed-in">{holding.signedInText}</span>
               {holding.readErrorText !== null && (
                 <span className="lic-holding-error lic-tone-bad">{holding.readErrorText}</span>
               )}
-              {typeof holding.renewalFailedText === "string" && holding.renewalFailedText.length > 0 && (
-                <span className="lic-holding-error lic-tone-bad" data-testid="lic-holding-renewal-failed">
+              {holding.renewalFailedText !== null && (
+                <span
+                  className={`lic-holding-error ${toneClass(holding.renewalFailedTone ?? "neutral")}`}
+                  data-testid="lic-holding-renewal-failed"
+                >
                   {holding.renewalFailedText}
                 </span>
               )}
