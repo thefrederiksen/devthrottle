@@ -968,6 +968,8 @@ describe("Reports emailed to you, on a factory's page (Factory Control, brief 5'
     expect(body.getAttribute("srcdoc")).toBe("<p>as sent</p>");
     expect(body.getAttribute("sandbox")).toBe("");
     expect(screen.getByRole("heading", { name: "Factories: 2 open problems (fixture)" })).toBeTruthy();
+    // The page leads back to the factory it was opened from.
+    expect(screen.getByTestId("fa-email-back").getAttribute("href")).toBe("/factories/warmforward");
   });
 
   it("a refused read shows the Gateway's sentence", async () => {

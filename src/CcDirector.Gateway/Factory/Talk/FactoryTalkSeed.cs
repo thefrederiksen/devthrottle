@@ -171,9 +171,8 @@ public static class FactoryTalkSeed
         sb.Append("- the schedule: ").Append(problem.JobName).Append(" (").Append(problem.JobId).Append(')');
         if (!string.IsNullOrWhiteSpace(problem.Seat)) sb.Append(", run as the seat ").Append(problem.Seat);
         sb.AppendLine();
-        sb.Append("- what went wrong: ").Append(problem.KindText);
-        if (!string.IsNullOrWhiteSpace(problem.Reason)) sb.Append(" - ").Append(problem.Reason.Trim());
-        sb.AppendLine();
+        // The problems list's own sentence, the one the page, the command line and the email show.
+        sb.Append("- what went wrong: ").AppendLine(problem.Sentence);
         sb.Append("- when: due ").Append(At(problem.ScheduledUtc, zone));
         sb.Append(problem.StartedUtc is { } started ? $", started {At(started, zone)}" : ", never started");
         sb.Append(", in the ").Append(problem.ShiftText).Append("; recorded ").Append(At(problem.RaisedAtUtc, zone)).AppendLine();

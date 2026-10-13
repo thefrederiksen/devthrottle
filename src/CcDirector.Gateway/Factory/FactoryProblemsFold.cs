@@ -33,8 +33,9 @@ public static class FactoryProblemsFold
         {
             Heading = "Open problems",
             Note = "A problem stays here until the next run of the same schedule reports ok, or someone resolves it with a " +
-                   "one-line reason. Handle the issue opens a talk with the boss, already told about it - or, for a factory with no " +
-                   "boss, with the Factory Manager.",
+                   "one-line reason. " + (handoff.ToFactoryManager
+                       ? "This factory has no boss, so Handle the issue opens a talk with the Factory Manager, already told about it."
+                       : "Handle the issue opens a talk with the boss, already told about it."),
             Items = items,
             EmptyText = items.Count == 0 ? "No open problems." : null,
         };
@@ -47,7 +48,7 @@ public static class FactoryProblemsFold
         var seat = p.Seat is null ? null : factory.Seats.FirstOrDefault(s => string.Equals(s.Id, p.Seat, StringComparison.OrdinalIgnoreCase));
         var seatText = p.Seat is null ? p.JobName
             : seat is null ? $"A seat no longer on this factory - {p.JobName}"
-            : $"{SeatWord(seat)} - {p.JobName}";
+            : $"{FactoriesScreenFold.SeatWord(seat)} - {p.JobName}";
         return new FactoryProblemItemDto
         {
             RunId = p.RunId,
@@ -76,16 +77,5 @@ public static class FactoryProblemsFold
             ResolveConfirmLabel = "Resolve with this reason",
             ResolveBusyLabel = "Resolving...",
         };
-    }
-
-    /// <summary>A seat by its role word. The registry requires a role on every seat, so a seat without one broke that
-    /// rule somewhere, and its id - which can be a person's name - must never stand in. It throws instead.</summary>
-    private static string SeatWord(RegisteredFactorySeatDto seat)
-    {
-        if (string.IsNullOrWhiteSpace(seat.Role))
-            throw new InvalidOperationException(
-                $"Seat '{seat.Id}' has no role. The factory registry requires one for every seat, so this seat was " +
-                "stored or built without going through it.");
-        return seat.Role.Trim();
     }
 }

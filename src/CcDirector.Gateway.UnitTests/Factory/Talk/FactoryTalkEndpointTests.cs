@@ -77,6 +77,7 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
         Kind = CronRunProblems.DidNotReport,
         KindText = "did not report",
         Reason = "its session ended without reporting how the run went (stopped by you after 12 min)",
+        Sentence = "Did not report: its session ended without reporting how the run went (stopped by you after 12 min).",
         RaisedAtUtc = new DateTime(2026, 10, 11, 10, 30, 0, DateTimeKind.Utc),
         SessionId = "5b0e9d1c-0000-4000-8000-0000000000b2",
         State = CronRunProblemStates.Open,
@@ -443,7 +444,7 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
         Assert.Contains(MorningRun, sent.PrePrompt);
         // Told which run, what went wrong, when, and which session to read - and how to resolve it.
         Assert.Contains(problem.RunId, sent.PrePrompt);
-        Assert.Contains("did not report - its session ended without reporting how the run went", sent.PrePrompt);
+        Assert.Contains("- what went wrong: Did not report: its session ended without reporting how the run went (stopped by you after 12 min).", sent.PrePrompt);
         Assert.Contains("morning shift, Sun 11 Oct, 08:00-16:00", sent.PrePrompt);
         Assert.Contains("cc-devthrottle session buffer " + problem.SessionId, sent.PrePrompt);
         Assert.Contains($"cc-devthrottle run resolve {problem.RunId} \"<one line: what fixed it>\"", sent.PrePrompt);
