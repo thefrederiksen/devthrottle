@@ -1,0 +1,51 @@
+The License Switching Director proof: two Directors on one machine, a stand-in claude, no real sign-in.
+started 2026-10-13 01:15 UTC
+
+--- 1. both Directors take their key holder lock and report; the approving machine holds nothing
+PASS  target-reports: trigger=connected, holdings=account-a@example.com:active
+PASS  approver-reports-with-no-holdings: trigger=connected, holdings=0 (contract 2.4 as amended: this report is how the Gateway finds the approving Director)
+
+--- 2. license-sign-in for account B: no browser profile here, so it is approved on the other machine
+PASS  added: outcome=added, reason=-, signedInAtUtc=2026-10-13T01:15:22.0000000Z, signInExpiresAtUtc=2026-10-15T01:15:22.0000000Z
+PASS  held-as-spare: account-a@example.com:active account-b@example.com:spare
+PASS  the-url-named-the-account: requests=1; the tool on the approving machine refuses a URL that names another account
+PASS  gateway-carried-only-the-sealed-answer: carried 2 messages; the answer itself is in none of them
+PASS  changed-report: trigger=changed, holdings=account-a@example.com:active account-b@example.com:spare
+
+--- 3. the same SignInId again is answered from the stored result and runs nothing
+PASS  replayed: replayed=True, approval requests still 1, the held sign-in unchanged (c0406d04)
+
+--- 4. the daily renewal while NO Gateway relays an approval (every Director today): account B is due and has no profile here
+PASS  no-approver: account-a@example.com:not-due account-b@example.com:failed:no-approver
+PASS  no-sign-in-started: the tool's sign-in was started 0 time(s) for it and no approval was asked for: the check's own row said no profile is set here
+PASS  held-sign-in-untouched-by-it: the sign-in held for account B is the one it had (c0406d04)
+PASS  no-approver-travels-in-the-report: trigger=changed, renewalError=no-approver
+PASS  asked-sign-in-is-no-approver-too: a license-sign-in for account C: outcome=failed, reason=no-approver; the tool was asked whether a profile is set (license get-browser) and no sign-in was started
+
+--- 4b. a day later a Gateway relays: account B is due, the other machine REFUSES (its profile is signed in as someone else)
+PASS  renewal-failed: account-a@example.com:not-due account-b@example.com:failed:wrong-account
+PASS  held-sign-in-untouched: the sign-in held for account B is the one it had (c0406d04); a failed renewal writes nothing
+PASS  failure-travels-in-the-report: trigger=changed, renewalError=wrong-account, renewalErrorDetail="The browser profile that approves this account is signed in to claude.ai as another account."
+
+--- 5. a day later the renewal runs again, the other machine approves, and the sign-in is renewed IN PLACE
+PASS  not-run-twice-a-day: a second check inside the day runs nothing
+PASS  renewed: account-a@example.com:not-due account-b@example.com:renewed
+PASS  renewed-in-place: same folder, a new sign-in (c0406d04 -> ff42f65b); 1 spare folder; account-a@example.com:active account-b@example.com:spare
+PASS  failure-cleared-in-the-report: trigger=changed, renewalError=none
+
+--- 6. a sign-in for account C that nobody answers: at its deadline the login is ended and nothing is left
+PASS  expired: outcome=failed, reason=expired
+PASS  nothing-left-behind: 1 spare folder (no folder for account C); account-a@example.com:active account-b@example.com:spare; account B's sign-in unchanged
+PASS  late-answer-dropped: an answer that arrives after the deadline reaches nobody
+
+--- 7. the answer was typed into the waiting login and is nowhere else
+PASS  log-has-the-run: the Director log of this run was found and read
+PASS  answer-not-in-the-log: not in the Director log
+PASS  url-not-in-the-log: nor is any authorize URL
+PASS  answer-not-in-a-stored-result: not in the stored sign-in results
+
+--- 8. no call in this run filed a tool error report - counted, and the count is shown to see one
+PASS  no-error-report-kept: 0 report file(s) in the tool's error outbox after steps 1 to 7 (a refused renewal, a no-approver renewal and a sign-in called off at its deadline among them)
+PASS  the-count-sees-a-report: control: a sign-in the Director never makes (no profile, told not to ask) ended no-approver and left 1 report file in the same outbox
+
+PASSED: 0 check(s) failed. The proof root can be deleted; it holds only made-up sign-ins.

@@ -409,6 +409,64 @@ def test_cli_signInRemoteApproval_NoCode_FailsAndKeepsNothing(machine):
     assert (machine / "store" / "spares").is_dir() and not (machine / "store" / "spares" / "account-b-example.com").exists()
 
 
+def _first_json(text):
+    # Click below 8.2 mixes standard error into stdout, so the JSON is found, not assumed.
+    answer, _ = json.JSONDecoder().raw_decode(text[text.index("{"):])
+    return answer
+
+
+def test_cli_signInJson_Failure_AnswersTheReasonWordAsJson_NeverTheSentence(machine):
+    # The Director reads this answer and writes its own sentence (contract 8.1), so the word must be on standard
+    # output as JSON, after the authorize-url line.
+    result = _run("sign-in", ACCOUNT_B, "--remote-approval", "--json", input="\n")
+
+    assert result.exit_code == 1
+    assert result.stdout.splitlines()[0] == f"authorize-url: {URL}"
+    assert _first_json(result.stdout) == {"accountEmail": ACCOUNT_B, "result": "failed", "reason": "approval-failed"}
+    assert not (machine / "store" / "spares" / "account-b-example.com").exists()
+
+
+def test_cli_signIn_CallerClosesStandardInput_IsCalledOff_NotAToolFailure(machine):
+    # The Director ends a sign-in nobody approved by closing standard input. That is the caller stopping the tool,
+    # which the error reporting does not report (cc_shared/tool_errors.py); a blank line is still a failure.
+    result = _run("sign-in", ACCOUNT_B, "--ask-when-no-browser", "--json", input="")
+
+    assert result.exit_code == 1
+    assert _first_json(result.stdout) == {"accountEmail": ACCOUNT_B, "result": "failed", "reason": "approval-failed"}
+    assert "Aborted" in result.output  # the stop the error reporting reads as the caller's, never a defect
+    assert not (machine / "store" / "spares" / "account-b-example.com").exists()
+
+    blank = _run("sign-in", ACCOUNT_B, "--ask-when-no-browser", "--json", input="\n")
+    assert blank.exit_code == 1 and "Aborted" not in blank.output
+
+
+def test_cli_getBrowser_SaysTheProfileSetHere_OrThatNoneIs_AndNeverFails(machine):
+    none = _run("get-browser", ACCOUNT_B, "--json")
+    assert none.exit_code == 0
+    assert json.loads(none.stdout) == {"accountEmail": ACCOUNT_B, "browser": None}
+    assert "No browser profile is set" in _run("get-browser", ACCOUNT_B).output
+
+    assert _run("set-browser", ACCOUNT_B, "Profile B").exit_code == 0
+    one = _run("get-browser", ACCOUNT_B.upper(), "--json")
+    assert one.exit_code == 0
+    assert json.loads(one.stdout) == {"accountEmail": ACCOUNT_B, "browser": "Profile B"}
+
+
+def test_cli_approveJson_AnswersTheCode_OrTheReasonWord(machine, monkeypatch):
+    monkeypatch.setattr(license_signin, "approve_in_browser", lambda url, email, browser: CODE)
+    approved = _run("approve", URL, "--email", ACCOUNT_B, "--browser", "Profile B", "--json")
+    assert approved.exit_code == 0
+    assert _first_json(approved.stdout) == {"accountEmail": ACCOUNT_B, "result": "approved", "code": CODE}
+
+    def refuse(url, email, browser):
+        raise SignInError(license_signin.WRONG_ACCOUNT, "the profile is signed in as someone else")
+
+    monkeypatch.setattr(license_signin, "approve_in_browser", refuse)
+    refused = _run("approve", URL, "--email", ACCOUNT_B, "--browser", "Profile B", "--json")
+    assert refused.exit_code == 1
+    assert _first_json(refused.stdout) == {"accountEmail": ACCOUNT_B, "result": "refused", "reason": "wrong-account"}
+
+
 def test_cli_signIn_BrowserAndRemoteApproval_IsAUsageError(machine):
     assert _run("sign-in", ACCOUNT_B, "--browser", "P", "--remote-approval").exit_code == 2
 
@@ -445,3 +503,69 @@ def test_cli_renew_NothingDue_CountsEveryAccount(machine):
     result = _run("renew")
     assert result.exit_code == 0
     assert result.stdout.splitlines()[0].startswith("count: 1")
+
+
+# --- what the Director runs: ask what is due, then sign each due account in by one route or the other ---
+
+
+def test_renewDue_Check_SaysWhatIsDueAndWithWhichProfile_AndSignsNothingIn(store, tmp_path):
+    _add_spare(store, tmp_path, ACCOUNT_B, NOW + dt.timedelta(days=4))      # due, a profile set here
+    _add_spare(store, tmp_path, ACCOUNT_C, NOW + dt.timedelta(days=1))      # due, no profile here
+    license_signin.set_browser(store, ACCOUNT_B, "Profile B")
+    held_before = {email: (Path(store.spare_folder(email)) / ".credentials.json").read_text(encoding="utf-8")
+                   for email in (ACCOUNT_B, ACCOUNT_C)}
+
+    rows = {r.account: r for r in license_signin.renew_due(store, check=True, start_login=_starter(), now=lambda: NOW)}
+
+    assert (rows[ACCOUNT_A].result, rows[ACCOUNT_B].result, rows[ACCOUNT_C].result) == ("not-due", "due", "due")
+    assert (rows[ACCOUNT_B].browser, rows[ACCOUNT_C].browser) == ("Profile B", None)
+    assert not any(r.failed for r in rows.values()), "an account with no profile here is due, not failed"
+    assert FakeLogin.instances == [], "a check starts no login"
+    for email, held in held_before.items():
+        assert (Path(store.spare_folder(email)) / ".credentials.json").read_text(encoding="utf-8") == held
+
+
+def test_cli_renewCheck_ExitsZero_WithADueAccountThatHasNoProfile(machine):
+    store = LicenseStore(str(machine / "default"), str(machine / "store"), backend=FileKeyBackend())
+    _add_spare(store, machine, ACCOUNT_B, NOW + dt.timedelta(hours=1))
+
+    result = _run("renew", "--check", "--json")
+
+    # The Director asks this every day. It must not end as a failure: nothing was tried, so nothing failed.
+    assert result.exit_code == 0, result.output
+    answer = json.loads(result.stdout)
+    assert answer["failed"] == 0
+    assert {r["accountEmail"]: r["result"] for r in answer["accounts"]} == {ACCOUNT_A: "not-due", ACCOUNT_B: "due"}
+
+
+def test_cli_signInAskWhenNoBrowser_ProfileSetHere_ApprovesHere_AndPrintsNoUrl(machine, monkeypatch):
+    store = LicenseStore(str(machine / "default"), str(machine / "store"), backend=FileKeyBackend())
+    license_signin.set_browser(store, ACCOUNT_B, "Profile B")
+    asked = []
+
+    def approve_here(url, email, profile, **kwargs):
+        asked.append((email, profile))
+        return CODE
+
+    monkeypatch.setattr(license_signin, "approve_in_browser", approve_here)
+
+    result = _run("sign-in", ACCOUNT_B, "--ask-when-no-browser", "--json")
+
+    assert result.exit_code == 0, result.output
+    assert "authorize-url:" not in result.stdout, "the owner's profile on this machine wins; nobody else is asked"
+    assert asked == [(ACCOUNT_B, "Profile B")]
+    assert _first_json(result.stdout)["result"] == "added"
+
+
+def test_cli_signInAskWhenNoBrowser_NoProfileHere_AsksAsRemoteApprovalDoes(machine):
+    result = _run("sign-in", ACCOUNT_B, "--ask-when-no-browser", "--json", input=CODE + "\n")
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout.splitlines()[0] == f"authorize-url: {URL}"
+    assert _first_json(result.stdout)["result"] == "added"
+    assert FakeLogin.instances[0].code == CODE
+
+
+@pytest.mark.parametrize("other", [("--browser", "P"), ("--remote-approval",)], ids=["browser", "remote"])
+def test_cli_signInAskWhenNoBrowser_WithAnotherRoute_IsAUsageError(machine, other):
+    assert _run("sign-in", ACCOUNT_B, "--ask-when-no-browser", *other).exit_code == 2

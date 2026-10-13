@@ -25,6 +25,11 @@ public interface ILicenseReportSink
 ///   - right after every switch ("after-switch");
 ///   - on every new connection, and when this Director becomes the key holder ("connected").
 ///
+/// The key holder reports even when it holds nothing (contract 2.4, as amended by 8.3): the report with no holdings
+/// is how the Gateway knows which Director to ask when this machine only APPROVES another machine's sign-in.
+///
+/// A holding whose last renewal failed carries that failure (contract 8.1), recorded with <see cref="RecordRenewal"/>.
+///
 /// A failed read of a holding keeps its PREVIOUS numbers and their old read time, and sets the error, so the Gateway
 /// sees how old the numbers are and never a zero standing in for "unknown".
 ///
@@ -46,6 +51,9 @@ public sealed class LicenseUsageReporter
 
     /// <summary>The last numbers read for each account, kept across failed reads.</summary>
     private readonly Dictionary<string, LicenseHolding> _readings = new(StringComparer.Ordinal);
+
+    /// <summary>The LAST renewal of each account's sign-in, when it failed (contract 8.1). No entry: it worked, or none was tried.</summary>
+    private readonly Dictionary<string, (DateTime FailedAtUtc, string Error)> _renewalFailures = new(StringComparer.Ordinal);
 
     private readonly HashSet<string> _pending = new(StringComparer.Ordinal);
     private DateTime? _lastSpareReadUtc;
@@ -88,6 +96,33 @@ public sealed class LicenseUsageReporter
     {
         lock (_gate)
             return _readings.TryGetValue(accountEmail.Trim().ToLowerInvariant(), out var h) ? h.SignInExpiresAtUtc : null;
+    }
+
+    /// <summary>
+    /// Records how the last renewal of <paramref name="accountEmail"/>'s sign-in went (contract 8.1): a failure with
+    /// its time and its <see cref="LicenseRenewalErrors"/> word, or - with a null <paramref name="failedAtUtc"/> - that
+    /// it worked, which clears an earlier failure. Returns whether anything changed. The next report carries it.
+    /// </summary>
+    public bool RecordRenewal(string accountEmail, DateTime? failedAtUtc, string? error)
+    {
+        var email = accountEmail.Trim().ToLowerInvariant();
+        lock (_gate)
+        {
+            if (failedAtUtc is null || error is null)
+            {
+                var cleared = _renewalFailures.Remove(email);
+                if (cleared) FileLog.Write($"[LicenseUsageReporter] RecordRenewal: account={email}, the earlier renewal failure is cleared");
+                return cleared;
+            }
+            // Only the contract's words travel: anything else could be anything a tool printed (rule 6.1).
+            var word = LicenseRenewalErrors.All.Contains(error) ? error : LicenseRenewalErrors.LoginFailed;
+            var changed = !_renewalFailures.TryGetValue(email, out var previous) || previous.Error != word;
+            _renewalFailures[email] = (failedAtUtc.Value, word);
+            // Every failure is named here, whichever route found it: until the Gateway reads these fields this log is
+            // the one place a person can see which account failed and why.
+            FileLog.Write($"[LicenseUsageReporter] RecordRenewal: account={email}, renewal FAILED ({word}) at {failedAtUtc.Value:O}, new={changed}");
+            return changed;
+        }
     }
 
     /// <summary>Asks for a report with this trigger as soon as one can be sent. Never blocks.</summary>
@@ -235,10 +270,13 @@ public sealed class LicenseUsageReporter
             var held = new HashSet<string>(listing.Select(h => h.AccountEmail), StringComparer.Ordinal);
             foreach (var gone in _readings.Keys.Where(k => !held.Contains(k)).ToList())
                 _readings.Remove(gone);
+            foreach (var gone in _renewalFailures.Keys.Where(k => !held.Contains(k)).ToList())
+                _renewalFailures.Remove(gone);
 
             foreach (var h in listing.OrderByDescending(h => h.IsActive))
             {
                 _readings.TryGetValue(h.AccountEmail, out var numbers);
+                (DateTime FailedAtUtc, string Error)? renewal = _renewalFailures.TryGetValue(h.AccountEmail, out var failed) ? failed : null;
                 holdings.Add(new LicenseHolding
                 {
                     AccountEmail = h.AccountEmail,
@@ -253,6 +291,9 @@ public sealed class LicenseUsageReporter
                     ReadErrorDetail = numbers?.ReadErrorDetail,
                     SignedInAtUtc = numbers?.SignedInAtUtc,
                     SignInExpiresAtUtc = numbers?.SignInExpiresAtUtc,
+                    RenewalFailedAtUtc = renewal?.FailedAtUtc,
+                    RenewalError = renewal?.Error,
+                    RenewalErrorDetail = LicenseRenewalSentences.For(renewal?.Error),
                 });
             }
         }

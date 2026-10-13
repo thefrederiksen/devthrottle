@@ -1853,12 +1853,17 @@ def license_sign_in(
         help="Approve on another machine: print 'authorize-url: <url>', then read the code from standard input "
         "(that machine runs license approve).",
     ),
+    ask_when_no_browser: bool = typer.Option(
+        False, "--ask-when-no-browser",
+        help="Approve in the profile set here for the account; with none set, do as --remote-approval does.",
+    ),
     default_config_dir: Optional[str] = typer.Option(None, "--default-config-dir", help=_LICENSE_DEFAULT_DIR_HELP),
     store_dir: Optional[str] = typer.Option(None, "--store-dir", help=_LICENSE_STORE_DIR_HELP),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
 ) -> None:
     """Sign an account in here as a spare, or renew the sign-in of one held already."""
-    license_signin_ops.sign_in(account, browser, remote_approval, default_config_dir, store_dir, json_output)
+    license_signin_ops.sign_in(account, browser, remote_approval, default_config_dir, store_dir, json_output,
+                               ask_when_no_browser)
 
 
 @license_app.command("approve")
@@ -1866,15 +1871,19 @@ def license_approve(
     url: str = typer.Argument(..., help="The authorize URL that license sign-in --remote-approval printed."),
     email: str = typer.Option(..., "--email", help="The account the URL signs in. Anything else is refused."),
     browser: str = typer.Option(..., "--browser", help="The browser profile signed in to claude.ai as that account."),
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output JSON: {accountEmail, result, code} or, refused, {accountEmail, result, reason}."
+    ),
 ) -> None:
     """Approve another machine's sign-in in a browser profile here; prints the code."""
-    license_signin_ops.approve(url, email, browser)
+    license_signin_ops.approve(url, email, browser, json_output)
 
 
 @license_app.command("renew")
 def license_renew(
     account: Optional[str] = typer.Argument(None, help="One account's email. Default: every account held."),
     force: bool = typer.Option(False, "--force", help="Sign in again even when the sign-in is not due."),
+    check: bool = typer.Option(False, "--check", help="Sign nothing in: answer which accounts are due."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output JSON: {count, failed, accounts}."),
     fields: Optional[str] = typer.Option(
         None, "--fields",
@@ -1885,7 +1894,7 @@ def license_renew(
     store_dir: Optional[str] = typer.Option(None, "--store-dir", help=_LICENSE_STORE_DIR_HELP),
 ) -> None:
     """Sign in again every account held whose sign-in ends within five days."""
-    license_signin_ops.renew(account, force, json_output, fields, default_config_dir, store_dir)
+    license_signin_ops.renew(account, force, json_output, fields, default_config_dir, store_dir, check)
 
 
 @license_app.command("set-browser")
@@ -1898,6 +1907,17 @@ def license_set_browser(
 ) -> None:
     """Record which browser profile signs an account in on this machine."""
     license_signin_ops.set_browser(account, browser, default_config_dir, store_dir, json_output)
+
+
+@license_app.command("get-browser")
+def license_get_browser(
+    account: str = typer.Argument(..., help="The Claude account's email."),
+    default_config_dir: Optional[str] = typer.Option(None, "--default-config-dir", help=_LICENSE_DEFAULT_DIR_HELP),
+    store_dir: Optional[str] = typer.Option(None, "--store-dir", help=_LICENSE_STORE_DIR_HELP),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
+) -> None:
+    """Say which browser profile signs an account in on this machine, or that none is set."""
+    license_signin_ops.get_browser(account, default_config_dir, store_dir, json_output)
 
 
 @app.callback()

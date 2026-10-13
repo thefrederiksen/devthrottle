@@ -30,6 +30,35 @@ public interface ILicenseCommandLine
     /// Never throws for an answer the tool gave; an answer it could not give is
     /// <see cref="LicenseSwitchReasonCodes.ExchangeFailedUnknown"/>, because the Director cannot know what happened.</summary>
     Task<LicenseExchangeAnswer> SwitchAsync(string targetAccountEmail, string expectedActiveAccountEmail, CancellationToken cancellationToken);
+
+    /// <summary>Which held accounts - the active one too - have a sign-in that ends within five days
+    /// (<c>license renew --check</c>). It signs nothing in: one row per held account, <c>due</c>, <c>not-due</c> or
+    /// <c>unknown-expiry</c>, and <c>failed</c> only for an account whose stored sign-in could not be read. The tool
+    /// decides what "due" means, in one place. Throws <see cref="LicenseCommandLineException"/> when the tool did not
+    /// give a readable answer.</summary>
+    Task<IReadOnlyList<LicenseRenewalRow>> CheckRenewalsAsync(CancellationToken cancellationToken);
+
+    /// <summary>Whether a browser profile is set for <paramref name="accountEmail"/> on this machine
+    /// (<c>license get-browser</c>). The Director asks before it starts a sign-in that only such a profile could
+    /// approve, so it never starts one that must fail. Null when the tool gave no readable answer.</summary>
+    Task<bool?> HasBrowserProfileAsync(string accountEmail, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Starts signing <paramref name="accountEmail"/> in on this machine (<c>license sign-in</c>): a new spare, or a
+    /// renewal in place of the sign-in held. With a browser profile set for the account here, the tool approves in it
+    /// and the answer comes back <see cref="LicenseSignInStart.Finished"/>. With none, and
+    /// <paramref name="askAnotherMachineWhenNoBrowser"/> true (<c>--ask-when-no-browser</c>), it comes back
+    /// <see cref="LicenseSignInStart.Waiting"/> with its authorize URL, for another machine to approve; with false it
+    /// finishes failed, <c>no-approver</c> - which is why the caller passes false only for an account it knows has a
+    /// profile here (<see cref="HasBrowserProfileAsync"/>, or the renewal check's row). No call is made that is
+    /// expected to fail.
+    /// Never throws for an answer the tool gave.
+    /// </summary>
+    Task<LicenseSignInStart> StartSignInAsync(string accountEmail, bool askAnotherMachineWhenNoBrowser, CancellationToken cancellationToken);
+
+    /// <summary>Approves another machine's sign-in in a browser profile here (<c>license approve</c>). The tool
+    /// refuses, before any browser opens, a URL that names another account than <paramref name="accountEmail"/>.</summary>
+    Task<LicenseApproveAnswer> ApproveAsync(string authorizeUrl, string accountEmail, string browserProfile, CancellationToken cancellationToken);
 }
 
 /// <summary>What <c>license switch --json</c> answered. Its words are the contract's (section 3.3).</summary>
@@ -70,7 +99,7 @@ public sealed record LicenseCommandLineOptions(string? DefaultConfigDir, string?
 ///
 /// Nothing the tool prints is ever logged: the log lines name the subcommand, the exit code and the row count.
 /// </summary>
-public sealed class CcDevthrottleLicenseCommandLine : ILicenseCommandLine
+public sealed partial class CcDevthrottleLicenseCommandLine : ILicenseCommandLine
 {
     public const string ToolName = "cc-devthrottle";
 
@@ -175,27 +204,30 @@ public sealed class CcDevthrottleLicenseCommandLine : ILicenseCommandLine
     /// Runs the tool with <c>--json</c> and the isolation options, and returns standard output. A refusal from the tool
     /// is a JSON answer with a non-zero exit, so the exit code alone decides nothing; the caller reads the JSON.
     /// </summary>
-    private async Task<string> RunForJsonAsync(IReadOnlyList<string> subcommand, CancellationToken cancellationToken)
+    /// <param name="timeout">How long this run may take; <see cref="CallTimeout"/> when null.</param>
+    /// <param name="isolated">False for a subcommand that touches no key store and so takes no folder options.</param>
+    private async Task<string> RunForJsonAsync(IReadOnlyList<string> subcommand, CancellationToken cancellationToken,
+        TimeSpan? timeout = null, bool isolated = true)
     {
         var exe = _resolveTool()
             ?? throw new LicenseCommandLineException(
                 $"{ToolName} is not installed in this machine's Python tool environment ({OwnToolDirectory()}). Reinstall DevThrottle to put it back.");
 
         var args = new List<string>(subcommand) { "--json" };
-        if (!string.IsNullOrWhiteSpace(_options.DefaultConfigDir)) { args.Add("--default-config-dir"); args.Add(_options.DefaultConfigDir); }
-        if (!string.IsNullOrWhiteSpace(_options.StoreDir)) { args.Add("--store-dir"); args.Add(_options.StoreDir); }
+        if (isolated) WithIsolation(args);
+        var allowed = timeout ?? CallTimeout;
 
         ProcessRunner.Result result;
         using (var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
         {
-            limit.CancelAfter(CallTimeout);
+            limit.CancelAfter(allowed);
             try
             {
                 result = await ProcessRunner.RunAsync(exe, args, workingDirectory: null, standardInput: null, limit.Token);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                throw new LicenseCommandLineException($"{ToolName} license {subcommand[1]} did not finish within {CallTimeout.TotalSeconds:0} seconds.");
+                throw new LicenseCommandLineException($"{ToolName} license {subcommand[1]} did not finish within {allowed.TotalSeconds:0} seconds.");
             }
         }
 
@@ -204,6 +236,14 @@ public sealed class CcDevthrottleLicenseCommandLine : ILicenseCommandLine
 
         FileLog.Write($"[CcDevthrottleLicenseCommandLine] license {subcommand[1]}: exit={result.ExitCode}");
         return result.StandardOutput;
+    }
+
+    /// <summary>Adds the folder options that point the tool at an isolated default config and key store, when set.</summary>
+    private List<string> WithIsolation(List<string> args)
+    {
+        if (!string.IsNullOrWhiteSpace(_options.DefaultConfigDir)) { args.Add("--default-config-dir"); args.Add(_options.DefaultConfigDir); }
+        if (!string.IsNullOrWhiteSpace(_options.StoreDir)) { args.Add("--store-dir"); args.Add(_options.StoreDir); }
+        return args;
     }
 
     /// <summary>The rows of a <c>usage</c> answer: one JSON object whose <c>accounts</c> array holds rows in the contract's

@@ -2501,6 +2501,13 @@ approved; payload on standard input, one JSON line out, never the secret), and `
 `{"containsSecret": true|false, "storeFound": true|false}`, never which entry; `storeFound` false means the machine
 holds no store, so there was nothing to find). They are not for agents to call.
 
+`seal --to KEY --purpose WORD --id ID` and `open --purpose WORD --id ID` carry one short value between two machines
+(the License Switching mission: the answer to a sign-in approved in a browser on one machine, for the machine waiting
+for it). `seal` reads the value on standard input and prints text only the machine holding KEY's private half can
+open, and only for the same purpose and id. `open` reads that text on standard input and writes the value to standard
+output for the Director; it refuses inside a session and refuses to write to a terminal. Neither stores anything, and
+neither opens what a secret transfer carries.
+
 ## cc-transcribe
 
 Transcribe video/audio with timestamps and screenshots.
