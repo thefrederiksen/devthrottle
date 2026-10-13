@@ -205,12 +205,58 @@ In the two signed-in runs the stub refused, among others, `GET /sessions`, `GET 
 - **The wizard on screen.** The tests read the text of the built dialog in a headless run; no screenshot
   of the wizard was taken.
 
-## Left open, outside this mandate
+## The public documentation (added on the Delivery Lead's instruction, 2026-10-13)
 
-The sentence removed from the wizard is still in the public documentation, for the Delivery Lead:
+The two getting-started pages described the hosted gateway card as it used to read. They now say what
+the card says on this branch. The check was against the wizard text itself
+(`FirstRunWizardDialog.axaml`, `GatewayHostedSummaryText` and `GatewayHostedPlanText`), not against a
+committed screen dump: the dumps in `devthrottle_internal` were taken before the card changed, so they
+would confirm the old words.
 
-- `docs/public/getting-started/02-installation.md` line 253: "phone, voice and the morning report work immediately. Part of **Pro**".
-- `docs/public/getting-started/04-setup-wizard-walkthrough.md` line 201: "phone access, voice and the morning report work immediately".
+`docs/public/getting-started/02-installation.md`, the hosted gateway row (line 253):
 
-Past release notes that mention the 14-day trial (`docs/public/release-notes/v1.8.0.md`, `v1.9.7.md`,
-`v1.9.11.md`, `v2.0.4.md`) are dated history and were not touched.
+- Old: `We run it. Sign in and this machine is enrolled -- phone, voice and the morning report work immediately. Part of **Pro**; see [pricing](https://devthrottle.com/pricing). New accounts start on a 14-day Pro trial, no card.`
+- New: `We run it. Sign in and this machine is enrolled. What the hosted gateway includes depends on your plan; see [pricing](https://devthrottle.com/pricing).`
+
+`docs/public/getting-started/04-setup-wizard-walkthrough.md`, the hosted gateway row (line 201): the same
+old sentence without the trial, and the same new one.
+
+`docs/public/getting-started/04-setup-wizard-walkthrough.md`, the caption under the step 2 screenshot (line 195):
+
+- Old: `Hosted is pre-selected, marked RECOMMENDED, and priced as "Part of Pro" with no figure.`
+- New: `Hosted is pre-selected and marked RECOMMENDED. Its card names no plan and no price, and points at the pricing page.`
+
+### The search over `docs/public`
+
+Pattern, case-insensitive, proven first on a planted file `docs/public/__planted_hit.md` that was found
+and then deleted:
+
+    14[- ]day|fourteen|free trial|free pro trial|pro trial|no credit card|no card|credit card|days of pro|trial|morning report|work immediately|included with|part of \*\*pro|part of pro
+
+Fixed: the three passages above.
+
+Left, each with its reason:
+
+- `02-installation.md` line 10 ("Connect a gateway. Your agents on your phone, voice, the morning
+  report.") and line 249 ("it is what makes DevThrottle reachable past this one machine: your agents on
+  your phone, voice control, and the morning report"). Both say what a gateway is for, not what signing
+  in gives an account, and neither names a plan or a trial. They are true of the product and silent on
+  which plan includes what. If the Delivery Lead wants the plans named there, that is new copy to write.
+- `release-notes/v1.8.0.md` line 28, `v1.9.7.md` line 7, `v1.9.11.md` lines 5, 6 and 14, `v2.0.4.md`
+  lines 65 and 66: dated notes that say a 14-day trial existed when that release shipped. That is
+  history and stays true as history.
+- `release-notes/v1.8.1.md` lines 39 and 41, `v2.0.3.md` lines 42 and 43, `v2.9.2.md` line 36,
+  `v2.0.4.md` line 77: dated notes about a fix to trial or morning report behaviour; no promise.
+- `release-notes/v2.14.0.md` line 33, `v2.2.0.md` line 11, `v2.9.0.md` line 51: "14 days old",
+  "fourteen-row rail", "no card around it"; unrelated senses of the words.
+
+## Left open
+
+- **The step 2 screenshot is out of date.** `docs/public/getting-started/assets/setup-02-gateway.png`
+  still shows the old card with the trial sentence, directly above the corrected caption and table. It
+  can only be retaken from a build of the Director with this change, on a clean machine, which this
+  mandate did not do.
+- **No committed screen dump shows the new card.** The next clean-machine wizard run in
+  `devthrottle_internal` is what will confirm these three passages against a real screen.
+- **These pages now describe a Director that is not released.** Until the next Director release, an
+  installed wizard still shows the old card while the pages describe the new one.

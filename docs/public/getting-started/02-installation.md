@@ -250,7 +250,7 @@ The gateway is the inference engine, and it is what makes DevThrottle reachable 
 
 | Choice | What you get |
 |---|---|
-| **Hosted gateway** *(recommended)* | We run it. Sign in and this machine is enrolled -- phone, voice and the morning report work immediately. Part of **Pro**; see [pricing](https://devthrottle.com/pricing). New accounts start on a 14-day Pro trial, no card. |
+| **Hosted gateway** *(recommended)* | We run it. Sign in and this machine is enrolled. What the hosted gateway includes depends on your plan; see [pricing](https://devthrottle.com/pricing). |
 | **Self-hosted gateway** | Run the gateway on your own machine and join it. Windows only, needs the machine to stay on, and a DevThrottle sign-in all the same. For advanced setups. |
 | **Not now** | Local-only on this machine. Everything on the board still works. Connect any time from Settings. |
 
