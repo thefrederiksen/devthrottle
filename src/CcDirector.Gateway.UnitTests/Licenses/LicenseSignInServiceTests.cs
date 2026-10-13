@@ -421,7 +421,9 @@ public sealed class LicenseSignInServiceTests : IDisposable
 
     private static readonly DateTime Due = T0 + LicenseSignInService.UnansweredAfter + TimeSpan.FromSeconds(1);
 
-    private Task<int> Settle(TenantId? tenant = null) => _service.SettleUnansweredAsync(tenant ?? One, CancellationToken.None);
+    // The limit only ends a test whose settling never returns: such a test fails, it does not hang.
+    private Task<int> Settle(TenantId? tenant = null)
+        => _service.SettleUnansweredAsync(tenant ?? One, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(60));
 
     private void NoAnswerComesBack()
         => _directors.AnswerWith(_ => DirectorCommandResult.Fail(DirectorCommandStatus.Timeout, "no answer"));
@@ -746,7 +748,7 @@ public sealed class LicenseSignInServiceTests : IDisposable
             : Task.FromResult<DirectorCommandResult?>(FakeLicenseDirectors.Ok(new LicenseSignInResult
                 { SignInId = ((LicenseSignInRequest)sent.Payload).SignInId, Outcome = LicenseSignInOutcomes.Added, FinishedAtUtc = _now, Replayed = true }));
 
-        await _service.SettleEveryTenantAsync(new ListedTenants(One, null, Two), CancellationToken.None);
+        await _service.SettleEveryTenantAsync(new ListedTenants(One, null, Two), CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(60));
 
         Assert.Equal(LicenseLogStates.Unknown, TheRow().State);
         Assert.Equal(LicenseSignInOutcomes.Added, Assert.Single(Rows(Two)).State);
