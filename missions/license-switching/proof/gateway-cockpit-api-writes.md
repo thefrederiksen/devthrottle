@@ -19,8 +19,8 @@ Shapes and real answers are in `missions/license-switching/cockpit-api.md`, sect
 |---|---|
 | `dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Licenses"` | 456 passed, 0 failed |
 | `dotnet test src/CcDirector.Gateway.Tests --filter "FullyQualifiedName~LicenseHostTests"` (real HTTP against a started Gateway) | all passed, among them the 5 new ones |
-| `.\\scripts\\test-database.ps1` (a throwaway PostgreSQL in Docker) | see "The database run" below |
-| `.\\scripts\\test-local.ps1 -Parked` | see "The gate" below |
+| `.\scripts\test-database.ps1` (a throwaway PostgreSQL in Docker) | see "The database run" below |
+| `.\scripts\test-local.ps1 -Parked` | see "The gate" below |
 
 ## A defect the real-HTTP test found
 
