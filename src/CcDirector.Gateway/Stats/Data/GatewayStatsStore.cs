@@ -249,7 +249,9 @@ public sealed class GatewayStatsStore : IDisposable
     /// and gets the system clock. A test passes a fake clock and advances it, so the backoff is proven without
     /// being sat out: the schedule is seconds to a minute per step, and four tests once slept through it for 55
     /// seconds. A fake clock that is never advanced also means the startup deadline never runs out, so a slow
-    /// open on a busy machine is waited for rather than reported as "did not answer in time".</param>
+    /// open on a busy machine is waited for rather than reported as "did not answer in time" - and the constructor
+    /// then waits for as long as the open takes, so such a test must not point the store at something that
+    /// accepts a connection and never answers.</param>
     /// <exception cref="ArgumentNullException"><paramref name="choice"/> is null. A caller contract
     /// violation - a programming error, not a state a deployment can be in - so it throws.</exception>
     public GatewayStatsStore(StatsConnectionChoice choice, TimeProvider? time = null)

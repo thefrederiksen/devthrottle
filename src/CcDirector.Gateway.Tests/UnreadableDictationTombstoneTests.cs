@@ -124,10 +124,10 @@ public sealed class UnreadableDictationTombstoneTests : IAsyncLifetime
 
         var path = RecordPath(uploadId);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        using (var locked_ = new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
+        using (var handle = new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
         {
-            locked_.Write(before);
-            locked_.Flush();
+            handle.Write(before);
+            handle.Flush();
 
             var locked = await RegisterAsync(uploadId);
 
