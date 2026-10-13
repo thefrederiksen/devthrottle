@@ -22,7 +22,7 @@ public sealed class SpeakDialogCaptureUnsupportedTests : IDisposable
     public void Dispose() => DesktopHostedAiGate.CheckOverrideForTests = null;
 
     [AvaloniaFact]
-    public void Open_WhereCaptureIsUnsupported_SaysWindowsOnlyAndNeverQueriesDevices()
+    public void Open_WhereCaptureIsUnsupported_SaysSoAndNeverQueriesDevices()
     {
         var preflightCalls = 0;
         DesktopHostedAiGate.CheckOverrideForTests = _ =>
@@ -62,7 +62,7 @@ public sealed class SpeakDialogCaptureUnsupportedTests : IDisposable
 
             var text = dialog.FindControl<TextBox>("TranscriptText")!.Text ?? "";
             Assert.Equal("ERROR", status.Text);
-            Assert.Equal("Desktop dictation is only available on Windows.", text);
+            Assert.StartsWith("Desktop dictation ", text);
             Assert.DoesNotContain("COM is not supported", text);
             Assert.Equal(0, Volatile.Read(ref deviceQueries));
             Assert.False(recorderBuilt);

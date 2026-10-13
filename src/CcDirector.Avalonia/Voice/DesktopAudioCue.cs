@@ -64,6 +64,12 @@ public sealed class DesktopAudioCue
             return;
         }
 
+        if (OperatingSystem.IsLinux())
+        {
+            _ = Task.Run(() => PlayReadyOnLinux(pcm, onPlaybackFinished, onPlaybackFailed));
+            return;
+        }
+
         _ = Task.Run(() =>
         {
             // 0 = waiting, 1 = end reported, 2 = failure reported. Only the first transition counts, so exactly one
@@ -120,6 +126,35 @@ public sealed class DesktopAudioCue
                 }
             }
         });
+    }
+
+    /// <summary>
+    /// Linux playback: the sound system's own player is handed the cue and exits once it has finished sounding,
+    /// so its clean exit is the end report. Exactly one of the two callbacks is called.
+    /// </summary>
+    private static void PlayReadyOnLinux(byte[] pcm, Action? onPlaybackFinished, Action<string>? onPlaybackFailed)
+    {
+        string? failure;
+        try
+        {
+            var backend = LinuxMicDevices.LastBackend ?? LinuxAudioBackend.PipeWire;
+            failure = LinuxAudioTools.PlayPcm16Mono(pcm, SampleRate, backend, PlaybackEndAllowance);
+        }
+        catch (Exception ex)
+        {
+            failure = $"playback failed: {ex.Message}";
+        }
+
+        if (failure is null)
+        {
+            FileLog.Write("[DesktopAudioCue] bloop playback finished");
+            onPlaybackFinished?.Invoke();
+        }
+        else
+        {
+            FileLog.Write($"[DesktopAudioCue] bloop playback FAILED, end NOT reported: {failure}");
+            onPlaybackFailed?.Invoke(failure);
+        }
     }
 
     /// <summary>

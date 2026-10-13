@@ -192,9 +192,14 @@ public sealed class BatchDictationRecorder : IAsyncDisposable
         _time = TimeProvider.System;
     }
 
-    /// <summary>The production audio source: a NAudio capture carrying the already-resolved device name.</summary>
+    /// <summary>
+    /// The production audio source, carrying the already-resolved device name: a NAudio capture on Windows,
+    /// the sound system's own recorder on Linux.
+    /// </summary>
     internal static IAudioSource CreateMicrophone(int deviceNumber, string description)
-        => new MicAudioCapture(deviceNumber, description);
+        => OperatingSystem.IsLinux()
+            ? LinuxMicAudioCapture.ForDevice(deviceNumber, description)
+            : new MicAudioCapture(deviceNumber, description);
 
     /// <summary>
     /// Test-only constructor (the IAudioSource seam). Injects the audio source so the

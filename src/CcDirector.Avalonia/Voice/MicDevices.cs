@@ -32,6 +32,9 @@ public readonly record struct MicDevice(int Number, string Name, int? TypicalSta
 /// app open the real Windows default (<see cref="DefaultDeviceNumber"/> =
 /// WAVE_MAPPER) or a user-picked device, and name whichever one is active so the
 /// Dictate dialog can show it.
+///
+/// On Linux none of this is winmm: every call is answered by <see cref="LinuxMicDevices"/>, and a device
+/// number is a PipeWire object serial rather than a WaveIn index.
 /// </summary>
 public static class MicDevices
 {
@@ -50,6 +53,7 @@ public static class MicDevices
     /// </summary>
     public static IReadOnlyList<MicDevice> Enumerate()
     {
+        if (OperatingSystem.IsLinux()) return LinuxMicDevices.Enumerate();
         var devices = new List<MicDevice> { new(DefaultDeviceNumber, DescribeDefault()) };
         int count = WaveInEvent.DeviceCount;
         for (int i = 0; i < count; i++)
@@ -60,9 +64,12 @@ public static class MicDevices
 
     /// <summary>Display name for a device number (<see cref="DefaultDeviceNumber"/> resolves to the current default).</summary>
     public static string DescribeDevice(int number)
-        => number == DefaultDeviceNumber
+    {
+        if (OperatingSystem.IsLinux()) return LinuxMicDevices.DescribeDevice(number);
+        return number == DefaultDeviceNumber
             ? DescribeDefault()
             : WaveInEvent.GetCapabilities(number).ProductName;
+    }
 
     /// <summary>
     /// Resolve a persisted device NAME back to its current WaveIn index. Names
@@ -73,6 +80,7 @@ public static class MicDevices
     /// </summary>
     public static int ResolveByName(string? name)
     {
+        if (OperatingSystem.IsLinux()) return LinuxMicDevices.ResolveByName(name);
         if (string.IsNullOrWhiteSpace(name))
             return DefaultDeviceNumber;
 
@@ -93,6 +101,7 @@ public static class MicDevices
     /// </summary>
     public static MicDevice ResolveWithDescription(string? name)
     {
+        if (OperatingSystem.IsLinux()) return LinuxMicDevices.ResolveWithDescription(name);
         var number = ResolveByName(name);
         return new MicDevice(number, DescribeDevice(number));
     }
