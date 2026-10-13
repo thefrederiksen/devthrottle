@@ -551,16 +551,31 @@ plus the two only the relay can produce: `approver-offline` and `expired`.
 **What the Gateway has built of 8.1, and what it has not (13 October 2026).** BUILT: the three fields are stored
 from every accepted report and cleared by the next report that says the renewal worked, and the Licenses page is
 given them folded (`renewalFailedAtUtc`, `renewalFailedText`, `renewalFailedTone` on a holding, `cockpit-api.md`
-sections 2 and 6). NOT BUILT: the owner email of the next paragraph. Until it is, a failed renewal is seen ONCE, on
-the page, and not by email. Whoever builds the email: a failed renewal is said by `RenewalFailedAtUtc`, and the rule
-must key on that, not on `RenewalError` as the paragraph is worded. The Gateway keeps a reason word only when it is
-one of `LicenseRenewalErrors`; any other word is stored as `not-known` (`LicenseStore.RenewalErrorNotKnown`), and a
-failure reported with no word has none - so a rule that waited for a word it recognises would never email those.
+sections 2 and 6). ALSO BUILT: the owner email of the next paragraph (`LicenseRenewalEmailService`, run by the
+Gateway's once-a-minute license check for every DevThrottle account). The Gateway keeps a reason word only when it
+is one of `LicenseRenewalErrors`; any other word is stored as `not-known` (`LicenseStore.RenewalErrorNotKnown`), and
+a failure reported with no word has none - so the email is keyed on `RenewalFailedAtUtc`, never on the word.
 
-A holding with `RenewalError` set and `SignInExpiresAtUtc` within `LicenseContract.SignInExpiryWarning` (3 days)
-makes the Gateway send the owner ONE email per holding per failure streak (the same email channel as "no account
-has room", `MISSION.md` section 4), and the Licenses page shows the error beside the expiry verdict (5.7). A failed
-renewal is therefore always seen twice: on the page, and by email before the sign-in dies.
+A holding with `RenewalFailedAtUtc` set and `SignInExpiresAtUtc` within `LicenseContract.SignInExpiryWarning`
+(3 days) - or already past - makes the Gateway send the owner ONE email per holding per failure streak (the same
+email channel as "no account has room", `MISSION.md` section 4), and the Licenses page shows the error beside the
+expiry verdict (5.7). A failed renewal is therefore always seen twice: on the page, and by email before the sign-in
+dies. The rule, exactly as built:
+
+- A FAILURE STREAK of one sign-in on one machine starts when the Gateway first sees that holding failing inside the
+  window, and ends with the report in which `RenewalFailedAtUtc` is null again, or in which the machine no longer
+  holds the sign-in. A later failure is a new streak and a new email.
+- The streak is ONE ROW of the switch log, of kind `renewal-failed` (`LicenseRenewalFailureLog`; no table and no
+  column is added). The row is what makes the email go out once: it is stored, so a Gateway that restarts in the
+  middle of a streak does not email again, and a row recorded as emailed is never changed back.
+- What became of the email is the row's reason word, the same three the "no account has room" row uses:
+  `owner-emailed`, `owner-email-failed` (tried again, waiting one minute, then two, four ... up to one hour, or as
+  long as the mail service asked), `no-owner-account` (nobody to email; not tried again in that streak).
+- A holding whose `SignInExpiresAtUtc` is not known is not emailed about: the Gateway cannot say the sign-in is
+  about to end. A holding failing with more than three days left is not emailed about yet; it is when the three
+  days are reached and the renewal is still failing.
+- A machine whose last report is stale is still emailed about: the last thing it said is that its renewal failed
+  and its sign-in was about to end, and silence since then is not good news.
 
 ### 8.2 The Director renews on a schedule
 

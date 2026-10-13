@@ -428,6 +428,14 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>License Switching's minute check and Switch now: decides, sends each switch and records what came back.</summary>
     internal Licenses.LicenseSwitchService LicenseSwitches { get; }
 
+    /// <summary>License Switching (contract section 8.1): the one owner email for a sign-in whose renewal keeps failing
+    /// while the sign-in is about to end. Run by the same once-a-minute check as <see cref="LicenseSwitches"/>.</summary>
+    internal Licenses.LicenseRenewalEmailService LicenseRenewalEmails { get; }
+
+    /// <summary>How the license checks email an account's owner: <see cref="Licenses.LicenseOwnerMailer.SendAsync"/>.
+    /// A test puts a sender of its own here, so that a check run by the real host never reaches the account service.</summary>
+    internal Licenses.LicenseOwnerEmailSender LicenseOwnerMail { get; set; }
+
     /// <summary>The record of every message link set up and stopped, and every message a link carried, in the
     /// governance audit trail.</summary>
     internal Messaging.FleetMessageLinkRecord MessageLinkRecord { get; }
@@ -2303,8 +2311,11 @@ public sealed class GatewayHost : IAsyncDisposable
             tenant => TenantRegistry.SubjectForTenant(tenant),
             Core.Account.AccountNotifyByTenantClient.ResolveServiceToken);
         LicenseNow = new Licenses.LicenseGatewayClock(() => LicenseClock.GetUtcNow().UtcDateTime);
+        LicenseOwnerMail = licenseOwnerMailer.SendAsync;
         LicenseSwitches = new Licenses.LicenseSwitchService(LicenseStore, LicenseSnapshots,
-            SendCommandAsync, licenseOwnerMailer.SendAsync, LicenseNow.UtcNow);
+            SendCommandAsync, (tenant, email, ct) => LicenseOwnerMail(tenant, email, ct), LicenseNow.UtcNow);
+        LicenseRenewalEmails = new Licenses.LicenseRenewalEmailService(LicenseStore, new Licenses.LicenseRenewalFailureLog(_gatewayDb),
+            LicenseReads, (tenant, email, ct) => LicenseOwnerMail(tenant, email, ct), LicenseNow.UtcNow);
         // Per-tenant dictation transcript store (issue #509): every transcribed turn's raw and cleaned text
         // lands in the caller tenant's partition of the dictation_transcripts table, write-only, for later
         // mistranscription mining (devthrottle #2075). Same store on SQLite (self-host) and Postgres (hosted) -
@@ -6606,6 +6617,19 @@ public sealed class GatewayHost : IAsyncDisposable
         catch (Exception ex)
         {
             FileLog.Write($"[GatewayHost] license switch check FAILED: {ex.Message}");
+        }
+        // The failed-renewal emails ride the same minute, on their own try, so one failing never skips the other.
+        try
+        {
+            await LicenseRenewalEmails.TickEveryTenantAsync(_tenantPass, _licenseSwitchLifetime.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (_licenseSwitchLifetime.IsCancellationRequested)
+        {
+            FileLog.Write("[GatewayHost] license renewal email check stopped: the Gateway is stopping");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayHost] license renewal email check FAILED: {ex.Message}");
         }
     }
 

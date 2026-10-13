@@ -708,6 +708,9 @@ public static class LicenseDisplayFold
             LicenseLogStates.AlreadyActive => ("Already on the target", LicenseTones.Good),
             LicenseLogStates.Failed => ("Failed", LicenseTones.Bad),
             LicenseLogStates.Recorded => ("Recorded", LicenseTones.Neutral),
+            // A failed-renewal warning: open while the renewal keeps failing, ended when one has worked.
+            LicenseLogStates.Open when row.Kind == LicenseRenewalFailureLog.Kind => ("Failing", LicenseTones.Bad),
+            LicenseLogStates.Ended when row.Kind == LicenseRenewalFailureLog.Kind => ("Over", LicenseTones.Neutral),
             _ => (string.IsNullOrWhiteSpace(row.State) ? "Recorded" : row.State, LicenseTones.Neutral),
         };
         var kindText = row.Kind switch
@@ -716,6 +719,7 @@ public static class LicenseDisplayFold
             LicenseLogKinds.SpareAdded => "Spare added",
             LicenseLogKinds.SpareRemoved => "Spare removed",
             NoRoomKind => "No account had room",
+            LicenseRenewalFailureLog.Kind => "Renewal failing",
             _ => "Note",
         };
         var message = string.IsNullOrWhiteSpace(row.Message) ? null : row.Message;
@@ -742,7 +746,7 @@ public static class LicenseDisplayFold
             State = row.State,
             StateText = stateText,
             StateTone = stateTone,
-            IsOpen = row.Kind == NoRoomKind ? row.FinishedAtUtc is null : LicenseLogStates.IsOpen(row.State),
+            IsOpen = row.Kind is NoRoomKind or LicenseRenewalFailureLog.Kind ? row.FinishedAtUtc is null : LicenseLogStates.IsOpen(row.State),
             ReasonCode = row.ReasonCode,
             ReasonText = ReasonText(row.ReasonCode),
             Message = message,
@@ -844,23 +848,27 @@ public static class LicenseDisplayFold
     {
         var at = Utc(holding.RenewalFailedAtUtc!.Value);
         var when = at <= nowUtc ? $"Renewing this sign-in failed {Ago(nowUtc - at)}" : "Renewing this sign-in failed";
-        var why = holding.RenewalError switch
-        {
-            LicenseRenewalErrors.LoginFailed => "the sign-in did not start, or ended without a sign-in",
-            LicenseRenewalErrors.ApprovalFailed => "the approval in the browser did not complete",
-            LicenseRenewalErrors.WrongAccount => "the approving browser is signed in as another account",
-            LicenseRenewalErrors.BrowserNotSignedIn => "the approving browser is not signed in",
-            LicenseRenewalErrors.NoApprover => "no browser is set to approve this account",
-            LicenseRenewalErrors.ApproverOffline => "the machine that approves this account was not connected",
-            LicenseRenewalErrors.Expired => "no approval came back in time",
-            LicenseRenewalErrors.StoreRefused => "the machine's key store would not take the new sign-in",
-            _ => null,
-        };
+        var why = RenewalWhy(holding.RenewalError);
         if (why is not null)
             return $"{when}: {why}.";
         // No reason this Gateway knows: the Director's own sentence when it wrote one, and otherwise only the fact.
         return string.IsNullOrWhiteSpace(holding.RenewalErrorDetail) ? $"{when}." : $"{when}. {holding.RenewalErrorDetail.Trim()}";
     }
+
+    /// <summary>Why a renewal failed, in words, for a reason word of the contract; null for any other word or none.
+    /// The Licenses page and the owner email say the same of one reason.</summary>
+    internal static string? RenewalWhy(string? renewalError) => renewalError switch
+    {
+        LicenseRenewalErrors.LoginFailed => "the sign-in did not start, or ended without a sign-in",
+        LicenseRenewalErrors.ApprovalFailed => "the approval in the browser did not complete",
+        LicenseRenewalErrors.WrongAccount => "the approving browser is signed in as another account",
+        LicenseRenewalErrors.BrowserNotSignedIn => "the approving browser is not signed in",
+        LicenseRenewalErrors.NoApprover => "no browser is set to approve this account",
+        LicenseRenewalErrors.ApproverOffline => "the machine that approves this account was not connected",
+        LicenseRenewalErrors.Expired => "no approval came back in time",
+        LicenseRenewalErrors.StoreRefused => "the machine's key store would not take the new sign-in",
+        _ => null,
+    };
 
     private static LicenseExtraUsageDto ExtraUsage(bool? enabled, double? utilization) => enabled switch
     {

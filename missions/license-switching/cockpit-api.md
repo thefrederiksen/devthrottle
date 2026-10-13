@@ -693,13 +693,13 @@ than any window lasts - is not expected to reach it, whatever its reset time.
 | Field | Meaning |
 |---|---|
 | `entryId` | The row's identity, for the page's list. |
-| `kind`, `kindText` | `switch` (Switch), `spare-added` (Spare added), `spare-removed` (Spare removed), `no-room` (No account had room). **A kind a later build writes is shown as "Note"** - the row is still listed, and its `summary` is its message. Never branch on a kind you do not know; show `kindText` and `summary`. |
+| `kind`, `kindText` | `switch` (Switch), `spare-added` (Spare added), `spare-removed` (Spare removed), `no-room` (No account had room), `renewal-failed` (Renewal failing). **A kind a later build writes is shown as "Note"** - the row is still listed, and its `summary` is its message. Never branch on a kind you do not know; show `kindText` and `summary`. |
 | `atUtc` | When the Gateway decided the switch or saw the change. |
 | `machineId`, `machineName`, `osUser`, `label` | The machine the row is about, as the four fields of rule 9: `machineId` is the `machineId` of its row in the overview's `machines`, and `label` is what the row's `summary` calls it. One switch of an account is one row per machine, and the page lists one row per machine (section 1). On a row about no machine (a `no-room` row) `machineId` is null and the other three are "". A machine that is no longer listed in the overview still has its identifier and its label here. |
-| `fromAccountEmail`, `toAccountEmail` | A switch's from and to. On `spare-added` only `to` is set, on `spare-removed` and `no-room` only `from`. |
+| `fromAccountEmail`, `toAccountEmail` | A switch's from and to. On `spare-added` and `renewal-failed` only `to` is set (on `renewal-failed` it is the account whose sign-in could not be renewed), on `spare-removed` and `no-room` only `from`. |
 | `why`, `whyText` | Why a switch was asked for: `threshold` (Threshold reached) or `manual` (By hand). Null and "" on other rows. |
 | `state`, `stateText`, `stateTone`, `isOpen` | Where the row stands, in the table below. `isOpen` is true while it has not reached its end. |
-| `reasonCode`, `reasonText` | When a switch is waiting or failed: the reason word and its sentence. Null otherwise. |
+| `reasonCode`, `reasonText` | When a switch is waiting or failed: the reason word and its sentence. On a `no-room` or `renewal-failed` row: what became of the owner email (`owner-emailed`, `owner-email-failed`, `no-owner-account`), and null before the first try. Null otherwise. |
 | `message` | The sentence the machine or the Gateway wrote on the row; may be null. |
 | `summary` | The row in one sentence. Always set. |
 | `sendCount`, `lastSentAtUtc` | How many times the command was sent, and when last. |
@@ -716,12 +716,30 @@ than any window lasts - is not expected to reach it, whatever its reset time.
 | `already-active` | Already on the target | good | no |
 | `failed` | Failed | bad | no |
 | `recorded` | Recorded | neutral | no |
+| `open` on a `renewal-failed` row | Failing | bad | yes |
+| `ended` on a `renewal-failed` row | Over | neutral | no |
 | any other word | the word itself | neutral | no |
 
 The `summary` of a switch row says "is switching" only while it is `pending` or `unknown`. A switch row in a state
 a later build writes is not said to be under way: its `summary` is its message, or a sentence naming the state.
 
 A `no-room` row is open while its `finishedAtUtc` is null (the account is still out of room), whatever its state word.
+
+A `renewal-failed` row is one FAILURE STREAK of one sign-in on one machine (contract section 8.1): written when a
+machine's renewal of a sign-in is failing and that sign-in ends within three days, open while the renewal keeps
+failing, and ended by the report that says a renewal worked or that the machine no longer holds the sign-in. It is
+open while its `finishedAtUtc` is null. Its `summary` is a finished sentence that also says what became of the one
+owner email of that streak:
+
+- "Renewing the sign-in for account-a@example.com on the-mac is failing, and the sign-in expires in 2 days; the
+  owner was emailed."
+- "... is failing, and the sign-in expired 3 hours ago; the owner has not been emailed yet because {why}."
+- "... is failing, and the sign-in expires in 2 days; no owner email was sent because {why}."
+- "Renewing the sign-in for account-a@example.com on the-mac had been failing; a renewal has now worked."
+- "Renewing the sign-in for account-a@example.com on the-mac had been failing; the-mac no longer holds that sign-in."
+
+`sendCount` is 1 and `lastSentAtUtc` is set once the owner was emailed. The page shows the row like any other; the
+holding itself still carries `renewalFailedText` (section 2), which is where the reason is said.
 
 ### Example (`?limit=4`)
 
@@ -947,9 +965,9 @@ Nothing is stored by a refused call. A date is kept through every later usage re
 ### A failed renewal of a sign-in
 
 No route: the Gateway stores what each usage report says of a holding's last renewal (contract section 8.1) and the
-overview fills the three fields on that holding. **This is the only place a failed renewal is shown today.** The
-contract also has the owner emailed when a renewal fails on a sign-in about to expire; that email is not built yet,
-so the page is where the owner sees it. A holding whose renewal failed three hours ago, with one day of
+overview fills the three fields on that holding. When the sign-in also ends within three days the Gateway emails
+the owner once for that failure streak and writes a `renewal-failed` row in the switch log (section 4); the page
+does nothing for that. A holding whose renewal failed three hours ago, with one day of
 sign-in left:
 
 ```json
