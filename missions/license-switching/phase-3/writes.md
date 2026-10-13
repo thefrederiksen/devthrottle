@@ -43,7 +43,7 @@ product is touched.
     python missions\license-switching\phase-3\qa_writes_run.py      (after npm ci at the repository root)
 
 One command, all in the foreground, everything stopped at the end. Its whole output, with every request the browser
-sent and every answer the Gateway gave, is `qa-writes/qa-writes-run-output.txt`. **51 checks, all held.**
+sent and every answer the Gateway gave, is `qa-writes/qa-writes-run-output.txt`. **45 checks, all held.**
 
 **What the Gateway is.** `qa-gateway/` starts the product's own `GatewayHost`, built from this branch (main at
 `94dcfcc8b` plus this change, which touches no C# of the product), in hosted mode on a loopback port the operating
