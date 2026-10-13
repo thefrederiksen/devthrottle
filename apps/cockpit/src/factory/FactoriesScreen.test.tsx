@@ -27,6 +27,9 @@ const screenClient = vi.hoisted(() => ({
   getFactoryFloor: vi.fn(() => new Promise(() => {})),
   startFactoryTalk: vi.fn(),
   runFactoryOwnerAction: vi.fn(),
+  startProblemTalk: vi.fn(),
+  resolveRunProblem: vi.fn(),
+  getFactoryEmail: vi.fn(),
 }));
 vi.mock("@devthrottle/client-core/factory/factoriesScreenClient", () => screenClient);
 
@@ -65,6 +68,7 @@ vi.mock("@devthrottle/client-core/fleet/fleetClient", async (importOriginal) => 
 
 import { FactoriesView } from "./FactoriesView";
 import { FactoryView } from "./FactoryView";
+import { FactoryEmailView } from "./FactoryEmails";
 import {
   OldFactoriesListRedirect,
   OldFactoryAgentRedirect,
@@ -97,6 +101,7 @@ function renderAt(path: string) {
         <Route path="/factories/:factory" element={<FactoryView />} />
         <Route path="/factories/:factory/:tab" element={<FactoryView />} />
         <Route path="/factories/:factory/agents/:agent" element={<Where />} />
+        <Route path="/factories/:factory/emails/:id" element={<FactoryEmailView />} />
         <Route path="/session/:id" element={<Where />} />
         <Route path="/factory-agents" element={<OldFactoriesListRedirect />} />
         <Route path="/factory-agents/waiting" element={<OldFactoryWaitingRedirect />} />
@@ -833,5 +838,140 @@ describe("Seats that do not close themselves (Factory Control, step 2)", () => {
     const hunter = within(within(table).getByTestId("fa-seat-value-hunter")).getByTestId("fa-seat-closing");
     expect(hunter.textContent).toBe("no runs recorded yet (fixture)");
     expect(hunter.className).toContain("fa-tone-grey");
+  });
+});
+
+describe("Open problems on a factory's page (Factory Control, step 1b)", () => {
+  const PROBLEM = FACTORY_PAGE.problems!.items[0];
+
+  it("lists each open problem in the Gateway's words, with the session to read", async () => {
+    renderAt("/factories/warmforward");
+
+    const item = await screen.findByTestId(`fa-problem-${PROBLEM.runId}`);
+    expect(within(screen.getByTestId("fa-page-problems")).getByText("Open problems (fixture)")).toBeTruthy();
+    expect(within(item).getByText("Scout - WarmForward - Scout - daily scan (fixture)")).toBeTruthy();
+    expect(within(item).getByText("Did not report: its session ended without reporting how the run went. (fixture)")).toBeTruthy();
+    expect(within(item).getByText("Started Sun 11 Oct 06:15 (fixture)")).toBeTruthy();
+    expect(within(item).getByText("night shift, Sun 11 Oct, 00:00-08:00 (fixture)")).toBeTruthy();
+    expect(within(item).getByText("open 3 hours (fixture)")).toBeTruthy();
+    expect(within(item).getByTestId("fa-problem-session").getAttribute("href")).toBe(`/session/${PROBLEM.sessionId}`);
+  });
+
+  it("says so when there are none", async () => {
+    screenClient.getFactoryPage.mockResolvedValue({
+      ...FACTORY_PAGE,
+      problems: { ...FACTORY_PAGE.problems!, items: [], emptyText: "No open problems. (fixture)" },
+    });
+    renderAt("/factories/warmforward");
+
+    expect((await screen.findByTestId("fa-problems-empty")).textContent).toBe("No open problems. (fixture)");
+  });
+
+  it("Handle the issue shows it is working at once, then opens the briefed talk the Gateway started", async () => {
+    let finish: (v: unknown) => void = () => {};
+    screenClient.startProblemTalk.mockReturnValue(new Promise((r) => (finish = r)));
+    renderAt("/factories/warmforward");
+
+    const button = within(await screen.findByTestId(`fa-problem-${PROBLEM.runId}`)).getByTestId("fa-problem-handle");
+    expect(button.textContent).toBe("Handle the issue (fixture)");
+    fireEvent.click(button);
+    await waitFor(() => expect(button.textContent).toBe("Starting the talk with the boss (fixture)..."));
+    expect(screenClient.startProblemTalk).toHaveBeenCalledWith(PROBLEM.handle);
+    finish({ sessionId: "s-talk", href: "/session/s-talk" });
+    await waitFor(() => expect(where()).toBe("/session/s-talk"));
+  });
+
+  it("draws Handle the issue unavailable with the Gateway's sentence for a factory with no boss", async () => {
+    const unavailable = "WarmForward has no boss, so this goes to the Factory Manager, which is not built yet. (fixture)";
+    screenClient.getFactoryPage.mockResolvedValue({
+      ...FACTORY_PAGE,
+      problems: {
+        ...FACTORY_PAGE.problems!,
+        items: [{ ...PROBLEM, handle: { ...PROBLEM.handle, available: false, unavailableText: unavailable } }],
+      },
+    });
+    renderAt("/factories/warmforward");
+
+    const item = await screen.findByTestId(`fa-problem-${PROBLEM.runId}`);
+    expect((within(item).getByTestId("fa-problem-handle") as HTMLButtonElement).disabled).toBe(true);
+    expect(within(item).getByTestId("fa-problem-unavailable").textContent).toBe(unavailable);
+  });
+
+  it("Resolve sends the reason to the resolve route and reloads the page", async () => {
+    screenClient.resolveRunProblem.mockResolvedValue(undefined);
+    renderAt("/factories/warmforward");
+
+    const item = await screen.findByTestId(`fa-problem-${PROBLEM.runId}`);
+    fireEvent.click(within(item).getByTestId("fa-problem-resolve"));
+    expect(within(item).getByText("Why is it resolved? One line. (fixture)")).toBeTruthy();
+    fireEvent.change(within(item).getByTestId("fa-problem-reason"), { target: { value: "Re-ran it; the feed is back." } });
+    const loadsBefore = screenClient.getFactoryPage.mock.calls.length;
+    fireEvent.click(within(item).getByTestId("fa-problem-resolve-send"));
+
+    await waitFor(() => expect(screenClient.resolveRunProblem).toHaveBeenCalledWith(PROBLEM.runId, "Re-ran it; the feed is back."));
+    await waitFor(() => expect(screenClient.getFactoryPage.mock.calls.length).toBeGreaterThan(loadsBefore));
+  });
+
+  it("Resolve with no reason shows the Gateway's refusal, in its words", async () => {
+    // As GatewayError.from builds it from the route's { error } body: the sentence travels as the reason.
+    const refusal = "Resolving needs a one-line reason, and none was given. Nothing was recorded.";
+    screenClient.resolveRunProblem.mockRejectedValue(new GatewayError(400, refusal, { reason: refusal }));
+    renderAt("/factories/warmforward");
+
+    const item = await screen.findByTestId(`fa-problem-${PROBLEM.runId}`);
+    fireEvent.click(within(item).getByTestId("fa-problem-resolve"));
+    fireEvent.click(within(item).getByTestId("fa-problem-resolve-send"));
+
+    expect(await within(item).findByTestId("fa-problem-error")).toBeTruthy();
+    expect(within(item).getByTestId("fa-problem-error").textContent).toContain("needs a one-line reason");
+    expect(screenClient.resolveRunProblem).toHaveBeenCalledWith(PROBLEM.runId, "");
+  });
+});
+
+describe("Reports emailed to you, on a factory's page (Factory Control, brief 5's store)", () => {
+  const EMAIL = FACTORY_PAGE.emails!.items[0];
+
+  it("lists each kept email verbatim, in the Gateway's words", async () => {
+    renderAt("/factories/warmforward");
+
+    const card = await screen.findByTestId("fa-page-emails");
+    expect(within(card).getByText("Reports emailed to you (fixture)")).toBeTruthy();
+    const item = within(card).getByTestId(`fa-email-${EMAIL.id}`);
+    expect(within(item).getByText("Morning report (fixture)")).toBeTruthy();
+    expect(within(item).getByText("Sent today 08:00 (fixture)")).toBeTruthy();
+    expect(within(item).getByText("Factories: 2 open problems (fixture)")).toBeTruthy();
+    expect(within(item).getByText("2 problems listed (fixture)")).toBeTruthy();
+    expect(within(item).getByTestId("fa-email-read").getAttribute("href")).toBe(EMAIL.href);
+  });
+
+  it("says so when no kept email covered the factory", async () => {
+    screenClient.getFactoryPage.mockResolvedValue({
+      ...FACTORY_PAGE,
+      emails: { ...FACTORY_PAGE.emails!, items: [], emptyText: "No report has covered this factory yet. (fixture)" },
+    });
+    renderAt("/factories/warmforward");
+
+    expect((await screen.findByTestId("fa-emails-empty")).textContent).toBe("No report has covered this factory yet. (fixture)");
+  });
+
+  it("Read opens the email exactly as it was sent, in a sandboxed frame", async () => {
+    screenClient.getFactoryEmail.mockResolvedValue({ id: EMAIL.id, title: "Factories: 2 open problems (fixture)", html: "<p>as sent</p>" });
+    renderAt("/factories/warmforward");
+
+    fireEvent.click(await screen.findByTestId("fa-email-read"));
+
+    const body = await screen.findByTestId("fa-email-body");
+    expect(screenClient.getFactoryEmail).toHaveBeenCalledWith(EMAIL.id, expect.anything());
+    expect(body.getAttribute("srcdoc")).toBe("<p>as sent</p>");
+    expect(body.getAttribute("sandbox")).toBe("");
+    expect(screen.getByRole("heading", { name: "Factories: 2 open problems (fixture)" })).toBeTruthy();
+  });
+
+  it("a refused read shows the Gateway's sentence", async () => {
+    const refusal = "there is no factory email e1a2b3c4-0000-4000-8000-000000000001 in this account.";
+    screenClient.getFactoryEmail.mockRejectedValue(new GatewayError(404, refusal, { reason: refusal }));
+    renderAt(EMAIL.href);
+
+    expect(await screen.findByText(/there is no factory email/)).toBeTruthy();
   });
 });

@@ -2,7 +2,10 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { gatewayErrorMessage, GatewayError } from "../api/client";
 import {
   getFactoriesList,
+  getFactoryEmail,
+  resolveRunProblem,
   runFactoryOwnerAction,
+  startProblemTalk,
   startFactoryTalk,
   talkRefusalReason,
   type FactoryOwnerAction,
@@ -124,5 +127,73 @@ describe("runFactoryOwnerAction", () => {
     const err = await runFactoryOwnerAction(ARCHIVE).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(GatewayError);
     expect(gatewayErrorMessage(err, "archive")).toContain("The schedules changed after the confirm was shown. Nothing was done.");
+  });
+});
+
+// Handle the issue and Resolve (Factory Control, step 1b): the button opens the Gateway's briefed talk, and Resolve
+// calls the same route as `cc-devthrottle run resolve`, sending the reason as typed so the Gateway is the one that
+// refuses an empty one - in its own words.
+const HANDLE = {
+  label: "Handle the issue",
+  busyLabel: "Starting the talk with the boss...",
+  factoryId: "tallyhand",
+  runId: "3f1c2b7a-0000-4000-8000-0000000000a1",
+  available: true,
+  unavailableText: null,
+};
+
+describe("startProblemTalk", () => {
+  it("posts to the problem's handle route and returns the talk the Gateway started", async () => {
+    answer(201, JSON.stringify({ sessionId: "s-9", href: "/session/s-9" }));
+    await expect(startProblemTalk(HANDLE)).resolves.toMatchObject({ href: "/session/s-9" });
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      "/gateway/factory-agents/factories/tallyhand/problems/3f1c2b7a-0000-4000-8000-0000000000a1/handle",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("carries the Gateway's refusal sentence", async () => {
+    answer(409, JSON.stringify({ error: "Tallyhand has no boss, so this goes to the Factory Manager, which is not built yet." }));
+    const err = await startProblemTalk(HANDLE).catch((e: unknown) => e);
+    expect(gatewayErrorMessage(err, "start the talk")).toContain("which is not built yet");
+  });
+});
+
+describe("resolveRunProblem", () => {
+  it("posts the reason to the same route the command line resolves through", async () => {
+    answer(200, JSON.stringify({ runId: HANDLE.runId, state: "resolved" }));
+    await resolveRunProblem(HANDLE.runId, "Re-ran it by hand; the feed is back.");
+    const [path, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    expect(path).toBe("/cron/runs/3f1c2b7a-0000-4000-8000-0000000000a1/resolve");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ reason: "Re-ran it by hand; the feed is back." });
+  });
+
+  it("sends an empty reason as it is and shows the Gateway's refusal", async () => {
+    answer(400, JSON.stringify({ error: "Resolving needs a one-line reason, and none was given. Nothing was recorded." }));
+    const err = await resolveRunProblem(HANDLE.runId, "").catch((e: unknown) => e);
+    expect(JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string)).toEqual({ reason: "" });
+    expect(gatewayErrorMessage(err, "resolve it")).toContain("needs a one-line reason");
+  });
+});
+
+describe("getFactoryEmail", () => {
+  it("reads one kept email by id, with its HTML as sent", async () => {
+    answer(200, JSON.stringify({ id: "e1", title: "Factories: 2 open problems", html: "<p>as sent</p>" }));
+    const email = await getFactoryEmail("e1");
+    expect(vi.mocked(fetch).mock.calls[0][0]).toBe("/gateway/factory-emails/e1");
+    expect(email.html).toBe("<p>as sent</p>");
+  });
+
+  it("shows the Gateway's refusal for an email the account does not have", async () => {
+    answer(404, JSON.stringify({ error: "there is no factory email e1 in this account." }));
+    const err = await getFactoryEmail("e1").catch((e: unknown) => e);
+    expect(gatewayErrorMessage(err, "load the report")).toContain("there is no factory email e1");
+  });
+
+  it("refuses a 2XX that is not JSON, as on every other read", async () => {
+    answer(200, "<!doctype html><html></html>", "text/html");
+    const err = await getFactoryEmail("e1").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(GatewayError);
   });
 });

@@ -5093,7 +5093,9 @@ public sealed class GatewayHost : IAsyncDisposable
         // The Factories screen (Factories screen mission, phase B): the list, a factory's page and its Seats tab, built
         // from the registry, the record and the schedules.
         var factoriesScreenSources = new Api.FactoriesScreenSources(FactoryAgentsViewSources(), FactoryRegistry, tenant => _cronJobs.ListAll(tenant),
-            (tenant, ids, now) => Running.CronRunRecordReader.RecentRunsOf(_cronRuns, _sessionHistory, tenant, ids, now));
+            (tenant, ids, now) => Running.CronRunRecordReader.RecentRunsOf(_cronRuns, _sessionHistory, tenant, ids, now),
+            (tenant, factory) => _cronRunResults.Problems(tenant, factory, includeClosed: false),
+            (tenant, factory) => FactoryEmailReports!.List(tenant, factory, kind: null, Factory.FactoryEmailsFold.Shown, allStates: false));
         Api.FactoriesScreenEndpoints.Map(factoryGate,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             sources: factoriesScreenSources);
@@ -5121,7 +5123,10 @@ public sealed class GatewayHost : IAsyncDisposable
             listDirectors: tenant => Registry.ListDirectors(tenant),
             schedule: (tenant, id) => _cronJobs.Get(tenant, id),
             startOnDirector: (ctx, directorId, request) =>
-                GatewayEndpoints.StartSessionOnDirectorAsync(ctx, directorId, request, talkSpawnDoor));
+                GatewayEndpoints.StartSessionOnDirectorAsync(ctx, directorId, request, talkSpawnDoor),
+            // Handle the issue (Factory Control, step 1b) reads the one problems fold, as GET /cron/problems does.
+            problems: (tenant, factory) => _cronRunResults.Problems(tenant, factory, includeClosed: false),
+            timeZone: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)));
         // Who the switch is on for: the administrator route that switches ONE account on or off, recording who and
         // why. Same admin service token as the turn-log switch; exact-match public in AuthMiddleware.
         Api.AdminFactoryAgentsEndpoint.Map(_app, FactoryAgentsSwitch, TenantRegistry);
