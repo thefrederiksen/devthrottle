@@ -266,3 +266,63 @@ tier and checkout are live before this deploys (they are, commit 415f3868).
 **Could not reach:** the client tests (`packages/client-core`, vitest) - no `node_modules` in this
 worktree and installing them is outside a read-only review; the four screenshots in this folder were
 not opened; no request was made against the hosted Gateway; no revert proof was run.
+
+## Second round
+
+Reviewed 13 October 2026, head a0ae7aa24 (`origin/pricing-change/phase-3`), detached here. Read: the
+four phase 3 commits since the first review (c13593d67, 747471537, f0e08f1cc, 5a643668b) in full, the
+two "Review findings" sections, and the Move body at the new head. The other changes under `src` in
+`1089efb86..HEAD` (twelve License Switching files, plus `GatewayHost.cs`) were checked file by file:
+each is byte-identical to `origin/main` or touched only by the merge of main, so none is phase 3 work.
+The committed copy of this review matches mine apart from line endings. Ran, foreground, Debug:
+`RemoteAccessMatrixTests` and `HostedTeamEnrollmentTests` in `CcDirector.Gateway.UnitTests`:
+passed 68, failed 0, skipped 0. The client tests were not run here (no node modules).
+
+**Verdict: no must-fix finding. Should-fix 1 is closed at both doors; one new note on the move route.**
+
+**(a) Should-fix 1.** Closed in both directions. `Enroll` now reads the active row under the scoped id
+(`DeviceRegistry.DeviceTypeOfActiveDevice`, tenant-scoped, `Status == Active`) straight after computing
+the id and before `LeaveOtherPlaces` and `RegisterForTenant`, and answers 409
+`device_id_in_use_by_another_device_class` when the held type's class differs from the door's
+(`HostedEnrollmentEndpoint.cs`, the block after line 250). Nothing is written first: on an existing
+account the only earlier write is the email backfill in `MintOrLookupBySubject`, and on a new account
+there is no row to collide with. A legitimate re-enrolment of the same device is not locked out: the
+same door with the same id is the same class, proven by `TheSameDoorSentTheSameDeviceIdAgain_...`; an
+inactive row is not in the way; an active row with an empty type reads as a Director's, which is what
+the request path reads it as too. Every hosted browser or phone row has carried the Gateway's own type
+since the hosted mint was introduced (commit 4b6713317, 21 July 2026), so no old phone row can now meet
+the refusal on re-sign-in. The two collision tests go through the real routes and assert no key added
+and the holder's key still active and still served.
+
+*New note 8 - the move route is a third writer and does not carry the check.* `Move` registers the
+Director's new key under `NamespaceHash(personal) + "|" + directorId` (`HostedEnrollmentEndpoint.cs:757`,
+779) with `preserveActiveRecord: true`. If a browser was signed in under the Director's own id while
+the Director sat in a team (its personal row then inactive, so the new door check does not fire), the
+move back to the personal account preserves the active browser row: the Director is handed a
+browser-typed key, meets 402 on a Free account, and the Director door then answers 409 for that id until
+the row is revoked. Only the same person can set this up, it costs them their own Director, and it is
+recoverable by revoking that device, so it is a note. The fix is the same one-line read in `Move`
+before `LeaveOtherPlaces`.
+
+**(b) Note 4.** The tenant row read at the Cockpit and phone door is wrapped (`catch when not
+ArgumentException`) and answers 503 with `entitlement_unknown`; `Refusal` sets `Retry-After: 10` on
+every 503. The catch returns before `Decide` is asked, so it cannot grant. Proven by
+`ATenantRowThatCannotBeRead_AtTheCockpitAndPhoneDoor_Is503WithRetryAfter_NeverA502`, which renames the
+table. For symmetry: the new `DeviceTypeOfActiveDevice` read is not wrapped, so a failure there still
+surfaces as the door's generic answer (502 at the Cockpit and phone door); not a grant, same shape as the
+lease path, note only.
+
+**(c) "Sign in with another account".** It is a hard navigation,
+`window.location.assign(profile.basename + profile.signInPath)`, to `/mobile/signin` or `/signin`, both
+in the middleware's public set; nothing rides in the address. The page load resets the module-level
+refusal, so no stale state. The sign-in screen makes no Gateway call and has no redirect of its own
+(`SignIn.tsx` reads `listAccounts()` only to say "Add an account"), so it cannot bounce back into the
+app. The round trip ends at `DeviceCallback`, where a refused account shows the notice without this
+action, and "Try again" there is the sign-in path, so there is no automatic loop. The earlier account's
+stored key is left as it was, which is existing behaviour. The action is only offered through
+`RemotePlanGate`, so it never appears at sign-in. The test asserts it calls the way out once and does
+not reload.
+
+**(d) Nothing else of substance.** The remaining phase 3 changes are the hint sentence on the notice,
+two client tests, the retaken screenshots, and the proof text. The builders' answers in the two proof
+files match the code; the declined notes (3, 6, 7) are declined with reasons I accept.
