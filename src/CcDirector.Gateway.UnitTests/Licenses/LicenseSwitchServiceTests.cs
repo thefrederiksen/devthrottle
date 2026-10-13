@@ -659,7 +659,11 @@ public sealed class LicenseSwitchServiceTests : IDisposable
         // flight, a report since the row was written is exactly what makes the check ask again.
         _now = _now.AddSeconds(20);
         OnA(Windows, "dir-win", 50);
-        await Tick();
+        // Not awaited before it is judged: a check that did send again would wait on the same unanswered command,
+        // and this test must then go red, not hang.
+        var tick = Tick();
+        Assert.True(tick.IsCompleted, "The check sent the switch again and is waiting on it.");
+        await tick;
         var sent = Assert.Single(_directors.Sent);
 
         answer.SetResult(FakeDirectors.Ok(_directors.Result(sent.Request, LicenseSwitchOutcomes.Switched)));

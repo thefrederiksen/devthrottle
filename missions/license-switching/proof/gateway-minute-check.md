@@ -163,10 +163,33 @@ machine at 100% processor with another session's release gate under way. It ende
 passed the 120-second ceiling and were stopped. Every suite of the default run then ran to the end inside
 the `-Parked` run above, which is the same suites and three more.
 
+## The review round (pull request 3923)
+
+The review and the answers to every finding are `missions/license-switching/reviews/3923-minute-check-review.md` and
+`3923-answers.md`. What changed in the code, the test that holds each change down, and the break that turns it red:
+
+| Change | Test | Break, and tests red |
+|---|---|---|
+| A switch is marked in flight only once the whole plan stands, and the mark is cleared on every path out | `ACheckThatFailsAfterPlanningASend_DoesNotStrandThatSwitch` | Marked when its send is planned, as before: 1 |
+| A waiting row is written back to pending with no reason before it is sent again | `AResendCutOffPartWay_ReadsAsOutcomeNotKnown_AndTheMachineIsGivenNoSecondIdentifier` | Not written back: 1 |
+| A replayed answer's read-back is never taken once the machine has reported after the row was written | `ApplySwitchReadBack_ReplayedAnswerFromADirectorWhoseClockIsAhead_IsNotTakenOnceTheMachineHasReportedSinceTheRowWasWritten`, `..._WhenTheMachineHasNotReportedSinceTheRowWasWritten_IsTaken` | The new condition removed: 1 |
+| Each tenant's check starts in its own scope and all are awaited together; a skipped minute logs a line | `TickEveryTenant_ADirectorThatDoesNotAnswer_HoldsUpNoOtherTenant_AndEachSendStartsInItsOwnTenantsScope` | Each tenant awaited before the next: 1 |
+| A resend goes to the Director of the machine's last report | `AResend_GoesToTheDirectorOfTheMachinesLastReport_NotTheOneTheRowWasWrittenFor` | Goes to the Director the row was written for: 1 |
+| The in-flight mark | `TheMinuteCheck_WhileSwitchNowsSendIsInFlight_DoesNotSendThatSwitchAgain`, `SwitchNow_WhileTheMinuteChecksSendIsInFlight_LeavesThatMachineAlone` | Nothing is ever marked: 1 |
+| Not settled from a report that says the switch is still running | `Restart_AfterNotAfter_WhileTheMachineSaysThatSwitchIsStillRunning_IsNotSettledFromItsReport` | The condition made always true: 1 |
+| A refused owner email is tried further and further apart, up to an hour | `NoTarget_AnEmailThatKeepsBeingRefused_IsTriedFurtherAndFurtherApart` | The wait fixed at one minute: 1 |
+| The store's statements on PostgreSQL | `src/CcDirector.Gateway.DatabaseTests/Data/LicenseStorePostgresTests.cs` (2 tests) | - |
+| A check that finds nothing to do writes no line of its own | read from the code; no test | - |
+
+One of these tests first failed by hanging rather than by going red (the in-flight one, when nothing was marked): it
+awaited a check that was waiting on an answer that never came. It now judges the check before awaiting it. The aborted
+run reported "Passed: 179" of 201, which is why the count of a run is always read beside its total here.
+
+
 ## What a reviewer should know
 
-- Tenants are checked one after another. A Director that hangs holds its own tenant's check for up to the
-  60-second command wait, and the tenants after it wait that long too. Sends inside one tenant go together.
+- Tenants are decided one after another and their sends go together: a Director that does not answer holds up
+  nobody else (changed in the review round; it used to hold the tenants after it).
 - The Gateway marks an event emailed after the mail service confirms. A Gateway that stops between the
   confirmation and the mark sends that one email once more after it starts again. Sending nothing would
   be the worse mistake, so the mark comes second.

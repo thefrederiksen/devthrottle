@@ -49,6 +49,11 @@ public sealed class LicenseSwitchService
    second or two, and never much longer than 60 seconds. Each switch in the result carries where its
    log row stood at that moment.
 
+The route should assert that `tenant` IS the tenant in scope before it calls. The method reads and writes rows for
+the tenant it is given and the send looks the Director up in the tenant in scope; the two are never compared here, so
+a route that passed one inside the other would leave rows `pending` with nothing sent (review of pull request 3923,
+note 10).
+
 It must be called inside the caller's tenant scope, which a request already is: the send goes through
 `GatewayHost.SendCommandAsync`, which drops a command sent with no tenant scope.
 
