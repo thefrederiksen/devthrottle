@@ -49,21 +49,32 @@ the counts below are from the rebased branch.
 
 ## Commands and counts
 
-Run on the branch rebased onto origin/main at f55852fbf, 13 October 2026, one suite at a time.
+Run on the branch rebased onto origin/main at 849cf67ae, 13 October 2026, one suite at a time.
 
 | Command | Result |
 | --- | --- |
-| `dotnet test src/CcDirector.Gateway.UnitTests` | 10,766 passed of 10,766 |
-| `npx vitest run` in `apps/cockpit` | 1,046 passed of 1,046 |
-| `npx vitest run` in `packages/client-core` | 1,990 passed of 1,990 |
+| `dotnet test src/CcDirector.Gateway.UnitTests` | 10,791 passed of 10,791 |
+| `npx vitest run` in `apps/cockpit` | 1,057 passed of 1,057 |
+| `npx vitest run` in `packages/client-core` | 1,997 passed of 1,997 |
 | `tsc --noEmit` in both | clean |
-| `.\scripts\test-local.ps1` | 9 suites green, 1 red. The red is one test in `CcDirector.Core.UnitTests`, `GateTestsDoNotDependOnTheMachineTests`, and the only file it names is `CronRunResultTests.cs`, which arrived on main with pull request 3799 and is not changed by this branch |
+| `.\scripts\test-local.ps1` | red, on nothing this branch changes: see below |
 | `dotnet build src/CcDirector.Gateway.Tests` | builds. The suite itself was not run |
 
-## What the two rebases changed
+The local gate's reds, none in a file this branch touches:
 
-The branch was rebased onto main twice: on 12 October after run results merged, and on 13 October after the scheduler
-quick pause and the factory email merged.
+- `BackgroundWorkRegisterTests`: `docs/BackgroundWork.md` says two sites in `GitHubActionsBackend.cs` and the code has
+  one.
+- `GateTestsDoNotDependOnTheMachineTests`: main now has fewer machine-dependent uses than its baseline allows, in
+  `GitHubActionsBackendTests.cs` and `SessionKeysAreNeverHeldTests.cs`, and the baseline was not lowered. It no longer
+  names `CronRunResultTests.cs` or any shifts file.
+- `LauncherLaunchdRebuildTests.Rebuild_WaitsForALockHeldByAnotherProcess` in the installer engine suite: a timing
+  assertion (waited 187 ms).
+- `CcDirector.Avalonia.Tests` passed 1,079 of 1,079 but ran past the 120-second ceiling on a loaded machine.
+
+## What the rebases changed
+
+The branch was rebased onto main three times: on 12 October after run results merged, on 13 October after the
+scheduler quick pause and the factory email merged, and again that day, without a conflict, for five more commits.
 
 - **The local merge of run results is gone.** No migration, snapshot or model file is in the diff against main.
 - **The seat's closing marker, its pause button and its shift sit side by side.** Main gained the marker that says
@@ -88,6 +99,22 @@ shift group and a shift-end warning naming a run that would never start.
 - **Revert proof:** with the fix committed, `ScheduleShifts.cs` alone was put back to the commit before, rebuilt, and
   the `ScheduleShifts` and `FactoriesScreenFold` tests run: 6 failed, 81 passed - the 6 are exactly the new tests.
   Restored and rebuilt: all pass.
+
+## Second review finding: a schedule with no shift left the tab
+
+The second review found that a schedule with no shift - paused, a one-off that has run, one the store no longer has,
+or one whose next run is more than 7 days away - was in no group when its seat also had a schedule that works a
+shift. It vanished from the Seats tab with its Edit and its Resume.
+
+- **The fix.** In `FactoriesScreenFold.Seats`, a seat is listed under "No run in the next 7 days" whenever it names a
+  schedule with no shift, with only those schedules - also when it works a shift with another one. Every schedule a
+  seat names is now listed exactly once per group it belongs to, and never in none.
+- **Tests:** `FactoriesScreenFoldTests` (the paused schedule of a seat that also works the evening is under "none"
+  with its words, Edit and Resume; a missing schedule and one more than 7 days away are there too; every schedule a
+  seat names is in some group) and `FactoriesScreen.test.tsx` (pausing one of a seat's two schedules, then finding
+  its Resume and Edit under "No run in the next 7 days" while the other stays under its shift).
+- **Revert proof:** with the fix committed, `FactoriesScreenFold.cs` alone was put back to the commit before and
+  rebuilt: 2 failed, 66 passed - the 2 are the tests above. Restored and rebuilt: all pass.
 
 ## Screenshots, from a local Gateway
 
