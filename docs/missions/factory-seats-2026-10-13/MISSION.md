@@ -68,6 +68,15 @@ The owner's, in his words or by his tap, 13 October 2026:
   shouldn't have a name."
 - **D5. A seat may have no schedule.** Quoted in section 2.
 
+- **D6. Merged and released.** "We should get this merged and released." (13 October 2026, after the build
+  started.) This replaces section 9's "not released" for this mission only. The release itself is made by the
+  repository's own release procedure, never by a Developer.
+- **D7. The existing factories are not converted.** "I really don't care that much about converting my factories,
+  I can recreate all of them. Almost rather turn them all off and then recreate them one by one. And I don't know
+  if any other tenants have created factories." So no tool is built to move a brief file onto the Gateway. A seat
+  gets a brief on the Gateway by being given one. Because another account may have factories, a seat whose brief is
+  still a file keeps working exactly as it does today (P5).
+
 The Implementation Lead's, where the owner has not spoken. Each is a PROPOSAL the owner can replace; the final
 report lists them:
 
@@ -80,8 +89,8 @@ report lists them:
 - **P4. The status word for a factory with nothing scheduled is TALK ONLY**, with the line "Nothing scheduled. You
   run it by talking to it." It is not a problem state and never counts toward FAILING or NEEDS YOU.
 - **P5. A brief file in a repository keeps working.** A seat with no brief on the Gateway is told the path of its
-  file, exactly as today, and its page says where that file is and offers to move it. This is the state every
-  existing seat starts in, not a fallback for a failure.
+  file, exactly as today, and its page says where that file is. Nothing offers to move it (D7). This is the
+  state every existing seat starts in, not a fallback for a failure.
 - **P6. Phase 3 is designed before it is built.** D2 in full - every document on the Gateway, a factory working
   in no repository, one or several - touches where tools and permission rules live. It gets its own short design
   and the owner's answer before any code.
@@ -94,7 +103,7 @@ every word, the Cockpit draws it. Panels, in order:
 | Panel | Holds | Source |
 |---|---|---|
 | Head | Name, role, factory, computer, a chip for how it starts, Talk | The registration |
-| What this seat does | The brief: the published text, its version and date, Edit, History. Or, for a seat whose brief is a file: the path, the computer, and "Move it here" | Phase 2 store; the registration |
+| What this seat does | The brief: the published text, its version and date, Edit, History. Or, for a seat whose brief is a file: the path and the computer | Phase 2 store; the registration |
 | How it starts | Talk only, or each schedule with when it runs, Edit schedule, Pause, Take off this seat; each trigger that starts it | Schedules, triggers |
 | Goal | The factory's goal and its newest number | The registration, goal numbers |
 | What it has left behind | Its last talk, its last run and result, its recent activity rows, the count of memory notes with a link to Memory | Activity, run results, memory |
@@ -119,15 +128,14 @@ particular to the unattended run.
 no factory. Guarded by the rule every factory schedule change already obeys (`FactoryNaming.TryAct`).
 
 **Out.** Everything in epic #2177 not named above. Documents other than the brief, and factories over several
-repositories (phase 3, designed first). Moving the existing factories' briefs: the tool to do it is in, doing it for
-each factory is the owner's or that factory's own act. Releasing and deploying: the owner's separate decision.
+repositories (phase 3, designed first). Moving the existing factories' briefs (D7). 
 
 ## 6. Phases
 
 | Phase | What is built | Tracks | Tech Lead |
 |---|---|---|---|
 | 1. A seat you can open | The seat page from what the Gateway holds today; Open seat on every row; TALK ONLY; take a schedule off a seat (route, command, button); the old agent page redirected | One Developer | No - the Implementation Lead checks it |
-| 2. The brief on the Gateway | 2a the store, routes and command, no screen. 2b the brief panel: read, edit, history, publish, bring back, move a file in. 2c the Gateway opens talks and scheduled runs with the brief | 2a runs beside phase 1; 2b and 2c after both | No |
+| 2. The brief on the Gateway | 2a the store, routes and command, no screen. 2b the brief panel: read, edit, history, publish, bring back. 2c the Gateway opens talks and scheduled runs with the brief | 2a runs beside phase 1; 2b and 2c after both | No |
 | 3. Documents and repositories | Design only, then the owner's answer | - | - |
 
 ## 7. The check
@@ -167,8 +175,9 @@ merges. The Implementation Lead sends it; the Developer never picks the Reviewer
 
 ## 9. Where it ends
 
-Merged to main with this record and the QA reports beside the code. Not released and not deployed: the owner
-will not see the seat page in his Cockpit until he decides a release.
+Merged to main with this record and the QA reports beside the code, then released by the repository's release
+procedure on the owner's word of 13 October (D6). The mission is over when the owner can open a seat with no
+schedule in his own Cockpit.
 
 ## 10. Questions
 
