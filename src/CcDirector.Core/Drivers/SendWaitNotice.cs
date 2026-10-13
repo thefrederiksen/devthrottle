@@ -18,8 +18,10 @@ internal sealed class SendWaitNotice
     /// <summary>How long a wait runs before it says what it is waiting for. A healthy send finishes well inside it.</summary>
     internal static readonly TimeSpan NoticeAfter = TimeSpan.FromSeconds(5);
 
-    /// <summary>Test seam: sees every line a notice writes, alongside the log. Null in the Director.</summary>
-    internal static Action<string>? LineObserver { get; set; }
+    /// <summary>Test seam: sees every line a notice writes, alongside the log. Null in the Director. An event, not a
+    /// property: test classes that run side by side each add and remove their own observer, and adding to a delegate
+    /// held in a property is a read and a write, so one class's observer could be lost to another's.</summary>
+    internal static event Action<string>? LineObserver;
 
     private readonly string _tag;
     private readonly string _waitingFor;

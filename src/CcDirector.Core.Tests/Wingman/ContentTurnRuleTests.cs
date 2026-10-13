@@ -6,7 +6,6 @@ using CcDirector.Core.Sessions;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Wingman;
 using CcDirector.TestInfrastructure;
-using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
 namespace CcDirector.Core.Tests.Wingman;

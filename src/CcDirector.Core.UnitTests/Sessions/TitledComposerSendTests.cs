@@ -3,7 +3,6 @@ using CcDirector.Core.Backends;
 using CcDirector.Core.Drivers;
 using CcDirector.Core.Sessions;
 using CcDirector.TestInfrastructure;
-using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
 namespace CcDirector.Core.UnitTests.Sessions;

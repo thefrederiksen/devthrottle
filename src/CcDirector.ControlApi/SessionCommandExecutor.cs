@@ -773,8 +773,10 @@ internal static class SessionCommandExecutor
         }
     }
 
-    /// <summary>Test seam: sees every late outcome as (delivery id, wire word), alongside the log. Null in the Director.</summary>
-    internal static Action<string, string>? LateOutcomeObserver;
+    /// <summary>Test seam: sees every late outcome as (delivery id, wire word), alongside the log. Null in the Director.
+    /// An event, not a field: test classes that run side by side each add and remove their own observer, and adding
+    /// to a delegate held in a field is a read and a write, so one class's observer could be lost to another's.</summary>
+    internal static event Action<string, string>? LateOutcomeObserver;
 
     /// <summary>Logs a late outcome and, for a prompt with a delivery id, writes it to the delivery record. A late outcome
     /// is "delivered", "not-delivered" or "unconfirmed", never "delivering" (round 2c: nothing stays delivering forever). Nobody awaits the send that produced this outcome,

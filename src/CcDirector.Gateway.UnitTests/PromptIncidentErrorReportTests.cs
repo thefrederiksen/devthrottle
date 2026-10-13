@@ -13,7 +13,6 @@ using CcDirector.Core.UnitTests.Sessions;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 using CcDirector.TestInfrastructure;
-using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests;
