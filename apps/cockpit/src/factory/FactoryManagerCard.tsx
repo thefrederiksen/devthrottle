@@ -15,8 +15,9 @@ const SURFACE = "cockpit-factory";
 // The Factory Manager card (Factory Control, step 5), at the top of the Factories tab: the one seat over every
 // factory, its state, the button that opens it, and the name check. Every word, tone and finding is the Gateway's
 // (FactoryManagerEndpoints.CardOf), rendered verbatim (rule 7). The one thing laid out here is the placement form:
-// before the first start the owner chooses a computer the Gateway lists and types a folder there; both are sent with
-// the first press and the Gateway saves them only once the start succeeded.
+// before the first start the owner chooses a computer the Gateway lists and types a folder there, under the labels the
+// Gateway sends; both are sent with the first press and the Gateway saves them only once the start succeeded. The
+// folder field has no placeholder: a path that exists on one machine is not an example for every account.
 
 export function FactoryManagerCard() {
   const view = useView<FactoryManagerCardView>((s) => getFactoryManagerCard(s), "factory-manager", "load the Factory Manager");
@@ -59,7 +60,7 @@ function CardBody({ card }: { card: FactoryManagerCardView }) {
           {card.placementText !== null && <p className="fa-dim">{card.placementText}</p>}
           <div className="fa-filters">
             <label>
-              Computer
+              {card.computerLabel}
               <select value={computer} onChange={(e) => setComputer(e.target.value)} data-testid="fa-fm-computer">
                 {card.computers.map((c) => (
                   <option key={c} value={c}>
@@ -69,11 +70,10 @@ function CardBody({ card }: { card: FactoryManagerCardView }) {
               </select>
             </label>
             <label className="fa-fm-folder">
-              Folder
+              {card.folderLabel}
               <input
                 type="text"
                 value={folder}
-                placeholder="D:\ReposFred\factories"
                 onChange={(e) => setFolder(e.target.value)}
                 data-testid="fa-fm-folder"
               />

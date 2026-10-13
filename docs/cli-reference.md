@@ -1768,26 +1768,30 @@ ARGUMENTS:
 ```
 
 `factory manager` is the mark that says which session is the account's Factory Manager, held on the
-Gateway (`GET` and `PUT /gateway/factory-manager`) - the same kind of mark as the Fleet Manager's. Starting
-a Factory Manager from the card sets it; `set` replaces it and `clear` removes it. `show` prints the full
-id and the name, or `factory-manager: none`, and the computer and folder the card starts it on.
+Gateway (`GET` and `PUT /gateway/factory-manager`). Starting a Factory Manager from the card sets it.
+Only the owner's own phone or browser may SET the mark, because the mark grants the right described below:
+`set` run by a session is refused, and the command prints the Gateway's sentence. A session may `show` the
+mark and `clear` it. `show` prints the full id and the name, or `factory-manager: none` and who sets it, and
+the computer and folder the card starts it on.
 `--json` prints the Gateway's answer: `{"sessionId": ..., "computer": ..., "folder": ...}`.
 
 The marked session may resolve ANY open problem of the account with `cc-devthrottle run resolve <run id>
 "<reason>"`; the reason is kept and the resolver is recorded as the Factory Manager. Any other session
-outside the problem's factory is still refused.
+outside the problem's factory is still refused. A session that was the Factory Manager earlier and has lost
+the mark is refused the same way, and is told that the mark has moved to another session or was cleared.
 
 `factory name-check` prints the Gateway's name check over every factory that is not archived: a seat is
 flagged when its id, name or role says CEO (a factory has a boss, not a CEO), or when its name is not a
 role word of its factory - one of the roles its seats are registered with, or Boss for the boss seat. It
 prints `count:`, how many factories were checked, the rule in the Gateway's words, and one row per finding
 (factory, seat, kind - `ceo` or `not-a-role-word` - and the sentence). `count: 0` with the Gateway's pass
-sentence means nothing was flagged; an answer with no list of findings is an error, never a pass. The rule
+sentence means nothing was flagged; an answer with no list of findings, no count of factories checked or
+no rule is an error, never a pass and never a zero. The rule
 cannot tell a role word from a person's name when a seat's ROLE is itself a name; it checks that names are
 role words.
 
 All four answer 404 while factory agents are switched off, and the commands say so. A session key reaches
-the mark and the name check; the card and the talk are the owner's.
+the mark, to read and clear it, and the name check; setting the mark, the card and the talk are the owner's.
 
 #### Factory registry and goal number
 

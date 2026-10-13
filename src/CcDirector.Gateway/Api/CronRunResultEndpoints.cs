@@ -21,7 +21,8 @@ namespace CcDirector.Gateway.Api;
 /// (<see cref="FactoryNaming.TryAct"/>): a factory's problem may be resolved by a person, the account's own machine
 /// token, or a session of that factory - its boss among them. The account's bound Factory Manager (Factory Control,
 /// step 5) is in no factory and may resolve ANY problem of its account; its reason is kept like anyone's, and the
-/// resolver is recorded as the Factory Manager.
+/// resolver is recorded as the Factory Manager. A session that WAS the Factory Manager and has lost the mark is
+/// refused like any session outside the factory, and is told that the mark has moved.
 /// </summary>
 internal static class CronRunResultEndpoints
 {
@@ -35,9 +36,13 @@ internal static class CronRunResultEndpoints
         Func<TenantId, Guid, CronRunHistoryStore.JobRun?> findRun,
         // The account's bound Factory Manager session id, or null. REQUIRED, so a wiring line that forgot it fails to
         // compile rather than refusing the seat every resolve.
-        Func<TenantId, string?> factoryManagerOf)
+        Func<TenantId, string?> factoryManagerOf,
+        // Whether a session was the account's Factory Manager earlier and has lost the mark. REQUIRED for the same
+        // reason: a session refused after the mark moved must be told so.
+        Func<TenantId, string, bool> wasFactoryManager)
     {
         ArgumentNullException.ThrowIfNull(factoryManagerOf);
+        ArgumentNullException.ThrowIfNull(wasFactoryManager);
         ArgumentNullException.ThrowIfNull(service);
         ArgumentNullException.ThrowIfNull(resolveTenant);
         ArgumentNullException.ThrowIfNull(sessionFactoryOf);
@@ -45,7 +50,7 @@ internal static class CronRunResultEndpoints
 
         app.MapPost(ResultRoute, (HttpContext ctx, CronRunResultRequest? body) => Result(ctx, body, service, resolveTenant));
         app.MapPost(ResolveRoute, (string runId, HttpContext ctx, CronRunResolveRequest? body) =>
-            Resolve(ctx, runId, body, service, resolveTenant, sessionFactoryOf, findRun, factoryManagerOf));
+            Resolve(ctx, runId, body, service, resolveTenant, sessionFactoryOf, findRun, factoryManagerOf, wasFactoryManager));
         app.MapGet(ProblemsRoute, (HttpContext ctx, string? factory, string? state, string? asOf) =>
             ListProblems(ctx, factory, state, service, resolveTenant, asOf));
 
@@ -66,7 +71,7 @@ internal static class CronRunResultEndpoints
     internal static IResult Resolve(HttpContext ctx, string runId, CronRunResolveRequest? body, CronRunResultService service,
         Func<HttpContext, TenantId?> resolveTenant,
         Func<string, History.SessionFactoryLookup> sessionFactoryOf, Func<TenantId, Guid, CronRunHistoryStore.JobRun?> findRun,
-        Func<TenantId, string?> factoryManagerOf)
+        Func<TenantId, string?> factoryManagerOf, Func<TenantId, string, bool> wasFactoryManager)
     {
         if (resolveTenant(ctx) is not { } tenant)
             return NoAccount(ResolveRoute);
@@ -85,10 +90,34 @@ internal static class CronRunResultEndpoints
         // to the service, which refuses it in its own words.
         if (Guid.TryParse(runId?.Trim(), out var id) && findRun(tenant, id) is { } found
             && !FactoryNaming.TryAct(ctx, sessionFactoryOf, found.Run.Factory, "run", route, out var actError))
+        {
+            // A session that WAS the Factory Manager believes it may resolve anything. The sentence about the run's
+            // factory alone would not tell it what changed, so it is told first that the mark has moved.
+            if (caller is not null && wasFactoryManager(tenant, caller)
+                && actError is IStatusCodeHttpResult { StatusCode: StatusCodes.Status403Forbidden })
+            {
+                FileLog.Write($"[CronRunResultEndpoints] {route}: REFUSED - session {caller} was the Factory Manager; the mark is now {bound ?? "cleared"}");
+                return Results.Json(new
+                {
+                    error = MarkMoved(bound) + " " + FactoryNaming.ActRefusal("run", found.Run.Factory!.Trim()),
+                    detail = MarkMovedDetail,
+                }, statusCode: StatusCodes.Status403Forbidden);
+            }
             return actError!;
+        }
         var by = caller is null ? CronRunResultService.ResolvedByYou : $"session {caller}";
         return Answer(service.Resolve(tenant, runId, by, body?.Reason), route);
     }
+
+    /// <summary>What a session that was the Factory Manager is told first when it is refused. Held here so tests can pin it.</summary>
+    internal static string MarkMoved(string? boundNow) => boundNow is null
+        ? "This session is no longer the Factory Manager: the mark was cleared, so it may no longer resolve every problem of the account."
+        : $"This session is no longer the Factory Manager: the mark has moved to session {boundNow}, so it may no longer resolve every problem of the account.";
+
+    /// <summary>What to do about it.</summary>
+    internal const string MarkMovedDetail =
+        "There is one Factory Manager per account, and a newer Factory Manager talk takes the mark. The owner can resolve "
+        + "this problem on the factory's page, and the session that holds the mark now can resolve it with a reason.";
 
     /// <summary>GET /cron/problems: the account's problems, open ones only unless state=all, as of now or as of the
     /// UTC instant in <c>asOf</c> (ISO 8601).</summary>

@@ -209,9 +209,14 @@ internal static class FactoryNaming
 
     private static IResult Refuse(string what, string owner) => Results.Json(new
     {
-        error = $"this {what} belongs to factory '{owner}', so only a person or a session of '{owner}' may change or run it",
+        error = ActRefusal(what, owner),
         detail = ActDetail(what, owner),
     }, statusCode: StatusCodes.Status403Forbidden);
+
+    /// <summary>The sentence acting on another factory's row is refused with. Held here so a route that adds to it
+    /// (the resolve route, for a session that was the Factory Manager) says the same words.</summary>
+    internal static string ActRefusal(string what, string factory) =>
+        $"this {what} belongs to factory '{factory}', so only a person or a session of '{factory}' may change or run it";
 
     /// <summary>Why acting on another factory's row is refused. Held here so tests can pin it.</summary>
     internal static string ActDetail(string what, string factory) =>

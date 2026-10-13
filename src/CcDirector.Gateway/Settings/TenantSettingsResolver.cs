@@ -452,15 +452,45 @@ public sealed class TenantSettingsResolver
     /// <exception cref="ArgumentException">The id is not a session id.</exception>
     public void SetFactoryManagerSessionId(TenantId tenant, string? sessionId, DateTime nowUtc)
     {
-        if (sessionId is null)
+        string? next = null;
+        if (sessionId is not null)
         {
-            _store.Apply(tenant, new Dictionary<string, string?> { [TenantSettingKeys.FactoryManagerSessionId] = null }, nowUtc);
-            return;
+            if (!Guid.TryParse(sessionId, out var parsed))
+                throw new ArgumentException($"'{sessionId}' is not a session id.", nameof(sessionId));
+            next = parsed.ToString("D");
         }
-        if (!Guid.TryParse(sessionId, out var parsed))
-            throw new ArgumentException($"'{sessionId}' is not a session id.", nameof(sessionId));
-        _store.Set(tenant, TenantSettingKeys.FactoryManagerSessionId, parsed.ToString("D"), nowUtc);
+
+        // The session that loses the mark is remembered, in the same save that moves the mark, so it can be told why
+        // it is refused. The session that gains it is no longer an earlier one.
+        var current = _store.Get(tenant, TenantSettingKeys.FactoryManagerSessionId);
+        var earlier = FactoryManagerEarlier(tenant).Where(id => !SameSession(id, next)).ToList();
+        if (current is not null && !SameSession(current, next))
+            earlier.Insert(0, current);
+        if (earlier.Count > FactoryManagerEarlierKept)
+            earlier.RemoveRange(FactoryManagerEarlierKept, earlier.Count - FactoryManagerEarlierKept);
+
+        _store.Apply(tenant, new Dictionary<string, string?>
+        {
+            [TenantSettingKeys.FactoryManagerSessionId] = next,
+            [TenantSettingKeys.FactoryManagerEarlierSessionIds] = earlier.Count == 0 ? null : string.Join(',', earlier),
+        }, nowUtc);
     }
+
+    /// <summary>How many earlier Factory Manager sessions an account remembers.</summary>
+    public const int FactoryManagerEarlierKept = 20;
+
+    /// <summary>
+    /// True when <paramref name="sessionId"/> was this account's Factory Manager earlier and the mark has since moved
+    /// or been cleared. False for the session that holds the mark now.
+    /// </summary>
+    public bool WasFactoryManager(TenantId tenant, string sessionId)
+        => FactoryManagerEarlier(tenant).Any(id => SameSession(id, sessionId));
+
+    private List<string> FactoryManagerEarlier(TenantId tenant)
+        => (_store.Get(tenant, TenantSettingKeys.FactoryManagerEarlierSessionIds) ?? "")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+
+    private static bool SameSession(string a, string? b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Save where this account's Factory Manager runs: both values in one save.</summary>
     /// <exception cref="ArgumentException">The computer or the folder is blank.</exception>
