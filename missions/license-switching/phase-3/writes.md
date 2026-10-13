@@ -1,6 +1,6 @@
 # Phase 3, second pull request - Switch now and the renewal date work against the real Gateway routes
 
-13 October 2026, branch `license-switching/phase-3-page-writes`, cut from `origin/main` at `94dcfcc8b` (the commit
+13 October 2026, branch `license-switching/phase-3-page-writes`, rebased onto `origin/main` at `5bd850478` (main after `94dcfcc8b`, the commit
 that merged the two write routes, pull request 3936). `README.md` beside this file is the record of the first pull
 request (the page and its three reads); this file is the record of the second.
 
@@ -46,7 +46,7 @@ One command, all in the foreground, everything stopped at the end. Its whole out
 sent and every answer the Gateway gave, is `qa-writes/qa-writes-run-output.txt`. **45 checks, all held.**
 
 **What the Gateway is.** `qa-gateway/` starts the product's own `GatewayHost`, built from this branch (main at
-`94dcfcc8b` plus this change, which touches no C# of the product), in hosted mode on a loopback port the operating
+`5bd850478` plus this change, which touches no C# of the product), in hosted mode on a loopback port the operating
 system picks, with its whole storage under a throwaway folder. It enrolls four accounts the way the Gateway's own
 host tests do. Usage reports of two machines go in through the Gateway's own ingest. The page then runs in a real
 browser against the Cockpit's development server, which forwards to that Gateway. **The browser intercepts nothing**:
@@ -96,7 +96,7 @@ renewal), `qa-writes/answer-overview-barred.json` (the barred account and the ac
 
 Run on 13 October 2026 on the Windows machine, one at a time, in the foreground:
 
-- `apps/cockpit` (`npx vitest run`): 106 files, **1108 passed, 0 failed**. The page's own are 46: 21 in
+- `apps/cockpit` (`npx vitest run`): 106 files, **1109 passed, 0 failed**. The page's own are 46: 21 in
   `LicensesView.test.tsx`, 12 in `LicensesViewRows.test.tsx` and 13 new ones in `LicensesViewWrites.test.tsx`.
 - `packages/client-core` (`npx vitest run`): 163 files, **2016 passed, 0 failed**. The client's own are 15, 6 of
   them new.

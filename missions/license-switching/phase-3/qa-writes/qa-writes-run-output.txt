@@ -1,8 +1,8 @@
-Gateway on loopback port 60093, storage under a throwaway folder
+Gateway on loopback port 60928, storage under a throwaway folder
 
 1. A failed renewal of a sign-in, stored by the Gateway from a machine's usage report
   GET /gateway/licenses -> 200; the holding of account-b@example.com on the-windows-machine says:
-    renewalFailedAtUtc: 2026-10-13T11:42:51.0417574Z
+    renewalFailedAtUtc: 2026-10-13T11:55:58.1963679Z
     renewalFailedText:  Renewing this sign-in failed 3 hours ago: no browser is set to approve this account.
     renewalFailedTone:  bad
   [OK]   the page shows exactly one failed renewal on the card of account B
@@ -36,7 +36,7 @@ Gateway on loopback port 60093, storage under a throwaway folder
   [OK]   the confirmation shows the Gateway's sentence
   screenshot qa-writes/switch-now-confirmation.png
   the browser sent: POST /gateway/licenses/switch-now  Content-Type: application/json  body: {"accountEmail":"account-a@example.com","targetAccountEmail":"account-b@example.com"}
-  the Gateway answered 200: {"targetAccountEmail": "account-b@example.com", "text": "The switch of the-mac and the-windows-machine to account-b@example.com has not finished; the switch log shows how it ends.", "switches": [{"switchId": "c5e6263df0a34a0aaaffaac429ace588", "entryId": "ebe556a6d7d04817a7217051ddc9eaf6", "machineName": "the-mac", "osUser": "owner", "label": "the-mac", "state": "pending", "stateText": "Waiting for the machine", "stateTone": "warning", "summary": "the-mac is switching from account-a@example.com to account-b@example.com."}, {"switchId": "74ff90c26cbb4a3ea126e6a0a5d6b475", "entryId": "12d62df0725f45779dfae965555f858d", "machineName": "the-windows-machine", "osUser": "owner", "label": "the-windows-machine", "state": "pending", "stateText": "Waiting for the machine", "stateTone": "warning", "summary": "the-windows-machine is switching from account-a@example.com to account-b@example.com."}], "skipped": []}
+  the Gateway answered 200: {"targetAccountEmail": "account-b@example.com", "text": "The switch of the-mac and the-windows-machine to account-b@example.com has not finished; the switch log shows how it ends.", "switches": [{"switchId": "6625d0d22e3745be89e619bc1d7b7120", "entryId": "a6942051e94f44c1b3ca67ead460516f", "machineName": "the-mac", "osUser": "owner", "label": "the-mac", "state": "pending", "stateText": "Waiting for the machine", "stateTone": "warning", "summary": "the-mac is switching from account-a@example.com to account-b@example.com."}, {"switchId": "18f55ac2dbd048bc9a3afceb46c2bf8c", "entryId": "4617fd361891486a88ebaea583838093", "machineName": "the-windows-machine", "osUser": "owner", "label": "the-windows-machine", "state": "pending", "stateText": "Waiting for the machine", "stateTone": "warning", "summary": "the-windows-machine is switching from account-a@example.com to account-b@example.com."}], "skipped": []}
   [OK]   POST /gateway/licenses/switch-now answered 200
   [OK]   the body was sent as application/json
   [OK]   the body names the account and the target
@@ -80,7 +80,7 @@ qa-gateway fill-b -> ok fill-b
 
 6. An account barred from the automatic choice, and Switch now where the Gateway chose no target
   GET /gateway/licenses -> 200; account-b@example.com says:
-    barredUntilUtc: 2026-10-13T16:52:51.0417574Z
+    barredUntilUtc: 2026-10-13T17:05:58.1963679Z
     barredText:     Left out of the automatic choice for 2 hours 9 minutes, until its 5-hour window resets: it triggered a switch. It can still be chosen by hand.
   account-a@example.com says: canSwitchNow=True, switchNowTargetAccountEmail=None
     switchNowText: "No other account has room for the machines on account-a@example.com. A target can still be chosen by hand."
@@ -96,7 +96,7 @@ qa-gateway fill-b -> ok fill-b
   screenshot qa-writes/switch-now-no-target-nothing-sent.png
   [OK]   with a target picked by hand it can be given
   the browser sent: POST /gateway/licenses/switch-now  Content-Type: application/json  body: {"accountEmail":"account-a@example.com","targetAccountEmail":"account-b@example.com"}
-  the Gateway answered 200: {"targetAccountEmail": "account-b@example.com", "text": "The switch of the-mac and the-windows-machine to account-b@example.com has not finished; the switch log shows how it ends.", "switches": [{"switchId": "64ac34bcfa3c4df8aeb754a89b1c4d7d", "entryId": "1bbc7ab005b341108fd9822e00b9c1dd", "machineName": "the-mac", "osUser": "owner", "label": "the-mac", "state": "pending", "stateText": "Waiting for the machine", "stateTone": "warning", "summary": "the-mac is switching from account-a@example.com to account-b@example.com."}, {"switchId": "7398587f64834ffe85e482bea8689af0", "entryId": "6ec8d28ffcde412da52ccd084b0409b4", "machineName": "the-windows-machine", "osUser": "owner", "label": "the-windows-machine", "state": "pending", "stateText": "Waiting for the machine", "stateTone": "warning", "summary": "the-windows-machine is switching from account-a@example.com to account-b@example.com."}], "skipped": []}
+  the Gateway answered 200: {"targetAccountEmail": "account-b@example.com", "text": "The switch of the-mac and the-windows-machine to account-b@example.com has not finished; the switch log shows how it ends.", "switches": [{"switchId": "ce39beef00ca411ba7bc92340cdbf48d", "entryId": "f37f66e576ad4b9e9bb6cf841af599d0", "machineName": "the-mac", "osUser": "owner", "label": "the-mac", "state": "pending", "stateText": "Waiting for the machine", "stateTone": "warning", "summary": "the-mac is switching from account-a@example.com to account-b@example.com."}, {"switchId": "1cd1eb91d8b744b48dead613d2846b48", "entryId": "982648aebf8d4c58b4e6fa89c338856c", "machineName": "the-windows-machine", "osUser": "owner", "label": "the-windows-machine", "state": "pending", "stateText": "Waiting for the machine", "stateTone": "warning", "summary": "the-windows-machine is switching from account-a@example.com to account-b@example.com."}], "skipped": []}
   [OK]   the one call sent names the target picked by hand
   [OK]   the Gateway accepted it: a barred account can be chosen by hand
   screenshot qa-writes/switch-now-target-picked-by-hand.png
