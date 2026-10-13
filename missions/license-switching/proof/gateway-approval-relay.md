@@ -764,10 +764,11 @@ a timeout no longer leaves it to the report in the same pass.
 | `dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Licenses"` | 720 passed, 0 failed |
 | `dotnet test src/CcDirector.Gateway.Tests --filter "FullyQualifiedName~License"` | 39 passed, 0 failed |
 | `dotnet test src/CcDirector.Core.UnitTests --filter "FullyQualifiedName~License"` | 186 passed, 0 failed |
+| `.\scripts\test-local.ps1`, run after the documents were committed | GREEN at `9c97aab07`, tree clean, every suite `outcome=Completed`; `Core.UnitTests` 1,723 executed |
 
-NOT run in this round: `.\scripts\test-local.ps1`, `.\scripts\test-local.ps1 -Parked`, `.\scripts\test-database.ps1`
-and the whole `Gateway.UnitTests` suite. The identifier pattern is shared with the Director's code
-(`CcDirector.ControlApi`, `CcDirector.Core`); of that code only the 186 license tests of `Core.UnitTests` ran.
+NOT run in this round: `.\scripts\test-local.ps1 -Parked`, `.\scripts\test-database.ps1` and the whole
+`Gateway.UnitTests` suite. The default run covers no Gateway test. The identifier pattern is shared with the
+Director's code (`CcDirector.ControlApi`, `CcDirector.Core`), which the default run covers.
 
 ### The breaks of this round
 
