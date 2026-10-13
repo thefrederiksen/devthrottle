@@ -1,4 +1,4 @@
-"""Tests for `cc-devthrottle factory manager show | set | clear` and `cc-devthrottle factory name-check`.
+"""Tests for `cc-devthrottle factory manager show | clear` and `cc-devthrottle factory name-check`.
 
 The account has at most one Factory Manager and the Gateway holds which session it is. These tests pin what
 the commands send and print: the routes and bodies are written out as literals, never read from the module,
@@ -110,55 +110,33 @@ def test_show_Json_KeepsTheGatewayShape(monkeypatch, plain):
     assert json.loads(plain(result.output)) == {"sessionId": FM_ID, "computer": "SOREN_NORTH", "folder": "D:/f"}
 
 
-def test_set_ByName_SendsTheResolvedFullId(monkeypatch, plain):
-    state = _stub(monkeypatch)
+def test_set_IsNotACommand_FailsAsUnknownAndSendsNothing(monkeypatch, plain):
+    # Only the owner's own device may set the mark, so a command line `set` could never succeed and is not kept.
+    for args in (["set"], ["set", "Release - Architect"], ["set", "--json"]):
+        state = _stub(monkeypatch)
+        monkeypatch.setenv("CC_SESSION_ID", FM_ID)
 
-    result = runner.invoke(app, ["factory", "manager", "set", "Release - Architect", "--json"])
+        result = runner.invoke(app, ["factory", "manager", *args])
 
-    assert result.exit_code == 0, plain(result.output)
-    assert state["puts"] == [{"sessionId": OTHER_ID}]
-    assert json.loads(plain(result.output))["sessionId"] == OTHER_ID
-
-
-def test_set_WithNoTarget_MarksThisSession(monkeypatch, plain):
-    state = _stub(monkeypatch)
-    monkeypatch.setenv("CC_SESSION_ID", FM_ID)
-
-    result = runner.invoke(app, ["factory", "manager", "set"])
-
-    assert result.exit_code == 0, plain(result.output)
-    assert state["puts"] == [{"sessionId": FM_ID}]
-    assert f"id: {FM_ID}" in plain(result.output)
+        assert result.exit_code == 2, (args, plain(result.output))
+        assert state["puts"] == [], args
+        assert state["gets"] == [], args
+        assert "No such command 'set'" in _flat(plain, result), args
 
 
-def test_set_WithNoTargetOutsideASession_FailsAndSendsNothing(monkeypatch, plain):
-    state = _stub(monkeypatch)
-    monkeypatch.delenv("CC_SESSION_ID", raising=False)
+def test_help_ListsShowAndClear_AndNoSet(plain):
+    result = runner.invoke(app, ["factory", "manager", "--help"])
 
-    result = runner.invoke(app, ["factory", "manager", "set"])
-
-    assert result.exit_code == 1
-    assert state["puts"] == []
-    assert "factory manager set <session>" in _flat(plain, result)
-
-
-def test_set_RefusedByTheGateway_PrintsItsSentence_AndReportsNoMark(monkeypatch, plain):
-    sentence = "a session may not set the Factory Manager, itself included: only the owner sets it"
-    gw = factory_manager_ops.gateway
-
-    def refuse(path, body, timeout=30):
-        assert path == "gateway/factory-manager", path
-        raise gw.GatewayError(sentence, status=403)
-
-    monkeypatch.setattr(gw, "put_json", refuse)
-    monkeypatch.setenv("CC_SESSION_ID", FM_ID)
-
-    result = runner.invoke(app, ["factory", "manager", "set"])
-
-    assert result.exit_code == 1
+    assert result.exit_code == 0
     out = _flat(plain, result)
-    assert sentence in out
-    assert "factory-manager set:" not in out
+    assert "show" in out and "clear" in out
+    assert "Only the owner sets it" in out
+    assert "factory manager set" not in out
+    assert " set " not in out.replace("owner sets it", "")
+
+
+def test_theModule_HasNoWayToSetTheMark():
+    assert not hasattr(factory_manager_ops, "set_mark")
 
 
 def test_clear_SendsANullSessionId(monkeypatch, plain):
@@ -262,6 +240,9 @@ def test_actions_ListTheFactoryManagerCommandsAndTheNameCheck(plain):
     result = runner.invoke(app, ["actions", "--json"])
 
     actions = {a["id"]: a for a in json.loads(plain(result.output))["actions"]}
-    assert {"factory-manager-show", "factory-manager-set", "factory-manager-clear", "factory-name-check"}.issubset(actions)
+    assert {"factory-manager-show", "factory-manager-clear", "factory-name-check"}.issubset(actions)
     assert actions["factory-name-check"]["mutatesState"] is False
-    assert actions["factory-manager-set"]["mutatesState"] is True
+    assert actions["factory-manager-clear"]["mutatesState"] is True
+    # No action offers a session something the Gateway always refuses.
+    assert "factory-manager-set" not in actions
+    assert not [a["id"] for a in actions.values() if "factory manager set" in a["command"]]

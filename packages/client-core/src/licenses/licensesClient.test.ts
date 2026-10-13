@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getLicenseForecast, getLicenseLog, getLicenseOverview, switchLicenseNow } from "./licensesClient";
+import {
+  SWITCH_NOW_TIMEOUT_MS,
+  getLicenseForecast,
+  getLicenseLog,
+  getLicenseOverview,
+  setLicenseRenewalDate,
+  switchLicenseNow,
+} from "./licensesClient";
+import { gatewayErrorMessage } from "../api/client";
 
 // The Licenses reads and Switch now, at the wire. What these pin: each call goes to its own root-relative Gateway
 // route; the log's cursor goes back exactly as the Gateway gave it; a body without its list is an ERROR, never an
@@ -91,8 +99,26 @@ describe("Switch now", () => {
     expect(calls.length).toBe(1);
     expect(calls[0].url).toBe("/gateway/licenses/switch-now");
     expect(calls[0].init?.method).toBe("POST");
+    // The Gateway refuses a body not sent as application/json before it reads it.
+    expect(new Headers(calls[0].init?.headers).get("Content-Type")).toBe("application/json");
     expect(JSON.parse(String(calls[0].init?.body))).toEqual({ accountEmail: "account-a@example.com", targetAccountEmail: "account-b@example.com" });
     expect(result.targetAccountEmail).toBe("account-b@example.com");
+  });
+
+  it("waits longer than the Gateway's own 60-second wait for the machines", () => {
+    expect(SWITCH_NOW_TIMEOUT_MS).toBeGreaterThan(60000);
+  });
+
+  it("carries a 403 owner_only to the screen as the Gateway's sentence, word for word", async () => {
+    const sentence =
+      "only the owner on their own signed-in phone or browser may switch the machines of a subscription to another one; this request was made with a device (workstation) credential";
+    stubFetch(403, { code: "owner_only", error: sentence });
+
+    const refusal = await switchLicenseNow("account-a@example.com", "account-b@example.com").catch((err: unknown) => err);
+
+    expect(refusal).toMatchObject({ status: 403, code: "owner_only", message: sentence });
+    // What a page shows for it: nothing added, nothing taken away - no "Try again", no status number.
+    expect(gatewayErrorMessage(refusal, "switch the account")).toBe(sentence);
   });
 
   it("sends a null target when the Gateway is to choose", async () => {
@@ -117,5 +143,46 @@ describe("Switch now", () => {
     stubFetch(200, { targetAccountEmail: "account-b@example.com" });
 
     await expect(switchLicenseNow("account-a@example.com", null)).rejects.toThrow(/'switches' and 'skipped'/);
+  });
+});
+
+describe("the renewal date of a subscription", () => {
+  it("puts the account and the date to /gateway/licenses/accounts/renewal as application/json", async () => {
+    const calls = stubFetch(200, { accountEmail: "account-a@example.com", renewsOn: "2026-10-17", renewsText: "Renews 17 Oct" });
+
+    const stored = await setLicenseRenewalDate("account-a@example.com", "2026-10-17");
+
+    expect(calls.length).toBe(1);
+    expect(calls[0].url).toBe("/gateway/licenses/accounts/renewal");
+    expect(calls[0].init?.method).toBe("PUT");
+    expect(new Headers(calls[0].init?.headers).get("Content-Type")).toBe("application/json");
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ accountEmail: "account-a@example.com", renewsOn: "2026-10-17" });
+    expect(stored).toEqual({ accountEmail: "account-a@example.com", renewsOn: "2026-10-17", renewsText: "Renews 17 Oct" });
+  });
+
+  it("clears the date with an explicit null: a body that leaves renewsOn out is refused by the Gateway", async () => {
+    const calls = stubFetch(200, { accountEmail: "account-a@example.com", renewsOn: null, renewsText: "Renewal date not set" });
+
+    const stored = await setLicenseRenewalDate("account-a@example.com", null);
+
+    expect(String(calls[0].init?.body)).toBe('{"accountEmail":"account-a@example.com","renewsOn":null}');
+    expect(stored.renewsText).toBe("Renewal date not set");
+  });
+
+  it("throws the Gateway's own sentence when the date is refused", async () => {
+    stubFetch(403, { code: "owner_only", error: "only the owner on their own signed-in phone or browser may set the renewal date of a subscription; this request was made with a device (workstation) credential" });
+
+    const refusal = await setLicenseRenewalDate("account-a@example.com", "2026-10-17").catch((err: unknown) => err);
+
+    expect(refusal).toMatchObject({ status: 403, code: "owner_only" });
+    expect(gatewayErrorMessage(refusal, "set the renewal date")).toBe(
+      "only the owner on their own signed-in phone or browser may set the renewal date of a subscription; this request was made with a device (workstation) credential",
+    );
+  });
+
+  it("refuses a stored answer that has lost its sentence, rather than showing a date with no words", async () => {
+    stubFetch(200, { accountEmail: "account-a@example.com", renewsOn: "2026-10-17" });
+
+    await expect(setLicenseRenewalDate("account-a@example.com", "2026-10-17")).rejects.toThrow(/'renewsText'/);
   });
 });

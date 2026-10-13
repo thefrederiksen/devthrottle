@@ -125,7 +125,7 @@ fleet_manager_app = typer.Typer(
 )
 factory_manager_app = typer.Typer(
     cls=AxiGroup,
-    help="Show, set, or clear which session is this account's one Factory Manager.",
+    help="Show or clear the account's Factory Manager mark. Only the owner sets it.",
     add_completion=False,
     no_args_is_help=True,
 )
@@ -1466,17 +1466,6 @@ _ACTIONS = [
         "command": "cc-devthrottle factory manager show",
         "mutatesState": False,
         "args": [],
-    },
-    {
-        "id": "factory-manager-set",
-        "description": (
-            "Ask the Gateway to mark a session as this account's one Factory Manager. The Gateway REFUSES a session: "
-            "the mark grants the right to resolve any problem of the account, so only the owner sets it, from their own "
-            "phone or browser (Talk to the Factory Manager on the Factories screen). A session may show and clear the mark."
-        ),
-        "command": "cc-devthrottle factory manager set [<session>]",
-        "mutatesState": True,
-        "args": [{"name": "session", "required": False}],
     },
     {
         "id": "factory-manager-clear",
@@ -3173,17 +3162,6 @@ def factory_manager_show(
 ) -> None:
     """Show this account's Factory Manager, or none, and where it starts."""
     factory_manager_ops.show(json_output)
-
-
-@factory_manager_app.command("set")
-def factory_manager_set(
-    session: Optional[str] = typer.Argument(
-        None, help="The session to mark: its number, an id prefix, or its name. Omit to mark this session."
-    ),
-    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
-) -> None:
-    """Mark a session as the Factory Manager. Owner only: a session is refused."""
-    factory_manager_ops.set_mark(session, json_output)
 
 
 @factory_manager_app.command("clear")

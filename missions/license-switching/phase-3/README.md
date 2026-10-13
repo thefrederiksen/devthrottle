@@ -3,6 +3,10 @@
 13 October 2026, branch `license-switching/phase-3-licenses-page`, rebased onto `origin/main` at `0b83751ed` (the
 commit that merged the Gateway routes the page reads, pull request 3925).
 
+**This file is the record of the first pull request (3933), as it stood on the day it merged. The two things it says are
+not yet real - Switch now and the editing of the renewal date - are done in the second pull request; `writes.md` beside
+this file is its record, with the run against the real routes.**
+
 **Two things on the page are built to a shape and have never met a real route: Switch now, and the editing of the
 renewal date.** Their routes arrive in the follow-up pull request "Licenses API: Switch now, renewal date, failed
 renewal". Against today's Gateway, Switch now is drawn, asks for confirmation, and is then answered "Not found" -

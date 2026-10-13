@@ -153,8 +153,9 @@ public sealed class CronRunResultResponse
     /// <summary>The schedule's name.</summary>
     public string JobName { get; set; } = "";
 
-    /// <summary>True when the session should now close itself (the same as <c>session done</c>): after an ok result.
-    /// After a problem the session stays open for someone to look at. The Gateway decides; the command follows.</summary>
+    /// <summary>True when the session should now close itself (the same as <c>session done</c>): after an ok result,
+    /// when the run's schedule is set to close itself. With that setting off the session stays open after ok. After a
+    /// problem the session stays open for someone to look at. The Gateway decides; the command follows.</summary>
     public bool CloseSession { get; set; }
 
     /// <summary>What happened, in words.</summary>

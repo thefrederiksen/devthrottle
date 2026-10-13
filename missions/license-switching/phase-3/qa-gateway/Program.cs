@@ -9,13 +9,21 @@ using CcDirector.Gateway.Licenses;
 //
 // It starts the product's own GatewayHost in hosted mode on a loopback port the operating system picks, with its
 // whole storage under a throwaway folder (CC_DIRECTOR_ROOT), so nothing of the machine's real Gateway is read or
-// written. Two accounts are enrolled the way the Gateway's own host tests enroll them, each with a browser key:
-//   - "owner": two machines whose usage reports go in through the Gateway's own ingest, and a switch log;
-//   - "empty": enrolled, and no machine of it ever reports.
-// Every answer the page then reads comes over HTTP through the real authentication and the real display fold.
+// written. Four accounts are enrolled the way the Gateway's own host tests enroll them, each with a browser key:
+//   - "owner":   two machines whose usage reports go in through the Gateway's own ingest, a switch log, and one
+//                sign-in whose last renewal the machine reported as failed. It also has a WORKSTATION key - the
+//                credential of a Director, which may read the page and is refused both writes;
+//   - "refused": the same two machines, with no log. On the command `fill-b` its machines report account B at its
+//                limit, so a Switch now the page already offered is refused by the Gateway;
+//   - "barred":  the same two machines, with account B barred from the automatic choice of a target;
+//   - "empty":   enrolled, and no machine of it ever reports.
+// Every answer the page then reads, and both of its writes, go over HTTP through the real authentication, the real
+// routes and the real display fold.
 //
 // No sign-in key exists anywhere in it: a report carries emails, numbers and times only, and these are made up.
-// It prints one line of JSON (the port and the two browser keys) and runs until a line arrives on standard input.
+// No Director is connected and no Claude sign-in of this machine is read or touched.
+// It prints one line of JSON (the port and the keys), then answers each command line on standard input with one
+// line, and stops on an empty line.
 //
 // Three properties and one method of the host are internal and are reached by reflection, so that the product gains
 // no InternalsVisibleTo for a QA program: LicenseUsage, LicenseStore, LicenseReads and SeedEntitlementForTest.
@@ -41,20 +49,18 @@ var ingest = Internal<LicenseUsageIngest>(gateway, "LicenseUsage");
 var store = Internal<LicenseStore>(gateway, "LicenseStore");
 var reads = Internal<LicenseReadModel>(gateway, "LicenseReads");
 
-(TenantId Tenant, string BrowserKey) Enroll(string name)
+(TenantId Tenant, string Subject, string BrowserKey) Enroll(string name)
 {
     var subject = "sub-license-qa-" + name;
     var tenant = gateway.TenantRegistry.MintOrLookupBySubject(subject, name + "@qa.example.com");
     seedEntitlement.Invoke(gateway, new object?[] { subject, "active", null, true, "hosted" });
     var key = gateway.Devices.RegisterForTenant(tenant, subject, "dev-license-qa-" + name, "QA-BROWSER", deviceType: "browser").DeviceKey;
-    return (tenant, key);
+    return (tenant, subject, key);
 }
-
-var owner = Enroll("owner");
-var empty = Enroll("empty");
 
 const string A = "account-a@example.com", B = "account-b@example.com", C = "account-c@example.com", D = "account-d@example.com";
 var now = DateTime.UtcNow;
+var earlier = now.AddMinutes(-20);
 
 LicenseHolding Read(string email, bool active, double fiveHour, double week, DateTime readAt, double signInDaysLeft) => new()
 {
@@ -70,6 +76,14 @@ LicenseHolding Read(string email, bool active, double fiveHour, double week, Dat
     SignInExpiresAtUtc = now.AddDays(signInDaysLeft),
 };
 
+// The same reading, from a machine whose last renewal of that sign-in failed three hours ago.
+LicenseHolding RenewalFailed(LicenseHolding holding)
+{
+    holding.RenewalFailedAtUtc = now.AddHours(-3);
+    holding.RenewalError = LicenseRenewalErrors.NoApprover;
+    return holding;
+}
+
 // A sign-in the machine holds and could not read: no number at all, and the reason.
 LicenseHolding NotRead(string email) => new()
 {
@@ -82,35 +96,51 @@ LicenseHolding NotRead(string email) => new()
     SignInExpiresAtUtc = now.AddDays(27),
 };
 
-void Report(string directorId, long sequence, string machine, DateTime sentAt, params LicenseHolding[] holdings)
+void Report(TenantId tenant, string directorId, long sequence, string machine, DateTime sentAt, params LicenseHolding[] holdings)
 {
     var report = new LicenseUsageReport
     {
         MachineName = machine, OsUser = "owner", SentAtUtc = sentAt, Trigger = LicenseReportTriggers.Interval, Holdings = holdings.ToList(),
     };
-    var outcome = ingest.Ingest(owner.Tenant, directorId, "conn-" + directorId, sequence, report, sentAt);
+    var outcome = ingest.Ingest(tenant, directorId, "conn-" + directorId, sequence, report, sentAt);
     if (outcome != LicenseIngestOutcome.Accepted)
         throw new InvalidOperationException($"the report of {machine} (sequence {sequence}) was not accepted: {outcome}");
 }
 
-ingest.RegisterConnection(owner.Tenant, "director-qa-windows", "conn-director-qa-windows");
-ingest.RegisterConnection(owner.Tenant, "director-qa-mac", "conn-director-qa-mac");
-var earlier = now.AddMinutes(-20);
-// Twenty minutes apart, so the forecast has a rate: account A rises on its 5-hour window.
-Report("director-qa-windows", 1, "the-windows-machine", earlier,
-    Read(A, true, 58, 40, earlier, 9), Read(B, false, 4, 22, earlier, 2.2), Read(C, false, 99, 40, earlier, 29), NotRead(D));
-Report("director-qa-mac", 1, "the-mac", earlier, Read(A, true, 58, 40, earlier, 10), Read(B, false, 4, 22, earlier, 25));
-Report("director-qa-windows", 2, "the-windows-machine", now,
-    Read(A, true, 64, 41, now, 9), Read(B, false, 4, 22, now, 2.2), Read(C, false, 99, 40, now, 29), NotRead(D));
-Report("director-qa-mac", 2, "the-mac", now, Read(A, true, 64, 41, now, 10), Read(B, false, 4, 22, now, 25));
+// Two machines, both working on account A, twenty minutes apart so the forecast has a rate. Both hold a spare for
+// account B; the Windows machine also holds one for account C (at its limit) and one for account D (never read).
+void SeedFleet(TenantId tenant, string name, bool withFailedRenewal)
+{
+    string windows = $"director-qa-{name}-windows", mac = $"director-qa-{name}-mac";
+    ingest.RegisterConnection(tenant, windows, "conn-" + windows);
+    ingest.RegisterConnection(tenant, mac, "conn-" + mac);
+    LicenseHolding SpareB(DateTime at) => withFailedRenewal ? RenewalFailed(Read(B, false, 4, 22, at, 2.2)) : Read(B, false, 4, 22, at, 2.2);
+    Report(tenant, windows, 1, "the-windows-machine", earlier, Read(A, true, 58, 40, earlier, 9), SpareB(earlier), Read(C, false, 99, 40, earlier, 29), NotRead(D));
+    Report(tenant, mac, 1, "the-mac", earlier, Read(A, true, 58, 40, earlier, 10), Read(B, false, 4, 22, earlier, 25));
+    Report(tenant, windows, 2, "the-windows-machine", now, Read(A, true, 64, 41, now, 9), SpareB(now), Read(C, false, 99, 40, now, 29), NotRead(D));
+    Report(tenant, mac, 2, "the-mac", now, Read(A, true, 64, 41, now, 10), Read(B, false, 4, 22, now, 25));
+}
 
-// The switch log: one switch that worked, at the threshold, and one asked for by hand that FAILED on the machine.
-var windows = reads.Read(owner.Tenant, now).Machines.Single(m => m.MachineName == "the-windows-machine").MachineId;
+var owner = Enroll("owner");
+var refused = Enroll("refused");
+var barred = Enroll("barred");
+var empty = Enroll("empty");
+// The credential of a Director of the owner's account: it reads the page and is refused both writes.
+var workstationKey = gateway.Devices.RegisterForTenant(owner.Tenant, owner.Subject, "dev-license-qa-owner-workstation", "QA-WORKSTATION", deviceType: "workstation").DeviceKey;
+
+SeedFleet(owner.Tenant, "owner", withFailedRenewal: true);
+SeedFleet(refused.Tenant, "refused", withFailedRenewal: false);
+SeedFleet(barred.Tenant, "barred", withFailedRenewal: false);
+// Account B triggered a switch and its 5-hour window has not reset: it is left out of the automatic choice.
+store.Bar(barred.Tenant, B, LicenseWindowNames.FiveHour, now.AddHours(2).AddMinutes(10), now);
+
+// The owner's switch log: one switch that worked, at the threshold, and one asked for by hand that FAILED on the machine.
+var windowsMachine = reads.Read(owner.Tenant, now).Machines.Single(m => m.MachineName == "the-windows-machine").MachineId;
 void Switch(string from, string to, string why, DateTime at, string outcome, string? reasonCode, string message, bool verified)
 {
-    var row = store.CreatePendingSwitch(owner.Tenant, windows, from, to, why, at)
+    var row = store.CreatePendingSwitch(owner.Tenant, windowsMachine, from, to, why, at)
               ?? throw new InvalidOperationException("the switch row was not written: the machine is not known");
-    store.RecordSend(owner.Tenant, row.SwitchId!, "director-qa-windows", at.AddSeconds(1));
+    store.RecordSend(owner.Tenant, row.SwitchId!, "director-qa-owner-windows", at.AddSeconds(1));
     var settled = store.TrySettle(owner.Tenant, new LicenseSwitchResult
     {
         SwitchId = row.SwitchId!, Outcome = outcome, ReasonCode = reasonCode, Message = message,
@@ -123,8 +153,29 @@ Switch(C, A, LicenseSwitchReasons.Threshold, now.AddHours(-5), LicenseSwitchOutc
 Switch(A, D, LicenseSwitchReasons.Manual, now.AddHours(-2), LicenseSwitchOutcomes.Failed, LicenseSwitchReasonCodes.SpareNotUsable,
     $"The spare for {D} could not be used.", false);
 
-Console.WriteLine(JsonSerializer.Serialize(new { port = gateway.Port, ownerKey = owner.BrowserKey, emptyKey = empty.BrowserKey, root }));
+Console.WriteLine(JsonSerializer.Serialize(new
+{
+    port = gateway.Port, ownerKey = owner.BrowserKey, workstationKey, refusedKey = refused.BrowserKey, barredKey = barred.BrowserKey,
+    emptyKey = empty.BrowserKey, root,
+}));
 Console.Out.Flush();
-Console.In.ReadLine();
+
+for (var line = Console.In.ReadLine(); !string.IsNullOrWhiteSpace(line); line = Console.In.ReadLine())
+{
+    if (line.Trim() == "fill-b")
+    {
+        // The machines of "refused" report again: account B is now at its limit on both.
+        var at = DateTime.UtcNow;
+        Report(refused.Tenant, "director-qa-refused-windows", 3, "the-windows-machine", at,
+            Read(A, true, 65, 41, at, 9), Read(B, false, 99, 22, at, 2.2), Read(C, false, 99, 40, at, 29), NotRead(D));
+        Report(refused.Tenant, "director-qa-refused-mac", 3, "the-mac", at, Read(A, true, 65, 41, at, 10), Read(B, false, 99, 22, at, 25));
+        Console.WriteLine("ok fill-b");
+    }
+    else
+    {
+        Console.WriteLine("unknown command: " + line);
+    }
+    Console.Out.Flush();
+}
 await gateway.StopAsync();
 try { Directory.Delete(root, true); } catch (IOException) { /* the folder is under the temporary folder either way */ }
