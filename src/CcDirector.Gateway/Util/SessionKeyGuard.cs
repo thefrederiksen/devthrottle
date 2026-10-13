@@ -458,6 +458,11 @@ public static class SessionKeyGuard
             if (IsApplicationSetting(s)) return true;
             if (IsHandoverRead(s)) return true;
 
+            // The account's kept factory emails (Factory Control, step 4): the 08:00 reports and 16:00 / midnight
+            // checks as they were sent - the list and one email by id - which a factory's boss and the Factory Manager
+            // read. The same facts as /cron/problems, rendered; reading them changes nothing.
+            if (s.Length is 2 or 3 && s[0] == "gateway" && s[1] == "factory-emails") return true;
+
             return false;
         }
 
@@ -986,6 +991,10 @@ public static class SessionKeyGuard
         // how the product behaves - and admits nobody: the mark names a session already inside the account.
         // The Fleet Manager sets it through the command line, so a session key must reach it.
         "gateway/fleet-manager" => true,
+        // Whether the account is sent the factory email (Factory Control, step 4). It says how the product behaves -
+        // whether it mails the account its own factories' report - and admits nobody: the email can only ever go to
+        // the account's own address, resolved by the account service. The rollout switches it on from a session.
+        "gateway/factory-email" => true,
         _ => false,
     };
 

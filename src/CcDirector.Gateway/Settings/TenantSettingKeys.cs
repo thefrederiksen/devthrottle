@@ -289,6 +289,14 @@ public static class TenantSettingKeys
     /// </summary>
     public const string DemoMode = "demo_mode";
 
+    /// <summary>
+    /// Whether this account is sent the factory email - the 08:00 report and the 16:00 / midnight checks (Factory
+    /// Control, step 4). Stored as "true"/"false". OFF unless switched on: it ships off, and the account's first real
+    /// report is checked before it is turned on for anyone (the owner's ruling, 10 October 2026). Anything stored that
+    /// is not exactly "true" reads as off.
+    /// </summary>
+    public const string FactoryEmailEnabled = "factory_email_enabled";
+
     /// <summary>Every key this resolver serves, for validation and enumeration.</summary>
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -308,5 +316,6 @@ public static class TenantSettingKeys
         SchedulesPaused,
         GatewayInstanceId,
         DemoMode,
+        FactoryEmailEnabled,
     };
 }
