@@ -194,7 +194,8 @@ S6 Add a spare can be confirmed with no account typed | ran 77 | red 2
 S7 Add a spare is sent with no account (both guards gone) | ran 77 | red 2
     - cannot be confirmed and sends nothing before an account is typed, then sends that account and the machine
     - opens empty every time: the account typed for one machine is not carried to the next
-S8 Add a spare sends the account with the space around it | ran 77 | red 0
+S8 Add a spare sends the account with the space around it | ran 77 | red 1
+    - cannot be confirmed and sends nothing before an account is typed, then sends that account and the machine
 S9 Add a spare is sent to the route of Renew now | ran 77 | red 4
     - cannot be confirmed and sends nothing before an account is typed, then sends that account and the machine
     - shows a 409 already_held in the Gateway's sentence, word for word, and keeps what was typed
@@ -244,7 +245,8 @@ S26 a refused approver closes the editor as if it were stored | ran 77 | red 2
     - shows a 403 owner_only in the Gateway's sentence, word for word, and keeps the editor open with what was typed
 S27 an approver can be saved with a field left empty | ran 77 | red 1
     - sets an approver with one application/json PUT of the four fields, shows the Gateway's sentence, and reads the approvers again
-S28 the approver's account is sent with the space around it | ran 77 | red 0
+S28 the approver's account is sent with the space around it | ran 77 | red 1
+    - sets an approver with one application/json PUT of the four fields, shows the Gateway's sentence, and reads the approvers again
 S29 changing an approver lets its account be changed | ran 77 | red 1
     - changes an approver from its own row: the editor opens on what is stored and keeps its account
 S30 Remove sends without asking | ran 77 | red 3
@@ -330,6 +332,4 @@ K18b a refused removal loses the Gateway's sentence (seen from the page) | ran 7
 RESTORED; baseline:
 cockpit 77 red 0
 core 27 red 0
-121 wrong changes; 2 left every test green
-    SURVIVED: S8 Add a spare sends the account with the space around it
-    SURVIVED: S28 the approver's account is sent with the space around it
+121 wrong changes; 0 left every test green
