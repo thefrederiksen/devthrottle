@@ -83,7 +83,8 @@ public sealed class CronRunResultService
     /// retried command is harmless; a DIFFERENT second result is refused - a run cannot report a problem and then erase
     /// it with ok (only the next run of the schedule, or a resolve, clears a problem). The one exception is a run the
     /// Gateway already found past its shift: the session's late report is added to that problem, once, and the run
-    /// stays a problem. Whether the session closes is read off the STORED result - only an ok run closes.
+    /// stays a problem. Whether the session closes is read off the STORED result and the schedule's close-itself
+    /// setting: an ok run closes when the setting is on (the default) and stays open when it is off; a problem never closes.
     /// </summary>
     public CronRunResultOutcome<CronRunResultResponse> Report(TenantId tenant, string? callingSessionId, string? result, string? reason)
     {
@@ -114,6 +115,10 @@ public sealed class CronRunResultService
 
         var job = _jobById(found.JobId);
         var name = job?.Name ?? found.JobId;
+        // THE SCHEDULE'S CLOSE-ITSELF SETTING DECIDES whether an ok run closes its session, read as the schedule has
+        // it now. A schedule deleted while its run was going has no setting left to read; its run closes, as every
+        // schedule does unless its owner switched that off.
+        var closesItself = job?.Action.AutoDismiss ?? true;
         var line = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
         var runId = Guid.Parse(found.Run.RunId);
         var run = found.Run;
@@ -129,7 +134,7 @@ public sealed class CronRunResultService
                 return CronRunResultOutcome<CronRunResultResponse>.Refused(decision.Refusal, 409);
             }
             if (decision.Write is not { } w)
-                return Answer(found.JobId, name, run, alreadyRecorded: true);
+                return Answer(found.JobId, name, run, alreadyRecorded: true, closesItself);
 
             var written = _runs.RecordResult(tenant, runId, run.Result, w.ExpectedReason, w.Result, w.Problem, w.Reason, _nowUtc());
             if (written.Run is null)
@@ -137,7 +142,7 @@ public sealed class CronRunResultService
             if (written.Applied)
             {
                 TryWriteOwedActivity(tenant, runId);
-                return Answer(found.JobId, name, written.Run, alreadyRecorded: false);
+                return Answer(found.JobId, name, written.Run, alreadyRecorded: false, closesItself);
             }
             run = written.Run;
         }
@@ -197,13 +202,17 @@ public sealed class CronRunResultService
             "A problem clears when the next run of the schedule reports ok, or with cc-devthrottle run resolve.");
     }
 
-    private static CronRunResultOutcome<CronRunResultResponse> Answer(string jobId, string name, CronRunRecord stored, bool alreadyRecorded)
+    /// <summary>What an ok run's session is told when its schedule is set not to close itself.</summary>
+    public const string StaysOpenBySetting = "This session stays open, because its schedule is set not to close itself.";
+
+    private static CronRunResultOutcome<CronRunResultResponse> Answer(string jobId, string name, CronRunRecord stored, bool alreadyRecorded, bool closesItself)
     {
         var ok = stored.Result == CronRunResults.Ok;
+        var afterOk = closesItself ? "This session now closes itself." : StaysOpenBySetting;
         var text = (ok, alreadyRecorded) switch
         {
-            (true, false) => $"Recorded: the run of {name} went ok. This session now closes itself.",
-            (true, true) => $"The run of {name} is already recorded as ok. This session now closes itself.",
+            (true, false) => $"Recorded: the run of {name} went ok. {afterOk}",
+            (true, true) => $"The run of {name} is already recorded as ok. {afterOk}",
             (false, true) => $"The problem on the run of {name} is already recorded. This session stays open for someone to look at.",
             _ when stored.Problem == CronRunProblems.RanPastShift =>
                 $"Recorded your report on the run of {name}. It stays a problem - it ran past its shift - so this session stays open for someone to look at.",
@@ -214,8 +223,9 @@ public sealed class CronRunResultService
             Run = stored,
             JobId = jobId,
             JobName = name,
-            // Read off what is STORED, never the word asked for: only a run whose result is ok closes.
-            CloseSession = ok,
+            // Read off what is STORED, never the word asked for: only a run whose result is ok closes - and only when
+            // its schedule is set to close itself. A problem stays open whatever the setting.
+            CloseSession = ok && closesItself,
             Text = text,
         });
     }

@@ -170,6 +170,88 @@ public sealed class CronRunResultTests : IDisposable
         Assert.Equal(_now, run.ResultUtc);
     }
 
+    // ---- an ok run honours its schedule's close-itself setting --------------------------------------------------
+
+    [Fact]
+    public void Report_Ok_WhenTheScheduleIsSetToCloseItself_TellsTheSessionToClose()
+    {
+        var (service, runs, _) = Build();
+        Job("cj_a").Action.AutoDismiss = true;
+        _now = TorontoTime(2026, 10, 10, 9);
+        runs.Append("cj_a", Linked("cj_a", Started("s1", _now.AddMinutes(-8))));
+
+        var outcome = service.Report(TenantId.Local, "s1", "ok", null);
+
+        Assert.True(outcome.Answer!.CloseSession);
+        Assert.Equal("Recorded: the run of Mail Desk cj_a went ok. This session now closes itself.", outcome.Answer.Text);
+    }
+
+    [Fact]
+    public void Report_Ok_WhenTheScheduleIsSetNotToCloseItself_IsRecorded_AndTheSessionStaysOpen()
+    {
+        var (service, runs, _) = Build();
+        Job("cj_a").Action.AutoDismiss = false;
+        _now = TorontoTime(2026, 10, 10, 9);
+        runs.Append("cj_a", Linked("cj_a", Started("s1", _now.AddMinutes(-8))));
+
+        var outcome = service.Report(TenantId.Local, "s1", "ok", null);
+
+        Assert.False(outcome.Answer!.CloseSession);
+        Assert.Equal("Recorded: the run of Mail Desk cj_a went ok. This session stays open, because its schedule is set not to close itself.",
+            outcome.Answer.Text);
+        // The result is recorded all the same: staying open is not a problem.
+        var run = Assert.Single(runs.List("cj_a"));
+        Assert.Equal(CronRunResults.Ok, run.Result);
+        Assert.Null(run.Problem);
+    }
+
+    [Fact]
+    public void Report_OkSentAgain_WhenTheScheduleIsSetNotToCloseItself_StillLeavesTheSessionOpen()
+    {
+        var (service, runs, _) = Build();
+        Job("cj_a").Action.AutoDismiss = false;
+        _now = TorontoTime(2026, 10, 10, 9);
+        runs.Append("cj_a", Linked("cj_a", Started("s1", _now.AddMinutes(-8))));
+        service.Report(TenantId.Local, "s1", "ok", null);
+
+        var again = service.Report(TenantId.Local, "s1", "ok", null);
+
+        Assert.False(again.Answer!.CloseSession);
+        Assert.Equal("The run of Mail Desk cj_a is already recorded as ok. This session stays open, because its schedule is set not to close itself.",
+            again.Answer.Text);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Report_Problem_LeavesTheSessionOpen_WhateverTheCloseItselfSetting(bool closesItself)
+    {
+        var (service, runs, _) = Build();
+        Job("cj_a").Action.AutoDismiss = closesItself;
+        _now = TorontoTime(2026, 10, 10, 9);
+        runs.Append("cj_a", Linked("cj_a", Started("s1", _now.AddMinutes(-8))));
+
+        var outcome = service.Report(TenantId.Local, "s1", "problem", "the inbox would not load");
+
+        Assert.False(outcome.Answer!.CloseSession);
+        Assert.Equal("Recorded the problem on the run of Mail Desk cj_a. This session stays open for someone to look at.", outcome.Answer.Text);
+        Assert.Equal(CronRunResults.Problem, Assert.Single(runs.List("cj_a")).Result);
+    }
+
+    [Fact]
+    public void Report_Ok_WhenTheScheduleWasDeletedWhileItsRunWasGoing_ClosesAsTheDefaultDoes()
+    {
+        var (service, runs, _) = Build();
+        Job("cj_a").Action.AutoDismiss = false;
+        _now = TorontoTime(2026, 10, 10, 9);
+        runs.Append("cj_a", Linked("cj_a", Started("s1", _now.AddMinutes(-8))));
+        _jobs.Remove("cj_a");
+
+        var outcome = service.Report(TenantId.Local, "s1", "ok", null);
+
+        Assert.True(outcome.Answer!.CloseSession);
+    }
+
     [Fact]
     public void Report_Problem_IsRecordedWithItsReason_AndTheSessionStaysOpen()
     {

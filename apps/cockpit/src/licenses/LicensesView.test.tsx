@@ -16,11 +16,13 @@ const getLicenseOverview = vi.fn();
 const getLicenseForecast = vi.fn();
 const getLicenseLog = vi.fn();
 const switchLicenseNow = vi.fn();
+const setLicenseRenewalDate = vi.fn();
 vi.mock("@devthrottle/client-core/licenses/licensesClient", () => ({
   getLicenseOverview: (...args: unknown[]) => getLicenseOverview(...args),
   getLicenseForecast: (...args: unknown[]) => getLicenseForecast(...args),
   getLicenseLog: (...args: unknown[]) => getLicenseLog(...args),
   switchLicenseNow: (...args: unknown[]) => switchLicenseNow(...args),
+  setLicenseRenewalDate: (...args: unknown[]) => setLicenseRenewalDate(...args),
 }));
 // describeAndReport is the one way an error reaches the screen (and the Gateway); here it only has to say the error.
 vi.mock("@devthrottle/client-core/errors/reportClientError", () => ({
@@ -328,10 +330,11 @@ describe("LicensesView: Switch now", () => {
   it("on confirmation sends the account and the picked target, shows the Gateway's answer, and reads again", async () => {
     switchLicenseNow.mockResolvedValue({
       targetAccountEmail: ACCOUNT_B,
+      text: "the-mac is now on account-b@example.com. the-windows-machine is not switched: its last report is too old.",
       switches: [
-        { switchId: "s1", machineName: "the-mac", osUser: "owner", state: "switched", stateText: "Switched", stateTone: "good", summary: "the-mac switched from account-a@example.com to account-b@example.com." },
+        { switchId: "s1", entryId: "e1", machineName: "the-mac", osUser: "owner", label: "the-mac", state: "switched", stateText: "Switched", stateTone: "good", summary: "the-mac switched from account-a@example.com to account-b@example.com." },
       ],
-      skipped: [{ machineName: "the-windows-machine", why: "Its last report is too old." }],
+      skipped: [{ machineName: "the-windows-machine", osUser: "owner", label: "the-windows-machine", why: "the-windows-machine is not switched: its last report is too old." }],
     });
     render(<LicensesView />);
     fireEvent.click(within(await card(ACCOUNT_A)).getByRole("button", { name: "Switch now" }));
@@ -343,7 +346,8 @@ describe("LicensesView: Switch now", () => {
     expect(switchLicenseNow).toHaveBeenCalledTimes(1);
     expect(switchLicenseNow).toHaveBeenCalledWith(ACCOUNT_A, ACCOUNT_B);
     expect(answer.textContent).toContain("the-mac switched from account-a@example.com to account-b@example.com.");
-    expect(answer.textContent).toContain("the-windows-machine: Its last report is too old.");
+    expect(answer.textContent).toContain("the-mac is now on account-b@example.com.");
+    expect(within(answer).getByTestId("lic-switch-answer-skipped").textContent).toBe("the-windows-machine is not switched: its last report is too old.");
     expect(screen.queryByRole("alertdialog")).toBeNull();
     await waitFor(() => expect(getLicenseOverview.mock.calls.length).toBeGreaterThan(readsBefore));
   });
@@ -354,7 +358,7 @@ describe("LicensesView: Switch now", () => {
     toC.canChoose = true;
     toC.unavailableText = null;
     getLicenseOverview.mockResolvedValue(overview);
-    switchLicenseNow.mockResolvedValue({ targetAccountEmail: ACCOUNT_C, switches: [], skipped: [] });
+    switchLicenseNow.mockResolvedValue({ targetAccountEmail: ACCOUNT_C, text: "", switches: [], skipped: [] });
     render(<LicensesView />);
     fireEvent.click(within(await card(ACCOUNT_A)).getByRole("button", { name: "Switch now" }));
     const dialog = screen.getByRole("alertdialog");

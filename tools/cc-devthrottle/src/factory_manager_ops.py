@@ -6,10 +6,9 @@ same kind of mark as the Fleet Manager's. The bound Factory Manager may resolve 
 (`run resolve`); the Gateway reads the mark and records the resolver as the Factory Manager.
 
 - `factory manager show` prints the mark, and the computer and folder the Factory Manager starts on.
-- `factory manager set [<session>]` asks the Gateway to mark a session (number, id prefix or name), or this
-  session. The Gateway lets only the owner's own phone or browser set the mark, because the mark grants the
-  right to resolve any problem; a session that asks is refused, and the Gateway's sentence is printed.
 - `factory manager clear` removes the mark. A session may.
+- There is no `factory manager set`. The Gateway lets only the owner's own phone or browser set the mark,
+  because the mark grants the right to resolve any problem, so a command that set it could never succeed.
 - `factory name-check` prints the Gateway's name check: every seat that says CEO, or whose name is not a
   role word of its factory. The rule and every sentence are the Gateway's; nothing is decided here.
 
@@ -44,11 +43,10 @@ FEATURE_OFF = (
     "(it answered 404). A Gateway older than this command answers the same way."
 )
 
-_SET = "cc-devthrottle factory manager set <session>"
 _CLEAR = "cc-devthrottle factory manager clear"
 _NAME_CHECK = "cc-devthrottle factory name-check"
 
-#: Who sets the mark, said where a session might otherwise be pointed at `set`.
+#: Who sets the mark: there is no command for it.
 SET_BY_THE_OWNER = "the owner, with Talk to the Factory Manager on the Factories screen (a session may not set it)"
 
 
@@ -99,33 +97,6 @@ def show(json_output: bool) -> None:
         sessions, _, _, _ = session_ops.fleet_or_exit()
         name = _name_in(sessions, payload["sessionId"])
     _print_binding(payload, name, "")
-
-
-def set_mark(target: Optional[str], json_output: bool) -> None:
-    """Ask the Gateway to mark one session as this account's Factory Manager - the named one, or this session.
-
-    Only the owner's own phone or browser may set the mark; the Gateway refuses a session, and its sentence is printed.
-    """
-    if target:
-        session = session_ops.resolve_session(target, command_name="cc-devthrottle factory manager set")
-        session_id = gateway.field(session, "sessionId", "SessionId")
-        name: Optional[str] = gateway.field(session, "name", "Name") or "(unnamed)"
-    else:
-        session_id = gateway.session_id() or ""
-        if not session_id:
-            axi_cli.fail("no session given and CC_SESSION_ID is not set. Name the session.", [_SET])
-        name = None
-    try:
-        payload = gateway.put_json(BINDING_ROUTE, {"sessionId": session_id}) or {}
-    except gateway.GatewayError as exc:
-        _fail(_reason(exc))
-    if json_output:
-        print(json.dumps(payload))
-        return
-    if name is None and payload.get("sessionId"):
-        sessions, _, _, _ = session_ops.fleet_or_exit()
-        name = _name_in(sessions, payload["sessionId"])
-    _print_binding(payload, name, " set")
 
 
 def clear(json_output: bool) -> None:

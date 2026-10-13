@@ -37,7 +37,7 @@ internal sealed record FactoryManagerSources(
 /// THE FACTORY MANAGER SEAT (Factory Control, step 5; design in docs/qa/factory-control/factory-manager/DESIGN.md).
 ///
 ///   GET  /gateway/factory-manager                         -> FactoryManagerBindingDto   (cc-devthrottle factory manager show)
-///   PUT  /gateway/factory-manager  { sessionId | null }   -> FactoryManagerBindingDto   (factory manager set / clear) | 403 (set, not the owner's device)
+///   PUT  /gateway/factory-manager  { sessionId | null }   -> FactoryManagerBindingDto   (the owner's device sets; factory manager clear) | 403 (set, not the owner's device)
 ///   GET  /gateway/factory/name-check                      -> FactoryNameCheckDto        (cc-devthrottle factory name-check)
 ///   GET  /gateway/factory-agents/factory-manager          -> FactoryManagerCardDto      (the Factories screen's card)
 ///   POST /gateway/factory-agents/factory-manager/talk     -> 200 (it runs) | 201 (started) FactoryTalkStartedDto
