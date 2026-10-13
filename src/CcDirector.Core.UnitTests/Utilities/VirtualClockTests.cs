@@ -99,6 +99,36 @@ public sealed class VirtualClockTests
     }
 
     [Fact]
+    public async Task RunAsync_TheWorkEndsOnAPlainCompletionSourceWhileATickerIsPending_TheClockStopsAtThatMoment()
+    {
+        // Arrange: a ticker that is always waiting on the clock, as a spinner is, and work that ends when something
+        // else on the clock completes a plain completion source - the way a test waits for an outcome to be written.
+        var clock = VirtualTime.NewClock();
+        var startedAt = clock.GetUtcNow();
+        async Task TickAsync()
+        {
+            while (true) await Task.Delay(TimeSpan.FromMilliseconds(30), clock);
+        }
+        var seen = new TaskCompletionSource();
+        async Task WriteTheOutcomeAsync()
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(100), clock);
+            seen.SetResult();
+        }
+
+        // Act
+        await VirtualTime.RunAsync(clock, async () =>
+        {
+            _ = TickAsync();
+            _ = WriteTheOutcomeAsync();
+            await seen.Task;
+        });
+
+        // Assert: the end of the work ran inline, so the ticker did not carry the clock one tick further.
+        Assert.Equal(TimeSpan.FromMilliseconds(100), clock.GetUtcNow() - startedAt);
+    }
+
+    [Fact]
     public async Task RunAsync_AWaitStartedByAThreadThatIsNotMovingTheClock_FailsTheRunAndSaysWhere()
     {
         // Arrange: work that leaves the moving thread and comes back to the clock from another one. The other thread

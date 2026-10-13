@@ -88,7 +88,7 @@ public static class VirtualTime
                         "an event that never comes - or it is stuck");
                 }
             }
-            clock.ThrowIfAWaitStartedOffTheMovingThread();
+            clock.ThrowIfAWaitStartedOffTheMovingThread(task.IsFaulted ? task.Exception!.GetBaseException() : null);
             await task;
         });
     }

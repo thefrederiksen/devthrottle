@@ -141,7 +141,10 @@ public sealed class PromptAnswerBudgetTests : IDisposable
     /// </summary>
     private async Task<(string Outcome, DateTimeOffset WrittenAt)> LateOutcomeFor(string deliveryId, Func<Task> act)
     {
-        var seen = new TaskCompletionSource<(string, DateTimeOffset)>(TaskCreationOptions.RunContinuationsAsynchronously);
+        // A plain completion source, on purpose: its continuation - the end of the timed work - then runs inline, on
+        // the thread moving the fake clock. One that continues on the thread pool lets the spinner carry the clock on
+        // for as long as the pool takes.
+        var seen = new TaskCompletionSource<(string, DateTimeOffset)>();
         void Observe(string id, string state) { if (id == deliveryId) seen.TrySetResult((state, _clock.GetUtcNow())); }
         ControlApi.SessionCommandExecutor.LateOutcomeObserver += Observe;
         try

@@ -27,6 +27,16 @@ namespace CcDirector.TestInfrastructure;
 /// runs - while other waits are pending. That work shows itself the moment it starts a wait on this clock from a
 /// thread that is not moving it, and the run then FAILS, every time and not only under load, naming where the wait
 /// was started (<see cref="ThrowIfAWaitStartedOffTheMovingThread"/>).
+///
+/// THE LIMIT THAT IS LEFT, stated so nobody finds it the hard way: work that leaves the moving thread and never
+/// comes back to the clock - it just finishes on a pool thread - cannot be seen at all. If a wait that repeats (a
+/// spinner) is pending meanwhile, the clock is carried on at the speed of the processor until the pool gets to that
+/// work. So the END of timed work must run inline too: a test that ends its work on a completion source makes a
+/// plain one, never one with <c>RunContinuationsAsynchronously</c>. Three more things this clock does not do: an
+/// await with <c>ConfigureAwait(false)</c> on a wait started under a synchronization context is queued to the pool
+/// by the runtime (start such work with no context); a callback that BLOCKS its thread on a wait on this clock
+/// waits for ever, because the blocked thread is the one that would move it; and a wait due at once runs at the
+/// clock's next move, not inside the call that started it.
 /// </summary>
 public sealed class VirtualClock : TimeProvider
 {
@@ -147,7 +157,9 @@ public sealed class VirtualClock : TimeProvider
     /// left the moving thread by itself, so the clock was free to move while it ran: whatever the test decided, it
     /// decided on how long that work took on this machine.
     /// </summary>
-    internal void ThrowIfAWaitStartedOffTheMovingThread()
+    /// <param name="workFailure">The timed work's own failure, when it has already ended in one: kept as the inner
+    /// exception, so the hop does not hide it.</param>
+    internal void ThrowIfAWaitStartedOffTheMovingThread(Exception? workFailure = null)
     {
         string? where;
         lock (_state) where = _startedOffTheMovingThread;
@@ -155,10 +167,13 @@ public sealed class VirtualClock : TimeProvider
         throw new InvalidOperationException(
             "A wait was started on the fake clock by a thread that was not moving it, while a VirtualTime run was under " +
             "way. The work being timed left the thread that moves the clock - a Task.Run, a continuation the thread " +
-            "pool ran, a callback from a real timer or a real file read - so the clock could move while that work was " +
-            "still running, and the test would then measure the machine. Keep the path on the moving thread: start " +
-            "delayed work with a plain call instead of Task.Run, and complete what it awaits inline. The wait was " +
-            "started here:" + Environment.NewLine + where);
+            "pool ran (a completion source made with RunContinuationsAsynchronously, a semaphore or gate that another " +
+            "waiter held, an await with ConfigureAwait(false) on a wait started under a synchronization context), a " +
+            "callback from a real timer or a real file read - so the clock could move while that work was still " +
+            "running, and the test would then measure the machine. Keep the path on the moving thread: start delayed " +
+            "work with a plain call instead of Task.Run, and complete what it awaits inline." +
+            (workFailure is null ? "" : " The work itself also failed: " + workFailure.Message) +
+            " The wait was started here:" + Environment.NewLine + where, workFailure);
     }
 
     private void Arm(VirtualTimer timer, TimeSpan dueTime, TimeSpan period)
