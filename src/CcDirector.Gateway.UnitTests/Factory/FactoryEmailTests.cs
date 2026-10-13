@@ -219,6 +219,29 @@ public sealed class FactoryEmailTests : IDisposable
     }
 
     [Fact]
+    public void Compose_ComposedLateInItsWindow_StillDescribesItsSlot()
+    {
+        Job("cj_send", "Morning send", "outreach", "sender");
+        Job("cj_scan", "Night scan", "research", "scout");
+        // Open at the 08:05 cut-off.
+        AppendRun("cj_scan", Run(null, TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.DidNotRun, "its machine was offline when it was due"));
+        // Raised at 08:40, after the cut-off: it belongs to the next email.
+        AppendRun("cj_send", Run("s1", TorontoTime(2026, 10, 11, 8, 30), CronRunResults.Problem, CronRunProblems.Reported, "the inbox would not load"));
+        // The Gateway was down and composes at 09:30.
+        _now = TorontoTime(2026, 10, 11, 9, 30);
+        var slot = FactoryEmailSlots.DueAt(_now, Toronto)!;
+
+        var (problems, days) = Service().ProblemsAndFactoryDays(TenantId.Local, slot.DayStartUtc, slot.BoundaryUtc, slot.CutoffUtc);
+        var email = FactoryEmailComposer.Compose(new FactoryEmailInput(slot, Toronto, problems.Problems, days, Factories(), null));
+
+        Assert.Equal(slot.CutoffUtc, problems.AsOfUtc);
+        Assert.Equal(1, email.ProblemCount);
+        Assert.Contains("Did not run: its machine was offline when it was due.", email.Html);
+        Assert.Contains("open 5 hours", email.Html); // counted at 08:05, not at 09:30
+        Assert.DoesNotContain("the inbox would not load", email.Html);
+    }
+
+    [Fact]
     public void ProblemsAndFactoryDays_LastDay_CountsDoneDidNotRunAndSeatsLeftOpen()
     {
         Job("cj_send", "Morning send", "outreach", "sender");
