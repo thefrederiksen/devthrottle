@@ -49,26 +49,45 @@ the counts below are from the rebased branch.
 
 ## Commands and counts
 
-Run on the rebased branch, 12 October 2026, one suite at a time.
+Run on the branch rebased onto origin/main at f55852fbf, 13 October 2026, one suite at a time.
 
 | Command | Result |
 | --- | --- |
-| `dotnet test src/CcDirector.Gateway.UnitTests` | 10,678 passed, 1 failed, of 10,679. The one is `HeldDeliveryDriverTests.TheTickDrivesANewlyHeldDelivery_WhileTheStartUpPassIsStillWorkingThroughItsOwn`, which this branch does not touch; its class run alone passes 29 of 29 |
-| the same, filtered to the shifts, the factory fold and the four test files that gained the new argument | 145 passed |
-| `npx vitest run` in `apps/cockpit` | 1,031 passed |
-| `npx vitest run` in `packages/client-core` | 1,982 passed. An earlier run of the same tree had 1 failure that was not captured and did not come back in two further runs |
+| `dotnet test src/CcDirector.Gateway.UnitTests` | 10,766 passed of 10,766 |
+| `npx vitest run` in `apps/cockpit` | 1,046 passed of 1,046 |
+| `npx vitest run` in `packages/client-core` | 1,990 passed of 1,990 |
 | `tsc --noEmit` in both | clean |
-| `.\scripts	est-local.ps1` | 9 suites green, 1 red. The red is one test in `CcDirector.Core.UnitTests`, `GateTestsDoNotDependOnTheMachineTests`. It named two files: this branch's `ScheduleShiftsRoutesTests.cs`, which is fixed here (the engine's clock is a fixed time), and `CronRunResultTests.cs`, which arrived on main with pull request 3799 and is not changed by this branch. Run again after the fix, the test names only the second file |
-| `dotnet test src/CcDirector.Gateway.Tests` | not run |
+| `.\scripts\test-local.ps1` | 9 suites green, 1 red. The red is one test in `CcDirector.Core.UnitTests`, `GateTestsDoNotDependOnTheMachineTests`, and the only file it names is `CronRunResultTests.cs`, which arrived on main with pull request 3799 and is not changed by this branch |
+| `dotnet build src/CcDirector.Gateway.Tests` | builds. The suite itself was not run |
 
-## What the rebase changed
+## What the two rebases changed
+
+The branch was rebased onto main twice: on 12 October after run results merged, and on 13 October after the scheduler
+quick pause and the factory email merged.
 
 - **The local merge of run results is gone.** No migration, snapshot or model file is in the diff against main.
-- **The seat's closing marker and its shift sit side by side.** Main gained the marker that says whether a seat's
-  sessions close themselves. The Seats tab's grouped rows keep it, and its Cockpit test reads it from the shift
-  groups.
+- **The seat's closing marker, its pause button and its shift sit side by side.** Main gained the marker that says
+  whether a seat's sessions close themselves, and the Pause or Resume button beside a seat schedule's Edit. The Seats
+  tab's grouped rows keep both, and their Cockpit tests read them from the shift groups.
 - **`ScheduleShiftsRoutesTests` no longer reads the real clock.** The engine's clock is fixed at 17:00 UTC, and the
   run test also checks that a run fired then is in the evening shift.
+- **Main's pause-everything tests hand the run routes the account time zone**, which those routes now require.
+
+## Review finding: a schedule that will not run
+
+The review found that a paused schedule, and a one-off that had already run, were still given a shift, a place in a
+shift group and a shift-end warning naming a run that would never start.
+
+- **The fix is in the one place.** `ScheduleShifts.NextFires` answers no runs for a schedule whose lifecycle is not
+  active (paused, switched off, or spent). Both callers read fires through it, so such a schedule has no shift, no
+  warning, and its seat is listed under "No run in the next 7 days".
+- **Tests:** `ScheduleShiftsTests` (a paused recurring schedule; a one-off that is spent and one switched off before
+  it ran), `ScheduleShiftsRoutesTests` (list and get, for a paused recurring schedule and a spent one-off), and
+  `FactoriesScreenFoldTests` (a seat whose schedules will not run is under "none", and a seat with one running and
+  one paused schedule is only under the running one's shift).
+- **Revert proof:** with the fix committed, `ScheduleShifts.cs` alone was put back to the commit before, rebuilt, and
+  the `ScheduleShifts` and `FactoriesScreenFold` tests run: 6 failed, 81 passed - the 6 are exactly the new tests.
+  Restored and rebuilt: all pass.
 
 ## Screenshots, from a local Gateway
 
@@ -90,6 +109,8 @@ It never touches the owner's Gateway, factories or schedules.
 
 Not proven here:
 
+- **The screens after the rebases.** The six screenshots were taken before both rebases and were not retaken. The
+  seat rows now also show main's closing marker and the Pause or Resume button, which the screenshots do not show.
 - **The warning with history, on screen.** The rig's schedules have never run, so the screenshot shows the
   no-history case. The case with history is proven by `ScheduleShiftsTests` and the route tests.
 - **The run table's Shift column, on screen.** It has no rows in the rig, because no Director is connected. It is
