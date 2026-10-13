@@ -2,7 +2,7 @@
 
 Proof for phase 1 of the mission "Factory Seats" (issue 3950, mission document
 `docs/missions/factory-seats-2026-10-13/MISSION.md`). Built on devlinux on 13 October 2026, on the branch
-`factory-seats/phase-1-seat-page`, rebased onto origin/main at `0ae87f3e5` before the check was run.
+`factory-seats/phase-1-seat-page`, rebased onto origin/main at `4f844472a` before the final run of the check.
 
 ## What changed
 
@@ -60,7 +60,10 @@ is still shown on the trigger).
 
 ## The check (mission document, section 7)
 
-Run on devlinux on the rebased branch.
+Run on devlinux on the rebased branch. Main moved by three commits during the work (to `4f844472a`); none of them
+touches `apps`, `packages` or `tools`. The two .NET commands and the Cockpit suite were run again on that base and
+gave the counts below; the client-core and pytest counts are from the base before it (`0ae87f3e5`). The whole Gateway
+unit suite under "Beyond the check" was also run on `0ae87f3e5` only.
 
 | Command | Result |
 | --- | --- |
