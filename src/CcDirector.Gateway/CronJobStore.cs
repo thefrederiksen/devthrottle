@@ -35,6 +35,7 @@ public sealed class CronJobStore
     private readonly object _gate = new();
     private readonly GatewayDatabase _db;
     private readonly string _legacyJsonPath;
+    private readonly TimeProvider _time;
 
     private static readonly JsonSerializerOptions FileJsonOptions = new()
     {
@@ -59,9 +60,13 @@ public sealed class CronJobStore
     /// The caller MUST run Initialize inside the same ambient tenant scope the constructor would have had.
     /// Nothing is served in the meantime: the readiness gate refuses every request but /healthz.
     /// </param>
-    public CronJobStore(GatewayDatabase db, string legacyJsonPath, bool deferInitialize = false)
+    /// <param name="timeProvider">The clock every "now" in this store is read from. The system clock when omitted;
+    /// a test hands in a fake one, so what was due while the Gateway was down is decided by the test and not by
+    /// the minute it happened to run in.</param>
+    public CronJobStore(GatewayDatabase db, string legacyJsonPath, bool deferInitialize = false, TimeProvider? timeProvider = null)
     {
         _db = db ?? throw new ArgumentNullException(nameof(db));
+        _time = timeProvider ?? TimeProvider.System;
         if (string.IsNullOrWhiteSpace(legacyJsonPath))
             throw new ArgumentException("legacy json path is required", nameof(legacyJsonPath));
         _legacyJsonPath = legacyJsonPath;
@@ -110,7 +115,7 @@ public sealed class CronJobStore
         lock (_gate)
         {
             using var ctx = _db.CreateContext();
-            var now = DateTime.UtcNow;
+            var now = _time.GetUtcNow().UtcDateTime;
             var id = NewId(ctx);
 
             var entity = new CronJobEntity { Id = id, TenantId = ctx.ActiveTenant! };
@@ -210,7 +215,7 @@ public sealed class CronJobStore
             // Preserve identity + the firing engine's metadata; overwrite the editable definition.
             ApplyDefinition(entity, incoming);
             entity.NotifyOn = CronNotify.Normalize(incoming.NotifyOn);
-            entity.NextRunUtc = CronSchedule.ComputeNextRunUtc(ToDto(entity), DateTime.UtcNow);
+            entity.NextRunUtc = CronSchedule.ComputeNextRunUtc(ToDto(entity), _time.GetUtcNow().UtcDateTime);
 
             ctx.SaveChanges();
             var stored = ToDto(entity);
@@ -243,7 +248,7 @@ public sealed class CronJobStore
             entity.Enabled = enabled;
             if (cronExpression is not null)
                 entity.CronExpression = cronExpression;
-            entity.NextRunUtc = CronSchedule.ComputeNextRunUtc(ToDto(entity), DateTime.UtcNow);
+            entity.NextRunUtc = CronSchedule.ComputeNextRunUtc(ToDto(entity), _time.GetUtcNow().UtcDateTime);
             ctx.SaveChanges();
             var stored = ToDto(entity);
             FileLog.Write($"[CronJobStore] SetEnabled: id={id}, enabled={enabled}, nextRunUtc={stored.NextRunUtc:o}");
@@ -343,7 +348,7 @@ public sealed class CronJobStore
         if (entities.Count == 0)
             return;
 
-        var now = DateTime.UtcNow;
+        var now = _time.GetUtcNow().UtcDateTime;
         var missed = 0;
         foreach (var entity in entities)
         {
