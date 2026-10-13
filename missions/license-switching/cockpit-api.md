@@ -38,8 +38,18 @@ reports of two machines ("the-windows-machine" and "the-mac") and three accounts
    each with its own sign-ins. Wherever a list names a machine it is the same four fields - `machineId`,
    `machineName`, `osUser`, `label` - and `machineId` is the `machineId` of its row in the overview's `machines`.
    `label` is what to call it: the machine name, with the user in brackets only when another machine has the same
-   name ("the-windows-machine (owner)"). Every sentence in these answers calls a machine by its label. Show `label`;
-   never build a name from the other fields.
+   name ("the-windows-machine (owner)"). Every sentence the Gateway's display fold writes calls a machine by its
+   label, on all three routes, and a log row carries the same four fields. Show `label`; never build a name from the
+   other fields.
+
+   **One exception, until the follow-up pull request "Licenses API: Switch now, renewal date, failed renewal"
+   (section 6).** Three sentences are written by the decision engine, not the fold, and the fold passes them on as
+   they are: `switchTargets[].unavailableText`, the reason a machine is left out inside `switchNowText` and inside a
+   forecast machine's `text`, and a refusal. Where one of those names a machine it uses the machine name ALONE
+   ("the-windows-machine holds no usable spare for account-b@example.com."). With two users of one computer that
+   sentence does not say which user it means. The page shows the sentence as given and does not try to work out
+   which; the lists beside it carry `machineId` and `label`. The follow-up makes the engine's sentences use the
+   label, and nothing on the page changes for it.
 
 **Decided here (the Tech Lead's rulings on the review of this pull request):**
 
@@ -56,6 +66,12 @@ reports of two machines ("the-windows-machine" and "the-mac") and three accounts
   adds the route that sets the date, `renewsOn` is null and `renewsText` is "Renewal date not set" for every
   account. It is never a guess. `signInExpiry` is a DIFFERENT date - when a machine must be signed in to the account
   again - and the page must never label it "renewal".
+- **"Renewal" is two different things in these answers, and the page must keep them apart.** `renewsOn` and
+  `renewsText`, on an ACCOUNT, are the SUBSCRIPTION's billing renewal: the day the provider charges for it again.
+  `renewalFailedAtUtc`, `renewalFailedText` and `renewalFailedTone`, on a HOLDING, are a machine renewing its
+  SIGN-IN: its stored sign-in being exchanged for a fresh one before it expires. A failed sign-in renewal says
+  nothing about the subscription, and it is shown on the holding beside that sign-in's expiry - never beside
+  "Renews 17 Oct" as if the two were one thing.
 - **These field names are final.** Phase 3 builds to them. The follow-up fills in values; it renames nothing.
 
 Who may call them: the Cockpit and the phone (a device key), a machine's own credential, and a session key (an
@@ -133,7 +149,8 @@ A sign-in a machine holds (`LicenseMachineHoldingDto`): `accountEmail`, `isActiv
 `expiryTone`, `renewalFailedAtUtc`, `renewalFailedText`, `renewalFailedTone`, `isReadingStale`, `readError`,
 `readErrorText`.
 
-**A failed renewal** (`renewalFailedAtUtc`, `renewalFailedText`, `renewalFailedTone`): when the machine last tried to
+**A failed renewal of the sign-in** (`renewalFailedAtUtc`, `renewalFailedText`, `renewalFailedTone`) - the machine
+renewing its SIGN-IN, not the subscription's billing renewal (section 1): when the machine last tried to
 renew this sign-in and failed, the sentence for it, and its tone. **All three are null when the last renewal worked
 or is not known.** The Gateway does not yet store what a report says about a renewal, so today all three are null on
 every holding; the follow-up (section 6) fills them in. When `renewalFailedText` is not null, show it on the holding
@@ -190,7 +207,7 @@ in its tone; when it is null, show nothing.
       "signInExpiry": {
         "expiresAtUtc": "2026-10-20T03:12:00Z",
         "machine": {
-          "machineId": "c0910007404f4ab9a4f725c028c0569b",
+          "machineId": "f26a799d85a244129a27ba10b8cb3427",
           "machineName": "the-windows-machine",
           "osUser": "owner",
           "label": "the-windows-machine"
@@ -201,13 +218,13 @@ in its tone; when it is null, show nothing.
       },
       "activeOnMachines": [
         {
-          "machineId": "2fef72637c9d41a58d77623fed457e8a",
+          "machineId": "94ebcb15a4bf40438dca738dd31189d9",
           "machineName": "the-mac",
           "osUser": "owner",
           "label": "the-mac"
         },
         {
-          "machineId": "c0910007404f4ab9a4f725c028c0569b",
+          "machineId": "f26a799d85a244129a27ba10b8cb3427",
           "machineName": "the-windows-machine",
           "osUser": "owner",
           "label": "the-windows-machine"
@@ -271,7 +288,7 @@ in its tone; when it is null, show nothing.
       "signInExpiry": {
         "expiresAtUtc": "2026-10-13T08:12:00Z",
         "machine": {
-          "machineId": "c0910007404f4ab9a4f725c028c0569b",
+          "machineId": "f26a799d85a244129a27ba10b8cb3427",
           "machineName": "the-windows-machine",
           "osUser": "owner",
           "label": "the-windows-machine"
@@ -283,13 +300,13 @@ in its tone; when it is null, show nothing.
       "activeOnMachines": [],
       "spareOnMachines": [
         {
-          "machineId": "2fef72637c9d41a58d77623fed457e8a",
+          "machineId": "94ebcb15a4bf40438dca738dd31189d9",
           "machineName": "the-mac",
           "osUser": "owner",
           "label": "the-mac"
         },
         {
-          "machineId": "c0910007404f4ab9a4f725c028c0569b",
+          "machineId": "f26a799d85a244129a27ba10b8cb3427",
           "machineName": "the-windows-machine",
           "osUser": "owner",
           "label": "the-windows-machine"
@@ -339,7 +356,7 @@ in its tone; when it is null, show nothing.
       "signInExpiry": {
         "expiresAtUtc": "2026-11-09T03:12:00Z",
         "machine": {
-          "machineId": "c0910007404f4ab9a4f725c028c0569b",
+          "machineId": "f26a799d85a244129a27ba10b8cb3427",
           "machineName": "the-windows-machine",
           "osUser": "owner",
           "label": "the-windows-machine"
@@ -351,7 +368,7 @@ in its tone; when it is null, show nothing.
       "activeOnMachines": [],
       "spareOnMachines": [
         {
-          "machineId": "c0910007404f4ab9a4f725c028c0569b",
+          "machineId": "f26a799d85a244129a27ba10b8cb3427",
           "machineName": "the-windows-machine",
           "osUser": "owner",
           "label": "the-windows-machine"
@@ -365,7 +382,7 @@ in its tone; when it is null, show nothing.
   ],
   "machines": [
     {
-      "machineId": "2fef72637c9d41a58d77623fed457e8a",
+      "machineId": "94ebcb15a4bf40438dca738dd31189d9",
       "machineName": "the-mac",
       "osUser": "owner",
       "label": "the-mac",
@@ -413,7 +430,7 @@ in its tone; when it is null, show nothing.
       "switchInProgress": null
     },
     {
-      "machineId": "c0910007404f4ab9a4f725c028c0569b",
+      "machineId": "f26a799d85a244129a27ba10b8cb3427",
       "machineName": "the-windows-machine",
       "osUser": "owner",
       "label": "the-windows-machine",
@@ -511,13 +528,13 @@ than any window lasts - is not expected to reach it, whatever its reset time.
     "targetAccountEmail": "account-b@example.com",
     "machines": [
       {
-        "machineId": "2fef72637c9d41a58d77623fed457e8a",
+        "machineId": "94ebcb15a4bf40438dca738dd31189d9",
         "machineName": "the-mac",
         "osUser": "owner",
         "label": "the-mac"
       },
       {
-        "machineId": "c0910007404f4ab9a4f725c028c0569b",
+        "machineId": "f26a799d85a244129a27ba10b8cb3427",
         "machineName": "the-windows-machine",
         "osUser": "owner",
         "label": "the-windows-machine"
@@ -622,7 +639,7 @@ than any window lasts - is not expected to reach it, whatever its reset time.
   ],
   "machines": [
     {
-      "machineId": "2fef72637c9d41a58d77623fed457e8a",
+      "machineId": "94ebcb15a4bf40438dca738dd31189d9",
       "machineName": "the-mac",
       "osUser": "owner",
       "label": "the-mac",
@@ -632,7 +649,7 @@ than any window lasts - is not expected to reach it, whatever its reset time.
       "text": "Next: account-b@example.com, in about 2 minutes."
     },
     {
-      "machineId": "c0910007404f4ab9a4f725c028c0569b",
+      "machineId": "f26a799d85a244129a27ba10b8cb3427",
       "machineName": "the-windows-machine",
       "osUser": "owner",
       "label": "the-windows-machine",
@@ -667,7 +684,7 @@ than any window lasts - is not expected to reach it, whatever its reset time.
 | `entryId` | The row's identity, for the page's list. |
 | `kind`, `kindText` | `switch` (Switch), `spare-added` (Spare added), `spare-removed` (Spare removed), `no-room` (No account had room). **A kind a later build writes is shown as "Note"** - the row is still listed, and its `summary` is its message. Never branch on a kind you do not know; show `kindText` and `summary`. |
 | `atUtc` | When the Gateway decided the switch or saw the change. |
-| `machineName`, `osUser` | The machine the row is about. One switch of an account is one row per machine, and the page lists one row per machine (section 1). "" on a row about no machine (a `no-room` row). |
+| `machineId`, `machineName`, `osUser`, `label` | The machine the row is about, as the four fields of rule 9: `machineId` is the `machineId` of its row in the overview's `machines`, and `label` is what the row's `summary` calls it. One switch of an account is one row per machine, and the page lists one row per machine (section 1). On a row about no machine (a `no-room` row) `machineId` is null and the other three are "". A machine that is no longer listed in the overview still has its identifier and its label here. |
 | `fromAccountEmail`, `toAccountEmail` | A switch's from and to. On `spare-added` only `to` is set, on `spare-removed` and `no-room` only `from`. |
 | `why`, `whyText` | Why a switch was asked for: `threshold` (Threshold reached) or `manual` (By hand). Null and "" on other rows. |
 | `state`, `stateText`, `stateTone`, `isOpen` | Where the row stands, in the table below. `isOpen` is true while it has not reached its end. |
@@ -704,12 +721,14 @@ A `no-room` row is open while its `finishedAtUtc` is null (the account is still 
   "emptyText": null,
   "entries": [
     {
-      "entryId": "fd6f2c59dd514884b4a1d8139670469a",
+      "entryId": "e01929159dd747939b37143680054049",
       "kind": "spare-added",
       "kindText": "Spare added",
       "atUtc": "2026-10-11T03:12:00Z",
+      "machineId": "f26a799d85a244129a27ba10b8cb3427",
       "machineName": "the-windows-machine",
       "osUser": "owner",
+      "label": "the-windows-machine",
       "fromAccountEmail": "",
       "toAccountEmail": "account-c@example.com",
       "why": null,
@@ -733,12 +752,14 @@ A `no-room` row is open while its `finishedAtUtc` is null (the account is still 
       "verifiedText": null
     },
     {
-      "entryId": "83019e32f08e4a1486d3ac48c3ef6c14",
+      "entryId": "fddfab36f39e4bc7a09166bd7a519a89",
       "kind": "switch",
       "kindText": "Switch",
       "atUtc": "2026-10-11T01:12:00Z",
+      "machineId": "f26a799d85a244129a27ba10b8cb3427",
       "machineName": "the-windows-machine",
       "osUser": "owner",
+      "label": "the-windows-machine",
       "fromAccountEmail": "account-a@example.com",
       "toAccountEmail": "account-c@example.com",
       "why": "manual",
@@ -762,12 +783,14 @@ A `no-room` row is open while its `finishedAtUtc` is null (the account is still 
       "verifiedText": null
     },
     {
-      "entryId": "e3dc6d1ca06d4cb7ae3bf05c3dc517b6",
+      "entryId": "0920e92e743c40c69a1217aff69a433f",
       "kind": "spare-removed",
       "kindText": "Spare removed",
       "atUtc": "2026-10-10T23:12:00Z",
+      "machineId": "f26a799d85a244129a27ba10b8cb3427",
       "machineName": "the-windows-machine",
       "osUser": "owner",
+      "label": "the-windows-machine",
       "fromAccountEmail": "account-c@example.com",
       "toAccountEmail": "",
       "why": null,
@@ -791,12 +814,14 @@ A `no-room` row is open while its `finishedAtUtc` is null (the account is still 
       "verifiedText": null
     },
     {
-      "entryId": "4cbca57571e74da6b8b1552b73db78b3",
+      "entryId": "492e609fc02f4331863e231a92a43e5e",
       "kind": "switch",
       "kindText": "Switch",
       "atUtc": "2026-10-10T22:12:00Z",
+      "machineId": "f26a799d85a244129a27ba10b8cb3427",
       "machineName": "the-windows-machine",
       "osUser": "owner",
+      "label": "the-windows-machine",
       "fromAccountEmail": "account-c@example.com",
       "toAccountEmail": "account-a@example.com",
       "why": "threshold",
