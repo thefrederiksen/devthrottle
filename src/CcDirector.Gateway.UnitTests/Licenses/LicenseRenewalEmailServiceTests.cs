@@ -334,6 +334,28 @@ public sealed class LicenseRenewalEmailServiceTests : IDisposable
         Assert.Contains(_sent, s => s.Email.Subject.Contains("for account-a@example.com on the-windows-machine "));
     }
 
+    [Fact]
+    public async Task ASecondSignInOfOneMachine_ThatStartsFailingLater_IsItsOwnStreak_AndEachEndsOnItsOwn()
+    {
+        Reports(One, Mac, Failing(A, TwoDays), Renewed(B, TwoDays, active: false));
+        Assert.Equal(1, await Tick());
+
+        // An hour on the spare's renewal fails too: its own row and its own email, although the machine has one open.
+        _now = T0.AddHours(1);
+        Reports(One, Mac, Failing(A, TwoDays), Failing(B, TwoDays, active: false));
+        Assert.Equal(1, await Tick());
+        Assert.Equal(new[] { A, B }, _sent.Select(s => s.Email.AccountEmail));
+        Assert.Equal(new[] { A, B }, Rows().Select(r => r.ToAccountEmail));
+
+        // The first sign-in is renewed and the spare's still fails: only the first streak ends.
+        _now = T0.AddHours(2);
+        Reports(One, Mac, Renewed(A, TimeSpan.FromDays(30)), Failing(B, TwoDays, active: false));
+        Assert.Equal(0, await Tick());
+
+        Assert.Equal(new[] { (A, LicenseLogStates.Ended), (B, LicenseLogStates.Open) }, Rows().Select(r => (r.ToAccountEmail, r.State)));
+        Assert.Equal(2, _sent.Count);
+    }
+
     // ----- a send that does not go out -----
 
     [Fact]
