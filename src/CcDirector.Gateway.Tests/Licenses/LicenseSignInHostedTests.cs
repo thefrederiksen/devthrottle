@@ -6,6 +6,7 @@ using CcDirector.Core.Security;
 using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Licenses;
+using CcDirector.Core.Utilities;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests.Licenses;
@@ -40,10 +41,15 @@ public sealed class LicenseSignInHostedTests : IAsyncLifetime
     /// <summary>The one moment every test here happens at.</summary>
     private static readonly DateTime Now = new(2026, 10, 12, 12, 0, 0, DateTimeKind.Utc);
 
-    private sealed class FixedClock : TimeProvider
+    /// <summary>The Gateway's license clock: <see cref="Now"/> until a test moves it.</summary>
+    private sealed class TestClock : TimeProvider
     {
-        public override DateTimeOffset GetUtcNow() => new(Now);
+        public DateTime UtcNow { get; set; } = Now;
+
+        public override DateTimeOffset GetUtcNow() => new(UtcNow);
     }
+
+    private readonly TestClock _clock = new();
 
     private GatewayHost _gateway = null!;
     private HostedTestDevice _alice;
@@ -69,7 +75,7 @@ public sealed class LicenseSignInHostedTests : IAsyncLifetime
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
             streamMode: true,
             options: new GatewayHostOptions { Hosted = true });
-        _gateway.LicenseClock = new FixedClock();
+        _gateway.LicenseClock = _clock;
         await _gateway.StartAsync();
 
         // The Gateway database is shared by every host this test process starts, so the accounts and the Directors
@@ -369,6 +375,163 @@ public sealed class LicenseSignInHostedTests : IAsyncLifetime
         Assert.Equal(JsonValueKind.Null, ofBob.GetProperty("accounts")[0].GetProperty("approver").ValueKind);
     }
 
+    /// <summary>A session of Alice's that she has raised, through the real raise route.</summary>
+    private async Task<HttpClient> ARaisedSessionOfAlice()
+    {
+        var sessionId = Guid.NewGuid().ToString();
+        var key = GatewaySessionKey.Mint();
+        Assert.True(_gateway.SessionKeys.Register(_alice.Tenant, _target.DirectorId, sessionId, GatewaySessionKey.Hash(key),
+            new DateTime(2099, 1, 1, 0, 0, 0, DateTimeKind.Utc)));
+        await _target.PushSnapshotAsync(new SessionDto
+            { SessionId = sessionId, Name = "A session the owner raised", ActivityState = "WaitingForInput", CreatedAt = Now, LastActivityAt = Now });
+        using var raise = await _aliceOwner.PostAsync($"sessions/{sessionId}/raise", null);
+        Assert.Equal(HttpStatusCode.OK, raise.StatusCode);
+        Assert.True(_gateway.RaisedSessions.IsRaised(_alice.Tenant, sessionId));
+        return Client(key);
+    }
+
+    [Fact]
+    public async Task TheFourWrites_AskedWithASessionKeyTheOwnerRaised_AreStillRefused_AndNothingIsStoredOrSent()
+    {
+        await AliceSetsHerApprover();
+        using var raised = await ARaisedSessionOfAlice();
+        var machineId = MachineId(_alice.Tenant, TargetMachine);
+
+        using var set = await SetApprover(raised, B, ApprovingMachine);
+        using var remove = await raised.DeleteAsync($"gateway/licenses/approvers?accountEmail={Uri.EscapeDataString(A)}");
+        using var add = await Post(raised, LicenseSignInRoutes.AddSpare, B, machineId);
+        using var renew = await Post(raised, LicenseSignInRoutes.Renew, A, machineId);
+
+        // Raising a session widens what its key may do, and never to these four: the session key guard refuses them
+        // before the route is reached, as it does for a session that was not raised.
+        foreach (var response in new[] { set, remove, add, renew })
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+            Assert.Equal("session_key_out_of_scope", (await Json(response)).GetProperty("code").GetString());
+        }
+        // A raised session still reads; nothing was changed and no Director was sent a sign-in.
+        var approvers = (await Get(raised, LicenseSignInRoutes.Approvers)).GetProperty("approvers");
+        Assert.Equal((1, A), (approvers.GetArrayLength(), approvers[0].GetProperty("accountEmail").GetString()));
+        Assert.Empty(_target.AllOf(LicenseContract.SignInVerb));
+        Assert.DoesNotContain(_gateway.LicenseStore.ListLog(_alice.Tenant, Now.AddDays(-1)), r => r.Kind == LicenseSignInLog.Kind);
+    }
+
+    // ---- nothing the relay is given reaches the host's log ----
+
+    [Fact]
+    public async Task NoLineOfTheHostsLog_CarriesTheAddressOrTheApproval_AcrossAnApprovedRelayAndADroppedTunnel()
+    {
+        await AliceSetsHerApprover();
+        TakesAnswers(_target);
+        using var capture = FileLog.RedirectForTests();
+        FileLog.Start();
+
+        // 1. An approved relay, through the real hub, the real router and the real tunnel.
+        Approves(_approver);
+        await _target.RequestLicenseApprovalAsync(Request());
+        await _gateway.LicenseApprovals.WhenIdleAsync().WaitAsync(TimeSpan.FromSeconds(60));
+        Assert.Equal(LicenseApprovalOutcomes.Approved, Payload<LicenseApprovalResult>(_target.LastOf(LicenseContract.ApprovalResultVerb)!).Outcome);
+
+        // 2. A relay whose approving Director loses its tunnel while it holds the command.
+        using var holding = new ManualResetEventSlim();
+        using var arrived = new SemaphoreSlim(0);
+        _approver.OnCommand(command =>
+        {
+            arrived.Release();
+            Assert.True(holding.Wait(TimeSpan.FromMinutes(2)));
+            return FakeTunnelDirector.Ok(new LicenseApprovalResult
+                { SignInId = Payload<LicenseApproveRequest>(command).SignInId, Outcome = LicenseApprovalOutcomes.Approved, SealedApproval = SealedValue });
+        });
+        const string second = "22222222222222222222222222222222";
+        await _target.RequestLicenseApprovalAsync(Request(second));
+        Assert.True(await arrived.WaitAsync(TimeSpan.FromMinutes(2)));
+        var stopping = _approver.StopTunnelAsync();
+        await _gateway.LicenseApprovals.WhenIdleAsync().WaitAsync(TimeSpan.FromSeconds(60));
+        holding.Set();
+        await stopping.WaitAsync(TimeSpan.FromSeconds(60));
+        var dropped = Payload<LicenseApprovalResult>(_target.LastOf(LicenseContract.ApprovalResultVerb)!);
+        Assert.Equal((second, LicenseApprovalOutcomes.Refused, LicenseRenewalErrors.ApproverOffline), (dropped.SignInId, dropped.Outcome, dropped.ReasonCode));
+
+        var lines = capture.DrainAndReadLines();
+
+        // The host's own lines for these sends are in the capture: the router's line for an answered command, its line
+        // for the dropped tunnel - the one line on the path that prints text this code does not write - and the relay's.
+        Assert.Contains(lines, l => l.Contains("[DirectorCommandRouter] " + LicenseContract.ApproveVerb) && l.Contains(_approver.DirectorId));
+        Assert.Contains(lines, l => l.Contains("[DirectorCommandRouter] " + LicenseContract.ApproveVerb) && l.Contains("TUNNEL DROPPED mid-command"));
+        Assert.Contains(lines, l => l.Contains("[DirectorCommandRouter] " + LicenseContract.ApprovalResultVerb) && l.Contains(_target.DirectorId));
+        Assert.Contains(lines, l => l.Contains("[LicenseApprovalRelay]") && l.Contains(SignIn1) && l.Contains(LicenseApprovalOutcomes.Approved));
+        Assert.Contains(lines, l => l.Contains("[LicenseApprovalRelay]") && l.Contains(second) && l.Contains(LicenseRenewalErrors.ApproverOffline));
+
+        Assert.DoesNotContain(lines, l => l.Contains(Address, StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(lines, l => l.Contains("claude.example", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(lines, l => l.Contains("challenge=", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(lines, l => l.Contains(SealedValue, StringComparison.Ordinal));
+        Assert.DoesNotContain(lines, l => l.Contains(TargetPublicHalf, StringComparison.Ordinal));
+    }
+
+    // ---- a sign-in with no answer is settled by the host's minute check ----
+
+    /// <summary>A sign-in row as a Gateway that stopped while it waited leaves it: written, sent, and never answered.</summary>
+    private string AnUnansweredSignIn(string reason, string account)
+    {
+        var machine = _gateway.LicenseReads.Read(_alice.Tenant, Now).Machines.Single(m => m.MachineName == TargetMachine);
+        var row = _gateway.LicenseSignInLog.CreatePending(_alice.Tenant, machine, account, reason, "Asked from the Licenses page.", Now);
+        Assert.True(_gateway.LicenseSignInLog.RecordSend(_alice.Tenant, row.SwitchId!, machine.DirectorId, Now));
+        Assert.True(_gateway.LicenseSignInLog.TryMarkUnknown(_alice.Tenant, row.SwitchId!, "No answer came back."));
+        return row.SwitchId!;
+    }
+
+    [Fact]
+    public async Task AnUnansweredSignIn_IsAskedAgainByTheHostsMinuteCheck_OverTheTunnel_AndEndsWithTheDirectorsStoredAnswer()
+    {
+        var signInId = AnUnansweredSignIn(LicenseSignInReasons.Manual, B);
+        TakesAnswers(_target, request => new LicenseSignInResult
+        {
+            SignInId = request.SignInId,
+            Outcome = LicenseSignInOutcomes.Added,
+            Message = "Signed in and stored as a spare.",
+            FinishedAtUtc = Now.AddMinutes(2),
+            Replayed = true,
+        });
+
+        // Still inside the time a Director could be running it: the check asks nobody.
+        _clock.UtcNow = Now + LicenseSignInService.UnansweredAfter;
+        await _gateway.RunLicenseSwitchCheckAsync();
+        Assert.Empty(_target.AllOf(LicenseContract.SignInVerb));
+
+        _clock.UtcNow = Now + LicenseSignInService.UnansweredAfter + TimeSpan.FromSeconds(1);
+        await _gateway.RunLicenseSwitchCheckAsync();
+
+        var again = Payload<LicenseSignInRequest>(Assert.Single(_target.AllOf(LicenseContract.SignInVerb)));
+        Assert.Equal((signInId, B, LicenseSignInReasons.Manual, Now + LicenseContract.SignInNotAfter),
+            (again.SignInId, again.AccountEmail, again.Reason, again.NotAfterUtc));
+        var row = _gateway.LicenseSignInLog.Find(_alice.Tenant, signInId)!;
+        Assert.Equal((LicenseSignInOutcomes.Added, "Signed in and stored as a spare.", true, 2), (row.State, row.Message, row.Replayed, row.SendCount));
+        // The other account's Director was asked nothing.
+        Assert.Empty(_bobDirector.AllOf(LicenseContract.SignInVerb));
+
+        // And a later check asks nobody again: the row has ended.
+        await _gateway.RunLicenseSwitchCheckAsync();
+        Assert.Single(_target.AllOf(LicenseContract.SignInVerb));
+    }
+
+    [Fact]
+    public async Task AnUnansweredSignIn_WhoseDirectorLostItsTunnelAndHasNotReportedSince_StaysOpen()
+    {
+        var signInId = AnUnansweredSignIn(LicenseSignInReasons.Renewal, A);
+        await _target.StopTunnelAsync();
+
+        _clock.UtcNow = Now + LicenseSignInService.UnansweredAfter + TimeSpan.FromHours(2);
+        await _gateway.RunLicenseSwitchCheckAsync();
+        await _gateway.RunLicenseSwitchCheckAsync();
+
+        // The only report is from before the sign-in was asked for: nothing is known, so nothing is claimed.
+        var row = _gateway.LicenseSignInLog.Find(_alice.Tenant, signInId)!;
+        Assert.Equal((LicenseLogStates.Unknown, (DateTime?)null), (row.State, row.FinishedAtUtc));
+        var shown = (await Get(_aliceOwner, LicenseRoutes.Log)).GetProperty("entries").EnumerateArray().Single(e => e.GetProperty("kind").GetString() == "sign-in");
+        Assert.True(shown.GetProperty("isOpen").GetBoolean());
+    }
+
     // ---- a sign-in from the Cockpit ----
 
     [Fact]
@@ -482,5 +645,60 @@ public sealed class LicenseSignInHostedTests : IAsyncLifetime
         Assert.Equal("unknown_machine", (await Json(add)).GetProperty("code").GetString());
         Assert.Empty(_bobDirector.AllOf(LicenseContract.SignInVerb));
         Assert.DoesNotContain((await Get(_bobOwner, LicenseRoutes.Log)).GetProperty("entries").EnumerateArray(), e => e.GetProperty("kind").GetString() == "sign-in");
+    }
+}
+
+/// <summary>
+/// THE FOUR SIGN-IN WRITES ON A SELF-HOSTED GATEWAY: the shared machine token is a credential there - every Director
+/// on the machine has it - and it reads who approves each account, but it is not a signed-in person, so setting or
+/// removing an approver and starting a sign-in are refused to it (the review of pull request 3943, finding 6).
+/// </summary>
+public sealed class LicenseSignInWritesSelfHostedTests : IAsyncLifetime
+{
+    private const string SharedToken = "license-sign-in-self-hosted-token";
+    private readonly string _instancesDir = Path.Combine(Path.GetTempPath(), "cc-license-sign-in-self-hosted-" + Guid.NewGuid().ToString("N"));
+    private GatewayHost _gateway = null!;
+    private HttpClient _sharedToken = null!;
+
+    public async Task InitializeAsync()
+    {
+        _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: SharedToken, authEnabled: true,
+            instancesDirectory: _instancesDir,
+            workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
+            streamMode: true);
+        await _gateway.StartAsync();
+        _sharedToken = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
+        _sharedToken.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", SharedToken);
+    }
+
+    public async Task DisposeAsync()
+    {
+        _sharedToken.Dispose();
+        await _gateway.StopAsync();
+        try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); } catch { /* best effort */ }
+    }
+
+    [Fact]
+    public async Task TheSharedMachineToken_ReadsWhoApproves_AndIsRefusedAllFourWrites()
+    {
+        const string body = "{\"accountEmail\":\"account-a@example.com\",\"machineId\":\"0123456789abcdef0123456789abcdef\"}";
+        StringContent Sent(string json) => new(json, System.Text.Encoding.UTF8, "application/json");
+
+        using var read = await _sharedToken.GetAsync("gateway/licenses/approvers");
+        using var set = await _sharedToken.PutAsync("gateway/licenses/approvers",
+            Sent("{\"accountEmail\":\"account-a@example.com\",\"machineName\":\"the-mac\",\"osUser\":\"owner\",\"browserProfile\":\"work\"}"));
+        using var remove = await _sharedToken.DeleteAsync("gateway/licenses/approvers?accountEmail=account-a%40example.com");
+        using var add = await _sharedToken.PostAsync(LicenseSignInRoutes.AddSpare.TrimStart('/'), Sent(body));
+        using var renew = await _sharedToken.PostAsync(LicenseSignInRoutes.Renew.TrimStart('/'), Sent(body));
+
+        Assert.Equal(HttpStatusCode.OK, read.StatusCode);
+        foreach (var refused in new[] { set, remove, add, renew })
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
+            var json = JsonDocument.Parse(await refused.Content.ReadAsStringAsync()).RootElement;
+            Assert.Equal("owner_only", json.GetProperty("code").GetString());
+        }
+        using var after = await _sharedToken.GetAsync("gateway/licenses/approvers");
+        Assert.True(JsonDocument.Parse(await after.Content.ReadAsStringAsync()).RootElement.GetProperty("isEmpty").GetBoolean());
     }
 }

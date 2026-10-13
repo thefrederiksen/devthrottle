@@ -196,6 +196,10 @@ public sealed class FakeTunnelDirector : IAsyncDisposable
     public Task RequestLicenseApprovalAsync(LicenseApprovalRequest request) =>
         _conn.InvokeAsync(LicenseContract.RequestApprovalHubMethod, request);
 
+    /// <summary>Close this Director's tunnel, as a machine that lost its connection does. A command it has not
+    /// answered yet ends on the Gateway as a dropped tunnel.</summary>
+    public Task StopTunnelAsync() => _conn.StopAsync();
+
     /// <summary>Serialize a verb result body the way the real Director cores do.</summary>
     public static DirectorCommandResult Ok(object body) =>
         DirectorCommandResult.Success(JsonSerializer.Serialize(body, WebJson));
