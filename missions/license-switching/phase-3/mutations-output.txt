@@ -1,77 +1,157 @@
-1 the page works a window's colour out of its number | ran 33 | red 1
+1 the page works a window's colour out of its number | ran 46 | red 1
     - never works a verdict out of a number: 99% the Gateway calls normal is drawn normal
-2 a window that was not read is drawn as a meter | ran 33 | red 1
+2 a window that was not read is drawn as a meter | ran 46 | red 1
     - draws a window that was not read hatched, never as a meter at zero
-3 the status word is shown in place of its label | ran 33 | red 2
+3 the status word is shown in place of its label | ran 46 | red 2
     - draws one card per account, with the Gateway's status word in the Gateway's tone
     - never works a verdict out of a number: 99% the Gateway calls normal is drawn normal
-4 a sign-in's expiry loses the Gateway's tone | ran 33 | red 1
+4 a sign-in's expiry loses the Gateway's tone | ran 46 | red 1
     - shows, per machine, when the sign-in it holds for the account expires, in the Gateway's tone
-5 Switch now is offered on every account | ran 33 | red 1
+5 Switch now is offered on every account | ran 46 | red 1
     - offers the control only where the Gateway offers it, and always shows the Gateway's sentence
-6 Switch now sends without asking | ran 33 | red 5
+6 Switch now sends without asking | ran 46 | red 12
     - asks first, and sends nothing when the confirmation is cancelled
     - on confirmation sends the account and the picked target, shows the Gateway's answer, and reads again
     - sends the target picked by hand, and stops showing the sentence that describes the Gateway's own choice
     - keeps the confirmation open on a refusal and shows the Gateway's own sentence
-    - selects nothing, sends a null target on confirmation, and shows the Gateway's refusal
-7 Switch now drops the picked target | ran 33 | red 2
+    - selects nothing and never calls Switch now with no target: a call that names none would be refused
+    - sends one application/json POST naming the account and the target, and shows the Gateway's answer
+    - shows a machine that was left out in the Gateway's own sentence, and adds no name of its own to it
+    - reads how a switch ended from its row of the switch log, and never sends the same Switch now again
+    - shows a 403 owner_only in the Gateway's sentence, word for word, and keeps the confirmation open
+    - shows a 409 refusal in the Gateway's sentence, word for word
+    - cannot be confirmed and sends nothing until a target is picked by hand, then sends that target
+    - can be confirmed at once where the Gateway did choose a target
+7 Switch now drops the picked target | ran 46 | red 5
     - on confirmation sends the account and the picked target, shows the Gateway's answer, and reads again
     - sends the target picked by hand, and stops showing the sentence that describes the Gateway's own choice
-8 the empty answer is drawn as tables | ran 33 | red 1
+    - selects nothing and never calls Switch now with no target: a call that names none would be refused
+    - sends one application/json POST naming the account and the target, and shows the Gateway's answer
+    - cannot be confirmed and sends nothing until a target is picked by hand, then sends that target
+8 the empty answer is drawn as tables | ran 46 | red 1
     - shows the Gateway's sentence in place of every list
-9 a log row loses its reason | ran 33 | red 1
+9 a log row loses its reason | ran 46 | red 1
     - lists a failed switch with the Gateway's state, tone, sentence and reason
-10 older rows are read without the cursor | ran 33 | red 1
+10 older rows are read without the cursor | ran 46 | red 1
     - reads older rows with the cursor exactly as the Gateway gave it, and stops offering when there are none
-11 a failed renewal is drawn without the Gateway's tone | ran 33 | red 1
+11 a failed renewal is drawn without the Gateway's tone | ran 46 | red 2
     - flags a sign-in whose last renewal failed, and the subscription's renewal date, when the Gateway sends them
-12 the log merge repeats a row already on screen | ran 33 | red 2
+    - shows a stored failed renewal on the one sign-in it is about, in the Gateway's sentence and tone
+12 the log merge repeats a row already on screen | ran 46 | red 2
     - takes a new newest page whole until older rows were read, and after that keeps every row already on screen
     - lays a newer page on top of the rows already read without losing or repeating one
-17 a new newest page throws away the older rows already read | ran 33 | red 1
+17 a new newest page throws away the older rows already read | ran 46 | red 1
     - takes a new newest page whole until older rows were read, and after that keeps every row already on screen
-18 the renewal date is not drawn | ran 33 | red 1
+18 the renewal date is not drawn | ran 46 | red 5
     - flags a sign-in whose last renewal failed, and the subscription's renewal date, when the Gateway sends them
-R1 every pill is drawn in the good colour, whatever tone the Gateway sent | ran 33 | red 3
+    - sends one application/json PUT with the account and the date, and shows the Gateway's sentence at once
+    - clears a date with an explicit null, which is the only thing the Gateway takes as clearing
+    - shows a 403 owner_only in the Gateway's sentence, word for word, and leaves the date as it was
+    - shows a stored failed renewal on the one sign-in it is about, in the Gateway's sentence and tone
+R1 every pill is drawn in the good colour, whatever tone the Gateway sent | ran 46 | red 4
     - gives each account's status the class of its own tone, which is what the stylesheet colours
     - gives each log row's result the class of its own tone
     - draws a tone word this build does not know as neutral
-R2 every schedule row shows the first machine's forecast | ran 33 | red 1
+    - sends one application/json POST naming the account and the target, and shows the Gateway's answer
+R2 every schedule row shows the first machine's forecast | ran 46 | red 1
     - gives each machine in the schedule its own next account and sentence
-R3 every card shows the first account's forecast sentence | ran 33 | red 1
+R3 every card shows the first account's forecast sentence | ran 46 | red 1
     - gives each account's card its own expected sentence
-R4a a read error is not drawn on the card | ran 33 | red 1
+R4a a read error is not drawn on the card | ran 46 | red 1
     - shows the account's read error and the machine's, as the Gateway worded them, with no colour of the page's own
-R4b a read error is not drawn on the machine's line | ran 33 | red 1
+R4b a read error is not drawn on the machine's line | ran 46 | red 1
     - shows the account's read error and the machine's, as the Gateway worded them, with no colour of the page's own
-R5a a machine is called by its machine name on the cards | ran 33 | red 1
+R5a a machine is called by its machine name on the cards | ran 46 | red 1
     - on the cards, in the schedule and in the log - never by its machine name alone
-R5b a machine is called by its machine name in the schedule | ran 33 | red 2
+R5b a machine is called by its machine name in the schedule | ran 46 | red 2
     - gives each machine in the schedule its own next account and sentence
     - on the cards, in the schedule and in the log - never by its machine name alone
-R5c a machine is called by its machine name in the log | ran 33 | red 1
+R5c a machine is called by its machine name in the log | ran 46 | red 1
     - on the cards, in the schedule and in the log - never by its machine name alone
-R6 a failed read of the switch log shows nothing at all | ran 33 | red 1
+R6 a failed read of the switch log shows nothing at all | ran 46 | red 1
     - says so when the first read of the switch log fails, and keeps everything else on screen
-R7a the page never shows Loading for the accounts | ran 33 | red 1
+R7a the page never shows Loading for the accounts | ran 46 | red 1
     - shows Loading at once, before the Gateway has answered anything
-R7b the page never shows Loading for the switch log | ran 33 | red 1
+R7b the page never shows Loading for the switch log | ran 46 | red 1
     - shows Loading under the switch log while only the log has not answered
-R8 how old the numbers are is not drawn | ran 33 | red 1
+R8 how old the numbers are is not drawn | ran 46 | red 1
     - says how old each account's numbers are, in the Gateway's sentence
-R9 the page colours a read error red by itself | ran 33 | red 1
+R9 the page colours a read error red by itself | ran 46 | red 1
     - shows the account's read error and the machine's, as the Gateway worded them, with no colour of the page's own
-13 a failed overview read is drawn as an empty page | ran 33 | red 2
+13 a failed overview read is drawn as an empty page | ran 46 | red 2
     - says so in a banner, and never shows an empty page as if there were no accounts
     - shows Loading at once, before the Gateway has answered anything
-14 the client accepts an answer that lost its list | ran 9 | red 1
+14 the client accepts an answer that lost its list | ran 15 | red 1
     - refuses a successful answer that has lost its list, rather than showing an account with nothing in it
-15 the client drops the log cursor | ran 9 | red 1
+15 the client drops the log cursor | ran 15 | red 1
     - reads the newest log page with no cursor, and an older page with the cursor exactly as given
-16 the client sends Switch now without its target | ran 9 | red 2
+16 the client sends Switch now without its target | ran 15 | red 2
     - posts the account and the target to /gateway/licenses/switch-now
     - sends a null target when the Gateway is to choose
+W1 Switch now can be confirmed where the Gateway chose no target and none is picked | ran 46 | red 2
+    - selects nothing and never calls Switch now with no target: a call that names none would be refused
+    - cannot be confirmed and sends nothing until a target is picked by hand, then sends that target
+W2 the shared dialog ignores that the confirmation cannot be given yet | ran 46 | red 2
+    - selects nothing and never calls Switch now with no target: a call that names none would be refused
+    - cannot be confirmed and sends nothing until a target is picked by hand, then sends that target
+W3 Switch now is sent with no target where the Gateway chose none (both guards gone) | ran 46 | red 2
+    - selects nothing and never calls Switch now with no target: a call that names none would be refused
+    - cannot be confirmed and sends nothing until a target is picked by hand, then sends that target
+W4 the saved renewal date is not shown from the Gateway's answer | ran 46 | red 2
+    - sends one application/json PUT with the account and the date, and shows the Gateway's sentence at once
+    - clears a date with an explicit null, which is the only thing the Gateway takes as clearing
+W5 the page words the saved renewal date itself | ran 46 | red 2
+    - sends one application/json PUT with the account and the date, and shows the Gateway's sentence at once
+    - clears a date with an explicit null, which is the only thing the Gateway takes as clearing
+W6 a saved renewal date is drawn on every account | ran 46 | red 1
+    - sends one application/json PUT with the account and the date, and shows the Gateway's sentence at once
+W7 Clear date sends an empty date in place of null | ran 46 | red 1
+    - clears a date with an explicit null, which is the only thing the Gateway takes as clearing
+W8 a renewal date can be saved before one is given | ran 46 | red 1
+    - sends one application/json PUT with the account and the date, and shows the Gateway's sentence at once
+W9 a refused renewal date is shown in the page's own words | ran 46 | red 1
+    - shows a 403 owner_only in the Gateway's sentence, word for word, and leaves the date as it was
+W10 a refused renewal date closes the editor as if it were stored | ran 46 | red 1
+    - shows a 403 owner_only in the Gateway's sentence, word for word, and leaves the date as it was
+W11 the barred sentence is not drawn | ran 46 | red 1
+    - shows the Gateway's barred sentence and its time on that account, and nothing on an account that is not barred
+W12 the time an account is barred until is not drawn | ran 46 | red 1
+    - shows the Gateway's barred sentence and its time on that account, and nothing on an account that is not barred
+W13 the page colours the barred sentence by itself | ran 46 | red 1
+    - shows the Gateway's barred sentence and its time on that account, and nothing on an account that is not barred
+W14 the Gateway's sentence for the outcome of Switch now is not drawn | ran 46 | red 2
+    - on confirmation sends the account and the picked target, shows the Gateway's answer, and reads again
+    - sends one application/json POST naming the account and the target, and shows the Gateway's answer
+W15 the page puts a name of its own before a left-out machine's sentence | ran 46 | red 2
+    - on confirmation sends the account and the picked target, shows the Gateway's answer, and reads again
+    - shows a machine that was left out in the Gateway's own sentence, and adds no name of its own to it
+W16 how a switch ended is never read from the switch log | ran 46 | red 1
+    - reads how a switch ended from its row of the switch log, and never sends the same Switch now again
+W17 a failed renewal is drawn on every sign-in of the card | ran 46 | red 2
+    - flags a sign-in whose last renewal failed, and the subscription's renewal date, when the Gateway sends them
+    - shows a stored failed renewal on the one sign-in it is about, in the Gateway's sentence and tone
+K1 the writes lose their content type | ran 15 | red 2
+    - posts the account and the target to /gateway/licenses/switch-now
+    - puts the account and the date to /gateway/licenses/accounts/renewal as application/json
+K1b the writes lose their content type (seen from the page) | ran 46 | red 2
+    - sends one application/json POST naming the account and the target, and shows the Gateway's answer
+    - sends one application/json PUT with the account and the date, and shows the Gateway's sentence at once
+K2 clearing the renewal date leaves renewsOn out of the body | ran 15 | red 1
+    - clears the date with an explicit null: a body that leaves renewsOn out is refused by the Gateway
+K2b clearing the renewal date leaves renewsOn out of the body (seen from the page) | ran 46 | red 1
+    - clears a date with an explicit null, which is the only thing the Gateway takes as clearing
+K3 the renewal date is sent by POST | ran 15 | red 1
+    - puts the account and the date to /gateway/licenses/accounts/renewal as application/json
+K4 the client accepts a stored answer that lost its sentence | ran 15 | red 1
+    - refuses a stored answer that has lost its sentence, rather than showing a date with no words
+K5 the client gives up on Switch now before the Gateway's own wait ends | ran 15 | red 1
+    - waits longer than the Gateway's own 60-second wait for the machines
+K6 a refused renewal date loses the Gateway's sentence | ran 15 | red 1
+    - throws the Gateway's own sentence when the date is refused
+K7 a refused Switch now loses the Gateway's sentence (seen from the page) | ran 46 | red 2
+    - shows a 403 owner_only in the Gateway's sentence, word for word, and keeps the confirmation open
+    - shows a 409 refusal in the Gateway's sentence, word for word
 RESTORED; baseline:
-cockpit 33 red 0
-core 9 red 0
+cockpit 46 red 0
+core 15 red 0
+57 wrong changes; 0 left every test green
