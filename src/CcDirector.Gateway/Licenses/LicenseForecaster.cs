@@ -209,10 +209,20 @@ public static class LicenseForecaster
             expected = now;
         else if (rate is { } perHour && perHour > 0)
         {
-            var at = readTime.AddHours((LicenseDecisionEngine.ThresholdPercent - reading.Utilization) / perHour);
-            if (at < now)
-                at = now;
-            expected = reading.ResetsAtUtc is { } reset && reset <= at ? null : at;
+            // No window lasts longer than the weekly one, so a window that needs longer than that to reach the
+            // threshold resets first: it is not expected to reach it. Deciding that on the number of hours, before
+            // any date is worked out, is also what keeps a rate of almost nothing from asking for a date past the
+            // end of the calendar.
+            var hours = (LicenseDecisionEngine.ThresholdPercent - reading.Utilization) / perHour;
+            if (double.IsNaN(hours) || hours > LicenseDecisionEngine.SevenDayWindowLength.TotalHours)
+                expected = null;
+            else
+            {
+                var at = readTime.AddHours(hours);
+                if (at < now)
+                    at = now;
+                expected = reading.ResetsAtUtc is { } reset && reset <= at ? null : at;
+            }
         }
         else
             expected = null;

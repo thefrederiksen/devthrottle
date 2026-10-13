@@ -410,6 +410,12 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>The license picture the decision engine and the Licenses page read.</summary>
     internal Licenses.LicenseReadModel LicenseReads { get; }
 
+    /// <summary>The recent usage readings of every account, kept in memory, for the forecast's rate of use.</summary>
+    internal Licenses.LicenseUsageHistory LicenseHistory { get; }
+
+    /// <summary>The one place the decision engine's picture of an account is built from the store.</summary>
+    internal Licenses.LicenseSnapshotSource LicenseSnapshots { get; }
+
     /// <summary>The record of every message link set up and stopped, and every message a link carried, in the
     /// governance audit trail.</summary>
     internal Messaging.FleetMessageLinkRecord MessageLinkRecord { get; }
@@ -465,6 +471,13 @@ public sealed class GatewayHost : IAsyncDisposable
     /// a test sets its own BEFORE <see cref="StartAsync"/>, where the routes are mapped with it.
     /// </summary>
     public TimeProvider DeliveryClock { get; set; } = TimeProvider.System;
+
+    /// <summary>
+    /// The clock the Licenses routes judge by (License Switching): how old a reading is, whether a sign-in has expired,
+    /// how long until a window resets. The real clock in production; a test sets its own BEFORE <see cref="StartAsync"/>,
+    /// where the routes are mapped with it, so no test of those routes reads the machine's clock.
+    /// </summary>
+    public TimeProvider LicenseClock { get; set; } = TimeProvider.System;
 
     /// <summary>
     /// The Gateway's driver of held deliveries (Voice Delivery phase 5): once a recording's delivery is taken over, the
@@ -2255,8 +2268,10 @@ public sealed class GatewayHost : IAsyncDisposable
             nowUtc: () => DateTime.UtcNow);
         MessageLinkRecord = new Messaging.FleetMessageLinkRecord(_governanceAudit, tenant => _tenantBoundary.EnterScope(tenant));
         LicenseStore = new Licenses.LicenseStore(_gatewayDb);
-        LicenseUsage = new Licenses.LicenseUsageIngest(LicenseStore);
+        LicenseHistory = new Licenses.LicenseUsageHistory();
+        LicenseUsage = new Licenses.LicenseUsageIngest(LicenseStore, LicenseHistory);
         LicenseReads = new Licenses.LicenseReadModel(LicenseStore);
+        LicenseSnapshots = new Licenses.LicenseSnapshotSource(LicenseStore, LicenseReads);
         // Per-tenant dictation transcript store (issue #509): every transcribed turn's raw and cleaned text
         // lands in the caller tenant's partition of the dictation_transcripts table, write-only, for later
         // mistranscription mining (devthrottle #2075). Same store on SQLite (self-host) and Postgres (hosted) -
@@ -5431,6 +5446,15 @@ public sealed class GatewayHost : IAsyncDisposable
             // holds up the agent that asked.
             announceWaiting: (forTenant, transfer) => { _ = _secretTransferPush.NotifyWaitingAsync(transfer, CancellationToken.None); },
             nowUtc: () => DateTime.UtcNow);
+
+        // The Licenses routes (the License Switching mission): what the Licenses page of the Cockpit reads - the accounts
+        // and machines, the forecast, and the switch log. Reads only; the three are in SessionKeyGuard's allow list.
+        Api.LicenseEndpoints.Map(_app,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            snapshots: LicenseSnapshots,
+            history: LicenseHistory,
+            store: LicenseStore,
+            nowUtc: () => LicenseClock.GetUtcNow().UtcDateTime);
 
         // Requests for a message link (issue #3548): a session asks, the owner - or a raised session - answers. Asking is
         // in SessionKeyGuard's ordinary allow list; the list and the answer are on RaisedGrant.MessageLinks.

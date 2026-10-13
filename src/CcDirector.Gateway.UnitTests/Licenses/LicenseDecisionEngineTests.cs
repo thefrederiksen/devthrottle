@@ -698,4 +698,45 @@ public sealed class LicenseDecisionEngineTests
 
         Assert.Equal(LicenseManualRefusals.NoTarget, verdict.RefusalCode);
     }
+
+    // ---- the preview the Licenses page asks ----
+
+    [Theory]
+    [InlineData(null)]                       // the automatic choice
+    [InlineData(B)]                          // a target that is accepted
+    [InlineData(C)]                          // a target no machine holds: refused
+    [InlineData(A)]                          // the source itself: refused
+    public void PreviewManual_GivesExactlyTheAnswerDecideManualGives(string? target)
+    {
+        var snapshot = Snapshot(
+            [Reading(A, 98, 20, active: true), Reading(B, 10, 20), Reading(C, 10, 20)],
+            [Machine("m1", A, B), Machine("m2", A, B)]);
+
+        var decided = LicenseDecisionEngine.DecideManual(snapshot, A, target);
+        var preview = LicenseDecisionEngine.PreviewManual(snapshot, A, target);
+
+        Assert.Equal((decided.Accepted, decided.RefusalCode, decided.RefusalMessage), (preview.Accepted, preview.RefusalCode, preview.RefusalMessage));
+        Assert.Equal(decided.Switches, preview.Switches);
+        Assert.Equal(decided.Skipped, preview.Skipped);
+    }
+
+    [Fact]
+    public void TheDisplayFold_AsksThroughThePreview_SoAReadOfThePageWritesNoDecisionLines()
+    {
+        // The fold asks about every account and every target on each read of the page. DecideManual logs two lines
+        // per question; the preview logs none. So the fold must never call DecideManual, and the preview must hold
+        // no log call of its own.
+        var licenses = Path.Combine(CcDirector.TestInfrastructure.RepositorySourceIndex.Root, "src", "CcDirector.Gateway", "Licenses");
+        var fold = File.ReadAllText(Path.Combine(licenses, "LicenseDisplayFold.cs"));
+        var engine = File.ReadAllText(Path.Combine(licenses, "LicenseDecisionEngine.cs"));
+        var start = engine.IndexOf("public static LicenseManualSwitchVerdict PreviewManual(", StringComparison.Ordinal);
+        var end = engine.IndexOf("/// <summary>", start, StringComparison.Ordinal);
+        var preview = engine[start..end];
+
+        Assert.DoesNotContain("LicenseDecisionEngine.DecideManual(", fold);
+        Assert.Contains("LicenseDecisionEngine.PreviewManual(", fold);
+        Assert.True(preview.Length > 500, "the preview's body was not read");
+        Assert.DoesNotContain("FileLog.Write", preview);
+        Assert.DoesNotContain("FileLog.Write", engine[engine.IndexOf("private static LicenseManualSwitchVerdict Refuse(", StringComparison.Ordinal)..][..300]);
+    }
 }
