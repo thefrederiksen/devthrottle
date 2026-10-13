@@ -98,9 +98,6 @@
   font-size: 12px;
   color: var(--text-dim);
 }
-.lic-card-line.lic-tone-bad {
-  color: var(--danger-text);
-}
 
 .lic-window {
   margin-top: 8px;
@@ -168,6 +165,17 @@
 }
 .lic-holding-error {
   flex-basis: 100%;
+  color: var(--text-dim);
+}
+/* A failed renewal carries the Gateway's tone, which wins over the dim default above. */
+.lic-holding-error.lic-tone-good {
+  color: var(--ok-text);
+}
+.lic-holding-error.lic-tone-warning {
+  color: var(--warn);
+}
+.lic-holding-error.lic-tone-bad {
+  color: var(--danger-text);
 }
 
 .lic-card-switch {

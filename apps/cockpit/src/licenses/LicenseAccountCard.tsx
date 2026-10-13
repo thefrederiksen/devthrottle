@@ -56,10 +56,21 @@ export function LicenseAccountCard({ account, machines, forecast, onSwitchNow }:
       <WindowBar label="Week" window={account.sevenDay} testId="lic-window-seven-day" />
 
       <p className="lic-card-detail">{account.statusDetail}</p>
-      {forecast !== undefined && <p className="lic-card-line">{forecast.expectedText}</p>}
+      {forecast !== undefined && (
+        <p className="lic-card-line" data-testid="lic-account-expected">
+          {forecast.expectedText}
+        </p>
+      )}
       <p className="lic-card-line">{account.extraUsage.text}</p>
-      <p className="lic-card-line">{account.readAgeText}</p>
-      {account.readErrorText !== null && <p className="lic-card-line lic-tone-bad">{account.readErrorText}</p>}
+      <p className="lic-card-line" data-testid="lic-account-read-age">
+        {account.readAgeText}
+      </p>
+      {/* The Gateway sends no tone for a read error, so the page gives it none: it is drawn like its neighbours. */}
+      {account.readErrorText !== null && (
+        <p className="lic-card-line" data-testid="lic-account-read-error">
+          {account.readErrorText}
+        </p>
+      )}
 
       {held.length > 0 && (
         <ul className="lic-holdings" aria-label={`Sign-ins for ${account.accountEmail}`}>
@@ -70,7 +81,9 @@ export function LicenseAccountCard({ account, machines, forecast, onSwitchNow }:
               <span className={`lic-holding-expiry ${toneClass(holding.expiryTone)}`}>{holding.expiryText}</span>
               <span className="lic-holding-signed-in">{holding.signedInText}</span>
               {holding.readErrorText !== null && (
-                <span className="lic-holding-error lic-tone-bad">{holding.readErrorText}</span>
+                <span className="lic-holding-error" data-testid="lic-holding-read-error">
+                  {holding.readErrorText}
+                </span>
               )}
               {holding.renewalFailedText !== null && (
                 <span

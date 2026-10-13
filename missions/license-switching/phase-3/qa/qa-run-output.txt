@@ -1,4 +1,4 @@
-Gateway on port 61254
+Gateway on port 49296
 GET /gateway/licenses as the owner -> 200
 GET /gateway/licenses/forecast as the owner -> 200
 GET /gateway/licenses/log as the owner -> 200

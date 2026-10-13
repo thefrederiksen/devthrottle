@@ -1,22 +1,22 @@
 {
-  "asOfUtc": "2026-10-13T06:24:13.7832373Z",
+  "asOfUtc": "2026-10-13T06:51:33.8393076Z",
   "isEmpty": false,
   "emptyText": null,
   "nextSwitch": {
     "fromAccountEmail": "account-a@example.com",
-    "expectedAtUtc": "2026-10-13T08:14:13.2437021Z",
+    "expectedAtUtc": "2026-10-13T08:41:33.0913166Z",
     "window": "five-hour",
     "windowText": "5-hour window",
     "targetAccountEmail": "account-b@example.com",
     "machines": [
       {
-        "machineId": "2b3dd2dc1b854a6ab4c9af78256578f3",
+        "machineId": "d9757838cdcf4b38877bbfb399a11e18",
         "machineName": "the-mac",
         "osUser": "owner",
         "label": "the-mac"
       },
       {
-        "machineId": "b08dc3a92bb14d409b4d0a7a4b63d3a1",
+        "machineId": "252e094cd43248e9bcaad3f53ca00a54",
         "machineName": "the-windows-machine",
         "osUser": "owner",
         "label": "the-windows-machine"
@@ -33,25 +33,25 @@
         "utilization": 64,
         "utilizationText": "64%",
         "level": "normal",
-        "resetsAtUtc": "2026-10-13T08:34:13.2437022Z",
+        "resetsAtUtc": "2026-10-13T09:01:33.0913167Z",
         "resetsText": "Resets in 2 hours 9 minutes",
         "percentPerHour": 18,
         "rateText": "18% an hour",
-        "expectedAtLimitUtc": "2026-10-13T08:14:13.2437021Z",
+        "expectedAtLimitUtc": "2026-10-13T08:41:33.0913166Z",
         "expectedText": "Expected to reach 97% in about 1 hour 49 minutes."
       },
       "sevenDay": {
         "utilization": 41,
         "utilizationText": "41%",
         "level": "normal",
-        "resetsAtUtc": "2026-10-17T11:24:13.2437022Z",
+        "resetsAtUtc": "2026-10-17T11:51:33.0913167Z",
         "resetsText": "Resets in 4 days 4 hours",
         "percentPerHour": 3,
         "rateText": "3% an hour",
-        "expectedAtLimitUtc": "2026-10-14T01:04:13.2437022Z",
+        "expectedAtLimitUtc": "2026-10-14T01:31:33.0913167Z",
         "expectedText": "Expected to reach 97% in about 18 hours 39 minutes."
       },
-      "expectedAtLimitUtc": "2026-10-13T08:14:13.2437021Z",
+      "expectedAtLimitUtc": "2026-10-13T08:41:33.0913166Z",
       "expectedText": "Expected to reach 97% of its 5-hour window in about 1 hour 49 minutes.",
       "nextSwitchTargetAccountEmail": "account-b@example.com",
       "nextSwitchText": "Next: account-b@example.com, in about 1 hour 49 minutes."
@@ -64,7 +64,7 @@
         "utilization": 4,
         "utilizationText": "4%",
         "level": "normal",
-        "resetsAtUtc": "2026-10-13T08:34:13.2437022Z",
+        "resetsAtUtc": "2026-10-13T09:01:33.0913167Z",
         "resetsText": "Resets in 2 hours 9 minutes",
         "percentPerHour": 0,
         "rateText": "Not rising",
@@ -75,7 +75,7 @@
         "utilization": 22,
         "utilizationText": "22%",
         "level": "normal",
-        "resetsAtUtc": "2026-10-17T11:24:13.2437022Z",
+        "resetsAtUtc": "2026-10-17T11:51:33.0913167Z",
         "resetsText": "Resets in 4 days 4 hours",
         "percentPerHour": 0,
         "rateText": "Not rising",
@@ -95,25 +95,25 @@
         "utilization": 99,
         "utilizationText": "99%",
         "level": "at-limit",
-        "resetsAtUtc": "2026-10-13T08:34:13.2437022Z",
+        "resetsAtUtc": "2026-10-13T09:01:33.0913167Z",
         "resetsText": "Resets in 2 hours 9 minutes",
         "percentPerHour": 0,
         "rateText": "Not rising",
-        "expectedAtLimitUtc": "2026-10-13T06:24:13.7832373Z",
+        "expectedAtLimitUtc": "2026-10-13T06:51:33.8393076Z",
         "expectedText": "Has reached 97%."
       },
       "sevenDay": {
         "utilization": 40,
         "utilizationText": "40%",
         "level": "normal",
-        "resetsAtUtc": "2026-10-17T11:24:13.2437022Z",
+        "resetsAtUtc": "2026-10-17T11:51:33.0913167Z",
         "resetsText": "Resets in 4 days 4 hours",
         "percentPerHour": 0,
         "rateText": "Not rising",
         "expectedAtLimitUtc": null,
         "expectedText": "Not rising, so not expected to reach 97%."
       },
-      "expectedAtLimitUtc": "2026-10-13T06:24:13.7832373Z",
+      "expectedAtLimitUtc": "2026-10-13T06:51:33.8393076Z",
       "expectedText": "Has reached 97% of its 5-hour window.",
       "nextSwitchTargetAccountEmail": null,
       "nextSwitchText": "Not in use, so there is nothing to switch."
@@ -152,23 +152,23 @@
   ],
   "machines": [
     {
-      "machineId": "2b3dd2dc1b854a6ab4c9af78256578f3",
+      "machineId": "d9757838cdcf4b38877bbfb399a11e18",
       "machineName": "the-mac",
       "osUser": "owner",
       "label": "the-mac",
       "activeAccountEmail": "account-a@example.com",
       "nextAccountEmail": "account-b@example.com",
-      "expectedSwitchAtUtc": "2026-10-13T08:14:13.2437021Z",
+      "expectedSwitchAtUtc": "2026-10-13T08:41:33.0913166Z",
       "text": "Next: account-b@example.com, in about 1 hour 49 minutes."
     },
     {
-      "machineId": "b08dc3a92bb14d409b4d0a7a4b63d3a1",
+      "machineId": "252e094cd43248e9bcaad3f53ca00a54",
       "machineName": "the-windows-machine",
       "osUser": "owner",
       "label": "the-windows-machine",
       "activeAccountEmail": "account-a@example.com",
       "nextAccountEmail": "account-b@example.com",
-      "expectedSwitchAtUtc": "2026-10-13T08:14:13.2437021Z",
+      "expectedSwitchAtUtc": "2026-10-13T08:41:33.0913166Z",
       "text": "Next: account-b@example.com, in about 1 hour 49 minutes."
     }
   ]

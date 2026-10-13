@@ -46,6 +46,8 @@ picks a colour from a tone word and a bar style from a level word.
 - **"Not read" is never drawn as zero, and an old number is never drawn as today's.** Only the levels `normal` and
   `at-limit` are a filled meter. `not-known`, `stale` and `reset-since` are a hatched bar with the Gateway's text.
 - **A machine is called by the Gateway's `label`**, on the cards, in the schedule and in the log.
+- **A read error has no colour of the page's own.** The Gateway sends no tone for it, so it is drawn in the dim text
+  colour like its neighbours (the review's finding 2).
 - **The two renewals are kept apart.** The subscription's renewal (`renewsText`) is beside the plan. A failed renewal
   of a sign-in (`renewalFailedText`) is on that machine's line, beside that sign-in's expiry.
 
@@ -110,8 +112,9 @@ Run from the repository root after `npm ci`:
 
 Results on 13 October 2026, on the Windows machine, after the rebase, with other sessions running:
 
-- `apps/cockpit`: 103 files, **1075 passed, 0 failed**. Of these, 21 are the page's (`LicensesView.test.tsx`), one is
-  the new address in the route table (`routes.test.tsx`), and the menu test now expects the Licenses row.
+- `apps/cockpit`: 104 files, **1087 passed, 0 failed**. Of these, 33 are the page's (21 in `LicensesView.test.tsx`
+  and 12 in `LicensesViewRows.test.tsx`, added after the review), one is the new address in the route table
+  (`routes.test.tsx`), and the menu test now expects the Licenses row.
 - `packages/client-core`: 162 files, **2004 passed, 0 failed**. Of these, 9 are the client's (`licensesClient.test.ts`).
 - `npm run typecheck` (all four workspaces): clean.
 - `npx eslint apps/cockpit/src/licenses packages/client-core/src/licenses`: clean. `npx eslint .` reports three
@@ -140,7 +143,10 @@ exist. After the fix the page's tests ran 40 times with no failure.
 
 `python missions\license-switching\phase-3\mutations.py` makes one wrong change at a time, runs the tests, records
 which went red, and puts the file back whether or not the run worked. It ends by running both suites on the restored
-code. Its last output, from after the rebase, is `mutations-output.txt`. Eighteen changes, every one caught:
+code. Its last output, from after the review, is `mutations-output.txt`. **31 changes, every one caught.** The
+first eighteen are in the table below. The other thirteen came from the review of this pull request, which made
+eight wrong changes that left all 21 tests green; `review-3933.md` has them and `review-3933-answers.md` says what
+now catches each. The page's 33 tests were then run 20 times with no failure.
 
 | Wrong change | Tests that went red |
 |---|---|
@@ -181,3 +187,6 @@ sentence). They are a check of the layout and nothing more.
 2. When `PUT /gateway/licenses/accounts/renewal` exists: a control to set the renewal date, if the owner wants it
    on the page.
 3. The Add sign-in button, when the Gateway relay exists.
+4. From the review: a sentence per target in `switchTargets`, so the confirmation says which machines move when a
+   target is picked by hand (today it names the machines only for the Gateway's own choice); and the accepted
+   answer's panel calling a machine left out by its `label`, keyed on `machineId`.
