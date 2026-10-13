@@ -3,6 +3,7 @@ import {
   getLicenseForecast,
   getLicenseLog,
   getLicenseOverview,
+  setLicenseRenewalDate,
   switchLicenseNow,
   type LicenseAccount,
   type LicenseForecast,
@@ -16,12 +17,11 @@ import { useVisiblePolling } from "@devthrottle/client-core/polling/useVisiblePo
 import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 import { Button, ConfirmDialog, EmptyState, ErrorBanner, LoadingState, PageHeader } from "../components";
 import { LicenseAccountCard } from "./LicenseAccountCard";
-import { LocalTime, TonePill } from "./licenseParts";
-
-const SURFACE = "cockpit-licenses";
+import { LICENSES_SURFACE as SURFACE, LocalTime, TonePill } from "./licenseParts";
 
 // THE LICENSES PAGE (the License Switching mission, phase 3): every Claude account as a card with its two usage
-// windows, the schedule (which account each machine is on, which is next and when), the switch log, and Switch now.
+// windows, the schedule (which account each machine is on, which is next and when), the switch log, and the two
+// things a person does here: Switch now, and setting the day a subscription is billed again.
 //
 // THE PAGE DECIDES NOTHING (CLAUDE.md rule 7). Every status, tone, sentence and offer on it is folded on the
 // Gateway (LicenseDisplayFold) and shown as sent. The page never compares a percentage with the switching
@@ -162,11 +162,34 @@ export function LicensesView() {
   };
 
   // A refusal throws with the Gateway's own sentence; the dialog stays open and shows it.
+  //
+  // NOTHING IS SENT WITHOUT A TARGET. The target starts as the Gateway's own choice and is otherwise the one the
+  // person picked. Where the Gateway chose none (switchNowTargetAccountEmail is null) and nothing is picked, a call
+  // would be refused, so the confirmation cannot be given and this never sends.
   const confirmSwitchNow = async () => {
-    if (confirming === null) return;
+    if (confirming === null || target === null) return;
     const result = await switchLicenseNow(confirming.accountEmail, target);
     setLastSwitch(result);
     refreshAll();
+  };
+
+  // The renewal date of a subscription: the answer is what the Gateway stored with its sentence, and it is shown at
+  // once. A refusal throws with the Gateway's own sentence, which the card shows beside the date.
+  const saveRenewalDate = async (accountEmail: string, renewsOn: string | null) => {
+    const stored = await setLicenseRenewalDate(accountEmail, renewsOn);
+    overview.update((current) =>
+      current === null
+        ? current
+        : {
+            ...current,
+            accounts: current.accounts.map((account) =>
+              account.accountEmail === accountEmail
+                ? { ...account, renewsOn: stored.renewsOn, renewsText: stored.renewsText }
+                : account,
+            ),
+          },
+    );
+    void overview.refresh();
   };
 
   const data = overview.data;
@@ -207,11 +230,14 @@ export function LicensesView() {
                 machines={data.machines}
                 forecast={forecast.data?.accounts.find((a) => a.accountEmail === account.accountEmail)}
                 onSwitchNow={askSwitchNow}
+                onSetRenewalDate={saveRenewalDate}
               />
             ))}
           </div>
 
-          {lastSwitch !== null && <SwitchNowAnswer result={lastSwitch} onDismiss={() => setLastSwitch(null)} />}
+          {lastSwitch !== null && (
+            <SwitchNowAnswer result={lastSwitch} log={log.data?.entries ?? []} onDismiss={() => setLastSwitch(null)} />
+          )}
 
           <h2 className="lic-h2">Schedule</h2>
           {/* error-reported-by: usePolled */}
@@ -254,6 +280,7 @@ export function LicensesView() {
         busyLabel="Switching..."
         // It moves every machine on the account, and it can be moved back: heavy, not destructive.
         danger={false}
+        confirmDisabled={target === null}
         action="switch the account"
         onConfirm={confirmSwitchNow}
         onClose={() => setConfirming(null)}
@@ -300,22 +327,44 @@ function SwitchNowChoice({
   );
 }
 
-/** What the Gateway answered to the last Switch now: each machine's row in its own sentence, and who was left out. */
-function SwitchNowAnswer({ result, onDismiss }: { result: LicenseSwitchNowResult; onDismiss: () => void }) {
+/**
+ * What the Gateway answered to the last Switch now: the whole outcome in its one sentence, then each machine's row
+ * and each machine left out, in the Gateway's own sentences. A switch that had not finished when the Gateway answered
+ * is finished later by the Gateway; how it ended is read from that machine's row of the switch log, found by its
+ * entryId. The page never sends the same Switch now again to find out.
+ */
+function SwitchNowAnswer({
+  result,
+  log,
+  onDismiss,
+}: {
+  result: LicenseSwitchNowResult;
+  log: ReadonlyArray<LicenseLogEntry>;
+  onDismiss: () => void;
+}) {
   return (
     <div className="lic-answer" role="status" data-testid="lic-switch-answer">
-      <ul className="lic-answer-list">
-        {result.switches.map((machine) => (
-          <li key={machine.switchId}>
-            <TonePill text={machine.stateText} tone={machine.stateTone} /> {machine.summary}
-          </li>
-        ))}
-        {result.skipped.map((machine) => (
-          <li key={machine.machineName}>
-            {machine.machineName}: {machine.why}
-          </li>
-        ))}
-      </ul>
+      <div>
+        <p className="lic-answer-text" data-testid="lic-switch-answer-text">
+          {result.text}
+        </p>
+        <ul className="lic-answer-list">
+          {result.switches.map((machine) => {
+            // The row of the log is the newer word on the same switch; until it is on screen, the answer's own.
+            const row = log.find((entry) => entry.entryId === machine.entryId) ?? machine;
+            return (
+              <li key={machine.switchId} data-testid="lic-switch-answer-machine">
+                <TonePill text={row.stateText} tone={row.stateTone} /> {row.summary}
+              </li>
+            );
+          })}
+          {result.skipped.map((machine) => (
+            <li key={`${machine.machineName}|${machine.osUser}`} data-testid="lic-switch-answer-skipped">
+              {machine.why}
+            </li>
+          ))}
+        </ul>
+      </div>
       <Button variant="ghost" onClick={onDismiss}>
         Dismiss
       </Button>

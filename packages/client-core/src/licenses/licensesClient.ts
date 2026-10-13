@@ -97,8 +97,14 @@ export interface LicenseAccount {
   canSwitchNow: boolean;
   /** What Switch now would do, or why it is not offered. Always a sentence. */
   switchNowText: string;
+  /** The target Switch now takes when none is named; null when it would take none, and a call that names no
+   *  target would be refused. A page then sends only a target the person picked. */
   switchNowTargetAccountEmail: string | null;
   switchTargets: LicenseSwitchTarget[];
+  /** Until when the account is barred from the AUTOMATIC choice of a target, and the sentence saying so. Both are
+   *  null when it is not barred. A barred account can still be chosen by hand. */
+  barredUntilUtc: string | null;
+  barredText: string | null;
 }
 
 /** One sign-in a machine holds: its active one, or a spare. */
@@ -253,8 +259,11 @@ export interface LicenseLogPage {
 /** One machine that was sent a switch by Switch now, as its log row stood when the Gateway answered. */
 export interface LicenseSwitchNowMachine {
   switchId: string;
+  /** The entryId of this machine's row in the switch log, which is where a page reads how the switch ended. */
+  entryId: string;
   machineName: string;
   osUser: string;
+  label: string;
   state: string;
   stateText: string;
   stateTone: LicenseTone;
@@ -264,14 +273,26 @@ export interface LicenseSwitchNowMachine {
 /** A machine on the account that was not sent a switch, and why. */
 export interface LicenseSwitchNowSkipped {
   machineName: string;
+  osUser: string;
+  label: string;
+  /** A finished sentence that names the machine: "the-linux-machine is not switched: its last report is too old." */
   why: string;
 }
 
 /** The accepted answer of POST /gateway/licenses/switch-now. */
 export interface LicenseSwitchNowResult {
   targetAccountEmail: string | null;
+  /** The whole outcome in one sentence, ready to show. */
+  text: string;
   switches: LicenseSwitchNowMachine[];
   skipped: LicenseSwitchNowSkipped[];
+}
+
+/** The answer of PUT /gateway/licenses/accounts/renewal: what was stored, with its sentence already folded. */
+export interface LicenseRenewalResult {
+  accountEmail: string;
+  renewsOn: string | null;
+  renewsText: string;
 }
 
 const JSON_GET: RequestInit = { method: "GET" };
@@ -310,26 +331,61 @@ export function getLicenseLog(cursor?: string | null, signal?: AbortSignal): Pro
   return readJson<LicenseLogPage>(`/gateway/licenses/log${query}`, "read the switch log", "entries", signal);
 }
 
+// Both writes are for a signed-in person only, and the Gateway refuses a body not sent as application/json before it
+// reads a byte of it. One set of headers, so neither write can lose the content type.
+function jsonWriteHeaders(): HeadersInit {
+  return { Accept: "application/json", "Content-Type": "application/json", ...authHeaders() };
+}
+
+// Switch now answers when every machine has answered or its 60-second wait on the Gateway has ended. The page waits
+// longer than that, so a slow machine is an answer and never a time limit of this client's own.
+export const SWITCH_NOW_TIMEOUT_MS = 90000;
+
 /**
  * POST /gateway/licenses/switch-now - move every machine on `accountEmail` to `targetAccountEmail`, or to the
  * account the Gateway chooses when the target is null. It is by ACCOUNT, because usage is counted per account.
- * A refusal throws GatewayError carrying the Gateway's own sentence.
+ * A refusal throws GatewayError carrying the Gateway's own sentence. A page sends a null target only for an account
+ * whose switchNowTargetAccountEmail is not null: where it is null the Gateway refuses a call that names none.
  */
 export async function switchLicenseNow(
   accountEmail: string,
   targetAccountEmail: string | null,
   signal?: AbortSignal,
 ): Promise<LicenseSwitchNowResult> {
-  const res = await gatewayFetch("/gateway/licenses/switch-now", {
-    method: "POST",
-    headers: { Accept: "application/json", "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify({ accountEmail, targetAccountEmail }),
-    signal,
-  });
+  const res = await gatewayFetch(
+    "/gateway/licenses/switch-now",
+    { method: "POST", headers: jsonWriteHeaders(), body: JSON.stringify({ accountEmail, targetAccountEmail }), signal },
+    { timeoutMs: SWITCH_NOW_TIMEOUT_MS },
+  );
   if (!res.ok) throw await GatewayError.from(res, "switch the account");
   const body = (await res.json()) as LicenseSwitchNowResult | null;
   if (!Array.isArray(body?.switches) || !Array.isArray(body?.skipped)) {
     throw new GatewayError(res.status, "The Gateway answered Switch now without its 'switches' and 'skipped' lists.");
+  }
+  return body;
+}
+
+/**
+ * PUT /gateway/licenses/accounts/renewal - set the day the subscription of `accountEmail` is billed again
+ * (`yyyy-MM-dd`), or clear it with null. `renewsOn` is always sent, because the Gateway refuses a body that leaves it
+ * out. The answer is what was stored with its sentence; a refusal throws GatewayError carrying the Gateway's own.
+ */
+export async function setLicenseRenewalDate(
+  accountEmail: string,
+  renewsOn: string | null,
+  signal?: AbortSignal,
+): Promise<LicenseRenewalResult> {
+  const res = await gatewayFetch("/gateway/licenses/accounts/renewal", {
+    method: "PUT",
+    headers: jsonWriteHeaders(),
+    body: JSON.stringify({ accountEmail, renewsOn }),
+    signal,
+  });
+  if (!res.ok) throw await GatewayError.from(res, "set the renewal date");
+  const body = (await res.json()) as LicenseRenewalResult | null;
+  // An answer without its sentence would leave the page nothing true to show for the date it just stored.
+  if (typeof body?.renewsText !== "string") {
+    throw new GatewayError(res.status, "The Gateway answered the renewal date without its 'renewsText' sentence.");
   }
   return body;
 }

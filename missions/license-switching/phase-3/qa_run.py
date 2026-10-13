@@ -1,5 +1,8 @@
 # THE QA RUN OF THE LICENSES PAGE AGAINST A REAL LOCAL GATEWAY (License Switching, phase 3).
 #
+# This is the run of the page's three READS, from the first pull request. The two writes - Switch now and the renewal
+# date - have their own run, qa_writes_run.py; this one opens the Switch now confirmation and sends nothing.
+#
 # One command, everything in the foreground, everything stopped at the end:
 #   1. starts qa-gateway (the product's own GatewayHost, hosted mode, throwaway storage, seeded license data);
 #   2. reads the three Licenses routes over HTTP with the seeded browser key and saves each answer as it came;
@@ -59,14 +62,6 @@ try:
     status, body = get(port, "/gateway/licenses", empty)
     print(f"GET /gateway/licenses as the account that never reported -> {status}, isEmpty={body.get('isEmpty')}")
     save("answer-overview-empty.json", body)
-    req = urllib.request.Request(f"http://127.0.0.1:{port}/gateway/licenses/switch-now", method="POST", data=b'{"accountEmail":"account-a@example.com","targetAccountEmail":null}',
-                                 headers={"Authorization": "Bearer " + owner, "Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            switch_status = resp.status
-    except urllib.error.HTTPError as err:
-        switch_status = err.code
-    print(f"POST /gateway/licenses/switch-now as the owner -> {switch_status} (the route arrives in the follow-up)")
 
     # ---- the page ----
     env = dict(os.environ, COCKPIT_PROXY_TARGET=f"http://127.0.0.1:{port}")
@@ -120,10 +115,7 @@ try:
             page.get_by_role("button", name="Switch now").first.click()
             page.wait_for_selector("[role=alertdialog]")
             shot(page, "switch-now-confirmation", full=False)
-            page.get_by_role("alertdialog").get_by_role("button", name="Switch now").click()
-            page.wait_for_selector(".ui-confirm-error")
-            shot(page, "switch-now-no-route-yet", full=False)
-            print("Switch now, confirmed, against this Gateway:", page.locator(".ui-confirm-error").inner_text())
+            page.get_by_role("alertdialog").get_by_role("button", name="Cancel").click()
         else:
             failures.append("the page offered no Switch now control")
         print("requests the page made:", sorted(set(seen)))

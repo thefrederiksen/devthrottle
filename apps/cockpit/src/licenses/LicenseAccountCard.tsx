@@ -1,14 +1,17 @@
+import { useState } from "react";
 import type {
   LicenseAccount,
   LicenseAccountForecast,
   LicenseHolding,
   LicenseMachine,
 } from "@devthrottle/client-core/licenses/licensesClient";
+import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 import { Button } from "../components";
-import { TonePill, WindowBar, toneClass } from "./licenseParts";
+import { LICENSES_SURFACE, LocalTime, TonePill, WindowBar, toneClass } from "./licenseParts";
 
-// One Claude account as a card: its status, its two usage windows as bars, what the Gateway says about it, the
-// sign-in each machine holds for it and when that sign-in expires, and Switch now.
+// One Claude account as a card: its status, the day its subscription is billed again and the control that sets it,
+// its two usage windows as bars, what the Gateway says about it, the sign-in each machine holds for it and when that
+// sign-in expires, and Switch now.
 
 interface HeldOn {
   machine: LicenseMachine;
@@ -33,10 +36,73 @@ export interface LicenseAccountCardProps {
   /** This account's forecast; undefined while the forecast has not been read. */
   forecast: LicenseAccountForecast | undefined;
   onSwitchNow: (account: LicenseAccount) => void;
+  /** Store the day the subscription is billed again (yyyy-MM-dd), or clear it with null. Throws on a refusal. */
+  onSetRenewalDate: (accountEmail: string, renewsOn: string | null) => Promise<void>;
 }
 
-export function LicenseAccountCard({ account, machines, forecast, onSwitchNow }: LicenseAccountCardProps) {
+/**
+ * The control that sets the day a subscription is billed again - the one value on this page a person types. It sends
+ * the date as the date field gives it (yyyy-MM-dd) or null to clear it, and what the card then shows is the Gateway's
+ * answer. A refusal is shown here in the Gateway's own sentence and the editor stays open.
+ */
+function RenewalDateEditor({
+  account,
+  onSetRenewalDate,
+  onClose,
+}: {
+  account: LicenseAccount;
+  onSetRenewalDate: (accountEmail: string, renewsOn: string | null) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [value, setValue] = useState(account.renewsOn ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const store = async (renewsOn: string | null) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await onSetRenewalDate(account.accountEmail, renewsOn);
+      onClose();
+    } catch (err) {
+      setError(describeAndReport(LICENSES_SURFACE, "set the renewal date", err));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="lic-renewal-editor" data-testid="lic-renewal-editor">
+      <input
+        type="date"
+        className="lic-renewal-input"
+        aria-label={`Renewal date of ${account.accountEmail}`}
+        value={value}
+        disabled={busy}
+        onChange={(event) => setValue(event.target.value)}
+      />
+      <Button variant="primary" disabled={busy || value === ""} onClick={() => void store(value)}>
+        {busy ? "Saving..." : "Save"}
+      </Button>
+      {account.renewsOn !== null && (
+        <Button variant="secondary" disabled={busy} onClick={() => void store(null)}>
+          Clear date
+        </Button>
+      )}
+      <Button variant="ghost" disabled={busy} onClick={onClose}>
+        Cancel
+      </Button>
+      {error !== null && (
+        <div className="lic-renewal-error" role="alert" data-testid="lic-renewal-error">
+          {error}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function LicenseAccountCard({ account, machines, forecast, onSwitchNow, onSetRenewalDate }: LicenseAccountCardProps) {
   const held = heldOn(account.accountEmail, machines);
+  const [editingRenewal, setEditingRenewal] = useState(false);
   return (
     <section
       className={`lic-card${account.isInUse ? " lic-card-in-use" : ""}${account.isStale ? " lic-card-stale" : ""}`}
@@ -49,13 +115,36 @@ export function LicenseAccountCard({ account, machines, forecast, onSwitchNow }:
         <TonePill text={account.statusText} tone={account.statusTone} testId="lic-account-status" />
       </div>
       <div className="lic-card-meta">
-        {account.planText} - {account.renewsText}
+        <span data-testid="lic-account-renewal">
+          {account.planText} - {account.renewsText}
+        </span>
+        {!editingRenewal && (
+          <Button variant="ghost" onClick={() => setEditingRenewal(true)}>
+            Set renewal date
+          </Button>
+        )}
       </div>
+      {editingRenewal && (
+        <RenewalDateEditor account={account} onSetRenewalDate={onSetRenewalDate} onClose={() => setEditingRenewal(false)} />
+      )}
 
       <WindowBar label="5-hour window" window={account.fiveHour} testId="lic-window-five-hour" />
       <WindowBar label="Week" window={account.sevenDay} testId="lic-window-seven-day" />
 
       <p className="lic-card-detail">{account.statusDetail}</p>
+      {/* Barred from the automatic choice: the Gateway's sentence, and the time it gave in the viewer's time zone.
+          The Gateway sends no tone for it, so it is drawn like its neighbours. */}
+      {account.barredText !== null && (
+        <p className="lic-card-line" data-testid="lic-account-barred">
+          {account.barredText}
+          {account.barredUntilUtc !== null && (
+            <>
+              {" "}
+              (<LocalTime iso={account.barredUntilUtc} />)
+            </>
+          )}
+        </p>
+      )}
       {forecast !== undefined && (
         <p className="lic-card-line" data-testid="lic-account-expected">
           {forecast.expectedText}

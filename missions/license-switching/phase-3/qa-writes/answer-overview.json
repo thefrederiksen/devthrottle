@@ -1,0 +1,424 @@
+{
+  "asOfUtc": "2026-10-13T15:22:17.3967834Z",
+  "isEmpty": false,
+  "emptyText": null,
+  "accounts": [
+    {
+      "accountEmail": "account-a@example.com",
+      "plan": "max",
+      "planText": "Max",
+      "rateLimitTier": "default_claude_max_20x",
+      "status": "in-use",
+      "statusText": "In use",
+      "statusTone": "good",
+      "statusDetail": "In use on the-mac and the-windows-machine.",
+      "isInUse": true,
+      "fiveHour": {
+        "utilization": 64,
+        "utilizationText": "64%",
+        "level": "normal",
+        "resetsAtUtc": "2026-10-13T17:32:12.4868752Z",
+        "resetsText": "Resets in 2 hours 9 minutes"
+      },
+      "sevenDay": {
+        "utilization": 41,
+        "utilizationText": "41%",
+        "level": "normal",
+        "resetsAtUtc": "2026-10-17T20:22:12.4868752Z",
+        "resetsText": "Resets in 4 days 4 hours"
+      },
+      "isStale": false,
+      "readAtUtc": "2026-10-13T15:22:12.4868752Z",
+      "readAgeText": "Read less than a minute ago on the-windows-machine",
+      "readError": null,
+      "readErrorText": null,
+      "extraUsage": {
+        "state": "off",
+        "text": "Paid extra usage is off",
+        "utilization": null
+      },
+      "renewsOn": null,
+      "renewsText": "Renewal date not set",
+      "signInExpiry": {
+        "expiresAtUtc": "2026-10-22T15:22:12.4868752Z",
+        "machine": {
+          "machineId": "8de1ee60014c45ba85927e8d4d3ce07a",
+          "machineName": "the-windows-machine",
+          "osUser": "owner",
+          "label": "the-windows-machine"
+        },
+        "verdict": "fine",
+        "text": "Sign-in on the-windows-machine expires in 8 days 23 hours",
+        "tone": "good"
+      },
+      "activeOnMachines": [
+        {
+          "machineId": "831fabb597b04d8b80072fd945021d7a",
+          "machineName": "the-mac",
+          "osUser": "owner",
+          "label": "the-mac"
+        },
+        {
+          "machineId": "8de1ee60014c45ba85927e8d4d3ce07a",
+          "machineName": "the-windows-machine",
+          "osUser": "owner",
+          "label": "the-windows-machine"
+        }
+      ],
+      "spareOnMachines": [],
+      "canSwitchNow": true,
+      "switchNowText": "Moves the-mac and the-windows-machine to account-b@example.com.",
+      "switchNowTargetAccountEmail": "account-b@example.com",
+      "switchTargets": [
+        {
+          "accountEmail": "account-b@example.com",
+          "canChoose": true,
+          "unavailableText": null,
+          "isAutomaticChoice": true
+        },
+        {
+          "accountEmail": "account-c@example.com",
+          "canChoose": false,
+          "unavailableText": "the-mac holds no usable spare for account-c@example.com.",
+          "isAutomaticChoice": false
+        },
+        {
+          "accountEmail": "account-d@example.com",
+          "canChoose": false,
+          "unavailableText": "the-mac holds no usable spare for account-d@example.com.",
+          "isAutomaticChoice": false
+        }
+      ],
+      "barredUntilUtc": null,
+      "barredText": null
+    },
+    {
+      "accountEmail": "account-b@example.com",
+      "plan": "max",
+      "planText": "Max",
+      "rateLimitTier": "default_claude_max_20x",
+      "status": "sign-in-expires-soon",
+      "statusText": "Sign-in expires soon",
+      "statusTone": "warning",
+      "statusDetail": "The sign-in on the-windows-machine expires in 2 days 4 hours.",
+      "isInUse": false,
+      "fiveHour": {
+        "utilization": 4,
+        "utilizationText": "4%",
+        "level": "normal",
+        "resetsAtUtc": "2026-10-13T17:32:12.4868752Z",
+        "resetsText": "Resets in 2 hours 9 minutes"
+      },
+      "sevenDay": {
+        "utilization": 22,
+        "utilizationText": "22%",
+        "level": "normal",
+        "resetsAtUtc": "2026-10-17T20:22:12.4868752Z",
+        "resetsText": "Resets in 4 days 4 hours"
+      },
+      "isStale": false,
+      "readAtUtc": "2026-10-13T15:22:12.4868752Z",
+      "readAgeText": "Read less than a minute ago on the-windows-machine",
+      "readError": null,
+      "readErrorText": null,
+      "extraUsage": {
+        "state": "off",
+        "text": "Paid extra usage is off",
+        "utilization": null
+      },
+      "renewsOn": null,
+      "renewsText": "Renewal date not set",
+      "signInExpiry": {
+        "expiresAtUtc": "2026-10-15T20:10:12.4868752Z",
+        "machine": {
+          "machineId": "8de1ee60014c45ba85927e8d4d3ce07a",
+          "machineName": "the-windows-machine",
+          "osUser": "owner",
+          "label": "the-windows-machine"
+        },
+        "verdict": "expires soon",
+        "text": "Sign-in on the-windows-machine expires in 2 days 4 hours",
+        "tone": "warning"
+      },
+      "activeOnMachines": [],
+      "spareOnMachines": [
+        {
+          "machineId": "831fabb597b04d8b80072fd945021d7a",
+          "machineName": "the-mac",
+          "osUser": "owner",
+          "label": "the-mac"
+        },
+        {
+          "machineId": "8de1ee60014c45ba85927e8d4d3ce07a",
+          "machineName": "the-windows-machine",
+          "osUser": "owner",
+          "label": "the-windows-machine"
+        }
+      ],
+      "canSwitchNow": false,
+      "switchNowText": "No machine on account-b@example.com can be switched now: none is on it.",
+      "switchNowTargetAccountEmail": null,
+      "switchTargets": [],
+      "barredUntilUtc": null,
+      "barredText": null
+    },
+    {
+      "accountEmail": "account-c@example.com",
+      "plan": "max",
+      "planText": "Max",
+      "rateLimitTier": "default_claude_max_20x",
+      "status": "at-limit",
+      "statusText": "At limit",
+      "statusTone": "bad",
+      "statusDetail": "At 99% of its 5-hour window, which resets in 2 hours 9 minutes.",
+      "isInUse": false,
+      "fiveHour": {
+        "utilization": 99,
+        "utilizationText": "99%",
+        "level": "at-limit",
+        "resetsAtUtc": "2026-10-13T17:32:12.4868752Z",
+        "resetsText": "Resets in 2 hours 9 minutes"
+      },
+      "sevenDay": {
+        "utilization": 40,
+        "utilizationText": "40%",
+        "level": "normal",
+        "resetsAtUtc": "2026-10-17T20:22:12.4868752Z",
+        "resetsText": "Resets in 4 days 4 hours"
+      },
+      "isStale": false,
+      "readAtUtc": "2026-10-13T15:22:12.4868752Z",
+      "readAgeText": "Read less than a minute ago on the-windows-machine",
+      "readError": null,
+      "readErrorText": null,
+      "extraUsage": {
+        "state": "off",
+        "text": "Paid extra usage is off",
+        "utilization": null
+      },
+      "renewsOn": null,
+      "renewsText": "Renewal date not set",
+      "signInExpiry": {
+        "expiresAtUtc": "2026-11-11T15:22:12.4868752Z",
+        "machine": {
+          "machineId": "8de1ee60014c45ba85927e8d4d3ce07a",
+          "machineName": "the-windows-machine",
+          "osUser": "owner",
+          "label": "the-windows-machine"
+        },
+        "verdict": "fine",
+        "text": "Sign-in on the-windows-machine expires in 28 days 23 hours",
+        "tone": "good"
+      },
+      "activeOnMachines": [],
+      "spareOnMachines": [
+        {
+          "machineId": "8de1ee60014c45ba85927e8d4d3ce07a",
+          "machineName": "the-windows-machine",
+          "osUser": "owner",
+          "label": "the-windows-machine"
+        }
+      ],
+      "canSwitchNow": false,
+      "switchNowText": "No machine on account-c@example.com can be switched now: none is on it.",
+      "switchNowTargetAccountEmail": null,
+      "switchTargets": [],
+      "barredUntilUtc": null,
+      "barredText": null
+    },
+    {
+      "accountEmail": "account-d@example.com",
+      "plan": "max",
+      "planText": "Max",
+      "rateLimitTier": null,
+      "status": "stale",
+      "statusText": "Stale",
+      "statusTone": "warning",
+      "statusDetail": "No usage reading has arrived for this account yet.",
+      "isInUse": false,
+      "fiveHour": {
+        "utilization": null,
+        "utilizationText": "Not known",
+        "level": "not-known",
+        "resetsAtUtc": null,
+        "resetsText": "Reset time not known"
+      },
+      "sevenDay": {
+        "utilization": null,
+        "utilizationText": "Not known",
+        "level": "not-known",
+        "resetsAtUtc": null,
+        "resetsText": "Reset time not known"
+      },
+      "isStale": true,
+      "readAtUtc": null,
+      "readAgeText": "Never read",
+      "readError": null,
+      "readErrorText": null,
+      "extraUsage": {
+        "state": "not-known",
+        "text": "Not known",
+        "utilization": null
+      },
+      "renewsOn": null,
+      "renewsText": "Renewal date not set",
+      "signInExpiry": {
+        "expiresAtUtc": "2026-11-09T15:22:12.4868752Z",
+        "machine": {
+          "machineId": "8de1ee60014c45ba85927e8d4d3ce07a",
+          "machineName": "the-windows-machine",
+          "osUser": "owner",
+          "label": "the-windows-machine"
+        },
+        "verdict": "fine",
+        "text": "Sign-in on the-windows-machine expires in 26 days 23 hours",
+        "tone": "good"
+      },
+      "activeOnMachines": [],
+      "spareOnMachines": [
+        {
+          "machineId": "8de1ee60014c45ba85927e8d4d3ce07a",
+          "machineName": "the-windows-machine",
+          "osUser": "owner",
+          "label": "the-windows-machine"
+        }
+      ],
+      "canSwitchNow": false,
+      "switchNowText": "No machine on account-d@example.com can be switched now: none is on it.",
+      "switchNowTargetAccountEmail": null,
+      "switchTargets": [],
+      "barredUntilUtc": null,
+      "barredText": null
+    }
+  ],
+  "machines": [
+    {
+      "machineId": "831fabb597b04d8b80072fd945021d7a",
+      "machineName": "the-mac",
+      "osUser": "owner",
+      "label": "the-mac",
+      "activeAccountEmail": "account-a@example.com",
+      "status": "reporting",
+      "statusText": "Reporting",
+      "statusTone": "good",
+      "isStale": false,
+      "lastReportAtUtc": "2026-10-13T15:22:12.4868752Z",
+      "lastReportText": "Last report less than a minute ago",
+      "active": {
+        "accountEmail": "account-a@example.com",
+        "isActive": true,
+        "signedInAtUtc": "2026-09-23T15:22:12.4868752Z",
+        "signedInText": "Signed in 20 days ago",
+        "signInExpiresAtUtc": "2026-10-23T15:22:12.4868752Z",
+        "expiryVerdict": "fine",
+        "expiryText": "Sign-in expires in 9 days 23 hours",
+        "expiryTone": "good",
+        "renewalFailedAtUtc": null,
+        "renewalFailedText": null,
+        "renewalFailedTone": null,
+        "isReadingStale": false,
+        "readError": null,
+        "readErrorText": null
+      },
+      "spares": [
+        {
+          "accountEmail": "account-b@example.com",
+          "isActive": false,
+          "signedInAtUtc": "2026-10-08T15:22:12.4868752Z",
+          "signedInText": "Signed in 5 days ago",
+          "signInExpiresAtUtc": "2026-11-07T15:22:12.4868752Z",
+          "expiryVerdict": "fine",
+          "expiryText": "Sign-in expires in 24 days 23 hours",
+          "expiryTone": "good",
+          "renewalFailedAtUtc": null,
+          "renewalFailedText": null,
+          "renewalFailedTone": null,
+          "isReadingStale": false,
+          "readError": null,
+          "readErrorText": null
+        }
+      ],
+      "switchInProgress": null
+    },
+    {
+      "machineId": "8de1ee60014c45ba85927e8d4d3ce07a",
+      "machineName": "the-windows-machine",
+      "osUser": "owner",
+      "label": "the-windows-machine",
+      "activeAccountEmail": "account-a@example.com",
+      "status": "reporting",
+      "statusText": "Reporting",
+      "statusTone": "good",
+      "isStale": false,
+      "lastReportAtUtc": "2026-10-13T15:22:12.4868752Z",
+      "lastReportText": "Last report less than a minute ago",
+      "active": {
+        "accountEmail": "account-a@example.com",
+        "isActive": true,
+        "signedInAtUtc": "2026-09-22T15:22:12.4868752Z",
+        "signedInText": "Signed in 21 days ago",
+        "signInExpiresAtUtc": "2026-10-22T15:22:12.4868752Z",
+        "expiryVerdict": "fine",
+        "expiryText": "Sign-in expires in 8 days 23 hours",
+        "expiryTone": "good",
+        "renewalFailedAtUtc": null,
+        "renewalFailedText": null,
+        "renewalFailedTone": null,
+        "isReadingStale": false,
+        "readError": null,
+        "readErrorText": null
+      },
+      "spares": [
+        {
+          "accountEmail": "account-b@example.com",
+          "isActive": false,
+          "signedInAtUtc": "2026-09-15T20:10:12.4868752Z",
+          "signedInText": "Signed in 27 days 19 hours ago",
+          "signInExpiresAtUtc": "2026-10-15T20:10:12.4868752Z",
+          "expiryVerdict": "expires soon",
+          "expiryText": "Sign-in expires in 2 days 4 hours",
+          "expiryTone": "warning",
+          "renewalFailedAtUtc": "2026-10-13T12:22:12.4868752Z",
+          "renewalFailedText": "Renewing this sign-in failed 3 hours ago: no browser is set to approve this account.",
+          "renewalFailedTone": "bad",
+          "isReadingStale": false,
+          "readError": null,
+          "readErrorText": null
+        },
+        {
+          "accountEmail": "account-c@example.com",
+          "isActive": false,
+          "signedInAtUtc": "2026-10-12T15:22:12.4868752Z",
+          "signedInText": "Signed in 1 day ago",
+          "signInExpiresAtUtc": "2026-11-11T15:22:12.4868752Z",
+          "expiryVerdict": "fine",
+          "expiryText": "Sign-in expires in 28 days 23 hours",
+          "expiryTone": "good",
+          "renewalFailedAtUtc": null,
+          "renewalFailedText": null,
+          "renewalFailedTone": null,
+          "isReadingStale": false,
+          "readError": null,
+          "readErrorText": null
+        },
+        {
+          "accountEmail": "account-d@example.com",
+          "isActive": false,
+          "signedInAtUtc": "2026-10-10T15:22:12.4868752Z",
+          "signedInText": "Signed in 3 days ago",
+          "signInExpiresAtUtc": "2026-11-09T15:22:12.4868752Z",
+          "expiryVerdict": "fine",
+          "expiryText": "Sign-in expires in 26 days 23 hours",
+          "expiryTone": "good",
+          "renewalFailedAtUtc": null,
+          "renewalFailedText": null,
+          "renewalFailedTone": null,
+          "isReadingStale": true,
+          "readError": "network",
+          "readErrorText": "The machine could not reach the provider. The numbers shown are the last ones read."
+        }
+      ],
+      "switchInProgress": null
+    }
+  ]
+}

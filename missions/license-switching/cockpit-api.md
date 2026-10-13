@@ -1063,6 +1063,12 @@ actions, from the Cockpit. Everything else that can READ the license routes is r
 {"code":"owner_only","error":"only the owner on their own signed-in phone or browser may set the renewal date of a subscription; this request was made with a device (workstation) credential"}
 ```
 
+Each write names itself in its sentence. The same caller asking for Switch now is answered:
+
+```json
+{"code":"owner_only","error":"only the owner on their own signed-in phone or browser may switch the machines of a subscription to another one; this request was made with a device (workstation) credential"}
+```
+
 **A self-hosted Cockpit opened with the machine token reads the page and is refused both writes.** On a
 self-hosted Gateway the login page can store the shared machine token as the browser's credential. With it the page
 reads all three routes - and is told `canSwitchNow: true`, because that is about the machines, not about who is
