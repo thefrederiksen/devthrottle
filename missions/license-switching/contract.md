@@ -567,8 +567,15 @@ dies. The rule, exactly as built:
   only (`LicenseUsageReporter`), so a Director that has just started reports the same sign-in with `RenewalFailedAtUtc`
   null until its next try fails; a report that only lacks that time says nothing and ends nothing. The streak ends
   as renewed when the machine reports a NEWER sign-in for the account: its `SignInExpiresAtUtc` is later than the one
-  the streak was opened for, or its `SignedInAtUtc` is later than the one reported then. It also ends when the
-  machine no longer holds the sign-in. A failure after that is a new streak and a new email.
+  the streak was opened for BY MORE THAN ONE HOUR (`LicenseContract.SignInEndTolerance`), or its `SignedInAtUtc` is
+  later than the one reported then. The hour is the license tool's own: one sign-in's reported end is written again
+  on every key refresh as "now + the seconds left", so it moves by seconds, and the tool allows one hour when it
+  asks whether two ends are the same sign-in (`SIGN_IN_MATCH_TOLERANCE_SECONDS`). A renewal moves the end by weeks.
+  The streak also ends when the machine no longer holds the sign-in. A failure after that is a new streak and a new
+  email.
+- An open row whose email has not gone out is tried again on its growing wait whether or not the machine's last
+  report still carries the failure time. The email then says that an earlier report said the renewal had failed and
+  that the last one does not say when or why.
 - The streak is ONE ROW of the switch log, of kind `renewal-failed` (`LicenseRenewalFailureLog`; no table and no
   column is added). The row is what makes the email go out once: it is stored, so a Gateway that restarts in the
   middle of a streak does not email again, and a row recorded as emailed is never changed back. THE ONE EXCEPTION:

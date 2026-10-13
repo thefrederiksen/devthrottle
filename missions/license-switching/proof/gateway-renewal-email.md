@@ -122,5 +122,69 @@ holds the runs of the round. Everything above this section describes the code BE
 streak no longer ends on a report that lacks the failure time, the row's sentence and the email changed, and the
 test of break 11 that "renewed" with an earlier end is rewritten.
 
-**No break of this round has been run yet.** The tests the round added are green and none has been seen red. The
-table of breaks is owed and follows in a later commit.
+When this section was written no break of the round had been run. They have been since: the next section holds
+them.
+
+## The breaks of the review round and of the re-review (13 October 2026)
+
+This replaces the sentence above that says no break of the review round has been run. Each break was made in the
+product code on a clean committed tree, the tests were built and run, the file was put back with `git checkout`, and
+the tree was checked clean after each. "unit" is `LicenseRenewalEmailServiceTests` and `LicenseSwitchServiceTests`
+together; "hosted" is `LicenseRenewalEmailHostedTests` (3 tests). A theory with several cases red is named once.
+
+### Round 1 of the review, run on `04281f832`
+
+Before the re-review's changes. The unit run had 105 tests then.
+
+| # | The break | File | Result | Red |
+|---|---|---|---|---|
+| 1 | A report that only lacks the failure time ends the streak again | `LicenseRenewalEmailService.cs` | unit: 3 red, 102 green; hosted: 1 red, 2 green | `ADirectorThatRestarts_AndReportsTheSameSignInWithNoFailureTime_EndsNothing_AndTheOwnerIsEmailedOnce`, `AReportWithNoFailureTime_AndASignInThatEndsEarlierOrWasMadeEarlier_EndsNothing`, `ASendThatHadFailed_IsNotTriedWhileTheMachineReportsNoFailureTime_AndIsTriedWhenItFailsAgain`, `ARenewalThatWorks_ClosesTheWarning_OnTheNextMinuteCheck_AndAReportThatOnlyLacksTheFailureTimeDoesNot` |
+| 2 | A sign-in that ends later is not taken as a renewal | `LicenseRenewalEmailService.cs` | unit: 3 red, 102 green; hosted: 1 red, 2 green | `ARenewalThatWorks_ShownByASignInThatEndsLater_EndsTheStreak_AndALaterFailureIsANewOneWithItsOwnEmail`, `ASecondSignInOfOneMachine_ThatStartsFailingLater_IsItsOwnStreak_AndEachEndsOnItsOwn`, `TheRow_IsAnsweredByTheLogRoute_InWords_OpenWhileTheStreakLasts`, `ARenewalThatWorks_ClosesTheWarning_OnTheNextMinuteCheck_AndAReportThatOnlyLacksTheFailureTimeDoesNot` |
+| 3 | A sign-in made later is not taken as a renewal | `LicenseRenewalEmailService.cs` | unit: 1 red, 104 green | `ARenewalThatWorks_ShownByASignInMadeLater_WithTheSameEnd_EndsTheStreak` |
+| 4 | The sign-in time the machine reported is not kept on the row | `LicenseRenewalFailureLog.cs` | unit: 1 red, 104 green | `ARenewalThatWorks_ShownByASignInMadeLater_WithTheSameEnd_EndsTheStreak` |
+| 5 | The email does not say when the machine last reported | `LicenseRenewalEmailService.cs` | unit: 2 red, 103 green | `TheEmail_AboutAMachineThatHasBeenSilentForAWeek_SaysHowOldItsReportAndTheFailureAre`, `TheEmail_SaysWhichSignInWhyAndWhatToDo_InPlainSentences` |
+| 6 | A failure time ahead of the Gateway clock is said as a distance | `LicenseRenewalEmailService.cs` | unit: 1 red, 104 green | `TheEmail_WhenTheFailureTimeIsAheadOfTheGatewaysClock_SaysTheMomentAndNoDistance` |
+| 7 | The machine sentence is not cleaned: only a plain space is a space | `LicenseRenewalEmailService.cs` | unit: 2 red, 103 green | `AMachineNameWithALineBreak_IsOnOneLineInTheSubject`, `TheEmail_WhenTheGatewayKnowsNoReason_SaysTheMachinesSentence_OnOneLine_WithNothingThatIsNotText_AndCutShort` |
+| 8 | The machine sentence is not cut short | `LicenseRenewalEmailService.cs` | unit: 1 red, 104 green | `TheEmail_WhenTheGatewayKnowsNoReason_SaysTheMachinesSentence_OnOneLine_WithNothingThatIsNotText_AndCutShort` |
+| 9 | The machine sentence is in the email also when the Gateway knows the reason | `LicenseRenewalEmailService.cs` | unit: 1 red, 104 green | `TheEmail_SaysWhichSignInWhyAndWhatToDo_InPlainSentences` |
+| 10 | The guard against two checks of one account never refuses | `LicenseRenewalEmailService.cs` | unit: 1 red, 104 green | `ASecondCheckOfOneAccount_WhileTheFirstIsWaitingForTheMailService_SendsNothing` |
+| 11 | A confirmed email whose row is not marked is not remembered by the next check | `LicenseRenewalEmailService.cs` | unit: 1 red, 104 green | `AnEmailTheMailServiceConfirmed_IsNeverSentAgainByThisGateway_WhileTheDatabaseRefusesToMarkItsRow` |
+| 12 | A mail sender that throws is not caught as a failed send (renewal email) | `LicenseRenewalEmailService.cs` | unit: 1 red, 104 green | `AMailSenderThatThrows_IsAFailedSend_TriedAgainLaterEachTime_AndItsMessageIsNotWrittenDown` |
+| 13 | The expired active sign-in is said to end in the future | `LicenseRenewalEmailService.cs` | unit: 1 red, 104 green | `TheEmail_ForTheActiveSignInThatHasAlreadyExpired_SaysItHasEnded` |
+| 14 | A confirmed no-room email whose row is not marked is sent again | `LicenseSwitchService.cs` | unit: 1 red, 104 green | `NoTarget_AnEmailTheMailServiceConfirmed_IsNeverSentAgainByThisGateway_WhileTheDatabaseRefusesToMarkItsRow` |
+| 15 | A mail sender that throws is not caught as a failed send (no-room email) | `LicenseSwitchService.cs` | unit: 1 red, 104 green | `NoTarget_AMailSenderThatThrows_IsAFailedSend_TriedAgainLaterEachTime_NotEveryMinute` |
+| 17 | The page is told the sign-in time of a failed-renewal row as a start | `LicenseDisplayFold.cs` | unit: 1 red, 104 green | `ARenewalThatWorks_ShownByASignInMadeLater_WithTheSameEnd_EndsTheStreak` |
+| 18 | The owner email word has no sentence | `LicenseDisplayFold.cs` | unit: 1 red, 104 green | `TheRow_IsAnsweredByTheLogRoute_InWords_OpenWhileTheStreakLasts` |
+
+**Break 16 was NOT CAUGHT on `04281f832`**: with the email check put back behind the switch pass, the hosted test
+stayed green (3 of 3). The test waited up to 60 seconds for the email, and the Gateway gives up on a switch after 60
+seconds, so the email arrived just in time and the test passed about a minute late. The test was changed: it now
+waits half that time, and it checks that the other account's switch is still `pending` when the email has gone. The
+break was then run again on `77cc61980`:
+
+| # | The break | File | Result | Red |
+|---|---|---|---|---|
+| 16 | The email check waits behind the switch pass | `GatewayHost.cs` | hosted: 1 red, 2 green | `ARenewalEmail_DoesNotWaitBehindAnotherAccountsDirectorThatHasNotAnsweredItsSwitch` |
+
+### The re-review, run on `77cc61980`
+
+The unit run has 111 tests.
+
+| # | The break | File | Result | Red |
+|---|---|---|---|---|
+| 19 | An end later by any amount is a newer sign-in: no tolerance | `LicenseRenewalEmailService.cs` | unit: 4 red, 107 green | `ASignInWhoseEndMovesLater_IsANewerSignInOnlyWhenItMovesByMoreThanOneSignInsEndCanDiffer`, `AnEndThatMovesBySecondsOnEveryRefresh_ForThreeDays_IsOneStreakAndOneEmail` |
+| 20 | The tolerance is two days, so a sign-in that ends an hour and a second later is not a newer one | `LicenseRenewalEmailService.cs` | unit: 2 red, 109 green | `ASignInWhoseEndMovesLater_IsANewerSignInOnlyWhenItMovesByMoreThanOneSignInsEndCanDiffer` |
+| 21 | An open row whose email failed is not tried while the machine reports no failure time | `LicenseRenewalEmailService.cs` | unit: 1 red, 110 green | `ASendThatHadFailed_IsTriedAgainOnItsWait_AlsoWhenTheMachineNoLongerReportsTheFailureTime` |
+| 22 | An email about a report with no failure time still gives a reason line | `LicenseRenewalEmailService.cs` | unit: 1 red, 110 green | `ASendThatHadFailed_IsTriedAgainOnItsWait_AlsoWhenTheMachineNoLongerReportsTheFailureTime` |
+
+### What these breaks do not show
+
+- Breaks 1 to 15, 17 and 18 were run before the re-review's changes and not again after. The lines they break are
+  still in the code, some moved; the line of break 2 now carries the one-hour tolerance, and breaks 19 and 20
+  are the breaks of that line as it is now.
+- In break 7 the cleaning of the machine's sentence and of the machine's name is one piece of code, so one break
+  shows both.
+- No break was made of the order in which the wait is set and the row is written after a failed send.
+- No break was made in `LicenseContract.SignInEndTolerance` itself; break 20 changes the line that uses it.
+- The whole `Gateway.UnitTests` suite, `-Parked`, `test-database.ps1` and the default gate were not run on
+  `77cc61980`. The runs of the re-review are in `../reviews/3948-answers.md`.

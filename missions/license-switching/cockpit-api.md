@@ -727,7 +727,8 @@ A `no-room` row is open while its `finishedAtUtc` is null (the account is still 
 
 A `renewal-failed` row is one FAILURE STREAK of one sign-in on one machine (contract section 8.1): written when a
 machine's renewal of a sign-in is failing and that sign-in ends within three days, and open until the machine
-reports a NEWER sign-in for that account (one that ends later, or was made later) or no longer holds the sign-in. A
+reports a NEWER sign-in for that account (one that ends more than an hour later, or was made later) or no longer
+holds the sign-in. A
 report that only stops saying the renewal failed ends nothing: a Director that has just started has forgotten its
 failed renewals. It is open while its `finishedAtUtc` is null. Its `summary` is a finished sentence that says what
 is wrong, how old the facts are, and what became of the one owner email of that streak. Every time in it is a

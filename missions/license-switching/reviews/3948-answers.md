@@ -17,9 +17,9 @@ On `ba8a178f3` the default gate was RED on one test of `Core.UnitTests`, the one
 request 3878 as reading a real clock. Main fixed those files in pull request 3951; with main merged in the gate is
 green.
 
-NOT run: `.\scripts\test-local.ps1 -Parked` and the whole `Gateway.UnitTests` suite. **No revert proof of this round
-has been run yet.** Every test named below is green; none of them has been seen red against a break. The table of
-breaks follows in a later commit, as ruled.
+NOT run: `.\scripts\test-local.ps1 -Parked` and the whole `Gateway.UnitTests` suite. When this part was written no revert
+proof of the round had been run. They have been since: see the end of round 2 below, and the last section of the
+proof file.
 
 ## The findings
 
@@ -37,8 +37,9 @@ breaks follows in a later commit, as ruled.
      test `ARenewalThatWorks_ClosesTheWarning_OnTheNextMinuteCheck_AndAReportThatOnlyLacksTheFailureTimeDoesNot`.
    - **What is still true and should be known.** When the machine did not say a sign-in time when the row was
      opened, only the later end can end the streak; a sign-in time that appears later is not taken as a renewal.
-     While a machine reports no failure time, a send that had failed is not tried again: nothing says the renewal
-     is failing at that moment. The email's last line now says when another email is sent in these same words.
+     The email's last line now says when another email is sent in these same words. (This bullet first said that a
+     send that had failed is not tried again while the machine reports no failure time. Round 2 changed that: it
+     is tried again.)
 
 2. **The email and the row did not say how old the facts are - FIXED.** The email says "The last try to renew it
    failed 7 days 2 hours ago (at ... by the machine's clock)." and "the-mac last reported to DevThrottle 7 days ago
@@ -114,3 +115,43 @@ breaks follows in a later commit, as ruled.
 - `startedOnMachineAtUtc` is `null` for a `renewal-failed` row. The row now keeps a sign-in time in the column that
   field is read from, and the page must not be told it as the start of anything.
 - The PostgreSQL test opens its rows with a sign-in time and reads it back.
+
+## Round 2 - the re-review (`3948-re-review.md`), 13 October 2026
+
+The code of this round is `77cc61980`.
+
+| Run, on `77cc61980` | Result |
+|---|---|
+| `dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Licenses"` | 769 passed, 0 failed |
+| `dotnet test src/CcDirector.Gateway.Tests --filter "FullyQualifiedName~License"` | 42 passed, 0 failed |
+
+NOT run on this commit: `.\scripts\test-database.ps1`, `.\scripts\test-local.ps1` with or without `-Parked`, and the
+whole `Gateway.UnitTests` suite. The round adds one constant to `CcDirector.Gateway.Contracts`, which the Director's
+projects also build against; nothing there uses it.
+
+1. **An end that moves by seconds ended the streak - FIXED as ruled.** `LicenseContract.SignInEndTolerance` is one
+   hour, with the tool's reason in its comment (the end is written again on every key refresh as "now + the seconds
+   left", and the tool allows one hour: `SIGN_IN_MATCH_TOLERANCE_SECONDS` in `license_store.py`).
+   `IsNewerSignIn` takes an end as newer only when it is later by MORE than that. The sign-in time has no tolerance.
+   Tests: `ASignInWhoseEndMovesLater_IsANewerSignInOnlyWhenItMovesByMoreThanOneSignInsEndCanDiffer` - later by 2
+   seconds, by 59 minutes and by exactly one hour: one row, open, ONE email; later by one hour and one second, and by
+   a day: the streak ends (and, the renewal still failing inside the warning time, a new one begins) - and
+   `AnEndThatMovesBySecondsOnEveryRefresh_ForThreeDays_IsOneStreakAndOneEmail` (sixty refreshes, one email).
+   Breaks 19 and 20 of the proof file, both red.
+   **The edge, said plainly:** a real renewal that moves the end by an hour or less, on a machine that reported no
+   sign-in time, is not seen as a renewal. The tool's sign-ins last weeks, so I know of no way to reach it.
+
+2. **The first bullet - FIXED.** An open row whose email has not gone out is tried again on its growing wait whether
+   or not the machine's last report carries the failure time. The email then says "An earlier report of the-mac said
+   the renewal had failed. Its last report does not say when or why, and it does not show a newer sign-in." and
+   gives no reason line, because the last report carries none. Test:
+   `ASendThatHadFailed_IsTriedAgainOnItsWait_AlsoWhenTheMachineNoLongerReportsTheFailureTime`. Breaks 21 and 22, red.
+   Still as the re-review's note says: the row stays open and "Failing" while the page shows the same sign-in with
+   no failed renewal, until the machine reports a newer sign-in, stops holding it, or fails again.
+
+3. **The try and catch inside the two services - noted**, no change.
+
+**The revert proofs of both rounds are in the proof file** (`../proof/gateway-renewal-email.md`, its last section):
+22 breaks. 21 went red on their first run. One, break 16 (the email check behind the switch pass), was NOT CAUGHT
+on its first run: the hosted test could pass a minute late. The test was changed and the break then went red. For
+finding 1 of round 1: breaks 1 to 4. For finding 1 of round 2: breaks 19 and 20.
