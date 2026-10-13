@@ -169,6 +169,128 @@ public sealed class LicenseStoreTests : IDisposable
         Assert.Null(store.FindSwitch(TenantB, row.SwitchId));
     }
 
+    // ---- the renewal date of a subscription, and a failed renewal of a sign-in ----
+
+    [Fact]
+    public void SetRenewalDate_IsStoredForTheAccount_ReadBack_AndClearedWithNull()
+    {
+        var store = Open();
+        Apply(store, TenantA, Report("m1", Holding(A, true), Holding(B, false)));
+        var date = new DateOnly(2026, 10, 17);
+
+        Assert.True(store.SetRenewalDate(TenantA, "  Account-A@Example.com ", date));   // found whatever its spelling
+
+        var accounts = new LicenseReadModel(store).Read(TenantA, T0).Accounts;
+        Assert.Equal(date, accounts.Single(a => a.AccountEmail == A).RenewsOn);
+        Assert.Null(accounts.Single(a => a.AccountEmail == B).RenewsOn);
+
+        Assert.True(store.SetRenewalDate(TenantA, A, null));
+        Assert.Null(new LicenseReadModel(store).Read(TenantA, T0).Accounts.Single(a => a.AccountEmail == A).RenewsOn);
+    }
+
+    [Fact]
+    public void SetRenewalDate_ForAnAccountNoMachineOfThisDevThrottleAccountHolds_IsRefused_AndAnothersIsUntouched()
+    {
+        var store = Open();
+        Apply(store, TenantA, Report("m1", Holding(A, true)));
+        Apply(store, TenantB, Report("m2", Holding(A, true), Holding(C, false)));
+        Assert.True(store.SetRenewalDate(TenantB, A, new DateOnly(2026, 11, 1)));
+
+        Assert.False(store.SetRenewalDate(TenantA, C, new DateOnly(2026, 10, 17)));                    // the other's account: unknown here
+        Assert.False(store.SetRenewalDate(TenantA, "nobody@example.com", new DateOnly(2026, 10, 17)));
+        Assert.True(store.SetRenewalDate(TenantA, A, new DateOnly(2026, 10, 17)));                     // the same email, its own row
+
+        Assert.Equal(new DateOnly(2026, 10, 17), new LicenseReadModel(store).Read(TenantA, T0).Accounts.Single().RenewsOn);
+        var others = new LicenseReadModel(store).Read(TenantB, T0).Accounts;
+        Assert.Equal(new DateOnly(2026, 11, 1), others.Single(a => a.AccountEmail == A).RenewsOn);
+        Assert.Null(others.Single(a => a.AccountEmail == C).RenewsOn);
+    }
+
+    [Fact]
+    public void SetRenewalDate_SurvivesTheNextReport_BecauseNoReportCarriesIt()
+    {
+        var store = Open();
+        Apply(store, TenantA, Report("m1", Holding(A, true)));
+        store.SetRenewalDate(TenantA, A, new DateOnly(2026, 10, 17));
+
+        Apply(store, TenantA, Report("m1", T0.AddMinutes(2), Holding(A, true, 50, readAt: T0.AddMinutes(2))), seq: 2, at: T0.AddMinutes(2));
+
+        Assert.Equal(new DateOnly(2026, 10, 17), new LicenseReadModel(store).Read(TenantA, T0.AddMinutes(2)).Accounts.Single().RenewsOn);
+    }
+
+    private static LicenseHolding FailedRenewal(LicenseHolding holding, DateTime? at, string? error, string? detail)
+    {
+        holding.RenewalFailedAtUtc = at;
+        holding.RenewalError = error;
+        holding.RenewalErrorDetail = detail;
+        return holding;
+    }
+
+    private static LicenseHoldingView SpareOf(LicenseStore store, DateTime now)
+        => new LicenseReadModel(store).Read(TenantA, now).Machines.Single().Holdings.Single(h => !h.IsActive);
+
+    [Fact]
+    public void ApplyReport_StoresAFailedRenewal_AndTheNextReportThatSaysItWorked_ClearsAllThree()
+    {
+        var store = Open();
+        var failedAt = T0.AddHours(-3);
+        Apply(store, TenantA, Report("m1", Holding(A, true),
+            FailedRenewal(Holding(B, false), failedAt, LicenseRenewalErrors.WrongAccount, "The approving browser is signed in as another account.")));
+
+        var failed = SpareOf(store, T0);
+        Assert.Equal((failedAt, LicenseRenewalErrors.WrongAccount, "The approving browser is signed in as another account."),
+            (failed.RenewalFailedAtUtc, failed.RenewalError, failed.RenewalErrorDetail));
+        var active = new LicenseReadModel(store).Read(TenantA, T0).Machines.Single().Holdings.Single(h => h.IsActive);
+        Assert.Equal((null, null, null), (active.RenewalFailedAtUtc, active.RenewalError, active.RenewalErrorDetail));
+
+        Apply(store, TenantA, Report("m1", T0.AddMinutes(2), Holding(A, true, readAt: T0.AddMinutes(2)), Holding(B, false)), seq: 2, at: T0.AddMinutes(2));
+
+        var renewed = SpareOf(store, T0.AddMinutes(2));
+        Assert.Equal((null, null, null), (renewed.RenewalFailedAtUtc, renewed.RenewalError, renewed.RenewalErrorDetail));
+    }
+
+    [Fact]
+    public void ApplyReport_AReasonWordTheContractDoesNotName_IsStoredAsNotKnown_NeverAsGiven_AndTheFailureAndItsSentenceAreKept()
+    {
+        var store = Open();
+        Apply(store, TenantA, Report("m1", Holding(A, true),
+            FailedRenewal(Holding(B, false), T0, "whatever-a-tool-printed", new string('x', 600))));
+
+        var spare = SpareOf(store, T0);
+
+        Assert.Equal(T0, spare.RenewalFailedAtUtc);
+        // That there was a reason is kept, so nothing acting on the failure loses it; the word itself is not.
+        Assert.Equal(LicenseStore.RenewalErrorNotKnown, spare.RenewalError);
+        Assert.DoesNotContain(LicenseStore.RenewalErrorNotKnown, LicenseRenewalErrors.All);
+        Assert.Equal(500, spare.RenewalErrorDetail!.Length);   // the sentence is capped like every other free text
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("  ")]
+    public void ApplyReport_AFailedRenewalWithNoReasonGiven_StoresNoReason(string? word)
+    {
+        var store = Open();
+        Apply(store, TenantA, Report("m1", Holding(A, true), FailedRenewal(Holding(B, false), T0, word, null)));
+
+        var spare = SpareOf(store, T0);
+
+        Assert.Equal((T0, null), (spare.RenewalFailedAtUtc, spare.RenewalError));
+    }
+
+    [Fact]
+    public void ApplyReport_AReasonWithNoFailureTime_IsNotAFailedRenewal_AndNothingOfItIsStored()
+    {
+        var store = Open();
+        Apply(store, TenantA, Report("m1", Holding(A, true),
+            FailedRenewal(Holding(B, false), null, LicenseRenewalErrors.Expired, "No approval came back.")));
+
+        var spare = SpareOf(store, T0);
+
+        Assert.Equal((null, null, null), (spare.RenewalFailedAtUtc, spare.RenewalError, spare.RenewalErrorDetail));
+    }
+
     [Fact]
     public void CreatePendingSwitch_WhileTheMachineHasAnOpenSwitch_IsRefused_AndAllowedAgainOnceItEnds()
     {

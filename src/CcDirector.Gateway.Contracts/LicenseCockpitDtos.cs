@@ -23,6 +23,13 @@ public static class LicenseRoutes
 
     /// <summary>GET: the switch log, newest first, one page at a time (<see cref="LicenseLogResponse"/>).</summary>
     public const string Log = "/gateway/licenses/log";
+
+    /// <summary>Set or clear the date an account's subscription is billed again. A write: refused to a session key.</summary>
+    public const string AccountRenewal = "/gateway/licenses/accounts/renewal";
+
+    /// <summary>POST: Switch now - move every machine on one account to another (<see cref="LicenseSwitchNowRequest"/>,
+    /// <see cref="LicenseSwitchNowResponse"/>). Refused to every session key.</summary>
+    public const string SwitchNow = "/gateway/licenses/switch-now";
 }
 
 /// <summary>The one status an account is shown with. <see cref="LicenseAccountDto.StatusText"/> is the label.</summary>
@@ -213,12 +220,13 @@ public sealed class LicenseAccountDto
 
     public LicenseExtraUsageDto ExtraUsage { get; set; } = new();
 
-    /// <summary>The date the SUBSCRIPTION is billed again, as "yyyy-MM-dd": a date a person sets for the account. Null
-    /// when none is set. No report carries it, and it is never worked out from anything else. Until the route that
-    /// sets it exists it is always null.</summary>
+    /// <summary>The date the SUBSCRIPTION is billed again, as "yyyy-MM-dd": a date a person sets for the account
+    /// (<see cref="LicenseRoutes.AccountRenewal"/>). Null when none is set. No report carries it, and it is never
+    /// worked out from anything else.</summary>
     public string? RenewsOn { get; set; }
 
-    /// <summary>The sentence for <see cref="RenewsOn"/>: "Renews 17 Oct", or "Renewal date not set". Always set.</summary>
+    /// <summary>The sentence for <see cref="RenewsOn"/>: "Renews 17 Oct", "Renews today", "Renews 4 Jan 2027" (another
+    /// year), "Renewal date 17 Oct has passed", or "Renewal date not set". Always set.</summary>
     public string RenewsText { get; set; } = "";
 
     /// <summary>The sign-in for this account that expires first, on whichever machine holds it.</summary>
@@ -243,6 +251,13 @@ public sealed class LicenseAccountDto
     /// <summary>Every other account as a target for this account's machines; empty when no machine on this account
     /// can be switched.</summary>
     public List<LicenseSwitchTargetDto> SwitchTargets { get; set; } = new();
+
+    /// <summary>Until when the account is barred from the AUTOMATIC choice of a target; null when it is not barred.</summary>
+    public DateTime? BarredUntilUtc { get; set; }
+
+    /// <summary>The bar in one sentence, to show beside the account; null when it is not barred. A barred account can
+    /// still be chosen by hand, and the sentence says so.</summary>
+    public string? BarredText { get; set; }
 }
 
 /// <summary>One usage window of one account.</summary>
@@ -359,8 +374,8 @@ public sealed class LicenseMachineHoldingDto
     /// <summary>One of <see cref="LicenseTones"/>.</summary>
     public string ExpiryTone { get; set; } = "";
 
-    /// <summary>When the machine last tried to renew this sign-in and failed. Null when the last renewal worked or is
-    /// not known. Until the Gateway stores what the report says of it, it is always null.</summary>
+    /// <summary>When the machine last tried to renew this SIGN-IN and failed, by the machine's own clock. Null when the
+    /// last renewal worked or is not known.</summary>
     public DateTime? RenewalFailedAtUtc { get; set; }
 
     /// <summary>The sentence for a failed renewal; null when the last renewal worked or is not known.</summary>
@@ -393,6 +408,30 @@ public sealed class LicenseSwitchInProgressDto
 
     /// <summary>One sentence saying where the switch stands.</summary>
     public string Text { get; set; } = "";
+}
+
+// ---- PUT /gateway/licenses/accounts/renewal ----
+
+/// <summary>Set or clear the date one account's subscription is billed again.</summary>
+public sealed class LicenseRenewalDateRequest
+{
+    /// <summary>The Claude account, one this DevThrottle account's machines hold.</summary>
+    public string? AccountEmail { get; set; }
+
+    /// <summary>The date as "yyyy-MM-dd", or null to clear it.</summary>
+    public string? RenewsOn { get; set; }
+}
+
+/// <summary>What was stored: the two fields the overview now answers for that account.</summary>
+public sealed class LicenseRenewalDateResponse
+{
+    public string AccountEmail { get; set; } = "";
+
+    /// <summary>The stored date as "yyyy-MM-dd"; null when it was cleared.</summary>
+    public string? RenewsOn { get; set; }
+
+    /// <summary>The same sentence the overview gives for it.</summary>
+    public string RenewsText { get; set; } = "";
 }
 
 // ---- GET /gateway/licenses/forecast ----
@@ -632,4 +671,74 @@ public sealed class LicenseLogEntryDto
     /// answered a usage read." or "The new sign-in did not answer a usage read." Null on every other row - a switch
     /// that was refused or failed has nothing to confirm, and the page shows nothing there.</summary>
     public string? VerifiedText { get; set; }
+}
+
+/// <summary>The body of POST <see cref="LicenseRoutes.SwitchNow"/>. It is by ACCOUNT, because usage is counted per
+/// account: every machine on it that can be sent a switch moves.</summary>
+public sealed class LicenseSwitchNowRequest
+{
+    /// <summary>The account to move machines off.</summary>
+    public string? AccountEmail { get; set; }
+
+    /// <summary>The account to move them to; null or blank lets the Gateway choose, as an automatic switch would.</summary>
+    public string? TargetAccountEmail { get; set; }
+}
+
+/// <summary>The answer of an accepted Switch now: where the machines were sent, each machine's switch as its log row
+/// stood when the Gateway answered, and the machines on the account that were not sent one.</summary>
+public sealed class LicenseSwitchNowResponse
+{
+    /// <summary>The account the machines were sent to: the one named, or the one chosen.</summary>
+    public string? TargetAccountEmail { get; set; }
+
+    /// <summary>The whole outcome in one sentence, ready to show.</summary>
+    public string Text { get; set; } = "";
+
+    /// <summary>One per machine sent a switch.</summary>
+    public List<LicenseSwitchNowMachineDto> Switches { get; set; } = new();
+
+    /// <summary>The machines on the account that were not sent a switch, each with the reason.</summary>
+    public List<LicenseSwitchNowSkippedDto> Skipped { get; set; } = new();
+}
+
+/// <summary>One machine's switch, folded like its row of the switch log.</summary>
+public sealed class LicenseSwitchNowMachineDto
+{
+    /// <summary>The identifier of the switch itself, the one the machine's Director was sent.</summary>
+    public string SwitchId { get; set; } = "";
+
+    /// <summary>The switch's row of the switch log: <see cref="LicenseLogEntryDto.EntryId"/> of that row, so the page
+    /// can find it in the log.</summary>
+    public string EntryId { get; set; } = "";
+
+    public string MachineName { get; set; } = "";
+    public string OsUser { get; set; } = "";
+
+    /// <summary>What to call the machine: its name, with the user in brackets when another machine has the same name.</summary>
+    public string Label { get; set; } = "";
+
+    /// <summary>A <see cref="LicenseLogStates"/> word.</summary>
+    public string State { get; set; } = "";
+
+    /// <summary>The state in words: "Switched", "Waiting for the machine", "Sent, no answer yet", "Failed".</summary>
+    public string StateText { get; set; } = "";
+
+    /// <summary>A <see cref="LicenseTones"/> word.</summary>
+    public string StateTone { get; set; } = "";
+
+    /// <summary>The row in one sentence.</summary>
+    public string Summary { get; set; } = "";
+}
+
+/// <summary>A machine on the account that was not sent a switch.</summary>
+public sealed class LicenseSwitchNowSkippedDto
+{
+    public string MachineName { get; set; } = "";
+    public string OsUser { get; set; } = "";
+
+    /// <summary>What to call the machine.</summary>
+    public string Label { get; set; } = "";
+
+    /// <summary>Why it was not sent a switch, as a finished sentence.</summary>
+    public string Why { get; set; } = "";
 }

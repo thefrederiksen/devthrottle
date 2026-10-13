@@ -2040,6 +2040,9 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
 
+                    b.Property<DateOnly?>("RenewsOn")
+                        .HasColumnType("date");
+
                     b.Property<string>("TenantId")
                         .IsRequired()
                         .HasColumnType("text")
@@ -2143,6 +2146,17 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<string>("ReadErrorDetail")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
+
+                    b.Property<string>("RenewalError")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("RenewalErrorDetail")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime?>("RenewalFailedAtUtc")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime?>("SevenDayResetsAtUtc")
                         .HasColumnType("timestamp with time zone");
@@ -2276,7 +2290,8 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<string>("FromAccountEmail")
                         .IsRequired()
                         .HasMaxLength(320)
-                        .HasColumnType("character varying(320)");
+                        .HasColumnType("character varying(320)")
+                        .UseCollation("C");
 
                     b.Property<string>("Kind")
                         .IsRequired()

@@ -1236,6 +1236,8 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.RateLimitTier).HasMaxLength(128);
             b.Property(e => e.ReadError).HasMaxLength(32);
             b.Property(e => e.ReadErrorDetail).HasMaxLength(500);
+            b.Property(e => e.RenewalError).HasMaxLength(32);
+            b.Property(e => e.RenewalErrorDetail).HasMaxLength(500);
             b.HasIndex(e => new { e.TenantId, e.MachineId, e.AccountEmail }).IsUnique();
             b.HasIndex(e => new { e.TenantId, e.AccountEmail });
         });
@@ -2199,6 +2201,9 @@ public sealed class GatewayDbContext : DbContext
             modelBuilder.Entity<LicenseHoldingEntity>().Property(e => e.AccountEmail).UseCollation("C");
             modelBuilder.Entity<LicenseSwitchLogEntity>().Property(e => e.SwitchId).UseCollation("C");
             modelBuilder.Entity<LicenseSwitchLogEntity>().Property(e => e.State).UseCollation("C");
+            // The account a log row is about is looked up by its email (one open "no account had room" event per
+            // account), so it is compared the way every other account email column is.
+            modelBuilder.Entity<LicenseSwitchLogEntity>().Property(e => e.FromAccountEmail).UseCollation("C");
             modelBuilder.Entity<LicenseBarEntity>().Property(e => e.AccountEmail).UseCollation("C");
             modelBuilder.Entity<LicenseBarEntity>().Property(e => e.Window).UseCollation("C");
             // triggers: the name is the key a caller looks a trigger up by, and the machine is compared to a

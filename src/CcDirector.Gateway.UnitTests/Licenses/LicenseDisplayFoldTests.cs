@@ -178,6 +178,172 @@ public sealed class LicenseDisplayFoldTests : IDisposable
             (notHeld.ExpiresAtUtc, notHeld.Machine, notHeld.Verdict, notHeld.Text, notHeld.Tone));
     }
 
+    // ---- the renewal date of the subscription ----
+
+    [Theory]
+    [InlineData(null, "Renewal date not set")]
+    [InlineData("2026-10-11", "Renews today, 11 Oct")]               // T0 is 11 October 2026; the date is always given
+    [InlineData("2026-10-12", "Renews 12 Oct")]
+    [InlineData("2026-10-17", "Renews 17 Oct")]
+    [InlineData("2026-12-31", "Renews 31 Dec")]
+    [InlineData("2027-01-01", "Renews 1 Jan 2027")]                  // another year is said
+    [InlineData("2026-10-10", "Renewal date 10 Oct has passed")]     // never shown as if it were still ahead
+    [InlineData("2025-12-31", "Renewal date 31 Dec 2025 has passed")]
+    public void RenewsText_SaysTheDateAsAPersonWould_AndNeverGuessesOne(string? renewsOn, string expected)
+    {
+        DateOnly? date = renewsOn is null ? null : DateOnly.ParseExact(renewsOn, "yyyy-MM-dd");
+
+        Assert.Equal(expected, LicenseDisplayFold.RenewsText(date, T0));
+    }
+
+    [Fact]
+    public void RenewsText_TodayIsTheGatewaysDateInCoordinatedUniversalTime_UntilTheLastSecondOfIt()
+    {
+        var date = new DateOnly(2026, 10, 11);
+
+        Assert.Equal("Renews today, 11 Oct", LicenseDisplayFold.RenewsText(date, new DateTime(2026, 10, 11, 0, 0, 0, DateTimeKind.Utc)));
+        Assert.Equal("Renews today, 11 Oct", LicenseDisplayFold.RenewsText(date, new DateTime(2026, 10, 11, 23, 59, 59, DateTimeKind.Utc)));
+        Assert.Equal("Renews 11 Oct", LicenseDisplayFold.RenewsText(date, new DateTime(2026, 10, 10, 23, 59, 59, DateTimeKind.Utc)));
+        Assert.Equal("Renewal date 11 Oct has passed", LicenseDisplayFold.RenewsText(date, new DateTime(2026, 10, 12, 0, 0, 0, DateTimeKind.Utc)));
+    }
+
+    [Fact]
+    public void Account_CarriesTheRenewalDateAPersonSet_AndSaysNotSetForAnAccountWithNone()
+    {
+        Apply(Report("m1", Holding(A, true), Holding(B, false)));
+        _store.SetRenewalDate(Tenant, A, new DateOnly(2026, 10, 17));
+
+        var overview = Overview(T0);
+        var a = overview.Accounts.Single(x => x.AccountEmail == A);
+        var b = overview.Accounts.Single(x => x.AccountEmail == B);
+
+        Assert.Equal(("2026-10-17", "Renews 17 Oct"), (a.RenewsOn, a.RenewsText));
+        Assert.Equal((null, "Renewal date not set"), (b.RenewsOn, b.RenewsText));
+        // It is not the sign-in expiry, and setting it does not touch that.
+        Assert.Equal("Sign-in expiry not known", a.SignInExpiry.Text);
+    }
+
+    // ---- an account barred from the automatic choice ----
+
+    [Fact]
+    public void Account_BarredFromTheAutomaticChoice_SaysSoInOneSentence_AndCanStillBeChosenByHand()
+    {
+        Apply(Report("m1", Holding(A, true), Holding(B, false), Holding(C, false)));
+        _store.Bar(Tenant, B, LicenseWindowNames.FiveHour, T0.AddHours(2), T0);
+
+        var overview = Overview(T0);
+        var barred = overview.Accounts.Single(a => a.AccountEmail == B);
+        var free = overview.Accounts.Single(a => a.AccountEmail == C);
+
+        Assert.Equal(T0.AddHours(2), barred.BarredUntilUtc);
+        Assert.Equal("Left out of the automatic choice for 2 hours, until its 5-hour window resets: it triggered a switch. It can still be chosen by hand.", barred.BarredText);
+        Assert.Equal((null, null), (free.BarredUntilUtc, free.BarredText));
+        // The bar stops the automatic choice only: by hand it is still a target.
+        Assert.True(overview.Accounts.Single(a => a.AccountEmail == A).SwitchTargets.Single(t => t.AccountEmail == B).CanChoose);
+    }
+
+    [Fact]
+    public void Account_WhoseBarHasEnded_IsNotBarred_AtTheVeryMomentItEnds()
+    {
+        Apply(Report("m1", Holding(A, true), Holding(B, false)));
+        _store.Bar(Tenant, B, LicenseWindowNames.SevenDay, T0.AddMinutes(1), T0);
+
+        var before = Account(B, T0.AddSeconds(59));
+        var atTheEnd = Account(B, T0.AddMinutes(1));
+
+        Assert.StartsWith("Left out of the automatic choice for less than a minute, until its weekly limit resets: ", before.BarredText);
+        Assert.Equal((null, null), (atTheEnd.BarredUntilUtc, atTheEnd.BarredText));
+    }
+
+    // ---- a failed renewal of a sign-in ----
+
+    private LicenseMachineHoldingDto SpareWithFailedRenewal(DateTime? failedAt, string? error, string? detail, DateTime? expires, DateTime now)
+    {
+        var spare = Holding(B, false);
+        spare.RenewalFailedAtUtc = failedAt;
+        spare.RenewalError = error;
+        spare.RenewalErrorDetail = detail;
+        spare.SignInExpiresAtUtc = expires;
+        Apply(Report("m1", Holding(A, true), spare));
+        return Overview(now).Machines.Single().Spares.Single();
+    }
+
+    [Fact]
+    public void Holding_WhoseLastRenewalWorkedOrIsNotKnown_HasNoFailedRenewal()
+    {
+        var spare = SpareWithFailedRenewal(null, null, null, T0.AddDays(20), T0);
+
+        Assert.Equal((null, null, null), (spare.RenewalFailedAtUtc, spare.RenewalFailedText, spare.RenewalFailedTone));
+    }
+
+    [Fact]
+    public void Holding_WhoseRenewalFailed_SaysWhenAndWhy()
+    {
+        var spare = SpareWithFailedRenewal(T0.AddHours(-3), LicenseRenewalErrors.WrongAccount, "ignored when the word is known", T0.AddDays(20), T0);
+
+        Assert.Equal(T0.AddHours(-3), spare.RenewalFailedAtUtc);
+        Assert.Equal("Renewing this sign-in failed 3 hours ago: the approving browser is signed in as another account.", spare.RenewalFailedText);
+        Assert.Equal(LicenseTones.Warning, spare.RenewalFailedTone);
+    }
+
+    [Theory]
+    [InlineData(0, LicenseTones.Bad)]                       // the sign-in has expired and could not be renewed
+    [InlineData(1, LicenseTones.Bad)]
+    [InlineData(3 * 24 * 3600, LicenseTones.Bad)]           // expires soon, up to exactly three days
+    [InlineData(3 * 24 * 3600 + 1, LicenseTones.Warning)]   // fine: there is still time
+    public void Holding_FailedRenewal_IsBadOnceTheSignInIsExpiredOrExpiresSoon_AndAWarningWhileThereIsTime(int expiresInSeconds, string tone)
+    {
+        var spare = SpareWithFailedRenewal(T0.AddHours(-1), LicenseRenewalErrors.Expired, null, T0.AddSeconds(expiresInSeconds), T0);
+
+        Assert.Equal(tone, spare.RenewalFailedTone);
+    }
+
+    [Fact]
+    public void Holding_FailedRenewal_WithNoExpiryKnown_IsAWarning()
+    {
+        Assert.Equal(LicenseTones.Warning, SpareWithFailedRenewal(T0, LicenseRenewalErrors.Expired, null, null, T0).RenewalFailedTone);
+    }
+
+    [Fact]
+    public void Holding_FailedRenewal_EveryReasonTheContractNames_HasItsOwnWords()
+    {
+        var sentences = new List<string>();
+        var seq = 0;
+        foreach (var word in LicenseRenewalErrors.All.OrderBy(w => w, StringComparer.Ordinal))
+        {
+            var spare = Holding(B, false);
+            spare.RenewalFailedAtUtc = T0.AddMinutes(-5);
+            spare.RenewalError = word;
+            Apply(Report("m1", Holding(A, true), spare), seq: ++seq);
+            sentences.Add(Overview(T0).Machines.Single().Spares.Single().RenewalFailedText!);
+        }
+
+        Assert.Equal(8, sentences.Count);                                // a word added to the contract shows up here
+        Assert.All(sentences, s => Assert.StartsWith("Renewing this sign-in failed 5 minutes ago: ", s));
+        Assert.All(sentences, s => Assert.EndsWith(".", s));
+        Assert.Equal(sentences.Count, sentences.Distinct().Count());
+    }
+
+    [Fact]
+    public void Holding_FailedRenewal_WithNoReasonThisGatewayKnows_GivesTheDirectorsSentence_OrOnlyTheFact()
+    {
+        var withSentence = SpareWithFailedRenewal(T0.AddMinutes(-5), "whatever-a-tool-printed", "The approval page did not load.", null, T0);
+        Assert.Equal("Renewing this sign-in failed 5 minutes ago. The approval page did not load.", withSentence.RenewalFailedText);
+
+        var spare = Holding(B, false);
+        spare.RenewalFailedAtUtc = T0.AddMinutes(-5);
+        Apply(Report("m1", Holding(A, true), spare), seq: 2);
+        Assert.Equal("Renewing this sign-in failed 5 minutes ago.", Overview(T0).Machines.Single().Spares.Single().RenewalFailedText);
+    }
+
+    [Fact]
+    public void Holding_FailedRenewal_StampedAheadOfTheGatewaysClock_SaysItFailed_WithoutAnAgeThatWouldBeWrong()
+    {
+        var spare = SpareWithFailedRenewal(T0.AddMinutes(1), LicenseRenewalErrors.Expired, null, null, T0);
+
+        Assert.Equal("Renewing this sign-in failed: no approval came back in time.", spare.RenewalFailedText);
+    }
+
     // ---- a machine is a name AND a user ----
 
     private static LicenseUsageReport ReportAs(string machine, string osUser, params LicenseHolding[] holdings)
@@ -504,7 +670,8 @@ public sealed class LicenseDisplayFoldTests : IDisposable
 
         Assert.Equal(offered, account.CanSwitchNow);
         if (!offered)
-            Assert.Equal($"No machine on {A} can be switched now: every machine on it is stale or already mid-switch.", account.SwitchNowText);
+            // Which of the two it is, is said for each machine - the same sentence the route refuses with.
+            Assert.Equal($"No machine on {A} can be switched now: every machine on it is stale or already mid-switch. m1 is not switched: its last report is too old.", account.SwitchNowText);
     }
 
     [Fact]

@@ -255,6 +255,10 @@ public sealed class LicenseSwitchService
         {
             var sends = new List<PlannedSend>();
             var skipped = new List<LicenseSkippedMachine>();
+            // The switch identifiers this call answers with, in the order the machines were decided: the ones it
+            // wrote and sent, and the ones already waiting that it left exactly as they were.
+            var answered = new List<string>();
+            var alreadyWaiting = 0;
             string? target = null;
             var gate = GateFor(tenant);
             await gate.WaitAsync(ct).ConfigureAwait(false);
@@ -282,14 +286,31 @@ public sealed class LicenseSwitchService
                     // A new Switch now is a new decision, so it gets a new switch identifier (contract section 3.6):
                     // a switch still waiting for an offline Director is ended first, never sent beside the new one.
                     if (open.NeverSent.TryGetValue(machine.MachineId, out var waiting))
+                    {
+                        // The SAME switch is already waiting for this machine's Director - same account to leave,
+                        // same target, not yet expired. Asking again changes nothing, so nothing is written: the
+                        // answer is the waiting switch as it stands, and the minute check goes on sending it. Without
+                        // this every click while a Director is offline ended one row as failed and wrote another.
+                        if (now <= NotAfterOf(waiting)
+                            && string.Equals(waiting.FromAccountEmail, decision.FromAccountEmail, StringComparison.Ordinal)
+                            && string.Equals(waiting.ToAccountEmail, decision.TargetAccountEmail, StringComparison.Ordinal))
+                        {
+                            answered.Add(IdOf(waiting));
+                            alreadyWaiting++;
+                            continue;
+                        }
                         _store.TryMark(tenant, IdOf(waiting), LicenseLogStates.Failed, LicenseGatewayReasonCodes.DirectorOffline,
                             $"The Director on {machine.MachineName} was not connected, and a new Switch now replaced this switch before it could be sent.", now);
+                    }
                     var planned = PlanNewSwitch(tenant, machine, decision, now);
                     if (planned is null)
                         skipped.Add(new LicenseSkippedMachine(machine.MachineName, machine.OsUser, decision.FromAccountEmail,
                             "a switch sent to it has not finished"));
                     else
+                    {
                         sends.Add(planned);
+                        answered.Add(planned.SwitchId);
+                    }
                 }
                 marked = MarkInFlight(tenant, sends);
             }
@@ -298,7 +319,7 @@ public sealed class LicenseSwitchService
                 gate.Release();
             }
 
-            if (sends.Count == 0)
+            if (answered.Count == 0)
             {
                 FileLog.Write("[LicenseSwitchService] SwitchNowAsync: refused, every machine was taken by another switch at the same moment");
                 return new LicenseSwitchNowResult(false, LicenseManualRefusals.NoMachineToSwitch,
@@ -308,13 +329,13 @@ public sealed class LicenseSwitchService
 
             await Task.WhenAll(sends.Select(send => SendAsync(tenant, send, ct))).ConfigureAwait(false);
 
-            var switches = sends.Select(send =>
+            var switches = answered.Select(switchId =>
             {
-                var row = _store.FindSwitch(tenant, send.SwitchId)
-                    ?? throw new InvalidOperationException($"Switch {send.SwitchId} was written and sent, and its row is gone.");
-                return new LicenseSwitchNowMachine(send.SwitchId, row.MachineName, row.OsUser, row.State, row.ReasonCode, row.Message);
+                var row = _store.FindSwitch(tenant, switchId)
+                    ?? throw new InvalidOperationException($"Switch {switchId} is in this answer, and its row is gone.");
+                return new LicenseSwitchNowMachine(switchId, row.MachineName, row.OsUser, row.State, row.ReasonCode, row.Message);
             }).ToList();
-            FileLog.Write($"[LicenseSwitchService] SwitchNowAsync: switches={switches.Count}, skipped={skipped.Count}");
+            FileLog.Write($"[LicenseSwitchService] SwitchNowAsync: switches={switches.Count}, alreadyWaiting={alreadyWaiting}, skipped={skipped.Count}");
             return new LicenseSwitchNowResult(true, null, null, target, switches, skipped);
         }
         catch (Exception ex)
@@ -374,7 +395,7 @@ public sealed class LicenseSwitchService
         {
             if (_inFlight.ContainsKey((tenant, IdOf(row))))
                 blocked.Add(row.MachineId);
-            else if (row.State == LicenseLogStates.Pending && row.ReasonCode == LicenseGatewayReasonCodes.DirectorOffline)
+            else if (IsKnownNeverSent(row))
                 neverSent[row.MachineId] = row;
             else
             {
@@ -560,7 +581,7 @@ public sealed class LicenseSwitchService
     /// <paramref name="blocked"/> - the machines whose open row's outcome is not known or whose send is in flight.
     /// Nothing else in the picture is touched.
     /// </summary>
-    private static LicenseSnapshot SnapshotToDecideOn(LicensePicture picture, IReadOnlySet<Guid> blocked)
+    internal static LicenseSnapshot SnapshotToDecideOn(LicensePicture picture, IReadOnlySet<Guid> blocked)
     {
         var blockedMachines = picture.Overview.Machines
             .Where(m => blocked.Contains(m.MachineId))
@@ -572,6 +593,24 @@ public sealed class LicenseSwitchService
                 .Select(m => m with { HasOpenSwitch = blockedMachines.Contains(MachineKey(m.MachineName, m.OsUser)) })
                 .ToList(),
         };
+    }
+
+    /// <summary>True for an open switch row known never to have left this Gateway: the machine's Director was not
+    /// connected. Such a row does not hold its machine back from a new decision (the class summary).</summary>
+    internal static bool IsKnownNeverSent(LicenseSwitchLogEntity row)
+        => row.State == LicenseLogStates.Pending && row.ReasonCode == LicenseGatewayReasonCodes.DirectorOffline;
+
+    /// <summary>
+    /// The picture Switch now decides on, for the Licenses page: every machine whose open row is NOT known never to
+    /// have left is mid-switch, and no other. The page asks the engine with this, so it offers Switch now exactly
+    /// where <see cref="SwitchNowAsync"/> would accept it. (A send in flight in this process is one more thing that
+    /// holds a machine back there; its row is already written "pending" with no reason, so it is counted here too.)
+    /// </summary>
+    internal static LicenseSnapshot SnapshotSwitchNowDecidesOn(LicensePicture picture)
+    {
+        ArgumentNullException.ThrowIfNull(picture);
+        return SnapshotToDecideOn(picture,
+            picture.OpenSwitches.Where(r => !IsKnownNeverSent(r)).Select(r => r.MachineId).ToHashSet());
     }
 
     private static List<LicenseExhaustion> Exhaustions(IReadOnlyList<LicenseSwitchLogEntity> openNoRoom)

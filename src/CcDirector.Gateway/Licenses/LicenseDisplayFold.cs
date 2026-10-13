@@ -56,8 +56,7 @@ public static class LicenseDisplayFold
 
     public const string NoSwitchExpectedText = "No switch is expected.";
 
-    /// <summary>What an account's renewal date says while none is set. The date is one a person sets; until the
-    /// route that stores it exists, none is set for any account.</summary>
+    /// <summary>What an account's renewal date says while none is set. The date is one a person sets.</summary>
     public const string RenewalDateNotSetText = "Renewal date not set";
 
     // ----- the overview -----
@@ -112,14 +111,18 @@ public static class LicenseDisplayFold
             ReadError = view.Freshest?.ReadError,
             ReadErrorText = ReadErrorText(view.Freshest?.ReadError, view.Freshest?.ReadErrorDetail),
             ExtraUsage = ExtraUsage(view.Freshest?.ExtraUsageEnabled, view.Freshest?.ExtraUsageUtilization),
-            RenewsOn = null,
-            RenewsText = RenewalDateNotSetText,
+            RenewsOn = view.RenewsOn?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            RenewsText = RenewsText(view.RenewsOn, now),
+            BarredUntilUtc = Bar(snapshot, view.AccountEmail) is { } barred ? Utc(barred.BarredUntilUtc) : null,
+            BarredText = Bar(snapshot, view.AccountEmail) is { } bar ? BarredText(bar, now) : null,
             SignInExpiry = SignInExpiry(held, names, now),
             ActiveOnMachines = held.Where(h => h.Holding.IsActive).Select(h => names.Ref(h.Machine)).ToList(),
             SpareOnMachines = held.Where(h => !h.Holding.IsActive).Select(h => names.Ref(h.Machine)).ToList(),
         };
         ApplyStatus(dto, view, reading, held, names, now);
-        ApplySwitchNow(dto, snapshot, names);
+        // Asked of the picture Switch now itself decides on, so the page offers exactly what the route accepts: a
+        // machine whose switch is only waiting for its Director to connect can still be switched now.
+        ApplySwitchNow(dto, LicenseSwitchService.SnapshotSwitchNowDecidesOn(picture), names);
         return dto;
     }
 
@@ -222,10 +225,13 @@ public static class LicenseDisplayFold
     private static void ApplySwitchNow(LicenseAccountDto dto, LicenseSnapshot snapshot, MachineNames names)
     {
         var automatic = LicenseDecisionEngine.PreviewManual(snapshot, dto.AccountEmail, null);
+        // Each machine on the account that cannot be sent a switch, with its own reason - the same words the route
+        // answers a refused Switch now with (SwitchNowRefused).
+        var notSwitched = string.Concat(automatic.Skipped.Select(s => $" {names.Label(s.MachineName, s.OsUser)} is not switched: {s.Why}."));
         if (automatic.RefusalCode == LicenseManualRefusals.NoMachineToSwitch)
         {
             dto.CanSwitchNow = false;
-            dto.SwitchNowText = automatic.RefusalMessage!;
+            dto.SwitchNowText = automatic.RefusalMessage + notSwitched;
             return;
         }
 
@@ -244,13 +250,116 @@ public static class LicenseDisplayFold
 
         dto.CanSwitchNow = dto.SwitchTargets.Any(t => t.CanChoose);
         dto.SwitchNowTargetAccountEmail = chosen;
-        var notSwitched = string.Concat(automatic.Skipped.Select(s => $" {names.Label(s.MachineName, s.OsUser)} is not switched: {s.Why}."));
         if (automatic.Accepted)
             dto.SwitchNowText = $"Moves {Names(automatic.Switches.Select(s => names.Label(s.MachineName, s.OsUser)).ToList())} to {chosen}." + notSwitched;
         else if (dto.CanSwitchNow)
             dto.SwitchNowText = $"{automatic.RefusalMessage} A target can still be chosen by hand." + notSwitched;
         else
             dto.SwitchNowText = automatic.RefusalMessage + notSwitched;
+    }
+
+    // The bar that keeps this account out of the AUTOMATIC choice now, or null: the one that lasts longest when it
+    // has more than one. A bar whose time has come is no bar.
+    private static LicenseBar? Bar(LicenseSnapshot snapshot, string accountEmail)
+        => snapshot.Bars
+            .Where(b => b.AccountEmail == accountEmail && b.BarredUntilUtc > snapshot.NowUtc)
+            .OrderByDescending(b => b.BarredUntilUtc)
+            .FirstOrDefault();
+
+    // A bar stops the automatic choice only (the ruling on the decision engine's review): a person can still choose
+    // the account by hand, and the sentence says so.
+    private static string BarredText(LicenseBar bar, DateTime now)
+        => $"Left out of the automatic choice for {Span(bar.BarredUntilUtc - now)}, until its {WindowLabel(bar.Window)} resets: "
+           + "it triggered a switch. It can still be chosen by hand.";
+
+    // ----- Switch now, answered -----
+
+    /// <summary>
+    /// The answer of an ACCEPTED Switch now, in words. <paramref name="rows"/> are the switch log rows of the switches
+    /// it sent, as they stood when it returned; <paramref name="machines"/> is every machine of the account, so a
+    /// machine is called here what the overview and the log call it.
+    /// </summary>
+    public static LicenseSwitchNowResponse SwitchNowAccepted(LicenseSwitchNowResult result,
+        IReadOnlyList<LicenseSwitchLogEntity> rows, IReadOnlyList<(string MachineName, string OsUser)> machines)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(machines);
+        if (!result.Accepted)
+            throw new InvalidOperationException("A refused Switch now has no accepted answer.");
+        FileLog.Write($"[LicenseDisplayFold] SwitchNowAccepted: switches={rows.Count}, skipped={result.Skipped.Count}");
+
+        var entries = LogEntries(rows, machines);
+        var labels = Labels(machines.Concat(rows.Select(r => (r.MachineName, r.OsUser))));
+        var response = new LicenseSwitchNowResponse
+        {
+            TargetAccountEmail = result.TargetAccountEmail,
+            Switches = entries.Select((e, i) => new LicenseSwitchNowMachineDto
+            {
+                SwitchId = rows[i].SwitchId ?? throw new InvalidOperationException($"Switch log row {rows[i].Id} has no switch identifier."),
+                EntryId = e.EntryId,
+                MachineName = e.MachineName,
+                OsUser = e.OsUser,
+                Label = e.Label,
+                State = e.State,
+                StateText = e.StateText,
+                StateTone = e.StateTone,
+                Summary = e.Summary,
+            }).ToList(),
+            Skipped = result.Skipped.Select(s => new LicenseSwitchNowSkippedDto
+            {
+                MachineName = s.MachineName,
+                OsUser = s.OsUser,
+                Label = labels(s.MachineName, s.OsUser),
+                Why = $"{labels(s.MachineName, s.OsUser)} is not switched: {s.Why}.",
+            }).ToList(),
+        };
+        response.Text = SwitchNowText(response);
+        return response;
+    }
+
+    // The whole outcome in one sentence: how many machines are on the target, how many are still on their way, how
+    // many failed - each said only when it is not none - and then the machines that were left out.
+    private static string SwitchNowText(LicenseSwitchNowResponse response)
+    {
+        var target = response.TargetAccountEmail;
+        var done = response.Switches.Where(s => s.State is LicenseLogStates.Switched or LicenseLogStates.AlreadyActive).Select(s => s.Label).ToList();
+        var failed = response.Switches.Where(s => s.State == LicenseLogStates.Failed).Select(s => s.Label).ToList();
+        var waiting = response.Switches.Where(s => s.State is not (LicenseLogStates.Switched or LicenseLogStates.AlreadyActive or LicenseLogStates.Failed)).Select(s => s.Label).ToList();
+        var parts = new List<string>();
+        if (done.Count > 0)
+            parts.Add($"{Names(done)} {(done.Count == 1 ? "is" : "are")} now on {target}.");
+        if (waiting.Count > 0)
+            parts.Add($"The switch of {Names(waiting)} to {target} has not finished; the switch log shows how it ends.");
+        if (failed.Count > 0)
+            parts.Add($"The switch of {Names(failed)} to {target} failed; the switch log says why.");
+        parts.AddRange(response.Skipped.Select(s => s.Why));
+        return string.Join(" ", parts);
+    }
+
+    /// <summary>The sentence of a REFUSED Switch now: the engine's reason, and then each machine on the account that
+    /// could not be sent a switch with its own reason - what <c>switchNowText</c> says of the same account.</summary>
+    public static string SwitchNowRefused(LicenseSwitchNowResult result, IReadOnlyList<(string MachineName, string OsUser)> machines)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        ArgumentNullException.ThrowIfNull(machines);
+        if (result.Accepted || string.IsNullOrWhiteSpace(result.RefusalMessage))
+            throw new InvalidOperationException("A Switch now that was not refused with a reason has no refusal sentence.");
+        var labels = Labels(machines);
+        return result.RefusalMessage + string.Concat(result.Skipped.Select(s => $" {labels(s.MachineName, s.OsUser)} is not switched: {s.Why}."));
+    }
+
+    // What to call a machine among these machines: its name, with its user in brackets when the name is not unique.
+    private static Func<string, string, string> Labels(IEnumerable<(string MachineName, string OsUser)> machines)
+    {
+        var repeated = machines
+            .Select(m => (Name: m.MachineName.ToLowerInvariant(), User: m.OsUser.ToLowerInvariant()))
+            .Distinct()
+            .GroupBy(m => m.Name, StringComparer.Ordinal)
+            .Where(g => g.Count() > 1)
+            .Select(g => g.Key)
+            .ToHashSet(StringComparer.Ordinal);
+        return (name, user) => repeated.Contains(name.ToLowerInvariant()) ? $"{name} ({user})" : name;
     }
 
     /// <summary>One usage window. Its level is the engine's own reading of it - unless
@@ -357,12 +466,14 @@ public static class LicenseDisplayFold
             ExpiryVerdict = holding.ExpiryVerdict,
             ExpiryText = expiryText,
             ExpiryTone = expiryTone,
-            // A failed renewal of this sign-in: null when the last renewal worked or is not known. The Gateway does not
-            // store what a report says of a renewal yet, so it is not known for any holding. The pull request that
-            // stores it fills these three in here.
-            RenewalFailedAtUtc = null,
-            RenewalFailedText = null,
-            RenewalFailedTone = null,
+            // A failed renewal of this SIGN-IN (nothing to do with the subscription's renewal date): all three null
+            // when the last renewal worked or is not known.
+            RenewalFailedAtUtc = holding.RenewalFailedAtUtc is { } failedAt ? Utc(failedAt) : null,
+            RenewalFailedText = holding.RenewalFailedAtUtc is null ? null : RenewalFailedText(holding, nowUtc),
+            RenewalFailedTone = holding.RenewalFailedAtUtc is null ? null
+                // The sign-in is dead or about to be, and the machine could not renew it: the owner must act.
+                : holding.ExpiryVerdict is LicenseSignInExpiry.Expired or LicenseSignInExpiry.ExpiresSoon ? LicenseTones.Bad
+                : LicenseTones.Warning,
             IsReadingStale = holding.IsReadingStale,
             ReadError = holding.ReadError,
             ReadErrorText = ReadErrorText(holding.ReadError, null),
@@ -710,6 +821,46 @@ public static class LicenseDisplayFold
         LicenseReadErrors.StoreUnreadable => "The machine could not read its stored sign-in.",
         _ => string.IsNullOrWhiteSpace(detail) ? $"The last read failed ({readError})." : detail,
     };
+
+    /// <summary>
+    /// The sentence for an account's renewal date - the day its SUBSCRIPTION is billed again, as a person set it. The
+    /// date has no time and no zone, and it is compared with the Gateway's date in Coordinated Universal Time, so
+    /// around midnight "today" can be a day off for the viewer; the date itself is always given, today's included.
+    /// </summary>
+    public static string RenewsText(DateOnly? renewsOn, DateTime nowUtc)
+    {
+        if (renewsOn is not { } date)
+            return RenewalDateNotSetText;
+        var today = DateOnly.FromDateTime(Utc(nowUtc));
+        var day = date.ToString(date.Year == today.Year ? "d MMM" : "d MMM yyyy", CultureInfo.InvariantCulture);
+        return date == today ? $"Renews today, {day}"
+            : date < today ? $"Renewal date {day} has passed"
+            : $"Renews {day}";
+    }
+
+    // When the failed renewal was, and why in the Director's contract words. The time is the machine's own clock, so
+    // the distance is only said when it is not in the future by the Gateway's.
+    private static string RenewalFailedText(LicenseHoldingView holding, DateTime nowUtc)
+    {
+        var at = Utc(holding.RenewalFailedAtUtc!.Value);
+        var when = at <= nowUtc ? $"Renewing this sign-in failed {Ago(nowUtc - at)}" : "Renewing this sign-in failed";
+        var why = holding.RenewalError switch
+        {
+            LicenseRenewalErrors.LoginFailed => "the sign-in did not start, or ended without a sign-in",
+            LicenseRenewalErrors.ApprovalFailed => "the approval in the browser did not complete",
+            LicenseRenewalErrors.WrongAccount => "the approving browser is signed in as another account",
+            LicenseRenewalErrors.BrowserNotSignedIn => "the approving browser is not signed in",
+            LicenseRenewalErrors.NoApprover => "no browser is set to approve this account",
+            LicenseRenewalErrors.ApproverOffline => "the machine that approves this account was not connected",
+            LicenseRenewalErrors.Expired => "no approval came back in time",
+            LicenseRenewalErrors.StoreRefused => "the machine's key store would not take the new sign-in",
+            _ => null,
+        };
+        if (why is not null)
+            return $"{when}: {why}.";
+        // No reason this Gateway knows: the Director's own sentence when it wrote one, and otherwise only the fact.
+        return string.IsNullOrWhiteSpace(holding.RenewalErrorDetail) ? $"{when}." : $"{when}. {holding.RenewalErrorDetail.Trim()}";
+    }
 
     private static LicenseExtraUsageDto ExtraUsage(bool? enabled, double? utilization) => enabled switch
     {

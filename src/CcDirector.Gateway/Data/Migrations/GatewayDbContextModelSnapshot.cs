@@ -1989,6 +1989,9 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("TEXT");
 
+                    b.Property<DateOnly?>("RenewsOn")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("TenantId")
                         .IsRequired()
                         .HasColumnType("TEXT")
@@ -2088,6 +2091,17 @@ namespace CcDirector.Gateway.Data.Migrations
 
                     b.Property<string>("ReadErrorDetail")
                         .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RenewalError")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RenewalErrorDetail")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("RenewalFailedAtUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<DateTime?>("SevenDayResetsAtUtc")

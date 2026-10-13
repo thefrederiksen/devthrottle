@@ -518,7 +518,7 @@ Director never acts on the Gateway's out-of-date picture (3.3 step 7).
 These live as named constants in `LicenseMessages.cs` (`LicenseContract.ReportInterval` and so on),
 so the two sides cannot drift.
 
-## 8. Phase 4 additions - AGREED; the Director side is built, the Gateway side is not
+## 8. Phase 4 additions - AGREED; the Director side is built, the Gateway side is built in part
 
 Written by the phase 4 Developer; agreed by the phase 2 Tech Lead on 11 October 2026 (pull request 3875), with
 the changes to 8.3 below. Phase 2 builds the Gateway side; the Director side is the second phase 4 pull request,
@@ -547,6 +547,15 @@ signed in to claude.ai as someone else), `"browser-not-signed-in"`, `"no-approve
 the account, here or on another machine), `"approver-offline"`, `"expired"` (no approval came back by `NotAfterUtc`,
 8.3), `"store-refused"`. They are the reasons `license renew --json` already writes, without the `failed-` prefix,
 plus the two only the relay can produce: `approver-offline` and `expired`.
+
+**What the Gateway has built of 8.1, and what it has not (13 October 2026).** BUILT: the three fields are stored
+from every accepted report and cleared by the next report that says the renewal worked, and the Licenses page is
+given them folded (`renewalFailedAtUtc`, `renewalFailedText`, `renewalFailedTone` on a holding, `cockpit-api.md`
+sections 2 and 6). NOT BUILT: the owner email of the next paragraph. Until it is, a failed renewal is seen ONCE, on
+the page, and not by email. Whoever builds the email: a failed renewal is said by `RenewalFailedAtUtc`, and the rule
+must key on that, not on `RenewalError` as the paragraph is worded. The Gateway keeps a reason word only when it is
+one of `LicenseRenewalErrors`; any other word is stored as `not-known` (`LicenseStore.RenewalErrorNotKnown`), and a
+failure reported with no word has none - so a rule that waited for a word it recognises would never email those.
 
 A holding with `RenewalError` set and `SignInExpiresAtUtc` within `LicenseContract.SignInExpiryWarning` (3 days)
 makes the Gateway send the owner ONE email per holding per failure streak (the same email channel as "no account
