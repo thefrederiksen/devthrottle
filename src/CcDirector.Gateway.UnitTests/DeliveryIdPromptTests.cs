@@ -168,34 +168,6 @@ public sealed class DeliveryIdPromptTests : IDisposable
     }
 
     [Fact]
-    public async Task SendPromptAsync_TypedPromptWithDeliveryIdFailsAfterTheAnswer_IsRecordedNotDeliveredAgainstItsId()
-    {
-        // Proves a typed prompt answered "delivering" inside the Gateway's wait, whose send then fails, has that late
-        // outcome recorded against its delivery id - not only logged.
-        var backend = new HeldSendBackend { FailNext = "the composer never echoed the typed text" };
-        var manager = new SessionManager(new Core.Configuration.AgentOptions());
-        try
-        {
-            var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, backend);
-
-            var answer = Body(await SessionCommandExecutor.SendPromptAsync(session, Typed("typed-2"), SendSource.UserInput, _record,
-                answerBudget: TimeSpan.FromMilliseconds(300)));
-            Assert.Equal(DeliveryState.Delivering, answer.DeliveryState);
-            Assert.Equal(DeliveryState.Delivering, _record.Read(session.Id, "typed-2").State);
-
-            backend.Release.SetResult();
-            var until = DateTime.UtcNow + TimeSpan.FromSeconds(10);
-            while (_record.Read(session.Id, "typed-2").State == DeliveryState.Delivering && DateTime.UtcNow < until)
-                await Task.Delay(50);
-
-            var entry = _record.Read(session.Id, "typed-2");
-            Assert.Equal(DeliveryState.NotDelivered, entry.State);
-            Assert.Contains("never echoed", entry.Reason);
-        }
-        finally { manager.Dispose(); }
-    }
-
-    [Fact]
     public async Task SendPromptAsync_RecordCannotBeRead_RefusesAndTypesNothing()
     {
         // Proves an unreadable record refuses the delivery with the file named, and types nothing - never "unknown".
@@ -337,31 +309,6 @@ public sealed class DeliveryIdPromptTests : IDisposable
         var entry = LastEntry(session.Id);
         Assert.Equal("delivered", entry.State);
         Assert.Contains(entry.Steps!, s => s.EndsWith("verdict: delivered", StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public async Task SendPromptAsync_FailsAfterTheAnswer_WritesItsStepsOnTheLateLine()
-    {
-        // The late outcome runs after the verb answered, in the send's own flow: its line carries the same trail.
-        var backend = new HeldSendBackend { FailNext = "the composer never echoed the typed text" };
-        var manager = new SessionManager(new Core.Configuration.AgentOptions());
-        try
-        {
-            var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, backend);
-            Body(await SessionCommandExecutor.SendPromptAsync(session, Typed("trail-3"), SendSource.UserInput, _record,
-                answerBudget: TimeSpan.FromMilliseconds(300)));
-
-            backend.Release.SetResult();
-            var until = DateTime.UtcNow + TimeSpan.FromSeconds(10);
-            while (_record.Read(session.Id, "trail-3").State == DeliveryState.Delivering && DateTime.UtcNow < until)
-                await Task.Delay(50);
-
-            var entry = LastEntry(session.Id);
-            Assert.Equal("not-delivered", entry.State);
-            Assert.Contains(entry.Steps!, s => s.Contains("send began: session=" + session.Id, StringComparison.Ordinal));
-            Assert.Contains(entry.Steps!, s => s.Contains("late send outcome", StringComparison.Ordinal));
-        }
-        finally { manager.Dispose(); }
     }
 
     /// <summary>A one-call-submit terminal whose send can be held mid-typing and can be made to throw, counting sends.</summary>

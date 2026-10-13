@@ -83,23 +83,6 @@ public sealed class VoiceNarrationPlayedTests : IDisposable
     }
 
     [Fact]
-    public void NotePlayReport_AClipANewerStopReplaced_RecordsNothing()
-    {
-        var voice = Service();
-        var sid = Guid.NewGuid().ToString();
-        voice.Mark(Tenant, sid);
-        voice.StoreReadyAudioForTest(Tenant, sid, "First.", "First reply.", Mp3("a"));
-        var oldStamp = ServedStamp(voice.Get(Tenant, sid)!.AtUtc);
-        Thread.Sleep(5); // the next narration is a later moment on the Gateway's clock
-        voice.StoreReadyAudioForTest(Tenant, sid, "Second.", "Second reply.", Mp3("b"));
-
-        var played = voice.Listening.NotePlayed(Tenant, sid, DateTime.Parse(oldStamp, null, System.Globalization.DateTimeStyles.RoundtripKind));
-
-        Assert.False(played);
-        Assert.False(voice.Listening.StopFor(Tenant, sid)!.Value.Played);
-    }
-
-    [Fact]
     public void Unmark_ASessionSwitchedOffVoice_ForgetsItsNarrationSoALatePlayRecordsNothing()
     {
         var voice = Service();

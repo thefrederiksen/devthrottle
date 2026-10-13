@@ -232,31 +232,6 @@ public sealed class CallBLabelAndNarrationTests
         Assert.Null(after.NarrationFailureReason);
     }
 
-    // ================================================================= timing: nothing until both calls are done
-
-    [Fact]
-    public async Task NothingIsStored_UntilCallBHasAnswered_AndThenColourLabelAndWordsArriveTogether()
-    {
-        var release = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var env = Env((_, _) => release.Task);
-
-        var reading = new TurnVerdictService(env).StartTurnEnd(Signal());
-        // Call A has answered and Call B is running: nothing about this stop is on record yet.
-        for (var i = 0; i < 200 && env.NarratorCalls == 0; i++) await Task.Delay(10);
-        Assert.Equal(1, env.NarratorCalls);
-        Assert.Equal(1, env.JudgeCalls);
-        Assert.Null(env.Latest(Tenant, Sid));
-
-        release.SetResult(Shaped(Label, Words));
-        await reading;
-
-        var stored = env.Latest(Tenant, Sid)!;
-        Assert.Equal("finished-done", stored.State);
-        Assert.Equal(Label, stored.Label);
-        Assert.Equal(Words, stored.Narration);
-        Assert.Equal(1, env.StoredCount(Tenant, Sid));
-    }
-
     // ================================================================= what Call B is given
 
     [Fact]

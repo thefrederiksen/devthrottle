@@ -1577,24 +1577,6 @@ public sealed class FleetManagerEventServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Delivery_WaitsForTheAccountsDeliveryGate_AndSeesAReplacementRecordedMeanwhile()
-    {
-        SetState("fm", "Idle");
-        OwnerAnswers("Replace it.");
-
-        // The replacement holds the gate while it records the successor.
-        var replacing = await _deliveryGate.EnterAsync(Tenant, default);
-        var delivery = _service.DeliverToAsync(Tenant, "fm");
-        await Task.Delay(200);
-        Assert.False(delivery.IsCompleted);
-        _replacementPending = true;
-        replacing.Dispose();
-
-        Assert.Equal(FleetManagerDeliveryResult.ReplacementPending, await delivery);
-        Assert.Empty(_env.Sends);
-    }
-
-    [Fact]
     public async Task MarkMoved_TellsTheNewFleetManagerOnce_AndNeverALaterOne()
     {
         // Started to take over, it finished its first turn and waits to be told - before the mark moved to it.

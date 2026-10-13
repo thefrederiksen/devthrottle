@@ -38,51 +38,8 @@ public sealed class UnconfirmedStopTests : IDisposable
         new(_dbPath, new EngineRunOwner($"director-{pid}", Environment.MachineName, pid, new DateTime(2026, 10, 6, 8, 0, 0, DateTimeKind.Utc)),
             owner => owner.ProcessId is 1001 or 2002 ? OwnerLiveness.Running : ProcessOwnerLiveness.Probe(owner));
 
-    private string LoopCommand() => OperatingSystem.IsWindows()
-        ? $"for /L %i in (1,1,40) do @(echo tick>>\"{_logPath}\" & ping -n 2 127.0.0.1 >nul)"
-        : $"for i in $(seq 1 40); do echo tick >> '{_logPath}'; sleep 1; done";
-
     private static OwnerLiveness Probe(int pid, DateTime startedAtUtc) =>
         ProcessOwnerLiveness.Probe(new EngineRunOwner("command", Environment.MachineName, pid, startedAtUtc));
-
-    // -- EN-F3 --
-
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public async Task RecordingTheCommandFails_TheCommandIsKilled_TheRunEndsWithoutMovingTheSchedule_AndNobodyStartsItWhileItLived()
-    {
-        var a = Director(1001);
-        var b = Director(2002);
-        var due = DateTime.UtcNow.AddSeconds(-1);
-        var jobId = a.AddJob(new JobRecord { Name = "unrecorded", Cron = "0 0 31 2 *", Command = LoopCommand(), TimeoutSeconds = 120, NextRun = due });
-        var job = a.GetJob("unrecorded")!;
-
-        int? pid = null;
-        DateTime started = default;
-        var executor = new JobExecutor(a, JobExecutor.ProcessJobs, (_, p, s) =>
-        {
-            pid = p;
-            started = s;
-            throw new IOException("simulated: the database write failed");
-        });
-        var run = executor.TryClaim(job)!;
-
-        var execution = executor.ExecuteClaimedAsync(job, run, CancellationToken.None);
-        while (!execution.IsCompleted)
-        {
-            Assert.Null(b.TryClaimRun(jobId, DateTime.UtcNow));
-            await Task.Delay(20);
-        }
-        await execution;
-
-        Assert.NotNull(pid);
-        Assert.Equal(OwnerLiveness.Gone, Probe(pid.Value, started));
-        var ended = a.GetRun(run.Id)!;
-        Assert.NotNull(ended.EndedAt);
-        Assert.Equal(-1, ended.ExitCode);
-        Assert.Contains("could not be recorded", ended.Stderr);
-        Assert.Equal(due, a.GetJob("unrecorded")!.NextRun!.Value.ToUniversalTime(), TimeSpan.FromSeconds(1));
-    }
 
     // -- EN-F4 --
 

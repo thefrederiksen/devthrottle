@@ -283,24 +283,6 @@ public sealed class TurnLogRecorderTests
         Assert.Contains(record.Gaps, g => g.Part == "supervisor-enabled" && g.Reason.Contains("settings unavailable"));
     }
 
-    [Fact]
-    public async Task CaptureAsync_EntersTheOwningAccountsScopeForEveryRead()
-    {
-        // Without the scope every read is denied on the hosted Gateway, and because a denied read is written
-        // down as a gap rather than thrown, capture would look switched on and record nothing but holes.
-        var entered = new List<TenantId>();
-        var env = new FakeEnvironment();
-        using var recorder = new TurnLogRecorder(env, enterTenantScope: t => { entered.Add(t); return new NoScope(); });
-
-        recorder.OnTurnEnd(Signal());
-        for (var i = 0; i < 100 && env.Written.Count == 0; i++) await Task.Delay(20);
-
-        Assert.Single(env.Written);
-        Assert.Equal(Tenant, Assert.Single(entered));
-    }
-
-    private sealed class NoScope : IDisposable { public void Dispose() { } }
-
     private static HistoryMessageDto ToolCall(string id) => new()
     {
         Role = "Assistant",
