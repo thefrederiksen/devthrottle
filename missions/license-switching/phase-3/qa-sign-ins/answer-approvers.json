@@ -1,5 +1,5 @@
 {
-  "asOfUtc": "2026-10-13T20:18:57.8904552Z",
+  "asOfUtc": "2026-10-13T20:43:02.3999054Z",
   "isEmpty": false,
   "emptyText": null,
   "approvers": [
@@ -8,7 +8,7 @@
       "machineName": "the-mac",
       "osUser": "owner",
       "browserProfile": "work",
-      "machineId": "50b2080f44484c138e2af20a460b6a7b",
+      "machineId": "18fa5867248b469a98d3dd767f478561",
       "label": "the-mac",
       "canApproveNow": false,
       "status": "not-connected",

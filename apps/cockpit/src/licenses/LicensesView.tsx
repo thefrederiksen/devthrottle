@@ -319,6 +319,7 @@ export function LicensesView() {
           <ScheduleTable machines={data.machines} forecast={forecast.data} />
 
           <h2 className="lic-h2">Sign-ins</h2>
+          {/* error-reported-by: usePolled */}
           <LicenseSignIns
             overview={data}
             approvers={approvers.data}

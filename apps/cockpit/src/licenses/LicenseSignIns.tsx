@@ -69,9 +69,12 @@ function ApproverEditor({
     <div className="lic-approver-editor" data-testid="lic-approver-editor">
       <label className="lic-field">
         <span>Claude account</span>
-        {/* Changing an approver keeps its account: another account is another approver. */}
+        {/* Changing an approver keeps its account: another account is another approver. A plain text field with the
+            email keyboard: what is typed is what this code sees, and whether it is an account is the Gateway's to say. */}
         <input
-          type="email"
+          type="text"
+          inputMode="email"
+          autoComplete="off"
           className="lic-input"
           list={`${lists}-accounts`}
           value={accountEmail}
@@ -301,7 +304,14 @@ export function AddSpareChoice({
       {/* Which account is the person's own choice: any email may be typed, and the Gateway refuses one it will not take. */}
       <label className="lic-field">
         <span>Claude account to sign in to</span>
-        <input type="email" className="lic-input" value={accountEmail} onChange={(event) => onType(event.target.value)} />
+        <input
+          type="text"
+          inputMode="email"
+          autoComplete="off"
+          className="lic-input"
+          value={accountEmail}
+          onChange={(event) => onType(event.target.value)}
+        />
       </label>
     </div>
   );
