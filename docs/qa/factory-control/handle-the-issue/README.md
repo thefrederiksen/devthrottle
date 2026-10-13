@@ -8,6 +8,20 @@ Taken on 11 October 2026 from a local Gateway built from this branch, by `rig/sh
 
     python docs/qa/factory-control/handle-the-issue/rig/shoot.py docs/qa/factory-control/handle-the-issue
 
+## Wording since the run-results work merged (12 October 2026)
+
+The screenshots were taken on 11 October, before the problems list carried its own words. The page now shows
+the list's `sentence`, `whenText` and `openForText` as they are, so three texts on a problem read differently
+from the screenshots:
+
+| In the screenshots | On the page now |
+|---|---|
+| did not report - its session ended without reporting how the run went | Did not report: its session ended without reporting how the run went. |
+| Started today 09:01 / Due today 09:00, never started | Started Sun 11 Oct 09:01 / Due Sun 11 Oct 09:00 |
+| open 2h 30m | open 2 hours |
+
+Nothing else on the page changed. The screenshots were not taken again.
+
 ## What each screenshot shows
 
 | File | What it proves |
