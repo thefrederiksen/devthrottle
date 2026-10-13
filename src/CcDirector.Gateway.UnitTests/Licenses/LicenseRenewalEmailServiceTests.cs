@@ -217,6 +217,22 @@ public sealed class LicenseRenewalEmailServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task AMachineThatHasGoneQuiet_IsStillEmailedAbout_WhenItsFailingSignInComesWithinTheWarningTime()
+    {
+        // Five days of sign-in left when the machine last reported, and its renewal was failing then.
+        Reports(One, Mac, Failing(A, TimeSpan.FromDays(5)));
+        Assert.Equal(0, await Tick());
+
+        // Three days on with no report at all: the last thing the machine said still stands, and two days are left.
+        _now = T0.AddDays(3);
+        Assert.Equal(1, await Tick());
+
+        Assert.Equal("DevThrottle: the sign-in for account-a@example.com on the-mac expires in 2 days and could not be renewed",
+            Assert.Single(_sent).Email.Subject);
+        Assert.Equal(LicenseGatewayReasonCodes.OwnerEmailed, TheRow().ReasonCode);
+    }
+
+    [Fact]
     public async Task AFailedRenewal_OfASignInWhoseEndTheMachineDidNotSay_EmailsNobody()
     {
         Reports(One, Mac, Failing(A, endsIn: null));
