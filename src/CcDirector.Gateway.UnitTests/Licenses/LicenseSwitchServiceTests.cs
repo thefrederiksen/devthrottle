@@ -519,6 +519,24 @@ public sealed class LicenseSwitchServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task OpenRow_WithNoKnownOutcome_ItsMachineTakesNoPartInChoosingTheTarget_AndTheOthersStillSwitch()
+    {
+        // Two machines on A with no spare in common: the Windows machine holds B, the Mac holds C.
+        Reports(Tenant, Windows, "dir-win", (A, true, 97, 20), (B, false, 10, 30));
+        var mac = Reports(Tenant, Mac, "dir-mac", (A, true, 97, 20), (C, false, 10, 30));
+        // The Mac has a switch whose outcome is not known (left by a restart; it has not reported since).
+        Assert.NotNull(_store.CreatePendingSwitch(Tenant, mac, A, C, LicenseSwitchReasons.Threshold, _now));
+
+        await Tick();
+
+        // The Mac's holdings do not veto B: the Windows machine is switched, and nobody is told there is no room.
+        var sent = Assert.Single(_directors.Sent);
+        Assert.Equal(("dir-win", B), (sent.DirectorId, sent.Request.TargetAccountEmail));
+        Assert.Empty(_mail.Attempts);
+        Assert.Empty(Rows(LicenseLogKinds.NoRoom));
+    }
+
+    [Fact]
     public async Task OpenRow_OnOneMachine_DoesNotHoldBackTheOtherMachinesOnTheAccount()
     {
         OnA(Windows, "dir-win", 97);
