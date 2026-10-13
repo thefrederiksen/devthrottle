@@ -295,22 +295,45 @@ public sealed class TeamBillOnTheRequestPathTests : IDisposable
         Assert.Null(_teamEntitlement.DecideOrUnknown(new TenantId(_paidTeam), Alice, DateTime.UtcNow));
     }
 
-    // ---- the narration plan -----------------------------------------------------------------------------------------
+    // ---- the AI gate (Pricing Change mission, B1): the Wingman, dictation and speech for a person in a team ----------
+
+    private TenantAiGate AiGate(Func<TenantId, string, string?>? personOfSession = null) =>
+        new(_entitlements, _tenants, _teamEntitlement, personOfSession: personOfSession);
+
+    [Theory]
+    [InlineData(EntitlementScopes.Dictation)]
+    [InlineData(EntitlementScopes.Tts)]
+    [InlineData(EntitlementScopes.Wingman)]
+    public void TenantAiGate_ATeamSeat_IsTheSeatsAnswerInThatTeam(string scope)
+    {
+        // A paid seat on a team whose bill grants is allowed every AI scope (the team tier is Pro's scopes). The same
+        // person on a team with no bill, and a Collaborator on the paid team, are refused: both sit on the free tier
+        // there. A stranger, and a session that is nobody's, have no seat to read - Unknown, never a claim about a plan.
+        var gate = AiGate();
+        Assert.Equal(TenantAiVerdict.Allowed, gate.ForPerson(new TenantId(_paidTeam), Alice, scope).Verdict);
+        Assert.Equal(TenantAiVerdict.Refused, gate.ForPerson(new TenantId(_unpaidTeam), Alice, scope).Verdict);
+        Assert.Equal(TenantAiVerdict.Refused, gate.ForPerson(new TenantId(_paidTeam), Carol, scope).Verdict);
+        Assert.Equal(TenantAiVerdict.Unknown, gate.ForPerson(new TenantId(_paidTeam), Stranger, scope).Verdict);
+        Assert.Equal(TenantAiVerdict.Unknown, gate.ForPerson(new TenantId(_paidTeam), null, scope).Verdict);
+    }
 
     [Fact]
-    public void DecideForTeamSession_IsTheOwnersAnswerInThatTeam_AndNobodysSessionIsUnknown()
+    public void TenantAiGate_ForSession_InATeam_IsTheSessionOwnersSeat()
     {
-        var now = DateTime.UtcNow;
-        Assert.Equal(NarrationPlan.Allowed,
-            NarrationPlanRule.DecideForTeamSession(Alice, _teamEntitlement.Decide(new TenantId(_paidTeam), Alice, now)));
-        Assert.Equal(NarrationPlan.NeedsPro,
-            NarrationPlanRule.DecideForTeamSession(Alice, _teamEntitlement.Decide(new TenantId(_unpaidTeam), Alice, now)));
-        Assert.Equal(NarrationPlan.NeedsPro,
-            NarrationPlanRule.DecideForTeamSession(Carol, _teamEntitlement.Decide(new TenantId(_paidTeam), Carol, now)));
-        Assert.Equal(NarrationPlan.Unknown,
-            NarrationPlanRule.DecideForTeamSession(Stranger, _teamEntitlement.Decide(new TenantId(_paidTeam), Stranger, now)));
-        Assert.Equal(NarrationPlan.Unknown, NarrationPlanRule.DecideForTeamSession(null, null));
-        Assert.Equal(NarrationPlan.Unknown, NarrationPlanRule.DecideForTeamSession(Alice, null));
+        // The Wingman's narration and judgement of a team session are charged to whoever's session it is.
+        var gate = AiGate(personOfSession: (_, sid) => sid == "alices" ? Alice : sid == "carols" ? Carol : null);
+        Assert.Equal(TenantAiVerdict.Allowed, gate.ForSession(new TenantId(_paidTeam), "alices", EntitlementScopes.Wingman).Verdict);
+        Assert.Equal(TenantAiVerdict.Refused, gate.ForSession(new TenantId(_paidTeam), "carols", EntitlementScopes.Wingman).Verdict);
+        Assert.Equal(TenantAiVerdict.Unknown, gate.ForSession(new TenantId(_paidTeam), "nobodys", EntitlementScopes.Wingman).Verdict);
+    }
+
+    [Fact]
+    public void TenantAiGate_ForTenant_InATeam_IsTheTeamsBill()
+    {
+        // A call that names no person (a model factory told only the tenant) is judged on the team's bill.
+        var gate = AiGate();
+        Assert.Equal(TenantAiVerdict.Allowed, gate.ForTenant(new TenantId(_paidTeam), EntitlementScopes.Wingman).Verdict);
+        Assert.Equal(TenantAiVerdict.Refused, gate.ForTenant(new TenantId(_unpaidTeam), EntitlementScopes.Wingman).Verdict);
     }
 
     // ---- the start-up key reinstatement -----------------------------------------------------------------------------

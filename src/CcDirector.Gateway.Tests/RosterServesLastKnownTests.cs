@@ -407,7 +407,7 @@ public sealed class RosterServesLastKnownTests
                 pushedSessions: store,
                 streamStaleAfter: StaleAfter,
                 snoozeRegistry: snoozeRegistry,
-                concurrency: () => concurrency, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown);
+                concurrency: () => concurrency, aiGate: CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown);
 
             await app.StartAsync();
             var port = BoundPort.Of(app);

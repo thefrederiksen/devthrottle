@@ -123,7 +123,7 @@ public sealed class DirectorSpawnMissionAndSeatTests : IDisposable
         var boundary = new HostedTenantBoundary(new SingleTenantContext(), new Pairing.DeviceRegistry(), hosted: false);
 
         GatewayEndpoints.Map(app, false, _registry, version: "test", token: "test-token",
-            tenantBoundary: boundary, sendCommand: send, missions: missions, workflowRuns: runs, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown);
+            tenantBoundary: boundary, sendCommand: send, missions: missions, workflowRuns: runs, aiGate: CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown);
         MachineEndpoints.Map(app, false, new LauncherRegistry(), spawner, boundary: boundary,
             missions: missions, workflowRuns: runs, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown);
 

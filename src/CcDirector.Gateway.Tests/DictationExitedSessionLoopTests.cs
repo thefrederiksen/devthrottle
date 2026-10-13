@@ -67,7 +67,7 @@ public sealed class DictationExitedSessionLoopTests : IAsyncLifetime
                 modeProvider: () => TranscriptionMode.DevThrottle,
                 http: new HttpClient(_handler, disposeHandler: false),
                 history: new TranscriptionHistoryLog(Path.Combine(_storageRoot, "history")),
-                audioArchive: new TranscriptionAudioArchive(false, Path.Combine(_storageRoot, "archive"))));
+                audioArchive: new TranscriptionAudioArchive(false, Path.Combine(_storageRoot, "archive")), aiGate: CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost));
         await _gateway.StartAsync();
         _http = NewClient(_gateway.Port);
     }

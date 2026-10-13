@@ -184,6 +184,8 @@ public static class WingmanStopsFold
         ActivityCauses.ReattemptNeverJudges => "A narration retry found no verdict to reuse, and a retry never asks the judge",
         ActivityCauses.RateLimited => "The judge was rate limited",
         ActivityCauses.InFlightCap => "This account already had as many judgements running as it allows",
+        ActivityCauses.NotOnPlan => "The Wingman is not on this account's plan",
+        ActivityCauses.PlanUnknown => "This account's plan could not be read just then",
         ActivityCauses.AlreadyJudging => "A judgement for this session was already running",
         ActivityCauses.Shutdown => "The Gateway was shutting down",
         ActivityCauses.Unknown => "No cause could be decided",

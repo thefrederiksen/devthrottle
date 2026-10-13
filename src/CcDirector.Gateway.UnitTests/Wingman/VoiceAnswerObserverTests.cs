@@ -48,7 +48,7 @@ public sealed class VoiceAnswerObserverTests : IDisposable
         Func<TenantId, Core.Configuration.WingmanModelRole, string, CancellationToken, Task<IAgentBrain>> brain =
             (_, _, _, _) => Task.FromResult<IAgentBrain>(null!);
         var settings = new TenantSettingsResolver(new TenantSettingsStore(_settingsData.Open()));
-        return new WingmanVoiceService(brain, new KeyVault(Path.Combine(_dir, "vault.json")), settings, false, Path.Combine(_dir, "voice-sessions.json"));
+        return new WingmanVoiceService(brain, new KeyVault(Path.Combine(_dir, "vault.json")), settings, false, CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost, Path.Combine(_dir, "voice-sessions.json"));
     }
 
     /// <summary>The completed-turn count the session stands at while it sits at the stop under test.</summary>

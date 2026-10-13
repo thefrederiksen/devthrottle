@@ -99,6 +99,10 @@ internal static partial class GatewayEndpoints
         // its factory for life and no test went red. A harness that genuinely cannot read membership says so
         // with an explicit reader, `_ => SessionFactoryLookup.NotKnown`.
         Func<string, History.SessionFactoryLookup> sessionFactoryOf,
+        // Whether a tenant's plan includes dictation, for the phone Notes transcriber and the dictionary scan
+        // (Pricing Change mission, B1). REQUIRED for the same reason as the two above: the hosted Gateway passes its
+        // gate, a self-hosted one or a harness passes Tenancy.TenantAiGate.SelfHost.
+        Tenancy.TenantAiGate aiGate,
         bool authEnabled = false, Func<bool>? requestShutdown = null,
         Action<string, string, string>? onSessionState = null,
         Func<TenantId, string, bool>? voiceGeneratingFor = null,
@@ -719,7 +723,7 @@ internal static partial class GatewayEndpoints
         var logoutVisibility = authEnabled ? "" : "style=\"display:none\"";
 
         // Phone recorder ingest (offline-recorded audio -> transcription -> vault).
-        RecordingEndpoints.Map(app, hosted, tenantBoundary, recordingKeyVault, transcriptionHistory, transcriptionAudioArchive,
+        RecordingEndpoints.Map(app, hosted, tenantBoundary, aiGate, recordingKeyVault, transcriptionHistory, transcriptionAudioArchive,
             dictionarySuggestions, dictionaryDismissals, suggestionEmailComposer);
 
         // Read-only view of the Communication Manager approval queue (see the phone's
@@ -3309,7 +3313,7 @@ internal static partial class GatewayEndpoints
         // AnswerTurnVerdictAsync, which holds the handler so each of those exits is testable without a booted host.
         app.MapPost("/sessions/{sid}/turn-verdict/answer", (HttpContext ctx, string sid)
             => AnswerTurnVerdictAsync(ctx, sid, tenantBoundary, turnVerdictAnswers, tenantSettings, registry,
-                pushedSessions, streamStaleResolved, owners, sendCommand, wingmanTranslator, turnVerdictLedger));
+                pushedSessions, streamStaleResolved, owners, sendCommand, wingmanTranslator, aiGate, turnVerdictLedger));
 
         // REPORT A JUDGED STOP WRONG (the Wingman-on-every-turn mission, slice G). The owner says which word he
         // thinks was right; it is stored against the verdict and reaches the labelled corpus as an OWNER LABEL,
@@ -4272,7 +4276,23 @@ internal static partial class GatewayEndpoints
                         statusCode: StatusCodes.Status403Forbidden);
                 }
                 var guardRoute = new SessionVerbClient(director, sendCommand);
-                if (await Wingman.WaitingScreenReader.ConfirmedMenuAsync(guardRoute, sid, guardTenant.Value, wingmanTranslator, CancellationToken.None))
+                // THE GUARD'S MODEL CALL IS ON THE PLAN (Pricing Change mission, B1, review finding 1). The screen
+                // read and the pure classifier are free, so a member whose screen is plainly not a menu sends the
+                // prompt on any plan. Only a menu-shaped screen asks the model, and only then is the plan asked:
+                // a plan without the Wingman answers the same 402 every other Wingman route answers, and a plan
+                // that could not be read answers 503 - never the claim that a menu owns the screen. Nothing is
+                // typed either way, so a real menu is still never pressed blind.
+                var guarded = await Wingman.WaitingScreenReader.ConfirmedMenuOnThePlanAsync(guardRoute, sid, guardTenant.Value,
+                    wingmanTranslator, () => aiGate.ForRequest(httpCtx, guardTenant.Value, Tenancy.EntitlementScopes.Wingman),
+                    CancellationToken.None);
+                if (guarded.PlanRefusal is { } guardRefused)
+                {
+                    FileLog.Write($"[GatewayEndpoints] POST prompt: sid={sid} menu guard REFUSED by the plan: verdict={guardRefused.Verdict} - no model call, nothing typed, no Enter pressed");
+                    RecordClaimStoppedBeforeDirector(ClaimStopPlan);
+                    SettleTypedClaimNotPressed("the plan did not allow the menu guard's check, so nothing was pressed");
+                    return HostedAi.HostedAiHttp.TenantAiRefusal(guardRefused);
+                }
+                if (guarded.IsMenu)
                 {
                     // The refusal is SPOKEN - a voice reply asked for this guard - so it is said in the
                     // account's language (issue #1009). The resolver is required rather than defaulted: a
@@ -6753,8 +6773,10 @@ internal static partial class GatewayEndpoints
         SessionOwnerCache? owners,
         DirectorCommandRouter.SendDirectorCommandAsync? sendCommand,
         Wingman.WingmanTranslator? wingmanTranslator,
+        Tenancy.TenantAiGate aiGate,
         Action<Wingman.TurnVerdictRecord>? turnVerdictLedger = null)
     {
+        ArgumentNullException.ThrowIfNull(aiGate);
         FileLog.Write($"[GatewayEndpoints] POST turn-verdict/answer: sid={sid}");
         var tenant = ResolveReadTenant(ctx, tenantBoundary);
         if (tenant is null)
@@ -6842,7 +6864,8 @@ internal static partial class GatewayEndpoints
             var surface = (ctx.Items.TryGetValue(AuthMiddleware.DeviceTypeItemKey, out var dt) ? dt as string : null) ?? "unknown";
             var identityKind = AuthMiddleware.IdentityKind(ctx);
             var channel = new TunnelTurnVerdictAnswerChannel(new SessionVerbClient(director, sendCommand), sid, tenant.Value,
-                wingmanTranslator, (text, appendEnter) => new PromptRequest
+                wingmanTranslator, () => aiGate.ForRequest(ctx, tenant.Value, Tenancy.EntitlementScopes.Wingman),
+                (text, appendEnter) => new PromptRequest
                 {
                     Text = text,
                     AppendEnter = appendEnter,
@@ -6863,6 +6886,19 @@ internal static partial class GatewayEndpoints
             serviceAsked = true;
             var outcome = await turnVerdictAnswers.AnswerAsync(tenant.Value, directorId, sid, req, channel, CancellationToken.None);
             return Answer(outcome, verdictId);
+        }
+        catch (Tenancy.TenantAiRefusedException ex)
+        {
+            // THE MENU CHECK'S MODEL CALL WAS NOT ON THE PLAN (Pricing Change mission, B1, review finding 1). It is
+            // thrown by the channel's menu check, which runs before the write, so nothing was sent - a refusal, with
+            // its ledger line, answered as every other Wingman route answers the plan: 402 subscription_required, or
+            // 503 with Retry-After when the plan could not be read. Never "a menu owns the screen".
+            var planCause = ex.Decision.Verdict == Tenancy.TenantAiVerdict.Refused ? ActivityCauses.NotOnPlan : ActivityCauses.PlanUnknown;
+            FileLog.Write($"[GatewayEndpoints] POST turn-verdict/answer: sid={sid} verdict={verdictId} REFUSED by the plan ({planCause}) - no model call, nothing sent");
+            turnVerdictAnswers.RefuseBeforeLookup(tenant.Value, directorId, sid, verdictId,
+                ex.Decision.Verdict == Tenancy.TenantAiVerdict.Refused ? HostedAi.HostedAiHttp.PaymentRequired : StatusCodes.Status503ServiceUnavailable,
+                planCause, "The plan did not allow the menu check, so nothing was sent.");
+            return HostedAi.HostedAiHttp.TenantAiRefusal(ex.Decision);
         }
         catch (Exception ex)
         {
@@ -7308,6 +7344,9 @@ internal static partial class GatewayEndpoints
     internal const string ClaimStopMenu = "menu";
     /// <summary>Where a verified "Send anyway" prompt stopped before the Director: the menu guard could resolve no tenant.</summary>
     internal const string ClaimStopNoTenant = "no-tenant";
+    /// <summary>Where a verified "Send anyway" prompt stopped before the Director: the screen was menu-shaped and the
+    /// plan did not allow (or could not be read for) the menu guard's model check.</summary>
+    internal const string ClaimStopPlan = "plan";
 
     private static IResult SessionUnavailable(
         HttpContext ctx,

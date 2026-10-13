@@ -51,6 +51,10 @@ public static class MentorOutcomes
     /// <summary>The person's role may not read their own Mentor page (a Collaborator), so no block is written about
     /// them: the person always reads the same words their Manager does. No model call.</summary>
     public const string MayNotRead = "may-not-read";
+
+    /// <summary>The person's seat in the team does not include the Wingman - the team's bill grants no paid features
+    /// (Pricing Change mission, B1) - so no block is written about them. No model call.</summary>
+    public const string NotOnPlan = "not-on-plan";
 }
 
 /// <summary>One stored outcome row.</summary>
@@ -132,7 +136,7 @@ public sealed class TeamMentorStore
         ArgumentException.ThrowIfNullOrWhiteSpace(personSubject);
         if (outcome == MentorOutcomes.Written)
             throw new ArgumentException("A written block is recorded with SaveBlock, which stores the block and its outcome together.", nameof(outcome));
-        if (outcome is not (MentorOutcomes.NoSessions or MentorOutcomes.NoPrompts or MentorOutcomes.Refused or MentorOutcomes.ModelFailed or MentorOutcomes.MayNotRead))
+        if (outcome is not (MentorOutcomes.NoSessions or MentorOutcomes.NoPrompts or MentorOutcomes.Refused or MentorOutcomes.ModelFailed or MentorOutcomes.MayNotRead or MentorOutcomes.NotOnPlan))
             throw new ArgumentOutOfRangeException(nameof(outcome), outcome, "Not a Mentor outcome.");
 
         lock (_gate)

@@ -369,6 +369,14 @@ public static class ActivityCauses
     /// <summary>This account already has as many judgements in flight as its ceiling allows.</summary>
     public const string InFlightCap = "in-flight-cap";
 
+    /// <summary>The session owner's plan does not include the Wingman (Pricing Change mission, B1), so the stop is not
+    /// read or judged.</summary>
+    public const string NotOnPlan = "not-on-plan";
+
+    /// <summary>The session owner's plan could not be read, so the stop was not judged and nothing was said about the
+    /// plan. The next stop asks again.</summary>
+    public const string PlanUnknown = "plan-unknown";
+
     /// <summary>A judgement for this same session is already in flight, so a second stop joins it and asks the judge
     /// nothing of its own.</summary>
     public const string AlreadyJudging = "already-judging";
@@ -497,7 +505,7 @@ public static class ActivityCauses
         TransientTransport, RateLimited, ContextFull, NonRecoverable, UnclassifiedFault,
         MenuOwnsScreen, RetryCeiling,
         JudgeAnswered, ScreenUnchanged, SameStop, WorkUnderItAgain, JudgeDidNotAnswer, JudgeRefused, JudgeUnavailable,
-        Held, BrandNew, JudgeSwitchOff, InFlightCap, AlreadyJudging, ReattemptNeverJudges, Shutdown, CarryingOnExpired,
+        Held, BrandNew, JudgeSwitchOff, InFlightCap, NotOnPlan, PlanUnknown, AlreadyJudging, ReattemptNeverJudges, Shutdown, CarryingOnExpired,
         CarryingOnAgain,
         SnoozeNothingNew, SnoozeVerdictRules, SnoozeReJudgeRequested, SnoozeReadInFlight,
         OwnerAnswered, AnswerMalformed, AnswerSessionNotFound, AnswerShadowRecord, AnswerVerdictNotFound, AnswerVerdictFailed,

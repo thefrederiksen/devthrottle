@@ -66,6 +66,9 @@ public sealed class WingmanVoiceService
     /// removed by the sweep. Long enough that no write still in progress can be caught.</summary>
     public static readonly TimeSpan PartialClipFileAge = TimeSpan.FromHours(1);
 
+    // Whether a session's owner has text to speech on their plan (Pricing Change mission, B1).
+    private readonly Tenancy.TenantAiGate _aiGate;
+
     /// <summary>The outcome of one text-to-speech synthesis (issue #939): the audio bytes on success,
     /// or the shared <see cref="HostedAiState"/> when hosted AI is unavailable (out of credits, cap
     /// reached, or account setup is incomplete) so the caller can surface it instead of a silent
@@ -445,11 +448,14 @@ public sealed class WingmanVoiceService
     /// spoken, which is the correct degrade - a narration with no title is worth far more than none.</param>
     /// <param name="hosted">The owning host's deployment signal (<see cref="GatewayHost.Hosted"/>), which decides what
     /// happens to pre-partition voice state. REQUIRED - see <see cref="GatewayHostOptions"/>.</param>
+    /// <param name="aiGate">Whether a session's owner has text to speech on their plan (Pricing Change mission, B1).
+    /// REQUIRED: the hosted Gateway passes its gate, a self-hosted one <see cref="Tenancy.TenantAiGate.SelfHost"/>.</param>
     public WingmanVoiceService(
         Func<TenantId, Core.Configuration.WingmanModelRole, string, CancellationToken, Task<IAgentBrain>> brainProvider,
         KeyVault vault,
         TenantSettingsResolver tenantSettings,
         bool hosted,
+        Tenancy.TenantAiGate aiGate,
         string? persistPath = null,
         Func<string>? instructionsProvider = null,
         HttpClient? ttsHttpClient = null,
@@ -459,6 +465,7 @@ public sealed class WingmanVoiceService
         TurnVerdictService? turnVerdicts = null)
     {
         _hosted = hosted;
+        _aiGate = aiGate ?? throw new ArgumentNullException(nameof(aiGate));
         _verdicts = turnVerdicts;
         _conversationReader = conversationReader;
         _directorCannotSendConversation = directorCannotSendConversation;
@@ -2268,6 +2275,16 @@ public sealed class WingmanVoiceService
         var key = _vault.Get(tts.KeyName);
         if (string.IsNullOrWhiteSpace(key))
             return new TtsResult(null, null, HostedAiState.NeedsKey);
+
+        // THE PLAN, BEFORE THE PROVIDER IS PAID (Pricing Change mission, B1): the session owner's plan must include
+        // text to speech. A plan without it is the account's own condition - recorded as the same
+        // subscription-required state the proxy's 402 maps to, put on the screen, and not retried. A plan that could
+        // not be read is a call that did not happen: nothing is said about the plan, and it goes on the retry schedule.
+        var plan = _aiGate.ForSession(tenant, sid, Tenancy.EntitlementScopes.Tts);
+        if (plan.Verdict == Tenancy.TenantAiVerdict.Refused)
+            return new TtsResult(null, null, HostedAiState.SubscriptionRequired);
+        if (plan.Verdict == Tenancy.TenantAiVerdict.Unknown)
+            return new TtsResult(null, null, null, Failure: SpeechFailure.DidNotAnswer);
 
         // The runaway guard, and it announces itself when it fires (issue #1612). This used to be a
         // bare `text[..4000]`: a silent mid-word cut enforcing OpenAI's 4096 limit on a provider that

@@ -607,6 +607,8 @@ public sealed class FleetManagerEventService : IDisposable
     {
         ActivityCauses.JudgeSwitchOff => "this account's Wingman judge switch is off",
         ActivityCauses.InFlightCap => "this account's limit on readings at once was reached",
+        ActivityCauses.NotOnPlan => "the Wingman is not on this account's plan",
+        ActivityCauses.PlanUnknown => "this account's plan could not be read just then",
         ActivityCauses.RateLimited => "the Wingman's model provider asked it to wait",
         ActivityCauses.BrandNew => "the session is brand new and has not finished a turn yet",
         ActivityCauses.SessionNotLive => "the Wingman could not see the session: its Director's report was not current",

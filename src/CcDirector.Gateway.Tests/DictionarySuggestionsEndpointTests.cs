@@ -118,7 +118,7 @@ public sealed class DictionarySuggestionsEndpointTests : IDisposable
             tenantBoundary: new CcDirector.Gateway.Tenancy.HostedTenantBoundary(
                 new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: false),
             keyVault: null, history: null, audioArchive: null,
-            suggestions: suggestions, dismissals: dismissals);
+            suggestions: suggestions, dismissals: dismissals, aiGate: CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost);
         await app.StartAsync();
         var baseUrl = $"http://127.0.0.1:{BoundPort.Of(app)}";
 

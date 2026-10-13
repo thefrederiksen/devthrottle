@@ -4,6 +4,7 @@ using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.History;
 using CcDirector.Gateway.Prompts;
+using CcDirector.Gateway.Tenancy;
 
 namespace CcDirector.Gateway.Teams.Mentor;
 
@@ -48,11 +49,16 @@ public sealed class TeamMentorWriter
     private readonly GatewayPromptLog _prompts;
     private readonly MentorBrainFactory _brains;
     private readonly TeamAccess _access;
+    private readonly TenantAiGate _aiGate;
     private readonly Func<DateTime> _now;
 
+    /// <param name="aiGate">Whether each member's seat includes the Wingman (Pricing Change mission, B1). The Mentor's
+    /// call is a Wingman model call, asked once per member, so a member whose seat does not include it is skipped and
+    /// recorded, and no model is asked about them.</param>
     public TeamMentorWriter(TeamRegistry teams, TeamMentorStore store, SessionHistoryStore sessions, GatewayPromptLog prompts,
-        MentorBrainFactory brains, Func<DateTime>? now = null)
+        MentorBrainFactory brains, TenantAiGate aiGate, Func<DateTime>? now = null)
     {
+        _aiGate = aiGate ?? throw new ArgumentNullException(nameof(aiGate));
         _teams = teams ?? throw new ArgumentNullException(nameof(teams));
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _sessions = sessions ?? throw new ArgumentNullException(nameof(sessions));
@@ -139,6 +145,23 @@ public sealed class TeamMentorWriter
         if (!ranSessions.Contains(subject))
         {
             _store.RecordOutcome(team, week, subject, MentorOutcomes.NoSessions, null, _now());
+            return PersonResult.NoBlock;
+        }
+
+        // THE PLAN (Pricing Change mission, B1): the person's seat in the team must include the Wingman. A seat without
+        // it is skipped and recorded for good, with no model call. A seat that could not be read is unfinished - nothing
+        // is recorded, and a later tick asks again - unless the following week has closed, when it is recorded as not
+        // on the plan, because no model call can be made for it any more.
+        var plan = _aiGate.ForPerson(team, subject, EntitlementScopes.Wingman);
+        if (!plan.IsAllowed)
+        {
+            if (plan.Verdict == TenantAiVerdict.Unknown && !final)
+            {
+                FileLog.Write($"[TeamMentorWriter] team {team.ToLogString()} week={week}: a member's plan could not be read - nothing recorded, a later tick tries again");
+                return PersonResult.Unfinished;
+            }
+            FileLog.Write($"[TeamMentorWriter] team {team.ToLogString()} week={week}: SKIPPED a member - the Wingman is not on their seat ({plan.Verdict}); no model call");
+            _store.RecordOutcome(team, week, subject, MentorOutcomes.NotOnPlan, plan.Reason, _now());
             return PersonResult.NoBlock;
         }
 

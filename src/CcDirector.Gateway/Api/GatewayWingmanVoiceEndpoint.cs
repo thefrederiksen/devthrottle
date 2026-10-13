@@ -164,6 +164,10 @@ internal static class GatewayWingmanVoiceEndpoint
         // in a defaulted position: a forgotten boundary must be a compile error, never a silent default.
         // Self-host callers construct it over the SingleTenantContext.
         Tenancy.HostedTenantBoundary tenantBoundary,
+        // Whether the caller's plan includes the feature a route is about to pay for (Pricing Change mission, B1).
+        // REQUIRED for the same reason as the boundary: the hosted Gateway passes its gate, a self-hosted one passes
+        // Tenancy.TenantAiGate.SelfHost.
+        Tenancy.TenantAiGate aiGate,
         // One session's stored conversation as the widget list the wingman reads (turn-push mission, phase 3).
         // Null answers "nothing stored yet", which is a wait rather than a failure. The caller enters the
         // tenant's scope and hands over the finished list.
@@ -229,7 +233,18 @@ internal static class GatewayWingmanVoiceEndpoint
         // it, so they resolve the mode + key and pick the hosted endpoint exactly the same way every
         // other batch caller does - no second resolver.
         var transcription = transcriptionService ?? new Transcription.GatewayTranscriptionService(vault,
-            audioArchive ?? new Transcription.TranscriptionAudioArchive(hosted), history: history, transcripts: transcripts);
+            audioArchive ?? new Transcription.TranscriptionAudioArchive(hosted), aiGate, history: history, transcripts: transcripts);
+
+        // THE PLAN, ASKED BEFORE A ROUTE PAYS FOR A MODEL (Pricing Change mission, B1). Null when the caller's plan
+        // includes the scope; otherwise the answer to send - 402 subscription_required, or 503 when the plan could
+        // not be read. Asked of the person the request's credential names, so in a team it is that person's seat.
+        IResult? PlanRefusal(HttpContext ctx, TenantId tenant, string scope, string route)
+        {
+            var plan = aiGate.ForRequest(ctx, tenant, scope);
+            if (plan.IsAllowed) return null;
+            FileLog.Write($"[GatewayWingmanVoice] {route} REFUSED by the plan: scope={scope} verdict={plan.Verdict} - no model call");
+            return HostedAiHttp.TenantAiRefusal(plan);
+        }
 
         // Which voice sessions have a ready, playable spoken summary right now (the phone's list
         // shows a play button on these and can play without entering).
@@ -514,6 +529,8 @@ internal static class GatewayWingmanVoiceEndpoint
                 return Results.Json(new { error = "no tenant is bound to this request" }, statusCode: StatusCodes.Status403Forbidden);
             if (req is null || string.IsNullOrWhiteSpace(req.Text))
                 return Results.Json(new { error = "text is required" }, statusCode: StatusCodes.Status400BadRequest);
+            if (PlanRefusal(ctx, reqTenant.Value, Tenancy.EntitlementScopes.Tts, "tts") is { } ttsRefused)
+                return ttsRefused;
 
             var mode = TranscriptionModeConfig.Get();
             var tts = TranscriptionEndpointResolver.ResolveTts(mode);
@@ -662,6 +679,8 @@ internal static class GatewayWingmanVoiceEndpoint
                 return Results.Json(new { error = "invalid session id format" }, statusCode: StatusCodes.Status400BadRequest);
             if (req is null || string.IsNullOrWhiteSpace(req.Text))
                 return Results.Json(new { error = "text is required" }, statusCode: StatusCodes.Status400BadRequest);
+            if (PlanRefusal(ctx, reqTenant.Value, Tenancy.EntitlementScopes.Wingman, "voice-turn") is { } turnRefused)
+                return turnRefused;
 
             var route = await ResolveRouteAsync(reqTenant.Value, sid);
             if (route is null)
@@ -845,6 +864,8 @@ internal static class GatewayWingmanVoiceEndpoint
             // produced it is currently reachable - refusing here would have kept the old dependency alive in
             // the one place a person presses a button to escape it (found in review). The route is resolved
             // only so a session this Gateway has never heard of is still an honest 404.
+            if (PlanRefusal(ctx, reqTenant.Value, Tenancy.EntitlementScopes.Wingman, "explain") is { } explainRefused)
+                return explainRefused;
             var route = await ResolveRouteAsync(reqTenant.Value, sid);
 
             // PRESSING PLAY DOES NOT ENROL THE SESSION IN VOICE MODE (ruling 11 of the Wingman-on-every-turn plan).
@@ -893,6 +914,8 @@ internal static class GatewayWingmanVoiceEndpoint
             if (!Guid.TryParse(sid, out _))
                 return Results.Json(new { error = "invalid session id format" }, statusCode: StatusCodes.Status400BadRequest);
 
+            if (PlanRefusal(ctx, reqTenant.Value, Tenancy.EntitlementScopes.Wingman, "ask-again") is { } askAgainRefused)
+                return askAgainRefused;
             var route = await ResolveRouteAsync(reqTenant.Value, sid);
             if (route is null && conversationReader?.Invoke(reqTenant.Value, sid) is null)
                 return Results.Json(new { error = "session not found on any director" }, statusCode: StatusCodes.Status404NotFound);
@@ -920,6 +943,8 @@ internal static class GatewayWingmanVoiceEndpoint
                 return Results.Json(new { error = "no tenant is bound to this request" }, statusCode: StatusCodes.Status403Forbidden);
             if (req is null || string.IsNullOrWhiteSpace(req.Text))
                 return Results.Json(new { error = "text is required" }, statusCode: StatusCodes.Status400BadRequest);
+            if (PlanRefusal(ctx, reqTenant.Value, Tenancy.EntitlementScopes.Wingman, "ask-direct") is { } askRefused)
+                return askRefused;
             try
             {
                 var t = await translator.AskDirectAsync(reqTenant.Value, req.Text, ct);
@@ -944,6 +969,8 @@ internal static class GatewayWingmanVoiceEndpoint
                 return Results.Json(new { error = "no tenant is bound to this request" }, statusCode: StatusCodes.Status403Forbidden);
             if (req is null || string.IsNullOrWhiteSpace(req.Text))
                 return Results.Json(new { error = "text is required" }, statusCode: StatusCodes.Status400BadRequest);
+            if (PlanRefusal(ctx, reqTenant.Value, Tenancy.EntitlementScopes.Wingman, "ask-devthrottle") is { } productRefused)
+                return productRefused;
             try
             {
                 var t = await translator.AskAboutDevThrottleAsync(reqTenant.Value, req.Text, ct);
@@ -971,6 +998,8 @@ internal static class GatewayWingmanVoiceEndpoint
             var route = await ResolveRouteAsync(reqTenant.Value, sid);
             if (route is null)
                 return Results.Json(new { error = "session not found on any director" }, statusCode: StatusCodes.Status404NotFound);
+            if (PlanRefusal(ctx, reqTenant.Value, Tenancy.EntitlementScopes.Wingman, "menu") is { } menuRefused)
+                return menuRefused;
             var menu = await DetectMenuAtAsync(reqTenant.Value, route, translator, sid, tenantSettings.SpokenLanguage(reqTenant.Value), ct);
             return Results.Json(MenuJson(menu));
         });
@@ -996,6 +1025,10 @@ internal static class GatewayWingmanVoiceEndpoint
             // verdict that reaches a client comes from the model, served from the per-screen verdict cache
             // when the screen has not changed since the turn was narrated. A model "not a menu" downgrades
             // to Blocked, which keeps canType=true: typing stays allowed, no menu is announced.
+            // The classifier above is free; the confirmation below is a model call, so only it is on the plan.
+            if (kind == WaitingScreenKind.Menu
+                && PlanRefusal(ctx, reqTenant.Value, Tenancy.EntitlementScopes.Wingman, "waiting-screen") is { } screenRefused)
+                return screenRefused;
             if (kind == WaitingScreenKind.Menu
                 && !await WaitingScreenReader.ConfirmedMenuAsync(route, sid, reqTenant.Value, translator, ct))
                 kind = WaitingScreenKind.Blocked;
