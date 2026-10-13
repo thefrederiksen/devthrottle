@@ -2,10 +2,12 @@
 
 License Switching, phase 2 (Gateway), contract section 8, parts 1 to 3: who approves each account (8.3), the approval
 relay (8.3), and Add a spare and Renew now from the Cockpit (8.4). Part 4, the owner's email for a renewal that keeps
-failing (8.1), is NOT in this change and no migration is: it waits for the stored failed renewal to reach main.
+failing (8.1), is NOT in this change and no migration is: it follows in its own pull request, on the stored failed
+renewal that reached main in pull request 3936.
 
-Branch `license-switching-gw-approval`, cut from `origin/main` at `30e468c18`. The runs below are on commit
-`5e9f44083`; the only commit after it adds this file.
+Branch `license-switching-gw-approval`, rebased onto `origin/main` at `5bd850478`, which has pull request 3936 (Switch
+now, the renewal date, the stored failed renewal and its migration). The runs below are on commit `e00bd793d`; the only
+commit after it adds this file.
 
 ## What was built
 
@@ -19,31 +21,41 @@ Branch `license-switching-gw-approval`, cut from `origin/main` at `30e468c18`. T
 - **Sign-ins from the Cockpit.** `POST /gateway/licenses/sign-ins/add-spare` and `.../renew` answer `202` as soon as
   the sign-in's row is written and `license-sign-in` is on its way. The row is a row of the Licenses log of its own
   kind (`sign-in`), which the log route answers in words.
+- **The four writes are for a signed-in person only**, by the same one rule as the two writes main already has
+  (`FleetManagerOwnerDevice.Require`): the owner's own phone or browser. A session key, a Director's own key and the
+  shared machine token are refused before the body is read; a body that is not JSON is refused `400`.
 - **No migration, no new table, no new column.** The entity file changed by a comment only.
 - **The document.** `missions/license-switching/cockpit-api.md`, new section 7: every route and shape, each with a
   real answer produced by running the handlers.
 
 ## What was run
 
-Each run in the foreground, one at a time, on a clean tree.
+Each run in the foreground, one at a time, on a clean tree, on commit `e00bd793d`.
 
 | Run | Result |
 |---|---|
-| `.\scripts\test-local.ps1` | 10 suites, 4,562 tests. 9 suites Completed. `Core.UnitTests`: 1,718 passed, 2 failed - the two known reds below. |
-| `.\scripts\test-local.ps1 -Parked` | 16 suites, 23,414 tests. 15 Completed, among them `Gateway.UnitTests` 11,189 of 11,189, `Gateway.Tests` 3,078 of 3,078 in four shards, `Core.Tests` 4,585 of 4,585. `Core.UnitTests`: the same two reds. 12 minutes. |
-| `.\scripts\test-database.ps1` | GREEN. 70 executed against the throwaway PostgreSQL, none failed, none skipped. |
+| `.\scripts\test-local.ps1` | GREEN. 10 suites, 4,562 tests, every suite Completed. |
+| `.\scripts\test-local.ps1 -Parked` | 16 suites, 23,615 tests. 14 Completed, among them `Gateway.UnitTests` 11,378 of 11,378. Three tests red, none of this change (below). 11 minutes. |
+| `.\scripts\test-local.ps1 -RerunFailed` | The three again, alone: two red again, one green. |
+| `.\scripts\test-database.ps1` | GREEN. 71 executed against the throwaway PostgreSQL, none failed, none skipped. |
 
-The two reds are on main and not of this change, as the brief named them:
+**The three reds of the `-Parked` run, and why none is of this change:**
 
-- `GateTestsDoNotDependOnTheMachineTests.No_gate_test_adds_a_sleep_a_real_clock_a_real_process_docker_or_a_fixed_port`
-  - it asks for five entries to be REMOVED from its baseline (files of other work); it names no file of this change.
-- `BackgroundWorkRegisterTests.EveryTimerWatcherAndWaitingLoop_HasARowInTheRegister_AndEveryRowStillPointsAtOne` - the
-  count for `GitHubActionsBackend.cs`.
+- `ContextLessRouteCensusTests.The_hosted_context_less_route_set_is_exactly_the_ruled_census` and
+  `...The_selfhost_context_less_route_set_adds_only_the_hosted_denied_families` (`Gateway.Tests`, red again when run
+  alone). The census still lists `GET /cron/jobs/{id}` and `GET /cron/jobs/{id}/runs`, and those two routes are not in
+  what it finds any more. `git blame` puts the two route lines at `989d4439c`, pull request 3920 (shifts on the screens),
+  which is on main. This change touches no cron file and not the census. It is red on main and needs its own fix there.
+- `CircularTerminalBufferTests.ConcurrentAccess_IsThreadSafe` (`Core.Tests`): red once, green when run again alone on
+  the same commit. A flaky test of the terminal buffer, which this change does not touch.
 
-**One red of this change was found by the first `-Parked` run and fixed.** On commit `415120e14`,
-`GatewayHttpFailureLineShapeTests` failed: four failure lines of the new routes said "GET approvers FAILED" where the
-rule is "VERB /route". The lines were corrected (`5e9f44083`) and the whole `-Parked` run was made again on that commit;
-the table above is that second run.
+**Before the rebase** the same three runs were made on the branch as it was cut from `30e468c18` (commit `5e9f44083`):
+default and `-Parked` red only in the two tests the brief named as known reds on main (both since fixed on main by
+pull request 3937), and the database tests green, 70 of 70.
+
+**One red of this change was found by the first `-Parked` run and fixed.** `GatewayHttpFailureLineShapeTests` failed:
+four failure lines of the new routes said "GET approvers FAILED" where the rule is "VERB /route". The lines were
+corrected and the run made again.
 
 ## The tests of this change
 
@@ -64,12 +76,13 @@ appended to it.
 ## What each break turned red
 
 Each line below is one behaviour broken in the product code, the code rebuilt, the tests run, and the source put back
-(the tree was checked clean before and after each). 33 breaks; every one turned at least one test red. "unit" is the
-license tests of `Gateway.UnitTests` (545), "hosted" is `LicenseSignInHostedTests` (12); a break was run against the
-hosted tests where the behaviour passes through the host.
+(the tree was checked clean before and after each). 34 breaks; every one turned at least one test red. "unit" is the
+license tests of `Gateway.UnitTests` for this change (545 before the rebase), "hosted" is `LicenseSignInHostedTests`
+(12); a break was run against the hosted tests where the behaviour passes through the host.
 
-Breaks 0 to 5 were run on commit `4ed05750a`, before a power cut; the rest on `415120e14`. The product code of the two
-commits is the same; the second only gives three waits in the relay tests a limit.
+Breaks 0 to 32 were run before the rebase onto main (0 to 5 before a power cut, on `4ed05750a`; the rest on
+`415120e14`); break 33 after it, on `e00bd793d`. The rebase changed none of the product lines the breaks touch, except
+that the routes gained the owner-only check break 33 removes.
 
 **Three things the breaks showed, said plainly:**
 
@@ -447,3 +460,10 @@ commits is the same; the second only gives three waits in the relay tests a limi
   - LicenseSignInHostedTests.ASignIn_OnAMachineOfAnotherAccount_IsRefusedAsUnknown_AndThatMachinesDirectorIsSentNothing
   - LicenseSignInHostedTests.ASignIn_OnAMachineWithNoDirectorConnected_IsRefusedWithAFinishedSentence_AndNothingIsWritten
   - LicenseSignInHostedTests.AddASpare_IsAcceptedWhileTheDirectorStillHoldsTheCommand_AndItsOutcomeLandsInTheLog
+
+### 33. routes: add a spare is not limited to the owner's own device
+
+`src/CcDirector.Gateway/Api/LicenseSignInEndpoints.cs`
+
+- hosted: 1 red, 11 green
+  - LicenseSignInHostedTests.TheApproverRoutes_AreTheOwnersToWrite_AndASessionKeyMayOnlyRead
