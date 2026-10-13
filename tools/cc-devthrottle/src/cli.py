@@ -4006,6 +4006,15 @@ def schedule_link(
     schedule_ops.link_job(job_id, factory, seat, json_output)
 
 
+@schedule_app.command("unlink")
+def schedule_unlink(
+    job_id: str = typer.Argument(..., help="The schedule id."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output what the Gateway did, with the schedule as it is now, as JSON."),
+) -> None:
+    """Take a schedule off its factory seat. The schedule stays, switched as it was, in no factory."""
+    schedule_ops.unlink_job(job_id, json_output)
+
+
 @schedule_app.command("run")
 def schedule_run(
     job_id: str = typer.Argument(..., help="The schedule id."),
@@ -4130,8 +4139,8 @@ def factory_status(
 ) -> None:
     """The Factories screen: every factory's status word, or one factory's page.
 
-    Without --factory: one line per registered factory - id, status word (FAILING, NEEDS YOU, PAUSED or
-    RUNNING), what is waiting on the owner, and the status line under the word. With --factory: that
+    Without --factory: one line per registered factory - id, status word (FAILING, NEEDS YOU, PAUSED,
+    RUNNING or TALK ONLY), what is waiting on the owner, and the status line under the word. With --factory: that
     factory's word and reason, then every failing and waiting item with its row id, so a resolved one can be
     marked handled with `factory record --corrects <row id>`. Every word is the Gateway's, from the same fold
     the screen reads; nothing is decided here.
