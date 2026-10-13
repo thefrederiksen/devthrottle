@@ -4,6 +4,9 @@ import type { LicenseTone, LicenseWindow } from "@devthrottle/client-core/licens
 // the Gateway picks a colour, a level word picks how a bar is drawn, and a time is shown in the viewer's own
 // time zone. How far away a time is, and what a number means, arrive as finished sentences (CLAUDE.md rule 7).
 
+/** The surface every error report from the Licenses page is filed under. */
+export const LICENSES_SURFACE = "cockpit-licenses";
+
 const TONES: ReadonlyArray<LicenseTone> = ["good", "warning", "bad", "neutral"];
 
 /** The style hook for a Gateway tone. A tone word this build does not know is drawn neutral. */

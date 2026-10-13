@@ -18,11 +18,13 @@ const getLicenseOverview = vi.fn();
 const getLicenseForecast = vi.fn();
 const getLicenseLog = vi.fn();
 const switchLicenseNow = vi.fn();
+const setLicenseRenewalDate = vi.fn();
 vi.mock("@devthrottle/client-core/licenses/licensesClient", () => ({
   getLicenseOverview: (...args: unknown[]) => getLicenseOverview(...args),
   getLicenseForecast: (...args: unknown[]) => getLicenseForecast(...args),
   getLicenseLog: (...args: unknown[]) => getLicenseLog(...args),
   switchLicenseNow: (...args: unknown[]) => switchLicenseNow(...args),
+  setLicenseRenewalDate: (...args: unknown[]) => setLicenseRenewalDate(...args),
 }));
 vi.mock("@devthrottle/client-core/errors/reportClientError", () => ({
   describeAndReport: (_surface: string, _action: string, err: unknown) => (err instanceof Error ? err.message : String(err)),
@@ -225,24 +227,31 @@ describe("LicensesView: before an answer, and when the log cannot be read", () =
 });
 
 describe("LicensesView: Switch now with no target chosen by the Gateway", () => {
-  it("selects nothing, sends a null target on confirmation, and shows the Gateway's refusal", async () => {
-    // A state the shapes document names: Switch now is offered, and no target is chosen automatically.
+  it("selects nothing and never calls Switch now with no target: a call that names none would be refused", async () => {
+    // A state the shapes document names: Switch now is offered, and no target is chosen automatically. The page's
+    // default action exists only when the Gateway chose a target; here the person picks one, and that one is sent.
     const answers = distinctAnswers();
     const a = answers.overview.accounts[0];
     a.switchNowTargetAccountEmail = null;
     a.switchNowText = "No target is chosen automatically; choose one by hand.";
     for (const option of a.switchTargets) option.isAutomaticChoice = false;
     serve(answers);
-    switchLicenseNow.mockRejectedValue(new Error("No account has room."));
+    switchLicenseNow.mockResolvedValue({ targetAccountEmail: ACCOUNT_B, text: "", switches: [], skipped: [] });
     render(<LicensesView />);
     fireEvent.click(within(await card(ACCOUNT_A)).getByRole("button", { name: "Switch now" }));
     const dialog = screen.getByRole("alertdialog");
 
     expect(within(dialog).getByText("No target is chosen automatically; choose one by hand.")).toBeTruthy();
     expect((within(dialog).getAllByRole("radio") as HTMLInputElement[]).some((radio) => radio.checked)).toBe(false);
-    fireEvent.click(within(dialog).getByRole("button", { name: "Switch now" }));
+    const confirm = within(dialog).getByRole("button", { name: "Switch now" }) as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true);
+    fireEvent.click(confirm);
+    expect(switchLicenseNow).not.toHaveBeenCalled();
 
-    expect(await within(dialog).findByText("No account has room.")).toBeTruthy();
-    expect(switchLicenseNow).toHaveBeenCalledWith(ACCOUNT_A, null);
+    fireEvent.click(within(dialog).getByRole("radio", { name: /account-b@example\.com/ }));
+    fireEvent.click(confirm);
+
+    await waitFor(() => expect(switchLicenseNow).toHaveBeenCalledTimes(1));
+    expect(switchLicenseNow).toHaveBeenCalledWith(ACCOUNT_A, ACCOUNT_B);
   });
 });

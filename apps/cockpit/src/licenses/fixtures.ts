@@ -1,13 +1,18 @@
 import type {
+  LicenseAccount,
   LicenseForecast,
+  LicenseHolding,
   LicenseLogPage,
   LicenseOverview,
+  LicenseRenewalResult,
+  LicenseSwitchNowResult,
 } from "@devthrottle/client-core/licenses/licensesClient";
 
 // THE GATEWAY'S OWN ANSWERS, NOT HAND-WRITTEN ONES. Each constant below is the real example of its route from
-// missions/license-switching/cockpit-api.md (as merged to main at commit 0b83751ed), which the Gateway
-// produced by running its route handlers over a store filled with the reports of two machines and three accounts.
-// A test that draws these draws what the Gateway sends; when the shapes move, copy the examples again.
+// missions/license-switching/cockpit-api.md (as that file stood at commit 94dcfcc8b), which the Gateway
+// produced by running its route handlers over a store filled with the reports of its machines and accounts.
+// A test that draws these draws what the Gateway sends. This file is written by
+// missions/license-switching/phase-3/copy_fixtures.py; when the shapes move, run it again and do not edit here.
 
 /** GET /gateway/licenses: three accounts (in use, sign-in expires soon, at limit) on two machines. */
 export const OVERVIEW: LicenseOverview = {
@@ -94,7 +99,9 @@ export const OVERVIEW: LicenseOverview = {
           "unavailableText": "the-mac holds no usable spare for account-c@example.com.",
           "isAutomaticChoice": false
         }
-      ]
+      ],
+      "barredUntilUtc": null,
+      "barredText": null
     },
     {
       "accountEmail": "account-b@example.com",
@@ -162,7 +169,9 @@ export const OVERVIEW: LicenseOverview = {
       "canSwitchNow": false,
       "switchNowText": "No machine on account-b@example.com can be switched now: none is on it.",
       "switchNowTargetAccountEmail": null,
-      "switchTargets": []
+      "switchTargets": [],
+      "barredUntilUtc": null,
+      "barredText": null
     },
     {
       "accountEmail": "account-c@example.com",
@@ -224,7 +233,9 @@ export const OVERVIEW: LicenseOverview = {
       "canSwitchNow": false,
       "switchNowText": "No machine on account-c@example.com can be switched now: none is on it.",
       "switchNowTargetAccountEmail": null,
-      "switchTargets": []
+      "switchTargets": [],
+      "barredUntilUtc": null,
+      "barredText": null
     }
   ],
   "machines": [
@@ -341,6 +352,12 @@ export const OVERVIEW: LicenseOverview = {
       "switchInProgress": null
     }
   ]
+};
+
+/** The last two fields of an account that is barred from the automatic choice of a target. */
+export const BARRED_FIELDS: Pick<LicenseAccount, "barredUntilUtc" | "barredText"> = {
+  "barredUntilUtc": "2026-10-11T05:12:00Z",
+  "barredText": "Left out of the automatic choice for 2 hours, until its 5-hour window resets: it triggered a switch. It can still be chosen by hand."
 };
 
 /** GET /gateway/licenses/forecast for the same picture. */
@@ -489,7 +506,7 @@ export const FORECAST: LicenseForecast = {
   ]
 };
 
-/** GET /gateway/licenses/log?limit=3: a spare added, a switch that FAILED, a switch that worked; older rows exist. */
+/** GET /gateway/licenses/log?limit=4: a spare added, a switch that FAILED, a spare removed, a switch that worked; older rows exist. */
 export const LOG_PAGE: LicenseLogPage = {
   "asOfUtc": "2026-10-11T03:12:00Z",
   "isEmpty": false,
@@ -631,6 +648,59 @@ export const EMPTY_OVERVIEW: LicenseOverview = {
   "emptyText": "No machine has reported its Claude accounts yet. They appear here once a Director with license switching turned on has connected.",
   "accounts": [],
   "machines": []
+};
+
+/** PUT /gateway/licenses/accounts/renewal, a date stored. */
+export const RENEWAL_SET: LicenseRenewalResult = {
+  "accountEmail": "account-a@example.com",
+  "renewsOn": "2026-10-17",
+  "renewsText": "Renews 17 Oct"
+};
+
+/** PUT /gateway/licenses/accounts/renewal, the date cleared. */
+export const RENEWAL_CLEARED: LicenseRenewalResult = {
+  "accountEmail": "account-a@example.com",
+  "renewsOn": null,
+  "renewsText": "Renewal date not set"
+};
+
+/** The three fields of a holding whose last sign-in renewal failed. */
+export const RENEWAL_FAILED_FIELDS: Pick<LicenseHolding, "renewalFailedAtUtc" | "renewalFailedText" | "renewalFailedTone"> = {
+  "renewalFailedAtUtc": "2026-10-11T00:12:00Z",
+  "renewalFailedText": "Renewing this sign-in failed 3 hours ago: no browser is set to approve this account.",
+  "renewalFailedTone": "bad"
+};
+
+/** POST /gateway/licenses/switch-now, accepted: one machine, whose switch waits for its Director. */
+export const SWITCH_NOW_ACCEPTED: LicenseSwitchNowResult = {
+  "targetAccountEmail": "account-b@example.com",
+  "text": "The switch of machine-of-one to account-b@example.com has not finished; the switch log shows how it ends.",
+  "switches": [
+    {
+      "switchId": "f28f268f315842558629a946f91050c3",
+      "entryId": "e6fd8eedf7b04915bed55866cd4eac04",
+      "machineName": "machine-of-one",
+      "osUser": "owner",
+      "label": "machine-of-one",
+      "state": "pending",
+      "stateText": "Waiting for the machine",
+      "stateTone": "warning",
+      "summary": "machine-of-one is switching from account-a@example.com to account-b@example.com."
+    }
+  ],
+  "skipped": []
+};
+
+/** POST /gateway/licenses/switch-now, refused 409. */
+export const SWITCH_NOW_REFUSED: { code: string; error: string } = {
+  "code": "no-machine-to-switch",
+  "error": "No machine on account-a@example.com can be switched now: every machine on it is stale or already mid-switch. machine-of-one is not switched: a switch sent to it has not finished."
+};
+
+/** Either write, asked by a caller that is not the owner's own signed-in phone or browser: 403. */
+export const OWNER_ONLY: { code: string; error: string } = {
+  "code": "owner_only",
+  "error": "only the owner on their own signed-in phone or browser may set the renewal date of a subscription; this request was made with a device (workstation) credential"
 };
 
 /** A fresh copy of a fixture, so a test may change it without changing it for the next test. */
