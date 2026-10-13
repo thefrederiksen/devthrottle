@@ -192,8 +192,9 @@ public sealed class DirectorHub : Hub
     /// sign-in approved on another machine. RETURNS AT ONCE - this hub runs one invocation at a time for each Director,
     /// so nothing here waits for the approving machine; the answer arrives later as the <c>license-approval-result</c>
     /// command. Refused before Hello; the tenant and the Director are the connection's binding, never the request's;
-    /// and the key the approval is sealed to is the one this Director said in its own Hello. Only a request whose
-    /// identifier is not a sign-in identifier is refused here, because an answer to it could not be addressed.
+    /// and the key the approval is sealed to is the one this Director said in its own Hello. A request that is not
+    /// taken fails this call - an identifier that is not one, an account that is not an email, an address that is
+    /// missing or too long, or one more than the account may have in flight - and the Gateway keeps nothing for it.
     /// The request is never logged: it carries the address the sign-in is approved at.
     /// </summary>
     public void RequestLicenseApproval(LicenseApprovalRequest request)
@@ -209,8 +210,9 @@ public sealed class DirectorHub : Hub
         {
             _licenseApprovals.Accept(tenant, directorId, Context.Items[SealToRecipientItemKey] as string, request);
         }
-        catch (ArgumentException ex)
+        catch (Exception ex) when (ex is ArgumentException or Licenses.LicenseApprovalsBusyException)
         {
+            // The relay's own sentence, which quotes nothing of the request.
             throw new HubException(ex.Message);
         }
     }

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using CcDirector.Core.Tenancy;
@@ -83,18 +84,19 @@ public sealed class LicenseApproverStore
         var machine = (machineName ?? "").Trim();
         var user = (osUser ?? "").Trim();
         var profile = (browserProfile ?? "").Trim();
-        FileLog.Write($"[LicenseApproverStore] Set: tenant={tenant.ToLogString()}, account={email}, machine={machine}, user={user}");
-
+        // Nothing the caller sent is written to the log before it has been checked: a line break in a name would
+        // otherwise write what looks like a second line of the log.
         if (!IsAccountEmail(email))
             return Refuse("invalid_account", "accountEmail is the email of a Claude account.");
-        if (machine.Length is 0 or > MaxNameLength)
-            return Refuse("invalid_machine", $"machineName is the name of the approving machine, at most {MaxNameLength} characters.");
-        if (user.Length is 0 or > MaxNameLength)
-            return Refuse("invalid_machine", $"osUser is the operating system user on the approving machine, at most {MaxNameLength} characters.");
+        if (machine.Length is 0 or > MaxNameLength || machine.Any(NotReadable))
+            return Refuse("invalid_machine", $"machineName is the name of the approving machine, at most {MaxNameLength} characters, with no control character.");
+        if (user.Length is 0 or > MaxNameLength || user.Any(NotReadable))
+            return Refuse("invalid_machine", $"osUser is the operating system user on the approving machine, at most {MaxNameLength} characters, with no control character.");
         if (!BrowserProfileShape.IsMatch(profile))
             return Refuse("invalid_browser_profile",
                 "browserProfile is the name of a browser profile on the approving machine: letters, digits, spaces, dots, underscores and hyphens, at most 64 characters.");
 
+        FileLog.Write($"[LicenseApproverStore] Set: tenant={tenant.ToLogString()}, account={email}, machine={machine}, user={user}");
         var approver = new LicenseApprover(email, machine, user, profile);
         lock (_gate)
         {
@@ -126,13 +128,22 @@ public sealed class LicenseApproverStore
         return removed;
     }
 
-    /// <summary>An account email as every Licenses route takes it: one "@" with text on both sides, no white space,
-    /// at most 320 characters. It is compared and stored lower-cased.</summary>
+    /// <summary>An account email as every Licenses route takes it: one "@" with text on both sides, at most 320
+    /// characters, and no white space, control character, line or paragraph separator, or format character. It is
+    /// compared and stored lower-cased.</summary>
     public static bool IsAccountEmail(string email)
     {
         var at = email.IndexOf('@');
-        return email.Length <= 320 && at > 0 && at < email.Length - 1 && at == email.LastIndexOf('@') && !email.Any(char.IsWhiteSpace);
+        return email.Length <= 320 && at > 0 && at < email.Length - 1 && at == email.LastIndexOf('@')
+               && !email.Any(c => char.IsWhiteSpace(c) || NotReadable(c));
     }
+
+    /// <summary>True for a character that is not text to be read: a control character, a line or paragraph separator,
+    /// or a format character such as the one that reverses the direction of what follows. Text holding one is refused
+    /// before it is stored, logged or said back in a sentence.</summary>
+    internal static bool NotReadable(char c)
+        => char.GetUnicodeCategory(c) is UnicodeCategory.Control or UnicodeCategory.Format
+            or UnicodeCategory.LineSeparator or UnicodeCategory.ParagraphSeparator;
 
     private LicenseApproverSet Refuse(string word, string sentence)
     {

@@ -309,9 +309,7 @@ public static class LicenseEndpoints
     internal static bool NotAnAccountEmail(string text)
         => text.Length > MaxAccountEmailLength || text.Any(NotReadable);
 
-    private static bool NotReadable(char c)
-        => char.GetUnicodeCategory(c) is UnicodeCategory.Control or UnicodeCategory.Format
-            or UnicodeCategory.LineSeparator or UnicodeCategory.ParagraphSeparator;
+    private static bool NotReadable(char c) => LicenseApproverStore.NotReadable(c);
 
     private static IResult InvalidAccount(string field)
         => Refuse(StatusCodes.Status400BadRequest, "invalid_account",

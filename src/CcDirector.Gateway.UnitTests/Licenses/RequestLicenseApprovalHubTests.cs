@@ -179,6 +179,50 @@ public sealed class RequestLicenseApprovalHubTests : IDisposable
     }
 
     [Fact]
+    public void RequestLicenseApproval_WithAnAccountOrAnAddressThatIsNotOne_FailsTheCall_WithASentenceThatQuotesNothing()
+    {
+        var hub = NewHub("conn-1", _relay);
+        hub.Hello(Hello());
+        var noAccount = Request();
+        noAccount.AccountEmail = "account-a@example.com\nINJECTED";
+        var noAddress = Request();
+        noAddress.AuthorizeUrl = "https://claude.example/" + new string('a', 100_000);
+
+        var first = Assert.Throws<HubException>(() => hub.RequestLicenseApproval(noAccount));
+        var second = Assert.Throws<HubException>(() => hub.RequestLicenseApproval(noAddress));
+
+        Assert.DoesNotContain("INJECTED", first.Message);
+        Assert.DoesNotContain("claude.example", second.Message);
+        Assert.Empty(_directors.Sends);
+        Assert.Equal(0, _relay.InFlightCount());
+    }
+
+    [Fact]
+    public async Task RequestLicenseApproval_PastTheAccountsLimit_FailsTheCall_AndTheGatewayHoldsNothingForIt()
+    {
+        var approving = new TaskCompletionSource<DirectorCommandResult?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _directors.Answer = sent => sent.Verb == LicenseContract.ApproveVerb
+            ? approving.Task
+            : Task.FromResult<DirectorCommandResult?>(FakeLicenseDirectors.Ok(new { delivered = true }));
+        var hub = NewHub("conn-1", _relay);
+        hub.Hello(Hello());
+        for (var i = 0; i < LicenseApprovalRelay.MaxInFlightPerTenant; i++)
+            hub.RequestLicenseApproval(Request(i.ToString("x").PadLeft(32, 'a')));
+
+        for (var i = 0; i < 100; i++)
+        {
+            var busy = Assert.Throws<HubException>(() => hub.RequestLicenseApproval(Request(i.ToString("x").PadLeft(32, 'b'))));
+            Assert.StartsWith("The Gateway is already relaying 8 approvals for this account.", busy.Message);
+        }
+
+        Assert.Equal(LicenseApprovalRelay.MaxInFlightPerTenant, _relay.InFlightCount());
+        Assert.Empty(_directors.Of(LicenseContract.ApprovalResultVerb));
+        approving.SetResult(DirectorCommandResult.Fail(DirectorCommandStatus.TunnelDropped, "dropped"));
+        await _relay.WhenIdleAsync();
+        Assert.Equal(0, _relay.InFlightCount());
+    }
+
+    [Fact]
     public void GatewayCapabilities_ListRequestLicenseApproval()
         => Assert.Contains(LicenseContract.RequestApprovalHubMethod, NewHub("conn-1", _relay).Hello(Hello())!.HubMethods);
 

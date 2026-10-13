@@ -3,6 +3,7 @@ using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Licenses;
 using CcDirector.Gateway.Settings;
 using CcDirector.Gateway.Tests.Data;
+using CcDirector.Core.Utilities;
 using Xunit;
 using static CcDirector.Gateway.Tests.Licenses.LicenseTestData;
 
@@ -121,6 +122,50 @@ public sealed class LicenseApproverStoreTests : IDisposable
         Assert.False(string.IsNullOrWhiteSpace(set.RefusalText));
         Assert.Empty(_store.List(One));
         Assert.Null(_settings.Get(One, TenantSettingKeys.LicenseApprovers));
+    }
+
+    public static TheoryData<string, string, string, string, string> ValuesWithACharacterThatIsNotText()
+    {
+        var data = new TheoryData<string, string, string, string, string>();
+        // A line break, a carriage return, a tab inside, a bell, an escape, a delete, a right-to-left override, a
+        // zero-width space, a line separator and a paragraph separator.
+        foreach (var bad in new[] { "\n", "\r", "\t", "\u0007", "\u001b", "\u007f", "\u202e", "\u200b", "\u2028", "\u2029" })
+        {
+            var shown = $"U+{(int)bad[0]:X4}";
+            data.Add(shown + " in the machine name", A, $"the{bad}mac INJECTED", "owner", "invalid_machine");
+            data.Add(shown + " in the user", A, "the-mac", $"own{bad}er INJECTED", "invalid_machine");
+            data.Add(shown + " in the account", $"account{bad}INJECTED@example.com", "the-mac", "owner", "invalid_account");
+        }
+        return data;
+    }
+
+    [Theory]
+    [MemberData(nameof(ValuesWithACharacterThatIsNotText))]
+    public void Set_ANameOrAccountHoldingACharacterThatIsNotText_IsRefused_NothingIsStored_AndTheLogDoesNotQuoteIt(
+        string what, string account, string machine, string user, string word)
+    {
+        Assert.NotEmpty(what);
+        using var capture = FileLog.RedirectForTests();
+        FileLog.Start();
+
+        var set = _store.Set(One, account, machine, user, "work", T0);
+        var lines = capture.DrainAndReadLines();
+
+        Assert.False(set.Accepted);
+        Assert.Equal(word, set.RefusalWord);
+        Assert.DoesNotContain("INJECTED", set.RefusalText);
+        Assert.Null(_settings.Get(One, TenantSettingKeys.LicenseApprovers));
+        // The refusal is logged, and the line that names what was stored was never written.
+        Assert.Contains(lines, l => l.EndsWith($"[LicenseApproverStore] Set: REFUSED {word}", StringComparison.Ordinal));
+        Assert.DoesNotContain(lines, l => l.Contains("[LicenseApproverStore] Set: tenant="));
+        Assert.DoesNotContain(lines, l => l.Contains("INJECTED"));
+    }
+
+    [Fact]
+    public void Set_NamesWithSpacesAndLettersOfAnyAlphabet_AreTaken()
+    {
+        Assert.True(_store.Set(One, A, "S\u00f8ren's Mac mini", "s\u00f8ren", "work", T0).Accepted);
+        Assert.Equal("S\u00f8ren's Mac mini", _store.Find(One, A)!.MachineName);
     }
 
     [Fact]

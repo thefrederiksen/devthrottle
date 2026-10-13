@@ -2,6 +2,7 @@ using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Licenses;
+using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Settings;
 using CcDirector.Gateway.Tests.Data;
 using Xunit;
@@ -36,6 +37,7 @@ public sealed class LicenseApprovalRelayTests : IDisposable
     private readonly GatewayDbTestHarness _harness = new();
     private readonly LicenseStore _store;
     private readonly LicenseApproverStore _approvers;
+    private readonly TenantSettingsStore _settings;
     private readonly FakeLicenseDirectors _directors = new();
     private readonly LicenseApprovalRelay _relay;
     private DateTime _now = T0;
@@ -45,7 +47,8 @@ public sealed class LicenseApprovalRelayTests : IDisposable
     {
         var db = _harness.Open();
         _store = new LicenseStore(db);
-        _approvers = new LicenseApproverStore(new TenantSettingsStore(db));
+        _settings = new TenantSettingsStore(db);
+        _approvers = new LicenseApproverStore(_settings);
         _relay = new LicenseApprovalRelay(_approvers, new LicenseReadModel(_store), _directors.IsConnected, _directors.SendAsync,
             _directors.EnterScope, () => _now, CancellationToken.None);
     }
@@ -311,21 +314,65 @@ public sealed class LicenseApprovalRelayTests : IDisposable
         Assert.Empty(_directors.Of(LicenseContract.ApproveVerb));
     }
 
+    public static TheoryData<string, string?, string?> RequestsThatAreNotTaken() => new()
+    {
+        { "no account", "", Address },
+        { "a null account", null, Address },
+        { "an account that is not an email", "no-at-sign", Address },
+        { "an account with a line break", "account-a@example.com\nINJECTED", Address },
+        { "an account with a control character", "account-a\u0007@example.com", Address },
+        { "an account with a format character", "account-a\u202e@example.com", Address },
+        { "an account far too long", new string('a', 2_000_000) + "@example.com", Address },
+        { "no address", A, "" },
+        { "a null address", A, null },
+        { "an address of spaces", A, "   " },
+        { "an address one character too long", A, "https://claude.example/" + new string('a', LicenseApprovalRelay.MaxAuthorizeUrlLength - 22) },
+        { "an address far too long", A, "https://claude.example/" + new string('a', 2_000_000) },
+    };
+
     [Theory]
-    [InlineData("", Address)]
-    [InlineData("no-at-sign", Address)]
-    [InlineData(A, "")]
-    [InlineData(A, "   ")]
-    public async Task Relay_ARequestWithNoAccountOrNoAddress_AnswersRefused_AndAsksNoMachine(string account, string address)
+    [MemberData(nameof(RequestsThatAreNotTaken))]
+    public async Task Accept_ARequestWhoseAccountOrAddressIsNotOne_IsRefusedOnTheCall_AndHoldsAndSendsAndQuotesNothing(
+        string what, string? account, string? address)
+    {
+        Assert.NotEmpty(what);
+        OneIsSetUp();
+        var request = Request();
+        request.AccountEmail = account!;
+        request.AuthorizeUrl = address!;
+        using var capture = FileLog.RedirectForTests();
+        FileLog.Start();
+
+        var refused = Assert.Throws<ArgumentException>(() => _relay.Accept(One, TargetDirector, PublicHalf, request));
+        var lines = capture.DrainAndReadLines();
+        var log = string.Join(" | ", lines);
+
+        Assert.DoesNotContain("INJECTED", refused.Message);
+        Assert.True(refused.Message.Length < 200);
+
+        Assert.Equal(0, _relay.InFlightCount());
+        await _relay.WhenIdleAsync();
+        Assert.Empty(_directors.Sends);
+        // The refusal is logged, and no line says anything the request said - not even its identifier.
+        Assert.Contains("[LicenseApprovalRelay] Accept: REFUSED", log);
+        Assert.DoesNotContain("INJECTED", log);
+        Assert.DoesNotContain("aaaaaaaa", log);
+        Assert.DoesNotContain("claude.example", log);
+        Assert.DoesNotContain(lines, l => l.Contains($"signIn={SignIn1}"));
+    }
+
+    [Fact]
+    public async Task Accept_AnAddressOfExactlyTheLongestLength_IsTaken()
     {
         OneIsSetUp();
-        var request = Request(account: account);
-        request.AuthorizeUrl = address;
+        TheApproverApproves();
+        var request = Request();
+        request.AuthorizeUrl = "https://claude.example/" + new string('a', LicenseApprovalRelay.MaxAuthorizeUrlLength - 23);
+        Assert.Equal(LicenseApprovalRelay.MaxAuthorizeUrlLength, request.AuthorizeUrl.Length);
 
         await Ask(request);
 
-        AssertRefused(LicenseRenewalErrors.ApprovalFailed);
-        Assert.Empty(_directors.Of(LicenseContract.ApproveVerb));
+        Assert.Equal(LicenseApprovalOutcomes.Approved, TheAnswer().Outcome);
     }
 
     // ----- what the approving Director's answer becomes -----
@@ -526,9 +573,13 @@ public sealed class LicenseApprovalRelayTests : IDisposable
     }
 
     [Fact]
-    public async Task Accept_OnePastTheLimitOfApprovalsInFlight_IsRefusedAtOnce_AndAsksNoMachine()
+    public async Task Accept_EveryRequestPastTheLimit_IsRefusedOnTheCall_AndTheHundredthHoldsNothingMoreThanTheFirst()
     {
         OneIsSetUp();
+        // Account two is set up the same way, to show the limit is each account's own.
+        Reports(Two, Target, "dir-target-of-two");
+        Reports(Two, ApprovingMachine, "dir-approver-of-two");
+        Assert.True(_approvers.Set(Two, A, ApprovingMachine, "owner", Profile, _now).Accepted);
         var approving = new TaskCompletionSource<DirectorCommandResult?>(TaskCreationOptions.RunContinuationsAsynchronously);
         var reached = 0;
         var allReached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -543,16 +594,158 @@ public sealed class LicenseApprovalRelayTests : IDisposable
         for (var i = 0; i < LicenseApprovalRelay.MaxInFlightPerTenant; i++)
             _relay.Accept(One, TargetDirector, PublicHalf, Request(i.ToString("x").PadLeft(32, 'a')));
         await allReached.Task.WaitAsync(TimeSpan.FromSeconds(60));
+        var sendsAtTheLimit = _directors.Sends.Count;
+        Assert.Equal(LicenseApprovalRelay.MaxInFlightPerTenant, _relay.InFlightCount(One));
 
-        _relay.Accept(One, TargetDirector, PublicHalf, Request(SignIn1));
+        // A hundred more, each with an identifier of its own, as a renewal loop gone wrong would send them.
+        for (var i = 0; i < 100; i++)
+        {
+            var busy = Assert.Throws<LicenseApprovalsBusyException>(
+                () => _relay.Accept(One, TargetDirector, PublicHalf, Request(i.ToString("x").PadLeft(32, 'b'))));
+            Assert.Equal("The Gateway is already relaying 8 approvals for this account. Try the sign-in again when one has finished.", busy.Message);
+        }
 
-        // The one past the limit is answered while the others are still waiting for their approving Director.
-        var refusal = await WaitForAnswerTo(SignIn1);
-        Assert.Equal((LicenseApprovalOutcomes.Refused, LicenseRenewalErrors.ApprovalFailed), (refusal.Outcome, refusal.ReasonCode));
-        Assert.Equal(LicenseApprovalRelay.MaxInFlightPerTenant, _directors.Of(LicenseContract.ApproveVerb).Count);
+        // Nothing is held for any of them: no entry, no task, no command to either Director.
+        Assert.Equal(LicenseApprovalRelay.MaxInFlightPerTenant, _relay.InFlightCount(One));
+        Assert.Equal(LicenseApprovalRelay.MaxInFlightPerTenant, _relay.InFlightCount());
+        Assert.Equal(sendsAtTheLimit, _directors.Sends.Count);
+        Assert.Empty(_directors.Of(LicenseContract.ApprovalResultVerb));
 
+        // Another account is not held back by this one's eight.
+        _relay.Accept(Two, "dir-target-of-two", PublicHalf, Request(SignIn2));
+        Assert.Equal(1, _relay.InFlightCount(Two));
+
+        // When the eight end, the account's places are free again and nothing is left behind.
         approving.SetResult(DirectorCommandResult.Fail(DirectorCommandStatus.TunnelDropped, "dropped"));
         await _relay.WhenIdleAsync();
+        Assert.Equal(0, _relay.InFlightCount());
+        TheApproverApproves();
+        _relay.Accept(One, TargetDirector, PublicHalf, Request(SignIn1));
+        Assert.Equal(LicenseApprovalOutcomes.Approved, (await WaitForAnswerTo(SignIn1)).Outcome);
+        await _relay.WhenIdleAsync();
+    }
+
+    // ----- a relay that fails still answers, and says nothing it was given -----
+
+    [Fact]
+    public async Task Relay_ASendToTheApprovingDirectorThatThrows_StillAnswersTheDirectorThatAsked_AndTheLogHasNoAddress()
+    {
+        OneIsSetUp();
+        _directors.Answer = sent => sent.Verb == LicenseContract.ApproveVerb
+            // A failure whose message quotes the payload, as a serializer's or a transport's could.
+            ? throw new InvalidOperationException($"could not send {((LicenseApproveRequest)sent.Payload).AuthorizeUrl} sealed to {PublicHalf}")
+            : Task.FromResult<DirectorCommandResult?>(FakeLicenseDirectors.Ok(new { delivered = true }));
+        using var capture = FileLog.RedirectForTests();
+        FileLog.Start();
+
+        await Ask();
+        var log = string.Join(" | ", capture.DrainAndReadLines());
+
+        // The asking Director is told now, with a reason, instead of waiting out its own deadline.
+        AssertRefused(LicenseRenewalErrors.ApprovalFailed);
+        Assert.Equal("The Gateway failed while relaying this approval (InvalidOperationException).", TheAnswer().Message);
+        Assert.Equal(TargetDirector, Assert.Single(_directors.Of(LicenseContract.ApprovalResultVerb)).DirectorId);
+        Assert.Contains($"signIn={SignIn1}, account={A} FAILED while relaying: InvalidOperationException", log);
+        Assert.DoesNotContain(Address, log);
+        Assert.DoesNotContain("claude.example", log);
+        Assert.DoesNotContain("could not send", log);
+        Assert.DoesNotContain(PublicHalf, log);
+    }
+
+    [Fact]
+    public async Task Relay_AnApproversSettingThatCannotBeRead_StillAnswersTheDirectorThatAsked()
+    {
+        OneIsSetUp();
+        _settings.Set(One, TenantSettingKeys.LicenseApprovers, "{ this is not the list", _now);
+        _directors.AnswerWith(_ => FakeLicenseDirectors.Ok(new { delivered = true }));
+
+        await Ask();
+
+        AssertRefused(LicenseRenewalErrors.ApprovalFailed);
+        Assert.Empty(_directors.Of(LicenseContract.ApproveVerb));
+    }
+
+    [Fact]
+    public async Task Relay_AScopeThatCannotBeEntered_IsLoggedByItsTypeOnly_AndLeavesNothingInFlight()
+    {
+        var relay = new LicenseApprovalRelay(_approvers, new LicenseReadModel(_store),
+            _directors.IsConnected, _directors.SendAsync, _ => throw new InvalidOperationException($"no scope for {Address}"),
+            () => _now, CancellationToken.None);
+        using var capture = FileLog.RedirectForTests();
+        FileLog.Start();
+
+        relay.Accept(One, TargetDirector, PublicHalf, Request());
+        await relay.WhenIdleAsync();
+        var log = string.Join(" | ", capture.DrainAndReadLines());
+
+        Assert.Equal(0, relay.InFlightCount());
+        Assert.Contains($"signIn={SignIn1}, account={A} FAILED: InvalidOperationException", log);
+        Assert.DoesNotContain("claude.example", log);
+        Assert.Empty(_directors.Sends);
+    }
+
+    [Fact]
+    public async Task Accept_CalledWhileAnotherAccountsScopeIsInEffect_StillRelaysInTheAskingDirectorsOwnScope()
+    {
+        OneIsSetUp();
+        // Account two has a machine and a Director of the same names, and an approver of its own for the account.
+        Reports(Two, ApprovingMachine, ApprovingDirector);
+        Assert.True(_approvers.Set(Two, A, ApprovingMachine, "owner", "profile-of-two", _now).Accepted);
+        TheApproverApproves();
+
+        // The calling thread is inside account TWO's scope when account ONE's Director asks.
+        using (_directors.EnterScope(Two))
+            _relay.Accept(One, TargetDirector, PublicHalf, Request());
+        await _relay.WhenIdleAsync();
+
+        Assert.Equal(new TenantId?[] { One, One }, _directors.Sends.Select(s => s.Scope));
+        var approve = (LicenseApproveRequest)Assert.Single(_directors.Of(LicenseContract.ApproveVerb)).Payload;
+        Assert.Equal(Profile, approve.BrowserProfile);
+        Assert.Equal(LicenseApprovalOutcomes.Approved, TheAnswer().Outcome);
+    }
+
+    // ----- the wait for the approving Director ends at the sign-in's own deadline -----
+
+    [Fact]
+    public async Task Relay_WhenTheSignInsDeadlineIsSoonerThanTheGatewaysWait_WaitsOnlyUntilTheDeadline_AndAnswersExpired()
+    {
+        OneIsSetUp();
+        TheApproverAnswers(_ => DirectorCommandResult.Fail(DirectorCommandStatus.Timeout, "no answer"));
+        var request = Request();
+        request.NotAfterUtc = _now.AddSeconds(50);
+
+        await Ask(request);
+
+        Assert.Equal(TimeSpan.FromSeconds(50), Assert.Single(_directors.Of(LicenseContract.ApproveVerb)).Timeout);
+        AssertRefused(LicenseRenewalErrors.Expired);
+        Assert.Equal("No approval came back from the Director on the-mac before the sign-in's own deadline.", TheAnswer().Message);
+    }
+
+    [Fact]
+    public async Task Relay_WhenTheSignInsDeadlineIsLaterThanTheGatewaysWait_WaitsTheGatewaysWait()
+    {
+        OneIsSetUp();
+        TheApproverAnswers(_ => DirectorCommandResult.Fail(DirectorCommandStatus.Timeout, "no answer"));
+        var request = Request();
+        request.NotAfterUtc = _now.AddMinutes(10);
+
+        await Ask(request);
+
+        Assert.Equal(LicenseContract.ApproveCommandTimeout, Assert.Single(_directors.Of(LicenseContract.ApproveVerb)).Timeout);
+        AssertRefused(LicenseRenewalErrors.ApprovalFailed);
+    }
+
+    [Fact]
+    public async Task Relay_ARequestArrivingExactlyAtItsDeadline_AnswersExpired_AndAsksNoMachine()
+    {
+        OneIsSetUp();
+        var request = Request();
+        request.NotAfterUtc = _now;
+
+        await Ask(request);
+
+        AssertRefused(LicenseRenewalErrors.Expired);
+        Assert.Empty(_directors.Of(LicenseContract.ApproveVerb));
     }
 
     /// <summary>The answer to one sign-in, once its relay has delivered it.</summary>

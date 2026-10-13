@@ -6635,13 +6635,9 @@ public sealed class GatewayHost : IAsyncDisposable
         {
             // Inside ITenantPass.ForEachTenantAsync: SendCommandAsync drops a command sent with no tenant scope.
             await LicenseSwitches.TickEveryTenantAsync(_tenantPass, _licenseSwitchLifetime.Token).ConfigureAwait(false);
-            // A sign-in started from the Cockpit whose answer never came back is settled from its machine's report
-            // once no Director could still be running it (contract section 8.4).
-            _tenantPass.ForEachTenant(() =>
-            {
-                if (_tenantPass.Current is { } tenant)
-                    LicenseSignIns.SettleUnanswered(tenant);
-            });
+            // A sign-in started from the Cockpit whose answer never came back is settled once no Director could
+            // still be running it: by asking its Director again, else from a later report (contract section 8.4).
+            await LicenseSignIns.SettleEveryTenantAsync(_tenantPass, _licenseSwitchLifetime.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (_licenseSwitchLifetime.IsCancellationRequested)
         {

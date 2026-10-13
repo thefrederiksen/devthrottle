@@ -15,7 +15,9 @@ namespace CcDirector.Gateway.Licenses;
 /// identifier; <c>ToAccountEmail</c> the account signed in to (<c>FromAccountEmail</c> is empty); <c>Reason</c> one of
 /// <see cref="LicenseSignInReasons"/>; <c>State</c> is <c>pending</c> until the Director answers, <c>unknown</c> when no
 /// answer came back, then <c>added</c>, <c>renewed</c> or <c>failed</c>; <c>NotAfterUtc</c> is the time after which the
-/// Director refuses to start it.
+/// Director refuses to start it; and <c>DirectorStartedAtUtc</c> holds the time of the sign-in the machine had
+/// reported for the account BEFORE this one was asked for (null when it held none, or said no time) - read through
+/// <see cref="SignedInBefore"/>, and never shown as when anything started.
 ///
 /// A row is written BEFORE the command is sent, and only an open row is ever changed: a row that has ended stays as it
 /// ended. NEVER WHAT COMPLETES A SIGN-IN: a row carries an email, machine names, words and sentences.
@@ -34,8 +36,11 @@ public sealed class LicenseSignInLog
 
     /// <summary>Write a sign-in row in <c>pending</c>, with a new identifier and <c>NotAfterUtc</c> = now +
     /// <see cref="LicenseContract.SignInNotAfter"/>.</summary>
+    /// <param name="signedInBeforeUtc">The time of the sign-in the machine's latest report shows for the account, by
+    /// the machine's own clock; null when it holds none or said no time. A renewal with no answer is judged by whether
+    /// a later report shows another time than this.</param>
     public LicenseSwitchLogEntity CreatePending(TenantId tenant, LicenseMachineView machine, string accountEmail, string reason,
-        string message, DateTime nowUtc)
+        string message, DateTime nowUtc, DateTime? signedInBeforeUtc = null)
     {
         ArgumentNullException.ThrowIfNull(machine);
         if (reason is not (LicenseSignInReasons.Manual or LicenseSignInReasons.Renewal))
@@ -58,12 +63,21 @@ public sealed class LicenseSignInLog
             Message = Cap(message),
             CreatedAtUtc = now,
             NotAfterUtc = now + LicenseContract.SignInNotAfter,
+            DirectorStartedAtUtc = signedInBeforeUtc is { } before ? Utc(before) : null,
             TenantId = ctx.ActiveTenant!,
         };
         ctx.LicenseSwitchLog.Add(row);
         ctx.SaveChanges();
         FileLog.Write($"[LicenseSignInLog] CreatePending: tenant={tenant.ToLogString()}, signIn={row.SwitchId}, machine={machine.MachineId}, account={email}, reason={reason}");
         return row;
+    }
+
+    /// <summary>The time of the sign-in the machine had reported for the account before this row's sign-in was asked
+    /// for; null when it held none or said no time.</summary>
+    public static DateTime? SignedInBefore(LicenseSwitchLogEntity row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        return row.DirectorStartedAtUtc is { } before ? Utc(before) : null;
     }
 
     /// <summary>One sign-in row by its identifier; null when this account has none.</summary>

@@ -3,7 +3,9 @@ using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data.Entities;
 using CcDirector.Gateway.Licenses;
+using CcDirector.Gateway.Tenancy;
 using CcDirector.Gateway.Tests.Data;
+using CcDirector.Core.Utilities;
 using Xunit;
 using static CcDirector.Gateway.Tests.Licenses.LicenseTestData;
 
@@ -253,6 +255,26 @@ public sealed class LicenseSignInServiceTests : IDisposable
     }
 
     [Theory]
+    [InlineData("account-b@example.com\nINJECTED", "0123456789abcdef0123456789abcdef", "invalid_account")]
+    [InlineData("account-b\u202eINJECTED@example.com", "0123456789abcdef0123456789abcdef", "invalid_account")]
+    [InlineData(B, "the-mac\nINJECTED", "invalid_machine")]
+    [InlineData(B, "INJECTED0123456789abcdef0123456789abcdef", "invalid_machine")]
+    public void Start_NothingTheCallerSentIsLoggedBeforeItIsChecked(string account, string machineId, string word)
+    {
+        MacOnA();
+        using var capture = FileLog.RedirectForTests();
+        FileLog.Start();
+
+        var start = _service.Start(One, account, machineId, LicenseSignInReasons.Manual);
+        var lines = capture.DrainAndReadLines();
+
+        AssertRefused(start, 400, word);
+        Assert.Contains(lines, l => l.Contains($"[LicenseSignInService] Start: REFUSED {word}"));
+        Assert.DoesNotContain(lines, l => l.Contains("INJECTED"));
+        Assert.Empty(Rows());
+    }
+
+    [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("the-mac")]
@@ -394,83 +416,265 @@ public sealed class LicenseSignInServiceTests : IDisposable
         Assert.Equal((LicenseSignInOutcomes.Added, "Signed in.", 1), (TheRow().State, TheRow().Message, TheRow().SendCount));
     }
 
-    // ----- a row with no answer is settled from the machine's report -----
+    // ----- a row with no answer is settled: by asking its Director again, else from a later report -----
 
-    private async Task<string> AStartedSignInWithNoAnswer(Func<string, LicenseSignInStart> start)
+    private static readonly DateTime Due = T0 + LicenseSignInService.UnansweredAfter + TimeSpan.FromSeconds(1);
+
+    private Task<int> Settle(TenantId? tenant = null) => _service.SettleUnansweredAsync(tenant ?? One, CancellationToken.None);
+
+    private void NoAnswerComesBack()
+        => _directors.AnswerWith(_ => DirectorCommandResult.Fail(DirectorCommandStatus.Timeout, "no answer"));
+
+    private async Task<string> AStartedSignInWithNoAnswer(Func<string, LicenseSignInStart> start, DateTime? signedInBefore = null)
     {
-        var mac = MacOnA();
-        _directors.AnswerWith(_ => DirectorCommandResult.Fail(DirectorCommandStatus.Timeout, "no answer"));
+        var holding = Holding(A, true, readAt: _now);
+        holding.SignedInAtUtc = signedInBefore;
+        var mac = Reports(One, Mac, Director, holding);
+        NoAnswerComesBack();
         await Finished(start(mac));
         return mac;
     }
 
+    /// <summary>The machine's report is accepted now, and its Director is not connected afterwards.</summary>
+    private void ReportsAndIsGone(params LicenseHolding[] holdings)
+    {
+        Reports(One, Mac, Director, holdings);
+        _directors.Disconnect(One, Director);
+    }
+
     [Fact]
-    public async Task SettleUnanswered_BeforeNoDirectorCouldStillBeRunningIt_LeavesTheRowOpen()
+    public async Task Settle_BeforeNoDirectorCouldStillBeRunningIt_AsksNobody_AndLeavesTheRowOpen()
     {
         await AStartedSignInWithNoAnswer(mac => AddSpare(mac));
         _now = T0 + LicenseSignInService.UnansweredAfter;
 
-        Assert.Equal(0, _service.SettleUnanswered(One));
+        Assert.Equal(0, await Settle());
+
+        Assert.Equal(LicenseLogStates.Unknown, TheRow().State);
+        Assert.Single(_directors.Of(LicenseContract.SignInVerb));
+    }
+
+    [Fact]
+    public async Task Settle_AsksTheDirectorAgainWithTheSameIdentifier_InItsOwnScope_AndEndsTheRowWithItsStoredAnswer()
+    {
+        await AStartedSignInWithNoAnswer(mac => AddSpare(mac));
+        var asked = TheRow();
+        _now = Due;
+        _directors.AnswerWith(sent => FakeLicenseDirectors.Ok(new LicenseSignInResult
+        {
+            SignInId = ((LicenseSignInRequest)sent.Payload).SignInId,
+            Outcome = LicenseSignInOutcomes.Added,
+            Message = "Signed in, as the Director stored it.",
+            FinishedAtUtc = T0.AddMinutes(3),
+            Replayed = true,
+        }));
+
+        Assert.Equal(1, await Settle());
+
+        var sends = _directors.Of(LicenseContract.SignInVerb);
+        Assert.Equal(2, sends.Count);
+        var again = (LicenseSignInRequest)sends[1].Payload;
+        // The SAME identifier, with its first deadline - which has passed, so a Director that never saw it starts nothing.
+        Assert.Equal((asked.SwitchId, B, LicenseSignInReasons.Manual, T0 + LicenseContract.SignInNotAfter),
+            (again.SignInId, again.AccountEmail, again.Reason, again.NotAfterUtc));
+        Assert.True(again.NotAfterUtc < _now);
+        Assert.Equal((One, Director, LicenseSignInService.AskAgainWait), (sends[1].Scope, sends[1].DirectorId, sends[1].Timeout));
+
+        var row = TheRow();
+        Assert.Equal((LicenseSignInOutcomes.Added, "Signed in, as the Director stored it.", true, 2),
+            (row.State, row.Message, row.Replayed, row.SendCount));
+        Assert.Equal((T0.AddMinutes(3), Due), (row.DirectorFinishedAtUtc, row.FinishedAtUtc));
+    }
+
+    [Fact]
+    public async Task Settle_ADirectorThatNeverSawTheSignIn_SaysItStartedNothing_AndTheRowEndsFailedExpired()
+    {
+        await AStartedSignInWithNoAnswer(mac => AddSpare(mac));
+        _now = Due;
+        TheDirectorAnswers(LicenseSignInOutcomes.Failed, LicenseRenewalErrors.Expired, "The request arrived after its deadline; nothing was started.");
+
+        Assert.Equal(1, await Settle());
+
+        var row = TheRow();
+        Assert.Equal((LicenseSignInOutcomes.Failed, LicenseRenewalErrors.Expired, "The request arrived after its deadline; nothing was started."),
+            (row.State, row.ReasonCode, row.Message));
+    }
+
+    [Fact]
+    public async Task Settle_TheTunnelDroppedAndNoReportSince_StaysOpen_HoweverLongItIs()
+    {
+        await AStartedSignInWithNoAnswer(mac => AddSpare(mac));
+        _directors.Disconnect(One, Director);
+
+        foreach (var later in new[] { TimeSpan.FromSeconds(1), TimeSpan.FromHours(1), TimeSpan.FromDays(3) })
+        {
+            _now = T0 + LicenseSignInService.UnansweredAfter + later;
+            Assert.Equal(0, await Settle());
+        }
+
+        // The only report is the one from before the sign-in was asked for: it says nothing about how it ended.
+        var row = TheRow();
+        Assert.Equal(LicenseLogStates.Unknown, row.State);
+        Assert.Null(row.FinishedAtUtc);
+        Assert.Single(_directors.Of(LicenseContract.SignInVerb));
+    }
+
+    [Fact]
+    public async Task Settle_AReportAcceptedWhileTheSignInCouldStillBeRunning_SettlesNothing()
+    {
+        await AStartedSignInWithNoAnswer(mac => AddSpare(mac));
+        // Accepted at the very last moment a Director could still have been running it: not after it.
+        _now = T0 + LicenseSignInService.UnansweredAfter;
+        ReportsAndIsGone(Holding(A, true, readAt: _now));
+        _now = Due.AddHours(1);
+
+        Assert.Equal(0, await Settle());
 
         Assert.Equal(LicenseLogStates.Unknown, TheRow().State);
     }
 
     [Fact]
-    public async Task SettleUnanswered_ANewSpareTheMachinesReportShows_EndsAdded_AndSaysItWasSettledFromTheReport()
+    public async Task Settle_NoDirectorToAsk_ANewSpareShownByAReportAcceptedAfterwards_EndsAdded_AndSaysHowItWasKnown()
     {
         await AStartedSignInWithNoAnswer(mac => AddSpare(mac));
-        _now = T0 + LicenseSignInService.UnansweredAfter + TimeSpan.FromSeconds(1);
-        Reports(One, Mac, Director, Holding(A, true, readAt: _now), Holding(B, false, readAt: _now));
+        _now = Due;
+        ReportsAndIsGone(Holding(A, true, readAt: _now), Holding(B, false, readAt: _now));
 
-        Assert.Equal(1, _service.SettleUnanswered(One));
+        Assert.Equal(1, await Settle());
 
         var row = TheRow();
-        Assert.Equal((LicenseSignInOutcomes.Added, (string?)null), (row.State, row.ReasonCode));
+        Assert.Equal((LicenseSignInOutcomes.Added, (string?)null, 1), (row.State, row.ReasonCode, row.SendCount));
         Assert.Equal("Settled from the machine's report: no answer to this sign-in came back, and the report shows the-mac holds a sign-in for account-b@example.com.", row.Message);
         Assert.Equal(_now, row.FinishedAtUtc);
     }
 
     [Fact]
-    public async Task SettleUnanswered_ANewSpareTheMachinesReportDoesNotShow_EndsFailed()
+    public async Task Settle_NoDirectorToAsk_ANewSpareNotShownByAReportAcceptedAfterwards_EndsFailed()
     {
         await AStartedSignInWithNoAnswer(mac => AddSpare(mac));
-        _now = T0 + LicenseSignInService.UnansweredAfter + TimeSpan.FromSeconds(1);
+        _now = Due;
+        ReportsAndIsGone(Holding(A, true, readAt: _now));
 
-        Assert.Equal(1, _service.SettleUnanswered(One));
+        Assert.Equal(1, await Settle());
 
         var row = TheRow();
         Assert.Equal(LicenseSignInOutcomes.Failed, row.State);
         Assert.Equal("Settled from the machine's report: no answer to this sign-in came back, and the report does not show a sign-in for account-b@example.com on the-mac.", row.Message);
     }
 
-    [Theory]
-    [InlineData(true, LicenseSignInOutcomes.Renewed)]
-    [InlineData(false, LicenseSignInOutcomes.Failed)]
-    public async Task SettleUnanswered_ARenewal_EndsRenewedOnlyWhenTheReportShowsASignInMadeAfterItWasAsked(bool signedInAfter, string expected)
+    public static TheoryData<string, DirectorCommandResult> AnswersToAskingAgainThatSettleNothing() => new()
     {
-        await AStartedSignInWithNoAnswer(mac => Renew(mac));
-        _now = T0 + LicenseSignInService.UnansweredAfter + TimeSpan.FromSeconds(1);
-        var holding = Holding(A, true, readAt: _now);
-        holding.SignedInAtUtc = signedInAfter ? T0.AddMinutes(2) : T0.AddDays(-20);
-        Reports(One, Mac, Director, holding);
+        { "no answer in time", DirectorCommandResult.Fail(DirectorCommandStatus.Timeout, "no answer") },
+        { "the tunnel dropped", DirectorCommandResult.Fail(DirectorCommandStatus.TunnelDropped, "dropped") },
+        { "the Director does not know the command", DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, "unknown verb") },
+        { "a body that is not a result", DirectorCommandResult.Success("{ not JSON") },
+    };
 
-        Assert.Equal(1, _service.SettleUnanswered(One));
+    [Theory]
+    [MemberData(nameof(AnswersToAskingAgainThatSettleNothing))]
+    public async Task Settle_ADirectorThatGivesNoAnswerWhenAskedAgain_LeavesItToTheReport_OpenUntilOneComes(string what, DirectorCommandResult answer)
+    {
+        Assert.NotEmpty(what);
+        await AStartedSignInWithNoAnswer(mac => AddSpare(mac));
+        _now = Due;
+        _directors.AnswerWith(_ => answer);
+
+        // Asked again, no answer that says what happened, and no report since: nothing is claimed.
+        Assert.Equal(0, await Settle());
+        Assert.Equal(LicenseLogStates.Unknown, TheRow().State);
+        Assert.Equal(2, TheRow().SendCount);
+
+        // A report accepted after that moment shows the spare: now it is known.
+        _now = Due.AddMinutes(2);
+        Reports(One, Mac, Director, Holding(A, true, readAt: _now), Holding(B, false, readAt: _now));
+        Assert.Equal(1, await Settle());
+        Assert.Equal(LicenseSignInOutcomes.Added, TheRow().State);
+    }
+
+    [Fact]
+    public async Task Settle_ARenewalThatWorked_OnAMachineWhoseClockIsAMinuteBehind_EndsRenewed()
+    {
+        await AStartedSignInWithNoAnswer(mac => Renew(mac), signedInBefore: T0.AddDays(-20));
+        _now = Due;
+        // The renewal finished half a minute after it was asked for. The machine's clock is a minute behind, so the
+        // time it reports is EARLIER than the moment the Gateway wrote the row - and it is still a new sign-in.
+        var renewed = Holding(A, true, readAt: _now);
+        renewed.SignedInAtUtc = T0.AddSeconds(-30);
+        ReportsAndIsGone(renewed);
+
+        Assert.Equal(1, await Settle());
+
+        var row = TheRow();
+        Assert.Equal(LicenseSignInOutcomes.Renewed, row.State);
+        Assert.Equal("Settled from the machine's report: no answer to this sign-in came back, and the report shows the sign-in for account-a@example.com on the-mac was renewed.", row.Message);
+    }
+
+    [Fact]
+    public async Task Settle_ARenewal_WhoseSignInIsStillTheOneFromBeforeItWasAsked_EndsFailed_WhateverTheClocksSay()
+    {
+        // The machine's clock is far ahead: the sign-in it held before the ask is "newer" than the row by any clock.
+        var before = T0.AddHours(6);
+        await AStartedSignInWithNoAnswer(mac => Renew(mac), signedInBefore: before);
+        _now = Due;
+        var same = Holding(A, true, readAt: _now);
+        same.SignedInAtUtc = before;
+        ReportsAndIsGone(same);
+
+        Assert.Equal(1, await Settle());
+
+        var row = TheRow();
+        Assert.Equal(LicenseSignInOutcomes.Failed, row.State);
+        Assert.Equal("Settled from the machine's report: no answer to this sign-in came back, and the report does not show a newer sign-in for account-a@example.com on the-mac.", row.Message);
+    }
+
+    [Theory]
+    [InlineData(false, true, LicenseSignInOutcomes.Renewed)]
+    [InlineData(false, false, LicenseSignInOutcomes.Failed)]
+    [InlineData(true, false, LicenseSignInOutcomes.Failed)]
+    public async Task Settle_ARenewal_WhenTheMachineSaidNoSignInTime_IsRenewedOnlyWhenTheReportNowSaysOne(bool saidBefore, bool saysNow, string expected)
+    {
+        await AStartedSignInWithNoAnswer(mac => Renew(mac), signedInBefore: saidBefore ? T0.AddDays(-20) : null);
+        _now = Due;
+        var holding = Holding(A, true, readAt: _now);
+        holding.SignedInAtUtc = saysNow ? T0.AddMinutes(1) : null;
+        ReportsAndIsGone(holding);
+
+        Assert.Equal(1, await Settle());
 
         Assert.Equal(expected, TheRow().State);
     }
 
     [Fact]
-    public async Task SettleUnanswered_NeverSettlesASignInWhoseAnswerMayStillCome()
+    public async Task ASignInRow_KeepsTheSignInTimeFromBeforeTheAsk_AndThePageIsNeverToldItAsAStart()
+    {
+        var before = T0.AddDays(-20);
+        var holding = Holding(A, true, readAt: _now);
+        holding.SignedInAtUtc = before;
+        var mac = Reports(One, Mac, Director, holding);
+        TheDirectorAnswers(LicenseSignInOutcomes.Renewed);
+
+        var row = await Finished(Renew(mac));
+
+        Assert.Equal(before, LicenseSignInLog.SignedInBefore(row));
+        var shown = LicenseDisplayFold.LogEntry(row);
+        Assert.Null(shown.StartedOnMachineAtUtc);
+        Assert.Null(shown.TimingText);
+        Assert.Equal(_now.AddSeconds(40), shown.FinishedOnMachineAtUtc);
+    }
+
+    [Fact]
+    public async Task Settle_NeverSettlesASignInWhoseAnswerMayStillCome()
     {
         var mac = MacOnA();
         var answering = new TaskCompletionSource<DirectorCommandResult?>(TaskCreationOptions.RunContinuationsAsynchronously);
         _directors.Answer = _ => answering.Task;
         var start = AddSpare(mac);
         await _directors.WaitFor(sent => sent.Verb == LicenseContract.SignInVerb);
-        _now = T0 + LicenseSignInService.UnansweredAfter + TimeSpan.FromHours(1);
+        _now = Due.AddHours(1);
 
-        Assert.Equal(0, _service.SettleUnanswered(One));
+        Assert.Equal(0, await Settle());
         Assert.Equal(LicenseLogStates.Pending, TheRow().State);
+        Assert.Single(_directors.Of(LicenseContract.SignInVerb));
 
         answering.SetResult(FakeLicenseDirectors.Ok(new LicenseSignInResult
             { SignInId = start.Row!.SwitchId!, Outcome = LicenseSignInOutcomes.Added, FinishedAtUtc = _now }));
@@ -479,12 +683,18 @@ public sealed class LicenseSignInServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Start_SettlesARowPastItsTimeFirst_SoItNeverBlocksANewSignIn()
+    public async Task ARowThatCannotBeSettledYet_StillBlocksASecondSignIn_AndOnceSettledItNoLongerDoes()
     {
         var mac = await AStartedSignInWithNoAnswer(m => AddSpare(m));
-        _now = T0 + LicenseSignInService.UnansweredAfter + TimeSpan.FromSeconds(1);
-        TheDirectorAnswers(LicenseSignInOutcomes.Added);
+        _now = Due;
 
+        // The Director is connected and gives no answer; no report since. Nothing is known, so nothing new is started.
+        Assert.Equal(0, await Settle());
+        AssertRefused(AddSpare(mac), 409, "sign_in_running");
+
+        TheDirectorAnswers(LicenseSignInOutcomes.Failed, LicenseRenewalErrors.Expired);
+        Assert.Equal(1, await Settle());
+        TheDirectorAnswers(LicenseSignInOutcomes.Added);
         Assert.True(AddSpare(mac).Accepted);
         await _service.WhenIdleAsync();
 
@@ -492,14 +702,55 @@ public sealed class LicenseSignInServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task SettleUnanswered_SettlesOnlyTheAccountItIsAskedFor()
+    public async Task Settle_SettlesOnlyTheAccountItIsAskedFor_AndAsksNoDirectorOfAnother()
     {
         await AStartedSignInWithNoAnswer(mac => AddSpare(mac));
-        _now = T0 + LicenseSignInService.UnansweredAfter + TimeSpan.FromSeconds(1);
+        _now = Due;
 
-        Assert.Equal(0, _service.SettleUnanswered(Two));
+        Assert.Equal(0, await Settle(Two));
 
         Assert.Equal(LicenseLogStates.Unknown, TheRow().State);
+        Assert.Single(_directors.Of(LicenseContract.SignInVerb));
+    }
+
+    /// <summary>A tenant pass over a fixed list: each pass runs with that tenant as the one in scope.</summary>
+    private sealed class ListedTenants(params TenantId?[] tenants) : ITenantPass
+    {
+        public TenantId? Current { get; private set; }
+
+        public void ForEachTenant(Action pass) => throw new NotSupportedException();
+
+        public async Task ForEachTenantAsync(Func<Task> pass, CancellationToken ct = default)
+        {
+            foreach (var tenant in tenants)
+            {
+                Current = tenant;
+                await pass();
+            }
+            Current = null;
+        }
+    }
+
+    [Fact]
+    public async Task SettleEveryTenant_SettlesEachAccountsRowsInItsOwnScope_AndOneAccountsFailureDoesNotStopAnother()
+    {
+        await AStartedSignInWithNoAnswer(mac => AddSpare(mac));
+        var macOfTwo = Reports(Two, Mac, "dir-of-two", Holding(A, true, readAt: _now));
+        Assert.True(_service.Start(Two, B, macOfTwo, LicenseSignInReasons.Manual).Accepted);
+        await _service.WhenIdleAsync();
+        _now = Due;
+        // Account one's Director throws when asked again; account two's answers.
+        _directors.Answer = sent => sent.DirectorId == Director
+            ? throw new InvalidOperationException("the send failed")
+            : Task.FromResult<DirectorCommandResult?>(FakeLicenseDirectors.Ok(new LicenseSignInResult
+                { SignInId = ((LicenseSignInRequest)sent.Payload).SignInId, Outcome = LicenseSignInOutcomes.Added, FinishedAtUtc = _now, Replayed = true }));
+
+        await _service.SettleEveryTenantAsync(new ListedTenants(One, null, Two), CancellationToken.None);
+
+        Assert.Equal(LicenseLogStates.Unknown, TheRow().State);
+        Assert.Equal(LicenseSignInOutcomes.Added, Assert.Single(Rows(Two)).State);
+        var again = _directors.Of(LicenseContract.SignInVerb).Skip(2).ToList();
+        Assert.Equal(new[] { (One, Director), (Two, "dir-of-two") }, again.Select(s => (s.Scope!.Value, s.DirectorId)));
     }
 
     // ----- the rows the switch code reads are untouched -----

@@ -4,6 +4,7 @@ using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data.Entities;
+using CcDirector.Gateway.Tenancy;
 
 namespace CcDirector.Gateway.Licenses;
 
@@ -36,11 +37,22 @@ public sealed record LicenseSignInStart(bool Accepted, int Status, string? Refus
 /// the Director refused the command or failed - <c>failed</c>, <c>director-error</c>; an answer - its outcome, its
 /// reason and its sentence.
 ///
-/// AN OPEN ROW IS SETTLED, NEVER LEFT. A row with no answer - the wait ended, the tunnel dropped, or the Gateway
-/// restarted while it waited - is settled by <see cref="SettleUnanswered"/> once no Director could still be running
-/// it: from the machine's own report, which is the only thing that shows whether the sign-in was made, and the row's
-/// sentence says that is how it was known. The host calls it once a minute; <see cref="Start"/> calls it first, so a
-/// row past its time never blocks a new sign-in.
+/// AN OPEN ROW IS SETTLED BY WHAT HAPPENED, NEVER BY A GUESS. A row with no answer - the wait ended, the tunnel
+/// dropped, or the Gateway restarted while it waited - is settled by <see cref="SettleUnansweredAsync"/> once no
+/// Director could still be running it, in this order:
+///
+/// 1. THE DIRECTOR IS ASKED AGAIN, with the same identifier (contract sections 8.4 and 3.6). A Director that ran the
+///    sign-in answers with its stored result; one that never saw it answers <c>failed</c> / <c>expired</c>, because
+///    the request is past its own <c>NotAfterUtc</c>. Either is what really happened, and neither can start anything.
+/// 2. ONLY WHEN NO SUCH ANSWER CAN BE HAD - the Director is not connected, or did not answer - the row is settled
+///    from the machine's report, and then only from a report the Gateway accepted AFTER the last moment a Director
+///    could still have been running the sign-in. A report from before that says nothing about how it ended, so until
+///    one arrives the row stays open. A new spare is <c>added</c> when that report shows the machine holds it. A
+///    renewal is <c>renewed</c> when the sign-in's own time in that report DIFFERS from the one the machine had
+///    reported before the sign-in was asked for - never by comparing the machine's clock with the Gateway's, which
+///    may be minutes apart.
+///
+/// The host calls it once a minute. While a row is open, a second sign-in for that machine and account is refused.
 ///
 /// It never touches a sign-in key or what completes a sign-in: the command carries an identifier, an email, a reason
 /// word and a time. When the Director needs another machine's approval it asks for it by itself (section 8.3).
@@ -54,6 +66,10 @@ public sealed class LicenseSignInService
     /// <see cref="LicenseContract.SignInCommandTimeout"/> of starting.</summary>
     public static readonly TimeSpan UnansweredAfter = LicenseContract.SignInNotAfter + LicenseContract.SignInCommandTimeout;
 
+    /// <summary>How long the Gateway waits for a Director's answer to a sign-in asked again. The answer is a stored
+    /// result or a refusal, so it comes at once or not at all.</summary>
+    public static readonly TimeSpan AskAgainWait = TimeSpan.FromSeconds(60);
+
     private readonly LicenseSignInLog _log;
     private readonly LicenseReadModel _reads;
     private readonly Func<TenantId, string, bool> _isConnected;
@@ -65,8 +81,10 @@ public sealed class LicenseSignInService
     // What is checked and written for a start happens one at a time, so two requests at the same moment cannot both
     // find no sign-in running and write two rows. Never held across a send.
     private readonly object _starting = new();
-    // The sign-ins whose command is in flight in THIS process: never settled from a report while their answer may come.
+    // The sign-ins whose command is in flight in THIS process: never settled while their answer may come.
     private readonly ConcurrentDictionary<(TenantId Tenant, string SignInId), Task> _inFlight = new();
+    // The tenants whose open rows are being settled now: a pass that finds the last one still asking a Director skips.
+    private readonly ConcurrentDictionary<TenantId, byte> _settling = new();
 
     internal LicenseSignInService(LicenseSignInLog log, LicenseReadModel reads, Func<TenantId, string, bool> isConnected,
         LicenseCommandSender send, Func<TenantId, IDisposable> enterScope, Func<DateTime> nowUtc, CancellationToken lifetime)
@@ -91,20 +109,21 @@ public sealed class LicenseSignInService
         if (reason is not (LicenseSignInReasons.Manual or LicenseSignInReasons.Renewal))
             throw new ArgumentException($"'{reason}' is not a sign-in reason.", nameof(reason));
         var email = LicenseStore.NormalizeEmail(accountEmail);
-        FileLog.Write($"[LicenseSignInService] Start: tenant={tenant.ToLogString()}, account={email}, machine={machineId}, reason={reason}");
+        // Nothing the caller sent is written to the log before it has been checked.
+        FileLog.Write($"[LicenseSignInService] Start: tenant={tenant.ToLogString()}, reason={reason}");
         try
         {
             if (!LicenseApproverStore.IsAccountEmail(email))
                 return Refuse(StatusCodes.BadRequest, "invalid_account", "accountEmail is the email of a Claude account.");
             if (!Guid.TryParseExact(machineId?.Trim(), "N", out var id))
                 return Refuse(StatusCodes.BadRequest, "invalid_machine", "machineId is the machineId of a machine in the overview.");
+            FileLog.Write($"[LicenseSignInService] Start: account={email}, machine={id:N}");
 
             LicenseSwitchLogEntity row;
             LicenseMachineView machine;
             string label;
             lock (_starting)
             {
-                SettleUnanswered(tenant);
                 var now = _nowUtc();
                 var machines = _reads.Read(tenant, now).Machines;
                 var found = machines.FirstOrDefault(m => m.MachineId == id);
@@ -113,7 +132,8 @@ public sealed class LicenseSignInService
                 machine = found;
                 label = LicenseSignInFold.Label(machines, machine.MachineName, machine.OsUser);
 
-                var holds = machine.Holdings.Any(h => h.AccountEmail == email);
+                var held = machine.Holdings.FirstOrDefault(h => h.AccountEmail == email);
+                var holds = held is not null;
                 if (reason == LicenseSignInReasons.Manual && holds)
                     return Refuse(StatusCodes.Conflict, "already_held", LicenseSignInFold.AlreadyHeldText(label, email));
                 if (reason == LicenseSignInReasons.Renewal && !holds)
@@ -123,7 +143,8 @@ public sealed class LicenseSignInService
                 if (!_isConnected(tenant, machine.DirectorId))
                     return Refuse(StatusCodes.Conflict, "director_offline", LicenseSignInFold.DirectorOfflineText(label));
 
-                row = _log.CreatePending(tenant, machine, email, reason, LicenseSignInFold.AskedText(label, email, reason), now);
+                row = _log.CreatePending(tenant, machine, email, reason, LicenseSignInFold.AskedText(label, email, reason), now,
+                    held?.SignedInAtUtc);
             }
 
             var signInId = row.SwitchId!;
@@ -156,12 +177,53 @@ public sealed class LicenseSignInService
     internal Task WhenIdleAsync() => Task.WhenAll(_inFlight.Values.ToArray());
 
     /// <summary>
-    /// Settle this tenant's sign-in rows that are still open with no answer possible any more: not in flight in this
-    /// process, and older than <see cref="UnansweredAfter"/>. Each ends as what the machine's latest report shows - a
-    /// new spare that is held is <c>added</c>, a renewal whose sign-in is newer than the row is <c>renewed</c>, and
-    /// anything else <c>failed</c>. Returns how many it settled. A tenant with no such row costs one read and no line.
+    /// <see cref="SettleUnansweredAsync"/> for every tenant, each inside its own scope. One tenant's failure is logged
+    /// and does not stop another tenant's rows from being settled, and one Director that does not answer holds up only
+    /// its own tenant.
     /// </summary>
-    public int SettleUnanswered(TenantId tenant)
+    public async Task SettleEveryTenantAsync(ITenantPass tenants, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(tenants);
+        var passes = new List<Task>();
+        try
+        {
+            await tenants.ForEachTenantAsync(() =>
+            {
+                // No scope in effect: settle nothing, never a tenant of our own choosing.
+                if (tenants.Current is { } tenant)
+                    passes.Add(SettleOneTenantAsync(tenant, ct));
+                return Task.CompletedTask;
+            }, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            // Every pass that was started is waited for, also when the walk over the tenants stopped part-way.
+            await Task.WhenAll(passes).ConfigureAwait(false);
+        }
+    }
+
+    private async Task SettleOneTenantAsync(TenantId tenant, CancellationToken ct)
+    {
+        try
+        {
+            await SettleUnansweredAsync(tenant, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The boundary of one tenant's pass: its failure must never cost another tenant its settling. The TYPE
+            // only, as everywhere a Director's answer may be in reach.
+            FileLog.Write($"[LicenseSignInService] SettleEveryTenantAsync: FAILED for tenant={tenant.ToLogString()}: {ex.GetType().Name}");
+        }
+    }
+
+    /// <summary>
+    /// Settle this tenant's sign-in rows that are still open with no answer possible any more: not in flight in this
+    /// process, and older than <see cref="UnansweredAfter"/>. Each is settled as the class says - by asking its
+    /// Director again, and only when that gives no answer, from a report accepted after the last moment the sign-in
+    /// could still have been running. A row that cannot be settled yet stays open. Returns how many it settled. A
+    /// tenant with no such row costs one read and no line.
+    /// </summary>
+    public async Task<int> SettleUnansweredAsync(TenantId tenant, CancellationToken ct)
     {
         var open = _log.ListOpen(tenant);
         if (open.Count == 0)
@@ -170,23 +232,86 @@ public sealed class LicenseSignInService
         var due = open.Where(r => !_inFlight.ContainsKey((tenant, r.SwitchId!)) && now - r.CreatedAtUtc > UnansweredAfter).ToList();
         if (due.Count == 0)
             return 0;
-
-        var machines = _reads.Read(tenant, now).Machines;
-        foreach (var row in due)
+        if (!_settling.TryAdd(tenant, 0))
         {
-            var machine = machines.FirstOrDefault(m => m.MachineId == row.MachineId);
-            var label = LicenseSignInFold.Label(machines, row.MachineName, row.OsUser);
-            var holding = machine?.Holdings.FirstOrDefault(h => h.AccountEmail == row.ToAccountEmail);
-            var made = row.Reason == LicenseSignInReasons.Renewal
-                ? holding?.SignedInAtUtc is { } signedIn && signedIn > row.CreatedAtUtc
-                : holding is not null;
-            var state = !made ? LicenseSignInOutcomes.Failed
-                : row.Reason == LicenseSignInReasons.Renewal ? LicenseSignInOutcomes.Renewed
-                : LicenseSignInOutcomes.Added;
-            _log.TryFinish(tenant, row.SwitchId!, state, null, LicenseSignInFold.SettledFromReportText(label, row.ToAccountEmail, row.Reason, made), now);
+            FileLog.Write($"[LicenseSignInService] SettleUnansweredAsync: tenant={tenant.ToLogString()}, the previous pass has not finished - skipped");
+            return 0;
         }
-        FileLog.Write($"[LicenseSignInService] SettleUnanswered: tenant={tenant.ToLogString()}, settled={due.Count}");
-        return due.Count;
+        IDisposable? scope = null;
+        try
+        {
+            scope = _enterScope(tenant);
+            var settled = 0;
+            foreach (var row in due)
+            {
+                if (await SettleOneAsync(tenant, row, ct).ConfigureAwait(false))
+                    settled++;
+            }
+            // A pass that settled nothing says nothing: a row waiting for its machine is looked at every minute.
+            if (settled > 0)
+                FileLog.Write($"[LicenseSignInService] SettleUnansweredAsync: tenant={tenant.ToLogString()}, settled={settled} of {due.Count}");
+            return settled;
+        }
+        finally
+        {
+            scope?.Dispose();
+            _settling.TryRemove(tenant, out _);
+        }
+    }
+
+    /// <summary>Settle one row that is due. True when it ended; false when nothing can be known yet and it stays open.</summary>
+    private async Task<bool> SettleOneAsync(TenantId tenant, LicenseSwitchLogEntity row, CancellationToken ct)
+    {
+        var signInId = row.SwitchId!;
+        var machine = _reads.Read(tenant, _nowUtc()).Machines.FirstOrDefault(m => m.MachineId == row.MachineId);
+
+        // 1. Ask the Director again. The request is past its NotAfterUtc, so a Director that never saw it starts
+        //    nothing and says so; one that ran it answers with what it stored.
+        if (machine is not null && _isConnected(tenant, machine.DirectorId))
+        {
+            var request = new LicenseSignInRequest
+            {
+                SignInId = signInId,
+                AccountEmail = row.ToAccountEmail,
+                Reason = row.Reason!,
+                NotAfterUtc = row.NotAfterUtc!.Value,
+            };
+            var sentAt = _nowUtc();
+            var result = await _send(machine.DirectorId, LicenseContract.SignInVerb, request, AskAgainWait, machine.MachineName, ct)
+                .ConfigureAwait(false);
+            if (result is not null)
+                _log.RecordSend(tenant, signInId, machine.DirectorId, sentAt);
+            if (result is { Status: DirectorCommandStatus.Ok } && ReadAnswer(result, signInId) is { } answer)
+            {
+                var ended = _log.TryFinish(tenant, signInId, answer.Outcome, answer.ReasonCode, answer.Message, _nowUtc(),
+                    answer.FinishedAtUtc == default ? null : answer.FinishedAtUtc, answer.Replayed);
+                FileLog.Write($"[LicenseSignInService] signIn={signInId}: asked again, director={machine.DirectorId}, outcome={answer.Outcome}, "
+                              + $"reason={answer.ReasonCode ?? "-"}, replayed={answer.Replayed}, ended={ended}");
+                return ended;
+            }
+            FileLog.Write($"[LicenseSignInService] signIn={signInId}: asked again, director={machine.DirectorId}, no answer that settles it "
+                          + $"({(result is null ? "not connected" : result.Status.ToString())})");
+        }
+
+        // 2. The machine's report - but only one the Gateway accepted after the last moment a Director could still
+        //    have been running this sign-in. Read again: asking may have taken a minute.
+        var now = _nowUtc();
+        var machines = _reads.Read(tenant, now).Machines;
+        machine = machines.FirstOrDefault(m => m.MachineId == row.MachineId);
+        if (machine is null || machine.LastReportAtUtc <= row.CreatedAtUtc + UnansweredAfter)
+            return false;
+
+        var label = LicenseSignInFold.Label(machines, row.MachineName, row.OsUser);
+        var holding = machine.Holdings.FirstOrDefault(h => h.AccountEmail == row.ToAccountEmail);
+        var isRenewal = row.Reason == LicenseSignInReasons.Renewal;
+        // A renewal was made when the sign-in's own time is not the one the machine had reported before the ask
+        // (kept on the row). Two times of the machine's own clock are compared, never one with the Gateway's.
+        var made = isRenewal
+            ? holding?.SignedInAtUtc is { } signedIn && signedIn != LicenseSignInLog.SignedInBefore(row)
+            : holding is not null;
+        var state = !made ? LicenseSignInOutcomes.Failed : isRenewal ? LicenseSignInOutcomes.Renewed : LicenseSignInOutcomes.Added;
+        return _log.TryFinish(tenant, signInId, state, null,
+            LicenseSignInFold.SettledFromReportText(label, row.ToAccountEmail, row.Reason, made), now);
     }
 
     /// <summary>One sign-in: send it, and write what came back on its row. The entry point of a background task, so
@@ -211,7 +336,7 @@ public sealed class LicenseSignInService
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {
-            // The row stays open; the Gateway that starts next settles it from the machine's report.
+            // The row stays open; the Gateway that starts next settles it (SettleUnansweredAsync).
             FileLog.Write($"[LicenseSignInService] signIn={signInId}: stopped, the Gateway is stopping");
         }
         catch (Exception ex)
