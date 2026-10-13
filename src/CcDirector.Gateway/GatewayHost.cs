@@ -6648,7 +6648,13 @@ public sealed class GatewayHost : IAsyncDisposable
         _ = RunLicenseSwitchCheckAsync();
     }
 
-    internal async Task RunLicenseSwitchCheckAsync()
+    /// <summary>One minute's license check: the switches and the sign-ins with no answer, and BESIDE them the
+    /// failed-renewal emails. The two run at the same time, each on its own try: the switch pass waits up to a minute
+    /// for a Director that does not answer, and no account's renewal email waits behind that.</summary>
+    internal Task RunLicenseSwitchCheckAsync()
+        => Task.WhenAll(RunLicenseRenewalEmailCheckAsync(), RunLicenseSwitchPassAsync());
+
+    private async Task RunLicenseSwitchPassAsync()
     {
         try
         {
@@ -6666,7 +6672,12 @@ public sealed class GatewayHost : IAsyncDisposable
         {
             FileLog.Write($"[GatewayHost] license switch check FAILED: {ex.Message}");
         }
-        // The failed-renewal emails ride the same minute, on their own try, so one failing never skips the other.
+    }
+
+    internal async Task RunLicenseRenewalEmailCheckAsync()
+    {
+        // Not behind an await of the switch pass: a first await here hands the caller its task at once.
+        await Task.Yield();
         try
         {
             await LicenseRenewalEmails.TickEveryTenantAsync(_tenantPass, _licenseSwitchLifetime.Token).ConfigureAwait(false);

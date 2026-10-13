@@ -150,9 +150,12 @@ public sealed class LicenseStorePostgresTests
         var machine = Assert.Single(new LicenseReadModel(store).Read(tenant, T0.AddSeconds(1)).Machines, m => m.MachineId == machineId);
 
         // One open warning for one sign-in: opening it again is the same row. Another sign-in has its own.
-        var opened = log.Open(tenant, machine, a.ToUpperInvariant(), T0.AddHours(20), "The sign-in could not be renewed.", T0);
-        var again = log.Open(tenant, machine, a, T0.AddHours(21), "Another message.", T0.AddMinutes(1));
-        var other = log.Open(tenant, machine, b, T0.AddHours(22), "The sign-in could not be renewed.", T0.AddMinutes(1));
+        var opened = log.Open(tenant, machine, a.ToUpperInvariant(), T0.AddHours(20), T0.AddDays(-28), "The sign-in could not be renewed.", T0);
+        var again = log.Open(tenant, machine, a, T0.AddHours(21), T0.AddDays(-1), "Another message.", T0.AddMinutes(1));
+        var other = log.Open(tenant, machine, b, T0.AddHours(22), null, "The sign-in could not be renewed.", T0.AddMinutes(1));
+        // When the sign-in was made, as it was said when the row was opened, is kept and read back; none is none.
+        Assert.Equal(T0.AddDays(-28), LicenseRenewalFailureLog.SignedInWhenOpened(Assert.Single(log.ListOpen(tenant), r => r.Id == opened.Id)));
+        Assert.Null(LicenseRenewalFailureLog.SignedInWhenOpened(Assert.Single(log.ListOpen(tenant), r => r.Id == other.Id)));
         Assert.Equal(opened.Id, again.Id);
         Assert.NotEqual(opened.Id, other.Id);
         Assert.Equal((LicenseRenewalFailureLog.Kind, LicenseLogStates.Open, a, T0.AddHours(20)),
@@ -179,7 +182,7 @@ public sealed class LicenseStorePostgresTests
             (ended.State, ended.FinishedAtUtc, ended.ReasonCode, ended.Message));
 
         // A streak that starts after this one ended is a new row.
-        Assert.NotEqual(opened.Id, log.Open(tenant, machine, a, T0.AddHours(30), "The sign-in could not be renewed.", T0.AddHours(3)).Id);
+        Assert.NotEqual(opened.Id, log.Open(tenant, machine, a, T0.AddHours(30), null, "The sign-in could not be renewed.", T0.AddHours(3)).Id);
     }
 
     [RequiresPostgresFact]

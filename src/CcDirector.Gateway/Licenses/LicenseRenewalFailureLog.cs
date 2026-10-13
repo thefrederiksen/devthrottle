@@ -20,12 +20,14 @@ namespace CcDirector.Gateway.Licenses;
 /// No table and no column is added: the row uses the switch log's own. The account is in
 /// <see cref="LicenseSwitchLogEntity.ToAccountEmail"/>, when the sign-in ends in
 /// <see cref="LicenseSwitchLogEntity.NotAfterUtc"/>, the state is <see cref="LicenseLogStates.Open"/> and then
-/// <see cref="LicenseLogStates.Ended"/>.
+/// <see cref="LicenseLogStates.Ended"/>. The sign-in's own time as the machine reported it when the row was opened is
+/// kept in <see cref="LicenseSwitchLogEntity.DirectorStartedAtUtc"/> (read it with <see cref="SignedInWhenOpened"/>):
+/// a later report with a newer one is how the Gateway knows a renewal worked.
 /// </summary>
 public sealed class LicenseRenewalFailureLog
 {
     /// <summary>The kind of a failed-renewal row of the switch log.</summary>
-    public const string Kind = "renewal-failed";
+    public const string Kind = LicenseLogKinds.RenewalFailed;
 
     private readonly GatewayDatabase _db;
 
@@ -51,8 +53,10 @@ public sealed class LicenseRenewalFailureLog
     /// Record that a failure streak of one sign-in reached the point where the owner is told. A sign-in has at most
     /// one open warning: when one is already open it is returned unchanged.
     /// </summary>
+    /// <param name="signInExpiresAtUtc">When the sign-in ends, as the machine reported it.</param>
+    /// <param name="signedInAtUtc">When the sign-in was made, as the machine reported it; null when it did not say.</param>
     public LicenseSwitchLogEntity Open(TenantId tenant, LicenseMachineView machine, string accountEmail, DateTime signInExpiresAtUtc,
-        string message, DateTime nowUtc)
+        DateTime? signedInAtUtc, string message, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(machine);
         var email = LicenseStore.NormalizeEmail(accountEmail);
@@ -79,6 +83,7 @@ public sealed class LicenseRenewalFailureLog
                 Message = Cap(message),
                 CreatedAtUtc = Utc(nowUtc),
                 NotAfterUtc = Utc(signInExpiresAtUtc),
+                DirectorStartedAtUtc = signedInAtUtc is { } signedIn ? Utc(signedIn) : null,
                 TenantId = ctx.ActiveTenant!,
             };
             ctx.LicenseSwitchLog.Add(row);
@@ -153,6 +158,14 @@ public sealed class LicenseRenewalFailureLog
             FileLog.Write($"[LicenseRenewalFailureLog] Close FAILED: {ex.Message}");
             throw;
         }
+    }
+
+    /// <summary>When the sign-in of a failed-renewal row was made, as the machine had reported it when the row was
+    /// opened; null when it had not said.</summary>
+    public static DateTime? SignedInWhenOpened(LicenseSwitchLogEntity row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        return row.DirectorStartedAtUtc is { } at ? Utc(at) : null;
     }
 
     private static string Cap(string message)

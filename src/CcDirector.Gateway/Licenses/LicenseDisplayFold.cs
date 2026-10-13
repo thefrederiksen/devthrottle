@@ -768,7 +768,8 @@ public static class LicenseDisplayFold
                 : message ?? kindText,
             SendCount = row.SendCount,
             LastSentAtUtc = UtcOrNull(row.LastSentAtUtc),
-            StartedOnMachineAtUtc = UtcOrNull(row.DirectorStartedAtUtc),
+            // On a failed-renewal row that column is when the sign-in was made, not when anything started.
+            StartedOnMachineAtUtc = row.Kind == LicenseRenewalFailureLog.Kind ? null : UtcOrNull(row.DirectorStartedAtUtc),
             FinishedOnMachineAtUtc = UtcOrNull(row.DirectorFinishedAtUtc),
             ExchangeMilliseconds = row.ExchangeMilliseconds,
             FinishedAtUtc = UtcOrNull(row.FinishedAtUtc),
@@ -810,6 +811,9 @@ public static class LicenseDisplayFold
         LicenseSwitchReasonCodes.ExchangeFailedUnknown => "The exchange failed and could not be undone; check the machine.",
         LicenseSwitchReasonCodes.VerifyFailed => "After the exchange the machine was not on the target.",
         LicenseGatewayReasonCodes.DirectorOffline => "The machine's Director was not connected.",
+        LicenseGatewayReasonCodes.OwnerEmailed => "The owner was emailed.",
+        LicenseGatewayReasonCodes.OwnerEmailFailed => "The owner has not been emailed yet; it is tried again.",
+        LicenseGatewayReasonCodes.NoOwnerAccount => "This Gateway has no DevThrottle account to email.",
         LicenseGatewayReasonCodes.DirectorError => "The machine's Director answered with an error.",
         _ => reasonCode,
     };

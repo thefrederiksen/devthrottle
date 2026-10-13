@@ -699,7 +699,7 @@ than any window lasts - is not expected to reach it, whatever its reset time.
 | `fromAccountEmail`, `toAccountEmail` | A switch's from and to. On `spare-added` and `renewal-failed` only `to` is set (on `renewal-failed` it is the account whose sign-in could not be renewed), on `spare-removed` and `no-room` only `from`. |
 | `why`, `whyText` | Why a switch was asked for: `threshold` (Threshold reached) or `manual` (By hand). Null and "" on other rows. |
 | `state`, `stateText`, `stateTone`, `isOpen` | Where the row stands, in the table below. `isOpen` is true while it has not reached its end. |
-| `reasonCode`, `reasonText` | When a switch is waiting or failed: the reason word and its sentence. On a `no-room` or `renewal-failed` row: what became of the owner email (`owner-emailed`, `owner-email-failed`, `no-owner-account`), and null before the first try. Null otherwise. |
+| `reasonCode`, `reasonText` | When a switch is waiting or failed: the reason word and its sentence. On a `no-room` or `renewal-failed` row: what became of the owner email - `owner-emailed` ("The owner was emailed."), `owner-email-failed` ("The owner has not been emailed yet; it is tried again."), `no-owner-account` ("This Gateway has no DevThrottle account to email.") - and null before the first try. Null otherwise. |
 | `message` | The sentence the machine or the Gateway wrote on the row; may be null. |
 | `summary` | The row in one sentence. Always set. |
 | `sendCount`, `lastSentAtUtc` | How many times the command was sent, and when last. |
@@ -726,19 +726,23 @@ a later build writes is not said to be under way: its `summary` is its message, 
 A `no-room` row is open while its `finishedAtUtc` is null (the account is still out of room), whatever its state word.
 
 A `renewal-failed` row is one FAILURE STREAK of one sign-in on one machine (contract section 8.1): written when a
-machine's renewal of a sign-in is failing and that sign-in ends within three days, open while the renewal keeps
-failing, and ended by the report that says a renewal worked or that the machine no longer holds the sign-in. It is
-open while its `finishedAtUtc` is null. Its `summary` is a finished sentence that also says what became of the one
-owner email of that streak:
+machine's renewal of a sign-in is failing and that sign-in ends within three days, and open until the machine
+reports a NEWER sign-in for that account (one that ends later, or was made later) or no longer holds the sign-in. A
+report that only stops saying the renewal failed ends nothing: a Director that has just started has forgotten its
+failed renewals. It is open while its `finishedAtUtc` is null. Its `summary` is a finished sentence that says what
+is wrong, how old the facts are, and what became of the one owner email of that streak. Every time in it is a
+moment, never a distance, so it stays true however long the row is open:
 
-- "Renewing the sign-in for account-a@example.com on the-mac is failing, and the sign-in expires in 2 days; the
-  owner was emailed."
-- "... is failing, and the sign-in expired 3 hours ago; the owner has not been emailed yet because {why}."
-- "... is failing, and the sign-in expires in 2 days; no owner email was sent because {why}."
-- "Renewing the sign-in for account-a@example.com on the-mac had been failing; a renewal has now worked."
+- "Renewing the sign-in for account-a@example.com on the-mac is failing, and the sign-in ends at 2026-10-13 03:12
+  UTC (the last try failed at 2026-10-11 03:07 UTC by the machine's clock; the-mac last reported at 2026-10-11 03:12
+  UTC); the owner was emailed."
+- "... UTC); the owner has not been emailed yet because {why}."
+- "... UTC); no owner email was sent because {why}."
+- "Renewing the sign-in for account-a@example.com on the-mac had been failing; the-mac now reports a newer sign-in."
 - "Renewing the sign-in for account-a@example.com on the-mac had been failing; the-mac no longer holds that sign-in."
 
-`sendCount` is 1 and `lastSentAtUtc` is set once the owner was emailed. The page shows the row like any other; the
+`startedOnMachineAtUtc` and `timingText` are always `null` on this row. `sendCount` is 1 and `lastSentAtUtc` is set
+once the owner was emailed. The page shows the row like any other; the
 holding itself still carries `renewalFailedText` (section 2), which is where the reason is said.
 
 ### Example (`?limit=4`)

@@ -17,6 +17,11 @@ public static class LicenseLogKinds
     /// <summary>An exhaustion event: an account in use reached the threshold and no account had room, so nothing was
     /// switched. One row per event, open while its <c>FinishedAtUtc</c> is null.</summary>
     public const string NoRoom = "no-room";
+
+    /// <summary>A failed-renewal warning (contract section 8.1): a sign-in a machine holds is about to end and its
+    /// renewal keeps failing. One row for each failure streak of each sign-in, open while its <c>FinishedAtUtc</c> is
+    /// null. Written and read by <see cref="LicenseRenewalFailureLog"/> only.</summary>
+    public const string RenewalFailed = "renewal-failed";
 }
 
 /// <summary>Where a switch log row stands. <see cref="Pending"/> and <see cref="Unknown"/> are open; the rest are final.</summary>
@@ -35,10 +40,10 @@ public static class LicenseLogStates
     /// <summary>A spare row: final when written.</summary>
     public const string Recorded = "recorded";
 
-    /// <summary>A no-room row while its event lasts.</summary>
+    /// <summary>A no-room row while its event lasts, and a failed-renewal row while its streak lasts.</summary>
     public const string Open = "open";
 
-    /// <summary>A no-room row whose event is over.</summary>
+    /// <summary>A no-room row whose event is over, and a failed-renewal row whose streak is over.</summary>
     public const string Ended = "ended";
 
     public static bool IsOpen(string state) => state is Pending or Unknown;
@@ -51,13 +56,15 @@ public static class LicenseGatewayReasonCodes
     public const string DirectorOffline = "director-offline";
     public const string DirectorError = "director-error";
 
-    /// <summary>On a no-room row: the one owner email for the event was sent.</summary>
+    /// <summary>On a no-room row or a failed-renewal row: its one owner email was sent.</summary>
     public const string OwnerEmailed = "owner-emailed";
 
-    /// <summary>On a no-room row: the owner email has not gone out yet; it is tried again on a later minute check.</summary>
+    /// <summary>On a no-room row or a failed-renewal row: the owner email has not gone out yet; it is tried again on
+    /// a later minute check.</summary>
     public const string OwnerEmailFailed = "owner-email-failed";
 
-    /// <summary>On a no-room row: this Gateway has no DevThrottle account to email, so no email is sent for the event.</summary>
+    /// <summary>On a no-room row or a failed-renewal row: this Gateway has no DevThrottle account to email, so no
+    /// email is sent for it.</summary>
     public const string NoOwnerAccount = "no-owner-account";
 }
 
@@ -365,7 +372,8 @@ public sealed class LicenseStore
         }, rows => $"count={rows.Count}");
 
     /// <summary>The log, newest first: every row written at or after <paramref name="sinceUtc"/>, every open switch, and
-    /// every no-room event still open.</summary>
+    /// every row in the state <c>open</c> however old - a no-room event that still lasts, and a failed-renewal warning
+    /// whose streak still lasts. Rows of every kind: a reader that wants one kind filters by it.</summary>
     public IReadOnlyList<LicenseSwitchLogEntity> ListLog(TenantId tenant, DateTime sinceUtc)
     {
         var since = Utc(sinceUtc);

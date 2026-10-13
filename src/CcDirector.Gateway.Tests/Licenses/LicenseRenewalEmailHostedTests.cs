@@ -34,6 +34,7 @@ public sealed class LicenseRenewalEmailHostedTests : IAsyncLifetime
     private FakeTunnelDirector _aliceDirector = null!;
     private FakeTunnelDirector _bobDirector = null!;
     private readonly List<(TenantId Tenant, LicenseOwnerEmail Email)> _sent = new();
+    private readonly TaskCompletionSource _anEmailWasSent = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-license-renewal-email-" + Guid.NewGuid().ToString("N"));
@@ -51,6 +52,7 @@ public sealed class LicenseRenewalEmailHostedTests : IAsyncLifetime
         _gateway.LicenseOwnerMail = (tenant, email, _) =>
         {
             lock (_sent) _sent.Add((tenant, email));
+            _anEmailWasSent.TrySetResult();
             return Task.FromResult(new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Sent, null));
         };
         await _gateway.StartAsync();
@@ -73,8 +75,42 @@ public sealed class LicenseRenewalEmailHostedTests : IAsyncLifetime
         catch { /* best-effort */ }
     }
 
-    /// <summary>A machine on A, far from any threshold, whose sign-in ends in two days.</summary>
-    private static LicenseUsageReport Report(string machine, bool renewalFailed) => new()
+    private const string B = "account-b@example.com";
+
+    /// <summary>A machine on A at 97 percent with a spare that has room: the minute check sends it a switch.</summary>
+    private static LicenseUsageReport ReportThatMustSwitch(string machine) => new()
+    {
+        MachineName = machine,
+        OsUser = "test",
+        SentAtUtc = Now,
+        Trigger = LicenseReportTriggers.Connected,
+        Holdings =
+        [
+            new LicenseHolding
+            {
+                AccountEmail = A,
+                IsActive = true,
+                Plan = "max",
+                FiveHour = new LicenseWindow { Utilization = 97, ResetsAtUtc = Now.AddHours(2) },
+                SevenDay = new LicenseWindow { Utilization = 20, ResetsAtUtc = Now.AddDays(4) },
+                ReadAtUtc = Now,
+                SignInExpiresAtUtc = Now.AddDays(20),
+            },
+            new LicenseHolding
+            {
+                AccountEmail = B,
+                IsActive = false,
+                Plan = "max",
+                FiveHour = new LicenseWindow { Utilization = 10, ResetsAtUtc = Now.AddHours(2) },
+                SevenDay = new LicenseWindow { Utilization = 20, ResetsAtUtc = Now.AddDays(4) },
+                ReadAtUtc = Now,
+                SignInExpiresAtUtc = Now.AddDays(20),
+            },
+        ],
+    };
+
+    /// <summary>A machine on A, far from any threshold, whose sign-in ends in <paramref name="endsInDays"/> days.</summary>
+    private static LicenseUsageReport Report(string machine, bool renewalFailed, int endsInDays = 2) => new()
     {
         MachineName = machine,
         OsUser = "test",
@@ -90,7 +126,7 @@ public sealed class LicenseRenewalEmailHostedTests : IAsyncLifetime
                 FiveHour = new LicenseWindow { Utilization = 10, ResetsAtUtc = Now.AddHours(2) },
                 SevenDay = new LicenseWindow { Utilization = 20, ResetsAtUtc = Now.AddDays(4) },
                 ReadAtUtc = Now,
-                SignInExpiresAtUtc = Now.AddDays(2),
+                SignInExpiresAtUtc = Now.AddDays(endsInDays),
                 RenewalFailedAtUtc = renewalFailed ? Now.AddMinutes(-10) : null,
                 RenewalError = renewalFailed ? LicenseRenewalErrors.ApproverOffline : null,
             },
@@ -122,16 +158,62 @@ public sealed class LicenseRenewalEmailHostedTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task ARenewalThatWorks_ClosesTheWarning_OnTheNextMinuteCheck()
+    public async Task ARenewalThatWorks_ClosesTheWarning_OnTheNextMinuteCheck_AndAReportThatOnlyLacksTheFailureTimeDoesNot()
     {
         await _aliceDirector.PushLicenseUsageAsync(Report("MACHINE_OF_ALICE", renewalFailed: true));
         await _gateway.RunLicenseSwitchCheckAsync();
         Assert.Equal(LicenseLogStates.Open, Assert.Single(Warnings(_alice.Tenant)).State);
 
+        // A Director that has just started: the same sign-in, the same end, no failure time. Nothing ends.
         await _aliceDirector.PushLicenseUsageAsync(Report("MACHINE_OF_ALICE", renewalFailed: false));
+        await _gateway.RunLicenseSwitchCheckAsync();
+        Assert.Equal(LicenseLogStates.Open, Assert.Single(Warnings(_alice.Tenant)).State);
+
+        // Its renewal fails as before: the same streak, no second email.
+        await _aliceDirector.PushLicenseUsageAsync(Report("MACHINE_OF_ALICE", renewalFailed: true));
+        await _gateway.RunLicenseSwitchCheckAsync();
+        Assert.Single(_sent);
+
+        // A sign-in that ends later is a renewed one.
+        await _aliceDirector.PushLicenseUsageAsync(Report("MACHINE_OF_ALICE", renewalFailed: false, endsInDays: 30));
         await _gateway.RunLicenseSwitchCheckAsync();
 
         Assert.Equal(LicenseLogStates.Ended, Assert.Single(Warnings(_alice.Tenant)).State);
         Assert.Single(_sent);
+    }
+
+    [Fact]
+    public async Task ARenewalEmail_DoesNotWaitBehindAnotherAccountsDirectorThatHasNotAnsweredItsSwitch()
+    {
+        // Bob's machine must switch, and his Director holds the command without answering.
+        var theSwitchArrived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var answerNow = new ManualResetEventSlim(false);
+        _bobDirector.OnCommand(command =>
+        {
+            if (command.Verb == LicenseContract.SwitchVerb)
+            {
+                theSwitchArrived.TrySetResult();
+                answerNow.Wait();
+            }
+            return FakeTunnelDirector.Ok(new { });
+        });
+        await _bobDirector.PushLicenseUsageAsync(ReportThatMustSwitch("MACHINE_OF_BOB"));
+        await _aliceDirector.PushLicenseUsageAsync(Report("MACHINE_OF_ALICE", renewalFailed: true));
+
+        var check = _gateway.RunLicenseSwitchCheckAsync();
+        try
+        {
+            await theSwitchArrived.Task.WaitAsync(TimeSpan.FromSeconds(60));
+            // The switch pass is waiting for Bob's Director. Alice's email goes out all the same.
+            await _anEmailWasSent.Task.WaitAsync(TimeSpan.FromSeconds(60));
+
+            Assert.False(check.IsCompleted);
+            Assert.Equal(_alice.Tenant, Assert.Single(_sent).Tenant);
+        }
+        finally
+        {
+            answerNow.Set();
+        }
+        await check.WaitAsync(TimeSpan.FromSeconds(60));
     }
 }
