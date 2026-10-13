@@ -47,10 +47,19 @@ public static class ScheduleShifts
         _ => throw new ArgumentOutOfRangeException(nameof(shift), shift, "not a shift"),
     };
 
-    /// <summary>The schedule's runs in the next <see cref="Lookahead"/>, from <paramref name="nowUtc"/>.</summary>
+    /// <summary>
+    /// The schedule's runs in the next <see cref="Lookahead"/>, from <paramref name="nowUtc"/>. A schedule that will
+    /// not run - paused, switched off, or a one-off that has already run - has NONE: it works in no shift and is
+    /// warned about nothing, because every shift and every warning names a run, and the engine will start none of
+    /// its. Asked HERE, the one place every caller reads fires through, because
+    /// <see cref="CronLoad.FiresBetween"/> assumes an active schedule (for a one-off whose time has passed it answers
+    /// "it fires now").
+    /// </summary>
     public static IReadOnlyList<DateTime> NextFires(CronJobDto job, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(job);
+        if (CronSchedule.LifecycleOf(job) != CronLifecycle.Active)
+            return Array.Empty<DateTime>();
         return CronLoad.FiresBetween(job, nowUtc, nowUtc + Lookahead, nowUtc).ToList();
     }
 

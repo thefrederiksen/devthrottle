@@ -109,6 +109,51 @@ public sealed class ScheduleShiftsRoutesTests : IAsyncLifetime
         Assert.Null(updated.ShiftRule);
     }
 
+    private static void AssertNoShift(CronJobDto job)
+    {
+        Assert.NotNull(job.Shifts);
+        Assert.Empty(job.Shifts!);
+        Assert.Equal("No run in the next 7 days", job.ShiftText);
+        Assert.Null(job.ShiftWarning);
+        Assert.Null(job.ShiftRule);
+    }
+
+    [Fact]
+    public async Task ListAndGet_APausedRecurringSchedule_HasNoShiftAndNoWarning()
+    {
+        // The same 15:45 schedule that is warned about when it is on, switched off: it will not run.
+        var paused = LateMorning();
+        paused.Enabled = false;
+        var created = _store.Create(paused);
+        Assert.Equal(CronLifecycle.Paused, CronSchedule.LifecycleOf(_store.Get(created.Id)!));
+
+        var list = await _http.GetFromJsonAsync<JsonElement>("cron/jobs");
+        AssertNoShift(list.GetProperty("jobs").Deserialize<List<CronJobDto>>(JsonOpts)!.Single());
+        AssertNoShift((await _http.GetFromJsonAsync<CronJobDto>($"cron/jobs/{created.Id}", JsonOpts))!);
+    }
+
+    [Fact]
+    public async Task ListAndGet_ASpentOneOff_HasNoShiftAndNoWarning()
+    {
+        // A one-off that ran on 1 September; the engine switched it off as it fired it.
+        var created = _store.Create(new CronJobDto
+        {
+            Name = "once",
+            Enabled = true,
+            ScheduleKind = CronSchedule.KindOneOff,
+            RunAt = "2026-09-01T15:45:00",
+            TimeZoneId = "UTC",
+            Target = new CronJobTarget { Machine = "workstation-A" },
+            Action = new CronJobAction { RepoPath = @"D:\repo", Seed = "/help" },
+        });
+        _store.MarkFired(created.Id, new DateTime(2026, 9, 1, 15, 45, 0, DateTimeKind.Utc), "started", nextRunUtc: null, enabled: false);
+        Assert.Equal(CronLifecycle.Spent, CronSchedule.LifecycleOf(_store.Get(created.Id)!));
+
+        var list = await _http.GetFromJsonAsync<JsonElement>("cron/jobs");
+        AssertNoShift(list.GetProperty("jobs").Deserialize<List<CronJobDto>>(JsonOpts)!.Single());
+        AssertNoShift((await _http.GetFromJsonAsync<CronJobDto>($"cron/jobs/{created.Id}", JsonOpts))!);
+    }
+
     [Fact]
     public async Task Runs_EachRunCarriesTheShiftItStartedIn()
     {

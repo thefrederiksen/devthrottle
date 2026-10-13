@@ -702,6 +702,39 @@ public sealed class FactoriesScreenFoldTests
     }
 
     [Fact]
+    public void Seats_ASeatWhoseSchedulesWillNotRun_IsUnderNoRun_NeverUnderAWorkingShift()
+    {
+        // "stopped" has a paused morning schedule and a one-off that already ran; "mixed" has one schedule still
+        // running in the evening and the same paused morning one.
+        var paused = Fires("cj_paused", "0 9 * * *");
+        paused.Enabled = false;
+        var spent = Fires("cj_spent", "0 9 * * *");
+        spent.Enabled = false;
+        spent.ScheduleKind = CronSchedule.KindOneOff;
+        spent.CronExpression = null;
+        spent.RunAt = "2026-10-01T09:00:00";
+        spent.LastFiredUtc = Now.AddDays(-5);
+        Assert.Equal(CronLifecycle.Paused, CronSchedule.LifecycleOf(paused));
+        Assert.Equal(CronLifecycle.Spent, CronSchedule.LifecycleOf(spent));
+        var f = Factory("x", "X", null,
+            Seat("stopped", "Stopped", "Stopped", "cj_paused", "cj_spent"),
+            Seat("mixed", "Mixed", "Mixed", "cj_evening", "cj_paused"));
+
+        var view = FactoriesScreenFold.Seats(f, Inputs(new[] { f }, jobs: new[] { paused, spent, Fires("cj_evening", "0 18 * * *") }));
+
+        // No morning group at all: nothing will run in the morning.
+        Assert.Equal(new[] { "evening", "none" }, view.Groups.Select(g => g.Shift));
+        var evening = view.Groups[0].Rows.Single();
+        Assert.Equal("mixed", evening.SeatId);
+        Assert.Equal(new[] { "cj_evening" }, evening.Schedules.Select(s => s.JobId));
+        Assert.Equal("Evening shift", evening.ShiftText);
+        var none = view.Groups[1].Rows.Single();
+        Assert.Equal("stopped", none.SeatId);
+        Assert.Equal("No run in the next 7 days", none.ShiftText);
+        Assert.All(none.Schedules, s => Assert.Equal("No run in the next 7 days", s.ShiftText));
+    }
+
+    [Fact]
     public void Seats_AShiftNoSeatWorksIn_HasNoGroup_AndTheBossLeadsItsGroup()
     {
         var f = Factory("x", "X", "boss", Seat("worker", "Worker", "Worker", "cj_w"), Seat("boss", "Boss", "Boss", "cj_b"));

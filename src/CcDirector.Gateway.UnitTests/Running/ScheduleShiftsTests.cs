@@ -45,6 +45,51 @@ public sealed class ScheduleShiftsTests
         Assert.Equal("Night and evening shifts", ScheduleShifts.Text(shifts));
     }
 
+    // ---------- a schedule that will not run works in no shift ----------
+
+    [Fact]
+    public void NextFires_APausedRecurringSchedule_HasNoRuns_SoNoShiftAndNoWarning()
+    {
+        // 15:45 every day: switched on, this is warned about (the last 30 minutes of the morning shift).
+        var paused = Daily("45 15 * * *");
+        paused.Enabled = false;
+        Assert.Equal(CronLifecycle.Paused, CronSchedule.LifecycleOf(paused));
+
+        var fires = ScheduleShifts.NextFires(paused, Now);
+
+        Assert.Empty(fires);
+        Assert.Equal("No run in the next 7 days", ScheduleShifts.Text(ScheduleShifts.ShiftsOf(fires, Toronto)));
+        Assert.Null(ScheduleShifts.WarningFor(fires, Toronto, null));
+        Assert.Null(ScheduleShifts.WarningFor(fires, Toronto, TimeSpan.FromHours(9)));
+        // The same schedule switched on is the control: it has runs, and the warning.
+        Assert.NotNull(Warning("45 15 * * *", typicalMinutes: null));
+    }
+
+    [Theory]
+    [InlineData(true)]   // spent: it ran, and the engine switched it off
+    [InlineData(false)]  // off: switched off by hand before it ever ran
+    public void NextFires_AOneOffThatWillNotRun_HasNoRuns_SoNoShiftAndNoWarning(bool fired)
+    {
+        var oneOff = new CronJobDto
+        {
+            Id = "cj_once", Name = "cj_once", Enabled = false, ScheduleKind = CronSchedule.KindOneOff,
+            RunAt = "2026-09-01T15:45:00", TimeZoneId = "America/Toronto",
+            LastFiredUtc = fired ? new DateTime(2026, 9, 1, 19, 45, 0, DateTimeKind.Utc) : null,
+            Target = new CronJobTarget { Machine = "SOREN_NORTH" },
+            Action = new CronJobAction { RepoPath = @"D:\repo", Seed = "/help" },
+        };
+        Assert.Equal(fired ? CronLifecycle.Spent : CronLifecycle.Off, CronSchedule.LifecycleOf(oneOff));
+        // Mon 12 Oct 2026 15:45 in Toronto: the moment a passed one-off was wrongly said to "fire now".
+        var now = new DateTime(2026, 10, 12, 19, 45, 0, DateTimeKind.Utc);
+
+        var fires = ScheduleShifts.NextFires(oneOff, now);
+
+        Assert.Empty(fires);
+        Assert.Empty(ScheduleShifts.ShiftsOf(fires, Toronto));
+        Assert.Null(ScheduleShifts.WarningFor(fires, Toronto, null));
+        Assert.Null(ScheduleShifts.WarningFor(fires, Toronto, TimeSpan.FromMinutes(20)));
+    }
+
     [Fact]
     public void ShiftsOf_ARunAtExactlySixteen_IsTheEveningShift()
     {
