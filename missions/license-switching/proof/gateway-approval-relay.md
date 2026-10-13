@@ -467,3 +467,281 @@ that the routes gained the owner-only check break 33 removes.
 
 - hosted: 1 red, 11 green
   - LicenseSignInHostedTests.TheApproverRoutes_AreTheOwnersToWrite_AndASessionKeyMayOnlyRead
+
+## The review round (13 October 2026)
+
+The review of this pull request (`../reviews/3943-review.md`) asked for ten things; `../reviews/3943-answers.md`
+answers each. This section is the proof for what that round changed. It does not replace anything above, except
+where it says so.
+
+**What above no longer holds.** Four kinds of test named in the breaks above were rewritten in this round, because
+the behaviour they held is the behaviour the review found wrong. Where a break above lists one of them as red, read
+the name that replaced it:
+
+| Named above | Replaced by |
+|---|---|
+| `Accept_OnePastTheLimitOfApprovalsInFlight_IsRefusedAtOnce_AndAsksNoMachine` | `Accept_EveryRequestPastTheLimit_IsRefusedOnTheCall_AndTheHundredthHoldsNothingMoreThanTheFirst` |
+| `Relay_ARequestWithNoAccountOrNoAddress_AnswersRefused_AndAsksNoMachine` | `Accept_ARequestWhoseAccountOrAddressIsNotOne_IsRefusedOnTheCall_AndHoldsAndSendsAndQuotesNothing` |
+| every `SettleUnanswered_...` test | the `Settle_...` tests of `LicenseSignInServiceTests` |
+| `Start_SettlesARowPastItsTimeFirst_SoItNeverBlocksANewSignIn` | `ARowThatCannotBeSettledYet_StillBlocksASecondSignIn_AndOnceSettledItNoLongerDoes` |
+
+No break above was run again in this round; the breaks below are the ones made against the code as it now is.
+
+### The runs, on the final head
+
+| Run | Result |
+|---|---|
+| `dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Licenses"` | 709 passed, 0 failed |
+| `dotnet test src/CcDirector.Gateway.Tests --filter "FullyQualifiedName~License"` | 39 passed, 0 failed |
+| `.\scripts\test-database.ps1` | GREEN - 72 executed against the throwaway PostgreSQL, none failed, none skipped |
+| `.\scripts\test-local.ps1` | GREEN at `efd7988f3`, tree clean, every suite `outcome=Completed` |
+| `dotnet test src/CcDirector.Gateway.UnitTests`, the whole suite | 11,473 passed, 0 failed, 4 minutes 59 seconds |
+
+`.\scripts\test-local.ps1 -Parked` was NOT run in this round. The default run covers no Gateway test at all, which
+is why the whole Gateway unit suite was run by hand. Of the hosted suite only the 39 license tests ran.
+
+### The breaks of this round
+
+Each break was made on a committed tree, the tests were built and run, and the file was put back with
+`git checkout`. "unit" is the 709 license tests of `Gateway.UnitTests`; "hosted" is the 17 sign-in tests of
+`Gateway.Tests`. A number after a test's name is how many of its cases went red.
+
+Breaks 1 to 16, 18 to 24 and 27 to 30 were run on `6805b5cee`. Break 17 was run on `2e916e8aa`, after its test was
+given a limit: on `6805b5cee` the break made that test wait for ever and the run was ended by the hang limit, which
+is a test that cannot fail, so the test was changed and the break run again. Break 25 was run on `668af1b54`.
+
+#### R1. the limit refuses nothing
+
+`src/CcDirector.Gateway/Licenses/LicenseApprovalRelay.cs`
+
+- unit: 2 red, 707 green
+  - LicenseApprovalRelayTests.Accept_EveryRequestPastTheLimit_IsRefusedOnTheCall_AndTheHundredthHoldsNothingMoreThanTheFirst
+  - RequestLicenseApprovalHubTests.RequestLicenseApproval_PastTheAccountsLimit_FailsTheCall_AndTheGatewayHoldsNothingForIt
+
+#### R2. a place is not given back when a relay ends
+
+`src/CcDirector.Gateway/Licenses/LicenseApprovalRelay.cs`
+
+- unit: 1 red, 708 green
+  - LicenseApprovalRelayTests.Accept_EveryRequestPastTheLimit_IsRefusedOnTheCall_AndTheHundredthHoldsNothingMoreThanTheFirst
+
+#### R3. the limit is counted over every account together
+
+`src/CcDirector.Gateway/Licenses/LicenseApprovalRelay.cs`
+
+- unit: 1 red, 708 green
+  - LicenseApprovalRelayTests.Accept_EveryRequestPastTheLimit_IsRefusedOnTheCall_AndTheHundredthHoldsNothingMoreThanTheFirst
+
+#### R4. the length of the address is not looked at on the call
+
+`src/CcDirector.Gateway/Licenses/LicenseApprovalRelay.cs`
+
+- unit: 3 red, 706 green
+  - LicenseApprovalRelayTests.Accept_ARequestWhoseAccountOrAddressIsNotOne_IsRefusedOnTheCall_AndHoldsAndSendsAndQuotesNothing (2 cases)
+  - RequestLicenseApprovalHubTests.RequestLicenseApproval_WithAnAccountOrAnAddressThatIsNotOne_FailsTheCall_WithASentenceThatQuotesNothing
+
+#### R5. the account is not checked to be an email on the call
+
+`src/CcDirector.Gateway/Licenses/LicenseApprovalRelay.cs`
+
+- unit: 6 red, 703 green
+  - LicenseApprovalRelayTests.Accept_ARequestWhoseAccountOrAddressIsNotOne_IsRefusedOnTheCall_AndHoldsAndSendsAndQuotesNothing (5 cases)
+  - RequestLicenseApprovalHubTests.RequestLicenseApproval_WithAnAccountOrAnAddressThatIsNotOne_FailsTheCall_WithASentenceThatQuotesNothing
+
+#### R6. the request is logged before it is checked
+
+`src/CcDirector.Gateway/Licenses/LicenseApprovalRelay.cs`
+
+- unit: 12 red, 697 green
+  - LicenseApprovalRelayTests.Accept_ARequestWhoseAccountOrAddressIsNotOne_IsRefusedOnTheCall_AndHoldsAndSendsAndQuotesNothing (12 cases)
+
+#### R7. a relay that fails answers nobody
+
+`src/CcDirector.Gateway/Licenses/LicenseApprovalRelay.cs`
+
+- unit: 2 red, 707 green
+  - LicenseApprovalRelayTests.Relay_ASendToTheApprovingDirectorThatThrows_StillAnswersTheDirectorThatAsked_AndTheLogHasNoAddress
+  - LicenseApprovalRelayTests.Relay_AnApproversSettingThatCannotBeRead_StillAnswersTheDirectorThatAsked
+
+#### R8. a relay that fails logs the message of the failure
+
+`src/CcDirector.Gateway/Licenses/LicenseApprovalRelay.cs`
+
+- unit: 1 red, 708 green
+  - LicenseApprovalRelayTests.Relay_ASendToTheApprovingDirectorThatThrows_StillAnswersTheDirectorThatAsked_AndTheLogHasNoAddress
+
+#### R9. a scope that cannot be entered leaves no line
+
+`src/CcDirector.Gateway/Licenses/LicenseApprovalRelay.cs`
+
+- unit: 1 red, 708 green
+  - LicenseApprovalRelayTests.Relay_AScopeThatCannotBeEntered_IsLoggedByItsTypeOnly_AndLeavesNothingInFlight
+
+#### R10. the wait for the approving Director is not ended at the deadline
+
+`src/CcDirector.Gateway/Licenses/LicenseApprovalRelay.cs`
+
+- unit: 1 red, 708 green
+  - LicenseApprovalRelayTests.Relay_WhenTheSignInsDeadlineIsSoonerThanTheGatewaysWait_WaitsOnlyUntilTheDeadline_AndAnswersExpired
+
+#### R11. a wait that ended at the deadline is not answered expired
+
+`src/CcDirector.Gateway/Licenses/LicenseApprovalRelay.cs`
+
+- unit: 1 red, 708 green
+  - LicenseApprovalRelayTests.Relay_WhenTheSignInsDeadlineIsSoonerThanTheGatewaysWait_WaitsOnlyUntilTheDeadline_AndAnswersExpired
+
+#### R12. a request arriving exactly at its deadline is relayed
+
+`src/CcDirector.Gateway/Licenses/LicenseApprovalRelay.cs`
+
+- unit: 1 red, 708 green
+  - LicenseApprovalRelayTests.Relay_ARequestArrivingExactlyAtItsDeadline_AnswersExpired_AndAsksNoMachine
+
+#### R13. an unanswered sign-in is never asked again
+
+`src/CcDirector.Gateway/Licenses/LicenseSignInService.cs`
+
+- unit: 8 red, 701 green
+  - LicenseSignInServiceTests.ARowThatCannotBeSettledYet_StillBlocksASecondSignIn_AndOnceSettledItNoLongerDoes
+  - LicenseSignInServiceTests.SettleEveryTenant_SettlesEachAccountsRowsInItsOwnScope_AndOneAccountsFailureDoesNotStopAnother
+  - LicenseSignInServiceTests.Settle_ADirectorThatGivesNoAnswerWhenAskedAgain_LeavesItToTheReport_OpenUntilOneComes (4 cases)
+  - LicenseSignInServiceTests.Settle_ADirectorThatNeverSawTheSignIn_SaysItStartedNothing_AndTheRowEndsFailedExpired
+  - LicenseSignInServiceTests.Settle_AsksTheDirectorAgainWithTheSameIdentifier_InItsOwnScope_AndEndsTheRowWithItsStoredAnswer
+
+#### R14. an unanswered sign-in is settled from a report of any age
+
+`src/CcDirector.Gateway/Licenses/LicenseSignInService.cs`
+
+- unit: 7 red, 702 green
+  - LicenseSignInServiceTests.ARowThatCannotBeSettledYet_StillBlocksASecondSignIn_AndOnceSettledItNoLongerDoes
+  - LicenseSignInServiceTests.Settle_ADirectorThatGivesNoAnswerWhenAskedAgain_LeavesItToTheReport_OpenUntilOneComes (4 cases)
+  - LicenseSignInServiceTests.Settle_AReportAcceptedWhileTheSignInCouldStillBeRunning_SettlesNothing
+  - LicenseSignInServiceTests.Settle_TheTunnelDroppedAndNoReportSince_StaysOpen_HoweverLongItIs
+
+#### R15. a renewal is judged by the machine clock against the Gateway clock
+
+`src/CcDirector.Gateway/Licenses/LicenseSignInService.cs`
+
+- unit: 2 red, 707 green
+  - LicenseSignInServiceTests.Settle_ARenewalThatWorked_OnAMachineWhoseClockIsAMinuteBehind_EndsRenewed
+  - LicenseSignInServiceTests.Settle_ARenewal_WhoseSignInIsStillTheOneFromBeforeItWasAsked_EndsFailed_WhateverTheClocksSay
+
+#### R16. a sign-in is asked again while a Director could still be running it
+
+`src/CcDirector.Gateway/Licenses/LicenseSignInService.cs`
+
+- unit: 1 red, 708 green
+  - LicenseSignInServiceTests.Settle_BeforeNoDirectorCouldStillBeRunningIt_AsksNobody_AndLeavesTheRowOpen
+
+#### R17. a sign-in in flight in this process is settled anyway
+
+`src/CcDirector.Gateway/Licenses/LicenseSignInService.cs`
+
+- unit: 1 red, 708 green
+  - LicenseSignInServiceTests.Settle_NeverSettlesASignInWhoseAnswerMayStillCome
+
+#### R18. the sign-in time from before the ask is not kept
+
+`src/CcDirector.Gateway/Licenses/LicenseSignInService.cs`
+
+- unit: 2 red, 707 green
+  - LicenseSignInServiceTests.ASignInRow_KeepsTheSignInTimeFromBeforeTheAsk_AndThePageIsNeverToldItAsAStart
+  - LicenseSignInServiceTests.Settle_ARenewal_WhoseSignInIsStillTheOneFromBeforeItWasAsked_EndsFailed_WhateverTheClocksSay
+
+#### R19. the start logs the machine identifier before it is checked
+
+`src/CcDirector.Gateway/Licenses/LicenseSignInService.cs`
+
+- unit: 2 red, 707 green
+  - LicenseSignInServiceTests.Start_NothingTheCallerSentIsLoggedBeforeItIsChecked (2 cases)
+
+#### R20. one account failing stops the settling of the others
+
+`src/CcDirector.Gateway/Licenses/LicenseSignInService.cs`
+
+- unit: 1 red, 708 green
+  - LicenseSignInServiceTests.SettleEveryTenant_SettlesEachAccountsRowsInItsOwnScope_AndOneAccountsFailureDoesNotStopAnother
+
+#### R21. a machine name with a control character is stored
+
+`src/CcDirector.Gateway/Licenses/LicenseApproverStore.cs`
+
+- unit: 10 red, 699 green
+  - LicenseApproverStoreTests.Set_ANameOrAccountHoldingACharacterThatIsNotText_IsRefused_NothingIsStored_AndTheLogDoesNotQuoteIt (10 cases)
+
+#### R22. a user with a control character is stored
+
+`src/CcDirector.Gateway/Licenses/LicenseApproverStore.cs`
+
+- unit: 10 red, 699 green
+  - LicenseApproverStoreTests.Set_ANameOrAccountHoldingACharacterThatIsNotText_IsRefused_NothingIsStored_AndTheLogDoesNotQuoteIt (10 cases)
+
+#### R23. an account email with a control or format character is taken
+
+`src/CcDirector.Gateway/Licenses/LicenseApproverStore.cs`
+
+- unit: 8 red, 701 green
+  - LicenseApprovalRelayTests.Accept_ARequestWhoseAccountOrAddressIsNotOne_IsRefusedOnTheCall_AndHoldsAndSendsAndQuotesNothing (2 cases)
+  - LicenseApproverStoreTests.Set_ANameOrAccountHoldingACharacterThatIsNotText_IsRefused_NothingIsStored_AndTheLogDoesNotQuoteIt (5 cases)
+  - LicenseSignInServiceTests.Start_NothingTheCallerSentIsLoggedBeforeItIsChecked
+
+#### R24. the approver store logs what it was sent before checking it
+
+`src/CcDirector.Gateway/Licenses/LicenseApproverStore.cs`
+
+- unit: 30 red, 679 green
+  - LicenseApproverStoreTests.Set_ANameOrAccountHoldingACharacterThatIsNotText_IsRefused_NothingIsStored_AndTheLogDoesNotQuoteIt (30 cases)
+
+#### R25. the page is told the kept sign-in time as when the sign-in started
+
+`src/CcDirector.Gateway/Licenses/LicenseSignInFold.cs`
+
+- unit: 1 red, 708 green
+  - LicenseSignInServiceTests.ASignInRow_KeepsTheSignInTimeFromBeforeTheAsk_AndThePageIsNeverToldItAsAStart
+
+#### R26. the page is given a length of time worked out from the kept sign-in time
+
+`src/CcDirector.Gateway/Licenses/LicenseDisplayFold.cs`
+
+- unit: 0 red, 709 green - NOT CAUGHT. The line broken is one no sign-in row reaches: a sign-in row is folded by
+  `LicenseSignInFold`, which answers `null` for these fields itself. The guard was removed from the product, so
+  there is nothing left for this break to break.
+
+#### R27. the hub lets the limit refusal through as an unhandled failure
+
+`src/CcDirector.Gateway/Streaming/DirectorHub.cs`
+
+- unit: 1 red, 708 green
+  - RequestLicenseApprovalHubTests.RequestLicenseApproval_PastTheAccountsLimit_FailsTheCall_AndTheGatewayHoldsNothingForIt
+
+#### R28. the host does not settle unanswered sign-ins in its minute check
+
+`src/CcDirector.Gateway/GatewayHost.cs`
+
+- hosted: 1 red, 16 green
+  - LicenseSignInHostedTests.AnUnansweredSignIn_IsAskedAgainByTheHostsMinuteCheck_OverTheTunnel_AndEndsWithTheDirectorsStoredAnswer
+
+#### R29. the four writes are open to every credential the guard lets through
+
+`src/CcDirector.Gateway/Api/LicenseSignInEndpoints.cs`
+
+- hosted: 2 red, 15 green
+  - LicenseSignInHostedTests.TheApproverRoutes_AreTheOwnersToWrite_AndASessionKeyMayOnlyRead
+  - LicenseSignInWritesSelfHostedTests.TheSharedMachineToken_ReadsWhoApproves_AndIsRefusedAllFourWrites
+
+#### R30. the relay logs the address it is given
+
+`src/CcDirector.Gateway/Licenses/LicenseApprovalRelay.cs`
+
+- hosted: 1 red, 16 green
+  - LicenseSignInHostedTests.NoLineOfTheHostsLog_CarriesTheAddressOrTheApproval_AcrossAnApprovedRelayAndADroppedTunnel
+
+### What these breaks do not show
+
+- No break was made in `SessionKeyGuard` for a session key the owner raised. Break R29 removes the routes' own check
+  and the raised session key is still refused, which shows the guard is what stops it; `LicenseGuardTests` (above)
+  is what holds the guard's list.
+- No break was made in `DirectorCommandRouter`, which is not this pull request's code. Break R30 puts the address
+  into a line of the relay and the hosted capture catches it, which shows the capture reads the host's real log.
+- The PostgreSQL test was not broken. It ran green against a real PostgreSQL, and that is all that is claimed.
