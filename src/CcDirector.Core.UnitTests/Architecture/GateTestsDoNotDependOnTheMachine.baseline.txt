@@ -94,9 +94,7 @@ real-clock | src/CcDirector.Core.Tests/GatewayResolvedRoleSignalTests.cs | 1
 process | src/CcDirector.Core.Tests/Git/ConfiguredUpstreamProbeTests.cs | 2
 process | src/CcDirector.Core.Tests/Git/GitRepositoryTemplate.cs | 2
 process | src/CcDirector.Core.Tests/GitBranchServiceTests.cs | 2
-delay | src/CcDirector.Core.Tests/GitHubActionsBackendTests.cs | 2
 real-clock | src/CcDirector.Core.Tests/GitHubActionsBackendTests.cs | 2
-stopwatch | src/CcDirector.Core.Tests/GitHubActionsBackendTests.cs | 1
 real-clock | src/CcDirector.Core.Tests/GitHubRestClientLiveTests.cs | 1
 process | src/CcDirector.Core.Tests/GitLargeRepoTests.cs | 2
 delay | src/CcDirector.Core.Tests/GitProcessCancellationTests.cs | 2
@@ -431,9 +429,8 @@ real-clock | src/CcDirector.Gateway.Tests/ScreenshotEndpointsTests.cs | 3
 delay | src/CcDirector.Gateway.Tests/SecretTransferHostTests.cs | 1
 real-clock | src/CcDirector.Gateway.Tests/SecretTransferHostTests.cs | 3
 real-clock | src/CcDirector.Gateway.Tests/SessionByteExecutorTests.cs | 5
-delay | src/CcDirector.Gateway.Tests/SessionKeysAreNeverHeldTests.cs | 1
 fixed-port | src/CcDirector.Gateway.Tests/SessionKeysAreNeverHeldTests.cs | 1
-real-clock | src/CcDirector.Gateway.Tests/SessionKeysAreNeverHeldTests.cs | 6
+real-clock | src/CcDirector.Gateway.Tests/SessionKeysAreNeverHeldTests.cs | 4
 delay | src/CcDirector.Gateway.Tests/SessionServingLoopIsolationTests.cs | 1
 real-clock | src/CcDirector.Gateway.Tests/SessionServingLoopIsolationTests.cs | 4
 delay | src/CcDirector.Gateway.Tests/SessionServingReadIsolationTests.cs | 1
@@ -563,7 +560,6 @@ stopwatch | src/CcDirector.Gateway.UnitTests/Data/GatewayStatsSqliteAdoptionTest
 real-clock | src/CcDirector.Gateway.UnitTests/DeliveryIdGatewayTests.cs | 4
 delay | src/CcDirector.Gateway.UnitTests/DeliveryIdPromptTests.cs | 2
 real-clock | src/CcDirector.Gateway.UnitTests/DeliveryIdPromptTests.cs | 4
-stopwatch | src/CcDirector.Gateway.UnitTests/DevReports/DevReportShapeCheckTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/DeviceRegistryTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/Diagnostics/TrafficMeterTests.cs | 5
 real-clock | src/CcDirector.Gateway.UnitTests/DictationAskInsteadOfGuessingTests.cs | 2
