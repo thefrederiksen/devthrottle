@@ -171,7 +171,7 @@ public sealed class FactoryEmailSenderAndRoutesTests : IDisposable
         var resolver = new CcDirector.Gateway.Settings.TenantSettingsResolver(new CcDirector.Gateway.Settings.TenantSettingsStore(db));
 
         Assert.False(resolver.FactoryEmailEnabled(TenantId.Local));
-        resolver.SetFactoryEmailEnabled(TenantId.Local, true, DateTime.UtcNow);
+        resolver.SetFactoryEmailEnabled(TenantId.Local, true, new DateTime(2026, 10, 11, 12, 0, 0, DateTimeKind.Utc));
         Assert.True(resolver.FactoryEmailEnabled(TenantId.Local));
     }
 
