@@ -1,5 +1,10 @@
 # Proof - the Gateway routes the Licenses page reads
 
+**This file has two parts.** Everything down to "After the review" is the proof as the pull request was first opened,
+at `af3ce994e`, and is left as it was written. "After the review", at the end, is what changed in answer to
+`reviews/3925-cockpit-api-review.md`: the new counts, sixteen more mutations, and the gate on the final code. Where
+the two differ, the second part is the present state.
+
 Task: phase 2, the HTTP routes of the Gateway for the Licenses page of the Cockpit (MISSION.md goals 1, 2, 3 and the
 drawing of 5). The response shapes, with a real example of each, are in `missions/license-switching/cockpit-api.md`.
 
@@ -121,7 +126,7 @@ its mutations are exactly the lines below.
 | 5 | Switch now offered only when a target is chosen automatically | 1 | `SwitchNow_ATargetBarredFromTheAutomaticChoice_CanStillBeChosenByHand` |
 | 6 | A log row of a kind this build does not know throws | 2 | `LogEntry_AKindThisBuildDoesNotKnow_IsRenderedAsItsMessage_AndNeverFails`, `Log_ListsSpareRowsAndARowOfAKindThisBuildDoesNotKnow_AndNeverFailsOnIt` |
 | 7 | The overview route answers for a fixed account, not the caller's | 1 | `EveryRoute_AnswersOnlyTheCallersOwnAccount` |
-| 8 | The session key guard forgets the log route | 2 | `TheGuard_AllowsASessionKey_ExactlyTheLicenseReads(GET /gateway/licenses/log)`, `TheGuard_KnowsEveryRouteTheGatewayMaps` |
+| 8 | The session key guard forgets the log route | 2 | `TheGuard_AllowsASessionKey_ExactlyTheLicenseReads(GET /gateway/licenses/log)`, `TheGuard_KnowsEveryRouteTheGatewayMaps` (since renamed `TheGuard_AllowsTheThreeReads_ByTheSameConstantsTheEndpointsMapThemWith`) |
 | 9 | A log page is no longer held to the moment its walk began | 1 | `Log_IsNewestFirst_AndPagesWithoutOverlapOrLoss_EvenWhileRowsAreWritten` |
 | 10 | The ingest no longer records an accepted report in the history | 1 | `Ingest_OnlyAnAcceptedReport_IsRecorded_AndTheForecastGetsItsRate` |
 | 11 | The snapshot never says a machine has an open switch | 4 | `Read_AMachineWithAnOpenSwitchRow_HasAnOpenSwitch_UntilTheRowIsSettled`, `SwitchNow_SaysWhichMachineIsLeftOut_WhenOneIsMidSwitch`, and two forecast tests |
@@ -146,3 +151,96 @@ All eighteen were caught. The boundaries of staleness and of the sign-in expiry 
   tested only as "no readings means no rate", not across a real restart.
 - Two things the examples in `cockpit-api.md` could not show because they are not built yet: a failed renewal on
   a holding (contract section 8.1, agreed and not built) and the Switch now route.
+
+## After the review
+
+The review (`missions/license-switching/reviews/3925-cockpit-api-review.md`) asked for changes; every finding is
+answered in `reviews/3925-answers.md`. What it changed in the product: the usage history is bounded per DevThrottle
+account and recognises a repeated reading by the machine's own read time; a stale account's windows are `stale`; a
+machine is named with its user where a name repeats and carries its identifier in every list; the soonest sign-in
+expiry is on the account row; the forecast's windows carry the overview's words; the forecaster no longer asks for a
+date past the end of the calendar; a switch row in an unknown state no longer says it is switching; a log row says in
+words whether its switch was confirmed; and the fold asks the engine through a preview that writes no log line.
+
+### Counts at `c3252762b` (the review fixes, with `origin/main` at `982091146` merged in)
+
+- `dotnet test src/CcDirector.Gateway.UnitTests/CcDirector.Gateway.UnitTests.csproj --filter "FullyQualifiedName~Licenses"`:
+  passed 288, failed 0 (252 before the review).
+- `dotnet test src/CcDirector.Gateway.Tests/CcDirector.Gateway.Tests.csproj --filter "FullyQualifiedName~LicenseHostTests"`:
+  passed 8, failed 0.
+- `LicenseMessagesCarryNoKeyTests` passes with the two new types (`LicenseMachineRefDto`, `LicenseAccountSignInExpiryDto`)
+  in its scan; it ran inside the gate below.
+
+### Sixteen more mutations
+
+Run the same way as the first eighteen: one change to the product code, alone, every license unit test run (288),
+the file restored from its original bytes in a `finally` block. After the last one `git status` was clean and the
+rebuilt tree passed 288 of 288.
+
+| | The behaviour broken | Failed | Went red |
+|---|---|---|---|
+| R01 | The history keeps any number of accounts for one DevThrottle account | 1 | `Record_MoreAccountsThanTheMostKept_DropsTheOnesHeardFromLongestAgo` |
+| R02 | The cap on accounts drops one too many | 2 | `Record_ExactlyTheMostAccountsKept_DropsNone`, and the test of R01 |
+| R03 | A reading stamped in the future keeps its own time | 2 | `Record_AReadingStampedInTheFuture_IsKeptAtNow_AndAgesOutLikeAnyOther`, and the test of R01 |
+| R04 | A repeated reading is recognised by the corrected time (the code before the review) | 1 | `Record_TheSameReadingSentAgain_AddsNothing_EvenWhenTheClockCorrectionDiffersEachTime` |
+| R05 | The history is read without the lock | 1 | `RecordAndRead_FromSeveralThreadsAtOnce_NeverSeeAHalfWrittenSeries` - see below |
+| R06 | A stale account's window keeps the level its old number gives | 3 | `Account_Stale_ItsWindowsAreStaleToo_...`, `Window_OfAStaleReading_IsStale_...`, `Forecast_AWindowAtItsLimit_OrOfAStaleReading_SaysSoInItsLevel` |
+| R07 | The account's sign-in expiry is the latest across its machines, not the soonest | 1 | `Account_SignInExpiry_IsTheSoonestAcrossItsMachines_WithTheMachineTheVerdictAndTheSentence` |
+| R08 | The forecaster works out a date however slow the rate (the code before the review) | 4 | Both rows of `Forecast_ARateSoSlowTheWindowWouldNeedLongerThanAWeek_...`, `Forecast_AWindowThatNeedsExactlyAWeek_...`, and through the fold `Forecast_AWindowRisingSoSlowly...AndNothingThrows` |
+| R09 | Two users of one machine are called by the machine name alone | 2 | Both `TwoUsersOfOneMachine_...` tests |
+| R10 | A switch row in a state this build does not know says it is switching | 1 | `LogEntry_ASwitchRowInAStateThisBuildDoesNotKnow_NeverSaysItIsSwitching` |
+| R11 | A refused or failed switch row is given words for its usage read | 2 | `LogEntry_SaysWhetherTheSwitchWasConfirmed_OnlyOnARowWhoseSwitchWasMade` (the `failed` and the `unknown` rows) |
+| R12 | The fold asks the engine through the logging `DecideManual` | 1 | `TheDisplayFold_AsksThroughThePreview_SoAReadOfThePageWritesNoDecisionLines` |
+| R13 | The forecast's window carries no level | 3 | `Forecast_AWindowAtItsLimit_...`, `Forecast_AnAccountInUseThatIsRising_...`, `Forecast_AnswersTheExactShapeTheLicensesPageIsBuiltFrom` |
+| R14 | The forecast's machine rows carry no identifier | 2 | `TwoUsersOfOneMachine_AreToldApart...`, `Forecast_AnswersTheExactShapeTheLicensesPageIsBuiltFrom` |
+| R15 | The preview writes a log line of its own | 1 | `TheDisplayFold_AsksThroughThePreview_SoAReadOfThePageWritesNoDecisionLines` |
+| R16 | The account's sign-in expiry names a shared machine by its name alone | 1 | `TwoUsersOfOneMachine_TheOneLeftOutOfSwitchNow_AndTheOneWhoseSignInExpires_AreNamedWithTheirUser` |
+
+**R05, said plainly.** On the first pass R05 SURVIVED: the several-threads test, as first written, did not notice the
+lock missing from `Read`. The test was made to read for as long as the writers write, and to write more. With 12,000
+writes the mutation was then caught in two runs out of three; at the committed size (100,000 writes) it was caught in
+five runs out of five. A missing lock is a race, and no test of a race is certain: this one is a strong sensor, never
+a proof, and it never fails on correct code.
+
+One mutation was considered and not run because it changes nothing: "a reading at exactly now is kept at now" - the
+clamp at `>` and at `>=` give the same time.
+
+### The gate on the final code
+
+`.\scripts\test-local.ps1 -Parked` at `c3252762b`, tree clean, 2026-10-13, finished 04:52 UTC. `-Parked` runs every
+suite of the default run and the three parked ones.
+
+| Suite | Outcome | Tests |
+|---|---|---|
+| CcDirector.Core.UnitTests | Failed | 1,718 of 1,720 passed |
+| CcDirector.Avalonia.Tests | Completed | 1,079 |
+| CcDirector.Engine.Tests | Completed | 86 |
+| CcDirector.HostedAgent.Tests | Completed | 89 |
+| CcDirector.Launcher.Tests | Completed | 218 |
+| CcDirector.Terminal.Avalonia.Tests | Completed | 82 |
+| CcDirector.Reclaim.Tests | Completed | 305 |
+| cc-director-setup.Tests | Completed | 39 |
+| cc-director-setup-engine.Tests | Completed | 870 |
+| cc-director-setup-cli.Tests | Completed | 74 |
+| CcDirector.Gateway.Tests, four shards | Completed | 829 + 757 + 667 + 811 = 3,064 |
+| CcDirector.Core.Tests | Completed | 4,585 |
+| CcDirector.Gateway.UnitTests | Completed | 10,932 |
+
+Every Gateway test passed, all 13,996 of them. The two reds are both in `CcDirector.Core.UnitTests`, both name only
+files this branch does not touch (`git diff --name-only origin/main...HEAD` lists none of them), and both came in
+with the merge of main:
+
+- `BackgroundWorkRegisterTests.EveryTimerWatcherAndWaitingLoop_HasARowInTheRegister_AndEveryRowStillPointsAtOne`:
+  "`src/CcDirector.Core/Backends/GitHubActionsBackend.cs` has 1 site(s) in code, the register says 2".
+- `GateTestsDoNotDependOnTheMachineTests`: this time it is not a new machine-dependent use but a baseline that was
+  not lowered - "Fewer machine-dependent uses than the baseline allows", naming `GitHubActionsBackendTests.cs`,
+  `SessionKeysAreNeverHeldTests.cs` and `DevReportShapeCheckTests.cs`.
+
+Both are the bookkeeping of a change to main that removed timers and sleeps from those files and did not update the
+register and the baseline beside them. They are not fixed here: the one-line edits belong to the change that made
+them necessary, and making them in this branch would conflict with it. The Tech Lead was told. The red of the first
+gate run (`CronRunResultTests.cs`) is gone: main fixed it.
+
+Not checked: I did not run the gate on `origin/main` alone to watch these two fail there. That they are main's rests
+on what each message names and on this branch touching none of it.
+
