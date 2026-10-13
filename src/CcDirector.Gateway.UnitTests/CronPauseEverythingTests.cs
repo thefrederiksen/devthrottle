@@ -220,6 +220,65 @@ public sealed class CronPauseEverythingTests : IAsyncDisposable
         Assert.Equal(1, _starter.StartCount);
     }
 
+    // ---- a paused fleet never looks like a broken one ---------------------------------------------------------
+
+    /// <summary>A schedule whose next run is already past, as it is found after the Gateway has been down.</summary>
+    private CronJobDto SeedOneAlreadyPastDue()
+    {
+        var created = Store.Create(Recurring("a"));
+        using var ctx = Db.CreateContext();
+        ctx.CronJobs.Single(e => e.Id == created.Id).NextRunUtc = FixedNow.AddDays(-2);
+        ctx.SaveChanges();
+        return created;
+    }
+
+    [Fact]
+    public void ARestartWhileEverythingIsPaused_RecordsNoMissedRun_AndStillMovesTheScheduleOn()
+    {
+        var job = SeedOneAlreadyPastDue();
+        Switch().Pause(TenantId.Local, FixedNow.AddDays(-3));
+
+        // The Gateway starts again: the store loads.
+        var reloaded = new CronJobStore(Db, _h.LegacyPath("jobs.json"));
+
+        // The runs that fell due during the pause are not problems - they were never going to start.
+        Assert.Empty(History.List(job.Id));
+        var after = reloaded.Get(job.Id)!;
+        Assert.True(after.NextRunUtc > FixedNow);
+        Assert.True(after.Enabled);
+    }
+
+    [Fact]
+    public void ARestartWhenNothingIsPaused_StillRecordsTheRunsItMissed()
+    {
+        // The control for the test above: without the pause the same load records the missed runs, so "none recorded"
+        // there is the switch and not a fixture the load would never have recorded for.
+        var job = SeedOneAlreadyPastDue();
+
+        _ = new CronJobStore(Db, _h.LegacyPath("jobs.json"));
+
+        Assert.NotEmpty(History.List(job.Id));
+        Assert.All(History.List(job.Id), r => Assert.Equal(CronRunProblems.DidNotRun, r.Problem));
+    }
+
+    [Fact]
+    public async Task ResumingEverything_RecordsNoMissedRun_ForTheTimesThatPassedWhilePaused()
+    {
+        var pause = Switch();
+        var (a, b, _) = SeedThreeWithTwoDue();
+        await StartAsync(Caller.OwnerBrowser, pause);
+        await PutAsync(true);
+        // Three days pass while everything is paused.
+        _clock.UtcNow = _clock.UtcNow.AddDays(3);
+
+        await PutAsync(false);
+        await Engine(pause).EvaluateDueAsync(CancellationToken.None);
+
+        Assert.Empty(History.List(a.Id));
+        Assert.Empty(History.List(b.Id));
+        Assert.Equal(0, _starter.StartCount);
+    }
+
     // ---- the switch itself --------------------------------------------------------------------------------------
 
     [Fact]

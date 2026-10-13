@@ -45,6 +45,17 @@ public sealed class CronPauseSwitch
     /// <summary>Whether the account's scheduler is paused.</summary>
     public bool IsPaused(TenantId tenant) => PausedSinceUtc(tenant) is not null;
 
+    /// <summary>
+    /// Whether the account an open context is scoped to is paused, read in that context. The schedule store asks
+    /// this as it loads, in the same unit of work that moves its schedules on, so what it records and what it moves
+    /// can never be decided against two different answers.
+    /// </summary>
+    internal static bool IsPausedIn(Data.GatewayDbContext ctx)
+    {
+        ArgumentNullException.ThrowIfNull(ctx);
+        return ctx.TenantSettings.Any(e => e.Key == TenantSettingKeys.SchedulesPaused && e.Value != "");
+    }
+
     /// <summary>When the account's pause began, or null when it is not paused.</summary>
     public DateTime? PausedSinceUtc(TenantId tenant)
     {
