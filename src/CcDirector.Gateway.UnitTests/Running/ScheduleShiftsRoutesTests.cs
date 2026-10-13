@@ -25,6 +25,9 @@ public sealed class ScheduleShiftsRoutesTests : IAsyncLifetime
     private HttpClient _http = null!;
     private TimeZoneInfo? _zone = TimeZoneInfo.Utc;
 
+    // The engine's clock, fixed: a run fired by hand starts at 17:00 UTC, which is the evening shift.
+    private static readonly DateTime EngineNow = new(2026, 10, 12, 17, 0, 0, DateTimeKind.Utc);
+
     private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNameCaseInsensitive = true };
 
     public async Task InitializeAsync()
@@ -40,7 +43,7 @@ public sealed class ScheduleShiftsRoutesTests : IAsyncLifetime
         CronJobEndpoints.Map(_app, _store, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown,
             findFactory: (_, _) => null, runRecords: runRecords, accountZoneOf: _ => _zone);
         var engine = new CronEngine(_store, history, new RecordingStarter(), new UnusedWorkListRunner(),
-            new NullCronNotifier(), new FakeClock(DateTime.UtcNow));
+            new NullCronNotifier(), new FakeClock(EngineNow));
         CronRunEndpoints.Map(_app, engine, runRecords, jobById: _store.Get,
             sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown, accountZoneOf: _ => _zone);
         await _app.StartAsync();
@@ -115,6 +118,8 @@ public sealed class ScheduleShiftsRoutesTests : IAsyncLifetime
         var body = await _http.GetFromJsonAsync<JsonElement>($"cron/jobs/{created.Id}/runs");
         var run = body.GetProperty("runs").Deserialize<List<CronRunRecord>>(JsonOpts)!.Single();
 
+        Assert.Equal(EngineNow, run.FiredUtc);
+        Assert.Equal(WorkShifts.Evening, WorkShifts.ShiftOf(run.FiredUtc, TimeZoneInfo.Utc).Name);
         Assert.Equal(WorkShifts.ShiftOf(run.FiredUtc, TimeZoneInfo.Utc).Text, run.ShiftText);
     }
 

@@ -1,8 +1,9 @@
 # Factory Control, step 3 - shifts on the screens
 
-Proof for the change that shows the shifts on the factory page and the schedule screen. Run on SOREN_NORTH,
-11 October 2026, on branch `factory-control/shifts`. The branch has `origin/factory-control/runresult` (pull request
-3799) merged locally, because the shifts come from its `WorkShifts`. It is rebased onto origin/main once 3799 merges.
+Proof for the change that shows the shifts on the factory page and the schedule screen. Built on SOREN_NORTH on
+11 October 2026 on top of a local merge of the run-results branch, then rebased onto origin/main on 12 October 2026
+after run results merged (pull request 3799, commit 2a6df8062). The branch now carries only the shifts commits, and
+the counts below are from the rebased branch.
 
 ## What changed
 
@@ -48,14 +49,26 @@ Proof for the change that shows the shifts on the factory page and the schedule 
 
 ## Commands and counts
 
+Run on the rebased branch, 12 October 2026, one suite at a time.
+
 | Command | Result |
 | --- | --- |
-| `dotnet test src/CcDirector.Gateway.UnitTests` | 10,493 passed, 4 failed. All four are migration-snapshot tests (`FleetOutcomeStopIdentityMigrationTests`, `FleetManagerLaterStepsMigrationChainTests`, both providers). They fail because 3799's migration is merged locally beside main's newer one. This branch changes no table, migration or model, and the four go away on the rebase |
-| `npx vitest run` in `apps/cockpit` | 1,026 passed |
-| `npx vitest run` in `packages/client-core` | 1,982 passed |
+| `dotnet test src/CcDirector.Gateway.UnitTests` | 10,678 passed, 1 failed, of 10,679. The one is `HeldDeliveryDriverTests.TheTickDrivesANewlyHeldDelivery_WhileTheStartUpPassIsStillWorkingThroughItsOwn`, which this branch does not touch; its class run alone passes 29 of 29 |
+| the same, filtered to the shifts, the factory fold and the four test files that gained the new argument | 145 passed |
+| `npx vitest run` in `apps/cockpit` | 1,031 passed |
+| `npx vitest run` in `packages/client-core` | 1,982 passed. An earlier run of the same tree had 1 failure that was not captured and did not come back in two further runs |
 | `tsc --noEmit` in both | clean |
-| `.\scripts\test-local.ps1` | 8 suites green, 2 red. The 2 reds are `BackgroundWorkRegisterTests` (`LinkRequestsCache.cs`) and `ShownErrorSourceScanTests`. Both arrived with origin/main at #3853 and were fixed on main by #3860, and neither touches this change |
-| `dotnet test src/CcDirector.Gateway.Tests --filter CronJobEndpointsTests or CronRunEndpointsTests` | did not run: another session's release gate held the Gateway test lock. These two files only gained the new argument; they are run after the rebase |
+| `.\scripts	est-local.ps1` | 9 suites green, 1 red. The red is one test in `CcDirector.Core.UnitTests`, `GateTestsDoNotDependOnTheMachineTests`. It named two files: this branch's `ScheduleShiftsRoutesTests.cs`, which is fixed here (the engine's clock is a fixed time), and `CronRunResultTests.cs`, which arrived on main with pull request 3799 and is not changed by this branch. Run again after the fix, the test names only the second file |
+| `dotnet test src/CcDirector.Gateway.Tests` | not run |
+
+## What the rebase changed
+
+- **The local merge of run results is gone.** No migration, snapshot or model file is in the diff against main.
+- **The seat's closing marker and its shift sit side by side.** Main gained the marker that says whether a seat's
+  sessions close themselves. The Seats tab's grouped rows keep it, and its Cockpit test reads it from the shift
+  groups.
+- **`ScheduleShiftsRoutesTests` no longer reads the real clock.** The engine's clock is fixed at 17:00 UTC, and the
+  run test also checks that a run fired then is in the evening shift.
 
 ## Screenshots, from a local Gateway
 
