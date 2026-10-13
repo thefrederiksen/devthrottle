@@ -85,3 +85,29 @@ count is "at least 4".
 - **`-Parked` was not run**, so the hosted suite as a whole (`Gateway.Tests`) and `Core.Tests` were not run on this
   branch.
 - **The breaks were not run again after the merge of main**, as said above.
+
+## After pull request 3943 was merged (13 October 2026)
+
+`origin/main` at `d9ca4957a` (which holds pull request 3943) was merged into the branch as `c45272c94`. One file
+conflicted, `GatewayHost.cs`, in two places; both sides were kept: the host builds the sign-in services of 3943 and
+the email service of this branch, and its minute check runs the sign-in settling and then the email check, each on
+its own try. The email is still keyed on `RenewalFailedAtUtc` being set.
+
+| Run, on `c45272c94` | Result |
+|---|---|
+| `dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Licenses"` | 748 passed, 0 failed |
+| `dotnet test src/CcDirector.Gateway.Tests --filter "FullyQualifiedName~License"` | 41 passed, 0 failed |
+| `.\scripts\test-database.ps1` | GREEN - 73 executed against the throwaway PostgreSQL, none failed, none skipped |
+| `.\scripts\test-local.ps1` | RED - one test of `Core.UnitTests` failed, of 1,686; every other suite `outcome=Completed` |
+
+**The red test is not about this branch.** It is
+`GateTestsDoNotDependOnTheMachineTests.No_gate_test_adds_a_sleep_a_real_clock_a_real_process_docker_or_a_fixed_port`,
+and it names four test files as newly reading a real clock: `HostedAiGateMenuCheckRouteTests.cs`,
+`HostedAiGateRouteTests.cs`, `DictionarySuggestionDailySweepTests.cs` and `Tenancy/TenantAiGateTests.cs`. `git diff`
+of those four files and of the guard's own folder between `origin/main` and this branch is empty, and the last
+commit on main to touch them is `26afc4ed1` (pull request 3878). It names no file of this branch. I did not run the
+gate on main itself, so that main is red on this test is read from the identical files, not observed.
+
+NOT run after this merge: the whole `Gateway.UnitTests` suite, `-Parked`, and the nineteen breaks. Of the four
+product files the breaks were made in, the merge changed `GatewayHost.cs` (the conflict above) and brought main's
+changes into `LicenseDisplayFold.cs`; the hosted tests of break 16 and the unit tests are green after it.
