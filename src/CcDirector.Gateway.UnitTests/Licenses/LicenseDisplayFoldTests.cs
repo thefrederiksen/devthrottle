@@ -638,7 +638,8 @@ public sealed class LicenseDisplayFoldTests : IDisposable
 
         Assert.Equal(offered, account.CanSwitchNow);
         if (!offered)
-            Assert.Equal($"No machine on {A} can be switched now: every machine on it is stale or already mid-switch.", account.SwitchNowText);
+            // Which of the two it is, is said for each machine - the same sentence the route refuses with.
+            Assert.Equal($"No machine on {A} can be switched now: every machine on it is stale or already mid-switch. m1 is not switched: its last report is too old.", account.SwitchNowText);
     }
 
     [Fact]

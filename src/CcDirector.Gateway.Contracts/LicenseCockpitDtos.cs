@@ -26,6 +26,10 @@ public static class LicenseRoutes
 
     /// <summary>Set or clear the date an account's subscription is billed again. A write: refused to a session key.</summary>
     public const string AccountRenewal = "/gateway/licenses/accounts/renewal";
+
+    /// <summary>POST: Switch now - move every machine on one account to another (<see cref="LicenseSwitchNowRequest"/>,
+    /// <see cref="LicenseSwitchNowResponse"/>). Refused to every session key.</summary>
+    public const string SwitchNow = "/gateway/licenses/switch-now";
 }
 
 /// <summary>The one status an account is shown with. <see cref="LicenseAccountDto.StatusText"/> is the label.</summary>
@@ -660,4 +664,74 @@ public sealed class LicenseLogEntryDto
     /// answered a usage read." or "The new sign-in did not answer a usage read." Null on every other row - a switch
     /// that was refused or failed has nothing to confirm, and the page shows nothing there.</summary>
     public string? VerifiedText { get; set; }
+}
+
+/// <summary>The body of POST <see cref="LicenseRoutes.SwitchNow"/>. It is by ACCOUNT, because usage is counted per
+/// account: every machine on it that can be sent a switch moves.</summary>
+public sealed class LicenseSwitchNowRequest
+{
+    /// <summary>The account to move machines off.</summary>
+    public string? AccountEmail { get; set; }
+
+    /// <summary>The account to move them to; null or blank lets the Gateway choose, as an automatic switch would.</summary>
+    public string? TargetAccountEmail { get; set; }
+}
+
+/// <summary>The answer of an accepted Switch now: where the machines were sent, each machine's switch as its log row
+/// stood when the Gateway answered, and the machines on the account that were not sent one.</summary>
+public sealed class LicenseSwitchNowResponse
+{
+    /// <summary>The account the machines were sent to: the one named, or the one chosen.</summary>
+    public string? TargetAccountEmail { get; set; }
+
+    /// <summary>The whole outcome in one sentence, ready to show.</summary>
+    public string Text { get; set; } = "";
+
+    /// <summary>One per machine sent a switch.</summary>
+    public List<LicenseSwitchNowMachineDto> Switches { get; set; } = new();
+
+    /// <summary>The machines on the account that were not sent a switch, each with the reason.</summary>
+    public List<LicenseSwitchNowSkippedDto> Skipped { get; set; } = new();
+}
+
+/// <summary>One machine's switch, folded like its row of the switch log.</summary>
+public sealed class LicenseSwitchNowMachineDto
+{
+    /// <summary>The identifier of the switch itself, the one the machine's Director was sent.</summary>
+    public string SwitchId { get; set; } = "";
+
+    /// <summary>The switch's row of the switch log: <see cref="LicenseLogEntryDto.EntryId"/> of that row, so the page
+    /// can find it in the log.</summary>
+    public string EntryId { get; set; } = "";
+
+    public string MachineName { get; set; } = "";
+    public string OsUser { get; set; } = "";
+
+    /// <summary>What to call the machine: its name, with the user in brackets when another machine has the same name.</summary>
+    public string Label { get; set; } = "";
+
+    /// <summary>A <see cref="LicenseLogStates"/> word.</summary>
+    public string State { get; set; } = "";
+
+    /// <summary>The state in words: "Switched", "Waiting for the machine", "Sent, no answer yet", "Failed".</summary>
+    public string StateText { get; set; } = "";
+
+    /// <summary>A <see cref="LicenseTones"/> word.</summary>
+    public string StateTone { get; set; } = "";
+
+    /// <summary>The row in one sentence.</summary>
+    public string Summary { get; set; } = "";
+}
+
+/// <summary>A machine on the account that was not sent a switch.</summary>
+public sealed class LicenseSwitchNowSkippedDto
+{
+    public string MachineName { get; set; } = "";
+    public string OsUser { get; set; } = "";
+
+    /// <summary>What to call the machine.</summary>
+    public string Label { get; set; } = "";
+
+    /// <summary>Why it was not sent a switch, as a finished sentence.</summary>
+    public string Why { get; set; } = "";
 }

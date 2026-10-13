@@ -192,6 +192,47 @@ public sealed class LicenseHostTests : IAsyncLifetime
         Assert.Single(_gateway.LicenseStore.ListOpenSwitches(_tenantOne));
     }
 
+    // ---- Switch now, by the owner, over real HTTP ----
+
+    [Fact]
+    public async Task SwitchNow_ByTheOwnersBrowser_ToAnAccountNoMachineHolds_IsRefusedWithAWordAndASentence()
+    {
+        using var resp = await _ownerOne.PostAsync("gateway/licenses/switch-now",
+            new StringContent($"{{\"accountEmail\":\"{AccountA}\",\"targetAccountEmail\":\"nobody@example.com\"}}", System.Text.Encoding.UTF8, "application/json"));
+        var text = await resp.Content.ReadAsStringAsync();
+        _out.WriteLine($"POST gateway/licenses/switch-now -> {(int)resp.StatusCode}: {text}");
+
+        // The fixture left this machine with a switch that has not finished, so no machine can be switched now.
+        Assert.Equal(HttpStatusCode.Conflict, resp.StatusCode);
+        Assert.Equal(LicenseManualRefusals.NoMachineToSwitch, Json(text).GetProperty("code").GetString());
+        Assert.EndsWith(".", Json(text).GetProperty("error").GetString());
+        Assert.Single(_gateway.LicenseStore.ListOpenSwitches(_tenantOne));
+    }
+
+    [Fact]
+    public async Task SwitchNow_ByTheOwnersBrowser_IsAccepted_WrittenForItsOwnAccount_AndAnsweredWithTheMachinesSwitch()
+    {
+        // The switch the fixture left open is ended, so the machine can be sent a new one.
+        var open = Assert.Single(_gateway.LicenseStore.ListOpenSwitches(_tenantOne));
+        Assert.True(_gateway.LicenseStore.TryMark(_tenantOne, open.SwitchId!, LicenseLogStates.Failed, null, "Ended by the test.", Now));
+
+        using var resp = await _ownerOne.PostAsync("gateway/licenses/switch-now",
+            new StringContent($"{{\"accountEmail\":\"{AccountA}\"}}", System.Text.Encoding.UTF8, "application/json"));
+        var text = await resp.Content.ReadAsStringAsync();
+        _out.WriteLine($"POST gateway/licenses/switch-now -> {(int)resp.StatusCode}: {text}");
+
+        // No Director is connected in this fixture, so the switch waits for the machine - and that is an accepted call.
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        var json = Json(text);
+        Assert.Equal(AccountB, json.GetProperty("targetAccountEmail").GetString());
+        var sent = Assert.Single(json.GetProperty("switches").EnumerateArray());
+        Assert.Equal((LicenseLogStates.Pending, "Waiting for the machine"), (sent.GetProperty("state").GetString(), sent.GetProperty("stateText").GetString()));
+        var row = Assert.Single(_gateway.LicenseStore.ListOpenSwitches(_tenantOne));
+        Assert.Equal((row.SwitchId, row.Id.ToString("N")), (sent.GetProperty("switchId").GetString(), sent.GetProperty("entryId").GetString()));
+        // The other account's machine was not touched: its one open switch is the fixture's.
+        Assert.NotEqual(row.Id, Assert.Single(_gateway.LicenseStore.ListOpenSwitches(_tenantTwo)).Id);
+    }
+
     // ---- the renewal date: the one thing a person sets ----
 
     private async Task<(HttpStatusCode Status, string Text)> PutRenewal(HttpClient http, string body)

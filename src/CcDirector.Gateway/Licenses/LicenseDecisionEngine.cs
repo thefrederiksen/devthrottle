@@ -173,11 +173,11 @@ public static class LicenseDecisionEngine
             var missing = eligible.FirstOrDefault(m => !HoldsUsableSpare(m, target));
             if (missing is not null)
                 return Refuse(skipped, LicenseManualRefusals.TargetNotHeld,
-                    $"{missing.MachineName} holds no usable spare for {target}.");
+                    $"{Label(snapshot, missing)} holds no usable spare for {target}.");
             var expiring = eligible.FirstOrDefault(m => SpareSignInExpiresTooSoon(m, target, snapshot.NowUtc));
             if (expiring is not null)
                 return Refuse(skipped, LicenseManualRefusals.TargetSignInExpiring,
-                    $"{expiring.MachineName}'s sign-in for {target} expires before a switch could finish.");
+                    $"{Label(snapshot, expiring)}'s sign-in for {target} expires before a switch could finish.");
             if (!readings.TryGetValue(target, out var targetReading) || IsReadingStale(targetReading, snapshot.NowUtc))
                 return Refuse(skipped, LicenseManualRefusals.TargetStale,
                     $"The latest reading of {target} is too old to show it has room.");
@@ -346,10 +346,10 @@ public static class LicenseDecisionEngine
             return $"it triggered a switch and is barred until its {WindowLabel(bar.Window)} resets at {Time(bar.BarredUntilUtc)}";
         var missing = machines.FirstOrDefault(m => !HoldsUsableSpare(m, candidate.AccountEmail));
         if (missing is not null)
-            return $"{missing.MachineName} holds no usable spare for it";
+            return $"{Label(snapshot, missing)} holds no usable spare for it";
         var expiring = machines.FirstOrDefault(m => SpareSignInExpiresTooSoon(m, candidate.AccountEmail, now));
         if (expiring is not null)
-            return $"{expiring.MachineName}'s sign-in for it expires before a switch could finish";
+            return $"{Label(snapshot, expiring)}'s sign-in for it expires before a switch could finish";
         return null;
     }
 
@@ -441,6 +441,17 @@ public static class LicenseDecisionEngine
 
     // ----- words -----
 
+    // What a sentence calls a machine: its name - and, when another machine of the picture has the same name, its
+    // operating system user in brackets, because two users of one computer are two machines here and the name alone
+    // would not say which is meant. The Licenses page labels its machines by the same rule.
+    private static string Label(LicenseSnapshot snapshot, LicenseMachineState machine)
+        => Label(snapshot, machine.MachineName, machine.OsUser);
+
+    private static string Label(LicenseSnapshot snapshot, string machineName, string osUser)
+        => snapshot.Machines.Count(m => string.Equals(m.MachineName, machineName, StringComparison.OrdinalIgnoreCase)) > 1
+            ? $"{machineName} ({osUser})"
+            : machineName;
+
     private static string ThresholdExplanation(string source, IReadOnlyList<TiredWindow> tired, string target) =>
         $"{source} reached {DescribeWindows(tired)}; switched to {target}, the account with the lowest weekly use that every machine on it holds.";
 
@@ -452,9 +463,9 @@ public static class LicenseDecisionEngine
         var subject = $"DevThrottle: no Claude account has room - {source} is at {DescribeWindows(tired)}";
         var body = new StringBuilder();
         body.Append(CultureInfo.InvariantCulture, $"{source} has reached {DescribeWindows(tired)}, and no other account can take its machines, so nothing was switched.\r\n\r\n");
-        body.Append("Machines on it: ").Append(string.Join(", ", machines.Select(m => m.MachineName)));
+        body.Append("Machines on it: ").Append(string.Join(", ", machines.Select(m => Label(snapshot, m))));
         foreach (var machine in skipped)
-            body.Append(CultureInfo.InvariantCulture, $", {machine.MachineName} (not sent a switch: {machine.Why})");
+            body.Append(CultureInfo.InvariantCulture, $", {Label(snapshot, machine.MachineName, machine.OsUser)} (not sent a switch: {machine.Why})");
         body.Append(".\r\n\r\n");
         foreach (var window in tired)
             body.Append(CultureInfo.InvariantCulture, $"Its {WindowLabel(window.Name)} resets {(window.ResetsAtUtc is { } r ? "at " + Time(r) : "at a time the provider did not give")}.\r\n");

@@ -39,8 +39,11 @@ public static class LicenseEndpoints
     private static readonly IReadOnlyList<LicenseExhaustion> NoExhaustions = Array.Empty<LicenseExhaustion>();
 
     public static void Map(IEndpointRouteBuilder app, Func<HttpContext, TenantId?> resolveTenant,
-        LicenseSnapshotSource snapshots, LicenseUsageHistory history, LicenseStore store, Func<DateTime> nowUtc)
+        LicenseSnapshotSource snapshots, LicenseUsageHistory history, LicenseStore store, Func<DateTime> nowUtc,
+        LicenseSwitchService switches, Func<TenantId?> tenantInScope)
     {
+        ArgumentNullException.ThrowIfNull(switches);
+        ArgumentNullException.ThrowIfNull(tenantInScope);
         ArgumentNullException.ThrowIfNull(resolveTenant);
         ArgumentNullException.ThrowIfNull(snapshots);
         ArgumentNullException.ThrowIfNull(history);
@@ -54,7 +57,10 @@ public static class LicenseEndpoints
         // delegate, and a result it merely RETURNED would be dropped - every call would answer 200 with no body.
         app.MapPut(LicenseRoutes.AccountRenewal, async (HttpContext ctx) =>
             await SetRenewalDate(ctx, resolveTenant, store, nowUtc, await ReadBodyAsync<LicenseRenewalDateRequest>(ctx)).ExecuteAsync(ctx));
-        FileLog.Write($"[LicenseEndpoints] mapped GET {LicenseRoutes.Overview}, GET {LicenseRoutes.Forecast}, GET {LicenseRoutes.Log}, PUT {LicenseRoutes.AccountRenewal}");
+        app.MapPost(LicenseRoutes.SwitchNow, async (HttpContext ctx) =>
+            await (await SwitchNowAsync(ctx, resolveTenant, tenantInScope, switches, store,
+                await ReadBodyAsync<LicenseSwitchNowRequest>(ctx))).ExecuteAsync(ctx));
+        FileLog.Write($"[LicenseEndpoints] mapped GET {LicenseRoutes.Overview}, GET {LicenseRoutes.Forecast}, GET {LicenseRoutes.Log}, PUT {LicenseRoutes.AccountRenewal}, POST {LicenseRoutes.SwitchNow}");
     }
 
     internal static IResult Overview(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant,
@@ -185,6 +191,51 @@ public static class LicenseEndpoints
         catch (Exception ex)
         {
             FileLog.Write($"[LicenseEndpoints] PUT /gateway/licenses/accounts/renewal FAILED: {ex.Message}");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// POST /gateway/licenses/switch-now: move every machine on one account of the caller's own DevThrottle account to
+    /// another, now. The account is the tenant of the credential, never anything in the body. It answers when every
+    /// machine has answered or its 60-second wait has ended. Accepted is 200 with each machine's switch as its log row
+    /// stands; refused is 409 with the refusal word and a finished sentence, and nothing was written or sent.
+    /// </summary>
+    internal static async Task<IResult> SwitchNowAsync(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant,
+        Func<TenantId?> tenantInScope, LicenseSwitchService switches, LicenseStore store, LicenseSwitchNowRequest? body)
+    {
+        FileLog.Write("[LicenseEndpoints] POST switch-now");
+        try
+        {
+            if (resolveTenant(ctx) is not { } tenant)
+                return NoAccount();
+            if (body is null)
+                return Refuse(StatusCodes.Status400BadRequest, "invalid_body", "The body is a JSON object with accountEmail and, to name a target, targetAccountEmail.");
+            if (string.IsNullOrWhiteSpace(body.AccountEmail))
+                return Refuse(StatusCodes.Status400BadRequest, "account_required", "accountEmail is required: the account to switch away from.");
+            // The switch is written for the caller's account and SENT in the scope in effect. If the two were ever
+            // not the same, rows would be written and nothing sent - so that is refused here, before anything is.
+            if (tenantInScope() is not { } scope || scope != tenant)
+                throw new InvalidOperationException("Switch now was called outside the scope of the caller's own account; nothing was written or sent.");
+
+            var result = await switches.SwitchNowAsync(tenant, body.AccountEmail, body.TargetAccountEmail, ctx.RequestAborted);
+            var machines = store.ListMachineNames(tenant);
+            if (!result.Accepted)
+            {
+                FileLog.Write($"[LicenseEndpoints] POST switch-now: tenant={tenant.ToLogString()}, refused={result.RefusalCode}");
+                return Refuse(StatusCodes.Status409Conflict, result.RefusalCode!, LicenseDisplayFold.SwitchNowRefused(result, machines));
+            }
+
+            var rows = result.Switches
+                .Select(s => store.FindSwitch(tenant, s.SwitchId)
+                    ?? throw new InvalidOperationException($"Switch {s.SwitchId} was sent, and its row is gone."))
+                .ToList();
+            FileLog.Write($"[LicenseEndpoints] POST switch-now: tenant={tenant.ToLogString()}, switches={rows.Count}, skipped={result.Skipped.Count}");
+            return Results.Json(LicenseDisplayFold.SwitchNowAccepted(result, rows, machines));
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[LicenseEndpoints] POST /gateway/licenses/switch-now FAILED: {ex.Message}");
             throw;
         }
     }

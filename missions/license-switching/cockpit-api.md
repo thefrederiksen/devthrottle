@@ -42,13 +42,10 @@ reports of two machines ("the-windows-machine" and "the-mac") and three accounts
    label, on all three routes, and a log row carries the same four fields. Show `label`; never build a name from the
    other fields.
 
-   **One exception, until the Switch now route is added (section 6).** Three sentences are written by the decision engine, not the fold, and the fold passes them on as
-   they are: `switchTargets[].unavailableText`, the reason a machine is left out inside `switchNowText` and inside a
-   forecast machine's `text`, and a refusal. Where one of those names a machine it uses the machine name ALONE
-   ("the-windows-machine holds no usable spare for account-b@example.com."). With two users of one computer that
-   sentence does not say which user it means. The page shows the sentence as given and does not try to work out
-   which; the lists beside it carry `machineId` and `label`. That change makes the engine's sentences use the
-   label, and nothing on the page changes for it.
+   The decision engine's own sentences follow the same rule: `switchTargets[].unavailableText`, the reason a machine
+   is left out inside `switchNowText` and inside a forecast machine's `text`, a refusal of Switch now, and the owner
+   email all name a machine by its label ("the-windows-machine (second) holds no usable spare for
+   account-c@example.com.").
 
 **Decided here (the Tech Lead's rulings on the review of this pull request):**
 
@@ -875,7 +872,7 @@ A refusal, here `GET /gateway/licenses/log?limit=0`:
 }
 ```
 
-## 6. The renewal date, a failed renewal - and Switch now, which is still to come
+## 6. The two writes - the renewal date and Switch now - and a failed renewal
 
 ### `PUT /gateway/licenses/accounts/renewal` - the date a subscription is billed again
 
@@ -954,30 +951,70 @@ sign-in left:
   about to be and the machine could not renew it, so the owner must sign in - and `warning` otherwise, including when
   the expiry is not known.
 
+### `POST /gateway/licenses/switch-now` - move every machine on one account to another, now
+
+Everything the page needs to DRAW the control is in section 2 (`canSwitchNow`, `switchNowText`,
+`switchNowTargetAccountEmail`, `switchTargets`). This route performs it. It is by ACCOUNT, because usage is counted
+per account: every machine on the account that can be sent a switch moves. The target is optional - null, blank or
+absent lets the Gateway choose, exactly as an automatic switch would:
+
+```json
+{ "accountEmail": "account-a@example.com", "targetAccountEmail": null }
+```
+
+The account is one of the caller's own DevThrottle account - which account that is comes from the credential, never
+from the body. Either email is matched whatever its capitals.
+
+**It answers when every machine has answered or its 60-second wait has ended** - normally in a second or two, never
+much longer than a minute. The page should show that it is working until then.
+
+**Accepted is `200`**, whatever each machine then did - a machine that refused, or one whose Director is not
+connected, is still an accepted call, and each machine's own state says how it stands:
+
+```json
+{"targetAccountEmail":"account-b@example.com","text":"The switch of machine-of-one to account-b@example.com has not finished; the switch log shows how it ends.","switches":[{"switchId":"f28f268f315842558629a946f91050c3","entryId":"e6fd8eedf7b04915bed55866cd4eac04","machineName":"machine-of-one","osUser":"owner","label":"machine-of-one","state":"pending","stateText":"Waiting for the machine","stateTone":"warning","summary":"machine-of-one is switching from account-a@example.com to account-b@example.com."}],"skipped":[]}
+```
+
+| Field | What it is |
+|---|---|
+| `targetAccountEmail` | The account the machines were sent to: the one named, or the one chosen. |
+| `text` | The whole outcome in one sentence, ready to show: "the-windows-machine is now on account-b@example.com.", "The switch of the-mac to account-b@example.com has not finished; the switch log shows how it ends.", "The switch of the-mac to account-b@example.com failed; the switch log says why." - one part for each kind that happened, then each machine left out with its reason. |
+| `switches[]` | One per machine sent a switch, as its row of the switch log stood when the Gateway answered: `switchId` (the switch itself), `entryId` (that row's `entryId` in section 4, so the page can find it in the log), `machineName`, `osUser`, `label` (rule 9), and `state`, `stateText`, `stateTone` and `summary` - the same four a log row carries (section 4). |
+| `skipped[]` | The machines on the account that were NOT sent a switch: `machineName`, `osUser`, `label`, and `why`, a finished sentence ("the-linux-machine is not switched: its last report is too old."). |
+
+A switch that is `pending` or `unknown` in the answer is finished later by the Gateway's once-a-minute check; the
+page reads how it ended from the switch log, by `entryId`. It never sends the same Switch now again to find out.
+
+**Refused is `409`** with the refusal word in `code` and a finished sentence in `error` - the same sentence
+`switchNowText` or `switchTargets[].unavailableText` already shows for that account, so the page shows nothing new.
+Nothing was written and nothing was sent:
+
+```json
+{"code":"no-machine-to-switch","error":"No machine on account-a@example.com can be switched now: every machine on it is stale or already mid-switch. machine-of-one is not switched: a switch sent to it has not finished."}
+```
+
+| Status | `code` | When |
+|---|---|---|
+| 409 | `no-machine-to-switch` | No machine is on the account (also the answer for an account of another DevThrottle account, or one that exists nowhere), or every machine on it is stale or has a switch that has not finished. |
+| 409 | `target-is-source` | The target named is the account the machines are already on. |
+| 409 | `target-not-held` | A machine to be switched holds no usable spare for the target. |
+| 409 | `target-sign-in-expiring` | A machine's sign-in for the target expires before a switch could finish. |
+| 409 | `target-stale` | The latest reading of the target is too old to show it has room. |
+| 409 | `target-full` | The target has no room. |
+| 409 | `no-target` | No target was named and no other account has room for the machines. |
+| 400 | `invalid_body` | The body is not a JSON object of this shape. |
+| 400 | `account_required` | `accountEmail` is missing or blank. |
+| 403 | `no_account` | The caller's credential belongs to no DevThrottle account. |
+
+**The page offers Switch now exactly where this route accepts it.** `canSwitchNow` is asked of the same picture the
+route decides on. One case is worth knowing: a machine whose switch is only waiting for its Director to connect
+(`pending`, shown as "Waiting for the machine") was never sent anything, so it CAN be switched now - the waiting
+switch is ended as `failed` and a new one is written. A machine whose switch was sent and has not been answered
+cannot, and `switchNowText` says so for that machine.
+
 ### Who may call the writes
 
 **A write is refused to a session key**, raised or not: `403` with `code` `session_key_out_of_scope`. Setting the date
 a subscription renews, and moving every machine of the owner's subscription to another one, are the owner's own
 actions, from the Cockpit. `SessionKeyGuard` lists neither route and tests hold both to that (`LicenseGuardTests`,
 and `LicenseHostTests` over real HTTP).
-
-### Switch now - still to come
-
-Everything the page needs to DRAW the control is in section 2 already (`canSwitchNow`, `switchNowText`,
-`switchNowTargetAccountEmail`, `switchTargets`). The route that performs it calls one method,
-`LicenseSwitchService.SwitchNowAsync`, which belongs to the pull request that wires the Gateway's once-a-minute
-check; the route is added once that has merged. Nothing in sections 1 to 5 is renamed by it.
-
-- `POST /gateway/licenses/switch-now`, body `{ "accountEmail": "...", "targetAccountEmail": "..." | null }` - by
-  ACCOUNT, because usage is counted per account and every machine on it moves; the target is optional.
-- Accepted: `200` with the target and one entry per machine sent a switch (its switch identifier, its state word and
-  its sentence, folded like a log row), and the machines left out with the reason for each.
-- Refused: `409` with the refusal word and the same sentence `switchTargets[].unavailableText` or `switchNowText`
-  already shows, so the page shows nothing new.
-- **One case it must close.** The page takes `canSwitchNow` from the picture in which a machine is mid-switch
-  whenever its log row is `pending` or `unknown`. The Switch now method is a little narrower when it decides: a row that
-  is `pending` because the machine's Director is offline was never sent, so it does not hold the machine back. Until
-  then, the page does NOT offer Switch now for an account whose only machine is waiting for an offline Director,
-  although the route would accept it. The fold will ask the same narrowed picture, so the page offers exactly what the
-  route accepts. The page needs no change for it.
-- The same change makes the engine's sentences name a machine by its label (the exception in rule 9).

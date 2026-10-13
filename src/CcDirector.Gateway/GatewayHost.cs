@@ -5498,14 +5498,17 @@ public sealed class GatewayHost : IAsyncDisposable
             nowUtc: () => DateTime.UtcNow);
 
         // The Licenses routes (the License Switching mission): what the Licenses page of the Cockpit reads - the accounts
-        // and machines, the forecast, and the switch log - and the one thing a person sets there, the renewal date of
-        // an account's subscription. The three reads are in SessionKeyGuard's allow list; the write is not.
+        // and machines, the forecast, and the switch log - and the two things a person does there: Switch now, and
+        // setting the renewal date of an account's subscription. The three reads are in SessionKeyGuard's allow list;
+        // the two writes are not.
         Api.LicenseEndpoints.Map(_app,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             snapshots: LicenseSnapshots,
             history: LicenseHistory,
             store: LicenseStore,
-            nowUtc: () => LicenseClock.GetUtcNow().UtcDateTime);
+            nowUtc: () => LicenseClock.GetUtcNow().UtcDateTime,
+            switches: LicenseSwitches,
+            tenantInScope: () => _tenantPass.Current);
 
         // Requests for a message link (issue #3548): a session asks, the owner - or a raised session - answers. Asking is
         // in SessionKeyGuard's ordinary allow list; the list and the answer are on RaisedGrant.MessageLinks.

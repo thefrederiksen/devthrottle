@@ -374,7 +374,7 @@ public sealed class LicenseSwitchService
         {
             if (_inFlight.ContainsKey((tenant, IdOf(row))))
                 blocked.Add(row.MachineId);
-            else if (row.State == LicenseLogStates.Pending && row.ReasonCode == LicenseGatewayReasonCodes.DirectorOffline)
+            else if (IsKnownNeverSent(row))
                 neverSent[row.MachineId] = row;
             else
             {
@@ -560,7 +560,7 @@ public sealed class LicenseSwitchService
     /// <paramref name="blocked"/> - the machines whose open row's outcome is not known or whose send is in flight.
     /// Nothing else in the picture is touched.
     /// </summary>
-    private static LicenseSnapshot SnapshotToDecideOn(LicensePicture picture, IReadOnlySet<Guid> blocked)
+    internal static LicenseSnapshot SnapshotToDecideOn(LicensePicture picture, IReadOnlySet<Guid> blocked)
     {
         var blockedMachines = picture.Overview.Machines
             .Where(m => blocked.Contains(m.MachineId))
@@ -572,6 +572,24 @@ public sealed class LicenseSwitchService
                 .Select(m => m with { HasOpenSwitch = blockedMachines.Contains(MachineKey(m.MachineName, m.OsUser)) })
                 .ToList(),
         };
+    }
+
+    /// <summary>True for an open switch row known never to have left this Gateway: the machine's Director was not
+    /// connected. Such a row does not hold its machine back from a new decision (the class summary).</summary>
+    internal static bool IsKnownNeverSent(LicenseSwitchLogEntity row)
+        => row.State == LicenseLogStates.Pending && row.ReasonCode == LicenseGatewayReasonCodes.DirectorOffline;
+
+    /// <summary>
+    /// The picture Switch now decides on, for the Licenses page: every machine whose open row is NOT known never to
+    /// have left is mid-switch, and no other. The page asks the engine with this, so it offers Switch now exactly
+    /// where <see cref="SwitchNowAsync"/> would accept it. (A send in flight in this process is one more thing that
+    /// holds a machine back there; its row is already written "pending" with no reason, so it is counted here too.)
+    /// </summary>
+    internal static LicenseSnapshot SnapshotSwitchNowDecidesOn(LicensePicture picture)
+    {
+        ArgumentNullException.ThrowIfNull(picture);
+        return SnapshotToDecideOn(picture,
+            picture.OpenSwitches.Where(r => !IsKnownNeverSent(r)).Select(r => r.MachineId).ToHashSet());
     }
 
     private static List<LicenseExhaustion> Exhaustions(IReadOnlyList<LicenseSwitchLogEntity> openNoRoom)
