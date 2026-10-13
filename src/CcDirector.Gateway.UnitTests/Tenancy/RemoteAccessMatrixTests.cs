@@ -209,7 +209,8 @@ public sealed class RemoteAccessMatrixTests : IAsyncLifetime
     /// <summary>The Cockpit and phone door: <c>POST /mobile/enroll</c>. The platform decides the key's type.</summary>
     private Task<Answer> EnrolPhoneAsync() => PostAsync("/mobile/enroll", new { deviceId = "phone-1", platform = "android", name = "Phone" });
 
-    private Task<Answer> SignInToTheCockpitAsync() => PostAsync("/mobile/enroll", new { deviceId = "cockpit-1", platform = "browser", name = "Cockpit" });
+    private Task<Answer> SignInToTheCockpitAsync(string deviceId = "cockpit-1")
+        => PostAsync("/mobile/enroll", new { deviceId, platform = "browser", name = "Cockpit" });
 
     /// <summary>One request through the REAL auth middleware with a device key as its Bearer.</summary>
     private async Task<Answer> RequestAsync(string deviceKey)
@@ -573,6 +574,96 @@ public sealed class RemoteAccessMatrixTests : IAsyncLifetime
         Assert.Equal(EntitlementRegistry.TierFree, _entitlements.Evaluate(Subject, CutOffPassed).Tier);
         Assert.Equal(402, await DictationStatusAsync());
         Assert.Equal(0, TrialRows());
+    }
+
+    // ================================================================= one device id, two doors
+
+    private static void AssertDeviceIdOfAnotherClass(Answer answer)
+    {
+        Assert.Equal(409, answer.Status);
+        using var doc = JsonDocument.Parse(answer.Body);
+        Assert.Equal(HostedEnrollmentEndpoint.DeviceIdOfAnotherClassCode, doc.RootElement.GetProperty("code").GetString());
+        Assert.Null(answer.DeviceKey);
+    }
+
+    [Fact]
+    public async Task TheCockpitDoor_SentADirectorsDeviceId_Is409_AndNoBrowserIsHandedAKeyThatReadsAsADirectors()
+    {
+        // The device id is the client's to choose. A registration issues a new key against an active row under that
+        // id and keeps the row's type, so without the refusal this browser would hold a workstation-typed key: one
+        // the request path never asks remote access of, which would keep working after the plan ended.
+        await StartAsync(LaunchedNoCutOff);
+        PaidRow(EntitlementRegistry.TierRemote);
+        var directorKey = (await EnrolDirectorAsync(deviceId: "one-id")).DeviceKey!;
+        var keysBefore = _devices.List().Count;
+
+        AssertDeviceIdOfAnotherClass(await SignInToTheCockpitAsync(deviceId: "one-id"));
+
+        // Refused before any write: no key was issued, and the Director's own key is the one it was.
+        Assert.Equal(keysBefore, _devices.List().Count);
+        Assert.Equal(DeviceCredentialResolutionKind.Active, _devices.ResolveCredential(directorKey).Kind);
+        Assert.Equal("workstation", _devices.DeviceTypeForKey(directorKey));
+        Assert.Equal(200, (await RequestAsync(directorKey)).Status);
+
+        // The same browser under an id of its own is served: the refusal is of the id, not of the account.
+        Assert.Equal(200, (await SignInToTheCockpitAsync()).Status);
+    }
+
+    [Fact]
+    public async Task TheDirectorDoor_SentABrowsersDeviceId_Is409_AndNoDirectorIsHandedAKeyThatNeedsRemoteAccess()
+    {
+        // The reverse: without the refusal this Director would hold a browser-typed key, and on the day its account
+        // has no remote access the Director would meet 402 on every request - which a Director never may.
+        await StartAsync(LaunchedNoCutOff);
+        PaidRow(EntitlementRegistry.TierRemote);
+        var cockpitKey = (await SignInToTheCockpitAsync(deviceId: "one-id")).DeviceKey!;
+        var keysBefore = _devices.List().Count;
+
+        AssertDeviceIdOfAnotherClass(await EnrolDirectorAsync(deviceId: "one-id"));
+
+        Assert.Equal(keysBefore, _devices.List().Count);
+        Assert.Equal(DeviceCredentialResolutionKind.Active, _devices.ResolveCredential(cockpitKey).Kind);
+        Assert.Equal("browser", _devices.DeviceTypeForKey(cockpitKey));
+        Assert.Equal(200, (await RequestAsync(cockpitKey)).Status);
+        Assert.Equal(200, (await EnrolDirectorAsync()).Status);
+    }
+
+    [Fact]
+    public async Task TheSameDoorSentTheSameDeviceIdAgain_IsServed_AndKeepsItsType()
+    {
+        // The control: signing the same browser in again, and setting the same Director up again, is the ordinary
+        // case and must not meet the refusal above.
+        await StartAsync(LaunchedNoCutOff);
+        PaidRow(EntitlementRegistry.TierRemote);
+
+        Assert.Equal(200, (await EnrolDirectorAsync()).Status);
+        var directorAgain = await EnrolDirectorAsync();
+        Assert.Equal(200, directorAgain.Status);
+        Assert.Equal("workstation", _devices.DeviceTypeForKey(directorAgain.DeviceKey));
+
+        Assert.Equal(200, (await SignInToTheCockpitAsync()).Status);
+        var cockpitAgain = await SignInToTheCockpitAsync();
+        Assert.Equal(200, cockpitAgain.Status);
+        Assert.Equal("browser", _devices.DeviceTypeForKey(cockpitAgain.DeviceKey));
+    }
+
+    [Fact]
+    public async Task ATenantRowThatCannotBeRead_AtTheCockpitAndPhoneDoor_Is503WithRetryAfter_NeverA502()
+    {
+        // The plan was read (this is a free account, created after launch), so the door goes on to ask the grace of
+        // the account's tenant row - and that read fails. Ignorance, not "this account has no row".
+        await StartAsync(LaunchedNoCutOff);
+        _tenants.MintOrLookupBySubject(Subject, "person@example.com");
+        using (var ctx = _db.CreateUnscopedContext())
+            ctx.Database.ExecuteSqlRaw("ALTER TABLE tenants RENAME TO tenants_unreadable");
+
+        foreach (var answer in new[] { await EnrolPhoneAsync(), await SignInToTheCockpitAsync() })
+        {
+            Assert.Equal(503, answer.Status);
+            Assert.Equal("10", answer.RetryAfter);
+            Assert.Contains(HostedEnrollmentEndpoint.EntitlementUnknownCode, answer.Body);
+        }
+        Assert.Empty(_revoker.Revoked);
     }
 
     // ================================================================= a team with a running bill

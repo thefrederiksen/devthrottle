@@ -72,6 +72,15 @@ internal static class HostedEnrollmentEndpoint
     /// the request path answers.</summary>
     public const string EntitlementUnknownCode = "entitlement_unknown";
 
+    /// <summary>The refusal a door gives when the device id it was sent already names an active device of the OTHER
+    /// class on the same account: a Director's id at the Cockpit and phone door, or a browser's or a phone's id at the
+    /// Director door.</summary>
+    public const string DeviceIdOfAnotherClassRefusal =
+        "this device id already belongs to another kind of device on this account; a Director and a browser or a phone never share one";
+
+    /// <summary>The machine-readable code beside <see cref="DeviceIdOfAnotherClassRefusal"/>.</summary>
+    public const string DeviceIdOfAnotherClassCode = "device_id_in_use_by_another_device_class";
+
     /// <summary>How many seconds a caller is told to wait before asking again after a plan that could not be read.</summary>
     public const string RetryAfterSeconds = "10";
 
@@ -241,6 +250,21 @@ internal static class HostedEnrollmentEndpoint
         // tenant id, both of which must never be logged - is what the device registry logs as the device id.
         var scopedDeviceId = NamespaceHash(tenant.Value) + "|" + req.DeviceId;
 
+        // THE TYPE ON A KEY IS THE DOOR'S, AND A COLLIDING DEVICE ID MUST NOT CHANGE THAT (Pricing Change mission, B2;
+        // review of 13 October 2026). The device id is the client's to choose, and a registration issues a new key
+        // AGAINST an active row it finds under that id, keeping the row's type. So a browser that sent a Director's id
+        // through the Cockpit door would be handed a key the request path reads as a Director's - one that needs no
+        // remote access, for good - and a Director that sent a browser's id would be handed a key that is refused the
+        // moment its account has no remote access. Both are refused here, BEFORE any write: nothing is issued, and the
+        // device that already holds the id keeps its key. A row with no active key is not in the way; the registration
+        // then writes the type this door decided.
+        var heldType = devices.DeviceTypeOfActiveDevice(scopedDeviceId, tenant);
+        if (heldType is not null && Tenancy.RemoteAccessRule.IsCockpitOrPhoneDevice(heldType) != cockpitOrPhoneType)
+        {
+            FileLog.Write($"[HostedEnrollment] REFUSED: the {door} door was sent a device id that an active device of the other class already holds (no device key issued, the existing key untouched)");
+            return new EnrollResult(StatusCodes.Status409Conflict, null, DeviceIdOfAnotherClassRefusal, DeviceIdOfAnotherClassCode);
+        }
+
         // Where Teams is released a Director may have been set up for a team before. Set up again for the person's
         // own account, that is a MOVE, with the move's own rules (devthrottle_internal#2311): refused while it has
         // sessions registered there, and otherwise its team key goes and its tunnel there is cut. Dark, no other key
@@ -362,7 +386,21 @@ internal static class HostedEnrollmentEndpoint
                     "The Cockpit and phone door was reached on a Gateway with an entitlement gate and no remote access rule. " +
                     "HostedEnrollDependencies carries the rule; an entry point that mints a browser's or a phone's key must pass it.");
 
-            var remote = remoteAccess.Decide(decision.Tier, subject, tenants.CreatedAtUtcForSubject(subject), now);
+            // The account's tenant row decides the pre-launch grace. A read of it that FAILED is ignorance, not "this
+            // account has no row": the same temporary condition as an unreadable plan, and the same answer.
+            DateTime? tenantCreatedAtUtc;
+            try
+            {
+                tenantCreatedAtUtc = tenants.CreatedAtUtcForSubject(subject);
+            }
+            catch (Exception ex) when (ex is not ArgumentException)
+            {
+                FileLog.Write($"[HostedEnrollment] RETRY: the account's tenant row could not be read ({ex.GetType().Name}: {ex.Message}) (no tenant minted, no device key issued)");
+                return new EnrollResult(StatusCodes.Status503ServiceUnavailable, null,
+                    "the entitlement service is temporarily unavailable; please try again", EntitlementUnknownCode);
+            }
+
+            var remote = remoteAccess.Decide(decision.Tier, subject, tenantCreatedAtUtc, now);
             if (remote == Tenancy.RemoteAccessAnswer.Unknown)
             {
                 // What would have decided it - the person's teams, or a team's bill - could not be read. The same
