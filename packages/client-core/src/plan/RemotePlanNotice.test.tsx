@@ -28,6 +28,15 @@ describe("RemotePlanNotice", () => {
     expect(tryAgain).toHaveBeenCalledTimes(1);
   });
 
+  it("says a new subscription can take a minute, and offers another account only where one can be used", () => {
+    // The Gateway re-reads a plan about once a minute, so "Try again" straight after paying can be refused.
+    render(<RemotePlanNotice info={{ message: SENTENCE, subscribeUrl: PRICING }} onTryAgain={() => {}} />);
+
+    expect(screen.getByTestId("remote-plan-hint").textContent).toContain("It can take a minute after subscribing.");
+    // At sign-in no such action is passed: "Try again" there already is the sign-in screen.
+    expect(screen.queryByTestId("remote-plan-another-account")).toBeNull();
+  });
+
   it("offers no link when the Gateway named no address, rather than inventing one", () => {
     render(<RemotePlanNotice info={{ message: SENTENCE, subscribeUrl: null }} onTryAgain={() => {}} />);
 
@@ -38,6 +47,19 @@ describe("RemotePlanNotice", () => {
 });
 
 describe("RemotePlanGate", () => {
+  it("offers a way to another account, because the notice has replaced the account switcher too", () => {
+    // A browser holding a Free account and a paying one: "Try again" reloads into the same Free account.
+    const useAnotherAccount = vi.fn();
+    const reload = vi.fn();
+    render(<RemotePlanGate reload={reload} useAnotherAccount={useAnotherAccount}><div data-testid="the-app">sessions</div></RemotePlanGate>);
+    act(() => reportRemotePlanRequired({ message: SENTENCE, subscribeUrl: PRICING }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Sign in with another account" }));
+
+    expect(useAnotherAccount).toHaveBeenCalledTimes(1);
+    expect(reload).not.toHaveBeenCalled();
+  });
+
   it("shows the app until the refusal arrives, then the notice INSTEAD of the app", () => {
     render(<RemotePlanGate><div data-testid="the-app">sessions</div></RemotePlanGate>);
     expect(screen.getByTestId("the-app")).toBeTruthy();
