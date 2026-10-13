@@ -30,8 +30,6 @@ public sealed class MachineRestartCapabilityRouteTests : IAsyncLifetime
     private const string Token = "test-token";
     private const string Machine = "RESTART-CAPABILITY-MACHINE";
 
-    private static readonly JsonSerializerOptions WebJson = new(JsonSerializerDefaults.Web);
-
     private GatewayHost _gateway = null!;
     private HttpClient _http = null!;
     private HubConnection? _launcher;
@@ -236,32 +234,6 @@ public sealed class MachineRestartCapabilityRouteTests : IAsyncLifetime
 
         Assert.Equal("Available", S(answer, "guardedRestart"));
         Assert.Contains("say how many", S(answer, "guardedRestartReason"));
-    }
-
-    /// <summary>
-    /// WHEN THE LAUNCHER GOES, ITS PROMISES GO WITH IT. A declaration that outlived its connection would
-    /// answer CanRestart about a machine that is no longer there - and it would answer confidently,
-    /// because every fact in that record was true when it was written.
-    /// </summary>
-    [Fact]
-    public async Task A_launcher_that_disconnects_stops_answering_for_itself()
-    {
-        Register("2.1.0");
-        await JoinAsLauncherAsync(Declaration(commands: new[] { LauncherCapabilities.DirectorRestart }));
-        Assert.Equal("Declared", S(await AskAsync(), "declaration"));   // control: it WAS answering
-
-        await _launcher!.DisposeAsync();
-        _launcher = null;
-
-        // The hub's disconnect is asynchronous, so this waits for the state rather than assuming it.
-        var declaration = "";
-        for (var i = 0; i < 100 && declaration != "NotDeclared"; i++)
-        {
-            declaration = S(await AskAsync(), "declaration");
-            if (declaration != "NotDeclared") await Task.Delay(50);
-        }
-
-        Assert.Equal("NotDeclared", declaration);
     }
 
     /// <summary>

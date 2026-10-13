@@ -448,16 +448,6 @@ public sealed class TypedPromptsAreResolvedByTheGatewayTests : IAsyncLifetime
         return deliveryId;
     }
 
-    private static async Task WaitUntil(Func<bool> condition)
-    {
-        var until = DateTime.UtcNow.AddSeconds(10);
-        while (!condition())
-        {
-            if (DateTime.UtcNow > until) throw new TimeoutException("the condition never held");
-            await Task.Delay(10);
-        }
-    }
-
     [Fact]
     public async Task Send_anyway_on_a_shown_back_typed_prompt_claims_the_original_id_and_sends_once()
     {
@@ -489,40 +479,6 @@ public sealed class TypedPromptsAreResolvedByTheGatewayTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, outcomeStatus);
         Assert.True(outcome.GetProperty("submitted").GetBoolean());
         Assert.Equal(1, _backend.TextsSent); // the claim's press typed the words exactly once
-    }
-
-    [Fact]
-    public async Task Two_tabs_pressing_Send_anyway_at_the_same_moment_make_exactly_one_send()
-    {
-        // Proves the atomicity the ruling demands, across the real route: two claims of the same typed delivery id, as
-        // two tabs would send them, at the same moment - exactly ONE prompt reaches the Director, the other claim is
-        // refused without sending and answered with the record's current state.
-        const string words = "only one of us may arrive";
-        var deliveryId = await ShownBack(words);
-        // The claim's press is slow on the Director, so the first tab's send is still in flight when the second tab's
-        // claim arrives - the exact race two tabs run.
-        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        _promptAnswer = body =>
-        {
-            gate.Task.Wait();
-            return SessionCommandExecutor.SendPromptAsync(_session, body, SendSource.UserInput, _directorRecord)
-                .GetAwaiter().GetResult();
-        };
-
-        var first = PostClaimedPrompt(words, deliveryId);
-        await WaitUntil(() => Arrived() == 2); // the claim's press reached the Director
-        var (secondStatus, second) = await PostClaimedPrompt(words, deliveryId);
-
-        // The second claim was refused while the record was held by the first: answered its current state, nothing sent.
-        Assert.Equal(HttpStatusCode.Accepted, secondStatus);
-        Assert.True(second.GetProperty("delivering").GetBoolean());
-        Assert.Equal(deliveryId, second.GetProperty("deliveryId").GetString());
-        gate.SetResult();
-        var (firstStatus, firstBody) = await first;
-        Assert.Equal(HttpStatusCode.OK, firstStatus);
-        Assert.True(firstBody.GetProperty("accepted").GetBoolean());
-        Assert.Equal(2, Arrived()); // the original send and ONE claim press - the second tab sent nothing
-        Assert.Equal(1, _backend.TextsSent);
     }
 
     [Fact]

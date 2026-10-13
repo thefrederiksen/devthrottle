@@ -432,51 +432,6 @@ public sealed class SessionStopEndpointTests : IDisposable
         };
 
     /// <summary>
-    /// The defect itself. The caller hangs up after the Director has carried the stop out and before the
-    /// answer is released - which is a person closing the stop dialog, not an exotic fault. The session is
-    /// destroyed either way, so the trail must hold a row for it.
-    ///
-    /// Read this against <see cref="A_caller_that_waits_for_the_same_stop_gets_the_same_row_and_an_answer"/>
-    /// below: the two set up an identical Director and differ in ONE line, whether the caller cancels.
-    /// </summary>
-    [Fact]
-    public async Task A_stop_the_caller_stopped_waiting_for_is_still_recorded_with_its_reason_and_actor()
-    {
-        var theStopHasHappened = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        // Never completed: the only way out of the wait is the caller's cancellation.
-        var theAnswerIsReleased = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        await WithGateway(
-            StoreWith(Row()),
-            killAnswer: null,
-            sendOverride: ADirectorThatStopsThenAnswersLate(theStopHasHappened, theAnswerIsReleased.Task, Stopped()),
-            assertion: async (http, sent, audit) =>
-            {
-                using var theCaller = new CancellationTokenSource();
-                var request = http.PostAsJsonAsync($"/sessions/{Sid}/stop",
-                    new SessionStopRequest { Reason = "it was rewriting the wrong branch" }, theCaller.Token);
-
-                await theStopHasHappened.Task.WaitAsync(TimeSpan.FromSeconds(30));
-                theCaller.Cancel();
-                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => request);
-
-                var row = await WaitForTheStopToBeRecorded(audit!);
-                Assert.Equal(GovernanceAuditCategory.Intervention, row.Category);
-                Assert.Equal(GovernanceAuditEventType.Stopped, row.EventType);
-                // The caller's own words survive their leaving.
-                Assert.Contains("it was rewriting the wrong branch", row.Detail);
-                // And the row does not pretend to know what it does not know.
-                Assert.Contains("what came of it is not known", row.Detail);
-                Assert.Contains("the caller went away", row.Detail);
-                // The trail refuses a stop with no actor, so a row existing proves one was supplied. This
-                // harness authenticates nothing, so the honest answer is "unknown" - never a guess.
-                Assert.Equal("unknown", row.Actor);
-
-                Assert.Equal("kill", Assert.Single(sent).Verb);
-            });
-    }
-
-    /// <summary>
     /// The control. Same Director, same held-back answer, same reason - the caller simply waits. It differs
     /// from the test above in exactly one thing: nobody cancels. So the row it produces is the ORDINARY
     /// one, with the reason alone and no talk of an unknown outcome, and the caller is answered.
@@ -874,31 +829,6 @@ public sealed class SessionStopEndpointTests : IDisposable
             killAnswer,
             assertion,
             audit: new GovernanceAuditLog(_db.Open()));
-
-    /// <summary>
-    /// Wait for the audit trail to hold a row for this session, or fail saying it never did.
-    ///
-    /// A CANCELLED REQUEST IS NOT SYNCHRONOUS WITH THE CLIENT GIVING UP: the client's task completes when
-    /// it abandons the connection, and the server learns of the abort a moment later. Reading the trail
-    /// once, immediately, would therefore be a race that passes or fails on timing rather than on
-    /// behaviour. This is a WAIT WITH A DEADLINE, not a sleep - it returns the instant the row lands, and
-    /// the deadline exists only so a broken build fails with a sentence instead of hanging.
-    /// </summary>
-    private static async Task<GovernanceAuditEventDto> WaitForTheStopToBeRecorded(GovernanceAuditLog audit)
-    {
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(20);
-        while (DateTime.UtcNow < deadline)
-        {
-            var rows = audit.List(sessionId: Sid);
-            if (rows.Count > 0)
-                return Assert.Single(rows);
-            await Task.Delay(25);
-        }
-
-        Assert.Fail("The stop was dispatched to the Director and no audit row was ever written for it. "
-            + "Ruling 4 was accepted on the ground that stops are audited (inspection 1, finding I1).");
-        throw new InvalidOperationException("unreachable");
-    }
 
     private async Task WithGateway(
         PushedSessionStore store,

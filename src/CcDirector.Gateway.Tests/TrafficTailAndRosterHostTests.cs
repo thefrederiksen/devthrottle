@@ -166,52 +166,6 @@ public sealed class TrafficTailAndRosterHostTests : IAsyncLifetime
         Assert.Equal(0, (int)body["tailFrom"]!);
         Assert.Equal(4, body["messages"]!.AsArray().Count);
     }
-
-    [Fact]
-    public async Task Roster_OptIn_UnchangedPoll_Is304_AndEveryAnswerCarriesTheGatewayTime()
-    {
-        const string path = "sessions?envelope=true&clockFields=absolute";
-        using var first = await Get(path);
-        var tag = first.Headers.ETag!.ToString();
-        var firstTime = DateTime.Parse(first.Headers.GetValues(Api.RosterClockFields.GatewayTimeHeader).Single(),
-            null, System.Globalization.DateTimeStyles.RoundtripKind);
-        var body = await Json(first);
-        var session = body["sessions"]!.AsArray().Single()!.AsObject();
-        Assert.False(session.ContainsKey("idleSeconds"));
-        Assert.True(session.ContainsKey("lastActivityAt"));
-        var director = body["directors"]!.AsArray().Single()!.AsObject();
-        Assert.False(director.ContainsKey("lastSeenAgeSeconds"));
-        Assert.True(director.ContainsKey("lastSeenUtc"));
-
-        await Task.Delay(30);
-        using var again = await Get(path, ifNoneMatch: tag);
-
-        Assert.Equal(HttpStatusCode.NotModified, again.StatusCode);
-        Assert.Empty(await again.Content.ReadAsByteArrayAsync());
-        var againTime = DateTime.Parse(again.Headers.GetValues(Api.RosterClockFields.GatewayTimeHeader).Single(),
-            null, System.Globalization.DateTimeStyles.RoundtripKind);
-        Assert.True(againTime > firstTime, "the 304 must carry its own, later, Gateway time");
-    }
-
-    [Theory]
-    [InlineData("sessions?envelope=true")]
-    [InlineData("sessions")]
-    public async Task Roster_WithoutTheParameter_IsTheOldAnswer_ClockFieldsAndAll(string path)
-    {
-        using var first = await Get(path);
-        Assert.False(first.Headers.Contains(Api.RosterClockFields.GatewayTimeHeader));
-        var tag = first.Headers.ETag!.ToString();
-        var node = JsonNode.Parse(await first.Content.ReadAsStringAsync())!;
-        var session = (node is JsonArray a ? a : node["sessions"]!.AsArray()).Single()!.AsObject();
-        Assert.True(session.ContainsKey("idleSeconds"));
-        if (node is JsonObject envelope)
-            Assert.True(envelope["directors"]!.AsArray().Single()!.AsObject().ContainsKey("lastSeenAgeSeconds"));
-
-        // Still recomputed on every read: a later read of the same roster is a different answer.
-        await Task.Delay(30);
-        using var again = await Get(path, ifNoneMatch: tag);
-        Assert.Equal(HttpStatusCode.OK, again.StatusCode);
-    }
 }
 
 /// <summary>

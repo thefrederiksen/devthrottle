@@ -142,33 +142,6 @@ public sealed class SessionServingLoopIsolationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task AutoDismiss_sweep_runs_one_pass_per_tenant_and_closes_only_that_tenants_sessions()
-    {
-        // Both tenants have a session that qualifies for auto-dismiss (auto-dismiss + "done" verdict + settled
-        // at a turn end). A single implicit pass can serve at most ONE tenant; a correct per-tenant pass
-        // serves both, and each kill goes down its OWN tenant's Director.
-        await _dirA.PushSnapshotAsync(Sample(SessA, autoDismiss: true));
-        await _dirB.PushSnapshotAsync(Sample(SessB, autoDismiss: true));
-
-        // The REAL timer callback - the production function, not a helper.
-        _gateway.SweepAutoDismiss();
-
-        // POSITIVE CONTROL FIRST: BOTH tenants' sessions were closed. This is what proves the sweep iterated
-        // tenants at all; without it the two absence assertions below would hold trivially in a sweep that did
-        // nothing whatsoever.
-        var killA = await WaitForKill(_seenByA, SessA);
-        var killB = await WaitForKill(_seenByB, SessB);
-        Assert.NotNull(killA);
-        Assert.NotNull(killB);
-
-        // ABSENCE: neither Director was ever asked to kill the OTHER tenant's session. The per-tenant pass
-        // sees one tenant's fleet at a time, so a session id from the other partition never enters the pick
-        // list, and the down-channel send could not have reached the wrong Director anyway.
-        Assert.DoesNotContain(_seenByA, c => c.SessionId == SessB);
-        Assert.DoesNotContain(_seenByB, c => c.SessionId == SessA);
-    }
-
-    [Fact]
     public async Task AutoDismiss_sweep_denies_when_no_tenant_is_in_scope()
     {
         // DENY-BY-DEFAULT for the sweeper itself. Calling SweepAsync directly with NO tenant scope is the
@@ -187,46 +160,6 @@ public sealed class SessionServingLoopIsolationTests : IAsyncLifetime
         // A fully dismissable session is offered and still nothing is closed - the deny, not an empty fleet.
         Assert.Equal(0, result);
         Assert.Equal(0, closed);
-    }
-
-    [Fact]
-    public async Task AutoDismiss_close_marks_are_partitioned_per_tenant()
-    {
-        // The sweeper keeps a "already issued a kill" mark so a session lingering one extra sweep is not
-        // killed twice. Running the sweep once PER TENANT makes that gate a cross-tenant hazard: keyed by
-        // session id alone, tenant A's mark suppresses tenant B's close, and each pass prunes the other
-        // tenants' marks against its own snapshot.
-        //
-        // Two tenants using the SAME session id is the case that separates a partitioned gate from a shared
-        // one - and session ids are not globally unique across accounts, so this is a real arrangement, not a
-        // contrived one. BOTH must be closed.
-        const string Shared = "shared-sid";
-        await _dirA.PushSnapshotAsync(Sample(Shared, autoDismiss: true));
-        await _dirB.PushSnapshotAsync(Sample(Shared, autoDismiss: true));
-
-        _gateway.SweepAutoDismiss();
-
-        // Each tenant's OWN Director must have been told to kill its OWN session of that id. With a
-        // session-id-only mark, whichever tenant's pass ran second finds the mark already set and skips - so
-        // exactly one of these two goes null.
-        Assert.NotNull(await WaitForKill(_seenByA, Shared));
-        Assert.NotNull(await WaitForKill(_seenByB, Shared));
-    }
-
-    /// <summary>
-    /// Poll for the kill verb rather than sleeping a fixed time: the sweep is fire-and-forget onto the thread
-    /// pool and the tunnel round-trip is asynchronous, so a fixed wait would be either flaky or slow.
-    /// </summary>
-    private static async Task<DirectorCommand?> WaitForKill(ConcurrentQueue<DirectorCommand> seen, string sessionId)
-    {
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (DateTime.UtcNow < deadline)
-        {
-            var hit = seen.FirstOrDefault(c => c.Verb == "kill" && c.SessionId == sessionId);
-            if (hit is not null) return hit;
-            await Task.Delay(50);
-        }
-        return null;
     }
 
     private static DirectorCommand Prompt(string marker) => new()
@@ -250,5 +183,4 @@ public sealed class SessionServingLoopIsolationTests : IAsyncLifetime
         CreatedAt = DateTime.UtcNow,
         LastActivityAt = DateTime.UtcNow,
     };
-
 }

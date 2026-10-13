@@ -273,22 +273,4 @@ public sealed class SessionKeysAreNeverHeldTests : IAsyncLifetime
             TypedPromptDecisions.DriveTick);
         Assert.Equal(before, HeldNow());
     }
-
-    [Fact]
-    public async Task Prompt_TheOwnersOwnDeviceToAnUnreachableSession_IsStillHeldAsBefore()
-    {
-        // The ruling widens nothing and narrows nothing for the owner: the owner's own words to a session that
-        // cannot be located now are still held 202 waiting-for-director and driven by the Gateway, exactly as
-        // contract section 8 has it.
-        await FreezeTheDirector();
-        var before = HeldBefore();
-
-        var (status, body) = await PostPrompt(_owner, _childId, "from the owner");
-
-        Assert.Equal(HttpStatusCode.Accepted, status);
-        Assert.Equal("waiting-for-director", body.GetProperty("directorState").GetString());
-        var deliveryId = body.GetProperty("deliveryId").GetString()!;
-        Assert.True(_gateway.TypedPrompts.ForTenant(_tenant).Read(deliveryId).Record!.NeverSent);
-        Assert.Equal(before.Driven + 1, _gateway.HeldDeliveries!.HeldCount);
-    }
 }

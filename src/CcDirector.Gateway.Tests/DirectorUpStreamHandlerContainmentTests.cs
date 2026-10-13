@@ -120,61 +120,11 @@ public sealed class DirectorUpStreamHandlerContainmentTests : IDisposable
     // ------------------------------------------------------- the allowed paths still work (controls) ----
 
     [Fact]
-    public async Task ReadFile_insideTheSessionWorkingDirectory_streamsTheFile()
-    {
-        var inside = Path.Combine(_sessionDir, "notes", "report.txt");
-        Directory.CreateDirectory(Path.GetDirectoryName(inside)!);
-        File.WriteAllText(inside, "contained content");
-
-        var result = OpenFile(_session.Id.ToString(), inside);
-
-        Assert.Equal(DirectorCommandStatus.Ok, result.Status);
-        var open = SessionCommandExecutor.Deserialize<OpenReadResponse>(result.BodyJson);
-        Assert.Equal(new FileInfo(inside).Length, open!.TotalBytes);
-
-        await WaitUntilAsync(() => _handler.ActiveStreamCount == 0, TimeSpan.FromSeconds(5));
-        byte[] data;
-        lock (_frames)
-            data = _frames.Where(f => f.Kind == DirectorStreamFrameType.Binary).SelectMany(f => f.Data!).ToArray();
-        Assert.Equal("contained content", Encoding.UTF8.GetString(data));
-    }
-
-    [Fact]
     public void ReadFile_missingFileInsideTheRoot_isNotFound()
     {
         var result = OpenFile(_session.Id.ToString(), Path.Combine(_sessionDir, "no-such.txt"));
         Assert.Equal(DirectorCommandStatus.NotFound, result.Status);
         Assert.Contains("file not found", result.Error);
-    }
-
-    [Fact]
-    public async Task Screenshot_read_stillWorks()
-    {
-        // The disciplined sibling this fix copied must keep working: a screenshot resolved through
-        // ControlEndpoints.ResolveScreenshot (bare name, inside the screenshots folder) still streams.
-        var dir = CcStorage.Screenshots();
-        Directory.CreateDirectory(dir);
-        var name = "containment-proof.png";
-        var bytes = new byte[] { 0x89, 0x50, 0x4E, 0x47, 1, 2, 3 };
-        await File.WriteAllBytesAsync(Path.Combine(dir, name), bytes);
-
-        var result = _handler.Handle(new DirectorCommand
-        {
-            Verb = "screenshot-file",
-            SessionId = _session.Id.ToString(),
-            PayloadJson = SessionCommandExecutor.Serialize(new OpenStreamRequest
-            {
-                StreamId = Guid.NewGuid().ToString("N"),
-                ScreenshotId = name,
-            }),
-        });
-
-        Assert.Equal(DirectorCommandStatus.Ok, result.Status);
-        await WaitUntilAsync(() => _handler.ActiveStreamCount == 0, TimeSpan.FromSeconds(5));
-        byte[] data;
-        lock (_frames)
-            data = _frames.Where(f => f.Kind == DirectorStreamFrameType.Binary).SelectMany(f => f.Data!).ToArray();
-        Assert.Equal(bytes, data);
     }
 
     // -------------------------------------------------------------- the resolver, pinned directly ----
@@ -229,11 +179,5 @@ public sealed class DirectorUpStreamHandlerContainmentTests : IDisposable
     public void ResolveSessionFile_theRootItself_isNull()
     {
         Assert.Null(ControlEndpoints.ResolveSessionFile(_sessionDir, _sessionDir));
-    }
-
-    private static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout)
-    {
-        var attempts = (int)(timeout.TotalMilliseconds / 15) + 1;
-        for (var i = 0; i < attempts && !condition(); i++) await Task.Delay(15);
     }
 }

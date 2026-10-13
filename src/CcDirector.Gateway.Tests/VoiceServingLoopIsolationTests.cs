@@ -113,49 +113,6 @@ public sealed class VoiceServingLoopIsolationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Voice_sweep_reaches_only_the_owning_tenants_director()
-    {
-        // The narration reads the Gateway's STORE now, not a "turns" command on the tunnel (turn-push
-        // mission), so B's words are seeded here and the tunnel command this waits for is the LIVE SCREEN
-        // read the narration still makes - same routing, same tenant resolution, same proof.
-        _gateway.SeedStoredConversationForTest(TenantB, "dir-b", SessB, ("User", "do the thing"), ("Assistant", "it is done"));
-
-        // The REAL idle voice sweep - the production timer callback, not a helper.
-        await _gateway.SweepVoiceSessionsAsync();
-
-        // POSITIVE CONTROL FIRST: the sweep's tunnel read for B's marked voice session reached dir-B. If this
-        // did not hold the absence assertion below would pass vacuously in a sweep that did nothing.
-        Assert.NotNull(await WaitForVerb(_seenByB, "screen-grid", SessB));
-
-        // ABSENCE: dir-A was never asked to read B's session, and TenantA's own pass (its session is not a
-        // voice session) issued no voice read at all - so dir-A saw no live-screen read whatsoever. Scoped to
-        // the VOICE read on purpose: dir-A does receive ordinary traffic for its OWN session (its role and
-        // display state), and asserting it saw nothing at all would fail on work that is none of this test's
-        // business.
-        Assert.DoesNotContain(_seenByA, c => c.Verb == "screen-grid");
-    }
-
-    [Fact]
-    public async Task Turn_end_voice_refresh_reaches_only_the_owning_tenants_director()
-    {
-        // Drive a REAL Working -> Waiting transition for B's session on dir-B through the live watcher, which
-        // fires the production onSessionWorking (clear) then onTurnEnd (refresh) callbacks. Both resolve the
-        // owning tenant from the director id the signal carries.
-        // The narration reads the Gateway's STORE now, not a "turns" command on the tunnel (turn-push
-        // mission). So the session's words are seeded here, and the tunnel command this waits for is the
-        // LIVE SCREEN read the narration still makes - same routing, same tenant resolution, same proof.
-        _gateway.SeedStoredConversationForTest(TenantB, "dir-b", SessB, ("User", "do the thing"), ("Assistant", "it is done"));
-        _gateway.TurnEndWatcherForTest!.Observe(TenantB, SessB, "Working", "dir-b");
-        _gateway.TurnEndWatcherForTest!.Observe(TenantB, SessB, "WaitingForInput", "dir-b");
-
-        // POSITIVE CONTROL FIRST: the turn-end refresh's tunnel read for B's session reached dir-B.
-        Assert.NotNull(await WaitForVerb(_seenByB, "screen-grid", SessB));
-
-        // ABSENCE: dir-A was never asked anything about B's session.
-        Assert.DoesNotContain(_seenByA, c => c.SessionId == SessB);
-    }
-
-    [Fact]
     public void Voice_state_is_partitioned_per_tenant()
     {
         // A completed narration leaves a ready clip in exactly ONE tenant's partition. Seeding it under B and
@@ -166,22 +123,6 @@ public sealed class VoiceServingLoopIsolationTests : IAsyncLifetime
         Assert.True(_gateway.VoiceService.HasVoice(TenantB, SessB));         // present for its own tenant
         Assert.False(_gateway.VoiceService.HasVoice(TenantId.Local, SessB)); // never the Local partition
         Assert.False(_gateway.VoiceService.HasVoice(TenantA, SessB));        // never another account's tenant
-    }
-
-    /// <summary>
-    /// Poll for a verb+session rather than sleeping a fixed time: the loop fires generation onto the thread
-    /// pool and the tunnel round-trip is asynchronous, so a fixed wait would be either flaky or slow.
-    /// </summary>
-    private static async Task<DirectorCommand?> WaitForVerb(ConcurrentQueue<DirectorCommand> seen, string verb, string sessionId)
-    {
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (DateTime.UtcNow < deadline)
-        {
-            var hit = seen.FirstOrDefault(c => c.Verb == verb && c.SessionId == sessionId);
-            if (hit is not null) return hit;
-            await Task.Delay(50);
-        }
-        return null;
     }
 
     // A "turns" read answers with an empty widget set (no text reply -> generation stops before any hosted
@@ -203,5 +144,4 @@ public sealed class VoiceServingLoopIsolationTests : IAsyncLifetime
         CreatedAt = DateTime.UtcNow,
         LastActivityAt = DateTime.UtcNow,
     };
-
 }

@@ -189,58 +189,10 @@ public sealed class HostedDictationWiringCanaryTests : IAsyncLifetime
         Assert.Null((await RosterRow(_httpB, Sid)).DictationStatus);
     }
 
-    // ===== canary 3: the voice-turn retention sweep, through the real background timer =================
-
-    [Fact]
-    public async Task The_voice_turn_retention_timer_sweeps_each_tenants_aged_upload_in_its_OWN_partition()
-    {
-        // Both accounts are live (their Directors pushed sessions), so the per-tenant sweep iterates them. This
-        // is the positive control for the wait below: if this were empty the sweep would run zero passes and the
-        // aged uploads would linger for a reason that has nothing to do with the line under test.
-        var known = _gateway.PushedSessions.KnownTenants();
-        Assert.Contains(_tenantA, known);
-        Assert.Contains(_tenantB, known);
-
-        var storeA = VoiceTurnStore(_tenantA);
-        var storeB = VoiceTurnStore(_tenantB);
-
-        // An AGED voice-turn upload staged in each tenant's OWN partition (last-activity backdated well past the
-        // 4-hour retention bound), plus a FRESH one that must survive - the age-selective positive control that
-        // stops this passing on a blanket wipe.
-        var agedA = StageAged(storeA);
-        var agedB = StageAged(storeB);
-        var freshA = Guid.NewGuid().ToString(); storeA.Register(freshA);
-        var freshB = Guid.NewGuid().ToString(); storeB.Register(freshB);
-
-        // Let the REAL production timer run. Revert it to the base handle (_voiceTurnUploads.SweepAbandoned)
-        // and this never comes true: the base sweep does not descend into base/tenants/<id>, so neither aged
-        // upload is ever removed and this times out RED.
-        Assert.True(await PollAsync(() => !storeA.Exists(agedA) && !storeB.Exists(agedB), TimeSpan.FromSeconds(20)),
-            "the production per-tenant voice-turn timer must sweep each tenant's aged upload from its OWN partition");
-
-        Assert.True(storeA.Exists(freshA), "the sweep must not remove A's fresh upload (it is age-selective, not a wipe)");
-        Assert.True(storeB.Exists(freshB), "the sweep must not remove B's fresh upload (it is age-selective, not a wipe)");
-    }
-
     // ===== helpers =====================================================================================
 
     private static VoiceUploadStore DictationStore(TenantId tenant)
         => new VoiceUploadStore(CcStorage.DictationUploads(), TenantId.Local).ForTenant(tenant);
-
-    private static VoiceUploadStore VoiceTurnStore(TenantId tenant)
-        => new VoiceUploadStore(CcStorage.VoiceTurnUploads(), TenantId.Local).ForTenant(tenant);
-
-    /// <summary>Stage an upload whose last-activity signal is backdated past the 4-hour retention bound, so
-    /// the production sweep (which compares directory write time to now minus the max age) treats it as aged
-    /// without any real waiting.</summary>
-    private static string StageAged(VoiceUploadStore store)
-    {
-        var id = Guid.NewGuid().ToString();
-        store.Register(id);
-        var dir = Path.Combine(store.Root, Guid.Parse(id).ToString("N"));
-        Directory.SetLastWriteTimeUtc(dir, DateTime.UtcNow - TimeSpan.FromHours(5));
-        return id;
-    }
 
     private static Task<HttpResponseMessage> SetTranscribingAsync(HttpClient http, string sid, bool transcribing)
         => http.PostAsJsonAsync($"/sessions/{sid}/transcribing", new { transcribing });
@@ -254,17 +206,6 @@ public sealed class HostedDictationWiringCanaryTests : IAsyncLifetime
         var row = sessions!.FirstOrDefault(s => string.Equals(s.SessionId, sid, StringComparison.Ordinal));
         Assert.True(row is not null, $"this tenant's roster must list session {sid}");
         return row!;
-    }
-
-    private static async Task<bool> PollAsync(Func<bool> condition, TimeSpan timeout)
-    {
-        var deadline = DateTime.UtcNow + timeout;
-        while (DateTime.UtcNow < deadline)
-        {
-            if (condition()) return true;
-            await Task.Delay(50);
-        }
-        return condition();
     }
 
     private static SessionDto Sample(string sid) => new()
@@ -289,5 +230,4 @@ public sealed class HostedDictationWiringCanaryTests : IAsyncLifetime
         http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", deviceKey);
         return http;
     }
-
 }

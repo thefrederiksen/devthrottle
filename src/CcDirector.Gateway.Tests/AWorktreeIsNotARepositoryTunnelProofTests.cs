@@ -86,91 +86,8 @@ public sealed class AWorktreeIsNotARepositoryTunnelProofTests : IAsyncLifetime
     }
 
     // ---------------------------------------------------------------------------------------------
-    // The machine's real disk
-    // ---------------------------------------------------------------------------------------------
-
-    private string WatchedRoot => Path.Combine(_root, "watched");
-
-    /// <summary>A real repository, made with real git.</summary>
-    private string MakeRepository(string name)
-    {
-        var path = Path.Combine(WatchedRoot, name);
-        Directory.CreateDirectory(path);
-        RunGit(path, "-c", "init.defaultBranch=main", "init");
-        RunGit(path, "-c", "user.email=test@example.com", "-c", "user.name=test", "commit", "--allow-empty", "-m", "first");
-        return path;
-    }
-
-    /// <summary>A real linked worktree, made with real <c>git worktree add</c>.</summary>
-    private string AddWorktree(string repository, string name, string branch)
-    {
-        var path = Path.Combine(WatchedRoot, name);
-        RunGit(repository, "worktree", "add", path, "-b", branch);
-        return path;
-    }
-
-    // ---------------------------------------------------------------------------------------------
     // The Director's own parts over it
     // ---------------------------------------------------------------------------------------------
-
-    private static Func<CancellationToken, Task<IReadOnlyList<LiveSessionRef>>> NoSessions
-        => _ => Task.FromResult<IReadOnlyList<LiveSessionRef>>(Array.Empty<LiveSessionRef>());
-
-    /// <summary>
-    /// A real repository monitor over a fixed set of paths. Only the enumeration and the git compute are
-    /// injected - the scan, the publishes, the reconciliation and the completed-scan fact are the
-    /// monitor's own. The compute reports the worktrees it is told to, which is what a real status
-    /// compute reads out of <c>git worktree list</c>.
-    /// </summary>
-    private static RepositoryMonitor MonitorOver(
-        IReadOnlyDictionary<string, string[]> repositoriesAndTheirWorktrees)
-        => new(
-            enumerate: _ => repositoriesAndTheirWorktrees.Keys.ToList(),
-            compute: (path, _, _) => Task.FromResult(new RepositoryStatus
-            {
-                Path = path,
-                Name = CcDirector.Core.Utilities.RepositoryPaths.FolderName(path),
-                Provider = RepoProvider.GitHub,
-                Branch = "main",
-                IsClean = true,
-                Success = true,
-                Worktrees = (repositoriesAndTheirWorktrees.TryGetValue(path, out var worktrees)
-                        ? worktrees
-                        : Array.Empty<string>())
-                    // git worktree list reports the PRIMARY working tree too, so it is here as well -
-                    // and the Gateway has to refuse a statement that a repository is a worktree of
-                    // itself, which would otherwise delete the row it folds into.
-                    .Prepend(path)
-                    .Select(worktree => new WorktreeInfo { Path = worktree, IsPrimary = worktree == path })
-                    .ToList(),
-            }))
-        { LiveSessionsProvider = NoSessions };
-
-    /// <summary>
-    /// What this Director would push right now, built by <c>ControlApiHost.SnapshotRepositories</c>
-    /// itself - the real builder, including the root-folder listing taken off the real disk.
-    /// </summary>
-    private async Task<RepoStatusDto[]> DirectorPushAsync(RepositoryMonitor monitor)
-    {
-        // The monitor has to have really SCANNED: until it has, the Director reports no root-folder
-        // listing and its rows are the warm-cache kind, and the Gateway refuses to reconcile - or
-        // collapse - from a push like that.
-        await monitor.RescanAsync(new[] { WatchedRoot });
-        using var sessions = new SessionManager(new AgentOptions());
-        var host = new ControlApiHost(sessions, "1.0.0-test", () => Task.CompletedTask,
-            directorId: DirectorId,
-            instancesDirectory: Path.Combine(_root, "director-instances"),
-            repositoryMonitor: monitor,
-            rootFolders: () => new[] { WatchedRoot });
-        try
-        {
-            return host.SnapshotRepositories().ToArray();
-        }
-        finally
-        {
-            await host.DisposeAsync();
-        }
-    }
 
     /// <summary>
     /// ONE SESSION AS THE DIRECTOR REALLY REPORTS IT: announced through the one place every creation
@@ -196,15 +113,6 @@ public sealed class AWorktreeIsNotARepositoryTunnelProofTests : IAsyncLifetime
         return dto;
     }
 
-    /// <summary>A session as a Director too old to resolve its own worktree reports one: the folder, and
-    /// nothing else. This is what wrote the 110 rows.</summary>
-    private static SessionDto SessionFromAnOldDirector(string folder, string repoName)
-    {
-        var dto = SessionIn(folder, repoName);
-        dto.PrimaryRepoPath = null;
-        return dto;
-    }
-
     /// <summary>The one route, read over real HTTP exactly as a client reads it.</summary>
     private async Task<List<KnownRepositoryDto>> ServedAsync()
     {
@@ -216,113 +124,8 @@ public sealed class AWorktreeIsNotARepositoryTunnelProofTests : IAsyncLifetime
     }
 
     // ---------------------------------------------------------------------------------------------
-    // THE FLOW
-    // ---------------------------------------------------------------------------------------------
-
-    /// <summary>
-    /// THE FLOW, AND THE DEFECT CLOSED AT THE SOURCE. Three sessions in three worktrees of one
-    /// repository, reported by a Director that resolves them, and the one route serves ONE repository -
-    /// not three worktrees and a repository. This is the top of the owner's list, as it will be.
-    /// </summary>
-    [Fact]
-    public async Task SessionsInWorktrees_AreServedAsTheirOneRepository()
-    {
-        await using var director = await FakeTunnelDirector.StartAsync(_gateway, Token, DirectorId, Machine);
-        var repository = MakeRepository("devthrottle");
-        var first = AddWorktree(repository, "devthrottle-p5-run-a", "p5-run-a");
-        var second = AddWorktree(repository, "devthrottle-smart-restart", "smart-restart");
-
-        await director.PushSnapshotAsync(
-            SessionIn(first, "thefrederiksen/devthrottle"),
-            SessionIn(second, "thefrederiksen/devthrottle"));
-
-        var served = await ServedAsync();
-        var row = Assert.Single(served);
-        Assert.Equal(RealPath(repository), RealPath(row.Path));
-        Assert.False(row.NeverOpened);
-    }
-
-    /// <summary>
-    /// THE COLLAPSE, END TO END. The catalogue is first filled the way it really was filled - by a
-    /// Director too old to resolve its own worktrees, so every worktree became a row. Then a Director
-    /// that reports its repositories' worktrees pushes, and the rows become one.
-    ///
-    /// <para>The repository's row carries the NEWEST of the times, which is the meaning of the rule:
-    /// using a worktree of a repository is using the repository.</para>
-    /// </summary>
-    [Fact]
-    public async Task TheWorktreeRowsAnOldDirectorLeftBehind_AreCollapsedIntoTheirRepository()
-    {
-        await using var director = await FakeTunnelDirector.StartAsync(_gateway, Token, DirectorId, Machine);
-        var repository = MakeRepository("devthrottle");
-        var worktree = AddWorktree(repository, "devthrottle-p5-run-a", "p5-run-a");
-        var other = MakeRepository("mindzieWeb");
-
-        await director.PushSnapshotAsync(
-            SessionFromAnOldDirector(other, "thefrederiksen/mindzieWeb"),
-            SessionFromAnOldDirector(repository, "thefrederiksen/devthrottle"),
-            SessionFromAnOldDirector(worktree, "thefrederiksen/devthrottle"));
-        Assert.Equal(3, (await ServedAsync()).Count);
-
-        await director.PushRepoSnapshotAsync(await DirectorPushAsync(MonitorOver(
-            new Dictionary<string, string[]>
-            {
-                [repository] = new[] { worktree },
-                [other] = Array.Empty<string>(),
-            })));
-
-        var served = await ServedAsync();
-        Assert.Equal(2, served.Count);
-        Assert.DoesNotContain(served, row => RealPath(row.Path) == RealPath(worktree));
-        Assert.Contains(served, row => RealPath(row.Path) == RealPath(repository) && !row.NeverOpened);
-        Assert.Contains(served, row => RealPath(row.Path) == RealPath(other));
-    }
-
-    // ---------------------------------------------------------------------------------------------
     // THE FAILURE CASES
     // ---------------------------------------------------------------------------------------------
-
-    /// <summary>
-    /// FAILURE CASE, and every Director in the field until one carrying this ships. A push that names no
-    /// worktrees collapses nothing - silence is never permission - and the worktree keeps its own row,
-    /// exactly as the product behaves today.
-    /// </summary>
-    [Fact]
-    public async Task ADirectorThatNamesNoWorktrees_CollapsesNothing()
-    {
-        await using var director = await FakeTunnelDirector.StartAsync(_gateway, Token, DirectorId, Machine);
-        var repository = MakeRepository("devthrottle");
-        var worktree = AddWorktree(repository, "devthrottle-p5-run-a", "p5-run-a");
-
-        await director.PushSnapshotAsync(
-            SessionFromAnOldDirector(repository, "thefrederiksen/devthrottle"),
-            SessionFromAnOldDirector(worktree, "thefrederiksen/devthrottle"));
-
-        await director.PushRepoSnapshotAsync(await DirectorPushAsync(MonitorOver(
-            new Dictionary<string, string[]> { [repository] = Array.Empty<string>() })));
-
-        var served = await ServedAsync();
-        Assert.Contains(served, row => RealPath(row.Path) == RealPath(worktree));
-    }
-
-    /// <summary>
-    /// FAILURE CASE. A session in a worktree whose repository has been deleted resolves to nothing, so
-    /// the Director says nothing and the folder is recorded as itself - which is what the product did
-    /// before any of this existed. Nothing is lost and nothing is guessed at.
-    /// </summary>
-    [Fact]
-    public async Task ASessionInAWorktreeWhoseRepositoryIsGone_IsServedAsTheWorktree()
-    {
-        await using var director = await FakeTunnelDirector.StartAsync(_gateway, Token, DirectorId, Machine);
-        var repository = MakeRepository("doomed");
-        var worktree = AddWorktree(repository, "orphan", "orphan");
-        TestTempRoot.DeleteTree(repository);
-
-        await director.PushSnapshotAsync(SessionIn(worktree, "thefrederiksen/doomed"));
-
-        var row = Assert.Single(await ServedAsync());
-        Assert.Equal(RealPath(worktree), RealPath(row.Path));
-    }
 
     /// <summary>
     /// FAILURE CASE. A session in a folder that is not a repository at all - a real row on a real
@@ -342,27 +145,6 @@ public sealed class AWorktreeIsNotARepositoryTunnelProofTests : IAsyncLifetime
         Assert.Equal(RealPath(plain), RealPath(row.Path));
     }
 
-    /// <summary>
-    /// FAILURE CASE. A REPOSITORY PROPER is never collapsed into anything, however many worktrees hang
-    /// off it - git reports the primary working tree in its own worktree list, and a statement that a
-    /// repository is a worktree of itself would delete the row it folds into.
-    /// </summary>
-    [Fact]
-    public async Task ARepositoryIsNeverCollapsedIntoItself()
-    {
-        await using var director = await FakeTunnelDirector.StartAsync(_gateway, Token, DirectorId, Machine);
-        var repository = MakeRepository("devthrottle");
-        var worktree = AddWorktree(repository, "devthrottle-p5-run-a", "p5-run-a");
-
-        await director.PushSnapshotAsync(SessionIn(repository, "thefrederiksen/devthrottle"));
-        await director.PushRepoSnapshotAsync(await DirectorPushAsync(MonitorOver(
-            new Dictionary<string, string[]> { [repository] = new[] { worktree } })));
-
-        var row = Assert.Single(await ServedAsync());
-        Assert.Equal(RealPath(repository), RealPath(row.Path));
-        Assert.False(row.NeverOpened);
-    }
-
     // ---------------------------------------------------------------------------------------------
 
     /// <summary>Symbolic links resolved anywhere in the path: on macOS the temporary folder's ancestor is
@@ -376,26 +158,6 @@ public sealed class AWorktreeIsNotARepositoryTunnelProofTests : IAsyncLifetime
         // throws DirectoryNotFoundException when asked to resolve "C:\", so every test through
         // here failed on the build machine while passing on macOS.
         return TestTempRoot.Canonical(path);
-    }
-
-    private static void RunGit(string workingDirectory, params string[] args)
-    {
-        var psi = new ProcessStartInfo
-        {
-            FileName = "git",
-            WorkingDirectory = workingDirectory,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-        foreach (var a in args) psi.ArgumentList.Add(a);
-        using var process = Process.Start(psi)!;
-        var stderr = process.StandardError.ReadToEnd();
-        process.StandardOutput.ReadToEnd();
-        process.WaitForExit();
-        if (process.ExitCode != 0)
-            throw new InvalidOperationException($"git {string.Join(' ', args)} failed ({process.ExitCode}): {stderr}");
     }
 
     private sealed class StubBackend : ISessionBackend

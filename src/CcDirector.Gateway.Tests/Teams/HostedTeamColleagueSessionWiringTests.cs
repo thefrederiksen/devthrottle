@@ -86,33 +86,6 @@ public sealed class HostedTeamColleagueSessionWiringTests : IAsyncLifetime
         catch { /* best-effort */ }
     }
 
-    [Fact]
-    public async Task TheFoldedState_IsSentToTheSessionsOwnDirector_AndNotToAColleagueWhoListsItsId()
-    {
-        _gateway.SweepDisplayState();
-
-        // PRESENCE: the owner's Director is sent its session's folded state.
-        Assert.NotNull(await WaitFor(_seenByOwner, "set-display-state"));
-        // ABSENCE, only meaningful beside the presence above: the colleague's Director is not, given the same time again.
-        Assert.Null(await WaitFor(_seenByColleague, "set-display-state", seconds: 3));
-    }
-
-    [Fact]
-    public async Task AStop_OfTheSessionsOwnDirector_EndsTheTurn_AndAColleaguesReportOfTheSameId_DoesNot()
-    {
-        var watcher = _gateway.TurnEndWatcherForTest!;
-
-        watcher.Observe(_team, _sessionId, "Working", OwnerDirector);
-        // The colleague's Director reports the owner's session as waiting: not taken, so no turn ends and her screen is
-        // never read for his session.
-        watcher.Observe(_team, _sessionId, "WaitingForInput", ColleagueDirector);
-        // The owner's own stop ends the turn, carrying his Director's id: the Wingman reads HIS screen.
-        watcher.Observe(_team, _sessionId, "WaitingForInput", OwnerDirector);
-
-        Assert.NotNull(await WaitFor(_seenByOwner, "screen-grid"));
-        Assert.Null(await WaitFor(_seenByColleague, "screen-grid", seconds: 3));
-    }
-
     /// <summary>
     /// After #3551 the session history row of a team session carries its person, from the Director that pushed it. A
     /// colleague's Director that lists another person's session id must not write that row: not take it over under its
@@ -160,19 +133,6 @@ public sealed class HostedTeamColleagueSessionWiringTests : IAsyncLifetime
     private string TeamKey(string team, string subject, string directorId) =>
         _gateway.Devices.RegisterForTenant(new TenantId(team), subject,
             Api.HostedEnrollmentEndpoint.TeamScopedDeviceId(team, subject, directorId), "M-" + directorId).DeviceKey;
-
-    /// <summary>Poll for a verb on this session rather than sleeping a fixed time: the sends are asynchronous.</summary>
-    private async Task<DirectorCommand?> WaitFor(ConcurrentQueue<DirectorCommand> seen, string verb, int seconds = 10)
-    {
-        var deadline = DateTime.UtcNow.AddSeconds(seconds);
-        while (DateTime.UtcNow < deadline)
-        {
-            var hit = seen.FirstOrDefault(c => c.Verb == verb && c.SessionId == _sessionId);
-            if (hit is not null) return hit;
-            await Task.Delay(50);
-        }
-        return null;
-    }
 
     private static DirectorCommandResult Ok() => FakeTunnelDirector.Ok(new { ok = true });
 

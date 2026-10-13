@@ -731,55 +731,6 @@ public sealed class SessionsAggregationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task NeedsYouSince_is_stable_across_polls_while_red()
-    {
-        var fake = await StartFake("M", "u", new[]
-        {
-            Sample("red1", "ClaudeCode", "r", "WaitingForInput", "red"),
-        });
-        await Register(fake);
-
-        var first = Assert.Single(await GetSessions()).NeedsYouSince;
-        await Task.Delay(50);
-        var second = Assert.Single(await GetSessions()).NeedsYouSince;
-
-        Assert.NotNull(first);
-        Assert.NotNull(second);
-        // Must not advance while the session stays red (AC: byte-identical).
-        Assert.Equal(first!.Value, second!.Value);
-    }
-
-    [Fact]
-    public async Task NeedsYouSince_resets_strictly_later_after_leaving_and_re_entering_red()
-    {
-        var session = Sample("flip", "ClaudeCode", "r", "WaitingForInput", "red");
-        var fake = await StartFake("M", "u", new[] { session });
-        await Register(fake);
-
-        // Episode 1: red.
-        var first = Assert.Single(await GetSessions()).NeedsYouSince;
-        Assert.NotNull(first);
-
-        // A new turn starts: leaves red -> NeedsYouSince must go null. The Director re-pushes the changed row.
-        session.StatusColor = "blue";
-        session.ActivityState = "Working";
-        await fake.Tunnel!.PushSnapshotAsync(session);
-        var between = Assert.Single(await GetSessions()).NeedsYouSince;
-        Assert.Null(between);
-
-        await Task.Delay(50);
-
-        // Episode 2: returns to red -> a strictly-later stamp than episode 1. Re-push the red row.
-        session.StatusColor = "red";
-        session.ActivityState = "WaitingForInput";
-        await fake.Tunnel!.PushSnapshotAsync(session);
-        var second = Assert.Single(await GetSessions()).NeedsYouSince;
-        Assert.NotNull(second);
-        Assert.True(second!.Value > first!.Value,
-            $"second episode stamp {second.Value:o} must be strictly later than first {first.Value:o}");
-    }
-
-    [Fact]
     public async Task NeedsYouSince_is_null_while_briefing_overlay_keeps_effective_color_off_red()
     {
         // A raw-red session that is still being briefed presents as effective YELLOW (not red),

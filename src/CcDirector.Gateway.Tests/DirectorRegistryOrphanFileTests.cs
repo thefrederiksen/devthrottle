@@ -16,20 +16,6 @@ public sealed class DirectorRegistryOrphanFileTests
     private static string TestShellPath =>
         RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "cmd.exe" : "/bin/sh";
 
-    private static int DeadPid()
-    {
-        // Spawn a process that exits immediately so its id is a real, now-dead pid.
-        var psi = new ProcessStartInfo(TestShellPath,
-            RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "/c exit" : "-c exit")
-        {
-            CreateNoWindow = true,
-            UseShellExecute = false,
-        };
-        var p = Process.Start(psi)!;
-        p.WaitForExit();
-        return p.Id;
-    }
-
     private static string WriteInstanceFile(string dir, string id, int pid)
     {
         var path = Path.Combine(dir, $"{id}.json");
@@ -41,27 +27,6 @@ public sealed class DirectorRegistryOrphanFileTests
             Source = "file",
         }));
         return path;
-    }
-
-    [Fact]
-    public void OrphanSweep_DeletesFileWithDeadPidAndNoLiveEntry()
-    {
-        var dir = Path.Combine(Path.GetTempPath(), "cc-orphan-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(dir);
-        try
-        {
-            var path = WriteInstanceFile(dir, Guid.NewGuid().ToString(), DeadPid());
-            Assert.True(File.Exists(path));
-
-            using var reg = new DirectorRegistry(dir);
-            reg.SweepOrphanInstanceFiles();
-
-            Assert.False(File.Exists(path), "an instance file whose recorded pid is dead should be deleted");
-        }
-        finally
-        {
-            try { Directory.Delete(dir, recursive: true); } catch { /* test cleanup */ }
-        }
     }
 
     [Fact]

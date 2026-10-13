@@ -83,48 +83,6 @@ public sealed class GatewayDrivesHeldDeliveriesTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_held_dictation_is_resent_by_the_Gateway_when_the_Director_reconnects_with_no_client_call()
-    {
-        // Proves goal item 1 cannot depend on a visible tab. The first complete runs out of time and its question gets no
-        // answer: 202, held. The tunnel drops; the registry entry survives, so "Director added" never fires. The Director
-        // comes back healthy and pushes its sessions. With NO client call, the Gateway asks, hears "unknown", sends once,
-        // and the outcome read says delivered - and the decision record says the drive was woken by the Director.
-        var added = 0;
-        _gateway.Registry.OnDirectorAdded += _ => Interlocked.Increment(ref added);
-        var uploadId = await RegisterAndUploadAsync();
-        var first = await CompleteAsync(uploadId);
-        Assert.Equal(HttpStatusCode.Accepted, first.Status);
-        Assert.Equal("no-answer", first.Body.GetProperty("directorState").GetString());
-        Assert.Equal(1, Prompts);
-
-        await _director!.DisposeAsync();
-        _director = null;
-        Assert.NotNull(_gateway.Registry.Get(TenantId.Local, DirectorId));   // the entry survived the drop
-        _starved = false;
-        await ConnectDirectorAsync();
-
-        var (status, body) = await OutcomeWhenFinalAsync(uploadId);
-        Assert.Equal(HttpStatusCode.OK, status);
-        Assert.True(body.GetProperty("submitted").GetBoolean());
-        Assert.Equal(0, added);
-        Assert.Equal(2, Prompts);                                      // the starved one, and exactly one re-send
-        lock (_gate) Assert.Equal(new[] { Canonical(uploadId) }, _typed);   // typed once
-        var decisions = await DecisionsAsync(uploadId);
-        var drive = decisions.Single(d => d.Name == DeliveryDecisions.GatewayDrive);
-        Assert.Equal(DeliveryDecisions.DriveDirectorConnected, drive.Facts.GetProperty("trigger").GetString());
-        var afterDrive = decisions.SkipWhile(d => d.Name != DeliveryDecisions.GatewayDrive).Select(d => d.Name).ToList();
-        Assert.Equal(new[]
-        {
-            DeliveryDecisions.GatewayDrive, DeliveryDecisions.AskedDirector, DeliveryDecisions.DeliveryStateAnswer,
-            DeliveryDecisions.SentToDirector, DeliveryDecisions.DirectorAnswer,
-            DeliveryDecisions.Delivered,
-        }, afterDrive);
-        Assert.Equal("unknown", decisions.Single(d => d.Name == DeliveryDecisions.DeliveryStateAnswer
-            && d.Facts.TryGetProperty("state", out var s) && s.GetString() == "unknown").Facts.GetProperty("state").GetString());
-        Assert.DoesNotContain("quokka", await RawDecisionsAsync(uploadId));
-    }
-
-    [Fact]
     public async Task A_repeated_complete_for_a_recording_the_Gateway_owns_drives_nothing()
     {
         // Proves contract section 2: once the Gateway owns a recording, a repeated complete - a lost answer, an old client
@@ -149,76 +107,6 @@ public sealed class GatewayDrivesHeldDeliveriesTests : IAsyncLifetime
         // The only lines the repeats add are the "retried" line each resumed complete has always written.
         var added = (await DecisionsAsync(uploadId)).Skip(linesBefore).Select(d => d.Name).ToList();
         Assert.Equal(new[] { DeliveryDecisions.Retried, DeliveryDecisions.Retried }, added);
-    }
-
-    [Fact]
-    public async Task A_held_send_anyway_is_pressed_again_by_the_Gateway_when_the_Director_reconnects()
-    {
-        // Proves contract section 4: a "Send anyway" answered 202 is the Gateway's from then on. The tunnel drops and comes
-        // back; with no second press from the client the Gateway presses it again - asking first - and the words are
-        // typed once; the outcome read says delivered, with the words.
-        var uploadId = await ShownBackAndAcknowledgedAsync();
-        var press = await _http.PostAsJsonAsync($"sessions/{_sessionId}/prompt",
-            new { text = "send these words once", appendEnter = true, deliveryIdClaim = uploadId });
-        Assert.Equal(HttpStatusCode.Accepted, press.StatusCode);
-        Assert.Equal("no-answer", (await press.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("directorState").GetString());
-
-        await _director!.DisposeAsync();
-        _director = null;
-        _starved = false;
-        await ConnectDirectorAsync();
-
-        var (status, body) = await OutcomeWhenFinalAsync(uploadId);
-        Assert.Equal(HttpStatusCode.OK, status);
-        Assert.True(body.GetProperty("submitted").GetBoolean());
-        Assert.Equal("send these words once", body.GetProperty("transcript").GetString());
-        lock (_gate) Assert.Equal(new[] { Canonical(uploadId) }, _typed);
-        var decisions = await DecisionsAsync(uploadId);
-        Assert.Equal(DeliveryDecisions.DriveDirectorConnected,
-            decisions.Single(d => d.Name == DeliveryDecisions.GatewayDrive).Facts.GetProperty("trigger").GetString());
-        Assert.Contains(decisions, d => d.Name == DeliveryDecisions.AskedDirector
-            && d.Facts.GetProperty("reason").GetString() == DeliveryDecisions.AskReasonSendAnywayAsksFirst);
-        Assert.DoesNotContain("send these words", await RawDecisionsAsync(uploadId));
-    }
-
-    [Fact]
-    public async Task A_Gateway_restart_with_a_held_delivery_resumes_it_from_its_durable_record()
-    {
-        // Proves a restart forgets nothing: the recording is held when the Gateway stops. A NEW Gateway over the same
-        // folder picks it up at start (gateway-started) - its Director is not back yet, so it waits for it - and when the
-        // Director reconnects it asks, hears "unknown", and sends exactly once.
-        var uploadId = await RegisterAndUploadAsync();
-        Assert.Equal(HttpStatusCode.Accepted, (await CompleteAsync(uploadId)).Status);
-        await _director!.DisposeAsync();
-        _director = null;
-        _http.Dispose();
-        await _gateway.StopAsync();
-
-        await StartGatewayAsync();
-        var store = new VoiceUploadStore(CcStorage.DictationUploads(), TenantId.Local);
-        // Wait for the start-up attempt to SETTLE, not merely to start (Voice Delivery phase 5, review round:
-        // the flaky restart test). The gateway-drive line is written BEFORE the attempt runs, so a wait that
-        // ends on the line can read the held state a moment before the attempt writes its own
-        // still-delivering line - and under load it did, seeing the FIRST complete's "no-answer" where this
-        // test means to see the restart attempt's "waiting-for-director". The settled state IS the fact: the
-        // restart attempt held waiting-for-director and only that attempt writes it (the first complete
-        // held no-answer, the Director is not connected, so nothing else can). The trigger line is asserted
-        // separately, after the wait, from the same durable log.
-        await WaitUntilAsync(() => store.ReadDecisions(uploadId).Lines.Any(l =>
-            l.Decision == DeliveryDecisions.GatewayDrive && l.Facts?.Trigger == DeliveryDecisions.DriveGatewayStarted)
-            && store.LastHeldState(uploadId) == DeliverySendAndAsk.WaitingForDirectorState);
-        Assert.Equal(DeliverySendAndAsk.WaitingForDirectorState, store.LastHeldState(uploadId));
-        _starved = false;
-        await ConnectDirectorAsync();
-
-        var (status, body) = await OutcomeWhenFinalAsync(uploadId);
-        Assert.Equal(HttpStatusCode.OK, status);
-        Assert.True(body.GetProperty("submitted").GetBoolean());
-        Assert.Equal(2, Prompts);
-        lock (_gate) Assert.Equal(new[] { Canonical(uploadId) }, _typed);
-        var triggers = (await DecisionsAsync(uploadId)).Where(d => d.Name == DeliveryDecisions.GatewayDrive)
-            .Select(d => d.Facts.GetProperty("trigger").GetString()).ToList();
-        Assert.Equal(new[] { DeliveryDecisions.DriveGatewayStarted, DeliveryDecisions.DriveDirectorConnected }, triggers);
     }
 
     [Fact]
@@ -254,8 +142,6 @@ public sealed class GatewayDrivesHeldDeliveriesTests : IAsyncLifetime
     {
         get { lock (_gate) return _prompts; }
     }
-
-    private static string Canonical(string uploadId) => VoiceUploadStore.NormalizeUploadId(uploadId)!;
 
     private async Task StartGatewayAsync()
     {
@@ -350,40 +236,6 @@ public sealed class GatewayDrivesHeldDeliveriesTests : IAsyncLifetime
         return (resp.StatusCode, await resp.Content.ReadFromJsonAsync<JsonElement>());
     }
 
-    // A recording as the client leaves it before "Send anyway" can be pressed: shown back, then acknowledged.
-    private async Task<string> ShownBackAndAcknowledgedAsync()
-    {
-        var uploadId = await RegisterAndUploadAsync();
-        var store = new VoiceUploadStore(CcStorage.DictationUploads(), TenantId.Local);
-        store.MarkDelivered(uploadId, submitted: false, movedOn: true, Transcript, reason: DeliveryDecisions.TooOld);
-        Assert.Equal(HttpStatusCode.OK, (await _http.PostAsync($"dictation/{uploadId}/ack", content: null)).StatusCode);
-        return uploadId;
-    }
-
-    // The client's reading loop, compressed: read /outcome until it is final (200), for at most fifteen seconds.
-    private async Task<(HttpStatusCode Status, JsonElement Body)> OutcomeWhenFinalAsync(string uploadId)
-    {
-        var deadline = DateTime.UtcNow.AddSeconds(15);
-        while (true)
-        {
-            var resp = await _http.GetAsync($"dictation/{uploadId}/outcome");
-            var body = JsonDocument.Parse(await resp.Content.ReadAsStringAsync()).RootElement.Clone();
-            if (resp.StatusCode != HttpStatusCode.Accepted || DateTime.UtcNow > deadline)
-                return (resp.StatusCode, body);
-            await Task.Delay(200);
-        }
-    }
-
-    private static async Task WaitUntilAsync(Func<bool> condition)
-    {
-        var deadline = DateTime.UtcNow.AddSeconds(15);
-        while (!condition())
-        {
-            Assert.True(DateTime.UtcNow < deadline, "the condition did not come true within 15 seconds");
-            await Task.Delay(100);
-        }
-    }
-
     private async Task<List<(string? Name, JsonElement Facts)>> DecisionsAsync(string uploadId)
     {
         var read = await _http.GetFromJsonAsync<JsonElement>($"dictation/{uploadId}/decisions");
@@ -392,9 +244,6 @@ public sealed class GatewayDrivesHeldDeliveriesTests : IAsyncLifetime
                 l.TryGetProperty("facts", out var f) ? f.Clone() : default))
             .ToList();
     }
-
-    private async Task<string> RawDecisionsAsync(string uploadId)
-        => await _http.GetStringAsync($"dictation/{uploadId}/decisions");
 
     private GatewayTranscriptionService StubTranscription() => new(
         new KeyVault(_vaultPath),

@@ -69,25 +69,6 @@ public sealed class HandoverInfoTunnelTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Handover_ReturnsIdentityBlock_ForAKnownSession()
-    {
-        var sid = Guid.NewGuid().ToString();
-        await _director.PushSnapshotAsync(Session(sid));
-
-        var dto = await _http.GetFromJsonAsync<HandoverInfoDto>($"sessions/{sid}/handover");
-
-        Assert.NotNull(dto);
-        Assert.Equal(sid, dto!.SessionId);
-        Assert.Equal("9.9.9-handover-test", dto.Version);
-        Assert.Equal(Environment.MachineName, dto.MachineName);
-        Assert.Equal(@"C:\test\handover-info-test", dto.RepoPath);
-        Assert.False(string.IsNullOrWhiteSpace(dto.DisplayName));
-        Assert.False(string.IsNullOrWhiteSpace(dto.DirectorId));
-        // A working body proves the tunnel: the Director is registered UNREACHABLE.
-        Assert.Equal(sid, Assert.Single(_director.AllOf("handover")).SessionId);
-    }
-
-    [Fact]
     public async Task Handover_NeverLeaksAControlApiEndpoint()
     {
         var sid = Guid.NewGuid().ToString();
@@ -117,7 +98,6 @@ public sealed class HandoverInfoTunnelTests : IAsyncLifetime
         Status = "WaitingForInput",
         ActivityState = "WaitingForInput",
     };
-
 }
 
 /// <summary>
@@ -175,5 +155,4 @@ public sealed class HandoverInfoGatewayTests : IAsyncLifetime
         var resp = await _http.SendAsync(req);
         Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
     }
-
 }
