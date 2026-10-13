@@ -109,14 +109,26 @@ public sealed class UnreadableDictationTombstoneTests : IAsyncLifetime
         // The locked-file case from the issue. Only Windows enforces a share lock against a reader.
         if (!OperatingSystem.IsWindows()) return;
 
+        // THE TOMBSTONE IS BORN LOCKED. This test used to let the store write the tombstone and then open it
+        // with a lock that shares nothing - which is refused whenever anything else has the file open, and on a
+        // busy machine something did (12 runs in 30 under load, on 12 October 2026: "the file is being used by
+        // another process", thrown by the test's own open). A lock taken on a file that already exists races
+        // every reader of it. So the genuine tombstone is written by the real store under a root nobody else
+        // reads, and its bytes are put at the Gateway's path through the handle that CREATES the file: nobody
+        // can hold a file that did not exist, and from its first moment it shares nothing.
         var uploadId = Guid.NewGuid().ToString();
-        var store = Store();
-        store.MarkDelivered(uploadId, submitted: true, movedOn: false, transcript: "said once");
-        var path = RecordPath(uploadId);
-        var before = File.ReadAllBytes(path);
+        var elsewhere = Path.Combine(_storageRoot, "written-elsewhere");
+        new VoiceUploadStore(elsewhere, TenantId.Local)
+            .MarkDelivered(uploadId, submitted: true, movedOn: false, transcript: "said once");
+        var before = File.ReadAllBytes(Path.Combine(elsewhere, Guid.Parse(uploadId).ToString("N"), "record.json"));
 
-        using (new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        var path = RecordPath(uploadId);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        using (var locked_ = new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
         {
+            locked_.Write(before);
+            locked_.Flush();
+
             var locked = await RegisterAsync(uploadId);
 
             // Could not look is a 423 Locked - "try again" - and never "open it". Not a 503: the phone reads
