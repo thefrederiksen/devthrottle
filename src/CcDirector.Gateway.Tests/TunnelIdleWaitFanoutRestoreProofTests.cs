@@ -45,7 +45,8 @@ public sealed class TunnelIdleWaitFanoutRestoreProofTests : IAsyncLifetime
     private string _sid = "";
 
     // Every command the Director saw over the tunnel, in order, so a test can assert the exact verb sequence.
-    private readonly List<DirectorCommand> _commands = new();
+    // Written by the tunnel's callback thread while a test reads it, so it must be safe to read while written.
+    private readonly System.Collections.Concurrent.ConcurrentQueue<DirectorCommand> _commands = new();
     private static readonly JsonSerializerOptions WebJson = new(JsonSerializerDefaults.Web);
 
     public TunnelIdleWaitFanoutRestoreProofTests()
@@ -107,7 +108,7 @@ public sealed class TunnelIdleWaitFanoutRestoreProofTests : IAsyncLifetime
     // Canned per-verb responses so each flow completes; every command is recorded for verb-sequence assertions.
     private DirectorCommandResult Dispatch(DirectorCommand cmd)
     {
-        _commands.Add(cmd);
+        _commands.Enqueue(cmd);
         return cmd.Verb switch
         {
             // prompt / fanout delivery: accepted, still Working so the WaitForIdle poll actually runs.
