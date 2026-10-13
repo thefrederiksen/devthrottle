@@ -20,6 +20,7 @@ export type NavIconName =
   | "sessions"
   | "history"
   | "directors"
+  | "licenses"
   | "schedule"
   | "workflows"
   | "skills"
@@ -94,6 +95,16 @@ const PAINT: Record<NavIconName, JSX.Element> = {
       <rect x="2" y="3" width="20" height="14" rx="2" />
       <path d="M8 21h8" />
       <path d="M12 17v4" />
+    </>
+  ),
+  // A key: the sign-in a machine holds for a Claude account. The only shape in the set with a long shaft and
+  // teeth, so it is not taken for any of the circles.
+  licenses: (
+    <>
+      <circle cx="7.5" cy="15.5" r="4.5" />
+      <path d="m10.7 12.3 9.8-9.8" />
+      <path d="m16 7 3 3" />
+      <path d="m19 4 2 2" />
     </>
   ),
   // A calendar: what runs when.
