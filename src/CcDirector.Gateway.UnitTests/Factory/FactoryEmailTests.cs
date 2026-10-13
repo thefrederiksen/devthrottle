@@ -401,6 +401,50 @@ public sealed class FactoryEmailTests : IDisposable
     }
 
     [Fact]
+    public async Task SweepTenantAsync_ASendThatTimesOut_IsCountedWithItsReason_AndTriedAgain()
+    {
+        Job("cj_scan", "Night scan", "research", "scout");
+        AppendRun("cj_scan", Run(null, TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.DidNotRun, "offline"));
+        // What the HTTP client raises when its own timeout runs out: a cancellation nobody asked for.
+        var sender = new FakeSender { Answer = () => throw new TaskCanceledException("The request was canceled due to the configured timeout of 30 seconds elapsing.") };
+        _now = TorontoTime(2026, 10, 11, 8, 5);
+
+        await Sweep(sender).SweepTenantAsync(TenantId.Local);
+
+        var failed = Store.Find(TenantId.Local, "2026-10-11T08")!;
+        Assert.Equal((FactoryEmailStates.Failed, 1), (failed.State, failed.Attempts));
+        Assert.Equal("The owner-email service did not answer in time: The request was canceled due to the configured timeout of 30 seconds elapsing.", failed.Detail);
+
+        sender.Answer = () => FactoryEmailSendResult.Ok("msg-2");
+        _now = TorontoTime(2026, 10, 11, 8, 7);
+        await Sweep(sender).SweepTenantAsync(TenantId.Local);
+
+        var sent = Store.Find(TenantId.Local, "2026-10-11T08")!;
+        Assert.Equal((FactoryEmailStates.Sent, 2, "msg-2"), (sent.State, sent.Attempts, sent.ProviderId));
+    }
+
+    [Fact]
+    public async Task SweepTenantAsync_ASweepAskedToStopMidSend_IsNotCountedAsAFailedSend()
+    {
+        Job("cj_scan", "Night scan", "research", "scout");
+        AppendRun("cj_scan", Run(null, TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.DidNotRun, "offline"));
+        using var stop = new CancellationTokenSource();
+        var sender = new FakeSender
+        {
+            Answer = () =>
+            {
+                stop.Cancel();
+                throw new TaskCanceledException("the Gateway is stopping");
+            },
+        };
+        _now = TorontoTime(2026, 10, 11, 8, 5);
+
+        await Assert.ThrowsAsync<TaskCanceledException>(() => Sweep(sender).SweepTenantAsync(TenantId.Local, stop.Token));
+
+        Assert.Equal(0, Store.Find(TenantId.Local, "2026-10-11T08")!.Attempts);
+    }
+
+    [Fact]
     public async Task SweepTenantAsync_ATeamAccount_IsNotSupported_AndNotTriedAgain()
     {
         Job("cj_scan", "Night scan", "research", "scout");

@@ -118,6 +118,15 @@ public sealed class FactoryEmailSweep : TenantScopedSweep
             FileLog.Write($"[FactoryEmailSweep] SweepTenantAsync: send FAILED, service unreachable: {ex.Message}");
             result = FactoryEmailSendResult.Failed($"The owner-email service could not be reached: {ex.Message}");
         }
+        catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            // The send ran out of time: the client gave up waiting, and nobody asked this sweep to stop. It is an
+            // attempt like any other, so it is counted and its reason recorded, and the send is tried again on the next
+            // tick. A sweep that WAS asked to stop is not caught here - the Gateway is shutting down, and that is not
+            // a failed send.
+            FileLog.Write($"[FactoryEmailSweep] SweepTenantAsync: send FAILED, timed out: {ex.Message}");
+            result = FactoryEmailSendResult.Failed($"The owner-email service did not answer in time: {ex.Message}");
+        }
         _store.Save(tenant, slot.Key, r =>
         {
             r.Attempts++;
