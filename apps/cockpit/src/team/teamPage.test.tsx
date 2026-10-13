@@ -148,9 +148,11 @@ describe("the Team page, per role", () => {
     client.getTeamPage.mockResolvedValue(ownerPage());
     renderAt(PATH);
 
-    await screen.findByRole("heading", { name: "Members" });
+    // The page draws its heading while it is still loading, so the heading says nothing about the members having
+    // arrived: the first thing waited for is a piece of what the Gateway answered.
+    expect(await screen.findByText("3 paid seats, 2 Collaborators (no charge), 1 invitation waiting")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Members" })).toBeTruthy();
     expect(client.getTeamPage).toHaveBeenCalledWith(TEAM);
-    expect(screen.getByText("3 paid seats, 2 Collaborators (no charge), 1 invitation waiting")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Invite someone" }).getAttribute("href")).toBe("/settings?tab=members&view=invite");
 
     const own = rowOf("soren");
@@ -217,7 +219,8 @@ describe("the Team page, per role", () => {
     client.getTeamPage.mockResolvedValue(managerPage());
     renderAt(PATH);
 
-    await screen.findByRole("heading", { name: "Members" });
+    // Waited for: a member the Gateway answered with. The heading is on screen before the answer is.
+    await screen.findByText("pat@devthrottle.com");
     expect(screen.queryAllByRole("combobox")).toHaveLength(0);
     expect(within(rowOf("pat")).getByText("Manager")).toBeTruthy();
     expect(within(rowOf("soren")).queryByRole("button", { name: "Remove" })).toBeNull();
@@ -232,8 +235,8 @@ describe("the Team page, per role", () => {
     client.getTeamPage.mockResolvedValue(developerPage());
     renderAt(PATH);
 
-    await screen.findByRole("heading", { name: "Members" });
-    expect(screen.getByText("rob@devthrottle.com")).toBeTruthy();
+    // Waited for: a member the Gateway answered with. The heading is on screen before the answer is.
+    expect(await screen.findByText("rob@devthrottle.com")).toBeTruthy();
     expect(screen.getByText("3 paid seats, 2 Collaborators (no charge)")).toBeTruthy();
     expect(screen.queryAllByRole("combobox")).toHaveLength(0);
     expect(screen.queryAllByRole("button")).toHaveLength(0);
