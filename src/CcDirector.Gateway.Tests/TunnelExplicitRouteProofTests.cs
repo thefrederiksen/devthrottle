@@ -42,7 +42,6 @@ public sealed class TunnelExplicitRouteProofTests : IAsyncLifetime
     private Session _session = null!;
     private string _sid = "";
 
-    // The last command the Director saw over the tunnel, so a test can assert the verb + payload the route sent.
     // Every command the Gateway sent over the tunnel. A test asks for the command of ITS OWN verb, never for "the last
     // command": the Gateway also sends commands of its own accord (a pushed waiting session has its screen read on a
     // background task), so which command arrived last depends on how busy the machine is.
@@ -168,7 +167,7 @@ public sealed class TunnelExplicitRouteProofTests : IAsyncLifetime
         var node = await resp.Content.ReadFromJsonAsync<JsonNode>();
         Assert.Equal("a summary", node?["title"]?.GetValue<string>());
         Assert.Equal(DirectorId, node?["directorId"]?.GetValue<string>()); // the Director core sets DirectorId in its body
-        var sent = Sent("summary");
+        Sent("summary");
     }
 
     [Fact]
@@ -189,7 +188,7 @@ public sealed class TunnelExplicitRouteProofTests : IAsyncLifetime
         var node = await resp.Content.ReadFromJsonAsync<JsonNode>();
         Assert.Equal("a session", node?["displayName"]?.GetValue<string>());
         Assert.Equal(DirectorId, node?["directorId"]?.GetValue<string>());
-        var sent = Sent("handover");
+        Sent("handover");
     }
 
     [Fact]
@@ -199,7 +198,7 @@ public sealed class TunnelExplicitRouteProofTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
         var node = await resp.Content.ReadFromJsonAsync<JsonNode>();
         Assert.Equal("a recap", node?["recap"]?.GetValue<string>());
-        var sent = Sent("recap");
+        Sent("recap");
     }
 
     [Fact]
@@ -209,7 +208,7 @@ public sealed class TunnelExplicitRouteProofTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
         var node = await resp.Content.ReadFromJsonAsync<JsonNode>();
         Assert.Equal("green", node?["color"]?.GetValue<string>());
-        var sent = Sent("wingman-view");
+        Sent("wingman-view");
     }
 
     // ------------------------------------------------------------------------------------ writes ----
@@ -234,7 +233,7 @@ public sealed class TunnelExplicitRouteProofTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
         var node = await resp.Content.ReadFromJsonAsync<JsonNode>();
         Assert.False(node?["pendingDeletion"]?.GetValue<bool>());
-        var sent = Sent("cancel-deletion");
+        Sent("cancel-deletion");
     }
 
     // ---------------------------------------------------------------------------- slow LLM (unary) ----
@@ -286,7 +285,7 @@ public sealed class TunnelExplicitRouteProofTests : IAsyncLifetime
         Assert.False(string.IsNullOrEmpty(savedPath));
 
         // The chunked upload rode the tunnel: begin, three chunks, then complete were the commands seen.
-        var sent = Sent("upload-image-complete");
+        Sent("upload-image-complete");
 
         // The Director reassembled the chunks byte-for-byte and saved the real file (same machine, in-process).
         Assert.True(File.Exists(savedPath), $"expected the reassembled image at {savedPath}");

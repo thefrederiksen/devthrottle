@@ -41,7 +41,6 @@ public sealed class TunnelDirectorReadProofTests : IAsyncLifetime
     private HttpClient _http = null!;
     private HubConnection _conn = null!;
 
-    // The last command the Director saw over the tunnel, so a test can assert the verb + payload the route sent.
     // Every command the Gateway sent over the tunnel. A test asks for the command of ITS OWN verb, never for "the last
     // command": the Gateway also sends commands of its own accord (a pushed waiting session has its screen read on a
     // background task), so which command arrived last depends on how busy the machine is.
@@ -155,7 +154,7 @@ public sealed class TunnelDirectorReadProofTests : IAsyncLifetime
         var node = await resp.Content.ReadFromJsonAsync<JsonNode>();
         Assert.Equal("9.9.9", node?["version"]?.GetValue<string>());
         Assert.Equal(DirectorId, node?["directorId"]?.GetValue<string>());
-        var sent = Sent("facts");
+        Sent("facts");
     }
 
     [Fact]
@@ -165,7 +164,7 @@ public sealed class TunnelDirectorReadProofTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
         var node = await resp.Content.ReadFromJsonAsync<JsonNode>();
         Assert.Equal("assistant", node?[0]?["key"]?.GetValue<string>());
-        var sent = Sent("coaching-categories");
+        Sent("coaching-categories");
     }
 
     [Fact]
@@ -175,7 +174,7 @@ public sealed class TunnelDirectorReadProofTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
         var node = await resp.Content.ReadFromJsonAsync<JsonNode>();
         Assert.Equal("cs-1", node?[0]?["claudeSessionId"]?.GetValue<string>());
-        var sent = Sent("claude-sessions");
+        Sent("claude-sessions");
     }
 
     [Fact]
@@ -201,7 +200,7 @@ public sealed class TunnelDirectorReadProofTests : IAsyncLifetime
         Assert.Equal("sess-abc", node?[0]?["sessionId"]?.GetValue<string>());
         Assert.Equal("dead-dir", node?[0]?["deadDirectorId"]?.GetValue<string>());
         Assert.Equal(DirectorId, node?[0]?["reportedByDirectorId"]?.GetValue<string>());
-        var sent = Sent("interrupted-list");
+        Sent("interrupted-list");
     }
 
     [Fact]
@@ -211,7 +210,7 @@ public sealed class TunnelDirectorReadProofTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
         var node = await resp.Content.ReadFromJsonAsync<JsonNode>();
         Assert.Equal("a handover", node?[0]?["title"]?.GetValue<string>());
-        var sent = Sent("handovers-list");
+        Sent("handovers-list");
     }
 
     [Fact]

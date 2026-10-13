@@ -72,7 +72,7 @@ public sealed class HostedMissionPartitionWiringTests : IAsyncLifetime
         // The legacy row exists BEFORE the host starts, exactly as a pre-#1039 file would: written by a
         // Gateway that stamped no owner. Seeded on disk rather than through the store, because the store
         // no longer has an unscoped write to create one with.
-        _missionsPath = Path.Combine(_instancesDir, "missions.json");
+        _missionsPath = Path.Combine(_instancesDir, "missions", "missions.json");
         SeedUnattributedMission(_missionsPath);
 
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: Token, authEnabled: true,
@@ -263,8 +263,8 @@ public sealed class SelfHostMissionAdoptionControlTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        _missionsPath = Path.Combine(_instancesDir, "missions.json");
-        Directory.CreateDirectory(_instancesDir);
+        _missionsPath = Path.Combine(_instancesDir, "missions", "missions.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(_missionsPath)!);
         // ParentMissionId is deliberate here - see SeedUnattributedMission. Mission no longer has that
         // property, but every missions.json on disk still carries the key, and this row proves such a
         // file still loads.

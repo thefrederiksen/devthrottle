@@ -129,7 +129,7 @@ public sealed class TunnelReposHandoverMgmtProofTests : IAsyncLifetime
             new RepoAddRequest { Path = @"D:\nope" });
 
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
-        var sent = Assert.Single(fake.AllOf("repo-add"));
+        Assert.Single(fake.AllOf("repo-add"));
     }
 
     // ================================================================================== repo-rename ====
@@ -169,7 +169,7 @@ public sealed class TunnelReposHandoverMgmtProofTests : IAsyncLifetime
             new RepoRenameRequest { Path = @"D:\gone", Name = "x" });
 
         Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
-        var sent = Assert.Single(fake.AllOf("repo-rename"));
+        Assert.Single(fake.AllOf("repo-rename"));
     }
 
     // ================================================================================ repos-overview ====
@@ -276,7 +276,7 @@ public sealed class TunnelReposHandoverMgmtProofTests : IAsyncLifetime
 
         var resp = await _http.DeleteAsync($"directors/{dir}/handovers?path={Uri.EscapeDataString(@"D:\h\gone.md")}");
         Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
-        var sent = Assert.Single(fake.AllOf("handover-delete"));
+        Assert.Single(fake.AllOf("handover-delete"));
     }
 
     [Fact]
@@ -288,7 +288,7 @@ public sealed class TunnelReposHandoverMgmtProofTests : IAsyncLifetime
 
         var resp = await _http.DeleteAsync($"directors/{dir}/handovers?path={Uri.EscapeDataString(@"C:\Windows\evil.md")}");
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
-        var sent = Assert.Single(fake.AllOf("handover-delete"));
+        Assert.Single(fake.AllOf("handover-delete"));
     }
 
     [Fact]

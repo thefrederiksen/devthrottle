@@ -43,7 +43,9 @@ public sealed class GitHubActionsBackendTests
         private TaskCompletionSource? _next;
         private GitHubActionsBackend? _backend;
 
-        /// <summary>Hand this pacer to the backend as its wait, before it starts.</summary>
+        /// <summary>Hand this pacer to the backend as its wait, before it starts. ONE WAITER AT A TIME: the pacer
+        /// holds a single wait, the poll loop's. A test must not call anything else on the backend that waits (a
+        /// follow-up sent before the thread exists does) while the loop is alive - assert the thread first.</summary>
         public void Pace(GitHubActionsBackend backend)
         {
             _backend = backend;
@@ -163,7 +165,7 @@ public sealed class GitHubActionsBackendTests
         using var backend = Paced(NewIssueConfig(), gh, out var pacer);
         backend.StartRemote();
 
-        await pacer.PollUntilAsync(() => backend.ThreadNumber == 42);
+        Assert.True(await pacer.PollUntilAsync(() => backend.ThreadNumber == 42));
         await backend.SendTextAsync("now write tests");
 
         Assert.Contains(gh.PostedComments, c => c.Thread == 42 && c.Body.Contains("@claude") && c.Body.Contains("now write tests"));
@@ -242,7 +244,7 @@ public sealed class GitHubActionsBackendTests
         using var backend = Paced(NewIssueConfig(), gh, out var pacer);
         backend.StartRemote();
 
-        await pacer.PollUntilAsync(() => gh.CancelledRunId is null && BufferText(backend).Contains("Run started"));
+        Assert.True(await pacer.PollUntilAsync(() => gh.CancelledRunId is null && BufferText(backend).Contains("Run started")));
         await backend.GracefulShutdownAsync();
 
         Assert.Equal(gh.RunId, gh.CancelledRunId);
@@ -383,7 +385,7 @@ public sealed class GitHubActionsBackendTests
         using var backend = Paced(config, gh, out var pacer);
         backend.StartRemote();
 
-        await pacer.PollUntilAsync(() => gh.DispatchedWorkflow != null);
+        Assert.True(await pacer.PollUntilAsync(() => gh.DispatchedWorkflow != null));
         await backend.SendTextAsync("do more");
 
         Assert.Empty(gh.PostedComments);
