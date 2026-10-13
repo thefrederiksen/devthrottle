@@ -1,0 +1,206 @@
+Gateway on loopback port 65014, storage under a throwaway folder
+
+1. What the Gateway says of sign-ins before anything is done, and what the page shows of it
+  GET /gateway/licenses -> 200
+    the-mac: canAddSpare=False, addSpareText="The Director on the-mac is not connected, so a sign-in cannot be started there."
+      account-a@example.com: canRenewNow=False, renewNowText="The Director on the-mac is not connected, so a sign-in cannot be started there."
+      account-b@example.com: canRenewNow=False, renewNowText="The Director on the-mac is not connected, so a sign-in cannot be started there."
+    the-windows-machine: canAddSpare=True, addSpareText="Signs the-windows-machine in to another account, to be held there as a spare."
+      account-a@example.com: canRenewNow=True, renewNowText="Signs the-windows-machine in to account-a@example.com again, replacing the sign-in it holds."
+      account-b@example.com: canRenewNow=True, renewNowText="Signs the-windows-machine in to account-b@example.com again, replacing the sign-in it holds."
+  GET /gateway/licenses/approvers -> isEmpty=True, emptyText="No machine is set to approve sign-ins for any account. A machine that has its own browser profile for an account approves its sign-ins there."
+  [OK]   the Gateway offers Add a spare on the machine whose Director is connected and not on the other
+  [OK]   the page shows the Gateway's sentence for no approver, in place of the list
+  [OK]   the card of account-a@example.com shows the Gateway's approverText whole, in its tone
+  [OK]   the card of account-b@example.com shows the Gateway's approverText whole, in its tone
+  [OK]   the row of the-mac shows the Gateway's addSpareText whole
+  [OK]   Add a spare is not offered on the-mac, as the Gateway says
+  [OK]   the sign-in for account-a@example.com on the-mac shows the Gateway's renewNowText whole, and Renew now is not offered
+  [OK]   the sign-in for account-b@example.com on the-mac shows the Gateway's renewNowText whole, and Renew now is not offered
+  [OK]   the row of the-windows-machine shows the Gateway's addSpareText whole
+  [OK]   Add a spare is offered on the-windows-machine, as the Gateway says
+  [OK]   the sign-in for account-a@example.com on the-windows-machine shows the Gateway's renewNowText whole, and Renew now is offered
+  [OK]   the sign-in for account-b@example.com on the-windows-machine shows the Gateway's renewNowText whole, and Renew now is offered
+  [OK]   nothing was sent to reach this
+  screenshot qa-sign-ins/sign-ins-before.png
+  screenshot qa-sign-ins/cards-renew-now-offered-and-not.png
+
+2. Who approves an account, by the owner's signed-in browser: set, refused, changed, removed
+  [OK]   nothing can be saved before the four fields are given
+  the browser sent: PUT /gateway/licenses/approvers  Content-Type: application/json  body: {"accountEmail":"account-b@example.com","machineName":"the-mac","osUser":"owner","browserProfile":"work"}
+  the Gateway answered 200: {"accountEmail": "account-b@example.com", "machineName": "the-mac", "osUser": "owner", "browserProfile": "work", "machineId": "50b2080f44484c138e2af20a460b6a7b", "label": "the-mac", "canApproveNow": false, "status": "not-connected", "statusText": "Not connected", "statusTone": "warning", "text": "Sign-ins for account-b@example.com are approved on the-mac, in the browser profile work. The Director on the-mac is not connected, so no sign-in can be approved there now."}
+  [OK]   PUT /gateway/licenses/approvers answered 200
+  [OK]   the body was sent as application/json
+  [OK]   the body is the four fields and nothing else
+  [OK]   the page shows the Gateway's sentence for what it stored, whole
+  [OK]   the page read the approvers again and lists the one stored
+  GET /gateway/licenses/approvers now says of account-b@example.com: status=not-connected, statusText="Not connected", text="Sign-ins for account-b@example.com are approved on the-mac, in the browser profile work. The Director on the-mac is not connected, so no sign-in can be approved there now."
+  [OK]   its row is the Gateway's label, browser profile, status word in its tone, and sentence
+  [OK]   the card of account B now shows the Gateway's new approverText, in its tone
+  screenshot qa-sign-ins/approver-set.png
+  screenshot qa-sign-ins/approver-set-on-the-card.png
+  a machine that has never reported:
+  the browser sent: PUT /gateway/licenses/approvers  Content-Type: application/json  body: {"accountEmail":"account-e@example.com","machineName":"the-laptop","osUser":"owner","browserProfile":"personal"}
+  the Gateway answered 200: {"accountEmail": "account-e@example.com", "machineName": "the-laptop", "osUser": "owner", "browserProfile": "personal", "machineId": null, "label": "the-laptop", "canApproveNow": false, "status": "never-reported", "statusText": "Not reporting yet", "statusTone": "warning", "text": "Sign-ins for account-e@example.com are approved on the-laptop, in the browser profile personal. No Director on the-laptop has reported to this account, so no sign-in can be approved there yet."}
+  [OK]   an approver on a machine that has never reported is stored, and the Gateway says it cannot approve yet
+  [OK]   the page lists it with the Gateway's status and sentence
+  screenshot qa-sign-ins/approver-set-machine-never-reported.png
+  refused by the Gateway (400): a browser profile that is not a name
+  the browser sent: PUT /gateway/licenses/approvers  Content-Type: application/json  body: {"accountEmail":"account-a@example.com","machineName":"the-mac","osUser":"owner","browserProfile":"work/1"}
+  the Gateway answered 400: {"code": "invalid_browser_profile", "error": "browserProfile is the name of a browser profile on the approving machine: letters, digits, spaces, dots, underscores and hyphens, at most 64 characters."}
+  [OK]   the approver was refused 400 with a word and a sentence
+  the page shows: "browserProfile is the name of a browser profile on the approving machine: letters, digits, spaces, dots, underscores and hyphens, at most 64 characters."
+  [OK]   the page shows the Gateway's sentence, word for word
+  [OK]   the editor stays open with what was typed
+  [OK]   nothing was stored: the Gateway still lists two approvers, none for account A
+  screenshot qa-sign-ins/approver-refused-400.png
+  [OK]   exactly one write was sent for it
+  changed from its own row:
+  [OK]   the editor opens on what is stored, and its account cannot be changed
+  the browser sent: PUT /gateway/licenses/approvers  Content-Type: application/json  body: {"accountEmail":"account-b@example.com","machineName":"the-mac","osUser":"owner","browserProfile":"personal"}
+  the Gateway answered 200: {"accountEmail": "account-b@example.com", "machineName": "the-mac", "osUser": "owner", "browserProfile": "personal", "machineId": "50b2080f44484c138e2af20a460b6a7b", "label": "the-mac", "canApproveNow": false, "status": "not-connected", "statusText": "Not connected", "statusTone": "warning", "text": "Sign-ins for account-b@example.com are approved on the-mac, in the browser profile personal. The Director on the-mac is not connected, so no sign-in can be approved there now."}
+  [OK]   the change was stored: the Gateway answers the new browser profile
+  [OK]   the page lists the new browser profile, from its next read
+  screenshot qa-sign-ins/approver-changed.png
+  removed:
+  [OK]   the confirmation says what is removed in the Gateway's sentence, and opening it sends nothing
+  screenshot qa-sign-ins/approver-remove-confirmation.png
+  the browser sent: DELETE /gateway/licenses/approvers?accountEmail=account-e%40example.com  Content-Type: None  body: None
+  the Gateway answered 200: {"accountEmail": "account-e@example.com", "removed": true, "text": "No machine is set to approve sign-ins for account-e@example.com any more."}
+  [OK]   DELETE /gateway/licenses/approvers answered 200 and says one was removed
+  [OK]   it names the account in the query and has no body
+  [OK]   the page shows the Gateway's sentence for it, whole
+  [OK]   the page read the approvers again: the row is gone and the other is still there
+  [OK]   the Gateway lists one approver
+  screenshot qa-sign-ins/approver-removed.png
+
+3. Add a spare, by the owner's signed-in browser
+  [OK]   the confirmation shows the Gateway's sentence for the machine
+  [OK]   it cannot be given before an account is typed, and opening it sends nothing
+  screenshot qa-sign-ins/add-spare-confirmation.png
+  the browser sent: POST /gateway/licenses/sign-ins/add-spare  Content-Type: application/json  body: {"accountEmail":"account-e@example.com","machineId":"6ce19786ee9e4a74a1609da2e93333ac"}
+  the Gateway answered 202: {"signInId": "521fca75311e466d89d9fb9cdb4b5acb", "accountEmail": "account-e@example.com", "machine": {"machineId": "6ce19786ee9e4a74a1609da2e93333ac", "machineName": "the-windows-machine", "osUser": "owner", "label": "the-windows-machine"}, "text": "Asked the Director on the-windows-machine to sign in to account-e@example.com as a new spare. It can take a few minutes; the outcome appears in the log.", "entry": {"entryId": "b6afa173251b49dda5a133f5ce2dc039", "kind": "sign-in", "kindText": "Sign-in", "atUtc": "2026-10-13T20:19:01.124223Z", "machineId": "6ce19786ee9e4a74a1609da2e93333ac", "machineName": "the-windows-machine", "osUser": "owner", "label": "the-windows-machine", "fromAccountEmail": "", "toAccountEmail": "account-e@example.com", "why": "manual", "whyText": "Add a spare", "state": "pending", "stateText": "Signing in", "stateTone": "neutral", "isOpen": true, "reasonCode": null, "reasonText": null, "message": "Asked the Director on the-windows-machine to sign in to account-e@example.com as a new spare.", "summary": "the-windows-machine is signing in to account-e@example.com.", "sendCount": 0, "lastSentAtUtc": null, "startedOnMachineAtUtc": null, "finishedOnMachineAtUtc": null, "exchangeMilliseconds": null, "finishedAtUtc": null, "timingText": null, "verifiedByUsageRead": null, "verifiedText": null}}
+  [OK]   POST /gateway/licenses/sign-ins/add-spare answered 202
+  [OK]   the body was sent as application/json
+  [OK]   the body names the account and the machine's identifier and nothing else
+  [OK]   the page shows the Gateway's sentence for what was started, whole
+  [OK]   the whole row is the Gateway's, nothing added: "Signing in" - the-windows-machine is signing in to account-e@example.com.
+  screenshot qa-sign-ins/add-spare-started.png
+  GET /gateway/licenses now says the-windows-machine has in progress: [{"signInId": "521fca75311e466d89d9fb9cdb4b5acb", "accountEmail": "account-e@example.com", "text": "the-windows-machine is signing in to account-e@example.com."}]
+  [OK]   the Gateway says the sign-in has not ended
+  [OK]   the page shows that sentence on the machine's row
+  [OK]   the sign-in is a row of the log on the page
+  screenshot qa-sign-ins/sign-in-in-progress.png
+  refused by the Gateway (409): the same sign-in again while it is running
+  the browser sent: POST /gateway/licenses/sign-ins/add-spare  Content-Type: application/json  body: {"accountEmail":"account-e@example.com","machineId":"6ce19786ee9e4a74a1609da2e93333ac"}
+  the Gateway answered 409: {"code": "sign_in_running", "error": "A sign-in for account-e@example.com on the-windows-machine is already running."}
+  [OK]   Add a spare was refused 409 sign_in_running
+  the page shows: "A sign-in for account-e@example.com on the-windows-machine is already running."
+  [OK]   the page shows the Gateway's sentence, word for word, and the confirmation stays open
+  [OK]   what was typed stays
+  screenshot qa-sign-ins/add-spare-refused-409-sign-in-running.png
+  the Director answers: signed in
+  qa-gateway finish ok -> ok finish ok
+  the log row is now: "Signed in" - the-windows-machine was signed in to account-e@example.com and holds it as a spare.
+  [OK]   the Gateway settled the row from the Director's answer
+  [OK]   the page reads how it ended from that row of the log, at its next read, and shows it whole
+  [OK]   in the Gateway's tone
+  [OK]   the sign-in was started once: no second call was sent to find out
+  screenshot qa-sign-ins/add-spare-signed-in.png
+  qa-gateway windows-holds-e -> ok windows-holds-e
+  [OK]   when the machine's next report holds the new account, the page shows its card, from its next read
+  screenshot qa-sign-ins/add-spare-new-account-card.png
+  refused by the Gateway (409): an account the machine holds
+  the browser sent: POST /gateway/licenses/sign-ins/add-spare  Content-Type: application/json  body: {"accountEmail":"account-a@example.com","machineId":"6ce19786ee9e4a74a1609da2e93333ac"}
+  the Gateway answered 409: {"code": "already_held", "error": "the-windows-machine already holds a sign-in for account-a@example.com. Use Renew now to renew it."}
+  [OK]   Add a spare was refused 409 already_held
+  the page shows: "the-windows-machine already holds a sign-in for account-a@example.com. Use Renew now to renew it."
+  [OK]   the page shows the Gateway's sentence, word for word
+  screenshot qa-sign-ins/add-spare-refused-409-already-held.png
+  refused by the Gateway (400): what was typed is not an account
+  the browser sent: POST /gateway/licenses/sign-ins/add-spare  Content-Type: application/json  body: {"accountEmail":"not an account","machineId":"6ce19786ee9e4a74a1609da2e93333ac"}
+  the Gateway answered 400: {"code": "invalid_account", "error": "accountEmail is the email of a Claude account."}
+  [OK]   Add a spare was refused 400 invalid_account: the page sent what was typed and the Gateway judged it
+  the page shows: "accountEmail is the email of a Claude account."
+  [OK]   the page shows the Gateway's sentence, word for word
+  screenshot qa-sign-ins/add-spare-refused-400-invalid-account.png
+
+4. Renew now, by the owner's signed-in browser
+  [OK]   the confirmation says what it does in the Gateway's sentence for that sign-in, and opening it sends nothing
+  screenshot qa-sign-ins/renew-now-confirmation.png
+  the browser sent: POST /gateway/licenses/sign-ins/renew  Content-Type: application/json  body: {"accountEmail":"account-b@example.com","machineId":"6ce19786ee9e4a74a1609da2e93333ac"}
+  the Gateway answered 202: {"signInId": "4641553b853f4ac98bd0b3755669c96b", "accountEmail": "account-b@example.com", "machine": {"machineId": "6ce19786ee9e4a74a1609da2e93333ac", "machineName": "the-windows-machine", "osUser": "owner", "label": "the-windows-machine"}, "text": "Asked the Director on the-windows-machine to renew the sign-in for account-b@example.com. It can take a few minutes; the outcome appears in the log.", "entry": {"entryId": "6a99ef2c601b49f0bb61d1b0c5909989", "kind": "sign-in", "kindText": "Sign-in", "atUtc": "2026-10-13T20:19:56.8324197Z", "machineId": "6ce19786ee9e4a74a1609da2e93333ac", "machineName": "the-windows-machine", "osUser": "owner", "label": "the-windows-machine", "fromAccountEmail": "", "toAccountEmail": "account-b@example.com", "why": "renewal", "whyText": "Renew now", "state": "pending", "stateText": "Signing in", "stateTone": "neutral", "isOpen": true, "reasonCode": null, "reasonText": null, "message": "Asked the Director on the-windows-machine to renew the sign-in for account-b@example.com.", "summary": "the-windows-machine is renewing its sign-in for account-b@example.com.", "sendCount": 0, "lastSentAtUtc": null, "startedOnMachineAtUtc": null, "finishedOnMachineAtUtc": null, "exchangeMilliseconds": null, "finishedAtUtc": null, "timingText": null, "verifiedByUsageRead": null, "verifiedText": null}}
+  [OK]   POST /gateway/licenses/sign-ins/renew answered 202
+  [OK]   the body was sent as application/json
+  [OK]   the body names the account and the machine's identifier and nothing else
+  [OK]   the page shows the Gateway's sentence for what was started, whole
+  [OK]   the whole row is the Gateway's, nothing added
+  screenshot qa-sign-ins/renew-now-started.png
+  GET /gateway/licenses now says of that sign-in: canRenewNow=False, renewNowText="A sign-in for account-b@example.com on the-windows-machine is already running."
+  [OK]   while it runs the Gateway withdraws Renew now for that sign-in, and the page follows
+  the Director answers: failed, no approver
+  qa-gateway finish failed -> ok finish failed
+  the log row is now: "Failed" - The sign-in for account-b@example.com on the-windows-machine was not renewed. (no-approver: No browser profile is set to approve this account, on the machine or on another.)
+  [OK]   the Gateway settled the row as failed, with a reason
+  [OK]   the page reads the failure from that row of the log and shows it whole
+  [OK]   with the Gateway's reason, whole, and in the Gateway's tone
+  screenshot qa-sign-ins/renew-now-failed.png
+  asked again, and the Director answers: renewed
+  [OK]   the Gateway offers Renew now for that sign-in again, and the page follows
+  the browser sent: POST /gateway/licenses/sign-ins/renew  Content-Type: application/json  body: {"accountEmail":"account-b@example.com","machineId":"6ce19786ee9e4a74a1609da2e93333ac"}
+  the Gateway answered 202: {"signInId": "1681583131ab461686bec75042ed1368", "accountEmail": "account-b@example.com", "machine": {"machineId": "6ce19786ee9e4a74a1609da2e93333ac", "machineName": "the-windows-machine", "osUser": "owner", "label": "the-windows-machine"}, "text": "Asked the Director on the-windows-machine to renew the sign-in for account-b@example.com. It can take a few minutes; the outcome appears in the log.", "entry": {"entryId": "eef3d59a806f40ccad869ef1af84b644", "kind": "sign-in", "kindText": "Sign-in", "atUtc": "2026-10-13T20:20:24.9984757Z", "machineId": "6ce19786ee9e4a74a1609da2e93333ac", "machineName": "the-windows-machine", "osUser": "owner", "label": "the-windows-machine", "fromAccountEmail": "", "toAccountEmail": "account-b@example.com", "why": "renewal", "whyText": "Renew now", "state": "pending", "stateText": "Signing in", "stateTone": "neutral", "isOpen": true, "reasonCode": null, "reasonText": null, "message": "Asked the Director on the-windows-machine to renew the sign-in for account-b@example.com.", "summary": "the-windows-machine is renewing its sign-in for account-b@example.com.", "sendCount": 0, "lastSentAtUtc": null, "startedOnMachineAtUtc": null, "finishedOnMachineAtUtc": null, "exchangeMilliseconds": null, "finishedAtUtc": null, "timingText": null, "verifiedByUsageRead": null, "verifiedText": null}}
+  [OK]   the second Renew now answered 202 with a row of its own
+  qa-gateway finish ok -> ok finish ok
+  the log row is now: "Renewed" - The sign-in for account-b@example.com on the-windows-machine was renewed.
+  [OK]   the Gateway settled the row as renewed
+  [OK]   the page reads it from that row of the log and shows it whole
+  screenshot qa-sign-ins/renew-now-renewed.png
+  [OK]   the switch log on the page lists every sign-in the Gateway lists: one added, one failed, one renewed
+  screenshot qa-sign-ins/sign-ins-in-the-log.png
+
+5. All four writes with a Director's own credential (a workstation key): refused 403 owner_only
+  [OK]   that credential reads the page, the approvers with it
+  the browser sent: PUT /gateway/licenses/approvers  Content-Type: application/json  body: {"accountEmail":"account-a@example.com","machineName":"the-mac","osUser":"owner","browserProfile":"work"}
+  the Gateway answered 403: {"code": "owner_only", "error": "only the owner on their own signed-in phone or browser may set which machine approves an account's sign-ins; this request was made with a device (workstation) credential"}
+  [OK]   setting an approver was refused 403 owner_only
+  the page shows: "only the owner on their own signed-in phone or browser may set which machine approves an account's sign-ins; this request was made with a device (workstation) credential"
+  [OK]   the page shows the Gateway's sentence, word for word, and the editor stays open
+  screenshot qa-sign-ins/approver-set-refused-owner-only.png
+  the browser sent: DELETE /gateway/licenses/approvers?accountEmail=account-b%40example.com  Content-Type: None  body: None
+  the Gateway answered 403: {"code": "owner_only", "error": "only the owner on their own signed-in phone or browser may remove the machine that approves an account's sign-ins; this request was made with a device (workstation) credential"}
+  [OK]   removing an approver was refused 403 owner_only
+  the page shows: "only the owner on their own signed-in phone or browser may remove the machine that approves an account's sign-ins; this request was made with a device (workstation) credential"
+  [OK]   the page shows the Gateway's sentence, word for word, and the row is still listed
+  screenshot qa-sign-ins/approver-remove-refused-owner-only.png
+  the browser sent: POST /gateway/licenses/sign-ins/add-spare  Content-Type: application/json  body: {"accountEmail":"account-f@example.com","machineId":"6ce19786ee9e4a74a1609da2e93333ac"}
+  the Gateway answered 403: {"code": "owner_only", "error": "only the owner on their own signed-in phone or browser may start a sign-in on a machine; this request was made with a device (workstation) credential"}
+  [OK]   Add a spare was refused 403 owner_only
+  the page shows: "only the owner on their own signed-in phone or browser may start a sign-in on a machine; this request was made with a device (workstation) credential"
+  [OK]   the page shows the Gateway's sentence, word for word, and no answer panel is drawn
+  screenshot qa-sign-ins/add-spare-refused-owner-only.png
+  the browser sent: POST /gateway/licenses/sign-ins/renew  Content-Type: application/json  body: {"accountEmail":"account-a@example.com","machineId":"6ce19786ee9e4a74a1609da2e93333ac"}
+  the Gateway answered 403: {"code": "owner_only", "error": "only the owner on their own signed-in phone or browser may start a sign-in on a machine; this request was made with a device (workstation) credential"}
+  [OK]   Renew now was refused 403 owner_only
+  the page shows: "only the owner on their own signed-in phone or browser may start a sign-in on a machine; this request was made with a device (workstation) credential"
+  [OK]   the page shows the Gateway's sentence, word for word, and no answer panel is drawn
+  screenshot qa-sign-ins/renew-now-refused-owner-only.png
+  [OK]   nothing was stored and nothing was started: the approvers and the log are as they were
+
+6. Renew now the page offered, refused by the Gateway (409): the machine's Director lost its connection after the page read it
+  qa-gateway drop-windows -> ok drop-windows
+  the browser sent: POST /gateway/licenses/sign-ins/renew  Content-Type: application/json  body: {"accountEmail":"account-a@example.com","machineId":"6ce19786ee9e4a74a1609da2e93333ac"}
+  the Gateway answered 409: {"code": "director_offline", "error": "The Director on the-windows-machine is not connected, so a sign-in cannot be started there."}
+  [OK]   Renew now was refused 409 director_offline
+  the page shows: "The Director on the-windows-machine is not connected, so a sign-in cannot be started there."
+  [OK]   the page shows the Gateway's sentence, word for word
+  screenshot qa-sign-ins/renew-now-refused-409-director-offline.png
+  GET /gateway/licenses now says of the-windows-machine: canAddSpare=False, addSpareText="The Director on the-windows-machine is not connected, so a sign-in cannot be started there."
+  [OK]   the Gateway no longer offers a sign-in on that machine, and the page follows at its next read: no button, the Gateway's sentence
+  screenshot qa-sign-ins/sign-ins-not-offered-director-not-connected.png
+
+7. Nothing of a sign-in itself reached the browser or left it
+  68 answers of Licenses routes reached the browser, with 120 different property names
+  [OK]   no property name in any of them is one of a sign-in key, an address a sign-in is approved at, or an approval
+  [OK]   every body the browser sent is an account with a machine identifier, or an account with a machine, its user and a browser profile
+
+QA RUN DONE: all 89 checks held

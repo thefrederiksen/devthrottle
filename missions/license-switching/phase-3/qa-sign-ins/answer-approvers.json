@@ -1,0 +1,33 @@
+{
+  "asOfUtc": "2026-10-13T20:18:57.8904552Z",
+  "isEmpty": false,
+  "emptyText": null,
+  "approvers": [
+    {
+      "accountEmail": "account-b@example.com",
+      "machineName": "the-mac",
+      "osUser": "owner",
+      "browserProfile": "work",
+      "machineId": "50b2080f44484c138e2af20a460b6a7b",
+      "label": "the-mac",
+      "canApproveNow": false,
+      "status": "not-connected",
+      "statusText": "Not connected",
+      "statusTone": "warning",
+      "text": "Sign-ins for account-b@example.com are approved on the-mac, in the browser profile work. The Director on the-mac is not connected, so no sign-in can be approved there now."
+    },
+    {
+      "accountEmail": "account-e@example.com",
+      "machineName": "the-laptop",
+      "osUser": "owner",
+      "browserProfile": "personal",
+      "machineId": null,
+      "label": "the-laptop",
+      "canApproveNow": false,
+      "status": "never-reported",
+      "statusText": "Not reporting yet",
+      "statusTone": "warning",
+      "text": "Sign-ins for account-e@example.com are approved on the-laptop, in the browser profile personal. No Director on the-laptop has reported to this account, so no sign-in can be approved there yet."
+    }
+  ]
+}
