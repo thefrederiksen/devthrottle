@@ -21,6 +21,8 @@ namespace CcDirector.Gateway.Tests.Licenses;
 /// return is recorded as the contract says; a row with no answer is settled from the machine's report; and one
 /// DevThrottle account can never start a sign-in on another's machine.
 /// </summary>
+// It captures the process-wide log, so no other test class runs beside it.
+[Collection(FileLogCaptureCollection.Name)]
 public sealed class LicenseSignInServiceTests : IDisposable
 {
     private static readonly TenantId One = new("acct-one");
@@ -262,11 +264,10 @@ public sealed class LicenseSignInServiceTests : IDisposable
     public void Start_NothingTheCallerSentIsLoggedBeforeItIsChecked(string account, string machineId, string word)
     {
         MacOnA();
-        using var capture = FileLog.RedirectForTests();
-        FileLog.Start();
+        using var capture = new CapturedLog();
 
         var start = _service.Start(One, account, machineId, LicenseSignInReasons.Manual);
-        var lines = capture.DrainAndReadLines();
+        var lines = capture.Lines();
 
         AssertRefused(start, 400, word);
         Assert.Contains(lines, l => l.Contains($"[LicenseSignInService] Start: REFUSED {word}"));

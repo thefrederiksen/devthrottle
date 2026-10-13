@@ -423,8 +423,7 @@ public sealed class LicenseSignInHostedTests : IAsyncLifetime
     {
         await AliceSetsHerApprover();
         TakesAnswers(_target);
-        using var capture = FileLog.RedirectForTests();
-        FileLog.Start();
+        using var capture = new CapturedLog();
 
         // 1. An approved relay, through the real hub, the real router and the real tunnel.
         Approves(_approver);
@@ -452,7 +451,7 @@ public sealed class LicenseSignInHostedTests : IAsyncLifetime
         var dropped = Payload<LicenseApprovalResult>(_target.LastOf(LicenseContract.ApprovalResultVerb)!);
         Assert.Equal((second, LicenseApprovalOutcomes.Refused, LicenseRenewalErrors.ApproverOffline), (dropped.SignInId, dropped.Outcome, dropped.ReasonCode));
 
-        var lines = capture.DrainAndReadLines();
+        var lines = capture.Lines();
 
         // The host's own lines for these sends are in the capture: the router's line for an answered command, its line
         // for the dropped tunnel - the one line on the path that prints text this code does not write - and the relay's.

@@ -36,6 +36,8 @@ public sealed class RequestLicenseApprovalHubTests : IDisposable
     private readonly LicenseApproverStore _approvers;
     private readonly FakeLicenseDirectors _directors = new();
     private readonly LicenseApprovalRelay _relay;
+    // A device registry of this test's own, over the harness database: the registry with no path is one per machine.
+    private readonly CcDirector.Gateway.Pairing.DeviceRegistry _devices;
 
     public RequestLicenseApprovalHubTests()
     {
@@ -44,6 +46,7 @@ public sealed class RequestLicenseApprovalHubTests : IDisposable
         _inputStats = new GatewayInputStatsAggregator(Path.Combine(_tempDir, "gateway-stats.db"));
         var db = _harness.Open();
         _licenses = new LicenseStore(db);
+        _devices = _harness.OpenDevices();
         _approvers = new LicenseApproverStore(new TenantSettingsStore(db));
         _relay = new LicenseApprovalRelay(_approvers, new LicenseReadModel(_licenses), _directors.IsConnected, _directors.SendAsync,
             _directors.EnterScope, () => T0, CancellationToken.None);
@@ -65,7 +68,7 @@ public sealed class RequestLicenseApprovalHubTests : IDisposable
 
     private DirectorHub NewHub(string connectionId, LicenseApprovalRelay? relay) => new(_sessions, _registry, InputStatsHandle.Available(_inputStats),
         new GatewayStreamRegistry(),
-        new CcDirector.Gateway.Tenancy.HostedTenantBoundary(new SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: false),
+        new CcDirector.Gateway.Tenancy.HostedTenantBoundary(new SingleTenantContext(), _devices, hosted: false),
         licenseApprovals: relay) { Context = new FakeHubCallerContext(connectionId) };
 
     private static DirectorStreamHello Hello(string directorId = "dir-target", string? publicHalf = null)

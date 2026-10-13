@@ -21,6 +21,8 @@ namespace CcDirector.Gateway.Tests.Licenses;
 /// to the asking Director; a request that cannot be passed on is answered at once with the contract's reason; the two
 /// waits are the contract's; and one DevThrottle account never reaches a machine or an approver of another.
 /// </summary>
+// It captures the process-wide log, so no other test class runs beside it.
+[Collection(FileLogCaptureCollection.Name)]
 public sealed class LicenseApprovalRelayTests : IDisposable
 {
     private static readonly TenantId One = new("acct-one");
@@ -340,11 +342,10 @@ public sealed class LicenseApprovalRelayTests : IDisposable
         var request = Request();
         request.AccountEmail = account!;
         request.AuthorizeUrl = address!;
-        using var capture = FileLog.RedirectForTests();
-        FileLog.Start();
+        using var capture = new CapturedLog();
 
         var refused = Assert.Throws<ArgumentException>(() => _relay.Accept(One, TargetDirector, PublicHalf, request));
-        var lines = capture.DrainAndReadLines();
+        var lines = capture.Lines();
         var log = string.Join(" | ", lines);
 
         Assert.DoesNotContain("INJECTED", refused.Message);
@@ -635,11 +636,10 @@ public sealed class LicenseApprovalRelayTests : IDisposable
             // A failure whose message quotes the payload, as a serializer's or a transport's could.
             ? throw new InvalidOperationException($"could not send {((LicenseApproveRequest)sent.Payload).AuthorizeUrl} sealed to {PublicHalf}")
             : Task.FromResult<DirectorCommandResult?>(FakeLicenseDirectors.Ok(new { delivered = true }));
-        using var capture = FileLog.RedirectForTests();
-        FileLog.Start();
+        using var capture = new CapturedLog();
 
         await Ask();
-        var log = string.Join(" | ", capture.DrainAndReadLines());
+        var log = string.Join(" | ", capture.Lines());
 
         // The asking Director is told now, with a reason, instead of waiting out its own deadline.
         AssertRefused(LicenseRenewalErrors.ApprovalFailed);
@@ -671,12 +671,11 @@ public sealed class LicenseApprovalRelayTests : IDisposable
         var relay = new LicenseApprovalRelay(_approvers, new LicenseReadModel(_store),
             _directors.IsConnected, _directors.SendAsync, _ => throw new InvalidOperationException($"no scope for {Address}"),
             () => _now, CancellationToken.None);
-        using var capture = FileLog.RedirectForTests();
-        FileLog.Start();
+        using var capture = new CapturedLog();
 
         relay.Accept(One, TargetDirector, PublicHalf, Request());
         await relay.WhenIdleAsync();
-        var log = string.Join(" | ", capture.DrainAndReadLines());
+        var log = string.Join(" | ", capture.Lines());
 
         Assert.Equal(0, relay.InFlightCount());
         Assert.Contains($"signIn={SignIn1}, account={A} FAILED: InvalidOperationException", log);

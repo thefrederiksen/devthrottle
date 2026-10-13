@@ -15,6 +15,8 @@ namespace CcDirector.Gateway.Tests.Licenses;
 /// replaces; removing removes; a value that is not what it claims to be is refused and nothing is stored; one account
 /// never sees another's; and what is stored is exactly the four fields of the contract.
 /// </summary>
+// It captures the process-wide log, so no other test class runs beside it.
+[Collection(FileLogCaptureCollection.Name)]
 public sealed class LicenseApproverStoreTests : IDisposable
 {
     private static readonly TenantId One = new("acct-one");
@@ -145,11 +147,10 @@ public sealed class LicenseApproverStoreTests : IDisposable
         string what, string account, string machine, string user, string word)
     {
         Assert.NotEmpty(what);
-        using var capture = FileLog.RedirectForTests();
-        FileLog.Start();
+        using var capture = new CapturedLog();
 
         var set = _store.Set(One, account, machine, user, "work", T0);
-        var lines = capture.DrainAndReadLines();
+        var lines = capture.Lines();
 
         Assert.False(set.Accepted);
         Assert.Equal(word, set.RefusalWord);

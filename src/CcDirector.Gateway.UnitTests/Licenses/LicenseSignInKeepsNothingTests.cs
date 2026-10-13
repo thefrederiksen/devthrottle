@@ -138,11 +138,10 @@ public sealed class LicenseSignInKeepsNothingTests : IDisposable
     [Fact]
     public async Task NoLogLine_CarriesTheAddressOrTheApproval_WhileEachRelayAndSignInIsLoggedByItsIdentifier()
     {
-        using var log = FileLog.RedirectForTests();
-        FileLog.Start();
+        using var log = new CapturedLog();
         await EverythingHappensOnce();
 
-        var lines = log.DrainAndReadLines();
+        var lines = log.Lines();
 
         // The relay and the sign-in DID log, by identifier, account, machines and outcome.
         Assert.Contains(lines, l => l.Contains("[LicenseApprovalRelay]") && l.Contains(SignIn1) && l.Contains(LicenseApprovalOutcomes.Approved));
