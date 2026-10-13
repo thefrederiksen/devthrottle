@@ -9,8 +9,9 @@ namespace CcDirector.Gateway.Tests.Licenses;
 
 /// <summary>
 /// The machine's active account taken from a switch answer's read-back (contract section 3.5), and never over newer
-/// facts: an answer is taken only when it finished after the machine's last accepted report, judged on the Gateway's
-/// clock, and a REPLAYED answer - a stored answer to an earlier send - is refused once a later report exists.
+/// facts. Newer is judged on the Gateway's own clock only: an answer to a command just sent is taken unless the machine
+/// has reported since the Gateway sent it, and a REPLAYED answer - a stored answer to an earlier send - is refused
+/// once the machine has reported after the switch row was written. The Director's clock decides nothing.
 /// </summary>
 public sealed class LicenseSwitchReadBackTests : IDisposable
 {
@@ -47,25 +48,44 @@ public sealed class LicenseSwitchReadBackTests : IDisposable
     }
 
     [Fact]
-    public void ApplySwitchReadBack_AnswerFinishedAfterTheLastReport_TakesTheAccountOnMachineAndHoldings()
+    public void ApplySwitchReadBack_NoReportSinceTheCommandWasSent_TakesTheAccountOnMachineAndHoldings()
     {
+        // The machine last reported at T0; the Gateway sent the command 20 seconds later.
         var (store, machineId) = MachineOnA();
 
-        var taken = store.ApplySwitchReadBack(Tenant, machineId, Answer(T0.AddSeconds(30)));
+        var taken = store.ApplySwitchReadBack(Tenant, machineId, Answer(T0.AddSeconds(30)), sentAtUtc: T0.AddSeconds(20));
 
         Assert.True(taken);
         Assert.Equal((B, B), Active(store));
     }
 
     [Fact]
-    public void ApplySwitchReadBack_AnswerOlderThanTheLastReport_IsRefused()
+    public void ApplySwitchReadBack_TheMachineReportedSinceTheCommandWasSent_IsRefused()
     {
+        // The command went out 30 seconds before the report the Gateway holds: that report was written after the
+        // switch, so it is the newer fact, whatever the answer says.
         var (store, machineId) = MachineOnA();
 
-        var taken = store.ApplySwitchReadBack(Tenant, machineId, Answer(T0.AddSeconds(-30)));
+        var taken = store.ApplySwitchReadBack(Tenant, machineId, Answer(T0.AddSeconds(30)), sentAtUtc: T0.AddSeconds(-30));
 
         Assert.False(taken);
         Assert.Equal((A, A), Active(store));
+    }
+
+    [Theory]
+    [InlineData(-90)] // the Director's clock is 90 seconds behind: its answer is stamped before the machine's last report
+    [InlineData(90)]  // and 90 seconds ahead
+    public void ApplySwitchReadBack_AFreshAnswer_IsJudgedByTheGatewaysSendTime_NotTheDirectorsClock(int directorClockSeconds)
+    {
+        // A skew under two minutes is not measured, so nothing corrects the answer's own times. The machine reported
+        // at T0, the Gateway sent the command 20 seconds later, and the switch finished 2 seconds after that.
+        var (store, machineId) = MachineOnA();
+        var finishedOnTheDirectorsClock = T0.AddSeconds(22 + directorClockSeconds);
+
+        var taken = store.ApplySwitchReadBack(Tenant, machineId, Answer(finishedOnTheDirectorsClock), sentAtUtc: T0.AddSeconds(20));
+
+        Assert.True(taken);
+        Assert.Equal((B, B), Active(store));
     }
 
     [Fact]
@@ -75,7 +95,7 @@ public sealed class LicenseSwitchReadBackTests : IDisposable
         // switched it back by hand). A resend after a Gateway restart gets the STORED answer back, Replayed = true.
         var (store, machineId) = MachineOnA();
 
-        var taken = store.ApplySwitchReadBack(Tenant, machineId, Answer(T0.AddMinutes(-1), replayed: true));
+        var taken = store.ApplySwitchReadBack(Tenant, machineId, Answer(T0.AddMinutes(-1), replayed: true), sentAtUtc: T0.AddMinutes(5));
 
         Assert.False(taken);
         Assert.Equal((A, A), Active(store));
@@ -103,7 +123,8 @@ public sealed class LicenseSwitchReadBackTests : IDisposable
         var answer = Answer(T0.AddSeconds(60), replayed: true);
         answer.SwitchId = switchId;
 
-        var taken = store.ApplySwitchReadBack(Tenant, machineId, answer);
+        // Sent after the report: for an answer that is NOT replayed this send time would let it through.
+        var taken = store.ApplySwitchReadBack(Tenant, machineId, answer, sentAtUtc: T0.AddSeconds(50));
 
         Assert.False(taken);
         Assert.Equal((A, A), Active(store));
@@ -118,22 +139,10 @@ public sealed class LicenseSwitchReadBackTests : IDisposable
         var answer = Answer(T0.AddSeconds(30), replayed: true);
         answer.SwitchId = row.SwitchId ?? throw new InvalidOperationException("The row has no switch identifier.");
 
-        var taken = store.ApplySwitchReadBack(Tenant, machineId, answer);
+        var taken = store.ApplySwitchReadBack(Tenant, machineId, answer, sentAtUtc: T0.AddSeconds(20));
 
         Assert.True(taken);
         Assert.Equal((B, B), Active(store));
-    }
-
-    [Fact]
-    public void ApplySwitchReadBack_DirectorClockBehind_JudgesTheFinishOnTheGatewayClock()
-    {
-        // The Director's clock runs 5 minutes behind: its report was judged with a +5 minute shift. An answer stamped
-        // 4 minutes before T0 on its clock finished 1 minute AFTER T0 on the Gateway's, so it is newer than the report.
-        var (store, machineId) = MachineOnA(readAtShift: TimeSpan.FromMinutes(5));
-
-        var taken = store.ApplySwitchReadBack(Tenant, machineId, Answer(T0.AddMinutes(-4)));
-
-        Assert.True(taken);
     }
 
     [Fact]
@@ -143,7 +152,7 @@ public sealed class LicenseSwitchReadBackTests : IDisposable
         var answer = Answer(T0.AddSeconds(30));
         answer.ActiveAccountEmailAfter = "";
 
-        Assert.False(store.ApplySwitchReadBack(Tenant, machineId, answer));
+        Assert.False(store.ApplySwitchReadBack(Tenant, machineId, answer, sentAtUtc: T0.AddSeconds(20)));
         Assert.Equal(A, Active(store).Machine);
     }
 }

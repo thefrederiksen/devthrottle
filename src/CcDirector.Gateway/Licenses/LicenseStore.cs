@@ -439,21 +439,23 @@ public sealed class LicenseStore
     }
 
     /// <summary>
-    /// Take the machine's active account from a switch answer's read-back (contract section 3.5) - but ONLY when that
-    /// answer is newer than everything the machine has reported since. The answer's <c>FinishedAtUtc</c> is the
-    /// Director's clock, so it is moved onto the Gateway's clock by the machine's measured skew before it is compared
-    /// with the Gateway's receive time of the last report.
+    /// Take the machine's active account from a switch answer's read-back (contract section 3.5) - but never over a
+    /// report that is newer than the answer. "Newer" is judged on the Gateway's own clock only. The Director's clock
+    /// is not used at all: a clock that is ahead or behind by less than the skew that is measured would make an
+    /// answer look newer or older than it is.
     ///
-    /// An answer with <c>Replayed = true</c> is a STORED answer to an earlier send, and for it the Director's clock is
-    /// not trusted at all: a clock that is ahead by less than the skew that is measured would make an old answer look
-    /// newer than a report that came after it. So a replayed answer's read-back is never taken once the machine has
-    /// reported after the switch row was written - both of those times are the Gateway's own. The after-switch report
-    /// the Director sends after every switch is such a report.
+    /// - An answer to a command this Gateway has just sent (<c>Replayed = false</c>) describes the machine after that
+    ///   command. It is taken unless the machine has reported since <paramref name="sentAtUtc"/>, the moment this
+    ///   Gateway sent it: such a report was written after the switch, and the after-switch report the Director
+    ///   sends after every switch is one.
+    /// - An answer with <c>Replayed = true</c> is a STORED answer to an earlier send, so the send it answers may be
+    ///   long past. Its read-back is never taken once the machine has reported after the switch row was written.
     ///
     /// One conditional update, so a report landing at the same moment cannot be overwritten. True when the account
     /// was taken.
     /// </summary>
-    public bool ApplySwitchReadBack(TenantId tenant, Guid machineId, LicenseSwitchResult result)
+    /// <param name="sentAtUtc">When this Gateway sent the command the answer came back to, on the Gateway's clock.</param>
+    public bool ApplySwitchReadBack(TenantId tenant, Guid machineId, LicenseSwitchResult result, DateTime sentAtUtc)
     {
         ArgumentNullException.ThrowIfNull(result);
         var after = NormalizeEmail(result.ActiveAccountEmailAfter);
@@ -464,14 +466,7 @@ public sealed class LicenseStore
             return false;
         }
         using var ctx = _db.CreateContext(tenant);
-        var machine = ctx.LicenseMachines.AsNoTracking().FirstOrDefault(m => m.Id == machineId);
-        if (machine is null)
-        {
-            FileLog.Write($"[LicenseStore] ApplySwitchReadBack: REFUSED, no machine {machineId} in this account");
-            return false;
-        }
-        var finishedOnGatewayClock = Utc(result.FinishedAtUtc) + TimeSpan.FromSeconds(machine.ClockSkewSeconds);
-        var candidates = ctx.LicenseMachines.Where(m => m.Id == machineId && m.LastReportAtUtc < finishedOnGatewayClock);
+        var notReportedSince = Utc(sentAtUtc);
         if (result.Replayed)
         {
             var id = SwitchKey(result.SwitchId);
@@ -484,18 +479,20 @@ public sealed class LicenseStore
                 FileLog.Write("[LicenseStore] ApplySwitchReadBack: REFUSED, a replayed answer for a switch this account has no row for");
                 return false;
             }
-            candidates = candidates.Where(m => m.LastReportAtUtc <= rowWrittenAt);
+            notReportedSince = rowWrittenAt;
         }
         // The machine row and its holdings say who is active in two places, and the read model reads both; they move
         // together or not at all, so the Licenses page never shows the machine on one account and the holding on another.
         using var transaction = ctx.Database.BeginTransaction();
-        var taken = candidates.ExecuteUpdate(u => u.SetProperty(m => m.ActiveAccountEmail, after)) == 1;
+        var taken = ctx.LicenseMachines
+            .Where(m => m.Id == machineId && m.LastReportAtUtc <= notReportedSince)
+            .ExecuteUpdate(u => u.SetProperty(m => m.ActiveAccountEmail, after)) == 1;
         if (taken)
             ctx.LicenseHoldings
                 .Where(h => h.MachineId == machineId)
                 .ExecuteUpdate(u => u.SetProperty(h => h.IsActive, h => h.AccountEmail == after));
         transaction.Commit();
-        FileLog.Write($"[LicenseStore] ApplySwitchReadBack: taken={taken} (finished {finishedOnGatewayClock:O}, last report {machine.LastReportAtUtc:O})");
+        FileLog.Write($"[LicenseStore] ApplySwitchReadBack: taken={taken} (the machine must not have reported since {notReportedSince:O})");
         return taken;
     }
 

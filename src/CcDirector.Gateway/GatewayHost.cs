@@ -1011,11 +1011,10 @@ public sealed class GatewayHost : IAsyncDisposable
     private static readonly TimeSpan ActivityRetentionStartupDelay = TimeSpan.FromMinutes(5);
 
     // License Switching's minute check (missions/license-switching/MISSION.md section 5): once a minute, for each
-    // tenant with a Director connected, decide and send every switch that is due. Guarded against overlap the same
-    // way the cron sweep is: a check still waiting on a Director's answer skips the next minute rather than running
-    // beside itself. Created in StartAsync, disposed in StopAsync, which also cancels the sends in flight.
+    // tenant with a Director connected, decide and send every switch that is due. A pass is started every minute whether
+    // or not the last one has finished: only a tenant whose own check is still waiting on a Director is skipped, by
+    // the service. Created in StartAsync, disposed in StopAsync, which also cancels the sends in flight.
     private System.Threading.Timer? _licenseSwitchTimer;
-    private int _licenseSwitchInFlight;
     private readonly CancellationTokenSource _licenseSwitchLifetime = new();
     private static readonly TimeSpan LicenseSwitchInterval = TimeSpan.FromMinutes(1);
 
@@ -6553,12 +6552,10 @@ public sealed class GatewayHost : IAsyncDisposable
     /// </summary>
     private void CheckLicenseSwitches()
     {
-        if (Interlocked.CompareExchange(ref _licenseSwitchInFlight, 1, 0) != 0)
-        {
-            // Never silent: a minute in which no tenant was checked is a minute a machine at 97% went on working.
-            FileLog.Write("[GatewayHost] license switch check SKIPPED this minute: the previous check has not finished");
-            return;
-        }
+        // A pass is started every minute whether or not the last one has finished. There is no overlap guard here on
+        // purpose: one Director that does not answer keeps its own tenant's check open for up to the 60-second
+        // command wait, and a guard on the whole pass would make that cost EVERY tenant its next minute. The
+        // service skips, and logs, only the tenant whose own check is still running (LicenseSwitchService.TickAsync).
         _ = RunLicenseSwitchCheckAsync();
     }
 
@@ -6576,10 +6573,6 @@ public sealed class GatewayHost : IAsyncDisposable
         catch (Exception ex)
         {
             FileLog.Write($"[GatewayHost] license switch check FAILED: {ex.Message}");
-        }
-        finally
-        {
-            Interlocked.Exchange(ref _licenseSwitchInFlight, 0);
         }
     }
 

@@ -109,9 +109,9 @@ public sealed class LicenseStorePostgresTests
         Assert.Contains(store.ListLog(tenant, T0.AddHours(-1)), r => r.SwitchId == switchId);
         Assert.DoesNotContain(store.ListOpenSwitches(tenant), r => r.SwitchId == switchId);
 
-        // The read-back: taken when it finished after the last report; a replayed one is never taken once the machine
-        // has reported after the row was written.
-        Assert.True(store.ApplySwitchReadBack(tenant, machineId, answer));
+        // The read-back: taken when the machine has not reported since the command was sent; a replayed one is never
+        // taken once the machine has reported after the row was written.
+        Assert.True(store.ApplySwitchReadBack(tenant, machineId, answer, T0.AddSeconds(60)));
         var view = Assert.Single(new LicenseReadModel(store).Read(tenant, T0.AddSeconds(130)).Machines, m => m.MachineId == machineId);
         Assert.Equal(b, view.ActiveAccountEmail);
         Assert.Equal(b, Assert.Single(view.Holdings, h => h.IsActive).AccountEmail);
@@ -127,7 +127,8 @@ public sealed class LicenseStorePostgresTests
             FinishedAtUtc = T0.AddSeconds(260),
             Replayed = true,
         };
-        Assert.False(store.ApplySwitchReadBack(tenant, machineId, replayed));
+        Assert.False(store.ApplySwitchReadBack(tenant, machineId, replayed, T0.AddSeconds(258)));
+        Assert.False(store.ApplySwitchReadBack(tenant, machineId, answer, T0.AddSeconds(60)));
 
         // A bar, written and read.
         store.Bar(tenant, a, LicenseWindows.FiveHour, T0.AddHours(2), T0.AddSeconds(5));

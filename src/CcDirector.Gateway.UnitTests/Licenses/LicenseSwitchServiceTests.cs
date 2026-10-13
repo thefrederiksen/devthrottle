@@ -118,11 +118,16 @@ public sealed class LicenseSwitchServiceTests : IDisposable
 
         public Func<TenantId, bool>? Throws { get; set; }
 
+        /// <summary>When set, the mail service does not answer until the test completes this.</summary>
+        public TaskCompletionSource<LicenseOwnerEmailResult>? NotAnsweringYet { get; set; }
+
         public Task<LicenseOwnerEmailResult> SendAsync(TenantId tenant, LicenseOwnerEmail email, CancellationToken ct)
         {
             if (Throws?.Invoke(tenant) == true)
                 throw new InvalidOperationException("The mail service broke.");
             Attempts.Add((tenant, email));
+            if (NotAnsweringYet is { } held)
+                return held.Task;
             return Task.FromResult(Answers.Count > 0 ? Answers.Dequeue() : new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Sent, null));
         }
     }
@@ -691,6 +696,52 @@ public sealed class LicenseSwitchServiceTests : IDisposable
         Assert.Equal(LicenseLogStates.Switched, TheSwitch().State);
     }
 
+    [Fact]
+    public async Task Restart_AfterNotAfter_ASendThatNeverLeftIsNotTheOneSend_TheDirectorIsStillAskedOnce()
+    {
+        RowLeftByARestart();
+        MinuteLater(11);
+        OnA(Windows, "dir-win", 50);
+        _directors.Offline();
+        await Tick(); // past NotAfterUtc, and the Director is not connected: nothing was asked
+
+        // The Director is back. It is asked - the one send after NotAfterUtc has not been used yet.
+        MinuteLater();
+        OnA(Windows, "dir-win", 50);
+        _directors.TimesOut();
+        await Tick();
+        Assert.Equal(2, _directors.Sent.Count); // the fake records the try that found no connection, and this one
+        Assert.Equal(LicenseLogStates.Unknown, TheSwitch().State);
+
+        // That one went out and brought no answer: now, and only now, the machine's report settles the row.
+        MinuteLater();
+        OnA(Windows, "dir-win", 50);
+        await Tick();
+        Assert.Equal(2, _directors.Sent.Count);
+        Assert.StartsWith("Settled from the machine's report", TheSwitch().Message);
+    }
+
+    [Fact]
+    public async Task AFreshAnswer_FromADirectorWhoseClockIsBehind_StillSetsTheMachinesAccount()
+    {
+        OnA(Windows, "dir-win", 97);
+        // The check runs 20 seconds after the report, and the Director's clock is 90 seconds behind the Gateway's -
+        // under the two minutes at which a skew is measured - so its answer is stamped before that report.
+        _now = _now.AddSeconds(20);
+        _directors.AnswerWith(request =>
+        {
+            var answer = _directors.Result(request, LicenseSwitchOutcomes.Switched);
+            answer.StartedAtUtc = _now.AddSeconds(-90);
+            answer.FinishedAtUtc = _now.AddSeconds(-89);
+            return FakeDirectors.Ok(answer);
+        });
+
+        await Tick();
+
+        Assert.Equal(LicenseLogStates.Switched, TheSwitch().State);
+        Assert.Equal(B, ActiveOn(Windows));
+    }
+
     // ----- contract section 5.4: never a second identifier while one is open -----
 
     [Fact]
@@ -834,6 +885,94 @@ public sealed class LicenseSwitchServiceTests : IDisposable
 
         // One minute, then two, four, eight, sixteen: six tries in forty checks, not forty.
         Assert.Equal(new[] { 0, 1, 3, 7, 15, 31 }, triedAtMinute);
+    }
+
+    /// <summary>A machine on A whose WEEK is used up, with no room on its spare either: an event that lasts days.</summary>
+    private Guid OutOfRoomForTheWeek() => Reports(Tenant, Windows, "dir-win", (A, true, 10, 98), (B, false, 10, 99));
+
+    [Fact]
+    public async Task NoTarget_TheWaitBetweenTriesStopsGrowingAtAnHour()
+    {
+        for (var i = 0; i < 12; i++)
+            _mail.Answers.Enqueue(new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Failed, "the mail service refused it"));
+        var triedAtMinute = new List<int>();
+
+        for (var minute = 0; minute < 200; minute++)
+        {
+            OutOfRoomForTheWeek();
+            var before = _mail.Attempts.Count;
+            await Tick();
+            if (_mail.Attempts.Count > before)
+                triedAtMinute.Add(minute);
+            MinuteLater();
+        }
+
+        // 1, 2, 4, 8, 16 and 32 minutes, and from then on an hour: 63, 123, 183 - not 127.
+        Assert.Equal(new[] { 0, 1, 3, 7, 15, 31, 63, 123, 183 }, triedAtMinute);
+        Assert.Equal(TimeSpan.FromHours(1), LicenseSwitchService.LongestOwnEmailWait);
+    }
+
+    [Theory]
+    [InlineData(false)] // the event ends while its email is still waiting to be tried again
+    [InlineData(true)]  // the email went before the event ended
+    public async Task NoTarget_TheWaitIsForgotten_SoANewEventStartsAgainAtOneMinute(bool theEmailWent)
+    {
+        // The first event: three refusals in a row, so the next try is four minutes away (minutes 0, 1 and 3).
+        for (var i = 0; i < 3; i++)
+            _mail.Answers.Enqueue(new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Failed, "the mail service refused it"));
+        for (var minute = 0; minute < 4; minute++)
+        {
+            OnAWithNoRoomAnywhere();
+            await Tick();
+            MinuteLater();
+        }
+        Assert.Equal(3, _mail.Attempts.Count);
+        if (theEmailWent)
+        {
+            MinuteLater(3); // minute 7: the fourth try, and it goes
+            OnAWithNoRoomAnywhere();
+            await Tick();
+            Assert.Equal(4, _mail.Attempts.Count);
+            MinuteLater();
+        }
+
+        // The event ends, and a new one opens for the same account. Its email is refused once.
+        Reports(Tenant, Windows, "dir-win", (A, true, 20, 20), (B, false, 99, 30));
+        await Tick();
+        MinuteLater();
+        var before = _mail.Attempts.Count;
+        _mail.Answers.Enqueue(new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Failed, "the mail service refused it"));
+        OnAWithNoRoomAnywhere();
+        await Tick();
+        Assert.Equal(before + 1, _mail.Attempts.Count);
+
+        // The new event's second try is one minute later, not the old event's long wait.
+        MinuteLater();
+        OnAWithNoRoomAnywhere();
+        await Tick();
+        Assert.Equal(before + 2, _mail.Attempts.Count);
+    }
+
+    [Fact]
+    public async Task NoTarget_WhileTheMailServiceHasNotAnswered_ASecondCheckOfTheSameTenantSendsNoSecondEmail()
+    {
+        OnAWithNoRoomAnywhere();
+        _mail.NotAnsweringYet = new TaskCompletionSource<LicenseOwnerEmailResult>();
+        var first = Tick();
+        Assert.False(first.IsCompleted);
+
+        // The next minute's check of the same tenant, while the first is still waiting on the mail service: it is
+        // skipped whole, so the one event's email is not tried a second time beside the first.
+        MinuteLater();
+        OnAWithNoRoomAnywhere();
+        var second = Tick();
+        Assert.True(second.IsCompleted, "The second check is waiting on something.");
+        await second;
+        Assert.Single(_mail.Attempts);
+
+        _mail.NotAnsweringYet.SetResult(new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Sent, null));
+        await first;
+        Assert.Equal(LicenseGatewayReasonCodes.OwnerEmailed, Assert.Single(Rows(LicenseLogKinds.NoRoom)).ReasonCode);
     }
 
     [Fact]
@@ -1060,6 +1199,36 @@ public sealed class LicenseSwitchServiceTests : IDisposable
         Assert.Equal(LicenseLogStates.Switched, Assert.Single(Rows(LicenseLogKinds.Switch)).State);
         Assert.Equal(LicenseLogStates.Switched, Assert.Single(Rows(LicenseLogKinds.Switch, Other)).State);
         Assert.Equal((Tenant, Other), (scopeAtSend["dir-of-tenant-one"], scopeAtSend["dir-of-tenant-two"]));
+    }
+
+    [Fact]
+    public async Task TickEveryTenant_WhileOneTenantsDirectorHasNotAnswered_ASecondPassStillChecksAndSwitchesTheOthers()
+    {
+        // The first pass: tenant one is at the threshold and its Director does not answer; tenant two has nothing due.
+        OnA(Windows, "dir-of-tenant-one", 97);
+        OnA(Windows, "dir-of-tenant-two", 50, Other);
+        var tenants = new ListedTenants(Tenant, Other);
+        var answerOfTenantOne = new TaskCompletionSource<DirectorCommandResult?>();
+        _directors.Answer = (directorId, request) => directorId == "dir-of-tenant-one"
+            ? answerOfTenantOne.Task
+            : Task.FromResult<DirectorCommandResult?>(FakeDirectors.Ok(_directors.Result(request, LicenseSwitchOutcomes.Switched)));
+        var firstPass = _service.TickEveryTenantAsync(tenants, CancellationToken.None);
+        Assert.False(firstPass.IsCompleted);
+
+        // A minute later tenant two reaches the threshold. The host starts the next pass although the first is open.
+        MinuteLater();
+        OnA(Windows, "dir-of-tenant-two", 97, Other);
+        var secondPass = _service.TickEveryTenantAsync(tenants, CancellationToken.None);
+
+        // It did not wait for tenant one: tenant one was skipped, tenant two was checked and switched.
+        Assert.True(secondPass.IsCompleted, "The second pass is waiting on tenant one's Director.");
+        await secondPass;
+        Assert.Equal(new[] { "dir-of-tenant-one", "dir-of-tenant-two" }, _directors.Sent.Select(s => s.DirectorId));
+        Assert.Equal(LicenseLogStates.Switched, Assert.Single(Rows(LicenseLogKinds.Switch, Other)).State);
+
+        answerOfTenantOne.SetResult(FakeDirectors.Ok(_directors.Result(_directors.Sent[0].Request, LicenseSwitchOutcomes.Switched)));
+        await firstPass;
+        Assert.Equal(LicenseLogStates.Switched, Assert.Single(Rows(LicenseLogKinds.Switch)).State);
     }
 
     [Fact]

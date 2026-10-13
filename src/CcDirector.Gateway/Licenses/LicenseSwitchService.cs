@@ -57,8 +57,8 @@ public sealed record LicenseSwitchNowMachine(
 /// - nothing came back because the Director is not connected: the row stays <c>pending</c>, <c>director-offline</c>;
 /// - no answer in time, or the tunnel dropped: <c>unknown</c>;
 /// - the Director refused the command or failed: <c>failed</c>, <c>director-error</c>;
-/// - an answer: its outcome, and the machine's active account from the answer's read-back when it is newer than the
-///   machine's last report (<see cref="LicenseStore.ApplySwitchReadBack"/>).
+/// - an answer: its outcome, and the machine's active account from the answer's read-back unless the machine has
+///   reported since this Gateway sent the command (<see cref="LicenseStore.ApplySwitchReadBack"/>).
 ///
 /// AN OPEN ROW IS FINISHED, NEVER ABANDONED (sections 5.1 and 5.5), and it is always the SAME switch identifier that
 /// is sent again, so the Director answers from its store and no switch runs twice:
@@ -78,7 +78,9 @@ public sealed record LicenseSwitchNowMachine(
 ///
 /// SENDS DO NOT WAIT FOR ONE ANOTHER, AND TENANTS DO NOT WAIT FOR ONE ANOTHER. Every send of a check is started
 /// together and each waits at most its own 60 seconds; every tenant's check is started inside its own scope and they
-/// are awaited together, so a Director that does not answer holds up nobody else. No database context is open while a send is in flight: the store opens and closes one per call. What is
+/// are awaited together, so a Director that does not answer holds up nobody else. That holds across checks too: the
+/// host starts a pass every minute whether or not the last one has finished, and a tenant whose own check is still
+/// waiting is the only one skipped (<see cref="TickAsync"/>). No database context is open while a send is in flight: the store opens and closes one per call. What is
 /// decided and written (rows, bars, events) happens under a short per-tenant gate that the minute check and Switch now
 /// share, so the two can never write two open rows for one machine; the gate is released before anything is sent.
 ///
@@ -328,8 +330,10 @@ public sealed class LicenseSwitchService
 
     // ----- what one check decides and writes (under the tenant's gate; nothing here waits on a Director) -----
 
+    /// <param name="OutcomeUnknown">An earlier send of this row may have run.</param>
+    /// <param name="AfterExpiry">This is the one send a row gets after its NotAfterUtc (contract section 5.5).</param>
     private sealed record PlannedSend(string SwitchId, Guid MachineId, string MachineName, string DirectorId,
-        LicenseSwitchRequest Request, bool OutcomeUnknown);
+        LicenseSwitchRequest Request, bool OutcomeUnknown, bool AfterExpiry);
 
     private sealed record PlannedEmail(string AccountEmail, LicenseOwnerEmail Email);
 
@@ -402,9 +406,12 @@ public sealed class LicenseSwitchService
             if (machine.LastReportAtUtc <= (row.LastSentAtUtc ?? row.CreatedAtUtc))
                 continue;
             var id = IdOf(row);
-            if (now <= NotAfterOf(row) || _sentAfterExpiry.TryAdd((tenant, id), 0))
+            var expired = now > NotAfterOf(row);
+            if (!expired || !_sentAfterExpiry.ContainsKey((tenant, id)))
             {
-                sends.Add(PlanSend(row, machine, outcomeUnknown: true));
+                // The one send after NotAfterUtc is counted when it actually goes (RecordResult), not here: a plan
+                // that fails, or a Director that turns out not to be connected, has asked nothing.
+                sends.Add(PlanSend(row, machine, outcomeUnknown: true, afterExpiry: expired));
             }
             else if (machine.SwitchInProgressId is null)
             {
@@ -509,7 +516,7 @@ public sealed class LicenseSwitchService
             FileLog.Write($"[LicenseSwitchService] no switch written for machine={machine.MachineId}: it already has one open");
             return null;
         }
-        return PlanSend(row, machine, outcomeUnknown: false);
+        return PlanSend(row, machine, outcomeUnknown: false, afterExpiry: false);
     }
 
     /// <summary>
@@ -523,13 +530,13 @@ public sealed class LicenseSwitchService
     {
         _store.TryMark(tenant, IdOf(waiting), LicenseLogStates.Pending, null,
             $"Being sent again to the Director on {machine.MachineName}, which was not connected before.", now);
-        return PlanSend(waiting, machine, outcomeUnknown: false);
+        return PlanSend(waiting, machine, outcomeUnknown: false, afterExpiry: false);
     }
 
     /// <summary>Plan one send of <paramref name="row"/> - its first or a repeat, always with the row's own identifier,
     /// times and accounts - to the Director that sent the machine's last accepted report, which need not be the
     /// Director the row was first written for (contract sections 2.4 and 6.4).</summary>
-    private static PlannedSend PlanSend(LicenseSwitchLogEntity row, LicenseMachineView machine, bool outcomeUnknown)
+    private static PlannedSend PlanSend(LicenseSwitchLogEntity row, LicenseMachineView machine, bool outcomeUnknown, bool afterExpiry)
     {
         var id = IdOf(row);
         var request = new LicenseSwitchRequest
@@ -541,7 +548,7 @@ public sealed class LicenseSwitchService
             RequestedAtUtc = row.CreatedAtUtc,
             NotAfterUtc = NotAfterOf(row),
         };
-        return new PlannedSend(id, machine.MachineId, machine.MachineName, machine.DirectorId, request, outcomeUnknown);
+        return new PlannedSend(id, machine.MachineId, machine.MachineName, machine.DirectorId, request, outcomeUnknown, afterExpiry);
     }
 
     /// <summary>
@@ -606,11 +613,14 @@ public sealed class LicenseSwitchService
         {
             case DirectorCommandStatus.Timeout or DirectorCommandStatus.TunnelDropped:
                 _store.TryMark(tenant, send.SwitchId, LicenseLogStates.Unknown, null, result.Error, now);
-                break;
+                // The command went out and the row is still open: if this was the one send after NotAfterUtc, it
+                // has now been used.
+                if (send.AfterExpiry)
+                    _sentAfterExpiry[(tenant, send.SwitchId)] = 0;
+                return;
             case DirectorCommandStatus.Ok when ReadAnswer(result, send.SwitchId) is { } answer:
                 _store.TrySettle(tenant, answer, now);
-                _store.ApplySwitchReadBack(tenant, send.MachineId, answer);
-                _sentAfterExpiry.TryRemove((tenant, send.SwitchId), out _);
+                _store.ApplySwitchReadBack(tenant, send.MachineId, answer, sentAtUtc);
                 break;
             case DirectorCommandStatus.Ok:
                 _store.TryMark(tenant, send.SwitchId, LicenseLogStates.Failed, LicenseGatewayReasonCodes.DirectorError,
@@ -621,6 +631,8 @@ public sealed class LicenseSwitchService
                     result.Error ?? $"The Director on {send.MachineName} returned {result.Status}.", now);
                 break;
         }
+        // Every other result ends the row, and a row that has ended keeps no entry.
+        _sentAfterExpiry.TryRemove((tenant, send.SwitchId), out _);
         FileLog.Write($"[LicenseSwitchService] switch={send.SwitchId}: director={send.DirectorId}, status={result.Status}");
     }
 
