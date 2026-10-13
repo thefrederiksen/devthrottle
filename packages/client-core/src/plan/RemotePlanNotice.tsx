@@ -71,6 +71,7 @@ export function RemotePlanGate({ children, reload = reloadTheApp }: { children: 
   const info = useSyncExternalStore(subscribeRemotePlanRequired, currentRemotePlanRequired);
   if (info === null) return <>{children}</>;
   return (
+    // error-report-exempt: shows the Gateway's own refusal and the sentence it handed back (rule 7) - the account's plan is the person's state, nothing failed in this client
     <RemotePlanNotice
       info={info}
       onTryAgain={() => {

@@ -607,8 +607,12 @@
                                                    Foreground="White" />
                                     </Border>
                                 </StackPanel>
-                                <TextBlock TextWrapping="Wrap" FontSize="13.5" Foreground="#5A616B"
-                                           Text="We run it for you. Sign in and this machine is enrolled - phone access, voice, and the morning report work immediately." />
+                                <!-- Only what every plan gets. This line used to add "phone access,
+                                     voice, and the morning report work immediately", which is not true
+                                     of every plan; the plan line below points at the pricing page. -->
+                                <TextBlock x:Name="GatewayHostedSummaryText"
+                                           TextWrapping="Wrap" FontSize="13.5" Foreground="#5A616B"
+                                           Text="We run it for you. Sign in and this machine is enrolled." />
                                 <!-- The hosted data disclosure (CR-3b): the one honest sentence about what
                                      leaves this machine, stated at the moment of choosing hosted - not a
                                      broad "runs on your machines" that hides the history push. The data map

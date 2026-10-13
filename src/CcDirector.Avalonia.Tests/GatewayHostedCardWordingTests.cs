@@ -48,6 +48,26 @@ public class GatewayHostedCardWordingTests
         Assert.Contains("devthrottle.com/pricing", name);
     }
 
+    /// <summary>
+    /// The card's opening line promises only what every plan gets. It used to add "phone access, voice,
+    /// and the morning report work immediately", which a plan without them would make false.
+    /// </summary>
+    [AvaloniaFact]
+    public void TheOpeningLinePromisesOnlyWhatEveryPlanGets()
+    {
+        var wizard = new FirstRunWizardDialog(new AgentOptions());
+
+        var text = wizard.GatewayHostedSummaryText.Text ?? "";
+
+        Assert.Equal("We run it for you. Sign in and this machine is enrolled.", text);
+        var name = AutomationProperties.GetName(wizard.GatewayHostedCard) ?? "";
+        foreach (var feature in new[] { "phone", "voice", "morning report", "immediately" })
+        {
+            Assert.DoesNotContain(feature, text, System.StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(feature, name, System.StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
     private static void AssertPlanNeutral(string text)
     {
         Assert.False(string.IsNullOrWhiteSpace(text), "the card must still say where the plans are");
