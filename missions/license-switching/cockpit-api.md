@@ -1096,19 +1096,23 @@ are never stored and never logged.
 
 ### Who may call
 
-| Route | The owner's own phone or browser | A session key | A Director's own key, the machine token |
-|---|---|---|---|
-| `GET /gateway/licenses/approvers` | yes | yes | yes |
-| `PUT /gateway/licenses/approvers` | yes | `403` | `403` `owner_only` |
-| `DELETE /gateway/licenses/approvers` | yes | `403` | `403` `owner_only` |
-| `POST /gateway/licenses/sign-ins/add-spare` | yes | `403` | `403` `owner_only` |
-| `POST /gateway/licenses/sign-ins/renew` | yes | `403` | `403` `owner_only` |
+| Route | The owner's own phone or browser | A session key, raised by the owner or not | A Director's own key | The shared machine token of a self-hosted Gateway |
+|---|---|---|---|---|
+| `GET /gateway/licenses/approvers` | yes | yes | yes | yes |
+| `PUT /gateway/licenses/approvers` | yes | `403` `session_key_out_of_scope` | `403` `owner_only` | `403` `owner_only` |
+| `DELETE /gateway/licenses/approvers` | yes | `403` `session_key_out_of_scope` | `403` `owner_only` | `403` `owner_only` |
+| `POST /gateway/licenses/sign-ins/add-spare` | yes | `403` `session_key_out_of_scope` | `403` `owner_only` | `403` `owner_only` |
+| `POST /gateway/licenses/sign-ins/renew` | yes | `403` `session_key_out_of_scope` | `403` `owner_only` | `403` `owner_only` |
 
 Naming the machine and browser profile that approve a sign-in, and starting a sign-in, are the owner's own actions:
-the four writes are for a signed-in person only, the same one rule as the two writes of section 6. `SessionKeyGuard`
-lists only the read (`LicenseGuardTests` holds the session key's column), and the routes themselves refuse every
-credential that is not the owner's own device before the body is read (`LicenseSignInHostedTests` holds the last
-column over real HTTP).
+the four writes are for a signed-in person only, the same one rule as the two writes of section 6. A session key is
+stopped by `SessionKeyGuard`, which lists only the read - and raising a session does not add these four. Every other
+credential that is not the owner's own device is refused by the route itself, before the body is read.
+
+Each column is held over real HTTP, by a test that sends that credential to all four writes and the read:
+a session key and a Director's own key (`LicenseSignInHostedTests.TheApproverRoutes_AreTheOwnersToWrite_AndASessionKeyMayOnlyRead`),
+a session key the owner raised through the raise route (`...TheFourWrites_AskedWithASessionKeyTheOwnerRaised_AreStillRefused_AndNothingIsStoredOrSent`),
+and the shared machine token on a self-hosted Gateway (`LicenseSignInWritesSelfHostedTests`).
 
 Every refusal is `{ "code": "...", "error": "..." }`, where `error` is a finished sentence to show as it is.
 
@@ -1203,7 +1207,9 @@ reported yet. Answered `200` with the approver as stored:
 ```
 
 Refused `400` with `invalid_account`, `invalid_machine`, `invalid_browser_profile` or `bad_request_body`, and `409`
-with `too_many_approvers` (64 for one DevThrottle account):
+with `too_many_approvers` (64 for one DevThrottle account). `machineName` and `osUser` are names of at most 128
+characters, and they and `accountEmail` are refused when they hold a control character, a line or paragraph
+separator, or a format character - a name with a line break in it is `invalid_machine`, and nothing is stored:
 
 ```json
 {
@@ -1336,15 +1342,31 @@ The names are those of every other row. What differs:
 | `why`, `whyText` | `manual` "Add a spare", or `renewal` "Renew now". |
 | `state`, `stateText`, `stateTone` | `pending` "Signing in" (neutral), `unknown` "Sent, no answer yet" (warning), `added` "Signed in" (good), `renewed` "Renewed" (good), `failed` "Failed" (bad). |
 | `isOpen` | True for `pending` and `unknown`: the sign-in has not ended. |
-| `reasonCode`, `reasonText` | When failed: the word and its sentence (`no-approver`, `approver-offline`, `approval-failed`, `wrong-account`, `browser-not-signed-in`, `login-failed`, `expired`, `store-refused`, `director-offline`, `director-error`). |
+| `reasonCode`, `reasonText` | When failed: the word and its sentence (`no-approver`, `approver-offline`, `approval-failed`, `wrong-account`, `browser-not-signed-in`, `login-failed`, `expired`, `store-refused`, `not-key-holder`, `director-offline`, `director-error`). |
 | `message` | The Director's own sentence once it has answered; before that, what was asked. |
 | `summary` | One sentence saying what happened. Show this. |
 | `finishedOnMachineAtUtc` | When the Director says it finished. |
 | `startedOnMachineAtUtc`, `exchangeMilliseconds`, `timingText`, `verifiedByUsageRead`, `verifiedText` | Always `null`: they belong to a switch. |
 
-A row that is sent and gets no answer is `unknown`. The Gateway settles it from the machine's next reports once no
-Director could still be running it (15 minutes after it was asked): `added` or `renewed` when the report shows the
-sign-in, `failed` when it does not, and `message` says it was settled from the report.
+A row that is sent and gets no answer is `unknown`, and it stays open until the Gateway KNOWS how it ended. Nothing is
+tried until no Director could still be running it (15 minutes after it was asked). Then, once a minute:
+
+1. **The Gateway asks the machine's Director again, with the same sign-in identifier.** A Director that ran the
+   sign-in answers with the result it kept - `added`, `renewed`, or `failed` with its reason and its own sentence. A
+   Director that never received it answers `failed` / `expired` ("nothing was started"), because the request is past
+   its own deadline; asking again can start nothing. The row ends with that answer, and `sendCount` is one higher.
+2. **Only when the Director cannot be asked or does not answer** - it is not connected, or it gave no answer - the
+   row is settled from the machine's usage report, and only from a report the Gateway accepted AFTER those 15
+   minutes. A report from before that says nothing about how the sign-in ended. Then: a new spare is `added` when
+   the report shows the machine holds the account, and `failed` when it does not; a renewal is `renewed` when the
+   report shows a sign-in time other than the one the machine had reported before the renewal was asked for, and
+   `failed` when it is the same. `message` and `summary` begin "Settled from the machine's report:" so the page says
+   how it was known.
+
+**So a row can stay `unknown` for a long time**: a machine that was switched off in the middle of a sign-in is shown
+as "Sent, no answer yet" until it comes back. That is the truth - the Gateway does not know - and the page shows it
+as it is. While the row is open, "Add a spare" or "Renew now" for that machine and account is refused
+`sign_in_running`; the overview says so before the owner tries (7.6).
 
 Three sign-ins, the newest first - one running, one that signed in, one that failed:
 

@@ -173,4 +173,69 @@ public sealed class LicenseStorePostgresTests
         Assert.Equal((LicenseLogStates.Ended, T0.AddHours(1)), (ended.State, ended.FinishedAtUtc));
         Assert.False(store.ExtendNoRoom(tenant, account, T0.AddDays(5)));
     }
+
+    [RequiresPostgresFact]
+    public void A_sign_in_row_is_written_sent_left_unanswered_ended_and_read_back()
+    {
+        // The three statements of LicenseSignInLog that change a row (the send, the move to unknown, the end) and its
+        // two reads, on PostgreSQL. A sign-in started from the Cockpit writes these on every start and every answer.
+        using var db = OpenPostgres();
+        var store = new LicenseStore(db);
+        var log = new LicenseSignInLog(db);
+        var tenant = TenantId.Local;
+        var machineName = Unique("machine");
+        var director = Unique("dir");
+        var a = Unique("account-a") + "@example.com";
+        var b = Unique("account-b") + "@example.com";
+        var c = Unique("account-c") + "@example.com";
+        var machineId = store.ApplyReport(tenant, director, 1, Report(machineName, a, b, T0), T0, TimeSpan.Zero).MachineId;
+        var machine = new LicenseReadModel(store).Read(tenant, T0).Machines.Single(m => m.MachineId == machineId);
+        var signedInBefore = T0.AddDays(-20).AddTicks(1230);
+
+        var row = log.CreatePending(tenant, machine, c.ToUpperInvariant(), LicenseSignInReasons.Renewal, "Asked from the Licenses page.",
+            T0.AddSeconds(5), signedInBefore);
+
+        Assert.Matches(LicenseContract.SignInIdShape, row.SwitchId!);
+        var written = log.Find(tenant, row.SwitchId!)!;
+        Assert.Equal((LicenseSignInLog.Kind, machineId, machineName, "owner", director, "", c, LicenseSignInReasons.Renewal, LicenseLogStates.Pending),
+            (written.Kind, written.MachineId, written.MachineName, written.OsUser, written.DirectorId, written.FromAccountEmail,
+             written.ToAccountEmail, written.Reason, written.State));
+        Assert.Equal((T0.AddSeconds(5), T0.AddSeconds(5) + LicenseContract.SignInNotAfter, 0), (written.CreatedAtUtc, written.NotAfterUtc, written.SendCount));
+        // The sign-in time from before the ask comes back as it was stored, to PostgreSQL's own precision.
+        Assert.True((LicenseSignInLog.SignedInBefore(written)!.Value - signedInBefore).Duration() < TimeSpan.FromMilliseconds(1));
+        Assert.Contains(log.ListOpen(tenant), r => r.SwitchId == row.SwitchId);
+        // It is never an open switch: it holds no machine back from one.
+        Assert.DoesNotContain(store.ListOpenSwitches(tenant), r => r.SwitchId == row.SwitchId);
+
+        Assert.True(log.RecordSend(tenant, row.SwitchId!, director, T0.AddSeconds(6)));
+        Assert.True(log.TryMarkUnknown(tenant, row.SwitchId!, "No answer came back."));
+        var unanswered = log.Find(tenant, row.SwitchId!)!;
+        Assert.Equal((LicenseLogStates.Unknown, (string?)null, "No answer came back.", 1, T0.AddSeconds(6)),
+            (unanswered.State, unanswered.ReasonCode, unanswered.Message, unanswered.SendCount, unanswered.LastSentAtUtc));
+        Assert.Contains(log.ListOpen(tenant), r => r.SwitchId == row.SwitchId);
+
+        // Asked again, and ended with the Director's stored answer.
+        Assert.True(log.RecordSend(tenant, row.SwitchId!, director, T0.AddMinutes(16)));
+        Assert.True(log.TryFinish(tenant, row.SwitchId!, LicenseSignInOutcomes.Failed, LicenseRenewalErrors.ApproverOffline,
+            new string('m', LicenseStore.MaxMessageLength + 50), T0.AddMinutes(16), T0.AddMinutes(3), replayed: true));
+        var ended = log.Find(tenant, row.SwitchId!)!;
+        Assert.Equal((LicenseSignInOutcomes.Failed, LicenseRenewalErrors.ApproverOffline, 2, true),
+            (ended.State, ended.ReasonCode, ended.SendCount, ended.Replayed));
+        Assert.Equal((T0.AddMinutes(16), T0.AddMinutes(3), LicenseStore.MaxMessageLength),
+            (ended.FinishedAtUtc, ended.DirectorFinishedAtUtc, ended.Message!.Length));
+        Assert.DoesNotContain(log.ListOpen(tenant), r => r.SwitchId == row.SwitchId);
+
+        // A row that has ended is never changed again.
+        Assert.False(log.TryFinish(tenant, row.SwitchId!, LicenseSignInOutcomes.Renewed, null, "late", T0.AddMinutes(20)));
+        Assert.False(log.TryMarkUnknown(tenant, row.SwitchId!, "late"));
+        Assert.False(log.RecordSend(tenant, row.SwitchId!, director, T0.AddMinutes(20)));
+        Assert.Equal(LicenseSignInOutcomes.Failed, log.Find(tenant, row.SwitchId!)!.State);
+
+        // And an answer that ends a row as added or renewed keeps no reason word.
+        var second = log.CreatePending(tenant, machine, c, LicenseSignInReasons.Manual, "Asked.", T0.AddMinutes(30));
+        Assert.Null(LicenseSignInLog.SignedInBefore(second));
+        Assert.True(log.TryFinish(tenant, second.SwitchId!, LicenseSignInOutcomes.Added, "ignored", "Signed in.", T0.AddMinutes(31)));
+        var added = log.Find(tenant, second.SwitchId!)!;
+        Assert.Equal((LicenseSignInOutcomes.Added, (string?)null, "Signed in.", (bool?)null), (added.State, added.ReasonCode, added.Message, added.Replayed));
+    }
 }
