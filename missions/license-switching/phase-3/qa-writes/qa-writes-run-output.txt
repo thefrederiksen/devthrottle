@@ -1,0 +1,104 @@
+Gateway on loopback port 60093, storage under a throwaway folder
+
+1. A failed renewal of a sign-in, stored by the Gateway from a machine's usage report
+  GET /gateway/licenses -> 200; the holding of account-b@example.com on the-windows-machine says:
+    renewalFailedAtUtc: 2026-10-13T11:42:51.0417574Z
+    renewalFailedText:  Renewing this sign-in failed 3 hours ago: no browser is set to approve this account.
+    renewalFailedTone:  bad
+  [OK]   the page shows exactly one failed renewal on the card of account B
+  [OK]   its words are the Gateway's renewalFailedText
+  [OK]   it is drawn in the Gateway's tone
+  [OK]   no other card shows a failed renewal
+  screenshot qa-writes/failed-renewal-stored.png
+
+2. The renewal date of a subscription, by the owner's signed-in browser
+  before: "Max - Renewal date not set"
+  the browser sent: PUT /gateway/licenses/accounts/renewal  Content-Type: application/json  body: {"accountEmail":"account-a@example.com","renewsOn":"2026-11-02"}
+  the Gateway answered 200: {"accountEmail": "account-a@example.com", "renewsOn": "2026-11-02", "renewsText": "Renews 2 Nov"}
+  [OK]   PUT /gateway/licenses/accounts/renewal answered 200
+  [OK]   the body was sent as application/json
+  [OK]   the body names the account and the date
+  after:  "Max - Renews 2 Nov"
+  [OK]   the card shows the Gateway's renewsText
+  GET /gateway/licenses now says for account-a@example.com: renewsOn=2026-11-02, renewsText="Renews 2 Nov"
+  [OK]   the date is stored: the next read of the overview carries it
+  screenshot qa-writes/renewal-date-set.png
+  the browser sent: PUT /gateway/licenses/accounts/renewal  Content-Type: application/json  body: {"accountEmail":"account-a@example.com","renewsOn":null}
+  the Gateway answered 200: {"accountEmail": "account-a@example.com", "renewsOn": null, "renewsText": "Renewal date not set"}
+  [OK]   clearing sends an explicit null
+  [OK]   the card shows the Gateway's sentence for no date
+  screenshot qa-writes/renewal-date-cleared.png
+
+3. Switch now, by the owner's signed-in browser: accepted
+  the Gateway offers it: canSwitchNow=True, switchNowTargetAccountEmail=account-b@example.com
+  switchNowText: "Moves the-mac and the-windows-machine to account-b@example.com."
+  [OK]   opening the confirmation sends nothing
+  [OK]   the confirmation shows the Gateway's sentence
+  screenshot qa-writes/switch-now-confirmation.png
+  the browser sent: POST /gateway/licenses/switch-now  Content-Type: application/json  body: {"accountEmail":"account-a@example.com","targetAccountEmail":"account-b@example.com"}
+  the Gateway answered 200: {"targetAccountEmail": "account-b@example.com", "text": "The switch of the-mac and the-windows-machine to account-b@example.com has not finished; the switch log shows how it ends.", "switches": [{"switchId": "c5e6263df0a34a0aaaffaac429ace588", "entryId": "ebe556a6d7d04817a7217051ddc9eaf6", "machineName": "the-mac", "osUser": "owner", "label": "the-mac", "state": "pending", "stateText": "Waiting for the machine", "stateTone": "warning", "summary": "the-mac is switching from account-a@example.com to account-b@example.com."}, {"switchId": "74ff90c26cbb4a3ea126e6a0a5d6b475", "entryId": "12d62df0725f45779dfae965555f858d", "machineName": "the-windows-machine", "osUser": "owner", "label": "the-windows-machine", "state": "pending", "stateText": "Waiting for the machine", "stateTone": "warning", "summary": "the-windows-machine is switching from account-a@example.com to account-b@example.com."}], "skipped": []}
+  [OK]   POST /gateway/licenses/switch-now answered 200
+  [OK]   the body was sent as application/json
+  [OK]   the body names the account and the target
+  [OK]   exactly one Switch now was sent
+  [OK]   the page shows the Gateway's sentence for the outcome
+  [OK]   one row per machine that was sent a switch
+  [OK]   the row of the-mac is the Gateway's: "Waiting for the machine" - the-mac is switching from account-a@example.com to account-b@example.com.
+  [OK]   the row of the-windows-machine is the Gateway's: "Waiting for the machine" - the-windows-machine is switching from account-a@example.com to account-b@example.com.
+  screenshot qa-writes/switch-now-accepted.png
+  [OK]   every machine's entryId in the answer is a row of the switch log
+  [OK]   the switch log on the page lists those rows
+  screenshot qa-writes/switch-now-accepted-log.png
+  [OK]   the same Switch now was never sent again
+
+4. Both writes with a Director's own credential (a workstation key): refused 403 owner_only
+  [OK]   that credential reads the page
+  the browser sent: PUT /gateway/licenses/accounts/renewal  Content-Type: application/json  body: {"accountEmail":"account-b@example.com","renewsOn":"2026-11-02"}
+  the Gateway answered 403: {"code": "owner_only", "error": "only the owner on their own signed-in phone or browser may set the renewal date of a subscription; this request was made with a device (workstation) credential"}
+  [OK]   the renewal date was refused 403 owner_only
+  the page shows: "only the owner on their own signed-in phone or browser may set the renewal date of a subscription; this request was made with a device (workstation) credential"
+  [OK]   the page shows the Gateway's sentence, word for word
+  [OK]   the date on the card is unchanged
+  screenshot qa-writes/renewal-date-refused-owner-only.png
+  the browser sent: POST /gateway/licenses/switch-now  Content-Type: application/json  body: {"accountEmail":"account-a@example.com","targetAccountEmail":"account-b@example.com"}
+  the Gateway answered 403: {"code": "owner_only", "error": "only the owner on their own signed-in phone or browser may switch the machines of a subscription to another one; this request was made with a device (workstation) credential"}
+  [OK]   Switch now was refused 403 owner_only
+  the page shows: "only the owner on their own signed-in phone or browser may switch the machines of a subscription to another one; this request was made with a device (workstation) credential"
+  [OK]   the page shows the Gateway's sentence, word for word
+  [OK]   the confirmation stays open and no answer panel is drawn
+  screenshot qa-writes/switch-now-refused-owner-only.png
+
+5. Switch now the page offered, refused by the Gateway (409): the target filled up after the page read it
+qa-gateway fill-b -> ok fill-b
+  the browser sent: POST /gateway/licenses/switch-now  Content-Type: application/json  body: {"accountEmail":"account-a@example.com","targetAccountEmail":"account-b@example.com"}
+  the Gateway answered 409: {"code": "target-full", "error": "account-b@example.com has no room: it is at 99% of its 5-hour window."}
+  [OK]   Switch now was refused 409 with a word and a sentence
+  the page shows: "account-b@example.com has no room: it is at 99% of its 5-hour window."
+  [OK]   the page shows the Gateway's sentence, word for word
+  [OK]   no answer panel is drawn
+  screenshot qa-writes/switch-now-refused-409.png
+
+6. An account barred from the automatic choice, and Switch now where the Gateway chose no target
+  GET /gateway/licenses -> 200; account-b@example.com says:
+    barredUntilUtc: 2026-10-13T16:52:51.0417574Z
+    barredText:     Left out of the automatic choice for 2 hours 9 minutes, until its 5-hour window resets: it triggered a switch. It can still be chosen by hand.
+  account-a@example.com says: canSwitchNow=True, switchNowTargetAccountEmail=None
+    switchNowText: "No other account has room for the machines on account-a@example.com. A target can still be chosen by hand."
+  [OK]   the Gateway bars account B and gives both fields
+  [OK]   the Gateway offers Switch now on account A and chooses no target
+  [OK]   the card of account B shows the Gateway's barredText
+  [OK]   and the time the Gateway gave, as that time
+  [OK]   no other card says it is barred
+  screenshot qa-writes/barred-account.png
+  [OK]   no target is selected
+  [OK]   the confirmation cannot be given
+  [OK]   pressing it sends nothing: no Switch now left the browser
+  screenshot qa-writes/switch-now-no-target-nothing-sent.png
+  [OK]   with a target picked by hand it can be given
+  the browser sent: POST /gateway/licenses/switch-now  Content-Type: application/json  body: {"accountEmail":"account-a@example.com","targetAccountEmail":"account-b@example.com"}
+  the Gateway answered 200: {"targetAccountEmail": "account-b@example.com", "text": "The switch of the-mac and the-windows-machine to account-b@example.com has not finished; the switch log shows how it ends.", "switches": [{"switchId": "64ac34bcfa3c4df8aeb754a89b1c4d7d", "entryId": "1bbc7ab005b341108fd9822e00b9c1dd", "machineName": "the-mac", "osUser": "owner", "label": "the-mac", "state": "pending", "stateText": "Waiting for the machine", "stateTone": "warning", "summary": "the-mac is switching from account-a@example.com to account-b@example.com."}, {"switchId": "7398587f64834ffe85e482bea8689af0", "entryId": "6ec8d28ffcde412da52ccd084b0409b4", "machineName": "the-windows-machine", "osUser": "owner", "label": "the-windows-machine", "state": "pending", "stateText": "Waiting for the machine", "stateTone": "warning", "summary": "the-windows-machine is switching from account-a@example.com to account-b@example.com."}], "skipped": []}
+  [OK]   the one call sent names the target picked by hand
+  [OK]   the Gateway accepted it: a barred account can be chosen by hand
+  screenshot qa-writes/switch-now-target-picked-by-hand.png
+
+QA RUN DONE: every check held
