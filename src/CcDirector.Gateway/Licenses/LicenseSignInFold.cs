@@ -236,6 +236,7 @@ public static class LicenseSignInFold
             Summary = summary,
             SendCount = row.SendCount,
             LastSentAtUtc = UtcOrNull(row.LastSentAtUtc),
+            // The row keeps another time in that column (LicenseSignInLog.SignedInBefore): it is not when anything started.
             StartedOnMachineAtUtc = null,
             FinishedOnMachineAtUtc = UtcOrNull(row.DirectorFinishedAtUtc),
             ExchangeMilliseconds = null,
