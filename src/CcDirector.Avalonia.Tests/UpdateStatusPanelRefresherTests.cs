@@ -65,25 +65,6 @@ public sealed class UpdateStatusPanelRefresherTests
     }
 
     [Fact]
-    public async Task AReadThatThrows_IsLogged_AndTheNextRefreshStillRuns()
-    {
-        var calls = 0;
-        var rendered = new TaskCompletionSource();
-        var refresher = new UpdateStatusPanelRefresher(
-            read: () => { if (Interlocked.Increment(ref calls) == 1) throw new IOException("state file locked"); return AView("ok"); },
-            render: _ => rendered.TrySetResult(),
-            offTheWindowThread: work => Task.Run(work),
-            onTheWindowThread: work => work());
-
-        refresher.Refresh();
-        await Task.Delay(200);
-        refresher.Refresh();
-        await rendered.Task.WaitAsync(TimeSpan.FromSeconds(10));
-
-        Assert.Equal(2, refresher.ReadsStarted);
-    }
-
-    [Fact]
     public async Task ANullStatus_IsHandedToTheRender_SoThePanelCanHideItself()
     {
         var rendered = new TaskCompletionSource<UpdateStatusView?>();

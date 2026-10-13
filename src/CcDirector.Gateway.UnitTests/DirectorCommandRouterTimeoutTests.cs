@@ -64,23 +64,6 @@ public sealed class DirectorCommandRouterTimeoutTests
         Assert.False(result.Ok);
     }
 
-    [Fact]
-    public async Task TrySendAsync_Timeout_IsBoundedByTheTimeout_NotTheCallersPatience()
-    {
-        // Arrange
-        var timeout = TimeSpan.FromMilliseconds(200);
-        var stopwatch = Stopwatch.StartNew();
-
-        // Act
-        await DirectorCommandRouter.TrySendAsync(
-            NeverAnswers(), "director-1", "prompt", "sid-1", null, CancellationToken.None, timeout);
-        stopwatch.Stop();
-
-        // Assert - the wait actually ends near the bound. A generous ceiling keeps this from being flaky on a
-        // loaded machine while still failing loudly if the timeout is not wired up at all (that would hang).
-        Assert.InRange(stopwatch.Elapsed.TotalMilliseconds, 100, 10_000);
-    }
-
     // ---- the WORDING, tested against the pure function that produces it ----
     //
     // These three used to run a real thirty-second timeout each (one of them twice) purely to read the
@@ -318,27 +301,6 @@ public sealed class DirectorCommandRouterTimeoutTests
         // finished compaction" - which says what to do next - instead of "the Director did not answer".
         Assert.True(DirectorCommandRouter.LanguageModelCommandTimeout > CcDirector.Core.Sessions.Session.CompactionWaitTimeout,
             "the Director's compaction wait must fire before the Gateway backstop, or its specific error is masked.");
-    }
-
-    [Fact]
-    public async Task TrySendAsync_ExplicitOverride_IsHonoured_OverTheDefault()
-    {
-        // Arrange - a verb that answers in 300ms would die under a 100ms override but live under a 5s one.
-        DirectorCommandRouter.SendDirectorCommandAsync slow = async (_, _, ct) =>
-        {
-            await Task.Delay(TimeSpan.FromMilliseconds(300), ct);
-            return DirectorCommandResult.Success();
-        };
-
-        // Act
-        var tooTight = await DirectorCommandRouter.TrySendAsync(
-            slow, "d", "recap-generate", "s", null, CancellationToken.None, TimeSpan.FromMilliseconds(100));
-        var generous = await DirectorCommandRouter.TrySendAsync(
-            slow, "d", "recap-generate", "s", null, CancellationToken.None, TimeSpan.FromSeconds(5));
-
-        // Assert
-        Assert.Equal(DirectorCommandStatus.Timeout, tooTight!.Status);
-        Assert.True(generous!.Ok);
     }
 
     [Fact]

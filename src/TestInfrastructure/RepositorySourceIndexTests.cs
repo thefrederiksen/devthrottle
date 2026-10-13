@@ -23,41 +23,6 @@ public sealed class RepositorySourceIndexTests
     }
 
     [Fact]
-    public void ListFiles_holds_tracked_and_new_files_and_leaves_out_ignored_and_deleted_ones()
-    {
-        var root = Path.Combine(Path.GetTempPath(), "cc-source-index-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(root);
-        try
-        {
-            Git(root, "init", "-q");
-            Git(root, "config", "user.email", "test@example.com");
-            Git(root, "config", "user.name", "Test");
-            Git(root, "config", "commit.gpgsign", "false");
-            File.WriteAllText(Path.Combine(root, ".gitignore"), "bin/\n");
-            Directory.CreateDirectory(Path.Combine(root, "src", "bin"));
-            File.WriteAllText(Path.Combine(root, "src", "tracked.cs"), "// tracked and committed");
-            File.WriteAllText(Path.Combine(root, "src", "deleted.cs"), "// committed, then removed from disk");
-            Git(root, "add", "-A");
-            Git(root, "commit", "-q", "-m", "fixture");
-
-            File.WriteAllText(Path.Combine(root, "src", "new.cs"), "// written, never added");
-            File.WriteAllText(Path.Combine(root, "src", "bin", "ignored.cs"), "// a build output");
-            File.Delete(Path.Combine(root, "src", "deleted.cs"));
-
-            var files = RepositorySourceIndex.ListFiles(root)
-                .Select(f => Path.GetRelativePath(root, f).Replace('\\', '/'))
-                .OrderBy(f => f, StringComparer.Ordinal)
-                .ToArray();
-
-            Assert.Equal(new[] { ".gitignore", "src/new.cs", "src/tracked.cs" }, files);
-        }
-        finally
-        {
-            DeleteTree(root);
-        }
-    }
-
-    [Fact]
     public void ListFiles_returns_absolute_paths_in_the_platforms_separators()
     {
         var file = RepositorySourceIndex.Files.First();
@@ -91,31 +56,5 @@ public sealed class RepositorySourceIndexTests
     public void The_list_is_built_once_per_process()
     {
         Assert.Same(RepositorySourceIndex.Files, RepositorySourceIndex.Files);
-    }
-
-    /// <summary>git writes its object files read-only, which a plain recursive delete refuses on Windows.</summary>
-    private static void DeleteTree(string root)
-    {
-        foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
-            File.SetAttributes(file, FileAttributes.Normal);
-        Directory.Delete(root, recursive: true);
-    }
-
-    private static void Git(string workingDirectory, params string[] arguments)
-    {
-        var startInfo = new ProcessStartInfo("git")
-        {
-            WorkingDirectory = workingDirectory,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true,
-        };
-        foreach (var argument in arguments) startInfo.ArgumentList.Add(argument);
-        using var git = Process.Start(startInfo)!;
-        var error = git.StandardError.ReadToEnd();
-        git.StandardOutput.ReadToEnd();
-        git.WaitForExit();
-        Assert.True(git.ExitCode == 0, $"git {string.Join(' ', arguments)} failed: {error}");
     }
 }

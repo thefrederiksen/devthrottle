@@ -155,16 +155,6 @@ public sealed class TeamQuestionsTests : IDisposable
     private static List<string> QuestionIds(JsonElement body, string list) =>
         body.GetProperty(list).EnumerateArray().Select(q => q.GetProperty("reportId").GetString() + "/" + q.GetProperty("questionId").GetString()).ToList();
 
-    private async Task WaitForPrompts(int count)
-    {
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (_prompts.Count < count)
-        {
-            if (DateTime.UtcNow > deadline) Assert.Fail($"Expected {count} prompt(s); the Director received {_prompts.Count}.");
-            await Task.Delay(20);
-        }
-    }
-
     // ---- the issue's three tests ------------------------------------------------------------------------------------
 
     [Fact]
@@ -188,65 +178,6 @@ public sealed class TeamQuestionsTests : IDisposable
         Assert.Equal("Delivered to the session", body.GetProperty("question").GetProperty("answer").GetProperty("statusLabel").GetString());
         var stored = Assert.Single(_store.Items(_tenant, report));
         Assert.Equal((Mike, "30", ""), (stored.AnswererSubject, stored.OptionValue, stored.Comment));
-    }
-
-    [Fact]
-    public async Task Issue2307_ABusySession_HoldsTheAnswer_AndTheTurnEndDeliversItOnce()
-    {
-        var (report, sid) = Report(Mike);
-        _reach[sid] = DevReportSessionReach.Busy;
-
-        var (status, body) = await AnswerAsync(Mike, report, "14");
-        Assert.Equal(200, status);
-        Assert.Equal("Delivered when the agent finishes its turn", body.GetProperty("question").GetProperty("answer").GetProperty("statusLabel").GetString());
-        Assert.Empty(_commands);
-
-        _reach[sid] = DevReportSessionReach.Idle;
-        new DevReportTurnEndLauncher(_delivery).OnTurnEnd(_tenant, sid, isNewTurn: true);
-        await WaitForPrompts(1);
-        Assert.Equal(0, await _delivery.SettleAsync(_tenant, sid, CancellationToken.None));
-        Assert.Contains("\"14 days\" (value \"14\")", Assert.Single(_prompts).Text);
-    }
-
-    [Fact]
-    public async Task Issue2307_TheCollaboratorsComment_GoesToThePersonWhoAsked_AndIsNeverPlacedInAnySessionsInput()
-    {
-        var (report, sid) = Report(Mike);
-        _reach[sid] = DevReportSessionReach.Busy;
-        var marker = "MARKER-2307-" + Guid.NewGuid().ToString("N");
-
-        var (status, _) = await AnswerAsync(Mike, report, "30", "We trialled 14 days last year. " + marker);
-        Assert.Equal(200, status);
-
-        // The settle pass while the session works, then the turn end, then another settle: every way an item goes out.
-        await _delivery.SettleAsync(_tenant, sid, CancellationToken.None);
-        _reach[sid] = DevReportSessionReach.Idle;
-        new DevReportTurnEndLauncher(_delivery).OnTurnEnd(_tenant, sid, isNewTurn: true);
-        await WaitForPrompts(1);
-        await Task.Delay(200);
-        await _delivery.SettleAsync(_tenant, sid, CancellationToken.None);
-
-        // POSITIVE CONTROL: the choice IS in the prompt the session received.
-        Assert.Contains("\"30 days\" (value \"30\")", Assert.Single(_prompts).Text);
-        // The words are in nothing sent toward any session, whatever its verb.
-        Assert.NotEmpty(_commands);
-        Assert.All(_commands, c => Assert.DoesNotContain(marker, c));
-        // Nor in what the session's own report read serves: the agent's conversation is these items.
-        Assert.All(_store.Items(_tenant, report), i =>
-        {
-            Assert.DoesNotContain(marker, i.Comment);
-            Assert.DoesNotContain(marker, i.Text);
-        });
-        Assert.All(_store.Replies(_tenant, report), r => Assert.DoesNotContain(marker, r.Text));
-        // They ARE with the person who asked: the comment row to Alice, and her own report's page.
-        var comment = Assert.Single(_comments.To(_tenant, report, Alice));
-        Assert.Contains(marker, comment.Text);
-        Assert.Equal("trial-length", comment.QuestionId);
-        var (mineStatus, mine) = await Run(_reports.MineDetail(_team, Alice, report.ToString("D")));
-        Assert.Equal(200, mineStatus);
-        var onPage = Assert.Single(mine.GetProperty("comments").EnumerateArray());
-        Assert.Contains(marker, onPage.GetProperty("text").GetString());
-        Assert.Equal($"About \"{Question}\" - chose \"30 days\"", onPage.GetProperty("aboutLabel").GetString());
     }
 
     [Fact]

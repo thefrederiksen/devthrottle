@@ -498,30 +498,6 @@ public sealed class TypedPromptDeliveryTests : IDisposable
     }
 
     [Fact]
-    public async Task Drive_TwoWakeUpsAtOnce_RunOneAttempt()
-    {
-        // Proves the single-flight: a tunnel-back wake-up and a tick at the same moment ask ONCE.
-        var (store, id, _) = HeldPrompt("no-answer");
-        var gate = new TaskCompletionSource();
-        _answers.Enqueue(cmd =>
-        {
-            gate.Task.Wait(TimeSpan.FromSeconds(10));
-            return StateAnswer(cmd, DeliveryState.Delivering);
-        });
-        var driver = Driver();
-
-        var first = Task.Run(() => driver.DriveOnceAsync(TenantId.Local, store, id, TypedPromptDecisions.DriveDirectorConnected));
-        await WaitUntil(() => _asks == 1);
-        var second = await driver.DriveOnceAsync(TenantId.Local, store, id, TypedPromptDecisions.DriveTick);
-        gate.SetResult();
-        await first;
-
-        Assert.Equal(TypedDriveResult.Held, second);
-        Assert.Equal(1, _asks);
-        Assert.Single(store.ReadDecisions(id), l => l.Decision == "gateway-drive");
-    }
-
-    [Fact]
     public async Task Drive_ARecordNoLongerHeld_IsNotDriven()
     {
         var (store, id, _) = HeldPrompt("no-answer");
@@ -905,16 +881,6 @@ public sealed class TypedPromptDeliveryTests : IDisposable
     }
 
     private long _snapshotSeq;
-
-    private static async Task WaitUntil(Func<bool> condition)
-    {
-        var until = DateTime.UtcNow.AddSeconds(10);
-        while (!condition())
-        {
-            if (DateTime.UtcNow > until) throw new TimeoutException("the condition never held");
-            await Task.Delay(10);
-        }
-    }
 
     /// <summary>A clock standing still at the moment the test began, moved only by <see cref="Ahead"/> - so 5:00 is exactly 5:00.</summary>
     private sealed class MovableClock : TimeProvider

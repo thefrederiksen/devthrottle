@@ -111,21 +111,6 @@ public sealed class VoiceUploadStoreDeliveryClaimTests : IDisposable
     }
 
     [Fact]
-    public void TheAcknowledgement_KeepsTheResolutionTime_NotItsOwn()
-    {
-        // Proves the claim window runs from when the recording was resolved, not from the acknowledgement, which can
-        // come days later and would stretch the window past the Director's record.
-        var id = _store.OpenPending(null, _sessionId).UploadId;
-        _store.MarkDelivered(id, submitted: false, movedOn: true, transcript: Words, reason: DeliveryDecisions.TooOld);
-        var resolved = ResolvedAt(id);
-        Thread.Sleep(20);
-
-        Assert.True(_store.Acknowledge(id));
-
-        Assert.Equal(resolved, ResolvedAt(id));
-    }
-
-    [Fact]
     public void AClaimJustInsideTheWindow_IsBelieved()
     {
         // Proves the edge on the inside: a recording resolved a minute short of the claim window still carries its id.

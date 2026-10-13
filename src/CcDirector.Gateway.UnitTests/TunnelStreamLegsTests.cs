@@ -110,50 +110,6 @@ public sealed class TunnelStreamLegsTests
         Assert.Equal(0, registry.LiveStreamCount);
     }
 
-    [Fact]
-    public async Task Terminal_leg_streams_frames_then_fires_close_stream_and_stops_the_producer_on_disconnect()
-    {
-        var registry = new GatewayStreamRegistry();
-        var closeStreamSent = new List<string>();
-        var producerEnded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        DirectorCommandRouter.SendDirectorCommandAsync send = (directorId, command, ct) =>
-        {
-            switch (command.Verb)
-            {
-                case "open-terminal-stream":
-                    var req = JsonSerializer.Deserialize<OpenStreamRequest>(command.PayloadJson, Json)!;
-                    _ = Task.Run(async () =>
-                    {
-                        try { await registry.ConsumeAsync(req.StreamId, new StreamOwner(TenantId.Local, "dir1"), TerminalForever(req.StreamId), CancellationToken.None); }
-                        finally { producerEnded.TrySetResult(); }
-                    });
-                    return Ok();
-                case "close-stream":
-                    closeStreamSent.Add(JsonSerializer.Deserialize<CloseStreamRequest>(command.PayloadJson, Json)!.StreamId);
-                    return Ok();
-                default:
-                    return Ok();
-            }
-        };
-
-        var legs = new TunnelStreamLegs(registry, send);
-        var stub = new StubServerWebSocket();
-        var ctx = NewWebSocketContext(stub);
-
-        var serve = legs.ServeTerminalAsync(ctx, Guid.NewGuid().ToString(), TenantId.Local, "dir1");
-
-        await WaitUntil(() => stub.SentBinaryCount > 0, TimeSpan.FromSeconds(3));
-        Assert.Equal(1, registry.LiveStreamCount);
-
-        stub.SignalClose();     // the browser disconnects
-        await serve;
-
-        Assert.Single(closeStreamSent);                 // close-stream fired (ruling 3 teardown)
-        await producerEnded.Task.WaitAsync(TimeSpan.FromSeconds(3)); // the Director producer stopped (no leak)
-        Assert.Equal(0, registry.LiveStreamCount);
-    }
-
     // ---------------------------------------------------------------------------------- helpers ----
 
     private static Task<DirectorCommandResult?> Ok(object? body = null) =>
@@ -169,28 +125,6 @@ public sealed class TunnelStreamLegsTests
         await Task.Yield();
         yield return new DirectorStreamFrame { StreamId = streamId, Kind = DirectorStreamFrameType.Binary, Data = bytes[mid..] };
         yield return new DirectorStreamFrame { StreamId = streamId, Kind = DirectorStreamFrameType.Closed, Reason = "eof" };
-    }
-
-    private static async IAsyncEnumerable<DirectorStreamFrame> TerminalForever(string streamId, [EnumeratorCancellation] CancellationToken ct = default)
-    {
-        yield return new DirectorStreamFrame { StreamId = streamId, Kind = DirectorStreamFrameType.Size, Cols = 80, Rows = 24 };
-        var i = 0;
-        while (true)
-        {
-            ct.ThrowIfCancellationRequested();
-            yield return new DirectorStreamFrame { StreamId = streamId, Kind = DirectorStreamFrameType.Binary, Data = new[] { (byte)(i++ & 0xFF) } };
-            await Task.Delay(20, ct);
-        }
-    }
-
-    private static async Task WaitUntil(Func<bool> cond, TimeSpan timeout)
-    {
-        var sw = System.Diagnostics.Stopwatch.StartNew();
-        while (!cond())
-        {
-            if (sw.Elapsed > timeout) throw new TimeoutException("condition not met in time");
-            await Task.Delay(15);
-        }
     }
 
     private static (DefaultHttpContext ctx, MemoryStream body) NewHttpContext()

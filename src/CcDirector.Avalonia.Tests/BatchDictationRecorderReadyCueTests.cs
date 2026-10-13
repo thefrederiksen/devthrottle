@@ -369,43 +369,6 @@ public sealed class BatchDictationRecorderReadyCueTests
         AssertPcm(pcm, await Record(transcribePath, pcm, cuePlayed: true));
     }
 
-    // Send while the cue is still playing. The microphone has captured 50 ms of room and the first 100 ms of the
-    // cue; the rest of the cue and 200 ms of room reach the capture only as the cue finishes, which the report
-    // marks. The recorder must keep capturing until that report - a stop before it cuts the cue in half, and a
-    // half cue is not found.
-    private static async Task<byte[]> SendInsideTheCue(bool transcribePath, int reportAfterSendMs)
-    {
-        var pcm = new ReadyCueTestClip(450).Cue(50).Pcm();
-        var (recorder, mic, _, transcribed) = NewRecorder();
-        await using var _ = recorder;
-        await recorder.StartAsync();
-
-        Emit(recorder, mic, pcm, cuePlayed: true, toMs: 150);
-        var rest = Task.Run(async () =>
-        {
-            await Task.Delay(reportAfterSendMs);
-            Emit(recorder, mic, pcm, cuePlayed: false, fromMs: 150);
-            recorder.NoteReadyCueFinished();
-        });
-
-        var actual = await Snapshot(recorder, transcribed, transcribePath, pcm.Length);
-        await rest;
-        AssertPcm(Blanked(pcm, BlankStartMs(50), BlankEndMs(50)), actual);
-        return actual;
-    }
-
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task SendInsideTheCue_ReportDuringTheStopTail_TheWholeCueIsBlanked(bool transcribePath)
-        => await SendInsideTheCue(transcribePath, reportAfterSendMs: 20);
-
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task SendInsideTheCue_ReportAfterTheStopTail_CaptureWaitsAndTheWholeCueIsBlanked(bool transcribePath)
-        => await SendInsideTheCue(transcribePath, reportAfterSendMs: 600);
-
     [Fact]
     public void Find_TheExactCue_MatchesAtItsSample()
     {

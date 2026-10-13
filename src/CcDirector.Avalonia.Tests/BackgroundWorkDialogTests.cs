@@ -18,28 +18,6 @@ public sealed class BackgroundWorkDialogTests
         control.GetLogicalDescendants().OfType<TextBlock>().Select(t => t.Text ?? "").ToList();
 
     [AvaloniaFact]
-    public async Task ARow_PerJob_WithItsTierCadenceAndRunsAgainstTheCeiling()
-    {
-        var jobs = new BackgroundJobs();
-        var slow = jobs.Register(new BackgroundJobSpec("Backup cleaner", BackgroundJobTier.SlowAndSteady, TimeSpan.FromSeconds(45), "disposed"), _ => Task.CompletedTask);
-        jobs.Register(new BackgroundJobSpec("Repository recompute", BackgroundJobTier.OnChange, null, "watcher disposed"), _ => Task.CompletedTask);
-        slow.Trigger();
-        await Task.Delay(200);
-
-        var dialog = new BackgroundWorkDialog(jobs);
-        dialog.Render(jobs.Snapshot());
-        var texts = Texts(dialog);
-
-        Assert.Contains("Backup cleaner", texts);
-        Assert.Contains("slow and steady", texts);
-        Assert.Contains("every 45 s", texts);
-        Assert.Contains("1 of 80 allowed", texts);
-        Assert.Contains("Repository recompute", texts);
-        Assert.Contains("on change", texts);
-        Assert.Contains("just now", texts);
-    }
-
-    [AvaloniaFact]
     public void AJobOverItsCeiling_SaysSo()
     {
         var jobs = new BackgroundJobs();

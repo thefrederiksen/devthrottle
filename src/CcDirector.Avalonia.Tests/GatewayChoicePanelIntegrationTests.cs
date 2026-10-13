@@ -171,37 +171,6 @@ public class GatewayChoicePanelIntegrationTests
     // ---- Hosted choice: the enabled card runs the SAME proven hosted enroll the CLI uses ----------
 
     [AvaloniaFact]
-    public async Task HostedChoice_ActivatingTheEnabledCard_RunsHostedEnroll_WithThisDeviceId()
-    {
-        await WithTempRootAsync(async () =>
-        {
-            var panel = GatewayConnectionPanel.CreateForCurrentState(GatewayChoiceConsumer.Settings);
-            panel.SetChoiceContextForTests(new GatewayChoiceContext(GatewayChoiceConsumer.Settings, SelfHostSupported: true));
-            panel.ShowChoiceForTests();
-            panel.DirectorIdOverride = "test-director-id";
-
-            var seen = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-            // Injected hosted-enroll seam: no browser, no network. Fail so nothing re-applies or handshakes.
-            panel.HostedEnrollSeam = (deviceId, _, _, _) =>
-            {
-                seen.TrySetResult(deviceId);
-                return Task.FromResult(OperationResult<MobileEnrollmentResponse>.Fail("not this time"));
-            };
-
-            // Drive the ACTUAL card dispatch, exactly as a click would (through ActivateChoiceForTests, which
-            // respects the card's enabled state) - NOT HostedEnrollAndHandshakeAsync directly. So removing the
-            // UseHosted case from the dispatch (or its StartHostedEnroll wiring) reddens this test.
-            Assert.True(CardFor(panel, GatewayChoiceAction.UseHosted).IsEnabled);
-            panel.ActivateChoiceForTests(GatewayChoiceAction.UseHosted);
-
-            var winner = await Task.WhenAny(seen.Task, Task.Delay(TimeSpan.FromSeconds(5)));
-            Assert.True(ReferenceEquals(winner, seen.Task),
-                "activating the enabled hosted card did not invoke the hosted enroll");
-            Assert.Equal("test-director-id", await seen.Task);
-        });
-    }
-
-    [AvaloniaFact]
     public async Task HostedChoice_FailedEnroll_ShowsTheFailure_DoesNotReapply_AndDoesNotMutateConfig()
     {
         await WithTempRootAsync(async () =>

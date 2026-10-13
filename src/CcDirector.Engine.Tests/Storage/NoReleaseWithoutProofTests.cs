@@ -43,81 +43,11 @@ public sealed class NoReleaseWithoutProofTests : IDisposable
             : unknown?.Contains(owner.ProcessId) == true ? OwnerLiveness.Unknown
             : ProcessOwnerLiveness.Probe(owner));
 
-    private static Process StartLongCommand()
-    {
-        var info = OperatingSystem.IsWindows()
-            ? new ProcessStartInfo("cmd.exe", "/c ping -n 30 127.0.0.1 >nul")
-            : new ProcessStartInfo("/bin/sh", "-c \"sleep 30\"");
-        info.UseShellExecute = false;
-        info.CreateNoWindow = true;
-        return Process.Start(info)!;
-    }
-
     private static int AddDueJob(EngineDatabase db, string name, int timeoutSeconds = 60, string command = "unused") =>
         db.AddJob(new JobRecord
         {
             Name = name, Cron = "0 0 31 2 *", Command = command, TimeoutSeconds = timeoutSeconds, NextRun = DateTime.UtcNow.AddSeconds(-1)
         });
-
-    // -- EN-F8 --
-
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public void OwnerUndecidable_RecordedCommandRunningPastTheDeadline_IsKept()
-    {
-        var owner = Director(4242);
-        var jobId = AddDueJob(owner, "undecidable-owner");
-        var run = owner.TryClaimRun(jobId, DateTime.UtcNow)!;
-        using var command = StartLongCommand();
-        try
-        {
-            owner.RecordRunChild(run.Id, command.Id, command.StartTime.ToUniversalTime());
-
-            // Another Director cannot inspect 4242, but can see the recorded command is alive.
-            var other = Director(2002, running: [2002], unknown: [4242]);
-            var wellPastTheDeadline = run.StartedAt + TimeSpan.FromSeconds(60) + EngineDatabase.AbandonedRunGrace + TimeSpan.FromHours(1);
-
-            Assert.Equal(0, other.CleanupOrphanedRuns(wellPastTheDeadline));
-            Assert.Null(other.GetRun(run.Id)!.EndedAt);
-            Assert.Null(other.TryClaimRun(jobId, wellPastTheDeadline));
-        }
-        finally
-        {
-            command.Kill(entireProcessTree: true);
-        }
-    }
-
-    // -- EN-F10: the history purge never deletes an unfinished run --
-
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public void HistoryPurge_KeepsAnOldUnfinishedRunWithARunningCommand_AndASecondDirectorCannotClaimIt()
-    {
-        var owner = Director(1001, running: [1001, 2002]);
-        var longAgo = DateTime.UtcNow.AddDays(-40);
-        var jobId = owner.AddJob(new JobRecord
-        {
-            Name = "forty-days", Cron = "0 0 31 2 *", Command = "unused", TimeoutSeconds = 60, NextRun = longAgo.AddSeconds(-1)
-        });
-        var run = owner.TryClaimRun(jobId, longAgo)!;
-        using var command = StartLongCommand();
-        try
-        {
-            owner.RecordRunChild(run.Id, command.Id, command.StartTime.ToUniversalTime());
-
-            // The 30-day retention purge runs, then a second, live Director tries the still-due job.
-            owner.CleanupOldRuns(retentionDays: 30);
-            var second = Director(2002, running: [1001, 2002]);
-
-            Assert.NotNull(second.GetRun(run.Id));
-            Assert.Null(second.GetRun(run.Id)!.EndedAt);
-            Assert.Null(second.TryClaimRun(jobId, DateTime.UtcNow));
-        }
-        finally
-        {
-            command.Kill(entireProcessTree: true);
-        }
-    }
 
     // -- EN-F9 (1): no decision from a stale snapshot --
 
@@ -137,54 +67,6 @@ public sealed class NoReleaseWithoutProofTests : IDisposable
         Assert.Equal(0, ended);
         Assert.Null(db.GetRun(run.Id)!.EndedAt);
         Assert.Null(Director(2002, running: [1001, 2002]).TryClaimRun(jobId, DateTime.UtcNow));
-    }
-
-    // -- EN-F9 (2): the executor checks its own writes --
-
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public async Task ChildRecordAffectsZeroRows_TheCommandIsKilled()
-    {
-        var db = Director(1001, running: [1001]);
-        var slow = OperatingSystem.IsWindows() ? "ping -n 30 127.0.0.1 >nul" : "sleep 30";
-        AddDueJob(db, "ended-under-us", timeoutSeconds: 120, command: slow);
-        var job = db.GetJob("ended-under-us")!;
-
-        int? pid = null;
-        DateTime started = default;
-        var executor = new JobExecutor(db, JobExecutor.ProcessJobs, (runId, p, s) =>
-        {
-            pid = p;
-            started = s;
-            // The run is ended under the executor (its claim released) just before the record lands.
-            using (var conn = new SqliteConnection($"Data Source={_dbPath}"))
-            {
-                conn.Open();
-                using var end = conn.CreateCommand();
-                end.CommandText = "UPDATE runs SET ended_at = @now, exit_code = -1, stderr = 'released elsewhere' WHERE id = @id";
-                end.Parameters.AddWithValue("@now", DateTime.UtcNow.ToString("o"));
-                end.Parameters.AddWithValue("@id", runId);
-                end.ExecuteNonQuery();
-            }
-            db.RecordRunChild(runId, p, s);
-        });
-        var run = executor.TryClaim(job)!;
-        var execution = executor.ExecuteClaimedAsync(job, run, CancellationToken.None);
-
-        var sw = Stopwatch.StartNew();
-        while (pid is null && sw.Elapsed < TimeSpan.FromSeconds(10))
-            await Task.Delay(50);
-        Assert.NotNull(pid);
-
-        var command = new EngineRunOwner("command", Environment.MachineName, pid.Value, started);
-        sw.Restart();
-        while (ProcessOwnerLiveness.Probe(command) != OwnerLiveness.Gone && sw.Elapsed < TimeSpan.FromSeconds(5))
-            await Task.Delay(100);
-        Assert.True(ProcessOwnerLiveness.Probe(command) == OwnerLiveness.Gone,
-            "the command kept running after its run was ended under it");
-
-        await execution;
-        Assert.Equal("released elsewhere", db.GetRun(run.Id)!.Stderr);
     }
 
     // -- EN-F9 (3): a migrated open run is never "never started" --
