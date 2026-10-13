@@ -237,9 +237,16 @@ public sealed class LicenseUsageIngest
     /// Why one holding's numbers or read time cannot be a reading, or null when they can. Everything downstream - the
     /// rate, the forecast, the staleness of an account - does arithmetic on these, so what is refused here cannot
     /// become an infinite rate, a date past the end of the calendar or a reading that is never stale:
-    /// a usage number that is not a number, is below 0 or is above <see cref="MaxUtilization"/>; a read time LATER than
-    /// the report's own sent time (one clock wrote both, so that is a defect, not a wrong clock); and a read time more
+    /// a usage number that is not a number, is below 0 or is above <see cref="MaxUtilization"/>; a read time later than
+    /// the report's own sent time by more than <see cref="LicenseContract.ClockSkewLoggedAbove"/>; and a read time more
     /// than <see cref="MaxReadingAge"/> before it. Both times are judged against the report's sent time, never a clock.
+    ///
+    /// WHY A READ TIME A LITTLE AHEAD OF THE SENT TIME IS ALLOWED. One clock wrote both, but not at one moment: a
+    /// spare is read every ten minutes and its read time is kept until the next read. When time synchronisation
+    /// steps the machine's clock BACK, that kept read time is ahead of every report sent for up to ten minutes. The
+    /// whole report is what is refused here, so refusing those would leave a healthy machine silent, then stale, then
+    /// unable to be switched. A step of up to two minutes is an ordinary correction - the same amount of skew the
+    /// ingest ignores between the machine's clock and the Gateway's. Further ahead than that is not a reading.
     /// </summary>
     internal static string? UnreadableReading(LicenseHolding holding, DateTime sentAtUtc)
     {
@@ -250,7 +257,7 @@ public sealed class LicenseUsageIngest
             return null;
         var read = Utc(readAt);
         var sent = Utc(sentAtUtc);
-        if (read > sent) return "a read time later than the report's sent time";
+        if (read - sent > LicenseContract.ClockSkewLoggedAbove) return "a read time more than two minutes later than the report's sent time";
         if (sent - read > MaxReadingAge) return "a read time more than ten years before the report's sent time";
         return null;
     }

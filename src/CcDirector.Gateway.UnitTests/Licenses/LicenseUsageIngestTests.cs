@@ -168,7 +168,8 @@ public sealed class LicenseUsageIngestTests : IDisposable
         { "just below nought", -0.001, null, 0 },
         { "just above the most", LicenseUsageIngest.MaxUtilization + 0.001, null, 0 },
         { "an extra usage number that is infinite", 10, double.PositiveInfinity, 0 },
-        { "read one second after it was sent", 10, null, 1 },
+        { "read three minutes after it was sent", 10, null, 180 },
+        { "read one second more than two minutes after it was sent", 10, null, 121 },
     };
 
     [Theory]
@@ -205,6 +206,7 @@ public sealed class LicenseUsageIngestTests : IDisposable
     public void Ingest_AReadTimeIsJudgedAgainstTheReportsOwnSentTime_AtEachEdge()
     {
         // Read at the very moment it was sent, and read exactly the longest allowed before it: both are readings.
+        // (The other edge, a read time AHEAD of the sent time, is the theory below.)
         Assert.Equal(LicenseIngestOutcome.Accepted, _ingest.Ingest(Tenant, "dir-1", "conn-1", 1, Report("m1", Holding(A, true, 10, readAt: T0)), T0));
         Assert.Equal(LicenseIngestOutcome.Accepted,
             _ingest.Ingest(Tenant, "dir-1", "conn-1", 2, Report("m1", Holding(A, true, 11, readAt: T0 - LicenseUsageIngest.MaxReadingAge)), T0));
@@ -212,6 +214,36 @@ public sealed class LicenseUsageIngestTests : IDisposable
         Assert.Equal(LicenseIngestOutcome.Malformed,
             _ingest.Ingest(Tenant, "dir-1", "conn-1", 3, Report("m1", Holding(A, true, 12, readAt: T0 - LicenseUsageIngest.MaxReadingAge - TimeSpan.FromSeconds(1))), T0));
         Assert.Equal(11, StoredFiveHour());
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(90)]      // a clock stepped back a minute and a half by time synchronisation
+    [InlineData(120)]     // exactly the two minutes allowed
+    public void Ingest_AReadTimeALittleAheadOfTheSentTime_IsAccepted_BecauseAClockSteppedBackIsNotADefect(int readSecondsAfterSent)
+    {
+        // The spare was read before the clock was stepped back, so its kept read time is ahead of the report.
+        var report = Report("m1", Holding(A, true, 10), Holding(B, false, 4, readAt: T0.AddSeconds(readSecondsAfterSent)));
+
+        Assert.Equal(LicenseIngestOutcome.Accepted, _ingest.Ingest(Tenant, "dir-1", "conn-1", 1, report, T0));
+        // The machine is heard from, and stays switchable: it is not stale and its spare is listed.
+        var machine = new LicenseReadModel(_store).Read(Tenant, T0).Machines.Single();
+        Assert.False(machine.IsStale);
+        Assert.Equal(new[] { B }, machine.Spares);
+    }
+
+    [Fact]
+    public void Ingest_AReadTimeALittleAheadOfTheSentTime_IsKeptInTheHistoryAtNow_NeverLaterThanTheGatewaysClock()
+    {
+        var history = new LicenseUsageHistory();
+        var ingest = new LicenseUsageIngest(_store, history);
+        ingest.RegisterConnection(Tenant, "dir-1", "conn-1");
+
+        Assert.Equal(LicenseIngestOutcome.Accepted,
+            ingest.Ingest(Tenant, "dir-1", "conn-1", 1, Report("m1", Holding(A, true, 10, readAt: T0.AddSeconds(90))), T0));
+
+        Assert.Equal(T0, history.Read(Tenant, T0).Single().FiveHour.Single().AtUtc);
+        Assert.Empty(history.Read(Tenant, T0 + LicenseUsageHistory.Kept + TimeSpan.FromSeconds(1))); // and it ages out
     }
 
     [Fact]
