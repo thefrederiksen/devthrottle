@@ -508,8 +508,9 @@ public sealed class CronRunResultTests : IDisposable
         // An hourly schedule first missed five whole hours before the top of this hour: the Gateway was down for six
         // of its runs (that one, and the five on the hour after it).
         var jobsPath = _h.LegacyPath(Guid.NewGuid().ToString("N") + ".json");
-        var created = new CronJobStore(Db, jobsPath).Create(Hourly());
-        var utcNow = DateTime.UtcNow;
+        var clock = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(new DateTimeOffset(2026, 10, 10, 14, 30, 0, TimeSpan.Zero));
+        var created = new CronJobStore(Db, jobsPath, clock: clock).Create(Hourly());
+        var utcNow = clock.GetUtcNow().UtcDateTime;
         var firstMissed = new DateTime(utcNow.Year, utcNow.Month, utcNow.Day, utcNow.Hour, 0, 0, DateTimeKind.Utc).AddHours(-5);
         using (var ctx = Db.CreateContext())
         {
@@ -519,9 +520,9 @@ public sealed class CronRunResultTests : IDisposable
 
         // The Gateway starts again. No engine runs: the runs are on record the moment the load has moved the schedule on,
         // so there is nothing held in memory to lose (review findings 4 and 6).
-        var reloaded = new CronJobStore(Db, jobsPath);
+        var reloaded = new CronJobStore(Db, jobsPath, clock: clock);
 
-        Assert.True(reloaded.Get(created.Id)!.NextRunUtc > DateTime.UtcNow);
+        Assert.True(reloaded.Get(created.Id)!.NextRunUtc > utcNow);
         var recorded = NewRuns().List(created.Id).OrderBy(r => r.ScheduledUtc).ToList();
         Assert.Equal(6, recorded.Count);
         Assert.All(recorded, r =>
@@ -1027,9 +1028,10 @@ public sealed class CronRunResultTests : IDisposable
         // Second review, finding 3: 503 runs were due while the Gateway was down. 500 rows are written, counting the
         // first, and the last carries the other 3 as a number - which the problems answer adds up.
         var jobsPath = _h.LegacyPath(Guid.NewGuid().ToString("N") + ".json");
-        var created = new CronJobStore(Db, jobsPath).Create(Hourly());
+        var clock = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(new DateTimeOffset(2026, 10, 10, 14, 30, 0, TimeSpan.Zero));
+        var created = new CronJobStore(Db, jobsPath, clock: clock).Create(Hourly());
         _jobs[created.Id] = created;
-        var utcNow = DateTime.UtcNow;
+        var utcNow = clock.GetUtcNow().UtcDateTime;
         var topOfHour = new DateTime(utcNow.Year, utcNow.Month, utcNow.Day, utcNow.Hour, 0, 0, DateTimeKind.Utc);
         using (var ctx = Db.CreateContext())
         {
@@ -1037,7 +1039,7 @@ public sealed class CronRunResultTests : IDisposable
             ctx.SaveChanges();
         }
 
-        _ = new CronJobStore(Db, jobsPath);
+        _ = new CronJobStore(Db, jobsPath, clock: clock);
 
         var recorded = NewRuns().AllByJob(TenantId.Local)[created.Id].OrderBy(r => r.ScheduledUtc).ToList();
         Assert.Equal(CronSchedule.MaxMissedRunsRecorded, recorded.Count);
@@ -1045,7 +1047,7 @@ public sealed class CronRunResultTests : IDisposable
         Assert.All(recorded.Take(recorded.Count - 1), r => Assert.Equal(0, r.MissedNotListed));
 
         var (service, _, _) = Build();
-        _now = DateTime.UtcNow.AddMinutes(1);
+        _now = utcNow.AddMinutes(1);
         var problems = service.Problems(TenantId.Local, null, includeClosed: false);
         Assert.Equal(500, problems.Count);
         Assert.Equal(503, problems.Occurrences);
