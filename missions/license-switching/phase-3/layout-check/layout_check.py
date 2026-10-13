@@ -5,7 +5,7 @@ import subprocess, re, json, time, os, sys, copy, urllib.request
 from playwright.sync_api import sync_playwright
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", ".."))
 OUT = os.path.dirname(os.path.abspath(__file__))
-doc = subprocess.check_output(["git", "show", "origin/license-switching-gw-api:missions/license-switching/cockpit-api.md"], cwd=ROOT).decode("utf-8")
+doc = subprocess.check_output(["git", "show", "HEAD:missions/license-switching/cockpit-api.md"], cwd=ROOT).decode("utf-8")
 overview, forecast, log, empty, _ = [json.loads(b) for b in re.findall(r"```json\n(.*?)```", doc, re.S)]
 state = {"overview": overview}
 PORT = 5199

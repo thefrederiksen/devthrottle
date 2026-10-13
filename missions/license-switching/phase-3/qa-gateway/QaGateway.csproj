@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The License Switching mission, phase 3: a QA program, not a product and not a gate test. It is in no solution
+       and no test list; qa_run.py beside it runs it. It starts a real Gateway on a real loopback port on purpose -
+       the Licenses page is run against it - which is exactly why it is not a test in a gate suite. -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>CcDirector.LicenseQa</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\src\CcDirector.Gateway\CcDirector.Gateway.csproj" />
+    <ProjectReference Include="..\..\..\..\src\CcDirector.Gateway.Contracts\CcDirector.Gateway.Contracts.csproj" />
+    <ProjectReference Include="..\..\..\..\src\CcDirector.Core\CcDirector.Core.csproj" />
+  </ItemGroup>
+
+</Project>

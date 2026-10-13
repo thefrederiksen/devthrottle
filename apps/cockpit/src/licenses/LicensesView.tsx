@@ -387,7 +387,7 @@ function SwitchLogTable({ entries }: { entries: ReadonlyArray<LicenseLogEntry> }
               <LocalTime iso={entry.atUtc} />
             </td>
             <td className="lic-nowrap">{entry.kindText}</td>
-            <td className="lic-nowrap">{entry.machineName}</td>
+            <td className="lic-nowrap">{entry.label}</td>
             <td className="lic-nowrap">{entry.fromAccountEmail}</td>
             <td className="lic-nowrap">{entry.toAccountEmail}</td>
             <td className="lic-nowrap">{entry.whyText}</td>

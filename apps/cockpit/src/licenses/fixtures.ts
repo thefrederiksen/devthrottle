@@ -5,7 +5,7 @@ import type {
 } from "@devthrottle/client-core/licenses/licensesClient";
 
 // THE GATEWAY'S OWN ANSWERS, NOT HAND-WRITTEN ONES. Each constant below is the real example of its route from
-// missions/license-switching/cockpit-api.md (copied from the Gateway branch at commit 63aa81f61), which the Gateway
+// missions/license-switching/cockpit-api.md (as merged to main at commit 0b83751ed), which the Gateway
 // produced by running its route handlers over a store filled with the reports of two machines and three accounts.
 // A test that draws these draws what the Gateway sends; when the shapes move, copy the examples again.
 
@@ -54,7 +54,7 @@ export const OVERVIEW: LicenseOverview = {
       "signInExpiry": {
         "expiresAtUtc": "2026-10-20T03:12:00Z",
         "machine": {
-          "machineId": "c0910007404f4ab9a4f725c028c0569b",
+          "machineId": "f26a799d85a244129a27ba10b8cb3427",
           "machineName": "the-windows-machine",
           "osUser": "owner",
           "label": "the-windows-machine"
@@ -65,13 +65,13 @@ export const OVERVIEW: LicenseOverview = {
       },
       "activeOnMachines": [
         {
-          "machineId": "2fef72637c9d41a58d77623fed457e8a",
+          "machineId": "94ebcb15a4bf40438dca738dd31189d9",
           "machineName": "the-mac",
           "osUser": "owner",
           "label": "the-mac"
         },
         {
-          "machineId": "c0910007404f4ab9a4f725c028c0569b",
+          "machineId": "f26a799d85a244129a27ba10b8cb3427",
           "machineName": "the-windows-machine",
           "osUser": "owner",
           "label": "the-windows-machine"
@@ -135,7 +135,7 @@ export const OVERVIEW: LicenseOverview = {
       "signInExpiry": {
         "expiresAtUtc": "2026-10-13T08:12:00Z",
         "machine": {
-          "machineId": "c0910007404f4ab9a4f725c028c0569b",
+          "machineId": "f26a799d85a244129a27ba10b8cb3427",
           "machineName": "the-windows-machine",
           "osUser": "owner",
           "label": "the-windows-machine"
@@ -147,13 +147,13 @@ export const OVERVIEW: LicenseOverview = {
       "activeOnMachines": [],
       "spareOnMachines": [
         {
-          "machineId": "2fef72637c9d41a58d77623fed457e8a",
+          "machineId": "94ebcb15a4bf40438dca738dd31189d9",
           "machineName": "the-mac",
           "osUser": "owner",
           "label": "the-mac"
         },
         {
-          "machineId": "c0910007404f4ab9a4f725c028c0569b",
+          "machineId": "f26a799d85a244129a27ba10b8cb3427",
           "machineName": "the-windows-machine",
           "osUser": "owner",
           "label": "the-windows-machine"
@@ -203,7 +203,7 @@ export const OVERVIEW: LicenseOverview = {
       "signInExpiry": {
         "expiresAtUtc": "2026-11-09T03:12:00Z",
         "machine": {
-          "machineId": "c0910007404f4ab9a4f725c028c0569b",
+          "machineId": "f26a799d85a244129a27ba10b8cb3427",
           "machineName": "the-windows-machine",
           "osUser": "owner",
           "label": "the-windows-machine"
@@ -215,7 +215,7 @@ export const OVERVIEW: LicenseOverview = {
       "activeOnMachines": [],
       "spareOnMachines": [
         {
-          "machineId": "c0910007404f4ab9a4f725c028c0569b",
+          "machineId": "f26a799d85a244129a27ba10b8cb3427",
           "machineName": "the-windows-machine",
           "osUser": "owner",
           "label": "the-windows-machine"
@@ -229,7 +229,7 @@ export const OVERVIEW: LicenseOverview = {
   ],
   "machines": [
     {
-      "machineId": "2fef72637c9d41a58d77623fed457e8a",
+      "machineId": "94ebcb15a4bf40438dca738dd31189d9",
       "machineName": "the-mac",
       "osUser": "owner",
       "label": "the-mac",
@@ -277,7 +277,7 @@ export const OVERVIEW: LicenseOverview = {
       "switchInProgress": null
     },
     {
-      "machineId": "c0910007404f4ab9a4f725c028c0569b",
+      "machineId": "f26a799d85a244129a27ba10b8cb3427",
       "machineName": "the-windows-machine",
       "osUser": "owner",
       "label": "the-windows-machine",
@@ -356,13 +356,13 @@ export const FORECAST: LicenseForecast = {
     "targetAccountEmail": "account-b@example.com",
     "machines": [
       {
-        "machineId": "2fef72637c9d41a58d77623fed457e8a",
+        "machineId": "94ebcb15a4bf40438dca738dd31189d9",
         "machineName": "the-mac",
         "osUser": "owner",
         "label": "the-mac"
       },
       {
-        "machineId": "c0910007404f4ab9a4f725c028c0569b",
+        "machineId": "f26a799d85a244129a27ba10b8cb3427",
         "machineName": "the-windows-machine",
         "osUser": "owner",
         "label": "the-windows-machine"
@@ -467,7 +467,7 @@ export const FORECAST: LicenseForecast = {
   ],
   "machines": [
     {
-      "machineId": "2fef72637c9d41a58d77623fed457e8a",
+      "machineId": "94ebcb15a4bf40438dca738dd31189d9",
       "machineName": "the-mac",
       "osUser": "owner",
       "label": "the-mac",
@@ -477,7 +477,7 @@ export const FORECAST: LicenseForecast = {
       "text": "Next: account-b@example.com, in about 2 minutes."
     },
     {
-      "machineId": "c0910007404f4ab9a4f725c028c0569b",
+      "machineId": "f26a799d85a244129a27ba10b8cb3427",
       "machineName": "the-windows-machine",
       "osUser": "owner",
       "label": "the-windows-machine",
@@ -496,12 +496,14 @@ export const LOG_PAGE: LicenseLogPage = {
   "emptyText": null,
   "entries": [
     {
-      "entryId": "fd6f2c59dd514884b4a1d8139670469a",
+      "entryId": "e01929159dd747939b37143680054049",
       "kind": "spare-added",
       "kindText": "Spare added",
       "atUtc": "2026-10-11T03:12:00Z",
+      "machineId": "f26a799d85a244129a27ba10b8cb3427",
       "machineName": "the-windows-machine",
       "osUser": "owner",
+      "label": "the-windows-machine",
       "fromAccountEmail": "",
       "toAccountEmail": "account-c@example.com",
       "why": null,
@@ -525,12 +527,14 @@ export const LOG_PAGE: LicenseLogPage = {
       "verifiedText": null
     },
     {
-      "entryId": "83019e32f08e4a1486d3ac48c3ef6c14",
+      "entryId": "fddfab36f39e4bc7a09166bd7a519a89",
       "kind": "switch",
       "kindText": "Switch",
       "atUtc": "2026-10-11T01:12:00Z",
+      "machineId": "f26a799d85a244129a27ba10b8cb3427",
       "machineName": "the-windows-machine",
       "osUser": "owner",
+      "label": "the-windows-machine",
       "fromAccountEmail": "account-a@example.com",
       "toAccountEmail": "account-c@example.com",
       "why": "manual",
@@ -554,12 +558,14 @@ export const LOG_PAGE: LicenseLogPage = {
       "verifiedText": null
     },
     {
-      "entryId": "e3dc6d1ca06d4cb7ae3bf05c3dc517b6",
+      "entryId": "0920e92e743c40c69a1217aff69a433f",
       "kind": "spare-removed",
       "kindText": "Spare removed",
       "atUtc": "2026-10-10T23:12:00Z",
+      "machineId": "f26a799d85a244129a27ba10b8cb3427",
       "machineName": "the-windows-machine",
       "osUser": "owner",
+      "label": "the-windows-machine",
       "fromAccountEmail": "account-c@example.com",
       "toAccountEmail": "",
       "why": null,
@@ -583,12 +589,14 @@ export const LOG_PAGE: LicenseLogPage = {
       "verifiedText": null
     },
     {
-      "entryId": "4cbca57571e74da6b8b1552b73db78b3",
+      "entryId": "492e609fc02f4331863e231a92a43e5e",
       "kind": "switch",
       "kindText": "Switch",
       "atUtc": "2026-10-10T22:12:00Z",
+      "machineId": "f26a799d85a244129a27ba10b8cb3427",
       "machineName": "the-windows-machine",
       "osUser": "owner",
+      "label": "the-windows-machine",
       "fromAccountEmail": "account-c@example.com",
       "toAccountEmail": "account-a@example.com",
       "why": "threshold",

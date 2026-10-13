@@ -1,0 +1,17 @@
+Gateway on port 61254
+GET /gateway/licenses as the owner -> 200
+GET /gateway/licenses/forecast as the owner -> 200
+GET /gateway/licenses/log as the owner -> 200
+GET /gateway/licenses as the account that never reported -> 200, isEmpty=True
+POST /gateway/licenses/switch-now as the owner -> 404 (the route arrives in the follow-up)
+screenshot accounts-with-data
+on the page: 4 account cards, 2 log rows, 1 failed, 2 hatched bars
+screenshot log-with-failed-switch
+screenshot not-read
+screenshot switch-now-confirmation
+screenshot switch-now-no-route-yet
+Switch now, confirmed, against this Gateway: Not found: POST /gateway/licenses/switch-now
+requests the page made: [(200, '/gateway/licenses'), (200, '/gateway/licenses/forecast'), (200, '/gateway/licenses/log'), (404, '/gateway/licenses/switch-now')]
+screenshot empty
+empty state says: No machine has reported its Claude accounts yet. They appear here once a Director with license switching turned on has connected.
+QA RUN DONE

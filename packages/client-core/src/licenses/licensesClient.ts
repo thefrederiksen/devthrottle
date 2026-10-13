@@ -206,8 +206,11 @@ export interface LicenseLogEntry {
   kind: string;
   kindText: string;
   atUtc: string;
+  /** The machine the row is about. On a row about no machine, machineId is null and the other three are "". */
+  machineId: string | null;
   machineName: string;
   osUser: string;
+  label: string;
   fromAccountEmail: string;
   toAccountEmail: string;
   why: string | null;
