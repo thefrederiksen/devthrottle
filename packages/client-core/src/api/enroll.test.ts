@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { GATEWAY_NOT_SIGNED_IN, enrollDevice, enrollDeviceHosted, isGatewayNotSignedIn } from "./enroll";
+import { GATEWAY_NOT_SIGNED_IN, RemotePlanRequiredError, enrollDevice, enrollDeviceHosted, isGatewayNotSignedIn } from "./enroll";
 import { GatewayError } from "./client";
 
 // There are TWO different sign-ins in this product and they are easy to conflate:
@@ -132,6 +132,50 @@ describe("enrollment requests", () => {
       await expect(
         enrollDeviceHosted("access-token-abc", "install-9", "Edge on Windows", "browser"),
       ).rejects.toMatchObject({ status: 402 });
+      // With no code it is NOT the Remote plan refusal: it stays the plain error it always was.
+      await expect(
+        enrollDeviceHosted("access-token-abc", "install-9", "Edge on Windows", "browser"),
+      ).rejects.not.toBeInstanceOf(RemotePlanRequiredError);
+    });
+  });
+
+  // The Pricing Change mission: a Free account's phone or browser is refused at enrolment with 402 and
+  // the code remote_plan_required. Both enrolment requests read the answer through the same reader, so
+  // both must hand the callback screen the Gateway's sentence and address rather than a bare reason.
+  describe("the Remote plan refusal", () => {
+    const sentence = "The phone app and the Cockpit need the Remote plan.";
+    const refusal = { error: "remote plan required", code: "remote_plan_required", message: sentence, subscribeUrl: "https://devthrottle.com/pricing" };
+
+    it("is a RemotePlanRequiredError carrying the Gateway's sentence and address, on both enrolment paths", async () => {
+      globalThis.fetch = (async () => jsonResponse(402, refusal)) as unknown as typeof fetch;
+
+      for (const attempt of [
+        () => enrollDeviceHosted("access-token-abc", "install-9", "Android phone", "android"),
+        () => enrollDevice("cloud-key", "install-1", "Android phone", "android"),
+      ]) {
+        const err = await attempt().catch((e: unknown) => e);
+        expect(err).toBeInstanceOf(RemotePlanRequiredError);
+        expect(err).toMatchObject({
+          status: 402,
+          code: "remote_plan_required",
+          message: sentence,
+          info: { message: sentence, subscribeUrl: "https://devthrottle.com/pricing" },
+        });
+      }
+    });
+
+    it("is not taken from the older 402 code or from a 503 entitlement_unknown", async () => {
+      globalThis.fetch = (async () =>
+        jsonResponse(402, { ...refusal, error: "subscription required", code: "hosted_subscription_required" })) as unknown as typeof fetch;
+      const older = await enrollDeviceHosted("t", "i", "Android phone", "android").catch((e: unknown) => e);
+      expect(older).not.toBeInstanceOf(RemotePlanRequiredError);
+      expect(older).toMatchObject({ status: 402, message: "subscription required" });
+
+      globalThis.fetch = (async () =>
+        jsonResponse(503, { ...refusal, error: "could not check your plan", code: "entitlement_unknown" })) as unknown as typeof fetch;
+      const unknown = await enrollDeviceHosted("t", "i", "Android phone", "android").catch((e: unknown) => e);
+      expect(unknown).not.toBeInstanceOf(RemotePlanRequiredError);
+      expect(unknown).toMatchObject({ status: 503, message: "could not check your plan" });
     });
   });
 });

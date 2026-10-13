@@ -94,12 +94,14 @@ public sealed class TenantAiGateTests : IDisposable
     // ================================================================= the scope table
 
     [Fact]
-    public void EntitlementScopes_Remote_GrantsTheHostedGatewayAndNoAiScope()
+    public void EntitlementScopes_Remote_GrantsTheHostedGatewayAndRemoteAccessAndNoAiScope()
     {
-        // Decision D3: Remote is the hosted Gateway, the Cockpit and the phone app - and no dictation, TTS or Wingman.
+        // Decision D3: Remote is a Director on the hosted Gateway plus remote access (the Cockpit and the phone app) - and no dictation, spoken replies or wingman.
         var granted = EntitlementScopes.ForTier(EntitlementRegistry.TierRemote);
 
-        Assert.Equal(new[] { EntitlementScopes.HostedGateway }, granted.ToArray());
+        Assert.Equal(
+            new[] { EntitlementScopes.HostedGateway, EntitlementScopes.RemoteAccess }.OrderBy(s => s),
+            granted.OrderBy(s => s));
         Assert.True(EntitlementScopes.GrantsHostedGateway(EntitlementRegistry.TierRemote));
         foreach (var scope in AiScopes)
             Assert.False(EntitlementScopes.Grants(EntitlementRegistry.TierRemote, scope));

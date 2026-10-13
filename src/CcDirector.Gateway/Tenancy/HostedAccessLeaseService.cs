@@ -24,6 +24,12 @@ public enum HostedAccessDecision
     /// A refusal of the PERSON - the caller returns 403 - and never a verdict on the team's bill: NOTHING is revoked,
     /// so one stranger's request can never tombstone the team's keys.</summary>
     DenyNotAMember,
+
+    /// <summary>The tenant is entitled and the request comes from a Cockpit or a phone, which its account has no
+    /// remote access for (Pricing Change mission, B2). A refusal of THIS REQUEST and nothing else - the caller returns
+    /// 402 <c>remote_plan_required</c>. The tenant's positive lease is left exactly as it is and the revoker is never
+    /// called: no device key is revoked, nothing is tombstoned, and the same tenant's Director is still served.</summary>
+    DenyNoRemoteAccess,
 }
 
 /// <summary>The revocation the lease service and the sweep trigger when a tenant reads NotEntitled. Kept as an
@@ -56,10 +62,23 @@ public interface ITenantAccessRevoker
 /// never refused for the bill (the free tier keeps the hosted Gateway). A request that names nobody, or a non-member,
 /// is <see cref="HostedAccessDecision.DenyNotAMember"/> and is NEVER fed to the revoke branch. A failed read is Unknown,
 /// exactly as for a personal tenant. A personal tenant takes the same path as before, keyed by its tenant alone.
+///
+/// THE LEASE ALSO CARRIES REMOTE ACCESS (Pricing Change mission, B2). The read that fills a positive lease already
+/// yields the plan's tier, so the lease keeps, beside its Entitled outcome, whether the account may use the Cockpit and
+/// the phone app (<see cref="RemoteAccessRule"/>: the plan, the pre-launch grace, or a team with a running bill). One
+/// read answers both questions, so they cannot disagree, and a Cockpit that polls costs no database read. A Cockpit or
+/// phone request on a lease without it is <see cref="HostedAccessDecision.DenyNoRemoteAccess"/>: the lease is not
+/// touched and nothing is revoked, so a member who subscribes is served again on the next read with no new sign-in. A
+/// change of plan, or of team membership, is seen within the lease's lifetime or the 60 second sweep, exactly as a
+/// cancellation is. Where remote access could not be read the Cockpit or phone request is told to ask again, and the
+/// Director's request on the same lease is still served.
 /// </summary>
 public sealed class HostedAccessLeaseService
 {
-    private readonly record struct Lease(EntitlementOutcome Outcome, DateTimeOffset ExpiresAtUtc);
+    // RemoteAccess is meaningful only beside an Entitled outcome. A negative lease carries NotGranted and is never
+    // asked.
+    private readonly record struct Lease(EntitlementOutcome Outcome, DateTimeOffset ExpiresAtUtc,
+        RemoteAccessAnswer RemoteAccess = RemoteAccessAnswer.NotGranted);
 
     // A personal tenant's lease is keyed by its tenant alone, as it always was; a team's by tenant and person. The
     // separator is a newline, which neither a tenant id nor an account subject contains.
@@ -71,6 +90,7 @@ public sealed class HostedAccessLeaseService
     private readonly TimeProvider _clock;
     private readonly TimeSpan _leaseTtl;
     private readonly Teams.TeamMemberEntitlement? _teams;
+    private readonly RemoteAccessRule _remoteAccess;
 
     private readonly ConcurrentDictionary<string, Lease> _leases = new(StringComparer.Ordinal);
     // Per-tenant single-flight: coalesce concurrent refreshes so an expiry does not stampede the database with
@@ -84,9 +104,12 @@ public sealed class HostedAccessLeaseService
         ITenantAccessRevoker revoker,
         TimeProvider? clock = null,
         TimeSpan? leaseTtl = null,
-        Teams.TeamMemberEntitlement? teams = null)
+        Teams.TeamMemberEntitlement? teams = null,
+        RemoteAccessRule? remoteAccess = null)
     {
         _teams = teams;
+        // No rule given is the hosted Gateway with neither grace setting set: every account in grace, with no end.
+        _remoteAccess = remoteAccess ?? new RemoteAccessRule(PreLaunchGrace.NotSet);
         _entitlements = entitlements ?? throw new ArgumentNullException(nameof(entitlements));
         _tenants = tenants ?? throw new ArgumentNullException(nameof(tenants));
         _revoker = revoker ?? throw new ArgumentNullException(nameof(revoker));
@@ -102,7 +125,11 @@ public sealed class HostedAccessLeaseService
     /// </summary>
     /// <param name="person">Who the request is from, asked only when the tenant is a team's
     /// (<see cref="Teams.TeamCallerOwnership.PersonOf"/>). Null, or answering null, names nobody.</param>
-    public async Task<HostedAccessDecision> AuthorizeAsync(TenantId tenant, Func<string?>? person = null, CancellationToken ct = default)
+    /// <param name="cockpitOrPhone">Whether the request carries a Cockpit's or a phone's device key
+    /// (<see cref="RemoteAccessRule.IsCockpitOrPhoneDevice"/>). Such a request also needs remote access; every other
+    /// caller - a Director, a session inside one - does not, and is answered exactly as before.</param>
+    public async Task<HostedAccessDecision> AuthorizeAsync(TenantId tenant, Func<string?>? person = null,
+        CancellationToken ct = default, bool cockpitOrPhone = false)
     {
         if (!tenant.IsValid)
             return HostedAccessDecision.DenyNotEntitled;
@@ -112,9 +139,8 @@ public sealed class HostedAccessLeaseService
         // Fast path: a live positive lease, no database, no gate. Only a personal tenant's lease is stored under the
         // tenant alone, so a hit here is a personal tenant's.
         if (_leases.TryGetValue(key, out var cached)
-            && cached.Outcome == EntitlementOutcome.Entitled
-            && _clock.GetUtcNow() < cached.ExpiresAtUtc)
-            return HostedAccessDecision.Allow;
+            && Answers(cached, _clock.GetUtcNow(), cockpitOrPhone))
+            return Serve(cached, cockpitOrPhone);
 
         if (_teams is not null && _teams.IsTeam(tenant))
         {
@@ -126,13 +152,40 @@ public sealed class HostedAccessLeaseService
             }
             var teamKey = TeamKey(tenant, who);
             if (_leases.TryGetValue(teamKey, out var teamLease)
-                && teamLease.Outcome == EntitlementOutcome.Entitled
-                && _clock.GetUtcNow() < teamLease.ExpiresAtUtc)
-                return HostedAccessDecision.Allow;
-            return await ReadUnderGateAsync(tenant, teamKey, who, honorFreshLease: true, ct).ConfigureAwait(false);
+                && Answers(teamLease, _clock.GetUtcNow(), cockpitOrPhone))
+                return Serve(teamLease, cockpitOrPhone);
+            return await ReadUnderGateAsync(tenant, teamKey, who, honorFreshLease: true, cockpitOrPhone, ct).ConfigureAwait(false);
         }
 
-        return await ReadUnderGateAsync(tenant, key, null, honorFreshLease: true, ct).ConfigureAwait(false);
+        return await ReadUnderGateAsync(tenant, key, null, honorFreshLease: true, cockpitOrPhone, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Can this lease answer this request without a read? A live positive lease answers every request but one: a
+    /// Cockpit or phone request on a lease whose remote access could not be read. That request reads again, so the
+    /// answer arrives as soon as the read works, instead of repeating "unknown" for the lease's lifetime.
+    /// </summary>
+    private static bool Answers(Lease lease, DateTimeOffset now, bool cockpitOrPhone)
+        => lease.Outcome == EntitlementOutcome.Entitled
+           && now < lease.ExpiresAtUtc
+           && !(cockpitOrPhone && lease.RemoteAccess == RemoteAccessAnswer.Unknown);
+
+    /// <summary>
+    /// The answer a LIVE POSITIVE lease gives one request. A request that is not a Cockpit's or a phone's is served.
+    /// A Cockpit or phone request is served when the account has remote access; refused, for that request alone, when
+    /// it has none; and told to ask again when that could not be read. In no case is the lease changed or anything
+    /// revoked.
+    /// </summary>
+    private static HostedAccessDecision Serve(Lease lease, bool cockpitOrPhone)
+    {
+        if (!cockpitOrPhone)
+            return HostedAccessDecision.Allow;
+        return lease.RemoteAccess switch
+        {
+            RemoteAccessAnswer.Granted => HostedAccessDecision.Allow,
+            RemoteAccessAnswer.NotGranted => HostedAccessDecision.DenyNoRemoteAccess,
+            _ => HostedAccessDecision.RetryUnknown,
+        };
     }
 
     /// <summary>
@@ -145,7 +198,7 @@ public sealed class HostedAccessLeaseService
     {
         if (!tenant.IsValid)
             return Task.FromResult(HostedAccessDecision.DenyNotEntitled);
-        return ReadUnderGateAsync(tenant, tenant.Value, null, honorFreshLease: false, ct);
+        return ReadUnderGateAsync(tenant, tenant.Value, null, honorFreshLease: false, cockpitOrPhone: false, ct);
     }
 
     /// <summary>
@@ -157,8 +210,8 @@ public sealed class HostedAccessLeaseService
         if (!lease.Tenant.IsValid)
             return Task.FromResult(HostedAccessDecision.DenyNotEntitled);
         return lease.Person is null
-            ? ReadUnderGateAsync(lease.Tenant, lease.Tenant.Value, null, honorFreshLease: false, ct)
-            : ReadUnderGateAsync(lease.Tenant, TeamKey(lease.Tenant, lease.Person), lease.Person, honorFreshLease: false, ct);
+            ? ReadUnderGateAsync(lease.Tenant, lease.Tenant.Value, null, honorFreshLease: false, cockpitOrPhone: false, ct)
+            : ReadUnderGateAsync(lease.Tenant, TeamKey(lease.Tenant, lease.Person), lease.Person, honorFreshLease: false, cockpitOrPhone: false, ct);
     }
 
     // The single-flighted read + three-way apply, shared by the request path and the sweep. The gate coalesces
@@ -166,7 +219,7 @@ public sealed class HostedAccessLeaseService
     // database. <paramref name="honorFreshLease"/> lets the request path return early if a concurrent read just
     // filled a fresh lease, while the sweep always performs the read.
     private async Task<HostedAccessDecision> ReadUnderGateAsync(TenantId tenant, string key, string? teamPerson,
-        bool honorFreshLease, CancellationToken ct)
+        bool honorFreshLease, bool cockpitOrPhone, CancellationToken ct)
     {
         var gate = _refreshGates.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(ct).ConfigureAwait(false);
@@ -175,20 +228,20 @@ public sealed class HostedAccessLeaseService
             var now = _clock.GetUtcNow();
             if (honorFreshLease
                 && _leases.TryGetValue(key, out var cached)
-                && cached.Outcome == EntitlementOutcome.Entitled
-                && now < cached.ExpiresAtUtc)
-                return HostedAccessDecision.Allow;
+                && Answers(cached, now, cockpitOrPhone))
+                return Serve(cached, cockpitOrPhone);
 
             if (teamPerson is not null)
-                return ApplyTeamRead(tenant, key, teamPerson, now);
+                return ApplyTeamRead(tenant, key, teamPerson, now, cockpitOrPhone);
 
             // The lease is tenant-keyed but the reader reads by subject: bridge tenant -> subject first. A
-            // tenant with no subject mapping is not a failed read - it is "no such entitled tenant" -> deny.
-            var subject = _tenants.SubjectForTenant(tenant);
-            if (string.IsNullOrWhiteSpace(subject))
+            // tenant with no subject mapping is not a failed read - it is "no such entitled tenant" -> deny. The
+            // same row carries when the account first reached this Gateway, which the pre-launch grace is judged on.
+            var account = _tenants.AccountOfTenant(tenant);
+            if (account is null)
                 return HostedAccessDecision.DenyNotEntitled;
 
-            var decision = _entitlements.Evaluate(subject, now.UtcDateTime);
+            var decision = _entitlements.Evaluate(account.AccountSubject, now.UtcDateTime);
             switch (decision.Outcome)
             {
                 case EntitlementOutcome.Entitled when !EntitlementScopes.GrantsHostedGateway(decision.Tier):
@@ -223,8 +276,19 @@ public sealed class HostedAccessLeaseService
                     var expiry = decision.CurrentPeriodEnd is { } end && new DateTimeOffset(end, TimeSpan.Zero) < ttlExpiry
                         ? new DateTimeOffset(end, TimeSpan.Zero)
                         : ttlExpiry;
-                    _leases[key] = new Lease(EntitlementOutcome.Entitled, expiry);
-                    return HostedAccessDecision.Allow;
+
+                    // REMOTE ACCESS RIDES THE SAME READ (Pricing Change mission, B2): the tier above and the tenant
+                    // row are what the one rule needs, so it is asked here, once per read, and kept on the lease.
+                    // The lease is POSITIVE whatever the rule answers - the account is entitled and its Director is
+                    // served - and only a Cockpit or phone request is refused or told to ask again, by Serve, for
+                    // that request alone. Nothing here reaches the revoke branch below.
+                    var lease = new Lease(EntitlementOutcome.Entitled, expiry,
+                        _remoteAccess.Decide(decision.Tier, account.AccountSubject, account.CreatedAtUtc, now.UtcDateTime));
+                    _leases[key] = lease;
+                    if (cockpitOrPhone && lease.RemoteAccess != RemoteAccessAnswer.Granted)
+                        FileLog.Write($"[HostedAccessLease] a Cockpit or phone request, and the account's remote access is {lease.RemoteAccess} " +
+                                      "(this request only - the lease stands and nothing is revoked)");
+                    return Serve(lease, cockpitOrPhone);
                 }
 
                 case EntitlementOutcome.NotEntitled:
@@ -245,7 +309,7 @@ public sealed class HostedAccessLeaseService
                     if (_leases.TryGetValue(key, out var existing)
                         && existing.Outcome == EntitlementOutcome.Entitled
                         && now < existing.ExpiresAtUtc)
-                        return HostedAccessDecision.Allow;
+                        return Serve(existing, cockpitOrPhone);
                     return HostedAccessDecision.RetryUnknown;
                 }
             }
@@ -262,11 +326,11 @@ public sealed class HostedAccessLeaseService
     /// revoked; a failed read is Unknown, honouring an unexpired lease and otherwise a temporary deny. There is no
     /// revoke here at all: the team's keys are cut by the team's own membership changes, never by a lease read.
     /// </summary>
-    private HostedAccessDecision ApplyTeamRead(TenantId tenant, string key, string person, DateTimeOffset now)
+    private HostedAccessDecision ApplyTeamRead(TenantId tenant, string key, string person, DateTimeOffset now, bool cockpitOrPhone)
     {
         // A membership read that failed is not known - Unknown, never "not a member", which is a verdict.
         if (_teams!.DecideOrUnknown(tenant, person, now.UtcDateTime) is not { } decision)
-            return UnknownFor(key, now);
+            return UnknownFor(key, now, cockpitOrPhone);
 
         if (!decision.IsMember)
         {
@@ -284,8 +348,16 @@ public sealed class HostedAccessLeaseService
                 var expiry = entitlement.CurrentPeriodEnd is { } end && new DateTimeOffset(end, TimeSpan.Zero) < ttlExpiry
                     ? new DateTimeOffset(end, TimeSpan.Zero)
                     : ttlExpiry;
-                _leases[key] = new Lease(EntitlementOutcome.Entitled, expiry);
-                return HostedAccessDecision.Allow;
+
+                // A TEAM'S TENANT IS UNCHANGED BY THE PRICING CHANGE: every member has remote access here, whatever
+                // their seat and whatever the team's bill. This is the one line that says so. It is deliberately NOT
+                // read from the scope table, where a Collaborator and every member of a team with no running bill
+                // sit on the free tier: the mission changes what a PERSONAL plan includes and leaves the Teams bill
+                // out of its scope, and locking a Collaborator or a team's Owner out is not what it was asked to do.
+                // Whether a team with no running bill should lose remote access is an open question for the owner.
+                var lease = new Lease(EntitlementOutcome.Entitled, expiry, RemoteAccessAnswer.Granted);
+                _leases[key] = lease;
+                return Serve(lease, cockpitOrPhone);
             }
             case EntitlementOutcome.Entitled:
             case EntitlementOutcome.NotEntitled:
@@ -294,16 +366,16 @@ public sealed class HostedAccessLeaseService
                 throw new InvalidOperationException(
                     $"A team member's entitlement came back {entitlement.Outcome} on tier '{entitlement.Tier}', which the team rule never answers - the lease will not guess a grant or a revoke.");
             default:
-                return UnknownFor(key, now);
+                return UnknownFor(key, now, cockpitOrPhone);
         }
     }
 
-    private HostedAccessDecision UnknownFor(string key, DateTimeOffset now)
+    private HostedAccessDecision UnknownFor(string key, DateTimeOffset now, bool cockpitOrPhone)
     {
         if (_leases.TryGetValue(key, out var existing)
             && existing.Outcome == EntitlementOutcome.Entitled
             && now < existing.ExpiresAtUtc)
-            return HostedAccessDecision.Allow;
+            return Serve(existing, cockpitOrPhone);
         return HostedAccessDecision.RetryUnknown;
     }
 
