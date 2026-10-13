@@ -13,11 +13,14 @@ namespace CcDirector.Gateway.Api;
 /// <see cref="CronEngine"/> and <see cref="CronRunHistoryStore"/>. The scheduled firing happens on
 /// the Gateway's background timer; these routes let a caller fire immediately and read past runs.
 ///
-///   POST /cron/jobs/{id}/run    -> 200 CronRunRecord | 409 (overlap) | 404
+///   POST /cron/jobs/{id}/run    -> 200 CronRunRecord | 409 (overlap, or everything is paused) | 404
 ///   GET  /cron/jobs/{id}/runs   -> { jobId, runs: [ CronRunRecord ] }, each with its ending folded on
 /// </summary>
 internal static class CronRunEndpoints
 {
+    /// <summary>Why a run-now starts nothing while the account's scheduler is paused (issue #3910).</summary>
+    public const string PausedRefusal = "Everything is paused, so nothing was started. Resume everything first.";
+
     public static void Map(IEndpointRouteBuilder app, CronEngine engine, CronRunRecordReader history,
         // Factory Memory mission (phase 1's gate, extended by review finding 2): which factory a schedule belongs
         // to, and which factory the calling session belongs to. Running a factory's schedule NOW starts a session
@@ -47,6 +50,8 @@ internal static class CronRunEndpoints
                     Results.Conflict(new { error = "a prior run of this job is still in flight", id }),
                 CronFireOutcome.NoSuchJob =>
                     Results.NotFound(new { error = "no such cron job", id }),
+                CronFireOutcome.Paused =>
+                    Results.Conflict(new { error = PausedRefusal, id }),
                 _ => throw new InvalidOperationException($"unhandled fire outcome: {result.Outcome}"),
             };
         });

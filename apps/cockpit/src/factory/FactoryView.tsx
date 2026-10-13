@@ -6,9 +6,10 @@ import {
   type FactoryPageView,
   type FactorySeatsView,
 } from "@devthrottle/client-core/factory/factoriesScreenClient";
-import { getCronJob, type CronJob } from "@devthrottle/client-core/schedule/scheduleClient";
+import { getCronJob, setCronJobEnabled, type CronJob } from "@devthrottle/client-core/schedule/scheduleClient";
 import { Button, EmptyState, ErrorBanner, LoadingState } from "../components";
 import { ScheduleEditor, type ScheduleEditorRequest } from "../schedule/ScheduleEditor";
+import { PausedBanner, useSchedulerPause } from "../schedule/SchedulerPause";
 import { ActivityTab, ReportsTab, useView } from "./FactoryActivityTabs";
 import { FailuresCard, useScrollToHash } from "./FactoryFailures";
 import { FactoryFloorPanel } from "./FactoryFloor";
@@ -237,9 +238,12 @@ function Overview({
 }
 
 // The Seats tab. Each seat's schedules carry an Edit that opens the same editor as the Schedule page, because a
-// factory's schedules are changed in the factory (the owner, 2026-10-09).
+// factory's schedules are changed in the factory (the owner, 2026-10-09) - and, beside it, the one tap that pauses or
+// resumes it, right where its state is read (issue #3910).
 function SeatsTab({ view: d, onChanged }: { view: FactorySeatsView; onChanged: () => void }) {
   const [editor, setEditor] = useState<ScheduleEditorRequest | null>(null);
+  // Pause everything (issue #3910): while it is on, no seat's schedule starts, and the tab says so.
+  const schedulerPause = useSchedulerPause(SURFACE);
   // The schedule being fetched for the editor, so its button says so while it loads.
   const [opening, setOpening] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -250,6 +254,28 @@ function SeatsTab({ view: d, onChanged }: { view: FactorySeatsView; onChanged: (
     (saved: CronJob) => {
       setLoadWarning(saved.loadWarning ?? null);
       onChanged();
+    },
+    [onChanged],
+  );
+
+  // The schedule being paused or resumed, so its button says so until the Gateway has answered.
+  const [switching, setSwitching] = useState<string | null>(null);
+
+  // One tap. The target is what the button said - a paused schedule is resumed, an active one paused - never "the
+  // opposite of whatever is stored", so a tap on a row that changed underneath it cannot do the reverse.
+  const toggleSchedule = useCallback(
+    async (jobId: string, paused: boolean) => {
+      setError(null);
+      setSwitching(jobId);
+      try {
+        const saved = await setCronJobEnabled(jobId, paused);
+        setLoadWarning(saved.loadWarning ?? null);
+        onChanged();
+      } catch (err) {
+        setError(describeAndReport(SURFACE, paused ? "resume the schedule" : "pause the schedule", err));
+      } finally {
+        setSwitching(null);
+      }
     },
     [onChanged],
   );
@@ -268,6 +294,7 @@ function SeatsTab({ view: d, onChanged }: { view: FactorySeatsView; onChanged: (
 
   return (
     <div className="fa-tab-body">
+      <PausedBanner control={schedulerPause} />
       {error !== null && <ErrorBanner message={error} />}
       {loadWarning !== null && (
         <div className="fa-warn" role="status">
@@ -307,6 +334,16 @@ function SeatsTab({ view: d, onChanged }: { view: FactorySeatsView; onChanged: (
                               onClick={() => void openEditor(s.jobId)}
                             >
                               {opening === s.jobId ? "Opening..." : s.editLabel}
+                            </Button>
+                          )}
+                          {s.toggleLabel !== null && (
+                            <Button
+                              variant="secondary"
+                              data-testid={`fa-seat-toggle-${s.jobId}`}
+                              disabled={switching !== null}
+                              onClick={() => void toggleSchedule(s.jobId, s.paused)}
+                            >
+                              {switching === s.jobId ? "Saving..." : s.toggleLabel}
                             </Button>
                           )}
                         </div>

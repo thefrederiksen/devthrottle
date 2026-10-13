@@ -256,6 +256,13 @@ public static class TenantSettingKeys
     public const string FactoryAgentsSwitch = "factory_agents_switch";
 
     /// <summary>
+    /// The pause-everything switch (issue #3910): the moment the account's scheduler was paused, as a round-trip UTC
+    /// time. No row means not paused. Read and written only by <c>Running.CronPauseSwitch</c>; it sits beside the
+    /// schedules and never changes one.
+    /// </summary>
+    public const string SchedulesPaused = "schedules_paused";
+
+    /// <summary>
     /// The factory maps (issue #3383): a JSON object, factory id to the latest map that factory published with
     /// <c>PUT /gateway/factory/map</c> - its boxes, arrows and layout, when and by whom. The Cockpit draws it on the
     /// factory's Map tab. See <c>Factory.FactoryMapStore</c>.
@@ -298,6 +305,7 @@ public static class TenantSettingKeys
         FleetManagerMarkClearedSession, FleetManagerMarkClearedReason, FleetManagerWaitingSuccessors,
         FleetManagerReplacementStartingAt,
         FactoryReports, FactoryAgentsSwitch, FactoryMaps,
+        SchedulesPaused,
         GatewayInstanceId,
         DemoMode,
     };

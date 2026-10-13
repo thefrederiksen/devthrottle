@@ -961,6 +961,7 @@ public sealed class GatewayHost : IAsyncDisposable
     // G8 increment 2: the cron sweep now fires through the per-tenant tenancy seam (TenantScopedSweep) so it
     // can run ON hosted, tenant-isolated, instead of being disabled. Constructed alongside _cronEngine.
     private Running.CronTenantSweep? _cronSweep;
+    private readonly Running.CronPauseSwitch _cronPause;
     // Reentrancy guard for the cron sweep. On hosted the per-tenant fan-out can take longer than the 60s tick,
     // so a later tick must NOT start a second overlapping sweep (that could double-fire a job in the window
     // between a tenant's ListAll and MarkFired). 0 = idle, 1 = a sweep is in flight (Interlocked-owned).
@@ -2389,6 +2390,7 @@ public sealed class GatewayHost : IAsyncDisposable
             zoneOf: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)),
             writeActivity: (tenant, run, row, correction) => _cronRuns.WriteActivityRow(tenant, run, row, correction),
             nowUtc: () => cronClock.UtcNow);
+        _cronPause = new Running.CronPauseSwitch(_tenantSettings);
         _cronEngine = new Running.CronEngine(
             _cronJobs, _cronRuns, new Running.DirectorCronSessionStarter(_machineSessionSpawner, cronClock,
                 // Issue #3650: a job whose factory or seat the registry does not have never starts. The fire runs in
@@ -2400,7 +2402,9 @@ public sealed class GatewayHost : IAsyncDisposable
             // run-now request scope on hosted, the single Local scope on self-host - the same seam the notifier
             // reads. A run-now for tenant A's cj_ id must never be refused by tenant B's in-flight same-id job.
             resolveTenant: () => _tenantPass.Current,
-            onResultRecorded: (tenant, job, run) => _cronRunResults.Announce(tenant, job, run));
+            onResultRecorded: (tenant, job, run) => _cronRunResults.Announce(tenant, job, run),
+            // Issue #3910: the account's pause-everything switch, read at the top of every sweep and run-now.
+            isPaused: _cronPause.IsPaused);
         // G8 increment 2: wrap the cron engine in the per-tenant worker seam so the background sweep enters
         // each tenant's scope before it reads the tenant-scoped cron_jobs store. The same pass records the runs that
         // did not report or ran past their shift (Factory Control, step 1).
@@ -5590,6 +5594,11 @@ public sealed class GatewayHost : IAsyncDisposable
         Api.CronSeatChoicesEndpoint.Map(_app, ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary) is { } tenant
             ? FactoryRegistry.List(tenant)
             : null);
+
+        // Pause everything (issue #3910): the account's one switch that stops the scheduler firing.
+        Api.CronPauseEndpoint.Map(_app, _cronPause, _cronJobs,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            nowUtc: () => DateTime.UtcNow);
 
         // Cron firing surface (epic #479, part 2 = #483): run-now and run-history over the engine.
         // Scheduled firing runs on the background sweep timer started below in StartAsync.

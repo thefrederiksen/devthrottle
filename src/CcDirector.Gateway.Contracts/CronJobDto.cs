@@ -135,6 +135,19 @@ public sealed class CronJobDto
     public string? Lifecycle { get; set; }
 
     /// <summary>
+    /// The schedule's state in the one word every surface shows (issue #3910): "Active", "Paused", or "Finished" for
+    /// a one-off that has run. Folded by the Gateway from <see cref="Lifecycle"/> on every read, so no client turns
+    /// the enabled flag into a word of its own. Read-only.
+    /// </summary>
+    public string? StateLabel { get; set; }
+
+    /// <summary>
+    /// What one tap on the schedule's state does now: "Pause" for one that is switched on, "Resume" for one that is
+    /// not. Folded by the Gateway on every read. Read-only.
+    /// </summary>
+    public string? ToggleLabel { get; set; }
+
+    /// <summary>
     /// Whether this schedule's recent sessions closed themselves, folded by the Gateway from the run history on a
     /// list read. Null when the read did not fold it (a single-job read or a write). Read-only.
     /// </summary>

@@ -5,6 +5,7 @@ import {
   getCronJobs,
   getCronLoad,
   getCronRuns,
+  cronJobWriteBody,
   runCronJobNow,
   updateCronJob,
   type CronJob,
@@ -13,6 +14,7 @@ import {
 } from "@devthrottle/client-core/schedule/scheduleClient";
 import { LoadStrip, machineShown, resolveHourPick } from "./LoadStrip";
 import { ScheduleEditor, type ScheduleEditorRequest } from "./ScheduleEditor";
+import { PauseEverythingButton, PausedBanner, useSchedulerPause } from "./SchedulerPause";
 import { getGatewaySettings } from "@devthrottle/client-core/settings/settingsClient";
 import { useVisiblePolling } from "@devthrottle/client-core/polling/useVisiblePolling";
 import { clockLabel, relativeTime, repoBasename } from "../fleet/format";
@@ -65,14 +67,15 @@ export function ScheduleView() {
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-
+  // Pause everything (issue #3910): the account's one switch, read from the Gateway and shown as given.
+  const schedulerPause = useSchedulerPause(SURFACE);
 
   // The schedule editor, while it is open (issue #1289). It is its own component so a factory's Seats tab opens the
   // same one (the owner, 2026-10-09).
   const [editor, setEditor] = useState<ScheduleEditorRequest | null>(null);
 
   // Which list the grid shows (the owner, 2026-10-09): only the schedules that will still run, by default. A
-  // spent one-off and a switched-off schedule are still reachable, behind the Paused and Historical tabs.
+  // spent one-off and a paused schedule are still reachable, behind the Paused and Historical tabs.
   const [list, setList] = useState<ScheduleList>("active");
   // Layout A (the owner, 2026-10-09): grouped by factory by default; "Group: None" gives the flat list.
   const [grouped, setGrouped] = useState(true);
@@ -225,12 +228,12 @@ export function ScheduleView() {
         // every field the toggle does not change, notify settings included, so flipping enabled
         // never silently clears them (Blazor #622), while keeping read-only scheduling state on the
         // Gateway.
-        const saved = await updateCronJob(job.id, toMutableDto(job, { enabled: !job.enabled }));
+        const saved = await updateCronJob(job.id, cronJobWriteBody(job, { enabled: !job.enabled }));
         setLoadWarning(saved.loadWarning ?? null);
         await refresh();
         await refreshLoad();
       } catch (err) {
-        setActionError(`Toggle failed: ${describeAndReport(SURFACE, job.enabled ? "pause the schedule" : "resume the schedule", err)}`);
+        setActionError(`${job.enabled ? "Pause" : "Resume"} failed: ${describeAndReport(SURFACE, job.enabled ? "pause the schedule" : "resume the schedule", err)}`);
       }
     },
     [refresh, refreshLoad],
@@ -266,7 +269,7 @@ export function ScheduleView() {
         render: (job) => (
           <span
             className={`sched-dot2 ${job.enabled ? "on" : "off"}`}
-            title={job.enabled ? "Enabled" : "Disabled"}
+            title={job.stateLabel ?? undefined}
           />
         ),
       },
@@ -388,6 +391,7 @@ export function ScheduleView() {
         ),
       },
       {
+        // One word everywhere (issue #3910): Active or Paused, as the Gateway stamped it. A tap pauses or resumes.
         key: "enabled",
         header: "Status",
         width: "90px",
@@ -396,11 +400,11 @@ export function ScheduleView() {
         sortValue: (job) => (job.enabled ? 0 : 1),
         render: (job) => (
           <button
-            className={`sched-chip ${job.enabled ? "enabled" : "disabled"}`}
-            title="Toggle enabled"
+            className={`sched-chip ${job.enabled ? "active" : "paused"}`}
+            title={job.toggleLabel ? `${job.toggleLabel} this schedule` : undefined}
             onClick={() => void toggleEnabled(job)}
           >
-            {job.enabled ? "Enabled" : "Disabled"}
+            {job.stateLabel ?? ""}
           </button>
         ),
       },
@@ -415,7 +419,7 @@ export function ScheduleView() {
           <span className="sched-actions">
             {job.lifecycle === "paused" && (
               <button className="sched-linkbtn" onClick={() => void toggleEnabled(job)}>
-                Resume
+                {job.toggleLabel}
               </button>
             )}
             <button className="sched-linkbtn" onClick={() => void runNow(job)}>
@@ -480,7 +484,7 @@ export function ScheduleView() {
         <div className="sched-detail">
           <div className="sched-detail-summary">
             <span className={`sched-dot2 ${job.enabled ? "on" : "off"}`} />
-            {job.enabled ? "Enabled" : "Disabled"} - <span className="mono">{job.target.machine}</span> -{" "}
+            {job.stateLabel} - <span className="mono">{job.target.machine}</span> -{" "}
             <span className="mono">{job.action.repoPath}</span>
           </div>
 
@@ -602,11 +606,16 @@ export function ScheduleView() {
         title="Schedule"
         subtitle={`${ownActive} active job${ownActive === 1 ? "" : "s"} of your own, plus ${factoryActive} in factories.`}
         actions={
-          <Button variant="primary" onClick={openCreate}>
-            New cron job
-          </Button>
+          <>
+            <PauseEverythingButton control={schedulerPause} />
+            <Button variant="primary" onClick={openCreate}>
+              New cron job
+            </Button>
+          </>
         }
       />
+
+      <PausedBanner control={schedulerPause} />
 
       {lastError !== null && <div className="sched-banner-error">Gateway error: {lastError}</div>}
       {actionError !== null && <div className="sched-banner-error">{actionError}</div>}
@@ -773,8 +782,8 @@ export function ScheduleView() {
 // The three list tabs, in order. Active is the default and the one the header counts.
 const LIST_TABS: { key: ScheduleList; label: string; title: string }[] = [
   { key: "active", label: "Active", title: "Schedules that will still run" },
-  { key: "paused", label: "Paused", title: "Repeating schedules that are switched off; switch one on to resume it" },
-  { key: "historical", label: "Historical", title: "One-off schedules that have run, or were switched off before they ran" },
+  { key: "paused", label: "Paused", title: "Repeating schedules that are paused; resume one to run it again" },
+  { key: "historical", label: "Historical", title: "One-off schedules that have run, or were paused before they ran" },
 ];
 
 const LIST_EMPTY: Record<ScheduleList, string> = {
@@ -782,33 +791,6 @@ const LIST_EMPTY: Record<ScheduleList, string> = {
   paused: "No paused cron jobs.",
   historical: "No historical cron jobs.",
 };
-
-// Reduce a full CronJob (as read back from the Gateway, carrying its computed nextRunUtc /
-// lastFiredUtc / lastStatus / createdUtc) to a clean create/update DTO of ONLY the mutable fields,
-// applying overrides last. The enable/disable toggle routes through this so a plain toggle never
-// echoes the Gateway's read-only scheduling state back to it (issue #1027) - the same clean shape
-// buildFromForm produces for the edit path.
-function toMutableDto(job: CronJob, overrides: Partial<CronJob>): CronJob {
-  return {
-    id: "",
-    name: job.name,
-    enabled: job.enabled,
-    scheduleKind: job.scheduleKind,
-    cronExpression: job.cronExpression ?? null,
-    runAt: job.runAt ?? null,
-    timeZoneId: job.timeZoneId,
-    target: { machine: job.target.machine },
-    action: {
-      repoPath: job.action.repoPath,
-      seed: job.action.seed,
-      workListName: job.action.workListName ?? null,
-    },
-    preventOverlap: job.preventOverlap,
-    notifyOn: job.notifyOn,
-    notifyWebhookUrl: job.notifyWebhookUrl ?? null,
-    ...overrides,
-  };
-}
 
 // ---- display helpers (faithful ports of the Blazor private helpers) ----
 

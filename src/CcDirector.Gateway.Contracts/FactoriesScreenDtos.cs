@@ -507,4 +507,13 @@ public sealed class FactorySeatScheduleDto
 
     /// <summary>"Edit schedule"; null for a schedule the store no longer has, which has nothing to edit.</summary>
     public string? EditLabel { get; set; }
+
+    /// <summary>True when this schedule is switched off. The button beside it then resumes it.</summary>
+    public bool Paused { get; set; }
+
+    /// <summary>
+    /// The one-tap button beside Edit (issue #3910): "Pause" for a schedule that is switched on, "Resume" for one
+    /// that is paused. Null for a schedule the store no longer has, and for a one-off that has already run.
+    /// </summary>
+    public string? ToggleLabel { get; set; }
 }

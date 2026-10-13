@@ -506,7 +506,7 @@ export const FACTORY_SEATS: FactorySeatsView = {
       closingText: "stayed open 3 of its last 7 runs (fixture)",
       closingTone: "amber",
       talk: { label: "Talk", busyLabel: "Starting the talk with nora-hale (fixture)...", factoryId: "warmforward", seatId: "nora-hale" },
-      schedules: [{ jobId: "cj_boss", whenText: "Daily 06:15", editLabel: "Edit schedule" }],
+      schedules: [{ jobId: "cj_boss", whenText: "Daily 06:15", editLabel: "Edit schedule", paused: false, toggleLabel: "Pause" }],
     },
     {
       seatId: "value-hunter",
@@ -519,7 +519,7 @@ export const FACTORY_SEATS: FactorySeatsView = {
       closingText: "no runs recorded yet (fixture)",
       closingTone: "grey",
       talk: { label: "Talk", busyLabel: "Starting the talk with value-hunter (fixture)...", factoryId: "warmforward", seatId: "value-hunter" },
-      schedules: [{ jobId: "cj_value", whenText: "Schedule cj_value is missing", editLabel: null }],
+      schedules: [{ jobId: "cj_value", whenText: "Schedule cj_value is missing", editLabel: null, paused: false, toggleLabel: null }],
     },
   ],
   note: "Only seats the boss hired are listed.",

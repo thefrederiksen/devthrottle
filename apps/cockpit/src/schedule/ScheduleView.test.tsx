@@ -16,6 +16,8 @@ const cronClient = vi.hoisted(() => ({
   updateCronJob: vi.fn(),
   deleteCronJob: vi.fn(),
   createCronJob: vi.fn(),
+  getCronPause: vi.fn(async () => ({ paused: false, banner: null, actionLabel: "Pause everything", actionTitle: "" })),
+  setCronPause: vi.fn(),
   getSeatChoices: vi.fn(async () => ({ noneLabel: "No factory (Personal)", factories: [] })),
 }));
 vi.mock("@devthrottle/client-core/schedule/scheduleClient", () => cronClient);

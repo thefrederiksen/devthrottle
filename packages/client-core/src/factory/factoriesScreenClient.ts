@@ -118,13 +118,13 @@ export interface FactoriesListView {
   outsideTitle: string;
   /** What the list is and what to do about a row on it. */
   outsideText: string;
-  /** Every enabled schedule that is no seat of any factory, as the Gateway ordered them. */
+  /** Every active schedule that is no seat of any factory, as the Gateway ordered them. */
   outsideRows: FactoryOutsideScheduleRow[];
   /** Set when there are none. */
   outsideEmptyText: string | null;
 }
 
-/** One enabled schedule that is no seat of any registered factory (issue #3650). */
+/** One active schedule that is no seat of any registered factory (issue #3650). */
 export interface FactoryOutsideScheduleRow {
   id: string;
   name: string;
@@ -272,6 +272,10 @@ export interface FactorySeatSchedule {
   whenText: string;
   /** "Edit schedule"; null for a schedule that no longer exists. */
   editLabel: string | null;
+  /** True when the schedule is paused; the button beside it then resumes it. */
+  paused: boolean;
+  /** "Pause" or "Resume" (issue #3910); null for a schedule that no longer exists or a one-off that has run. */
+  toggleLabel: string | null;
 }
 
 export interface FactorySeatsView {

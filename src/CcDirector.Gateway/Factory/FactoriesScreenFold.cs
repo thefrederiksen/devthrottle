@@ -153,7 +153,7 @@ public static class FactoriesScreenFold
                           "must be a seat of its factory - register the seat, then link the schedule to it with " +
                           "cc-devthrottle schedule link <id> --factory <factory> --seat <seat>.",
             OutsideRows = outside,
-            OutsideEmptyText = outside.Count == 0 ? "Every enabled schedule is a seat of a factory." : null,
+            OutsideEmptyText = outside.Count == 0 ? "Every active schedule is a seat of a factory." : null,
         };
     }
 
@@ -407,6 +407,11 @@ public static class FactoriesScreenFold
                         JobId = job.Id,
                         WhenText = FactoryScheduleText.Describe(job, a.Zone),
                         EditLabel = "Edit schedule",
+                        Paused = !job.Enabled,
+                        // A one-off that has run has nothing to pause or resume.
+                        ToggleLabel = CronSchedule.LifecycleOf(job) == CronLifecycle.Spent
+                            ? null
+                            : CronSchedule.ToggleLabelOf(job.Enabled),
                     }
                     : new FactorySeatScheduleDto { JobId = id, WhenText = $"Schedule {id} is missing", EditLabel = null })
                 .ToList(),
