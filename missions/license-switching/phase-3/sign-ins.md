@@ -140,6 +140,11 @@ reason whatever is set; a real Director would have asked the approver.
 
 ## Tests
 
+**The numbers below are those of the first push. The review round after it added three tests and three wrong changes
+and removed one test; its numbers - 1144 in the Cockpit, 79 the page's own, 124 wrong changes, the gate green at
+`9d4389ca6`, and the proof run made again - are in `../review-3954-answer.md`. The Cockpit's failing test that this
+section could not name was found by the review: `src/team/teamPage.test.tsx`, on main, fixed in its own pull request.**
+
 Run on 13 October 2026 on the Windows machine, one at a time, in the foreground, on the tree rebased onto main:
 
 - `apps/cockpit` (`npx vitest run`): 109 files, **1142 passed, 0 failed**. The page's own are 77: 21 in
@@ -169,27 +174,16 @@ tree rebased onto that.
 `LicensesViewSignIns.test.tsx` replaces nothing of the page or of its client - only the browser's `fetch`. So it sees
 what leaves the browser (route, method, content type, body) and what a person reads.
 
-### The fixtures, and the one part of them that is not a copy
+### The fixtures
 
-`fixtures.ts` is written by `copy_fixtures.py` from the Gateway's own examples in `cockpit-api.md`; it now holds 24 of
-the document's 28 examples, and `fixtures.test.ts` holds each to the document.
+`fixtures.ts` is written by `copy_fixtures.py` from the Gateway's own examples in `cockpit-api.md`; it holds 27 of
+the document's 31 examples, and `fixtures.test.ts` holds each to the document. Every one is a copy and nothing else.
 
-**The document's full overview (section 2) was produced before the sign-in routes existed.** It lacks the nine fields
-the Gateway now sends on every account, machine and sign-in, and section 7.6 shows those fields only, for another
-picture (there "the-mac" is on account C). A page drawn from section 2's example as it stands would be drawn from an
-answer the Gateway no longer gives. So the script fills those fields in for section 2's picture, and says so in the
-file it writes: no approver, no sign-in offered, and the sentence of section 7.6 for a machine whose Director is not
-connected, with the machine's own label in it. `fixtures.test.ts` holds both halves: the overview without those
-fields is the document's example, and the fields are that fill and nothing else. The proof run then showed the real
-Gateway wording that sentence for "the-windows-machine" exactly as the fill has it. Every test of a sign-in lays the
-Gateway's real example of the fields (section 7.6) over the overview, on the account, machine and sign-in it names.
-
-This is a gap in the document, not in the routes: **section 2's example, and the empty one of section 5, should be
-produced again** so that they carry the fields, and the fill can then be deleted (the script stops and says so when
-the example carries them).
-
-The sentences of the three `403 owner_only` refusals have no example in the document. The page's tests spell them as
-the route does; the run shows the real ones, and they are the same.
+When this pull request was first pushed, one part was not: the document's full overview (section 2) had been
+produced before the sign-in routes existed, so the script filled its nine sign-in fields in. After the review the
+example was produced again by the Gateway's own route handler, with the fields, and the fill was deleted; the three
+`403 owner_only` sentences, which had no example, were added to section 7 from the proof run. How, and what was
+checked, is in `../review-3954-answer.md`, findings 7 and 8.
 
 ### Each test proved by breaking the code
 
@@ -238,7 +232,7 @@ one caught**: the 61 of the first two pull requests, all still caught, and the 6
 | The Renew now confirmation says what it does in the page's own words | 1 |
 | The removal confirmation says what is removed in the page's own words | 1 |
 | The Add a spare confirmation drops the Gateway's sentence for the machine | 1 |
-| A filled-in sign-in field of the overview fixture is edited by hand | 1 |
+| A sign-in field of the overview fixture is edited by hand | 1 |
 | A sign-in fixture is edited by hand and no longer the document's example | 1 |
 | The approver is sent without the machine's user | 1 |
 | The approver is sent without the machine's user - seen from the page's tests | 2 |
@@ -268,6 +262,7 @@ the email keyboard now, the code is what does it, and both changes are caught.
 ## Still owed
 
 - A sentence per target in `switchTargets` (carried from the second pull request).
-- Section 2's and section 5's examples of `cockpit-api.md` produced again with the sign-in fields (above).
+- Who approves an account cannot be set while the overview is empty: the Sign-ins part is drawn with the machines,
+  and an empty overview shows the Gateway's sentence in place of everything (`../review-3954-answer.md`, finding 2).
 - The owner's email for a renewal that keeps failing is not part of the page; `cockpit-api.md` says it follows in its
   own pull request.
