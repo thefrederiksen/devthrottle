@@ -503,7 +503,7 @@ describe("A factory's Seats tab (mockup 3)", () => {
   it("pauses a seat's schedule with one tap beside its Edit, and shows the seats again", async () => {
     cronClient.setCronJobEnabled.mockResolvedValue({ id: "cj_boss", enabled: false });
     renderAt("/factories/warmforward/seats");
-    const nora = await screen.findByTestId("fa-seat-nora-hale");
+    const nora = await screen.findByTestId("fa-seat-night-nora-hale");
     // Beside the existing Edit, on the same schedule line.
     const line = within(nora).getByText("Daily 06:15").parentElement as HTMLElement;
     expect(within(line).getByRole("button", { name: "Edit schedule" })).toBeTruthy();
@@ -514,23 +514,25 @@ describe("A factory's Seats tab (mockup 3)", () => {
     await waitFor(() => expect(cronClient.setCronJobEnabled).toHaveBeenCalledWith("cj_boss", false));
     await waitFor(() => expect(screenClient.getFactorySeats.mock.calls.length).toBeGreaterThan(seatReads));
     // A schedule that no longer exists has nothing to pause.
-    const hunter = screen.getByTestId("fa-seat-value-hunter");
+    const hunter = screen.getByTestId("fa-seat-none-value-hunter");
     expect(within(hunter).queryByRole("button", { name: /Pause|Resume/ })).toBeNull();
   });
 
   it("resumes a paused seat schedule with one tap, where it reads (paused)", async () => {
     // The owner's own example from 12 October: the state was shown, with no control next to it.
+    // A paused schedule will not run, so the Gateway lists its seat under "No run in the next 7 days".
+    const [boss0, hunter0] = FACTORY_SEATS.rows;
+    const noRun = "No run in the next 7 days";
+    const pausedBoss = {
+      ...boss0,
+      whenText: "Daily 09:00 (America/New_York) (paused)",
+      shiftText: noRun,
+      schedules: [{ jobId: "cj_boss", whenText: "Daily 09:00 (America/New_York) (paused)", editLabel: "Edit schedule", paused: true, toggleLabel: "Resume", shiftText: noRun }],
+    };
     const pausedSeats = {
       ...FACTORY_SEATS,
-      rows: FACTORY_SEATS.rows.map((r) =>
-        r.seatId !== "nora-hale"
-          ? r
-          : {
-              ...r,
-              whenText: "Daily 09:00 (America/New_York) (paused)",
-              schedules: [{ jobId: "cj_boss", whenText: "Daily 09:00 (America/New_York) (paused)", editLabel: "Edit schedule", paused: true, toggleLabel: "Resume" }],
-            },
-      ),
+      rows: [pausedBoss, hunter0],
+      groups: [{ shift: "none", title: "No run in the next 7 days (fixture)", rows: [pausedBoss, hunter0] }],
     };
     screenClient.getFactorySeats.mockResolvedValue(pausedSeats);
     cronClient.setCronJobEnabled.mockResolvedValue({ id: "cj_boss", enabled: true });
@@ -546,11 +548,11 @@ describe("A factory's Seats tab (mockup 3)", () => {
     cronClient.setCronJobEnabled.mockRejectedValue(new GatewayError(400, "PUT /cron/jobs/cj_boss failed: this window schedule cannot be placed"));
     renderAt("/factories/warmforward/seats");
 
-    fireEvent.click(within(await screen.findByTestId("fa-seat-nora-hale")).getByRole("button", { name: "Pause" }));
+    fireEvent.click(within(await screen.findByTestId("fa-seat-night-nora-hale")).getByRole("button", { name: "Pause" }));
 
     expect((await screen.findByRole("alert")).textContent).toContain("could not pause the schedule");
     // The button is offered again.
-    expect((within(screen.getByTestId("fa-seat-nora-hale")).getByRole("button", { name: "Pause" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((within(screen.getByTestId("fa-seat-night-nora-hale")).getByRole("button", { name: "Pause" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("says on the Seats tab that everything is paused, so a seat that does not run is not taken for a broken one", async () => {
