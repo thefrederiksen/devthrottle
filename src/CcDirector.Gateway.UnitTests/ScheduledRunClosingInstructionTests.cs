@@ -47,10 +47,19 @@ public sealed class ScheduledRunClosingInstructionTests : IDisposable
 
     [Theory]
     [InlineData("Do the work, then cc-devthrottle run result ok.")]
-    [InlineData("Do the work. At the end: Run Result problem \"why\" if it failed.")]
+    [InlineData("Do the work. At the end: CC-DevThrottle Run Result problem \"why\" if it failed.")]
     public void PromptFor_APromptThatAlreadyNamesRunResult_IsLeftExactlyAsItIs(string ownersWording)
     {
         Assert.Equal(ownersWording, ScheduledRunClosingInstruction.PromptFor(ownersWording));
+    }
+
+    [Theory]
+    [InlineData("Check the test run results and fix what failed.")]
+    [InlineData("Read the last run result in the log, then carry on.")]
+    public void PromptFor_APromptThatOnlyHappensToSayRunResult_StillGetsTheInstruction(string prompt)
+    {
+        // Only the command itself counts as the owner's own wording: these prompts have not told their run to report.
+        Assert.Equal(prompt + "\n\n" + ScheduledRunClosingInstruction.Text, ScheduledRunClosingInstruction.PromptFor(prompt));
     }
 
     [Fact]

@@ -6,13 +6,14 @@ namespace CcDirector.Gateway.Running;
 /// instruction to report. It is added at the moment the run is started, to the text that run receives: the schedule's
 /// stored prompt is never changed, and stays as the owner wrote it everywhere it is shown.
 ///
-/// The ONE place the wording lives. A prompt that already names <c>run result</c> is left exactly as it is - the
-/// owner's own wording wins.
+/// The ONE place the wording lives. A prompt that already names the command, <c>cc-devthrottle run result</c>, is left
+/// exactly as it is - the owner's own wording wins. The bare words are not enough: a prompt that says "check the test
+/// run results" has not told its run to report.
 /// </summary>
 public static class ScheduledRunClosingInstruction
 {
-    /// <summary>What a prompt names when it already tells its run to report.</summary>
-    public const string OwnWordingMarker = "run result";
+    /// <summary>What a prompt names when it already tells its run to report: the command itself.</summary>
+    public const string OwnWordingMarker = "cc-devthrottle run result";
 
     /// <summary>The closing instruction, as the run reads it.</summary>
     public const string Text =
@@ -22,7 +23,7 @@ public static class ScheduledRunClosingInstruction
 
     /// <summary>
     /// The prompt a scheduled run is given: <paramref name="storedPrompt"/> followed by the closing instruction, or
-    /// <paramref name="storedPrompt"/> unchanged when it already names <c>run result</c>.
+    /// <paramref name="storedPrompt"/> unchanged when it already names <c>cc-devthrottle run result</c>.
     /// </summary>
     public static string PromptFor(string storedPrompt)
     {
