@@ -37,6 +37,9 @@ public sealed class FakeTunnelDirector : IAsyncDisposable
     /// <summary>The id this Director registered + connected under.</summary>
     public string DirectorId { get; }
 
+    /// <summary>What the Gateway answered this Director's Hello with: its version and the hub methods it offers.</summary>
+    public GatewayCapabilities? Capabilities { get; private set; }
+
     // Every command the Gateway sent over the tunnel, in the order it arrived.
     private readonly System.Collections.Concurrent.ConcurrentQueue<DirectorCommand> _received = new();
 
@@ -75,6 +78,9 @@ public sealed class FakeTunnelDirector : IAsyncDisposable
     /// <param name="dispatch">Optional per-verb dispatcher; may be set later with <see cref="OnCommand"/>.</param>
     /// <param name="changesOwner">Say on Hello that this Director carries out <c>set-controller</c> (hand over).</param>
     /// <param name="changesOwnerIfExpected">Say on Hello that it makes that change only while the owner is the expected one.</param>
+    /// <param name="secretTransferPublicKey">The public half this Director says on Hello for receiving a sealed value;
+    /// none by default, as a Director that cannot receive one.</param>
+    /// <param name="osUser">The operating system user this Director says on Hello.</param>
     public static async Task<FakeTunnelDirector> StartAsync(
         GatewayHost gateway,
         string token,
@@ -82,7 +88,9 @@ public sealed class FakeTunnelDirector : IAsyncDisposable
         string? machineName = null,
         Func<DirectorCommand, DirectorCommandResult>? dispatch = null,
         bool changesOwner = false,
-        bool changesOwnerIfExpected = false)
+        bool changesOwnerIfExpected = false,
+        string secretTransferPublicKey = "",
+        string osUser = "test")
     {
         // Registered UNREACHABLE: nothing listens on this advertised endpoint, so any working result
         // could only have come over the tunnel. The port is RESERVED for the fake's lifetime rather than
@@ -119,12 +127,13 @@ public sealed class FakeTunnelDirector : IAsyncDisposable
         // registration (DirectorHub.Hello -> DirectorRegistry.RegisterFromStream). Send the full identity so
         // the registered entry has the same machine name the Upsert above set - the stream registration
         // overwrites the (unreachable) HTTP entry, so a working result still proves the tunnel carried it.
-        await conn.InvokeAsync("Hello", new DirectorStreamHello
+        fake.Capabilities = await conn.InvokeAsync<GatewayCapabilities?>("Hello", new DirectorStreamHello
         {
             DirectorId = directorId,
             Version = "test",
             MachineName = machineName ?? Environment.MachineName,
-            User = "test",
+            User = osUser,
+            SecretTransferPublicKey = secretTransferPublicKey,
             Pid = 1,
             StartedAt = DateTime.UtcNow,
             ChangesOwner = changesOwner,
@@ -180,6 +189,16 @@ public sealed class FakeTunnelDirector : IAsyncDisposable
     /// holder Director does. Each call bumps the sequence.</summary>
     public Task PushLicenseUsageAsync(LicenseUsageReport report) =>
         _conn.InvokeAsync("PushLicenseUsage", ++_sequence, report);
+
+    /// <summary>Ask the Gateway to have a sign-in approved on another machine (License Switching, contract section
+    /// 8.3), through the hub method a Director with no browser profile of its own for the account calls. The hub
+    /// answers at once; the outcome arrives later as the <c>license-approval-result</c> command.</summary>
+    public Task RequestLicenseApprovalAsync(LicenseApprovalRequest request) =>
+        _conn.InvokeAsync(LicenseContract.RequestApprovalHubMethod, request);
+
+    /// <summary>Close this Director's tunnel, as a machine that lost its connection does. A command it has not
+    /// answered yet ends on the Gateway as a dropped tunnel.</summary>
+    public Task StopTunnelAsync() => _conn.StopAsync();
 
     /// <summary>Serialize a verb result body the way the real Director cores do.</summary>
     public static DirectorCommandResult Ok(object body) =>

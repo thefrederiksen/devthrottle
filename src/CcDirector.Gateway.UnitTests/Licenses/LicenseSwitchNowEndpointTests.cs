@@ -31,6 +31,8 @@ public sealed class LicenseSwitchNowEndpointTests : IDisposable
     private const string Mac = "the-mac";
 
     private readonly GatewayDbTestHarness _harness = new();
+    private readonly LicenseApproverStore _approvers;
+    private readonly LicenseSignInLog _signIns;
     private readonly LicenseStore _store;
     private readonly LicenseSnapshotSource _snapshots;
     private readonly LicenseSwitchService _service;
@@ -41,7 +43,10 @@ public sealed class LicenseSwitchNowEndpointTests : IDisposable
 
     public LicenseSwitchNowEndpointTests()
     {
-        _store = new LicenseStore(_harness.Open());
+        var db = _harness.Open();
+        _store = new LicenseStore(db);
+        _approvers = new LicenseApproverStore(new CcDirector.Gateway.Settings.TenantSettingsStore(db));
+        _signIns = new LicenseSignInLog(db);
         _snapshots = new LicenseSnapshotSource(_store, new LicenseReadModel(_store));
         _director = request => Answer(request, LicenseSwitchOutcomes.Switched);
         _service = new LicenseSwitchService(_store, _snapshots,
@@ -113,7 +118,7 @@ public sealed class LicenseSwitchNowEndpointTests : IDisposable
     private JsonElement AccountOnThePage(TenantId tenant, string email)
     {
         var ctx = Context();
-        var result = LicenseEndpoints.Overview(ctx, _ => tenant, _snapshots, () => _now);
+        var result = LicenseEndpoints.Overview(ctx, _ => tenant, _snapshots, () => _now, _approvers, _signIns, (_, _) => false);
         result.ExecuteAsync(ctx).GetAwaiter().GetResult();
         var json = JsonDocument.Parse(Encoding.UTF8.GetString(((MemoryStream)ctx.Response.Body).ToArray())).RootElement.Clone();
         return json.GetProperty("accounts").EnumerateArray().Single(a => a.GetProperty("accountEmail").GetString() == email);

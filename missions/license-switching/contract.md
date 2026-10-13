@@ -718,6 +718,22 @@ sealed to a recipient), not by a second copy of the envelope code in the Directo
 - A sign-in the Director gives up on is ended by closing the tool's standard input. The tool treats that as the
   caller calling it off, not as its own failure, so an approval that never came files no error report.
 
+**As built, the Gateway's side (`LicenseApprovalRelay`).**
+
+- **A request that is not taken fails the hub call, and the Gateway keeps nothing for it.** `RequestLicenseApproval`
+  throws for a `SignInId` that is not 32 lower-case hex, an `AccountEmail` that is not an email of at most 320
+  characters, an `AuthorizeUrl` that is missing or longer than 4,096 characters, and a request made while the
+  account already has 8 approvals in flight. The Director turns a failed call into the end of its sign-in. No
+  entry, no task and no command exists for a refused request, so a Director that asks in a loop costs the Gateway
+  nothing for each request past the limit, and the limit is each DevThrottle account's own.
+- **A request that is taken is always answered with `license-approval-result`**, also when the relay itself fails:
+  the answer is then `refused` / `approval-failed` with a sentence that names only the kind of failure.
+- **The Gateway waits for `license-approve` until the sooner of 3 minutes and the request's `NotAfterUtc`.** A wait
+  that ended at the deadline is answered `refused` / `expired`; a request that arrives at or after its deadline is
+  answered `expired` and no machine is asked.
+- **Nothing of a request is logged before it is checked**, and a refusal quotes none of it: the log names the
+  sign-in's identifier, the account (once it is known to be an email), the machines and the outcome.
+
 ### 8.4 Starting a sign-in from the Cockpit
 
 **Command `license-sign-in`, Gateway to the target Director**, for "Add a spare" and "Renew now" on the Licenses page:
@@ -753,6 +769,38 @@ A request that arrives after its `NotAfterUtc` is answered `failed` / `expired` 
 Director run one at a time: a second waits for the first, and one whose deadline passed while it waited is answered
 `expired`. The three commands (`license-sign-in`, `license-approve`, `license-approval-result`)
 address no session, as `license-switch` does.
+
+**As built, the Gateway's side: a sign-in with no answer (`LicenseSignInService.SettleUnansweredAsync`).** The
+Gateway writes the sign-in's row before it sends, as it does for a switch (5.5). A row whose answer never came - the
+5 minute wait ended, the tunnel dropped, or the Gateway restarted - is left alone until no Director could still be
+running it: `NotAfterUtc` plus the 5 minute wait, 15 minutes after it was asked. Then, once a minute:
+
+1. The Gateway sends `license-sign-in` again with THE SAME `SignInId` and the same `NotAfterUtc` to the Director
+   that last reported for the machine, and waits 60 seconds. This is the replay of this section and 3.6: a Director
+   that ran it returns its stored result (`Replayed = true`), and that ends the row.
+   - **Asking again starts nothing only while the Director's clock is within 5 minutes of the Gateway's**, because
+     the Director judges `NotAfterUtc` by its own clock and the Gateway asks 5 minutes after it. So a machine whose
+     measured clock difference (5.2) is 4 minutes or more, either way, is NOT asked; it goes to step 2.
+   - **An answer with `Replayed = false` ends the row only when no command for it had gone out before.** A Director
+     keeps a result for 24 hours (`SignInResultRetention`); after that it answers `failed` / `expired` for a
+     sign-in it did run. For a row whose command had gone out, that answer is not how the sign-in ended, and step 2
+     decides.
+   - **A wait that ends with no answer settles nothing in that pass**, not from a report either: the Director may
+     be running the sign-in at that moment. The next minute tries again.
+2. Only when step 1 gave nothing that says how it ended (no Director connected, a machine that was not asked, a
+   dropped tunnel, an answer that is not this sign-in's result, or an answer that is not a replay of a command that
+   had gone out) is the row settled from the machine's report - and only from a report the Gateway accepted AFTER
+   those 15 minutes, never from an earlier one. A new spare is `added` when that report shows the holding. A
+   renewal is `renewed` when the holding's `SignedInAtUtc` in that report DIFFERS from the value the machine had
+   reported before the sign-in was asked for, which the Gateway keeps on the row. Two values of the machine's own
+   clock are compared; the machine's clock is never compared with the Gateway's, because they may be minutes apart
+   (5.2). Until such a report arrives the row stays open.
+3. A row whose machine has sent no report for 24 hours is ended `failed`, with no reason word and a sentence saying
+   the machine has not been seen for a day and how the sign-in ended is not known. Without this a machine that
+   never comes back would keep a sign-in for that machine and account refused as running for good.
+
+`SignInId` and `SwitchId` are exactly 32 lower-case hexadecimal digits and nothing after them: the pattern ends at the
+end of the text, so an identifier followed by a line break is refused.
 
 ### 8.5 Constants added to section 7
 

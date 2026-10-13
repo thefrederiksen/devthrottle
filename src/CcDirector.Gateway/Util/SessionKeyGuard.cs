@@ -377,6 +377,10 @@ public static class SessionKeyGuard
                 case "gateway/licenses":
                 case "gateway/licenses/forecast":
                 case "gateway/licenses/log":
+                // Which machine and browser profile approve each account's sign-ins (contract section 8.3): an email,
+                // a machine name, a user and a profile name. An agent can say why a sign-in was not approved. Setting
+                // or removing an approver, and starting a sign-in, are NOT here: they are the owner's own actions.
+                case "gateway/licenses/approvers":
                     return true;
             }
 

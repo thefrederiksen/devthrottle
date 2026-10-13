@@ -258,6 +258,16 @@ public sealed class LicenseAccountDto
     /// <summary>The bar in one sentence, to show beside the account; null when it is not barred. A barred account can
     /// still be chosen by hand, and the sentence says so.</summary>
     public string? BarredText { get; set; }
+
+    /// <summary>The machine and browser profile set to approve this account's sign-ins for machines that cannot
+    /// approve them alone (contract section 8.3); null when none is set.</summary>
+    public LicenseApproverDto? Approver { get; set; }
+
+    /// <summary>The sentence saying who approves this account's sign-ins, or that nobody is set to. Always set.</summary>
+    public string ApproverText { get; set; } = "";
+
+    /// <summary>One of <see cref="LicenseTones"/> for <see cref="ApproverText"/>.</summary>
+    public string ApproverTone { get; set; } = "";
 }
 
 /// <summary>One usage window of one account.</summary>
@@ -348,6 +358,15 @@ public sealed class LicenseMachineDto
 
     /// <summary>The switch this machine is in the middle of; null when there is none.</summary>
     public LicenseSwitchInProgressDto? SwitchInProgress { get; set; }
+
+    /// <summary>"Add a spare" is offered for this machine: a sign-in can be started on it now.</summary>
+    public bool CanAddSpare { get; set; }
+
+    /// <summary>What "Add a spare" does here, or the sentence saying why it is not offered.</summary>
+    public string AddSpareText { get; set; } = "";
+
+    /// <summary>The sign-ins started from the Cockpit that this machine has not finished, oldest first.</summary>
+    public List<LicenseSignInInProgressDto> SignInsInProgress { get; set; } = new();
 }
 
 /// <summary>One sign-in a machine holds, active or spare.</summary>
@@ -392,6 +411,12 @@ public sealed class LicenseMachineHoldingDto
 
     /// <summary>The sentence for <see cref="ReadError"/>; null when the last read worked.</summary>
     public string? ReadErrorText { get; set; }
+
+    /// <summary>"Renew now" is offered for this sign-in: a renewal can be started on its machine now.</summary>
+    public bool CanRenewNow { get; set; }
+
+    /// <summary>What "Renew now" does here, or the sentence saying why it is not offered.</summary>
+    public string RenewNowText { get; set; } = "";
 }
 
 /// <summary>A switch a machine is in the middle of.</summary>

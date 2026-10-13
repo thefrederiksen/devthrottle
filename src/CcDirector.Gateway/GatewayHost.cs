@@ -428,6 +428,18 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>License Switching's minute check and Switch now: decides, sends each switch and records what came back.</summary>
     internal Licenses.LicenseSwitchService LicenseSwitches { get; }
 
+    /// <summary>Which machine and browser profile approve the sign-ins of each Claude account (contract section 8.3).</summary>
+    internal Licenses.LicenseApproverStore LicenseApprovers { get; }
+
+    /// <summary>Has a sign-in approved on the machine set for its account, and passes the answer back (contract section 8.3).</summary>
+    internal Licenses.LicenseApprovalRelay LicenseApprovals { get; }
+
+    /// <summary>The sign-in rows of the Licenses log.</summary>
+    internal Licenses.LicenseSignInLog LicenseSignInLog { get; }
+
+    /// <summary>Starts a sign-in on a machine from the Cockpit and records how it ended (contract section 8.4).</summary>
+    internal Licenses.LicenseSignInService LicenseSignIns { get; }
+
     /// <summary>The record of every message link set up and stopped, and every message a link carried, in the
     /// governance audit trail.</summary>
     internal Messaging.FleetMessageLinkRecord MessageLinkRecord { get; }
@@ -2322,6 +2334,16 @@ public sealed class GatewayHost : IAsyncDisposable
         LicenseNow = new Licenses.LicenseGatewayClock(() => LicenseClock.GetUtcNow().UtcDateTime);
         LicenseSwitches = new Licenses.LicenseSwitchService(LicenseStore, LicenseSnapshots,
             SendCommandAsync, licenseOwnerMailer.SendAsync, LicenseNow.UtcNow);
+        // Sign-ins (contract section 8): who approves each account, the relay that has a sign-in approved on that
+        // machine, and the sign-ins started from the Cockpit. Each sends inside the tenant's scope, where
+        // SendCommandAsync resolves a Director's connection for that tenant alone.
+        LicenseApprovers = new Licenses.LicenseApproverStore(_tenantSettings);
+        LicenseSignInLog = new Licenses.LicenseSignInLog(_gatewayDb);
+        var licenseCommands = Licenses.LicenseCommandSenders.Over(SendCommandAsync);
+        LicenseApprovals = new Licenses.LicenseApprovalRelay(LicenseApprovers, LicenseReads, IsDirectorConnected,
+            licenseCommands, tenant => _tenantBoundary.EnterScope(tenant), LicenseNow.UtcNow, _licenseSwitchLifetime.Token);
+        LicenseSignIns = new Licenses.LicenseSignInService(LicenseSignInLog, LicenseReads, IsDirectorConnected,
+            licenseCommands, tenant => _tenantBoundary.EnterScope(tenant), LicenseNow.UtcNow, _licenseSwitchLifetime.Token);
         // Per-tenant dictation transcript store (issue #509): every transcribed turn's raw and cleaned text
         // lands in the caller tenant's partition of the dictation_transcripts table, write-only, for later
         // mistranscription mining (devthrottle #2075). Same store on SQLite (self-host) and Postgres (hosted) -
@@ -4233,6 +4255,8 @@ public sealed class GatewayHost : IAsyncDisposable
         // License Switching: DirectorHub.PushLicenseUsage hands each report to the ingest.
         builder.Services.AddSingleton(LicenseUsage);
         builder.Services.AddSingleton(LicenseNow);
+        // And DirectorHub.RequestLicenseApproval hands each request to the relay.
+        builder.Services.AddSingleton(LicenseApprovals);
         // Gateway Cleanup mission (Wave 4b): the Gateway-native mission store, so the mission endpoints and
         // spawn validation share the one instance.
         builder.Services.AddSingleton(Missions);
@@ -5516,7 +5540,20 @@ public sealed class GatewayHost : IAsyncDisposable
             store: LicenseStore,
             nowUtc: () => LicenseClock.GetUtcNow().UtcDateTime,
             switches: LicenseSwitches,
-            tenantInScope: () => _tenantPass.Current);
+            tenantInScope: () => _tenantPass.Current,
+            approvers: LicenseApprovers,
+            signIns: LicenseSignInLog,
+            isConnected: IsDirectorConnected);
+
+        // The sign-in routes of the Licenses page (contract section 8): who approves each account's sign-ins, and
+        // "Add a spare" and "Renew now". Only the read of the approvers is in SessionKeyGuard's allow list.
+        Api.LicenseSignInEndpoints.Map(_app,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            approvers: LicenseApprovers,
+            signIns: LicenseSignIns,
+            reads: LicenseReads,
+            isConnected: IsDirectorConnected,
+            nowUtc: () => LicenseClock.GetUtcNow().UtcDateTime);
 
         // Requests for a message link (issue #3548): a session asks, the owner - or a raised session - answers. Asking is
         // in SessionKeyGuard's ordinary allow list; the list and the answer are on RaisedGrant.MessageLinks.
@@ -6606,6 +6643,9 @@ public sealed class GatewayHost : IAsyncDisposable
         {
             // Inside ITenantPass.ForEachTenantAsync: SendCommandAsync drops a command sent with no tenant scope.
             await LicenseSwitches.TickEveryTenantAsync(_tenantPass, _licenseSwitchLifetime.Token).ConfigureAwait(false);
+            // A sign-in started from the Cockpit whose answer never came back is settled once no Director could
+            // still be running it: by asking its Director again, else from a later report (contract section 8.4).
+            await LicenseSignIns.SettleEveryTenantAsync(_tenantPass, _licenseSwitchLifetime.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (_licenseSwitchLifetime.IsCancellationRequested)
         {
@@ -6993,6 +7033,10 @@ public sealed class GatewayHost : IAsyncDisposable
             history = _sessionHistory.Get(sessionId);
         return new(history?.SessionNumber, history?.SessionName);
     }
+
+    /// <summary>Whether that tenant's Director has an active stream connection now.</summary>
+    private bool IsDirectorConnected(Core.Tenancy.TenantId tenant, string directorId)
+        => PushedSessions.GetActiveConnectionId(tenant, directorId) is not null;
 
     public async Task<DirectorCommandResult?> SendCommandAsync(string directorId, DirectorCommand command, CancellationToken ct = default)
     {

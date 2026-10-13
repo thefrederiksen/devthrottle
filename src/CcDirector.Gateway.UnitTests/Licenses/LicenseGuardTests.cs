@@ -5,9 +5,9 @@ using Xunit;
 namespace CcDirector.Gateway.Tests.Licenses;
 
 /// <summary>
-/// What a session key may call of the Licenses routes (License Switching): exactly the three reads, by verb. A route
+/// What a session key may call of the Licenses routes (License Switching): exactly the reads, by verb. A route
 /// that is mapped but missing from <see cref="SessionKeyGuard"/> answers 403 to every agent while every other test
-/// stays green, so each route is named here by hand - a new route needs a new line. Switch now is the owner's own action and stays refused to a session key.
+/// stays green, so each route is named here by hand - a new route needs a new line. Switch now, setting an approver and starting a sign-in are the owner's own actions and stay refused to a session key.
 /// </summary>
 public sealed class LicenseGuardTests
 {
@@ -31,6 +31,18 @@ public sealed class LicenseGuardTests
     [InlineData("POST", "/gateway/licenses/accounts/renewal", false)]
     [InlineData("POST", "/gateway/licenses/switch-now", false)]
     [InlineData("GET", "/gateway/licenses/switch-now", false)]
+    [InlineData("GET", "/gateway/licenses/approvers", true)]
+    [InlineData("GET", "/Gateway/Licenses/Approvers/", true)]
+    [InlineData("HEAD", "/gateway/licenses/approvers", true)]
+    [InlineData("PUT", "/gateway/licenses/approvers", false)]
+    [InlineData("DELETE", "/gateway/licenses/approvers", false)]
+    [InlineData("POST", "/gateway/licenses/approvers", false)]
+    [InlineData("GET", "/gateway/licenses/approvers/x", false)]
+    [InlineData("POST", "/gateway/licenses/sign-ins/add-spare", false)]
+    [InlineData("POST", "/gateway/licenses/sign-ins/renew", false)]
+    [InlineData("GET", "/gateway/licenses/sign-ins/add-spare", false)]
+    [InlineData("GET", "/gateway/licenses/sign-ins/renew", false)]
+    [InlineData("GET", "/gateway/licenses/sign-ins", false)]
     public void TheGuard_AllowsASessionKey_ExactlyTheLicenseReads(string method, string path, bool allowed)
     {
         Assert.Equal(allowed, SessionKeyGuard.Check(method, path).Allowed);
@@ -52,6 +64,24 @@ public sealed class LicenseGuardTests
     {
         Assert.False(SessionKeyGuard.Check("PUT", LicenseRoutes.AccountRenewal).Allowed);
         Assert.False(SessionKeyGuard.Check("PUT", LicenseRoutes.AccountRenewal, raised: true).Allowed);
+    }
+
+    [Fact]
+    public void TheGuard_AllowsTheApproversRead_ByTheSameConstantTheEndpointMapsItWith()
+    {
+        Assert.True(SessionKeyGuard.Check("GET", LicenseSignInRoutes.Approvers).Allowed);
+    }
+
+    [Theory]
+    [InlineData("PUT", LicenseSignInRoutes.Approvers)]
+    [InlineData("DELETE", LicenseSignInRoutes.Approvers)]
+    [InlineData("POST", LicenseSignInRoutes.AddSpare)]
+    [InlineData("POST", LicenseSignInRoutes.Renew)]
+    public void TheGuard_RefusesSettingAnApproverAndStartingASignIn_EvenToARaisedSession(string method, string route)
+    {
+        // Who approves a sign-in, and starting one, are the owner's own actions from the Cockpit.
+        Assert.False(SessionKeyGuard.Check(method, route).Allowed);
+        Assert.False(SessionKeyGuard.Check(method, route, raised: true).Allowed);
     }
 
     [Fact]

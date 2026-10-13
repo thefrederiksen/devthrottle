@@ -102,6 +102,8 @@
          isolation. -->
     <Compile Include="..\CcDirector.Gateway.Tests\Data\GatewayDbEnvironmentGate.cs" Link="Data/GatewayDbEnvironmentGate.cs" />
     <Compile Include="..\CcDirector.Gateway.Tests\StatsConcurrencyTestDb.cs" Link="StatsConcurrencyTestDb.cs" />
+    <!-- The log capture the License Switching tests of both projects read log lines through. -->
+    <Compile Include="..\CcDirector.Gateway.Tests\Licenses\CapturedLog.cs" Link="Licenses/CapturedLog.cs" />
     <Compile Include="..\CcDirector.Gateway.Tests\TestEs256Key.cs" Link="TestEs256Key.cs" />
     <Compile Include="..\CcDirector.Gateway.Tests\Stats\FrozenSqliteStatsReader.cs" Link="Stats/FrozenSqliteStatsReader.cs" />
     <Compile Include="..\CcDirector.Gateway.Tests\Account\GatewayTestJwt.cs" Link="Account/GatewayTestJwt.cs" />
