@@ -181,7 +181,9 @@ public sealed class FactoryRegistryRouteTests
         var list = await Send(h.Owner.GetAsync("gateway/factories"));
         Assert.True(list.Status == HttpStatusCode.OK, $"GET factories: {(int)list.Status} {list.Body}");
         var row = Assert.Single(JsonSerializer.Deserialize<FactoriesListViewDto>(list.Body, Web)!.Rows, r => r.Id == factory);
-        Assert.Equal("PAUSED", row.StatusWord); // its one schedule id names no schedule, so nothing runs its seats
+        // No schedule points at any of its seats, so nothing was ever set to run it: TALK ONLY, which was PAUSED until
+        // the Factory Seats mission (13 October 2026).
+        Assert.Equal("TALK ONLY", row.StatusWord);
         Assert.Equal("Talk to the boss", row.Talk!.Label);
 
         var page = await Send(h.Owner.GetAsync($"gateway/factories/{factory}"));

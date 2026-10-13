@@ -9,7 +9,8 @@ Run from the repository root, in the foreground, after building the Gateway (Deb
 It needs Playwright for Python and Google Chrome. With uv, and nothing installed into the machine's own Python:
 
     uv run --no-project --with playwright --with typer --with click --with rich --with requests \
-        --with ./tools/cc_storage --with ./tools/cc_shared python docs/qa/factory-seats/phase-1/capture.py
+        --with ./tools/cc_storage --with ./tools/cc_shared --with ./tools/cc-devthrottle \
+        python docs/qa/factory-seats/phase-1/capture.py
 
 What it does, and nothing else:
   1. Copies the Cockpit build into the Gateway's wwwroot/c, which is where the Gateway serves it from.
@@ -19,7 +20,7 @@ What it does, and nothing else:
      none; one nothing is scheduled for; and one whose only schedule is switched off.
   4. Opens the Cockpit in headless Chrome (Playwright as a library: a repeatable script, not interactive work),
      signed in with the scratch Gateway's own token, and takes the screenshots into this folder, at 1280 and at 375
-     pixels wide.
+     pixels wide. At 375 the Cockpit's menu is collapsed, so the picture shows the page.
   5. Writes every Gateway answer the report quotes into answers.json, exactly as the Gateway sent it.
   6. Stops the Gateway it started. The scratch data folder is left for inspection and is not in the repository.
 
@@ -220,8 +221,10 @@ def capture(token, scout):
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="chrome", headless=True)
         try:
-            for width, suffix in ((1280, "desktop"), (375, "phone")):
-                context = browser.new_context(viewport={"width": width, "height": 900})
+            # Tall enough that a whole page is in one picture: the Cockpit scrolls inside its own frame, so a
+            # "full page" screenshot is only ever as tall as the window.
+            for width, height, suffix in ((1280, 1300, "desktop"), (375, 2300, "phone")):
+                context = browser.new_context(viewport={"width": width, "height": height})
                 # A page load is let through by the cc-gateway-token cookie; the app's calls carry the stored key.
                 context.add_cookies([{"name": "cc-gateway-token", "value": token, "url": BASE}])
                 page = context.new_page()
@@ -232,6 +235,9 @@ def capture(token, scout):
                           { id: 'rig', label: 'Rig', email: null, deviceKey: token, installId: 'rig' }]));
                         localStorage.setItem('cc.activeAccount', 'rig');
                         localStorage.setItem('cc.deviceKey', token);
+                        // At phone width the menu is collapsed, as a reader on a narrow window keeps it, so the
+                        // picture shows the page rather than the menu.
+                        if (window.innerWidth < 600) localStorage.setItem('cockpit.railCollapsed', 'true');
                     }""",
                     token,
                 )
@@ -338,8 +344,9 @@ def capture(token, scout):
 
                 # 12. The schedule that kept running is not hidden: it is listed outside any factory.
                 page.goto(f"{BASE}/factories", wait_until="networkidle")
-                wait(page, "[data-testid=fa-group-talk]", "the Factories cards")
-                shot(page, "take-off-3-listed-outside-any-factory", suffix)
+                wait(page, f"[data-testid=fa-outside-{scout['id']}]", "the schedule under Schedules outside any factory")
+                page.locator("[data-testid=fa-outside]").screenshot(path=str(OUT / f"take-off-3-listed-outside-any-factory-{suffix}.png"))
+                log(f"take-off-3-listed-outside-any-factory-{suffix}.png")
 
                 link(token, scout)
                 context.close()
@@ -349,16 +356,19 @@ def capture(token, scout):
 
 def command_line(token, scout, plain):
     """The same act from the command line, against the same Gateway: the answer on success and on a refusal."""
+    # The tool is pointed at the scratch Gateway and given its token, so it can reach nothing else.
     env = dict(os.environ, CC_GATEWAY_URL=BASE, CC_GATEWAY_SESSION_KEY=token, NO_COLOR="1")
-    main = REPO / "tools" / "cc-devthrottle" / "main.py"
     runs = []
-    for label, args in (
-        ("take a schedule off its seat", ["schedule", "unlink", scout["id"]]),
-        ("take it off a second time", ["schedule", "unlink", scout["id"]]),
-        ("a schedule that is on no seat", ["schedule", "unlink", plain["id"]]),
-        ("a schedule that does not exist", ["schedule", "unlink", "cj_nowhere"]),
+    for label, args, expected in (
+        ("take a schedule off its seat", ["schedule", "unlink", scout["id"]], 0),
+        ("take it off a second time", ["schedule", "unlink", scout["id"]], 1),
+        ("a schedule that is on no seat", ["schedule", "unlink", plain["id"]], 1),
+        ("a schedule that does not exist", ["schedule", "unlink", "cj_nowhere"], 1),
     ):
-        done = subprocess.run([sys.executable, str(main), *args], env=env, capture_output=True, text=True, timeout=120)
+        done = subprocess.run([sys.executable, "-m", "cc_devthrottle.cli", *args], env=env, capture_output=True, text=True, timeout=120)
+        # A run that ended any other way is not evidence of anything - a tool that could not even start exits 1 too.
+        if done.returncode != expected or "Traceback" in done.stderr:
+            raise SystemExit(f"cc-devthrottle {' '.join(args)} exited {done.returncode}, expected {expected}:\n{done.stdout}\n{done.stderr}")
         runs.append({
             "what": label,
             "command": "cc-devthrottle " + " ".join(args),

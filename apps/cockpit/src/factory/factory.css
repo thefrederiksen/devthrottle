@@ -979,7 +979,8 @@ a.fa-tab {
    card is tinted so it is seen from across a room. Every colour is a palette token from styles.css. */
 .fa-strip {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  /* Six counts since "talk only" joined them (Factory Seats mission). */
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -1574,7 +1575,27 @@ a:focus .ff-bay rect {
   font-size: 13px;
 }
 
-/* One seat's page. A label beside its value; on a phone the value drops under its label. */
+/* One seat's page: its panels side by side where there is room, and what it has left behind - which holds a table -
+   across the whole width under them. */
+.fa-seat-panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.fa-seat-panels > * {
+  min-width: 0;
+}
+
+.fa-seat-panels p {
+  margin: 0;
+}
+
+.fa-seat-wide {
+  grid-column: 1 / -1;
+}
+
+/* A label beside its value; on a phone the value drops under its label. */
 .fa-seat-facts {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
@@ -1660,4 +1681,16 @@ a:focus .ff-bay rect {
   .fa-seat-facts dd {
     margin-bottom: 6px;
   }
+}
+
+/* The seat's recent activity keeps its columns readable on a narrow window: the table scrolls sideways inside its
+   panel instead of squeezing "What happened" down to one letter a line. */
+.fa-seat-wide .fa-scroll .fa-table {
+  min-width: 640px;
+}
+
+.fa-seat-wide > .fa-link {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 13px;
 }

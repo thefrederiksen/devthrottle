@@ -76,7 +76,7 @@ export function FactorySeatView() {
       )}
       {page.truncatedText !== null && <div className="fa-warn">{page.truncatedText}</div>}
 
-      <div className="fa-overview">
+      <div className="fa-seat-panels">
         <section className="fa-panel" data-testid="fa-seat-brief">
           <h2 className="fa-section-title">{page.brief.heading}</h2>
           <dl className="fa-seat-facts">
@@ -327,7 +327,7 @@ function UnlinkButton({ unlink, onDone }: { unlink: FactorySeatUnlink; onDone: (
 function LeftBehindPanel({ page }: { page: FactorySeatPageView }) {
   const left = page.leftBehind;
   return (
-    <section className="fa-panel" data-testid="fa-seat-left-behind">
+    <section className="fa-panel fa-seat-wide" data-testid="fa-seat-left-behind">
       <h2 className="fa-section-title">{left.heading}</h2>
       <dl className="fa-seat-facts">
         <dt>{left.lastTalkLabel}</dt>

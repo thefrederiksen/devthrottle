@@ -336,7 +336,7 @@ describe("Factories as cards - the stylesheet", () => {
     expect(grid![1]).toContain("repeat(auto-fill, minmax(260px, 1fr))");
     const strip = /\n\.fa-strip \{([\s\S]*?)\}/.exec(css);
     expect(strip).not.toBeNull();
-    expect(strip![1]).toContain("repeat(5, minmax(0, 1fr))");
+    expect(strip![1]).toContain("repeat(6, minmax(0, 1fr))");
     // The phone block that overrides them must come AFTER the base rules: at equal specificity the later rule wins, so
     // a phone block placed before them is dead (review finding, 8 Oct 2026). Find the block that holds the override
     // and check its position, not just its presence.

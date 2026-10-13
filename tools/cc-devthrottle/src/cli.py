@@ -4011,7 +4011,12 @@ def schedule_unlink(
     job_id: str = typer.Argument(..., help="The schedule id."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output what the Gateway did, with the schedule as it is now, as JSON."),
 ) -> None:
-    """Take a schedule off its factory seat. The schedule stays, switched as it was, in no factory."""
+    """Take a schedule off its factory seat; the schedule itself stays.
+
+    The schedule keeps its definition and stays switched on or off as it was, in no factory: one that is switched
+    on keeps running at its times as a plain schedule. A seat left with no schedule is talk only. Only a person or
+    a session of that factory may do this, the same rule as pausing the schedule.
+    """
     schedule_ops.unlink_job(job_id, json_output)
 
 
