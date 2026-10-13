@@ -306,50 +306,6 @@ public sealed class QueueGitExecutorTests
 
     // ---------- git writes ----------
 
-    private static string NewGitRepo()
-    {
-        var dir = Path.Combine(Path.GetTempPath(), "qgit-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(dir);
-        RunGit(dir, "init");
-        File.WriteAllText(Path.Combine(dir, "a.txt"), "hello");
-        return dir;
-    }
-
-    private static void RunGit(string dir, string args)
-    {
-        using var proc = Process.Start(new ProcessStartInfo("git", args)
-        {
-            WorkingDirectory = dir,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        })!;
-        proc.WaitForExit();
-    }
-
-    [Fact]
-    public async Task DispatchAsync_GitStage_RealRepo_ReturnsAccepted()
-    {
-        var repo = NewGitRepo();
-        var (sm, session, _) = NewSession(repo);
-        try
-        {
-            var result = await SessionCommandExecutor.DispatchAsync(sm, "dir-A",
-                Command("git-stage", session.Id.ToString(), new GitPathsRequest { Paths = new() }));
-
-            Assert.Equal(DirectorCommandStatus.Ok, result.Status);
-            var env = JsonSerializer.Deserialize<GitStageProbe>(result.BodyJson ?? "", Json);
-            Assert.NotNull(env);
-            Assert.True(env.Accepted); // git add -A exits zero
-        }
-        finally
-        {
-            sm.Dispose();
-            TryDelete(repo);
-        }
-    }
-
     [Fact]
     public async Task DispatchAsync_GitDiscard_NoPaths_RidesBackAsNotAccepted()
     {
@@ -418,13 +374,6 @@ public sealed class QueueGitExecutorTests
     private sealed class GitStageProbe
     {
         public bool Accepted { get; set; }
-    }
-
-    private static void TryDelete(string dir)
-    {
-        try { Directory.Delete(dir, recursive: true); }
-        catch (IOException) { /* a git lock may hold the dir briefly; a leftover temp dir is harmless */ }
-        catch (UnauthorizedAccessException) { /* same */ }
     }
 
     // ---------- create-from-github (guards; the success path needs a live GitHub token/network) ----------

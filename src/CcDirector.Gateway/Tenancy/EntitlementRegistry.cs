@@ -76,13 +76,12 @@ public sealed record EntitlementDecision(EntitlementOutcome Outcome, string? Tie
 /// into a denial. The failure is logged LOUD, because a persistent inability to read this table means
 /// nobody can enroll and that must not be silent.
 ///
-/// THE FREE TRIAL IS FOLDED IN HERE, AND ONLY HERE (issue #2117). The public pricing page promises every new
-/// account 14 days of Pro, and that promise has to be kept at the same read every other entitlement question
-/// is answered at - not bolted onto the enrollment endpoint - or the trial would let a member IN at
-/// enrollment and then be invisible to the ongoing request-path cutoff, which is where a trial has to EXPIRE.
-/// One place decides, so the enrollment gate, the hosted access lease and the 60-second sweep can never
-/// disagree about whether an account may use hosted today. See <see cref="TrialRegistry"/> for who is granted
-/// a trial; this type only READS the ledger and never grants.
+/// A RUNNING FREE TRIAL IS FOLDED IN HERE, AND ONLY HERE (issue #2117). No new trial is granted to anyone since
+/// the Pricing Change mission (B3), and a trial that was already running is honoured to its end: it is read at
+/// the same place every other entitlement question is answered, so the enrollment gate, the hosted access lease
+/// and the 60-second sweep can never disagree about whether an account may use hosted today, and the trial
+/// EXPIRES on the request path at its end instant. This type only READS the ledger (<see cref="TrialRegistry"/>)
+/// and never grants.
 ///
 /// Nothing personally identifying is logged here - not the subject, not the subscription reference.
 /// </summary>
@@ -104,7 +103,7 @@ public sealed class EntitlementRegistry
     /// The free-trial ledger (issue #2117). NULL means no trial concept at all - the behaviour before trials
     /// existed, byte-for-byte, which is what self-host and the existing tests get. When supplied, an account
     /// with no valid PAID entitlement is entitled while its trial is running, at Pro tier and expiring at the
-    /// trial's end instant.
+    /// trial's end instant, and is on the free plan otherwise.
     /// </param>
     public EntitlementRegistry(GatewayDatabase db, bool requireLivemode, TrialRegistry? trials = null)
     {
@@ -205,11 +204,11 @@ public sealed class EntitlementRegistry
         // is therefore not "entitled to everything"; it is "entitled to whatever free grants", which is
         // orchestration and nothing else.
         //
-        // THE TRIAL IS NOT SHORT-CIRCUITED BY THIS. A brand-new account reaches this line too, and if it were
-        // simply enrolled on free it would never be handed the fourteen days it is owed. The grant lives at the
-        // enrolment door rather than here, and that door reads the free tier as "no paid entitlement" exactly as
-        // it used to read NotEntitled - see HostedEnrollmentEndpoint. Anything that learns to act on this
-        // outcome must make the same distinction: Entitled-on-free is NOT a paying account.
+        // A BRAND-NEW ACCOUNT LANDS HERE TOO, AND STAYS HERE (Pricing Change mission, B3). No trial is granted to
+        // anyone any more, so an account arriving for the first time is on the free plan like any other account
+        // with no paid row: its Director enrols and runs, and it has no Cockpit, no phone app and no artificial
+        // intelligence until it buys a plan. Anything that acts on this outcome must keep the distinction this
+        // branch makes: Entitled-on-free is NOT a paying account.
         if (paid.Outcome == EntitlementOutcome.NotEntitled)
         {
             FileLog.Write("[EntitlementRegistry] Evaluate: ENTITLED on the FREE plan (no paid entitlement and no running trial; orchestration only - no artificial-intelligence scopes)");
@@ -551,7 +550,8 @@ public sealed class EntitlementRegistry
     public const string TierPro = "pro";
 
     /// <summary>
-    /// The FREE plan tier: hosted gateway capacity and nothing else. It is what an account holds when it has no
+    /// The FREE plan tier: a Director on the hosted Gateway and nothing else - no Cockpit, no phone app, no
+    /// artificial intelligence (Pricing Change mission, decision D2). It is what an account holds when it has no
     /// paid row and no running trial, and it is the reason the end of a trial is a downgrade rather than a
     /// cutoff (owner decision, 2026-09-02).
     ///
@@ -591,6 +591,23 @@ public sealed class EntitlementRegistry
         "Your DevThrottle Pro access has ended. Subscribe to keep using the wingman, dictation and spoken replies.";
 
     /// <summary>
+    /// The machine-readable code on the refusal a Cockpit or phone meets when its account has no remote access
+    /// (Pricing Change mission, B2). The phone's "Remote plan needed" screen is keyed on it.
+    /// </summary>
+    public const string RemotePlanRequiredCode = "remote_plan_required";
+
+    /// <summary>The short error beside <see cref="RemotePlanRequiredCode"/>.</summary>
+    public const string RemotePlanRequiredError = "the Cockpit and the phone app need the Remote plan";
+
+    /// <summary>
+    /// The one finished sentence a person reads when the Cockpit or the phone app is refused for the plan, paired
+    /// with <see cref="SubscribeUrl"/>. Stated once, so the refusal where a key is minted and the refusal on a
+    /// request say the same thing (see <see cref="RemoteAccessRefusal"/>).
+    /// </summary>
+    public const string RemotePlanRequiredMessage =
+        "The Cockpit and the phone app need the Remote plan or Pro. Your Director keeps working on the Free plan.";
+
+    /// <summary>
     /// The pro SELF-HOST plan tier: the artificial-intelligence features only, on a Gateway the customer runs
     /// themselves. This reader treats it exactly like any other tier - it is passed through unexamined, because
     /// this type answers "is there live money", not "what does the plan include". What it grants (and, load
@@ -606,9 +623,10 @@ public sealed class EntitlementRegistry
     public const string TierTeam = "team";
 
     /// <summary>
-    /// The REMOTE plan tier (Pricing Change mission, decision D3): the hosted Gateway, the Cockpit and the phone app,
-    /// and none of the artificial-intelligence features - no dictation, no text to speech, no Wingman. Written by the
-    /// payment side when a member buys the Remote plan. What it grants is decided in <see cref="EntitlementScopes"/>.
+    /// The REMOTE plan tier (Pricing Change mission, decision D3): the hosted Gateway, the Cockpit and the phone app
+    /// (<see cref="EntitlementScopes.RemoteAccess"/>), and none of the artificial-intelligence features - no dictation,
+    /// no text to speech, no Wingman. Written by the payment side when a member buys the Remote plan. What it grants
+    /// is decided in <see cref="EntitlementScopes"/>.
     /// </summary>
     public const string TierRemote = "remote";
 }

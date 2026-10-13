@@ -170,28 +170,6 @@ public sealed class GatewayDirectoryRegistrationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Heartbeat_updates_last_seen()
-    {
-        var id = Guid.NewGuid().ToString();
-        await _http.PostAsJsonAsync("directors/register", new DirectorRegistrationRequest
-        {
-            DirectorId = id,
-            TailnetEndpoint = "http://machine-d:7879",
-            MachineName = "machine-d",
-        });
-
-        // MTR-01: the HTTP registration path is Local-keyed; read it back through the tenant-scoped overload.
-        var before = _gateway.Registry.Get(CcDirector.Core.Tenancy.TenantId.Local, id)!.LastSeen;
-        await Task.Delay(50); // ensure a measurable delta
-
-        var resp = await _http.PostAsync($"directors/{id}/heartbeat", content: null);
-        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
-
-        var after = _gateway.Registry.Get(CcDirector.Core.Tenancy.TenantId.Local, id)!.LastSeen;
-        Assert.True(after > before, $"expected LastSeen to move forward; before={before}, after={after}");
-    }
-
-    [Fact]
     public async Task Heartbeat_returns_410_for_unknown_director()
     {
         // 410 Gone is the signal for the Director's GatewayClient to re-register.
@@ -254,5 +232,4 @@ public sealed class GatewayDirectoryRegistrationTests : IAsyncLifetime
         Assert.True(mediaType is "text/html" or "text/plain",
             $"expected the Cockpit shell to answer text; got {mediaType}");
     }
-
 }

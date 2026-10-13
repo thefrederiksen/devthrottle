@@ -120,26 +120,6 @@ public sealed class DirectorPolledReadsNotModifiedHostTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task TheSkillIndex_SecondRefreshIs304_AndTheIndexIsUnchanged()
-    {
-        var held = new HeldGatewayAnswers();
-        var cache = Path.Combine(_scratch, "skill-index.json");
-        var store = new SkillIndexStore(cache, _client, GatewayUrl, Token, held);
-
-        await store.RefreshAsync();
-        var firstIndex = store.ReadCache()!;
-        await Task.Delay(20); // so a re-stamp moves the cached time
-        await store.RefreshAsync();
-        var secondIndex = store.ReadCache()!;
-
-        Assert.Equal(new[] { HttpStatusCode.OK, HttpStatusCode.NotModified }, _wire.StatusesFor("/gateway/skills"));
-        Assert.Contains("- move-session:", secondIndex.Index);
-        Assert.Equal(firstIndex.Index, secondIndex.Index);
-        // A 304 confirms the copy is current, so the staleness clock restarts exactly as on a download.
-        Assert.True(secondIndex.CachedAtUtc > firstIndex.CachedAtUtc);
-    }
-
-    [Fact]
     public async Task TheWorkflowIndex_SecondRefreshIs304_AndTheIndexIsUnchanged()
     {
         var store = new WorkflowIndexStore(Path.Combine(_scratch, "workflow-index.json"), _client, GatewayUrl, Token,

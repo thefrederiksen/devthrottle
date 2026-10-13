@@ -120,9 +120,12 @@ internal static class MobileEnrollmentEndpoint
     /// Authorization Bearer header, run the ONE hosted mint (<see cref="HostedEnrollmentEndpoint.Enroll"/>) with
     /// the request's device id, and on a successful mint set the tenant-scoped device key as the session cookie
     /// and return it. This method does NOT validate the token, gate on entitlement, or mint a tenant/key itself:
-    /// every decision - a missing/forged/expired/wrong-audience token (401), an unentitled account (402), an
-    /// unknown entitlement read (503) - is inherited from the single <c>Enroll</c> call, which sets NO cookie
-    /// and mints NOTHING on any of them. The account token is never logged (security rule DT-05).
+    /// every decision - a missing/forged/expired/wrong-audience token (401), an account with no remote access or no
+    /// entitlement (402), an unknown entitlement read (503) - is inherited from the single <c>Enroll</c> call, which
+    /// sets NO cookie and mints NOTHING on any of them. This is the Cockpit and phone door
+    /// (<see cref="HostedEnrollmentEndpoint.EnrollDoor.CockpitOrPhone"/>), and it says so to the mint, which is what
+    /// makes the mint ask the remote access rule (Pricing Change mission, B2). The account token is never logged
+    /// (security rule DT-05).
     /// </summary>
     private static IResult CompleteHostedEnroll(HttpContext ctx, MobileEnrollmentRequest? req, HostedEnrollDependencies hosted)
     {
@@ -137,25 +140,17 @@ internal static class MobileEnrollmentEndpoint
         };
 
         var result = HostedEnrollmentEndpoint.Enroll(BearerToken.Read(ctx), enrollReq, hosted.Devices,
-            hosted.Tenants, hosted.AccountTokenValidator, hosted.Entitlements, DateTime.UtcNow, hosted.Trials);
+            hosted.Tenants, hosted.AccountTokenValidator, hosted.Entitlements, DateTime.UtcNow,
+            door: HostedEnrollmentEndpoint.EnrollDoor.CockpitOrPhone, remoteAccess: hosted.RemoteAccess);
 
         if (result.Status != StatusCodes.Status200OK || result.Response is null)
         {
             FileLog.Write($"[MobileEnrollment] POST /mobile/enroll (hosted): the hosted mint did not enroll -> {result.Status} (no cookie set)");
 
-            // A payment refusal says what to do about it (issue #2117), with the SAME sentence and address the
-            // Director enrollment route returns - one wording, owned by the Gateway, on every surface.
-            if (result.Status == StatusCodes.Status402PaymentRequired)
-            {
-                return Results.Json(new
-                {
-                    error = result.Error,
-                    message = Tenancy.EntitlementRegistry.SubscribeMessage,
-                    subscribeUrl = Tenancy.EntitlementRegistry.SubscribeUrl,
-                }, statusCode: result.Status);
-            }
-
-            return Results.Json(new { error = result.Error }, statusCode: result.Status);
+            // The refusal is written by the SAME function the Director enrollment route answers with - one wording,
+            // owned by the Gateway, on every surface: the remote access refusal, the payment sentence, a 503 that
+            // says when to ask again.
+            return HostedEnrollmentEndpoint.Refusal(ctx, result);
         }
 
         // The one credential the browser keeps is the tenant-scoped device key, set here through the single

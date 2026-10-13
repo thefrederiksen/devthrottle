@@ -1,0 +1,6 @@
+{
+  "asOfUtc": "2026-10-13T22:15:18.4232964Z",
+  "isEmpty": true,
+  "emptyText": "No machine is set to approve sign-ins for any account. A machine that has its own browser profile for an account approves its sign-ins there.",
+  "approvers": []
+}

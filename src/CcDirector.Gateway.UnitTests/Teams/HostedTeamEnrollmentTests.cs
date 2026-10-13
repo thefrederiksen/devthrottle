@@ -109,14 +109,14 @@ public sealed class HostedTeamEnrollmentTests : IDisposable
 
     private HostedEnrollmentEndpoint.EnrollResult Enroll(string subject, string deviceId, string? teamId, bool released = true) =>
         HostedEnrollmentEndpoint.Enroll(Token(subject), Req(deviceId, teamId), _devices, _tenants, _validator,
-            Entitlements(), DateTime.UtcNow, new TrialRegistry(_db), released ? TeamEnrollment() : null);
+            Entitlements(), DateTime.UtcNow, released ? TeamEnrollment() : null);
 
     private HostedEnrollmentEndpoint.TeamEnrollment TeamEnrollment() =>
         new(_teams, _access, (tenant, director) => _sessions.TryGetValue((tenant.Value, director), out var n) ? n : 0, _connections);
 
     private HostedEnrollmentEndpoint.EnrollResult Move(string subject, string directorId, string? teamId) =>
         HostedEnrollmentEndpoint.Move(Token(subject), new MoveDirectorRequest { DeviceId = directorId, TeamId = teamId },
-            _devices, _tenants, _validator, TeamEnrollment(), Entitlements(), DateTime.UtcNow, new TrialRegistry(_db));
+            _devices, _tenants, _validator, TeamEnrollment(), Entitlements(), DateTime.UtcNow);
 
     private DeviceCredentialIdentity Active(string key)
     {
@@ -374,6 +374,37 @@ public sealed class HostedTeamEnrollmentTests : IDisposable
     }
 
     [Fact]
+    public void Move_ABrowsersKey_IsRefused_AndSoIsSettingABrowserOrAPhoneUpForATeam()
+    {
+        // The Pricing Change mission (B2): a Cockpit's or a phone's key is told apart from a Director's by the type on
+        // the key, and only the Cockpit and phone door writes that type, after asking for remote access. The two
+        // Director routes that could re-issue or issue such a key - a move, and enrollment naming a team - refuse it.
+        var cockpit = HostedEnrollmentEndpoint.Enroll(Token(Owner),
+            new EnrollSignedInRequest { DeviceId = "cockpit-o", MachineName = "Cockpit", Platform = "browser", DeviceType = "browser" },
+            _devices, _tenants, _validator, Entitlements(), new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc), TeamEnrollment(),
+            HostedEnrollmentEndpoint.EnrollDoor.CockpitOrPhone, new RemoteAccessRule(PreLaunchGrace.NotSet));
+        Assert.Equal(200, cockpit.Status);
+        var personal = _tenants.LookupBySubject(Owner)!.Value.Value;
+        Assert.Equal(personal, Active(cockpit.Response!.DeviceKey).TenantId);
+
+        var moved = Move(Owner, "cockpit-o", _team);
+
+        Assert.Equal(400, moved.Status);
+        Assert.Equal(HostedEnrollmentEndpoint.DirectorDoorDeviceTypeCode, moved.Code);
+        // Nothing changed: the browser's key still works, where it was.
+        Assert.Equal(personal, Active(cockpit.Response.DeviceKey).TenantId);
+
+        foreach (var deviceType in new[] { "browser", "phone" })
+        {
+            var intoTeam = HostedEnrollmentEndpoint.Enroll(Token(Owner),
+                new EnrollSignedInRequest { DeviceId = "surface-" + deviceType, MachineName = "M", Platform = "windows", DeviceType = deviceType, TeamId = _team },
+                _devices, _tenants, _validator, Entitlements(), new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc), TeamEnrollment());
+            Assert.Equal(400, intoTeam.Status);
+            Assert.Equal(HostedEnrollmentEndpoint.DirectorDoorDeviceTypeCode, intoTeam.Code);
+        }
+    }
+
+    [Fact]
     public void Move_IntoATeamWhereThePersonIsOnlyACollaborator_OrNotAMember_IsRefused_AndNothingChanges()
     {
         var key = Enroll(Developer, "director-a", _team).Response!.DeviceKey;
@@ -621,7 +652,7 @@ public sealed class HostedTeamEnrollmentTests : IDisposable
         builder.Logging.ClearProviders();
         var app = builder.Build();
         app.Urls.Add("http://127.0.0.1:0");
-        HostedEnrollmentEndpoint.Map(app, _devices, _tenants, _validator, Entitlements(), new TrialRegistry(_db), teams);
+        HostedEnrollmentEndpoint.Map(app, _devices, _tenants, _validator, Entitlements(), teams);
         await app.StartAsync();
         return app;
     }

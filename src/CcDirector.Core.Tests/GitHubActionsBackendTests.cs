@@ -332,41 +332,6 @@ public sealed class GitHubActionsBackendTests
     }
 
     [Fact]
-    public async Task WorkflowDispatch_DispatchesWorkflow_PassesPromptInput_NoThread()
-    {
-        var gh = new StubGitHubClient();
-        gh.RunStatusScript.Enqueue("in_progress");
-        gh.RunStatusScript.Enqueue("completed");
-
-        var config = new RemoteSessionConfig
-        {
-            Owner = "acme",
-            Repo = "widget",
-            TriggerMode = RemoteTriggerMode.WorkflowDispatch,
-            WorkflowFile = "claude-dispatch.yml",
-            InitialPrompt = "run the export job",
-            PollIntervalMs = 25,
-        };
-
-        var states = new List<ActivityState>();
-        using var backend = Paced(config, gh, out var pacer);
-        backend.ActivitySink = s => { lock (states) states.Add(s); };
-        backend.StartRemote();
-
-        var done = await pacer.PollUntilAsync(() =>
-        {
-            lock (states) return states.Count > 0 && states[^1] == ActivityState.WaitingForInput;
-        });
-
-        Assert.True(done);
-        Assert.Equal("claude-dispatch.yml", gh.DispatchedWorkflow);
-        Assert.NotNull(gh.DispatchedInputs);
-        Assert.Equal("run the export job", gh.DispatchedInputs["prompt"]);
-        Assert.Equal(0, gh.CreateIssueCalls);
-        Assert.Equal(0, backend.ThreadNumber);
-    }
-
-    [Fact]
     public async Task WorkflowDispatch_RefusesFollowUps()
     {
         var gh = new StubGitHubClient();

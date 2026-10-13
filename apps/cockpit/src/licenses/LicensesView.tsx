@@ -1,40 +1,53 @@
 import { useCallback, useState } from "react";
 import {
+  addLicenseSpare,
+  getLicenseApprovers,
   getLicenseForecast,
   getLicenseLog,
   getLicenseOverview,
+  removeLicenseApprover,
+  renewLicenseSignIn,
+  setLicenseApprover,
   setLicenseRenewalDate,
   switchLicenseNow,
   type LicenseAccount,
+  type LicenseApprover,
+  type LicenseApprovers,
   type LicenseForecast,
+  type LicenseHolding,
   type LicenseLogEntry,
   type LicenseLogPage,
   type LicenseMachine,
   type LicenseOverview,
+  type LicenseSetApprover,
+  type LicenseSignInStarted,
   type LicenseSwitchNowResult,
 } from "@devthrottle/client-core/licenses/licensesClient";
 import { useVisiblePolling } from "@devthrottle/client-core/polling/useVisiblePolling";
 import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 import { Button, ConfirmDialog, EmptyState, ErrorBanner, LoadingState, PageHeader } from "../components";
 import { LicenseAccountCard } from "./LicenseAccountCard";
+import { AddSpareChoice, LicenseSignIns, SignInAnswer } from "./LicenseSignIns";
 import { LICENSES_SURFACE as SURFACE, LocalTime, TonePill } from "./licenseParts";
 
 // THE LICENSES PAGE (the License Switching mission, phase 3): every Claude account as a card with its two usage
-// windows, the schedule (which account each machine is on, which is next and when), the switch log, and the two
-// things a person does here: Switch now, and setting the day a subscription is billed again.
+// windows, the schedule (which account each machine is on, which is next and when), the sign-ins, the switch log,
+// and the things a person does here: Switch now, setting the day a subscription is billed again, saying which
+// machine approves the sign-ins of an account, adding a spare to a machine, and renewing a sign-in.
 //
 // THE PAGE DECIDES NOTHING (CLAUDE.md rule 7). Every status, tone, sentence and offer on it is folded on the
 // Gateway (LicenseDisplayFold) and shown as sent. The page never compares a percentage with the switching
 // threshold and never works out how far away a time is. What it does do is lay out, look a row up by its
 // account or machine, and show a time in the viewer's own time zone.
 //
-// The three reads are polled separately, so a failure of one leaves the other two on screen. The sentences are
+// The four reads are polled separately, so a failure of one leaves the others on screen. The sentences are
 // true at each answer's asOfUtc; reading again every 30 seconds keeps them true.
 const POLL_MS = 30000;
 
 const readOverview = (signal?: AbortSignal) => getLicenseOverview(signal);
 const readForecast = (signal?: AbortSignal) => getLicenseForecast(signal);
 const readNewestLog = (signal?: AbortSignal) => getLicenseLog(null, signal);
+const readApprovers = (signal?: AbortSignal) => getLicenseApprovers(signal);
 
 interface Polled<S> {
   data: S | null;
@@ -117,6 +130,7 @@ export function LicensesView() {
   const overview = usePolled<LicenseOverview, LicenseOverview>(readOverview, "read the licenses", newest);
   const forecast = usePolled<LicenseForecast, LicenseForecast>(readForecast, "read the license forecast", newest);
   const log = usePolled<LicenseLogPage, LogView>(readNewestLog, "read the switch log", foldNewestLogPage);
+  const approvers = usePolled<LicenseApprovers, LicenseApprovers>(readApprovers, "read who approves sign-ins", newest);
 
   const [olderBusy, setOlderBusy] = useState(false);
   const [olderError, setOlderError] = useState<string | null>(null);
@@ -159,6 +173,7 @@ export function LicensesView() {
     void overview.refresh();
     void forecast.refresh();
     void log.refresh();
+    void approvers.refresh();
   };
 
   // A refusal throws with the Gateway's own sentence; the dialog stays open and shows it.
@@ -189,6 +204,63 @@ export function LicensesView() {
             ),
           },
     );
+    void overview.refresh();
+  };
+
+  // SIGN-INS. Add a spare and Renew now each start a sign-in on one machine. The Gateway answers at once with the
+  // sign-in's row of the log; the sign-in itself takes minutes, and how it ended is read from that row. A refusal
+  // throws with the Gateway's own sentence; the confirmation stays open and shows it.
+  const [addingSpare, setAddingSpare] = useState<LicenseMachine | null>(null);
+  const [spareAccount, setSpareAccount] = useState("");
+  const [spareBusy, setSpareBusy] = useState(false);
+  const [renewing, setRenewing] = useState<{ machine: LicenseMachine; holding: LicenseHolding } | null>(null);
+  const [lastSignIn, setLastSignIn] = useState<LicenseSignInStarted | null>(null);
+
+  const askAddSpare = (machine: LicenseMachine) => {
+    setSpareAccount("");
+    setAddingSpare(machine);
+  };
+
+  // The account is the person's own choice, sent as typed less the space around it. Nothing is sent without one.
+  // While the call is out the field is shut: what was sent is what it shows.
+  const confirmAddSpare = async () => {
+    const accountEmail = spareAccount.trim();
+    if (addingSpare === null || accountEmail === "") return;
+    setSpareBusy(true);
+    try {
+      setLastSignIn(await addLicenseSpare(accountEmail, addingSpare.machineId));
+    } finally {
+      setSpareBusy(false);
+    }
+    refreshAll();
+  };
+
+  const confirmRenewNow = async () => {
+    if (renewing === null) return;
+    setLastSignIn(await renewLicenseSignIn(renewing.holding.accountEmail, renewing.machine.machineId));
+    refreshAll();
+  };
+
+  // WHO APPROVES AN ACCOUNT. What is on screen is always a read of the Gateway: after a set or a removal the page
+  // shows the Gateway's sentence for it and reads the approvers and the overview again. It keeps no list of its own.
+  const [removingApprover, setRemovingApprover] = useState<LicenseApprover | null>(null);
+  const [approverAnswer, setApproverAnswer] = useState<string | null>(null);
+
+  // The sentence of the answer before is taken off the screen first: beside a refusal it would read as its outcome.
+  const saveApprover = async (approver: LicenseSetApprover) => {
+    setApproverAnswer(null);
+    const stored = await setLicenseApprover(approver);
+    setApproverAnswer(stored.text);
+    void approvers.refresh();
+    void overview.refresh();
+  };
+
+  const confirmRemoveApprover = async () => {
+    if (removingApprover === null) return;
+    setApproverAnswer(null);
+    const removed = await removeLicenseApprover(removingApprover.accountEmail);
+    setApproverAnswer(removed.text);
+    void approvers.refresh();
     void overview.refresh();
   };
 
@@ -231,12 +303,16 @@ export function LicensesView() {
                 forecast={forecast.data?.accounts.find((a) => a.accountEmail === account.accountEmail)}
                 onSwitchNow={askSwitchNow}
                 onSetRenewalDate={saveRenewalDate}
+                onRenewNow={(machine, holding) => setRenewing({ machine, holding })}
               />
             ))}
           </div>
 
           {lastSwitch !== null && (
             <SwitchNowAnswer result={lastSwitch} log={log.data?.entries ?? []} onDismiss={() => setLastSwitch(null)} />
+          )}
+          {lastSignIn !== null && (
+            <SignInAnswer started={lastSignIn} log={log.data?.entries ?? []} onDismiss={() => setLastSignIn(null)} />
           )}
 
           <h2 className="lic-h2">Schedule</h2>
@@ -248,6 +324,19 @@ export function LicensesView() {
             </p>
           )}
           <ScheduleTable machines={data.machines} forecast={forecast.data} />
+
+          <h2 className="lic-h2">Sign-ins</h2>
+          {/* error-reported-by: usePolled */}
+          <LicenseSignIns
+            overview={data}
+            approvers={approvers.data}
+            approversError={approvers.error}
+            onRetryApprovers={() => void approvers.refresh()}
+            approverAnswer={approverAnswer}
+            onAddSpare={askAddSpare}
+            onSetApprover={saveApprover}
+            onRemoveApprover={setRemovingApprover}
+          />
 
           <h2 className="lic-h2">Switch log</h2>
           {/* error-reported-by: usePolled */}
@@ -284,6 +373,44 @@ export function LicensesView() {
         action="switch the account"
         onConfirm={confirmSwitchNow}
         onClose={() => setConfirming(null)}
+      />
+
+      <ConfirmDialog
+        open={addingSpare !== null}
+        title={addingSpare === null ? "" : `Add a spare on ${addingSpare.label}?`}
+        message={addingSpare === null ? null : <AddSpareChoice machine={addingSpare} accountEmail={spareAccount} busy={spareBusy} onType={setSpareAccount} />}
+        confirmLabel="Add a spare"
+        busyLabel="Starting..."
+        // It signs a machine in to one more account and takes nothing away.
+        danger={false}
+        confirmDisabled={spareAccount.trim() === ""}
+        action="add a spare"
+        onConfirm={confirmAddSpare}
+        onClose={() => setAddingSpare(null)}
+      />
+
+      <ConfirmDialog
+        open={renewing !== null}
+        title={renewing === null ? "" : `Renew the sign-in for ${renewing.holding.accountEmail} on ${renewing.machine.label}?`}
+        // The Gateway's sentence for this sign-in, as it stood when the person asked.
+        message={renewing === null ? null : <p className="lic-choice-text">{renewing.holding.renewNowText}</p>}
+        confirmLabel="Renew now"
+        busyLabel="Starting..."
+        danger={false}
+        action="renew the sign-in"
+        onConfirm={confirmRenewNow}
+        onClose={() => setRenewing(null)}
+      />
+
+      <ConfirmDialog
+        open={removingApprover !== null}
+        title={removingApprover === null ? "" : `Remove the approver of ${removingApprover.accountEmail}?`}
+        message={removingApprover === null ? null : <p className="lic-choice-text">{removingApprover.text}</p>}
+        confirmLabel="Remove"
+        busyLabel="Removing..."
+        action="remove who approves the sign-ins"
+        onConfirm={confirmRemoveApprover}
+        onClose={() => setRemovingApprover(null)}
       />
     </div>
   );

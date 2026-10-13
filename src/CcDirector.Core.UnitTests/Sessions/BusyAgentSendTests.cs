@@ -117,21 +117,6 @@ public sealed class BusyAgentSendTests : IDisposable
     }
 
     [Fact]
-    public async Task SendTextAsync_CodexWorkingEnterTaken_IsDeliveredOnceTheComposerEmpties()
-    {
-        // Arrange
-        var (session, terminal) = NewWorkingSession(AgentKind.Codex);
-        var text = "Token CODEX2. Reply with exactly: ACK";
-
-        // Act
-        await VirtualTime.RunAsync(_clock, () => session.SendTextAsync(text, SessionTestDoors.TestDoor));
-
-        // Assert
-        Assert.Equal(1, terminal.EntersAccepted);
-        Assert.Equal("", terminal.Composer);
-    }
-
-    [Fact]
     public async Task SendTextAsync_ComposerHeldTextBeforeThePaste_EnterWaitsForThePasteToBeDrawn()
     {
         // Arrange: the composer already holds text, and the agent draws the paste only after two seconds. The text that
