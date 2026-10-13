@@ -10,6 +10,7 @@ namespace CcDirector.Engine.Tests.Jobs;
 [Collection("RealProcesses")]
 public sealed class ProcessJobTests
 {
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task ExecuteAsync_ACommandThatExitsThree_ReportsExitCodeThree()
     {
@@ -20,6 +21,7 @@ public sealed class ProcessJobTests
         Assert.False(result.TimedOut);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task ExecuteAsync_ASuccessfulCommand_ReportsExitZeroAndItsOutput()
     {
@@ -30,6 +32,7 @@ public sealed class ProcessJobTests
         Assert.Equal("hello", result.Output.Trim());
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task ExecuteAsync_StandardError_IsKeptApartFromTheOutput()
     {
@@ -39,6 +42,7 @@ public sealed class ProcessJobTests
         Assert.Equal("", result.Output.Trim());
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task ExecuteAsync_PastItsTimeout_IsKilled_AndHasNoExitCode()
     {
@@ -49,6 +53,7 @@ public sealed class ProcessJobTests
         Assert.Null(result.ExitCode);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task ExecuteAsync_CancelledByTheCaller_KillsTheCommand_AndSaysItStopped()
     {
@@ -73,6 +78,7 @@ public sealed class ProcessJobTests
         Assert.Equal(CcDirector.Engine.Storage.OwnerLiveness.Gone, CcDirector.Engine.Storage.ProcessOwnerLiveness.Probe(command));
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task ExecuteAsync_RecordingTheStartedCommandFails_TheCommandIsKilled()
     {

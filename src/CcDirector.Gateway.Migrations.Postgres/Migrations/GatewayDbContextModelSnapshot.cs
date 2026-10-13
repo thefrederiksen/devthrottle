@@ -257,6 +257,16 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("ActivityDue")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid?>("ActivityId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Factory")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
                     b.Property<DateTime>("FiredUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -268,12 +278,55 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("JobName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
                     b.Property<string>("Machine")
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<int>("MissedNotListed")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Problem")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid?>("ResolveActivityId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ResolvedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("ResolvedReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime?>("ResolvedUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Result")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasDefaultValue("untracked");
+
+                    b.Property<string>("ResultReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime?>("ResultUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTime>("ScheduledUtc")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Seat")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
 
                     b.Property<long>("Sequence")
                         .HasColumnType("bigint");
@@ -295,6 +348,12 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasColumnName("tenant_id");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ActivityDue");
+
+                    b.HasIndex("Result");
+
+                    b.HasIndex("SessionId");
 
                     b.HasIndex("TenantId");
 

@@ -415,7 +415,6 @@ real-clock | src/CcDirector.Gateway.Tests/OmittedTenantBoundaryFailClosedTests.c
 real-clock | src/CcDirector.Gateway.Tests/OneRepositoryListTunnelProofTests.cs | 2
 real-clock | src/CcDirector.Gateway.Tests/OutcomeLedgerReporterTests.cs | 12
 real-clock | src/CcDirector.Gateway.Tests/OwnedSessionInputHostTests.cs | 4
-process | src/CcDirector.Gateway.Tests/PathContainmentLinkEscapeTests.cs | 2
 real-clock | src/CcDirector.Gateway.Tests/PromptLogTenantIsolationTests.cs | 5
 real-clock | src/CcDirector.Gateway.Tests/Prompts/PromptEndpointsTests.cs | 6
 real-clock | src/CcDirector.Gateway.Tests/Proof/RemoteSignInLiveProof.cs | 2
@@ -633,7 +632,6 @@ real-clock | src/CcDirector.Gateway.UnitTests/Restart/DirectorRestoreWayUpLeaseT
 real-clock | src/CcDirector.Gateway.UnitTests/RestoreContextBuilderTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/RosterFoldBatchedSnoozeReadTests.cs | 7
 real-clock | src/CcDirector.Gateway.UnitTests/RosterFoldSnoozeReadCountTests.cs | 5
-process | src/CcDirector.Gateway.UnitTests/Rules/RulePrimitivesTests.cs | 2
 real-clock | src/CcDirector.Gateway.UnitTests/Secrets/SecretTransferDeliveryTests.cs | 6
 process | src/CcDirector.Gateway.UnitTests/SessionCommandExecutorLivenessTests.cs | 3
 real-clock | src/CcDirector.Gateway.UnitTests/SessionHistoryEndpointTranscriptTests.cs | 1
@@ -737,7 +735,6 @@ real-clock | src/CcDirector.Launcher.Tests/UnreadableRegistrationIsNotAnEmptyIns
 real-clock | src/CcDirector.Reclaim.Tests/ComponentStoreRuleTests.cs | 1
 real-clock | src/CcDirector.Reclaim.Tests/CrashDumpsAndErrorReportsRuleTests.cs | 3
 real-clock | src/CcDirector.Reclaim.Tests/DiskCleanupRuleTests.cs | 1
-process | src/CcDirector.Reclaim.Tests/FixtureTree.cs | 2
 real-clock | src/CcDirector.Reclaim.Tests/HoldingStoreTests.cs | 28
 docker | src/CcDirector.Reclaim.Tests/MachineRulesDeclineTests.cs | 3
 real-clock | src/CcDirector.Reclaim.Tests/OrphanedInstallerPackagesRuleTests.cs | 3

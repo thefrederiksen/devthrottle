@@ -63,6 +63,7 @@ public sealed class SchedulerTests : IDisposable
         Assert.NotNull(job.NextRun);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task Scheduler_RaiseEvents()
     {
@@ -95,6 +96,7 @@ public sealed class SchedulerTests : IDisposable
     /// rather than after the interval. The one real wait here is for the command process the first tick
     /// started; the loop itself is never waited on.
     /// </summary>
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public async Task Loop_TicksWhenItsClockMoves_StartsADueJobOnce_AndStopEndsTheWait()
     {

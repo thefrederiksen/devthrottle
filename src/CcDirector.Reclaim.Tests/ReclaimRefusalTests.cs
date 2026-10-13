@@ -934,6 +934,7 @@ public sealed class ReclaimRefusalTests(ITestOutputHelper output)
         return files;
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Reclaim_AnOwnersOwnCommand_RunsWithTheHarmlessCommandTheTestSuppliesAndHoldsNothing()
     {
@@ -1010,6 +1011,7 @@ public sealed class ReclaimRefusalTests(ITestOutputHelper output)
         Assert.Equal(2048, new FileInfo(Path.Combine(item, "cached.bin")).Length);
     }
 
+    [Trait("Gate", "Quarantine")]
     [Fact]
     public void Reclaim_AnOwnersOwnCommandThatFails_ReportsItsExitCodeAndHoldsNothing()
     {
