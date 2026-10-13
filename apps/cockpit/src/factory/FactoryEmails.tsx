@@ -43,7 +43,7 @@ export function EmailsCard({ emails }: { emails: FactoryPageEmails }) {
 // One kept factory email, exactly as it was sent: the Gateway's stored HTML in a sandboxed frame, so nothing in it
 // runs and nothing in it can reach the Cockpit.
 export function FactoryEmailView() {
-  const { id = "" } = useParams();
+  const { factory = "", id = "" } = useParams();
   const [email, setEmail] = useState<FactoryEmail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
@@ -65,7 +65,10 @@ export function FactoryEmailView() {
   return (
     <div className="fa-page" data-testid="factory-email-page">
       <nav className="fa-crumbs">
-        <Link to="/factories">Factories</Link> /
+        <Link to="/factories">Factories</Link> /{" "}
+        <Link to={`/factories/${encodeURIComponent(factory)}`} data-testid="fa-email-back">
+          Back to the factory
+        </Link>
       </nav>
       <PageHeader title={email.title} />
       <iframe className="fa-email-frame dt-private" title={email.title} sandbox="" srcDoc={email.html} data-testid="fa-email-body" />

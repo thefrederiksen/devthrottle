@@ -7,18 +7,26 @@ namespace CcDirector.Gateway.Factory.Talk;
 /// 10 October 2026: every problem gets a Handle the issue button that opens a talk with the factory's boss, already
 /// told about the problem; a factory with no boss hands the talk to the Factory Manager.
 ///
-/// The Factory Manager seat is built in step 5. Until then a boss-less factory's problem has nobody to talk to, and
-/// this says so in plain words rather than opening a talk with a seat that is not the boss. Step 5 fills in
-/// <see cref="FactoryManager"/> and nothing else changes: the button, the route and the screen all read this answer.
+/// Step 5 built the Factory Manager, so both answers now open a talk: the boss when the factory names one, otherwise the
+/// Factory Manager, briefed in the same words (<see cref="FactoryTalkSeed.ProblemBrief"/>). Whether the Factory Manager
+/// can be started right now - a computer and a folder saved, a Director running there - is the start's own question,
+/// answered with its own sentence when it cannot.
 /// </summary>
 public static class FactoryProblemHandoff
 {
-    /// <summary>Where a problem's talk goes: the seat to talk to, or why there is none yet.</summary>
-    /// <param name="Seat">The seat the talk is opened with; null when there is nobody to talk to yet.</param>
-    /// <param name="UnavailableText">Why the button cannot open a talk, in plain words; null when it can.</param>
-    public sealed record Target(RegisteredFactorySeatDto? Seat, string? UnavailableText)
+    /// <summary>Where a problem's talk goes: the boss seat, or the Factory Manager.</summary>
+    /// <param name="Seat">The boss seat the talk is opened with; null when it goes to the Factory Manager.</param>
+    /// <param name="ToFactoryManager">True when the factory has no boss, so the talk goes to the Factory Manager.</param>
+    public sealed record Target(RegisteredFactorySeatDto? Seat, bool ToFactoryManager)
     {
-        public bool Available => Seat is not null;
+        /// <summary>True when the button opens a talk - with the boss or with the Factory Manager.</summary>
+        public bool Available => Seat is not null || ToFactoryManager;
+
+        /// <summary>Never set since step 5: there is always somebody to hand a problem to. Kept for the page's shape.</summary>
+        public string? UnavailableText => null;
+
+        /// <summary>What the button says while the talk starts.</summary>
+        public string BusyLabel => ToFactoryManager ? "Starting the talk with the Factory Manager..." : "Starting the talk with the boss...";
     }
 
     /// <summary>The boss when the factory names one; otherwise the Factory Manager.</summary>
@@ -28,14 +36,9 @@ public static class FactoryProblemHandoff
         var boss = factory.BossSeat is null
             ? null
             : factory.Seats.FirstOrDefault(s => string.Equals(s.Id.Trim(), factory.BossSeat.Trim(), StringComparison.OrdinalIgnoreCase));
-        return boss is not null ? new Target(boss, null) : FactoryManager(factory);
+        return boss is not null ? new Target(boss, false) : FactoryManager();
     }
 
-    /// <summary>
-    /// The hand-over for a factory with no boss: the Factory Manager. It does not exist yet (Factory Control, step 5),
-    /// so there is no talk to open, and the words say so and say what the owner can do meanwhile.
-    /// </summary>
-    public static Target FactoryManager(RegisteredFactoryDto factory) =>
-        new(null, $"{factory.Title} has no boss, so this goes to the Factory Manager, which is not built yet. " +
-                  "Read the run's session, fix it, then Resolve it here with a reason.");
+    /// <summary>The hand-over for a factory with no boss: the Factory Manager.</summary>
+    public static Target FactoryManager() => new(null, true);
 }

@@ -21,6 +21,9 @@ import { GatewayError } from "@devthrottle/client-core/api/client";
 //   * at phone width the list is cards, from the stylesheet, not a horizontally scrolling table.
 
 const screenClient = vi.hoisted(() => ({
+  // The Factory Manager card loads beside the list; it stays loading here (FactoryManagerCard.test.tsx covers it).
+  getFactoryManagerCard: vi.fn(() => new Promise(() => {})),
+  startFactoryManagerTalk: vi.fn(),
   getFactoriesList: vi.fn(),
   getFactoryPage: vi.fn(),
   getFactorySeats: vi.fn(),
@@ -1070,6 +1073,8 @@ describe("Reports emailed to you, on a factory's page (Factory Control, brief 5'
     expect(body.getAttribute("srcdoc")).toBe("<p>as sent</p>");
     expect(body.getAttribute("sandbox")).toBe("");
     expect(screen.getByRole("heading", { name: "Factories: 2 open problems (fixture)" })).toBeTruthy();
+    // The page leads back to the factory it was opened from.
+    expect(screen.getByTestId("fa-email-back").getAttribute("href")).toBe("/factories/warmforward");
   });
 
   it("a refused read shows the Gateway's sentence", async () => {

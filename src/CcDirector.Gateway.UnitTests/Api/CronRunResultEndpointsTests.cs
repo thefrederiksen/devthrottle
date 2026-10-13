@@ -24,6 +24,10 @@ public sealed class CronRunResultEndpointsTests : IDisposable
     private const string MailSession = "71000000-0000-4000-8000-000000000002";
     private const string OutsideSession = "71000000-0000-4000-8000-000000000003";
     private const string BillingSession = "71000000-0000-4000-8000-000000000004";
+    private const string FactoryManagerSession = "71000000-0000-4000-8000-000000000005";
+
+    // The account's bound Factory Manager (Factory Control, step 5); none unless a test binds it.
+    private string? _factoryManager;
 
     private readonly GatewayDbTestHarness _harness = new();
     private readonly CronRunHistoryStore _runs;
@@ -82,7 +86,7 @@ public sealed class CronRunResultEndpointsTests : IDisposable
 
     private IResult Resolve(HttpContext ctx, string runId, string? reason) =>
         CronRunResultEndpoints.Resolve(ctx, runId, new CronRunResolveRequest { Reason = reason }, _service, Local,
-            FactoryOf, (t, id) => _runs.Find(t, id));
+            FactoryOf, (t, id) => _runs.Find(t, id), _ => _factoryManager);
 
     private string ReportProblem()
     {
@@ -139,6 +143,50 @@ public sealed class CronRunResultEndpointsTests : IDisposable
         var result = Resolve(Request(OutsideSession), runId, "not mine to fix");
 
         Assert.Equal(403, Status(result));
+        Assert.Null(_runs.List("cj_mail").Single().ResolvedUtc);
+    }
+
+    [Fact]
+    public void Resolve_ByTheBoundFactoryManager_IsAllowed_InAnyFactory_AndKeepsTheReason()
+    {
+        var runId = ReportProblem();
+        _factoryManager = FactoryManagerSession;
+
+        var problem = Assert.IsType<JsonHttpResult<CronRunProblemDto>>(
+            Resolve(Request(FactoryManagerSession), runId, "the machine was off; it is back")).Value!;
+
+        Assert.Equal(CronRunProblemStates.Resolved, problem.State);
+        Assert.Equal($"the Factory Manager (session {FactoryManagerSession})", problem.ResolvedBy);
+        Assert.Equal("the machine was off; it is back", problem.ResolvedReason);
+    }
+
+    [Fact]
+    public void Resolve_BySessionThatIsNotTheBoundFactoryManager_IsStillRefused()
+    {
+        var runId = ReportProblem();
+        _factoryManager = FactoryManagerSession;
+
+        var result = Resolve(Request(OutsideSession), runId, "not mine to fix");
+
+        Assert.Equal(403, Status(result));
+        Assert.Null(_runs.List("cj_mail").Single().ResolvedUtc);
+    }
+
+    [Fact]
+    public void Resolve_ByTheFactoryManagerSession_WhenNoneIsBound_IsRefused()
+    {
+        var runId = ReportProblem();
+
+        Assert.Equal(403, Status(Resolve(Request(FactoryManagerSession), runId, "I think I am the manager")));
+    }
+
+    [Fact]
+    public void Resolve_ByTheBoundFactoryManager_WithNoReason_IsRefused()
+    {
+        var runId = ReportProblem();
+        _factoryManager = FactoryManagerSession;
+
+        Assert.Equal(400, Status(Resolve(Request(FactoryManagerSession), runId, " ")));
         Assert.Null(_runs.List("cj_mail").Single().ResolvedUtc);
     }
 

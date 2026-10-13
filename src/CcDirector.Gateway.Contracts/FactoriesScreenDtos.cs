@@ -664,8 +664,8 @@ public sealed class FactoryProblemItemDto
 
 /// <summary>
 /// Handle the issue on one problem: opens a talk with the factory's boss, already told about the problem. For a
-/// factory with no boss the talk goes to the Factory Manager, which is not built yet, so the button is drawn
-/// unavailable with <see cref="UnavailableText"/> - decided on the Gateway, never by the Cockpit.
+/// factory with no boss the talk goes to the Factory Manager (Factory Control, step 5), briefed the same way - decided on
+/// the Gateway, never by the Cockpit.
 /// </summary>
 public sealed class FactoryProblemHandleDto
 {

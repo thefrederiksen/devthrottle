@@ -117,13 +117,19 @@ public sealed class FactoryProblemsFoldTests
     }
 
     [Fact]
-    public void Card_AFactoryWithNoBoss_ShowsTheButtonUnavailableWithPlainWords()
+    public void Card_AFactoryWithNoBoss_OffersHandleTheIssue_WithTheFactoryManager()
     {
         var handle = Assert.Single(FactoryProblemsFold.Card(Factory(null), Answer(Problem())).Items).Handle;
 
-        Assert.False(handle.Available);
-        Assert.Equal("Tallyhand has no boss, so this goes to the Factory Manager, which is not built yet. " +
-                     "Read the run's session, fix it, then Resolve it here with a reason.", handle.UnavailableText);
+        Assert.True(handle.Available);
+        Assert.Null(handle.UnavailableText);
+        Assert.Equal("Handle the issue", handle.Label);
+        Assert.Equal("Starting the talk with the Factory Manager...", handle.BusyLabel);
+        // The card's note says who THIS factory's problems go to, and never names a boss it does not have.
+        var note = FactoryProblemsFold.Card(Factory(null), Answer(Problem())).Note;
+        Assert.EndsWith("This factory has no boss, so Handle the issue opens a talk with the Factory Manager, already told about it.", note);
+        Assert.DoesNotContain("with the boss", note);
+        Assert.EndsWith("Handle the issue opens a talk with the boss, already told about it.", FactoryProblemsFold.Card(Factory("boss"), Answer(Problem())).Note);
     }
 
     // ---- who it goes to ----------------------------------------------------------------------------------------
@@ -142,8 +148,9 @@ public sealed class FactoryProblemsFoldTests
     {
         var target = FactoryProblemHandoff.Route(Factory("ceo"));
 
-        Assert.False(target.Available);
-        Assert.Equal(FactoryProblemHandoff.FactoryManager(Factory(null)).UnavailableText, target.UnavailableText);
+        Assert.True(target.Available);
+        Assert.True(target.ToFactoryManager);
+        Assert.Null(target.Seat);
     }
 
     // ---- the briefing ------------------------------------------------------------------------------------------
@@ -162,7 +169,8 @@ public sealed class FactoryProblemsFoldTests
         Assert.Contains("THIS TALK IS ABOUT ONE PROBLEM.", seed);
         Assert.Contains("- the run: 3f1c2b7a-0000-4000-8000-0000000000a1", seed);
         Assert.Contains("- the schedule: Tallyhand - Scout - daily scan (cj_scout), run as the seat scout", seed);
-        Assert.Contains("- what went wrong: did not report - its session ended without reporting how the run went", seed);
+        // The list's own sentence, the one the page shows.
+        Assert.Contains("- what went wrong: Did not report: its session ended without reporting how the run went." + Environment.NewLine, seed);
         // Times in the account's zone, named.
         Assert.Contains("- when: due Sun 11 Oct 05:00 (America/Toronto), started Sun 11 Oct 05:01 (America/Toronto), in the morning shift, Sun 11 Oct, 08:00-16:00", seed);
         Assert.Contains("- the session to read: 5b0e9d1c-1111-4000-8000-0000000000b2.", seed);

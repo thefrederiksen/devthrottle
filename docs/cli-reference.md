@@ -1749,6 +1749,46 @@ The word turns the moment the last open item is corrected. `--json` prints the G
 the Seats tab, the bulk Handled, archive, restore and Talk stay the owner's. The route answers 404 while
 factory agents are switched off, and the command says so.
 
+#### Factory Manager and the name check
+
+The Factory Manager is the one standing session over all of an account's factories (Factory Control, step
+5). It points the owner to the right factory's boss, chases each open problem with the boss concerned, and
+deals itself with what no single boss owns. The owner starts it from the Factories screen's Factory Manager
+card - a visible session, like Talk to the boss - and a problem of a factory with no boss is handed to it by
+Handle the issue.
+
+```
+USAGE: cc-devthrottle factory manager show [--json]
+       cc-devthrottle factory manager set [SESSION] [--json]
+       cc-devthrottle factory manager clear [--json]
+       cc-devthrottle factory name-check [--json]
+
+ARGUMENTS:
+  SESSION  The session to mark: its number, an id prefix, or its name. Omit to mark this session.
+```
+
+`factory manager` is the mark that says which session is the account's Factory Manager, held on the
+Gateway (`GET` and `PUT /gateway/factory-manager`) - the same kind of mark as the Fleet Manager's. Starting
+a Factory Manager from the card sets it; `set` replaces it and `clear` removes it. `show` prints the full
+id and the name, or `factory-manager: none`, and the computer and folder the card starts it on.
+`--json` prints the Gateway's answer: `{"sessionId": ..., "computer": ..., "folder": ...}`.
+
+The marked session may resolve ANY open problem of the account with `cc-devthrottle run resolve <run id>
+"<reason>"`; the reason is kept and the resolver is recorded as the Factory Manager. Any other session
+outside the problem's factory is still refused.
+
+`factory name-check` prints the Gateway's name check over every factory that is not archived: a seat is
+flagged when its id, name or role says CEO (a factory has a boss, not a CEO), or when its name is not a
+role word of its factory - one of the roles its seats are registered with, or Boss for the boss seat. It
+prints `count:`, how many factories were checked, the rule in the Gateway's words, and one row per finding
+(factory, seat, kind - `ceo` or `not-a-role-word` - and the sentence). `count: 0` with the Gateway's pass
+sentence means nothing was flagged; an answer with no list of findings is an error, never a pass. The rule
+cannot tell a role word from a person's name when a seat's ROLE is itself a name; it checks that names are
+role words.
+
+All four answer 404 while factory agents are switched off, and the commands say so. A session key reaches
+the mark and the name check; the card and the talk are the owner's.
+
 #### Factory registry and goal number
 
 The factory registry: one entry per factory, on the Gateway, saying what the owner's Factories screen

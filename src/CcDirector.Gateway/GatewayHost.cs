@@ -5166,6 +5166,17 @@ public sealed class GatewayHost : IAsyncDisposable
             Missions, _workflowRuns, _workspaces);
         // Mapped OUTSIDE the gate's group on purpose: it asks the same switch question itself, after proving the owner
         // is calling, so its switch-off refusal can carry a sentence (phase C review, finding 2).
+        var factoryManagerSources = new Api.FactoryManagerSources(
+            Bound: tenant => _tenantSettingsResolver.FactoryManagerSessionId(tenant),
+            Bind: (tenant, sid) => _tenantSettingsResolver.SetFactoryManagerSessionId(tenant, sid, DateTime.UtcNow),
+            Placement: tenant => _tenantSettingsResolver.FactoryManagerPlacement(tenant),
+            SavePlacement: (tenant, machine, folder) => _tenantSettingsResolver.SetFactoryManagerPlacement(tenant, machine, folder, DateTime.UtcNow),
+            Factories: tenant => FactoryRegistry.List(tenant),
+            ListDirectors: tenant => Registry.ListDirectors(tenant),
+            StartOnDirector: (ctx, directorId, request) =>
+                GatewayEndpoints.StartSessionOnDirectorAsync(ctx, directorId, request, talkSpawnDoor),
+            LastKnownSession: (tenant, sid) => GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, sid),
+            TimeZone: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)));
         Api.FactoryTalkEndpoints.Map(_app, FactoryAgentsSwitch,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             registry: FactoryRegistry,
@@ -5175,7 +5186,12 @@ public sealed class GatewayHost : IAsyncDisposable
                 GatewayEndpoints.StartSessionOnDirectorAsync(ctx, directorId, request, talkSpawnDoor),
             // Handle the issue (Factory Control, step 1b) reads the one problems fold, as GET /cron/problems does.
             problems: (tenant, factory) => _cronRunResults.Problems(tenant, factory, includeClosed: false),
-            timeZone: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)));
+            timeZone: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)),
+            factoryManager: factoryManagerSources);
+        // The Factory Manager seat (Factory Control, step 5): its binding, the name check, the screen's card and its talk.
+        Api.FactoryManagerEndpoints.Map(_app, factoryGate, FactoryAgentsSwitch,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            sources: factoryManagerSources);
         // Who the switch is on for: the administrator route that switches ONE account on or off, recording who and
         // why. Same admin service token as the turn-log switch; exact-match public in AuthMiddleware.
         Api.AdminFactoryAgentsEndpoint.Map(_app, FactoryAgentsSwitch, TenantRegistry);
@@ -5721,7 +5737,8 @@ public sealed class GatewayHost : IAsyncDisposable
         Api.CronRunResultEndpoints.Map(_app, _cronRunResults,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             sessionFactoryOf: _sessionHistory.FactoryOf,
-            findRun: (tenant, runId) => _cronRuns.Find(tenant, runId));
+            findRun: (tenant, runId) => _cronRuns.Find(tenant, runId),
+            factoryManagerOf: tenant => _tenantSettingsResolver.FactoryManagerSessionId(tenant));
 
         // Factory Control, step 4: the factory email's switch (off unless turned on) and the kept emails the factory page
         // reads to show yesterday's report again.

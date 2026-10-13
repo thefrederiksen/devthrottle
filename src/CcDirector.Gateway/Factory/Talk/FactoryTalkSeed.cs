@@ -153,13 +153,26 @@ public static class FactoryTalkSeed
         sb.AppendLine();
         sb.AppendLine("THIS TALK IS ABOUT ONE PROBLEM. The owner pressed Handle the issue on it, on the factory's page. Open with it, "
                       + "instead of the general summary above: say what you see in it and what you think went wrong.");
+        sb.Append(ProblemBrief(problem, zone));
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// The problem a Handle the issue talk is about, in the words every such talk is briefed with - the boss's and, for
+    /// a factory with no boss, the Factory Manager's: which run, what went wrong, when, which session to read, and to
+    /// resolve it with <c>cc-devthrottle run resolve</c> once it is fixed, and only then.
+    /// </summary>
+    public static string ProblemBrief(CronRunProblemDto problem, TimeZoneInfo zone)
+    {
+        ArgumentNullException.ThrowIfNull(problem);
+        ArgumentNullException.ThrowIfNull(zone);
+        var sb = new StringBuilder();
         sb.Append("- the run: ").AppendLine(problem.RunId);
         sb.Append("- the schedule: ").Append(problem.JobName).Append(" (").Append(problem.JobId).Append(')');
         if (!string.IsNullOrWhiteSpace(problem.Seat)) sb.Append(", run as the seat ").Append(problem.Seat);
         sb.AppendLine();
-        sb.Append("- what went wrong: ").Append(problem.KindText);
-        if (!string.IsNullOrWhiteSpace(problem.Reason)) sb.Append(" - ").Append(problem.Reason.Trim());
-        sb.AppendLine();
+        // The problems list's own sentence, the one the page, the command line and the email show.
+        sb.Append("- what went wrong: ").AppendLine(problem.Sentence);
         sb.Append("- when: due ").Append(At(problem.ScheduledUtc, zone));
         sb.Append(problem.StartedUtc is { } started ? $", started {At(started, zone)}" : ", never started");
         sb.Append(", in the ").Append(problem.ShiftText).Append("; recorded ").Append(At(problem.RaisedAtUtc, zone)).AppendLine();
