@@ -46,6 +46,8 @@ public sealed class LicenseSnapshotSource
         // QUIET ON PURPOSE. The once-a-minute check reads this for every DevThrottle account, every minute, for
         // good, and the Licenses page reads it on every poll; an entry line and a result line here are thousands of
         // lines a day that say nothing happened. The callers log what they decided, and a read that FAILS still logs.
+        // This departs from the rule that every public method logs its entry and exit, BY RULING (the Tech Lead, on
+        // the review of pull request 3936, finding 9): a read that runs every minute logs failures only.
         try
         {
             var overview = _reads.Read(tenant, nowUtc);

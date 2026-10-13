@@ -132,3 +132,8 @@ The four, and what the re-run of only the failed tests on the same commit (`-Rer
 | `UpdaterStateConcurrencyTests.ReadsAndEditsAtOnce_AllSucceed` | failed ("Access to the path is denied") | passed | Flipped once under the load of the gate. In the run before the rebase it passed, and a different test of that suite flipped instead (`RepositoryWatcherIntegrationTests.PeriodicReconciliation_...`, which then passed three times alone). |
 
 The license tests inside that run: every one passed.
+
+## After the review of this pull request
+
+The review found ten things; `missions/license-switching/reviews/3936-answers.md` answers each, with the tests, the
+eighteen mutations of that round and what was run after the changes. The counts above are from before that round.

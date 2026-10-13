@@ -14,7 +14,7 @@ namespace CcDirector.Gateway.Tests.Data;
 /// The PostgreSQL half of <c>AddLicenseRenewal</c> (the License Switching mission): the renewal date a person sets for
 /// an account's subscription, the failed renewal of a sign-in a Director reports, and the "C" collation on the account
 /// a switch log row is about. It proves the migration applies right after <c>AddFactoryEmailReports</c> without
-/// touching an account stored before it, that the real <see cref="LicenseStore"/> then writes and reads all four new
+/// touching an account, a holding or a switch log row stored before it, that the real <see cref="LicenseStore"/> then writes and reads all four new
 /// columns through <see cref="GatewayDatabase"/> on PostgreSQL, and that its Down removes them again.
 ///
 /// GATING. [RequiresPostgresFact], the one rule for this project: it runs under scripts\test-database.ps1,
@@ -31,6 +31,8 @@ public sealed class AddLicenseRenewalPostgresTests
     private const string MigrationUnderTest = "20261013062011_AddLicenseRenewal";
     private const string AccountA = "account-a@example.com";
     private const string AccountB = "account-b@example.com";
+    private const string OldMachine = "22222222-2222-2222-2222-222222222222";
+    private const string OldSwitch = "0123456789abcdef0123456789abcdef";
 
     private static string Connection => PostgresProofDatabase.Connection;
 
@@ -85,6 +87,21 @@ public sealed class AddLicenseRenewalPostgresTests
             VALUES ('11111111-1111-1111-1111-111111111111', 'local', '{AccountA}', 'max',
                     TIMESTAMPTZ '2026-10-10 10:00:00Z', TIMESTAMPTZ '2026-10-10 10:00:00Z');
             """);
+        // A machine, a holding and a switch log row stored before it too: the holding gains three columns, and the
+        // switch log row is the one existing row whose column the migration ALTERS (the collation of the account it
+        // is about).
+        Scalar($"""
+            INSERT INTO gateway.license_machines ("Id", tenant_id, "MachineName", "OsUser", "MachineKey", "OsUserKey", "DirectorId",
+                "LastSequence", "LastReportAtUtc", "LastSentAtUtc", "LastTrigger", "ActiveAccountEmail", "ClockSkewSeconds")
+            VALUES ('{OldMachine}', 'local', 'the-old-machine', 'owner', 'the-old-machine', 'owner', 'dir-old',
+                1, TIMESTAMPTZ '2026-10-10 10:00:00Z', TIMESTAMPTZ '2026-10-10 10:00:00Z', 'interval', '{AccountA}', 0);
+            INSERT INTO gateway.license_holdings ("Id", tenant_id, "MachineId", "AccountEmail", "IsActive", "SignInExpiresAtUtc")
+            VALUES ('33333333-3333-3333-3333-333333333333', 'local', '{OldMachine}', '{AccountA}', true, TIMESTAMPTZ '2026-10-30 10:00:00Z');
+            INSERT INTO gateway.license_switch_log ("Id", tenant_id, "Kind", "SwitchId", "MachineId", "MachineName", "OsUser",
+                "FromAccountEmail", "ToAccountEmail", "Reason", "State", "CreatedAtUtc", "SendCount", "FinishedAtUtc")
+            VALUES ('44444444-4444-4444-4444-444444444444', 'local', 'switch', '{OldSwitch}', '{OldMachine}', 'the-old-machine', 'owner',
+                '{AccountA}', '{AccountB}', 'manual', 'switched', TIMESTAMPTZ '2026-10-10 11:00:00Z', 1, TIMESTAMPTZ '2026-10-10 11:00:05Z');
+            """);
         Assert.Equal("0", ColumnsPresent());
         Assert.Equal("default", FromAccountCollation());
 
@@ -97,6 +114,18 @@ public sealed class AddLicenseRenewalPostgresTests
         Assert.Equal("C", FromAccountCollation());
         // The account stored before it is still there, with no renewal date - none is ever made up.
         Assert.Equal("null", Scalar($"""SELECT coalesce("RenewsOn"::text, 'null') FROM gateway.license_accounts WHERE "AccountEmail" = '{AccountA}'"""));
+
+        // The switch log row whose column was altered says what it said, and is still found by that account.
+        Assert.Equal($"{AccountA}|{AccountB}|switched", Scalar($"""
+            SELECT "FromAccountEmail" || '|' || "ToAccountEmail" || '|' || "State" FROM gateway.license_switch_log
+            WHERE "SwitchId" = '{OldSwitch}' AND "FromAccountEmail" = '{AccountA}'
+            """));
+        // The holding stored before it has no failed renewal - none is made up - and kept what it had.
+        Assert.Equal("null|null|null|2026-10-30", Scalar("""
+            SELECT coalesce("RenewalFailedAtUtc"::text, 'null') || '|' || coalesce("RenewalError", 'null') || '|' || coalesce("RenewalErrorDetail", 'null')
+                   || '|' || to_char("SignInExpiresAtUtc" AT TIME ZONE 'UTC', 'YYYY-MM-DD')
+            FROM gateway.license_holdings WHERE "Id" = '33333333-3333-3333-3333-333333333333'
+            """));
 
         // The store reads today's model, so its queries run on the schema at the newest migration.
         using (var ctx = NewContext())
@@ -112,6 +141,11 @@ public sealed class AddLicenseRenewalPostgresTests
             using var db = new GatewayDatabase(new SingleTenantContext());
             var store = new LicenseStore(db);
             var now = new DateTime(2026, 10, 11, 3, 12, 0, DateTimeKind.Utc);
+            // The rows stored before the migration are read through the real store, by today's model.
+            var oldRow = store.FindSwitch(TenantId.Local, OldSwitch);
+            Assert.Equal((AccountA, AccountB, LicenseLogStates.Switched), (oldRow!.FromAccountEmail, oldRow.ToAccountEmail, oldRow.State));
+            var oldHolding = new LicenseReadModel(store).Read(TenantId.Local, now).Machines.Single().Holdings.Single();
+            Assert.Equal((AccountA, null, null), (oldHolding.AccountEmail, oldHolding.RenewalFailedAtUtc, oldHolding.RenewalError));
             var failedAt = now.AddHours(-3);
 
             store.ApplyReport(TenantId.Local, "dir-1", 1, new LicenseUsageReport
@@ -133,7 +167,7 @@ public sealed class AddLicenseRenewalPostgresTests
             var picture = new LicenseReadModel(store).Read(TenantId.Local, now);
             Assert.Equal(new DateOnly(2026, 10, 17), picture.Accounts.Single(a => a.AccountEmail == AccountA).RenewsOn);
             Assert.Null(picture.Accounts.Single(a => a.AccountEmail == AccountB).RenewsOn);
-            var spare = picture.Machines.Single().Holdings.Single(h => !h.IsActive);
+            var spare = picture.Machines.Single(m => m.MachineName == "the-windows-machine").Holdings.Single(h => !h.IsActive);
             Assert.Equal((failedAt, LicenseRenewalErrors.WrongAccount, "The approving browser is signed in as another account."),
                 (spare.RenewalFailedAtUtc, spare.RenewalError, spare.RenewalErrorDetail));
             Assert.Equal(DateTimeKind.Utc, spare.RenewalFailedAtUtc!.Value.Kind);
@@ -157,6 +191,8 @@ public sealed class AddLicenseRenewalPostgresTests
         Assert.Equal("0", ColumnsPresent());
         Assert.Equal("default", FromAccountCollation());
         Assert.Equal("2", Scalar("SELECT count(*) FROM gateway.license_accounts"));
+        Assert.Equal(AccountA, Scalar($"""SELECT "FromAccountEmail" FROM gateway.license_switch_log WHERE "SwitchId" = '{OldSwitch}'"""));
+        Assert.Equal("1", Scalar("""SELECT count(*) FROM gateway.license_holdings WHERE "Id" = '33333333-3333-3333-3333-333333333333'"""));
 
         using (var ctx = NewContext())
             ctx.Database.Migrate();

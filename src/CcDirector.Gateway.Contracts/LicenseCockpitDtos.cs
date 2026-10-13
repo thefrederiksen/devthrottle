@@ -251,6 +251,13 @@ public sealed class LicenseAccountDto
     /// <summary>Every other account as a target for this account's machines; empty when no machine on this account
     /// can be switched.</summary>
     public List<LicenseSwitchTargetDto> SwitchTargets { get; set; } = new();
+
+    /// <summary>Until when the account is barred from the AUTOMATIC choice of a target; null when it is not barred.</summary>
+    public DateTime? BarredUntilUtc { get; set; }
+
+    /// <summary>The bar in one sentence, to show beside the account; null when it is not barred. A barred account can
+    /// still be chosen by hand, and the sentence says so.</summary>
+    public string? BarredText { get; set; }
 }
 
 /// <summary>One usage window of one account.</summary>

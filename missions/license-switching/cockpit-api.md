@@ -71,8 +71,8 @@ reports of two machines ("the-windows-machine" and "the-mac") and three accounts
 - **These field names are final.** Phase 3 builds to them. Nothing later renames them.
 
 Who may call them: the Cockpit and the phone (a device key), a machine's own credential, and a session key (an
-agent) may call the three reads - they are in `SessionKeyGuard`'s allow list. Every write is refused to a session
-key (section 6).
+agent) may call the three reads - they are in `SessionKeyGuard`'s allow list. The two writes are for a signed-in
+person only: the owner's own phone or browser, and nobody else (section 6).
 
 ## 2. `GET /gateway/licenses` - the accounts and the machines
 
@@ -92,6 +92,7 @@ key (section 6).
 | `readError`, `readErrorText` | The word and the sentence when the last read failed; both null when it worked. |
 | `extraUsage` | `state` (`on`, `off`, `not-known`), `text`, and `utilization` when the provider gave one. |
 | `renewsOn`, `renewsText` | The date the subscription is billed again, as `yyyy-MM-dd` (a date with no time and no zone), and its sentence: "Renews 17 Oct", or "Renewal date not set". `renewsOn` is null when no date is set (section 6 has the route that sets it and every sentence). Show `renewsText`. |
+| `barredUntilUtc`, `barredText` | Set while the account is barred from the AUTOMATIC choice of a target, because it triggered a switch and its window has not reset: until when, and the sentence to show beside the account ("Left out of the automatic choice for 2 hours, until its 5-hour window resets: it triggered a switch. It can still be chosen by hand."). Both null when it is not barred. A barred account can still be chosen by hand - its row in another account's `switchTargets` stays `canChoose: true`. |
 | `signInExpiry` | The sign-in for this account that expires FIRST, across every machine holding it: `expiresAtUtc`, `machine` (the machine it is on, rule 9), `verdict` (the expiry verdict below), `text` ("Sign-in on the-windows-machine expires in 2 days 5 hours", "Sign-in on the-mac expired 3 hours ago") and `tone`. When no machine holding the account gave an expiry: `expiresAtUtc` and `machine` are null, `verdict` is `not known` and `text` is "Sign-in expiry not known". When no machine holds the account: the same, with "Not signed in on any machine". This is the sign-in expiry, not the subscription's renewal date (section 1). |
 | `activeOnMachines`, `spareOnMachines` | The machines working on it, and the machines holding it as a spare - each one the four fields of rule 9. |
 | `canSwitchNow` | The Switch now control is offered for this account. |
@@ -883,8 +884,9 @@ account and gives the date, or null to clear it:
 { "accountEmail": "account-a@example.com", "renewsOn": "2026-10-17" }
 ```
 
-`renewsOn` is a date written `yyyy-MM-dd` and nothing else: no time, no zone, no other spelling. The account email
-is matched whatever its capitals. The answer is what was stored, with its sentence already folded - the page can
+`renewsOn` is a date written `yyyy-MM-dd` and nothing else: no time, no zone, no other spelling. **It must be
+given.** Only an explicit `"renewsOn": null` clears the date; a body that leaves the field out - a misspelled name,
+most likely - is refused and the stored date is left as it was. The account email is matched whatever its capitals. The answer is what was stored, with its sentence already folded - the page can
 show `renewsText` at once, and the next `GET /gateway/licenses` carries the same two values on that account:
 
 ```json
@@ -902,7 +904,7 @@ The sentences of `renewsText`, all folded on the Gateway by its own date in Coor
 | The stored date | `renewsText` |
 |---|---|
 | none | "Renewal date not set" |
-| today | "Renews today" |
+| today | "Renews today, 11 Oct" - the date is given in every sentence, because "today" is the Gateway's date in Coordinated Universal Time and can be a day off for the viewer around midnight |
 | later this year | "Renews 17 Oct" |
 | in another year | "Renews 1 Jan 2027" |
 | already past | "Renewal date 10 Oct has passed" (or "Renewal date 31 Dec 2025 has passed") |
@@ -914,10 +916,12 @@ What is refused, each with `code` and a sentence in `error` (rule 6):
 
 | Status | `code` | When |
 |---|---|---|
-| 400 | `invalid_body` | The body is not a JSON object of this shape. |
+| 400 | `invalid_body` | The body is not a JSON object of this shape, or it does not name `renewsOn`. |
 | 400 | `account_required` | `accountEmail` is missing or blank. |
+| 400 | `invalid_account` | `accountEmail` is longer than 320 characters or holds a control character. |
 | 400 | `invalid_date` | `renewsOn` is text that is not a real date written `yyyy-MM-dd` ("17 Oct", "2026-02-30", a date with a time). |
 | 404 | `unknown_account` | No machine of this DevThrottle account holds that Claude account. The answer is the same whether the account exists in another DevThrottle account or nowhere. |
+| 403 | `owner_only` | The caller is not the owner's own signed-in phone or browser ("Who may call the writes", below). |
 | 403 | `no_account` | The caller's credential belongs to no DevThrottle account. |
 
 ```json
@@ -929,7 +933,9 @@ Nothing is stored by a refused call. A date is kept through every later usage re
 ### A failed renewal of a sign-in
 
 No route: the Gateway stores what each usage report says of a holding's last renewal (contract section 8.1) and the
-overview fills the three fields on that holding. A holding whose renewal failed three hours ago, with one day of
+overview fills the three fields on that holding. **This is the only place a failed renewal is shown today.** The
+contract also has the owner emailed when a renewal fails on a sign-in about to expire; that email is not built yet,
+so the page is where the owner sees it. A holding whose renewal failed three hours ago, with one day of
 sign-in left:
 
 ```json
@@ -943,7 +949,7 @@ sign-in left:
   complete; the approving browser is signed in as another account; the approving browser is not signed in; no browser
   is set to approve this account; the machine that approves this account was not connected; no approval came back in
   time; the machine's key store would not take the new sign-in.
-- A reason word this Gateway does not know is never shown. The sentence is then "Renewing this sign-in failed 5
+- A reason word this Gateway does not know is never shown or stored as given (it is kept only as "a reason was given"). The sentence is then "Renewing this sign-in failed 5
   minutes ago." followed by the Director's own sentence when it sent one.
 - The time is the machine's clock. When it is ahead of the Gateway's, no age is said: "Renewing this sign-in failed:
   no approval came back in time."
@@ -1004,6 +1010,8 @@ Nothing was written and nothing was sent:
 | 409 | `no-target` | No target was named and no other account has room for the machines. |
 | 400 | `invalid_body` | The body is not a JSON object of this shape. |
 | 400 | `account_required` | `accountEmail` is missing or blank. |
+| 400 | `invalid_account` | `accountEmail` or `targetAccountEmail` is longer than 320 characters or holds a control character. |
+| 403 | `owner_only` | The caller is not the owner's own signed-in phone or browser. |
 | 403 | `no_account` | The caller's credential belongs to no DevThrottle account. |
 
 **The page offers Switch now exactly where this route accepts it.** `canSwitchNow` is asked of the same picture the
@@ -1012,9 +1020,35 @@ route decides on. One case is worth knowing: a machine whose switch is only wait
 switch is ended as `failed` and a new one is written. A machine whose switch was sent and has not been answered
 cannot, and `switchNowText` says so for that machine.
 
+**Asking the same thing twice writes nothing.** While a machine's switch is waiting for its Director, a Switch now
+with the same account and the same target (named, or chosen by the Gateway) is answered `200` with that waiting
+switch - the same `switchId` and `entryId` - and no new row is written. Only a Switch now to ANOTHER target replaces
+it. The page should still disable the control while a call is out.
+
+**When `switchNowTargetAccountEmail` is null, the page never sends the call without a target.** That is the case
+"No other account has room ... A target can still be chosen by hand.": `canSwitchNow` is true only because a target
+can be NAMED - a barred account, most often. A call with no `targetAccountEmail` would be refused `409` `no-target`.
+So the page's default action exists only when `switchNowTargetAccountEmail` is not null; otherwise the owner picks
+one of the `switchTargets` whose `canChoose` is true, and the page sends that one.
+
 ### Who may call the writes
 
-**A write is refused to a session key**, raised or not: `403` with `code` `session_key_out_of_scope`. Setting the date
-a subscription renews, and moving every machine of the owner's subscription to another one, are the owner's own
-actions, from the Cockpit. `SessionKeyGuard` lists neither route and tests hold both to that (`LicenseGuardTests`,
-and `LicenseHostTests` over real HTTP).
+**The two writes are for a signed-in person only: the owner's own phone or browser.** Setting the date a
+subscription renews, and moving every machine of the owner's subscription to another one, are the owner's own
+actions, from the Cockpit. Everything else that can READ the license routes is refused the writes with `403`:
+
+| Caller | Answer |
+|---|---|
+| The owner's signed-in browser or phone | allowed |
+| A session key (an agent), raised or not | `403` `session_key_out_of_scope` - `SessionKeyGuard` lists neither route |
+| A Director's own device key | `403` `owner_only` |
+| The shared machine token of a self-hosted Gateway | `403` `owner_only` |
+| No credential | `401` |
+
+```json
+{"code":"owner_only","error":"only the owner on their own signed-in phone or browser may set the renewal date of a subscription; this request was made with a device (workstation) credential"}
+```
+
+It is the one rule the Fleet Manager's owner-only routes use (`FleetManagerOwnerDevice.Require`). Tests hold every
+row of the table over real HTTP (`LicenseHostTests`, `LicenseWritesSelfHostedTests`) and the guard's half in
+`LicenseGuardTests`.

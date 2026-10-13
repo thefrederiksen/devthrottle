@@ -182,7 +182,7 @@ public sealed class LicenseDisplayFoldTests : IDisposable
 
     [Theory]
     [InlineData(null, "Renewal date not set")]
-    [InlineData("2026-10-11", "Renews today")]                       // T0 is 11 October 2026
+    [InlineData("2026-10-11", "Renews today, 11 Oct")]               // T0 is 11 October 2026; the date is always given
     [InlineData("2026-10-12", "Renews 12 Oct")]
     [InlineData("2026-10-17", "Renews 17 Oct")]
     [InlineData("2026-12-31", "Renews 31 Dec")]
@@ -201,8 +201,8 @@ public sealed class LicenseDisplayFoldTests : IDisposable
     {
         var date = new DateOnly(2026, 10, 11);
 
-        Assert.Equal("Renews today", LicenseDisplayFold.RenewsText(date, new DateTime(2026, 10, 11, 0, 0, 0, DateTimeKind.Utc)));
-        Assert.Equal("Renews today", LicenseDisplayFold.RenewsText(date, new DateTime(2026, 10, 11, 23, 59, 59, DateTimeKind.Utc)));
+        Assert.Equal("Renews today, 11 Oct", LicenseDisplayFold.RenewsText(date, new DateTime(2026, 10, 11, 0, 0, 0, DateTimeKind.Utc)));
+        Assert.Equal("Renews today, 11 Oct", LicenseDisplayFold.RenewsText(date, new DateTime(2026, 10, 11, 23, 59, 59, DateTimeKind.Utc)));
         Assert.Equal("Renews 11 Oct", LicenseDisplayFold.RenewsText(date, new DateTime(2026, 10, 10, 23, 59, 59, DateTimeKind.Utc)));
         Assert.Equal("Renewal date 11 Oct has passed", LicenseDisplayFold.RenewsText(date, new DateTime(2026, 10, 12, 0, 0, 0, DateTimeKind.Utc)));
     }
@@ -221,6 +221,38 @@ public sealed class LicenseDisplayFoldTests : IDisposable
         Assert.Equal((null, "Renewal date not set"), (b.RenewsOn, b.RenewsText));
         // It is not the sign-in expiry, and setting it does not touch that.
         Assert.Equal("Sign-in expiry not known", a.SignInExpiry.Text);
+    }
+
+    // ---- an account barred from the automatic choice ----
+
+    [Fact]
+    public void Account_BarredFromTheAutomaticChoice_SaysSoInOneSentence_AndCanStillBeChosenByHand()
+    {
+        Apply(Report("m1", Holding(A, true), Holding(B, false), Holding(C, false)));
+        _store.Bar(Tenant, B, LicenseWindowNames.FiveHour, T0.AddHours(2), T0);
+
+        var overview = Overview(T0);
+        var barred = overview.Accounts.Single(a => a.AccountEmail == B);
+        var free = overview.Accounts.Single(a => a.AccountEmail == C);
+
+        Assert.Equal(T0.AddHours(2), barred.BarredUntilUtc);
+        Assert.Equal("Left out of the automatic choice for 2 hours, until its 5-hour window resets: it triggered a switch. It can still be chosen by hand.", barred.BarredText);
+        Assert.Equal((null, null), (free.BarredUntilUtc, free.BarredText));
+        // The bar stops the automatic choice only: by hand it is still a target.
+        Assert.True(overview.Accounts.Single(a => a.AccountEmail == A).SwitchTargets.Single(t => t.AccountEmail == B).CanChoose);
+    }
+
+    [Fact]
+    public void Account_WhoseBarHasEnded_IsNotBarred_AtTheVeryMomentItEnds()
+    {
+        Apply(Report("m1", Holding(A, true), Holding(B, false)));
+        _store.Bar(Tenant, B, LicenseWindowNames.SevenDay, T0.AddMinutes(1), T0);
+
+        var before = Account(B, T0.AddSeconds(59));
+        var atTheEnd = Account(B, T0.AddMinutes(1));
+
+        Assert.StartsWith("Left out of the automatic choice for less than a minute, until its weekly limit resets: ", before.BarredText);
+        Assert.Equal((null, null), (atTheEnd.BarredUntilUtc, atTheEnd.BarredText));
     }
 
     // ---- a failed renewal of a sign-in ----

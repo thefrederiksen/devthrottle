@@ -45,6 +45,12 @@ public sealed class LicenseSwitchService
 3. Accepted: for every machine the engine named, writes the pending switch log row FIRST, then sends
    `license-switch` with reason `manual` through the SAME code path the minute check uses, to every
    machine at once.
+   **One exception: the same switch asked again.** If a machine already has a switch waiting for its Director to
+   connect (`pending`, `director-offline`) with the SAME source account and the SAME target, and that switch has not
+   expired, nothing is written and nothing is sent for that machine: the answer carries the waiting switch as it
+   stands, with its own identifier, and the minute check goes on sending it. A Switch now whose every machine is
+   answered that way is still `Accepted`. Only a DIFFERENT decision for the machine - another target - ends the
+   waiting switch as `failed` and writes a new one.
 4. **Returns when every machine has answered or its 60-second wait has ended** - so normally in a
    second or two, and never much longer than 60 seconds. Each switch in the result carries where its
    log row stood at that moment.
@@ -84,11 +90,11 @@ public sealed record LicenseSwitchNowMachine(
 
 | Field | Meaning |
 |---|---|
-| `Accepted` | True when at least one switch was written and sent. |
+| `Accepted` | True when at least one switch was written and sent, or was already waiting unchanged for its machine's Director. |
 | `RefusalCode` | Null when accepted. Otherwise one of `LicenseManualRefusals`: `no-machine-to-switch`, `target-is-source`, `target-not-held`, `target-sign-in-expiring`, `target-stale`, `target-full`, `no-target`. |
 | `RefusalMessage` | Null when accepted. Otherwise one plain sentence, ready to show as given. |
 | `TargetAccountEmail` | The account the machines were sent to (the named one, or the one chosen), lower-cased. Null when refused. |
-| `Switches` | One per machine sent a switch. Empty when refused. |
+| `Switches` | One per machine sent a switch, and one per machine whose identical switch was already waiting. Empty when refused. |
 | `Skipped` | Machines on the source account that were NOT sent a switch, each with a plain `Why` (stale, or a switch already open). Can be non-empty whether accepted or refused. `LicenseSkippedMachine` is the existing record in `LicenseDecisionModel.cs`. |
 | `SwitchId` | The switch log row's identifier (32 lower-case hexadecimal characters). Find the row later with `LicenseStore.FindSwitch(tenant, switchId)`. |
 | `State` | A `LicenseLogStates` word: `switched`, `already-active`, `failed`, `pending` (the Director is offline; the minute check sends it again until the switch expires) or `unknown` (sent, no answer in 60 seconds; the minute check settles it). |
@@ -114,7 +120,8 @@ One thing the page should know about that picture. It marks a machine as mid-swi
 (`HasOpenSwitch`) whenever the log holds a `pending` or `unknown` row for it, which is right to show.
 The minute check and Switch now are a little narrower when they DECIDE: a row that is `pending` with
 reason `director-offline` was never sent, so it does not hold its machine back from a new decision -
-Switch now on that account is accepted, ends the waiting row as `failed`, and writes a new one.
+Switch now on that account is accepted: to another target it ends the waiting row as `failed` and writes a new
+one; to the same target it answers with the waiting row and writes nothing.
 
 ## In the switch log
 

@@ -1098,18 +1098,58 @@ public sealed class LicenseSwitchServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task SwitchNow_Again_ReplacesTheSwitchStillWaitingForAnOfflineDirector_WithANewIdentifier()
+    public async Task SwitchNow_Again_ToAnotherTarget_ReplacesTheSwitchStillWaitingForAnOfflineDirector_WithANewIdentifier()
     {
-        OnA(Windows, "dir-win", 50);
+        Reports(Tenant, Windows, "dir-win", (A, true, 50, 20), (B, false, 10, 30), (C, false, 10, 40));
         _directors.Offline();
         var first = Assert.Single((await _service.SwitchNowAsync(Tenant, A, B, CancellationToken.None)).Switches);
 
-        var second = Assert.Single((await _service.SwitchNowAsync(Tenant, A, B, CancellationToken.None)).Switches);
+        var second = Assert.Single((await _service.SwitchNowAsync(Tenant, A, C, CancellationToken.None)).Switches);
 
         Assert.NotEqual(first.SwitchId, second.SwitchId);
         var rows = Rows(LicenseLogKinds.Switch);
         Assert.Equal(LicenseLogStates.Failed, rows.Single(r => r.SwitchId == first.SwitchId).State);
         Assert.Equal(LicenseLogStates.Pending, rows.Single(r => r.SwitchId == second.SwitchId).State);
+    }
+
+    [Fact]
+    public async Task SwitchNow_Again_TheSameSwitch_AnswersWithTheOneStillWaiting_WritesNothing_AndSendsNothing()
+    {
+        OnA(Windows, "dir-win", 50);
+        _directors.Offline();
+        var first = Assert.Single((await _service.SwitchNowAsync(Tenant, A, B, CancellationToken.None)).Switches);
+        var sentBefore = _directors.Sent.Count;
+
+        var again = await _service.SwitchNowAsync(Tenant, A, B, CancellationToken.None);
+
+        Assert.True(again.Accepted);
+        Assert.Equal(B, again.TargetAccountEmail);
+        var second = Assert.Single(again.Switches);
+        Assert.Equal((first.SwitchId, LicenseLogStates.Pending, LicenseGatewayReasonCodes.DirectorOffline), (second.SwitchId, second.State, second.ReasonCode));
+        Assert.Equal(first.SwitchId, TheSwitch().SwitchId);
+        Assert.Equal(sentBefore, _directors.Sent.Count);
+
+        // The minute check still sends that one switch once the Director is back.
+        _directors.AnswerWith(request => FakeDirectors.Ok(_directors.Result(request, LicenseSwitchOutcomes.Switched)));
+        MinuteLater();
+        Reports(Tenant, Windows, "dir-win", (A, true, 50, 20), (B, false, 10, 30));
+        await Tick();
+        Assert.Equal((first.SwitchId, LicenseLogStates.Switched), (TheSwitch().SwitchId, TheSwitch().State));
+    }
+
+    [Fact]
+    public async Task SwitchNow_Again_AfterTheWaitingSwitchHasExpired_WritesANewOne()
+    {
+        OnA(Windows, "dir-win", 50);
+        _directors.Offline();
+        var first = Assert.Single((await _service.SwitchNowAsync(Tenant, A, B, CancellationToken.None)).Switches);
+        _now = TheSwitch().NotAfterUtc!.Value.AddSeconds(1);
+        Reports(Tenant, Windows, "dir-win", (A, true, 50, 20), (B, false, 10, 30));
+
+        var second = Assert.Single((await _service.SwitchNowAsync(Tenant, A, B, CancellationToken.None)).Switches);
+
+        Assert.NotEqual(first.SwitchId, second.SwitchId);
+        Assert.Equal(LicenseLogStates.Failed, Rows(LicenseLogKinds.Switch).Single(r => r.SwitchId == first.SwitchId).State);
     }
 
     [Fact]

@@ -250,7 +250,7 @@ public sealed class LicenseStoreTests : IDisposable
     }
 
     [Fact]
-    public void ApplyReport_AReasonWordTheContractDoesNotName_IsNotStored_ButTheFailureAndItsSentenceAre()
+    public void ApplyReport_AReasonWordTheContractDoesNotName_IsStoredAsNotKnown_NeverAsGiven_AndTheFailureAndItsSentenceAreKept()
     {
         var store = Open();
         Apply(store, TenantA, Report("m1", Holding(A, true),
@@ -259,8 +259,24 @@ public sealed class LicenseStoreTests : IDisposable
         var spare = SpareOf(store, T0);
 
         Assert.Equal(T0, spare.RenewalFailedAtUtc);
-        Assert.Null(spare.RenewalError);
+        // That there was a reason is kept, so nothing acting on the failure loses it; the word itself is not.
+        Assert.Equal(LicenseStore.RenewalErrorNotKnown, spare.RenewalError);
+        Assert.DoesNotContain(LicenseStore.RenewalErrorNotKnown, LicenseRenewalErrors.All);
         Assert.Equal(500, spare.RenewalErrorDetail!.Length);   // the sentence is capped like every other free text
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("  ")]
+    public void ApplyReport_AFailedRenewalWithNoReasonGiven_StoresNoReason(string? word)
+    {
+        var store = Open();
+        Apply(store, TenantA, Report("m1", Holding(A, true), FailedRenewal(Holding(B, false), T0, word, null)));
+
+        var spare = SpareOf(store, T0);
+
+        Assert.Equal((T0, null), (spare.RenewalFailedAtUtc, spare.RenewalError));
     }
 
     [Fact]

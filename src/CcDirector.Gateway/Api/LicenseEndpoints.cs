@@ -42,6 +42,18 @@ public static class LicenseEndpoints
         LicenseSnapshotSource snapshots, LicenseUsageHistory history, LicenseStore store, Func<DateTime> nowUtc,
         LicenseSwitchService switches, Func<TenantId?> tenantInScope)
     {
+        // THE TWO WRITES ARE FOR A SIGNED-IN PERSON ONLY (the Tech Lead's ruling on the review of pull request 3936,
+        // finding 1): the owner's own phone or browser, and nothing else. A session key is refused, raised or not, and
+        // so are a Director's own device key and the shared machine token - the same one rule the Fleet Manager's
+        // owner-only routes use. The three reads stay open to all of them.
+        static IResult? OwnerOnly(HttpContext ctx, string what)
+        {
+            FleetManagerOwnerDevice.Require(ctx, what,
+                $"a session may not {what}; that is the owner's own action, from the Licenses page of the Cockpit",
+                "LicenseEndpoints", out var refusal);
+            return refusal;
+        }
+
         ArgumentNullException.ThrowIfNull(switches);
         ArgumentNullException.ThrowIfNull(tenantInScope);
         ArgumentNullException.ThrowIfNull(resolveTenant);
@@ -56,10 +68,15 @@ public static class LicenseEndpoints
         // The answer is executed here, by hand: a lambda that takes only the HttpContext is mapped as a plain request
         // delegate, and a result it merely RETURNED would be dropped - every call would answer 200 with no body.
         app.MapPut(LicenseRoutes.AccountRenewal, async (HttpContext ctx) =>
-            await SetRenewalDate(ctx, resolveTenant, store, nowUtc, await ReadBodyAsync<LicenseRenewalDateRequest>(ctx)).ExecuteAsync(ctx));
+        {
+            var (body, renewsOnGiven) = ParseRenewalBody(await ReadBodyTextAsync(ctx));
+            await SetRenewalDate(ctx, c => OwnerOnly(c, "set the renewal date of a subscription"), resolveTenant, store, nowUtc,
+                body, renewsOnGiven).ExecuteAsync(ctx);
+        });
         app.MapPost(LicenseRoutes.SwitchNow, async (HttpContext ctx) =>
-            await (await SwitchNowAsync(ctx, resolveTenant, tenantInScope, switches, store,
-                await ReadBodyAsync<LicenseSwitchNowRequest>(ctx))).ExecuteAsync(ctx));
+            await (await SwitchNowAsync(ctx, c => OwnerOnly(c, "switch the machines of a subscription to another one"),
+                resolveTenant, tenantInScope, switches, store,
+                ParseBody<LicenseSwitchNowRequest>(await ReadBodyTextAsync(ctx)))).ExecuteAsync(ctx));
         FileLog.Write($"[LicenseEndpoints] mapped GET {LicenseRoutes.Overview}, GET {LicenseRoutes.Forecast}, GET {LicenseRoutes.Log}, PUT {LicenseRoutes.AccountRenewal}, POST {LicenseRoutes.SwitchNow}");
     }
 
@@ -154,20 +171,29 @@ public static class LicenseEndpoints
     /// comes from the credential, and a Claude account that tenant's machines have never reported is answered 404, so
     /// one DevThrottle account can neither set nor learn of another's. The date is "yyyy-MM-dd" and nothing else: no
     /// time, no zone, and no other spelling is guessed at. <paramref name="body"/> is null when the request carried
-    /// no JSON object that could be read.
+    /// no JSON object that could be read. <paramref name="renewsOnGiven"/> says the body NAMED <c>renewsOn</c>: only an
+    /// explicit null clears the date, so a body that leaves the field out - a misspelled name, most likely - is
+    /// refused and the stored date is left as it was. <paramref name="ownerOnly"/> answers the refusal for a caller
+    /// that is not the owner's own signed-in phone or browser, and null for one that is.
     /// </summary>
-    internal static IResult SetRenewalDate(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant, LicenseStore store,
-        Func<DateTime> nowUtc, LicenseRenewalDateRequest? body)
+    internal static IResult SetRenewalDate(HttpContext ctx, Func<HttpContext, IResult?> ownerOnly,
+        Func<HttpContext, TenantId?> resolveTenant, LicenseStore store, Func<DateTime> nowUtc,
+        LicenseRenewalDateRequest? body, bool renewsOnGiven)
     {
         FileLog.Write("[LicenseEndpoints] PUT renewal date");
         try
         {
+            if (ownerOnly(ctx) is { } notTheOwner)
+                return notTheOwner;
             if (resolveTenant(ctx) is not { } tenant)
                 return NoAccount();
-            if (body is null)
-                return Refuse(StatusCodes.Status400BadRequest, "invalid_body", "The body is a JSON object with accountEmail and renewsOn.");
+            if (body is null || !renewsOnGiven)
+                return Refuse(StatusCodes.Status400BadRequest, "invalid_body",
+                    "The body is a JSON object with accountEmail and renewsOn. renewsOn must be given: a date, or null to clear it.");
             if (string.IsNullOrWhiteSpace(body.AccountEmail))
                 return Refuse(StatusCodes.Status400BadRequest, "account_required", "accountEmail is required.");
+            if (NotAnAccountEmail(body.AccountEmail))
+                return InvalidAccount("accountEmail");
 
             DateOnly? renewsOn = null;
             if (body.RenewsOn is not null)
@@ -201,18 +227,25 @@ public static class LicenseEndpoints
     /// machine has answered or its 60-second wait has ended. Accepted is 200 with each machine's switch as its log row
     /// stands; refused is 409 with the refusal word and a finished sentence, and nothing was written or sent.
     /// </summary>
-    internal static async Task<IResult> SwitchNowAsync(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant,
-        Func<TenantId?> tenantInScope, LicenseSwitchService switches, LicenseStore store, LicenseSwitchNowRequest? body)
+    internal static async Task<IResult> SwitchNowAsync(HttpContext ctx, Func<HttpContext, IResult?> ownerOnly,
+        Func<HttpContext, TenantId?> resolveTenant, Func<TenantId?> tenantInScope, LicenseSwitchService switches,
+        LicenseStore store, LicenseSwitchNowRequest? body)
     {
         FileLog.Write("[LicenseEndpoints] POST switch-now");
         try
         {
+            if (ownerOnly(ctx) is { } notTheOwner)
+                return notTheOwner;
             if (resolveTenant(ctx) is not { } tenant)
                 return NoAccount();
             if (body is null)
                 return Refuse(StatusCodes.Status400BadRequest, "invalid_body", "The body is a JSON object with accountEmail and, to name a target, targetAccountEmail.");
             if (string.IsNullOrWhiteSpace(body.AccountEmail))
                 return Refuse(StatusCodes.Status400BadRequest, "account_required", "accountEmail is required: the account to switch away from.");
+            if (NotAnAccountEmail(body.AccountEmail))
+                return InvalidAccount("accountEmail");
+            if (body.TargetAccountEmail is { } named && NotAnAccountEmail(named))
+                return InvalidAccount("targetAccountEmail");
             // The switch is written for the caller's account and SENT in the scope in effect. If the two were ever
             // not the same, rows would be written and nothing sent - so that is refused here, before anything is.
             if (tenantInScope() is not { } scope || scope != tenant)
@@ -240,22 +273,53 @@ public static class LicenseEndpoints
         }
     }
 
-    // The body as T, or null when it is not a JSON object of that shape. A body that cannot be read is the caller's
-    // mistake and is answered 400 by the handler; it is not an error of the Gateway.
-    private static async Task<T?> ReadBodyAsync<T>(HttpContext ctx) where T : class
+    /// <summary>The longest an account email may be: the width of the column it is stored in.</summary>
+    public const int MaxAccountEmailLength = 320;
+
+    // True for text that cannot be an account email of the store: longer than its column, or holding a control
+    // character. Such text is refused before it is looked up, logged or said back in a sentence - a line break in it
+    // would otherwise write what looks like a second line of the log.
+    private static bool NotAnAccountEmail(string text)
+        => text.Length > MaxAccountEmailLength || text.Any(char.IsControl);
+
+    private static IResult InvalidAccount(string field)
+        => Refuse(StatusCodes.Status400BadRequest, "invalid_account",
+            $"{field} is at most {MaxAccountEmailLength} characters and holds no control character.");
+
+    private static readonly System.Text.Json.JsonSerializerOptions BodyOptions = new(System.Text.Json.JsonSerializerDefaults.Web);
+
+    // The text of the request's body. Reading it is the caller's own request; what it holds is judged by the parsers.
+    private static async Task<string> ReadBodyTextAsync(HttpContext ctx)
+    {
+        using var reader = new StreamReader(ctx.Request.Body, System.Text.Encoding.UTF8);
+        return await reader.ReadToEndAsync(ctx.RequestAborted);
+    }
+
+    /// <summary>The body as T, or null when it is not a JSON object of that shape. A body that cannot be read is the
+    /// caller's mistake and is answered 400 by the handler; it is not an error of the Gateway.</summary>
+    internal static T? ParseBody<T>(string json) where T : class
     {
         try
         {
-            return await ctx.Request.ReadFromJsonAsync<T>(ctx.RequestAborted);
+            return System.Text.Json.JsonSerializer.Deserialize<T>(json, BodyOptions);
         }
         catch (System.Text.Json.JsonException)
         {
             return null;
         }
-        catch (InvalidOperationException)
-        {
-            return null; // not a JSON content type
-        }
+    }
+
+    /// <summary>The body of the renewal route, and whether it NAMED <c>renewsOn</c> (whatever the capitals, as every
+    /// other field name is read). The typed body alone cannot tell a field left out from one given as null.</summary>
+    internal static (LicenseRenewalDateRequest? Body, bool RenewsOnGiven) ParseRenewalBody(string json)
+    {
+        var body = ParseBody<LicenseRenewalDateRequest>(json);
+        if (body is null)
+            return (null, false);
+        using var document = System.Text.Json.JsonDocument.Parse(json);
+        var given = document.RootElement.EnumerateObject()
+            .Any(p => string.Equals(p.Name, "renewsOn", StringComparison.OrdinalIgnoreCase));
+        return (body, given);
     }
 
     /// <summary>

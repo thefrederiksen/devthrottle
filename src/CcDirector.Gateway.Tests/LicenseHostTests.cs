@@ -192,6 +192,95 @@ public sealed class LicenseHostTests : IAsyncLifetime
         Assert.Single(_gateway.LicenseStore.ListOpenSwitches(_tenantOne));
     }
 
+    // ---- the two writes are for a signed-in person only ----
+
+    private const string RenewalBody = "{\"accountEmail\":\"" + AccountA + "\",\"renewsOn\":\"2026-10-17\"}";
+    private const string SwitchBody = "{\"accountEmail\":\"" + AccountA + "\"}";
+
+    private async Task<(HttpStatusCode Status, string Text)> Write(HttpClient http, string verb, string path, string body)
+    {
+        using var request = new HttpRequestMessage(new HttpMethod(verb), path) { Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json") };
+        using var resp = await http.SendAsync(request);
+        var text = await resp.Content.ReadAsStringAsync();
+        _out.WriteLine($"{verb} {path} {body} -> {(int)resp.StatusCode}: {text}");
+        return (resp.StatusCode, text);
+    }
+
+    /// <summary>A session of account one that the owner has raised, through the real raise route.</summary>
+    private async Task<HttpClient> RaisedSession()
+    {
+        var sessionId = Guid.NewGuid().ToString();
+        var key = SessionKey(_tenantOne, DirectorOne, sessionId);
+        _gateway.Registry.RegisterFromStream(DirectorOne, "MACHINE-" + DirectorOne, "someone", "1.0", pid: 4321,
+            startedAt: Now, tenant: _tenantOne);
+        _gateway.PushedSessions.RegisterConnection(_tenantOne, DirectorOne, "conn-sessions-" + DirectorOne);
+        Assert.True(_gateway.PushedSessions.ApplySnapshot(_tenantOne, DirectorOne, "conn-sessions-" + DirectorOne, 1,
+            new List<SessionDto> { new() { SessionId = sessionId, Name = "A session the owner raised", ActivityState = "WaitingForInput", CreatedAt = Now, LastActivityAt = Now } }));
+        using var raise = await _ownerOne.PostAsync($"sessions/{sessionId}/raise", null);
+        Assert.Equal(HttpStatusCode.OK, raise.StatusCode);
+        Assert.True(_gateway.RaisedSessions.IsRaised(_tenantOne, sessionId));
+        return Client(key);
+    }
+
+    [Fact]
+    public async Task BothWrites_AskedWithTheMachinesOwnCredential_AreRefused_AndNothingIsStoredOrWritten()
+    {
+        var switchesBefore = _gateway.LicenseStore.ListOpenSwitches(_tenantOne).Select(r => r.Id).ToList();
+
+        var renewal = await Write(_machineOne, "PUT", "gateway/licenses/accounts/renewal", RenewalBody);
+        var switchNow = await Write(_machineOne, "POST", "gateway/licenses/switch-now", SwitchBody);
+
+        foreach (var answer in new[] { renewal, switchNow })
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, answer.Status);
+            Assert.Equal("owner_only", Json(answer.Text).GetProperty("code").GetString());
+            Assert.Contains("only the owner on their own signed-in phone or browser may", Json(answer.Text).GetProperty("error").GetString());
+        }
+        Assert.Null(await RenewsOn(_ownerOne, AccountA));
+        Assert.Equal(switchesBefore, _gateway.LicenseStore.ListOpenSwitches(_tenantOne).Select(r => r.Id).ToList());
+        // The same credential still reads all three routes (EveryRoute_IsReadByASessionKey_...).
+    }
+
+    [Fact]
+    public async Task BothWrites_AskedWithARaisedSessionKey_AreRefused_AndNothingIsStoredOrWritten()
+    {
+        using var raised = await RaisedSession();
+        var switchesBefore = _gateway.LicenseStore.ListOpenSwitches(_tenantOne).Select(r => r.Id).ToList();
+
+        var renewal = await Write(raised, "PUT", "gateway/licenses/accounts/renewal", RenewalBody);
+        var switchNow = await Write(raised, "POST", "gateway/licenses/switch-now", SwitchBody);
+        var read = await Get(raised, "gateway/licenses");
+
+        Assert.Equal(HttpStatusCode.Forbidden, renewal.Status);
+        Assert.Equal(HttpStatusCode.Forbidden, switchNow.Status);
+        Assert.Equal(HttpStatusCode.OK, read.Status);
+        Assert.Null(await RenewsOn(_ownerOne, AccountA));
+        Assert.Equal(switchesBefore, _gateway.LicenseStore.ListOpenSwitches(_tenantOne).Select(r => r.Id).ToList());
+    }
+
+    [Fact]
+    public async Task BothWrites_AskedByTheOwnersPhone_AreAllowed_LikeTheOwnersBrowser()
+    {
+        // The account of _ownerNothingReported is signed in on a PHONE and has no machines: the owner check lets it
+        // through and the route then answers for an account with nothing in it.
+        var renewal = await Write(_ownerNothingReported, "PUT", "gateway/licenses/accounts/renewal", RenewalBody);
+        var switchNow = await Write(_ownerNothingReported, "POST", "gateway/licenses/switch-now", SwitchBody);
+
+        Assert.Equal((HttpStatusCode.NotFound, "unknown_account"), (renewal.Status, Json(renewal.Text).GetProperty("code").GetString()));
+        Assert.Equal((HttpStatusCode.Conflict, LicenseManualRefusals.NoMachineToSwitch), (switchNow.Status, Json(switchNow.Text).GetProperty("code").GetString()));
+    }
+
+    [Fact]
+    public async Task RenewalDate_AMisspelledFieldOverRealHttp_IsRefused_AndTheStoredDateIsKept()
+    {
+        Assert.Equal(HttpStatusCode.OK, (await PutRenewal(_ownerOne, RenewalBody)).Status);
+
+        var (status, text) = await PutRenewal(_ownerOne, "{\"accountEmail\":\"" + AccountA + "\",\"renewOn\":\"2026-11-17\"}");
+
+        Assert.Equal((HttpStatusCode.BadRequest, "invalid_body"), (status, Json(text).GetProperty("code").GetString()));
+        Assert.Equal("2026-10-17", await RenewsOn(_ownerOne, AccountA));
+    }
+
     // ---- Switch now, by the owner, over real HTTP ----
 
     [Fact]
@@ -367,5 +456,54 @@ public sealed class LicenseHostTests : IAsyncLifetime
             (entry.GetProperty("kind").GetString(), entry.GetProperty("machineName").GetString(), entry.GetProperty("fromAccountEmail").GetString(),
              entry.GetProperty("toAccountEmail").GetString(), entry.GetProperty("whyText").GetString(), entry.GetProperty("isOpen").GetBoolean()));
         Assert.False(json.GetProperty("hasMore").GetBoolean());
+    }
+}
+
+/// <summary>
+/// THE TWO LICENSE WRITES ON A SELF-HOSTED GATEWAY: the shared machine token is a credential there - every Director
+/// on the machine has it - and it reads the three license routes, but it is not a signed-in person, so both writes
+/// are refused to it (the Tech Lead's ruling on the review of pull request 3936, finding 1).
+/// </summary>
+public sealed class LicenseWritesSelfHostedTests : IAsyncLifetime
+{
+    private const string SharedToken = "license-self-hosted-token";
+    private readonly string _instancesDir = Path.Combine(Path.GetTempPath(), "cc-license-self-hosted-" + Guid.NewGuid().ToString("N"));
+    private GatewayHost _gateway = null!;
+    private HttpClient _sharedToken = null!;
+
+    public async Task InitializeAsync()
+    {
+        _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: SharedToken, authEnabled: true,
+            instancesDirectory: _instancesDir,
+            workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
+            streamMode: true);
+        await _gateway.StartAsync();
+        _sharedToken = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
+        _sharedToken.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", SharedToken);
+    }
+
+    public async Task DisposeAsync()
+    {
+        _sharedToken.Dispose();
+        await _gateway.StopAsync();
+        try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); } catch { /* best effort */ }
+    }
+
+    [Fact]
+    public async Task TheSharedMachineToken_ReadsTheLicenses_AndIsRefusedBothWrites()
+    {
+        using var read = await _sharedToken.GetAsync("gateway/licenses");
+        using var renewal = await _sharedToken.PutAsync("gateway/licenses/accounts/renewal",
+            new StringContent("{\"accountEmail\":\"account-a@example.com\",\"renewsOn\":\"2026-10-17\"}", System.Text.Encoding.UTF8, "application/json"));
+        using var switchNow = await _sharedToken.PostAsync("gateway/licenses/switch-now",
+            new StringContent("{\"accountEmail\":\"account-a@example.com\"}", System.Text.Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.OK, read.StatusCode);
+        foreach (var refused in new[] { renewal, switchNow })
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
+            var json = JsonDocument.Parse(await refused.Content.ReadAsStringAsync()).RootElement;
+            Assert.Equal("owner_only", json.GetProperty("code").GetString());
+        }
     }
 }

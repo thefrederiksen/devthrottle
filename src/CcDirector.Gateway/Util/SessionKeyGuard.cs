@@ -372,7 +372,8 @@ public static class SessionKeyGuard
                 // when the next switch is expected. The WRITES are NOT here and are refused to every session key, raised
                 // or not: Switch now (moving every machine of the owner's subscription to another one) and the renewal
                 // date of a subscription (PUT gateway/licenses/accounts/renewal) are the owner's own actions, from the
-                // Cockpit.
+                // Cockpit. This guard is only the session key's half of that: the routes themselves also refuse a
+                // Director's own device key and the shared machine token (LicenseEndpoints.Map).
                 case "gateway/licenses":
                 case "gateway/licenses/forecast":
                 case "gateway/licenses/log":

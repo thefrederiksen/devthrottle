@@ -117,7 +117,8 @@ public sealed class LicenseReadModel
     public LicenseOverview Read(TenantId tenant, DateTime nowUtc)
     {
         // QUIET ON PURPOSE, like LicenseSnapshotSource.ReadPicture, which calls this once a minute for every
-        // DevThrottle account: no entry line and no result line. A read that FAILS still logs.
+        // DevThrottle account: no entry line and no result line. A read that FAILS still logs. By the same ruling
+        // (the Tech Lead, on the review of pull request 3936, finding 9).
         try
         {
             var (accounts, machines, holdings) = _store.ReadAll(tenant);

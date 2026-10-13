@@ -102,7 +102,7 @@ public sealed class LicenseSwitchNowEndpointTests : IDisposable
     private (int Status, string Text, JsonElement Json) Post(TenantId? tenant, LicenseSwitchNowRequest? body)
     {
         var ctx = Context();
-        var result = LicenseEndpoints.SwitchNowAsync(ctx, _ => tenant, () => tenant, _service, _store, body).GetAwaiter().GetResult();
+        var result = LicenseEndpoints.SwitchNowAsync(ctx, _ => null, _ => tenant, () => tenant, _service, _store, body).GetAwaiter().GetResult();
         result.ExecuteAsync(ctx).GetAwaiter().GetResult();
         var text = Encoding.UTF8.GetString(((MemoryStream)ctx.Response.Body).ToArray());
         return (ctx.Response.StatusCode, text, JsonDocument.Parse(text).RootElement.Clone());
@@ -302,6 +302,38 @@ public sealed class LicenseSwitchNowEndpointTests : IDisposable
         Assert.Empty(Switches(TenantOne));
     }
 
+    [Fact]
+    public void SwitchNow_AnAccountOrATargetLongerThanItsColumn_OrHoldingAControlCharacter_IsRefused_AndNeverSaidBack()
+    {
+        Reports(TenantOne, Windows, "dir-win", A, new[] { B });
+        var tooLong = new string('a', 321);
+
+        foreach (var body in new[] { Body(tooLong), Body("x\ny"), Body(A, tooLong), Body(A, "x\ry"), Body(A, "x\u0000y") })
+        {
+            var (status, text, json) = Post(TenantOne, body);
+
+            Assert.Equal((400, "invalid_account"), (status, Refusal(json).Code));
+            Assert.DoesNotContain("aaaa", text);
+            Assert.DoesNotContain("\\n", text);
+        }
+        Assert.Empty(_sent);
+        Assert.Empty(Switches(TenantOne));
+    }
+
+    [Fact]
+    public async Task SwitchNow_FromACallerThatIsNotTheOwnersOwnDevice_IsRefusedFirst_AndNothingIsWrittenOrSent()
+    {
+        Reports(TenantOne, Windows, "dir-win", A, new[] { B });
+        var ctx = Context();
+        var refusal = Results.Json(new { code = "owner_only", error = "only the owner may" }, statusCode: 403);
+
+        var result = await LicenseEndpoints.SwitchNowAsync(ctx, _ => refusal, _ => TenantOne, () => TenantOne, _service, _store, Body(A));
+
+        Assert.Same(refusal, result);
+        Assert.Empty(_sent);
+        Assert.Empty(Switches(TenantOne));
+    }
+
     // ---- whose account ----
 
     [Fact]
@@ -329,7 +361,7 @@ public sealed class LicenseSwitchNowEndpointTests : IDisposable
 
         foreach (var scope in new TenantId?[] { TenantTwo, null })
             await Assert.ThrowsAsync<InvalidOperationException>(() =>
-                LicenseEndpoints.SwitchNowAsync(Context(), _ => TenantOne, () => scope, _service, _store, Body(A)));
+                LicenseEndpoints.SwitchNowAsync(Context(), _ => null, _ => TenantOne, () => scope, _service, _store, Body(A)));
 
         Assert.Empty(_sent);
         Assert.Empty(Switches(TenantOne));
@@ -338,20 +370,46 @@ public sealed class LicenseSwitchNowEndpointTests : IDisposable
     // ---- the page offers Switch now exactly where the route accepts it ----
 
     [Fact]
-    public void AMachineWhoseSwitchIsOnlyWaitingForItsDirector_CanBeSwitchedNow_OnThePage_AndByTheRoute()
+    public void TheSameSwitchNow_AskedAgainWhileItsSwitchWaitsForTheDirector_AnswersWithTheWaitingSwitch_AndWritesNothing()
     {
         Reports(TenantOne, Windows, "dir-win", A, new[] { B });
         Offline();
-        Assert.Equal(200, Post(TenantOne, Body(A)).Status);
+        var first = Post(TenantOne, Body(A, B));
+        var waiting = Assert.Single(Switches(TenantOne));
+
+        var named = Post(TenantOne, Body(A, B));          // the same target, named
+        var chosen = Post(TenantOne, Body(A));            // the same target, chosen by the Gateway
+
+        foreach (var again in new[] { named, chosen })
+        {
+            Assert.Equal(200, again.Status);
+            Assert.Equal(first.Json.GetProperty("switches")[0].GetProperty("switchId").GetString(),
+                again.Json.GetProperty("switches")[0].GetProperty("switchId").GetString());
+            Assert.Equal(first.Json.GetProperty("text").GetString(), again.Json.GetProperty("text").GetString());
+        }
+        // One row, still the one that was waiting, untouched - and nothing more was sent for it.
+        var row = Assert.Single(Switches(TenantOne));
+        Assert.Equal((waiting.Id, LicenseLogStates.Pending, LicenseGatewayReasonCodes.DirectorOffline, waiting.SendCount),
+            (row.Id, row.State, row.ReasonCode, row.SendCount));
+        Assert.Single(_sent);
+    }
+
+    [Fact]
+    public void AMachineWhoseSwitchIsOnlyWaitingForItsDirector_CanBeSwitchedNow_OnThePage_AndByTheRoute()
+    {
+        Reports(TenantOne, Windows, "dir-win", A, new[] { B, C });
+        Offline();
+        Assert.Equal(200, Post(TenantOne, Body(A, B)).Status);
         var waiting = Assert.Single(Switches(TenantOne));
         Assert.Equal((LicenseLogStates.Pending, LicenseGatewayReasonCodes.DirectorOffline), (waiting.State, waiting.ReasonCode));
 
         var account = AccountOnThePage(TenantOne, A);
         Assert.True(account.GetProperty("canSwitchNow").GetBoolean());
-        Assert.Equal($"Moves {Windows} to {B}.", account.GetProperty("switchNowText").GetString());
+        Assert.StartsWith($"Moves {Windows} to ", account.GetProperty("switchNowText").GetString());
 
+        // A DIFFERENT decision - another target - is a new switch: the waiting one is ended, never sent beside it.
         _director = request => Answer(request, LicenseSwitchOutcomes.Switched);
-        var (status, _, json) = Post(TenantOne, Body(A));
+        var (status, _, json) = Post(TenantOne, Body(A, C));
 
         Assert.Equal((200, LicenseLogStates.Switched), (status, json.GetProperty("switches")[0].GetProperty("state").GetString()));
         var rows = Switches(TenantOne);

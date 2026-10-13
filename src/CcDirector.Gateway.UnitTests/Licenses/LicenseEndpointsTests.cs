@@ -117,7 +117,10 @@ public sealed class LicenseEndpointsTests : IDisposable
             "accountEmail", "plan", "planText", "rateLimitTier", "status", "statusText", "statusTone", "statusDetail", "isInUse",
             "fiveHour", "sevenDay", "isStale", "readAtUtc", "readAgeText", "readError", "readErrorText", "extraUsage",
             "renewsOn", "renewsText", "signInExpiry", "activeOnMachines", "spareOnMachines", "canSwitchNow", "switchNowText", "switchNowTargetAccountEmail", "switchTargets",
+            "barredUntilUtc", "barredText",
         }, Names(account));
+        // Not barred from the automatic choice, so there is nothing to show beside it.
+        Assert.Equal((JsonValueKind.Null, JsonValueKind.Null), (account.GetProperty("barredUntilUtc").ValueKind, account.GetProperty("barredText").ValueKind));
         Assert.Equal(new[] { "expiresAtUtc", "machine", "verdict", "text", "tone" }, Names(account.GetProperty("signInExpiry")));
         // No renewal date was set for this account, and the answer says so in words - never a guessed date.
         Assert.Equal((JsonValueKind.Null, "Renewal date not set"), (account.GetProperty("renewsOn").ValueKind, account.GetProperty("renewsText").GetString()));
@@ -216,10 +219,98 @@ public sealed class LicenseEndpointsTests : IDisposable
 
     // ---- PUT /gateway/licenses/accounts/renewal ----
 
-    private (int Status, string Text, JsonElement Json) PutRenewal(TenantId? tenant, LicenseRenewalDateRequest? body)
+    private (int Status, string Text, JsonElement Json) PutRenewal(TenantId? tenant, LicenseRenewalDateRequest? body, bool renewsOnGiven = true)
     {
         var ctx = Context();
-        return Read(ctx, LicenseEndpoints.SetRenewalDate(ctx, _ => tenant, _store, () => _now, body));
+        return Read(ctx, LicenseEndpoints.SetRenewalDate(ctx, _ => null, _ => tenant, _store, () => _now, body, renewsOnGiven));
+    }
+
+    /// <summary>The body exactly as the route reads it off the wire.</summary>
+    private (int Status, string Text, JsonElement Json) PutRenewalText(TenantId? tenant, string json)
+    {
+        var (body, given) = LicenseEndpoints.ParseRenewalBody(json);
+        return PutRenewal(tenant, body, given);
+    }
+
+    private string? StoredRenewsOn(TenantId tenant, int account = 0)
+        => Overview(tenant).Json.GetProperty("accounts")[account].GetProperty("renewsOn").GetString();
+
+    [Theory]
+    [InlineData("""{"accountEmail":"account-a@example.com","renewOn":"2026-11-17"}""")]    // one letter missing
+    [InlineData("""{"accountEmail":"account-a@example.com"}""")]
+    [InlineData("""{"accountEmail":"account-a@example.com","renews_on":null}""")]
+    public void RenewalDate_ABodyThatDoesNotNameRenewsOn_IsRefused_AndTheStoredDateIsKept(string json)
+    {
+        Apply(TenantOne, Report("m1", Holding(A, true)));
+        PutRenewal(TenantOne, new LicenseRenewalDateRequest { AccountEmail = A, RenewsOn = "2026-10-17" });
+
+        var (status, _, answer) = PutRenewalText(TenantOne, json);
+
+        Assert.Equal((400, "invalid_body"), (status, answer.GetProperty("code").GetString()));
+        Assert.Equal("2026-10-17", StoredRenewsOn(TenantOne));
+    }
+
+    [Theory]
+    [InlineData("""{"accountEmail":"account-a@example.com","renewsOn":null}""")]
+    [InlineData("""{"AccountEmail":"account-a@example.com","RenewsOn":null}""")]     // capitals are not a different field
+    public void RenewalDate_OnlyAnExplicitNull_Clears(string json)
+    {
+        Apply(TenantOne, Report("m1", Holding(A, true)));
+        PutRenewal(TenantOne, new LicenseRenewalDateRequest { AccountEmail = A, RenewsOn = "2026-10-17" });
+
+        var (status, _, _) = PutRenewalText(TenantOne, json);
+
+        Assert.Equal(200, status);
+        Assert.Null(StoredRenewsOn(TenantOne));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("null")]
+    [InlineData("[]")]
+    [InlineData("renews on the seventeenth")]
+    [InlineData("""{"accountEmail":"account-a@example.com","renewsOn":20261017}""")]
+    [InlineData("""{"accountEmail":{"a":1},"renewsOn":null}""")]
+    public void RenewalDate_ABodyThatIsNotTheRequest_IsRefused400_NeverAnError(string json)
+    {
+        Apply(TenantOne, Report("m1", Holding(A, true)));
+
+        var (status, _, answer) = PutRenewalText(TenantOne, json);
+
+        Assert.Equal((400, "invalid_body"), (status, answer.GetProperty("code").GetString()));
+    }
+
+    [Fact]
+    public void RenewalDate_AnAccountEmailLongerThanItsColumn_OrHoldingAControlCharacter_IsRefused_BeforeItIsLookedUp()
+    {
+        Apply(TenantOne, Report("m1", Holding(A, true)));
+        var longest = new string('a', 320 - "@example.com".Length) + "@example.com";
+
+        var tooLong = PutRenewal(TenantOne, new LicenseRenewalDateRequest { AccountEmail = "a" + longest, RenewsOn = "2026-10-17" });
+        var lineBreak = PutRenewal(TenantOne, new LicenseRenewalDateRequest { AccountEmail = "x\ny@example.com", RenewsOn = "2026-10-17" });
+        var tab = PutRenewal(TenantOne, new LicenseRenewalDateRequest { AccountEmail = "x\ty@example.com", RenewsOn = "2026-10-17" });
+        var asLongAsItMayBe = PutRenewal(TenantOne, new LicenseRenewalDateRequest { AccountEmail = longest, RenewsOn = "2026-10-17" });
+
+        Assert.Equal((400, "invalid_account"), (tooLong.Status, tooLong.Json.GetProperty("code").GetString()));
+        Assert.Equal((400, "invalid_account"), (lineBreak.Status, lineBreak.Json.GetProperty("code").GetString()));
+        Assert.Equal((400, "invalid_account"), (tab.Status, tab.Json.GetProperty("code").GetString()));
+        Assert.DoesNotContain("\n", lineBreak.Json.GetProperty("error").GetString());
+        // Exactly 320 characters is an email like any other: looked up, and not known here.
+        Assert.Equal((404, "unknown_account"), (asLongAsItMayBe.Status, asLongAsItMayBe.Json.GetProperty("code").GetString()));
+    }
+
+    [Fact]
+    public void RenewalDate_FromACallerThatIsNotTheOwnersOwnDevice_IsRefusedFirst_AndNothingIsStored()
+    {
+        Apply(TenantOne, Report("m1", Holding(A, true)));
+        var ctx = Context();
+        var refusal = Results.Json(new { code = "owner_only", error = "only the owner may" }, statusCode: 403);
+
+        var (status, _, answer) = Read(ctx, LicenseEndpoints.SetRenewalDate(ctx, _ => refusal, _ => TenantOne, _store, () => _now,
+            new LicenseRenewalDateRequest { AccountEmail = A, RenewsOn = "2026-10-17" }, true));
+
+        Assert.Equal((403, "owner_only"), (status, answer.GetProperty("code").GetString()));
+        Assert.Null(StoredRenewsOn(TenantOne));
     }
 
     [Fact]

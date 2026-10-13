@@ -195,10 +195,13 @@ public sealed class LicenseStore
         row.SignInExpiresAtUtc = UtcOrNull(holding.SignInExpiresAtUtc);
         // The last renewal of the SIGN-IN (contract section 8.1). The time is what says a renewal failed; a report
         // with no time says the last one worked or none was tried, and clears whatever was stored. The reason is kept
-        // only when it is a word of the contract - anything else could be whatever a tool printed.
+        // as given only when it is a word of the contract - anything else could be whatever a tool printed, and is
+        // stored as RenewalErrorNotKnown.
         row.RenewalFailedAtUtc = UtcOrNull(holding.RenewalFailedAtUtc);
         var failed = row.RenewalFailedAtUtc is not null;
-        row.RenewalError = failed && holding.RenewalError is { } word && LicenseRenewalErrors.All.Contains(word) ? word : null;
+        row.RenewalError = !failed || string.IsNullOrWhiteSpace(holding.RenewalError) ? null
+            : LicenseRenewalErrors.All.Contains(holding.RenewalError) ? holding.RenewalError
+            : RenewalErrorNotKnown;
         row.RenewalErrorDetail = failed ? Trimmed(holding.RenewalErrorDetail, 500) : null;
     }
 
@@ -207,6 +210,15 @@ public sealed class LicenseStore
     /// Licenses page. False when this DevThrottle account holds no such Claude account: a date is never stored for an
     /// account no machine has reported.
     /// </summary>
+    /// <summary>
+    /// What is stored as a holding's renewal reason when the Director gave a reason word this build does not know. The
+    /// word itself is never stored - it could be whatever a newer or a broken tool printed - but that there WAS a
+    /// reason is kept, so nothing that acts on a failed renewal (the owner email of contract section 8.1, still to be
+    /// built) loses a failure for want of a word it recognises. That a renewal failed is said by
+    /// <see cref="LicenseHoldingEntity.RenewalFailedAtUtc"/>, whatever the reason.
+    /// </summary>
+    public const string RenewalErrorNotKnown = "not-known";
+
     public bool SetRenewalDate(TenantId tenant, string accountEmail, DateOnly? renewsOn)
     {
         var email = NormalizeEmail(accountEmail);

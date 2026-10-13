@@ -113,6 +113,8 @@ public static class LicenseDisplayFold
             ExtraUsage = ExtraUsage(view.Freshest?.ExtraUsageEnabled, view.Freshest?.ExtraUsageUtilization),
             RenewsOn = view.RenewsOn?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
             RenewsText = RenewsText(view.RenewsOn, now),
+            BarredUntilUtc = Bar(snapshot, view.AccountEmail) is { } barred ? Utc(barred.BarredUntilUtc) : null,
+            BarredText = Bar(snapshot, view.AccountEmail) is { } bar ? BarredText(bar, now) : null,
             SignInExpiry = SignInExpiry(held, names, now),
             ActiveOnMachines = held.Where(h => h.Holding.IsActive).Select(h => names.Ref(h.Machine)).ToList(),
             SpareOnMachines = held.Where(h => !h.Holding.IsActive).Select(h => names.Ref(h.Machine)).ToList(),
@@ -255,6 +257,20 @@ public static class LicenseDisplayFold
         else
             dto.SwitchNowText = automatic.RefusalMessage + notSwitched;
     }
+
+    // The bar that keeps this account out of the AUTOMATIC choice now, or null: the one that lasts longest when it
+    // has more than one. A bar whose time has come is no bar.
+    private static LicenseBar? Bar(LicenseSnapshot snapshot, string accountEmail)
+        => snapshot.Bars
+            .Where(b => b.AccountEmail == accountEmail && b.BarredUntilUtc > snapshot.NowUtc)
+            .OrderByDescending(b => b.BarredUntilUtc)
+            .FirstOrDefault();
+
+    // A bar stops the automatic choice only (the ruling on the decision engine's review): a person can still choose
+    // the account by hand, and the sentence says so.
+    private static string BarredText(LicenseBar bar, DateTime now)
+        => $"Left out of the automatic choice for {Span(bar.BarredUntilUtc - now)}, until its {WindowLabel(bar.Window)} resets: "
+           + "it triggered a switch. It can still be chosen by hand.";
 
     // ----- Switch now, answered -----
 
@@ -809,7 +825,7 @@ public static class LicenseDisplayFold
     /// <summary>
     /// The sentence for an account's renewal date - the day its SUBSCRIPTION is billed again, as a person set it. The
     /// date has no time and no zone, and it is compared with the Gateway's date in Coordinated Universal Time, so
-    /// around midnight "today" can be a day off for the viewer; the date itself is always given.
+    /// around midnight "today" can be a day off for the viewer; the date itself is always given, today's included.
     /// </summary>
     public static string RenewsText(DateOnly? renewsOn, DateTime nowUtc)
     {
@@ -817,7 +833,7 @@ public static class LicenseDisplayFold
             return RenewalDateNotSetText;
         var today = DateOnly.FromDateTime(Utc(nowUtc));
         var day = date.ToString(date.Year == today.Year ? "d MMM" : "d MMM yyyy", CultureInfo.InvariantCulture);
-        return date == today ? "Renews today"
+        return date == today ? $"Renews today, {day}"
             : date < today ? $"Renewal date {day} has passed"
             : $"Renews {day}";
     }
