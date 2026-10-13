@@ -518,7 +518,7 @@ Director never acts on the Gateway's out-of-date picture (3.3 step 7).
 These live as named constants in `LicenseMessages.cs` (`LicenseContract.ReportInterval` and so on),
 so the two sides cannot drift.
 
-## 8. Phase 4 additions - AGREED; the Director side is built, the Gateway side is built in part
+## 8. Phase 4 additions - AGREED; the Director side and the Gateway side are both built
 
 Written by the phase 4 Developer; agreed by the phase 2 Tech Lead on 11 October 2026 (pull request 3875), with
 the changes to 8.3 below. Phase 2 builds the Gateway side; the Director side is the second phase 4 pull request,
