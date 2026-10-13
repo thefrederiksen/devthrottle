@@ -2,8 +2,12 @@
 
 Developer brief 10 (Factory Control, step 1). Two parts in one pull request.
 
-Everything below was run on 13 October 2026 on SOREN_NORTH at commit `734e309b9`, which sits directly on
+Everything below was run on 13 October 2026 on SOREN_NORTH at commit `4cbca302e`, which sits directly on
 origin/main at `f2d877df3`, except where a line says otherwise.
+
+**Added after the review, on the Architect's ruling:** an ok run now honours its schedule's close-itself setting
+(the section "An ok run honours the close-itself setting" below), and the skip rule matches the command
+`cc-devthrottle run result` rather than the bare words `run result` (the reviewer's observation).
 
 ## What changed
 
@@ -26,7 +30,9 @@ now starts a session whose first prompt is exactly
 
 (the owner's prompt with trailing blank space removed, one blank line, then the instruction on one line).
 
-A prompt that already names `run result`, in any letter case, is handed over exactly as the owner wrote it.
+A prompt that already names the command `cc-devthrottle run result`, in any letter case, is handed over exactly as
+the owner wrote it. The bare words are not enough: a prompt that says "check the test run results" has not told
+its run to report, and still gets the instruction.
 
 **Every path that starts a scheduled run.** A seed schedule starts a session in exactly one place: `CronEngine.FireAsync`
 calls `ICronSessionStarter.StartAsync`, and `DirectorCronSessionStarter` is its only production implementation
@@ -61,6 +67,28 @@ Two things start sessions and are deliberately NOT given the instruction, becaus
 - The close-itself setting (`AutoDismiss`) is read and handed over exactly as before, and is not written.
 - How a run is found for `run result` is unchanged: by the calling session's own key. No run id is passed.
 
+### An ok run honours the close-itself setting (Gateway only)
+
+`cc-devthrottle run result ok` used to close the calling session always. With every run now told to report, that
+would have closed the sessions of schedules whose owner switched close-itself OFF. The Architect ruled that the
+setting wins, and it is decided on the Gateway, in `CronRunResultService`:
+
+| The run reports | Close-itself ON (the default) | Close-itself OFF |
+| --- | --- | --- |
+| ok | `closeSession: true` - "This session now closes itself." | `closeSession: false` - "This session stays open, because its schedule is set not to close itself." |
+| a problem | `closeSession: false` - stays open for someone to look at | the same |
+
+The result is recorded either way; a run that stays open by its setting is ok, not a problem. The seat's existing
+"stayed open" marker is folded from how the run's session ended and is not touched here.
+
+The setting is read from the schedule as it stands when the run reports. A schedule deleted while its run was
+going has no setting left to read, so its run closes, as the default does.
+
+**No tools change is needed, and this was checked, not assumed.** The command line closes the session only when
+the Gateway's answer carries `closeSession: true`, and otherwise prints the Gateway's sentence and
+`session: stays open`. That is so in the source at the `v2.19.0` tag, and the copy installed on this machine
+(`%LOCALAPPDATA%\cc-director\pyenv\Lib\site-packages\cc_devthrottle\run_ops.py`) is the same file as that tag.
+
 ### Part 2 - `cc-devthrottle factory manager set` is removed
 
 Since pull request 3941 only the owner's own device may set the Factory Manager mark, so the command could only
@@ -86,6 +114,21 @@ files are the same after it, except the run-now test's clock value.
 | The starter writes the composed text onto the schedule it was handed | 0 - see "Not proven" |
 | Restored, rebuilt | 0: 14 passed |
 
+The ruling and the tightened skip rule, run at `4cbca302e` over the three affected test classes (112 tests), each
+mutation rebuilt and restored:
+
+| Mutation | Tests that went red (of 112) |
+| --- | --- |
+| An ok run always closes (the ruling removed) | 3: `Report_Ok_WhenTheScheduleIsSetNotToCloseItself_IsRecorded_AndTheSessionStaysOpen`, `Report_OkSentAgain_WhenTheScheduleIsSetNotToCloseItself_StillLeavesTheSessionOpen`, and over the route `Result_Ok_WhenTheScheduleIsSetNotToCloseItself_AnswersThatTheSessionStaysOpen` |
+| The setting alone decides, whatever the result | 4: `Report_Problem_LeavesTheSessionOpen_WhateverTheCloseItselfSetting(closesItself: True)`, `Report_Problem_IsRecordedWithItsReason_AndTheSessionStaysOpen`, and two earlier ran-past-its-shift tests |
+| A deleted schedule leaves the session open | 1: `Report_Ok_WhenTheScheduleWasDeletedWhileItsRunWasGoing_ClosesAsTheDefaultDoes` |
+| The skip rule matches the bare words again | 2: both cases of `PromptFor_APromptThatOnlyHappensToSayRunResult_StillGetsTheInstruction` |
+| Restored, rebuilt | 0: 112 passed |
+
+Two of the new tests pass with or without the ruling, because they describe what was already true:
+`Report_Ok_WhenTheScheduleIsSetToCloseItself_TellsTheSessionToClose`, and the close-itself OFF case of the problem
+test. They are there so both settings are written down for both results.
+
 Command line, run at `734e309b9`: with `cli.py` and `factory_manager_ops.py` put back as they were on main, 5 failed
 and 12 passed - `test_set_IsNotACommand_FailsAsUnknownAndSendsNothing`, `test_help_ListsShowAndClear_AndNoSet`,
 `test_theModule_HasNoWayToSetTheMark`, `test_actions_ListTheFactoryManagerCommandsAndTheNameCheck`,
@@ -93,13 +136,13 @@ and 12 passed - `test_set_IsNotACommand_FailsAsUnknownAndSendsNothing`, `test_he
 
 ## The runs
 
-All at `734e309b9`, tree clean.
+Tree clean for each.
 
-| Command | Result |
-| --- | --- |
-| `.\scripts\test-local.ps1` | GREEN, 10 suites, every one `outcome=Completed`: 4,562 passed, 0 failed, 0 skipped (Core.UnitTests 1720, Avalonia 1079, Engine 86, HostedAgent 89, Launcher 218, Terminal 82, Reclaim 305, setup 39, setup-engine 870, setup-cli 74) |
-| `dotnet test src\CcDirector.Gateway.UnitTests` | 11,249 passed, 0 failed, 0 skipped |
-| `python -m pytest -q` in `tools\cc-devthrottle` | 4,319 passed, 3 skipped, 0 failed |
+| Command | At | Result |
+| --- | --- | --- |
+| `.\scripts\test-local.ps1` | `4cbca302e` | GREEN, 10 suites, every one `outcome=Completed`: 4,562 passed, 0 failed, 0 skipped (Core.UnitTests 1720, Avalonia 1079, Engine 86, HostedAgent 89, Launcher 218, Terminal 82, Reclaim 305, setup 39, setup-engine 870, setup-cli 74) |
+| `dotnet test src\CcDirector.Gateway.UnitTests` | `4cbca302e` | 11,258 passed, 0 failed, 0 skipped (11,249 before the ruling's nine new test cases) |
+| `python -m pytest -q` in `tools\cc-devthrottle` | `734e309b9` | 4,319 passed, 3 skipped, 0 failed. Not run again: nothing under `tools\` changed after that commit. |
 
 The command line suite was run in a fresh virtual environment holding the dependency floor the continuous
 integration job pins (`typer==0.16.1 click==8.2.1 rich==13.0.0 requests==2.31.0 cryptography==42.0.0`). The
@@ -128,9 +171,13 @@ The first default gate run was red, on my own test: `GateTestsDoNotDependOnTheMa
 - **No length limit** on a schedule's stored prompt was found on the Gateway, so the addition (about 200
   characters) cannot push a prompt past one there. A limit on the Director's side was not looked for.
 
-## One consequence the Implementation Lead should decide on
+- **The close-itself ruling was not run through a real command line against a real Gateway.** The Gateway's answer
+  is tested, and the command line's handling of that answer was read in the released source and the installed
+  copy; the two were not exercised together.
+- **The setting is the schedule's setting when the run reports, not when it started.** Switching it between the
+  start and the report changes what the report does. Fixing it on the run would need a new stored field.
 
-`cc-devthrottle run result ok` closes the session that calls it - that is step 1 as shipped, in the tools already
-released. So once this is deployed, a run of a schedule whose close-itself setting is OFF will, when it follows the
-instruction and reports ok, close itself. The setting is untouched, as the brief requires, but for those schedules
-the outcome the owner sees changes. A run that reports a problem stays open either way.
+## The decision that was raised, and its answer
+
+Raised in the first version of this file: `run result ok` closed the calling session whatever the schedule's
+close-itself setting. The Architect ruled that the setting wins. That is now built, above.
