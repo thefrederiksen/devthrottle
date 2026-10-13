@@ -20,7 +20,9 @@ below is merged to main.
   tests in the window test project, 43 sign-in tool tests, 115 license tests in the Gateway unit suite, and 9
   `cc-secrets` sealing tests - all passed. The whole `cc-devthrottle` suite passed (4239 passed, 3 skipped) before
   the review answers of 3916 and was not run again after them.
-- **Local gate** (`.\scripts\test-local.ps1`). 3875: green. 3916: red on two things it did not cause, both
+- **Local gate** (`.\scripts\test-local.ps1`). 3875: 9 of 10 suites green; `CcDirector.Engine.Tests` failed one
+  test the same way on main and passed alone (filed as 3874; the pull request changed no C#). Its whole
+  `cc-devthrottle` suite: 4227 passed, 3 skipped. 3916: red on two things it did not cause, both
   reported and one fixed - the clock rule above (fixed by 3917), and `CcDirector.Avalonia.Tests` stopped at the
   120 second ceiling. That suite passes on its own (1067 tests) but takes a little over four minutes on this
   machine, on the build of 3875 as well as on 3916. Every other suite in the default run was green. The gate was
@@ -52,7 +54,7 @@ files below.
 |---|---|---|---|
 | 3875 | `review-3875.md`, `review-3875-round-2.md` | `review-3875-answers.md` | Found: adopting a new sign-in from a staging folder left one sign-in in two places across a crash; the proof's cleanup deleted a folder the caller named without checking it; the renewal error words did not match the command line. Fixed by removing the move altogether - the login writes once, into the folder the account belongs in - by a proof root the run creates and marks itself, and by one vocabulary. Round 2 found: a renewal approved for another account replaced the held sign-in; contract 8.3 said to delete "its sign-in folder" on expiry, which for a renewal holds the key in use; `expired` was missing from the error words. Fixed: `license approve` refuses, before any browser opens, a URL that names another account; a renewal's folder is never touched; `expired` added. Nothing declined. |
 | 3916 | `review-3916.md` | `review-3916-answers.md` | All the safety points held. Found: with no Gateway able to relay and no browser profile here, the daily renewal still started a sign-in that fails by design and files an error report every day; the Director's own time limits were longer than the Gateway's waits in the same contract; a failure found by the renewal check was logged only as a count. Fixed: nothing is started when nothing can approve it, and `no-approver` is recorded; `license approve` runs 2 minutes 30 seconds and the target waits 3 minutes for an approval, both inside the Gateway's waits, held by a test; every renewal failure is named in the log. Not fixed: a traceback printed to standard error when a sign-in is called off, which nothing reads. |
-| 3917 | by a separate review session, arranged by the Delivery Lead | none needed from the Developer | Merged as reviewed. |
+| 3917 | by a separate review session, recorded as a comment on the pull request | none needed | It found production behaviour unchanged when no clock is given and the baseline untouched; merged as reviewed. |
 
 ## Decisions the phase made
 
