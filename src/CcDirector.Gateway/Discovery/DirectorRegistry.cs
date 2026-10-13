@@ -716,12 +716,32 @@ public sealed class DirectorRegistry : IDisposable
         TryParseAndAdd(e.FullPath);
     }
 
+    /// <summary>
+    /// Read a file in the watched directory WITHOUT TAKING A HOLD ON IT THAT ITS OWNER CAN TRIP OVER.
+    ///
+    /// The registry does not own these files - a Director writes its own instance file, and the registry only looks.
+    /// <c>File.ReadAllText</c> opens a file so that nobody else may write it while the read is open, so every look
+    /// was a moment in which the owner's next write failed with "the file is being used by another process". The
+    /// watcher looks the instant a file changes and again up to four times a tenth of a second apart, which is
+    /// exactly when an owner that writes twice in a row writes the second time. Seen on 12 October 2026: a mission
+    /// store whose file sat in the watched directory answered a create with an internal error, 6 runs in 30 on a
+    /// busy machine. Opening for shared reading, writing and deleting means a look can never block the owner; a file
+    /// caught half-written simply does not parse and is looked at again, as before.
+    /// </summary>
+    internal static string ReadWithoutBlockingTheWriter(string path)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
+    }
+
     private bool TryParseAndAdd(string path)
     {
         try
         {
             if (!File.Exists(path)) return false;
-            var json = File.ReadAllText(path);
+            var json = ReadWithoutBlockingTheWriter(path);
             if (string.IsNullOrWhiteSpace(json)) return false;
 
             var dto = JsonSerializer.Deserialize<DirectorDto>(json, new JsonSerializerOptions
@@ -916,7 +936,7 @@ public sealed class DirectorRegistry : IDisposable
             int pid;
             try
             {
-                var json = File.ReadAllText(f);
+                var json = ReadWithoutBlockingTheWriter(f);
                 if (string.IsNullOrWhiteSpace(json)) continue; // being written; try next pass
                 var dto = JsonSerializer.Deserialize<DirectorDto>(json, new JsonSerializerOptions
                 {

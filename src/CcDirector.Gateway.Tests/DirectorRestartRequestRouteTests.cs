@@ -231,7 +231,7 @@ public sealed class DirectorRestartRequestRouteTests : IAsyncLifetime
         Assert.Equal("request_expired", S(body, "code"));
         Assert.Equal("Expired", S(body.GetProperty("request"), "state"));
         // And the Director was never told to begin.
-        Assert.NotEqual(DirectorRestartVerbs.Cycle, _director!.LastCommand?.Verb);
+        Assert.Null(_director!.LastOf(DirectorRestartVerbs.Cycle));
     }
 
     // =========================================================================================
@@ -254,8 +254,8 @@ public sealed class DirectorRestartRequestRouteTests : IAsyncLifetime
         Assert.False(body.GetProperty("canAccept").GetBoolean());
 
         // The Director was handed the cycle, with the request named on it.
-        Assert.Equal(DirectorRestartVerbs.Cycle, _director!.LastCommand?.Verb);
-        var order = JsonSerializer.Deserialize<DirectorRestartCycleOrder>(_director.LastCommand!.PayloadJson, Web)!;
+        var cycle = Assert.Single(_director!.AllOf(DirectorRestartVerbs.Cycle));
+        var order = JsonSerializer.Deserialize<DirectorRestartCycleOrder>(cycle.PayloadJson, Web)!;
         Assert.Equal(id, order.RequestId);
         Assert.Equal(Machine, order.Machine);
 
@@ -287,6 +287,6 @@ public sealed class DirectorRestartRequestRouteTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, decline.StatusCode);
         Assert.Equal("Declined", S(body, "state"));
         Assert.Contains("not during the demo", S(body, "stateReason"));
-        Assert.NotEqual(DirectorRestartVerbs.Cycle, _director!.LastCommand?.Verb);
+        Assert.Null(_director!.LastOf(DirectorRestartVerbs.Cycle));
     }
 }
