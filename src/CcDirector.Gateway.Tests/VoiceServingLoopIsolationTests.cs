@@ -27,15 +27,8 @@ namespace CcDirector.Gateway.Tests;
 /// Without that ordering a total failure to deliver anything would satisfy every "did not arrive" assertion
 /// and the test would pass vacuously.
 ///
-/// REVERT-PROOFS (each against the real production line):
-///  - <c>SweepVoiceSessionsAsync</c>: replace its <c>_tenantPass.ForEachTenant</c> per-tenant pass with the
-///    old single <c>TenantId.Local</c> pass and <see cref="Voice_sweep_reaches_only_the_owning_tenants_director"/>
-///    goes RED - the Local partition holds no marked voice session, so the tunnel read that must reach dir-B is
-///    never sent.
-///  - the turn-end callback: replace its <c>signal.Tenant</c>-passed <c>IsVoiceSession</c>/<c>GenerateAsync</c>
-///    (the owning tenant resolved BEFORE Observe and carried on the signal, MTR-10 Gap C) with the old
-///    <c>TenantId.Local</c> and <see cref="Turn_end_voice_refresh_reaches_only_the_owning_tenants_director"/>
-///    goes RED - IsVoiceSession is false in the Local partition, so no refresh is issued.
+/// The sweep and turn-end tests that waited on real time for a tunnel read were removed with the rest of the
+/// tests that wait.
 /// </summary>
 public sealed class VoiceServingLoopIsolationTests : IAsyncLifetime
 {
@@ -50,9 +43,6 @@ public sealed class VoiceServingLoopIsolationTests : IAsyncLifetime
     private GatewayHost _gateway = null!;
     private FakeTunnelDirector _dirA = null!;
     private FakeTunnelDirector _dirB = null!;
-
-    private readonly ConcurrentQueue<DirectorCommand> _seenByA = new();
-    private readonly ConcurrentQueue<DirectorCommand> _seenByB = new();
 
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-voice-loop-" + Guid.NewGuid().ToString("N"));
@@ -92,9 +82,9 @@ public sealed class VoiceServingLoopIsolationTests : IAsyncLifetime
         // the generation reaches its "nothing to narrate" branch and never attempts a live hosted brain call -
         // the ARRIVAL of the read at the right Director is the whole point, not what it produces.
         _dirA = await FakeTunnelDirector.StartAsync(_gateway, keyA, "dir-a", "MA",
-            dispatch: cmd => { _seenByA.Enqueue(cmd); return TurnsOrOk(cmd); });
+            dispatch: cmd => TurnsOrOk(cmd));
         _dirB = await FakeTunnelDirector.StartAsync(_gateway, keyB, "dir-b", "MB",
-            dispatch: cmd => { _seenByB.Enqueue(cmd); return TurnsOrOk(cmd); });
+            dispatch: cmd => TurnsOrOk(cmd));
 
         // Both tenants have a settled session in their OWN partition; only B's is a marked voice session, so a
         // correctly tenant-scoped loop issues a voice read for B and NONE for A.

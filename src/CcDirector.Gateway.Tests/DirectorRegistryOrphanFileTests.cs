@@ -13,9 +13,6 @@ namespace CcDirector.Gateway.Tests;
 /// </summary>
 public sealed class DirectorRegistryOrphanFileTests
 {
-    private static string TestShellPath =>
-        RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "cmd.exe" : "/bin/sh";
-
     private static string WriteInstanceFile(string dir, string id, int pid)
     {
         var path = Path.Combine(dir, $"{id}.json");

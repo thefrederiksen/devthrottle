@@ -432,8 +432,8 @@ public sealed class SessionStopEndpointTests : IDisposable
         };
 
     /// <summary>
-    /// The control. Same Director, same held-back answer, same reason - the caller simply waits. It differs
-    /// from the test above in exactly one thing: nobody cancels. So the row it produces is the ORDINARY
+    /// A Director that holds its answer back and then gives a reason, with a caller that simply waits and
+    /// never cancels. So the row it produces is the ORDINARY
     /// one, with the reason alone and no talk of an unknown outcome, and the caller is answered.
     /// </summary>
     [Fact]

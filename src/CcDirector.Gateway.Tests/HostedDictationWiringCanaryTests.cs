@@ -28,7 +28,7 @@ namespace CcDirector.Gateway.Tests;
 /// the voice-turn retention timer - left all of those direct tests green while re-opening the cross-account
 /// hole. A test that supplies the tenant itself cannot catch a production line that supplies the WRONG tenant.
 ///
-/// These three canaries close that gap by driving the ACTUAL production wiring end to end - a real
+/// These canaries close that gap by driving the ACTUAL production wiring end to end - a real
 /// <see cref="GatewayHost"/> on hosted, two accounts over real HTTP, two tunnel Directors pushing the SAME
 /// session id on two tenants - and asserting on what the caller's OWN request produces:
 ///
@@ -43,12 +43,6 @@ namespace CcDirector.Gateway.Tests;
 ///      (<c>DictationStatusFor(tenant, sid, _transcribingSessions, _dictationUploads.ForTenant(tenant))</c>)
 ///      produces. Revert that callback to the Local/base handle (<c>_dictationUploads</c>) and the phase
 ///      collapses to null, because the base projection never descends into <c>base/tenants/&lt;id&gt;</c>.
-///
-///   3. <see cref="The_voice_turn_retention_timer_sweeps_each_tenants_aged_upload_in_its_OWN_partition"/>
-///      stages an aged upload in each tenant's own voice-turn partition and lets the REAL retention timer
-///      (the <c>_tenantPass.ForEachTenant(() =&gt; _voiceTurnUploads.ForTenant(tenant).SweepAbandoned(...))</c>
-///      timer) run. Revert it to the base handle (<c>_voiceTurnUploads.SweepAbandoned(...)</c>) and neither
-///      aged upload is ever swept, because the base sweep does not descend into the partition container.
 ///
 /// The assembly runs sequentially, so toggling CC_DIRECTOR_ROOT and the static sweep schedule here is safe;
 /// both are restored in DisposeAsync.

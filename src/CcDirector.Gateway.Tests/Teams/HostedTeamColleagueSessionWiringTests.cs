@@ -35,8 +35,6 @@ public sealed class HostedTeamColleagueSessionWiringTests : IAsyncLifetime
     private readonly string _alice = "sub-cw-alice-" + Guid.NewGuid().ToString("N");
     private readonly string _sessionId = Guid.NewGuid().ToString();
     private readonly string _instancesDir = Path.Combine(Path.GetTempPath(), "cc-cw-" + Guid.NewGuid().ToString("N"));
-    private readonly ConcurrentQueue<DirectorCommand> _seenByOwner = new();
-    private readonly ConcurrentQueue<DirectorCommand> _seenByColleague = new();
     private GatewayHost _gateway = null!;
     private FakeTunnelDirector _owner = null!;
     private FakeTunnelDirector _colleague = null!;
@@ -64,9 +62,9 @@ public sealed class HostedTeamColleagueSessionWiringTests : IAsyncLifetime
         _team = new TenantId(teamId);
 
         _owner = await FakeTunnelDirector.StartAsync(_gateway, TeamKey(teamId, _bob, OwnerDirector), OwnerDirector,
-            dispatch: cmd => { _seenByOwner.Enqueue(cmd); return Ok(); });
+            dispatch: _ => Ok());
         _colleague = await FakeTunnelDirector.StartAsync(_gateway, TeamKey(teamId, _alice, ColleagueDirector), ColleagueDirector,
-            dispatch: cmd => { _seenByColleague.Enqueue(cmd); return Ok(); });
+            dispatch: _ => Ok());
 
         // The record that makes the session Bob's: its stored conversation, written by his Director. Both rosters list
         // the id, so without the record it would be nobody's for now.

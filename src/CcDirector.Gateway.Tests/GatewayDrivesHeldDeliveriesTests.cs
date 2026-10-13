@@ -51,7 +51,6 @@ public sealed class GatewayDrivesHeldDeliveriesTests : IAsyncLifetime
     // The Director's side, kept across its reconnects the way a real Director keeps its delivery record on disk.
     private readonly object _gate = new();
     private readonly HashSet<string> _delivered = new(StringComparer.Ordinal);
-    private readonly List<string> _typed = new();
     private int _prompts;
     private int _questions;
     /// <summary>True while the Director is starved: every prompt and every question runs out of time.</summary>
@@ -138,11 +137,6 @@ public sealed class GatewayDrivesHeldDeliveriesTests : IAsyncLifetime
 
     // ===== rig ============================================================================================
 
-    private int Prompts
-    {
-        get { lock (_gate) return _prompts; }
-    }
-
     private async Task StartGatewayAsync()
     {
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: Token, authEnabled: true,
@@ -185,7 +179,6 @@ public sealed class GatewayDrivesHeldDeliveriesTests : IAsyncLifetime
                     return DirectorCommandResult.Fail(DirectorCommandStatus.Timeout, "the Director did not answer within 30 seconds");
                 if (body.DeliveryId is { } id && !_delivered.Add(id))
                     return FakeTunnelDirector.Ok(new PromptResponse { Accepted = false, DeliveryState = DeliveryState.Delivered, Error = "already delivered" });
-                _typed.Add(body.DeliveryId ?? "");
                 return FakeTunnelDirector.Ok(new PromptResponse { Accepted = true, DeliveryState = DeliveryState.Delivered });
             }
         }

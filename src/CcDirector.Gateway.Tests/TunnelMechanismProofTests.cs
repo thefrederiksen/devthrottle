@@ -54,7 +54,6 @@ public sealed class TunnelMechanismProofTests : IAsyncLifetime
     private HubConnection _conn = null!;
     private Session _session = null!;
     private string _sid = "";
-    private int _closeStreamCount;
 
     public TunnelMechanismProofTests()
     {
@@ -122,8 +121,6 @@ public sealed class TunnelMechanismProofTests : IAsyncLifetime
     // The Director-side Command handler: stream verbs run the REAL handler; the rest return typed results.
     private DirectorCommandResult Dispatch(DirectorCommand cmd)
     {
-        if (cmd.Verb == "close-stream")
-            Interlocked.Increment(ref _closeStreamCount);
         if (DirectorUpStreamHandler.IsStreamVerb(cmd.Verb))
             return _handler.Handle(cmd);
 

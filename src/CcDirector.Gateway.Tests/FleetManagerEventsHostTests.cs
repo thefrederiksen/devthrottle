@@ -12,12 +12,10 @@ using Xunit.Abstractions;
 namespace CcDirector.Gateway.Tests;
 
 /// <summary>
-/// The Fleet Manager's events (the Fleet Manager mission, step 4) on a REAL booted hosted Gateway. What ONLY a booted
-/// host proves is THE WIRING: that the host's turn-end fan-out, its exit and removal callbacks, the Wingman seat's
-/// reading-completed notice and the reconcile each reach the events service. Every test drives the host's own
-/// turn-end watcher - the object the Director stream feeds - so turning off one of those hooks in GatewayHost turns a
-/// test here red. The events are read back from the host's own store; the acknowledge authority is called through
-/// the real middleware with real credentials.
+/// The Fleet Manager's events (the Fleet Manager mission, step 4) on a REAL booted hosted Gateway: the routes,
+/// called through the real middleware with real credentials, with the events read back from the host's own store.
+/// The tests that drove the host's turn-end watcher and waited for its fan-out were removed with the rest of the
+/// tests that wait on real time, so the wiring of those hooks is not proven here any more.
 ///
 /// The Wingman's judge switch is left at its default (off), so a reading ends at once with that reason and no model
 /// is asked.
@@ -137,10 +135,6 @@ public sealed class FleetManagerEventsHostTests : IAsyncLifetime
         Assert.True(_gateway.PushedSessions.ApplySnapshot(_tenant, DirectorId, connection, ++_pushSequence, _fleet.ToList()));
     }
 
-    /// <summary>What the Director stream does on an accepted delta: the host's own watcher observes the state.</summary>
-    private void Observe(string sid, string state)
-        => _gateway.TurnEndWatcherForTest!.Observe(_tenant, sid, state, DirectorId);
-
     private IReadOnlyList<FleetManagerEventDto> Events() => _gateway.FleetManagerEventStoreForTest!.Unacknowledged(_tenant);
 
     private async Task<(HttpStatusCode Status, string Body)> Send(HttpClient http, string verb, string path, object? body = null)
@@ -155,7 +149,7 @@ public sealed class FleetManagerEventsHostTests : IAsyncLifetime
         return (resp.StatusCode, text);
     }
 
-    // ---- the hooks ---------------------------------------------------------------------------------------
+    // ---- the mark route --------------------------------------------------------------------------------
 
     /// <summary>THE MARK ROUTE GOES THROUGH THE PLACEMENT SERVICE (steps 5 and 6 fixes, round 3): marking a session that
     /// was started to take over tells it once, however often it is marked, and the owner's clear records nothing a

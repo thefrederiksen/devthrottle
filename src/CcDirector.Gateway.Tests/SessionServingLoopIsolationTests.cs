@@ -33,13 +33,8 @@ namespace CcDirector.Gateway.Tests;
 ///    <c>TenantId.Local</c> and <see cref="SendCommand_reaches_only_the_owning_tenants_director"/> goes RED on
 ///    its positive control - the Local partition holds no Director on hosted, so the same-tenant send that
 ///    must succeed returns null.
-///  - <c>GatewayHost.SweepAutoDismiss</c>: replace its <c>_tenantPass.ForEachTenant(...)</c> with a single
-///    direct call (the pre-PR2 implicit single pass) and
-///    <see cref="AutoDismiss_sweep_runs_one_pass_per_tenant_and_closes_only_that_tenants_sessions"/> goes RED -
-///    the unscoped pass reads no tenant's fleet, so neither session is closed.
-///  - <c>AutoDismissSweeper.MarkKey</c>: drop the tenant prefix (back to a session-id-only close-mark) and
-///    <see cref="AutoDismiss_close_marks_are_partitioned_per_tenant"/> goes RED - the second tenant's pass
-///    finds the first tenant's mark and skips its own close.
+///
+/// The auto-dismiss sweep tests that waited on real time were removed with the rest of the tests that wait.
 /// </summary>
 public sealed class SessionServingLoopIsolationTests : IAsyncLifetime
 {
