@@ -182,3 +182,60 @@ go out in account one's scope with account one's browser profile.
 **Not run in this round:** `.\scripts\test-local.ps1 -Parked`, so the whole of `Gateway.Tests` and `Core.Tests`
 did not run; of `Gateway.Tests` only the 39 license tests did. `FakeTunnelDirector`, which many hosted tests use,
 gained one method and lost nothing.
+
+## Round 2 - the re-review (`3943-re-review.md`), 13 October 2026
+
+The code of this round is `a013c0287`. The proof is the section "The second review round" of
+`../proof/gateway-approval-relay.md`: ten breaks, all red.
+
+1. **An answer of "I have no record" recorded as how the sign-in ended - FIXED as ruled.**
+   `LicenseSignInService.SettleOneAsync`: an answer to asking again that is not a replay, for a row whose
+   `SendCount` was above nought before this ask, does not end the row. The same pass goes on to the report rule, so
+   a report accepted after the 15 minutes decides, and until one comes the row stays open. A row whose command
+   never went out (`SendCount` nought - a Gateway that stopped before it sent) is still ended by that answer.
+   The rule is on `Replayed` alone, as ruled: a result that is not a replay is never taken for a command that had
+   gone out, whatever its outcome. Tests: `Settle_AnAnswerThatIsNotAReplay_ForACommandThatHadGoneOut_DoesNotEndTheRow_AndTheLaterReportDoes`
+   (the report shows the spare: `added`, though the Director said `expired`; the report does not: `failed`) and
+   `Settle_ACommandThatNeverWentOut_AndADirectorThatSaysItStartedNothing_EndsTheRowFailedExpired`. Breaks S1, S2.
+
+2. **Asking again can start the sign-in on a machine with a slow clock - FIXED as ruled.** A machine whose kept
+   clock difference is 4 minutes or more, either way, is not asked; it goes to the report rule. And a pass whose
+   ask ended with no answer in time returns without settling anything, also when a report that would settle it is
+   there. Tests: `Settle_AMachineWhoseClockIsWithinAMinuteOfTheMarginOrBeyondIt_IsNotAskedAgain_AndIsSettledFromItsReport`
+   (240, 300 and minus 600 seconds: one command only, ever), `Settle_AMachineWhoseClockIsJustInsideTheMargin_IsAskedAgain`
+   (239 seconds), `Settle_AnAskThatGetsNoAnswerInTime_SettlesNothingInThatPass_NotEvenFromAReportThatShowsTheSpare`.
+   Breaks S3 to S6. The sentence in `contract.md` 8.4 and `cockpit-api.md` 7.5 now says when asking again starts
+   nothing and what is done when that cannot be relied on.
+   **Two limits, said plainly.** The kept difference is nought for any machine within two minutes of the Gateway
+   and is as old as the machine's last report; a clock that moved since is judged by the old value. And "no answer
+   in time" is a timeout only: a tunnel that drops during the ask still goes on to the report in that pass, as it
+   did, because the ruling names the timeout. If a dropped tunnel should be treated the same, it is one more value
+   in one `if`.
+   **A consequence to know.** A Director that is connected, reporting, and never answers `license-sign-in` in 60
+   seconds keeps its row open for as long as that lasts: each minute's ask times out and settles nothing. I have
+   not seen a Director behave so, and I did not test one.
+
+3. **The identifier pattern accepted a trailing line break - FIXED.** `LicenseContract.SwitchIdShape` (and so
+   `SignInIdShape`) ends with `\z`. Tests: three new cases of `SwitchIdShape_OnlyGuidN_Matches` in `Core.UnitTests`
+   and two of `Accept_ARequestWhoseIdentifierIsNotASignInIdentifier_IsRefusedOnTheCall_AndNothingIsSent`. Break S8.
+   The pattern is shared with the Director, whose code I did not otherwise touch; its 186 license tests ran green.
+   Round 1's answer said a refusal line names nothing of the request. That was wrong for the identifier: the line
+   named it. It is still named, and it can now only be 32 hex digits.
+
+4. **Every refused request writes a log line - noted, no change**, as ruled.
+
+5. **A repeat of an identifier in flight is dropped without an answer - noted, no change**, as ruled.
+
+6. **Three lines logged an exception's message - FIXED.** All three log the type only. Test:
+   `ASendThatThrows_AndAnAnswerThatCannotBeRead_AreLoggedByTheirKindOnly_NeverByTheirMessage` holds two of them
+   (breaks S9, S10). The third, `Start FAILED`, has no test: nothing in the tests makes `Start` throw.
+
+7. **Nothing ended a row whose machine never comes back - FIXED as ruled.** A due row whose machine has sent no
+   report for 24 hours is ended `failed`, with no reason word and the sentence "Ended without an answer: <machine>
+   has not been seen for a day, so it is not known whether ...", and the same sign-in can then be started again.
+   Test: `Settle_AMachineThatHasSentNoReportForADay_EndsTheRowFailed_SaysTheMachineHasNotBeenSeen_AndTheSignInCanBeAskedForAgain`
+   (one second short of a day: open; at a day: ended; then the same sign-in is accepted), for a new spare and for a
+   renewal. Break S7. A machine that is asked every minute and times out is a machine that reports, so this rule
+   does not end it; that is the consequence named under 2.
+   **Not covered:** a row whose machine is no longer in the store at all stays open. A search of the Gateway's license code found nothing that
+   removes a machine.

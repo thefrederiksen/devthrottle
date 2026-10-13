@@ -745,3 +745,122 @@ is a test that cannot fail, so the test was changed and the break run again. Bre
 - No break was made in `DirectorCommandRouter`, which is not this pull request's code. Break R30 puts the address
   into a line of the relay and the hosted capture catches it, which shows the capture reads the host's real log.
 - The PostgreSQL test was not broken. It ran green against a real PostgreSQL, and that is all that is claimed.
+
+## The second review round (13 October 2026)
+
+The re-review (`../reviews/3943-re-review.md`) approved the pull request with seven findings; round 2 of
+`../reviews/3943-answers.md` answers each. This section is the proof for what that round changed.
+
+**What in the review round above no longer holds.** `Settle_ADirectorThatNeverSawTheSignIn_SaysItStartedNothing_AndTheRowEndsFailedExpired`
+is gone: for a command that had gone out, that answer no longer ends the row. `Settle_TheTunnelDroppedAndNoReportSince_StaysOpen_HoweverLongItIs`
+is now `..._StaysOpen_WhileTheMachineWasSeenWithinADay`: after a day the row ends. The "no answer in time" case of
+`Settle_ADirectorThatGivesNoAnswerWhenAskedAgain_LeavesItToTheReport_OpenUntilOneComes` is now its own test, because
+a timeout no longer leaves it to the report in the same pass.
+
+### The runs, on `a013c0287`
+
+| Run | Result |
+|---|---|
+| `dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Licenses"` | 720 passed, 0 failed |
+| `dotnet test src/CcDirector.Gateway.Tests --filter "FullyQualifiedName~License"` | 39 passed, 0 failed |
+| `dotnet test src/CcDirector.Core.UnitTests --filter "FullyQualifiedName~License"` | 186 passed, 0 failed |
+
+NOT run in this round: `.\scripts\test-local.ps1`, `.\scripts\test-local.ps1 -Parked`, `.\scripts\test-database.ps1`
+and the whole `Gateway.UnitTests` suite. The identifier pattern is shared with the Director's code
+(`CcDirector.ControlApi`, `CcDirector.Core`); of that code only the 186 license tests of `Core.UnitTests` ran.
+
+### The breaks of this round
+
+Each break was made on the clean tree of `a013c0287`, the tests were built and run, and the file was put back with
+`git checkout`; the tree was checked clean after each. The unit run is `LicenseSignInServiceTests` and
+`LicenseApprovalRelayTests` (122 tests); break S8 also ran `LicenseMessagesCarryNoKeyTests` of `Core.UnitTests` (19).
+All ten went red.
+
+#### S1. an answer that is not a replay ends the row, also for a command that had gone out
+
+`src/CcDirector.Gateway/Licenses/LicenseSignInService.cs`
+
+- src/CcDirector.Gateway.UnitTests: 122 tests, 120 passed, 2 failed
+  - Settle_AnAnswerThatIsNotAReplay_ForACommandThatHadGoneOut_DoesNotEndTheRow_AndTheLaterReportDoes `(theReportShowsTheSpare: False, expected: "failed")`
+  - Settle_AnAnswerThatIsNotAReplay_ForACommandThatHadGoneOut_DoesNotEndTheRow_AndTheLaterReportDoes `(theReportShowsTheSpare: True, expected: "added")`
+
+#### S2. an answer that is not a replay never ends the row, also for a command that never went out
+
+`src/CcDirector.Gateway/Licenses/LicenseSignInService.cs`
+
+- src/CcDirector.Gateway.UnitTests: 122 tests, 121 passed, 1 failed
+  - Settle_ACommandThatNeverWentOut_AndADirectorThatSaysItStartedNothing_EndsTheRowFailedExpired
+
+#### S3. a pass whose ask timed out goes on to settle from the report
+
+`src/CcDirector.Gateway/Licenses/LicenseSignInService.cs`
+
+- src/CcDirector.Gateway.UnitTests: 122 tests, 121 passed, 1 failed
+  - Settle_AnAskThatGetsNoAnswerInTime_SettlesNothingInThatPass_NotEvenFromAReportThatShowsTheSpare
+
+#### S4. a machine is asked again whatever its clock difference
+
+`src/CcDirector.Gateway/Licenses/LicenseSignInService.cs`
+
+- src/CcDirector.Gateway.UnitTests: 122 tests, 119 passed, 3 failed
+  - Settle_AMachineWhoseClockIsWithinAMinuteOfTheMarginOrBeyondIt_IsNotAskedAgain_AndIsSettledFromItsReport `(secondsApart: -600)`
+  - Settle_AMachineWhoseClockIsWithinAMinuteOfTheMarginOrBeyondIt_IsNotAskedAgain_AndIsSettledFromItsReport `(secondsApart: 240)`
+  - Settle_AMachineWhoseClockIsWithinAMinuteOfTheMarginOrBeyondIt_IsNotAskedAgain_AndIsSettledFromItsReport `(secondsApart: 300)`
+
+#### S5. the one minute short of the margin is not kept: only a machine at the margin itself is not asked
+
+`src/CcDirector.Gateway/Licenses/LicenseSignInService.cs`
+
+- src/CcDirector.Gateway.UnitTests: 122 tests, 121 passed, 1 failed
+  - Settle_AMachineWhoseClockIsWithinAMinuteOfTheMarginOrBeyondIt_IsNotAskedAgain_AndIsSettledFromItsReport `(secondsApart: 240)`
+
+#### S6. a slow clock only: a machine whose clock is ahead by more than the margin is asked
+
+`src/CcDirector.Gateway/Licenses/LicenseSignInService.cs`
+
+- src/CcDirector.Gateway.UnitTests: 122 tests, 121 passed, 1 failed
+  - Settle_AMachineWhoseClockIsWithinAMinuteOfTheMarginOrBeyondIt_IsNotAskedAgain_AndIsSettledFromItsReport `(secondsApart: -600)`
+
+#### S7. a machine not seen for a day never ends its row
+
+`src/CcDirector.Gateway/Licenses/LicenseSignInService.cs`
+
+- src/CcDirector.Gateway.UnitTests: 122 tests, 120 passed, 2 failed
+  - Settle_AMachineThatHasSentNoReportForADay_EndsTheRowFailed_SaysTheMachineHasNotBeenSeen_AndTheSignInCanBeAskedForAgain `(renewal: False)`
+  - Settle_AMachineThatHasSentNoReportForADay_EndsTheRowFailed_SaysTheMachineHasNotBeenSeen_AndTheSignInCanBeAskedForAgain `(renewal: True)`
+
+#### S8. the identifier pattern ends with a dollar sign again
+
+`src/CcDirector.Gateway.Contracts/LicenseMessages.cs`
+
+- src/CcDirector.Gateway.UnitTests: 122 tests, 121 passed, 1 failed
+  - Accept_ARequestWhoseIdentifierIsNotASignInIdentifier_IsRefusedOnTheCall_AndNothingIsSent `(signInId: "11111111111111111111111111111111\n")`
+- src/CcDirector.Core.UnitTests: 19 tests, 18 passed, 1 failed
+  - SwitchIdShape_OnlyGuidN_Matches `(switchId: "6f1c2a9e4b7d4e0f9a3c5b8d2e1f7a40\n", expected: False)`
+
+#### S9. a send that throws is logged with its message
+
+`src/CcDirector.Gateway/Licenses/LicenseSignInService.cs`
+
+- src/CcDirector.Gateway.UnitTests: 122 tests, 121 passed, 1 failed
+  - ASendThatThrows_AndAnAnswerThatCannotBeRead_AreLoggedByTheirKindOnly_NeverByTheirMessage
+
+#### S10. an answer that cannot be read is logged with the reader's message
+
+`src/CcDirector.Gateway/Licenses/LicenseSignInService.cs`
+
+- src/CcDirector.Gateway.UnitTests: 122 tests, 121 passed, 1 failed
+  - ASendThatThrows_AndAnAnswerThatCannotBeRead_AreLoggedByTheirKindOnly_NeverByTheirMessage
+
+### What these breaks do not show
+
+- The line `Start FAILED` of `LicenseSignInService` now logs the kind of failure only, and no test makes `Start`
+  throw, so no test holds that one line. The two other lines of finding 6 are held by break S9 and S10.
+- In break S8 the case of an identifier followed by a carriage return and a line break stayed green: the old
+  pattern refused that one already. Only the single line break is what the change closes.
+- No hosted test was added in this round. The 39 hosted license tests ran green and none of them reaches the three
+  new rules; those are held by the unit tests above, over the real store on SQLite with a sender the test controls.
+- The clock difference the Gateway keeps is nought for a machine within two minutes of the Gateway and the measured
+  difference beyond that (5.2 of the contract). It is as old as the machine's last report. A machine whose clock
+  moved since then is judged by the old value; the rule that a timed-out ask settles nothing in its pass is what is
+  left for that case, and it does not stop the sign-in from starting.

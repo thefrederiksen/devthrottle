@@ -1358,21 +1358,35 @@ A row that is sent and gets no answer is `unknown`, and it stays open until the 
 tried until no Director could still be running it (15 minutes after it was asked). Then, once a minute:
 
 1. **The Gateway asks the machine's Director again, with the same sign-in identifier.** A Director that ran the
-   sign-in answers with the result it kept - `added`, `renewed`, or `failed` with its reason and its own sentence. A
-   Director that never received it answers `failed` / `expired` ("nothing was started"), because the request is past
-   its own deadline; asking again can start nothing. The row ends with that answer, and `sendCount` is one higher.
-2. **Only when the Director cannot be asked or does not answer** - it is not connected, or it gave no answer - the
-   row is settled from the machine's usage report, and only from a report the Gateway accepted AFTER those 15
-   minutes. A report from before that says nothing about how the sign-in ended. Then: a new spare is `added` when
-   the report shows the machine holds the account, and `failed` when it does not; a renewal is `renewed` when the
-   report shows a sign-in time other than the one the machine had reported before the renewal was asked for, and
-   `failed` when it is the same. `message` and `summary` begin "Settled from the machine's report:" so the page says
-   how it was known.
+   sign-in answers with the result it kept - `added`, `renewed`, or `failed` with its reason and its own sentence -
+   and the row ends with that answer; `replayed` is true and `sendCount` is one higher. Three things keep this step
+   from saying or starting something wrong:
+   - **A machine whose clock is 4 minutes or more from the Gateway's is not asked.** The Director judges the
+     sign-in's deadline by its own clock. Asking again starts nothing only while that clock is within 5 minutes of
+     the Gateway's; a Director further behind would see a deadline still ahead and start the sign-in a quarter of
+     an hour after the owner clicked. The Gateway measures each machine's clock difference from its reports, and a
+     machine at 4 minutes or more goes straight to step 2.
+   - **An answer that is not a replay does not end a row whose command had gone out before.** A Director keeps a
+     result for 24 hours. After that it answers `failed` / `expired` ("nothing was started") for a sign-in it did
+     run, so that answer is not taken as how the sign-in ended: step 2 decides. Only for a row whose command never
+     went out at all (the Gateway stopped before it sent) does that answer end the row.
+   - **When the Director gives no answer in time, nothing is settled that minute** - not from a report either: it
+     may be running the sign-in at that moment.
+2. **Only when step 1 gave nothing that says how it ended** - the Director is not connected, was not asked, or its
+   answer did not settle it - the row is settled from the machine's usage report, and only from a report the
+   Gateway accepted AFTER those 15 minutes. A report from before that says nothing about how the sign-in ended.
+   Then: a new spare is `added` when the report shows the machine holds the account, and `failed` when it does not;
+   a renewal is `renewed` when the report shows a sign-in time other than the one the machine had reported before
+   the renewal was asked for, and `failed` when it is the same. `message` and `summary` begin "Settled from the
+   machine's report:" so the page says how it was known.
+3. **A machine that has sent no report for 24 hours ends the row `failed`**, with no reason word and a sentence that
+   begins "Ended without an answer:" and says the machine has not been seen for a day, so how the sign-in ended is
+   not known. "Add a spare" or "Renew now" for that machine and account is then offered again.
 
-**So a row can stay `unknown` for a long time**: a machine that was switched off in the middle of a sign-in is shown
-as "Sent, no answer yet" until it comes back. That is the truth - the Gateway does not know - and the page shows it
-as it is. While the row is open, "Add a spare" or "Renew now" for that machine and account is refused
-`sign_in_running`; the overview says so before the owner tries (7.6).
+**So a row can stay `unknown` for up to a day**: a machine that was switched off in the middle of a sign-in is shown
+as "Sent, no answer yet" until it comes back or a day has passed. That is the truth - the Gateway does not know -
+and the page shows it as it is. While the row is open, "Add a spare" or "Renew now" for that machine and account is
+refused `sign_in_running`; the overview says so before the owner tries (7.6).
 
 Three sign-ins, the newest first - one running, one that signed in, one that failed:
 

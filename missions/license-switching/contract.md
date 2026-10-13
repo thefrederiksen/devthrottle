@@ -777,15 +777,30 @@ running it: `NotAfterUtc` plus the 5 minute wait, 15 minutes after it was asked.
 
 1. The Gateway sends `license-sign-in` again with THE SAME `SignInId` and the same `NotAfterUtc` to the Director
    that last reported for the machine, and waits 60 seconds. This is the replay of this section and 3.6: a Director
-   that ran it returns its stored result (`Replayed = true`); one that never saw it answers `failed` / `expired`
-   and starts nothing, because the deadline has passed. Either answer ends the row.
-2. Only when that gives no answer (no Director connected, a timeout, a dropped tunnel, or an answer that is not this
-   sign-in's result) is the row settled from the machine's report - and only from a report the Gateway accepted
-   AFTER those 15 minutes, never from an earlier one. A new spare is `added` when that report shows the holding. A
+   that ran it returns its stored result (`Replayed = true`), and that ends the row.
+   - **Asking again starts nothing only while the Director's clock is within 5 minutes of the Gateway's**, because
+     the Director judges `NotAfterUtc` by its own clock and the Gateway asks 5 minutes after it. So a machine whose
+     measured clock difference (5.2) is 4 minutes or more, either way, is NOT asked; it goes to step 2.
+   - **An answer with `Replayed = false` ends the row only when no command for it had gone out before.** A Director
+     keeps a result for 24 hours (`SignInResultRetention`); after that it answers `failed` / `expired` for a
+     sign-in it did run. For a row whose command had gone out, that answer is not how the sign-in ended, and step 2
+     decides.
+   - **A wait that ends with no answer settles nothing in that pass**, not from a report either: the Director may
+     be running the sign-in at that moment. The next minute tries again.
+2. Only when step 1 gave nothing that says how it ended (no Director connected, a machine that was not asked, a
+   dropped tunnel, an answer that is not this sign-in's result, or an answer that is not a replay of a command that
+   had gone out) is the row settled from the machine's report - and only from a report the Gateway accepted AFTER
+   those 15 minutes, never from an earlier one. A new spare is `added` when that report shows the holding. A
    renewal is `renewed` when the holding's `SignedInAtUtc` in that report DIFFERS from the value the machine had
    reported before the sign-in was asked for, which the Gateway keeps on the row. Two values of the machine's own
    clock are compared; the machine's clock is never compared with the Gateway's, because they may be minutes apart
    (5.2). Until such a report arrives the row stays open.
+3. A row whose machine has sent no report for 24 hours is ended `failed`, with no reason word and a sentence saying
+   the machine has not been seen for a day and how the sign-in ended is not known. Without this a machine that
+   never comes back would keep a sign-in for that machine and account refused as running for good.
+
+`SignInId` and `SwitchId` are exactly 32 lower-case hexadecimal digits and nothing after them: the pattern ends at the
+end of the text, so an identifier followed by a line break is refused.
 
 ### 8.5 Constants added to section 7
 
