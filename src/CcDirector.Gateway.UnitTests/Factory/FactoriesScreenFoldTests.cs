@@ -326,13 +326,13 @@ public sealed class FactoriesScreenFoldTests
     }
 
     [Fact]
-    public void List_WhenEveryEnabledScheduleIsASeat_SaysSo()
+    public void List_WhenEveryActiveScheduleIsASeat_SaysSo()
     {
         var view = FactoriesScreenFold.List(Inputs(new[] { WarmForward() },
             jobs: new[] { Linked("cj_ceo", "CEO", "warmforward", "nora-hale"), Linked("cj_off", "Off", null, null, enabled: false) }));
 
         Assert.Empty(view.OutsideRows);
-        Assert.Equal("Every enabled schedule is a seat of a factory.", view.OutsideEmptyText);
+        Assert.Equal("Every active schedule is a seat of a factory.", view.OutsideEmptyText);
     }
 
     // ---------- the factory page ----------
@@ -471,6 +471,33 @@ public sealed class FactoriesScreenFoldTests
         Assert.Equal("06:00 and 18:00", seats["reliability-watch"].WhenText);
         Assert.Equal("Not run yet", seats["reliability-watch"].LastRunText);
         Assert.Equal("Wednesday 05:30", seats["value-hunter"].WhenText);
+    }
+
+    // ---------- a seat's schedule is paused and resumed beside its Edit (issue #3910) ----------
+
+    [Fact]
+    public void Seats_EachScheduleCarriesTheOneTapButton_PauseWhenOn_ResumeWhenPaused_NothingWhenMissingOrSpent()
+    {
+        var f = Factory("x", "X", null, Seat("a", "A", "A", "cj_on", "cj_paused", "cj_gone", "cj_spent"));
+        var spent = new CronJobDto
+        {
+            Id = "cj_spent", Name = "cj_spent", Enabled = false, ScheduleKind = CronSchedule.KindOneOff,
+            RunAt = "2026-10-01T05:30:00", TimeZoneId = "UTC", LastFiredUtc = Now.AddDays(-5),
+        };
+        var jobs = new[] { Job("cj_on", "0 9 * * *"), Job("cj_paused", "0 9 * * *", enabled: false), spent };
+
+        var schedules = FactoriesScreenFold.Seats(f, Inputs(new[] { f }, jobs: jobs)).Rows.Single().Schedules
+            .ToDictionary(s => s.JobId);
+
+        Assert.Equal("Pause", schedules["cj_on"].ToggleLabel);
+        Assert.False(schedules["cj_on"].Paused);
+        // The paused one says so in its words and offers the way back, right where it is read.
+        Assert.Equal("Daily 09:00 (paused)", schedules["cj_paused"].WhenText);
+        Assert.Equal("Resume", schedules["cj_paused"].ToggleLabel);
+        Assert.True(schedules["cj_paused"].Paused);
+        // A schedule that no longer exists, and a one-off that has run, have nothing to pause or resume.
+        Assert.Null(schedules["cj_gone"].ToggleLabel);
+        Assert.Null(schedules["cj_spent"].ToggleLabel);
     }
 
     // ---------- a seat's schedules are edited in the factory (the owner, 2026-10-09) ----------

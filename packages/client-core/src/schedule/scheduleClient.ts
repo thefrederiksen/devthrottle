@@ -62,6 +62,10 @@ export interface CronJob {
   remainingToday?: string[] | null;
   /** Whether the schedule will still run, folded by the Gateway: "active" | "paused" | "spent" | "off". Read-only. */
   lifecycle?: string | null;
+  /** The state in the one word every surface shows (issue #3910): "Active", "Paused" or "Finished". Read-only. */
+  stateLabel?: string | null;
+  /** What one tap on the state does now: "Pause" or "Resume". Folded by the Gateway. Read-only. */
+  toggleLabel?: string | null;
   /** Whether this schedule's recent sessions closed themselves, folded by the Gateway on a list read. Read-only. */
   runRecord?: CronRunRecordSummary | null;
   /** The schedule's factory id, or null for a plain scheduled job in no factory. */
@@ -262,7 +266,78 @@ export async function deleteCronJob(id: string, signal?: AbortSignal): Promise<v
   if (!res.ok) throw await gatewayErrorFrom(res, `DELETE /cron/jobs/${id}`);
 }
 
-// POST /cron/jobs/{id}/run -> 200 CronRunRecord | 409 (overlap) | 404. Fires the job immediately;
+// Reduce a full CronJob (as read back from the Gateway, carrying its computed nextRunUtc / lastFiredUtc /
+// lastStatus / createdUtc and its display words) to a clean update body of ONLY the mutable fields, applying
+// overrides last. A pause or a resume routes through this so it never echoes the Gateway's read-only scheduling
+// state back to it (issue #1027), and never clears a field it does not change.
+export function cronJobWriteBody(job: CronJob, overrides: Partial<CronJob>): CronJob {
+  return {
+    id: "",
+    name: job.name,
+    enabled: job.enabled,
+    scheduleKind: job.scheduleKind,
+    cronExpression: job.cronExpression ?? null,
+    runAt: job.runAt ?? null,
+    timeZoneId: job.timeZoneId,
+    target: { machine: job.target.machine },
+    action: {
+      repoPath: job.action.repoPath,
+      seed: job.action.seed,
+      workListName: job.action.workListName ?? null,
+    },
+    preventOverlap: job.preventOverlap,
+    notifyOn: job.notifyOn,
+    notifyWebhookUrl: job.notifyWebhookUrl ?? null,
+    ...overrides,
+  };
+}
+
+// Pause (enabled false) or resume (enabled true) one schedule by id, for a surface that holds only the id - a
+// factory's Seats tab (issue #3910). The target state is the caller's, never "the opposite of what is stored", so a
+// tap on a stale row cannot resume a schedule the person meant to pause. Reads the schedule, then writes it back
+// through the same PUT every other edit uses, so the Gateway's checks and window placement all apply.
+export async function setCronJobEnabled(id: string, enabled: boolean, signal?: AbortSignal): Promise<CronJob> {
+  const job = await getCronJob(id, signal);
+  return updateCronJob(id, cronJobWriteBody(job, { enabled }), signal);
+}
+
+/** The account's pause-everything switch (CronPauseDto, issue #3910). Every word is the Gateway's. */
+export interface CronPause {
+  /** True while the scheduler starts nothing. No schedule's own setting is changed by it. */
+  paused: boolean;
+  sinceUtc?: string | null;
+  /** The banner to show while paused; null when not paused. */
+  banner?: string | null;
+  /** What a tap does now: "Pause everything" or "Resume everything". */
+  actionLabel: string;
+  actionTitle: string;
+}
+
+// GET /cron/pause -> CronPauseDto.
+export async function getCronPause(signal?: AbortSignal): Promise<CronPause> {
+  const res = await fetch("/cron/pause", {
+    method: "GET",
+    headers: { Accept: "application/json", ...authHeaders() },
+    signal,
+  });
+  if (!res.ok) throw await gatewayErrorFrom(res, "GET /cron/pause");
+  return (await res.json()) as CronPause;
+}
+
+// PUT /cron/pause { paused } -> CronPauseDto. Pausing stops every schedule from starting; resuming lets them start
+// again, each exactly as it was.
+export async function setCronPause(paused: boolean, signal?: AbortSignal): Promise<CronPause> {
+  const res = await fetch("/cron/pause", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Accept: "application/json", ...authHeaders() },
+    body: JSON.stringify({ paused }),
+    signal,
+  });
+  if (!res.ok) throw await gatewayErrorFrom(res, "PUT /cron/pause");
+  return (await res.json()) as CronPause;
+}
+
+// POST /cron/jobs/{id}/run -> 200 CronRunRecord | 409 (overlap, or everything is paused) | 404. Fires the job immediately;
 // throws with the Gateway's message on a conflict / missing job so the page can surface it.
 export async function runCronJobNow(id: string, signal?: AbortSignal): Promise<CronRunRecord> {
   const jid = encodeURIComponent(id);

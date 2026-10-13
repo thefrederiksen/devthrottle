@@ -1146,6 +1146,9 @@ public static class SessionKeyGuard
         // /cron/runs/{runId}/resolve - resolve a problem with a reason (`run resolve`). The route limits a factory's
         // problem to that factory's own sessions, the same as acting on its schedule.
         if (s.Length == 4 && s[0] == "cron" && s[1] == "runs" && s[3] == "resolve") return verb == "POST";
+        // /cron/pause - the pause-everything switch (issue #3910). READ ONLY: it tells an agent why nothing is
+        // firing. Setting it is the owner's control, so PUT is deliberately not here.
+        if (s.Length == 2 && s[0] == "cron" && s[1] == "pause") return verb is "GET" or "HEAD";
 
         if (s.Length < 2 || s[0] != "cron" || s[1] != "jobs") return false;
 

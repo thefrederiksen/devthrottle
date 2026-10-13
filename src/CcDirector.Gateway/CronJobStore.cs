@@ -251,6 +251,31 @@ public sealed class CronJobStore
         }
     }
 
+    /// <summary>
+    /// Move every switched-on repeating schedule whose next run is already past on to its next FUTURE run, without a
+    /// fire (issue #3910). Resuming after pause-everything calls it, so the runs missed while paused are not started
+    /// late in a burst - the same thing a Gateway restart does on load. Nothing else is written: no enabled flag, no
+    /// last status, no last fire. A one-off keeps its moment, as it does across a restart, and runs once.
+    /// Returns how many schedules were moved.
+    /// </summary>
+    public int MoveMissedRunsOn(TenantId tenant, DateTime nowUtc)
+    {
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var missed = ctx.CronJobs.Where(e => e.Enabled).ToList()
+                .Where(e => e.NextRunUtc is { } next && next <= nowUtc
+                    && !CronSchedule.KindOneOff.Equals(e.ScheduleKind?.Trim(), StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            foreach (var entity in missed)
+                entity.NextRunUtc = CronSchedule.ComputeNextRunUtc(ToDto(entity), nowUtc);
+            if (missed.Count > 0)
+                ctx.SaveChanges();
+            FileLog.Write($"[CronJobStore] MoveMissedRunsOn: tenant={tenant.ToLogString()} moved={missed.Count}");
+            return missed.Count;
+        }
+    }
+
     /// <summary>Delete the job with the given id. Returns true if a job was removed, false if none existed.</summary>
     public bool Delete(string id)
     {

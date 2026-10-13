@@ -1,0 +1,105 @@
+{
+  "scenario": "scheduler quick pause: pause everything, pause one where it is read, one word",
+  "steps": {
+    "enabledFlagsBefore": {
+      "cj_boss": true,
+      "cj_own": true,
+      "cj_tidy": false
+    },
+    "chipWords": {
+      "active": "Active",
+      "activeTitle": "Pause this schedule",
+      "paused": "Paused"
+    },
+    "pauseEverything": {
+      "requests": [
+        {
+          "method": "PUT",
+          "path": "/cron/pause",
+          "body": {
+            "paused": true
+          }
+        }
+      ],
+      "bannerText": "Everything is paused. No schedule will start until you resume. Each schedule keeps its own setting (fake).",
+      "scheduleWrites": 0
+    },
+    "resumeEverything": {
+      "requests": [
+        {
+          "method": "PUT",
+          "path": "/cron/pause",
+          "body": {
+            "paused": true
+          }
+        },
+        {
+          "method": "PUT",
+          "path": "/cron/pause",
+          "body": {
+            "paused": false
+          }
+        }
+      ],
+      "enabledFlagsAfter": {
+        "cj_boss": true,
+        "cj_own": true,
+        "cj_tidy": false
+      }
+    },
+    "seatPause": {
+      "line": "Daily 09:00 (America/New_York) (paused)",
+      "write": {
+        "method": "PUT",
+        "path": "/cron/jobs/cj_boss",
+        "body": {
+          "id": "",
+          "name": "WarmForward Factory - Boss",
+          "enabled": false,
+          "scheduleKind": "recurring",
+          "cronExpression": "0 9 * * *",
+          "runAt": null,
+          "timeZoneId": "America/New_York",
+          "target": {
+            "machine": "SOREN_NORTH"
+          },
+          "action": {
+            "repoPath": "D:\\ReposFred\\repo",
+            "seed": "/help",
+            "workListName": null
+          },
+          "preventOverlap": true,
+          "notifyOn": "none",
+          "notifyWebhookUrl": null
+        }
+      }
+    },
+    "editorRenameWhilePaused": {
+      "id": "",
+      "name": "Evening tidy, renamed",
+      "enabled": false,
+      "scheduleKind": "recurring",
+      "cronExpression": "0 21 * * *",
+      "runAt": null,
+      "timeZoneId": "America/New_York",
+      "target": {
+        "machine": "SOREN_NORTH"
+      },
+      "action": {
+        "repoPath": "D:\\ReposFred\\repo",
+        "seed": "/help",
+        "workListName": null
+      },
+      "preventOverlap": true,
+      "notifyOn": "none",
+      "notifyWebhookUrl": null,
+      "factory": null,
+      "seat": null
+    },
+    "editorPickActive": {
+      "enabled": true
+    }
+  },
+  "generatedAtUtc": "2026-10-12T23:51:12.028Z",
+  "result": "PASS"
+}

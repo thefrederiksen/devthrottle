@@ -46,6 +46,9 @@ const cronClient = vi.hoisted(() => ({
   getCronJob: vi.fn(),
   createCronJob: vi.fn(),
   updateCronJob: vi.fn(),
+  setCronJobEnabled: vi.fn(),
+  getCronPause: vi.fn(),
+  setCronPause: vi.fn(),
   getSeatChoices: vi.fn(async () => ({
     noneLabel: "No factory (Personal)",
     factories: [{ factory: "warmforward", title: "WarmForward Factory", seats: [{ id: "nora-hale", label: "Nora Hale (nora-hale)" }] }],
@@ -69,6 +72,16 @@ import {
   OldFactoryWaitingRedirect,
 } from "./FactoryRedirects";
 import { ACTIVITY, FACTORY_LIST, FACTORY_PAGE, FACTORY_SEATS, REPORT } from "./fixtures";
+
+// The pause-everything switch as the Gateway answers it (issue #3910).
+const SCHEDULER_RUNNING = { paused: false, sinceUtc: null, banner: null, actionLabel: "Pause everything", actionTitle: "Stop every schedule (fixture)." };
+const SCHEDULER_PAUSED = {
+  paused: true,
+  sinceUtc: "2026-10-12T14:00:00Z",
+  banner: "Everything is paused. No schedule will start until you resume (fixture).",
+  actionLabel: "Resume everything",
+  actionTitle: "Let schedules start again (fixture).",
+};
 
 function Where() {
   const loc = useLocation();
@@ -110,8 +123,39 @@ beforeEach(() => {
   screenClient.getFactoriesList.mockResolvedValue(FACTORY_LIST);
   screenClient.getFactoryPage.mockResolvedValue(FACTORY_PAGE);
   screenClient.getFactorySeats.mockResolvedValue(FACTORY_SEATS);
+  cronClient.getCronPause.mockResolvedValue(SCHEDULER_RUNNING);
   agentsClient.getFactoryActivity.mockResolvedValue(ACTIVITY);
   agentsClient.getFactoryReports.mockResolvedValue(REPORT);
+});
+
+describe("Factories - pause everything (issue #3910)", () => {
+  it("pauses every schedule with one tap from the Factories screen, shows the banner, and resumes with one tap", async () => {
+    cronClient.setCronPause.mockImplementation(async (paused: boolean) => (paused ? SCHEDULER_PAUSED : SCHEDULER_RUNNING));
+    renderAt("/factories");
+    expect(screen.queryByTestId("schedules-paused-banner")).toBeNull();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Pause everything" }));
+
+    const banner = await screen.findByTestId("schedules-paused-banner");
+    expect(cronClient.setCronPause).toHaveBeenCalledWith(true);
+    expect(banner.textContent).toContain("Everything is paused. No schedule will start until you resume (fixture).");
+
+    fireEvent.click(within(banner).getByRole("button", { name: "Resume everything" }));
+
+    await waitFor(() => expect(screen.queryByTestId("schedules-paused-banner")).toBeNull());
+    expect(cronClient.setCronPause).toHaveBeenLastCalledWith(false);
+    // Neither direction wrote a schedule.
+    expect(cronClient.updateCronJob).not.toHaveBeenCalled();
+    expect(cronClient.setCronJobEnabled).not.toHaveBeenCalled();
+  });
+
+  it("opens with the banner when the Gateway says everything is paused", async () => {
+    cronClient.getCronPause.mockResolvedValue(SCHEDULER_PAUSED);
+    renderAt("/factories");
+
+    expect((await screen.findByTestId("schedules-paused-banner")).textContent).toContain("Everything is paused.");
+    expect(screen.getAllByRole("button", { name: "Resume everything" }).length).toBeGreaterThan(0);
+  });
 });
 
 describe("Factories - the list (mockup 1)", () => {
@@ -174,18 +218,18 @@ describe("Factories - the list (mockup 1)", () => {
     expect(money.getByText("Names the factory 'money-saver', which is not registered (fixture)")).toBeTruthy();
   });
 
-  it("says so when every enabled schedule is a seat, and shows the list even with no factory registered", async () => {
+  it("says so when every active schedule is a seat, and shows the list even with no factory registered", async () => {
     screenClient.getFactoriesList.mockResolvedValue({
       ...FACTORY_LIST,
       rows: [],
       emptyText: "No factory yet (fixture).",
       outsideRows: [],
-      outsideEmptyText: "Every enabled schedule is a seat (fixture).",
+      outsideEmptyText: "Every active schedule is a seat (fixture).",
     });
     renderAt("/factories");
 
     const outside = await screen.findByTestId("fa-outside");
-    expect(within(outside).getByText("Every enabled schedule is a seat (fixture).")).toBeTruthy();
+    expect(within(outside).getByText("Every active schedule is a seat (fixture).")).toBeTruthy();
   });
 
   it("says what the Gateway says when no factory is registered", async () => {
@@ -400,6 +444,68 @@ describe("A factory's Seats tab (mockup 3)", () => {
     await waitFor(() => expect(screenClient.getFactorySeats.mock.calls.length).toBeGreaterThan(seatReads));
     // The Gateway's warning is shown here too, as on the Schedule page.
     expect((await screen.findByText(/Saved, but:/)).textContent).toContain("SOREN_NORTH has 7 sessions open at 06:00.");
+  });
+
+  // ---- issue #3910: pause and resume right where the state is read ----
+
+  it("pauses a seat's schedule with one tap beside its Edit, and shows the seats again", async () => {
+    cronClient.setCronJobEnabled.mockResolvedValue({ id: "cj_boss", enabled: false });
+    renderAt("/factories/warmforward/seats");
+    const nora = await screen.findByTestId("fa-seat-nora-hale");
+    // Beside the existing Edit, on the same schedule line.
+    const line = within(nora).getByText("Daily 06:15").parentElement as HTMLElement;
+    expect(within(line).getByRole("button", { name: "Edit schedule" })).toBeTruthy();
+    const seatReads = screenClient.getFactorySeats.mock.calls.length;
+
+    fireEvent.click(within(line).getByRole("button", { name: "Pause" }));
+
+    await waitFor(() => expect(cronClient.setCronJobEnabled).toHaveBeenCalledWith("cj_boss", false));
+    await waitFor(() => expect(screenClient.getFactorySeats.mock.calls.length).toBeGreaterThan(seatReads));
+    // A schedule that no longer exists has nothing to pause.
+    const hunter = screen.getByTestId("fa-seat-value-hunter");
+    expect(within(hunter).queryByRole("button", { name: /Pause|Resume/ })).toBeNull();
+  });
+
+  it("resumes a paused seat schedule with one tap, where it reads (paused)", async () => {
+    // The owner's own example from 12 October: the state was shown, with no control next to it.
+    const pausedSeats = {
+      ...FACTORY_SEATS,
+      rows: FACTORY_SEATS.rows.map((r) =>
+        r.seatId !== "nora-hale"
+          ? r
+          : {
+              ...r,
+              whenText: "Daily 09:00 (America/New_York) (paused)",
+              schedules: [{ jobId: "cj_boss", whenText: "Daily 09:00 (America/New_York) (paused)", editLabel: "Edit schedule", paused: true, toggleLabel: "Resume" }],
+            },
+      ),
+    };
+    screenClient.getFactorySeats.mockResolvedValue(pausedSeats);
+    cronClient.setCronJobEnabled.mockResolvedValue({ id: "cj_boss", enabled: true });
+    renderAt("/factories/warmforward/seats");
+    const line = (await screen.findByText("Daily 09:00 (America/New_York) (paused)")).parentElement as HTMLElement;
+
+    fireEvent.click(within(line).getByRole("button", { name: "Resume" }));
+
+    await waitFor(() => expect(cronClient.setCronJobEnabled).toHaveBeenCalledWith("cj_boss", true));
+  });
+
+  it("says so when a seat schedule cannot be paused, and offers the button again", async () => {
+    cronClient.setCronJobEnabled.mockRejectedValue(new GatewayError(400, "PUT /cron/jobs/cj_boss failed: this window schedule cannot be placed"));
+    renderAt("/factories/warmforward/seats");
+
+    fireEvent.click(within(await screen.findByTestId("fa-seat-nora-hale")).getByRole("button", { name: "Pause" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("could not pause the schedule");
+    // The button is offered again.
+    expect((within(screen.getByTestId("fa-seat-nora-hale")).getByRole("button", { name: "Pause" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("says on the Seats tab that everything is paused, so a seat that does not run is not taken for a broken one", async () => {
+    cronClient.getCronPause.mockResolvedValue(SCHEDULER_PAUSED);
+    renderAt("/factories/warmforward/seats");
+
+    expect((await screen.findByTestId("schedules-paused-banner")).textContent).toContain("Everything is paused.");
   });
 
   it("says so when the schedule cannot be read, instead of a button that does nothing", async () => {
