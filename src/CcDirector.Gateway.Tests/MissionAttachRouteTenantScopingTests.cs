@@ -80,7 +80,7 @@ public sealed class MissionAttachRouteTenantScopingTests : IAsyncLifetime
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            missionsPath: Path.Combine(_instancesDir, "missions.json"),
+            missionsPath: Path.Combine(_instancesDir, "missions", "missions.json"),   // a folder of its own: the registry reads every *.json directly in the instances folder
             streamMode: true,
             options: new GatewayHostOptions { Hosted = true });
         await _gateway.StartAsync();
@@ -355,7 +355,7 @@ public sealed class MissionAttachSeatMoveTests : IAsyncLifetime
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"),
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
-            missionsPath: Path.Combine(_instancesDir, "missions.json"),
+            missionsPath: Path.Combine(_instancesDir, "missions", "missions.json"),   // a folder of its own: the registry reads every *.json directly in the instances folder
             streamMode: true,
             options: new GatewayHostOptions { Hosted = false });
         await _gateway.StartAsync();

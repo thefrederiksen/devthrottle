@@ -76,6 +76,7 @@
          drive the same agent screen the session's own tests do (Voice Delivery mission, phase 3). -->
     <Compile Include="..\CcDirector.Core.UnitTests\Sessions\ScriptedAgentTerminal.cs" Link="Sessions/ScriptedAgentTerminal.cs" />
     <Compile Include="..\TestInfrastructure\VirtualTime.cs" Link="TestInfrastructure\VirtualTime.cs" />
+    <Compile Include="..\TestInfrastructure\VirtualClock.cs" Link="TestInfrastructure\VirtualClock.cs" />
     <!-- A test that sets a Windows process priority class and processor affinity says so in its skip reason,
          rather than returning early and reading as a pass elsewhere (Voice Delivery mission, phase 6). -->
     <Compile Include="..\CcDirector.Core.Tests\WindowsOnlyFactAttribute.cs" Link="WindowsOnlyFactAttribute.cs" />

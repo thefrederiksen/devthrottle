@@ -974,6 +974,7 @@ public sealed class GatewayHost : IAsyncDisposable
     // G8 increment 2: the cron sweep now fires through the per-tenant tenancy seam (TenantScopedSweep) so it
     // can run ON hosted, tenant-isolated, instead of being disabled. Constructed alongside _cronEngine.
     private Running.CronTenantSweep? _cronSweep;
+    private readonly Running.CronPauseSwitch _cronPause;
     // Reentrancy guard for the cron sweep. On hosted the per-tenant fan-out can take longer than the 60s tick,
     // so a later tick must NOT start a second overlapping sweep (that could double-fire a job in the window
     // between a tenant's ListAll and MarkFired). 0 = idle, 1 = a sweep is in flight (Interlocked-owned).
@@ -1035,6 +1036,16 @@ public sealed class GatewayHost : IAsyncDisposable
     private int _suggestionSweepInFlight;
     private static readonly TimeSpan SuggestionSweepInterval = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan SuggestionSweepStartupDelay = TimeSpan.FromMinutes(2);
+
+    // The factory email (Factory Control, step 4): the 08:00 report and the 16:00 / midnight checks, composed and sent
+    // by the Gateway itself. The sweep ticks every few minutes for every account; an account whose factory email is off
+    // costs one setting read. Guarded against overlap; created in StartAsync, disposed in StopAsync.
+    private Factory.Email.FactoryEmailSweep? _factoryEmailSweep;
+    internal Factory.Email.FactoryEmailStore? FactoryEmailReports { get; private set; }
+    private System.Threading.Timer? _factoryEmailTimer;
+    private int _factoryEmailSweepInFlight;
+    private static readonly TimeSpan FactoryEmailSweepInterval = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan FactoryEmailSweepStartupDelay = TimeSpan.FromMinutes(1);
 
     // The Mentor's weekly run (devthrottle_internal#2305). Null unless BOTH CC_GATEWAY_TEAMS=1 and
     // CC_GATEWAY_TEAM_MENTOR=1 - switching on a Mentor that writes about people is the owner's decision.
@@ -2404,6 +2415,7 @@ public sealed class GatewayHost : IAsyncDisposable
             zoneOf: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)),
             writeActivity: (tenant, run, row, correction) => _cronRuns.WriteActivityRow(tenant, run, row, correction),
             nowUtc: () => cronClock.UtcNow);
+        _cronPause = new Running.CronPauseSwitch(_tenantSettings);
         _cronEngine = new Running.CronEngine(
             _cronJobs, _cronRuns, new Running.DirectorCronSessionStarter(_machineSessionSpawner, cronClock,
                 // Issue #3650: a job whose factory or seat the registry does not have never starts. The fire runs in
@@ -2415,10 +2427,36 @@ public sealed class GatewayHost : IAsyncDisposable
             // run-now request scope on hosted, the single Local scope on self-host - the same seam the notifier
             // reads. A run-now for tenant A's cj_ id must never be refused by tenant B's in-flight same-id job.
             resolveTenant: () => _tenantPass.Current,
-            onResultRecorded: (tenant, job, run) => _cronRunResults.Announce(tenant, job, run));
+            onResultRecorded: (tenant, job, run) => _cronRunResults.Announce(tenant, job, run),
+            // Issue #3910: the account's pause-everything switch, read at the top of every sweep and run-now.
+            isPaused: _cronPause.IsPaused);
         // G8 increment 2: wrap the cron engine in the per-tenant worker seam so the background sweep enters
         // each tenant's scope before it reads the tenant-scoped cron_jobs store. The same pass records the runs that
         // did not report or ran past their shift (Factory Control, step 1).
+        // Factory Control, step 4: the factory email reads the same problems fold, keeps each composed email, and sends
+        // it through the owner-email primitive - tenant-addressed on hosted, the account token on self-host.
+        FactoryEmailReports = new Factory.Email.FactoryEmailStore(_gatewayDb);
+        var factoryEmailSender = new Factory.Email.FactoryEmailSender(
+            Hosted,
+            isTeam: tenant => TeamRegistry.IsTeam(tenant),
+            subjectOf: TenantRegistry.SubjectForTenant,
+            serviceToken: Core.Account.AccountNotifyByTenantClient.ResolveServiceToken,
+            accountToken: () => Account?.GetAccessTokenForForwarding(),
+            byTenant: new Core.Account.AccountNotifyByTenantClient(new HttpClient { Timeout = TimeSpan.FromSeconds(30) }),
+            byToken: new Core.Account.AccountNotifyClient(new HttpClient { Timeout = TimeSpan.FromSeconds(30) }));
+        _factoryEmailSweep = new Factory.Email.FactoryEmailSweep(_tenantBoundary, TenantRegistry, _tenantContext,
+            enabled: _tenantSettingsResolver.FactoryEmailEnabled,
+            zoneOf: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)),
+            facts: (tenant, from, to, asOf) => _cronRunResults.ProblemsAndFactoryDays(tenant, from, to, asOf),
+            factories: tenant => FactoryRegistry.List(tenant).ToDictionary(
+                f => f.Factory,
+                f => new Factory.Email.FactoryEmailFactory(f.Title,
+                    f.Seats.ToDictionary(s => s.Id, s => s.Name, StringComparer.Ordinal)),
+                StringComparer.OrdinalIgnoreCase),
+            baseUrl: () => GatewayPublicUrl.ResolveBase(Hosted),
+            store: FactoryEmailReports,
+            sender: factoryEmailSender);
+
         _cronSweep = new Running.CronTenantSweep(_tenantBoundary, TenantRegistry, _cronEngine,
             sweepResults: () =>
             {
@@ -5070,7 +5108,9 @@ public sealed class GatewayHost : IAsyncDisposable
         // The Factories screen (Factories screen mission, phase B): the list, a factory's page and its Seats tab, built
         // from the registry, the record and the schedules.
         var factoriesScreenSources = new Api.FactoriesScreenSources(FactoryAgentsViewSources(), FactoryRegistry, tenant => _cronJobs.ListAll(tenant),
-            (tenant, ids, now) => Running.CronRunRecordReader.RecentRunsOf(_cronRuns, _sessionHistory, tenant, ids, now));
+            (tenant, ids, now) => Running.CronRunRecordReader.RecentRunsOf(_cronRuns, _sessionHistory, tenant, ids, now),
+            (tenant, factory) => _cronRunResults.Problems(tenant, factory, includeClosed: false),
+            (tenant, factory) => FactoryEmailReports!.List(tenant, factory, kind: null, Factory.FactoryEmailsFold.Shown, allStates: false));
         Api.FactoriesScreenEndpoints.Map(factoryGate,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             sources: factoriesScreenSources);
@@ -5098,7 +5138,10 @@ public sealed class GatewayHost : IAsyncDisposable
             listDirectors: tenant => Registry.ListDirectors(tenant),
             schedule: (tenant, id) => _cronJobs.Get(tenant, id),
             startOnDirector: (ctx, directorId, request) =>
-                GatewayEndpoints.StartSessionOnDirectorAsync(ctx, directorId, request, talkSpawnDoor));
+                GatewayEndpoints.StartSessionOnDirectorAsync(ctx, directorId, request, talkSpawnDoor),
+            // Handle the issue (Factory Control, step 1b) reads the one problems fold, as GET /cron/problems does.
+            problems: (tenant, factory) => _cronRunResults.Problems(tenant, factory, includeClosed: false),
+            timeZone: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)));
         // Who the switch is on for: the administrator route that switches ONE account on or off, recording who and
         // why. Same admin service token as the turn-log switch; exact-match public in AuthMiddleware.
         Api.AdminFactoryAgentsEndpoint.Map(_app, FactoryAgentsSwitch, TenantRegistry);
@@ -5615,6 +5658,11 @@ public sealed class GatewayHost : IAsyncDisposable
             ? FactoryRegistry.List(tenant)
             : null);
 
+        // Pause everything (issue #3910): the account's one switch that stops the scheduler firing.
+        Api.CronPauseEndpoint.Map(_app, _cronPause, _cronJobs,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            nowUtc: () => DateTime.UtcNow);
+
         // Cron firing surface (epic #479, part 2 = #483): run-now and run-history over the engine.
         // Scheduled firing runs on the background sweep timer started below in StartAsync.
         // A factory's MEMORY (Factory Memory mission, phase 2): the notes its agents read at the start of a run and
@@ -5638,6 +5686,14 @@ public sealed class GatewayHost : IAsyncDisposable
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             sessionFactoryOf: _sessionHistory.FactoryOf,
             findRun: (tenant, runId) => _cronRuns.Find(tenant, runId));
+
+        // Factory Control, step 4: the factory email's switch (off unless turned on) and the kept emails the factory page
+        // reads to show yesterday's report again.
+        Api.FactoryEmailEndpoints.Map(_app,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            isEnabled: _tenantSettingsResolver.FactoryEmailEnabled,
+            setEnabled: (tenant, on) => _tenantSettingsResolver.SetFactoryEmailEnabled(tenant, on, DateTime.UtcNow),
+            store: FactoryEmailReports!);
 
         // Factory triggers (Website Business Factory, product track): the definitions, the run history, and the
         // Director's half - fetch its checks, report each result. Behind the factory agents switch PER ACCOUNT: for
@@ -5949,6 +6005,12 @@ public sealed class GatewayHost : IAsyncDisposable
         _suggestionSweepTimer = new System.Threading.Timer(_ => SweepSuggestions(), null,
             SuggestionSweepStartupDelay, SuggestionSweepInterval);
         FileLog.Write($"[GatewayHost] dictionary-suggestion sweep started: tick every {SuggestionSweepInterval.TotalMinutes:0}m, daily per tenant at local 00:05");
+
+        // The factory email (Factory Control, step 4). The timer always runs; each account's own switch decides whether
+        // anything is composed or sent for it, and it is off unless turned on.
+        _factoryEmailTimer = new System.Threading.Timer(_ => SweepFactoryEmail(), null,
+            FactoryEmailSweepStartupDelay, FactoryEmailSweepInterval);
+        FileLog.Write($"[GatewayHost] factory email sweep started: tick every {FactoryEmailSweepInterval.TotalMinutes:0}m, 08:00 / 16:00 / 00:00 in each account's time zone, only for accounts that switched it on");
 
         // The Mentor's weekly run (devthrottle_internal#2305), only when it is switched on.
         if (_teamMentorSweep is not null)
@@ -6519,6 +6581,32 @@ public sealed class GatewayHost : IAsyncDisposable
     /// a scan failure never crashes the timer thread). One sweep at a time; a skipped tick simply checks on
     /// the next one, which a daily schedule is indifferent to.
     /// </summary>
+    /// <summary>The factory email timer callback (a boundary: it owns the overlap guard and the try/catch, so a failure
+    /// never crashes the timer thread). One sweep at a time; a skipped tick is picked up by the next one.</summary>
+    private void SweepFactoryEmail()
+    {
+        if (Interlocked.CompareExchange(ref _factoryEmailSweepInFlight, 1, 0) != 0)
+            return;
+        _ = RunFactoryEmailSweepAsync();
+    }
+
+    private async Task RunFactoryEmailSweepAsync()
+    {
+        try
+        {
+            if (_factoryEmailSweep is not null)
+                await _factoryEmailSweep.SweepAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayHost] factory email sweep FAILED: {ex.Message}");
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _factoryEmailSweepInFlight, 0);
+        }
+    }
+
     private void SweepTeamMentor()
     {
         if (Interlocked.CompareExchange(ref _teamMentorSweepInFlight, 1, 0) != 0)
@@ -6885,6 +6973,8 @@ public sealed class GatewayHost : IAsyncDisposable
         try { _promptRetentionTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] prompt-log retention timer dispose error: {ex.Message}"); }
         _promptRetentionTimer = null;
         try { _teamMentorTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] team Mentor timer dispose error: {ex.Message}"); }
+        try { _factoryEmailTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] factory email timer dispose error: {ex.Message}"); }
+        _factoryEmailTimer = null;
         try { _suggestionSweepTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] dictionary-suggestion timer dispose error: {ex.Message}"); }
         try { _sessionHistoryTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] session history timer dispose error: {ex.Message}"); }
         _sessionHistoryTimer = null;

@@ -466,6 +466,11 @@ public static class SessionKeyGuard
             if (IsApplicationSetting(s)) return true;
             if (IsHandoverRead(s)) return true;
 
+            // The account's kept factory emails (Factory Control, step 4): the 08:00 reports and 16:00 / midnight
+            // checks as they were sent - the list and one email by id - which a factory's boss and the Factory Manager
+            // read. The same facts as /cron/problems, rendered; reading them changes nothing.
+            if (s.Length is 2 or 3 && s[0] == "gateway" && s[1] == "factory-emails") return true;
+
             return false;
         }
 
@@ -994,6 +999,10 @@ public static class SessionKeyGuard
         // how the product behaves - and admits nobody: the mark names a session already inside the account.
         // The Fleet Manager sets it through the command line, so a session key must reach it.
         "gateway/fleet-manager" => true,
+        // Whether the account is sent the factory email (Factory Control, step 4). It says how the product behaves -
+        // whether it mails the account its own factories' report - and admits nobody: the email can only ever go to
+        // the account's own address, resolved by the account service. The rollout switches it on from a session.
+        "gateway/factory-email" => true,
         _ => false,
     };
 
@@ -1154,6 +1163,9 @@ public static class SessionKeyGuard
         // /cron/runs/{runId}/resolve - resolve a problem with a reason (`run resolve`). The route limits a factory's
         // problem to that factory's own sessions, the same as acting on its schedule.
         if (s.Length == 4 && s[0] == "cron" && s[1] == "runs" && s[3] == "resolve") return verb == "POST";
+        // /cron/pause - the pause-everything switch (issue #3910). READ ONLY: it tells an agent why nothing is
+        // firing. Setting it is the owner's control, so PUT is deliberately not here.
+        if (s.Length == 2 && s[0] == "cron" && s[1] == "pause") return verb is "GET" or "HEAD";
 
         if (s.Length < 2 || s[0] != "cron" || s[1] != "jobs") return false;
 

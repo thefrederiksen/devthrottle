@@ -254,6 +254,15 @@ public sealed class TenantSettingsResolver
     public bool DemoMode(TenantId tenant)
         => string.Equals(_store.Get(tenant, TenantSettingKeys.DemoMode), "true", StringComparison.Ordinal);
 
+    /// <summary>Whether this tenant is sent the factory email (Factory Control, step 4). OFF unless switched on: anything
+    /// stored that is not exactly "true" reads as off, so nobody is mailed by accident.</summary>
+    public bool FactoryEmailEnabled(TenantId tenant)
+        => string.Equals(_store.Get(tenant, TenantSettingKeys.FactoryEmailEnabled), "true", StringComparison.Ordinal);
+
+    /// <summary>Turn this tenant's factory email on or off. Off is stored explicitly, as a decision.</summary>
+    public void SetFactoryEmailEnabled(TenantId tenant, bool enabled, DateTime nowUtc)
+        => _store.Set(tenant, TenantSettingKeys.FactoryEmailEnabled, enabled ? "true" : "false", nowUtc);
+
     /// <summary>Turn this tenant's DEMO MODE on or off. Off is stored explicitly rather than by removing the
     /// row, so "off" is a decision this tenant made and not merely the absence of one.</summary>
     public void SetDemoMode(TenantId tenant, bool enabled, DateTime nowUtc)

@@ -5,6 +5,7 @@ using CcDirector.Gateway.Factory;
 using CcDirector.Gateway.History;
 using CcDirector.Gateway.Running;
 using CcDirector.Gateway.Tests.Data;
+using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests;
@@ -508,9 +509,9 @@ public sealed class CronRunResultTests : IDisposable
         // An hourly schedule first missed five whole hours before the top of this hour: the Gateway was down for six
         // of its runs (that one, and the five on the hour after it).
         var jobsPath = _h.LegacyPath(Guid.NewGuid().ToString("N") + ".json");
-        var created = new CronJobStore(Db, jobsPath).Create(Hourly());
-        var utcNow = DateTime.UtcNow;
-        var firstMissed = new DateTime(utcNow.Year, utcNow.Month, utcNow.Day, utcNow.Hour, 0, 0, DateTimeKind.Utc).AddHours(-5);
+        var clock = new FakeTimeProvider(GatewayRestartedAt);
+        var created = new CronJobStore(Db, jobsPath, timeProvider: clock).Create(Hourly());
+        var firstMissed = TopOfTheRestartHour.AddHours(-5);
         using (var ctx = Db.CreateContext())
         {
             ctx.CronJobs.Single(e => e.Id == created.Id).NextRunUtc = firstMissed;
@@ -519,9 +520,9 @@ public sealed class CronRunResultTests : IDisposable
 
         // The Gateway starts again. No engine runs: the runs are on record the moment the load has moved the schedule on,
         // so there is nothing held in memory to lose (review findings 4 and 6).
-        var reloaded = new CronJobStore(Db, jobsPath);
+        var reloaded = new CronJobStore(Db, jobsPath, timeProvider: clock);
 
-        Assert.True(reloaded.Get(created.Id)!.NextRunUtc > DateTime.UtcNow);
+        Assert.Equal(TopOfTheRestartHour.AddHours(1), reloaded.Get(created.Id)!.NextRunUtc);
         var recorded = NewRuns().List(created.Id).OrderBy(r => r.ScheduledUtc).ToList();
         Assert.Equal(6, recorded.Count);
         Assert.All(recorded, r =>
@@ -1027,17 +1028,16 @@ public sealed class CronRunResultTests : IDisposable
         // Second review, finding 3: 503 runs were due while the Gateway was down. 500 rows are written, counting the
         // first, and the last carries the other 3 as a number - which the problems answer adds up.
         var jobsPath = _h.LegacyPath(Guid.NewGuid().ToString("N") + ".json");
-        var created = new CronJobStore(Db, jobsPath).Create(Hourly());
+        var clock = new FakeTimeProvider(GatewayRestartedAt);
+        var created = new CronJobStore(Db, jobsPath, timeProvider: clock).Create(Hourly());
         _jobs[created.Id] = created;
-        var utcNow = DateTime.UtcNow;
-        var topOfHour = new DateTime(utcNow.Year, utcNow.Month, utcNow.Day, utcNow.Hour, 0, 0, DateTimeKind.Utc);
         using (var ctx = Db.CreateContext())
         {
-            ctx.CronJobs.Single(e => e.Id == created.Id).NextRunUtc = topOfHour.AddHours(-502);
+            ctx.CronJobs.Single(e => e.Id == created.Id).NextRunUtc = TopOfTheRestartHour.AddHours(-502);
             ctx.SaveChanges();
         }
 
-        _ = new CronJobStore(Db, jobsPath);
+        _ = new CronJobStore(Db, jobsPath, timeProvider: clock);
 
         var recorded = NewRuns().AllByJob(TenantId.Local)[created.Id].OrderBy(r => r.ScheduledUtc).ToList();
         Assert.Equal(CronSchedule.MaxMissedRunsRecorded, recorded.Count);
@@ -1045,7 +1045,7 @@ public sealed class CronRunResultTests : IDisposable
         Assert.All(recorded.Take(recorded.Count - 1), r => Assert.Equal(0, r.MissedNotListed));
 
         var (service, _, _) = Build();
-        _now = DateTime.UtcNow.AddMinutes(1);
+        _now = GatewayRestartedAt.UtcDateTime.AddMinutes(1);
         var problems = service.Problems(TenantId.Local, null, includeClosed: false);
         Assert.Equal(500, problems.Count);
         Assert.Equal(503, problems.Occurrences);
@@ -1169,6 +1169,11 @@ public sealed class CronRunResultTests : IDisposable
         Target = new CronJobTarget { Machine = "workstation-A" },
         Action = new CronJobAction { RepoPath = @"D:\repo", Seed = "/help" },
     };
+
+    /// <summary>The moment the Gateway "starts again" in the two load tests: twenty past an hour, on a fake clock, so
+    /// the runs that were due while it was down are the same ones on every machine and at every time of day.</summary>
+    private static readonly DateTimeOffset GatewayRestartedAt = new(2026, 10, 10, 14, 20, 0, TimeSpan.Zero);
+    private static readonly DateTime TopOfTheRestartHour = new(2026, 10, 10, 14, 0, 0, DateTimeKind.Utc);
 
     private sealed class FixedClock : IClock
     {

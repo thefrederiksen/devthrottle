@@ -16,6 +16,7 @@ import { FactoryAreaGate } from "./factory/FactoryAreaGate";
 import { FactoriesView } from "./factory/FactoriesView";
 import { FactoryView } from "./factory/FactoryView";
 import { FactoryAgentPageView } from "./factory/FactoryAgentPageView";
+import { FactoryEmailView } from "./factory/FactoryEmails";
 import { FactoryWaitingView } from "./factory/FactoryWaitingView";
 import {
   OldFactoriesListRedirect,
@@ -147,6 +148,8 @@ export const COCKPIT_ROUTES: RouteObject[] = [
           { path: "/factories/:factory", element: <FactoryAreaGate><FactoryView /></FactoryAreaGate> },
           { path: "/factories/:factory/:tab", element: <FactoryAreaGate><FactoryView /></FactoryAreaGate> },
           { path: "/factories/:factory/agents/:agent", element: <FactoryAreaGate><FactoryAgentPageView /></FactoryAreaGate> },
+          // A kept factory email, read again exactly as it was sent (Factory Control, brief 5's store).
+          { path: "/factories/:factory/emails/:id", element: <FactoryAreaGate><FactoryEmailView /></FactoryAreaGate> },
           // The area was "Factory Agents" until the Factories screen; its old addresses land on their new equivalents.
           { path: "/factory-agents", element: <OldFactoriesListRedirect /> },
           { path: "/factory-agents/waiting", element: <OldFactoryWaitingRedirect /> },

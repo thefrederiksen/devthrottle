@@ -4,7 +4,6 @@ using CcDirector.Core.Drivers;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Tests.Drivers;
 using CcDirector.TestInfrastructure;
-using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
 namespace CcDirector.Core.UnitTests.Sessions;
@@ -21,7 +20,7 @@ public sealed class CodexWrappedComposerTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "cc-codex-wrapped-" + Guid.NewGuid().ToString("N"));
     private readonly List<IDisposable> _cleanup = new();
-    private readonly FakeTimeProvider _clock = VirtualTime.NewClock();
+    private readonly VirtualClock _clock = VirtualTime.NewClock();
 
     public CodexWrappedComposerTests() => Directory.CreateDirectory(_dir);
 

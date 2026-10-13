@@ -518,10 +518,12 @@ Director never acts on the Gateway's out-of-date picture (3.3 step 7).
 These live as named constants in `LicenseMessages.cs` (`LicenseContract.ReportInterval` and so on),
 so the two sides cannot drift.
 
-## 8. Phase 4 additions - AGREED, not yet built
+## 8. Phase 4 additions - AGREED; the Director side is built, the Gateway side is not
 
 Written by the phase 4 Developer; agreed by the phase 2 Tech Lead on 11 October 2026 (pull request 3875), with
-the changes to 8.3 below. Phase 2 builds the Gateway side; the Director side is the second phase 4 pull request.
+the changes to 8.3 below. Phase 2 builds the Gateway side; the Director side is the second phase 4 pull request,
+and what building it settled is marked "As built" in each part below. Until the Gateway offers
+`RequestLicenseApproval`, a Director with no browser profile for an account answers `no-approver`.
 The one change to an earlier section is in 8.3: the key holder reports even when it holds nothing (2.4). Words as in section 5 of
 `MISSION.md`; a "sign-in" is one `claude auth login` and what it leaves behind.
 
@@ -553,11 +555,40 @@ renewal is therefore always seen twice: on the page, and by email before the sig
 
 ### 8.2 The Director renews on a schedule
 
-The key holder (2.4) runs `license renew --json` once a day and once at start, only while
-`licenseSwitching.enabled` is on. A renewal is due when the sign-in ends within five days of now
-(`LicenseContract.RenewAhead`, matching `license_signin.RENEW_AHEAD`). Each row that changes - renewed, or failed -
-makes a report with `Trigger = "changed"` (2.3). A renewal never interrupts a switch: both take the key store's lock,
-and a renewal that finds it taken is tried at the next run.
+The key holder (2.4) runs a renewal once a day and once at start, only while `licenseSwitching.enabled` is on. A
+renewal is due when the sign-in ends within five days of now (`LicenseContract.RenewAhead`, matching
+`license_signin.RENEW_AHEAD`). Each row that changes - renewed, or failed - makes a report with
+`Trigger = "changed"` (2.3). A renewal never interrupts a switch: both take the key store's lock, and a renewal that
+finds it taken is tried at the next run.
+
+**As built.** A run is two kinds of call, not one `license renew --json`:
+
+1. `license renew --check --json` signs nothing in and exits 0. It answers one row per holding: `due` (with the
+   browser profile set for it on this machine, or none), `not-due`, `unknown-expiry`, or `failed` / `store-refused`
+   for a stored sign-in it could not read.
+2. For each `due` row, one of three things, decided from that row before anything is started:
+   - a Gateway that relays an approval is connected: `license sign-in <account> --ask-when-no-browser --json`. The
+     tool approves in the profile set on this machine when there is one, and otherwise prints the authorize URL
+     and waits for the code, which the Director gets through 8.3. One call, and the tool chooses the route, so the
+     owner's local setting always wins;
+   - no Gateway relays, and the row names a profile here: `license sign-in <account> --json`, approved here;
+   - no Gateway relays, and the row names no profile: **nothing is started.** The Director records `no-approver`
+     for the holding and reports it. This is every Director's state until phase 2 is deployed, and afterwards
+     whenever the tunnel is down when the renewal runs.
+
+A sign-in the Gateway asks for (8.4) is decided the same way. The account may not be held yet, so there is no row
+to read; when no Gateway relays, the Director first asks `license get-browser <account> --json`, which answers the
+profile or none and exits 0.
+
+The reason is that every cc-* tool that exits with a failure files an error report. `license renew --json` exits 1
+when any renewal failed, and a sign-in tried locally first would fail by design for every account whose profile is
+on another machine, so the plain design would have filed a report a day for each such account. Asking first makes
+no call that is expected to fail. (The review of pull request 3916 found the one case the first version of this
+still got wrong - no relay and no profile - and it is the third branch above.)
+
+The renewer wakes every 10 minutes and does nothing until a day has passed since the last run. A run in which the
+tool gave no answer at all does not count as the day's run and is tried again at the next wake. A failure recorded
+for a holding is cleared when a later run renews it, or finds it no longer due (the owner signed it in by hand).
 
 ### 8.3 Approval on another machine
 
@@ -650,6 +681,34 @@ or "Code": the target's public key travels as `SealToRecipient`.)
 Agreed with the Tech Lead: the sealing is done by a small `cc-secrets seal` / `open` pair (a value on standard input,
 sealed to a recipient), not by a second copy of the envelope code in the Director. One place seals.
 
+**As built.**
+
+- The approving Director runs `cc-secrets seal --to <SealToRecipient> --purpose license-approval --id <SignInId>`
+  with the answer on standard input; the target runs `cc-secrets open --purpose license-approval --id <SignInId>`
+  with `SealedApproval` on standard input. The answer is never a command-line argument on either machine. The
+  purpose and the `SignInId` are bound into the envelope, so an envelope made for one sign-in does not open as
+  another's, and a value envelope never opens as a Secret Handoff transfer or the other way round.
+- **What the seal gives and what it does not.** It keeps the answer from the Gateway and from anything else on the
+  path. It does not prove who sealed it: anyone holding the target's public key can seal a value to it. That is
+  enough here because a wrong answer completes nothing - the waiting login accepts only the answer that matches
+  the verifier it holds, and the tool then reads back which account the new sign-in is for before keeping it.
+- `cc-secrets open` refuses inside a session and refuses to write to a terminal: it is for the Director, which
+  types the answer straight into the waiting login. The answer is in no log line, no stored result and no message.
+- The Director validates `SignInId` (32 lower-case hex) and `SealToRecipient` (32 bytes, base64) before either
+  reaches a command line.
+- The target asks for an approval only when the Gateway it is connected to offers `RequestLicenseApproval` and
+  `cc-secrets` is there to open the answer. Otherwise only a profile on this machine can approve: with one set the
+  sign-in runs here, and with none the attempt is `failed` / `no-approver` and no login is started at all (8.2).
+- **The Director's time limits fit inside the Gateway's waits** (8.5; a test holds them to it). The approving
+  Director lets `license approve` run for 2 minutes 30 seconds, inside the Gateway's 3 minute wait for
+  `license-approve`, so an approval - which can be used once - is never made for a Gateway that has stopped
+  listening. The target waits for an approval for 3 minutes from the moment it starts the sign-in, or until the
+  request's `NotAfterUtc` when that is sooner, and that time is the `NotAfterUtc` it sends in
+  `LicenseApprovalRequest`. With 90 seconds for the login to finish, the whole sign-in is answered inside the
+  Gateway's 5 minute wait for `license-sign-in`.
+- A sign-in the Director gives up on is ended by closing the tool's standard input. The tool treats that as the
+  caller calling it off, not as its own failure, so an approval that never came files no error report.
+
 ### 8.4 Starting a sign-in from the Cockpit
 
 **Command `license-sign-in`, Gateway to the target Director**, for "Add a spare" and "Renew now" on the Licenses page:
@@ -671,12 +730,20 @@ public sealed class LicenseSignInResult
     public string? Message { get; set; }
     public DateTime? SignedInAtUtc { get; set; }
     public DateTime? SignInExpiresAtUtc { get; set; }
+    public DateTime FinishedAtUtc { get; set; }        // as built: when the Director finished it; the 24 hours run from here
+    public bool Replayed { get; set; }                 // as built: true when this is the stored answer to a repeated SignInId
 }
 ```
 
 The Director answers `not-key-holder` unless it is the key holder (2.4), runs the sign-in (approving locally when it
 has a local profile for the account, else through 8.3), and sends a `"changed"` report after it. Results are kept by
 `SignInId` for 24 hours and replayed like a switch (3.6).
+
+**As built.** `FinishedAtUtc` and `Replayed` are the two additions above, the same pair a switch result carries.
+A request that arrives after its `NotAfterUtc` is answered `failed` / `expired` and starts nothing. Sign-ins on one
+Director run one at a time: a second waits for the first, and one whose deadline passed while it waited is answered
+`expired`. The three commands (`license-sign-in`, `license-approve`, `license-approval-result`)
+address no session, as `license-switch` does.
 
 ### 8.5 Constants added to section 7
 
@@ -687,4 +754,10 @@ has a local profile for the account, else through 8.3), and sends a `"changed"` 
 | `license-sign-in` command timeout (Gateway) | 5 minutes |
 | `license-approve` command timeout (Gateway) | 3 minutes |
 | `license-approval-result` command timeout (Gateway) | 60 seconds |
-| A sign-in's `NotAfterUtc` | requested + 10 minutes |
+| A sign-in's `NotAfterUtc` (the Director refuses to START after it) | requested + 10 minutes |
+| The approving Director lets `license approve` run (`ApproveToolTimeout`) | 2 minutes 30 seconds |
+| The target waits for an approval, from the start of the sign-in (`SignInApprovalWait`) | 3 minutes |
+| The target lets the login finish once the approval is typed in (`SignInFinishAllowance`) | 90 seconds |
+| The Director's renewer wakes (a run happens once a day) | every 10 minutes |
+| A stored `LicenseSignInResult` is kept | 24 hours |
+| The seal's purpose word (`LicenseContract.ApprovalSealPurpose`) | `license-approval` |

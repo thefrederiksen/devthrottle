@@ -1302,6 +1302,45 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         await conn.InvokeAsync(LicenseContract.PushUsageHubMethod, seq, report, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// The License Switching mission, contract 8.3: an approval on another machine can be asked for now - the tunnel
+    /// is connected and the Gateway on the other end has <c>RequestLicenseApproval</c>. False against a Gateway built
+    /// before the relay, so nothing is asked (contract 6.5).
+    /// </summary>
+    public bool CanRequestLicenseApproval
+    {
+        get
+        {
+            var conn = _connection;
+            return conn is not null && conn.State == HubConnectionState.Connected
+                && GatewaySupports(LicenseContract.RequestApprovalHubMethod);
+        }
+    }
+
+    /// <summary>
+    /// The License Switching mission, contract 8.3: ask the Gateway to have a sign-in approved on the machine that
+    /// has the account's browser profile. The call returns as soon as the Gateway has taken the request; the answer
+    /// arrives later as the <c>license-approval-result</c> command. The request is never logged - its URL names the
+    /// account and is of no use to a reader of the log. Throws <see cref="Core.Licenses.LicenseApprovalRelayException"/>
+    /// when the tunnel is not connected or the call fails, so the waiting sign-in is ended and its failure recorded.
+    /// </summary>
+    public async Task RequestLicenseApprovalAsync(LicenseApprovalRequest request, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var conn = _connection;
+        if (conn is null || conn.State != HubConnectionState.Connected)
+            throw new Core.Licenses.LicenseApprovalRelayException("the Gateway stream is not connected");
+        try
+        {
+            await conn.InvokeAsync(LicenseContract.RequestApprovalHubMethod, request, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The tunnel boundary: whatever the hub call failed with, the sign-in waiting on it must hear one thing.
+            throw new Core.Licenses.LicenseApprovalRelayException($"{ex.GetType().Name}: {ex.Message}", ex);
+        }
+    }
+
     /// <summary>Push a session removal. Fire-and-forget; a drop is reconciled by the next snapshot.</summary>
     public void NotifyRemove(string sessionId)
     {

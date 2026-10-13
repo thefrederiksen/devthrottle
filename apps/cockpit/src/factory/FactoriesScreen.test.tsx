@@ -27,6 +27,9 @@ const screenClient = vi.hoisted(() => ({
   getFactoryFloor: vi.fn(() => new Promise(() => {})),
   startFactoryTalk: vi.fn(),
   runFactoryOwnerAction: vi.fn(),
+  startProblemTalk: vi.fn(),
+  resolveRunProblem: vi.fn(),
+  getFactoryEmail: vi.fn(),
 }));
 vi.mock("@devthrottle/client-core/factory/factoriesScreenClient", () => screenClient);
 
@@ -46,6 +49,9 @@ const cronClient = vi.hoisted(() => ({
   getCronJob: vi.fn(),
   createCronJob: vi.fn(),
   updateCronJob: vi.fn(),
+  setCronJobEnabled: vi.fn(),
+  getCronPause: vi.fn(),
+  setCronPause: vi.fn(),
   getSeatChoices: vi.fn(async () => ({
     noneLabel: "No factory (Personal)",
     factories: [{ factory: "warmforward", title: "WarmForward Factory", seats: [{ id: "nora-hale", label: "Nora Hale (nora-hale)" }] }],
@@ -62,6 +68,7 @@ vi.mock("@devthrottle/client-core/fleet/fleetClient", async (importOriginal) => 
 
 import { FactoriesView } from "./FactoriesView";
 import { FactoryView } from "./FactoryView";
+import { FactoryEmailView } from "./FactoryEmails";
 import {
   OldFactoriesListRedirect,
   OldFactoryAgentRedirect,
@@ -69,6 +76,16 @@ import {
   OldFactoryWaitingRedirect,
 } from "./FactoryRedirects";
 import { ACTIVITY, FACTORY_LIST, FACTORY_PAGE, FACTORY_SEATS, REPORT } from "./fixtures";
+
+// The pause-everything switch as the Gateway answers it (issue #3910).
+const SCHEDULER_RUNNING = { paused: false, sinceUtc: null, banner: null, actionLabel: "Pause everything", actionTitle: "Stop every schedule (fixture)." };
+const SCHEDULER_PAUSED = {
+  paused: true,
+  sinceUtc: "2026-10-12T14:00:00Z",
+  banner: "Everything is paused. No schedule will start until you resume (fixture).",
+  actionLabel: "Resume everything",
+  actionTitle: "Let schedules start again (fixture).",
+};
 
 function Where() {
   const loc = useLocation();
@@ -84,6 +101,7 @@ function renderAt(path: string) {
         <Route path="/factories/:factory" element={<FactoryView />} />
         <Route path="/factories/:factory/:tab" element={<FactoryView />} />
         <Route path="/factories/:factory/agents/:agent" element={<Where />} />
+        <Route path="/factories/:factory/emails/:id" element={<FactoryEmailView />} />
         <Route path="/session/:id" element={<Where />} />
         <Route path="/factory-agents" element={<OldFactoriesListRedirect />} />
         <Route path="/factory-agents/waiting" element={<OldFactoryWaitingRedirect />} />
@@ -110,8 +128,39 @@ beforeEach(() => {
   screenClient.getFactoriesList.mockResolvedValue(FACTORY_LIST);
   screenClient.getFactoryPage.mockResolvedValue(FACTORY_PAGE);
   screenClient.getFactorySeats.mockResolvedValue(FACTORY_SEATS);
+  cronClient.getCronPause.mockResolvedValue(SCHEDULER_RUNNING);
   agentsClient.getFactoryActivity.mockResolvedValue(ACTIVITY);
   agentsClient.getFactoryReports.mockResolvedValue(REPORT);
+});
+
+describe("Factories - pause everything (issue #3910)", () => {
+  it("pauses every schedule with one tap from the Factories screen, shows the banner, and resumes with one tap", async () => {
+    cronClient.setCronPause.mockImplementation(async (paused: boolean) => (paused ? SCHEDULER_PAUSED : SCHEDULER_RUNNING));
+    renderAt("/factories");
+    expect(screen.queryByTestId("schedules-paused-banner")).toBeNull();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Pause everything" }));
+
+    const banner = await screen.findByTestId("schedules-paused-banner");
+    expect(cronClient.setCronPause).toHaveBeenCalledWith(true);
+    expect(banner.textContent).toContain("Everything is paused. No schedule will start until you resume (fixture).");
+
+    fireEvent.click(within(banner).getByRole("button", { name: "Resume everything" }));
+
+    await waitFor(() => expect(screen.queryByTestId("schedules-paused-banner")).toBeNull());
+    expect(cronClient.setCronPause).toHaveBeenLastCalledWith(false);
+    // Neither direction wrote a schedule.
+    expect(cronClient.updateCronJob).not.toHaveBeenCalled();
+    expect(cronClient.setCronJobEnabled).not.toHaveBeenCalled();
+  });
+
+  it("opens with the banner when the Gateway says everything is paused", async () => {
+    cronClient.getCronPause.mockResolvedValue(SCHEDULER_PAUSED);
+    renderAt("/factories");
+
+    expect((await screen.findByTestId("schedules-paused-banner")).textContent).toContain("Everything is paused.");
+    expect(screen.getAllByRole("button", { name: "Resume everything" }).length).toBeGreaterThan(0);
+  });
 });
 
 describe("Factories - the list (mockup 1)", () => {
@@ -174,18 +223,18 @@ describe("Factories - the list (mockup 1)", () => {
     expect(money.getByText("Names the factory 'money-saver', which is not registered (fixture)")).toBeTruthy();
   });
 
-  it("says so when every enabled schedule is a seat, and shows the list even with no factory registered", async () => {
+  it("says so when every active schedule is a seat, and shows the list even with no factory registered", async () => {
     screenClient.getFactoriesList.mockResolvedValue({
       ...FACTORY_LIST,
       rows: [],
       emptyText: "No factory yet (fixture).",
       outsideRows: [],
-      outsideEmptyText: "Every enabled schedule is a seat (fixture).",
+      outsideEmptyText: "Every active schedule is a seat (fixture).",
     });
     renderAt("/factories");
 
     const outside = await screen.findByTestId("fa-outside");
-    expect(within(outside).getByText("Every enabled schedule is a seat (fixture).")).toBeTruthy();
+    expect(within(outside).getByText("Every active schedule is a seat (fixture).")).toBeTruthy();
   });
 
   it("says what the Gateway says when no factory is registered", async () => {
@@ -400,6 +449,68 @@ describe("A factory's Seats tab (mockup 3)", () => {
     await waitFor(() => expect(screenClient.getFactorySeats.mock.calls.length).toBeGreaterThan(seatReads));
     // The Gateway's warning is shown here too, as on the Schedule page.
     expect((await screen.findByText(/Saved, but:/)).textContent).toContain("SOREN_NORTH has 7 sessions open at 06:00.");
+  });
+
+  // ---- issue #3910: pause and resume right where the state is read ----
+
+  it("pauses a seat's schedule with one tap beside its Edit, and shows the seats again", async () => {
+    cronClient.setCronJobEnabled.mockResolvedValue({ id: "cj_boss", enabled: false });
+    renderAt("/factories/warmforward/seats");
+    const nora = await screen.findByTestId("fa-seat-nora-hale");
+    // Beside the existing Edit, on the same schedule line.
+    const line = within(nora).getByText("Daily 06:15").parentElement as HTMLElement;
+    expect(within(line).getByRole("button", { name: "Edit schedule" })).toBeTruthy();
+    const seatReads = screenClient.getFactorySeats.mock.calls.length;
+
+    fireEvent.click(within(line).getByRole("button", { name: "Pause" }));
+
+    await waitFor(() => expect(cronClient.setCronJobEnabled).toHaveBeenCalledWith("cj_boss", false));
+    await waitFor(() => expect(screenClient.getFactorySeats.mock.calls.length).toBeGreaterThan(seatReads));
+    // A schedule that no longer exists has nothing to pause.
+    const hunter = screen.getByTestId("fa-seat-value-hunter");
+    expect(within(hunter).queryByRole("button", { name: /Pause|Resume/ })).toBeNull();
+  });
+
+  it("resumes a paused seat schedule with one tap, where it reads (paused)", async () => {
+    // The owner's own example from 12 October: the state was shown, with no control next to it.
+    const pausedSeats = {
+      ...FACTORY_SEATS,
+      rows: FACTORY_SEATS.rows.map((r) =>
+        r.seatId !== "nora-hale"
+          ? r
+          : {
+              ...r,
+              whenText: "Daily 09:00 (America/New_York) (paused)",
+              schedules: [{ jobId: "cj_boss", whenText: "Daily 09:00 (America/New_York) (paused)", editLabel: "Edit schedule", paused: true, toggleLabel: "Resume" }],
+            },
+      ),
+    };
+    screenClient.getFactorySeats.mockResolvedValue(pausedSeats);
+    cronClient.setCronJobEnabled.mockResolvedValue({ id: "cj_boss", enabled: true });
+    renderAt("/factories/warmforward/seats");
+    const line = (await screen.findByText("Daily 09:00 (America/New_York) (paused)")).parentElement as HTMLElement;
+
+    fireEvent.click(within(line).getByRole("button", { name: "Resume" }));
+
+    await waitFor(() => expect(cronClient.setCronJobEnabled).toHaveBeenCalledWith("cj_boss", true));
+  });
+
+  it("says so when a seat schedule cannot be paused, and offers the button again", async () => {
+    cronClient.setCronJobEnabled.mockRejectedValue(new GatewayError(400, "PUT /cron/jobs/cj_boss failed: this window schedule cannot be placed"));
+    renderAt("/factories/warmforward/seats");
+
+    fireEvent.click(within(await screen.findByTestId("fa-seat-nora-hale")).getByRole("button", { name: "Pause" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("could not pause the schedule");
+    // The button is offered again.
+    expect((within(screen.getByTestId("fa-seat-nora-hale")).getByRole("button", { name: "Pause" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("says on the Seats tab that everything is paused, so a seat that does not run is not taken for a broken one", async () => {
+    cronClient.getCronPause.mockResolvedValue(SCHEDULER_PAUSED);
+    renderAt("/factories/warmforward/seats");
+
+    expect((await screen.findByTestId("schedules-paused-banner")).textContent).toContain("Everything is paused.");
   });
 
   it("says so when the schedule cannot be read, instead of a button that does nothing", async () => {
@@ -727,5 +838,140 @@ describe("Seats that do not close themselves (Factory Control, step 2)", () => {
     const hunter = within(within(table).getByTestId("fa-seat-value-hunter")).getByTestId("fa-seat-closing");
     expect(hunter.textContent).toBe("no runs recorded yet (fixture)");
     expect(hunter.className).toContain("fa-tone-grey");
+  });
+});
+
+describe("Open problems on a factory's page (Factory Control, step 1b)", () => {
+  const PROBLEM = FACTORY_PAGE.problems!.items[0];
+
+  it("lists each open problem in the Gateway's words, with the session to read", async () => {
+    renderAt("/factories/warmforward");
+
+    const item = await screen.findByTestId(`fa-problem-${PROBLEM.runId}`);
+    expect(within(screen.getByTestId("fa-page-problems")).getByText("Open problems (fixture)")).toBeTruthy();
+    expect(within(item).getByText("Scout - WarmForward - Scout - daily scan (fixture)")).toBeTruthy();
+    expect(within(item).getByText("Did not report: its session ended without reporting how the run went. (fixture)")).toBeTruthy();
+    expect(within(item).getByText("Started Sun 11 Oct 06:15 (fixture)")).toBeTruthy();
+    expect(within(item).getByText("night shift, Sun 11 Oct, 00:00-08:00 (fixture)")).toBeTruthy();
+    expect(within(item).getByText("open 3 hours (fixture)")).toBeTruthy();
+    expect(within(item).getByTestId("fa-problem-session").getAttribute("href")).toBe(`/session/${PROBLEM.sessionId}`);
+  });
+
+  it("says so when there are none", async () => {
+    screenClient.getFactoryPage.mockResolvedValue({
+      ...FACTORY_PAGE,
+      problems: { ...FACTORY_PAGE.problems!, items: [], emptyText: "No open problems. (fixture)" },
+    });
+    renderAt("/factories/warmforward");
+
+    expect((await screen.findByTestId("fa-problems-empty")).textContent).toBe("No open problems. (fixture)");
+  });
+
+  it("Handle the issue shows it is working at once, then opens the briefed talk the Gateway started", async () => {
+    let finish: (v: unknown) => void = () => {};
+    screenClient.startProblemTalk.mockReturnValue(new Promise((r) => (finish = r)));
+    renderAt("/factories/warmforward");
+
+    const button = within(await screen.findByTestId(`fa-problem-${PROBLEM.runId}`)).getByTestId("fa-problem-handle");
+    expect(button.textContent).toBe("Handle the issue (fixture)");
+    fireEvent.click(button);
+    await waitFor(() => expect(button.textContent).toBe("Starting the talk with the boss (fixture)..."));
+    expect(screenClient.startProblemTalk).toHaveBeenCalledWith(PROBLEM.handle);
+    finish({ sessionId: "s-talk", href: "/session/s-talk" });
+    await waitFor(() => expect(where()).toBe("/session/s-talk"));
+  });
+
+  it("draws Handle the issue unavailable with the Gateway's sentence for a factory with no boss", async () => {
+    const unavailable = "WarmForward has no boss, so this goes to the Factory Manager, which is not built yet. (fixture)";
+    screenClient.getFactoryPage.mockResolvedValue({
+      ...FACTORY_PAGE,
+      problems: {
+        ...FACTORY_PAGE.problems!,
+        items: [{ ...PROBLEM, handle: { ...PROBLEM.handle, available: false, unavailableText: unavailable } }],
+      },
+    });
+    renderAt("/factories/warmforward");
+
+    const item = await screen.findByTestId(`fa-problem-${PROBLEM.runId}`);
+    expect((within(item).getByTestId("fa-problem-handle") as HTMLButtonElement).disabled).toBe(true);
+    expect(within(item).getByTestId("fa-problem-unavailable").textContent).toBe(unavailable);
+  });
+
+  it("Resolve sends the reason to the resolve route and reloads the page", async () => {
+    screenClient.resolveRunProblem.mockResolvedValue(undefined);
+    renderAt("/factories/warmforward");
+
+    const item = await screen.findByTestId(`fa-problem-${PROBLEM.runId}`);
+    fireEvent.click(within(item).getByTestId("fa-problem-resolve"));
+    expect(within(item).getByText("Why is it resolved? One line. (fixture)")).toBeTruthy();
+    fireEvent.change(within(item).getByTestId("fa-problem-reason"), { target: { value: "Re-ran it; the feed is back." } });
+    const loadsBefore = screenClient.getFactoryPage.mock.calls.length;
+    fireEvent.click(within(item).getByTestId("fa-problem-resolve-send"));
+
+    await waitFor(() => expect(screenClient.resolveRunProblem).toHaveBeenCalledWith(PROBLEM.runId, "Re-ran it; the feed is back."));
+    await waitFor(() => expect(screenClient.getFactoryPage.mock.calls.length).toBeGreaterThan(loadsBefore));
+  });
+
+  it("Resolve with no reason shows the Gateway's refusal, in its words", async () => {
+    // As GatewayError.from builds it from the route's { error } body: the sentence travels as the reason.
+    const refusal = "Resolving needs a one-line reason, and none was given. Nothing was recorded.";
+    screenClient.resolveRunProblem.mockRejectedValue(new GatewayError(400, refusal, { reason: refusal }));
+    renderAt("/factories/warmforward");
+
+    const item = await screen.findByTestId(`fa-problem-${PROBLEM.runId}`);
+    fireEvent.click(within(item).getByTestId("fa-problem-resolve"));
+    fireEvent.click(within(item).getByTestId("fa-problem-resolve-send"));
+
+    expect(await within(item).findByTestId("fa-problem-error")).toBeTruthy();
+    expect(within(item).getByTestId("fa-problem-error").textContent).toContain("needs a one-line reason");
+    expect(screenClient.resolveRunProblem).toHaveBeenCalledWith(PROBLEM.runId, "");
+  });
+});
+
+describe("Reports emailed to you, on a factory's page (Factory Control, brief 5's store)", () => {
+  const EMAIL = FACTORY_PAGE.emails!.items[0];
+
+  it("lists each kept email verbatim, in the Gateway's words", async () => {
+    renderAt("/factories/warmforward");
+
+    const card = await screen.findByTestId("fa-page-emails");
+    expect(within(card).getByText("Reports emailed to you (fixture)")).toBeTruthy();
+    const item = within(card).getByTestId(`fa-email-${EMAIL.id}`);
+    expect(within(item).getByText("Morning report (fixture)")).toBeTruthy();
+    expect(within(item).getByText("Sent today 08:00 (fixture)")).toBeTruthy();
+    expect(within(item).getByText("Factories: 2 open problems (fixture)")).toBeTruthy();
+    expect(within(item).getByText("2 problems listed (fixture)")).toBeTruthy();
+    expect(within(item).getByTestId("fa-email-read").getAttribute("href")).toBe(EMAIL.href);
+  });
+
+  it("says so when no kept email covered the factory", async () => {
+    screenClient.getFactoryPage.mockResolvedValue({
+      ...FACTORY_PAGE,
+      emails: { ...FACTORY_PAGE.emails!, items: [], emptyText: "No report has covered this factory yet. (fixture)" },
+    });
+    renderAt("/factories/warmforward");
+
+    expect((await screen.findByTestId("fa-emails-empty")).textContent).toBe("No report has covered this factory yet. (fixture)");
+  });
+
+  it("Read opens the email exactly as it was sent, in a sandboxed frame", async () => {
+    screenClient.getFactoryEmail.mockResolvedValue({ id: EMAIL.id, title: "Factories: 2 open problems (fixture)", html: "<p>as sent</p>" });
+    renderAt("/factories/warmforward");
+
+    fireEvent.click(await screen.findByTestId("fa-email-read"));
+
+    const body = await screen.findByTestId("fa-email-body");
+    expect(screenClient.getFactoryEmail).toHaveBeenCalledWith(EMAIL.id, expect.anything());
+    expect(body.getAttribute("srcdoc")).toBe("<p>as sent</p>");
+    expect(body.getAttribute("sandbox")).toBe("");
+    expect(screen.getByRole("heading", { name: "Factories: 2 open problems (fixture)" })).toBeTruthy();
+  });
+
+  it("a refused read shows the Gateway's sentence", async () => {
+    const refusal = "there is no factory email e1a2b3c4-0000-4000-8000-000000000001 in this account.";
+    screenClient.getFactoryEmail.mockRejectedValue(new GatewayError(404, refusal, { reason: refusal }));
+    renderAt(EMAIL.href);
+
+    expect(await screen.findByText(/there is no factory email/)).toBeTruthy();
   });
 });

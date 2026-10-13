@@ -32,8 +32,9 @@ const SURFACE = "cockpit-schedule-editor";
 export type ScheduleEditorRequest = { kind: "create"; timeZone: string } | { kind: "edit"; job: CronJob };
 
 // The create/edit form state, kept together so open/close/reset is one object (mirrors the Blazor
-// _f* fields). enabled + preventOverlap have no form control but are preserved across an edit so
-// renaming/rescheduling a disabled job never silently re-arms it (Blazor QA #488).
+// _f* fields). enabled has its own Active / Paused control (issue #3910) and is saved as that control shows it,
+// so an edit of a paused job never silently resumes it (Blazor QA #488). preventOverlap has no form control and is
+// preserved across an edit.
 interface FormState {
   editingId: string | null;
   name: string;
@@ -398,6 +399,36 @@ export function ScheduleEditor({
                     onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                   />
                   {formErrors.name && <div className="sched-fld-err">{formErrors.name}</div>}
+                </div>
+
+                {/* Active or Paused (issue #3910), so the editor is never a dead end: it opens showing the
+                    schedule's own state and saves whatever it shows, so editing a paused schedule cannot resume
+                    it unless the person picks Active. */}
+                <div className="sched-fld">
+                  <span className="sched-fld-label" id="sched-state-label">Status</span>
+                  <div className="sched-statepick" role="radiogroup" aria-labelledby="sched-state-label">
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={form.enabled}
+                      className={`sched-statepick-choice${form.enabled ? " on" : ""}`}
+                      onClick={() => setForm((f) => ({ ...f, enabled: true }))}
+                    >
+                      Active
+                    </button>
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={!form.enabled}
+                      className={`sched-statepick-choice paused${form.enabled ? "" : " on"}`}
+                      onClick={() => setForm((f) => ({ ...f, enabled: false }))}
+                    >
+                      Paused
+                    </button>
+                  </div>
+                  <div className="sched-statepick-hint">
+                    {form.enabled ? "Runs on its schedule." : "Paused: it does not run until it is set to Active."}
+                  </div>
                 </div>
 
                 {/* The factory seat this schedule runs as (the owner, 2026-10-10). The Gateway checks the pair on

@@ -15,6 +15,9 @@ public enum CronFireOutcome
 
     /// <summary>No job with the requested id exists (run-now only).</summary>
     NoSuchJob,
+
+    /// <summary>Nothing was started because the account's scheduler is paused (issue #3910; run-now only).</summary>
+    Paused,
 }
 
 /// <summary>The result of <see cref="CronEngine.RunNowAsync"/>.</summary>
@@ -26,6 +29,7 @@ public sealed record CronRunNowResult(CronFireOutcome Outcome, CronRunRecord? Re
 /// <see cref="IClock"/>), starts a session on the job's target Director via
 /// <see cref="ICronSessionStarter"/>, records a <see cref="CronRunRecord"/>, and advances the
 /// schedule. The guards:
+///   - PAUSE EVERYTHING (issue #3910): while the account's switch is on nothing is fired, and no job is changed.
 ///   - DISABLED jobs are never fired.
 ///   - OVERLAP: a job already in flight is skipped (when <see cref="CronJobDto.PreventOverlap"/>).
 ///   - CATCH-UP: a fire missed while the Gateway was down fires AT MOST ONCE on the next sweep - the
@@ -53,6 +57,7 @@ public sealed class CronEngine
     // started no session, a due run that was skipped or missed), so the run's factory hears about it. Production passes
     // CronRunResultService.Announce; a test that does not watch factory rows passes nothing.
     private readonly Action<TenantId, CronJobDto, CronRunRecord>? _onResultRecorded;
+    private readonly Func<TenantId, bool> _isPaused;
 
     private readonly object _inFlightGate = new();
     // Overlap admission, PARTITIONED BY TENANT (audit MED, gap audit-e). A cron job's id is tenant-relative
@@ -81,6 +86,11 @@ public sealed class CronEngine
     /// fire is only ever reached with a resolved scope in effect (the store read that produced the job already
     /// required one); an unresolved tenant fails loud rather than defaulting.
     /// </param>
+    /// <param name="isPaused">
+    /// Whether the account's pause-everything switch is on (issue #3910). Read at the top of every sweep and every
+    /// run-now, so a pause takes effect on the next sweep and survives a restart with the stored switch. Omitted
+    /// (tests that are not about the switch) nothing is ever paused.
+    /// </param>
     public CronEngine(
         CronJobStore store,
         CronRunHistoryStore history,
@@ -90,7 +100,8 @@ public sealed class CronEngine
         IClock clock,
         TimeSpan? catchUpThreshold = null,
         Func<TenantId?>? resolveTenant = null,
-        Action<TenantId, CronJobDto, CronRunRecord>? onResultRecorded = null)
+        Action<TenantId, CronJobDto, CronRunRecord>? onResultRecorded = null,
+        Func<TenantId, bool>? isPaused = null)
     {
         _onResultRecorded = onResultRecorded;
         _store = store ?? throw new ArgumentNullException(nameof(store));
@@ -101,6 +112,7 @@ public sealed class CronEngine
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _catchUpThreshold = catchUpThreshold ?? TimeSpan.FromMinutes(2);
         _resolveTenant = resolveTenant ?? (() => TenantId.Local);
+        _isPaused = isPaused ?? (_ => false);
     }
 
     /// <summary>
@@ -111,6 +123,13 @@ public sealed class CronEngine
     public async Task<IReadOnlyList<CronRunRecord>> EvaluateDueAsync(CancellationToken ct)
     {
         var now = _clock.UtcNow;
+        // PAUSE EVERYTHING: nothing is fired and nothing is written - no schedule is moved on, switched off or
+        // marked, so resuming finds every schedule as it was. Resuming moves the missed runs on (CronPauseEndpoint).
+        if (_resolveTenant() is { } sweepTenant && _isPaused(sweepTenant))
+        {
+            FileLog.Write($"[CronEngine] EvaluateDueAsync: tenant={sweepTenant.ToLogString()} is paused; nothing fired");
+            return Array.Empty<CronRunRecord>();
+        }
         var due = _store.ListAll()
             .Where(j => j.Enabled && j.NextRunUtc is not null && j.NextRunUtc.Value <= now)
             .ToList();
@@ -174,6 +193,11 @@ public sealed class CronEngine
         var job = _store.Get(id);
         if (job is null)
             return new CronRunNowResult(CronFireOutcome.NoSuchJob, null);
+        if (_resolveTenant() is { } tenant && _isPaused(tenant))
+        {
+            FileLog.Write($"[CronEngine] RunNowAsync: job={id} not started, tenant={tenant.ToLogString()} is paused");
+            return new CronRunNowResult(CronFireOutcome.Paused, null);
+        }
 
         return await FireAsync(job, _clock.UtcNow, isManual: true, ct);
     }

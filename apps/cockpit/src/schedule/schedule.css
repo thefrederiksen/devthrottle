@@ -279,14 +279,53 @@
   cursor: pointer;
 }
 
-.sched-chip.enabled {
+.sched-chip.active {
   color: var(--sched-green);
   border-color: var(--sched-green);
 }
 
-.sched-chip.disabled {
+.sched-chip.paused {
   color: var(--text-dim);
   border-color: var(--border);
+}
+
+/* The editor's Active / Paused control (issue #3910). */
+.sched-statepick {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  width: fit-content;
+}
+
+.sched-statepick-choice {
+  padding: 6px 16px;
+  font-size: 13px;
+  background: transparent;
+  color: var(--text-dim);
+  border: 0;
+  cursor: pointer;
+}
+
+.sched-statepick-choice + .sched-statepick-choice {
+  border-left: 1px solid var(--border);
+}
+
+.sched-statepick-choice.on {
+  color: var(--sched-green);
+  background: rgba(78, 201, 176, 0.12);
+  font-weight: 600;
+}
+
+.sched-statepick-choice.paused.on {
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.14);
+}
+
+.sched-statepick-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-dim);
 }
 
 /* run-complete notification badge (#622) */
