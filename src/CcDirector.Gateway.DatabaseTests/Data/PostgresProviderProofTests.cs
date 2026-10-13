@@ -276,6 +276,7 @@ public sealed class PostgresProviderProofTests
             ("license_holdings", "AccountEmail"),
             ("license_machines", "MachineKey"),
             ("license_machines", "OsUserKey"),
+            ("license_switch_log", "FromAccountEmail"),
             ("license_switch_log", "State"),
             ("license_switch_log", "SwitchId"),
             ("mission_notes", "Key"),

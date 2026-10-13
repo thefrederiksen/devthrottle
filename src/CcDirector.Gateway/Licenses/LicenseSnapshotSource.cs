@@ -43,15 +43,15 @@ public sealed class LicenseSnapshotSource
     public LicensePicture ReadPicture(TenantId tenant, DateTime nowUtc, IReadOnlyList<LicenseExhaustion> openExhaustions)
     {
         ArgumentNullException.ThrowIfNull(openExhaustions);
-        FileLog.Write($"[LicenseSnapshotSource] ReadPicture: tenant={tenant.ToLogString()}, openExhaustions={openExhaustions.Count}");
+        // QUIET ON PURPOSE. The once-a-minute check reads this for every DevThrottle account, every minute, for
+        // good, and the Licenses page reads it on every poll; an entry line and a result line here are thousands of
+        // lines a day that say nothing happened. The callers log what they decided, and a read that FAILS still logs.
         try
         {
             var overview = _reads.Read(tenant, nowUtc);
             var open = _store.ListOpenSwitches(tenant);
             var bars = _store.ListActiveBars(tenant, nowUtc);
             var snapshot = Build(overview, open, bars, openExhaustions, nowUtc);
-            FileLog.Write($"[LicenseSnapshotSource] ReadPicture: accounts={snapshot.Accounts.Count}, machines={snapshot.Machines.Count}, "
-                          + $"openSwitches={open.Count}, bars={snapshot.Bars.Count}");
             return new LicensePicture(overview, snapshot, open);
         }
         catch (Exception ex)

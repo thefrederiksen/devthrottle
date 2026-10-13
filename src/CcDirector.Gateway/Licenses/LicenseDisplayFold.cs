@@ -56,8 +56,7 @@ public static class LicenseDisplayFold
 
     public const string NoSwitchExpectedText = "No switch is expected.";
 
-    /// <summary>What an account's renewal date says while none is set. The date is one a person sets; until the
-    /// route that stores it exists, none is set for any account.</summary>
+    /// <summary>What an account's renewal date says while none is set. The date is one a person sets.</summary>
     public const string RenewalDateNotSetText = "Renewal date not set";
 
     // ----- the overview -----
@@ -112,8 +111,8 @@ public static class LicenseDisplayFold
             ReadError = view.Freshest?.ReadError,
             ReadErrorText = ReadErrorText(view.Freshest?.ReadError, view.Freshest?.ReadErrorDetail),
             ExtraUsage = ExtraUsage(view.Freshest?.ExtraUsageEnabled, view.Freshest?.ExtraUsageUtilization),
-            RenewsOn = null,
-            RenewsText = RenewalDateNotSetText,
+            RenewsOn = view.RenewsOn?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            RenewsText = RenewsText(view.RenewsOn, now),
             SignInExpiry = SignInExpiry(held, names, now),
             ActiveOnMachines = held.Where(h => h.Holding.IsActive).Select(h => names.Ref(h.Machine)).ToList(),
             SpareOnMachines = held.Where(h => !h.Holding.IsActive).Select(h => names.Ref(h.Machine)).ToList(),
@@ -357,12 +356,14 @@ public static class LicenseDisplayFold
             ExpiryVerdict = holding.ExpiryVerdict,
             ExpiryText = expiryText,
             ExpiryTone = expiryTone,
-            // A failed renewal of this sign-in: null when the last renewal worked or is not known. The Gateway does not
-            // store what a report says of a renewal yet, so it is not known for any holding. The pull request that
-            // stores it fills these three in here.
-            RenewalFailedAtUtc = null,
-            RenewalFailedText = null,
-            RenewalFailedTone = null,
+            // A failed renewal of this SIGN-IN (nothing to do with the subscription's renewal date): all three null
+            // when the last renewal worked or is not known.
+            RenewalFailedAtUtc = holding.RenewalFailedAtUtc is { } failedAt ? Utc(failedAt) : null,
+            RenewalFailedText = holding.RenewalFailedAtUtc is null ? null : RenewalFailedText(holding, nowUtc),
+            RenewalFailedTone = holding.RenewalFailedAtUtc is null ? null
+                // The sign-in is dead or about to be, and the machine could not renew it: the owner must act.
+                : holding.ExpiryVerdict is LicenseSignInExpiry.Expired or LicenseSignInExpiry.ExpiresSoon ? LicenseTones.Bad
+                : LicenseTones.Warning,
             IsReadingStale = holding.IsReadingStale,
             ReadError = holding.ReadError,
             ReadErrorText = ReadErrorText(holding.ReadError, null),
@@ -710,6 +711,46 @@ public static class LicenseDisplayFold
         LicenseReadErrors.StoreUnreadable => "The machine could not read its stored sign-in.",
         _ => string.IsNullOrWhiteSpace(detail) ? $"The last read failed ({readError})." : detail,
     };
+
+    /// <summary>
+    /// The sentence for an account's renewal date - the day its SUBSCRIPTION is billed again, as a person set it. The
+    /// date has no time and no zone, and it is compared with the Gateway's date in Coordinated Universal Time, so
+    /// around midnight "today" can be a day off for the viewer; the date itself is always given.
+    /// </summary>
+    public static string RenewsText(DateOnly? renewsOn, DateTime nowUtc)
+    {
+        if (renewsOn is not { } date)
+            return RenewalDateNotSetText;
+        var today = DateOnly.FromDateTime(Utc(nowUtc));
+        var day = date.ToString(date.Year == today.Year ? "d MMM" : "d MMM yyyy", CultureInfo.InvariantCulture);
+        return date == today ? "Renews today"
+            : date < today ? $"Renewal date {day} has passed"
+            : $"Renews {day}";
+    }
+
+    // When the failed renewal was, and why in the Director's contract words. The time is the machine's own clock, so
+    // the distance is only said when it is not in the future by the Gateway's.
+    private static string RenewalFailedText(LicenseHoldingView holding, DateTime nowUtc)
+    {
+        var at = Utc(holding.RenewalFailedAtUtc!.Value);
+        var when = at <= nowUtc ? $"Renewing this sign-in failed {Ago(nowUtc - at)}" : "Renewing this sign-in failed";
+        var why = holding.RenewalError switch
+        {
+            LicenseRenewalErrors.LoginFailed => "the sign-in did not start, or ended without a sign-in",
+            LicenseRenewalErrors.ApprovalFailed => "the approval in the browser did not complete",
+            LicenseRenewalErrors.WrongAccount => "the approving browser is signed in as another account",
+            LicenseRenewalErrors.BrowserNotSignedIn => "the approving browser is not signed in",
+            LicenseRenewalErrors.NoApprover => "no browser is set to approve this account",
+            LicenseRenewalErrors.ApproverOffline => "the machine that approves this account was not connected",
+            LicenseRenewalErrors.Expired => "no approval came back in time",
+            LicenseRenewalErrors.StoreRefused => "the machine's key store would not take the new sign-in",
+            _ => null,
+        };
+        if (why is not null)
+            return $"{when}: {why}.";
+        // No reason this Gateway knows: the Director's own sentence when it wrote one, and otherwise only the fact.
+        return string.IsNullOrWhiteSpace(holding.RenewalErrorDetail) ? $"{when}." : $"{when}. {holding.RenewalErrorDetail.Trim()}";
+    }
 
     private static LicenseExtraUsageDto ExtraUsage(bool? enabled, double? utilization) => enabled switch
     {

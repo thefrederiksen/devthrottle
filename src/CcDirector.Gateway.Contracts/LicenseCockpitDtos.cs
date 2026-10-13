@@ -23,6 +23,9 @@ public static class LicenseRoutes
 
     /// <summary>GET: the switch log, newest first, one page at a time (<see cref="LicenseLogResponse"/>).</summary>
     public const string Log = "/gateway/licenses/log";
+
+    /// <summary>Set or clear the date an account's subscription is billed again. A write: refused to a session key.</summary>
+    public const string AccountRenewal = "/gateway/licenses/accounts/renewal";
 }
 
 /// <summary>The one status an account is shown with. <see cref="LicenseAccountDto.StatusText"/> is the label.</summary>
@@ -213,12 +216,13 @@ public sealed class LicenseAccountDto
 
     public LicenseExtraUsageDto ExtraUsage { get; set; } = new();
 
-    /// <summary>The date the SUBSCRIPTION is billed again, as "yyyy-MM-dd": a date a person sets for the account. Null
-    /// when none is set. No report carries it, and it is never worked out from anything else. Until the route that
-    /// sets it exists it is always null.</summary>
+    /// <summary>The date the SUBSCRIPTION is billed again, as "yyyy-MM-dd": a date a person sets for the account
+    /// (<see cref="LicenseRoutes.AccountRenewal"/>). Null when none is set. No report carries it, and it is never
+    /// worked out from anything else.</summary>
     public string? RenewsOn { get; set; }
 
-    /// <summary>The sentence for <see cref="RenewsOn"/>: "Renews 17 Oct", or "Renewal date not set". Always set.</summary>
+    /// <summary>The sentence for <see cref="RenewsOn"/>: "Renews 17 Oct", "Renews today", "Renews 4 Jan 2027" (another
+    /// year), "Renewal date 17 Oct has passed", or "Renewal date not set". Always set.</summary>
     public string RenewsText { get; set; } = "";
 
     /// <summary>The sign-in for this account that expires first, on whichever machine holds it.</summary>
@@ -359,8 +363,8 @@ public sealed class LicenseMachineHoldingDto
     /// <summary>One of <see cref="LicenseTones"/>.</summary>
     public string ExpiryTone { get; set; } = "";
 
-    /// <summary>When the machine last tried to renew this sign-in and failed. Null when the last renewal worked or is
-    /// not known. Until the Gateway stores what the report says of it, it is always null.</summary>
+    /// <summary>When the machine last tried to renew this SIGN-IN and failed, by the machine's own clock. Null when the
+    /// last renewal worked or is not known.</summary>
     public DateTime? RenewalFailedAtUtc { get; set; }
 
     /// <summary>The sentence for a failed renewal; null when the last renewal worked or is not known.</summary>
@@ -393,6 +397,30 @@ public sealed class LicenseSwitchInProgressDto
 
     /// <summary>One sentence saying where the switch stands.</summary>
     public string Text { get; set; } = "";
+}
+
+// ---- PUT /gateway/licenses/accounts/renewal ----
+
+/// <summary>Set or clear the date one account's subscription is billed again.</summary>
+public sealed class LicenseRenewalDateRequest
+{
+    /// <summary>The Claude account, one this DevThrottle account's machines hold.</summary>
+    public string? AccountEmail { get; set; }
+
+    /// <summary>The date as "yyyy-MM-dd", or null to clear it.</summary>
+    public string? RenewsOn { get; set; }
+}
+
+/// <summary>What was stored: the two fields the overview now answers for that account.</summary>
+public sealed class LicenseRenewalDateResponse
+{
+    public string AccountEmail { get; set; } = "";
+
+    /// <summary>The stored date as "yyyy-MM-dd"; null when it was cleared.</summary>
+    public string? RenewsOn { get; set; }
+
+    /// <summary>The same sentence the overview gives for it.</summary>
+    public string RenewsText { get; set; } = "";
 }
 
 // ---- GET /gateway/licenses/forecast ----

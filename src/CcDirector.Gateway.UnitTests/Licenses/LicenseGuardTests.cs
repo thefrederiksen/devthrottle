@@ -26,6 +26,9 @@ public sealed class LicenseGuardTests
     [InlineData("DELETE", "/gateway/licenses/log", false)]
     [InlineData("GET", "/gateway/licenses/log/x", false)]
     [InlineData("GET", "/gateway/licenses/accounts", false)]
+    [InlineData("PUT", "/gateway/licenses/accounts/renewal", false)]
+    [InlineData("GET", "/gateway/licenses/accounts/renewal", false)]
+    [InlineData("POST", "/gateway/licenses/accounts/renewal", false)]
     [InlineData("POST", "/gateway/licenses/switch-now", false)]
     [InlineData("GET", "/gateway/licenses/switch-now", false)]
     public void TheGuard_AllowsASessionKey_ExactlyTheLicenseReads(string method, string path, bool allowed)
@@ -42,6 +45,13 @@ public sealed class LicenseGuardTests
         // too only for the routes it names - a new route needs its own line in both.
         Assert.All(new[] { LicenseRoutes.Overview, LicenseRoutes.Forecast, LicenseRoutes.Log },
             route => Assert.True(SessionKeyGuard.Check("GET", route).Allowed, route));
+    }
+
+    [Fact]
+    public void TheGuard_RefusesTheRenewalDate_EvenToARaisedSession_ByTheConstantTheEndpointMapsItWith()
+    {
+        Assert.False(SessionKeyGuard.Check("PUT", LicenseRoutes.AccountRenewal).Allowed);
+        Assert.False(SessionKeyGuard.Check("PUT", LicenseRoutes.AccountRenewal, raised: true).Allowed);
     }
 
     [Fact]

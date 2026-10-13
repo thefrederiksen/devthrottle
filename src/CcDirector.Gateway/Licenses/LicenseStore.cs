@@ -193,6 +193,43 @@ public sealed class LicenseStore
         row.ReadErrorDetail = Trimmed(holding.ReadErrorDetail, 500);
         row.SignedInAtUtc = UtcOrNull(holding.SignedInAtUtc);
         row.SignInExpiresAtUtc = UtcOrNull(holding.SignInExpiresAtUtc);
+        // The last renewal of the SIGN-IN (contract section 8.1). The time is what says a renewal failed; a report
+        // with no time says the last one worked or none was tried, and clears whatever was stored. The reason is kept
+        // only when it is a word of the contract - anything else could be whatever a tool printed.
+        row.RenewalFailedAtUtc = UtcOrNull(holding.RenewalFailedAtUtc);
+        var failed = row.RenewalFailedAtUtc is not null;
+        row.RenewalError = failed && holding.RenewalError is { } word && LicenseRenewalErrors.All.Contains(word) ? word : null;
+        row.RenewalErrorDetail = failed ? Trimmed(holding.RenewalErrorDetail, 500) : null;
+    }
+
+    /// <summary>
+    /// Set, or with null clear, the date an account's SUBSCRIPTION is billed again - a date a person gives from the
+    /// Licenses page. False when this DevThrottle account holds no such Claude account: a date is never stored for an
+    /// account no machine has reported.
+    /// </summary>
+    public bool SetRenewalDate(TenantId tenant, string accountEmail, DateOnly? renewsOn)
+    {
+        var email = NormalizeEmail(accountEmail);
+        FileLog.Write($"[LicenseStore] SetRenewalDate: tenant={tenant.ToLogString()}, account={email}, renewsOn={renewsOn?.ToString("yyyy-MM-dd") ?? "(none)"}");
+        try
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var account = ctx.LicenseAccounts.FirstOrDefault(a => a.AccountEmail == email);
+            if (account is null)
+            {
+                FileLog.Write("[LicenseStore] SetRenewalDate: REFUSED, no such account in this DevThrottle account");
+                return false;
+            }
+            account.RenewsOn = renewsOn;
+            ctx.SaveChanges();
+            FileLog.Write("[LicenseStore] SetRenewalDate: stored");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[LicenseStore] SetRenewalDate FAILED: {ex.Message}");
+            throw;
+        }
     }
 
     private static void UpsertAccounts(GatewayDbContext ctx, IEnumerable<LicenseHolding> holdings, DateTime now)

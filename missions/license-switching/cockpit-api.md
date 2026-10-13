@@ -42,13 +42,12 @@ reports of two machines ("the-windows-machine" and "the-mac") and three accounts
    label, on all three routes, and a log row carries the same four fields. Show `label`; never build a name from the
    other fields.
 
-   **One exception, until the follow-up pull request "Licenses API: Switch now, renewal date, failed renewal"
-   (section 6).** Three sentences are written by the decision engine, not the fold, and the fold passes them on as
+   **One exception, until the Switch now route is added (section 6).** Three sentences are written by the decision engine, not the fold, and the fold passes them on as
    they are: `switchTargets[].unavailableText`, the reason a machine is left out inside `switchNowText` and inside a
    forecast machine's `text`, and a refusal. Where one of those names a machine it uses the machine name ALONE
    ("the-windows-machine holds no usable spare for account-b@example.com."). With two users of one computer that
    sentence does not say which user it means. The page shows the sentence as given and does not try to work out
-   which; the lists beside it carry `machineId` and `label`. The follow-up makes the engine's sentences use the
+   which; the lists beside it carry `machineId` and `label`. That change makes the engine's sentences use the
    label, and nothing on the page changes for it.
 
 **Decided here (the Tech Lead's rulings on the review of this pull request):**
@@ -56,26 +55,26 @@ reports of two machines ("the-windows-machine" and "the-mac") and three accounts
 - **Any session key can read these three routes.** That means every agent session of the DevThrottle account can
   read all of its Claude account emails, its machine names, their operating system users and the switch log. That
   is accepted: an agent has to be able to say which account a machine is on and why it was switched. No session key
-  can switch anything (section 6).
+  can switch anything or set a renewal date (section 6).
 - **The log is one row per machine, and the page lists it that way.** One switch of an account that is on three
   machines is three rows, each with its own state, reason and timings, because each machine can end differently.
   The rows carry no identifier that groups them and the page does not group them.
 - **The renewal date of a subscription is a date a person sets, and no report can carry it.** Goal 1's "renewal
   date" is the date the SUBSCRIPTION is billed again. No Director can read that from a sign-in. Its two fields are
-  on every account now, with their final names - `renewsOn` and `renewsText` - and until the follow-up (section 6)
-  adds the route that sets the date, `renewsOn` is null and `renewsText` is "Renewal date not set" for every
-  account. It is never a guess. `signInExpiry` is a DIFFERENT date - when a machine must be signed in to the account
-  again - and the page must never label it "renewal".
+  on every account - `renewsOn` and `renewsText` - and the owner sets the date with the route of section 6. Until a
+  date is set for an account, its `renewsOn` is null and its `renewsText` is "Renewal date not set". It is never a
+  guess. `signInExpiry` is a DIFFERENT date - when a machine must be signed in to the account again - and the page
+  must never label it "renewal".
 - **"Renewal" is two different things in these answers, and the page must keep them apart.** `renewsOn` and
   `renewsText`, on an ACCOUNT, are the SUBSCRIPTION's billing renewal: the day the provider charges for it again.
   `renewalFailedAtUtc`, `renewalFailedText` and `renewalFailedTone`, on a HOLDING, are a machine renewing its
   SIGN-IN: its stored sign-in being exchanged for a fresh one before it expires. A failed sign-in renewal says
   nothing about the subscription, and it is shown on the holding beside that sign-in's expiry - never beside
   "Renews 17 Oct" as if the two were one thing.
-- **These field names are final.** Phase 3 builds to them. The follow-up fills in values; it renames nothing.
+- **These field names are final.** Phase 3 builds to them. Nothing later renames them.
 
 Who may call them: the Cockpit and the phone (a device key), a machine's own credential, and a session key (an
-agent) may call the three reads - they are in `SessionKeyGuard`'s allow list. Switch now is refused to a session
+agent) may call the three reads - they are in `SessionKeyGuard`'s allow list. Every write is refused to a session
 key (section 6).
 
 ## 2. `GET /gateway/licenses` - the accounts and the machines
@@ -95,7 +94,7 @@ key (section 6).
 | `readAtUtc`, `readAgeText` | When the numbers were read and the sentence saying how old they are and on which machine ("Read 7 minutes ago on the-mac", or "Never read"). |
 | `readError`, `readErrorText` | The word and the sentence when the last read failed; both null when it worked. |
 | `extraUsage` | `state` (`on`, `off`, `not-known`), `text`, and `utilization` when the provider gave one. |
-| `renewsOn`, `renewsText` | The date the subscription is billed again, as `yyyy-MM-dd` (a date with no time and no zone), and its sentence: "Renews 17 Oct", or "Renewal date not set". `renewsOn` is null when no date is set - and none is set for any account until the follow-up (section 6) adds the route that sets it, so today `renewsOn` is always null and `renewsText` is always "Renewal date not set". Show `renewsText`. |
+| `renewsOn`, `renewsText` | The date the subscription is billed again, as `yyyy-MM-dd` (a date with no time and no zone), and its sentence: "Renews 17 Oct", or "Renewal date not set". `renewsOn` is null when no date is set (section 6 has the route that sets it and every sentence). Show `renewsText`. |
 | `signInExpiry` | The sign-in for this account that expires FIRST, across every machine holding it: `expiresAtUtc`, `machine` (the machine it is on, rule 9), `verdict` (the expiry verdict below), `text` ("Sign-in on the-windows-machine expires in 2 days 5 hours", "Sign-in on the-mac expired 3 hours ago") and `tone`. When no machine holding the account gave an expiry: `expiresAtUtc` and `machine` are null, `verdict` is `not known` and `text` is "Sign-in expiry not known". When no machine holds the account: the same, with "Not signed in on any machine". This is the sign-in expiry, not the subscription's renewal date (section 1). |
 | `activeOnMachines`, `spareOnMachines` | The machines working on it, and the machines holding it as a spare - each one the four fields of rule 9. |
 | `canSwitchNow` | The Switch now control is offered for this account. |
@@ -152,9 +151,9 @@ A sign-in a machine holds (`LicenseMachineHoldingDto`): `accountEmail`, `isActiv
 **A failed renewal of the sign-in** (`renewalFailedAtUtc`, `renewalFailedText`, `renewalFailedTone`) - the machine
 renewing its SIGN-IN, not the subscription's billing renewal (section 1): when the machine last tried to
 renew this sign-in and failed, the sentence for it, and its tone. **All three are null when the last renewal worked
-or is not known.** The Gateway does not yet store what a report says about a renewal, so today all three are null on
-every holding; the follow-up (section 6) fills them in. When `renewalFailedText` is not null, show it on the holding
-in its tone; when it is null, show nothing.
+or is not known.** The machine's Director says it in each usage report, and the next report that says the renewal
+worked clears all three. When `renewalFailedText` is not null, show it on the holding in its tone; when it is null,
+show nothing. Section 6 has the sentences and the tone rule.
 
 **The expiry verdict** (`expiryVerdict`, the words of the contract, section 5.7): `expired` (at or before now, tone
 `bad`), `expires soon` (within 3 days, `warning`), `fine` (`good`), `not known` (the machine did not say, `neutral`).
@@ -876,19 +875,98 @@ A refusal, here `GET /gateway/licenses/log?limit=0`:
 }
 ```
 
-## 6. The follow-up pull request - Switch now, the renewal date, a failed renewal
+## 6. The renewal date, a failed renewal - and Switch now, which is still to come
 
-This section is final: the names and routes below are what the follow-up builds, and phase 3 can be laid out for
-them now. The follow-up is one pull request, "Licenses API: Switch now, renewal date, failed renewal", opened after
-this one and the pull request that wires the Gateway's once-a-minute check have both merged. It adds one migration,
-for both database providers. Nothing in sections 1 to 5 is renamed by it.
+### `PUT /gateway/licenses/accounts/renewal` - the date a subscription is billed again
 
-### Switch now
+The one thing a person sets on the Licenses page. The body names one Claude account of the caller's own DevThrottle
+account and gives the date, or null to clear it:
+
+```json
+{ "accountEmail": "account-a@example.com", "renewsOn": "2026-10-17" }
+```
+
+`renewsOn` is a date written `yyyy-MM-dd` and nothing else: no time, no zone, no other spelling. The account email
+is matched whatever its capitals. The answer is what was stored, with its sentence already folded - the page can
+show `renewsText` at once, and the next `GET /gateway/licenses` carries the same two values on that account:
+
+```json
+{"accountEmail":"account-a@example.com","renewsOn":"2026-10-17","renewsText":"Renews 17 Oct"}
+```
+
+Cleared (`"renewsOn": null`):
+
+```json
+{"accountEmail":"account-a@example.com","renewsOn":null,"renewsText":"Renewal date not set"}
+```
+
+The sentences of `renewsText`, all folded on the Gateway by its own date in Coordinated Universal Time:
+
+| The stored date | `renewsText` |
+|---|---|
+| none | "Renewal date not set" |
+| today | "Renews today" |
+| later this year | "Renews 17 Oct" |
+| in another year | "Renews 1 Jan 2027" |
+| already past | "Renewal date 10 Oct has passed" (or "Renewal date 31 Dec 2025 has passed") |
+
+A date that has passed is never moved forward by a month or a year: nobody told the Gateway how often the
+subscription is billed, so it says the date has passed and the owner sets the next one.
+
+What is refused, each with `code` and a sentence in `error` (rule 6):
+
+| Status | `code` | When |
+|---|---|---|
+| 400 | `invalid_body` | The body is not a JSON object of this shape. |
+| 400 | `account_required` | `accountEmail` is missing or blank. |
+| 400 | `invalid_date` | `renewsOn` is text that is not a real date written `yyyy-MM-dd` ("17 Oct", "2026-02-30", a date with a time). |
+| 404 | `unknown_account` | No machine of this DevThrottle account holds that Claude account. The answer is the same whether the account exists in another DevThrottle account or nowhere. |
+| 403 | `no_account` | The caller's credential belongs to no DevThrottle account. |
+
+```json
+{"code":"invalid_date","error":"renewsOn is a date written yyyy-MM-dd, or null to clear it."}
+```
+
+Nothing is stored by a refused call. A date is kept through every later usage report, because no report carries it.
+
+### A failed renewal of a sign-in
+
+No route: the Gateway stores what each usage report says of a holding's last renewal (contract section 8.1) and the
+overview fills the three fields on that holding. A holding whose renewal failed three hours ago, with one day of
+sign-in left:
+
+```json
+"renewalFailedAtUtc": "2026-10-11T00:12:00Z",
+"renewalFailedText": "Renewing this sign-in failed 3 hours ago: no browser is set to approve this account.",
+"renewalFailedTone": "bad"
+```
+
+- `renewalFailedText` is "Renewing this sign-in failed {how long ago}: {why}." There is one "why" for each reason
+  word of the contract: the sign-in did not start, or ended without a sign-in; the approval in the browser did not
+  complete; the approving browser is signed in as another account; the approving browser is not signed in; no browser
+  is set to approve this account; the machine that approves this account was not connected; no approval came back in
+  time; the machine's key store would not take the new sign-in.
+- A reason word this Gateway does not know is never shown. The sentence is then "Renewing this sign-in failed 5
+  minutes ago." followed by the Director's own sentence when it sent one.
+- The time is the machine's clock. When it is ahead of the Gateway's, no age is said: "Renewing this sign-in failed:
+  no approval came back in time."
+- `renewalFailedTone` is `bad` when that sign-in's `expiryVerdict` is `expired` or `expires soon` - it is dead or
+  about to be and the machine could not renew it, so the owner must sign in - and `warning` otherwise, including when
+  the expiry is not known.
+
+### Who may call the writes
+
+**A write is refused to a session key**, raised or not: `403` with `code` `session_key_out_of_scope`. Setting the date
+a subscription renews, and moving every machine of the owner's subscription to another one, are the owner's own
+actions, from the Cockpit. `SessionKeyGuard` lists neither route and tests hold both to that (`LicenseGuardTests`,
+and `LicenseHostTests` over real HTTP).
+
+### Switch now - still to come
 
 Everything the page needs to DRAW the control is in section 2 already (`canSwitchNow`, `switchNowText`,
 `switchNowTargetAccountEmail`, `switchTargets`). The route that performs it calls one method,
-`LicenseSwitchService.SwitchNowAsync`, which belongs to the pull request that wires the once-a-minute check
-(`missions/license-switching/switch-now-method.md` on `origin/license-switching-gw-tick` has its exact signature).
+`LicenseSwitchService.SwitchNowAsync`, which belongs to the pull request that wires the Gateway's once-a-minute
+check; the route is added once that has merged. Nothing in sections 1 to 5 is renamed by it.
 
 - `POST /gateway/licenses/switch-now`, body `{ "accountEmail": "...", "targetAccountEmail": "..." | null }` - by
   ACCOUNT, because usage is counted per account and every machine on it moves; the target is optional.
@@ -896,28 +974,10 @@ Everything the page needs to DRAW the control is in section 2 already (`canSwitc
   its sentence, folded like a log row), and the machines left out with the reason for each.
 - Refused: `409` with the refusal word and the same sentence `switchTargets[].unavailableText` or `switchNowText`
   already shows, so the page shows nothing new.
-- **One case the follow-up must close.** The page takes `canSwitchNow` from the picture in which a machine is mid-switch
+- **One case it must close.** The page takes `canSwitchNow` from the picture in which a machine is mid-switch
   whenever its log row is `pending` or `unknown`. The Switch now method is a little narrower when it decides: a row that
-  is `pending` because the machine's Director is offline was never sent, so it does not hold the machine back. Until the
-  follow-up, the page therefore does NOT offer Switch now for an account whose only machine is waiting for an offline
-  Director, although the route would accept it. The follow-up makes the fold ask the same narrowed picture, so the page
-  offers exactly what the route accepts. The page needs no change for it.
-
-### The renewal date
-
-- `PUT /gateway/licenses/accounts/renewal`, body `{ "accountEmail": "...", "renewsOn": "yyyy-MM-dd" | null }` - sets
-  or clears the date for one account of the caller's own DevThrottle account. The Gateway stores it in a new column.
-- The overview then answers `renewsOn` with that date and `renewsText` with "Renews 17 Oct"; with no date set they
-  stay null and "Renewal date not set", as they are today.
-
-### A failed renewal
-
-- The Gateway stores what each usage report says of a holding's last renewal (`RenewalFailedAtUtc` and `RenewalError`
-  of the contract, section 8.1), and the overview then fills `renewalFailedAtUtc`, `renewalFailedText` and
-  `renewalFailedTone` on that holding. No route is added for it.
-
-### Who may call the two writes
-
-**Both are refused to a session key.** Moving every machine of the owner's subscription to another one, and setting
-the date a subscription renews, are the owner's own actions, from the Cockpit. `SessionKeyGuard` lists neither route;
-a test holds Switch now to that today (`LicenseGuardTests`), and the follow-up adds the same for the renewal route.
+  is `pending` because the machine's Director is offline was never sent, so it does not hold the machine back. Until
+  then, the page does NOT offer Switch now for an account whose only machine is waiting for an offline Director,
+  although the route would accept it. The fold will ask the same narrowed picture, so the page offers exactly what the
+  route accepts. The page needs no change for it.
+- The same change makes the engine's sentences name a machine by its label (the exception in rule 9).

@@ -17,6 +17,8 @@ namespace CcDirector.Gateway.Api;
 /// <item><c>GET /gateway/licenses/forecast</c> - when each account is expected to reach the switching threshold, the
 /// next expected switch and its target, and which account each machine moves to next.</item>
 /// <item><c>GET /gateway/licenses/log</c> - the switch log, newest first, one page at a time.</item>
+/// <item><c>PUT /gateway/licenses/accounts/renewal</c> - set or clear the date an account's subscription is billed
+/// again. A write, and the owner's own: it is not in the session key guard's list.</item>
 /// </list>
 ///
 /// Every route answers for the CALLER'S OWN account and no other: the tenant comes from the request's credential,
@@ -48,7 +50,11 @@ public static class LicenseEndpoints
         app.MapGet(LicenseRoutes.Overview, (HttpContext ctx) => Overview(ctx, resolveTenant, snapshots, nowUtc));
         app.MapGet(LicenseRoutes.Forecast, (HttpContext ctx) => Forecast(ctx, resolveTenant, snapshots, history, nowUtc));
         app.MapGet(LicenseRoutes.Log, (HttpContext ctx) => Log(ctx, resolveTenant, store, nowUtc));
-        FileLog.Write($"[LicenseEndpoints] mapped GET {LicenseRoutes.Overview}, GET {LicenseRoutes.Forecast}, GET {LicenseRoutes.Log}");
+        // The answer is executed here, by hand: a lambda that takes only the HttpContext is mapped as a plain request
+        // delegate, and a result it merely RETURNED would be dropped - every call would answer 200 with no body.
+        app.MapPut(LicenseRoutes.AccountRenewal, async (HttpContext ctx) =>
+            await SetRenewalDate(ctx, resolveTenant, store, nowUtc, await ReadBodyAsync<LicenseRenewalDateRequest>(ctx)).ExecuteAsync(ctx));
+        FileLog.Write($"[LicenseEndpoints] mapped GET {LicenseRoutes.Overview}, GET {LicenseRoutes.Forecast}, GET {LicenseRoutes.Log}, PUT {LicenseRoutes.AccountRenewal}");
     }
 
     internal static IResult Overview(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant,
@@ -133,6 +139,71 @@ public static class LicenseEndpoints
         {
             FileLog.Write($"[LicenseEndpoints] GET /gateway/licenses/log FAILED: {ex.Message}");
             throw;
+        }
+    }
+
+    /// <summary>
+    /// <c>PUT /gateway/licenses/accounts/renewal</c>: set, or with <c>"renewsOn": null</c> clear, the date one
+    /// account's SUBSCRIPTION is billed again. The account is one of the caller's own DevThrottle account - the tenant
+    /// comes from the credential, and a Claude account that tenant's machines have never reported is answered 404, so
+    /// one DevThrottle account can neither set nor learn of another's. The date is "yyyy-MM-dd" and nothing else: no
+    /// time, no zone, and no other spelling is guessed at. <paramref name="body"/> is null when the request carried
+    /// no JSON object that could be read.
+    /// </summary>
+    internal static IResult SetRenewalDate(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant, LicenseStore store,
+        Func<DateTime> nowUtc, LicenseRenewalDateRequest? body)
+    {
+        FileLog.Write("[LicenseEndpoints] PUT renewal date");
+        try
+        {
+            if (resolveTenant(ctx) is not { } tenant)
+                return NoAccount();
+            if (body is null)
+                return Refuse(StatusCodes.Status400BadRequest, "invalid_body", "The body is a JSON object with accountEmail and renewsOn.");
+            if (string.IsNullOrWhiteSpace(body.AccountEmail))
+                return Refuse(StatusCodes.Status400BadRequest, "account_required", "accountEmail is required.");
+
+            DateOnly? renewsOn = null;
+            if (body.RenewsOn is not null)
+            {
+                if (!DateOnly.TryParseExact(body.RenewsOn, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+                    return Refuse(StatusCodes.Status400BadRequest, "invalid_date", "renewsOn is a date written yyyy-MM-dd, or null to clear it.");
+                renewsOn = date;
+            }
+
+            if (!store.SetRenewalDate(tenant, body.AccountEmail, renewsOn))
+                return Refuse(StatusCodes.Status404NotFound, "unknown_account", "No machine of this DevThrottle account holds that Claude account.");
+
+            FileLog.Write($"[LicenseEndpoints] PUT renewal date: tenant={tenant.ToLogString()}, set={(renewsOn is null ? "cleared" : "a date")}");
+            return Results.Json(new LicenseRenewalDateResponse
+            {
+                AccountEmail = LicenseStore.NormalizeEmail(body.AccountEmail),
+                RenewsOn = renewsOn?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                RenewsText = LicenseDisplayFold.RenewsText(renewsOn, nowUtc()),
+            });
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[LicenseEndpoints] PUT /gateway/licenses/accounts/renewal FAILED: {ex.Message}");
+            throw;
+        }
+    }
+
+    // The body as T, or null when it is not a JSON object of that shape. A body that cannot be read is the caller's
+    // mistake and is answered 400 by the handler; it is not an error of the Gateway.
+    private static async Task<T?> ReadBodyAsync<T>(HttpContext ctx) where T : class
+    {
+        try
+        {
+            return await ctx.Request.ReadFromJsonAsync<T>(ctx.RequestAborted);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+        catch (InvalidOperationException)
+        {
+            return null; // not a JSON content type
         }
     }
 

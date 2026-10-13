@@ -28,7 +28,8 @@ public sealed record LicenseAccountView(
     LicenseReadingView? Freshest,
     bool IsStale,
     IReadOnlyList<string> ActiveOnMachines,
-    IReadOnlyList<string> SpareOnMachines);
+    IReadOnlyList<string> SpareOnMachines,
+    DateOnly? RenewsOn = null);
 
 /// <summary>One sign-in a machine holds, with its sign-in expiry and the verdict the Cockpit shows as given.</summary>
 public sealed record LicenseHoldingView(
@@ -38,7 +39,10 @@ public sealed record LicenseHoldingView(
     DateTime? SignInExpiresAtUtc,
     string ExpiryVerdict,
     bool IsReadingStale,
-    string? ReadError);
+    string? ReadError,
+    DateTime? RenewalFailedAtUtc = null,
+    string? RenewalError = null,
+    string? RenewalErrorDetail = null);
 
 /// <summary>One machine as the engine and the Licenses page read it.</summary>
 public sealed record LicenseMachineView(
@@ -112,13 +116,12 @@ public sealed class LicenseReadModel
 
     public LicenseOverview Read(TenantId tenant, DateTime nowUtc)
     {
-        FileLog.Write($"[LicenseReadModel] Read: tenant={tenant.ToLogString()}");
+        // QUIET ON PURPOSE, like LicenseSnapshotSource.ReadPicture, which calls this once a minute for every
+        // DevThrottle account: no entry line and no result line. A read that FAILS still logs.
         try
         {
             var (accounts, machines, holdings) = _store.ReadAll(tenant);
-            var overview = Fold(accounts, machines, holdings, nowUtc);
-            FileLog.Write($"[LicenseReadModel] Read: accounts={overview.Accounts.Count}, machines={overview.Machines.Count}");
-            return overview;
+            return Fold(accounts, machines, holdings, nowUtc);
         }
         catch (Exception ex)
         {
@@ -146,7 +149,8 @@ public sealed class LicenseReadModel
                 var stale = freshest is null || LicenseStaleness.IsHoldingStale(freshest.IsActive, freshest.JudgedReadAtUtc, nowUtc);
                 return new LicenseAccountView(a.AccountEmail, a.Plan, a.RateLimitTier, reading, stale,
                     MachineNames(mine.Where(h => h.IsActive), machineById),
-                    MachineNames(mine.Where(h => !h.IsActive), machineById));
+                    MachineNames(mine.Where(h => !h.IsActive), machineById),
+                    a.RenewsOn);
             })
             .ToList();
 
@@ -158,7 +162,8 @@ public sealed class LicenseReadModel
                     .OrderByDescending(h => h.IsActive).ThenBy(h => h.AccountEmail, StringComparer.Ordinal)
                     .Select(h => new LicenseHoldingView(h.AccountEmail, h.IsActive, h.SignedInAtUtc, h.SignInExpiresAtUtc,
                         LicenseSignInExpiry.Verdict(h.SignInExpiresAtUtc, nowUtc),
-                        LicenseStaleness.IsHoldingStale(h.IsActive, h.JudgedReadAtUtc, nowUtc), h.ReadError))
+                        LicenseStaleness.IsHoldingStale(h.IsActive, h.JudgedReadAtUtc, nowUtc), h.ReadError,
+                        h.RenewalFailedAtUtc, h.RenewalError, h.RenewalErrorDetail))
                     .ToList(),
                 m.LastReportAtUtc, LicenseStaleness.IsMachineStale(m.LastReportAtUtc, nowUtc), m.SwitchInProgressId, m.ClockSkewSeconds))
             .ToList();

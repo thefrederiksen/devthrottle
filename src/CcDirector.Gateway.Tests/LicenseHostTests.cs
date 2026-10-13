@@ -192,6 +192,60 @@ public sealed class LicenseHostTests : IAsyncLifetime
         Assert.Single(_gateway.LicenseStore.ListOpenSwitches(_tenantOne));
     }
 
+    // ---- the renewal date: the one thing a person sets ----
+
+    private async Task<(HttpStatusCode Status, string Text)> PutRenewal(HttpClient http, string body)
+    {
+        using var resp = await http.PutAsync("gateway/licenses/accounts/renewal", new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+        var text = await resp.Content.ReadAsStringAsync();
+        _out.WriteLine($"PUT gateway/licenses/accounts/renewal {body} -> {(int)resp.StatusCode}: {text}");
+        return (resp.StatusCode, text);
+    }
+
+    private async Task<string?> RenewsOn(HttpClient http, string account)
+    {
+        var (_, text) = await Get(http, "gateway/licenses");
+        var row = Json(text).GetProperty("accounts").EnumerateArray().Single(a => a.GetProperty("accountEmail").GetString() == account);
+        return row.GetProperty("renewsOn").GetString();
+    }
+
+    [Fact]
+    public async Task RenewalDate_SetByTheOwnersBrowser_IsStored_AndTheOverviewSaysIt()
+    {
+        var (status, text) = await PutRenewal(_ownerOne, $"{{\"accountEmail\":\"{AccountA}\",\"renewsOn\":\"2026-10-17\"}}");
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal(("2026-10-17", "Renews 17 Oct"), (Json(text).GetProperty("renewsOn").GetString(), Json(text).GetProperty("renewsText").GetString()));
+        Assert.Equal("2026-10-17", await RenewsOn(_ownerOne, AccountA));
+        Assert.Null(await RenewsOn(_ownerOne, AccountB));
+
+        var cleared = await PutRenewal(_ownerOne, $"{{\"accountEmail\":\"{AccountA}\",\"renewsOn\":null}}");
+        Assert.Equal(HttpStatusCode.OK, cleared.Status);
+        Assert.Null(await RenewsOn(_ownerOne, AccountA));
+    }
+
+    [Fact]
+    public async Task RenewalDate_IsRefusedToASessionKey_AndToNoCredential_AndNothingIsStored()
+    {
+        var body = $"{{\"accountEmail\":\"{AccountA}\",\"renewsOn\":\"2026-10-17\"}}";
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await PutRenewal(_sessionOne, body)).Status);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await PutRenewal(_noCredential, body)).Status);
+
+        Assert.Null(await RenewsOn(_ownerOne, AccountA));
+    }
+
+    [Fact]
+    public async Task RenewalDate_ABodyThatIsNotTheRequest_IsRefusedWithAReason_NotAServerError()
+    {
+        var notJson = await PutRenewal(_ownerOne, "renews on the seventeenth");
+        var badDate = await PutRenewal(_ownerOne, $"{{\"accountEmail\":\"{AccountA}\",\"renewsOn\":\"17 Oct\"}}");
+
+        Assert.Equal((HttpStatusCode.BadRequest, "invalid_body"), (notJson.Status, Json(notJson.Text).GetProperty("code").GetString()));
+        Assert.Equal((HttpStatusCode.BadRequest, "invalid_date"), (badDate.Status, Json(badDate.Text).GetProperty("code").GetString()));
+        Assert.Null(await RenewsOn(_ownerOne, AccountA));
+    }
+
     // ---- one account never sees another's ----
 
     [Fact]

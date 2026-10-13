@@ -5498,7 +5498,8 @@ public sealed class GatewayHost : IAsyncDisposable
             nowUtc: () => DateTime.UtcNow);
 
         // The Licenses routes (the License Switching mission): what the Licenses page of the Cockpit reads - the accounts
-        // and machines, the forecast, and the switch log. Reads only; the three are in SessionKeyGuard's allow list.
+        // and machines, the forecast, and the switch log - and the one thing a person sets there, the renewal date of
+        // an account's subscription. The three reads are in SessionKeyGuard's allow list; the write is not.
         Api.LicenseEndpoints.Map(_app,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             snapshots: LicenseSnapshots,

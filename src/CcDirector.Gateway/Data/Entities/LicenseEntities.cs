@@ -26,6 +26,10 @@ public sealed class LicenseAccountEntity : GatewayMintedKeyEntity
 
     /// <summary>When an accepted report last carried this account (by the Gateway's clock).</summary>
     public DateTime LastSeenAtUtc { get; set; }
+
+    /// <summary>The date the SUBSCRIPTION is billed again: a date a person sets from the Licenses page. Null when none
+    /// is set. No report carries it and nothing works it out. It is a date with no time and no zone.</summary>
+    public DateOnly? RenewsOn { get; set; }
 }
 
 /// <summary>
@@ -121,6 +125,17 @@ public sealed class LicenseHoldingEntity : GatewayMintedKeyEntity
     /// <summary>When the Director expects the sign-in to stop working; null when not known. The Gateway never computes
     /// it (contract section 2.2).</summary>
     public DateTime? SignInExpiresAtUtc { get; set; }
+
+    /// <summary>The LAST renewal of this holding's SIGN-IN failed at this time, by the Director's clock; null when the
+    /// last one worked, or none was tried (contract section 8.1). Nothing to do with the subscription's renewal date.</summary>
+    public DateTime? RenewalFailedAtUtc { get; set; }
+
+    /// <summary>A <see cref="CcDirector.Gateway.Contracts.LicenseRenewalErrors"/> word when the last renewal failed and
+    /// the Director named a reason this Gateway knows; null otherwise. A word outside that list is never stored.</summary>
+    public string? RenewalError { get; set; }
+
+    /// <summary>The Director's one sentence about the failed renewal; null when it gave none.</summary>
+    public string? RenewalErrorDetail { get; set; }
 }
 
 /// <summary>
