@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Drivers;
@@ -58,22 +57,20 @@ public sealed class SendPathClockTests : IDisposable
         session.LateArrivalLimitForTests = TimeSpan.FromSeconds(30);
         var text = "Token " + _tag + ". Reply with exactly: ACK";
         var startedAt = clock.GetUtcNow();
-        var realTime = Stopwatch.StartNew();
 
         // Act
         var outcome = await VirtualTime.RunAsync(clock, () => session.SendTextAsync(text, SessionTestDoors.TestDoor));
         var watchEnded = await VirtualTime.RunAsync(clock, () => outcome.LateProof!);
-        realTime.Stop();
 
-        // Assert: the whole minute passed on the send's clock and the watch ended at its limit - while the real
-        // clock saw a fraction of it. The bound is loose on purpose: it tells a path that waits on the real clock
-        // (which would take the full minute) from one that waits on the session's, nothing finer.
+        // Assert: the whole minute passed on the send's clock and the watch ended at its limit - and no more than
+        // that minute and the send's own short waits. The clock moves only from one wait on it to the next, and the
+        // spinner is always waiting on it: a wait in the path on the REAL clock would let the spinner carry the fake
+        // one on for as long as the real wait lasted, far past this bound. So the bound is on the send's own clock,
+        // and nothing here reads the machine's.
         Assert.False(outcome.Confirmed);
         Assert.Equal(LateArrival.LimitEnded, watchEnded.Ended);
         var virtualElapsed = clock.GetUtcNow() - startedAt;
-        Assert.True(virtualElapsed >= TimeSpan.FromSeconds(60), $"the send's clock advanced only {virtualElapsed.TotalSeconds:F1}s");
-        Assert.True(realTime.Elapsed < TimeSpan.FromSeconds(20),
-            $"the send took {realTime.Elapsed.TotalSeconds:F1}s of real time for {virtualElapsed.TotalSeconds:F0}s of its own clock: something waits on the real clock");
+        Assert.InRange(virtualElapsed, TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(70));
         Assert.Equal(1, terminal.EntersAccepted);
     }
 

@@ -6,7 +6,6 @@ using CcDirector.Core.Drivers;
 using CcDirector.Core.Memory;
 using CcDirector.Core.Sessions;
 using CcDirector.TestInfrastructure;
-using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
 namespace CcDirector.Core.UnitTests.Sessions;
@@ -23,7 +22,7 @@ namespace CcDirector.Core.UnitTests.Sessions;
 public sealed class BusyAgentSendTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "cc-busy-send-" + Guid.NewGuid().ToString("N"));
-    private readonly FakeTimeProvider _clock = VirtualTime.NewClock();
+    private readonly VirtualClock _clock = VirtualTime.NewClock();
     private readonly List<IDisposable> _cleanup = new();
 
     public BusyAgentSendTests() => Directory.CreateDirectory(_dir);

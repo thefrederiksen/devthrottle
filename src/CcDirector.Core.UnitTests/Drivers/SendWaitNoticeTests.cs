@@ -1,6 +1,5 @@
 using CcDirector.Core.Drivers;
 using CcDirector.TestInfrastructure;
-using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
 namespace CcDirector.Core.UnitTests.Drivers;
