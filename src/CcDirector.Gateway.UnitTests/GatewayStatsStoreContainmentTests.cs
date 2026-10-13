@@ -25,6 +25,12 @@ namespace CcDirector.Gateway.Tests;
 /// </summary>
 public sealed class GatewayStatsStoreContainmentTests : IDisposable
 {
+    // A clock that stands still. The store bounds its open by eight seconds on its clock; on a busy machine the open
+    // of a fresh local file has taken longer than that, and the store then reports "did not answer in time" for a
+    // test that is about something else. With this clock that deadline never runs out, so every test here is
+    // decided by what the store did and not by how long the machine took.
+    private static readonly Microsoft.Extensions.Time.Testing.FakeTimeProvider StoodStill = new();
+
     /// <summary>
     /// A PostgreSQL endpoint that is not there. Port 1 on the loopback interface: nothing listens on it, and
     /// a connection is refused immediately rather than hanging, so the failure is fast and is a genuine
@@ -93,7 +99,7 @@ public sealed class GatewayStatsStoreContainmentTests : IDisposable
     [Fact]
     public void StatisticsDatabaseUnreachable_DoesNotThrow_AndReportsUnreachable()
     {
-        using var store = new GatewayStatsStore(Choice(statsOverride: DeadPostgres, hosted: true));
+        using var store = new GatewayStatsStore(Choice(statsOverride: DeadPostgres, hosted: true), StoodStill);
 
         Assert.False(store.IsAvailable);
         Assert.Equal(StatsStoreUnavailableReason.Unreachable, store.Availability.Reason);
@@ -119,7 +125,7 @@ public sealed class GatewayStatsStoreContainmentTests : IDisposable
     [Fact]
     public void CreateContext_WhenUnavailable_ThrowsAndNamesTheReason()
     {
-        using var store = new GatewayStatsStore(Choice(statsOverride: DeadPostgres, hosted: true));
+        using var store = new GatewayStatsStore(Choice(statsOverride: DeadPostgres, hosted: true), StoodStill);
 
         var thrown = Assert.Throws<InvalidOperationException>(() => store.CreateContext());
         Assert.Contains("unreachable", thrown.Message, StringComparison.Ordinal);
@@ -139,10 +145,10 @@ public sealed class GatewayStatsStoreContainmentTests : IDisposable
     public void NotConfiguredAndUnreachable_AreDifferentNamedReasons()
     {
         // NOT CONFIGURED: the override is SET BUT BLANK, a real operator error.
-        using var notConfigured = new GatewayStatsStore(Choice(statsOverride: "", hosted: true));
+        using var notConfigured = new GatewayStatsStore(Choice(statsOverride: "", hosted: true), StoodStill);
 
         // UNREACHABLE: the settings are right and the database is not there.
-        using var unreachable = new GatewayStatsStore(Choice(statsOverride: DeadPostgres, hosted: true));
+        using var unreachable = new GatewayStatsStore(Choice(statsOverride: DeadPostgres, hosted: true), StoodStill);
 
         // Both are unavailable, so "is it available" cannot tell them apart. That is the premise.
         Assert.False(notConfigured.IsAvailable);
@@ -182,7 +188,7 @@ public sealed class GatewayStatsStoreContainmentTests : IDisposable
     [Fact]
     public void HostedWithNothingConfigured_WritesNoStatisticsFile()
     {
-        using (var hosted = new GatewayStatsStore(Choice(statsOverride: null, hosted: true)))
+        using (var hosted = new GatewayStatsStore(Choice(statsOverride: null, hosted: true), StoodStill))
         {
             Assert.False(hosted.IsAvailable);
             Assert.Equal(StatsStoreUnavailableReason.NotConfigured, hosted.Availability.Reason);
@@ -191,7 +197,7 @@ public sealed class GatewayStatsStoreContainmentTests : IDisposable
         }
 
         // CONTROL: identical inputs, self-host. The file IS created, so the absence above is a refusal.
-        using var selfHost = new GatewayStatsStore(Choice(statsOverride: null, hosted: false));
+        using var selfHost = new GatewayStatsStore(Choice(statsOverride: null, hosted: false), StoodStill);
         Assert.True(selfHost.IsAvailable);
         Assert.Equal(StatsConnectionSource.SqliteFile, selfHost.Availability.Source);
         Assert.True(File.Exists(SqlitePath));
@@ -207,7 +213,7 @@ public sealed class GatewayStatsStoreContainmentTests : IDisposable
     [Fact]
     public void SelfHost_OpensTheLocalFileAndAppliesTheChain()
     {
-        using var store = new GatewayStatsStore(Choice(statsOverride: null, hosted: false));
+        using var store = new GatewayStatsStore(Choice(statsOverride: null, hosted: false), StoodStill);
 
         Assert.True(store.IsAvailable);
         Assert.Equal(StatsStoreUnavailableReason.None, store.Availability.Reason);
@@ -252,10 +258,10 @@ public sealed class GatewayStatsStoreContainmentTests : IDisposable
     [Fact]
     public void SelfHost_ReopeningTheSameFileIsTheSteadyState()
     {
-        using (var first = new GatewayStatsStore(Choice(statsOverride: null, hosted: false)))
+        using (var first = new GatewayStatsStore(Choice(statsOverride: null, hosted: false), StoodStill))
             Assert.True(first.IsAvailable);
 
-        using var second = new GatewayStatsStore(Choice(statsOverride: null, hosted: false));
+        using var second = new GatewayStatsStore(Choice(statsOverride: null, hosted: false), StoodStill);
         Assert.True(second.IsAvailable);
         Assert.Equal(StatsStoreUnavailableReason.None, second.Availability.Reason);
     }
@@ -265,7 +271,7 @@ public sealed class GatewayStatsStoreContainmentTests : IDisposable
     [Fact]
     public void Health_CountsDropsSeparatelyFromFailures()
     {
-        using var store = new GatewayStatsStore(Choice(statsOverride: DeadPostgres, hosted: true));
+        using var store = new GatewayStatsStore(Choice(statsOverride: DeadPostgres, hosted: true), StoodStill);
 
         var failuresBefore = store.Health.FailureCount;
         store.RecordDrop();

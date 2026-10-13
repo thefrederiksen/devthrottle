@@ -245,9 +245,13 @@ public sealed class GatewayStatsStore : IDisposable
     /// Build the statistics store over an already-chosen connection.
     /// </summary>
     /// <param name="choice">The chosen connection, or the named reason there is not one.</param>
-    /// <param name="time">The clock the reopen backoff waits on. Production passes nothing and gets the system
-    /// clock. A test passes a fake clock and advances it, so the backoff is proven without being sat out: the
-    /// schedule is seconds to a minute per step, and four tests once slept through it for 55 seconds.</param>
+    /// <param name="time">The clock the startup deadline and the reopen backoff wait on. Production passes nothing
+    /// and gets the system clock. A test passes a fake clock and advances it, so the backoff is proven without
+    /// being sat out: the schedule is seconds to a minute per step, and four tests once slept through it for 55
+    /// seconds. A fake clock that is never advanced also means the startup deadline never runs out, so a slow
+    /// open on a busy machine is waited for rather than reported as "did not answer in time" - and the constructor
+    /// then waits for as long as the open takes, so such a test must not point the store at something that
+    /// accepts a connection and never answers.</param>
     /// <exception cref="ArgumentNullException"><paramref name="choice"/> is null. A caller contract
     /// violation - a programming error, not a state a deployment can be in - so it throws.</exception>
     public GatewayStatsStore(StatsConnectionChoice choice, TimeProvider? time = null)
@@ -288,7 +292,12 @@ public sealed class GatewayStatsStore : IDisposable
             // AggregateException: the real exception is unwrapped by GetResult below and reaches the catch
             // with its own type name, which is what the operator-facing message reports.
             var work = Task.Run(() => OpenAndMigrate(factory, choice));
-            var finished = Task.WhenAny(work, Task.Delay(OpenDeadline)).GetAwaiter().GetResult() == work;
+            // The deadline waits on the store's own clock, like the reopen backoff does. In production that is
+            // the system clock and nothing changes. A test whose subject is not this deadline passes a clock
+            // that stands still, so an open that is merely slow on a busy machine is waited for and the test
+            // is decided by what the store did, never by how long the machine took (the open of a fresh local
+            // file went past eight seconds in a loaded release gate on 12 October 2026).
+            var finished = Task.WhenAny(work, Task.Delay(OpenDeadline, _time)).GetAwaiter().GetResult() == work;
             if (!finished)
             {
                 // TIMED OUT - AND THE ATTEMPT KEEPS RUNNING AND WILL PUBLISH WHEN IT FINISHES.

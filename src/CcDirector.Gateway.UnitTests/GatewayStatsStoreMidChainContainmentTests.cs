@@ -47,6 +47,12 @@ namespace CcDirector.Gateway.Tests;
 /// </summary>
 public sealed class GatewayStatsStoreMidChainContainmentTests : IDisposable
 {
+    // A clock that stands still. The store bounds its open by eight seconds on its clock; on a busy machine the open
+    // of a fresh local file has taken longer than that, and the store then reports "did not answer in time" for a
+    // test that is about something else. With this clock that deadline never runs out, so every test here is
+    // decided by what the store did and not by how long the machine took.
+    private static readonly Microsoft.Extensions.Time.Testing.FakeTimeProvider StoodStill = new();
+
     /// <summary>
     /// A PostgreSQL endpoint that is not there - port 1 on the loopback interface, refused immediately. Used
     /// only to produce a genuine UNREACHABLE beside the other two reasons for the pairwise comparison.
@@ -198,7 +204,7 @@ public sealed class GatewayStatsStoreMidChainContainmentTests : IDisposable
     {
         BuildHalfBuiltStore();
 
-        using var store = new GatewayStatsStore(SelfHostChoice());
+        using var store = new GatewayStatsStore(SelfHostChoice(), StoodStill);
 
         Assert.False(store.IsAvailable);
         Assert.Equal(StatsStoreUnavailableReason.StoreSchemaIncomplete, store.Availability.Reason);
@@ -251,7 +257,7 @@ public sealed class GatewayStatsStoreMidChainContainmentTests : IDisposable
         var versionBefore = UserVersion();
         Assert.Equal(1, CountStatDeltaRows());
 
-        using (var store = new GatewayStatsStore(SelfHostChoice()))
+        using (var store = new GatewayStatsStore(SelfHostChoice(), StoodStill))
         {
             Assert.False(store.IsAvailable);
             Assert.Equal(StatsStoreUnavailableReason.StoreSchemaIncomplete, store.Availability.Reason);
@@ -286,14 +292,14 @@ public sealed class GatewayStatsStoreMidChainContainmentTests : IDisposable
 
         // NOT CONFIGURED: the override is SET BUT BLANK - a real operator error, never read as unset.
         using var notConfigured = new GatewayStatsStore(
-            StatsConnectionSelection.Resolve("", null, hosted: true, sqlitePath: SqlitePath));
+            StatsConnectionSelection.Resolve("", null, hosted: true, sqlitePath: SqlitePath), StoodStill);
 
         // UNREACHABLE: the settings are right and the database is not there.
         using var unreachable = new GatewayStatsStore(
-            StatsConnectionSelection.Resolve(DeadPostgres, null, hosted: true, sqlitePath: SqlitePath));
+            StatsConnectionSelection.Resolve(DeadPostgres, null, hosted: true, sqlitePath: SqlitePath), StoodStill);
 
         // INCOMPLETE SCHEMA: the store is right there and its schema is half built.
-        using var incomplete = new GatewayStatsStore(SelfHostChoice());
+        using var incomplete = new GatewayStatsStore(SelfHostChoice(), StoodStill);
 
         // All three are unavailable, so "is it available" cannot tell any of them apart. That is the premise
         // the rest of the test rests on, and it is asserted rather than assumed.
@@ -369,7 +375,7 @@ public sealed class GatewayStatsStoreMidChainContainmentTests : IDisposable
     public void HealthyStores_AreNotReportedAsIncomplete()
     {
         // A fresh machine: no file at all. The chain creates the schema.
-        using (var fresh = new GatewayStatsStore(SelfHostChoice()))
+        using (var fresh = new GatewayStatsStore(SelfHostChoice(), StoodStill))
         {
             Assert.True(
                 fresh.IsAvailable,
@@ -382,7 +388,7 @@ public sealed class GatewayStatsStoreMidChainContainmentTests : IDisposable
         // The steady state: the same file, fully migrated, opened again. Its history is non-empty and its
         // tables are there, which is the pair of facts the diagnosis keys off - so this is the case a
         // careless check would condemn.
-        using var reopened = new GatewayStatsStore(SelfHostChoice());
+        using var reopened = new GatewayStatsStore(SelfHostChoice(), StoodStill);
         Assert.True(
             reopened.IsAvailable,
             $"A migrated store was refused on reopen: {reopened.Availability.ReasonCode}: " +
