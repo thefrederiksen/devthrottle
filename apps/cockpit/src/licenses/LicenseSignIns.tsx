@@ -292,10 +292,13 @@ export function LicenseSignIns({
 export function AddSpareChoice({
   machine,
   accountEmail,
+  busy,
   onType,
 }: {
   machine: LicenseMachine;
   accountEmail: string;
+  /** The call is out: the field is shut until the Gateway answers. */
+  busy: boolean;
   onType: (accountEmail: string) => void;
 }) {
   return (
@@ -310,6 +313,7 @@ export function AddSpareChoice({
           autoComplete="off"
           className="lic-input"
           value={accountEmail}
+          disabled={busy}
           onChange={(event) => onType(event.target.value)}
         />
       </label>

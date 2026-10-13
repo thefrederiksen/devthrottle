@@ -19,12 +19,8 @@ import type {
 // sends. This file is written by missions/license-switching/phase-3/copy_fixtures.py and is not edited by hand:
 // fixtures.test.ts fails when a constant here differs from its example in the document. Run the script again.
 //
-// ONE PART OF OVERVIEW IS NOT A COPY. The document's full overview was produced before the sign-in routes existed,
-// so it lacks the fields the Gateway now sends on every account (approver, approverText, approverTone), machine
-// (canAddSpare, addSpareText, signInsInProgress) and sign-in (canRenewNow, renewNowText). The script fills them in
-// with the document's own sentences for a picture in which no approver is set and no Director is connected: no
-// sign-in is offered anywhere, and each sentence says why. A test of a sign-in lays OVERVIEW_SIGN_IN_FIELDS, the
-// Gateway's real example of those fields, over it. fixtures.test.ts holds both halves.
+// In OVERVIEW no approver is set and no Director is connected, so no sign-in is offered anywhere and each sentence
+// says why. A test of a sign-in lays OVERVIEW_SIGN_IN_FIELDS, the Gateway's example of those fields, over it.
 
 /** The sign-in fields of an overview, as section 7.6 of the document shows them: these fields and no others. */
 export interface LicenseOverviewSignInFields {
@@ -37,7 +33,7 @@ export interface LicenseOverviewSignInFields {
   >;
 }
 
-/** GET /gateway/licenses: three accounts (in use, sign-in expires soon, at limit) on two machines. Its sign-in fields are filled in by copy_fixtures.py (see the note above). */
+/** GET /gateway/licenses: three accounts (in use, sign-in expires soon, at limit) on two machines. */
 export const OVERVIEW: LicenseOverview = {
   "asOfUtc": "2026-10-11T03:12:00Z",
   "isEmpty": false,
@@ -755,6 +751,24 @@ export const RENEWAL_OWNER_ONLY: { code: string; error: string } = {
 export const SWITCH_NOW_OWNER_ONLY: { code: string; error: string } = {
   "code": "owner_only",
   "error": "only the owner on their own signed-in phone or browser may switch the machines of a subscription to another one; this request was made with a device (workstation) credential"
+};
+
+/** Setting an approver, asked by a caller that is not the owner's own signed-in phone or browser: 403. */
+export const APPROVER_SET_OWNER_ONLY: { code: string; error: string } = {
+  "code": "owner_only",
+  "error": "only the owner on their own signed-in phone or browser may set which machine approves an account's sign-ins; this request was made with a device (workstation) credential"
+};
+
+/** Removing an approver, asked by the same caller: 403, with its own sentence. */
+export const APPROVER_REMOVE_OWNER_ONLY: { code: string; error: string } = {
+  "code": "owner_only",
+  "error": "only the owner on their own signed-in phone or browser may remove the machine that approves an account's sign-ins; this request was made with a device (workstation) credential"
+};
+
+/** Add a spare or Renew now, asked by the same caller: 403, with its own sentence. */
+export const SIGN_IN_OWNER_ONLY: { code: string; error: string } = {
+  "code": "owner_only",
+  "error": "only the owner on their own signed-in phone or browser may start a sign-in on a machine; this request was made with a device (workstation) credential"
 };
 
 /** GET /gateway/licenses/approvers with no approver set for any account. */

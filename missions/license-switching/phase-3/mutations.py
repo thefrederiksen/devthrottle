@@ -113,7 +113,7 @@ M = [
  ("S37 the Renew now confirmation says what it does in the page's own words", V, '{renewing.holding.renewNowText}</p>', 'This renews the sign-in.</p>', "cockpit"),
  ("S38 the removal confirmation says what is removed in the page's own words", V, '{removingApprover.text}</p>', 'This removes the approver.</p>', "cockpit"),
  ("S39 the Add a spare confirmation drops the Gateway's sentence for the machine", S, '<p className="lic-choice-text">{machine.addSpareText}</p>', '', "cockpit"),
- ("S40 a filled-in sign-in field of the overview fixture is edited by hand", "apps/cockpit/src/licenses/fixtures.ts", '"addSpareText": "The Director on the-windows-machine is not connected, so a sign-in cannot be started there."', '"addSpareText": "The Director on the-windows-machine is not connected."', "fixtures"),
+ ("S40 a sign-in field of the overview fixture is edited by hand", "apps/cockpit/src/licenses/fixtures.ts", '"addSpareText": "The Director on the-windows-machine is not connected, so a sign-in cannot be started there."', '"addSpareText": "The Director on the-windows-machine is not connected."', "fixtures"),
  ("S41 a sign-in fixture is edited by hand and no longer the document's example", "apps/cockpit/src/licenses/fixtures.ts", '"text": "No machine is set to approve sign-ins for account-b@example.com any more."', '"text": "No machine approves account-b@example.com any more."', "fixtures"),
  ("K8 the approver is sent without the machine's user", K, 'body: JSON.stringify({ accountEmail, machineName, osUser, browserProfile }),', 'body: JSON.stringify({ accountEmail, machineName, browserProfile }),', "core"),
  ("K8b the approver is sent without the machine's user (seen from the page)", K, 'body: JSON.stringify({ accountEmail, machineName, osUser, browserProfile }),', 'body: JSON.stringify({ accountEmail, machineName, browserProfile }),', "cockpit"),
@@ -134,6 +134,10 @@ M = [
  ("K17b a refused approver loses the Gateway's sentence (seen from the page)", K, 'if (!res.ok) throw await GatewayError.from(res, "set who approves the sign-ins");', 'if (!res.ok) throw new GatewayError(res.status, "The approver could not be set.");', "cockpit"),
  ("K18 a refused removal loses the Gateway's sentence", K, 'if (!res.ok) throw await GatewayError.from(res, "remove who approves the sign-ins");', 'if (!res.ok) throw new GatewayError(res.status, "The approver could not be removed.");', "core"),
  ("K18b a refused removal loses the Gateway's sentence (seen from the page)", K, 'if (!res.ok) throw await GatewayError.from(res, "remove who approves the sign-ins");', 'if (!res.ok) throw new GatewayError(res.status, "The approver could not be removed.");', "cockpit"),
+ # ---- the review of pull request 3954: its two wrong changes that survived, and the field that did not lock ----
+ ("S42 whether the approvers list is empty is worked out by counting its rows", S, ') : approvers.isEmpty ? (', ') : approvers.approvers.length === 0 ? (', "cockpit"),
+ ("S43 Dismiss on the answer to a started sign-in does nothing", V, 'onDismiss={() => setLastSignIn(null)}', 'onDismiss={() => undefined}', "cockpit"),
+ ("S44 the Add a spare account field stays open while the call is out", S, '          disabled={busy}\n          onChange={(event) => onType(event.target.value)}', '          onChange={(event) => onType(event.target.value)}', "cockpit"),
 ]
 def run(kind):
     cwd = os.path.join(ROOT, "packages", "client-core") if kind == "core" else os.path.join(ROOT, "apps", "cockpit")

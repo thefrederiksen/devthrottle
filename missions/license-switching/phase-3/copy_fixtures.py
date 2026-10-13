@@ -9,13 +9,6 @@
 #
 # It stops, and writes nothing, when the document does not hold exactly the examples it expects in the order it
 # expects them.
-#
-# ONE THING HERE IS NOT A COPY, AND IT IS SAID IN THE FILE IT WRITES. The document's full overview (section 2) was
-# produced before the sign-in routes existed, so it lacks the nine fields the Gateway now sends on every account,
-# machine and sign-in (section 7.6). Section 7.6 shows those fields only, for another picture. `complete_overview`
-# below fills them in for section 2's picture with the sentences of section 7.6 itself, as the Gateway words them
-# for a picture in which no Director is connected - which is how section 2's answer was produced (route handlers run
-# over a store; no tunnel). The page's real answers, with every field, are in the proof run (qa-sign-ins/).
 import io, json, os, re, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -31,7 +24,7 @@ SIGN_IN_FIELDS = "LicenseOverviewSignInFields"
 
 # (constant, its type, the comment above it, the key that proves it is the block expected, a fragment to wrap)
 WANTED = [
-    ("OVERVIEW", "LicenseOverview", "GET /gateway/licenses: three accounts (in use, sign-in expires soon, at limit) on two machines. Its sign-in fields are filled in by copy_fixtures.py (see the note above).", "machines", False),
+    ("OVERVIEW", "LicenseOverview", "GET /gateway/licenses: three accounts (in use, sign-in expires soon, at limit) on two machines.", "machines", False),
     ("BARRED_FIELDS", 'Pick<LicenseAccount, "barredUntilUtc" | "barredText">', "The last two fields of an account that is barred from the automatic choice of a target.", "barredText", True),
     ("FORECAST", "LicenseForecast", "GET /gateway/licenses/forecast for the same picture.", "nextSwitchText", False),
     ("LOG_PAGE", "LicenseLogPage", "GET /gateway/licenses/log?limit=4: a spare added, a switch that FAILED, a spare removed, a switch that worked; older rows exist.", "entries", False),
@@ -48,6 +41,9 @@ WANTED = [
     ("RENEWAL_OWNER_ONLY", REFUSAL, "The renewal date, asked by a caller that is not the owner's own signed-in phone or browser: 403.", "error", False),
     ("SWITCH_NOW_OWNER_ONLY", REFUSAL, "Switch now, asked by the same caller: 403, with its own sentence.", "error", False),
     # ---- section 7: sign-ins ----
+    ("APPROVER_SET_OWNER_ONLY", REFUSAL, "Setting an approver, asked by a caller that is not the owner's own signed-in phone or browser: 403.", "error", False),
+    ("APPROVER_REMOVE_OWNER_ONLY", REFUSAL, "Removing an approver, asked by the same caller: 403, with its own sentence.", "error", False),
+    ("SIGN_IN_OWNER_ONLY", REFUSAL, "Add a spare or Renew now, asked by the same caller: 403, with its own sentence.", "error", False),
     ("APPROVERS_EMPTY", "LicenseApprovers", "GET /gateway/licenses/approvers with no approver set for any account.", "approvers", False),
     ("APPROVERS", "LicenseApprovers", "GET /gateway/licenses/approvers with two set: one whose Director is connected, one on a machine that never reported.", "approvers", False),
     ("APPROVER_SET", "LicenseApprover", "PUT /gateway/licenses/approvers, the approver as stored.", "browserProfile", False),
@@ -74,31 +70,6 @@ for block, (name, kind, comment, key, fragment) in zip(blocks, WANTED):
         values[name] = value
 
 
-def complete_overview(overview, fields):
-    """Fill in the sign-in fields the section 2 example was produced without. See the note at the top."""
-    no_approver = [a for a in fields["accounts"] if a["approver"] is None]
-    offline = [m for m in fields["machines"] if not m["canAddSpare"] and m["active"] is not None
-               and m["addSpareText"] == m["active"]["renewNowText"] and m["machineName"] in m["addSpareText"]]
-    if len(no_approver) != 1 or len(offline) != 1:
-        sys.exit("section 7.6 no longer shows one account with no approver and one machine whose Director is not connected - nothing was written")
-    for account in overview["accounts"]:
-        if "approver" in account:
-            sys.exit("the section 2 example now carries the sign-in fields itself: remove complete_overview - nothing was written")
-        account["approver"] = None
-        account["approverText"] = no_approver[0]["approverText"]
-        account["approverTone"] = no_approver[0]["approverTone"]
-    for machine in overview["machines"]:
-        sentence = offline[0]["addSpareText"].replace(offline[0]["machineName"], machine["label"])
-        machine["canAddSpare"] = False
-        machine["addSpareText"] = sentence
-        machine["signInsInProgress"] = []
-        for holding in ([machine["active"]] if machine["active"] is not None else []) + machine["spares"]:
-            holding["canRenewNow"] = False
-            holding["renewNowText"] = sentence
-
-
-complete_overview(values["OVERVIEW"], values["OVERVIEW_SIGN_IN_FIELDS"])
-
 out = [
     "import type {",
     "  LicenseAccount,",
@@ -121,12 +92,8 @@ out = [
     "// sends. This file is written by missions/license-switching/phase-3/copy_fixtures.py and is not edited by hand:",
     "// fixtures.test.ts fails when a constant here differs from its example in the document. Run the script again.",
     "//",
-    "// ONE PART OF OVERVIEW IS NOT A COPY. The document's full overview was produced before the sign-in routes existed,",
-    "// so it lacks the fields the Gateway now sends on every account (approver, approverText, approverTone), machine",
-    "// (canAddSpare, addSpareText, signInsInProgress) and sign-in (canRenewNow, renewNowText). The script fills them in",
-    "// with the document's own sentences for a picture in which no approver is set and no Director is connected: no",
-    "// sign-in is offered anywhere, and each sentence says why. A test of a sign-in lays OVERVIEW_SIGN_IN_FIELDS, the",
-    "// Gateway's real example of those fields, over it. fixtures.test.ts holds both halves.",
+    "// In OVERVIEW no approver is set and no Director is connected, so no sign-in is offered anywhere and each sentence",
+    "// says why. A test of a sign-in lays OVERVIEW_SIGN_IN_FIELDS, the Gateway's example of those fields, over it.",
     "",
     "/** The sign-in fields of an overview, as section 7.6 of the document shows them: these fields and no others. */",
     "export interface LicenseOverviewSignInFields {",

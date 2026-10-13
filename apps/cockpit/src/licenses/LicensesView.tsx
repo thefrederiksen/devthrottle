@@ -212,6 +212,7 @@ export function LicensesView() {
   // throws with the Gateway's own sentence; the confirmation stays open and shows it.
   const [addingSpare, setAddingSpare] = useState<LicenseMachine | null>(null);
   const [spareAccount, setSpareAccount] = useState("");
+  const [spareBusy, setSpareBusy] = useState(false);
   const [renewing, setRenewing] = useState<{ machine: LicenseMachine; holding: LicenseHolding } | null>(null);
   const [lastSignIn, setLastSignIn] = useState<LicenseSignInStarted | null>(null);
 
@@ -221,10 +222,16 @@ export function LicensesView() {
   };
 
   // The account is the person's own choice, sent as typed less the space around it. Nothing is sent without one.
+  // While the call is out the field is shut: what was sent is what it shows.
   const confirmAddSpare = async () => {
     const accountEmail = spareAccount.trim();
     if (addingSpare === null || accountEmail === "") return;
-    setLastSignIn(await addLicenseSpare(accountEmail, addingSpare.machineId));
+    setSpareBusy(true);
+    try {
+      setLastSignIn(await addLicenseSpare(accountEmail, addingSpare.machineId));
+    } finally {
+      setSpareBusy(false);
+    }
     refreshAll();
   };
 
@@ -371,7 +378,7 @@ export function LicensesView() {
       <ConfirmDialog
         open={addingSpare !== null}
         title={addingSpare === null ? "" : `Add a spare on ${addingSpare.label}?`}
-        message={addingSpare === null ? null : <AddSpareChoice machine={addingSpare} accountEmail={spareAccount} onType={setSpareAccount} />}
+        message={addingSpare === null ? null : <AddSpareChoice machine={addingSpare} accountEmail={spareAccount} busy={spareBusy} onType={setSpareAccount} />}
         confirmLabel="Add a spare"
         busyLabel="Starting..."
         // It signs a machine in to one more account and takes nothing away.

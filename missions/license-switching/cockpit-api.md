@@ -246,7 +246,10 @@ show nothing. Section 6 has the sentences and the tone rule.
         }
       ],
       "barredUntilUtc": null,
-      "barredText": null
+      "barredText": null,
+      "approver": null,
+      "approverText": "No machine is set to approve sign-ins for this account. A machine that has its own browser profile for it approves there.",
+      "approverTone": "neutral"
     },
     {
       "accountEmail": "account-b@example.com",
@@ -316,7 +319,10 @@ show nothing. Section 6 has the sentences and the tone rule.
       "switchNowTargetAccountEmail": null,
       "switchTargets": [],
       "barredUntilUtc": null,
-      "barredText": null
+      "barredText": null,
+      "approver": null,
+      "approverText": "No machine is set to approve sign-ins for this account. A machine that has its own browser profile for it approves there.",
+      "approverTone": "neutral"
     },
     {
       "accountEmail": "account-c@example.com",
@@ -380,7 +386,10 @@ show nothing. Section 6 has the sentences and the tone rule.
       "switchNowTargetAccountEmail": null,
       "switchTargets": [],
       "barredUntilUtc": null,
-      "barredText": null
+      "barredText": null,
+      "approver": null,
+      "approverText": "No machine is set to approve sign-ins for this account. A machine that has its own browser profile for it approves there.",
+      "approverTone": "neutral"
     }
   ],
   "machines": [
@@ -410,7 +419,9 @@ show nothing. Section 6 has the sentences and the tone rule.
         "renewalFailedTone": null,
         "isReadingStale": false,
         "readError": null,
-        "readErrorText": null
+        "readErrorText": null,
+        "canRenewNow": false,
+        "renewNowText": "The Director on the-mac is not connected, so a sign-in cannot be started there."
       },
       "spares": [
         {
@@ -427,10 +438,15 @@ show nothing. Section 6 has the sentences and the tone rule.
           "renewalFailedTone": null,
           "isReadingStale": false,
           "readError": null,
-          "readErrorText": null
+          "readErrorText": null,
+          "canRenewNow": false,
+          "renewNowText": "The Director on the-mac is not connected, so a sign-in cannot be started there."
         }
       ],
-      "switchInProgress": null
+      "switchInProgress": null,
+      "canAddSpare": false,
+      "addSpareText": "The Director on the-mac is not connected, so a sign-in cannot be started there.",
+      "signInsInProgress": []
     },
     {
       "machineId": "f26a799d85a244129a27ba10b8cb3427",
@@ -458,7 +474,9 @@ show nothing. Section 6 has the sentences and the tone rule.
         "renewalFailedTone": null,
         "isReadingStale": false,
         "readError": null,
-        "readErrorText": null
+        "readErrorText": null,
+        "canRenewNow": false,
+        "renewNowText": "The Director on the-windows-machine is not connected, so a sign-in cannot be started there."
       },
       "spares": [
         {
@@ -475,7 +493,9 @@ show nothing. Section 6 has the sentences and the tone rule.
           "renewalFailedTone": null,
           "isReadingStale": false,
           "readError": null,
-          "readErrorText": null
+          "readErrorText": null,
+          "canRenewNow": false,
+          "renewNowText": "The Director on the-windows-machine is not connected, so a sign-in cannot be started there."
         },
         {
           "accountEmail": "account-c@example.com",
@@ -491,10 +511,15 @@ show nothing. Section 6 has the sentences and the tone rule.
           "renewalFailedTone": null,
           "isReadingStale": false,
           "readError": null,
-          "readErrorText": null
+          "readErrorText": null,
+          "canRenewNow": false,
+          "renewNowText": "The Director on the-windows-machine is not connected, so a sign-in cannot be started there."
         }
       ],
-      "switchInProgress": null
+      "switchInProgress": null,
+      "canAddSpare": false,
+      "addSpareText": "The Director on the-windows-machine is not connected, so a sign-in cannot be started there.",
+      "signInsInProgress": []
     }
   ]
 }
@@ -1121,6 +1146,34 @@ a session key the owner raised through the raise route (`...TheFourWrites_AskedW
 and the shared machine token on a self-hosted Gateway (`LicenseSignInWritesSelfHostedTests`).
 
 Every refusal is `{ "code": "...", "error": "..." }`, where `error` is a finished sentence to show as it is.
+
+The three `owner_only` sentences, each as the Gateway answered a Director's own key over real HTTP (the proof run of
+the page, `phase-3/qa-sign-ins/qa-sign-ins-run-output.txt`, part 5). Setting an approver:
+
+```json
+{
+  "code": "owner_only",
+  "error": "only the owner on their own signed-in phone or browser may set which machine approves an account's sign-ins; this request was made with a device (workstation) credential"
+}
+```
+
+Removing one:
+
+```json
+{
+  "code": "owner_only",
+  "error": "only the owner on their own signed-in phone or browser may remove the machine that approves an account's sign-ins; this request was made with a device (workstation) credential"
+}
+```
+
+Starting a sign-in, by Add a spare or by Renew now:
+
+```json
+{
+  "code": "owner_only",
+  "error": "only the owner on their own signed-in phone or browser may start a sign-in on a machine; this request was made with a device (workstation) credential"
+}
+```
 
 ### 7.1 `GET /gateway/licenses/approvers` - who approves each account
 

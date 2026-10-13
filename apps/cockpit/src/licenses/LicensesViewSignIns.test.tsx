@@ -25,7 +25,9 @@ import {
   APPROVERS_EMPTY,
   APPROVER_REFUSED,
   APPROVER_REMOVED,
+  APPROVER_REMOVE_OWNER_ONLY,
   APPROVER_SET,
+  APPROVER_SET_OWNER_ONLY,
   FORECAST,
   LOG_PAGE,
   OVERVIEW,
@@ -33,6 +35,7 @@ import {
   SIGN_IN_ALREADY_HELD,
   SIGN_IN_DIRECTOR_OFFLINE,
   SIGN_IN_LOG,
+  SIGN_IN_OWNER_ONLY,
   SIGN_IN_RUNNING,
   SIGN_IN_STARTED,
   SIGN_IN_UNKNOWN_MACHINE,
@@ -51,16 +54,10 @@ const SET_APPROVER = `PUT ${APPROVERS_ROUTE}`;
 const REMOVE_APPROVER = `DELETE ${APPROVERS_ROUTE}`;
 const READ_APPROVERS = `GET ${APPROVERS_ROUTE}`;
 
-/** The Gateway's refusal of a write to a caller that is not the owner's own signed-in phone or browser. */
-function ownerOnly(what: string): { code: string; error: string } {
-  return {
-    code: "owner_only",
-    error: `only the owner on their own signed-in phone or browser may ${what}; this request was made with a device (workstation) credential`,
-  };
-}
-const START_OWNER_ONLY = ownerOnly("start a sign-in on a machine");
-const SET_OWNER_ONLY = ownerOnly("set which machine approves an account's sign-ins");
-const REMOVE_OWNER_ONLY = ownerOnly("remove the machine that approves an account's sign-ins");
+// The Gateway's refusal of each write to a caller that is not the owner's own signed-in phone or browser.
+const START_OWNER_ONLY = SIGN_IN_OWNER_ONLY;
+const SET_OWNER_ONLY = APPROVER_SET_OWNER_ONLY;
+const REMOVE_OWNER_ONLY = APPROVER_REMOVE_OWNER_ONLY;
 
 interface Sent {
   call: string;
@@ -328,6 +325,18 @@ describe("LicensesView: Renew now at the wire", () => {
     expect(writes().length).toBe(1);
   });
 
+  it("takes the answer to a started sign-in off the screen when it is dismissed", async () => {
+    answers[RENEW] = () => json(202, SIGN_IN_STARTED);
+    render(<LicensesView />);
+    fireEvent.click(confirm(await openRenew()));
+    const answer = await screen.findByTestId("lic-sign-in-answer");
+
+    fireEvent.click(within(answer).getByRole("button", { name: "Dismiss" }));
+
+    expect(screen.queryByTestId("lic-sign-in-answer")).toBeNull();
+    expect(writes().length).toBe(1);
+  });
+
   it("sends nothing when the confirmation is cancelled", async () => {
     render(<LicensesView />);
     const dialog = await openRenew();
@@ -382,6 +391,24 @@ describe("LicensesView: Add a spare at the wire", () => {
     expect(writes()[0].text).toBe(JSON.stringify({ accountEmail: "account-d@example.com", machineId: machineId(WINDOWS) }));
     expect(within(answer).getByTestId("lic-sign-in-answer-text").textContent).toBe(SIGN_IN_STARTED.text);
     expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+
+  it("shuts the account field while the call is out, and opens it again with what was typed when the Gateway refuses", async () => {
+    let answerNow: (response: Response) => void = () => undefined;
+    answers[ADD_SPARE] = () => new Promise<Response>((resolve) => (answerNow = resolve));
+    render(<LicensesView />);
+    const dialog = await openAddSpare();
+    expect(accountField(dialog).disabled).toBe(false);
+    fireEvent.change(accountField(dialog), { target: { value: ACCOUNT_A } });
+
+    fireEvent.click(confirm(dialog));
+
+    await waitFor(() => expect(accountField(dialog).disabled).toBe(true));
+    expect(accountField(dialog).value).toBe(ACCOUNT_A);
+    answerNow(json(409, SIGN_IN_ALREADY_HELD));
+    await waitFor(() => expect(accountField(dialog).disabled).toBe(false));
+    expect(accountField(dialog).value).toBe(ACCOUNT_A);
+    expect(writes().length).toBe(1);
   });
 
   it("opens empty every time: the account typed for one machine is not carried to the next", async () => {
@@ -443,6 +470,24 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
 
     expect((await screen.findByTestId("lic-approvers-empty")).textContent).toBe(APPROVERS_EMPTY.emptyText);
     expect(screen.queryByTestId("lic-approvers")).toBeNull();
+    expect(screen.queryByTestId("lic-approver")).toBeNull();
+  });
+
+  it("takes whether the list is empty from the Gateway's own word for it, not from counting the rows", async () => {
+    // The Gateway never sends an answer whose word and rows disagree; these two are made to, so that which of the
+    // two the page goes by can be seen.
+    const saidEmpty = { ...copyOf(APPROVERS), isEmpty: true, emptyText: APPROVERS_EMPTY.emptyText };
+    answers[READ_APPROVERS] = () => json(200, saidEmpty);
+    const first = render(<LicensesView />);
+    expect((await screen.findByTestId("lic-approvers-empty")).textContent).toBe(APPROVERS_EMPTY.emptyText);
+    expect(screen.queryByTestId("lic-approver")).toBeNull();
+    first.unmount();
+
+    const saidNotEmpty = { ...copyOf(APPROVERS_EMPTY), isEmpty: false, emptyText: null };
+    answers[READ_APPROVERS] = () => json(200, saidNotEmpty);
+    render(<LicensesView />);
+    expect(await screen.findByTestId("lic-approvers")).not.toBeNull();
+    expect(screen.queryByTestId("lic-approvers-empty")).toBeNull();
     expect(screen.queryByTestId("lic-approver")).toBeNull();
   });
 

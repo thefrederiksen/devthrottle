@@ -1,5 +1,5 @@
 {
-  "asOfUtc": "2026-10-13T21:12:58.6444964Z",
+  "asOfUtc": "2026-10-13T22:15:25.2457954Z",
   "isEmpty": false,
   "emptyText": null,
   "approvers": [
@@ -8,7 +8,7 @@
       "machineName": "the-windows-machine",
       "osUser": "owner",
       "browserProfile": "work",
-      "machineId": "f5c3d5816335431893197e5abbbcfadd",
+      "machineId": "d4ac5c94347b4c13bc9592880bedbc91",
       "label": "the-windows-machine",
       "canApproveNow": true,
       "status": "ready",
@@ -21,7 +21,7 @@
       "machineName": "the-mac",
       "osUser": "owner",
       "browserProfile": "personal",
-      "machineId": "7c096802282c4a58aaeb9bf6dad090f2",
+      "machineId": "ecff8563d2df4ce28a244d1e9f91d159",
       "label": "the-mac",
       "canApproveNow": false,
       "status": "not-connected",
