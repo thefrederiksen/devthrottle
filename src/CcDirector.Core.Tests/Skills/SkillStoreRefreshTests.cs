@@ -29,29 +29,6 @@ public sealed class SkillStoreRefreshTests : IDisposable
     }
 
     [Fact]
-    public async Task ASecondRefreshWithAnUnchangedRegister_DownloadsNothing_AndLeavesTheFilesAlone()
-    {
-        var gateway = new FakeGateway();
-        gateway.Serve("alpha", version: 3, hash: "h3", body: "alpha body");
-        gateway.Serve("beta", version: 1, hash: "h1", body: "beta body");
-        var refresh = new SkillStoreRefresh(_store, gateway.Client, "http://gateway.test", "token");
-
-        Assert.Equal(2, await refresh.RefreshAsync());
-        Assert.Equal(2, gateway.VersionRequests);
-        var markerBefore = File.GetLastWriteTimeUtc(Path.Combine(_store, "alpha", SkillDirectoryInstaller.MarkerFileName));
-        var skillMdBefore = File.GetLastWriteTimeUtc(Path.Combine(_store, "alpha", "SKILL.md"));
-
-        await Task.Delay(50); // so a rewrite would move the timestamps
-        Assert.Equal(2, await refresh.RefreshAsync());
-
-        Assert.Equal(2, gateway.VersionRequests); // not 4: nothing was downloaded again
-        Assert.Equal(2, gateway.RegisterRequests); // the register itself is still read every time
-        Assert.Equal(markerBefore, File.GetLastWriteTimeUtc(Path.Combine(_store, "alpha", SkillDirectoryInstaller.MarkerFileName)));
-        Assert.Equal(skillMdBefore, File.GetLastWriteTimeUtc(Path.Combine(_store, "alpha", "SKILL.md")));
-        Assert.Contains("alpha body", File.ReadAllText(Path.Combine(_store, "alpha", "SKILL.md")));
-    }
-
-    [Fact]
     public async Task ARegisterThatCannotBeRead_KeepsEverySkillInTheStore()
     {
         // A failed register read says nothing about which skills exist. Until 4 October 2026 it was

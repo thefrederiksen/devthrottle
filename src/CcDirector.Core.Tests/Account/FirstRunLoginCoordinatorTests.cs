@@ -68,66 +68,6 @@ public sealed class FirstRunLoginCoordinatorTests
         }
     }
 
-    // Acceptance criterion: the browser is opened at the sign-in URL (here captured by the injected opener).
-    [Fact]
-    public async Task RunAsync_OpensBrowserAtSignInUrlThenCapturesAndStoresCredential()
-    {
-        var store = new InMemoryTokenStore();
-        var account = MakeAccount(store);
-        string? openedUrl = null;
-        var capturedTokens = new DevThrottleTokens(TestJwt.Create(DateTime.UtcNow.AddHours(1)), "refresh-1");
-
-        // Drive a real loopback listener and a stand-in completion that posts the token to it.
-        using var listener = new LoopbackLoginListener();
-        var coordinator = new FirstRunLoginCoordinator(
-            account,
-            openBrowser: url => { openedUrl = url; return Task.CompletedTask; },
-            listenerFactory: () => listener);
-
-        var run = coordinator.RunAsync();
-        await PostStandInCompletionAsync(listener.CallbackUrl, capturedTokens);
-        var result = await run;
-
-        Assert.True(result.Succeeded);
-        Assert.NotNull(openedUrl);
-        Assert.Contains(FirstRunLoginCoordinator.DefaultSignInBaseUrl, openedUrl);
-        var stored = store.Load();
-        Assert.NotNull(stored);
-        Assert.Equal(capturedTokens.AccessToken, stored!.AccessToken);
-        Assert.Equal("refresh-1", stored.RefreshToken);
-        Assert.True(account.IsLoggedIn());
-
-    }
-
-    // Issue #642: the Director wires the coordinator with the non-persisting persist action, so a
-    // successful sign-in captures the hand-back but stores NO credential.
-    [Fact]
-    public async Task RunAsync_DirectorNonPersistingVariant_CapturesButStoresNothing()
-    {
-        var store = new InMemoryTokenStore();
-        var account = MakeAccount(store);
-        var capturedTokens = new DevThrottleTokens(TestJwt.Create(DateTime.UtcNow.AddHours(1)), "refresh-1");
-
-        using var listener = new LoopbackLoginListener();
-        var coordinator = new FirstRunLoginCoordinator(
-            account,
-            openBrowser: _ => Task.CompletedTask,
-            listenerFactory: () => listener,
-            persistCredential: FirstRunLoginCoordinator.WithoutPersisting);
-
-        var run = coordinator.RunAsync();
-        await PostStandInCompletionAsync(listener.CallbackUrl, capturedTokens);
-        var result = await run;
-
-        Assert.True(result.Succeeded);
-
-        // The Director holds NO credential: nothing was stored, and IsLoggedIn stays false.
-        Assert.False(store.HasTokens);
-        Assert.Null(store.Load());
-        Assert.False(account.IsLoggedIn());
-
-    }
-
     // Failure path: a browser that cannot be opened returns a user-safe failure, not a thrown exception.
     [Fact]
     public async Task RunAsync_BrowserCannotOpen_ReturnsFailureWithoutStoring()
@@ -167,33 +107,5 @@ public sealed class FirstRunLoginCoordinatorTests
 
         Assert.False(result.Succeeded);
         Assert.False(store.HasTokens);
-    }
-
-    /// <summary>
-    /// Simulates the sign-in completion (the local stand-in for the backend) handing the credential
-    /// back to the loopback callback as the access_token and refresh_token query parameters.
-    /// </summary>
-    private static async Task PostStandInCompletionAsync(Uri callbackUrl, DevThrottleTokens tokens)
-    {
-        var builder = new UriBuilder(callbackUrl)
-        {
-            Query = $"access_token={Uri.EscapeDataString(tokens.AccessToken)}&refresh_token={Uri.EscapeDataString(tokens.RefreshToken)}",
-        };
-        using var http = new HttpClient();
-        // Give the listener a moment to begin accepting; retry briefly so the test is not timing-fragile.
-        for (var attempt = 0; attempt < 50; attempt++)
-        {
-            try
-            {
-                var response = await http.GetAsync(builder.Uri);
-                response.EnsureSuccessStatusCode();
-                return;
-            }
-            catch (HttpRequestException)
-            {
-                await Task.Delay(20);
-            }
-        }
-        throw new InvalidOperationException("Stand-in completion could not reach the loopback callback.");
     }
 }

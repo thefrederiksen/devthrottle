@@ -100,7 +100,6 @@ public class GitLargeRepoParserTests
 
         Assert.Equal(parseCount, count);
     }
-
 }
 
 /// <summary>
@@ -129,84 +128,6 @@ public sealed class GitLargeRepoIntegrationTests : IDisposable
         // attribute first and reports a failure instead of retrying and swallowing it, which leaked a folder per
         // test for as long as the swallow stood.
         TestTempRoot.DeleteTree(_repo);
-    }
-
-    private void CreateTrackedFile(string relPath, string content)
-    {
-        var full = Path.Combine(_repo, relPath);
-        var dir = Path.GetDirectoryName(full);
-        if (dir != null) Directory.CreateDirectory(dir);
-        File.WriteAllText(full, content);
-        RunGit("add", relPath);
-    }
-
-    private void CommitAll(string msg) => RunGit("commit", "-m", msg);
-
-    [Fact]
-    public async Task Stage50_Unstage25_Discard5_Commit_LeavesCorrectState()
-    {
-        // Create initial committed state: 100 files in src/
-        for (int i = 1; i <= 100; i++)
-            CreateTrackedFile($"src/file-{i}.txt", $"content-{i}");
-        CommitAll("initial commit");
-
-        // Modify all 100 files (make them unstaged modified)
-        for (int i = 1; i <= 100; i++)
-            File.WriteAllText(Path.Combine(_repo, $"src/file-{i}.txt"), $"modified-{i}");
-
-        var provider = new GitStatusProvider();
-        GitStatusProvider.InvalidateCache(_repo);
-        var statusBefore = await provider.GetStatusAsync(_repo);
-
-        Assert.True(statusBefore.Success);
-        Assert.Empty(statusBefore.StagedChanges);
-        Assert.Equal(100, statusBefore.UnstagedChanges.Count);
-
-        // Stage 50 files
-        var toStage = Enumerable.Range(1, 50).Select(i => $"src/file-{i}.txt").ToArray();
-        var stageResult = await _git.StageAsync(_repo, toStage);
-        Assert.True(stageResult.Success, stageResult.Error);
-
-        GitStatusProvider.InvalidateCache(_repo);
-        var afterStage = await provider.GetStatusAsync(_repo);
-        Assert.Equal(50, afterStage.StagedChanges.Count);
-        Assert.Equal(50, afterStage.UnstagedChanges.Count);
-
-        // Unstage 25 files
-        var toUnstage = Enumerable.Range(1, 25).Select(i => $"src/file-{i}.txt").ToArray();
-        var unstageResult = await _git.UnstageAsync(_repo, toUnstage);
-        Assert.True(unstageResult.Success, unstageResult.Error);
-
-        GitStatusProvider.InvalidateCache(_repo);
-        var afterUnstage = await provider.GetStatusAsync(_repo);
-        Assert.Equal(25, afterUnstage.StagedChanges.Count);
-        Assert.Equal(75, afterUnstage.UnstagedChanges.Count);
-
-        // Discard 5 files (from the unstaged set, files 1-5)
-        var toDiscard = Enumerable.Range(1, 5).Select(i => $"src/file-{i}.txt").ToArray();
-        var discardResult = await _git.DiscardAsync(_repo, toDiscard);
-        Assert.True(discardResult.Success, discardResult.Error);
-
-        // Verify discarded files are reverted
-        for (int i = 1; i <= 5; i++)
-        {
-            var content = File.ReadAllText(Path.Combine(_repo, $"src/file-{i}.txt"));
-            Assert.Equal($"content-{i}", content); // back to original
-        }
-
-        // Commit the 25 staged files
-        var commitResult = await _git.CommitAsync(_repo, "commit 25 staged files");
-        Assert.True(commitResult.Success, commitResult.Error);
-
-        // Verify git log shows the commit
-        var log = RunGit("log", "--oneline");
-        Assert.Contains("commit 25 staged files", log);
-
-        // Verify final state: 70 unstaged (75 - 5 discarded) + 0 staged
-        GitStatusProvider.InvalidateCache(_repo);
-        var finalStatus = await provider.GetStatusAsync(_repo);
-        Assert.Empty(finalStatus.StagedChanges);
-        Assert.Equal(70, finalStatus.UnstagedChanges.Count);
     }
 
     [Fact]

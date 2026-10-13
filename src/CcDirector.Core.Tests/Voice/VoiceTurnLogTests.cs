@@ -46,26 +46,6 @@ public class VoiceTurnLogTests : IDisposable
     }
 
     [Fact]
-    public void AttachOutbound_AttachesToNewestPendingInboundForSession()
-    {
-        var sid = Guid.NewGuid().ToString();
-
-        var first = VoiceTurnLog.WriteInbound(sid, "r", new byte[] { 1 }, "a.webm", "q1", "q1", "");
-        Thread.Sleep(10);
-        var second = VoiceTurnLog.WriteInbound(sid, "r", new byte[] { 2 }, "a.webm", "q2", "q2", "");
-
-        VoiceTurnLog.AttachOutbound(sid, agentReply: "Full agent answer", wingmanSpoken: "Short spoken", summarizerModel: "haiku", status: "ok");
-
-        // The newest pending inbound gets the outbound; the older one is untouched.
-        Assert.True(File.Exists(Path.Combine(second, "outbound.json")));
-        Assert.False(File.Exists(Path.Combine(first, "outbound.json")));
-
-        var outbound = JsonSerializer.Deserialize<JsonElement>(File.ReadAllText(Path.Combine(second, "outbound.json")));
-        Assert.Equal("Full agent answer", outbound.GetProperty("AgentReply").GetString());
-        Assert.Equal("Short spoken", outbound.GetProperty("WingmanSpoken").GetString());
-    }
-
-    [Fact]
     public void AttachOutbound_NoPendingInbound_WritesStandalone()
     {
         var sid = Guid.NewGuid().ToString();

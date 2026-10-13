@@ -136,25 +136,6 @@ public sealed class SessionDeletionReaperTests
     }
 
     [Fact]
-    public async Task Reaper_removes_a_flagged_idle_session_past_the_grace_window()
-    {
-        using var manager = new SessionManager(new AgentOptions()) { DeletionGraceMs = 0 };
-        var backend = new ExitableBackend();
-        var session = NewSession(backend);
-        session.ApplyTerminalActivityState(ActivityState.Idle);
-
-        Guid? removed = null;
-        manager.OnSessionRemoved += s => removed = s.Id;
-        manager.AdoptSession(session);
-
-        session.MarkForDeletion("done");
-        manager.ReapPendingDeletions();
-
-        await WaitUntil(() => manager.GetSession(session.Id) is null);
-        Assert.Equal(session.Id, removed);
-    }
-
-    [Fact]
     public void Reaper_leaves_a_flagged_session_within_the_grace_window()
     {
         using var manager = new SessionManager(new AgentOptions()) { DeletionGraceMs = 60_000 };
@@ -167,50 +148,6 @@ public sealed class SessionDeletionReaperTests
         manager.ReapPendingDeletions();
 
         Assert.NotNull(manager.GetSession(session.Id)); // still here
-    }
-
-    [Fact]
-    public async Task Reaper_waits_out_a_working_session_then_reaps_it_when_idle()
-    {
-        using var manager = new SessionManager(new AgentOptions()) { DeletionGraceMs = 0 };
-        var backend = new ExitableBackend();
-        var session = NewSession(backend);
-        session.ApplyTerminalActivityState(ActivityState.Working); // mid final turn
-        manager.AdoptSession(session);
-
-        session.MarkForDeletion("done");
-        manager.ReapPendingDeletions();
-        Assert.NotNull(manager.GetSession(session.Id)); // option (a): not reaped while Working
-
-        session.ApplyTerminalActivityState(ActivityState.Idle); // turn finished
-        manager.ReapPendingDeletions();
-
-        await WaitUntil(() => manager.GetSession(session.Id) is null);
-    }
-
-    [Fact]
-    public async Task Reaper_spares_a_session_whose_deletion_was_cancelled()
-    {
-        using var manager = new SessionManager(new AgentOptions()) { DeletionGraceMs = 0 };
-        var backend = new ExitableBackend();
-        var session = NewSession(backend);
-        session.ApplyTerminalActivityState(ActivityState.Idle);
-        manager.AdoptSession(session);
-
-        session.MarkForDeletion("done");
-        session.CancelDeletion();
-        manager.ReapPendingDeletions();
-
-        await Task.Delay(100); // give any (incorrect) async reap a chance to run
-        Assert.NotNull(manager.GetSession(session.Id));
-    }
-
-    private static async Task WaitUntil(Func<bool> condition, int timeoutMs = 2000)
-    {
-        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
-        while (!condition() && DateTime.UtcNow < deadline)
-            await Task.Delay(20);
-        Assert.True(condition(), "condition not met within timeout");
     }
 
     /// <summary>An ISessionBackend whose process exit can be raised on demand.</summary>

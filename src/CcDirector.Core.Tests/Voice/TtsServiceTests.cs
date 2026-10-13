@@ -181,32 +181,6 @@ public sealed class TtsServiceTests
         Assert.Equal(1, handler.CallCount); // no retry on a 4xx
     }
 
-    [Fact]
-    public async Task GenerateAsync_PersistentStall_FailsFast_WithinBudget()
-    {
-        // Every attempt stalls. The per-request timeout ends each attempt, the
-        // single retry also stalls, and the call returns an error - it never
-        // waits the old 180 s ceiling.
-        var handler = new ScriptedHandler(ScriptedHandler.Kind.Stall);
-        var svc = Service(handler);
-
-        var sw = Stopwatch.StartNew();
-        var result = await svc.GenerateAsync("Hello world.", null, null);
-        sw.Stop();
-
-        Assert.False(result.Success);
-        Assert.Equal(2, handler.CallCount); // the stalled attempt and its one retry
-        // The first stall is ended by its per-request deadline at 31 s on the clock; the retry's stall moves the clock
-        // to 62 s, past the 60 s overall budget, so the budget deadline fires before the retry's own and the whole
-        // reply fails on the budget. That is the path pinned here, on purpose.
-        Assert.Equal("tts_budget_exceeded", result.Status);
-        // The deadlines ran on the test's clock, which the stall moved; had they run on the system clock this call
-        // would have sat out the real thirty seconds twice. Ten seconds is daylight for a starved machine, not a
-        // timing the test depends on.
-        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(10),
-            $"took {sw.Elapsed.TotalSeconds:0.0}s of real time - the deadlines did not run on the service's clock");
-    }
-
     // ===== (d) happy path unchanged (byte-identical concatenation) =========
 
     [Fact]

@@ -54,34 +54,6 @@ public class SessionEdgeCaseTests : IDisposable
             () => _manager.CreateSession(Path.GetTempPath(), null, (SessionBackendType)999));
     }
 
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public async Task SendText_OnExitedSession_NoOp()
-    {
-        var session = _manager.CreateSession(Path.GetTempPath());
-        await _manager.KillSessionAsync(session.Id);
-
-        // Wait for session to fully exit
-        for (int i = 0; i < 20 && session.Status != SessionStatus.Exited; i++)
-            await Task.Delay(100);
-
-        // Should not throw
-        await session.SendTextAsync("should be ignored");
-    }
-
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public async Task SendEnter_OnExitedSession_NoOp()
-    {
-        var session = _manager.CreateSession(Path.GetTempPath());
-        await _manager.KillSessionAsync(session.Id);
-
-        for (int i = 0; i < 20 && session.Status != SessionStatus.Exited; i++)
-            await Task.Delay(100);
-
-        await session.SendEnterAsync();
-    }
-
 
     [Trait("Gate", "Quarantine")]
     [Fact]

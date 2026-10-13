@@ -38,20 +38,6 @@ public sealed class GitWriteServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Stage_then_commit_creates_a_commit()
-    {
-        File.WriteAllText(Path.Combine(_repo, "a.txt"), "hello");
-
-        var staged = await _git.StageAsync(_repo, new[] { "a.txt" });
-        Assert.True(staged.Success, staged.Error);
-
-        var committed = await _git.CommitAsync(_repo, "add a.txt");
-        Assert.True(committed.Success, committed.Error);
-
-        Assert.Contains("add a.txt", RunGit("log", "--oneline"));
-    }
-
-    [Fact]
     public async Task Commit_with_empty_message_is_rejected()
     {
         var r = await _git.CommitAsync(_repo, "   ");

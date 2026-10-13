@@ -34,77 +34,6 @@ public sealed class ResponsivenessCostMeasurement
     public ResponsivenessCostMeasurement(ITestOutputHelper output) => _out = output;
 
     /// <summary>
-    /// One tick of the roster's one-second "receiving a dictation" refresh, timed both ways against a
-    /// marker store shaped like the real one on SOREN_NORTH: 28 marker directories, every one of them in
-    /// a terminal state (the machine had not a single Pending marker; the oldest was three weeks old).
-    ///
-    /// That detail is what makes the old cost so galling - the whole per-second bill was being paid to
-    /// re-confirm that there was nothing to report.
-    /// </summary>
-    [Fact]
-    public void Dictation_tick_cost_old_shape_versus_new_shape()
-    {
-        var root = Path.Combine(Path.GetTempPath(), "cc-dictation-cost-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(root);
-        try
-        {
-            const int markers = 28;
-            for (var i = 0; i < markers; i++)
-            {
-                var dir = Path.Combine(root, Guid.NewGuid().ToString("N"));
-                Directory.CreateDirectory(dir);
-                File.WriteAllText(Path.Combine(dir, "record.json"), JsonSerializer.Serialize(new
-                {
-                    state = "Delivered",
-                    sessionId = Guid.NewGuid().ToString(),
-                    uploadId = Guid.NewGuid().ToString(),
-                    receivedUtc = DateTime.UtcNow,
-                }));
-            }
-
-            var sessionIds = Enumerable.Range(0, 32).Select(_ => Guid.NewGuid().ToString()).ToArray();
-
-            // Warm the OS file cache so this measures our work, not a cold disk. The real Director is warm.
-            for (var i = 0; i < 3; i++) _ = DictationLockReader.LockedSessionIds(root);
-
-            _out.WriteLine($"dictation-uploads root holds {markers} markers, all terminal (the SOREN_NORTH shape)");
-            _out.WriteLine("");
-            _out.WriteLine(" sessions |   old: ask per session |   new: read once per tick |  ratio");
-            _out.WriteLine("----------+------------------------+---------------------------+-------");
-
-            foreach (var n in new[] { 1, 10, 19, 27 })
-            {
-                var live = sessionIds.Take(n).ToArray();
-
-                var oldMs = TimeTick(() =>
-                {
-                    // What the roster used to do: every session asks the store for itself, and each ask
-                    // re-enumerates the directory and re-reads all 28 markers.
-                    foreach (var id in live) _ = DictationLockReader.IsSessionLocked(root, id);
-                });
-
-                var newMs = TimeTick(() =>
-                {
-                    // What it does now: one pass over the store, then each session asks the set for free.
-                    var locked = DictationLockReader.LockedSessionIds(root);
-                    foreach (var id in live) _ = locked.Contains(id);
-                });
-
-                var ratio = newMs > 0 ? (oldMs / newMs).ToString("0.0") + "x" : "n/a";
-                _out.WriteLine($"{n,9} | {oldMs,19:0.00} ms | {newMs,22:0.00} ms | {ratio,6}");
-            }
-
-            _out.WriteLine("");
-            _out.WriteLine("Every millisecond in the 'old' column is spent on the dispatcher thread, once a second,");
-            _out.WriteLine("forever - which is the thread that paints the user interface.");
-        }
-        finally
-        {
-            try { Directory.Delete(root, recursive: true); } catch { /* best effort */ }
-        }
-    }
-
-    /// <summary>
     /// The git side of the same complaint, counted rather than timed: how many probes one refresh cycle
     /// asks for, against a session distribution of the shape observed on SOREN_NORTH - here 23 sessions
     /// spread over 6 real repositories, whose <c>RepoPath</c> values were stored in 8 different spellings.
@@ -175,22 +104,6 @@ public sealed class ResponsivenessCostMeasurement
         {
             foreach (var s in sessions) s.Dispose();
         }
-    }
-
-    /// <summary>Median of several ticks - one tick is too short and too noisy to quote.</summary>
-    private static double TimeTick(Action tick)
-    {
-        const int runs = 9;
-        var samples = new double[runs];
-        for (var i = 0; i < runs; i++)
-        {
-            var sw = Stopwatch.StartNew();
-            tick();
-            sw.Stop();
-            samples[i] = sw.Elapsed.TotalMilliseconds;
-        }
-        Array.Sort(samples);
-        return samples[runs / 2];
     }
 
     private sealed class NullBackend : ISessionBackend

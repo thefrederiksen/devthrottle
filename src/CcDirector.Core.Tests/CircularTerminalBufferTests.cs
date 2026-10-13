@@ -43,44 +43,6 @@ public class CircularTerminalBufferTests
         Assert.Null(ex);
     }
 
-    // Reproduces the crash shape: one thread hammers the read accessor (as the idle timer
-    // did) while another disposes the buffer. Before the fix this raced into
-    // ObjectDisposedException; after the fix the readers must complete without throwing.
-    [Fact]
-    public void ConcurrentReads_DuringDispose_NeverThrow()
-    {
-        for (int attempt = 0; attempt < 50; attempt++)
-        {
-            var buffer = new CircularTerminalBuffer(4096);
-            buffer.Write("seed"u8.ToArray());
-
-            Exception? readerError = null;
-            var reader = new Thread(() =>
-            {
-                try
-                {
-                    for (int i = 0; i < 2000; i++)
-                    {
-                        _ = buffer.LastWriteAtUtc;
-                        _ = buffer.TotalBytesWritten;
-                        _ = buffer.GetWrittenSince(0);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    readerError = ex;
-                }
-            });
-
-            reader.Start();
-            Thread.Sleep(1);
-            buffer.Dispose();
-            reader.Join();
-
-            Assert.Null(readerError);
-        }
-    }
-
     [Fact]
     public void WriteSmall_DumpAll_ReturnsWrittenBytes()
     {

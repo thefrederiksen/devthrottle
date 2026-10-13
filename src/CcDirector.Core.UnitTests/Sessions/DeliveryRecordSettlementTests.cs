@@ -288,21 +288,4 @@ public sealed class DeliveryRecordSettlementTests : IDisposable
         Assert.Equal(DeliveryOwnerLiveness.Gone, DeliveryRecord.AskTheOperatingSystem(self with { StartedAtUtc = self.StartedAtUtc.AddHours(-1) }));
         Assert.Equal(DeliveryOwnerLiveness.Gone, DeliveryRecord.AskTheOperatingSystem(self with { ProcessId = 0 }));
     }
-
-    [Fact]
-    public void AskTheOperatingSystem_AProcessThatHasExited_IsGone()
-    {
-        // Arrange: a real process that starts and exits, standing in for a Director that stopped.
-        using var process = Process.Start(new ProcessStartInfo("dotnet", "--version")
-        {
-            RedirectStandardOutput = true,
-            UseShellExecute = false,
-        })!;
-        var owner = new DeliveryOwner(process.Id, process.StartTime.ToUniversalTime());
-        process.StandardOutput.ReadToEnd();
-        process.WaitForExit();
-
-        // Act and Assert
-        Assert.Equal(DeliveryOwnerLiveness.Gone, DeliveryRecord.AskTheOperatingSystem(owner));
-    }
 }

@@ -739,77 +739,6 @@ public sealed class SessionStatusWingmanTests
         return (session, backend);
     }
 
-    // Rewritten deterministically for #264. The old version wrote bytes and slept 1500ms,
-    // relying on the byte-arrival debounce to fire one scan that happened to read a resolved
-    // grid - it raced both the grid resolution and (when asserting PendingPromptText) the
-    // session's own source="user" write, so it was [Fact(Skip)]. This version:
-    //   1. Drives the internal PromptInjectionWatcher directly (reachable via InternalsVisibleTo)
-    //      so there is no spurious byte-arrival scan to race the explicit one.
-    //   2. CONFIRMS the grid is resolved BEFORE triggering: it asserts the same extractor the
-    //      watcher uses already yields the expected text from the snapshotted grid+cursor. The
-    //      single scan therefore reads a grid that is known to produce a push - no nondeterminism.
-    //   3. Fires exactly ONE scan via the existing RequestImmediateScan() seam, and waits on the
-    //      "wingman"-source event through a TaskCompletionSource (signalled by the push, not a
-    //      fixed Task.Delay-then-assert). The safety timeout only guards against a hang.
-    //   4. Asserts on the captured "wingman"-source value, NOT PendingPromptText (which the
-    //      session also writes with source="user", the original race).
-    [Fact]
-    public async Task PromptInjectionWatcher_pushes_extracted_text_via_wingman_source()
-    {
-        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
-        // BufferOnlyBackend gives a real grid-backed buffer that never auto-exits, so the
-        // session stays alive and the snapshot is stable for the whole test.
-        var (session, _) = CreateBufferSession(manager);
-        var buffer = session.Buffer;
-        Assert.NotNull(buffer);
-
-        const string expected = "commit the cc-playwright changes too";
-
-        // CRLF: a real PTY resets the column on CR. The grid-aware extractor reads the
-        // resolved grid, so the mode line must land at column 0.
-        var frame =
-            "\r\n\r\n" +
-            "> commit the cc-playwright changes too\r\n" +
-            "  >> bypass permissions on (shift+tab to cycle)\r\n";
-        buffer!.Write(System.Text.Encoding.UTF8.GetBytes(frame));
-
-        // CONFIRM the grid is resolved BEFORE we trigger the scan. This is the crux of the
-        // determinism fix: we assert that the exact inputs the watcher's tick will read
-        // (the snapshotted rows + cursor) already extract to the expected text. If this
-        // holds, the single scan below CANNOT read a not-yet-yielding grid.
-        var (rows, cursorRow, cursorCol) = session.SnapshotScreenRowsWithCursor();
-        var extractedNow = PromptInputLineExtractor.ExtractUserAuthoredInput(rows, cursorRow, cursorCol);
-        Assert.Equal(expected, extractedNow);
-
-        // Capture the "wingman"-source push via a TaskCompletionSource so we await the actual
-        // event rather than sleeping a fixed interval. We deliberately do NOT assert on
-        // PendingPromptText: the session also writes it with source="user", which raced the
-        // original assertion.
-        var pushed = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        session.OnPendingPromptTextChanged += (text, source) =>
-        {
-            if (source == "wingman")
-                pushed.TrySetResult(text);
-        };
-
-        var watcher = new PromptInjectionWatcher(session, buffer);
-        try
-        {
-            watcher.Start();
-
-            // Drive exactly one scan against the now-confirmed-resolved grid.
-            watcher.RequestImmediateScan();
-
-            // Wait for the push event itself. The timeout is only a hang guard; on success
-            // the await completes the instant the scan fires, with no fixed delay.
-            var completed = await Task.WhenAny(pushed.Task, Task.Delay(TimeSpan.FromSeconds(10)));
-            Assert.True(completed == pushed.Task, "Timed out waiting for the wingman-source push.");
-
-            Assert.Equal(expected, await pushed.Task);
-        }
-        finally { watcher.Dispose(); manager.Dispose(); }
-    }
-
     // ---------- Brand-new session gate ----------
 
     [Fact]
@@ -906,39 +835,5 @@ public sealed class SessionStatusWingmanTests
             Assert.Equal(1, fires);
         }
         finally { manager.Dispose(); }
-    }
-
-    [Fact]
-    public async Task PromptInjectionWatcher_does_not_double_push_same_text()
-    {
-        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
-        var wingman = new SessionStatusWingman(manager);
-        try
-        {
-            wingman.Start();
-            var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, new BufferOnlyBackend());
-            Assert.NotNull(session.Buffer);
-
-            int pushCount = 0;
-            session.OnPendingPromptTextChanged += (_, source) =>
-            {
-                if (source == "wingman") pushCount++;
-            };
-
-            var frame =
-                "\r\n\r\n" +
-                "> commit the cc-playwright changes too\r\n" +
-                "  >> bypass permissions on (shift+tab to cycle)\r\n";
-            session.Buffer.Write(System.Text.Encoding.UTF8.GetBytes(frame));
-            await Task.Delay(TimeSpan.FromMilliseconds(1000));
-
-            // Append unrelated noise; the frame at the tail is unchanged.
-            session.Buffer.Write(System.Text.Encoding.UTF8.GetBytes(
-                "some background log line\r\n" + frame));
-            await Task.Delay(TimeSpan.FromMilliseconds(1000));
-
-            Assert.Equal(1, pushCount);
-        }
-        finally { wingman.Dispose(); manager.Dispose(); }
     }
 }

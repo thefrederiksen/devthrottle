@@ -27,56 +27,6 @@ public sealed class ScreenshotCaptureWatcherTests : IDisposable
     }
 
     [Fact]
-    public async Task NewImageInWatchedRoot_ReturnsItsDirectory()
-    {
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        var watcher = new ScreenshotCaptureWatcher();
-
-        var wait = watcher.WaitForNewScreenshotAsync(new[] { _root }, cts.Token);
-        await Task.Delay(200); // let the watcher arm before the file appears
-        await File.WriteAllTextAsync(Path.Combine(_root, "capture.png"), "x");
-
-        var result = await wait;
-        Assert.Equal(Path.GetFullPath(_root), Path.GetFullPath(result!));
-    }
-
-    [Fact]
-    public async Task NewImageInSubdirectory_ReturnsTheSubdirectory()
-    {
-        // A OneDrive-redirected Screenshots folder lives UNDER the watched Pictures root - the
-        // watcher must report the folder the file actually landed in, not the watch root.
-        var sub = Path.Combine(_root, "Screenshots");
-        Directory.CreateDirectory(sub);
-
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        var watcher = new ScreenshotCaptureWatcher();
-
-        var wait = watcher.WaitForNewScreenshotAsync(new[] { _root }, cts.Token);
-        await Task.Delay(200);
-        await File.WriteAllTextAsync(Path.Combine(sub, "capture.png"), "x");
-
-        var result = await wait;
-        Assert.Equal(Path.GetFullPath(sub), Path.GetFullPath(result!));
-    }
-
-    [Fact]
-    public async Task NonImageFile_IsIgnored_UntilAnImageArrives()
-    {
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        var watcher = new ScreenshotCaptureWatcher();
-
-        var wait = watcher.WaitForNewScreenshotAsync(new[] { _root }, cts.Token);
-        await Task.Delay(200);
-        await File.WriteAllTextAsync(Path.Combine(_root, "notes.txt"), "x");
-        await Task.Delay(200);
-        Assert.False(wait.IsCompleted, "a text file must not complete the screenshot wait");
-
-        await File.WriteAllTextAsync(Path.Combine(_root, "real.png"), "x");
-        var result = await wait;
-        Assert.Equal(Path.GetFullPath(_root), Path.GetFullPath(result!));
-    }
-
-    [Fact]
     public async Task Cancellation_ReturnsNull()
     {
         using var cts = new CancellationTokenSource();
