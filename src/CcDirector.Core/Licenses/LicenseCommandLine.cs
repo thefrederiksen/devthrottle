@@ -153,7 +153,13 @@ public sealed partial class CcDevthrottleLicenseCommandLine : ILicenseCommandLin
         Path.Combine(CcStorage.MachineRoot(), "pyenv", OperatingSystem.IsWindows() ? "Scripts" : "bin");
 
     /// <summary>The tool in <paramref name="toolDirectory"/>, or null - PATH is never searched.</summary>
-    internal static string? ResolveOwnCopy(string toolDirectory) => ExecutableResolver.Resolve(Path.Combine(toolDirectory, ToolName));
+    internal static string? ResolveOwnCopy(string toolDirectory) =>
+        ResolveOwnCopy(toolDirectory, Environment.GetEnvironmentVariable("PATH"), Environment.GetEnvironmentVariable("PATHEXT"));
+
+    /// <summary>The same, against a search path and an extension list handed in, so a test can put a copy on the
+    /// search path and prove it is not taken without changing this process's own environment.</summary>
+    internal static string? ResolveOwnCopy(string toolDirectory, string? searchPath, string? pathExt) =>
+        ExecutableResolver.Resolve(Path.Combine(toolDirectory, ToolName), searchPath, pathExt);
 
     public async Task<IReadOnlyList<LicenseHolding>> ListAsync(CancellationToken cancellationToken)
     {

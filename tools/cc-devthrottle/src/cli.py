@@ -1955,7 +1955,7 @@ def license_get_browser(
     store_dir: Optional[str] = typer.Option(None, "--store-dir", help=_LICENSE_STORE_DIR_HELP),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
 ) -> None:
-    """Say which browser profile signs an account in on this machine, or that none is set."""
+    """Say which browser profile signs an account in on this machine, if one is set."""
     license_signin_ops.get_browser(account, default_config_dir, store_dir, json_output)
 
 

@@ -35,7 +35,7 @@ import json
 import sys
 from typing import List, Optional
 
-import click
+import typer
 
 from cc_shared import axi_output
 
@@ -103,7 +103,8 @@ def sign_in(email: str, browser: Optional[str], remote_approval: bool, default_c
             print(json.dumps({"accountEmail": email.strip().lower(), "result": "failed", "reason": ex.kind},
                              indent=2), flush=True)
         print(f"Stopped: {ex} (reason: {ex.kind})", file=sys.stderr, flush=True)
-        raise click.Abort() from None
+        # typer.Abort, never click.Abort: later Typer releases carry their own Click and do not install the package.
+        raise typer.Abort() from None
     except SignInError as ex:
         _fail(ex, {"accountEmail": email.strip().lower(), "result": "failed"} if json_output else None)
     license_ops._report_recovery(store)
