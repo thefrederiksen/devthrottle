@@ -165,7 +165,7 @@ public sealed class DirectorEventsAndFactsTests : IAsyncLifetime
         Assert.NotEmpty(facts.Tools);
         Assert.All(facts.Tools, t => Assert.False(string.IsNullOrEmpty(t.Name)));
         Assert.NotNull(facts.Launcher); // "not installed" is a valid fact, never a missing one
-        Assert.Equal("facts", fake.LastCommand?.Verb);
+        Assert.NotNull(fake.LastOf("facts"));
     }
 
     [Fact]

@@ -84,7 +84,7 @@ public sealed class HandoverInfoTunnelTests : IAsyncLifetime
         Assert.False(string.IsNullOrWhiteSpace(dto.DisplayName));
         Assert.False(string.IsNullOrWhiteSpace(dto.DirectorId));
         // A working body proves the tunnel: the Director is registered UNREACHABLE.
-        Assert.Equal("handover", _director.LastCommand?.Verb);
+        Assert.Equal(sid, Assert.Single(_director.AllOf("handover")).SessionId);
     }
 
     [Fact]

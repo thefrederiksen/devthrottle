@@ -42,7 +42,12 @@ public sealed class TunnelDirectorReadProofTests : IAsyncLifetime
     private HubConnection _conn = null!;
 
     // The last command the Director saw over the tunnel, so a test can assert the verb + payload the route sent.
-    private DirectorCommand? _lastCommand;
+    // Every command the Gateway sent over the tunnel. A test asks for the command of ITS OWN verb, never for "the last
+    // command": the Gateway also sends commands of its own accord (a pushed waiting session has its screen read on a
+    // background task), so which command arrived last depends on how busy the machine is.
+    private readonly System.Collections.Concurrent.ConcurrentQueue<DirectorCommand> _commands = new();
+
+    private DirectorCommand Sent(string verb) => Assert.Single(_commands, c => c.Verb == verb);
 
     public TunnelDirectorReadProofTests()
     {
@@ -96,7 +101,7 @@ public sealed class TunnelDirectorReadProofTests : IAsyncLifetime
     // the SAME contract DTOs the real cores emit, so a shape mismatch would fail the Gateway-side deserialize.
     private DirectorCommandResult Dispatch(DirectorCommand cmd)
     {
-        _lastCommand = cmd;
+        _commands.Enqueue(cmd);
         return cmd.Verb switch
         {
             "repos-list" => Ok(new List<RepositoryDto> { new() { Name = "devthrottle", Path = @"D:\ReposFred\devthrottle" } }),
@@ -138,8 +143,8 @@ public sealed class TunnelDirectorReadProofTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode); // an HTTP dial to the unreachable Director would have failed
         var node = await resp.Content.ReadFromJsonAsync<JsonNode>();
         Assert.Equal("devthrottle", node?[0]?["name"]?.GetValue<string>());
-        Assert.Equal("repos-list", _lastCommand!.Verb);
-        Assert.Equal("", _lastCommand.SessionId); // director-level: no session
+        var sent = Sent("repos-list");
+        Assert.Equal("", sent.SessionId); // director-level: no session
     }
 
     [Fact]
@@ -150,7 +155,7 @@ public sealed class TunnelDirectorReadProofTests : IAsyncLifetime
         var node = await resp.Content.ReadFromJsonAsync<JsonNode>();
         Assert.Equal("9.9.9", node?["version"]?.GetValue<string>());
         Assert.Equal(DirectorId, node?["directorId"]?.GetValue<string>());
-        Assert.Equal("facts", _lastCommand!.Verb);
+        var sent = Sent("facts");
     }
 
     [Fact]
@@ -160,7 +165,7 @@ public sealed class TunnelDirectorReadProofTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
         var node = await resp.Content.ReadFromJsonAsync<JsonNode>();
         Assert.Equal("assistant", node?[0]?["key"]?.GetValue<string>());
-        Assert.Equal("coaching-categories", _lastCommand!.Verb);
+        var sent = Sent("coaching-categories");
     }
 
     [Fact]
@@ -170,7 +175,7 @@ public sealed class TunnelDirectorReadProofTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
         var node = await resp.Content.ReadFromJsonAsync<JsonNode>();
         Assert.Equal("cs-1", node?[0]?["claudeSessionId"]?.GetValue<string>());
-        Assert.Equal("claude-sessions", _lastCommand!.Verb);
+        var sent = Sent("claude-sessions");
     }
 
     [Fact]
@@ -181,8 +186,8 @@ public sealed class TunnelDirectorReadProofTests : IAsyncLifetime
         var node = await resp.Content.ReadFromJsonAsync<JsonNode>();
         Assert.Equal(@"D:\some\dir", node?["currentPath"]?.GetValue<string>());
 
-        Assert.Equal("fs-list", _lastCommand!.Verb);
-        var payload = JsonNode.Parse(_lastCommand.PayloadJson)!.AsObject();
+        var sent = Sent("fs-list");
+        var payload = JsonNode.Parse(sent.PayloadJson)!.AsObject();
         Assert.Equal(@"D:\some\dir", (string?)payload["path"]); // the ?path query rode the payload
     }
 
@@ -196,7 +201,7 @@ public sealed class TunnelDirectorReadProofTests : IAsyncLifetime
         Assert.Equal("sess-abc", node?[0]?["sessionId"]?.GetValue<string>());
         Assert.Equal("dead-dir", node?[0]?["deadDirectorId"]?.GetValue<string>());
         Assert.Equal(DirectorId, node?[0]?["reportedByDirectorId"]?.GetValue<string>());
-        Assert.Equal("interrupted-list", _lastCommand!.Verb);
+        var sent = Sent("interrupted-list");
     }
 
     [Fact]
@@ -206,7 +211,7 @@ public sealed class TunnelDirectorReadProofTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
         var node = await resp.Content.ReadFromJsonAsync<JsonNode>();
         Assert.Equal("a handover", node?[0]?["title"]?.GetValue<string>());
-        Assert.Equal("handovers-list", _lastCommand!.Verb);
+        var sent = Sent("handovers-list");
     }
 
     [Fact]
@@ -217,8 +222,8 @@ public sealed class TunnelDirectorReadProofTests : IAsyncLifetime
         var node = await resp.Content.ReadFromJsonAsync<JsonNode>();
         Assert.Equal("the handover body", node?["content"]?.GetValue<string>());
 
-        Assert.Equal("handovers-content", _lastCommand!.Verb);
-        var payload = JsonNode.Parse(_lastCommand.PayloadJson)!.AsObject();
+        var sent = Sent("handovers-content");
+        var payload = JsonNode.Parse(sent.PayloadJson)!.AsObject();
         Assert.Equal(@"D:\h\a.md", (string?)payload["path"]);
     }
 
@@ -232,8 +237,8 @@ public sealed class TunnelDirectorReadProofTests : IAsyncLifetime
         var node = await resp.Content.ReadFromJsonAsync<JsonNode>();
         Assert.True(node?["removed"]?.GetValue<bool>());
 
-        Assert.Equal("repo-delete", _lastCommand!.Verb);
-        var payload = JsonNode.Parse(_lastCommand.PayloadJson)!.AsObject();
+        var sent = Sent("repo-delete");
+        var payload = JsonNode.Parse(sent.PayloadJson)!.AsObject();
         Assert.Equal(@"D:\gone", (string?)payload["path"]);
     }
 
@@ -245,8 +250,8 @@ public sealed class TunnelDirectorReadProofTests : IAsyncLifetime
         var node = await resp.Content.ReadFromJsonAsync<JsonNode>();
         Assert.True(node?["dismissed"]?.GetValue<bool>());
 
-        Assert.Equal("interrupted-dismiss", _lastCommand!.Verb);
-        var payload = JsonNode.Parse(_lastCommand.PayloadJson)!.AsObject();
+        var sent = Sent("interrupted-dismiss");
+        var payload = JsonNode.Parse(sent.PayloadJson)!.AsObject();
         Assert.Equal("dead-dir", (string?)payload["deadDirectorId"]);
         Assert.Equal(4321, (int?)payload["deadPid"]);
     }
@@ -259,8 +264,8 @@ public sealed class TunnelDirectorReadProofTests : IAsyncLifetime
         var node = await resp.Content.ReadFromJsonAsync<JsonNode>();
         Assert.True(node?["removed"]?.GetValue<bool>());
 
-        Assert.Equal("interrupted-remove", _lastCommand!.Verb);
-        var payload = JsonNode.Parse(_lastCommand.PayloadJson)!.AsObject();
+        var sent = Sent("interrupted-remove");
+        var payload = JsonNode.Parse(sent.PayloadJson)!.AsObject();
         Assert.Equal("dead-dir", (string?)payload["deadDirectorId"]);
         Assert.Equal(4321, (int?)payload["deadPid"]);
         Assert.Equal("sess-abc", (string?)payload["sessionId"]);

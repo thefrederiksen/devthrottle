@@ -56,6 +56,18 @@ public sealed class GitHubActionsBackend : ISessionBackend
     /// </summary>
     public Action<ActivityState>? ActivitySink { get; set; }
 
+    /// <summary>
+    /// The wait between two polls (and the short wait for the thread in <see cref="SendTextAsync"/>). The real
+    /// delay in the product. A test hands in its own, so it decides when the next poll runs and can look at the
+    /// backend between polls - it then waits on no clock at all, and how busy the machine is cannot decide whether
+    /// it passes. Set it before <see cref="StartRemote"/>.
+    /// </summary>
+    internal Func<TimeSpan, CancellationToken, Task> WaitAsync { get; set; } = Task.Delay;
+
+    /// <summary>The poll loop's task once <see cref="StartRemote"/> has run, so a test can tell a loop that ended
+    /// from one that is waiting for its next poll.</summary>
+    internal Task? PollLoop => _pollTask;
+
     /// <summary>The "owner/repo" this session runs against.</summary>
     public string RepoSlug => _config.Slug;
 
@@ -120,7 +132,7 @@ public sealed class GitHubActionsBackend : ISessionBackend
             var waited = TimeSpan.Zero;
             while (Volatile.Read(ref _threadNumber) == 0 && waited < TimeSpan.FromSeconds(30) && !_cts.IsCancellationRequested)
             {
-                await Task.Delay(250, _cts.Token);
+                await WaitAsync(TimeSpan.FromMilliseconds(250), _cts.Token);
                 waited += TimeSpan.FromMilliseconds(250);
             }
 
@@ -235,7 +247,7 @@ public sealed class GitHubActionsBackend : ISessionBackend
                 WriteLine($"Poll error (will retry): {ex.Message}");
             }
 
-            try { await Task.Delay(active ? _config.PollIntervalMs : (int)IdleBackoff.TotalMilliseconds, ct); }
+            try { await WaitAsync(active ? TimeSpan.FromMilliseconds(_config.PollIntervalMs) : IdleBackoff, ct); }
             catch (OperationCanceledException) { break; }
         }
     }

@@ -37,7 +37,19 @@ public sealed class TunnelWingmanVoiceProofTests : IAsyncLifetime
     private GatewayHost _gateway = null!;
     private HttpClient _http = null!;
     private HubConnection _conn = null!;
-    private DirectorCommand? _lastCommand;
+    // Every command the Gateway sent over the tunnel. A test asks for the command of ITS OWN verb, never for "the last
+    // command": the Gateway also sends commands of its own accord (a pushed waiting session has its screen read on a
+    // background task), so which command arrived last depends on how busy the machine is.
+    private readonly System.Collections.Concurrent.ConcurrentQueue<DirectorCommand> _commands = new();
+
+    // The most recent, not the only one: the verb this file asserts is "screen-grid", which the Gateway also sends of
+    // its own accord for the session the test pushed, so two of them is an ordinary run.
+    private DirectorCommand Sent(string verb)
+    {
+        var sent = _commands.LastOrDefault(c => c.Verb == verb);
+        Assert.NotNull(sent);
+        return sent!;
+    }
 
     public TunnelWingmanVoiceProofTests()
     {
@@ -94,7 +106,7 @@ public sealed class TunnelWingmanVoiceProofTests : IAsyncLifetime
     // before any buffer read.
     private DirectorCommandResult Dispatch(DirectorCommand cmd)
     {
-        _lastCommand = cmd;
+        _commands.Enqueue(cmd);
         return cmd.Verb switch
         {
             "screen-grid" => DirectorCommandResult.Success(JsonSerializer.Serialize(
@@ -132,8 +144,8 @@ public sealed class TunnelWingmanVoiceProofTests : IAsyncLifetime
         Assert.False(node?["isMenu"]?.GetValue<bool>());
 
         // The owner resolved from the push store and the LIVE screen was read via the tunnel "screen-grid" verb.
-        Assert.Equal("screen-grid", _lastCommand!.Verb);
-        Assert.Equal(sid, _lastCommand.SessionId);
+        var sent = Sent("screen-grid");
+        Assert.Equal(sid, sent.SessionId);
     }
 
 }

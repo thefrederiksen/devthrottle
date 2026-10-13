@@ -9,6 +9,12 @@ namespace CcDirector.Core.Tests;
 /// Unit tests for the GitHub Actions remote backend. They drive the backend with a
 /// scripted <see cref="StubGitHubClient"/> (no network) and assert the
 /// run-status -> ActivityState mapping, comment posting, buffer pumping, and cancel.
+///
+/// NO TEST HERE WAITS ON A CLOCK. The backend polls on a background task, and these tests used to sleep in a loop
+/// and give up after four seconds. Under a loaded machine the loop did not get its turn in time: on 12 October 2026
+/// a release gate went red on a wait that returned false after 8.6 seconds, on correct code. Each test now hands the
+/// backend a <see cref="PollPacer"/> as its wait between polls, so the test decides when the next poll runs and
+/// reads the backend only while the loop is standing still. A wait is bounded by a number of polls, never by time.
 /// </summary>
 public sealed class GitHubActionsBackendTests
 {
@@ -22,15 +28,89 @@ public sealed class GitHubActionsBackendTests
         PollIntervalMs = 25,
     };
 
-    private static async Task<bool> WaitForAsync(Func<bool> condition, int timeoutMs = 4000)
+    /// <summary>
+    /// The backend's wait between polls, held by the test. The poll loop stops here after every poll; the test lets
+    /// it go round again with <see cref="PollUntilAsync"/> or <see cref="PollAsync"/>.
+    /// </summary>
+    private sealed class PollPacer
     {
-        var sw = System.Diagnostics.Stopwatch.StartNew();
-        while (sw.ElapsedMilliseconds < timeoutMs)
+        // More polls than any script here needs (the longest is three statuses). Reaching it means the condition
+        // never came true, which is a failed test, not a slow machine.
+        private const int MostPolls = 50;
+
+        private readonly SemaphoreSlim _standingStill = new(0);
+        private readonly object _lock = new();
+        private TaskCompletionSource? _next;
+        private GitHubActionsBackend? _backend;
+
+        /// <summary>Hand this pacer to the backend as its wait, before it starts.</summary>
+        public void Pace(GitHubActionsBackend backend)
         {
-            if (condition()) return true;
-            await Task.Delay(20);
+            _backend = backend;
+            backend.WaitAsync = WaitAsync;
         }
-        return condition();
+
+        private Task WaitAsync(TimeSpan _, CancellationToken ct)
+        {
+            var next = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            ct.Register(() => next.TrySetCanceled(ct));
+            lock (_lock) _next = next;
+            _standingStill.Release();
+            return next.Task;
+        }
+
+        /// <summary>Wait until the loop has finished a poll and is standing still. False when the loop has ended
+        /// instead (it could not establish its thread, or it was shut down), so no caller waits for ever.</summary>
+        private async Task<bool> StandingStillAsync()
+        {
+            var loop = _backend!.PollLoop ?? throw new InvalidOperationException("the backend was not started");
+            var still = _standingStill.WaitAsync();
+            return await Task.WhenAny(still, loop) == still;
+        }
+
+        private void LetItPoll()
+        {
+            lock (_lock) _next!.TrySetResult();
+        }
+
+        /// <summary>Let the loop poll until <paramref name="condition"/> holds, looking only while the loop is
+        /// standing still. True when it holds - and the loop is then still standing still, so nothing changes
+        /// under the assertions that follow. False when it never held.</summary>
+        public async Task<bool> PollUntilAsync(Func<bool> condition)
+        {
+            for (var poll = 0; poll < MostPolls; poll++)
+            {
+                if (!await StandingStillAsync()) return condition();
+                if (condition())
+                {
+                    _standingStill.Release();   // still standing still, for whoever asks next
+                    return true;
+                }
+                LetItPoll();
+            }
+            return false;
+        }
+
+        /// <summary>Let the loop run exactly <paramref name="polls"/> more polls and stand still again.</summary>
+        public async Task PollAsync(int polls)
+        {
+            for (var poll = 0; poll < polls; poll++)
+            {
+                Assert.True(await StandingStillAsync(), "the poll loop ended before it had polled");
+                LetItPoll();
+            }
+            Assert.True(await StandingStillAsync(), "the poll loop ended before it had polled");
+            _standingStill.Release();
+        }
+    }
+
+    /// <summary>A backend whose polls the returned pacer decides.</summary>
+    private static GitHubActionsBackend Paced(RemoteSessionConfig config, StubGitHubClient gh, out PollPacer pacer)
+    {
+        var backend = new GitHubActionsBackend(config, gh);
+        pacer = new PollPacer();
+        pacer.Pace(backend);
+        return backend;
     }
 
     private static string BufferText(GitHubActionsBackend backend)
@@ -48,12 +128,12 @@ public sealed class GitHubActionsBackendTests
         gh.RunStatusScript.Enqueue("completed");
 
         var states = new List<ActivityState>();
-        using var backend = new GitHubActionsBackend(NewIssueConfig("fix the bug"), gh);
+        using var backend = Paced(NewIssueConfig("fix the bug"), gh, out var pacer);
         backend.ActivitySink = s => { lock (states) states.Add(s); };
 
         backend.StartRemote();
 
-        var reachedWaiting = await WaitForAsync(() =>
+        var reachedWaiting = await pacer.PollUntilAsync(() =>
         {
             lock (states) return states.Count > 0 && states[^1] == ActivityState.WaitingForInput;
         });
@@ -80,10 +160,10 @@ public sealed class GitHubActionsBackendTests
         var gh = new StubGitHubClient();
         gh.RunStatusScript.Enqueue("completed");
 
-        using var backend = new GitHubActionsBackend(NewIssueConfig(), gh);
+        using var backend = Paced(NewIssueConfig(), gh, out var pacer);
         backend.StartRemote();
 
-        await WaitForAsync(() => backend.ThreadNumber == 42);
+        await pacer.PollUntilAsync(() => backend.ThreadNumber == 42);
         await backend.SendTextAsync("now write tests");
 
         Assert.Contains(gh.PostedComments, c => c.Thread == 42 && c.Body.Contains("@claude") && c.Body.Contains("now write tests"));
@@ -105,10 +185,10 @@ public sealed class GitHubActionsBackendTests
             PollIntervalMs = 25,
         };
 
-        using var backend = new GitHubActionsBackend(config, gh);
+        using var backend = Paced(config, gh, out var pacer);
         backend.StartRemote();
 
-        var posted = await WaitForAsync(() => gh.PostedComments.Count > 0);
+        var posted = await pacer.PollUntilAsync(() => gh.PostedComments.Count > 0);
         Assert.True(posted);
         Assert.Equal(0, gh.CreateIssueCalls);
         Assert.Equal(7, backend.ThreadNumber);
@@ -125,10 +205,10 @@ public sealed class GitHubActionsBackendTests
             new(5001, "Working on it: editing files now.", "https://x", DateTimeOffset.UtcNow, "claude[bot]"),
         };
 
-        using var backend = new GitHubActionsBackend(NewIssueConfig(), gh);
+        using var backend = Paced(NewIssueConfig(), gh, out var pacer);
         backend.StartRemote();
 
-        var seen = await WaitForAsync(() => BufferText(backend).Contains("Working on it: editing files now."));
+        var seen = await pacer.PollUntilAsync(() => BufferText(backend).Contains("Working on it: editing files now."));
         Assert.True(seen, "Bot comment body should be pumped into the terminal buffer.");
     }
 
@@ -142,11 +222,13 @@ public sealed class GitHubActionsBackendTests
             new(5002, "A human kibitzing on the thread.", "https://x", DateTimeOffset.UtcNow, "some-human"),
         };
 
-        using var backend = new GitHubActionsBackend(NewIssueConfig(), gh);
+        using var backend = Paced(NewIssueConfig(), gh, out var pacer);
         backend.StartRemote();
 
-        await WaitForAsync(() => backend.ThreadNumber == 42);
-        await Task.Delay(150);
+        Assert.True(await pacer.PollUntilAsync(() => backend.ThreadNumber == 42));
+        // Three more polls, each of which reads the thread's comments: the human's comment was offered to the
+        // backend every time and was never written.
+        await pacer.PollAsync(3);
         Assert.DoesNotContain("A human kibitzing", BufferText(backend));
     }
 
@@ -157,10 +239,10 @@ public sealed class GitHubActionsBackendTests
         // Stays in_progress so a run is active when we shut down.
         gh.RunStatusScript.Enqueue("in_progress");
 
-        using var backend = new GitHubActionsBackend(NewIssueConfig(), gh);
+        using var backend = Paced(NewIssueConfig(), gh, out var pacer);
         backend.StartRemote();
 
-        await WaitForAsync(() => gh.CancelledRunId is null && BufferText(backend).Contains("Run started"));
+        await pacer.PollUntilAsync(() => gh.CancelledRunId is null && BufferText(backend).Contains("Run started"));
         await backend.GracefulShutdownAsync();
 
         Assert.Equal(gh.RunId, gh.CancelledRunId);
@@ -181,12 +263,12 @@ public sealed class GitHubActionsBackendTests
         var gh = new StubGitHubClient();
         gh.RunStatusScript.Enqueue("in_progress");   // a run is active when the shutdown arrives
 
-        using var backend = new GitHubActionsBackend(NewIssueConfig(), gh);
+        using var backend = Paced(NewIssueConfig(), gh, out var pacer);
         var exitCodes = new List<int>();
         backend.ProcessExited += code => { lock (exitCodes) exitCodes.Add(code); };
         backend.StartRemote();
 
-        Assert.True(await WaitForAsync(() => backend.CurrentRunUrl is not null),
+        Assert.True(await pacer.PollUntilAsync(() => backend.CurrentRunUrl is not null),
             "no run was ever discovered, so this test never reached the cancellation it is about");
         gh.CancelRunFailure = "403 the token may not cancel this run";
 
@@ -212,12 +294,12 @@ public sealed class GitHubActionsBackendTests
         var gh = new StubGitHubClient();
         gh.RunStatusScript.Enqueue("in_progress");
 
-        using var backend = new GitHubActionsBackend(NewIssueConfig(), gh);
+        using var backend = Paced(NewIssueConfig(), gh, out var pacer);
         var exitCodes = new List<int>();
         backend.ProcessExited += code => { lock (exitCodes) exitCodes.Add(code); };
         backend.StartRemote();
 
-        Assert.True(await WaitForAsync(() => backend.CurrentRunUrl is not null),
+        Assert.True(await pacer.PollUntilAsync(() => backend.CurrentRunUrl is not null),
             "no run was ever discovered, so this test never reached the cancellation it is about");
         await backend.GracefulShutdownAsync();
 
@@ -234,11 +316,11 @@ public sealed class GitHubActionsBackendTests
         gh.RunStatusScript.Enqueue("completed");
 
         var states = new List<ActivityState>();
-        using var backend = new GitHubActionsBackend(NewIssueConfig(), gh);
+        using var backend = Paced(NewIssueConfig(), gh, out var pacer);
         backend.ActivitySink = s => { lock (states) states.Add(s); };
         backend.StartRemote();
 
-        var done = await WaitForAsync(() =>
+        var done = await pacer.PollUntilAsync(() =>
         {
             lock (states) return states.Count > 0 && states[^1] == ActivityState.WaitingForInput;
         });
@@ -265,11 +347,11 @@ public sealed class GitHubActionsBackendTests
         };
 
         var states = new List<ActivityState>();
-        using var backend = new GitHubActionsBackend(config, gh);
+        using var backend = Paced(config, gh, out var pacer);
         backend.ActivitySink = s => { lock (states) states.Add(s); };
         backend.StartRemote();
 
-        var done = await WaitForAsync(() =>
+        var done = await pacer.PollUntilAsync(() =>
         {
             lock (states) return states.Count > 0 && states[^1] == ActivityState.WaitingForInput;
         });
@@ -298,10 +380,10 @@ public sealed class GitHubActionsBackendTests
             PollIntervalMs = 25,
         };
 
-        using var backend = new GitHubActionsBackend(config, gh);
+        using var backend = Paced(config, gh, out var pacer);
         backend.StartRemote();
 
-        await WaitForAsync(() => gh.DispatchedWorkflow != null);
+        await pacer.PollUntilAsync(() => gh.DispatchedWorkflow != null);
         await backend.SendTextAsync("do more");
 
         Assert.Empty(gh.PostedComments);

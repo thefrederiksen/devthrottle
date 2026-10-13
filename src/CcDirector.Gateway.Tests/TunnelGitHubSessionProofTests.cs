@@ -35,7 +35,12 @@ public sealed class TunnelGitHubSessionProofTests : IAsyncLifetime
     private GatewayHost _gateway = null!;
     private HttpClient _http = null!;
     private HubConnection _conn = null!;
-    private DirectorCommand? _lastCommand;
+    // Every command the Gateway sent over the tunnel. A test asks for the command of ITS OWN verb, never for "the last
+    // command": the Gateway also sends commands of its own accord (a pushed waiting session has its screen read on a
+    // background task), so which command arrived last depends on how busy the machine is.
+    private readonly System.Collections.Concurrent.ConcurrentQueue<DirectorCommand> _commands = new();
+
+    private DirectorCommand Sent(string verb) => Assert.Single(_commands, c => c.Verb == verb);
     private static readonly JsonSerializerOptions WebJson = new(JsonSerializerDefaults.Web);
 
     public TunnelGitHubSessionProofTests()
@@ -71,7 +76,7 @@ public sealed class TunnelGitHubSessionProofTests : IAsyncLifetime
             .Build();
         _conn.On<DirectorCommand, DirectorCommandResult>("Command", cmd =>
         {
-            _lastCommand = cmd;
+            _commands.Enqueue(cmd);
             return cmd.Verb == "create-from-github"
                 ? DirectorCommandResult.Success(JsonSerializer.Serialize(new SessionDto { SessionId = "gh-sess", ActivityState = "Working" }, WebJson))
                 : DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, $"unexpected verb {cmd.Verb}");
@@ -104,9 +109,9 @@ public sealed class TunnelGitHubSessionProofTests : IAsyncLifetime
         var node = await resp.Content.ReadFromJsonAsync<JsonNode>();
         Assert.Equal("gh-sess", node?["sessionId"]?.GetValue<string>());
 
-        Assert.Equal("create-from-github", _lastCommand!.Verb);
-        Assert.Equal("", _lastCommand.SessionId); // director-level
-        var payload = JsonNode.Parse(_lastCommand.PayloadJson)!.AsObject();
+        var sent = Sent("create-from-github");
+        Assert.Equal("", sent.SessionId); // director-level
+        var payload = JsonNode.Parse(sent.PayloadJson)!.AsObject();
         Assert.Equal("thefrederiksen", (string?)payload["owner"]); // the request rode the payload
         Assert.Equal("devthrottle", (string?)payload["repo"]);
     }
