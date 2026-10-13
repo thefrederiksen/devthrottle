@@ -428,6 +428,14 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>License Switching's minute check and Switch now: decides, sends each switch and records what came back.</summary>
     internal Licenses.LicenseSwitchService LicenseSwitches { get; }
 
+    /// <summary>License Switching (contract section 8.1): the one owner email for a sign-in whose renewal keeps failing
+    /// while the sign-in is about to end. Run by the same once-a-minute check as <see cref="LicenseSwitches"/>.</summary>
+    internal Licenses.LicenseRenewalEmailService LicenseRenewalEmails { get; }
+
+    /// <summary>How the license checks email an account's owner: <see cref="Licenses.LicenseOwnerMailer.SendAsync"/>.
+    /// A test puts a sender of its own here, so that a check run by the real host never reaches the account service.</summary>
+    internal Licenses.LicenseOwnerEmailSender LicenseOwnerMail { get; set; }
+
     /// <summary>Which machine and browser profile approve the sign-ins of each Claude account (contract section 8.3).</summary>
     internal Licenses.LicenseApproverStore LicenseApprovers { get; }
 
@@ -2340,8 +2348,11 @@ public sealed class GatewayHost : IAsyncDisposable
             tenant => TenantRegistry.SubjectForTenant(tenant),
             Core.Account.AccountNotifyByTenantClient.ResolveServiceToken);
         LicenseNow = new Licenses.LicenseGatewayClock(() => LicenseClock.GetUtcNow().UtcDateTime);
+        LicenseOwnerMail = licenseOwnerMailer.SendAsync;
         LicenseSwitches = new Licenses.LicenseSwitchService(LicenseStore, LicenseSnapshots,
-            SendCommandAsync, licenseOwnerMailer.SendAsync, LicenseNow.UtcNow);
+            SendCommandAsync, (tenant, email, ct) => LicenseOwnerMail(tenant, email, ct), LicenseNow.UtcNow);
+        LicenseRenewalEmails = new Licenses.LicenseRenewalEmailService(LicenseStore, new Licenses.LicenseRenewalFailureLog(_gatewayDb),
+            LicenseReads, (tenant, email, ct) => LicenseOwnerMail(tenant, email, ct), LicenseNow.UtcNow);
         // Sign-ins (contract section 8): who approves each account, the relay that has a sign-in approved on that
         // machine, and the sign-ins started from the Cockpit. Each sends inside the tenant's scope, where
         // SendCommandAsync resolves a Director's connection for that tenant alone.
@@ -6647,7 +6658,13 @@ public sealed class GatewayHost : IAsyncDisposable
         _ = RunLicenseSwitchCheckAsync();
     }
 
-    internal async Task RunLicenseSwitchCheckAsync()
+    /// <summary>One minute's license check: the switches and the sign-ins with no answer, and BESIDE them the
+    /// failed-renewal emails. The two run at the same time, each on its own try: the switch pass waits up to a minute
+    /// for a Director that does not answer, and no account's renewal email waits behind that.</summary>
+    internal Task RunLicenseSwitchCheckAsync()
+        => Task.WhenAll(RunLicenseRenewalEmailCheckAsync(), RunLicenseSwitchPassAsync());
+
+    private async Task RunLicenseSwitchPassAsync()
     {
         try
         {
@@ -6664,6 +6681,24 @@ public sealed class GatewayHost : IAsyncDisposable
         catch (Exception ex)
         {
             FileLog.Write($"[GatewayHost] license switch check FAILED: {ex.Message}");
+        }
+    }
+
+    internal async Task RunLicenseRenewalEmailCheckAsync()
+    {
+        // Not behind an await of the switch pass: a first await here hands the caller its task at once.
+        await Task.Yield();
+        try
+        {
+            await LicenseRenewalEmails.TickEveryTenantAsync(_tenantPass, _licenseSwitchLifetime.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (_licenseSwitchLifetime.IsCancellationRequested)
+        {
+            FileLog.Write("[GatewayHost] license renewal email check stopped: the Gateway is stopping");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayHost] license renewal email check FAILED: {ex.Message}");
         }
     }
 
