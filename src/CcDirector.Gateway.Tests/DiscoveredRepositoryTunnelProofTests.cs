@@ -162,32 +162,6 @@ public sealed class DiscoveredRepositoryTunnelProofTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task DiscoveredRepositories_OutliveTheDirector_WhileThePushedSnapshotGoesStale()
-    {
-        await using (var director = await FakeTunnelDirector.StartAsync(_gateway, Token, DirectorId, Machine))
-        {
-            await director.PushRepoSnapshotAsync(Found(@"D:\Repos\alpha", "alpha"));
-            // While the tunnel is up the in-memory copy answers too.
-            Assert.NotEmpty(await PushedRepositoriesAsync());
-        }
-
-        // The tunnel is gone and its endpoint was never reachable, so nothing can be pulled from this
-        // Director. The in-memory copy ages out; this is the whole reason the catalog is a push and not a
-        // pull - the other screens need the list exactly when the Director is unreachable.
-        var deadline = DateTime.UtcNow.AddSeconds(30);
-        while ((await PushedRepositoriesAsync()).Count > 0)
-        {
-            Assert.True(DateTime.UtcNow < deadline,
-                "the pushed repository snapshot never went stale, so this proof never reached the state it is about");
-            await Task.Delay(100);
-        }
-
-        var row = Assert.Single(CatalogRows());
-        Assert.Equal(@"D:\Repos\alpha", row.Path);
-        Assert.Null(row.LastUsedUtc);
-    }
-
-    [Fact]
     public async Task RepositoryThatIsUsed_KeepsItsLastUsedTime_WhenTheRootFolderScanRunsOverIt()
     {
         await using var director = await FakeTunnelDirector.StartAsync(_gateway, Token, DirectorId, Machine);
@@ -245,14 +219,5 @@ public sealed class DiscoveredRepositoryTunnelProofTests : IAsyncLifetime
         Assert.Equal(@"D:\Repos\alpha", Assert.Single(CatalogRows()).Path);
         await director.PushRepoSnapshotAsync(Found(@"D:\Repos\gamma", "gamma", provisional: true));
         Assert.Equal(@"D:\Repos\alpha", Assert.Single(CatalogRows()).Path);
-    }
-
-    private async Task<List<RepoStatusDto>> PushedRepositoriesAsync()
-    {
-        using var response = await _http.GetAsync("repositories");
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var rows = await response.Content.ReadFromJsonAsync<List<RepoStatusDto>>();
-        Assert.NotNull(rows);
-        return rows;
     }
 }

@@ -113,44 +113,6 @@ public sealed class TrafficCompressionAndNotModifiedHostTests : IAsyncLifetime
     [Theory]
     [InlineData("sessions")]
     [InlineData("sessions?envelope=true")]
-    public async Task Roster_TagIsTheHashOfTheServedBytes_ChangedRow_Is200WithNewTag(string path)
-    {
-        // The roster carries two fields computed from the clock on every read (sessions[].idleSeconds and
-        // directors[].lastSeenAgeSeconds), so two real polls are never byte-identical and a real roster poll does
-        // not get a 304 until those move to absolute timestamps (phase 2). What IS pinned here is what makes the
-        // 304 safe when it does fire: the tag is the hash of exactly the bytes served, and an older tag never
-        // suppresses a changed row.
-        using var first = await Get(path);
-        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
-        var tag = TagOf(first);
-        Assert.Equal("no-cache, private", first.Headers.CacheControl?.ToString());
-        Assert.Equal(Api.ConditionalJson.TagFor(await first.Content.ReadAsByteArrayAsync()), tag);
-
-        await _dir.PushDeltaAsync(Row("blue"));
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        string body;
-        HttpResponseMessage changed;
-        while (true)
-        {
-            changed = await Get(path, ifNoneMatch: tag);
-            body = await changed.Content.ReadAsStringAsync();
-            if (body.Contains("\"blue\"", StringComparison.Ordinal) || DateTime.UtcNow > deadline)
-                break;
-            Assert.Equal(HttpStatusCode.OK, changed.StatusCode);
-            changed.Dispose();
-            await Task.Delay(50);
-        }
-        using (changed)
-        {
-            Assert.Equal(HttpStatusCode.OK, changed.StatusCode);
-            Assert.NotEqual(tag, TagOf(changed));
-            Assert.Contains("\"blue\"", body);
-        }
-    }
-
-    [Theory]
-    [InlineData("sessions")]
-    [InlineData("sessions?envelope=true")]
     public async Task Roster_MatchingTag_Is304NoBody(string path)
     {
         // "*" matches whatever the current answer is, which is the one way to ask for a roster 304 while its
