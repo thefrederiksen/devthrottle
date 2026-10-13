@@ -302,6 +302,15 @@ public sealed class GatewayHost : IAsyncDisposable
         Maps: FactoryMaps);
 
     // The sessions alive in the account's roster: what every one of its Directors last pushed.
+    /// <summary>
+    /// The calling account's display time zone, which a schedule's and a run's shifts are counted in (Factory Control,
+    /// step 3). Null when the request resolves to no account - those routes then answer without shifts.
+    /// </summary>
+    private TimeZoneInfo? AccountZoneOf(HttpContext ctx) =>
+        Api.GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary) is { } tenant
+            ? TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant))
+            : null;
+
     private IReadOnlySet<string> LiveSessionIdsFor(Core.Tenancy.TenantId tenant)
     {
         var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -5677,7 +5686,8 @@ public sealed class GatewayHost : IAsyncDisposable
             findFactory: (ctx, factory) => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary) is { } tenant
                 ? FactoryRegistry.Find(tenant, factory)
                 : null,
-            runRecords: cronRunRecords);
+            runRecords: cronRunRecords,
+            accountZoneOf: AccountZoneOf);
         // The schedule editor's factory and seat picker (the owner, 2026-10-10): the same registry the write checks.
         Api.CronSeatChoicesEndpoint.Map(_app, ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary) is { } tenant
             ? FactoryRegistry.List(tenant)
@@ -5703,7 +5713,8 @@ public sealed class GatewayHost : IAsyncDisposable
             // Factory Memory mission: running a factory's schedule on demand is limited to a person or a session
             // of that factory, so this route needs the schedule's factory and the caller's.
             jobById: id => _cronJobs.Get(id),
-            sessionFactoryOf: _sessionHistory.FactoryOf);
+            sessionFactoryOf: _sessionHistory.FactoryOf,
+            accountZoneOf: AccountZoneOf);
 
         // Factory Control, step 1: a scheduled run reports how it went, a problem is resolved with a reason, and the
         // account's problems are read through the one fold the factory page, the email and the Factory Manager share.

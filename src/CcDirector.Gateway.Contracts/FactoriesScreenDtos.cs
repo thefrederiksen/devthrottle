@@ -458,6 +458,13 @@ public sealed class FactorySeatsViewDto
 
     public List<FactorySeatRowDto> Rows { get; set; } = new();
 
+    /// <summary>
+    /// The seats grouped by the shift they work in (Factory Control, step 3): night, morning, evening, then the seats
+    /// with no run in the next 7 days. A seat that works in two shifts is in both groups, and each of its rows there
+    /// lists only the schedules that start runs in that shift. A shift no seat works in has no group.
+    /// </summary>
+    public List<FactorySeatGroupDto> Groups { get; set; } = new();
+
     /// <summary>"Only seats the boss hired are listed. ..."</summary>
     public string Note { get; set; } = "";
 }
@@ -493,6 +500,9 @@ public sealed class FactorySeatRowDto
     /// open, <see cref="FactoryTone.Grey"/> when nothing is recorded yet.</summary>
     public string ClosingTone { get; set; } = "";
 
+    /// <summary>Every shift the seat works in, in words: "Morning shift", "Night and evening shifts", "No run in the next 7 days".</summary>
+    public string ShiftText { get; set; } = "";
+
     public FactoryTalkDto Talk { get; set; } = new();
 
     /// <summary>
@@ -524,6 +534,22 @@ public sealed class FactorySeatScheduleDto
     /// that is paused. Null for a schedule the store no longer has, and for a one-off that has already run.
     /// </summary>
     public string? ToggleLabel { get; set; }
+
+    /// <summary>The shifts this schedule starts runs in, in words: "Morning shift", "No run in the next 7 days".</summary>
+    public string ShiftText { get; set; } = "";
+}
+
+/// <summary>One shift's group on the Seats tab: its heading and the seats that work in it.</summary>
+public sealed class FactorySeatGroupDto
+{
+    /// <summary>"night", "morning", "evening", or "none" for the seats with no run in the next 7 days.</summary>
+    public string Shift { get; set; } = "";
+
+    /// <summary>"Morning shift, 08:00-16:00", or "No run in the next 7 days".</summary>
+    public string Title { get; set; } = "";
+
+    /// <summary>The seats of this shift, the boss first, each listing only this shift's schedules.</summary>
+    public List<FactorySeatRowDto> Rows { get; set; } = new();
 }
 
 /// <summary>

@@ -42,6 +42,12 @@ public sealed class CronRunRecord
     public string? EndingText { get; set; }
 
     /// <summary>
+    /// The shift the run started in, in the account's time zone, for example "morning shift, Sun 11 Oct, 08:00-16:00"
+    /// (Factory Control, step 3; <c>WorkShifts</c>). Folded by the Gateway on a read. Read-only.
+    /// </summary>
+    public string? ShiftText { get; set; }
+
+    /// <summary>
     /// The run's own identifier, minted by the Gateway when the run is recorded - what <c>run resolve</c> names.
     /// Read-only: ignored on a write.
     /// </summary>

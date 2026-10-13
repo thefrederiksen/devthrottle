@@ -383,21 +383,21 @@ describe("A factory's Seats tab (mockup 3)", () => {
     const table = await screen.findByTestId("fa-seats-table");
     expect(screen.getByRole("navigation", { name: "Breadcrumb" }).textContent).toBe("Factories / WarmForward / Seats");
     expect(screen.getByRole("link", { name: "WarmForward" }).getAttribute("href")).toBe("/factories/warmforward");
-    expect(Array.from(table.querySelectorAll("th")).map((th) => th.textContent)).toEqual([
+    expect(Array.from(table.querySelectorAll("thead th")).map((th) => th.textContent)).toEqual([
       "Seat",
       "When it runs",
       "Last run",
       "Computer",
       "",
     ]);
-    const nora = within(table).getByTestId("fa-seat-nora-hale");
+    const nora = within(table).getByTestId("fa-seat-night-nora-hale");
     // The boss has no name of its own: the row says Boss as its name and Boss as its role.
     expect(within(nora).getAllByText("Boss")).toHaveLength(2);
     expect(within(nora).getByText("Daily 06:15")).toBeTruthy();
     expect(within(nora).getByText("Today 06:20 - succeeded").className).toContain("fa-tone-ok");
     expect(within(nora).getByText("SOREN_NORTH").tagName).toBe("TD");
     expect(within(table).queryByText(/change - coming/)).toBeNull();
-    expect(within(within(table).getByTestId("fa-seat-value-hunter")).getByText("Not run yet")).toBeTruthy();
+    expect(within(within(table).getByTestId("fa-seat-none-value-hunter")).getByText("Not run yet")).toBeTruthy();
     expect(screen.getByText("Only seats the boss hired are listed.")).toBeTruthy();
     expect(screenClient.getFactorySeats).toHaveBeenCalledWith("warmforward", expect.anything());
   });
@@ -420,12 +420,16 @@ describe("A factory's Seats tab (mockup 3)", () => {
       seat: "nora-hale",
     };
     cronClient.getCronJob.mockResolvedValue(boss);
-    cronClient.updateCronJob.mockResolvedValue({ ...boss, loadWarning: "SOREN_NORTH has 7 sessions open at 06:00." });
+    cronClient.updateCronJob.mockResolvedValue({
+      ...boss,
+      loadWarning: "SOREN_NORTH has 7 sessions open at 06:00.",
+      shiftWarning: "Ends after its shift: the run on Mon 12 Oct at 07:45 starts in the night shift (fixture).",
+    });
     renderAt("/factories/warmforward/seats");
 
-    const nora = await screen.findByTestId("fa-seat-nora-hale");
+    const nora = await screen.findByTestId("fa-seat-night-nora-hale");
     // A schedule that no longer exists is still told, and offers no Edit.
-    const hunter = screen.getByTestId("fa-seat-value-hunter");
+    const hunter = screen.getByTestId("fa-seat-none-value-hunter");
     expect(within(hunter).getByText("Schedule cj_value is missing")).toBeTruthy();
     expect(within(hunter).queryByRole("button", { name: "Edit schedule" })).toBeNull();
     fireEvent.click(within(nora).getByRole("button", { name: "Edit schedule" }));
@@ -448,7 +452,50 @@ describe("A factory's Seats tab (mockup 3)", () => {
     );
     await waitFor(() => expect(screenClient.getFactorySeats.mock.calls.length).toBeGreaterThan(seatReads));
     // The Gateway's warning is shown here too, as on the Schedule page.
-    expect((await screen.findByText(/Saved, but:/)).textContent).toContain("SOREN_NORTH has 7 sessions open at 06:00.");
+    const banner = (await screen.findByText(/Saved, but:/)).textContent;
+    expect(banner).toContain("SOREN_NORTH has 7 sessions open at 06:00.");
+    // The shift-end warning rides beside it, verbatim.
+    expect(banner).toContain("Ends after its shift: the run on Mon 12 Oct at 07:45 starts in the night shift (fixture).");
+  });
+
+  it("groups the seats under the Gateway's shift headings, in its order, a seat in two shifts under each", async () => {
+    const nora = FACTORY_SEATS.rows[0];
+    screenClient.getFactorySeats.mockResolvedValue({
+      ...FACTORY_SEATS,
+      groups: [
+        {
+          shift: "night",
+          title: "Night shift, 00:00-08:00 (fixture)",
+          rows: [{ ...nora, shiftText: "Night and evening shifts (fixture)" }],
+        },
+        {
+          shift: "evening",
+          title: "Evening shift, 16:00-24:00 (fixture)",
+          rows: [
+            {
+              ...nora,
+              shiftText: "Night and evening shifts (fixture)",
+              schedules: [{ jobId: "cj_eve", whenText: "Daily 18:00", editLabel: "Edit schedule", shiftText: "Evening shift" }],
+            },
+          ],
+        },
+      ],
+    });
+    renderAt("/factories/warmforward/seats");
+
+    const table = await screen.findByTestId("fa-seats-table");
+    expect(Array.from(table.querySelectorAll(".fa-shift-head th")).map((th) => th.textContent)).toEqual([
+      "Night shift, 00:00-08:00 (fixture)",
+      "Evening shift, 16:00-24:00 (fixture)",
+    ]);
+    const night = within(table).getByTestId("fa-seat-night-nora-hale");
+    const evening = within(table).getByTestId("fa-seat-evening-nora-hale");
+    // Each row lists only its own shift's schedules, and says every shift the seat works in.
+    expect(within(night).getByText("Daily 06:15")).toBeTruthy();
+    expect(within(night).queryByText("Daily 18:00")).toBeNull();
+    expect(within(evening).getByText("Daily 18:00")).toBeTruthy();
+    expect(within(evening).queryByText("Daily 06:15")).toBeNull();
+    expect(within(evening).getByText("Night and evening shifts (fixture)")).toBeTruthy();
   });
 
   // ---- issue #3910: pause and resume right where the state is read ----
@@ -456,7 +503,7 @@ describe("A factory's Seats tab (mockup 3)", () => {
   it("pauses a seat's schedule with one tap beside its Edit, and shows the seats again", async () => {
     cronClient.setCronJobEnabled.mockResolvedValue({ id: "cj_boss", enabled: false });
     renderAt("/factories/warmforward/seats");
-    const nora = await screen.findByTestId("fa-seat-nora-hale");
+    const nora = await screen.findByTestId("fa-seat-night-nora-hale");
     // Beside the existing Edit, on the same schedule line.
     const line = within(nora).getByText("Daily 06:15").parentElement as HTMLElement;
     expect(within(line).getByRole("button", { name: "Edit schedule" })).toBeTruthy();
@@ -467,23 +514,76 @@ describe("A factory's Seats tab (mockup 3)", () => {
     await waitFor(() => expect(cronClient.setCronJobEnabled).toHaveBeenCalledWith("cj_boss", false));
     await waitFor(() => expect(screenClient.getFactorySeats.mock.calls.length).toBeGreaterThan(seatReads));
     // A schedule that no longer exists has nothing to pause.
-    const hunter = screen.getByTestId("fa-seat-value-hunter");
+    const hunter = screen.getByTestId("fa-seat-none-value-hunter");
     expect(within(hunter).queryByRole("button", { name: /Pause|Resume/ })).toBeNull();
+  });
+
+  it("keeps a paused schedule on the tab with its Resume, when the seat's other schedule still runs", async () => {
+    // The boss has two night schedules. Pausing one moves it, on the Gateway's next answer, under "No run in the
+    // next 7 days" - the seat is then in both groups, and the paused schedule keeps its words, its Edit and its Resume.
+    const [boss0, hunter0] = FACTORY_SEATS.rows;
+    const noRun = "No run in the next 7 days";
+    const first = { jobId: "cj_boss", whenText: "Daily 06:15", editLabel: "Edit schedule", paused: false, toggleLabel: "Pause", shiftText: "Night shift" };
+    const second = { jobId: "cj_boss_2", whenText: "Daily 07:00", editLabel: "Edit schedule", paused: false, toggleLabel: "Pause", shiftText: "Night shift" };
+    const secondPaused = { ...second, whenText: "Daily 07:00 (paused)", paused: true, toggleLabel: "Resume", shiftText: noRun };
+    const both = { ...boss0, whenText: "Daily 06:15; Daily 07:00", schedules: [first, second] };
+    const before = {
+      ...FACTORY_SEATS,
+      rows: [both, hunter0],
+      groups: [
+        { shift: "night", title: "Night shift, 00:00-08:00 (fixture)", rows: [both] },
+        { shift: "none", title: "No run in the next 7 days (fixture)", rows: [hunter0] },
+      ],
+    };
+    const after = {
+      ...FACTORY_SEATS,
+      rows: [{ ...both, schedules: [first, secondPaused] }, hunter0],
+      groups: [
+        { shift: "night", title: "Night shift, 00:00-08:00 (fixture)", rows: [{ ...boss0, schedules: [first] }] },
+        {
+          shift: "none",
+          title: "No run in the next 7 days (fixture)",
+          rows: [{ ...boss0, whenText: "Daily 07:00 (paused)", schedules: [secondPaused] }, hunter0],
+        },
+      ],
+    };
+    screenClient.getFactorySeats.mockResolvedValue(before);
+    cronClient.setCronJobEnabled.mockImplementation(async () => {
+      screenClient.getFactorySeats.mockResolvedValue(after);
+      return { id: "cj_boss_2", enabled: false };
+    });
+    renderAt("/factories/warmforward/seats");
+    const night = await screen.findByTestId("fa-seat-night-nora-hale");
+    const line = within(night).getByText("Daily 07:00").parentElement as HTMLElement;
+
+    fireEvent.click(within(line).getByRole("button", { name: "Pause" }));
+
+    await waitFor(() => expect(cronClient.setCronJobEnabled).toHaveBeenCalledWith("cj_boss_2", false));
+    const idle = await screen.findByTestId("fa-seat-none-nora-hale");
+    const pausedLine = within(idle).getByText("Daily 07:00 (paused)").parentElement as HTMLElement;
+    expect(within(pausedLine).getByRole("button", { name: "Resume" })).toBeTruthy();
+    expect(within(pausedLine).getByRole("button", { name: "Edit schedule" })).toBeTruthy();
+    // The seat is still under the night shift with the schedule that runs, and only that one.
+    const stillNight = screen.getByTestId("fa-seat-night-nora-hale");
+    expect(within(stillNight).getByText("Daily 06:15")).toBeTruthy();
+    expect(within(stillNight).queryByText("Daily 07:00 (paused)")).toBeNull();
   });
 
   it("resumes a paused seat schedule with one tap, where it reads (paused)", async () => {
     // The owner's own example from 12 October: the state was shown, with no control next to it.
+    // A paused schedule will not run, so the Gateway lists its seat under "No run in the next 7 days".
+    const [boss0, hunter0] = FACTORY_SEATS.rows;
+    const noRun = "No run in the next 7 days";
+    const pausedBoss = {
+      ...boss0,
+      whenText: "Daily 09:00 (America/New_York) (paused)",
+      shiftText: noRun,
+      schedules: [{ jobId: "cj_boss", whenText: "Daily 09:00 (America/New_York) (paused)", editLabel: "Edit schedule", paused: true, toggleLabel: "Resume", shiftText: noRun }],
+    };
     const pausedSeats = {
       ...FACTORY_SEATS,
-      rows: FACTORY_SEATS.rows.map((r) =>
-        r.seatId !== "nora-hale"
-          ? r
-          : {
-              ...r,
-              whenText: "Daily 09:00 (America/New_York) (paused)",
-              schedules: [{ jobId: "cj_boss", whenText: "Daily 09:00 (America/New_York) (paused)", editLabel: "Edit schedule", paused: true, toggleLabel: "Resume" }],
-            },
-      ),
+      rows: [pausedBoss, hunter0],
+      groups: [{ shift: "none", title: "No run in the next 7 days (fixture)", rows: [pausedBoss, hunter0] }],
     };
     screenClient.getFactorySeats.mockResolvedValue(pausedSeats);
     cronClient.setCronJobEnabled.mockResolvedValue({ id: "cj_boss", enabled: true });
@@ -499,11 +599,11 @@ describe("A factory's Seats tab (mockup 3)", () => {
     cronClient.setCronJobEnabled.mockRejectedValue(new GatewayError(400, "PUT /cron/jobs/cj_boss failed: this window schedule cannot be placed"));
     renderAt("/factories/warmforward/seats");
 
-    fireEvent.click(within(await screen.findByTestId("fa-seat-nora-hale")).getByRole("button", { name: "Pause" }));
+    fireEvent.click(within(await screen.findByTestId("fa-seat-night-nora-hale")).getByRole("button", { name: "Pause" }));
 
     expect((await screen.findByRole("alert")).textContent).toContain("could not pause the schedule");
     // The button is offered again.
-    expect((within(screen.getByTestId("fa-seat-nora-hale")).getByRole("button", { name: "Pause" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((within(screen.getByTestId("fa-seat-night-nora-hale")).getByRole("button", { name: "Pause" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("says on the Seats tab that everything is paused, so a seat that does not run is not taken for a broken one", async () => {
@@ -517,7 +617,7 @@ describe("A factory's Seats tab (mockup 3)", () => {
     cronClient.getCronJob.mockRejectedValue(new GatewayError(404, "GET /cron/jobs/cj_boss failed: no such cron job"));
     renderAt("/factories/warmforward/seats");
 
-    fireEvent.click(within(await screen.findByTestId("fa-seat-nora-hale")).getByRole("button", { name: "Edit schedule" }));
+    fireEvent.click(within(await screen.findByTestId("fa-seat-night-nora-hale")).getByRole("button", { name: "Edit schedule" }));
 
     expect((await screen.findByRole("alert")).textContent).toContain("could not open the schedule");
     expect(screen.queryByRole("dialog")).toBeNull();
@@ -527,7 +627,7 @@ describe("A factory's Seats tab (mockup 3)", () => {
     screenClient.startFactoryTalk.mockResolvedValue({ sessionId: "s-9", href: "/session/s-9" });
     renderAt("/factories/warmforward/seats");
 
-    const row = await screen.findByTestId("fa-seat-value-hunter");
+    const row = await screen.findByTestId("fa-seat-none-value-hunter");
     fireEvent.click(within(row).getByRole("button", { name: "Talk" }));
     await waitFor(() => expect(where()).toBe("/session/s-9"));
     expect(screenClient.startFactoryTalk).toHaveBeenCalledWith(FACTORY_SEATS.rows[1].talk);
@@ -821,21 +921,26 @@ describe("Seats that do not close themselves (Factory Control, step 2)", () => {
 
   it("gives each seat its marker verbatim, coloured by the Gateway's tone", async () => {
     // Seats are named by role words; the boss's seat id here is "boss", never a person's name.
+    // The Seats tab renders the Gateway's shift groups, so the seats are given there: the boss under night, the
+    // Value Hunter under "none".
     const [boss0, hunter0] = FACTORY_SEATS.rows;
+    const boss1 = { ...boss0, seatId: "boss", talk: { ...boss0.talk, seatId: "boss" } };
+    const [night, none] = FACTORY_SEATS.groups;
     screenClient.getFactorySeats.mockResolvedValue({
       ...FACTORY_SEATS,
-      rows: [
-        { ...boss0, seatId: "boss", talk: { ...boss0.talk, seatId: "boss" } },
-        hunter0,
+      rows: [boss1, hunter0],
+      groups: [
+        { ...night, rows: [boss1] },
+        { ...none, rows: [hunter0] },
       ],
     });
     renderAt("/factories/warmforward/seats");
 
     const table = await screen.findByTestId("fa-seats-table");
-    const boss = within(within(table).getByTestId("fa-seat-boss")).getByTestId("fa-seat-closing");
+    const boss = within(within(table).getByTestId("fa-seat-night-boss")).getByTestId("fa-seat-closing");
     expect(boss.textContent).toBe("stayed open 3 of its last 7 runs (fixture)");
     expect(boss.className).toContain("fa-tone-amber");
-    const hunter = within(within(table).getByTestId("fa-seat-value-hunter")).getByTestId("fa-seat-closing");
+    const hunter = within(within(table).getByTestId("fa-seat-none-value-hunter")).getByTestId("fa-seat-closing");
     expect(hunter.textContent).toBe("no runs recorded yet (fixture)");
     expect(hunter.className).toContain("fa-tone-grey");
   });

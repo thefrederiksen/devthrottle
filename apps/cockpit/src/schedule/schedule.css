@@ -1257,3 +1257,26 @@
   cursor: pointer;
   white-space: nowrap;
 }
+
+/* The shift a schedule works in (Factory Control, step 3). A schedule the Gateway warned about is amber in the list;
+   the warning and its rule are in the detail panel. */
+.sched-shift {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.sched-shift.warn {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.sched-shift-warning {
+  justify-content: flex-start;
+}
+
+.sched-shift-rule {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+}

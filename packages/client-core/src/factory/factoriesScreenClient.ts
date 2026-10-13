@@ -357,6 +357,8 @@ export interface FactorySeatRow {
   closingText: string;
   /** ok, amber or grey. */
   closingTone: FactoryTone;
+  /** Every shift the seat works in, in words: "Morning shift", "Night and evening shifts", "No run in the next 7 days". */
+  shiftText: string;
   talk: FactoryTalkTarget;
   /** Every schedule the seat names, with its words and the button that edits it; empty when it has none. */
   schedules: FactorySeatSchedule[];
@@ -373,6 +375,21 @@ export interface FactorySeatSchedule {
   paused: boolean;
   /** "Pause" or "Resume" (issue #3910); null for a schedule that no longer exists or a one-off that has run. */
   toggleLabel: string | null;
+  /** The shifts this schedule starts runs in, in words: "Morning shift". */
+  shiftText: string;
+}
+
+/**
+ * One shift's group on the Seats tab (Factory Control, step 3), folded by the Gateway: night, morning, evening, then
+ * "none" for the seats with no run in the next 7 days. A seat in two shifts is in both, each row with only that
+ * shift's schedules. Render in the order given.
+ */
+export interface FactorySeatGroup {
+  /** "night", "morning", "evening" or "none". */
+  shift: string;
+  /** "Morning shift, 08:00-16:00", or "No run in the next 7 days". */
+  title: string;
+  rows: FactorySeatRow[];
 }
 
 export interface FactorySeatsView {
@@ -383,6 +400,8 @@ export interface FactorySeatsView {
   /** "Seat", "When it runs", "Last run", "Computer". */
   columns: string[];
   rows: FactorySeatRow[];
+  /** The seats grouped by shift; the Seats tab renders these. */
+  groups: FactorySeatGroup[];
   note: string;
 }
 

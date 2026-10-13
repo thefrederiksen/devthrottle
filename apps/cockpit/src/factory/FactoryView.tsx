@@ -7,6 +7,7 @@ import {
   type FactorySeatsView,
 } from "@devthrottle/client-core/factory/factoriesScreenClient";
 import { getCronJob, setCronJobEnabled, type CronJob } from "@devthrottle/client-core/schedule/scheduleClient";
+import { savedWarnings } from "@devthrottle/client-core/schedule/savedWarnings";
 import { Button, EmptyState, ErrorBanner, LoadingState } from "../components";
 import { ScheduleEditor, type ScheduleEditorRequest } from "../schedule/ScheduleEditor";
 import { PausedBanner, useSchedulerPause } from "../schedule/SchedulerPause";
@@ -256,7 +257,7 @@ function SeatsTab({ view: d, onChanged }: { view: FactorySeatsView; onChanged: (
 
   const onSaved = useCallback(
     (saved: CronJob) => {
-      setLoadWarning(saved.loadWarning ?? null);
+      setLoadWarning(savedWarnings(saved));
       onChanged();
     },
     [onChanged],
@@ -318,54 +319,64 @@ function SeatsTab({ view: d, onChanged }: { view: FactorySeatsView; onChanged: (
               <th aria-label="Talk" />
             </tr>
           </thead>
-          <tbody>
-            {d.rows.map((seat) => (
-              <tr key={seat.seatId} data-testid={`fa-seat-${seat.seatId}`}>
-                <td>
-                  <div className="fa-seat-name">{seat.name}</div>
-                  <div className="fa-dim">{seat.role}</div>
-                </td>
-                <td>
-                  {seat.schedules.length === 0
-                    ? seat.whenText
-                    : seat.schedules.map((s) => (
-                        <div className="fa-seat-schedule" key={s.jobId}>
-                          <span>{s.whenText}</span>
-                          {s.editLabel !== null && (
-                            <Button
-                              variant="secondary"
-                              disabled={opening !== null}
-                              onClick={() => void openEditor(s.jobId)}
-                            >
-                              {opening === s.jobId ? "Opening..." : s.editLabel}
-                            </Button>
-                          )}
-                          {s.toggleLabel !== null && (
-                            <Button
-                              variant="secondary"
-                              data-testid={`fa-seat-toggle-${s.jobId}`}
-                              disabled={switching !== null}
-                              onClick={() => void toggleSchedule(s.jobId, s.paused)}
-                            >
-                              {switching === s.jobId ? "Saving..." : s.toggleLabel}
-                            </Button>
-                          )}
-                        </div>
-                      ))}
-                </td>
-                <td>
-                  <span className={`fa-lastrun fa-tone-${seat.lastRunTone}`}>{seat.lastRunText}</span>
-                  <div className={`fa-lastrun fa-closing fa-tone-${seat.closingTone}`} data-testid="fa-seat-closing">
-                    {seat.closingText}
-                  </div>
-                </td>
-                <td>{seat.computerText}</td>
-                <td className="fa-seat-talk">
-                  <TalkButton talk={seat.talk} variant="secondary" />
-                </td>
+          {/* Grouped by shift (Factory Control, step 3). The groups, their order and their headings are the
+              Gateway's; a seat in two shifts arrives in both, each row with that shift's schedules only. */}
+          {d.groups.map((group) => (
+            <tbody key={group.shift} data-testid={`fa-shift-${group.shift}`}>
+              <tr className="fa-shift-head">
+                <th colSpan={d.columns.length + 1} scope="colgroup">
+                  {group.title}
+                </th>
               </tr>
-            ))}
-          </tbody>
+              {group.rows.map((seat) => (
+                <tr key={seat.seatId} data-testid={`fa-seat-${group.shift}-${seat.seatId}`}>
+                  <td>
+                    <div className="fa-seat-name">{seat.name}</div>
+                    <div className="fa-dim">{seat.role}</div>
+                    <div className="fa-dim fa-seat-shift">{seat.shiftText}</div>
+                  </td>
+                  <td>
+                    {seat.schedules.length === 0
+                      ? seat.whenText
+                      : seat.schedules.map((s) => (
+                          <div className="fa-seat-schedule" key={s.jobId}>
+                            <span>{s.whenText}</span>
+                            {s.editLabel !== null && (
+                              <Button
+                                variant="secondary"
+                                disabled={opening !== null}
+                                onClick={() => void openEditor(s.jobId)}
+                              >
+                                {opening === s.jobId ? "Opening..." : s.editLabel}
+                              </Button>
+                            )}
+                            {s.toggleLabel !== null && (
+                              <Button
+                                variant="secondary"
+                                data-testid={`fa-seat-toggle-${s.jobId}`}
+                                disabled={switching !== null}
+                                onClick={() => void toggleSchedule(s.jobId, s.paused)}
+                              >
+                                {switching === s.jobId ? "Saving..." : s.toggleLabel}
+                              </Button>
+                            )}
+                          </div>
+                        ))}
+                  </td>
+                  <td>
+                    <span className={`fa-lastrun fa-tone-${seat.lastRunTone}`}>{seat.lastRunText}</span>
+                    <div className={`fa-lastrun fa-closing fa-tone-${seat.closingTone}`} data-testid="fa-seat-closing">
+                      {seat.closingText}
+                    </div>
+                  </td>
+                  <td>{seat.computerText}</td>
+                  <td className="fa-seat-talk">
+                    <TalkButton talk={seat.talk} variant="secondary" />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          ))}
         </table>
       </div>
       <p className="fa-footnote">{d.note}</p>
