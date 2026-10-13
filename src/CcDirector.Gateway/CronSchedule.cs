@@ -241,6 +241,8 @@ public static class CronSchedule
     {
         ArgumentNullException.ThrowIfNull(job);
         job.Lifecycle = LifecycleOf(job);
+        job.StateLabel = StateLabelOf(job.Lifecycle);
+        job.ToggleLabel = ToggleLabelOf(job.Enabled);
         if (IsWindow(job.ScheduleKind) && Validate(job).Ok)
         {
             // The schedule it runs after is named by the list route, which holds every schedule; here it is its id.
@@ -276,6 +278,33 @@ public static class CronSchedule
             return job.LastFiredUtc is null ? CronLifecycle.Off : CronLifecycle.Spent;
         return CronLifecycle.Paused;
     }
+
+    /// <summary>The state word every surface shows for a schedule (issue #3910): one word, Paused, for switched off.</summary>
+    public const string StateActive = "Active";
+
+    /// <inheritdoc cref="StateActive"/>
+    public const string StatePaused = "Paused";
+
+    /// <summary>A one-off that has run: it is not paused, because resuming it is not what it is waiting for.</summary>
+    public const string StateFinished = "Finished";
+
+    public const string TogglePause = "Pause";
+    public const string ToggleResume = "Resume";
+
+    /// <summary>
+    /// A lifecycle in the word shown for it. Switched off is Paused everywhere - a repeating schedule and a one-off
+    /// that has not run alike - and never "Disabled".
+    /// </summary>
+    public static string StateLabelOf(string lifecycle) => lifecycle switch
+    {
+        CronLifecycle.Active => StateActive,
+        CronLifecycle.Spent => StateFinished,
+        CronLifecycle.Paused or CronLifecycle.Off => StatePaused,
+        _ => throw new ArgumentOutOfRangeException(nameof(lifecycle), lifecycle, "not a schedule lifecycle"),
+    };
+
+    /// <summary>What one tap does to a schedule that is switched on (Pause) or off (Resume).</summary>
+    public static string ToggleLabelOf(bool enabled) => enabled ? TogglePause : ToggleResume;
 
     /// <summary>The most windows <see cref="BuildPlan"/> will list.</summary>
     public const int MaxPlanDays = 14;

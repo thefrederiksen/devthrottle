@@ -13,11 +13,17 @@ namespace CcDirector.Gateway.Api;
 /// <param name="ScheduleRuns">The newest runs of these schedules in this account, each with its ending stamped
 /// (<see cref="Running.CronRunRecordReader.RecentRunsOf"/>), at this instant - what each seat's "closes itself"
 /// marker is folded from.</param>
+/// <param name="Problems">One factory's open problems, from the one problems fold (<c>GET /cron/problems</c>) - what
+/// the factory page's Open problems card lays out (Factory Control, step 1b).</param>
+/// <param name="Emails">The SENT factory emails that covered one factory, newest first (<c>GET /gateway/factory-emails</c>)
+/// - what the factory page's kept reports card lays out.</param>
 internal sealed record FactoriesScreenSources(
     FactoryAgentsSources Activity,
     FactoryRegistryStore Registry,
     Func<TenantId, IReadOnlyList<CronJobDto>> Schedules,
-    Func<TenantId, IReadOnlyCollection<string>, DateTime, IReadOnlyDictionary<string, IReadOnlyList<CronRunRecord>>> ScheduleRuns);
+    Func<TenantId, IReadOnlyCollection<string>, DateTime, IReadOnlyDictionary<string, IReadOnlyList<CronRunRecord>>> ScheduleRuns,
+    Func<TenantId, string, CronRunProblemsDto> Problems,
+    Func<TenantId, string, FactoryEmailsDto> Emails);
 
 /// <summary>
 /// The Factories screen (Factories screen mission, phase B): every view folded once by
@@ -59,7 +65,10 @@ internal static class FactoriesScreenEndpoints
                 if (sources.Registry.Find(tenant, factory) is not { } registered) return NotRegistered(factory);
                 var input = Inputs(sources, tenant, FactoryAgentsFold.WindowLast7d, registered.Factory);
                 var dto = FactoriesScreenFold.Page(registered, input);
-                FileLog.Write($"[FactoriesScreenEndpoints] GET page: {registered.Factory} status={dto.StatusWord}, waiting={dto.Waiting.Items.Count}");
+                dto.Problems = FactoryProblemsFold.Card(registered, sources.Problems(tenant, registered.Factory));
+                dto.Emails = FactoryEmailsFold.Card(registered, sources.Emails(tenant, registered.Factory),
+                    input.Activity.Zone, input.Activity.NowUtc);
+                FileLog.Write($"[FactoriesScreenEndpoints] GET page: {registered.Factory} status={dto.StatusWord}, waiting={dto.Waiting.Items.Count}, problems={dto.Problems.Items.Count}, emails={dto.Emails.Items.Count}");
                 return Results.Json(dto);
             }));
 

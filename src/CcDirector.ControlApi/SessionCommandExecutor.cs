@@ -64,7 +64,8 @@ internal sealed class SessionCommandServices
 
     /// <summary>
     /// The License Switching mission: this process's license switching (the key holder lock, the switch and its stored
-    /// results), for the <c>license-switch</c> verb. One per process, never per host, because the lock is held for the
+    /// results, the sign-ins and approvals), for the <c>license-switch</c>, <c>license-sign-in</c>,
+    /// <c>license-approve</c> and <c>license-approval-result</c> verbs. One per process, never per host, because the lock is held for the
     /// life of the process.
     /// </summary>
     public CcDirector.Core.Licenses.LicenseSwitching? Licenses { get; init; }
@@ -122,6 +123,9 @@ internal static class SessionCommandExecutor
         // The License Switching mission: exchanging this machine's active Claude sign-in with a spare, decided by the
         // Gateway. Only the key holder carries it out; it touches the key store and types into no session.
         new LicenseSwitchExecutor(),
+        // The License Switching mission, contract section 8: signing an account in on this machine when the Gateway
+        // asks, approving another machine's sign-in in a browser profile here, and taking that approval back.
+        new LicenseSignInExecutor(),
     };
 
     /// <summary>
@@ -773,8 +777,10 @@ internal static class SessionCommandExecutor
         }
     }
 
-    /// <summary>Test seam: sees every late outcome as (delivery id, wire word), alongside the log. Null in the Director.</summary>
-    internal static Action<string, string>? LateOutcomeObserver;
+    /// <summary>Test seam: sees every late outcome as (delivery id, wire word), alongside the log. Null in the Director.
+    /// An event, not a field: test classes that run side by side each add and remove their own observer, and adding
+    /// to a delegate held in a field is a read and a write, so one class's observer could be lost to another's.</summary>
+    internal static event Action<string, string>? LateOutcomeObserver;
 
     /// <summary>Logs a late outcome and, for a prompt with a delivery id, writes it to the delivery record. A late outcome
     /// is "delivered", "not-delivered" or "unconfirmed", never "delivering" (round 2c: nothing stays delivering forever). Nobody awaits the send that produced this outcome,

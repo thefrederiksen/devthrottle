@@ -5,7 +5,6 @@ using CcDirector.Core.Machine;
 using CcDirector.Core.Memory;
 using CcDirector.Core.Tests.Drivers;
 using CcDirector.TestInfrastructure;
-using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
 namespace CcDirector.Core.Tests.Input;
@@ -59,7 +58,7 @@ public sealed class TerminalSubmitComposerEvidenceTests : IDisposable
 
     private PinnedMachineMemory? _starved;
 
-    private readonly FakeTimeProvider _clock = VirtualTime.NewClock();
+    private readonly VirtualClock _clock = VirtualTime.NewClock();
 
     public TerminalSubmitComposerEvidenceTests() => PromptDeliveryFailures.ResetForTests();
 

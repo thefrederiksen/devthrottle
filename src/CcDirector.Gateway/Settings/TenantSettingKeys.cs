@@ -256,6 +256,13 @@ public static class TenantSettingKeys
     public const string FactoryAgentsSwitch = "factory_agents_switch";
 
     /// <summary>
+    /// The pause-everything switch (issue #3910): the moment the account's scheduler was paused, as a round-trip UTC
+    /// time. No row means not paused. Read and written only by <c>Running.CronPauseSwitch</c>; it sits beside the
+    /// schedules and never changes one.
+    /// </summary>
+    public const string SchedulesPaused = "schedules_paused";
+
+    /// <summary>
     /// The factory maps (issue #3383): a JSON object, factory id to the latest map that factory published with
     /// <c>PUT /gateway/factory/map</c> - its boxes, arrows and layout, when and by whom. The Cockpit draws it on the
     /// factory's Map tab. See <c>Factory.FactoryMapStore</c>.
@@ -282,6 +289,14 @@ public static class TenantSettingKeys
     /// </summary>
     public const string DemoMode = "demo_mode";
 
+    /// <summary>
+    /// Whether this account is sent the factory email - the 08:00 report and the 16:00 / midnight checks (Factory
+    /// Control, step 4). Stored as "true"/"false". OFF unless switched on: it ships off, and the account's first real
+    /// report is checked before it is turned on for anyone (the owner's ruling, 10 October 2026). Anything stored that
+    /// is not exactly "true" reads as off.
+    /// </summary>
+    public const string FactoryEmailEnabled = "factory_email_enabled";
+
     /// <summary>Every key this resolver serves, for validation and enumeration.</summary>
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -298,7 +313,9 @@ public static class TenantSettingKeys
         FleetManagerMarkClearedSession, FleetManagerMarkClearedReason, FleetManagerWaitingSuccessors,
         FleetManagerReplacementStartingAt,
         FactoryReports, FactoryAgentsSwitch, FactoryMaps,
+        SchedulesPaused,
         GatewayInstanceId,
         DemoMode,
+        FactoryEmailEnabled,
     };
 }

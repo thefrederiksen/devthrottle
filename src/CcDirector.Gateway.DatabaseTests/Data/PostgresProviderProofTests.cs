@@ -214,6 +214,12 @@ public sealed class PostgresProviderProofTests
             ("device_import_markers", "SourcePath"),
             ("dictation_suggestion_dismissals", "Term"),
             ("dictation_suggestion_verdicts", "Term"),
+            // The kept factory emails (Factory Control, step 4). The slot key is half of the unique index that makes a
+            // slot handled exactly once, so the two providers must agree on its equality or one of them sends a slot
+            // twice; the kind and the state are closed words the sweep and the read routes compare exactly.
+            ("factory_email_reports", "Kind"),
+            ("factory_email_reports", "SlotKey"),
+            ("factory_email_reports", "State"),
             // The Fleet Manager's stop events (the Fleet Manager mission): the event kind selects and groups, the
             // session the event is about and the session it was delivered to are the two inbox reads, the verdict id
             // binds an event to the stop it was about, and the outcome id binds it to the record it was filed on -

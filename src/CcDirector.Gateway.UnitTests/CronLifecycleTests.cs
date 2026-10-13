@@ -28,6 +28,29 @@ public sealed class CronLifecycleTests
         Action = new CronJobAction { RepoPath = @"D:\repo", Seed = "/help" },
     };
 
+    // ---- one word: Paused (issue #3910) ----
+
+    [Theory]
+    [InlineData(CronSchedule.KindRecurring, true, null, "Active", "Pause")]
+    [InlineData(CronSchedule.KindRandom, true, null, "Active", "Pause")]
+    [InlineData(CronSchedule.KindOneOff, true, null, "Active", "Pause")]
+    [InlineData(CronSchedule.KindRecurring, false, null, "Paused", "Resume")]
+    [InlineData(CronSchedule.KindRandom, false, null, "Paused", "Resume")]
+    // A one-off switched off before it ran is paused too: resuming it is what it is waiting for.
+    [InlineData(CronSchedule.KindOneOff, false, null, "Paused", "Resume")]
+    // One that has run is finished, not paused.
+    [InlineData(CronSchedule.KindOneOff, false, 3, "Finished", "Resume")]
+    public void StampDisplay_StampsTheStateWordAndWhatATapDoes_AndNeverSaysEnabledOrDisabled(
+        string kind, bool enabled, int? firedDaysAgo, string state, string toggle)
+    {
+        var job = CronSchedule.StampDisplay(
+            Job(kind, enabled, firedDaysAgo is { } d ? Now.AddDays(-d) : null), Now);
+
+        Assert.Equal(state, job.StateLabel);
+        Assert.Equal(toggle, job.ToggleLabel);
+        Assert.DoesNotContain("abled", job.StateLabel + job.ToggleLabel);
+    }
+
     [Theory]
     [InlineData(CronSchedule.KindRecurring)]
     [InlineData(CronSchedule.KindRandom)]

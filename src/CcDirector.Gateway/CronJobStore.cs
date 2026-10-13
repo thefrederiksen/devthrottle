@@ -35,6 +35,7 @@ public sealed class CronJobStore
     private readonly object _gate = new();
     private readonly GatewayDatabase _db;
     private readonly string _legacyJsonPath;
+    private readonly TimeProvider _time;
 
     private static readonly JsonSerializerOptions FileJsonOptions = new()
     {
@@ -59,9 +60,13 @@ public sealed class CronJobStore
     /// The caller MUST run Initialize inside the same ambient tenant scope the constructor would have had.
     /// Nothing is served in the meantime: the readiness gate refuses every request but /healthz.
     /// </param>
-    public CronJobStore(GatewayDatabase db, string legacyJsonPath, bool deferInitialize = false)
+    /// <param name="timeProvider">The clock every "now" in this store is read from. The system clock when omitted;
+    /// a test hands in a fake one, so what was due while the Gateway was down is decided by the test and not by
+    /// the minute it happened to run in.</param>
+    public CronJobStore(GatewayDatabase db, string legacyJsonPath, bool deferInitialize = false, TimeProvider? timeProvider = null)
     {
         _db = db ?? throw new ArgumentNullException(nameof(db));
+        _time = timeProvider ?? TimeProvider.System;
         if (string.IsNullOrWhiteSpace(legacyJsonPath))
             throw new ArgumentException("legacy json path is required", nameof(legacyJsonPath));
         _legacyJsonPath = legacyJsonPath;
@@ -110,7 +115,7 @@ public sealed class CronJobStore
         lock (_gate)
         {
             using var ctx = _db.CreateContext();
-            var now = DateTime.UtcNow;
+            var now = _time.GetUtcNow().UtcDateTime;
             var id = NewId(ctx);
 
             var entity = new CronJobEntity { Id = id, TenantId = ctx.ActiveTenant! };
@@ -210,7 +215,7 @@ public sealed class CronJobStore
             // Preserve identity + the firing engine's metadata; overwrite the editable definition.
             ApplyDefinition(entity, incoming);
             entity.NotifyOn = CronNotify.Normalize(incoming.NotifyOn);
-            entity.NextRunUtc = CronSchedule.ComputeNextRunUtc(ToDto(entity), DateTime.UtcNow);
+            entity.NextRunUtc = CronSchedule.ComputeNextRunUtc(ToDto(entity), _time.GetUtcNow().UtcDateTime);
 
             ctx.SaveChanges();
             var stored = ToDto(entity);
@@ -243,11 +248,37 @@ public sealed class CronJobStore
             entity.Enabled = enabled;
             if (cronExpression is not null)
                 entity.CronExpression = cronExpression;
-            entity.NextRunUtc = CronSchedule.ComputeNextRunUtc(ToDto(entity), DateTime.UtcNow);
+            entity.NextRunUtc = CronSchedule.ComputeNextRunUtc(ToDto(entity), _time.GetUtcNow().UtcDateTime);
             ctx.SaveChanges();
             var stored = ToDto(entity);
             FileLog.Write($"[CronJobStore] SetEnabled: id={id}, enabled={enabled}, nextRunUtc={stored.NextRunUtc:o}");
             return stored;
+        }
+    }
+
+    /// <summary>
+    /// Move every switched-on repeating schedule whose next run is already past on to its next FUTURE run, without a
+    /// fire (issue #3910). Resuming after pause-everything calls it, so the runs missed while paused are not started
+    /// late in a burst. Nothing else is written: no enabled flag, no last status, no last fire - and no run that "did
+    /// not run" is recorded, because a time that passed while everything was paused is not a run that failed to
+    /// happen, exactly as for a schedule that was itself paused. A one-off keeps its moment and runs once.
+    /// Returns how many schedules were moved.
+    /// </summary>
+    public int MoveMissedRunsOn(TenantId tenant, DateTime nowUtc)
+    {
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var missed = ctx.CronJobs.Where(e => e.Enabled).ToList()
+                .Where(e => e.NextRunUtc is { } next && next <= nowUtc
+                    && !CronSchedule.KindOneOff.Equals(e.ScheduleKind?.Trim(), StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            foreach (var entity in missed)
+                entity.NextRunUtc = CronSchedule.ComputeNextRunUtc(ToDto(entity), nowUtc);
+            if (missed.Count > 0)
+                ctx.SaveChanges();
+            FileLog.Write($"[CronJobStore] MoveMissedRunsOn: tenant={tenant.ToLogString()} moved={missed.Count}");
+            return missed.Count;
         }
     }
 
@@ -343,21 +374,26 @@ public sealed class CronJobStore
         if (entities.Count == 0)
             return;
 
-        var now = DateTime.UtcNow;
+        var now = _time.GetUtcNow().UtcDateTime;
         var missed = 0;
+        // PAUSE EVERYTHING (issue #3910): a run that fell due while the account's scheduler was paused was never going
+        // to start, so it is not a run the Gateway being down made it miss. The schedule still moves on; nothing is
+        // recorded against it, exactly as nothing is recorded for a schedule that was itself paused - otherwise a
+        // restart during a pause would fill the account with problems and make a paused fleet look like a broken one.
+        var paused = Running.CronPauseSwitch.IsPausedIn(ctx);
         foreach (var entity in entities)
         {
             // A switched-on schedule whose next run passed while the Gateway was down missed it - and every later time
             // it was due before now. Each is recorded as a run that did not run (Factory Control, step 1), in THIS
             // write, the same one that moves the schedule on: the record and the move commit together, so neither can
             // happen without the other.
-            if (entity.Enabled && entity.NextRunUtc is { } due && due <= now)
+            if (!paused && entity.Enabled && entity.NextRunUtc is { } due && due <= now)
                 missed += RecordMissedInContext(ctx, entity, DateTime.SpecifyKind(due, DateTimeKind.Utc), now);
             entity.NextRunUtc = CronSchedule.ComputeNextRunUtc(ToDto(entity), now);
         }
 
         ctx.SaveChanges();
-        FileLog.Write($"[CronJobStore] Load: {entities.Count} job(s) present; next-run recomputed; runs missed while down recorded={missed}");
+        FileLog.Write($"[CronJobStore] Load: {entities.Count} job(s) present; next-run recomputed; runs missed while down recorded={missed}; everything paused={paused}");
     }
 
     // Every run of one schedule that fell due while the Gateway was down, added to ctx as a run that did not run.

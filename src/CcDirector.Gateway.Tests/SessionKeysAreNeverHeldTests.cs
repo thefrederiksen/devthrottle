@@ -25,7 +25,14 @@ namespace CcDirector.Gateway.Tests;
 /// Every request goes over HTTP through the real <c>AuthMiddleware</c> and <c>SessionKeyGuard</c> with real minted
 /// session keys on a real HOSTED host, and the Director is a real SignalR connection whose answers the tests play - so
 /// the guard, the route, the hold and the driver are the production pieces, run together.
+///
+/// THE STORAGE ROOT IS THIS TEST'S OWN. The held typed prompts live under the storage root, and the Gateway's driver
+/// picks up every held one it finds there when it starts, on a task the start does not wait for. On the root the whole
+/// test assembly shares, that was every prompt an earlier test had left held: the driver's count then moved on its own
+/// while a test was reading it, and on 12 October 2026 a release gate went red on "expected 2, actual 1". With a root
+/// of its own the driver starts with nothing, so the counts below are exact.
 /// </summary>
+[Collection("DirectorRoot")]
 public sealed class SessionKeysAreNeverHeldTests : IAsyncLifetime
 {
     private const string SharedToken = "session-keys-never-held-token";
@@ -49,7 +56,17 @@ public sealed class SessionKeysAreNeverHeldTests : IAsyncLifetime
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-session-keys-never-held-" + Guid.NewGuid().ToString("N"));
 
-    public SessionKeysAreNeverHeldTests(ITestOutputHelper output) => _out = output;
+    private readonly string _root =
+        Path.Combine(Path.GetTempPath(), "ccd-session-keys-never-held-" + Guid.NewGuid().ToString("N"));
+    private readonly string? _prevRoot;
+
+    public SessionKeysAreNeverHeldTests(ITestOutputHelper output)
+    {
+        _out = output;
+        _prevRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
+        Directory.CreateDirectory(_root);
+        Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _root);
+    }
 
     public async Task InitializeAsync()
     {
@@ -125,7 +142,9 @@ public sealed class SessionKeysAreNeverHeldTests : IAsyncLifetime
         _parent.Dispose();
         _raised.Dispose();
         await _gateway.StopAsync();
-        try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); } catch { /* best effort */ }
+        Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _prevRoot);
+        foreach (var dir in new[] { _instancesDir, _root })
+            try { if (Directory.Exists(dir)) Directory.Delete(dir, true); } catch { /* best effort */ }
     }
 
     // ---- plumbing ----------------------------------------------------------------------------------------
@@ -182,23 +201,30 @@ public sealed class SessionKeysAreNeverHeldTests : IAsyncLifetime
         return (resp.StatusCode, string.IsNullOrEmpty(body) ? default : JsonDocument.Parse(body).RootElement.Clone());
     }
 
-    /// <summary>Nothing new is held after the call: the tenant's held typed prompts and the driver's tracked
-    /// deliveries are exactly what they were before it (the class's tests share the store, and the owner's own test
-    /// holds one on purpose).</summary>
-    private (int Held, int Driven) HeldBefore() =>
+    /// <summary>The tenant's held typed prompts and the driver's tracked deliveries, read before a call. Nothing is
+    /// held when a test starts - the storage root is the test's own - and that is asserted here, so a count that
+    /// could move on its own fails at the reading rather than at a later comparison.</summary>
+    private (int Held, int Driven) HeldBefore()
+    {
+        var before = (Held: _gateway.TypedPrompts.ForTenant(_tenant).HeldDeliveries().Count,
+            Driven: _gateway.HeldDeliveries!.HeldCount);
+        Assert.Equal((0, 0), before);
+        return before;
+    }
+
+    private (int Held, int Driven) HeldNow() =>
         (_gateway.TypedPrompts.ForTenant(_tenant).HeldDeliveries().Count, _gateway.HeldDeliveries!.HeldCount);
 
     /// <summary>Drop the Director's tunnel, so its sessions exist but cannot be located now - the frozen-Director
-    /// state of QA's case 9, reached at once rather than by waiting out the staleness window.</summary>
+    /// state of QA's case 9, reached at once rather than by waiting out the staleness window. The connection is
+    /// unregistered here, with the call the hub itself makes when it notices the drop, so the state is reached before
+    /// this returns and no test waits on how soon the server notices a closed socket.</summary>
     private async Task FreezeTheDirector()
     {
+        var connectionId = _gateway.PushedSessions.GetActiveConnectionId(_tenant, DirectorId);
+        Assert.NotNull(connectionId);
+        Assert.True(_gateway.PushedSessions.UnregisterConnection(_tenant, DirectorId, connectionId!));
         await _conn.StopAsync();
-        var until = DateTime.UtcNow.AddSeconds(10);
-        while (_gateway.PushedSessions.TryLocate(_tenant, _childId, TimeSpan.FromMinutes(10)) is not null
-               && DateTime.UtcNow < until)
-        {
-            await Task.Delay(50);
-        }
         Assert.Null(_gateway.PushedSessions.TryLocate(_tenant, _childId, TimeSpan.FromMinutes(10)));
     }
 
@@ -219,7 +245,7 @@ public sealed class SessionKeysAreNeverHeldTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.ServiceUnavailable, status);
         Assert.Equal("director_stale", body.GetProperty("code").GetString());
         Assert.True(body.GetProperty("retryable").GetBoolean(), "the caller must be told to retry, not that it is gone");
-        Assert.Equal(before, HeldBefore());
+        Assert.Equal(before, HeldNow());
     }
 
     [Fact]
@@ -240,12 +266,12 @@ public sealed class SessionKeysAreNeverHeldTests : IAsyncLifetime
         var deliveryId = body.GetProperty("deliveryId").GetString()!;
         // Nothing was written for this prompt, so no later wake-up can press it.
         Assert.Equal(TypedPromptReadKind.Absent, _gateway.TypedPrompts.ForTenant(_tenant).Read(deliveryId).Kind);
-        Assert.Equal(before, HeldBefore());
+        Assert.Equal(before, HeldNow());
 
         // Nothing is driven later: the wake-ups find nothing to press.
         await _gateway.TypedPromptDriver.DriveOnceAsync(_tenant, _gateway.TypedPrompts.ForTenant(_tenant), deliveryId,
             TypedPromptDecisions.DriveTick);
-        Assert.Equal(before, HeldBefore());
+        Assert.Equal(before, HeldNow());
     }
 
     [Fact]

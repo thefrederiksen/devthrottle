@@ -76,9 +76,9 @@ public sealed class TunnelReposHandoverMgmtProofTests : IAsyncLifetime
         Assert.True(node?["added"]?.GetValue<bool>());
         Assert.Equal("devthrottle", node?["repo"]?["name"]?.GetValue<string>());
 
-        Assert.Equal("repo-add", fake.LastCommand!.Verb);
-        Assert.Equal("", fake.LastCommand.SessionId); // director-level
-        var payload = JsonNode.Parse(fake.LastCommand.PayloadJson)!.AsObject();
+        var sent = Assert.Single(fake.AllOf("repo-add"));
+        Assert.Equal("", sent.SessionId); // director-level
+        var payload = JsonNode.Parse(sent.PayloadJson)!.AsObject();
         Assert.Equal(@"D:\ReposFred\devthrottle", (string?)payload["path"]);
         Assert.Equal("devthrottle", (string?)payload["name"]);
     }
@@ -114,7 +114,7 @@ public sealed class TunnelReposHandoverMgmtProofTests : IAsyncLifetime
         var resp = await _http.PostAsJsonAsync($"directors/{dir}/repos", new RepoAddRequest { Path = "" });
 
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
-        Assert.Null(fake.LastCommand); // rejected before any tunnel send
+        Assert.Null(fake.LastOf("repo-add")); // rejected before any tunnel send
     }
 
     [Fact]
@@ -129,7 +129,7 @@ public sealed class TunnelReposHandoverMgmtProofTests : IAsyncLifetime
             new RepoAddRequest { Path = @"D:\nope" });
 
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
-        Assert.Equal("repo-add", fake.LastCommand!.Verb);
+        Assert.Single(fake.AllOf("repo-add"));
     }
 
     // ================================================================================== repo-rename ====
@@ -151,8 +151,8 @@ public sealed class TunnelReposHandoverMgmtProofTests : IAsyncLifetime
         var node = await resp.Content.ReadFromJsonAsync<JsonNode>();
         Assert.Equal("new name", node?["name"]?.GetValue<string>());
 
-        Assert.Equal("repo-rename", fake.LastCommand!.Verb);
-        var payload = JsonNode.Parse(fake.LastCommand.PayloadJson)!.AsObject();
+        var sent = Assert.Single(fake.AllOf("repo-rename"));
+        var payload = JsonNode.Parse(sent.PayloadJson)!.AsObject();
         Assert.Equal(@"D:\repo", (string?)payload["path"]);
         Assert.Equal("new name", (string?)payload["name"]);
     }
@@ -169,7 +169,7 @@ public sealed class TunnelReposHandoverMgmtProofTests : IAsyncLifetime
             new RepoRenameRequest { Path = @"D:\gone", Name = "x" });
 
         Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
-        Assert.Equal("repo-rename", fake.LastCommand!.Verb);
+        Assert.Single(fake.AllOf("repo-rename"));
     }
 
     // ================================================================================ repos-overview ====
@@ -192,8 +192,8 @@ public sealed class TunnelReposHandoverMgmtProofTests : IAsyncLifetime
         var node = await resp.Content.ReadFromJsonAsync<JsonNode>();
         Assert.Equal("devthrottle", node?[0]?["name"]?.GetValue<string>());
         Assert.Equal(2, node?[0]?["liveSessionCount"]?.GetValue<int>());
-        Assert.Equal("repos-overview", fake.LastCommand!.Verb);
-        Assert.Equal("", fake.LastCommand.SessionId);
+        var sent = Assert.Single(fake.AllOf("repos-overview"));
+        Assert.Equal("", sent.SessionId);
     }
 
     // ============================================================================== handover-create ====
@@ -225,8 +225,8 @@ public sealed class TunnelReposHandoverMgmtProofTests : IAsyncLifetime
         var node = await resp.Content.ReadFromJsonAsync<JsonNode>();
         Assert.Equal("My handover", node?["title"]?.GetValue<string>());
 
-        Assert.Equal("handover-create", fake.LastCommand!.Verb);
-        var payload = JsonNode.Parse(fake.LastCommand.PayloadJson)!.AsObject();
+        var sent = Assert.Single(fake.AllOf("handover-create"));
+        var payload = JsonNode.Parse(sent.PayloadJson)!.AsObject();
         Assert.Equal("My handover", (string?)payload["title"]);
         Assert.Equal("# body", (string?)payload["content"]);
         Assert.Equal("Some Session", (string?)payload["sessionName"]);
@@ -242,7 +242,7 @@ public sealed class TunnelReposHandoverMgmtProofTests : IAsyncLifetime
             new HandoverCreateRequest { Title = "", Content = "# body" });
 
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
-        Assert.Null(fake.LastCommand);
+        Assert.Null(fake.LastOf("handover-create"));
     }
 
     // ============================================================================== handover-delete ====
@@ -262,8 +262,8 @@ public sealed class TunnelReposHandoverMgmtProofTests : IAsyncLifetime
         var node = await resp.Content.ReadFromJsonAsync<JsonNode>();
         Assert.True(node?["removed"]?.GetValue<bool>());
 
-        Assert.Equal("handover-delete", fake.LastCommand!.Verb);
-        var payload = JsonNode.Parse(fake.LastCommand.PayloadJson)!.AsObject();
+        var sent = Assert.Single(fake.AllOf("handover-delete"));
+        var payload = JsonNode.Parse(sent.PayloadJson)!.AsObject();
         Assert.Equal(@"D:\h\a.md", (string?)payload["path"]);
     }
 
@@ -276,7 +276,7 @@ public sealed class TunnelReposHandoverMgmtProofTests : IAsyncLifetime
 
         var resp = await _http.DeleteAsync($"directors/{dir}/handovers?path={Uri.EscapeDataString(@"D:\h\gone.md")}");
         Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
-        Assert.Equal("handover-delete", fake.LastCommand!.Verb);
+        Assert.Single(fake.AllOf("handover-delete"));
     }
 
     [Fact]
@@ -288,7 +288,7 @@ public sealed class TunnelReposHandoverMgmtProofTests : IAsyncLifetime
 
         var resp = await _http.DeleteAsync($"directors/{dir}/handovers?path={Uri.EscapeDataString(@"C:\Windows\evil.md")}");
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
-        Assert.Equal("handover-delete", fake.LastCommand!.Verb);
+        Assert.Single(fake.AllOf("handover-delete"));
     }
 
     [Fact]
@@ -299,7 +299,7 @@ public sealed class TunnelReposHandoverMgmtProofTests : IAsyncLifetime
 
         var resp = await _http.DeleteAsync($"directors/{dir}/handovers");
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
-        Assert.Null(fake.LastCommand);
+        Assert.Null(fake.LastOf("handover-delete"));
     }
 
     // ========================================================================== owner-not-connected ====

@@ -5,7 +5,7 @@ namespace CcDirector.Core.Licenses;
 
 /// <summary>
 /// License Switching on this Director: the key holder lock, the usage reporter, the switch and its stored results,
-/// composed once. ONE PER PROCESS: the key holder lock is held for the life of the process (contract 2.4), and the
+/// the daily renewal of the sign-ins, and both sides of a sign-in approved on another machine, composed once. ONE PER PROCESS: the key holder lock is held for the life of the process (contract 2.4), and the
 /// Director's tunnel host can be stopped and rebuilt when its Gateway settings change - so the host attaches its
 /// tunnel to <see cref="Reporter"/> and never owns any of this.
 /// </summary>
@@ -24,14 +24,22 @@ public sealed class LicenseSwitching : IDisposable
     private int _started;
 
     /// <param name="enabled">The license switching setting (<see cref="Configuration.LicenseSwitchingSetting"/>). Off:
-    /// no report loop, the key holder lock is never taken, and every switch is answered failed.</param>
-    public LicenseSwitching(ILicenseCommandLine tool, string directorFolder, Func<DateTime> utcNow, string machineName, string osUser, bool enabled)
+    /// no report loop, no renewal, the key holder lock is never taken, and every switch, sign-in and approval is
+    /// answered failed or refused.</param>
+    /// <param name="signInDelay">Test seam: how the wait for another machine's approval passes (<see cref="LicenseSignInCoordinator"/>).</param>
+    public LicenseSwitching(ILicenseCommandLine tool, string directorFolder, Func<DateTime> utcNow, string machineName, string osUser, bool enabled,
+        Func<TimeSpan, CancellationToken, Task>? signInDelay = null)
     {
         Enabled = enabled;
         HolderLock = new LicenseKeyHolderLock(directorFolder);
         Reporter = new LicenseUsageReporter(tool, HolderLock, utcNow, machineName, osUser);
         Results = new LicenseSwitchResultStore(Path.Combine(directorFolder, "switch-results"), utcNow);
         Coordinator = new LicenseSwitchCoordinator(tool, HolderLock, Results, Reporter, utcNow, enabled);
+        Approvals = new LicenseApprovalExchange();
+        SignInResults = new LicenseSignInResultStore(Path.Combine(directorFolder, "sign-in-results"), utcNow);
+        SignIns = new LicenseSignInCoordinator(tool, HolderLock, SignInResults, Reporter, Approvals, utcNow, enabled, signInDelay);
+        Approver = new LicenseApprover(tool, utcNow, enabled);
+        Renewer = new LicenseRenewer(tool, HolderLock, Reporter, SignIns, utcNow);
     }
 
     /// <summary>Whether license switching is on for this Director (read once, at start).</summary>
@@ -47,6 +55,20 @@ public sealed class LicenseSwitching : IDisposable
     public LicenseSwitchResultStore Results { get; }
 
     public LicenseSwitchCoordinator Coordinator { get; }
+
+    /// <summary>The approvals this Director is waiting for from another machine (contract 8.3).</summary>
+    public LicenseApprovalExchange Approvals { get; }
+
+    public LicenseSignInResultStore SignInResults { get; }
+
+    /// <summary>Signing an account in on this machine when the Gateway asks, or the renewal needs another machine (8.3, 8.4).</summary>
+    public LicenseSignInCoordinator SignIns { get; }
+
+    /// <summary>Approving another machine's sign-in in a browser profile here (8.3).</summary>
+    public LicenseApprover Approver { get; }
+
+    /// <summary>The daily renewal of this machine's sign-ins (8.2).</summary>
+    public LicenseRenewer Renewer { get; }
 
     /// <summary>The Director's own license files for this machine and user: shared by every Director on the machine,
     /// which is what makes the lock decide between them.</summary>
@@ -78,11 +100,14 @@ public sealed class LicenseSwitching : IDisposable
         }
         FileLog.Write("[LicenseSwitching] Start");
         Results.Prune();
+        SignInResults.Prune();
         Reporter.Start(Background.BackgroundJobs.Default);
+        Renewer.Start(Background.BackgroundJobs.Default);
     }
 
     public void Dispose()
     {
+        Renewer.Stop();
         Reporter.Stop();
         HolderLock.Dispose();
     }

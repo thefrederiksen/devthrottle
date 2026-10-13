@@ -184,6 +184,10 @@ def _stdin_is_tty() -> bool:
     return sys.stdin.isatty()
 
 
+def _stdout_is_tty() -> bool:
+    return sys.stdout.isatty()
+
+
 def is_msys_pty_pipe_name(name: str) -> bool:
     """True for the pipe a Git Bash (mintty) window connects to a program's standard input."""
     return bool(_MSYS_PTY_PIPE.search(name or ""))
@@ -991,6 +995,87 @@ def machine_key_command(
     else:
         _say(f"{'Made' if created else 'This machine has'} the key {machine_key.short_fingerprint(key.fingerprint)} "
              f"(fingerprint {key.fingerprint}).")
+
+
+_SEAL_PURPOSE = re.compile(r"^[a-z][a-z0-9-]{0,40}$")
+_SEAL_ID = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+SEALED_VALUE_LIMIT = 4096
+
+
+def _seal_facts(command: str, purpose: str, value_id: str, receiver_fingerprint: str) -> dict:
+    if not _SEAL_PURPOSE.match(purpose):
+        _say("--purpose must be a short lower-case word, such as license-approval.", err=True)
+        raise typer.Exit(EXIT_REFUSED)
+    if not _SEAL_ID.match(value_id):
+        _say("--id must be 1 to 128 letters, digits, dots, dashes or underscores.", err=True)
+        raise typer.Exit(EXIT_REFUSED)
+    return {"purpose": purpose, "id": value_id, "receiverFingerprint": receiver_fingerprint}
+
+
+@app.command("seal")
+def seal_command(
+    to: str = typer.Option(..., "--to", help="The receiving machine's public key (base64), as its Director publishes it."),
+    purpose: str = typer.Option(..., "--purpose", help="What the value is for, such as license-approval."),
+    value_id: str = typer.Option(..., "--id", help="The id of the one exchange this value belongs to."),
+):
+    """Seal one short value, piped on standard input, so that only the receiving machine can open it, and only for this
+    purpose and id. Prints the sealed text. The Director uses it to hand another machine the answer to a sign-in it
+    approved; nothing is stored and the value is never printed."""
+    label = f"seal {purpose}"
+    try:
+        receiver = machine_key.decode_public_key(to.strip())
+        facts = _seal_facts("seal", purpose, value_id, machine_key.fingerprint(receiver))
+        if _stdin_is_tty():
+            raise InputError("Pipe the value in on standard input; cc-secrets seal does not read it from a terminal.")
+        value = sys.stdin.read().strip("\r\n")
+        if not value:
+            raise InputError("No value arrived on standard input, so nothing was sealed.")
+        SCRUBBER.add(value)
+        if len(value.encode("utf-8")) > SEALED_VALUE_LIMIT:
+            raise InputError(f"The value is longer than {SEALED_VALUE_LIMIT} bytes; cc-secrets seal carries one short value.")
+        envelope = sealing.seal_value(value.encode("utf-8"), receiver, facts)
+    except typer.Exit:
+        raise
+    except Exception as exc:
+        _fail("seal", value_id, label, exc)
+    _audit().record(value_id, label, "ok", f"sealed to {machine_key.short_fingerprint(facts['receiverFingerprint'])}")
+    _say(envelope)
+
+
+@app.command("open")
+def open_command(
+    purpose: str = typer.Option(..., "--purpose", help="What the value is for; must be what it was sealed with."),
+    value_id: str = typer.Option(..., "--id", help="The id it was sealed with."),
+):
+    """Open a value another machine sealed to THIS machine with `seal`, piped on standard input, and write it to
+    standard output for the program that asked. It refuses inside a DevThrottle session and refuses to write to a
+    terminal: the value is for a program, never for a screen or a transcript. It opens nothing a secret transfer
+    carries - that is a different envelope."""
+    label = f"open {purpose}"
+    if os.environ.get("CC_SESSION_ID", ""):
+        _audit().record(value_id, label, "refused", "inside a session")
+        _say("'cc-secrets open' hands a sealed value to the Director and does not run inside a DevThrottle session.", err=True)
+        raise typer.Exit(EXIT_REFUSED)
+    if _stdout_is_tty():
+        _audit().record(value_id, label, "refused", "standard output is a terminal")
+        _say("'cc-secrets open' does not write a sealed value to a terminal.", err=True)
+        raise typer.Exit(EXIT_REFUSED)
+    try:
+        key, _created = machine_key.load_or_create()
+        facts = _seal_facts("open", purpose, value_id, key.fingerprint)
+        envelope = sys.stdin.read().strip()
+        if not envelope:
+            raise InputError("No sealed value arrived on standard input.")
+        value = sealing.open_value(envelope, key.private, facts).decode("utf-8")
+    except typer.Exit:
+        raise
+    except Exception as exc:
+        _fail("open", value_id, label, exc)
+    _audit().record(value_id, label, "ok", "opened for the calling program")
+    # The one place cc-secrets writes a value it protects: the caller is the Director, which types it into the
+    # waiting sign-in. It is written as it is, not through the scrubber, and never to a terminal (refused above).
+    sys.stdout.write(value + "\n")
+    sys.stdout.flush()
 
 
 @app.command("machines")

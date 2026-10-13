@@ -376,7 +376,7 @@ public sealed class TurnVerdictFeedbackRouteHostedTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, answer.StatusCode);
         Assert.True(Root(answerBody).GetProperty("accepted").GetBoolean(), answerBody);
         // The bytes really went to the Director over the tunnel, and the record says the verdict was answered.
-        Assert.Equal("prompt", director.LastCommand?.Verb);
+        Assert.NotNull(director.LastOf("prompt"));
         Assert.NotNull(_gateway.TurnVerdicts.FindById(_tenantA, "tv-answered-then-wrong")!.AnsweredAtUtc);
         // CONTROL: before the session works, the verdict is still the row's own.
         Assert.NotNull(_gateway.TurnVerdicts.Latest(_tenantA, sid));

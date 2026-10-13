@@ -127,6 +127,69 @@ public static class FactoryTalkSeed
         return sb.ToString();
     }
 
+    /// <summary>The session name of a talk opened by Handle the issue: <c>&lt;Factory title&gt; - Boss - handle the issue
+    /// (&lt;schedule&gt;)</c>.</summary>
+    public static string ProblemSessionName(RegisteredFactoryDto factory, RegisteredFactorySeatDto seat, CronRunProblemDto problem)
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+        ArgumentNullException.ThrowIfNull(seat);
+        ArgumentNullException.ThrowIfNull(problem);
+        return $"{factory.Title} - {(IsBoss(factory, seat) ? FactoriesScreenFold.BossRoleWord : seat.Name)} - handle the issue ({problem.JobName})";
+    }
+
+    /// <summary>
+    /// The first prompt of a talk opened by Handle the issue (Factory Control, step 1b): the ordinary talk - seated as
+    /// the boss, under the same rules as the boss's scheduled runs - then the problem it is about: which run, what went
+    /// wrong, when, and which session to read, and the instruction to resolve it with <c>cc-devthrottle run resolve</c>
+    /// once it is fixed, and only then.
+    /// </summary>
+    /// <param name="zone">The account's time zone, the one the problem's shift is counted in.</param>
+    public static string ComposeForProblem(RegisteredFactoryDto factory, RegisteredFactorySeatDto seat, string? scheduleId,
+        string? scheduleSeed, CronRunProblemDto problem, TimeZoneInfo zone)
+    {
+        ArgumentNullException.ThrowIfNull(problem);
+        ArgumentNullException.ThrowIfNull(zone);
+        var sb = new StringBuilder(Compose(factory, seat, scheduleId, scheduleSeed));
+        sb.AppendLine();
+        sb.AppendLine("THIS TALK IS ABOUT ONE PROBLEM. The owner pressed Handle the issue on it, on the factory's page. Open with it, "
+                      + "instead of the general summary above: say what you see in it and what you think went wrong.");
+        sb.Append("- the run: ").AppendLine(problem.RunId);
+        sb.Append("- the schedule: ").Append(problem.JobName).Append(" (").Append(problem.JobId).Append(')');
+        if (!string.IsNullOrWhiteSpace(problem.Seat)) sb.Append(", run as the seat ").Append(problem.Seat);
+        sb.AppendLine();
+        sb.Append("- what went wrong: ").Append(problem.KindText);
+        if (!string.IsNullOrWhiteSpace(problem.Reason)) sb.Append(" - ").Append(problem.Reason.Trim());
+        sb.AppendLine();
+        sb.Append("- when: due ").Append(At(problem.ScheduledUtc, zone));
+        sb.Append(problem.StartedUtc is { } started ? $", started {At(started, zone)}" : ", never started");
+        sb.Append(", in the ").Append(problem.ShiftText).Append("; recorded ").Append(At(problem.RaisedAtUtc, zone)).AppendLine();
+        if (problem.SessionId is { } sid)
+        {
+            sb.Append("- the session to read: ").Append(sid).AppendLine(". While it is still open, cc-devthrottle session buffer "
+                      + sid + " prints its screen. If it has closed there is no command that prints it; say so to the owner, "
+                      + "who can read it on the Cockpit's History page.");
+        }
+        else
+        {
+            sb.AppendLine("- the session to read: none - this run never started a session, so look at why the schedule did not "
+                          + "start it (cc-devthrottle schedule list, and the run history of " + problem.JobId + ").");
+        }
+        sb.AppendLine();
+        sb.AppendLine("Work out with the owner what went wrong and fix it. When - and only when - it is fixed, resolve it with one "
+                      + "line saying what fixed it:");
+        sb.Append("   cc-devthrottle run resolve ").Append(problem.RunId).AppendLine(" \"<one line: what fixed it>\"");
+        sb.AppendLine("If it is not fixed when the talk ends, do not resolve it: it stays on the factory's page and in the "
+                      + "morning email until it is fixed, or until the next run of the same schedule reports ok.");
+        return sb.ToString();
+    }
+
+    // An instant for the agent, in the account's zone and naming it: "Sat 11 Oct 06:15 (America/Toronto)".
+    private static string At(DateTime utc, TimeZoneInfo zone)
+    {
+        var local = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), zone);
+        return local.ToString("ddd d MMM HH:mm", System.Globalization.CultureInfo.InvariantCulture) + $" ({zone.Id})";
+    }
+
     /// <summary>What a factory's boss runs to read its own Factories screen (issue #3685).</summary>
     public static string StatusCommand(RegisteredFactoryDto factory) =>
         $"cc-devthrottle factory status --factory {factory.Factory}";

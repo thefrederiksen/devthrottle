@@ -1917,6 +1917,39 @@ Every result of a schedule linked to a factory also leaves a row in that factory
 for ok, `failed` for a problem - so no factory is silent on its dashboard. Resolving the problem marks its
 failed row handled.
 
+### Factory email
+
+The factory email (Factory Control, step 4). The Gateway composes and sends it itself - no session is
+involved - to the account that set up the factories, never a fixed address.
+
+```
+USAGE: cc-devthrottle factory email status [--json]
+       cc-devthrottle factory email on [--json]
+       cc-devthrottle factory email off [--json]
+       cc-devthrottle factory email list [--factory ID] [--kind morning-report|check] [--count N] [--all] [--json]
+       cc-devthrottle factory email show <id> [--json]
+```
+
+It ships OFF. Switched on, the account is sent:
+
+- **08:00, every day** - every problem still open (from the same list `run problems` reads; a problem fixed
+  yesterday is not open, so it is not there), then one line per factory for the last 24 hours: runs done,
+  runs that did not run, seats left open. Each factory with a problem links to its factory page.
+- **16:00 and midnight, only when something went wrong** - only when the shift that just ended raised a NEW
+  problem. Older open problems are one line pointing to the 08:00 report.
+
+The times are the account's own time zone. Each slot is sent once, whatever restarts; a failed send is tried
+again for two hours, then the slot is closed. A team account is told it is not supported yet - the email is
+not sent, and no address is guessed.
+
+`factory email list` lists the kept emails that were sent, newest first: the id, the slot (local date and
+hour), when it was sent, its title, the factories it covered and how many problems it listed. `--factory`
+narrows to the emails that covered one factory; `--all` adds the slots that had nothing to send or whose send
+failed or was not supported, with the reason. Every filter applies to `--json` too. Nothing kept prints
+`count: 0`. `factory email show <id>` prints one email with its HTML exactly as sent. The factory page reads
+the same two routes: `GET /gateway/factory-emails?factory=&kind=&limit=&state=all` and
+`GET /gateway/factory-emails/{id}`.
+
 ### Trigger
 
 A trigger is a check with no model in it that a Director runs on an interval. When the check counts
@@ -2467,6 +2500,13 @@ asked for itself.
 approved; payload on standard input, one JSON line out, never the secret), and `check-text` (reads UTF-8 text on standard input and answers only
 `{"containsSecret": true|false, "storeFound": true|false}`, never which entry; `storeFound` false means the machine
 holds no store, so there was nothing to find). They are not for agents to call.
+
+`seal --to KEY --purpose WORD --id ID` and `open --purpose WORD --id ID` carry one short value between two machines
+(the License Switching mission: the answer to a sign-in approved in a browser on one machine, for the machine waiting
+for it). `seal` reads the value on standard input and prints text only the machine holding KEY's private half can
+open, and only for the same purpose and id. `open` reads that text on standard input and writes the value to standard
+output for the Director; it refuses inside a session and refuses to write to a terminal. Neither stores anything, and
+neither opens what a secret transfer carries.
 
 ## cc-transcribe
 

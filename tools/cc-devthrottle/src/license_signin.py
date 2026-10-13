@@ -576,7 +576,7 @@ class RenewalRow:
         }
 
 
-def renew_due(store: LicenseStore, *, account: Optional[str] = None, force: bool = False,
+def renew_due(store: LicenseStore, *, account: Optional[str] = None, force: bool = False, check: bool = False,
               approver_for: Optional[Callable[[str], Approve]] = None,
               start_login: Optional[StartLogin] = None,
               now: Callable[[], _dt.datetime] = utc_now) -> List[RenewalRow]:
@@ -586,7 +586,11 @@ def renew_due(store: LicenseStore, *, account: Optional[str] = None, force: bool
 
     - ``not-due``: the sign-in has more than RENEW_AHEAD left;
     - ``unknown-expiry``: the key carries no end date, so it is not known when it dies (reported, not guessed);
-    - ``failed-<kind>``: the renewal was tried and did not work, with the reason."""
+    - ``failed-<kind>``: the renewal was tried and did not work, with the reason.
+
+    With ``check`` nothing is signed in: an account whose renewal would be tried is answered ``due`` instead, with
+    the browser profile set for it here (or none). The Director asks this once a day and then signs each due
+    account in itself, so that one with no profile on this machine can be approved on another."""
     try:
         held = store.held_accounts()
     except LicenseStoreError as ex:
@@ -612,6 +616,9 @@ def renew_due(store: LicenseStore, *, account: Optional[str] = None, force: bool
             continue
         if not force and not due:
             row.result = "not-due"
+            continue
+        if check:
+            row.result, row.browser = "due", load_browsers(store).get(email)
             continue
         try:
             row.browser = browser_for(store, email)

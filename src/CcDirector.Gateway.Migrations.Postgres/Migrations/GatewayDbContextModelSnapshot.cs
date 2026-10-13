@@ -1037,6 +1037,86 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.ToTable("factory_activity", "gateway");
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FactoryEmailReportEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("BoundaryUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("ComposedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Detail")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<string>("FactoriesJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Html")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .UseCollation("C");
+
+                    b.Property<int>("ProblemCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ProviderId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTime?>("SentAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SlotKey")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .UseCollation("C");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .UseCollation("C");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "BoundaryUtc");
+
+                    b.HasIndex("TenantId", "SlotKey")
+                        .IsUnique();
+
+                    b.ToTable("factory_email_reports", "gateway");
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FactoryGoalNumberEntity", b =>
                 {
                     b.Property<Guid>("Id")

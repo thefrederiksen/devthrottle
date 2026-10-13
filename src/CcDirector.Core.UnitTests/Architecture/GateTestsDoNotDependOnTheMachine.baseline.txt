@@ -237,7 +237,6 @@ real-clock | src/CcDirector.Core.UnitTests/Sessions/PooledWorktreeSurvivesAResta
 real-clock | src/CcDirector.Core.UnitTests/Sessions/RealScreenReaderTests.cs | 4
 real-clock | src/CcDirector.Core.UnitTests/Sessions/ScriptedAgentTerminal.cs | 1
 delay | src/CcDirector.Core.UnitTests/Sessions/SendPathClockTests.cs | 1
-stopwatch | src/CcDirector.Core.UnitTests/Sessions/SendPathClockTests.cs | 1
 real-clock | src/CcDirector.Core.UnitTests/Sessions/SessionPointerDropTests.cs | 1
 real-clock | src/CcDirector.Core.UnitTests/Sessions/SessionPreambleFileTests.cs | 4
 real-clock | src/CcDirector.Core.UnitTests/Sessions/SessionPreambleMaintainerTests.cs | 4
@@ -760,7 +759,7 @@ real-clock | src/TestInfrastructure/MutationProofPinGuard.cs | 2
 sleep | src/TestInfrastructure/MutationProofPinGuard.cs | 1
 process | src/TestInfrastructure/RepositorySourceIndex.cs | 2
 process | src/TestInfrastructure/RepositorySourceIndexTests.cs | 2
-real-clock | src/TestInfrastructure/VirtualTime.cs | 3
+real-clock | src/TestInfrastructure/VirtualTime.cs | 1
 process | tools/cc-director-setup-engine.Tests/GatewayAndPinsTests.cs | 2
 fixed-port | tools/cc-director-setup-engine.Tests/InstallFailureReporterTests.cs | 4
 real-clock | tools/cc-director-setup-engine.Tests/LaunchdDiagnosticsTests.cs | 1

@@ -122,7 +122,7 @@ public sealed class SessionWsProxyEndpointsTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
         // The body is the verb result verbatim; a working body proves the tunnel (Director is unreachable).
         Assert.Contains("items", await resp.Content.ReadAsStringAsync());
-        Assert.Equal("screenshots-list", _director.LastCommand?.Verb);
+        Assert.NotNull(_director.LastOf("screenshots-list"));
     }
 
     [Fact]
@@ -134,7 +134,7 @@ public sealed class SessionWsProxyEndpointsTests : IAsyncLifetime
         var resp = await _http.DeleteAsync($"sessions/{sid}/screenshots/file?name=a%20b.png");
 
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
-        Assert.Equal("screenshot-delete", _director.LastCommand?.Verb);
+        Assert.NotNull(_director.LastOf("screenshot-delete"));
     }
 
     [Fact]
@@ -144,7 +144,7 @@ public sealed class SessionWsProxyEndpointsTests : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
         Assert.Contains("assigned", await resp.Content.ReadAsStringAsync());
-        Assert.Equal("backfill-numbers", _director.LastCommand?.Verb);
+        Assert.NotNull(_director.LastOf("backfill-numbers"));
     }
 
     [Fact]

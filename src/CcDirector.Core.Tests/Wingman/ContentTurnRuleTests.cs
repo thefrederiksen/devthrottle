@@ -6,7 +6,6 @@ using CcDirector.Core.Sessions;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Wingman;
 using CcDirector.TestInfrastructure;
-using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
 namespace CcDirector.Core.Tests.Wingman;
@@ -38,7 +37,7 @@ public sealed class ContentTurnRuleTests : IDisposable
     private readonly string? _previousRoot;
     private readonly bool _shadowWasEnabled;
     private readonly SessionManager _manager;
-    private readonly FakeTimeProvider _clock = VirtualTime.NewClock();
+    private readonly VirtualClock _clock = VirtualTime.NewClock();
 
     public ContentTurnRuleTests()
     {

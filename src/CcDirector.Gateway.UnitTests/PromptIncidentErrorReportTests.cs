@@ -13,7 +13,6 @@ using CcDirector.Core.UnitTests.Sessions;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 using CcDirector.TestInfrastructure;
-using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests;
@@ -102,7 +101,7 @@ public sealed class PromptIncidentErrorReportTests : IDisposable
     private readonly Action<string>? _previousObserver;
     private readonly SessionManager _manager = new(new AgentOptions());
     private readonly List<IDisposable> _cleanup = new();
-    private readonly FakeTimeProvider _clock = VirtualTime.NewClock();
+    private readonly VirtualClock _clock = VirtualTime.NewClock();
     private string _watchedSessionId = "";
 
     public PromptIncidentErrorReportTests()
@@ -150,7 +149,10 @@ public sealed class PromptIncidentErrorReportTests : IDisposable
     /// by the one place it is written.</summary>
     private static async Task<string> LateOutcomeFor(string deliveryId, Func<Task> act)
     {
-        var seen = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        // A plain completion source, on purpose: its continuation - the end of the timed work - then runs inline, on
+        // the thread moving the fake clock. One that continues on the thread pool lets the spinner carry the clock on
+        // for as long as the pool takes.
+        var seen = new TaskCompletionSource<string>();
         void Observe(string id, string state) { if (id == deliveryId) seen.TrySetResult(state); }
         SessionCommandExecutor.LateOutcomeObserver += Observe;
         try
