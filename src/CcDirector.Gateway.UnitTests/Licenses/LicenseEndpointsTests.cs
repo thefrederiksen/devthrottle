@@ -62,7 +62,8 @@ public sealed class LicenseEndpointsTests : IDisposable
     private (int Status, string Text, JsonElement Json) Overview(TenantId? tenant)
     {
         var ctx = Context();
-        return Read(ctx, LicenseEndpoints.Overview(ctx, _ => tenant, _snapshots, () => _now));
+        return Read(ctx, LicenseEndpoints.Overview(ctx, _ => tenant, _snapshots, () => _now,
+            new LicenseApproverStore(new CcDirector.Gateway.Settings.TenantSettingsStore(_db)), new LicenseSignInLog(_db), (_, _) => false));
     }
 
     private (int Status, string Text, JsonElement Json) Forecast(TenantId? tenant)
@@ -118,6 +119,7 @@ public sealed class LicenseEndpointsTests : IDisposable
             "fiveHour", "sevenDay", "isStale", "readAtUtc", "readAgeText", "readError", "readErrorText", "extraUsage",
             "renewsOn", "renewsText", "signInExpiry", "activeOnMachines", "spareOnMachines", "canSwitchNow", "switchNowText", "switchNowTargetAccountEmail", "switchTargets",
             "barredUntilUtc", "barredText",
+            "approver", "approverText", "approverTone",
         }, Names(account));
         // Not barred from the automatic choice, so there is nothing to show beside it.
         Assert.Equal((JsonValueKind.Null, JsonValueKind.Null), (account.GetProperty("barredUntilUtc").ValueKind, account.GetProperty("barredText").ValueKind));
@@ -148,14 +150,14 @@ public sealed class LicenseEndpointsTests : IDisposable
         Assert.Equal(new[]
         {
             "machineId", "machineName", "osUser", "label", "activeAccountEmail", "status", "statusText", "statusTone", "isStale",
-            "lastReportAtUtc", "lastReportText", "active", "spares", "switchInProgress",
+            "lastReportAtUtc", "lastReportText", "active", "spares", "switchInProgress", "canAddSpare", "addSpareText", "signInsInProgress",
         }, Names(machine));
         Assert.Equal(("the-windows-machine", "owner", A), (machine.GetProperty("machineName").GetString(), machine.GetProperty("osUser").GetString(), machine.GetProperty("activeAccountEmail").GetString()));
         var spare = machine.GetProperty("spares")[0];
         Assert.Equal(new[]
         {
             "accountEmail", "isActive", "signedInAtUtc", "signedInText", "signInExpiresAtUtc", "expiryVerdict", "expiryText", "expiryTone",
-            "renewalFailedAtUtc", "renewalFailedText", "renewalFailedTone", "isReadingStale", "readError", "readErrorText",
+            "renewalFailedAtUtc", "renewalFailedText", "renewalFailedTone", "isReadingStale", "readError", "readErrorText", "canRenewNow", "renewNowText",
         }, Names(spare));
         Assert.Equal((B, "fine", "Sign-in expires in 9 days", "2026-10-20T03:12:00Z", "Signed in 21 days ago"),
             (spare.GetProperty("accountEmail").GetString(), spare.GetProperty("expiryVerdict").GetString(), spare.GetProperty("expiryText").GetString(),

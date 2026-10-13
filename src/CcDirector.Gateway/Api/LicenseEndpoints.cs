@@ -38,9 +38,13 @@ public static class LicenseEndpoints
 
     private static readonly IReadOnlyList<LicenseExhaustion> NoExhaustions = Array.Empty<LicenseExhaustion>();
 
+    /// <param name="approvers">Who approves each account's sign-ins; the overview says it per account.</param>
+    /// <param name="signIns">The sign-ins started from the Cockpit; the overview lists the ones a machine has not finished.</param>
+    /// <param name="isConnected">Whether that account's Director, by its identifier, has a stream connection now.</param>
     public static void Map(IEndpointRouteBuilder app, Func<HttpContext, TenantId?> resolveTenant,
         LicenseSnapshotSource snapshots, LicenseUsageHistory history, LicenseStore store, Func<DateTime> nowUtc,
-        LicenseSwitchService switches, Func<TenantId?> tenantInScope)
+        LicenseSwitchService switches, Func<TenantId?> tenantInScope,
+        LicenseApproverStore approvers, LicenseSignInLog signIns, Func<TenantId, string, bool> isConnected)
     {
         // THE TWO WRITES ARE FOR A SIGNED-IN PERSON ONLY (the Tech Lead's ruling on the review of pull request 3936,
         // finding 1): the owner's own phone or browser, and nothing else. A session key is refused, raised or not, and
@@ -61,8 +65,11 @@ public static class LicenseEndpoints
         ArgumentNullException.ThrowIfNull(history);
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(nowUtc);
+        ArgumentNullException.ThrowIfNull(approvers);
+        ArgumentNullException.ThrowIfNull(signIns);
+        ArgumentNullException.ThrowIfNull(isConnected);
 
-        app.MapGet(LicenseRoutes.Overview, (HttpContext ctx) => Overview(ctx, resolveTenant, snapshots, nowUtc));
+        app.MapGet(LicenseRoutes.Overview, (HttpContext ctx) => Overview(ctx, resolveTenant, snapshots, nowUtc, approvers, signIns, isConnected));
         app.MapGet(LicenseRoutes.Forecast, (HttpContext ctx) => Forecast(ctx, resolveTenant, snapshots, history, nowUtc));
         app.MapGet(LicenseRoutes.Log, (HttpContext ctx) => Log(ctx, resolveTenant, store, nowUtc));
         // The answer is executed here, by hand: a lambda that takes only the HttpContext is mapped as a plain request
@@ -95,7 +102,8 @@ public static class LicenseEndpoints
     }
 
     internal static IResult Overview(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant,
-        LicenseSnapshotSource snapshots, Func<DateTime> nowUtc)
+        LicenseSnapshotSource snapshots, Func<DateTime> nowUtc,
+        LicenseApproverStore approvers, LicenseSignInLog signIns, Func<TenantId, string, bool> isConnected)
     {
         FileLog.Write("[LicenseEndpoints] GET overview");
         try
@@ -103,7 +111,11 @@ public static class LicenseEndpoints
             if (resolveTenant(ctx) is not { } tenant)
                 return NoAccount();
             // The page does not judge the open "no account has room" events, so none are passed.
-            var response = LicenseDisplayFold.Overview(snapshots.ReadPicture(tenant, nowUtc(), NoExhaustions));
+            var picture = snapshots.ReadPicture(tenant, nowUtc(), NoExhaustions);
+            var response = LicenseDisplayFold.Overview(picture);
+            // Who approves each account's sign-ins, and where a sign-in can be started now (contract section 8).
+            LicenseSignInFold.Apply(response, picture.Overview.Machines, approvers.List(tenant), signIns.ListOpen(tenant),
+                directorId => isConnected(tenant, directorId));
             FileLog.Write($"[LicenseEndpoints] GET overview: tenant={tenant.ToLogString()}, accounts={response.Accounts.Count}, machines={response.Machines.Count}");
             return Results.Json(response);
         }

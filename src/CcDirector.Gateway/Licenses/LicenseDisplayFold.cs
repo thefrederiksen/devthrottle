@@ -699,6 +699,9 @@ public static class LicenseDisplayFold
     {
         ArgumentNullException.ThrowIfNull(row);
         var label = repeatedNames.Contains(row.MachineName.ToLowerInvariant()) ? $"{row.MachineName} ({row.OsUser})" : row.MachineName;
+        // A sign-in started from the Cockpit is a row of its own kind, with its own words (contract section 8.4).
+        if (row.Kind == LicenseSignInLog.Kind)
+            return LicenseSignInFold.LogEntry(row, label);
         var (stateText, stateTone) = row.State switch
         {
             LicenseLogStates.Pending when row.ReasonCode == LicenseGatewayReasonCodes.DirectorOffline => ("Waiting for the machine", LicenseTones.Warning),
