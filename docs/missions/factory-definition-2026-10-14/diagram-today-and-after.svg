@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 896" width="100%" style="max-width:704px;display:block" role="img" aria-label="A factory today in six places, against one definition after">
+<rect x="0" y="0" width="440" height="896" fill="#ffffff"/>
+<text x="220.0" y="22" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:16px;font-weight:bold" fill="#1b1f24" text-anchor="middle" xml:space="preserve">Today: one factory, six places</text>
+<text x="220.0" y="40" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="middle" xml:space="preserve">the DevThrottle factory on 14 October 2026</text>
+<rect x="8" y="52" width="424" height="70" rx="8" fill="#f6f6f6" stroke="#8a8a8a" stroke-width="2"/>
+<text x="20" y="74" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;font-weight:bold" fill="#8a8a8a" text-anchor="start" xml:space="preserve">1  Gateway</text>
+<text x="20" y="95" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">registry, goal number, activity, run results,</text>
+<text x="20" y="110" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">memory, schedules, triggers, briefs (13 Oct)</text>
+<rect x="8" y="132" width="424" height="55" rx="8" fill="#f6f6f6" stroke="#8a8a8a" stroke-width="2"/>
+<text x="20" y="154" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;font-weight:bold" fill="#8a8a8a" text-anchor="start" xml:space="preserve">2  Product repository</text>
+<text x="20" y="175" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">the registry manifest it was registered from</text>
+<rect x="8" y="197" width="424" height="70" rx="8" fill="#f6f6f6" stroke="#8a8a8a" stroke-width="2"/>
+<text x="20" y="219" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;font-weight:bold" fill="#8a8a8a" text-anchor="start" xml:space="preserve">3  Factory folder in a repository</text>
+<text x="20" y="240" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">GOAL.md, agents/*.yaml, grants in AUTONOMY.md,</text>
+<text x="20" y="255" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">.claude/settings.json rules, outreach_send.py</text>
+<rect x="8" y="277" width="424" height="70" rx="8" fill="#f6f6f6" stroke="#8a8a8a" stroke-width="2"/>
+<text x="20" y="299" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;font-weight:bold" fill="#8a8a8a" text-anchor="start" xml:space="preserve">4  SOREN_NORTH disk, nowhere else</text>
+<text x="20" y="320" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">journals, outreach ledger, playbook, health log</text>
+<text x="20" y="335" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">(23 MB, 236 files, no backup)</text>
+<rect x="8" y="357" width="424" height="55" rx="8" fill="#f6f6f6" stroke="#8a8a8a" stroke-width="2"/>
+<text x="20" y="379" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;font-weight:bold" fill="#8a8a8a" text-anchor="start" xml:space="preserve">5  A separate clone</text>
+<text x="20" y="400" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">D:\ReposFred\devthrottle-factory</text>
+<rect x="8" y="422" width="424" height="70" rx="8" fill="#f6f6f6" stroke="#8a8a8a" stroke-width="2"/>
+<text x="20" y="444" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;font-weight:bold" fill="#8a8a8a" text-anchor="start" xml:space="preserve">6  Not saved at all</text>
+<text x="20" y="465" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">the agent (always Claude Code) and the model</text>
+<text x="20" y="480" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">(the machine default) a seat runs on</text>
+<line x1="34" y1="502" x2="34" y2="527" stroke="#1b1f24" stroke-width="2.5"/>
+<polygon points="27,523 41,523 34,535" fill="#1b1f24"/>
+<text x="52" y="518" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12.5px;font-weight:bold" fill="#1b1f24" text-anchor="start" xml:space="preserve">After this mission</text>
+<text x="220.0" y="549" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:16px;font-weight:bold" fill="#1b1f24" text-anchor="middle" xml:space="preserve">One definition, records beside it</text>
+<rect x="8" y="561" width="424" height="85" rx="8" fill="#e8f0fe" stroke="#1a56db" stroke-width="2"/>
+<text x="20" y="583" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;font-weight:bold" fill="#1a56db" text-anchor="start" xml:space="preserve">Gateway: the definition</text>
+<text x="20" y="604" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">2, 3 and 6, plus from 1 the registry, schedules,</text>
+<text x="20" y="619" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">triggers and briefs; one version number, published</text>
+<text x="20" y="634" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">as a whole, restorable</text>
+<rect x="8" y="656" width="424" height="85" rx="8" fill="#e7f6ec" stroke="#1e7b3a" stroke-width="2"/>
+<text x="20" y="678" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;font-weight:bold" fill="#1e7b3a" text-anchor="start" xml:space="preserve">Gateway: the records</text>
+<text x="20" y="699" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">everything in 4, and from 1 the activity, run</text>
+<text x="20" y="714" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">results, memory and goal numbers - never versioned</text>
+<text x="20" y="729" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">with the definition</text>
+<rect x="8" y="751" width="424" height="70" rx="8" fill="#fff4e0" stroke="#b26a00" stroke-width="2"/>
+<text x="20" y="773" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;font-weight:bold" fill="#b26a00" text-anchor="start" xml:space="preserve">Machine: downloaded when a seat starts</text>
+<text x="20" y="794" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">a run kit outside any checkout; a worktree only</text>
+<text x="20" y="809" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">when the seat names a repository - so 5 retires</text>
+<rect x="8" y="831" width="424" height="55" rx="8" fill="#fdecec" stroke="#b42318" stroke-width="2"/>
+<text x="20" y="853" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;font-weight:bold" fill="#b42318" text-anchor="start" xml:space="preserve">Machine only, unchanged</text>
+<text x="20" y="874" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">secret values in cc-secrets, browser profiles</text>
+</svg>
