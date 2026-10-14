@@ -6,7 +6,7 @@ a key: the store hands back emails, folders and key locations, never key values.
 
 The folders are always resolvable without a running Director:
 - the default config folder: `--default-config-dir`, else CC_LICENSE_DEFAULT_CONFIG_DIR, else `~/.claude`
-  (which the store refuses in this release, so every run names an isolated folder);
+  (which the store refuses unless a Director with license switching on runs the command);
 - the store: `--store-dir`, else CC_LICENSE_STORE_DIR, else `<DevThrottle data folder>/licenses`.
 """
 
@@ -22,6 +22,7 @@ from cc_shared import axi_output
 
 from . import axi_cli, usage_errors
 from .license_store import (
+    ENV_ALLOW_REAL_DEFAULT,
     ENV_DEFAULT_CONFIG_DIR,
     ENV_STORE_DIR,
     HeldAccount,
@@ -49,9 +50,15 @@ def resolve_store_dir(given: Optional[str]) -> str:
     return str(_install_root() / "licenses")
 
 
+def allow_real_default() -> bool:
+    """True only when the Director that ran this command has license switching on (it sets the variable to "1")."""
+    return os.environ.get(ENV_ALLOW_REAL_DEFAULT) == "1"
+
+
 def _open(default_config_dir: Optional[str], store_dir: Optional[str]) -> LicenseStore:
     try:
-        return LicenseStore(resolve_default_config_dir(default_config_dir), resolve_store_dir(store_dir))
+        return LicenseStore(resolve_default_config_dir(default_config_dir), resolve_store_dir(store_dir),
+                            allow_real_default=allow_real_default())
     except LicenseStoreError as exc:
         axi_cli.fail(str(exc), exc.next_steps)
 

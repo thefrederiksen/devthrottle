@@ -36,6 +36,7 @@ public sealed class InheritedSessionEnvironmentTests : IDisposable
     [InlineData("GIT_EDITOR")]
     [InlineData("CC_FACTORY_MEMORY_DIR")]
     [InlineData("cc_factory_memory_dir")]
+    [InlineData("CC_LICENSE_ALLOW_REAL_DEFAULT")]
     public void The_parent_agents_markers_and_the_parent_sessions_factory_are_stripped(string name) =>
         Assert.True(InheritedSessionEnvironment.IsStripped(name));
 

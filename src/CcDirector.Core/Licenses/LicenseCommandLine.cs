@@ -87,9 +87,21 @@ public sealed class LicenseCommandLineException : Exception
     public LicenseCommandLineException(string message) : base(message) { }
 }
 
-/// <summary>Where the license tool reads and writes, when it must not be the machine's real ones. Tests and every
-/// phase 1 run set both; the tool itself refuses the machine's real default Claude login in phase 1.</summary>
-public sealed record LicenseCommandLineOptions(string? DefaultConfigDir, string? StoreDir);
+/// <summary>Where the license tool reads and writes, when it must not be the machine's real ones (tests and proofs set
+/// both), and whether it may use the machine's real default Claude login. The tool refuses that login unless
+/// <see cref="AllowRealDefault"/> is true: it is set only from the license switching setting, and is passed to the
+/// tool in the environment of this Director's own runs of it (<see cref="AllowRealDefaultVariable"/>), never
+/// process-wide, so a command typed in a session still cannot touch the real login.</summary>
+public sealed record LicenseCommandLineOptions(string? DefaultConfigDir, string? StoreDir, bool AllowRealDefault = false)
+{
+    /// <summary>The tool's variable for this (tools/cc-devthrottle license_store.ENV_ALLOW_REAL_DEFAULT); only "1" counts.</summary>
+    public const string AllowRealDefaultVariable = "CC_LICENSE_ALLOW_REAL_DEFAULT";
+
+    /// <summary>The variables to add to a run of the tool: the allowance when it is on, else none.</summary>
+    public IReadOnlyDictionary<string, string> ToolEnvironment() => AllowRealDefault
+        ? new Dictionary<string, string> { [AllowRealDefaultVariable] = "1" }
+        : new Dictionary<string, string>();
+}
 
 /// <summary>
 /// The production <see cref="ILicenseCommandLine"/>: this Director's OWN <c>cc-devthrottle</c>, from the machine's
@@ -229,7 +241,7 @@ public sealed partial class CcDevthrottleLicenseCommandLine : ILicenseCommandLin
             limit.CancelAfter(allowed);
             try
             {
-                result = await ProcessRunner.RunAsync(exe, args, workingDirectory: null, standardInput: null, limit.Token);
+                result = await ProcessRunner.RunAsync(exe, args, workingDirectory: null, standardInput: null, _options.ToolEnvironment(), limit.Token);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {

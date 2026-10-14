@@ -209,6 +209,8 @@ public sealed partial class CcDevthrottleLicenseCommandLine
         args.Add("--json");
         foreach (var a in WithIsolation(args))
             psi.ArgumentList.Add(a);
+        foreach (var (name, value) in _options.ToolEnvironment())
+            psi.Environment[name] = value;
 
         var process = new Process { StartInfo = psi };
         try

@@ -1,4 +1,5 @@
 using CcDirector.Core.Licenses;
+using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 using Xunit;
 
@@ -184,17 +185,39 @@ public sealed class LicenseCommandLineTests
         Assert.Equal(new[] { "license", "usage", "--active", "--json" }, tool.Arguments());
     }
 
-    /// <summary>A stand-in for <c>cc-devthrottle</c>: writes each argument it was given on its own line, and answers
-    /// one usage row.</summary>
+    [Theory]
+    [InlineData(true, "1")]
+    [InlineData(false, "")]
+    public async Task ReadUsageAsync_AllowRealDefault_IsInTheToolsEnvironmentOnlyWhenOn(bool allow, string expected)
+    {
+        // License switching on a real machine: the tool refuses the real default login unless the Director that runs it
+        // says so in the tool's own environment. It must never be left behind for the next child, as a session is.
+        Assert.True(Environment.GetEnvironmentVariable(LicenseCommandLineOptions.AllowRealDefaultVariable) is null,
+            $"{LicenseCommandLineOptions.AllowRealDefaultVariable} is set in this test process, so this test cannot tell what the adapter passed. Unset it and run again.");
+        using var tool = RecordingTool.Create();
+        var adapter = new CcDevthrottleLicenseCommandLine(new LicenseCommandLineOptions(null, null, AllowRealDefault: allow), () => tool.Path);
+
+        await adapter.ReadUsageAsync(activeOnly: true, CancellationToken.None);
+        Assert.Equal(expected, tool.AllowRealDefault());
+
+        // The next child started without the dictionary - any other process the Director starts - sees nothing.
+        await ProcessRunner.RunAsync(tool.Path, Array.Empty<string>(), workingDirectory: null, CancellationToken.None);
+        Assert.Equal("", tool.AllowRealDefault());
+    }
+
+    /// <summary>A stand-in for <c>cc-devthrottle</c>: writes each argument it was given on its own line and the
+    /// allow-real-default variable it saw, and answers one usage row.</summary>
     private sealed class RecordingTool : IDisposable
     {
         private readonly string _folder;
         private readonly string _argumentsFile;
+        private readonly string _environmentFile;
 
         private RecordingTool(string folder)
         {
             _folder = folder;
             _argumentsFile = System.IO.Path.Combine(folder, "arguments.txt");
+            _environmentFile = System.IO.Path.Combine(folder, "environment.txt");
             const string answer = "{\"accounts\": [{\"accountEmail\": \"account-a@example.com\", \"isActive\": true}]}";
             if (OperatingSystem.IsWindows())
             {
@@ -207,6 +230,7 @@ public sealed class LicenseCommandLineTests
                     "shift\r\n" +
                     "goto next\r\n" +
                     ":done\r\n" +
+                    ">\"" + _environmentFile + "\" echo [%" + LicenseCommandLineOptions.AllowRealDefaultVariable + "%]\r\n" +
                     "echo " + answer + "\r\n");
             }
             else
@@ -215,6 +239,7 @@ public sealed class LicenseCommandLineTests
                 File.WriteAllText(Path,
                     "#!/bin/sh\n" +
                     "for a in \"$@\"; do printf '%s\\n' \"$a\" >> '" + _argumentsFile + "'; done\n" +
+                    "printf '[%s]\\n' \"$" + LicenseCommandLineOptions.AllowRealDefaultVariable + "\" > '" + _environmentFile + "'\n" +
                     "printf '%s\\n' '" + answer + "'\n");
                 File.SetUnixFileMode(Path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
             }
@@ -228,6 +253,9 @@ public sealed class LicenseCommandLineTests
             Directory.CreateDirectory(folder);
             return new RecordingTool(folder);
         }
+
+        /// <summary>The value of the allow-real-default variable the tool saw; empty when it was not set.</summary>
+        public string AllowRealDefault() => File.ReadAllText(_environmentFile).Trim().TrimStart('[').TrimEnd(']');
 
         public string[] Arguments() => File.ReadAllLines(_argumentsFile).Select(l => l.TrimEnd()).ToArray();
 

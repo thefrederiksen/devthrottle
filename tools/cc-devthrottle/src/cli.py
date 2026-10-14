@@ -1826,7 +1826,7 @@ def browser_remove(
 
 _LICENSE_DEFAULT_DIR_HELP = (
     "The default Claude config folder, whose sign-in every session uses. Default: CC_LICENSE_DEFAULT_CONFIG_DIR, "
-    "else ~/.claude, which this release refuses - pass an isolated folder."
+    "else ~/.claude, which is refused unless a Director with license switching on runs the command."
 )
 _LICENSE_STORE_DIR_HELP = "The folder holding the spares. Default: CC_LICENSE_STORE_DIR, else <DevThrottle data>/licenses."
 

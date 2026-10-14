@@ -41,8 +41,17 @@ public static class ProcessRunner
     /// in its argument list or environment, where any process on the machine can read it. Null leaves standard
     /// input unredirected, exactly as the overload without it.
     /// </summary>
-    public static async Task<Result> RunAsync(
+    public static Task<Result> RunAsync(
         string fileName, IReadOnlyList<string> args, string? workingDirectory, string? standardInput, CancellationToken ct)
+        => RunAsync(fileName, args, workingDirectory, standardInput, environment: null, ct);
+
+    /// <summary>
+    /// As the overload without it, and also adds <paramref name="environment"/> to the child's environment only - this
+    /// process's own environment is not changed. Null or empty adds nothing.
+    /// </summary>
+    public static async Task<Result> RunAsync(
+        string fileName, IReadOnlyList<string> args, string? workingDirectory, string? standardInput,
+        IReadOnlyDictionary<string, string>? environment, CancellationToken ct)
     {
         var psi = new ProcessStartInfo
         {
@@ -59,6 +68,9 @@ public static class ProcessRunner
             psi.WorkingDirectory = workingDirectory;
         foreach (var a in args)
             psi.ArgumentList.Add(a);
+        if (environment is not null)
+            foreach (var (name, value) in environment)
+                psi.Environment[name] = value;
 
         using var proc = new Process { StartInfo = psi };
 

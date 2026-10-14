@@ -50,6 +50,12 @@ public static class InheritedSessionEnvironment
         if (name.Equals(FactoryMemoryFiles.DirectoryEnvVar, StringComparison.OrdinalIgnoreCase))
             return true;
 
+        // The license tool's allowance to use the machine's real Claude login. The Director sets it only on its
+        // own runs of the tool; a Director started from a shell that has it must not hand it to every session,
+        // where a typed `cc-devthrottle license switch` would then act on the real login.
+        if (name.Equals(Licenses.LicenseCommandLineOptions.AllowRealDefaultVariable, StringComparison.OrdinalIgnoreCase))
+            return true;
+
         return false;
     }
 

@@ -121,6 +121,31 @@ def test_list_RealDefaultFolder_IsRefusedWithANextStep(machine, monkeypatch):
     assert "help[1]:" in result.stderr and "--default-config-dir" in result.stderr
 
 
+@pytest.mark.parametrize("value", ["", "0", "true", "yes"])
+def test_list_RealDefaultFolder_AnyValueButOne_IsRefused(machine, monkeypatch, value):
+    monkeypatch.delenv("CC_LICENSE_DEFAULT_CONFIG_DIR")
+    monkeypatch.setenv("CC_LICENSE_ALLOW_REAL_DEFAULT", value)
+    result = _run("list")
+    assert result.exit_code == 1
+    assert "real default" in result.stderr
+
+
+def test_list_RealDefaultFolder_AllowedByTheDirectorsVariable(machine, monkeypatch, tmp_path):
+    # A stand-in home, so the "real" default is a temporary folder and never this machine's login.
+    home = tmp_path / "home"
+    monkeypatch.setattr("src.license_store.Path.home", lambda: home)
+    monkeypatch.delenv("CC_LICENSE_DEFAULT_CONFIG_DIR")
+    monkeypatch.setenv("CC_LICENSE_ALLOW_REAL_DEFAULT", "1")
+    _sign_in(home / ".claude", ACCOUNT_A, 1)
+    # Claude Code keeps the real default login's account file in the home folder, not inside .claude.
+    (home / ".claude.json").write_text((home / ".claude" / ".claude.json").read_text(encoding="utf-8"), encoding="utf-8")
+    result = _run("list", "--json")
+    assert result.exit_code == 0, result.stderr
+    data = json.loads(result.stdout)
+    assert [a["email"] for a in data["accounts"]] == [ACCOUNT_A]
+    assert data["defaultConfigDir"] == str(home / ".claude")
+
+
 def test_switch_ExchangesAndReportsVerified(machine):
     _with_active_and_spare(machine)
 
