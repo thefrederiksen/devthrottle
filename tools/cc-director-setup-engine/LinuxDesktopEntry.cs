@@ -1,3 +1,4 @@
+using CcDirector.Core.Storage;
 using System.Runtime.Versioning;
 
 namespace CcDirector.Setup.Engine;
@@ -90,12 +91,7 @@ public static class LinuxDesktopEntry
 
         var iconPath = IconPath(dataHome);
         Directory.CreateDirectory(Path.GetDirectoryName(iconPath)!);
-        using (var icon = typeof(LinuxDesktopEntry).Assembly.GetManifestResourceStream(IconResourceName)
-                          ?? throw new InvalidOperationException($"The embedded icon '{IconResourceName}' is missing from the setup engine."))
-        using (var file = File.Create(iconPath))
-        {
-            icon.CopyTo(file);
-        }
+        File.WriteAllBytes(iconPath, IconBytes());
 
         // Written beside the target and renamed over it, so a menu that re-reads the directory mid-write
         // never sees half an entry.
@@ -107,6 +103,111 @@ public static class LinuxDesktopEntry
 
         EngineLog.Write($"[LinuxDesktopEntry] Install: wrote {entryPath} and {iconPath}");
         return true;
+    }
+
+    /// <summary>What <see cref="Repair(string, string, string)"/> did.</summary>
+    public enum RepairOutcome
+    {
+        /// <summary>The running Director is not the installed one (a development build, the standby slot); nothing touched.</summary>
+        NotTheInstalledDirector,
+        /// <summary>The entry and the icon on disk already match this build; nothing written.</summary>
+        UpToDate,
+        /// <summary>The entry or the icon was missing or stale, and both were rewritten.</summary>
+        Rewritten,
+    }
+
+    /// <summary>
+    /// Bring the entry and the icon up to date with the Director running in this process. Called at every
+    /// Director start on Linux.
+    ///
+    /// Only the setup tools call <see cref="Install(InstallLayout)"/>, and an update swaps the Director's
+    /// executable and nothing else - so before this, a fix to the entry or the icon reached nobody who had
+    /// already installed. That is how a blank icon stayed blank on machines that kept updating.
+    /// </summary>
+    [SupportedOSPlatform("linux")]
+    public static RepairOutcome Repair()
+    {
+        var running = Environment.ProcessPath
+            ?? throw new InvalidOperationException("Environment.ProcessPath is null; cannot locate this Director's executable.");
+        return Repair(running, InstalledDirector(), DefaultDataHome());
+    }
+
+    /// <summary>
+    /// The machine's own installed Director, from <see cref="CcStorage.DefaultRoot"/>, which ignores
+    /// CC_DIRECTOR_ROOT. <see cref="InstallLayout.Default"/> honours it, so a Director placed in a test rig
+    /// and pointed at that rig would pass as installed and write the throwaway rig into the person's
+    /// permanent app menu.
+    /// </summary>
+    internal static string InstalledDirector() => new InstallLayout(CcStorage.DefaultRoot()).PathFor(ComponentRegistry.Director);
+
+    /// <summary>
+    /// See <see cref="Repair()"/>. Acts only when <paramref name="runningExe"/> is
+    /// <paramref name="installedExe"/>: a development build run from a checkout must never point the
+    /// person's app menu at itself. Writes only when the files on disk differ from what
+    /// <see cref="Install(string, string)"/> would write, and creates them when missing.
+    /// </summary>
+    public static RepairOutcome Repair(string runningExe, string installedExe, string dataHome)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(runningExe);
+        ArgumentException.ThrowIfNullOrWhiteSpace(installedExe);
+        ArgumentException.ThrowIfNullOrWhiteSpace(dataHome);
+
+        // Compared as real paths: the running path comes from /proc/self/exe with every link resolved, so
+        // where /home is itself a link (/var/home on Fedora Silverblue and its kind) the plain strings differ
+        // and the machine's own install would never be repaired.
+        if (!string.Equals(RealPath(runningExe), RealPath(installedExe), StringComparison.Ordinal))
+        {
+            EngineLog.Write($"[LinuxDesktopEntry] Repair: running {runningExe} is not the installed Director {installedExe}; left alone");
+            return RepairOutcome.NotTheInstalledDirector;
+        }
+
+        var entryPath = EntryPath(dataHome);
+        var iconPath = IconPath(dataHome);
+        var entryCurrent = File.Exists(entryPath) && File.ReadAllText(entryPath) == BuildEntry(installedExe);
+        var iconCurrent = File.Exists(iconPath) && File.ReadAllBytes(iconPath).AsSpan().SequenceEqual(IconBytes());
+        if (entryCurrent && iconCurrent)
+        {
+            EngineLog.Write("[LinuxDesktopEntry] Repair: entry and icon are current");
+            return RepairOutcome.UpToDate;
+        }
+
+        EngineLog.Write($"[LinuxDesktopEntry] Repair: entryCurrent={entryCurrent}, iconCurrent={iconCurrent}; rewriting");
+        Install(installedExe, dataHome);
+        return RepairOutcome.Rewritten;
+    }
+
+    /// <summary>
+    /// <paramref name="path"/> with every symbolic link along it resolved, one component at a time. A
+    /// component that does not exist is kept as written, along with everything after it.
+    /// </summary>
+    internal static string RealPath(string path)
+    {
+        var full = Path.GetFullPath(path);
+        var root = Path.GetPathRoot(full)!;
+        var current = root;
+        var parts = full[root.Length..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
+        for (var i = 0; i < parts.Length; i++)
+        {
+            var next = Path.Combine(current, parts[i]);
+            FileSystemInfo info = Directory.Exists(next) ? new DirectoryInfo(next) : new FileInfo(next);
+            if (!info.Exists)
+                return Path.Combine([current, .. parts[i..]]);
+
+            // The final target may itself sit under a link, so it is resolved again from its root. A loop
+            // of links makes ResolveLinkTarget throw rather than recurse forever.
+            current = info.LinkTarget is null ? next : RealPath(info.ResolveLinkTarget(returnFinalTarget: true)!.FullName);
+        }
+        return current;
+    }
+
+    /// <summary>The icon the entry names, exactly as the setup engine carries it.</summary>
+    internal static byte[] IconBytes()
+    {
+        using var icon = typeof(LinuxDesktopEntry).Assembly.GetManifestResourceStream(IconResourceName)
+                         ?? throw new InvalidOperationException($"The embedded icon '{IconResourceName}' is missing from the setup engine.");
+        using var buffer = new MemoryStream();
+        icon.CopyTo(buffer);
+        return buffer.ToArray();
     }
 
     /// <summary>Whether an entry is present under <paramref name="dataHome"/>.</summary>

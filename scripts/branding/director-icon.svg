@@ -1,22 +1,29 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<!--
-  The Director application icon for Windows.
-
-  Same mark as the macOS icon in scripts/local-build/mac/AppIcon.svg - a dark
-  tile, a light "D" for Director (issue #1821 renamed the app), and a blue
-  terminal prompt underline with a cursor block. Two things differ on purpose:
-
-  1. Geometry. macOS bakes a transparent margin and a drop shadow into the icon
-     because the Dock expects it. Windows draws its own shadow and expects the
-     art to fill the square, so this version is full bleed.
-  2. The "D" is an outline, not a <text> element. It is the Arial Bold glyph
-     converted to a path, so rendering does not depend on a font being
-     installed and the renderer cannot apply subpixel text antialiasing, which
-     leaves coloured fringes along the edges of the letter.
-
-  Regenerate the icon after editing this file:  python scripts/branding/generate_director_icon.py
--->
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    The Director application icon for Windows, and for the Linux app menu.
+
+    Same mark as the macOS icon in scripts/local-build/mac/AppIcon.svg - a dark
+    tile, a light "D" for Director (issue #1821 renamed the app), and a blue
+    terminal prompt underline with a cursor block. Two things differ on purpose:
+
+    1. Geometry. macOS bakes a transparent margin and a drop shadow into the icon
+       because the Dock expects it. Windows draws its own shadow and expects the
+       art to fill the square, so this version is full bleed.
+    2. The "D" is an outline, not a <text> element. It is the Arial Bold glyph
+       converted to a path, so rendering does not depend on a font being
+       installed and the renderer cannot apply subpixel text antialiasing, which
+       leaves coloured fringes along the edges of the letter.
+
+    This comment sits INSIDE the <svg> element, not above it. The Linux image
+    loader (gdk-pixbuf) only recognises a file as SVG when "<svg" starts within
+    its first 256 bytes. With this comment above the element the Linux
+    installer wrote an icon no desktop could load, and DevThrottle showed as a
+    blank tile in the dock and the app grid. The setup engine embeds this file
+    as that icon, and a test holds the 256-byte limit.
+
+    Regenerate the icon after editing this file:  python scripts/branding/generate_director_icon.py
+  -->
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#33333A"/>
