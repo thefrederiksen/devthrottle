@@ -8,7 +8,8 @@
 // whether Switch now is offered and the sentence saying what it would do. A page shows them as sent. It never
 // compares a percentage with the threshold and never compares a time with now.
 //
-// No answer here carries a sign-in key. The Gateway holds none.
+// No answer here carries a sign-in key. The Gateway holds none. Nor does any call here take or return the address a
+// sign-in is approved at, or an approval: those pass between two Directors and are never the page's to see.
 import { authHeaders, gatewayFetch, GatewayError, POLL_TIMEOUT_MS } from "../api/client";
 
 /** The tone a Gateway label is shown in. A page maps each one to a colour and to nothing else. */
@@ -66,6 +67,27 @@ export interface LicenseSignInExpiry {
   tone: LicenseTone;
 }
 
+/** The machine and browser profile that approve the sign-ins of one account. One per account at most. */
+export interface LicenseApprover {
+  accountEmail: string;
+  /** The approving machine, as the owner set it, or as the machine itself spells it once it has reported. */
+  machineName: string;
+  osUser: string;
+  /** The browser profile on that machine that is signed in to claude.ai as the account. */
+  browserProfile: string;
+  /** The machine's row in the overview; null while no such machine has reported to this account. */
+  machineId: string | null;
+  /** What to call the machine. */
+  label: string;
+  canApproveNow: boolean;
+  /** ready | not-connected | never-reported. */
+  status: string;
+  statusText: string;
+  statusTone: LicenseTone;
+  /** The whole of it in one or two sentences. A page shows this. */
+  text: string;
+}
+
 export interface LicenseAccount {
   accountEmail: string;
   plan: string | null;
@@ -105,6 +127,11 @@ export interface LicenseAccount {
    *  null when it is not barred. A barred account can still be chosen by hand. */
   barredUntilUtc: string | null;
   barredText: string | null;
+  /** Who approves the sign-ins of this account; null when no machine is set. */
+  approver: LicenseApprover | null;
+  /** The sentence to show, whether or not one is set, and its tone. */
+  approverText: string;
+  approverTone: LicenseTone;
 }
 
 /** One sign-in a machine holds: its active one, or a spare. */
@@ -126,6 +153,18 @@ export interface LicenseHolding {
   renewalFailedAtUtc: string | null;
   renewalFailedText: string | null;
   renewalFailedTone: LicenseTone | null;
+  /** Renew now is offered for this sign-in. */
+  canRenewNow: boolean;
+  /** What Renew now does, or the sentence saying why it is not offered - the one the route refuses with. */
+  renewNowText: string;
+}
+
+/** A sign-in a machine is in the middle of. */
+export interface LicenseSignInInProgress {
+  signInId: string;
+  accountEmail: string;
+  /** One sentence saying where the sign-in stands. */
+  text: string;
 }
 
 export interface LicenseSwitchInProgress {
@@ -146,6 +185,12 @@ export interface LicenseMachine extends LicenseMachineRef {
   active: LicenseHolding | null;
   spares: LicenseHolding[];
   switchInProgress: LicenseSwitchInProgress | null;
+  /** Add a spare is offered for this machine. */
+  canAddSpare: boolean;
+  /** What Add a spare does, or the sentence saying why it is not offered - the one the route refuses with. */
+  addSpareText: string;
+  /** The sign-ins on this machine that have not ended. */
+  signInsInProgress: LicenseSignInInProgress[];
 }
 
 /** GET /gateway/licenses. */
@@ -295,6 +340,43 @@ export interface LicenseRenewalResult {
   renewsText: string;
 }
 
+/** GET /gateway/licenses/approvers: who approves the sign-ins of each account, in account email order. */
+export interface LicenseApprovers {
+  asOfUtc: string;
+  /** No approver is set for any account; emptyText is the sentence to show in place of the list. */
+  isEmpty: boolean;
+  emptyText: string | null;
+  approvers: LicenseApprover[];
+}
+
+/** The body of PUT /gateway/licenses/approvers. Setting an account that has an approver replaces it. */
+export interface LicenseSetApprover {
+  accountEmail: string;
+  machineName: string;
+  osUser: string;
+  browserProfile: string;
+}
+
+/** The answer of DELETE /gateway/licenses/approvers: whether one was set, and the sentence saying which. */
+export interface LicenseApproverRemoved {
+  accountEmail: string;
+  removed: boolean;
+  text: string;
+}
+
+/**
+ * The answer of the two routes that start a sign-in. It is given at once: a sign-in takes minutes. `entry` is the
+ * sign-in's row of the log as it stands; the outcome arrives on that same row (same entryId) through the log route.
+ */
+export interface LicenseSignInStarted {
+  signInId: string;
+  accountEmail: string;
+  machine: LicenseMachineRef;
+  /** One sentence saying what was started and where its outcome appears. */
+  text: string;
+  entry: LicenseLogEntry;
+}
+
 const JSON_GET: RequestInit = { method: "GET" };
 
 async function readJson<T>(path: string, what: string, list: string, signal?: AbortSignal): Promise<T> {
@@ -331,8 +413,8 @@ export function getLicenseLog(cursor?: string | null, signal?: AbortSignal): Pro
   return readJson<LicenseLogPage>(`/gateway/licenses/log${query}`, "read the switch log", "entries", signal);
 }
 
-// Both writes are for a signed-in person only, and the Gateway refuses a body not sent as application/json before it
-// reads a byte of it. One set of headers, so neither write can lose the content type.
+// Every write is for a signed-in person only, and the Gateway refuses a body not sent as application/json before it
+// reads a byte of it. One set of headers, so no write that has a body can lose the content type.
 function jsonWriteHeaders(): HeadersInit {
   return { Accept: "application/json", "Content-Type": "application/json", ...authHeaders() };
 }
@@ -388,4 +470,88 @@ export async function setLicenseRenewalDate(
     throw new GatewayError(res.status, "The Gateway answered the renewal date without its 'renewsText' sentence.");
   }
   return body;
+}
+
+/** GET /gateway/licenses/approvers - which machine and browser profile approve each account's sign-ins. */
+export function getLicenseApprovers(signal?: AbortSignal): Promise<LicenseApprovers> {
+  return readJson<LicenseApprovers>("/gateway/licenses/approvers", "read who approves sign-ins", "approvers", signal);
+}
+
+/**
+ * PUT /gateway/licenses/approvers - set the machine and browser profile that approve the sign-ins of one account.
+ * The answer is the approver as stored, with its status and sentence already folded; a refusal throws GatewayError
+ * carrying the Gateway's own sentence.
+ */
+export async function setLicenseApprover(approver: LicenseSetApprover, signal?: AbortSignal): Promise<LicenseApprover> {
+  const { accountEmail, machineName, osUser, browserProfile } = approver;
+  const res = await gatewayFetch("/gateway/licenses/approvers", {
+    method: "PUT",
+    headers: jsonWriteHeaders(),
+    body: JSON.stringify({ accountEmail, machineName, osUser, browserProfile }),
+    signal,
+  });
+  if (!res.ok) throw await GatewayError.from(res, "set who approves the sign-ins");
+  const body = (await res.json()) as LicenseApprover | null;
+  // An answer without its sentence would leave the page nothing true to show for what it just stored.
+  if (typeof body?.text !== "string") {
+    throw new GatewayError(res.status, "The Gateway answered the approver without its 'text' sentence.");
+  }
+  return body;
+}
+
+/**
+ * DELETE /gateway/licenses/approvers?accountEmail=... - remove the approver of one account. It has no body: the
+ * account is named in the query. Answered whether or not one was set; the answer's sentence says which.
+ */
+export async function removeLicenseApprover(accountEmail: string, signal?: AbortSignal): Promise<LicenseApproverRemoved> {
+  const res = await gatewayFetch(`/gateway/licenses/approvers?accountEmail=${encodeURIComponent(accountEmail)}`, {
+    method: "DELETE",
+    headers: { Accept: "application/json", ...authHeaders() },
+    signal,
+  });
+  if (!res.ok) throw await GatewayError.from(res, "remove who approves the sign-ins");
+  const body = (await res.json()) as LicenseApproverRemoved | null;
+  if (typeof body?.text !== "string") {
+    throw new GatewayError(res.status, "The Gateway answered the removal of an approver without its 'text' sentence.");
+  }
+  return body;
+}
+
+async function startLicenseSignIn(
+  path: string,
+  what: string,
+  accountEmail: string,
+  machineId: string,
+  signal?: AbortSignal,
+): Promise<LicenseSignInStarted> {
+  const res = await gatewayFetch(path, {
+    method: "POST",
+    headers: jsonWriteHeaders(),
+    body: JSON.stringify({ accountEmail, machineId }),
+    signal,
+  });
+  if (!res.ok) throw await GatewayError.from(res, what);
+  const body = (await res.json()) as LicenseSignInStarted | null;
+  // The row is where the outcome is read from; an answer without it could never be followed to its end.
+  if (typeof body?.text !== "string" || typeof body?.entry?.entryId !== "string") {
+    throw new GatewayError(res.status, `The Gateway answered ${path} without its 'text' sentence and its 'entry' row.`);
+  }
+  return body;
+}
+
+/**
+ * POST /gateway/licenses/sign-ins/add-spare - sign the machine `machineId` (its machineId in the overview) in to an
+ * account it does not hold, to be kept there as a spare. Answered at once; the outcome arrives on the answer's row of
+ * the log. A refusal throws GatewayError carrying the Gateway's own sentence.
+ */
+export function addLicenseSpare(accountEmail: string, machineId: string, signal?: AbortSignal): Promise<LicenseSignInStarted> {
+  return startLicenseSignIn("/gateway/licenses/sign-ins/add-spare", "add a spare", accountEmail, machineId, signal);
+}
+
+/**
+ * POST /gateway/licenses/sign-ins/renew - sign the machine `machineId` in again to an account it holds, replacing the
+ * sign-in it has. Answered at once; the outcome arrives on the answer's row of the log.
+ */
+export function renewLicenseSignIn(accountEmail: string, machineId: string, signal?: AbortSignal): Promise<LicenseSignInStarted> {
+  return startLicenseSignIn("/gateway/licenses/sign-ins/renew", "renew the sign-in", accountEmail, machineId, signal);
 }

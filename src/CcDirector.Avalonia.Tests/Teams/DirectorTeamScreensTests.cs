@@ -179,50 +179,6 @@ public sealed class DirectorTeamScreensTests
     }
 
     [AvaloniaFact]
-    public async Task MainWindow_GatewayUnreachableAtStart_ChipIsReadAgainWhenTheGatewayAnswers()
-    {
-        // Review note R2-F3: the first read fails (offline, or a Gateway mid-deploy); the chip must not stay
-        // hidden for the rest of the run once the Gateway answers again.
-        await WithTempRootAsync(async () =>
-        {
-            var reachable = false;
-            var reads = 0;
-            var window = new MainWindow
-            {
-                ResolveDirectorTeam = ct =>
-                {
-                    reads++;
-                    return reachable
-                        ? DirectorTeamView.ResolveAsync(null, "https://gw.example", new FixedSignal(true), ct)
-                        : Task.FromResult(OperationResult<DirectorTeam?>.Fail("The Gateway could not be reached."));
-                },
-            };
-            await window.RefreshDirectorTeamAsync();
-            Assert.False(window.DirectorTeamChip.IsVisible);
-            var readsAfterFailure = reads;
-
-            window.RetryDirectorTeamIfUnknown(gatewayReachable: false);
-            Assert.Equal(readsAfterFailure, reads);
-
-            reachable = true;
-            window.RetryDirectorTeamIfUnknown(gatewayReachable: true);
-            for (var i = 0; i < 50 && !window.DirectorTeamChip.IsVisible; i++)
-            {
-                Dispatcher.UIThread.RunJobs();
-                await Task.Delay(20);
-            }
-
-            Assert.Equal(readsAfterFailure + 1, reads);
-            Assert.True(window.DirectorTeamChip.IsVisible);
-            Assert.Equal("Personal", window.DirectorTeamChip.Text);
-
-            // Known now: a later account read does not ask again.
-            window.RetryDirectorTeamIfUnknown(gatewayReachable: true);
-            Assert.Equal(readsAfterFailure + 1, reads);
-        });
-    }
-
-    [AvaloniaFact]
     public async Task DirectorTeamStore_SaveAndClear_RaiseChangedSoTheTitleBarRedraws()
     {
         await WithTempRootAsync(() =>

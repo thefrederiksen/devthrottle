@@ -281,6 +281,9 @@ public sealed class GatewayDbContext : DbContext
     /// <summary>Every version of every note in every factory's memory (Factory Memory mission, phase 2).</summary>
     public DbSet<FactoryMemoryNoteEntity> FactoryMemoryNotes => Set<FactoryMemoryNoteEntity>();
 
+    /// <summary>Every version of every seat's brief held on the Gateway (Factory Seats mission, phase 2a).</summary>
+    public DbSet<FactoryBriefVersionEntity> FactoryBriefs => Set<FactoryBriefVersionEntity>();
+
     /// <summary>The registered factories, one row per factory (Factories screen mission, phase A).</summary>
     public DbSet<FactoryRegistryEntity> FactoryRegistry => Set<FactoryRegistryEntity>();
 
@@ -1338,6 +1341,22 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.AuthorId).HasMaxLength(200);
         });
 
+        modelBuilder.Entity<FactoryBriefVersionEntity>(b =>
+        {
+            b.ToTable("factory_seat_briefs");
+            // THE KEY IS THE CONCURRENCY CONTROL, as it is for factory memory just above: two replicas saving the
+            // same seat's brief at the same moment both compute the same next version, and with this key the second
+            // insert cannot exist. The key is also the only index the reads need - a seat's newest version, its
+            // published version and its history all cut by (tenant, factory, seat).
+            b.HasKey(e => new { e.TenantId, e.Factory, e.Seat, e.Version });
+            b.Property(e => e.Factory).HasMaxLength(64);
+            b.Property(e => e.Seat).HasMaxLength(64);
+            b.Property(e => e.State).HasMaxLength(16);
+            b.Property(e => e.AuthorKind).HasMaxLength(20);
+            b.Property(e => e.AuthorId).HasMaxLength(200);
+            b.Property(e => e.PublishedBy).HasMaxLength(200);
+        });
+
         modelBuilder.Entity<FactoryRegistryEntity>(b =>
         {
             b.ToTable("factory_registry");
@@ -2035,6 +2054,7 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<SkillPlacementStateEntity>(modelBuilder);
         ApplyTenantScope<SessionHistoryEntity>(modelBuilder);
         ApplyTenantScope<FactoryMemoryNoteEntity>(modelBuilder);
+        ApplyTenantScope<FactoryBriefVersionEntity>(modelBuilder);
         ApplyTenantScope<FactoryRegistryEntity>(modelBuilder);
         ApplyTenantScope<FactoryGoalNumberEntity>(modelBuilder);
         ApplyTenantScope<KnownRepositoryEntity>(modelBuilder);
@@ -2211,6 +2231,11 @@ public sealed class GatewayDbContext : DbContext
             modelBuilder.Entity<TriggerEntity>().Property(e => e.Name).UseCollation("C");
             modelBuilder.Entity<TriggerEntity>().Property(e => e.Machine).UseCollation("C");
             modelBuilder.Entity<TriggerRunEntity>().Property(e => e.Outcome).UseCollation("C");
+            // factory_seat_briefs: the factory and the seat are two parts of the key that keeps two writers from
+            // minting the same version, and the state is a closed word the published read selects on.
+            modelBuilder.Entity<FactoryBriefVersionEntity>().Property(e => e.Factory).UseCollation("C");
+            modelBuilder.Entity<FactoryBriefVersionEntity>().Property(e => e.Seat).UseCollation("C");
+            modelBuilder.Entity<FactoryBriefVersionEntity>().Property(e => e.State).UseCollation("C");
             // factory_email_reports: the slot key, the kind and the state are exact keys.
             modelBuilder.Entity<FactoryEmailReportEntity>().Property(e => e.SlotKey).UseCollation("C");
             modelBuilder.Entity<FactoryEmailReportEntity>().Property(e => e.Kind).UseCollation("C");

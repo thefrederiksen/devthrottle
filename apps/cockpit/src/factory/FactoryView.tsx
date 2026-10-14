@@ -242,7 +242,9 @@ function Overview({
   );
 }
 
-// The Seats tab. Each seat's schedules carry an Edit that opens the same editor as the Schedule page, because a
+// The Seats tab. Every seat row opens that seat's own page ("Open seat"), whether or not it has a schedule - the
+// schedule's Edit used to be the only way into a seat, so a seat with none could not be opened (the owner,
+// 13 October 2026). Each seat's schedules carry an Edit that opens the same editor as the Schedule page, because a
 // factory's schedules are changed in the factory (the owner, 2026-10-09) - and, beside it, the one tap that pauses or
 // resumes it, right where its state is read (issue #3910).
 function SeatsTab({ view: d, onChanged }: { view: FactorySeatsView; onChanged: () => void }) {
@@ -334,6 +336,10 @@ function SeatsTab({ view: d, onChanged }: { view: FactorySeatsView; onChanged: (
                     <div className="fa-seat-name">{seat.name}</div>
                     <div className="fa-dim">{seat.role}</div>
                     <div className="fa-dim fa-seat-shift">{seat.shiftText}</div>
+                    {/* Every seat opens its own page, with or without a schedule (Factory Seats mission). */}
+                    <Link className="fa-link fa-seat-open" to={seat.href} data-testid={`fa-seat-open-${group.shift}-${seat.seatId}`}>
+                      {seat.openLabel}
+                    </Link>
                   </td>
                   <td>
                     {seat.schedules.length === 0

@@ -19,4 +19,14 @@
     <ProjectReference Include="..\..\..\..\src\CcDirector.Core\CcDirector.Core.csproj" />
   </ItemGroup>
 
+  <!-- A Director on the Gateway's real tunnel, for the sign-in routes: they refuse a machine whose Director is not
+       connected. It is the stand-in the Gateway's own host tests use, compiled here from their source so that there
+       is one of it; it runs no Claude command and holds no sign-in. The two packages are the tunnel's client. -->
+  <ItemGroup>
+    <Compile Include="..\..\..\..\src\CcDirector.Gateway.Tests\FakeTunnelDirector.cs" Link="FakeTunnelDirector.cs" />
+    <Compile Include="..\..\..\..\src\CcDirector.Gateway.Tests\DeadPortReservation.cs" Link="DeadPortReservation.cs" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.9" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.MessagePack" Version="10.0.9" />
+  </ItemGroup>
+
 </Project>

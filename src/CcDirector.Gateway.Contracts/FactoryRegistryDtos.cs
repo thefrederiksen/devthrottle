@@ -24,7 +24,7 @@ public sealed class RegisterFactoryRequest
     public string Computer { get; set; } = "";
 
     /// <summary>The id of the seat that is the factory's boss, or null when it has none. The boss seat's name is the
-    /// word Boss - the boss has no name of its own - and its role is "Boss" or a distinct word the factory chose ("CFO").</summary>
+    /// word Boss - the boss has no name of its own - and its role is "Boss" (the owner, 13 October 2026).</summary>
     public string? BossSeat { get; set; }
 
     /// <summary>The goal's text, or null when the factory has no goal yet. The command reads it from the goal
@@ -217,4 +217,8 @@ public sealed class FactoryTalkStartedDto
 
     /// <summary>The Director on that computer that started it.</summary>
     public string DirectorId { get; set; } = "";
+
+    /// <summary>The version of the seat's brief the Gateway gave the talk (Factory Seats mission, phase 2c), or null
+    /// when the seat has no brief published on the Gateway and the talk was told the path of its brief file.</summary>
+    public int? BriefVersion { get; set; }
 }

@@ -19,12 +19,14 @@ const getLicenseForecast = vi.fn();
 const getLicenseLog = vi.fn();
 const switchLicenseNow = vi.fn();
 const setLicenseRenewalDate = vi.fn();
+const getLicenseApprovers = vi.fn();
 vi.mock("@devthrottle/client-core/licenses/licensesClient", () => ({
   getLicenseOverview: (...args: unknown[]) => getLicenseOverview(...args),
   getLicenseForecast: (...args: unknown[]) => getLicenseForecast(...args),
   getLicenseLog: (...args: unknown[]) => getLicenseLog(...args),
   switchLicenseNow: (...args: unknown[]) => switchLicenseNow(...args),
   setLicenseRenewalDate: (...args: unknown[]) => setLicenseRenewalDate(...args),
+  getLicenseApprovers: (...args: unknown[]) => getLicenseApprovers(...args),
 }));
 vi.mock("@devthrottle/client-core/errors/reportClientError", () => ({
   describeAndReport: (_surface: string, _action: string, err: unknown) => (err instanceof Error ? err.message : String(err)),
@@ -32,7 +34,7 @@ vi.mock("@devthrottle/client-core/errors/reportClientError", () => ({
 }));
 
 import { LicensesView } from "./LicensesView";
-import { FORECAST, LOG_PAGE, OVERVIEW, copyOf } from "./fixtures";
+import { APPROVERS_EMPTY, FORECAST, LOG_PAGE, OVERVIEW, copyOf } from "./fixtures";
 
 const ACCOUNT_A = "account-a@example.com";
 const ACCOUNT_B = "account-b@example.com";
@@ -63,6 +65,7 @@ function serve(answers: ReturnType<typeof distinctAnswers>) {
   getLicenseOverview.mockResolvedValue(answers.overview);
   getLicenseForecast.mockResolvedValue(answers.forecast);
   getLicenseLog.mockResolvedValue(answers.log);
+  getLicenseApprovers.mockResolvedValue(copyOf(APPROVERS_EMPTY));
 }
 
 beforeEach(() => serve(distinctAnswers()));

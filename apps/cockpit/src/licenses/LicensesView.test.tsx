@@ -17,12 +17,14 @@ const getLicenseForecast = vi.fn();
 const getLicenseLog = vi.fn();
 const switchLicenseNow = vi.fn();
 const setLicenseRenewalDate = vi.fn();
+const getLicenseApprovers = vi.fn();
 vi.mock("@devthrottle/client-core/licenses/licensesClient", () => ({
   getLicenseOverview: (...args: unknown[]) => getLicenseOverview(...args),
   getLicenseForecast: (...args: unknown[]) => getLicenseForecast(...args),
   getLicenseLog: (...args: unknown[]) => getLicenseLog(...args),
   switchLicenseNow: (...args: unknown[]) => switchLicenseNow(...args),
   setLicenseRenewalDate: (...args: unknown[]) => setLicenseRenewalDate(...args),
+  getLicenseApprovers: (...args: unknown[]) => getLicenseApprovers(...args),
 }));
 // describeAndReport is the one way an error reaches the screen (and the Gateway); here it only has to say the error.
 vi.mock("@devthrottle/client-core/errors/reportClientError", () => ({
@@ -31,7 +33,7 @@ vi.mock("@devthrottle/client-core/errors/reportClientError", () => ({
 }));
 
 import { LicensesView, foldNewestLogPage, mergeLog } from "./LicensesView";
-import { EMPTY_OVERVIEW, FORECAST, LOG_PAGE, OVERVIEW, copyOf } from "./fixtures";
+import { APPROVERS_EMPTY, EMPTY_OVERVIEW, FORECAST, LOG_PAGE, OVERVIEW, copyOf } from "./fixtures";
 
 const ACCOUNT_A = "account-a@example.com";
 const ACCOUNT_B = "account-b@example.com";
@@ -41,6 +43,7 @@ beforeEach(() => {
   getLicenseOverview.mockResolvedValue(copyOf(OVERVIEW));
   getLicenseForecast.mockResolvedValue(copyOf(FORECAST));
   getLicenseLog.mockResolvedValue(copyOf(LOG_PAGE));
+  getLicenseApprovers.mockResolvedValue(copyOf(APPROVERS_EMPTY));
 });
 
 afterEach(() => {

@@ -18,6 +18,7 @@ public sealed class DirectorCronSessionStarter : ICronSessionStarter
     private readonly MachineSessionSpawner _spawner;
     private readonly IClock _clock;
     private readonly Func<CronJobDto, string?> _refuseFactoryWork;
+    private readonly Func<CronJobDto, ScheduledRunSeat?> _seatWithABrief;
 
     /// <param name="refuseFactoryWork">Issue #3650: for a job about to fire, the reason it may not - its factory or
     /// seat is not in the account's registry - or null when it may. Every way a seed schedule starts a session comes
@@ -25,14 +26,29 @@ public sealed class DirectorCronSessionStarter : ICronSessionStarter
     /// makes factory work on an unregistered seat impossible rather than merely refused at the write. A work-list
     /// schedule never comes here, and is refused a factory at the write instead (CronJobEndpoints.TrySettleSeat). REQUIRED: a
     /// harness that has no registry passes <c>_ =&gt; null</c>.</param>
-    public DirectorCronSessionStarter(MachineSessionSpawner spawner, IClock clock, Func<CronJobDto, string?> refuseFactoryWork)
+    /// <param name="seatWithABrief">Factory Seats mission, phase 2c: for a job about to fire, the seat it runs as and
+    /// that seat's PUBLISHED brief on the Gateway - or null for a schedule in no factory and for a seat with no
+    /// published brief, which are started exactly as before. REQUIRED, so a wiring line that forgot it fails to
+    /// compile rather than starting every seat without its brief; a harness with no briefs passes <c>_ =&gt; null</c>.</param>
+    /// <summary>How a run that did not start says its seat's brief could not be read; the failure's own words follow.</summary>
+    public const string BriefNotRead = "not started: the seat's brief could not be read, and a run is never started without its brief";
+
+    public DirectorCronSessionStarter(MachineSessionSpawner spawner, IClock clock, Func<CronJobDto, string?> refuseFactoryWork,
+        Func<CronJobDto, ScheduledRunSeat?> seatWithABrief)
     {
+        _seatWithABrief = seatWithABrief ?? throw new ArgumentNullException(nameof(seatWithABrief));
         _spawner = spawner ?? throw new ArgumentNullException(nameof(spawner));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _refuseFactoryWork = refuseFactoryWork ?? throw new ArgumentNullException(nameof(refuseFactoryWork));
     }
 
     public async Task<(string? sessionId, string? directorId, string? error)> StartAsync(CronJobDto job, CancellationToken ct)
+    {
+        var start = await StartRunAsync(job, ct);
+        return (start.SessionId, start.DirectorId, start.Error);
+    }
+
+    public async Task<CronRunStart> StartRunAsync(CronJobDto job, CancellationToken ct)
     {
         if (job is null)
             throw new ArgumentNullException(nameof(job));
@@ -44,7 +60,25 @@ public sealed class DirectorCronSessionStarter : ICronSessionStarter
         if (_refuseFactoryWork(job) is { } refusal)
         {
             FileLog.Write($"[DirectorCronSessionStarter] start REFUSED: job={job.Id}, factory={job.Factory}, seat={job.Seat}: {refusal}");
-            return (null, null, $"not started: {refusal}");
+            return new CronRunStart(null, null, $"not started: {refusal}", BriefVersion: null);
+        }
+
+        // THE GATEWAY OPENS THE RUN (Factory Seats mission, phase 2c). The seat and its published brief are read
+        // once, here, and the version that is given is the version that is reported back to be recorded on the run.
+        //
+        // A READ THAT FAILS IS A RUN THAT DID NOT START, AND IS RECORDED AS ONE (phase 2c, review 1, finding 1). This
+        // seam reports "could not start" rather than throwing, so the engine records the run with its reason. The
+        // brief read is a database read in the fire path; left to throw, it would stop a factory's runs with no run
+        // row and nothing on any screen. The run is never started without its brief instead.
+        ScheduledRunSeat? seat;
+        try
+        {
+            seat = _seatWithABrief(job);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorCronSessionStarter] start FAILED: job={job.Id}, factory={job.Factory}, seat={job.Seat}: the seat's brief could not be read: {ex}");
+            return new CronRunStart(null, null, BriefNotRead + ": " + ex.Message, BriefVersion: null);
         }
 
         var req = new NewSessionRequest
@@ -61,7 +95,9 @@ public sealed class DirectorCronSessionStarter : ICronSessionStarter
             // The run is told to report how it went (Factory Control, step 1). Added HERE, to the text this run is
             // given - the schedule's stored prompt is not touched. Every way a seed schedule starts a session comes
             // through this method (its own time, a late catch-up, run-now), so this is the one place that adds it.
-            PrePrompt = ScheduledRunClosingInstruction.PromptFor(job.Action.Seed),
+            // A seat with a published brief is also told who it is and given that brief, ahead of the schedule's
+            // own prompt; every other run's text is the closing instruction's alone, as before.
+            PrePrompt = ScheduledRunOpening.PromptFor(job.Action.Seed, job.Name, job.Id, seat),
             // Scheduled-run auto-dismiss (issue #1200): a seed run defaults to closing itself when it
             // finishes with nothing needing a human, so an hourly job stops piling leftover sessions into
             // the rail. The job can opt out (AutoDismiss=false) to keep the run open like a normal session.
@@ -81,16 +117,17 @@ public sealed class DirectorCronSessionStarter : ICronSessionStarter
             Factory = job.Factory,
         };
 
-        FileLog.Write($"[DirectorCronSessionStarter] start: job={job.Id}, machine={job.Target.Machine}, repo={job.Action.RepoPath}, seed={job.Action.Seed}");
+        FileLog.Write($"[DirectorCronSessionStarter] start: job={job.Id}, machine={job.Target.Machine}, repo={job.Action.RepoPath}, seed={job.Action.Seed}, "
+                      + (seat is null ? "brief=none given" : $"opened as {seat.Factory.Factory}/{seat.Seat.Id} with brief version {seat.Brief.Version}"));
 
         var (ok, dto, error, directorId) = await _spawner.SpawnOnMachineAsync(job.Target.Machine, req, ct);
         if (!ok || dto is null || string.IsNullOrEmpty(dto.SessionId))
         {
             FileLog.Write($"[DirectorCronSessionStarter] start FAILED: job={job.Id}, machine={job.Target.Machine}, {error}");
-            return (null, directorId, error ?? "could not start a session on the target machine");
+            return new CronRunStart(null, directorId, error ?? "could not start a session on the target machine", BriefVersion: null);
         }
 
         FileLog.Write($"[DirectorCronSessionStarter] started: job={job.Id}, sid={dto.SessionId}, director={directorId}");
-        return (dto.SessionId, directorId, null);
+        return new CronRunStart(dto.SessionId, directorId, null, seat?.Brief.Version);
     }
 }

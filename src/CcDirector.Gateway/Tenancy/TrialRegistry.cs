@@ -126,8 +126,15 @@ public sealed record TrialExtension(
     DateTime? MaxExpiryUtc = null);
 
 /// <summary>
-/// The free-trial ledger: the Gateway's own record of which accounts were granted the 14-day Pro trial the
-/// public pricing page promises, and when each trial ends.
+/// The free-trial ledger: the Gateway's own record of which accounts were granted a 14-day Pro trial, and when
+/// each trial ends.
+///
+/// NO NEW TRIAL IS GRANTED (Pricing Change mission, B3, owner decision D1 of 11 October 2026: "There is no more 14
+/// day trial"). The hosted enrollment path used to grant one at an account's first arrival and no longer calls
+/// <see cref="GrantIfFirstArrival"/>; nothing in the Gateway does. THE LEDGER IS STILL READ: a trial that was
+/// already running is honoured to its end by <see cref="Evaluate"/>, through the entitlement read, and an
+/// administrator can still extend one (<see cref="ExtendIfLater"/>). No row and no table was removed. What follows
+/// describes the grant as it was made, because it is what the rows in the ledger mean.
 ///
 /// WHY THE GATEWAY OWNS THIS AND NOT THE PAYMENT SIDE. The paid entitlement table belongs to the website's
 /// payment webhook, which writes it as the service role while this Gateway holds SELECT and nothing more. A
@@ -271,9 +278,10 @@ public sealed class TrialRegistry
     /// Grant the 14-day Pro trial to an account arriving at the hosted Gateway for the FIRST time, and return
     /// what now covers it.
     ///
-    /// This is the ONLY place a trial is created. It is called from the hosted enrollment path after the paid
-    /// entitlement read has already answered NotEntitled, so a paying account never reaches it and can never
-    /// be given a trial it does not need.
+    /// This is the ONLY place a trial is created, and SINCE THE PRICING CHANGE MISSION (B3) NO PART OF THE GATEWAY
+    /// CALLS IT: the hosted enrollment path, its one caller, stopped granting trials. It is kept because it is the
+    /// one writer of a ledger that is still read, and granting trials again would be a decision to call it, not
+    /// code to write.
     ///
     /// IDEMPOTENT AND NEVER EXTENDING. An account that already has a trial row gets that row back exactly as
     /// it stands - live or expired - and nothing is written. That is what makes one trial per account a

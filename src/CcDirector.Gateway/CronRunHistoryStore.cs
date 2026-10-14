@@ -512,6 +512,7 @@ public sealed class CronRunHistoryStore
         Seat = r.Seat,
         JobName = r.JobName,
         MissedNotListed = r.MissedNotListed,
+        BriefVersion = r.BriefVersion,
     };
 
     /// <summary>True when the schedule belongs to a factory and runs as one of its seats.</summary>
@@ -539,6 +540,7 @@ public sealed class CronRunHistoryStore
         Seat = e.Seat,
         JobName = e.JobName,
         MissedNotListed = e.MissedNotListed,
+        BriefVersion = e.BriefVersion,
     };
 
     private static DateTime? SpecifyUtc(DateTime? value) =>

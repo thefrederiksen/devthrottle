@@ -46,13 +46,28 @@ public sealed record GatewayHostOptions
     public string CockpitWebRoot { get; init; } = Cockpit.CockpitReactApp.WebRoot;
 
     /// <summary>
+    /// The pre-launch grace of the Pricing Change mission (B4): the launch instant and the instant the grace ends,
+    /// BOTH NOT SET BY DEFAULT - and with neither set, every account keeps the Cockpit and the phone app. Production
+    /// takes them from two environment variables on the hosted service (<see cref="Tenancy.PreLaunchGrace.LaunchEnvVar"/>
+    /// and <see cref="Tenancy.PreLaunchGrace.CutOffEnvVar"/>); a test states them. Asked only on a hosted Gateway.
+    /// </summary>
+    public Tenancy.PreLaunchGrace RemoteAccessGrace { get; init; } = Tenancy.PreLaunchGrace.NotSet;
+
+    /// <summary>
     /// The ONE place production reads the host's options from the process environment. Called by the
     /// <see cref="GatewayHost"/> constructor when a caller passes no options, which is what the production entry
     /// points do. Everything a test used to set through <c>Environment.SetEnvironmentVariable</c> is a property on
     /// the record a test passes instead.
     /// </summary>
-    public static GatewayHostOptions FromEnvironment() => new()
+    public static GatewayHostOptions FromEnvironment()
     {
-        Hosted = GatewayHostedMode.IsHosted,
-    };
+        var hosted = GatewayHostedMode.IsHosted;
+        return new()
+        {
+            Hosted = hosted,
+            // Read only where it is asked. A self-hosted Gateway has no plans and is not gated (decision D5), so it
+            // never reads these settings and cannot be stopped by one.
+            RemoteAccessGrace = hosted ? Tenancy.PreLaunchGrace.FromEnvironment() : Tenancy.PreLaunchGrace.NotSet,
+        };
+    }
 }

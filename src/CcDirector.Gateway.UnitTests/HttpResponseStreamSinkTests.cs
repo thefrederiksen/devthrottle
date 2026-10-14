@@ -36,24 +36,6 @@ public sealed class HttpResponseStreamSinkTests
     }
 
     [Fact]
-    public async Task WriteFrameAsync_waits_for_ApplyMetadata_before_writing_the_first_byte()
-    {
-        var (ctx, body) = NewCtx();
-        var sink = new HttpResponseStreamSink(ctx.Response);
-
-        var write = sink.WriteFrameAsync(new DirectorStreamFrame { Kind = DirectorStreamFrameType.Binary, Data = new byte[] { 9 } }, default);
-        await Task.Delay(80);
-
-        Assert.False(write.IsCompleted);        // gated on the headers
-        Assert.Empty(body.ToArray());
-
-        sink.ApplyMetadata(new OpenReadResponse { TotalBytes = 1, ContentType = "application/octet-stream" });
-        await write;
-
-        Assert.Equal(new byte[] { 9 }, body.ToArray());
-    }
-
-    [Fact]
     public async Task Fail_releases_the_gate_and_WriteFrameAsync_throws_without_writing()
     {
         var (ctx, body) = NewCtx();

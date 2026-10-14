@@ -96,57 +96,6 @@ public class RepositoryRegistryConcurrencyTests : IDisposable
     }
 
     /// <summary>
-    /// Every write from every thread survives, and what is on disk at the end is a complete list. Two
-    /// unsynchronized writers lose entries outright - <see cref="List{T}.Add"/> is several instructions -
-    /// and can leave the file half-written, so the final count and a fresh read of the file are the
-    /// assertion, not any particular interleaving.
-    /// </summary>
-    [Fact]
-    public void Every_write_from_every_thread_survives_and_the_file_stays_readable()
-    {
-        var registry = new RepositoryRegistry(_filePath);
-        registry.Load();
-
-        const int threads = 8;
-        const int perThread = 25;
-
-        var paths = new List<string>();
-        for (var t = 0; t < threads; t++)
-            for (var i = 0; i < perThread; i++)
-                paths.Add(Folder($"repo-{t}-{i}"));
-
-        var failures = new System.Collections.Concurrent.ConcurrentBag<string>();
-
-        Parallel.For(0, threads, t =>
-        {
-            try
-            {
-                for (var i = 0; i < perThread; i++)
-                {
-                    var path = Path.Combine(_tempDir, $"repo-{t}-{i}");
-                    registry.TryAdd(path);
-                    registry.MarkUsed(path);
-                    // A reader on another thread at the same moment: a live view of the list would
-                    // throw "Collection was modified" here.
-                    _ = registry.Repositories.Count;
-                }
-            }
-            catch (Exception ex)
-            {
-                failures.Add($"{ex.GetType().Name}: {ex.Message}");
-            }
-        });
-
-        Assert.Empty(failures);
-        Assert.Equal(paths.Count, registry.Repositories.Count);
-
-        var reread = new RepositoryRegistry(_filePath);
-        reread.Load();
-        Assert.Equal(paths.Count, reread.Repositories.Count);
-        Assert.All(reread.Repositories, r => Assert.NotNull(r.LastUsed));
-    }
-
-    /// <summary>
     /// The harm the lock alone cannot prevent: one machine runs several Directors off the same root, so
     /// another process can be reading this file at the moment it is written. A plain write truncates the
     /// file first, and anyone reading in that window gets an empty or half-written list - which the

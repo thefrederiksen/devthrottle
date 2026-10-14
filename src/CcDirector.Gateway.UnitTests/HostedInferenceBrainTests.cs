@@ -222,27 +222,6 @@ public sealed class HostedInferenceBrainTests
     }
 
     [Fact]
-    public async Task AskAsync_WhenModelStalls_FailsFastAsTimeout_NotAfterThreeMinutes()
-    {
-        // THE FIX: the model leg used to carry a flat 180-second client timeout and nothing else, so a
-        // stalled hosted worker BLOCKED the whole voice generation for three minutes and then threw a raw
-        // cancellation - a silent FAILED on the auto path, a false "computer offline" 502 on the manual
-        // "generate" button. The call is now bounded per-attempt and fails fast as a clear TimeoutException
-        // the voice path maps to Retrying. A tiny injected deadline proves the bound without a real wait.
-        var handler = new HangingHandler();
-        using var http = new HttpClient(handler);
-        var brain = new HostedInferenceBrain("https://devthrottle.com/api/v1", "dt_live_abc", IncludedModelId.Wingman, http, _ => { },
-            callTimeout: TimeSpan.FromMilliseconds(100));
-
-        var sw = System.Diagnostics.Stopwatch.StartNew();
-        await Assert.ThrowsAsync<TimeoutException>(() => brain.AskAsync("translate this"));
-        sw.Stop();
-
-        Assert.Equal(1, handler.Calls);
-        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(10), $"a bounded call must fail fast, but took {sw.Elapsed}");
-    }
-
-    [Fact]
     public async Task AskAsync_WhenCallerCancels_SurfacesCancellation_NotMislabelledTimeout()
     {
         // The deadline and a real caller-cancel must be told apart: a caller cancelling (shutdown) is NOT

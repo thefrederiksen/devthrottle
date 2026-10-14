@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Net;
 using System.Text.Json;
 using CcDirector.Core;
@@ -427,6 +427,14 @@ public sealed class GatewayHost : IAsyncDisposable
 
     /// <summary>License Switching's minute check and Switch now: decides, sends each switch and records what came back.</summary>
     internal Licenses.LicenseSwitchService LicenseSwitches { get; }
+
+    /// <summary>License Switching (contract section 8.1): the one owner email for a sign-in whose renewal keeps failing
+    /// while the sign-in is about to end. Run by the same once-a-minute check as <see cref="LicenseSwitches"/>.</summary>
+    internal Licenses.LicenseRenewalEmailService LicenseRenewalEmails { get; }
+
+    /// <summary>How the license checks email an account's owner: <see cref="Licenses.LicenseOwnerMailer.SendAsync"/>.
+    /// A test puts a sender of its own here, so that a check run by the real host never reaches the account service.</summary>
+    internal Licenses.LicenseOwnerEmailSender LicenseOwnerMail { get; set; }
 
     /// <summary>Which machine and browser profile approve the sign-ins of each Claude account (contract section 8.3).</summary>
     internal Licenses.LicenseApproverStore LicenseApprovers { get; }
@@ -1019,6 +1027,8 @@ public sealed class GatewayHost : IAsyncDisposable
     // active-tenant sweep that re-reads entitlement and cuts off a cancelled tenant within the sweep bound.
     private Tenancy.TenantAccessRevoker? _accessRevoker;
     private Tenancy.HostedAccessLeaseService? _accessLeases;
+    // Non-null exactly on a hosted Gateway, like the lease service it is built beside.
+    private Tenancy.RemoteAccessRule? _remoteAccess;
     private Tenancy.EntitlementLeaseMonitor? _leaseMonitor;
     private System.Threading.Timer? _leaseSweepTimer;
     private int _leaseSweepInFlight;
@@ -1112,6 +1122,9 @@ public sealed class GatewayHost : IAsyncDisposable
     // against overlap like the cron sweep. Created in StartAsync, disposed in StopAsync.
     private readonly History.SessionHistoryStore _sessionHistory;
     private readonly Factory.Memory.FactoryMemoryStore _factoryMemory;
+
+    /// <summary>Every seat's brief held on the Gateway, every version kept (Factory Seats mission, phase 2a).</summary>
+    private readonly Factory.Briefs.FactoryBriefStore _factoryBriefs;
     private readonly History.KnownRepositoryStore _knownRepositories;
     /// <summary>The one-repository-list mission, phase 2: the third observer on the repository snapshot a
     /// Director already pushes, which folds the root-folder scan into <see cref="_knownRepositories"/> as
@@ -1969,11 +1982,11 @@ public sealed class GatewayHost : IAsyncDisposable
         // the hosted enrollment boundary (which validates the account token and stamps the resolved tenant on
         // the device) in the follow-up increment. Unused on the single-tenant local install.
         TenantRegistry = new Tenancy.TenantRegistry(_gatewayDb);
-        // The free-trial ledger (issue #2117): the Gateway's OWN record of the 14-day Pro trial the public
-        // pricing page promises every new account. It is passed INTO the entitlement registry rather than
-        // consulted beside it, so the enrollment gate, the request-path lease and the 60s sweep all read one
-        // decision and can never disagree about whether an account may use hosted today - which is also what
-        // makes the trial EXPIRE on the request path instead of only at enrollment.
+        // The free-trial ledger (issue #2117): the Gateway's OWN record of the 14-day Pro trials it granted. No
+        // new trial is granted since the Pricing Change mission (B3); a trial already running is honoured to its
+        // end. It is passed INTO the entitlement registry rather than consulted beside it, so the enrollment gate,
+        // the request-path lease and the 60s sweep all read one decision and can never disagree about whether an
+        // account may use hosted today - which is also what makes a trial EXPIRE on the request path.
         TrialRegistry = new Tenancy.TrialRegistry(_gatewayDb);
         EntitlementRegistry = new Tenancy.EntitlementRegistry(_gatewayDb, requireLivemode: Hosted, trials: TrialRegistry);
         // Teams (devthrottle_internal#2300): told about new teams through the tenant registry, so the census every
@@ -2005,8 +2018,14 @@ public sealed class GatewayHost : IAsyncDisposable
         if (Hosted)
         {
             _accessRevoker = new Tenancy.TenantAccessRevoker(Devices, _directorConnections);
+            // The remote access rule (Pricing Change mission, B2 and B4): ONE instance, asked by the lease on the
+            // request path and by the Cockpit and phone door where a key is minted, so the two cannot disagree about
+            // a plan or about the pre-launch grace.
+            // Its team half exists only where Teams is released; dark, there are no teams to ask about.
+            _remoteAccess = new Tenancy.RemoteAccessRule(Options.RemoteAccessGrace,
+                TeamsReleased ? new Teams.TeamRemoteAccess(TeamRegistry, EntitlementRegistry) : null);
             _accessLeases = new Tenancy.HostedAccessLeaseService(EntitlementRegistry, TenantRegistry, _accessRevoker,
-                teams: TeamsReleased ? TeamMemberEntitlement : null);
+                teams: TeamsReleased ? TeamMemberEntitlement : null, remoteAccess: _remoteAccess);
             _leaseMonitor = new Tenancy.EntitlementLeaseMonitor(_accessLeases);
             // TEST ONLY: a hosted gateway that is NOT a real hosted image (a test forcing hosted mode via env,
             // with no baked image marker) auto-provisions the entitlement production requires at the paid
@@ -2332,8 +2351,11 @@ public sealed class GatewayHost : IAsyncDisposable
             tenant => TenantRegistry.SubjectForTenant(tenant),
             Core.Account.AccountNotifyByTenantClient.ResolveServiceToken);
         LicenseNow = new Licenses.LicenseGatewayClock(() => LicenseClock.GetUtcNow().UtcDateTime);
+        LicenseOwnerMail = licenseOwnerMailer.SendAsync;
         LicenseSwitches = new Licenses.LicenseSwitchService(LicenseStore, LicenseSnapshots,
-            SendCommandAsync, licenseOwnerMailer.SendAsync, LicenseNow.UtcNow);
+            SendCommandAsync, (tenant, email, ct) => LicenseOwnerMail(tenant, email, ct), LicenseNow.UtcNow);
+        LicenseRenewalEmails = new Licenses.LicenseRenewalEmailService(LicenseStore, new Licenses.LicenseRenewalFailureLog(_gatewayDb),
+            LicenseReads, (tenant, email, ct) => LicenseOwnerMail(tenant, email, ct), LicenseNow.UtcNow);
         // Sign-ins (contract section 8): who approves each account, the relay that has a sign-in approved on that
         // machine, and the sign-ins started from the Cockpit. Each sends inside the tenant's scope, where
         // SendCommandAsync resolves a Director's connection for that tenant alone.
@@ -2478,6 +2500,9 @@ public sealed class GatewayHost : IAsyncDisposable
             // A null return is DENY - no tenant in scope means the best-effort ring event is skipped rather
             // than filed under a guessed owner. On self-host this is always Local.
             resolveTenant: () => _tenantPass.Current);
+        // Built here, ahead of the scheduler, because the scheduler gives a seat's published brief to its runs
+        // (Factory Seats mission, phase 2c). It needs only the database and the registry, both built above.
+        _factoryBriefs = new Factory.Briefs.FactoryBriefStore(_gatewayDb, FactoryRegistry);
         var cronClock = new Running.SystemClock();
         // Factory Control, step 1 and 6: every run says how it went, and a factory-linked run leaves an activity row.
         // The schedules and the work history are read in the ambient scope the route or the sweep entered; the run
@@ -2497,7 +2522,12 @@ public sealed class GatewayHost : IAsyncDisposable
                 // Issue #3650: a job whose factory or seat the registry does not have never starts. The fire runs in
                 // the job's account's scope, so the ambient tenant is the account the job belongs to.
                 refuseFactoryWork: job => Factory.Registry.FactoryScheduleLink.Check(job.Factory, job.Seat,
-                    id => FactoryRegistry.Find(_tenantContext.Current, id), out _, running: true)),
+                    id => FactoryRegistry.Find(_tenantContext.Current, id), out _, running: true),
+                // Factory Seats mission, phase 2c: a seat with a published brief is told who it is and given that
+                // brief by the Gateway. Read in the same scope as the check above.
+                seatWithABrief: job => Running.ScheduledRunOpening.SeatFor(job,
+                    id => FactoryRegistry.Find(_tenantContext.Current, id),
+                    (factory, seat) => _factoryBriefs.GivenTo(_tenantContext.Current, factory, seat))),
             cronWorkListRunner, cronNotifier, cronClock,
             // MTR (audit MED): partition the overlap guard by the tenant of the CURRENT unit of work - the
             // run-now request scope on hosted, the single Local scope on self-host - the same seam the notifier
@@ -4977,7 +5007,9 @@ public sealed class GatewayHost : IAsyncDisposable
             ? new Api.HostedEnrollDependencies(
                 Devices, TenantRegistry,
                 CcDirector.Gateway.Account.GatewayAccountFactory.BuildAuthorizationValidator(),
-                EntitlementRegistry, TrialRegistry)
+                EntitlementRegistry,
+                _remoteAccess ?? throw new InvalidOperationException(
+                    "A hosted Gateway builds its remote access rule beside its access lease; it is missing."))
             : null;
 
         // POST /devices/enroll-hosted (Hosted Multi-Tenancy increment 1): the HOSTED counterpart - a REMOTE
@@ -4998,7 +5030,7 @@ public sealed class GatewayHost : IAsyncDisposable
                 : null;
             Api.HostedEnrollmentEndpoint.Map(_app, hostedEnrollDeps.Devices, hostedEnrollDeps.Tenants,
                 hostedEnrollDeps.AccountTokenValidator, entitlements: hostedEnrollDeps.Entitlements,
-                trials: hostedEnrollDeps.Trials, teams: teamEnrollment);
+                teams: teamEnrollment);
         }
 
         // Wingman-voice surface for the Cockpit's Voice tab (issue #531): drive one turn of a
@@ -5180,6 +5212,13 @@ public sealed class GatewayHost : IAsyncDisposable
         Api.FactoriesScreenEndpoints.Map(factoryGate,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             sources: factoriesScreenSources);
+        // One seat's own page (Factory Seats mission): opened from every seat row, with or without a schedule.
+        Api.FactoriesScreenEndpoints.MapSeatPage(factoryGate,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            sources: factoriesScreenSources,
+            memoryNoteCount: (tenant, factory) => _factoryMemory.List(tenant, factory).Count,
+            // Its brief panel (phase 2b): the published brief, the editor's starting text, the history and one version.
+            briefs: _factoryBriefs);
         // The owner's actions on a factory (round 2): mark old waiting items handled, archive, restore. Owner-only,
         // and mapped OUTSIDE the gate's group like Talk, so a switch-off refusal can carry a sentence.
         Api.FactoryOwnerActionEndpoints.Map(_app, FactoryAgentsSwitch,
@@ -5219,7 +5258,8 @@ public sealed class GatewayHost : IAsyncDisposable
             // Handle the issue (Factory Control, step 1b) reads the one problems fold, as GET /cron/problems does.
             problems: (tenant, factory) => _cronRunResults.Problems(tenant, factory, includeClosed: false),
             timeZone: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)),
-            factoryManager: factoryManagerSources);
+            factoryManager: factoryManagerSources,
+            publishedBrief: (tenant, factory, seat) => _factoryBriefs.GivenTo(tenant, factory, seat));
         // The Factory Manager seat (Factory Control, step 5): its binding, the name check, the screen's card and its talk.
         Api.FactoryManagerEndpoints.Map(_app, factoryGate, FactoryAgentsSwitch,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
@@ -5771,6 +5811,15 @@ public sealed class GatewayHost : IAsyncDisposable
         Api.FactoryMemoryEndpoints.Map(_app,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             store: _factoryMemory,
+            sessionFactoryOf: _sessionHistory.FactoryOf,
+            nowUtc: () => DateTime.UtcNow);
+
+        // A seat's BRIEF, held on the Gateway (Factory Seats mission, phase 2a): what the seat is told to do, saved as
+        // a draft by a person or a session of the factory and published by a person. The seat page's brief panel
+        // reads it and writes through these routes (phase 2b); opening talks and runs with it is phase 2c.
+        Api.FactoryBriefEndpoints.Map(_app,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            store: _factoryBriefs,
             sessionFactoryOf: _sessionHistory.FactoryOf,
             nowUtc: () => DateTime.UtcNow);
 
@@ -6637,7 +6686,13 @@ public sealed class GatewayHost : IAsyncDisposable
         _ = RunLicenseSwitchCheckAsync();
     }
 
-    internal async Task RunLicenseSwitchCheckAsync()
+    /// <summary>One minute's license check: the switches and the sign-ins with no answer, and BESIDE them the
+    /// failed-renewal emails. The two run at the same time, each on its own try: the switch pass waits up to a minute
+    /// for a Director that does not answer, and no account's renewal email waits behind that.</summary>
+    internal Task RunLicenseSwitchCheckAsync()
+        => Task.WhenAll(RunLicenseRenewalEmailCheckAsync(), RunLicenseSwitchPassAsync());
+
+    private async Task RunLicenseSwitchPassAsync()
     {
         try
         {
@@ -6654,6 +6709,24 @@ public sealed class GatewayHost : IAsyncDisposable
         catch (Exception ex)
         {
             FileLog.Write($"[GatewayHost] license switch check FAILED: {ex.Message}");
+        }
+    }
+
+    internal async Task RunLicenseRenewalEmailCheckAsync()
+    {
+        // Not behind an await of the switch pass: a first await here hands the caller its task at once.
+        await Task.Yield();
+        try
+        {
+            await LicenseRenewalEmails.TickEveryTenantAsync(_tenantPass, _licenseSwitchLifetime.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (_licenseSwitchLifetime.IsCancellationRequested)
+        {
+            FileLog.Write("[GatewayHost] license renewal email check stopped: the Gateway is stopping");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayHost] license renewal email check FAILED: {ex.Message}");
         }
     }
 

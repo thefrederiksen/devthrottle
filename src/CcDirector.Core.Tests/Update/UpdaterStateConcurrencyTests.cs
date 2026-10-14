@@ -128,28 +128,23 @@ public sealed class UpdaterStateConcurrencyTests : IDisposable
     }
 
     /// <summary>
-    /// Reads holding the file open must not make an edit's replace fail (Windows refuses to replace an open
-    /// file), and an edit's replace must not make a read find no file.
+    /// A virus scanner or the indexer opens the file the moment it is written, and the lock cannot keep
+    /// them away. An edit must still go through while something outside holds the file open (issue #3965).
+    /// The holder here opens it the way such a reader does - sharing everything - and stays open across the
+    /// edit. With a plain move over the file, Windows refuses the save with "access denied".
     /// </summary>
     [Fact]
-    public async Task ReadsAndEditsAtOnce_AllSucceed()
+    public void AnEdit_GoesThrough_WhileSomethingOutsideTheLockHoldsTheFileOpen()
     {
-        // Every read must see the marker; a read that failed comes back as an empty state without it.
-        UpdaterState.UpdateAt(StatePath, s => { s.ApplyAttempts = 0; s.PinnedBadVersion = "marker"; });
-        var blankReads = 0;
+        UpdaterState.UpdateAt(StatePath, s => s.ApplyAttempts = 1);
 
-        var work = Enumerable.Range(0, 200)
-            .Select(_ => Task.Run(() => UpdaterState.UpdateAt(StatePath, s => s.ApplyAttempts++)))
-            .Concat(Enumerable.Range(0, 200).Select(_ => Task.Run(() =>
-            {
-                if (UpdaterState.LoadFrom(StatePath).PinnedBadVersion != "marker")
-                    Interlocked.Increment(ref blankReads);
-            })))
-            .ToArray();
-        await Task.WhenAll(work);
+        using (new FileStream(StatePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+        {
+            UpdaterState.UpdateAt(StatePath, s => s.ApplyAttempts = 2);
+        }
 
-        Assert.Equal(200, UpdaterState.LoadFrom(StatePath).ApplyAttempts);
-        Assert.Equal(0, blankReads);
+        Assert.Equal(2, UpdaterState.LoadFrom(StatePath).ApplyAttempts);
+        Assert.Equal(new[] { "updater-state.json" }, Directory.GetFiles(_dir).Select(Path.GetFileName));
     }
 
     /// <summary>

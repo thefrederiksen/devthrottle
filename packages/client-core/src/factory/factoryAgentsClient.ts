@@ -86,30 +86,6 @@ export interface FactoryActivityLine {
   note: string | null;
 }
 
-export interface FactoryAgentPage {
-  factoryId: string;
-  factoryTitle: string;
-  /** The factory's page (its Map tab), for the breadcrumb (issue #3383). */
-  factoryHref: string;
-  agentId: string;
-  name: string;
-  statusWord: string;
-  statusTone: FactoryTone;
-  definitionText: string;
-  wokenBy: FactoryWokenBy[];
-  wokenByEmptyText: string | null;
-  lastCheck: string | null;
-  last7DaysTitle: string;
-  last7Days: FactoryNumber[];
-  pause: FactoryPause | null;
-  pauseUnavailableText: string | null;
-  askLabel: string;
-  askHref: string;
-  recentTitle: string;
-  recent: FactoryActivityLine[];
-  recentEmptyText: string | null;
-}
-
 export interface FactoryFilters {
   factory: string | null;
   agent: string | null;
@@ -264,13 +240,6 @@ async function postJson<T>(path: string, body: unknown, signal?: AbortSignal): P
 
 export function getFactoryAgentsSwitch(signal?: AbortSignal): Promise<FactoryAgentsSwitch> {
   return getJson<FactoryAgentsSwitch>(`${PREFIX}/switch`, signal);
-}
-
-export function getFactoryAgent(factory: string, agent: string, signal?: AbortSignal): Promise<FactoryAgentPage> {
-  return getJson<FactoryAgentPage>(
-    `${PREFIX}/factories/${encodeURIComponent(factory)}/agents/${encodeURIComponent(agent)}`,
-    signal,
-  );
 }
 
 export function getFactoryActivity(q: FactoryQuery, signal?: AbortSignal): Promise<FactoryActivityView> {

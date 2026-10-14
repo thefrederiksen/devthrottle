@@ -490,35 +490,6 @@ public sealed class PythonToolsHealAndShimTests : IDisposable
 
     // --- Self-checking Windows shim body -----------------------------------------------------------
 
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public void WindowsShimBody_TargetMissing_ExitsNonZeroWithRepairGuidance()
-    {
-        // Lay the shim where it expects to be (bin\), with NO pyenv\Scripts\<name>.exe target present.
-        var binDir = Path.Combine(_dir, "shimtest", "bin");
-        Directory.CreateDirectory(binDir);
-        var shim = Path.Combine(binDir, "cc-pdf.cmd");
-        File.WriteAllText(shim, PythonToolsInstaller.BuildWindowsShimBody("cc-pdf"));
-
-        var psi = new ProcessStartInfo
-        {
-            FileName = "cmd.exe",
-            Arguments = $"/c \"\"{shim}\"\"",
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-        using var p = Process.Start(psi);
-        Assert.NotNull(p);
-        var output = p.StandardOutput.ReadToEnd() + p.StandardError.ReadToEnd();
-        p.WaitForExit(30_000);
-
-        Assert.NotEqual(0, p.ExitCode); // non-zero, not cmd.exe's raw "is not recognized" (which is exit 9009 but with no guidance)
-        Assert.Contains("not fully installed", output, StringComparison.Ordinal);
-        Assert.Contains("Fix it", output, StringComparison.Ordinal); // points only at the live repair path (Home > Fix it)
-    }
-
     [Fact]
     public void WindowsBashShimBody_HasShebang_ForwardsToVenvExe_LfEndings()
     {

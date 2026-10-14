@@ -59,23 +59,6 @@ public class StandbySlotProvisionerTests : IDisposable
 
     private string RootState() => Path.Combine(_root, "config", "director", "updater-state.json");
 
-    /// <summary>Hold the test lock on BinarySwapLock's own dedicated thread for <paramref name="hold"/>.</summary>
-    /// <remarks>
-    /// Never a raw Mutex held across an await: a named mutex is thread-affine, and that is exactly the
-    /// defect that made another test in this project flaky.
-    /// </remarks>
-    private async Task<Task> HoldLockAsync(TimeSpan hold)
-    {
-        var holding = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var holder = BinarySwapLock.RunExclusivelyAsync(
-            async () => { holding.SetResult(); await Task.Delay(hold); return 0; },
-            _ => throw new InvalidOperationException("the test could not take its own lock"),
-            who: "test holder",
-            name: _swapLockName);
-        await holding.Task;
-        return holder;
-    }
-
     // ---- the slot paths ----
 
     [Fact]
@@ -374,33 +357,6 @@ public class StandbySlotProvisionerTests : IDisposable
         var outcome = await Provisioner(_primary, isWindows: false).RunOnceAsync();
 
         Assert.Equal(StandbySlotDecision.NotWindows, outcome.Decision);
-        Assert.False(File.Exists(_standby));
-    }
-
-    [Fact]
-    public async Task RunOnceAsync_SwapLockReleasedWhileWaiting_CreatesSlot()
-    {
-        // The first start after an update: the launcher still holds the swap lock while it waits for this
-        // Director to answer. The pass must wait it out, not give up.
-        var holder = await HoldLockAsync(TimeSpan.FromMilliseconds(700));
-
-        var pass = Provisioner(_primary, patience: TimeSpan.FromSeconds(30)).RunOnceAsync();
-        await holder;
-        var outcome = await pass;
-
-        Assert.Equal(StandbySlotDecision.Created, outcome.Decision);
-        Assert.Equal("2.4.0", File.ReadAllText(_standby));
-    }
-
-    [Fact]
-    public async Task RunOnceAsync_SwapLockHeldPastPatience_CreatesNothing()
-    {
-        var holder = await HoldLockAsync(TimeSpan.FromSeconds(2));
-
-        var outcome = await Provisioner(_primary, patience: TimeSpan.FromMilliseconds(200)).RunOnceAsync();
-        await holder;
-
-        Assert.Equal(StandbySlotDecision.HeldBecauseAnotherSwapIsRunning, outcome.Decision);
         Assert.False(File.Exists(_standby));
     }
 

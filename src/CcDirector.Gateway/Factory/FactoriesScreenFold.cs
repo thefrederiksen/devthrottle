@@ -29,16 +29,21 @@ public sealed record FactoriesScreenInputs(
 /// factory's page and its Seats tab are built here from the factory registry, the activity record and the schedules,
 /// and the Cockpit renders the words, tones and order it is handed.
 ///
-/// A factory's status is exactly one of four words, worst first (decision 5 of the plan):
+/// A factory's status is exactly one of five words, worst first (decision 5 of the plan; TALK ONLY added by the
+/// Factory Seats mission, 13 October 2026):
 ///   FAILING   - something of it failed in the last 24 hours and is not over: ANY "failed" row of the factory,
 ///               whoever wrote it, that is neither marked handled (a row corrects it) nor followed by a later
 ///               successful row of the same seat and subject (<see cref="IsOver"/>; round 2, PLAN.md); or a seat's
 ///               schedule whose last firing failed (the engine records that as "not-started", or a work list that
 ///               could not run).
 ///   NEEDS YOU - something it asked or escalated is waiting on the owner.
-///   PAUSED    - nothing runs its seats on its own: no seat schedule is on and no seat trigger is live. A factory
-///               with no schedule at all is PAUSED too, and says "Nothing scheduled" rather than "switched off".
-///   RUNNING   - otherwise.
+///   PAUSED    - its seats have schedules or triggers and none of them runs: every seat schedule is switched off (or
+///               no longer on the Gateway) and every seat trigger is paused.
+///   RUNNING   - otherwise, when something is set to run it.
+///   TALK ONLY - nothing was ever set to run it: no seat names a schedule and no trigger starts a seat. The owner
+///               runs it by talking to it. This is not a problem and not a pause - the owner took the schedule off the
+///               boss seat of a factory on 13 October 2026 and the screen called the factory PAUSED - so it ranks
+///               last, after RUNNING, and never counts toward FAILING or NEEDS YOU.
 /// (The two build rulings of 2026-10-06, PLAN.md "Decisions added during the build".)
 ///
 /// Every status but RUNNING carries a one-line reason shown under the word, and a link to the items it is about on
@@ -46,8 +51,8 @@ public sealed record FactoriesScreenInputs(
 /// ruling of 8 October 2026: not every factory is a company, but every factory has a boss - the word is Boss, never
 /// CEO or head). The boss has no name of its own: the product says "the boss", "Talk to the boss", "Latest from the
 /// boss", never a person's name, because real-sounding names across thirteen factories were confusing and collided.
-/// The page header shows the boss seat's own role word, which is "Boss" unless the factory registered a distinct
-/// one ("CFO" for Center Consulting).
+/// The page header shows the boss seat's registered role word. That word is "Boss": since 13 October 2026 the
+/// registry refuses a boss seat with any other role, so only a factory registered before that day can show another.
 ///
 /// Only registry seats are seats. A row written by a session that is not a seat ("Owner Session") counts toward
 /// what is waiting on the owner and toward FAILING - both are the factory's - but it never becomes a row on the
@@ -59,6 +64,16 @@ public static class FactoriesScreenFold
     public const string StatusNeedsYou = "NEEDS YOU";
     public const string StatusPaused = "PAUSED";
     public const string StatusRunning = "RUNNING";
+    public const string StatusTalkOnly = "TALK ONLY";
+
+    /// <summary>The line under TALK ONLY.</summary>
+    public const string TalkOnlyLine = "Nothing scheduled. You run it by talking to it.";
+
+    /// <summary>What a seat with nothing scheduled says where its schedules would be.</summary>
+    public const string SeatTalkOnly = "Talk only";
+
+    /// <summary>The words on the link every seat row carries to its own page.</summary>
+    public const string OpenSeat = "Open seat";
 
     /// <summary>How far back a failed run makes a factory FAILING.</summary>
     public static readonly TimeSpan FailingWindow = TimeSpan.FromHours(24);
@@ -132,7 +147,7 @@ public static class FactoriesScreenFold
             Tabs = ListTabs(),
             Columns = new() { "Factory", "Waiting on you", "Status" },
             Rows = rows,
-            FooterText = rows.Count == 0 ? null : "Worst first: failing, then needs you, then paused, then running.",
+            FooterText = rows.Count == 0 ? null : "Worst first: failing, then needs you, then paused, then running, then talk only.",
             EmptyText = rows.Count == 0
                 ? "No factory is registered yet. A factory appears here when it is registered with cc-devthrottle factory register."
                 : null,
@@ -285,7 +300,7 @@ public static class FactoriesScreenFold
         new() { Key = "documents", Label = "Documents" },
     };
 
-    private static FactoryGoalCardDto GoalCard(RegisteredFactoryDto f)
+    internal static FactoryGoalCardDto GoalCard(RegisteredFactoryDto f)
     {
         if (string.IsNullOrWhiteSpace(f.GoalText))
             return new FactoryGoalCardDto { Heading = "Goal", EmptyText = "No goal set yet" };
@@ -296,7 +311,7 @@ public static class FactoriesScreenFold
         return new FactoryGoalCardDto { Heading = "Goal", Text = f.GoalText.Trim(), Note = "Only you change the goal." + approved };
     }
 
-    private static FactoryGoalNumberCardDto GoalNumberCard(GoalNumberDto? n, RegisteredFactoryDto f, TimeZoneInfo zone, DateTime now)
+    internal static FactoryGoalNumberCardDto GoalNumberCard(GoalNumberDto? n, RegisteredFactoryDto f, TimeZoneInfo zone, DateTime now)
     {
         if (n is null)
             return new FactoryGoalNumberCardDto { Heading = "Goal number", EmptyText = "No number posted yet" };
@@ -409,7 +424,7 @@ public static class FactoriesScreenFold
 
     // The shifts each of a seat's schedules starts runs in over the next 7 days (ScheduleShifts), by schedule id. A
     // schedule the store no longer has starts nothing, so it has no shift.
-    private static Dictionary<string, IReadOnlyList<string>> ShiftsBySchedule(RegisteredFactorySeatDto seat, FactoriesScreenInputs input)
+    internal static Dictionary<string, IReadOnlyList<string>> ShiftsBySchedule(RegisteredFactorySeatDto seat, FactoriesScreenInputs input)
     {
         var a = input.Activity;
         var schedules = SchedulesOf(seat, input.Schedules);
@@ -438,7 +453,7 @@ public static class FactoriesScreenFold
             Name = seat.Name,
             Role = seat.Role,
             WhenText = listed.Count == 0
-                ? "Not scheduled"
+                ? SeatTalkOnly
                 : string.Join("; ", listed.Select(id =>
                     schedules.FirstOrDefault(j => j.Id == id) is { } job
                         ? FactoryScheduleText.Describe(job, a.Zone)
@@ -481,6 +496,8 @@ public static class FactoriesScreenFold
                 FactoryId = f.Factory,
                 SeatId = seat.Id,
             },
+            OpenLabel = OpenSeat,
+            Href = SeatHref(f.Factory, seat.Id),
         };
     }
 
@@ -488,7 +505,7 @@ public static class FactoriesScreenFold
     /// A seat's last run and how it ended: the latest of its schedules' firings and its own "started" rows, then
     /// what that session's rows came to. "Not run yet" when neither has anything.
     /// </summary>
-    private static (string Text, string Tone) LastRun(RegisteredFactoryDto f, RegisteredFactorySeatDto seat,
+    internal static (string Text, string Tone) LastRun(RegisteredFactoryDto f, RegisteredFactorySeatDto seat,
         IReadOnlyList<CronJobDto> schedules, FactoryFoldInputs a, Clock clock)
     {
         var rows = a.WindowRows.Where(r => SameId(r.Factory, f.Factory) && SameId(r.FactoryAgent, seat.Id)).ToList();
@@ -592,8 +609,6 @@ public static class FactoriesScreenFold
     /// <summary>How long a quoted row's text may run in a status line before it is cut with "...".</summary>
     public const int LineWhatChars = 90;
 
-    public const string NothingScheduled = "Nothing scheduled";
-
     internal static FactoryStatus Status(RegisteredFactoryDto f, FactoriesScreenInputs input, IReadOnlyList<FactoryActivityDto> open)
     {
         var a = input.Activity;
@@ -637,7 +652,9 @@ public static class FactoriesScreenFold
         var triggers = a.Triggers.Where(t => SameId(t.Factory, f.Factory) && seatIds.Contains(t.FactoryAgent)).ToList();
         if (!seatSchedules.Any(j => j.Enabled) && !triggers.Any(t => !t.Paused))
         {
-            var line = PausedText(f, seatSchedules.Select(j => j.Id).Distinct(StringComparer.Ordinal).Count(), triggers.Count, input.Schedules);
+            // Nothing switched off, nothing paused and nothing missing: nothing was ever set to run it.
+            if (PausedText(f, seatSchedules.Select(j => j.Id).Distinct(StringComparer.Ordinal).Count(), triggers.Count, input.Schedules) is not { } line)
+                return new(4, StatusTalkOnly, FactoryTone.Idle, TalkOnlyLine, TalkOnlyLine, SeatsHref(f.Factory));
             return new(2, StatusPaused, FactoryTone.Paused, line, line, SeatsHref(f.Factory));
         }
 
@@ -645,13 +662,12 @@ public static class FactoriesScreenFold
     }
 
     /// <summary>
-    /// Why a PAUSED factory is paused (round 2, mandate item 5). "Nothing scheduled" when no seat names a schedule
-    /// the Gateway has and no trigger runs one - nothing was ever set to run it - which is a different thing from
-    /// schedules the owner switched off, so that says how many: "3 schedules switched off", "1 schedule switched
-    /// off, 1 trigger paused". A seat that names a schedule the Gateway no longer has says so, rather than reading as
-    /// switched off or as never scheduled.
+    /// Why a PAUSED factory is paused (round 2, mandate item 5): how many schedules the owner switched off and how
+    /// many triggers are paused - "3 schedules switched off", "1 schedule switched off, 1 trigger paused". A seat that
+    /// names a schedule the Gateway no longer has says so, rather than reading as switched off or as never scheduled.
+    /// Null when there is none of the three: nothing was ever set to run the factory, which is TALK ONLY, not PAUSED.
     /// </summary>
-    internal static string PausedText(RegisteredFactoryDto f, int offSchedules, int pausedTriggers, IReadOnlyList<CronJobDto> all)
+    internal static string? PausedText(RegisteredFactoryDto f, int offSchedules, int pausedTriggers, IReadOnlyList<CronJobDto> all)
     {
         var known = all.Select(j => j.Id).ToHashSet(StringComparer.Ordinal);
         var missing = f.Seats.SelectMany(s => s.Schedules).Distinct(StringComparer.Ordinal).Count(id => !known.Contains(id));
@@ -659,7 +675,7 @@ public static class FactoriesScreenFold
         if (offSchedules > 0) parts.Add($"{Count(offSchedules, "schedule")} switched off");
         if (pausedTriggers > 0) parts.Add($"{Count(pausedTriggers, "trigger")} paused");
         if (missing > 0) parts.Add(missing == 1 ? "1 named schedule no longer exists" : $"{missing} named schedules no longer exist");
-        return parts.Count == 0 ? NothingScheduled : string.Join(", ", parts);
+        return parts.Count == 0 ? null : string.Join(", ", parts);
     }
 
     /// <summary>
@@ -816,11 +832,17 @@ public static class FactoriesScreenFold
     /// <summary>The factory's Seats tab.</summary>
     public static string SeatsHref(string factory) => $"{PageHref(factory)}/seats";
 
+    /// <summary>One seat's own page (Factory Seats mission): every seat has one, with or without a schedule.</summary>
+    public static string SeatHref(string factory, string seat) => $"{SeatsHref(factory)}/{Uri.EscapeDataString(seat)}";
+
+    /// <summary>The factory's Memory tab.</summary>
+    public static string MemoryHref(string factory) => $"{PageHref(factory)}/memory";
+
     /// <summary>What a factory with no boss says where the boss's Talk button would be.</summary>
     public const string NoBoss = "No boss named";
 
-    /// <summary>The product's word for the boss seat's role: "Boss", or the distinct role word the factory registered
-    /// ("CFO"). Never the seat's name - the boss has none (the owner's ruling of 8 October 2026).</summary>
+    /// <summary>The product's word for the boss seat's role, and the only role the registry accepts for it. Never the
+    /// seat's name - the boss has none (the owner's ruling of 8 October 2026).</summary>
     public const string BossRoleWord = "Boss";
 
     private static string BossRole(RegisteredFactorySeatDto boss) =>
@@ -887,13 +909,13 @@ public static class FactoriesScreenFold
             ? SeatClock(SchedulesOf(seat, all), accountZone)
             : new Clock(accountZone, null);
 
-    private static List<CronJobDto> SchedulesOf(RegisteredFactorySeatDto seat, IReadOnlyList<CronJobDto> all) =>
+    internal static List<CronJobDto> SchedulesOf(RegisteredFactorySeatDto seat, IReadOnlyList<CronJobDto> all) =>
         all.Where(j => seat.Schedules.Contains(j.Id, StringComparer.Ordinal)).ToList();
 
     private static List<FactoryActivityDto> OpenWaiting(FactoryFoldInputs a) =>
         FactoryAgentsFold.OpenWaiting(a.WaitingCandidates, FactoryAgentsFold.AllCorrections(a));
 
-    private static string? Truncated(FactoryFoldInputs a) =>
+    internal static string? Truncated(FactoryFoldInputs a) =>
         a.WindowTruncated || a.WaitingTruncated
             ? "The activity record held more rows than one read returns, so a status or a waiting count here may be out of date."
             : null;
@@ -918,7 +940,7 @@ public static class FactoriesScreenFold
     private static string Capitalize(string s) =>
         string.IsNullOrEmpty(s) ? s : char.ToUpperInvariant(s[0]) + s[1..];
 
-    private static bool SameId(string? a, string? b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+    internal static bool SameId(string? a, string? b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 
-    private static string Count(int n, string noun) => n == 1 ? $"1 {noun}" : $"{n} {noun}s";
+    internal static string Count(int n, string noun) => n == 1 ? $"1 {noun}" : $"{n} {noun}s";
 }

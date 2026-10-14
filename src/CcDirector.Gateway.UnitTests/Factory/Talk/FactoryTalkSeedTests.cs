@@ -41,14 +41,17 @@ public sealed class FactoryTalkSeedTests
     }
 
     [Fact]
-    public void Compose_ADistinctBossRole_IsSaidBesideTheBoss_AndANonBossSeat_IsSeatedByNameAndRole()
+    public void Compose_TheBoss_IsTheBossAndNoRoleIsSaidBesideIt_AndANonBossSeat_IsSeatedByNameAndRole()
     {
-        // The boss has no name (the owner, 8 October 2026). A distinct role word (CFO) is said beside it; any other seat
-        // is introduced by its name and role as before.
+        // The boss has no name (the owner, 8 October 2026) and its role is Boss (13 October 2026: "She's called the CFO
+        // but she shouldn't be"). A factory registered before that day may still hold another role word; a talk no
+        // longer says it. Any other seat is introduced by its name and role as before.
         var f = WarmForward();
         f.Seats[0].Role = "CFO";
-        Assert.StartsWith("You are the boss of WarmForward (its CFO) (factory id: warmforward; your agent id: nora-hale).",
+        Assert.StartsWith("You are the boss of WarmForward (factory id: warmforward; your agent id: nora-hale).",
             FactoryTalkSeed.Compose(f, Nora(f), "cj_a721e6", MorningRun));
+        // The one place the stored word is still named is the instruction to register the boss as Boss.
+        Assert.DoesNotContain("its CFO", FactoryTalkSeed.Compose(f, Nora(f), "cj_a721e6", MorningRun));
 
         var engineer = new RegisteredFactorySeatDto { Id = "savings-engineer", Name = "Savings Engineer", Role = "Savings Engineer", BriefFile = "agents/savings.yaml", Computer = "SOREN_NORTH" };
         f.Seats.Add(engineer);
@@ -122,7 +125,7 @@ public sealed class FactoryTalkSeedTests
         var seed = FactoryTalkSeed.Compose(f, Nora(f), "cj_a721e6", MorningRun);
 
         Assert.Contains("- the factory's status as the owner sees it on the Factories screen: cc-devthrottle factory status --factory warmforward", seed);
-        Assert.Contains("FAILING, NEEDS YOU, PAUSED or RUNNING", seed);
+        Assert.Contains("FAILING, NEEDS YOU, PAUSED, RUNNING or TALK ONLY", seed);
         Assert.Contains("Say that word to the owner when you open.", seed);
         Assert.Contains("3. Run cc-devthrottle factory status --factory warmforward again.", seed);
         Assert.Contains("and only if it is resolved", seed);

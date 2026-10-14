@@ -4,6 +4,8 @@ import {
   getFactoriesList,
   getFactoryEmail,
   getFactoryManagerCard,
+  getFactorySeatPage,
+  takeScheduleOffSeat,
   resolveRunProblem,
   startFactoryManagerTalk,
   runFactoryOwnerAction,
@@ -228,5 +230,53 @@ describe("the Factory Manager", () => {
     const err = await startFactoryManagerTalk(null).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(GatewayError);
     expect(gatewayErrorMessage(err, "start the Factory Manager")).toContain("No Director is running on SOREN_NORTH");
+  });
+});
+
+// One seat's page and "Take off this seat" (Factory Seats mission, phase 1).
+describe("getFactorySeatPage", () => {
+  it("reads the seat's own address, with the factory and the seat escaped", async () => {
+    answer(200, JSON.stringify({ seatId: "front desk", startsWord: "Talk only" }));
+    await expect(getFactorySeatPage("warm forward", "front desk")).resolves.toMatchObject({ startsWord: "Talk only" });
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      "/gateway/factories/warm%20forward/seats/front%20desk",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("keeps the Gateway's sentence for a seat the factory does not have", async () => {
+    answer(404, JSON.stringify({ error: "WarmForward has no seat 'owner-session'. Its seats are: boss, scout." }));
+    await expect(getFactorySeatPage("warmforward", "owner-session")).rejects.toMatchObject({
+      status: 404,
+      message: expect.stringContaining("WarmForward has no seat 'owner-session'. Its seats are: boss, scout."),
+    });
+  });
+
+  it("refuses a 2XX that is not data - an older Gateway answering with the app's page", async () => {
+    answer(200, "<!doctype html><html></html>", "text/html");
+    await expect(getFactorySeatPage("warmforward", "boss")).rejects.toBeInstanceOf(GatewayError);
+  });
+});
+
+describe("takeScheduleOffSeat", () => {
+  it("posts to the one unlink route and returns what the Gateway said it did", async () => {
+    answer(200, JSON.stringify({ text: "Taken off Scout of WarmForward.", factory: "warmforward", seat: "scout", job: { id: "cj_scout" } }));
+    await expect(takeScheduleOffSeat("cj_scout")).resolves.toMatchObject({ text: "Taken off Scout of WarmForward.", seat: "scout" });
+    const [path, init] = vi.mocked(fetch).mock.calls[0];
+    expect(path).toBe("/cron/jobs/cj_scout/unlink");
+    expect(init).toMatchObject({ method: "POST" });
+    // Never an update of the schedule: a blank factory on an update means "said nothing" and would keep the link.
+    expect((init as RequestInit).body).toBeUndefined();
+  });
+
+  it("a refusal carries the Gateway's own sentence", async () => {
+    const refusal = "this schedule belongs to factory 'warmforward', so only a person or a session of 'warmforward' may change or run it";
+    answer(403, JSON.stringify({ error: refusal, detail: "why" }));
+    await expect(takeScheduleOffSeat("cj_scout")).rejects.toMatchObject({ status: 403, message: expect.stringContaining(refusal) });
+  });
+
+  it("refuses a 2XX that is not data, so an older Gateway never reads as taken off", async () => {
+    answer(200, "<!doctype html><html></html>", "text/html");
+    await expect(takeScheduleOffSeat("cj_scout")).rejects.toBeInstanceOf(GatewayError);
   });
 });

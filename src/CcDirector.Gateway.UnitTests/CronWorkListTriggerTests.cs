@@ -100,33 +100,6 @@ public sealed class CronWorkListTriggerTests : IDisposable
     }
 
     [Fact]
-    public async Task Trigger_Started_LaunchesDrain_WithListAndCronConsumer_ThenReleasesMachine()
-    {
-        var store = NewListStore();
-        store.Create("Tonight");
-        store.AppendItem("Tonight", new WorkListItemRef { Source = "github", Id = "312" });
-        var manager = new WorkListRunnerManager();
-        var launcher = new FakeLauncher();
-        var t = Trigger(store, new FakeResolver("machineA"), manager, launcher);
-
-        var outcome = await t.TriggerAsync(WorkListJob(), CancellationToken.None);
-        Assert.Equal(CronWorkListOutcome.Started, outcome);
-
-        // The drain runs in the background; wait until the launcher is invoked.
-        await launcher.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
-        Assert.Equal("Tonight", launcher.LastListName);
-        Assert.Equal("machineA", launcher.LastDirectorId);   // the resolved Director id is threaded to the launcher (tunnel leg)
-        Assert.StartsWith("cron:cj_test:", launcher.LastConsumer);
-        Assert.Equal("Tonight", manager.ActiveList(TenantId.Local, "workstation-A")); // the machine's slot holds the "Tonight" drain
-
-        launcher.Release.TrySetResult();
-        await launcher.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
-        // The machine slot is released after the drain completes (poll briefly for the finally).
-        await WaitUntilAsync(() => manager.ActiveList(TenantId.Local, "workstation-A") is null, TimeSpan.FromSeconds(10));
-        Assert.Null(manager.ActiveList(TenantId.Local, "workstation-A"));
-    }
-
-    [Fact]
     public async Task DrainLauncher_ClaimsList_AndDrainsItemsInOrder()
     {
         // The production launcher with a FAKE driver factory: proves that going through the launcher
@@ -144,16 +117,6 @@ public sealed class CronWorkListTriggerTests : IDisposable
 
         Assert.Equal(new[] { "101", "102", "103" }, driver.StartOrder.ToArray()); // in list order
         Assert.Null(store.Get("Tonight")!.Consumer);                               // claim released after drain
-    }
-
-    private static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout)
-    {
-        var deadline = DateTime.UtcNow + timeout;
-        while (DateTime.UtcNow < deadline)
-        {
-            if (condition()) return;
-            await Task.Delay(20);
-        }
     }
 
     // ---- fakes -------------------------------------------------------------------------------

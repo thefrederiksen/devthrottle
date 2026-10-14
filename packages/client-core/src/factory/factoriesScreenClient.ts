@@ -5,7 +5,16 @@
 // (the views, folded by FactoriesScreenFold) and the Talk answer in FactoryRegistryDtos.cs. Every word, tone and order
 // arrives finished; a page renders it verbatim and never counts, sorts or decides what a status means.
 import { authHeaders, GatewayError } from "../api/client";
-import type { FactoryTab, FactoryTone, FactoryWaitingItem } from "./factoryAgentsClient";
+import type {
+  FactoryActivityLine,
+  FactoryNumber,
+  FactoryPause,
+  FactoryTab,
+  FactoryTone,
+  FactoryWaitingItem,
+  FactoryWokenBy,
+} from "./factoryAgentsClient";
+import type { CronJob } from "../schedule/scheduleClient";
 
 /** What a Talk button starts: the Cockpit sends the two ids back and never works out which agent a button means. */
 export interface FactoryTalkTarget {
@@ -59,13 +68,15 @@ export interface FactoryArchivedRow {
 export interface FactoryListRow {
   id: string;
   title: string;
-  /** Exactly one of FAILING, NEEDS YOU, PAUSED, RUNNING. */
+  /** Exactly one of FAILING, NEEDS YOU, PAUSED, RUNNING, TALK ONLY. */
   statusWord: string;
   statusTone: FactoryTone;
-  /** Where statusWord stands worst first: 0 FAILING, 1 NEEDS YOU, 2 PAUSED, 3 RUNNING. The Cockpit sorts by it. */
+  /** Where statusWord stands worst first: 0 FAILING, 1 NEEDS YOU, 2 PAUSED, 3 RUNNING, 4 TALK ONLY. The Cockpit
+   *  sorts and groups by it. */
   statusRank: number;
   statusReason: string;
-  /** The one short line under the status word ("Nothing scheduled", "Sender: 4 failures, ..."); null for RUNNING. */
+  /** The one short line under the status word ("3 schedules switched off", "Sender: 4 failures, ...", "Nothing
+   *  scheduled. You run it by talking to it."); null for RUNNING. */
   statusLine: string | null;
   /** Where clicking the status word goes (the failures, the waiting items, or the Seats tab); null for RUNNING. */
   statusHref: string | null;
@@ -303,7 +314,8 @@ export interface FactoryPageView {
   statusWord: string;
   statusTone: FactoryTone;
   statusReason: string;
-  /** The one short line under the status word ("Nothing scheduled", "Sender: 4 failures, ..."); null for RUNNING. */
+  /** The one short line under the status word ("3 schedules switched off", "Sender: 4 failures, ...", "Nothing
+   *  scheduled. You run it by talking to it."); null for RUNNING. */
   statusLine: string | null;
   /** Where clicking the status word goes (the failures, the waiting items, or the Seats tab); null for RUNNING. */
   statusHref: string | null;
@@ -362,6 +374,10 @@ export interface FactorySeatRow {
   talk: FactoryTalkTarget;
   /** Every schedule the seat names, with its words and the button that edits it; empty when it has none. */
   schedules: FactorySeatSchedule[];
+  /** "Open seat": every seat row opens its own page, with or without a schedule (Factory Seats mission). */
+  openLabel: string;
+  /** The seat's page. */
+  href: string;
 }
 
 /** One schedule of a seat on the Seats tab (the owner, 2026-10-09: a factory's schedules are edited in the factory). */
@@ -403,6 +419,139 @@ export interface FactorySeatsView {
   /** The seats grouped by shift; the Seats tab renders these. */
   groups: FactorySeatGroup[];
   note: string;
+}
+
+// One seat's page (Factory Seats mission, phase 1), mirroring FactorySeatPageDtos.cs. Every seat has one, whether or
+// not anything is scheduled for it. Every word, tone and order is the Gateway's (FactorySeatPageFold).
+
+/**
+ * "What this seat does": the seat's brief (FactorySeatBriefDto). A seat with a published brief on the Gateway shows
+ * its text, its version, who published it and when; a seat with only drafts says so; a seat with no brief on the
+ * Gateway shows where its brief file is. The page draws the fields that are not null.
+ */
+export interface FactorySeatBrief {
+  heading: string;
+  /** How the brief stands, in the Gateway's word. The page lays out fields; it never branches on what this means. */
+  state: "published" | "drafts" | "file";
+  /** The published brief's whole text; null when nothing is published. */
+  text: string | null;
+  /** "Version 3, published by a person (...) today 20:14."; null when nothing is published. */
+  versionText: string | null;
+  /** That a newer draft waits, or that the seat has drafts and none is published; null when no draft waits. */
+  draftText: string | null;
+  /** Set when as many drafts wait as a session may leave; null below that. */
+  waitingText: string | null;
+  /** "Brief file"; null when the brief is published on the Gateway. */
+  pathLabel: string | null;
+  /** The brief file's full path on its computer; null when the brief is published on the Gateway. */
+  pathText: string | null;
+  /** "Computer". */
+  computerLabel: string | null;
+  computerText: string | null;
+  /** That the brief is a file on that computer and what a talk and a run are told. */
+  note: string | null;
+  /** The button that opens the editor: "Edit", "Open the newest draft" or "Write the brief here". */
+  editLabel: string;
+  /** "History"; null for a seat with no version on the Gateway. */
+  historyLabel: string | null;
+}
+
+/** "Take off this seat" and the confirm it asks first; every sentence is the Gateway's. */
+export interface FactorySeatUnlink {
+  jobId: string;
+  label: string;
+  busyLabel: string;
+  confirmTitle: string;
+  confirmLines: string[];
+  confirmLabel: string;
+}
+
+/** One schedule of a seat, on the seat's page. */
+export interface FactorySeatPageSchedule {
+  jobId: string;
+  /** The schedule's name; null for one the Gateway no longer has. */
+  name: string | null;
+  /** "Daily 06:15", or "Schedule cj_x is missing". */
+  whenText: string;
+  shiftText: string;
+  /** "Paused" when it is switched off, else null. */
+  pausedText: string | null;
+  /** What it means that the Gateway no longer has this schedule, else null. */
+  missingText: string | null;
+  editLabel: string | null;
+  paused: boolean;
+  toggleLabel: string | null;
+  unlink: FactorySeatUnlink | null;
+}
+
+/** "How it starts": the seat's schedules and triggers, or that it is talk only. */
+export interface FactorySeatStarts {
+  heading: string;
+  /** Set when the seat has no schedule and no trigger. */
+  talkOnlyText: string | null;
+  schedules: FactorySeatPageSchedule[];
+  triggers: FactoryWokenBy[];
+  /** Pause or Resume for the seat's triggers; null when it has none. */
+  triggersPause: FactoryPause | null;
+}
+
+/** "What it has left behind": the seat's last talk, last run, recent activity and the factory's memory. */
+export interface FactorySeatLeftBehind {
+  heading: string;
+  lastTalkLabel: string;
+  lastTalkText: string;
+  lastRunLabel: string;
+  lastRunText: string;
+  lastRunTone: FactoryTone;
+  /** Whether its sessions close themselves; null for a seat with no schedule. */
+  closingText: string | null;
+  closingTone: FactoryTone | null;
+  numbersTitle: string;
+  numbers: FactoryNumber[];
+  recentTitle: string;
+  recent: FactoryActivityLine[];
+  recentEmptyText: string | null;
+  allLabel: string;
+  allHref: string;
+  memoryLabel: string;
+  memoryText: string;
+  memoryLinkLabel: string;
+  memoryHref: string;
+}
+
+export interface FactorySeatPageView {
+  factoryId: string;
+  factoryTitle: string;
+  seatId: string;
+  /** "Factories / WarmForward / Seats / Scout". */
+  crumb: string;
+  /** Where each part of the crumb but the last goes, in order. */
+  crumbHrefs: string[];
+  /** The seat's name, or "Boss" for the boss seat. */
+  name: string;
+  role: string;
+  /** "runs on SOREN_NORTH". */
+  computerText: string;
+  /** "Talk only", "Scheduled", "Triggered", "Scheduled and triggered", "Paused" or "Schedule missing". */
+  startsWord: string;
+  startsTone: FactoryTone;
+  talk: FactoryTalkTarget;
+  brief: FactorySeatBrief;
+  starts: FactorySeatStarts;
+  goal: FactoryGoalCard;
+  goalNumber: FactoryGoalNumberCard;
+  leftBehind: FactorySeatLeftBehind;
+  truncatedText: string | null;
+}
+
+/** What taking a schedule off its seat did (CronUnlinkResultDto). */
+export interface FactorySeatUnlinked {
+  /** What happened, in the Gateway's words. */
+  text: string;
+  factory: string;
+  seat: string | null;
+  /** The schedule as it is now: in no factory, switched as it was. */
+  job: CronJob;
 }
 
 /** The Gateway's answer to a Talk: the top-level session it started, and where the Cockpit opens it. */
@@ -556,6 +705,31 @@ export function getFactoryPage(factory: string, signal?: AbortSignal): Promise<F
 
 export function getFactorySeats(factory: string, signal?: AbortSignal): Promise<FactorySeatsView> {
   return getJson<FactorySeatsView>(`${PREFIX}/${encodeURIComponent(factory)}/seats`, "load this factory's seats", signal);
+}
+
+/** One seat's page: every seat has one, with or without a schedule. */
+export function getFactorySeatPage(factory: string, seat: string, signal?: AbortSignal): Promise<FactorySeatPageView> {
+  return getJson<FactorySeatPageView>(
+    `${PREFIX}/${encodeURIComponent(factory)}/seats/${encodeURIComponent(seat)}`,
+    "load this seat",
+    signal,
+  );
+}
+
+/**
+ * "Take off this seat": the schedule stays, switched as it was, and belongs to no factory. One route, never an update
+ * with the factory left blank - a blank factory on an update means "said nothing" and keeps the link. A refusal
+ * throws a GatewayError carrying the Gateway's own sentence.
+ */
+export async function takeScheduleOffSeat(jobId: string, signal?: AbortSignal): Promise<FactorySeatUnlinked> {
+  const res = await fetch(`/cron/jobs/${encodeURIComponent(jobId)}/unlink`, {
+    method: "POST",
+    headers: { Accept: "application/json", ...authHeaders() },
+    signal,
+  });
+  if (!res.ok) throw await GatewayError.from(res, "take the schedule off this seat");
+  assertJson(res);
+  return (await res.json()) as FactorySeatUnlinked;
 }
 
 /** The factory's floor: its production lines, bays, arrows and the owner's desk, laid out by the Gateway. */

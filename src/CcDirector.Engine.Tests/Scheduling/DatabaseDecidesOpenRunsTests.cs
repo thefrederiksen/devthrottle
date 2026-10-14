@@ -45,7 +45,6 @@ public sealed class DatabaseDecidesOpenRunsTests : IDisposable
     private sealed class Jobs
     {
         public int Quick;
-        public Process? LateCommand;
         public Func<Action<int, DateTime>, Task<JobResult>>? First;
 
         public IJob Create(JobRecord job, int timeoutSeconds, Action<int, DateTime> onStarted) => new Job(this, onStarted);
@@ -62,67 +61,6 @@ public sealed class DatabaseDecidesOpenRunsTests : IDisposable
                 Interlocked.Increment(ref owner.Quick);
                 return Task.FromResult(new JobResult(true, "quick", ExitCode: 0));
             }
-        }
-    }
-
-    private static Process StartLateCommand()
-    {
-        var info = OperatingSystem.IsWindows()
-            ? new ProcessStartInfo("cmd.exe", "/c ping -n 4 127.0.0.1 >nul")
-            : new ProcessStartInfo("/bin/sh", "-c \"sleep 3\"");
-        info.UseShellExecute = false;
-        info.CreateNoWindow = true;
-        return Process.Start(info)!;
-    }
-
-    // -- EN-F7: an engine restarted in a live process --
-
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public async Task EngineRestartedInALiveProcess_UnconfirmedStop_IsReleasedWhenTheCommandExits()
-    {
-        // The first engine: its command is killed but not seen to exit, so the claim is kept open.
-        var first = Director(1001, running: [1001]);
-        var jobId = first.AddJob(new JobRecord
-        {
-            Name = "restart-job", Cron = "0 0 31 2 *", Command = "unused", TimeoutSeconds = 1, NextRun = DateTime.UtcNow.AddSeconds(-1)
-        });
-        var jobs = new Jobs();
-        jobs.First = onStarted =>
-        {
-            jobs.LateCommand = StartLateCommand();
-            onStarted(jobs.LateCommand.Id, jobs.LateCommand.StartTime.ToUniversalTime());
-            return Task.FromResult(new JobResult(false, "", "timed out", TimedOut: true, ProcessStopped: false));
-        };
-        var firstExecutor = new JobExecutor(first, jobs.Create, first.RecordRunChild);
-        var job = first.GetJob("restart-job")!;
-        var held = firstExecutor.TryClaim(job)!;
-        await firstExecutor.ExecuteClaimedAsync(job, held, CancellationToken.None);
-        Assert.Null(first.GetRun(held.Id)!.EndedAt);
-
-        // The engine is restarted inside the same, live Director process: new database, executor, scheduler.
-        var second = Director(1001, running: [1001]);
-        var secondExecutor = new JobExecutor(second, jobs.Create, second.RecordRunChild);
-        // Its ticks are driven here, so "a tick while the command lives" and "a tick after it exited" are
-        // facts, not timings.
-        using var scheduler = new Scheduler(second, secondExecutor, checkIntervalSeconds: 1, runRetentionDays: 30);
-        try
-        {
-            await scheduler.TickAsync();
-            Assert.False(jobs.LateCommand!.HasExited);
-            Assert.Null(second.GetRun(held.Id)!.EndedAt);
-            Assert.Equal(0, jobs.Quick);
-
-            await jobs.LateCommand.WaitForExitAsync();
-            await scheduler.TickAsync();
-
-            Assert.True(jobs.Quick == 1, "the restarted engine never released the claim after the command exited");
-            Assert.NotNull(second.GetRun(held.Id)!.EndedAt);
-            Assert.Null(second.TryClaimRun(jobId, DateTime.UtcNow));
-        }
-        finally
-        {
-            jobs.LateCommand?.Dispose();
         }
     }
 

@@ -409,6 +409,8 @@ public sealed class CronRunResultService
         {
             Factory = run.Factory,
             FactoryAgent = run.Seat,
+            // Which brief the run was given, in the field the activity record keeps for the factory agent's version.
+            FactoryAgentVersion = run.BriefVersion?.ToString(System.Globalization.CultureInfo.InvariantCulture),
             SessionId = string.IsNullOrWhiteSpace(run.SessionId) ? null : run.SessionId,
             What = Truncate(what),
             Outcome = ok ? FactoryActivityOutcome.Done : FactoryActivityOutcome.Failed,

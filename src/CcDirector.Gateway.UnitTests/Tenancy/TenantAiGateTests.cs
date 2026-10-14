@@ -86,7 +86,7 @@ public sealed class TenantAiGateTests : IDisposable
         using var ctx = _db.CreateUnscopedContext();
         ctx.Database.ExecuteSqlRaw(
             "INSERT INTO entitlements (subject, status, current_period_end, livemode, tier) VALUES ({0}, {1}, {2}, {3}, {4})",
-            subject, EntitlementRegistry.StatusActive, DateTime.UtcNow.AddYears(1), true, tier);
+            subject, EntitlementRegistry.StatusActive, new DateTime(2099, 1, 1, 0, 0, 0, DateTimeKind.Utc), true, tier);
     }
 
     private TenantId TenantOf(string subject) => _tenants.MintOrLookupBySubject(subject, subject + "@example.com");
@@ -94,12 +94,14 @@ public sealed class TenantAiGateTests : IDisposable
     // ================================================================= the scope table
 
     [Fact]
-    public void EntitlementScopes_Remote_GrantsTheHostedGatewayAndNoAiScope()
+    public void EntitlementScopes_Remote_GrantsTheHostedGatewayAndRemoteAccessAndNoAiScope()
     {
-        // Decision D3: Remote is the hosted Gateway, the Cockpit and the phone app - and no dictation, TTS or Wingman.
+        // Decision D3: Remote is a Director on the hosted Gateway plus remote access (the Cockpit and the phone app) - and no dictation, spoken replies or wingman.
         var granted = EntitlementScopes.ForTier(EntitlementRegistry.TierRemote);
 
-        Assert.Equal(new[] { EntitlementScopes.HostedGateway }, granted.ToArray());
+        Assert.Equal(
+            new[] { EntitlementScopes.HostedGateway, EntitlementScopes.RemoteAccess }.OrderBy(s => s),
+            granted.OrderBy(s => s));
         Assert.True(EntitlementScopes.GrantsHostedGateway(EntitlementRegistry.TierRemote));
         foreach (var scope in AiScopes)
             Assert.False(EntitlementScopes.Grants(EntitlementRegistry.TierRemote, scope));

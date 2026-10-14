@@ -823,6 +823,82 @@ public sealed class LicenseSwitchServiceTests : IDisposable
         Assert.Equal($"No account had room for the machines on {A}, so nothing was switched; the owner was emailed.", row.Message);
     }
 
+    private const string RefuseTheEmailMark = "refuse_no_room_email_mark";
+
+    /// <summary>From now on the database refuses to record what became of a no-room event's owner email. Everything
+    /// else it still takes.</summary>
+    private void TheDatabaseRefusesToMarkANoRoomEmail()
+    {
+        using var ctx = _db.CreateContext(Tenant);
+        ctx.Database.ExecuteSqlRaw("CREATE TRIGGER " + RefuseTheEmailMark + " BEFORE UPDATE OF ReasonCode ON license_switch_log "
+                                   + "WHEN OLD.Kind = 'no-room' BEGIN SELECT RAISE(ABORT, 'the database refused the write'); END;");
+    }
+
+    private void TheDatabaseTakesTheEmailMarkAgain()
+    {
+        using var ctx = _db.CreateContext(Tenant);
+        ctx.Database.ExecuteSqlRaw("DROP TRIGGER " + RefuseTheEmailMark + ";");
+    }
+
+    [Fact]
+    public async Task NoTarget_AnEmailTheMailServiceConfirmed_IsNeverSentAgainByThisGateway_WhileTheDatabaseRefusesToMarkItsRow()
+    {
+        TheDatabaseRefusesToMarkANoRoomEmail();
+        OnAWithNoRoomAnywhere();
+
+        // The email goes out and is confirmed; marking the event's row fails, and the check fails with it.
+        await Assert.ThrowsAnyAsync<Exception>(() => Tick());
+        Assert.Single(_mail.Attempts);
+        Assert.Null(Assert.Single(Rows(LicenseLogKinds.NoRoom)).ReasonCode);
+
+        // Minute after minute the row still reads "not emailed yet", and nothing more is sent.
+        for (var i = 0; i < 5; i++)
+        {
+            MinuteLater();
+            OnAWithNoRoomAnywhere();
+            await Assert.ThrowsAnyAsync<Exception>(() => Tick());
+        }
+        Assert.Single(_mail.Attempts);
+
+        // The database takes the write again: the row is marked with the moment the email really went.
+        TheDatabaseTakesTheEmailMarkAgain();
+        MinuteLater();
+        OnAWithNoRoomAnywhere();
+        await Tick();
+        MinuteLater();
+        OnAWithNoRoomAnywhere();
+        await Tick();
+
+        Assert.Single(_mail.Attempts);
+        var row = Assert.Single(Rows(LicenseLogKinds.NoRoom));
+        Assert.Equal((LicenseGatewayReasonCodes.OwnerEmailed, T0, 1), (row.ReasonCode, row.LastSentAtUtc, row.SendCount));
+    }
+
+    [Fact]
+    public async Task NoTarget_AMailSenderThatThrows_IsAFailedSend_TriedAgainLaterEachTime_NotEveryMinute()
+    {
+        _mail.Throws = _ => true;
+        OnAWithNoRoomAnywhere();
+
+        await Tick();
+        var row = Assert.Single(Rows(LicenseLogKinds.NoRoom));
+        Assert.Equal(LicenseGatewayReasonCodes.OwnerEmailFailed, row.ReasonCode);
+        Assert.Contains("the owner has not been emailed yet because the mail sender failed (InvalidOperationException)", row.Message);
+        Assert.DoesNotContain("The mail service broke", row.Message);
+
+        // The sender works again, but the wait after a failed send holds: one minute, and it is tried once.
+        _mail.Throws = null;
+        _now = _now.AddSeconds(59);
+        OnAWithNoRoomAnywhere();
+        await Tick();
+        Assert.Empty(_mail.Attempts);
+        _now = _now.AddSeconds(1);
+        OnAWithNoRoomAnywhere();
+        await Tick();
+        Assert.Single(_mail.Attempts);
+        Assert.Equal(LicenseGatewayReasonCodes.OwnerEmailed, Assert.Single(Rows(LicenseLogKinds.NoRoom)).ReasonCode);
+    }
+
     [Fact]
     public async Task NoTarget_AFailedSendIsNotMarkedEmailed_IsRetriedOnALaterCheck_AndNeverSentAgainOnceItWent()
     {
@@ -1276,7 +1352,9 @@ public sealed class LicenseSwitchServiceTests : IDisposable
     {
         Reports(Tenant, Windows, "dir-of-tenant-one", (A, true, 98, 20), (B, false, 99, 30)); // no room: this tenant emails
         OnA(Windows, "dir-of-tenant-two", 97, Other);
-        _mail.Throws = tenant => tenant == Tenant;
+        // Tenant one's check fails: its email goes out and the database refuses to mark its event's row. (A mail
+        // sender that throws is no longer a failed check - it is a failed send.) Tenant two has no such row.
+        TheDatabaseRefusesToMarkANoRoomEmail();
 
         await _service.TickEveryTenantAsync(new ListedTenants(Tenant, Other), CancellationToken.None);
 

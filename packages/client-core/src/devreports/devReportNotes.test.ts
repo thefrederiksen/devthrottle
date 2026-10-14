@@ -900,10 +900,20 @@ describe("note-mode", () => {
     const range = document.createRange();
     range.selectNodeContents(para);
     const selection = window.getSelection()!;
-    selection.removeAllRanges();
+    // ONE EVENT, AND IT IS WAITED FOR. Changing the selection makes the document fire selectionchange by itself a
+    // moment later, as a browser does. This test used to fire one by hand as well and go on after a pause, with
+    // the document's own still on its way: when that one arrived after the app had asked for the note, the page
+    // offered the selection again and the last line below failed. Nothing is selected at the start, so adding the
+    // range is one change and one event, and nothing is asked of the page until it has been heard.
+    expect(selection.rangeCount).toBe(0);
+    let heard = 0;
+    const count = () => (heard += 1);
+    document.addEventListener("selectionchange", count);
+    const before = host.fromPage.length;
     selection.addRange(range);
-    document.dispatchEvent(new Event("selectionchange"));
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    for (let i = 0; i < 400 && heard === 0; i++) await new Promise((resolve) => setTimeout(resolve, 5));
+    // The page told the app in that same event; its message crosses the port a moment after.
+    for (let i = 0; i < 400 && host.fromPage.length === before; i++) await new Promise((resolve) => setTimeout(resolve, 5));
 
     const told = host.fromPage.filter((m) => m.type === "note-mode-changed");
     expect(told[told.length - 1].payload.selectionQuote).toBe("A paragraph.");
@@ -916,6 +926,9 @@ describe("note-mode", () => {
     // The selection has been used up, so the app stops offering it.
     const afterwards = host.fromPage.filter((m) => m.type === "note-mode-changed");
     expect(afterwards[afterwards.length - 1].payload.selectionQuote).toBeNull();
+    // And no second event was on its way: the one that was waited for is the only one there has been.
+    document.removeEventListener("selectionchange", count);
+    expect(heard).toBe(1);
   });
 
   it("says where note-taking stands as soon as it is hosted, before anything is asked of it", async () => {

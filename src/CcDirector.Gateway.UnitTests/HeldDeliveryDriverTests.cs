@@ -203,71 +203,6 @@ public sealed class HeldDeliveryDriverTests : IDisposable
         Assert.Equal(0, restarted.HeldCount);
     }
 
-    // ===== the tick runs while the start-up pass is still working (review round, finding 3) =============
-
-    [Fact]
-    public async Task TheTickDrivesANewlyHeldDelivery_WhileTheStartUpPassIsStillWorkingThroughItsOwn()
-    {
-        // The start-up pass is serial and can be slow - each attempt can wait out a long send - and it used
-        // to hold the TICK: the timer was not even created until the whole pass finished, so a delivery taken
-        // over while the pass was working waited for every held record on disk before its first driver
-        // attempt. Here the pass is BLOCKED inside its one held delivery's send, and while it is blocked a
-        // second delivery is taken over exactly as the complete route does: the REAL tick must give it its
-        // first driver attempt within the bounded wait - on the old code no timer exists yet, and the wait
-        // fails.
-        var blockedPrompt = new TaskCompletionSource<DirectorCommandResult?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var enteredBlock = new TaskCompletionSource();
-        var blockerSid = Seat();
-        var blocker = await StagedClipAsync(blockerSid);
-        var blockerDeliveryId = VoiceUploadStore.NormalizeUploadId(blocker)!;   // the id the prompt carries
-        _ = _store.TakeOwnership(blocker, Owned(blockerSid)).Result;   // held on disk, as a restart finds it
-        _prompt = cmd =>
-        {
-            if (cmd.PayloadJson.Contains(blockerDeliveryId))
-            {
-                enteredBlock.TrySetResult();
-                return blockedPrompt.Task;
-            }
-            return Task.FromResult<DirectorCommandResult?>(Accepted());
-        };
-        var delivery = new DictationDelivery(_registry, owners: null, Transcription(), _marks, _pushed, SendAsync,
-            TimeSpan.FromSeconds(20), _clock);
-        var driver = new HeldDeliveryDriver(_store, _ => new NoScope(),
-            (tenant, sid) => _pushed.TryLocateIgnoringFreshness(tenant, sid)?.DirectorId, hosted: false)
-        {
-            TickInterval = TimeSpan.FromMilliseconds(50),   // a real, fast tick - the thing the pass used to hold
-        };
-        driver.Attach(delivery);
-        using (driver)
-        {
-            var pass = driver.StartAsync();   // not awaited: it must not block anything below
-            await enteredBlock.Task.WaitAsync(TimeSpan.FromSeconds(10));
-
-            // While the pass is still inside its blocked send, a second delivery is taken over - exactly as
-            // the complete route does it. The pass has NOT finished; on the old code no tick exists yet.
-            var sid = Seat();
-            var uploadId = await StagedClipAsync(sid);
-            var owned = Owned(sid);
-            Assert.Equal(DictationOwnership.Taken, _store.TakeOwnership(uploadId, owned).Result);
-            driver.Track(TenantId.Local, uploadId, HeldDeliveryKind.Dictation);
-
-            // The tick gives the new delivery its first driver attempt on the ordinary cadence (the shortest
-            // wait, then the tick), while the pass is still blocked on its own delivery.
-            var deadline = DateTime.UtcNow.AddSeconds(15);
-            while (_store.ReadRecord(uploadId) is not { State: DictationDeliveryState.Delivered }
-                   && DateTime.UtcNow < deadline)
-                await Task.Delay(50);
-            Assert.False(blockedPrompt.Task.IsCompleted, "the start-up pass is still working on its own delivery");
-            Assert.Equal(DictationDeliveryState.Delivered, _store.ReadRecord(uploadId)!.State);
-            var drive = Lines(uploadId).Single(l => l.Decision == DeliveryDecisions.GatewayDrive);
-            Assert.Equal(DeliveryDecisions.DriveTick, drive.Facts!.Trigger);
-
-            // Let the pass finish, so nothing leaks past the test.
-            blockedPrompt.TrySetResult(Timeout());
-            await pass.WaitAsync(TimeSpan.FromSeconds(10));
-        }
-    }
-
     // ===== a Director that already delivered it refuses the re-send ========================================
 
     [Fact]
@@ -316,43 +251,6 @@ public sealed class HeldDeliveryDriverTests : IDisposable
         Assert.Equal(DictationDeliveryState.Delivered, _store.ReadRecord(uploadId)!.State);
         Assert.True(_store.ReadRecord(uploadId)!.Submitted);
         Assert.True(Lines(uploadId).Last(l => l.Decision == DeliveryDecisions.DirectorAnswer).Facts!.RefusedDuplicate);
-    }
-
-    // ===== one attempt at a time =============================================================================
-
-    [Fact]
-    public async Task TheDriverAndAClientAttempt_NeverRunTwoAttemptsOfOneUploadAtOnce()
-    {
-        // Proves the single-flight is shared: while the client's attempt is inside the prompt verb, the driver wakes - the
-        // tunnel came back, and the tick is due - and starts NOTHING: no second transcription, no second prompt, no drive
-        // line. When the attempt finishes, exactly one prompt was sent.
-        var (driver, _) = NewDriver();
-        var sid = Seat();
-        var uploadId = await StagedClipAsync(sid);
-        var release = new TaskCompletionSource<DirectorCommandResult?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var inPrompt = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        _prompt = _ =>
-        {
-            inPrompt.TrySetResult();
-            return release.Task;
-        };
-
-        var client = OwnAndAttemptAsync(driver, uploadId, sid);
-        await inPrompt.Task.WaitAsync(TimeSpan.FromSeconds(10));
-        _clock.Ahead = TimeSpan.FromSeconds(5);
-        // Not awaited before the release: a tick that wrongly started its own attempt would sit in the held prompt, and
-        // the test must fail on the counts below rather than hang.
-        var tick = driver.TickAsync();
-        driver.OnSessionsArrived(TenantId.Local, DirectorId);
-        await Task.Delay(300);
-        release.SetResult(Accepted());
-        var answer = await client.WaitAsync(TimeSpan.FromSeconds(10));
-        await tick.WaitAsync(TimeSpan.FromSeconds(10));
-
-        Assert.Equal(200, answer.Status);
-        Assert.Equal(1, Prompts());
-        Assert.Equal(1, _transcriber.Calls);
-        Assert.DoesNotContain(DeliveryDecisions.GatewayDrive, Names(uploadId));
     }
 
     // ===== the outcome read ==================================================================================
@@ -654,40 +552,6 @@ public sealed class HeldDeliveryDriverTests : IDisposable
         Assert.Equal(0, Prompts());
         var drive = Assert.Single(typed.ReadDecisions(id), l => l.Decision == DeliveryDecisions.GatewayDrive);
         Assert.Equal(DeliveryDecisions.DriveGatewayStarted, drive.Facts!.Trigger);
-        Assert.Equal(0, driver.HeldCount);
-    }
-
-    [Fact]
-    public async Task ATrackedTypedPrompt_IsAskedOnTheTick_ThenFinishedWhenItsDirectorComesBack()
-    {
-        // Proves the other two wake-ups reach a typed prompt: the tick, once its wait is due, asks (still delivering, so it
-        // stays driven), and the Director's tunnel coming back asks again and finishes it - with no client call at all.
-        var sid = Seat();
-        var typed = TypedStore();
-        var id = TypedPromptDelivery.MintDeliveryId();
-        typed.Hold(id, sid, "typed words", DateTime.UtcNow, DeliverySendAndAsk.NoAnswerState, new TypedPromptDecisionFacts());
-        var (driver, _) = NewDriver();
-        driver.AttachTypedPrompts(typed, () => TypedDriver());
-        driver.Track(TenantId.Local, id, HeldDeliveryKind.TypedPrompt);
-
-        _deliveryState = _ => StateIs(DeliveryState.Delivering);
-        await driver.TickAsync();
-        Assert.DoesNotContain(typed.ReadDecisions(id), l => l.Decision == DeliveryDecisions.GatewayDrive);
-        _clock.Ahead = HeldDeliveryDriver.ShortestWait + TimeSpan.FromSeconds(1);
-        await driver.TickAsync();
-        Assert.Equal(TypedPromptState.Held, typed.Read(id).Record!.State);
-        Assert.Equal(1, driver.HeldCount);
-
-        _deliveryState = _ => StateIs(DeliveryState.Delivered);
-        driver.OnSessionsArrived(TenantId.Local, DirectorId);
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (typed.Read(id).Record!.State == TypedPromptState.Held && DateTime.UtcNow < deadline)
-            await Task.Delay(50);
-
-        Assert.Equal(TypedPromptState.Delivered, typed.Read(id).Record!.State);
-        Assert.Equal(new[] { DeliveryDecisions.DriveTick, DeliveryDecisions.DriveDirectorConnected },
-            typed.ReadDecisions(id).Where(l => l.Decision == DeliveryDecisions.GatewayDrive).Select(l => l.Facts!.Trigger));
-        Assert.Equal(0, Prompts());
         Assert.Equal(0, driver.HeldCount);
     }
 

@@ -18,4 +18,23 @@ public interface ICronSessionStarter
     /// expected "could not start" - it reports the error so the engine records a not-started run.
     /// </summary>
     Task<(string? sessionId, string? directorId, string? error)> StartAsync(CronJobDto job, CancellationToken ct);
+
+    /// <summary>
+    /// <see cref="StartAsync"/>, and with it which version of the seat's brief the Gateway gave the run (Factory Seats
+    /// mission, phase 2c). This is what the engine calls, so the version is recorded on the run by the very start
+    /// that gave it. A starter that gives no brief - every stand-in a test uses - need not implement it.
+    /// </summary>
+    async Task<CronRunStart> StartRunAsync(CronJobDto job, CancellationToken ct)
+    {
+        var (sessionId, directorId, error) = await StartAsync(job, ct);
+        return new CronRunStart(sessionId, directorId, error, BriefVersion: null);
+    }
 }
+
+/// <summary>What starting a scheduled run came to.</summary>
+/// <param name="SessionId">The new session, or null when none started.</param>
+/// <param name="DirectorId">The Director actually used, when one was resolved.</param>
+/// <param name="Error">Why no session started, or null when one did.</param>
+/// <param name="BriefVersion">The version of the seat's published brief the run was given by the Gateway, or null when
+/// it was given none: a schedule in no factory, a seat with no published brief, or a run that did not start.</param>
+public sealed record CronRunStart(string? SessionId, string? DirectorId, string? Error, int? BriefVersion);

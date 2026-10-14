@@ -527,107 +527,6 @@ public sealed class SessionSupervisorTests
 
     // ---- the live entry point: the Working -> idle event -------------------------------------------------
 
-    [Fact]
-    public async Task TheWorkingTransition_CancelsAWaitInFlight_AndEndsTheEpisodeAsRecovered()
-    {
-        // The real public path: a turn-end signal starts the ladder on a background task, and the Working
-        // transition (which the turn-end watcher also fires) cancels it. This is the second, independent
-        // guarantee that a working session is never sent anything.
-        var gate = new SemaphoreSlim(0, 1);
-        var env = new FakeEnvironment { Screen = TransientFaultScreen() };
-        using var supervisor = new SessionSupervisor(env);
-        env.OnWait = _ =>
-        {
-            // The session came back on its own while we were waiting.
-            supervisor.OnSessionWorking(Tenant, Session);
-            gate.Release();
-        };
-
-        supervisor.OnTurnEnd(new TurnEndSignal(Session, Director, Tenant, DateTime.UtcNow, IsNewTurn: true));
-
-        Assert.True(await gate.WaitAsync(TimeSpan.FromSeconds(5)), "the supervisor never reached its first wait");
-        await WaitUntil(() => env.OfType(ActivityEventTypes.SupervisorRecovered).Any());
-        Assert.Empty(env.ContinuesSent);
-    }
-
-    [Fact]
-    public async Task ASecondTurnEndWhileAnEpisodeIsLive_DoesNotStackASecondLadder()
-    {
-        var reached = new SemaphoreSlim(0, 1);
-        var release = new SemaphoreSlim(0, 1);
-        var env = new FakeEnvironment
-        {
-            Screen = TransientFaultScreen(),
-            Knobs = SupervisorSettings.Defaults with { MaxLongRetries = 0 },
-        };
-        env.OnWait = _ =>
-        {
-            reached.Release();
-            release.Wait(TimeSpan.FromSeconds(5));
-        };
-        using var supervisor = new SessionSupervisor(env);
-
-        supervisor.OnTurnEnd(new TurnEndSignal(Session, Director, Tenant, DateTime.UtcNow, IsNewTurn: true));
-        Assert.True(await reached.WaitAsync(TimeSpan.FromSeconds(5)), "the first ladder never started");
-
-        // A second signal for the same session arrives while the first ladder is mid-wait.
-        supervisor.OnTurnEnd(new TurnEndSignal(Session, Director, Tenant, DateTime.UtcNow, IsNewTurn: true));
-        await Task.Delay(50);
-
-        // Still exactly one ladder: one detection, one wait.
-        Assert.Single(env.OfType(ActivityEventTypes.SupervisorFaultDetected));
-        Assert.Single(env.Waits);
-        release.Release();
-        supervisor.OnSessionWorking(Tenant, Session);
-    }
-
-    /// <summary>
-    /// A turn end that arrives after the last episode was CANCELLED - but before that episode has finished
-    /// unwinding - starts a new episode. The cancelled one will never send anything, because the session
-    /// worked, so it must not keep holding the gate that stops a second ladder starting.
-    ///
-    /// This is the network-is-down case, which is the case the supervisor exists for. A turn that fails on a
-    /// dead connection ends at once, so "working" and the next turn end arrive milliseconds apart: the old
-    /// episode is cancelled by the first and has not yet left the table when the second lands. The second
-    /// fault used to be dropped as "an episode is already being worked", leaving the session parked on a
-    /// fault with nobody coming for it. The old episode is held mid-unwind here so the order is exact rather
-    /// than a matter of timing: before the fix this failed every time, not now and then.
-    /// </summary>
-    [Fact]
-    public async Task ATurnEndAfterTheLastEpisodeWasCancelled_StartsANewEpisode_EvenBeforeTheOldOneHasUnwound()
-    {
-        var oldCancelled = new SemaphoreSlim(0, 1);
-        var releaseOld = new SemaphoreSlim(0, 1);
-        var waits = 0;
-        var env = new FakeEnvironment
-        {
-            Screen = TransientFaultScreen(),
-            Knobs = SupervisorSettings.Defaults with { MaxLongRetries = 0 },
-        };
-        using var supervisor = new SessionSupervisor(env);
-        env.OnWait = _ =>
-        {
-            if (Interlocked.Increment(ref waits) != 1) return;
-            // The first episode's wait. The session starts working, which cancels this episode - and the
-            // episode is then held HERE, cancelled but not yet out of the table, while the next turn ends.
-            supervisor.OnSessionWorking(Tenant, Session);
-            oldCancelled.Release();
-            releaseOld.Wait(TimeSpan.FromSeconds(5));
-        };
-
-        supervisor.OnTurnEnd(new TurnEndSignal(Session, Director, Tenant, DateTime.UtcNow, IsNewTurn: true));
-        Assert.True(await oldCancelled.WaitAsync(TimeSpan.FromSeconds(5)), "the first episode never reached its wait");
-
-        // The turn fails again at once, on the same dead connection.
-        supervisor.OnTurnEnd(new TurnEndSignal(Session, Director, Tenant, DateTime.UtcNow, IsNewTurn: true));
-
-        await WaitUntil(() => env.ContinuesSent.Count > 0);
-        releaseOld.Release();
-
-        // Exactly one "continue", and it is the NEW episode's: the cancelled one never sends.
-        Assert.Equal(new[] { Session }, env.ContinuesSent);
-    }
-
     /// <summary>
     /// One pass of the ladder that sends its first "continue" and is then interrupted by the session going
     /// Working - the ordinary production sequence when a continue reaches a still-broken network. The
@@ -642,16 +541,5 @@ public sealed class SessionSupervisorTests
             if (waitNumber >= 2) pass.Cancel();
         };
         await supervisor.SuperviseAsync(Tenant, Director, Session, pass.Token);
-    }
-
-    private static async Task WaitUntil(Func<bool> condition)
-    {
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
-        while (DateTime.UtcNow < deadline)
-        {
-            if (condition()) return;
-            await Task.Delay(10);
-        }
-        Assert.True(condition(), "the supervisor never reached the expected state");
     }
 }

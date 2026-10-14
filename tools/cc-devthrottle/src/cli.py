@@ -15,6 +15,7 @@ from . import diag_ops
 from . import email_ops
 from . import factory_email_ops
 from . import factory_ops
+from . import factory_brief_ops
 from . import factory_memory_ops
 from . import factory_registry_ops
 from . import factory_status_ops
@@ -156,6 +157,13 @@ factory_memory_app = typer.Typer(
     no_args_is_help=True,
 )
 factory_app.add_typer(factory_memory_app, name="memory")
+factory_brief_app = typer.Typer(
+    cls=AxiGroup,
+    help="A seat's brief on the Gateway: what the seat is told to do, every version kept.",
+    add_completion=False,
+    no_args_is_help=True,
+)
+factory_app.add_typer(factory_brief_app, name="brief")
 factory_goal_number_app = typer.Typer(
     cls=AxiGroup,
     help="The number a factory's goal is measured by: its boss posts it on every run.",
@@ -1162,6 +1170,59 @@ _ACTIONS = [
         "command": "cc-devthrottle factory memory history <name>",
         "mutatesState": False,
         "args": [{"name": "name", "required": True}],
+    },
+    {
+        "id": "factory-brief-get",
+        "description": "Read a seat's brief held on the Gateway: the published one, or with --draft the newest version.",
+        "command": "cc-devthrottle factory brief get --factory <id> --seat <id>",
+        "mutatesState": False,
+        "args": [
+            {"name": "factory", "required": True},
+            {"name": "seat", "required": True},
+            {"name": "draft", "required": False},
+        ],
+    },
+    {
+        "id": "factory-brief-history",
+        "description": "Every version of a seat's brief held on the Gateway, newest first, and which one is published.",
+        "command": "cc-devthrottle factory brief history --factory <id> --seat <id>",
+        "mutatesState": False,
+        "args": [{"name": "factory", "required": True}, {"name": "seat", "required": True}],
+    },
+    {
+        "id": "factory-brief-set",
+        "description": "Save a file as a new draft of a seat's brief; sends the version you last read, and a draft changes nothing a run is given until a person publishes it.",
+        "command": "cc-devthrottle factory brief set --factory <id> --seat <id> --file <path>",
+        "mutatesState": True,
+        "args": [
+            {"name": "factory", "required": True},
+            {"name": "seat", "required": True},
+            {"name": "file", "required": True},
+            {"name": "expected-version", "required": False},
+        ],
+    },
+    {
+        "id": "factory-brief-publish",
+        "description": "Publish one version of a seat's brief. Only a person publishes: a session is refused and told to save a draft.",
+        "command": "cc-devthrottle factory brief publish --factory <id> --seat <id> --version <n>",
+        "mutatesState": True,
+        "args": [
+            {"name": "factory", "required": True},
+            {"name": "seat", "required": True},
+            {"name": "version", "required": True},
+        ],
+    },
+    {
+        "id": "factory-brief-restore",
+        "description": "Bring an older version of a seat's brief back as the newest, published. Only a person does this: a session is refused.",
+        "command": "cc-devthrottle factory brief restore --factory <id> --seat <id> --version <n>",
+        "mutatesState": True,
+        "args": [
+            {"name": "factory", "required": True},
+            {"name": "seat", "required": True},
+            {"name": "version", "required": True},
+            {"name": "expected-version", "required": False},
+        ],
     },
     {
         "id": "factory-activity",
@@ -4006,6 +4067,20 @@ def schedule_link(
     schedule_ops.link_job(job_id, factory, seat, json_output)
 
 
+@schedule_app.command("unlink")
+def schedule_unlink(
+    job_id: str = typer.Argument(..., help="The schedule id."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output what the Gateway did, with the schedule as it is now, as JSON."),
+) -> None:
+    """Take a schedule off its factory seat; the schedule itself stays.
+
+    The schedule keeps its definition and stays switched on or off as it was, in no factory: one that is switched
+    on keeps running at its times as a plain schedule. A seat left with no schedule is talk only. Only a person or
+    a session of that factory may do this, the same rule as pausing the schedule.
+    """
+    schedule_ops.unlink_job(job_id, json_output)
+
+
 @schedule_app.command("run")
 def schedule_run(
     job_id: str = typer.Argument(..., help="The schedule id."),
@@ -4130,8 +4205,8 @@ def factory_status(
 ) -> None:
     """The Factories screen: every factory's status word, or one factory's page.
 
-    Without --factory: one line per registered factory - id, status word (FAILING, NEEDS YOU, PAUSED or
-    RUNNING), what is waiting on the owner, and the status line under the word. With --factory: that
+    Without --factory: one line per registered factory - id, status word (FAILING, NEEDS YOU, PAUSED,
+    RUNNING or TALK ONLY), what is waiting on the owner, and the status line under the word. With --factory: that
     factory's word and reason, then every failing and waiting item with its row id, so a resolved one can be
     marked handled with `factory record --corrects <row id>`. Every word is the Gateway's, from the same fold
     the screen reads; nothing is decided here.
@@ -4300,6 +4375,104 @@ def factory_memory_history(
 ) -> None:
     """Every kept version of a note, newest first."""
     factory_memory_ops.history(name, json_output)
+
+
+_BRIEF_FACTORY_HELP = "The registered factory's id, for example warmforward."
+_BRIEF_SEAT_HELP = "The seat's id in that factory's registration."
+
+
+@factory_brief_app.command("get")
+def factory_brief_get(
+    factory: str = typer.Option(..., "--factory", help=_BRIEF_FACTORY_HELP),
+    seat: str = typer.Option(..., "--seat", help=_BRIEF_SEAT_HELP),
+    draft: bool = typer.Option(False, "--draft", help="Read the newest version, whether or not it is published."),
+    version: Optional[int] = typer.Option(None, "--version", min=1, help="Read this one version, as history numbers it."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the brief as JSON, with its exact text."),
+) -> None:
+    """Read a seat's brief: the published one, the newest, or one version.
+
+    --draft reads the newest version and --version reads the one you name; pass at most one of them.
+    The published brief is what a talk or a run of the seat is given. A seat whose brief is still a file in a
+    repository has none here, and the command says so and exits non-zero.
+    """
+    factory_brief_ops.get_brief(factory, seat, draft, json_output, version)
+
+
+@factory_brief_app.command("history")
+def factory_brief_history(
+    factory: str = typer.Option(..., "--factory", help=_BRIEF_FACTORY_HELP),
+    seat: str = typer.Option(..., "--seat", help=_BRIEF_SEAT_HELP),
+    count: Optional[int] = typer.Option(
+        None, "--count", "-n", min=1, max=100,
+        help="How many versions one page holds, 1 to 100. The Gateway gives 50 when this is not passed.",
+    ),
+    before: Optional[int] = typer.Option(
+        None, "--before", min=1,
+        help="Start the page below this version. The page before it says which version to pass.",
+    ),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the page as JSON."),
+) -> None:
+    """One page of a seat's versions, newest first, without their text.
+
+    Every version is kept, so the history is read a page at a time: the page says how many versions there are in
+    all and which --before reads the next, older page. A version's text is read with get --version.
+    """
+    factory_brief_ops.history(factory, seat, json_output, count, before)
+
+
+@factory_brief_app.command("set")
+def factory_brief_set(
+    factory: str = typer.Option(..., "--factory", help=_BRIEF_FACTORY_HELP),
+    seat: str = typer.Option(..., "--seat", help=_BRIEF_SEAT_HELP),
+    file: str = typer.Option(..., "--file", help="The file holding the brief's whole new text. Pass - to read standard input."),
+    expected_version: int = typer.Option(
+        0, "--expected-version", min=0,
+        help="The newest version you read (get --draft shows it). 0, the default, means the seat has no brief here yet.",
+    ),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the saved draft as JSON."),
+) -> None:
+    """Save a file as a new draft version of a seat's brief.
+
+    A draft changes nothing a talk or a run is given until a person publishes it. If somebody saved a version
+    since the one you read, nothing is saved: the command says which version is newest, and you read it, merge
+    and save again. A session is refused another draft while twenty wait that nobody has published: ask the
+    owner to publish one.
+    """
+    factory_brief_ops.set_draft(factory, seat, file, expected_version, json_output)
+
+
+@factory_brief_app.command("publish")
+def factory_brief_publish(
+    factory: str = typer.Option(..., "--factory", help=_BRIEF_FACTORY_HELP),
+    seat: str = typer.Option(..., "--seat", help=_BRIEF_SEAT_HELP),
+    version: int = typer.Option(..., "--version", min=1, help="The version to publish."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the published version as JSON."),
+) -> None:
+    """Publish one version of a seat's brief. Only a person publishes.
+
+    A session that runs this is refused by the Gateway with the sentence that says so, and exits non-zero: a
+    session saves a draft and the owner publishes it.
+    """
+    factory_brief_ops.publish(factory, seat, version, json_output)
+
+
+@factory_brief_app.command("restore")
+def factory_brief_restore(
+    factory: str = typer.Option(..., "--factory", help=_BRIEF_FACTORY_HELP),
+    seat: str = typer.Option(..., "--seat", help=_BRIEF_SEAT_HELP),
+    version: int = typer.Option(..., "--version", min=1, help="The older version whose text to bring back."),
+    expected_version: int = typer.Option(
+        0, "--expected-version", min=0,
+        help="The newest version you read. 0, the default, means you did not check.",
+    ),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the new version as JSON."),
+) -> None:
+    """Bring an older version back as the newest, published. Only a person does.
+
+    It publishes a copy of the older version; the versions in between stay in the history. A session that runs
+    this is refused by the Gateway with the sentence that says so.
+    """
+    factory_brief_ops.restore(factory, seat, version, expected_version, json_output)
 
 
 @trigger_app.callback()

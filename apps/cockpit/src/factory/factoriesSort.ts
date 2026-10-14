@@ -58,8 +58,8 @@ export function sortFooter(order: FactorySortOrder): string {
       return order.reversed ? "Sorted by name, Z to A." : "Sorted by name, A to Z.";
     case "status":
       return order.reversed
-        ? "Sorted by status, best first: running, then paused, then needs you, then failing. Same status: by name."
-        : "Sorted by status, worst first: failing, then needs you, then paused, then running. Same status: by name.";
+        ? "Sorted by status, best first: talk only, then running, then paused, then needs you, then failing. Same status: by name."
+        : "Sorted by status, worst first: failing, then needs you, then paused, then running, then talk only. Same status: by name.";
     case "waiting":
       return order.reversed
         ? "Sorted by what is waiting on you, fewest first. Same count: worse status first, then by name."

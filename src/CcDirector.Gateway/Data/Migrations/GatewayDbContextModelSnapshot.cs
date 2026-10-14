@@ -255,6 +255,9 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<Guid?>("ActivityId")
                         .HasColumnType("TEXT");
 
+                    b.Property<int?>("BriefVersion")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("Factory")
                         .HasMaxLength(128)
                         .HasColumnType("TEXT");
@@ -1012,6 +1015,61 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.HasIndex("TenantId", "SessionId", "Outcome", "OccurredUtc");
 
                     b.ToTable("factory_activity", (string)null);
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FactoryBriefVersionEntity", b =>
+                {
+                    b.Property<string>("TenantId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Factory")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Seat")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("AuthorId")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AuthorKind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("PublishedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PublishedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("TextBytes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("WrittenAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("TenantId", "Factory", "Seat", "Version");
+
+                    b.HasIndex("TenantId");
+
+                    b.ToTable("factory_seat_briefs", (string)null);
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FactoryEmailReportEntity", b =>

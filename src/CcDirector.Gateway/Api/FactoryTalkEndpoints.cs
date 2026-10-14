@@ -58,13 +58,18 @@ internal static class FactoryTalkEndpoints
     /// <param name="factoryManager">The Factory Manager's facts (Factory Control, step 5): a factory with no boss hands
     /// Handle the issue to it. REQUIRED, so a wiring line that forgot it fails to compile rather than refusing every
     /// boss-less factory.</param>
+    /// <param name="publishedBrief">Factory Seats mission, phase 2c: the PUBLISHED brief the Gateway holds for one seat
+    /// of one factory, or null when it holds none - then the talk is told the path of the seat's brief file, as
+    /// before. Never a draft. REQUIRED, so a wiring line that forgot it fails to compile rather than starting every
+    /// talk without its brief.</param>
     public static void Map(IEndpointRouteBuilder app, Factory.FactoryAgentsSwitch factorySwitch,
         Func<HttpContext, TenantId?> resolveTenant, FactoryRegistryStore registry,
         Func<TenantId, IEnumerable<DirectorDto>> listDirectors, Func<TenantId, string, CronJobDto?> schedule,
         Func<HttpContext, string, NewSessionRequest, Task<DirectorSpawnOutcome>> startOnDirector,
         Func<TenantId, string, CronRunProblemsDto> problems, Func<TenantId, TimeZoneInfo> timeZone,
-        FactoryManagerSources factoryManager)
+        FactoryManagerSources factoryManager, Func<TenantId, string, string, FactoryGivenBrief?> publishedBrief)
     {
+        ArgumentNullException.ThrowIfNull(publishedBrief);
         ArgumentNullException.ThrowIfNull(factoryManager);
         ArgumentNullException.ThrowIfNull(factorySwitch);
         ArgumentNullException.ThrowIfNull(resolveTenant);
@@ -87,9 +92,11 @@ internal static class FactoryTalkEndpoints
                     $"{registered.Title} has no seat '{seat}'. Its seats are: {string.Join(", ", registered.Seats.Select(s => s.Id))}.");
 
             var (scheduleId, scheduleSeed) = RulesOf(tenant, seated, schedule);
+            // Read once: the version the talk is given is the version it is told to record and the answer carries.
+            var brief = publishedBrief(tenant, registered.Factory, seated.Id);
             return await StartAsync(ctx, tenant, registered, seated, listDirectors, startOnDirector,
                 FactoryTalkSeed.SessionName(registered, seated),
-                FactoryTalkSeed.Compose(registered, seated, scheduleId, scheduleSeed));
+                FactoryTalkSeed.Compose(registered, seated, scheduleId, scheduleSeed, brief), brief);
         });
 
         app.MapPost(HandleRoute, async (HttpContext ctx, string factory, string runId) =>
@@ -119,9 +126,10 @@ internal static class FactoryTalkEndpoints
 
             var seated = handoff.Seat!;
             var (scheduleId, scheduleSeed) = RulesOf(tenant, seated, schedule);
+            var brief = publishedBrief(tenant, registered.Factory, seated.Id);
             return await StartAsync(ctx, tenant, registered, seated, listDirectors, startOnDirector,
                 FactoryTalkSeed.ProblemSessionName(registered, seated, problem),
-                FactoryTalkSeed.ComposeForProblem(registered, seated, scheduleId, scheduleSeed, problem, timeZone(tenant)));
+                FactoryTalkSeed.ComposeForProblem(registered, seated, scheduleId, scheduleSeed, problem, timeZone(tenant), brief), brief);
         });
 
         FileLog.Write($"[FactoryTalkEndpoints] mapped {Route} and {HandleRoute}");
@@ -168,7 +176,8 @@ internal static class FactoryTalkEndpoints
     /// <summary>Start the talk on the seat's own computer, as the person's own top-level session.</summary>
     private static async Task<IResult> StartAsync(HttpContext ctx, TenantId tenant, RegisteredFactoryDto registered,
         RegisteredFactorySeatDto seated, Func<TenantId, IEnumerable<DirectorDto>> listDirectors,
-        Func<HttpContext, string, NewSessionRequest, Task<DirectorSpawnOutcome>> startOnDirector, string name, string prePrompt)
+        Func<HttpContext, string, NewSessionRequest, Task<DirectorSpawnOutcome>> startOnDirector, string name, string prePrompt,
+        FactoryGivenBrief? brief)
     {
         // The first Director that is running on the seat's computer, exactly as a schedule's run picks one -
         // and never one on another computer.
@@ -200,7 +209,8 @@ internal static class FactoryTalkEndpoints
             return outcome.Refusal!;
         }
 
-        FileLog.Write($"[FactoryTalkEndpoints] started talk sid={started.SessionId} for {registered.Factory}/{seated.Id} on {director.DirectorId} ({seated.Computer})");
+        FileLog.Write($"[FactoryTalkEndpoints] started talk sid={started.SessionId} for {registered.Factory}/{seated.Id} on {director.DirectorId} ({seated.Computer}), "
+                      + (brief is null ? "brief=none given (told the path of its file)" : $"given brief version {brief.Version}"));
         return Results.Json(new FactoryTalkStartedDto
         {
             SessionId = started.SessionId,
@@ -210,6 +220,7 @@ internal static class FactoryTalkEndpoints
             Seat = seated.Id,
             Computer = seated.Computer,
             DirectorId = director.DirectorId,
+            BriefVersion = brief?.Version,
         }, statusCode: StatusCodes.Status201Created);
     }
 

@@ -34,8 +34,8 @@ public sealed class FactoriesListViewDto
     /// <summary>The column headings, in order: "Factory", "Waiting on you", "Status".</summary>
     public List<string> Columns { get; set; } = new();
 
-    /// <summary>Worst first (FAILING, NEEDS YOU, PAUSED, RUNNING), then by title. The Cockpit re-sorts them in the
-    /// order the owner picks; this order stays for older clients.</summary>
+    /// <summary>Worst first (FAILING, NEEDS YOU, PAUSED, RUNNING, TALK ONLY), then by title. The Cockpit re-sorts them
+    /// in the order the owner picks; this order stays for older clients.</summary>
     public List<FactoryListRowDto> Rows { get; set; } = new();
 
     /// <summary>The sentence under the list ("Worst first: ..."). Kept for older clients; the Cockpit now states the
@@ -171,24 +171,25 @@ public sealed class FactoryListRowDto
     public string Id { get; set; } = "";
     public string Title { get; set; } = "";
 
-    /// <summary>Exactly one of FAILING, NEEDS YOU, PAUSED, RUNNING.</summary>
+    /// <summary>Exactly one of FAILING, NEEDS YOU, PAUSED, RUNNING, TALK ONLY.</summary>
     public string StatusWord { get; set; } = "";
     public string StatusTone { get; set; } = "";
 
-    /// <summary>Where <see cref="StatusWord"/> stands worst first: 0 FAILING, 1 NEEDS YOU, 2 PAUSED, 3 RUNNING. The
-    /// Cockpit sorts by it when the owner picks "Status (worst first)"; the meaning stays the Gateway's.</summary>
+    /// <summary>Where <see cref="StatusWord"/> stands worst first: 0 FAILING, 1 NEEDS YOU, 2 PAUSED, 3 RUNNING,
+    /// 4 TALK ONLY. The Cockpit sorts by it when the owner picks "Status (worst first)"; the meaning stays the
+    /// Gateway's.</summary>
     public int StatusRank { get; set; }
 
     /// <summary>Why the status is what it is, in full, for a tooltip ("Nora Hale failed today 06:20: ...").</summary>
     public string StatusReason { get; set; } = "";
 
     /// <summary>The one short line shown under the status word: "Sender: 4 failures, newest today 12:02: keep.page
-    /// (failed): ...", "2 decisions since 21 Sep 10:00; newest ...", "Nothing scheduled", "3 schedules switched off".
-    /// Null for RUNNING, which needs no explaining.</summary>
+    /// (failed): ...", "2 decisions since 21 Sep 10:00; newest ...", "3 schedules switched off", "Nothing scheduled.
+    /// You run it by talking to it.". Null for RUNNING, which needs no explaining.</summary>
     public string? StatusLine { get; set; }
 
     /// <summary>Where clicking the status word goes: the failures on the factory's page for FAILING, its waiting
-    /// items for NEEDS YOU, its Seats tab for PAUSED. Null for RUNNING.</summary>
+    /// items for NEEDS YOU, its Seats tab for PAUSED and TALK ONLY. Null for RUNNING.</summary>
     public string? StatusHref { get; set; }
 
     /// <summary>"1 question", "2 decisions", "1 question, 1 decision", or "-".</summary>
@@ -216,7 +217,7 @@ public sealed class FactoryListRowDto
     /// shown under the name on its card; null when none is set.</summary>
     public string? Purpose { get; set; }
 
-    /// <summary>The boss's role word ("Boss", or "CFO") for the card's avatar and name line - never a person's
+    /// <summary>The boss's registered role word, which is "Boss", for the card's avatar and name line - never a person's
     /// name (the owner, 8 October 2026); null when no boss is named.</summary>
     public string? BossName { get; set; }
 
@@ -246,16 +247,16 @@ public sealed class FactoryPageViewDto
     public string StatusReason { get; set; } = "";
 
     /// <summary>The one short line shown under the status word: "Sender: 4 failures, newest today 12:02: keep.page
-    /// (failed): ...", "2 decisions since 21 Sep 10:00; newest ...", "Nothing scheduled", "3 schedules switched off".
-    /// Null for RUNNING, which needs no explaining.</summary>
+    /// (failed): ...", "2 decisions since 21 Sep 10:00; newest ...", "3 schedules switched off", "Nothing scheduled.
+    /// You run it by talking to it.". Null for RUNNING, which needs no explaining.</summary>
     public string? StatusLine { get; set; }
 
     /// <summary>Where clicking the status word goes: the failures on the factory's page for FAILING, its waiting
-    /// items for NEEDS YOU, its Seats tab for PAUSED. Null for RUNNING.</summary>
+    /// items for NEEDS YOU, its Seats tab for PAUSED and TALK ONLY. Null for RUNNING.</summary>
     public string? StatusHref { get; set; }
 
-    /// <summary>The boss seat's role word - "Boss", or a distinct one the factory registered ("CFO") - or "No boss
-    /// named". Never a person's name: the boss has none.</summary>
+    /// <summary>The boss seat's registered role word, which is "Boss" - or "No boss named". Never a person's name:
+    /// the boss has none.</summary>
     public string BossText { get; set; } = "";
 
     /// <summary>"4 seats".</summary>
@@ -480,7 +481,7 @@ public sealed class FactorySeatRowDto
     /// <summary>"Boss", "Scout".</summary>
     public string Role { get; set; } = "";
 
-    /// <summary>"Daily 06:15", "06:00 and 18:00", "Wednesday 05:30", "Not scheduled".</summary>
+    /// <summary>"Daily 06:15", "06:00 and 18:00", "Wednesday 05:30", or "Talk only" for a seat nothing is scheduled for.</summary>
     public string WhenText { get; set; } = "";
 
     /// <summary>"Today 06:20 - succeeded", "Not run yet".</summary>
@@ -509,9 +510,15 @@ public sealed class FactorySeatRowDto
     /// Every schedule the seat names, in its order, with its own words and the button that edits it - the factory is
     /// where a factory's schedules are changed (the owner, 2026-10-09). One the store no longer has carries its
     /// "is missing" sentence and no button. Empty when the seat has no schedule; the Cockpit then shows
-    /// <see cref="WhenText"/> ("Not scheduled").
+    /// <see cref="WhenText"/> ("Talk only").
     /// </summary>
     public List<FactorySeatScheduleDto> Schedules { get; set; } = new();
+
+    /// <summary>"Open seat": every seat row opens its own page, with or without a schedule.</summary>
+    public string OpenLabel { get; set; } = "";
+
+    /// <summary>The seat's page.</summary>
+    public string Href { get; set; } = "";
 }
 
 /// <summary>One schedule of a seat on the Seats tab, with the button that edits it.</summary>

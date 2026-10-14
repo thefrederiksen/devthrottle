@@ -20,32 +20,26 @@ using Xunit;
 namespace CcDirector.Gateway.Tests;
 
 /// <summary>
-/// The 14-day Pro trial (issue #2117). The public pricing page tells every visitor "Every new account starts
-/// with 14 days of Pro. Just sign up with your email - no card required." These tests are what keeps that
-/// sentence true, and what keeps it BOUNDED.
+/// The 14-day Pro trial (issue #2117) AFTER THE PRICING CHANGE MISSION (B3, owner decision D1 of 11 October 2026:
+/// "There is no more 14 day trial"). Enrolment no longer grants a trial to anyone. A trial that was already running
+/// is honoured to its end. These tests hold both halves.
 ///
-/// THE FOUR THINGS THAT MUST HOLD, and each has its own independent control below:
+/// WHAT MUST HOLD, each with its own test below:
 ///
-///   1. A brand-new account with NO payment of any kind enrolls and is entitled, at Pro tier. If this breaks,
-///      the live page is lying to every visitor.
-///   2. The trial ENDS. Not "is displayed as ended" - the entitlement read itself stops returning Entitled at
-///      the expiry instant, so the request-path cutoff denies. A trial that only expires in the user interface
-///      is a free product with a countdown on it.
-///   3. ONE trial per account, ever. Re-arriving after the window has closed is refused, never re-granted -
-///      otherwise the fourteen days renew forever and there is no paywall at all.
-///   4. A paid subscription taken DURING the trial takes over with no gap and no double-grant.
+///   1. NO NEW TRIAL. A brand-new account with no payment enrols its Director on the FREE plan, and the ledger
+///      holds no row for it afterwards. If enrolment granted a trial again, this is the test that goes red.
+///   2. A RUNNING TRIAL IS STILL PRO, and it ENDS. Not "is displayed as ended" - the entitlement read itself stops
+///      returning the Pro tier at the expiry instant.
+///   3. ONE trial per account, ever: the ledger's own writer never re-grants and never extends.
+///   4. A paid subscription taken DURING a trial takes over with no gap and no trial expiry clipped onto it.
 ///
-/// AND THE ROLLOUT RULE (the owner's decision on this issue): an account this Gateway already knew about -
-/// one that already holds a tenant - is granted NOTHING. The trial is for accounts arriving for the first
-/// time. Granting silently to accounts that were already using hosted is the thing the owner explicitly
-/// refused, so it is asserted here rather than trusted.
+/// A trial under test is written into the ledger with <see cref="TrialRegistry.GrantIfFirstArrival"/> - the ledger's
+/// one writer, which no part of the Gateway calls any more - because that is exactly the row a trial granted before
+/// the change left behind.
 ///
 /// Every deny path asserts BOTH halves of the refusal - the status AND that no tenant was minted and no
 /// device key issued - because a 402 that still minted a tenant would satisfy a status-only assertion while
 /// having given away the thing the gate protects.
-///
-/// Revert-prove: pass <c>trials: null</c> (the wiring before this issue) and the grant tests go RED while the
-/// paid tests in HostedEntitlementGateTests stay green - that null case is the explicit control at the bottom.
 /// </summary>
 public sealed class HostedProTrialTests : IDisposable
 {
@@ -118,26 +112,43 @@ public sealed class HostedProTrialTests : IDisposable
         Assert.False(File.Exists(_devPath) && File.ReadAllText(_devPath).Contains("device-1", StringComparison.Ordinal));
     }
 
+    /// <summary>How many rows the trial ledger holds, read from the table itself.</summary>
+    private static int TrialRows(GatewayDatabase db)
+    {
+        using var ctx = db.CreateUnscopedContext();
+        return ctx.AccountTrials.Count();
+    }
+
     // ---------------------------------------------------------------------------------------------------
-    // 1. The promise on the page: a brand-new account, email only, no card.
+    // 1. No new trial: a brand-new account lands on the free plan.
     // ---------------------------------------------------------------------------------------------------
 
     [Fact]
-    public void A_brand_new_account_with_no_payment_enrolls_on_the_free_trial()
+    public void A_brand_new_account_with_no_payment_enrolls_its_Director_on_FREE_and_is_granted_NO_trial()
     {
-        // The acceptance criterion the live pricing page depends on. The paid read SUCCEEDS and finds nothing
-        // (no row for this subject) - the account has never paid and presented no card - and it enrolls anyway.
+        // The rule this test pinned was the opposite: a first arrival was handed fourteen days of Pro. Since the
+        // Pricing Change mission nobody is. The paid read SUCCEEDS and finds nothing, the account has never been
+        // seen by this Gateway (no tenant), and it still enrols its Director - on free, with the ledger untouched.
+        //
+        // HOW THIS FAILS ON PURPOSE: put the GrantIfFirstArrival call back into the enrolment gate and the row
+        // count and the tier assertions both go red.
         var db = OpenWithEntitlements();
         var (devices, tenants, validator) = Wire(db);
         var trials = new TrialRegistry(db);
+        var entitlements = new EntitlementRegistry(db, requireLivemode: false, trials: trials);
+        Assert.Null(tenants.LookupBySubject(Subject));
 
         var result = HostedEnrollmentEndpoint.Enroll(Token(), Req(), devices, tenants, validator,
-            new EntitlementRegistry(db, requireLivemode: false, trials: trials), SignupMoment, trials);
+            entitlements, SignupMoment);
 
         Assert.Equal(200, result.Status);
         Assert.NotNull(result.Response);
         Assert.False(string.IsNullOrWhiteSpace(result.Response!.DeviceKey));
         Assert.NotNull(tenants.LookupBySubject(Subject));
+
+        Assert.Equal(0, TrialRows(db));
+        Assert.Equal(TrialOutcome.None, trials.Evaluate(Subject, SignupMoment).Outcome);
+        Assert.Equal(EntitlementRegistry.TierFree, entitlements.Evaluate(Subject, SignupMoment).Tier);
     }
 
     [Fact]
@@ -245,20 +256,25 @@ public sealed class HostedProTrialTests : IDisposable
         var trials = new TrialRegistry(db);
         var entitlements = new EntitlementRegistry(db, requireLivemode: false, trials: trials);
 
+        // The trial was granted before the change; enrolment itself grants none.
+        trials.GrantIfFirstArrival(Subject, alreadyKnownToGateway: false, SignupMoment);
+
         var during = HostedEnrollmentEndpoint.Enroll(Token(), Req(), devices, tenants, validator,
-            entitlements, SignupMoment, trials);
+            entitlements, SignupMoment);
         Assert.Equal(200, during.Status);
+        Assert.Equal(EntitlementRegistry.TierPro, entitlements.Evaluate(Subject, SignupMoment).Tier);
 
         var after = HostedEnrollmentEndpoint.Enroll(Token(), Req(), devices, tenants, validator,
-            entitlements, SignupMoment.AddDays(15), trials);
+            entitlements, SignupMoment.AddDays(15));
 
         Assert.Equal(200, after.Status);
         Assert.NotNull(after.Response);
         Assert.False(string.IsNullOrWhiteSpace(after.Response!.DeviceKey));
 
-        // And enrolling on free must never look like a fresh trial: no trial is running afterwards. That the
-        // spent window is never re-granted is asserted separately, by the second-grant test above.
+        // And enrolling on free must never look like a fresh trial: no trial is running afterwards, and the
+        // ledger still holds the one row it held before either enrolment.
         Assert.Equal(TrialOutcome.None, trials.Evaluate(Subject, SignupMoment.AddDays(15)).Outcome);
+        Assert.Equal(1, TrialRows(db));
         Assert.Equal(EntitlementRegistry.TierFree,
             entitlements.Evaluate(Subject, SignupMoment.AddDays(15)).Tier);
     }
@@ -301,28 +317,25 @@ public sealed class HostedProTrialTests : IDisposable
     }
 
     // ---------------------------------------------------------------------------------------------------
-    // The rollout rule: accounts this Gateway already knew about get nothing.
+    // An account this Gateway already knew about gets no trial either - nobody does.
     // ---------------------------------------------------------------------------------------------------
 
     [Fact]
     public void An_account_the_gateway_already_knew_about_is_granted_NO_trial()
     {
-        // The owner's conservative rollout decision on this issue, asserted rather than trusted. An account
-        // that already holds a tenant was using hosted before the trial existed; handing it fourteen free days
-        // the next time it comes back is exactly the silent grant that was refused.
+        // The returning account: it already holds a tenant on this Gateway. It was never granted a trial under
+        // the old rule, and it is not granted one now - the same answer a brand-new account gets (test 1), by the
+        // one rule that there are no new trials.
         var db = OpenWithEntitlements();
         var (devices, tenants, validator) = Wire(db);
         var trials = new TrialRegistry(db);
 
-        // The account already exists on this Gateway - it holds a tenant from before the trial shipped.
         tenants.MintOrLookupBySubject(Subject, "returning@example.com");
 
         var result = HostedEnrollmentEndpoint.Enroll(Token(), Req(), devices, tenants, validator,
-            new EntitlementRegistry(db, requireLivemode: false, trials: trials), SignupMoment, trials);
+            new EntitlementRegistry(db, requireLivemode: false, trials: trials), SignupMoment);
 
-        // NO TRIAL is still the rule, and it is the assertion this test exists for - the owner rollout decision
-        // is untouched by the free plan. What changed is the consequence: being refused a trial is no longer
-        // being refused the product. The account enrolls on free.
+        Assert.Equal(0, TrialRows(db));
         Assert.Equal(TrialOutcome.None, trials.Evaluate(Subject, SignupMoment).Outcome);
 
         Assert.Equal(200, result.Status);
@@ -360,17 +373,16 @@ public sealed class HostedProTrialTests : IDisposable
     [Fact]
     public void A_paying_account_is_never_handed_a_trial_it_does_not_need()
     {
-        // The trial is only ever reached after the paid read has already answered NotEntitled, so an account
-        // that pays from the start writes no trial row at all. If it did, the account would be burning its one
-        // trial while paying - and would have none left if it later cancelled and came back.
+        // An account that pays from the start writes no trial row at all.
         var db = OpenWithEntitlements(EntitlementRegistry.StatusActive, tier: EntitlementRegistry.TierPro);
         var (devices, tenants, validator) = Wire(db);
         var trials = new TrialRegistry(db);
 
         var result = HostedEnrollmentEndpoint.Enroll(Token(), Req(), devices, tenants, validator,
-            new EntitlementRegistry(db, requireLivemode: false, trials: trials), SignupMoment, trials);
+            new EntitlementRegistry(db, requireLivemode: false, trials: trials), SignupMoment);
 
         Assert.Equal(200, result.Status);
+        Assert.Equal(0, TrialRows(db));
         Assert.Equal(TrialOutcome.None, trials.Evaluate(Subject, SignupMoment).Outcome);
     }
 
@@ -414,7 +426,7 @@ public sealed class HostedProTrialTests : IDisposable
         Assert.Equal(TrialOutcome.Unknown, trials.Evaluate(Subject, SignupMoment).Outcome);
 
         var result = HostedEnrollmentEndpoint.Enroll(Token(), Req(), devices, tenants, validator,
-            new EntitlementRegistry(db, requireLivemode: false, trials: trials), SignupMoment, trials);
+            new EntitlementRegistry(db, requireLivemode: false, trials: trials), SignupMoment);
 
         Assert.Equal(503, result.Status);
         Assert.NotEqual(402, result.Status);
@@ -432,7 +444,7 @@ public sealed class HostedProTrialTests : IDisposable
         var trials = new TrialRegistry(db);
 
         var result = HostedEnrollmentEndpoint.Enroll(Token(), Req(), devices, tenants, validator,
-            new EntitlementRegistry(db, requireLivemode: false, trials: trials), SignupMoment, trials);
+            new EntitlementRegistry(db, requireLivemode: false, trials: trials), SignupMoment);
 
         Assert.Equal(503, result.Status);
         AssertNothingWasGivenAway(tenants);
@@ -450,8 +462,8 @@ public sealed class HostedProTrialTests : IDisposable
         // be shown to be real rather than merely coded. The same standard applies to the grant that replaced
         // it: the member must actually receive a device key from a live endpoint, not just a 200 from a method.
         //
-        // The account here is already known to this Gateway, so the rollout rule refuses it a trial. That is
-        // exactly the member the old code turned away. Under the free plan they are enrolled.
+        // The account here holds no paid plan and no trial. That is exactly the member the old code turned away.
+        // Under the free plan their Director is enrolled.
         var db = OpenWithEntitlements();
         var (devices, tenants, validator) = Wire(db);
         var trials = new TrialRegistry(db);
@@ -463,7 +475,7 @@ public sealed class HostedProTrialTests : IDisposable
         builder.Logging.ClearProviders();
         var app = builder.Build();
         app.Urls.Add("http://127.0.0.1:0");
-        HostedEnrollmentEndpoint.Map(app, devices, tenants, validator, entitlements, trials);
+        HostedEnrollmentEndpoint.Map(app, devices, tenants, validator, entitlements);
         await app.StartAsync();
 
         try
@@ -513,7 +525,7 @@ public sealed class HostedProTrialTests : IDisposable
         builder.Logging.ClearProviders();
         var app = builder.Build();
         app.Urls.Add("http://127.0.0.1:0");
-        HostedEnrollmentEndpoint.Map(app, devices, tenants, validator, entitlements, trials);
+        HostedEnrollmentEndpoint.Map(app, devices, tenants, validator, entitlements);
         await app.StartAsync();
 
         try
@@ -540,20 +552,20 @@ public sealed class HostedProTrialTests : IDisposable
     }
 
     // ---------------------------------------------------------------------------------------------------
-    // The control: the wiring as it was before this issue.
+    // The control: an entitlement registry with no trial ledger wired.
     // ---------------------------------------------------------------------------------------------------
 
     [Fact]
     public void With_no_trial_ledger_wired_the_gate_behaves_exactly_as_it_did_before()
     {
-        // The revert-proof and the self-host control in one. With trials null - the wiring before this issue,
-        // and the wiring self-host still gets - an account with no paid entitlement is refused, unchanged. If
-        // this ever passed WITH a trial ledger, the tests above would be proving nothing about the new code.
+        // The control for the free plan. An entitlement registry built with no trial ledger has no free plan
+        // either, so an account with no paid entitlement is refused, unchanged. If this ever passed WITH a trial
+        // ledger, the tests above would be proving nothing about the free plan.
         var db = OpenWithEntitlements();
         var (devices, tenants, validator) = Wire(db);
 
         var result = HostedEnrollmentEndpoint.Enroll(Token(), Req(), devices, tenants, validator,
-            new EntitlementRegistry(db, requireLivemode: false), SignupMoment, trials: null);
+            new EntitlementRegistry(db, requireLivemode: false), SignupMoment);
 
         Assert.Equal(402, result.Status);
         AssertNothingWasGivenAway(tenants);

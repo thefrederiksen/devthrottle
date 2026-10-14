@@ -40,7 +40,6 @@ const agentsClient = vi.hoisted(() => ({
   getFactoryActivity: vi.fn(),
   getFactoryReports: vi.fn(),
   getFactoryWaiting: vi.fn(),
-  getFactoryAgent: vi.fn(),
   markFactoryItemHandled: vi.fn(),
   setFactoryPaused: vi.fn(),
   saveFactoryReport: vi.fn(),
@@ -73,6 +72,7 @@ import { FactoriesView } from "./FactoriesView";
 import { FactoryView } from "./FactoryView";
 import { FactoryEmailView } from "./FactoryEmails";
 import {
+  FactoryAgentToSeatRedirect,
   OldFactoriesListRedirect,
   OldFactoryAgentRedirect,
   OldFactoryPageRedirect,
@@ -103,7 +103,8 @@ function renderAt(path: string) {
         <Route path="/factories/waiting" element={<Where />} />
         <Route path="/factories/:factory" element={<FactoryView />} />
         <Route path="/factories/:factory/:tab" element={<FactoryView />} />
-        <Route path="/factories/:factory/agents/:agent" element={<Where />} />
+        <Route path="/factories/:factory/seats/:seat" element={<Where />} />
+        <Route path="/factories/:factory/agents/:agent" element={<FactoryAgentToSeatRedirect />} />
         <Route path="/factories/:factory/emails/:id" element={<FactoryEmailView />} />
         <Route path="/session/:id" element={<Where />} />
         <Route path="/factory-agents" element={<OldFactoriesListRedirect />} />
@@ -648,10 +649,50 @@ describe("The old Factory Agents addresses", () => {
     ["/factory-agents/warmforward?tab=map", "/factories/warmforward"],
     ["/factory-agents/warmforward?tab=agents", "/factories/warmforward/seats"],
     ["/factory-agents/warmforward?tab=memory", "/factories/warmforward/memory"],
-    ["/factory-agents/warmforward/nora-hale", "/factories/warmforward/agents/nora-hale"],
+    // A factory agent's own page became its seat page (Factory Seats mission): both older addresses land on it.
+    ["/factory-agents/warmforward/nora-hale", "/factories/warmforward/seats/nora-hale"],
+    ["/factories/warmforward/agents/nora-hale", "/factories/warmforward/seats/nora-hale"],
+    ["/factories/warmforward/agents/front%20desk?from=chip", "/factories/warmforward/seats/front%20desk?from=chip"],
   ])("%s lands on %s", async (from, to) => {
     renderAt(from);
     await waitFor(() => expect(where()).toBe(to));
+  });
+});
+
+describe("Open seat on the Seats tab (Factory Seats mission)", () => {
+  it("every seat row opens its own page, in the Gateway's words, with or without a schedule to edit", async () => {
+    renderAt("/factories/warmforward/seats");
+    await screen.findByTestId("fa-seats-table");
+
+    // The boss has a schedule; the Value Hunter's is missing, so it has no Edit at all - and still opens.
+    const boss = screen.getByTestId("fa-seat-open-night-nora-hale");
+    expect(boss.textContent).toBe("Open seat (fixture)");
+    expect(boss.getAttribute("href")).toBe("/factories/warmforward/seats/nora-hale");
+    const value = screen.getByTestId("fa-seat-open-none-value-hunter");
+    expect(value.getAttribute("href")).toBe("/factories/warmforward/seats/value-hunter");
+    expect(within(screen.getByTestId("fa-seat-none-value-hunter")).queryByRole("button", { name: "Edit schedule" })).toBeNull();
+  });
+
+  it("a seat with no schedule at all shows the Gateway's words for it and opens too", async () => {
+    const talkOnly = {
+      ...FACTORY_SEATS.rows[1],
+      seatId: "boss",
+      name: "Boss",
+      whenText: "Talk only (fixture)",
+      schedules: [],
+      href: "/factories/warmforward/seats/boss",
+    };
+    screenClient.getFactorySeats.mockResolvedValue({
+      ...FACTORY_SEATS,
+      rows: [talkOnly],
+      groups: [{ shift: "none", title: "No run in the next 7 days (fixture)", rows: [talkOnly] }],
+    });
+    renderAt("/factories/warmforward/seats");
+
+    const row = await screen.findByTestId("fa-seat-none-boss");
+    expect(within(row).getByText("Talk only (fixture)")).toBeTruthy();
+    fireEvent.click(within(row).getByRole("link", { name: "Open seat (fixture)" }));
+    await waitFor(() => expect(where()).toBe("/factories/warmforward/seats/boss"));
   });
 });
 

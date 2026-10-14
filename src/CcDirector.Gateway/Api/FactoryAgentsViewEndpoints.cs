@@ -35,7 +35,6 @@ internal sealed record FactoryAgentsSources(
 ///
 ///   GET  /gateway/factory-agents/switch                              -> { enabled }            (ALWAYS mapped)
 ///   GET  /gateway/factory-agents/factories?window=&amp;from=&amp;to=          -> FactoriesViewDto
-///   GET  /gateway/factory-agents/factories/{factory}/agents/{agent}   -> FactoryAgentPageDto
 ///   GET  /gateway/factory-agents/factories/{factory}/map              -> FactoryMapViewDto (issue #3383)
 ///   GET  /gateway/factory-agents/activity?factory=&amp;agent=&amp;outcome=&amp;window=&amp;from=&amp;to= -> FactoryActivityViewDto
 ///   GET  /gateway/factory-agents/activity.csv?(same)                  -> text/csv, every row
@@ -105,16 +104,6 @@ internal static class FactoryAgentsViewEndpoints
                 var w = FactoryAgentsFold.ResolveWindow(window, from, to, now, FactoryAgentsFold.WindowLast24h, sources.TimeZone(tenant));
                 var dto = FactoryAgentsFold.Factories(Inputs(sources, tenant, w, null, now));
                 FileLog.Write($"[FactoryAgentsViewEndpoints] GET factories: window={w.Key}, factories={dto.Factories.Count}, agents={dto.AllAgents.Count}");
-                return Results.Json(dto);
-            }));
-
-        app.MapGet(Prefix + "/factories/{factory}/agents/{agent}", (HttpContext ctx, string factory, string agent) =>
-            Owner(ctx, resolveTenant, $"GET agent {factory}/{agent}", tenant =>
-            {
-                var now = sources.NowUtc();
-                var w = FactoryAgentsFold.ResolveWindow(FactoryAgentsFold.WindowLast7d, null, null, now, FactoryAgentsFold.WindowLast7d);
-                var dto = FactoryAgentsFold.AgentPage(factory, agent, Inputs(sources, tenant, w, factory, now));
-                FileLog.Write($"[FactoryAgentsViewEndpoints] GET agent: {factory}/{agent} status={dto.StatusWord}, triggers={dto.WokenBy.Count}");
                 return Results.Json(dto);
             }));
 
