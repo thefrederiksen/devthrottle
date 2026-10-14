@@ -148,9 +148,9 @@
          or as FIXED when it passes all five AND a file declaring its class changed since the candidate.
          A test that passes five times with nobody having changed it is NOT cleared: a test that failed on
          correct code and then happened to pass still does not work. DELETED is the expected route under
-         the ruling in step 3; FIXED remains as a mechanism, and is not how such a test is normally handled. If main's tests do not build or do not pass against the
-         candidate's product code, the fix needed a product change: the candidate is not cleared, and the
-         answer is a new candidate. All cleared: a clearance is recorded, exit 0.
+         the ruling in step 3; FIXED remains as a mechanism, and is not how such a test is normally
+         handled. If main's tests do not build or do not pass against the candidate's product code, the
+         fix needed a product change: the candidate is not cleared, and the answer is a new candidate. All cleared: a clearance is recorded, exit 0.
       5. scripts\assert-gated.ps1 then accepts the candidate, once the commit the clearance was made at is
          on origin/main and the runs log shows this was the candidate's ONLY failed release gate (a second
          whole gate followed by a re-run of the better one is a re-roll). It is tagged AS IT IS. Nothing
@@ -457,7 +457,7 @@ $candidate = ""
 # A re-run of more than this many distinct tests is not a re-run: that many failures at once is the
 # machine (a full disk, a dead service) or a real defect, and the answer is to fix that and run the gate.
 $MaxRerunTests = 50
-# How many times -ClearFlaky runs each repaired test. A flaky test passes most of the time by
+# How many times -ClearFlaky runs each test being cleared. A flaky test passes most of the time by
 # definition, so one pass proves little; five in a row, with its code changed, is the bar.
 $ClearFlakyRepeat = 5
 
@@ -1365,7 +1365,7 @@ try {
         # NEVER A VERDICT. What ran, what failed, and exit 0 whatever happened - including a suite that did
         # not finish, which is printed as such rather than hidden.
         Write-Host ""
-        Write-Host "QUARANTINE - these results decide nothing. Quarantined tests are being fixed or deleted:"
+        Write-Host "QUARANTINE - these results decide nothing. Quarantined tests are on their way to being deleted:"
         Write-Host "  suite filter=$suiteFilter"
         $qFailed = @()
         foreach ($r in $running) {
