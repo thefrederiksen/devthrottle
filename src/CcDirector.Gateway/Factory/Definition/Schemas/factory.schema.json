@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://devthrottle.com/schemas/factory-definition/factory.schema.json",
+  "title": "factory.yaml",
+  "description": "The factory: its id, its title, its goal, its boss seat, the defaults a seat takes when it names none, and the repositories it may work in.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["factory", "title", "defaults"],
+  "properties": {
+    "factory": {
+      "description": "The factory's id: lower-case letters and digits joined by single hyphens, at most 64 characters. It must equal the factory the definition is saved for.",
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "maxLength": 64
+    },
+    "title": {
+      "description": "The name the owner reads. Must not be blank.",
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "purpose": {
+      "description": "One line saying what the factory does, at most 120 characters.",
+      "type": "string",
+      "pattern": "^[^\\r\\n]*$",
+      "maxLength": 120
+    },
+    "goalText": {
+      "description": "The factory's goal, in prose. Must not be blank.",
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "goalApprovedOn": {
+      "description": "The date the owner approved the goal, written YYYY-MM-DD. Only allowed with goalText.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "bossSeat": {
+      "description": "The id of the factory's boss seat: lower-case letters and digits joined by single hyphens, at most 64 characters. A seat with that id must exist, with the role Boss.",
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "maxLength": 64
+    },
+    "defaults": {
+      "title": "defaults",
+      "description": "What a seat runs on when it names nothing itself.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["machine", "agent"],
+      "properties": {
+        "machine": {
+          "description": "The machine a seat runs on when it names none. Must not be blank.",
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "agent": {
+          "description": "The agent a seat runs when it names none.",
+          "type": "string",
+          "enum": ["ClaudeCode", "Pi", "Codex", "Gemini", "OpenCode", "Cursor", "Grok", "Copilot"]
+        },
+        "model": {
+          "description": "The model a seat runs when it names none. Must not be blank.",
+          "type": "string",
+          "pattern": "\\S"
+        }
+      }
+    },
+    "repositories": {
+      "description": "The repositories the factory may work in, by repository name, each once.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "description": "A repository name, with no spaces.",
+        "type": "string",
+        "pattern": "^\\S+$"
+      }
+    }
+  }
+}

@@ -1,0 +1,180 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://devthrottle.com/schemas/factory-definition/seat.schema.json",
+  "title": "a seat file",
+  "description": "One seat of the factory, in seats/<seat>.yaml: who it is, where and on what it runs, what it is told, how it starts, and what it may use.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["seat", "name", "role", "brief"],
+  "properties": {
+    "seat": {
+      "description": "The seat's id: lower-case letters and digits joined by single hyphens, at most 64 characters. It equals the file's name without .yaml.",
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "maxLength": 64
+    },
+    "name": {
+      "description": "The seat's display name. Must not be blank.",
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "role": {
+      "description": "The seat's role word. Must not be blank.",
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "line": {
+      "description": "The production line the seat works on. Must not be blank.",
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "machine": {
+      "description": "The machine the seat runs on; when absent, the factory's default machine. Must not be blank.",
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "agent": {
+      "description": "The agent the seat runs; when absent, the factory's default agent.",
+      "type": "string",
+      "enum": ["ClaudeCode", "Pi", "Codex", "Gemini", "OpenCode", "Cursor", "Grok", "Copilot"]
+    },
+    "model": {
+      "description": "The model the seat runs; when absent, the factory's default model. Must not be blank.",
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "repository": {
+      "description": "The repository the seat works in, one of the factory's repositories, with no spaces. Absent means no repository.",
+      "type": "string",
+      "pattern": "^\\S+$"
+    },
+    "brief": {
+      "description": "What the seat is told to do. Must not be blank.",
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "starts": {
+      "description": "How the seat starts: each start is a time (cron) or an interval (every), with a prompt.",
+      "type": "array",
+      "items": {
+        "title": "a start",
+        "description": "One way the seat starts. Exactly one of cron or every.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["prompt"],
+        "properties": {
+          "cron": {
+            "description": "A five-field cron expression (minute hour day month weekday), as schedules take. Needs timeZone.",
+            "type": "string",
+            "pattern": "\\S"
+          },
+          "timeZone": {
+            "description": "The time zone the cron expression is read in. Required with cron, not allowed with every.",
+            "type": "string",
+            "pattern": "\\S"
+          },
+          "every": {
+            "description": "An interval: a whole number followed by s, m or h, such as 10m. Needs a check.",
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,5}[smh]$"
+          },
+          "check": {
+            "description": "The check that decides whether the seat starts: a path checks/<name>.py in this definition. Required with every.",
+            "type": "string",
+            "pattern": "^checks/[^/]+\\.py$"
+          },
+          "secrets": {
+            "description": "The secret names the check gets, each once. Only allowed with a check.",
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "description": "A secret's name, with no spaces.",
+              "type": "string",
+              "pattern": "^\\S+$"
+            }
+          },
+          "prompt": {
+            "description": "What the seat is told when this start fires. Must not be blank.",
+            "type": "string",
+            "pattern": "\\S"
+          },
+          "preventOverlap": {
+            "description": "Whether a start waits while the seat's last run is still going. Default true; cannot be false on a start with a check.",
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "grants": {
+      "description": "The grants the seat uses, by id in grants.yaml, each once.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "description": "A grant id: lower-case letters and digits joined by single hyphens, at most 64 characters.",
+        "type": "string",
+        "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+        "maxLength": 64
+      }
+    },
+    "rules": {
+      "description": "The rule sets the seat takes, by name (rules/<name>.json), each once.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "description": "A rule set name: lower-case letters and digits joined by single hyphens, at most 64 characters.",
+        "type": "string",
+        "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+        "maxLength": 64
+      }
+    },
+    "secrets": {
+      "description": "The secret names the seat needs at start, each once.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "description": "A secret's name, with no spaces.",
+        "type": "string",
+        "pattern": "^\\S+$"
+      }
+    },
+    "skills": {
+      "title": "a seat's skills",
+      "description": "The skills the seat gets: the factory's own and fleet skills, by name.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "factory": {
+          "description": "Factory skills by name (skills/<name>/SKILL.md in this definition), each once.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "description": "A factory skill name: lower-case letters and digits joined by single hyphens, at most 64 characters.",
+            "type": "string",
+            "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+            "maxLength": 64
+          }
+        },
+        "fleet": {
+          "description": "Fleet skills by id, from the account's skill store, each once.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "description": "A fleet skill id, with no spaces.",
+            "type": "string",
+            "pattern": "^\\S+$"
+          }
+        }
+      }
+    },
+    "files": {
+      "description": "The files the seat needs, by path under files/ in this definition, each once.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "description": "A path in this definition that begins files/.",
+        "type": "string",
+        "pattern": "^files/.+$"
+      }
+    }
+  }
+}
