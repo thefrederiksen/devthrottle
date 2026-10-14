@@ -13,7 +13,7 @@ namespace CcDirector.Gateway.Tests.Data;
 /// <summary>
 /// The PostgreSQL half of <c>AddLicenseSwitchHold</c> (the License Switching mission): the time a machine is held out
 /// of the automatic switch until, kept on the failed switch row that earned it. It proves the migration applies right
-/// after <c>AddLicenseRenewal</c> without touching a switch log row stored before it, that the real
+/// after <c>AddFactorySeatBriefs</c> without touching a switch log row stored before it, that the real
 /// <see cref="LicenseStore"/> then writes the hold and reads the holds in force through <see cref="GatewayDatabase"/>
 /// on PostgreSQL - the two statements the once-a-minute check and every read of the Licenses page send - and that its
 /// Down removes the column again.
@@ -28,8 +28,8 @@ namespace CcDirector.Gateway.Tests.Data;
 public sealed class AddLicenseSwitchHoldPostgresTests
 {
     private const string RuntimeConnectionEnvVar = "CC_GATEWAY_DB_CONNECTION";
-    private const string MigrationBefore = "20261013062011_AddLicenseRenewal";
-    private const string MigrationUnderTest = "20261013223228_AddLicenseSwitchHold";
+    private const string MigrationBefore = "20261013203245_AddFactorySeatBriefs";
+    private const string MigrationUnderTest = "20261014003240_AddLicenseSwitchHold";
     private const string AccountA = "account-a@example.com";
     private const string AccountB = "account-b@example.com";
     private const string OldMachine = "22222222-2222-2222-2222-222222222222";
@@ -147,7 +147,7 @@ public sealed class AddLicenseSwitchHoldPostgresTests
             Environment.SetEnvironmentVariable(RuntimeConnectionEnvVar, priorRuntimeConn);
         }
 
-        // The reversal: back to AddLicenseRenewal removes the column, and every switch row survives.
+        // The reversal: back to AddFactorySeatBriefs removes the column, and every switch row survives.
         using (var ctx = NewContext())
         {
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
