@@ -217,13 +217,30 @@ public sealed class DefinitionSchemaTests
     }
 }
 
-/// <summary>The factory-skill table: one row per agent a definition may name, each "not shown yet" until phase 0(c).</summary>
+/// <summary>
+/// The factory-skill table: one row per agent a definition may name. Phase 0 proof (c): ClaudeCode can, Codex cannot,
+/// every other agent "not shown yet".
+/// </summary>
 public sealed class FactorySkillSupportTests
 {
     [Fact]
-    public void Table_HasARowForEverySupportedAgent_EachNotShownYet()
+    public void Table_ClaudeCode_CanLoad()
     {
-        foreach (var agent in Enum.GetValues<AgentKind>().Where(k => k != AgentKind.RawCli))
+        Assert.Equal(new FactorySkillAnswer(true, null), FactorySkillSupport.For(AgentKind.ClaudeCode));
+    }
+
+    [Fact]
+    public void Table_Codex_CannotWithTheProofsReason()
+    {
+        var answer = FactorySkillSupport.For(AgentKind.Codex);
+        Assert.False(answer.CanLoad);
+        Assert.Equal(FactorySkillSupport.CodexReason, answer.Reason);
+    }
+
+    [Fact]
+    public void Table_EveryOtherSupportedAgent_IsNotShownYet()
+    {
+        foreach (var agent in Enum.GetValues<AgentKind>().Where(k => k is not (AgentKind.RawCli or AgentKind.ClaudeCode or AgentKind.Codex)))
         {
             var answer = FactorySkillSupport.For(agent);
             Assert.False(answer.CanLoad);
@@ -235,5 +252,43 @@ public sealed class FactorySkillSupportTests
     public void Table_RawCli_HasNoRow()
     {
         Assert.Throws<InvalidOperationException>(() => FactorySkillSupport.For(AgentKind.RawCli));
+    }
+}
+
+/// <summary>
+/// The rules-at-launch table: one row per agent a definition may name. Phase 0 proofs (a) and (b): ClaudeCode can,
+/// Codex cannot, every other agent "not shown yet".
+/// </summary>
+public sealed class FactoryRulesSupportTests
+{
+    [Fact]
+    public void Table_ClaudeCode_CanTake()
+    {
+        Assert.Equal(new FactoryRulesAnswer(true, null), FactoryRulesSupport.For(AgentKind.ClaudeCode));
+    }
+
+    [Fact]
+    public void Table_Codex_CannotWithTheProofsReason()
+    {
+        var answer = FactoryRulesSupport.For(AgentKind.Codex);
+        Assert.False(answer.CanTake);
+        Assert.Equal(FactoryRulesSupport.CodexReason, answer.Reason);
+    }
+
+    [Fact]
+    public void Table_EveryOtherSupportedAgent_IsNotShownYet()
+    {
+        foreach (var agent in Enum.GetValues<AgentKind>().Where(k => k is not (AgentKind.RawCli or AgentKind.ClaudeCode or AgentKind.Codex)))
+        {
+            var answer = FactoryRulesSupport.For(agent);
+            Assert.False(answer.CanTake);
+            Assert.Equal($"Phase 0 has not shown that {agent} can take rules at launch, so a seat on {agent} cannot carry rules yet.", answer.Reason);
+        }
+    }
+
+    [Fact]
+    public void Table_RawCli_HasNoRow()
+    {
+        Assert.Throws<InvalidOperationException>(() => FactoryRulesSupport.For(AgentKind.RawCli));
     }
 }

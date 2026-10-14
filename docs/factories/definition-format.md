@@ -66,8 +66,8 @@ name: Outreach                    # required; the display name
 role: Sales                       # required; the role word (the boss seat's is Boss)
 line: Find and sell               # optional; the production line
 machine: SOREN_NORTH              # optional; else defaults.machine
-agent: Codex                      # optional; else defaults.agent
-model: gpt-6-luna                 # optional; else defaults.model
+agent: ClaudeCode                 # optional; else defaults.agent
+model: claude-opus-5-5            # optional; else defaults.model
 repository: devthrottle           # optional; one of factory.yaml's repositories. Absent: no repository
 brief: |                          # required, not blank: what the seat is told to do
   Find prospects.
@@ -95,7 +95,8 @@ files: [files/outreach_send.py]   # optional; paths under files/ in this definit
 - `starts` - the ways the seat starts (below).
 - `grants` - the grants the seat uses. The two lists must agree: a seat that names a grant must be in that grant's
   `seats`, and the other way round.
-- `rules` - the rule sets the seat takes.
+- `rules` - the rule sets the seat takes. Only a seat on an agent that can take rules at launch may name one (see
+  the rules section below).
 - `secrets` - the secret names the seat needs. A definition holds names, never values.
 - `skills` - `factory` lists the factory's own skills, `fleet` lists skills from the account's skill store. One name
   may not be both: a seat would not know which one it got.
@@ -144,6 +145,16 @@ grants:
 The permission part of what `.claude/settings.json` holds. A rule set carries limits, never behaviour, so anything
 else (hooks, env, model) is refused as an unknown key.
 
+A rule that does not bind is worse than none, because the owner believes it binds. So a seat may name a rule set
+only when its agent (its own, else the factory's default) can take rules at launch; otherwise the check refuses the
+seat on its `rules:` line with the reason. Phase 0 answered for two agents:
+
+| Agent | Takes rules at launch | Why |
+|---|---|---|
+| ClaudeCode | yes | the rules are merged into the one settings file it is launched with |
+| Codex | no | Codex enforces a rule given at launch only while its hook runs; when the hook is missing, fails or times out the command runs anyway, so a Codex seat cannot carry rules. |
+| every other agent | not yet | Phase 0 has not shown that the agent can take rules at launch, so a seat on it cannot carry rules yet. |
+
 ```json
 { "permissions": { "allow": ["Bash(git status)"], "deny": ["Bash(git push:*)"], "ask": [] } }
 ```
@@ -166,8 +177,15 @@ description: How the factory writes mail.
 Write plainly.
 ```
 
-Until phase 0 shows an agent can load a factory skill for one session only, a seat on that agent may not name one;
-the check says so with the reason.
+A factory skill must reach one session only, never a checkout or the user's own skills folder. A seat may name one
+only when its agent (its own, else the factory's default) can load it that way; otherwise the check refuses the
+seat on its `factory:` line with the reason. Phase 0 answered for two agents:
+
+| Agent | Loads a factory skill | Why |
+|---|---|---|
+| ClaudeCode | yes | the kit is passed at launch as a plugin folder; inside the session the skill is named `<plugin name>:<skill name>` |
+| Codex | no | Codex reads skills only from the start folder and its parents, the user's home folder and an administrator folder; none of them is for one session alone, so a Codex seat cannot be given a factory skill. |
+| every other agent | not yet | Phase 0 has not shown that the agent can load a factory skill, so a seat on it cannot name one yet. |
 
 ## What the check reports
 
@@ -185,7 +203,8 @@ Errors:
   file, check or repository; a fleet skill not in the account's skill store; the boss seat missing or not role Boss;
   a grant naming a seat that does not exist; the two grant lists disagreeing; a skill file whose folder has no
   `SKILL.md`.
-- A factory skill and a fleet skill with one name; a factory skill on an agent that cannot load one.
+- A factory skill and a fleet skill with one name; a factory skill on an agent that cannot load one; a rule set on
+  an agent that cannot take rules at launch.
 - A start with both or neither of `cron` and `every`; `every` with no check; a check with `preventOverlap: false`;
   `secrets` on a start with no check.
 

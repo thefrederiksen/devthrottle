@@ -63,7 +63,7 @@ public sealed class FactoryDefinitionCheckTests
 
         var outreach = d.Seats[1];
         Assert.Equal("SOREN_SOUTH", outreach.MachineOrDefault(d.Defaults));
-        Assert.Equal("Codex", outreach.AgentOrDefault(d.Defaults));
+        Assert.Equal("ClaudeCode", outreach.AgentOrDefault(d.Defaults));
         Assert.Equal(new[] { "base", "outreach" }, outreach.Rules);
         Assert.Equal(new[] { "browsers" }, outreach.FleetSkills);
         var start = Assert.Single(outreach.Starts);
@@ -364,7 +364,7 @@ public sealed class FactoryDefinitionCheckTests
     [Fact]
     public void Check_AnAgentWeDoNotSupport_IsRefusedWithTheAgentsWeDo()
     {
-        var result = Check(Edit("seats/outreach.yaml", "agent: Codex", "agent: RawCli"));
+        var result = Check(Edit("seats/outreach.yaml", "agent: ClaudeCode", "agent: RawCli"));
 
         AssertOneError(result, "seats/outreach.yaml", 6,
             "'agent' is 'RawCli', which is not one of: ClaudeCode, Pi, Codex, Gemini, OpenCode, Cursor, Grok, Copilot.");
@@ -835,21 +835,71 @@ public sealed class FactoryDefinitionCheckTests
             "'mail-voice' is both a factory skill (skills/mail-voice/SKILL.md) and a fleet skill, so a seat would not know which one it got.");
     }
 
+    // The two phase 0 tables (design section 9): factory skills and rules at launch, agent by agent.
+
+    private const string CodexSkillReason =
+        "Codex reads skills only from the start folder and its parents, the user's home folder and an administrator folder; " +
+        "none of them is for one session alone, so a Codex seat cannot be given a factory skill.";
+
+    private const string CodexRulesReason =
+        "Codex enforces a rule given at launch only while its hook runs; when the hook is missing, fails or times out the " +
+        "command runs anyway, so a Codex seat cannot carry rules.";
+
+    // A writer seat on <agent> naming whatever extra lines follow its brief (line 5).
+    private static Dictionary<string, string> WriterOn(string agent, string extra)
+        => With("seats/writer.yaml", $"seat: writer\nname: Writer\nrole: Writer\nagent: {agent}\nbrief: Write the posts.\n{extra}");
+
     [Fact]
-    public void Check_FactorySkillOnAnAgentThatCannotLoadOne_IsRefusedWithTheReason()
+    public void Check_ClaudeCodeSeatWithAFactorySkillAndARuleSet_Passes()
     {
+        // Outreach runs ClaudeCode and already takes two rule sets; give it the factory skill too.
         var result = Check(Edit("seats/outreach.yaml", "fleet: [browsers]", "fleet: [browsers]\n  factory: [mail-voice]"));
 
-        AssertOneError(result, "seats/outreach.yaml", 21,
-            "Phase 0 has not shown that Codex can load a factory skill, so a seat on Codex cannot name one yet.");
+        Assert.False(result.HasErrors,
+            string.Join("\n", result.Findings.Where(f => f.IsError).Select(f => $"{f.File}:{f.Line} {f.Message}")));
+        Assert.NotNull(result.Definition);
     }
 
     [Fact]
-    public void Check_FactorySkillOnTheDefaultAgent_UsesTheDefaultAgentsAnswer()
+    public void Check_CodexSeatWithAFactorySkill_IsRefusedOnItsSkillsLine()
     {
-        var result = Check(Edit("seats/writer.yaml", "brief: Write the posts.", "brief: Write the posts.\nskills:\n  factory: [mail-voice]"));
+        // 6 skills:  7   factory: [mail-voice]
+        var result = Check(WriterOn("Codex", "skills:\n  factory: [mail-voice]\n"));
 
-        AssertOneError(result, "seats/writer.yaml", 6, "Phase 0 has not shown that ClaudeCode can load a factory skill");
+        AssertOneError(result, "seats/writer.yaml", 7, CodexSkillReason);
+    }
+
+    [Fact]
+    public void Check_CodexSeatWithARuleSet_IsRefusedOnItsRulesLine()
+    {
+        // 6 rules: [base]
+        var result = Check(WriterOn("Codex", "rules: [base]\n"));
+
+        AssertOneError(result, "seats/writer.yaml", 6, CodexRulesReason);
+    }
+
+    [Fact]
+    public void Check_SeatOnACodexFactoryDefault_IsRefusedTheSame()
+    {
+        // Boss names no agent, so it runs the factory's default; its line 10 is "rules: [base]". Outreach names its
+        // own agent (ClaudeCode) and is not refused.
+        var result = Check(Edit("factory.yaml", "  agent: ClaudeCode", "  agent: Codex"));
+
+        AssertOneError(result, "seats/boss.yaml", 10, CodexRulesReason);
+    }
+
+    [Fact]
+    public void Check_GeminiSeat_StillReadsNotShownYetForBoth()
+    {
+        // 6 rules: [base]  7 skills:  8   factory: [mail-voice]
+        var result = Check(WriterOn("Gemini", "rules: [base]\nskills:\n  factory: [mail-voice]\n"));
+
+        var errors = result.Findings.Where(f => f.IsError).Select(f => $"{f.File}:{f.Line} {f.Message}").ToList();
+        Assert.Equal(new[]
+        {
+            "seats/writer.yaml:6 Phase 0 has not shown that Gemini can take rules at launch, so a seat on Gemini cannot carry rules yet.",
+            "seats/writer.yaml:8 Phase 0 has not shown that Gemini can load a factory skill, so a seat on Gemini cannot name one yet.",
+        }, errors);
     }
 
     [Fact]
@@ -857,12 +907,7 @@ public sealed class FactoryDefinitionCheckTests
     {
         var result = Check(Edit("seats/writer.yaml", "brief: Write the posts.", "brief: Write the posts.\nskills:\n  factory: [tone]"));
 
-        var errors = result.Findings.Where(f => f.IsError).ToList();
-        Assert.Equal(2, errors.Count);
-        Assert.Contains(errors, e => e.File == "seats/writer.yaml" && e.Line == 6
-                                     && e.Message == "The seat names the factory skill 'tone', but there is no skills/tone/SKILL.md.");
-        // And the agent's answer, on the key's line: a seat on ClaudeCode cannot name one yet either.
-        Assert.Contains(errors, e => e.File == "seats/writer.yaml" && e.Line == 6 && e.Message.StartsWith("Phase 0 has not shown", StringComparison.Ordinal));
+        AssertOneError(result, "seats/writer.yaml", 6, "The seat names the factory skill 'tone', but there is no skills/tone/SKILL.md.");
     }
 
     // ---------------------------------------------------------------------------------------------------------------

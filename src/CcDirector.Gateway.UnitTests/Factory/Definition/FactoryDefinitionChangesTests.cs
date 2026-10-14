@@ -65,7 +65,7 @@ public sealed class FactoryDefinitionChangesTests
         Assert.All(dto.Seats, s => Assert.Equal("added", s.Change));
         Assert.Equal(new[]
         {
-            "role Sales", "line Find and sell", "machine SOREN_SOUTH", "agent Codex", "model gpt-6-luna",
+            "role Sales", "line Find and sell", "machine SOREN_SOUTH", "agent ClaudeCode", "model gpt-6-luna",
             "repository devthrottle", "grant send-outreach-email added", "rule set base added", "rule set outreach added",
             "secret outreach-smtp-password added", "fleet skill browsers added", "file files/outreach_send.py added",
             "brief: 1 line",
@@ -105,7 +105,7 @@ public sealed class FactoryDefinitionChangesTests
     {
         var after = Valid();
         Edit(after, "seats/outreach.yaml", "machine: SOREN_SOUTH", "machine: devlinux");
-        Edit(after, "seats/outreach.yaml", "agent: Codex", "agent: ClaudeCode");
+        Edit(after, "seats/outreach.yaml", "agent: ClaudeCode", "agent: Codex");
         Edit(after, "seats/outreach.yaml", "line: Find and sell", "line: Night shift");
 
         var dto = Changes(after);
@@ -115,7 +115,7 @@ public sealed class FactoryDefinitionChangesTests
         Assert.Equal("outreach", seat.Seat);
         Assert.Equal("changed", seat.Change);
         Assert.Equal("Seat Outreach (outreach) changed.", seat.Sentence);
-        Assert.Equal(new[] { "line Find and sell -> Night shift", "machine SOREN_SOUTH -> devlinux", "agent Codex -> ClaudeCode" }, seat.Details);
+        Assert.Equal(new[] { "line Find and sell -> Night shift", "machine SOREN_SOUTH -> devlinux", "agent ClaudeCode -> Codex" }, seat.Details);
         Assert.Null(seat.BriefDiff);
     }
 

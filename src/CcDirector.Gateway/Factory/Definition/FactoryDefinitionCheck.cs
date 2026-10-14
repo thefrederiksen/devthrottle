@@ -457,6 +457,14 @@ public static class FactoryDefinitionCheck
                     if (!_p.RuleSets.ContainsKey(rule))
                         Error(_findings, path, line, $"The seat names the rule set '{rule}', but there is no rules/{rule}.json.");
                 }
+                // A rule that does not bind is worse than none (mission rule A4): a seat on an agent that cannot take
+                // rules at launch may not name any.
+                if (Items(rules).Count > 0)
+                {
+                    var answer = FactoryRulesSupport.For(Enum.Parse<AgentKind>(agent));
+                    if (!answer.CanTake)
+                        Error(_findings, path, rules.KeyLine, answer.Reason!);
+                }
             }
 
             if (map.Find("secrets") is { } secrets)
