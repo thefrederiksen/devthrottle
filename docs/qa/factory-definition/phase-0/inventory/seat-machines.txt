@@ -1,4 +1,4 @@
-Machines factory seats run on, read at 2026-10-14T18:39:45+00:00
+Machines factory seats run on, read at 2026-10-14T19:02:07+00:00
 
 === SOREN_NORTH  (online, Director 2.20.1+344c31a8e7fdc203982852a2877be46bd8050b1b)
     registered repositories: 82; the 7 a seat here uses:
@@ -70,7 +70,7 @@ Machines factory seats run on, read at 2026-10-14T18:39:45+00:00
         house              budget                 D:\ReposFred\private  -> private  [schedule cj_af97e6]
         house              email-assistant        D:/ReposFred/cc-consult/house  -> cc-consult  [registry folder (the factory's one folder)]
         house              email-assistant        D:\ReposFred\cc-consult  -> cc-consult  [schedule cj_9dedee]
-        house              erik-website           D:/ReposFred/<a folder not registered as a repository>  UNRESOLVED (no registered repository holds it)  [schedule cj_9d2b12]
+        house              <seat id withheld>     D:/ReposFred/<a folder not registered as a repository>  UNRESOLVED (no registered repository holds it)  [schedule cj_9d2b12]
         house              job-search             D:/ReposFred/cc-consult/house  -> cc-consult  [registry folder (the factory's one folder)]
         house              job-search             D:\ReposFred\private  -> private  [schedule cj_27128e]
         house              linkedin-inbox         D:/ReposFred/cc-consult/house  -> cc-consult  [registry folder (the factory's one folder)]

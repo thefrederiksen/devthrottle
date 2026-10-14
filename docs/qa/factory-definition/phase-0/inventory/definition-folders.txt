@@ -1,0 +1,19 @@
+Factory folders measured at 2026-10-14T19:00:25+00:00; not definition: .git, .pytest_cache, .temp, __pycache__, qa, research, sample, state, tests, workshop
+
+    factory                whole folder   definition  largest file  file
+    business-research          726.2 KB     210.8 KB      101.3 KB  partner_desk.py
+    cc-factory                  90.5 KB      86.6 KB       17.8 KB  tools/worktree_cleaner/clean.py
+    clickfunnels               608.8 KB     267.0 KB       28.1 KB  REVIEW-2.md
+    devthrottle                199.2 KB     176.2 KB       27.1 KB  AUTONOMY.md
+    house                       17.9 KB      17.9 KB        4.0 KB  README.md
+    m-bpm-studio                 1.4 KB       1.4 KB        1.4 KB  agents/ceo.yaml
+    m-cube-pi                    1.7 KB       1.7 KB        1.7 KB  agents/ceo.yaml
+    machine-care                62.9 KB      54.0 KB       35.7 KB  orphan_sweep.ps1
+    mindzie-ai-reports        2597.9 KB     728.9 KB       44.0 KB  validation/2026-10-04-product-for-hosting-partners.md
+    mindzie-web                300.2 KB     230.4 KB       25.2 KB  tools/weekly_usage/server_logs.py
+    money-saver                153.8 KB      99.7 KB       25.3 KB  unit_costs.py   [each seat's own brief folder]
+    tallyhand                  467.6 KB     159.2 KB       36.0 KB  BUSINESS-PLAN-draft1.md
+    warmforward                 99.4 KB      96.3 KB       12.8 KB  MONEY-PLAN.md
+    website-business       1138591.8 KB    1067.8 KB      110.7 KB  cc_website_factory/record.py   [the folder its triggers start in (registered folder not on this machine)]
+
+Largest definition: 1067.8 KB; largest single definition file: 110.7 KB

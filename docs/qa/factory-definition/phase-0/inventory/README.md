@@ -7,12 +7,14 @@ files are the same data in full.
 
 This repository is public, so the outputs hide what could name a person or a client: file paths inside a
 records folder are cut to their first folder and extension, schedule and trigger prompts are not copied, a
-schedule folder that is not a registered repository has its last part hidden, and each machine's list of
-repositories shows only the ones a seat uses.
+start folder that is neither a registered repository nor its factory's registered folder has its last part
+hidden and so does the id of the seat that starts there, each machine's list of repositories shows only the ones
+a seat uses, and remote addresses lose their user-name part.
 
 | Part | Script | Output |
 |---|---|---|
 | (d) records measured, and the caps | `measure_records.py` | `records-measured.txt`, `records-measured.json` |
+| (d) factory folders sized as definitions | `measure_definition_folders.py` | `definition-folders.txt`, `definition-folders.json` |
 | (e) every factory's parts | `list_factory_parts.py` | `factory-parts.txt`, `factory-parts.json` |
 | (f) machines and their repositories | `list_seat_machines.py` | `seat-machines.txt`, `seat-machines.json` |
 | (g) the email check | `email-check/check_new_mail.py`, `mail-rules.json` | `email-check/tests-run.txt` |
@@ -52,12 +54,22 @@ Two kinds the mission does not plan for turned up:
 - **Scratch.** clickfunnels' `transcribe` folder holds 171 MB of WAV chunks, 9 MB each. It is working space,
   not a record, and the one-time upload should leave it behind rather than refuse on it.
 
+### The exclusion rule: what in a factory folder is not definition
+
+`measure_definition_folders.py` sizes each factory's own folder twice, whole and without these folders, at any
+depth: `.git`, `.temp`, `__pycache__`, `.pytest_cache`, `tests`, `qa`, `state`, `research`, `sample`,
+`workshop`. Each was found holding test fixtures, saved state (a record, section 5.6) or raw material, never what
+decides how a seat behaves. **Phase 3 and phase 7 should leave the same folders out** when a factory is written as
+files; the 4 MB per-version cap holds only under that rule. website-business's registered folder is a devlinux
+path, so its folder here is the one its triggers start in on SOREN_NORTH; money-saver's two seats keep their
+briefs in two separate folders under `tools/`, so each is measured on its own.
+
 ### The caps, recommended
 
 | Cap | Mission's start | Recommend | Why |
 |---|---|---|---|
-| Per definition file | 256 KB | **256 KB, confirmed** | The largest definition-shaped file today is 113 KB (`record.py` in the website factory's own Python package); the largest brief or template is 36 KB. Twice the largest leaves room without letting a data dump in. |
-| Per definition version | 4 MB | **4 MB, confirmed** | The biggest factory today is website-business, about 1.2 MB with its whole Python package; every other factory is under 250 KB. |
+| Per definition file | 256 KB | **256 KB, confirmed** | The largest definition file today is 110.7 KB (`cc_website_factory/record.py`, the website factory's own Python package; `definition-folders.txt`). The largest brief or template is 36 KB. Twice the largest leaves room without letting a data dump in. |
+| Per definition version | 4 MB | **4 MB, confirmed, under the exclusion rule below** | Measured in `definition-folders.txt`: the largest definition is website-business at 1,068 KB, then mindzie-ai-reports at 729 KB; the other twelve are 1 to 267 KB. Whole folders are NOT within 4 MB: website-business's is 1.1 GB, almost all of it `workshop/` (raw client photo batches). |
 | Per working document | (none; largest named as 642 KB) | **2 MB** | The 642 KB `defects/reads/rows.json` is not the largest: mindzie-web's `weekly-usage/.../actions.json` is 1.66 MB, and its `cost-watch` snapshot 536 KB. 2 MB holds every document today. Note that every write keeps a version, so a 1.7 MB document written weekly is about 90 MB a year of history; the cap is per version, never on history, as the mission says. |
 | Per journal entry | (none) | **256 KB** | The largest journal file today is 33 KB; none is over 64 KB. A cap stops a seat pasting a data dump into a journal. |
 | Per attachment | 2 MB | **4 MB** | 2 MB would refuse 16 of today's 484 attachments, all clickfunnels full-page phone screenshots up to 2.69 MB. None is over 3 MB. 4 MB keeps every screenshot and still refuses audio and video (the WAV chunks are 9 MB). |
@@ -120,7 +132,9 @@ rule each of these 18 would be refused at publish and at start until fixed:
   (`/home/soren/wt/...`), a worktree that is not registered on devlinux either. Its schedules and triggers run
   on SOREN_NORTH in `cc-consult`.
 - `machine-care` `machine-setup`: the factory folder is a Windows path, the seat runs on the Mac.
-- `house` `erik-website`: its schedule starts in a folder that is not a registered repository.
+- `house`, one seat (its id withheld, see review finding 3): its schedule starts in a folder that is not a
+  registered repository. The seat has since been removed from the registry (90 seats, was 91 at the first read);
+  its schedule `cj_9d2b12` remains.
 
 Also for phase 5: warmforward's registry places every seat on SOREN_NORTH while four of its schedules target
 devlinux, and the Mac mini's Director is 2.1.0, so it would be refused the new `FactoryWorktree`,
@@ -191,6 +205,7 @@ with `--env-name` set to the rule's names, so the check itself is not affected.
 
 ```
 python measure_records.py --json records-measured.json > records-measured.txt
+python measure_definition_folders.py --json definition-folders.json > definition-folders.txt
 python list_factory_parts.py --json factory-parts.json > factory-parts.txt
 python list_seat_machines.py --json seat-machines.json > seat-machines.txt
 python email-check/run_naming_proof.py > email-check/naming-proof.txt
@@ -199,4 +214,16 @@ python -m pytest email-check -q
 ```
 
 Each needs `cc-devthrottle` (and the email ones `cc-secrets`) on the PATH, and exits with a clear error if
-one is missing. `list_factory_parts.py` takes about 20 seconds: it reads the brief store once per factory.
+one is missing. `list_factory_parts.py` takes about 20 seconds (it reads the brief store once per factory) and
+`measure_definition_folders.py` about a minute (it walks the 1.1 GB website factory folder).
+
+## Review answers
+
+The review is `reviews/phase0-inventory-review.md` (a separate review session, commit `461510c22`).
+
+| Finding | Answer |
+|---|---|
+| 1. The two definition caps rest on figures no committed script produced | **Accepted.** `measure_definition_folders.py` and its output are committed, the exclusion rule is stated above with the folders it leaves out and why, and the two cap rows now cite the measured figures (1,068 KB largest definition, 110.7 KB largest file). The earlier "113 KB" was the same file in thousands of bytes rather than kilobytes. |
+| 2. Part (g) as the mission wrote it is not delivered | The Delivery Lead's to answer, and answered: the live mailbox run carries into phase 5b, and the owner has the app registration request. The review's notes for 5b (an empty state file on a seat's first run, a state that cannot advance past 500 new messages in one folder, `%LOCALAPPDATA%` expanding on Windows only, and `--setting --env-name` unverified) are carried with it. |
+| 3. A seat id carries a first name the masking rule hides | **Accepted.** A seat whose start folder is hidden now has its id, role and brief file shown as `<seat id withheld>` in every output and in this README. The hiding rule was also narrowed while doing it: a folder is hidden only when it is neither a registered repository nor the factory's own registered folder, so mindzie-ai-reports' folder and seats, which are not personal, stay readable. |
+| 4. The mindzie factories print a private repository's whole skills catalogue | **Accepted.** Skills are now listed only from the factory's own files (the folder its briefs are under). The mindzie factories list none; business-research still lists its `research-ceo`. |

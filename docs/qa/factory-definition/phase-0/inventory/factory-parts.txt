@@ -1,4 +1,4 @@
-Factory parts read on SOREN_NORTH at 2026-10-14T18:39:52+00:00
+Factory parts read on SOREN_NORTH at 2026-10-14T19:02:15+00:00
 
 === business-research  (Business Research)  boss seat: boss  registered computer: SOREN_NORTH
     seats: 5, schedules: 1 (1 enabled), triggers: 0
@@ -174,7 +174,7 @@ Factory parts read on SOREN_NORTH at 2026-10-14T18:39:52+00:00
         names: skill files, skill jobs
     schedule cj_6eb620 on  active seat training             0 0 31 2 * (never fires)       on SOREN_NORTH  in D:\ReposFred\private
     schedule cj_74144e on  active seat linkedin-inbox       0 0 31 2 * (never fires)       on SOREN_NORTH  in D:\ReposFred\devthrottle_internal
-    schedule cj_9d2b12 OFF paused seat erik-website         0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/ReposFred/<a folder not registered as a repository>  [not in registry]
+    schedule cj_9d2b12 OFF paused seat <seat id withheld>   0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/ReposFred/<a folder not registered as a repository>  [not in registry]
     schedule cj_9dedee on  active seat email-assistant      0 0 31 2 * (never fires)       on SOREN_NORTH  in D:\ReposFred\cc-consult
     schedule cj_af97e6 on  active seat budget               0 0 31 2 * (never fires)       on SOREN_NORTH  in D:\ReposFred\private
         names: skill finance-advisor
@@ -201,7 +201,6 @@ Factory parts read on SOREN_NORTH at 2026-10-14T18:39:52+00:00
     templates/docs: -
     tools: -
     rules files: -
-    skills in folder: DOMAIN_LIBRARY.md, INDEX.md, _shared, agent-reviewer, api-email-llm, api-manager, api-test, architecture-review, aws, block-rendering, bpmn-generate, bpmn-score, bug-reviewer, business-value-review, cencon-generate, code-standards, commit, container-dev-loop, copy-release, cube-qa, daily-error-triage, dashboard-builder, dashboard-parity-score, data-readiness, data-readiness-review, dead-code-finder, deploy, dev-machine, developer-agent, devops-picker, devops-work-items, docs, download-version, enrichment-builder, feature-marker, find-mapper, generate-url, godaddy-dns, i18n-coverage-nightly, implementation-loop, insights-report, log-analyzer, merged-fix-review, mindzie-analyst, mindzie-analyst-qa, mindzie-cli, mindzie-consultant, mindzie-engine-report, mindzie-qa, mindzie-user-lifecycle, mindziestudio-ai-projects, nightly-code-review, notebook-builder, pipeline-doctor, pipeline-monitor, pr-manager, priority-loop, process-audit, prod-errors, product-agent, project-tester, qa-agent, qa-batch-runner, qa-brief-builder, qa-code-review, qa-manager, qa-release-report, qa-testing, qa-user-walk, release-container, release-manager, review-code, server-management, sql-query, support-agent, teams, tenant-rebuild, translation-manager, upwork-manager, warning-fixer
 
 === m-cube-pi  (M-Cube PI)  boss seat: boss  registered computer: SOREN_NORTH
     seats: 1, schedules: 0 (0 enabled), triggers: 0
@@ -215,7 +214,6 @@ Factory parts read on SOREN_NORTH at 2026-10-14T18:39:52+00:00
     templates/docs: -
     tools: -
     rules files: -
-    skills in folder: DOMAIN_LIBRARY.md, INDEX.md, _shared, agent-reviewer, api-email-llm, api-manager, api-test, architecture-review, aws, block-rendering, bpmn-generate, bpmn-score, bug-reviewer, business-value-review, cencon-generate, code-standards, commit, container-dev-loop, copy-release, cube-qa, daily-error-triage, dashboard-builder, dashboard-parity-score, data-readiness, data-readiness-review, dead-code-finder, deploy, dev-machine, developer-agent, devops-picker, devops-work-items, docs, download-version, enrichment-builder, feature-marker, find-mapper, generate-url, godaddy-dns, i18n-coverage-nightly, implementation-loop, insights-report, log-analyzer, merged-fix-review, mindzie-analyst, mindzie-analyst-qa, mindzie-cli, mindzie-consultant, mindzie-engine-report, mindzie-qa, mindzie-user-lifecycle, mindziestudio-ai-projects, nightly-code-review, notebook-builder, pipeline-doctor, pipeline-monitor, pr-manager, priority-loop, process-audit, prod-errors, product-agent, project-tester, qa-agent, qa-batch-runner, qa-brief-builder, qa-code-review, qa-manager, qa-release-report, qa-testing, qa-user-walk, release-container, release-manager, review-code, server-management, sql-query, support-agent, teams, tenant-rebuild, translation-manager, upwork-manager, warning-fixer
 
 === machine-care  (Machine Care)  boss seat: (none)  registered computer: SOREN_NORTH
     seats: 2, schedules: 2 (2 enabled), triggers: 0
@@ -232,7 +230,6 @@ Factory parts read on SOREN_NORTH at 2026-10-14T18:39:52+00:00
     templates/docs: factory-cleaner.yaml, machine-setup.yaml
     tools: -
     rules files: -
-    skills in folder: assistant, autonomous-earner, brand-marketing, business, clean, coach, coach-manager, commit, contact-interview, content-pipeline, craft, dev-manager, domain-check, domain-move, email-assistant, fb-prospect-gatherer, finance-business, financial, godaddy, health, jobs, jobs-auto, linkedin-outreach, make-money, mindset, money-saver, niche-evaluator, prioritize, reddit, relationships, repo-review, review-proposal, score-jobs, shorts, speechwriter, submit-proposal, taki-coach, taki-review, todo, upwork, upwork-nav, vault, vercel-analytics, video-review, website-audit, youtube, youtube-scanner
     other folders: tests
 
 === mindzie-ai-reports  (M-AI Reports)  boss seat: boss  registered computer: SOREN_NORTH
@@ -243,7 +240,7 @@ Factory parts read on SOREN_NORTH at 2026-10-14T18:39:52+00:00
     seat cto                    role CTO                    on SOREN_NORTH          brief file factory/ai-reports/agents/cto.yaml  schedules -
     seat sales-lead             role Sales Lead             on SOREN_NORTH          brief file factory/ai-reports/agents/sales-lead.yaml  schedules -
     seat market-scout           role Market Scout           on SOREN_NORTH          brief file factory/ai-reports/agents/market-scout.yaml  schedules -
-    schedule cj_b605fe on  active seat ceo                  0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/wt/<a folder not registered as a repository>
+    schedule cj_b605fe on  active seat ceo                  0 0 31 2 * (never fires)       on SOREN_NORTH  in D:\wt\ai-reports-factory
     records: (none found on this machine)
     folder: D:/wt/ai-reports-factory
     clone:  D:/wt/ai-reports-factory  branch HEAD  remote https://dev.azure.com/mindzie/mindzieStudio1/_git/mindzieWeb
@@ -252,7 +249,6 @@ Factory parts read on SOREN_NORTH at 2026-10-14T18:39:52+00:00
     templates/docs: BUILD-SPEC-epic-9730.md, CEO-BRIEF-2-system-cubes.md, CEO-BRIEF.md, EPIC-DRAFT.md, HANDOVER.md, MOVE-TO-TRIGGER.md, NIGHTLY.md, PLAN-v1-hosting-only.md, PLAN.md, README.md, factory.yaml, report-2026-10-04-founder-start.html, report-2026-10-04-hosting-plan.html, report-2026-10-05-epic-9730-explained.html, report-2026-10-05-nightly.html, report-2026-10-06-nightly.html, report-2026-10-10-nightly.html, report-2026-10-11-nightly.html
     tools: tools/due.py
     rules files: -
-    skills in folder: DOMAIN_LIBRARY.md, INDEX.md, _shared, agent-reviewer, api-email-llm, api-manager, api-test, architecture-review, aws, block-rendering, bpmn-generate, bpmn-score, bug-reviewer, business-value-review, cencon-generate, code-standards, commit, container-dev-loop, copy-release, cube-qa, daily-error-triage, dashboard-builder, dashboard-parity-score, data-readiness, data-readiness-review, dead-code-finder, deploy, dev-machine, developer-agent, devops-picker, devops-work-items, docs, download-version, enrichment-builder, feature-marker, find-mapper, generate-url, godaddy-dns, i18n-coverage-nightly, implementation-loop, insights-report, log-analyzer, merged-fix-review, mindzie-analyst, mindzie-analyst-qa, mindzie-cli, mindzie-consultant, mindzie-engine-report, mindzie-qa, mindzie-user-lifecycle, mindziestudio-ai-projects, nightly-code-review, notebook-builder, pipeline-doctor, pipeline-monitor, pr-manager, priority-loop, process-audit, prod-errors, product-agent, project-tester, qa-agent, qa-batch-runner, qa-brief-builder, qa-code-review, qa-manager, qa-release-report, qa-testing, qa-user-walk, release-container, release-manager, review-code, server-management, sql-query, support-agent, teams, tenant-rebuild, translation-manager, upwork-manager, warning-fixer
     other folders: briefs, knowledge, research, sales, sample, validation
 
 === mindzie-web  (M-Studio)  boss seat: boss  registered computer: SOREN_NORTH
@@ -293,7 +289,6 @@ Factory parts read on SOREN_NORTH at 2026-10-14T18:39:52+00:00
     templates/docs: MOVE-TO-TRIGGER.md, README.md, factory.yaml
     tools: -
     rules files: -
-    skills in folder: DOMAIN_LIBRARY.md, INDEX.md, _shared, agent-reviewer, api-email-llm, api-manager, api-test, architecture-review, aws, block-rendering, bpmn-generate, bpmn-score, bug-reviewer, business-value-review, cencon-generate, code-standards, commit, container-dev-loop, copy-release, cube-qa, daily-error-triage, dashboard-builder, dashboard-parity-score, data-readiness, data-readiness-review, dead-code-finder, deploy, dev-machine, developer-agent, devops-picker, devops-work-items, docs, download-version, enrichment-builder, feature-marker, find-mapper, generate-url, godaddy-dns, i18n-coverage-nightly, implementation-loop, insights-report, log-analyzer, merged-fix-review, mindzie-analyst, mindzie-analyst-qa, mindzie-cli, mindzie-consultant, mindzie-engine-report, mindzie-qa, mindzie-user-lifecycle, mindziestudio-ai-projects, nightly-code-review, notebook-builder, pipeline-doctor, pipeline-monitor, pr-manager, priority-loop, process-audit, prod-errors, product-agent, project-tester, qa-agent, qa-batch-runner, qa-brief-builder, qa-code-review, qa-manager, qa-release-report, qa-testing, qa-user-walk, release-container, release-manager, review-code, server-management, sql-query, support-agent, teams, tenant-rebuild, translation-manager, upwork-manager, warning-fixer
     other folders: bpm-studio, cube-pi
 
 === money-saver  (Money Saver)  boss seat: (none)  registered computer: SOREN_NORTH
@@ -311,7 +306,6 @@ Factory parts read on SOREN_NORTH at 2026-10-14T18:39:52+00:00
     templates/docs: -
     tools: -
     rules files: -
-    skills in folder: assistant, autonomous-earner, brand-marketing, business, clean, coach, coach-manager, commit, contact-interview, content-pipeline, craft, dev-manager, domain-check, domain-move, email-assistant, fb-prospect-gatherer, finance-business, financial, godaddy, health, jobs, jobs-auto, linkedin-outreach, make-money, mindset, money-saver, niche-evaluator, prioritize, reddit, relationships, repo-review, review-proposal, score-jobs, shorts, speechwriter, submit-proposal, taki-coach, taki-review, todo, upwork, upwork-nav, vault, vercel-analytics, video-review, website-audit, youtube, youtube-scanner
     other folders: cc-comm-queue, cc-linkedin, communication_manager, daily-cost-report, disk-sweep, factory-cleaner, hoka-catalog, linkedin, shorts-final, vercel-release, weekly-cost-report
 
 === tallyhand  (Tallyhand)  boss seat: boss  registered computer: SOREN_NORTH

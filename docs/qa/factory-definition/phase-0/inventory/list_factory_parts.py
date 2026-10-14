@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from measure_records import ROOTS  # noqa: E402  the records roots, one list for (d) and (e)
-from list_seat_machines import mask, resolve  # noqa: E402  one masking and one resolve rule for (e) and (f)
+from list_seat_machines import HIDDEN_FOLDER, HIDDEN_SEAT, mask, norm, resolve  # noqa: E402  one masking and one resolve rule for (e) and (f)
 
 CLI = shutil.which("cc-devthrottle")
 if CLI is None:
@@ -109,7 +109,9 @@ def disk_parts(folder, seats):
     briefs = []
     for s in seats:
         b = s.get("briefFile")
-        if b:
+        if b == HIDDEN_SEAT:
+            briefs.append({"seat": HIDDEN_SEAT, "name": HIDDEN_SEAT, "bytes": 0})
+        elif b:
             full = os.path.join(local, *b.replace("\\", "/").split("/"))
             briefs.append({"seat": s["id"], "name": b, "bytes": os.path.getsize(full) if os.path.isfile(full) else None})
     parts = {
@@ -125,7 +127,9 @@ def disk_parts(folder, seats):
         "rulesFiles": files_in(fdir, "permissions"),
         "settingsInFolder": settings_rules(local),
         "settingsInClone": settings_rules(top) if top else None,
-        "skillsInFolder": sorted(os.listdir(os.path.join(local, ".claude", "skills"))) if os.path.isdir(os.path.join(local, ".claude", "skills")) else [],
+        # Only skills among the factory's OWN files: for a factory registered on a whole repository (the mindzie
+        # factories on mindzieWeb) the repository's skills are its developers', not the factory's.
+        "skillsInFolder": sorted(os.listdir(os.path.join(fdir, ".claude", "skills"))) if os.path.isdir(os.path.join(fdir, ".claude", "skills")) else [],
         "otherFolders": sorted(n for n in os.listdir(fdir) if os.path.isdir(os.path.join(fdir, n))
                                and n not in {"agents", "tools", "permissions", ".claude", "__pycache__", ".git"}),
     }
@@ -155,9 +159,10 @@ def main():
         print(f"ERROR: repo list failed: {repos}", file=sys.stderr)
         return 2
 
-    def shown(folder, machine):
+    def shown(folder, machine, factory_folder):
+        """Hidden only when it is neither a registered repository nor the factory's own registered folder."""
         on = [r for r in repos if r.get("machineName") == machine]
-        return folder if resolve(folder, on) else mask(folder)
+        return folder if resolve(folder, on) or norm(folder) == norm(factory_folder) else mask(folder)
 
     inv = {"readUtc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
            "machine": os.environ.get("COMPUTERNAME", ""), "factories": []}
@@ -186,7 +191,7 @@ def main():
             fs.append({"id": j["id"], "seat": j.get("seat"), "enabled": j["enabled"],
                        "kind": j["scheduleKind"], "cron": j.get("cronExpression"), "runAt": j.get("runAt"),
                        "timeZone": j.get("timeZoneId"), "machine": (j.get("target") or {}).get("machine"),
-                       "repoPath": shown(j["action"].get("repoPath"), (j.get("target") or {}).get("machine")), "preventOverlap": j.get("preventOverlap"),
+                       "repoPath": shown(j["action"].get("repoPath"), (j.get("target") or {}).get("machine"), f.get("folder")), "preventOverlap": j.get("preventOverlap"),
                        "autoDismiss": j["action"].get("autoDismiss"), "lifecycle": j.get("lifecycle"),
                        "shifts": j.get("shifts"), "neverFires": j.get("cronExpression") in NEVER_CRON, "briefsNamed": b, "skillsNamed": sk,
                        "inRegistry": any(j["id"] in (s.get("schedules") or []) for s in seats)})
@@ -196,10 +201,18 @@ def main():
                 continue
             b, sk = refs(t.get("prompt"))
             ft.append({"id": t["id"], "name": t["name"], "seat": t.get("factoryAgent"), "machine": t.get("machine"),
-                       "repoPath": shown(t.get("repoPath"), t.get("machine")), "checkCommand": t.get("checkCommand"),
+                       "repoPath": shown(t.get("repoPath"), t.get("machine"), f.get("folder")), "checkCommand": t.get("checkCommand"),
                        "intervalSeconds": t.get("intervalSeconds"), "paused": t.get("paused"),
                        "status": t.get("statusText"), "briefsNamed": b, "skillsNamed": sk})
         registered = {sid for s in seats for sid in (s.get("schedules") or [])}
+        # A seat whose start folder is hidden has its id, role and brief file hidden too (see list_seat_machines).
+        hidden = {x["seat"] for x in fs + ft if HIDDEN_FOLDER in (x["repoPath"] or "")}
+        for s in seats:
+            if s["id"] in hidden:
+                s.update({"id": HIDDEN_SEAT, "name": HIDDEN_SEAT, "role": HIDDEN_SEAT, "briefFile": HIDDEN_SEAT})
+        for x in fs + ft:
+            if x["seat"] in hidden:
+                x["seat"] = HIDDEN_SEAT
         inv["factories"].append({
             "id": fid, "title": f["title"], "bossSeat": f.get("bossSeat"), "computer": f.get("computer"),
             "purpose": f.get("purpose"), "goalText": bool(f.get("goalText")), "goalFile": f.get("goalFile"),

@@ -47,10 +47,21 @@ def resolve(folder, repos):
 
 
 def mask(folder):
-    """A schedule or trigger folder that is not a registered repository is printed with its last part hidden:
+    """A start folder that is neither a registered repository nor its factory's registered folder is printed with
+    its last part hidden:
     such folders are personal projects and can carry a third party's name, and this record is public."""
     f = (folder or "").replace("\\", "/").rstrip("/")
-    return f.rsplit("/", 1)[0] + "/<a folder not registered as a repository>" if "/" in f else "<hidden>"
+    return f.rsplit("/", 1)[0] + "/" + HIDDEN_FOLDER if "/" in f else "<hidden>"
+
+
+HIDDEN_FOLDER = "<a folder not registered as a repository>"
+HIDDEN_SEAT = "<seat id withheld>"
+
+
+def withheld_seats(rows):
+    """(factory, seat) pairs whose start folder was hidden by mask(). Their seat id is hidden too: a seat is
+    named after the personal project its folder is, so the id can carry the same third party's name."""
+    return {(r["factory"], r["seat"]) for r in rows for fo in r["folders"] if HIDDEN_FOLDER in (fo["folder"] or "")}
 
 
 def main():
@@ -64,6 +75,7 @@ def main():
     online = {m["machineName"]: m for m in gateway("machine", "list", "--json")}
     repos = gateway("repo", "list", "--json")
 
+    registered = {f["factory"]: f.get("folder") for f in factories}
     # (machine, factory, seat) -> the folders that seat starts in on that machine, and where each came from.
     uses = {}
 
@@ -100,7 +112,7 @@ def main():
             for v in seen.values():
                 r = resolve(v["folder"], mrepos)
                 shown = v["folder"]
-                if r is None and not any(src.startswith("registry folder") for src in v["sources"]):
+                if r is None and norm(v["folder"]) != norm(registered.get(fac)):
                     shown = mask(v["folder"])
                 res.append({"folder": shown, "sources": v["sources"],
                             "repository": r["name"] if r else None, "repositoryPath": r["path"] if r else None})
@@ -117,6 +129,12 @@ def main():
                              if r["name"] in used],
             "seats": seats,
         })
+
+    hidden = withheld_seats([s for m in out["machines"] for s in m["seats"]])
+    for m in out["machines"]:
+        for s in m["seats"]:
+            if (s["factory"], s["seat"]) in hidden:
+                s["seat"] = HIDDEN_SEAT
 
     print(f"Machines factory seats run on, read at {out['readUtc']}")
     for m in out["machines"]:
