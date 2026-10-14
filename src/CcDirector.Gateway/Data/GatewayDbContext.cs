@@ -286,6 +286,7 @@ public sealed class GatewayDbContext : DbContext
 
     /// <summary>Every version of every factory's definition (Factory Definition mission, phase 1).</summary>
     public DbSet<FactoryDefinitionVersionEntity> FactoryDefinitions => Set<FactoryDefinitionVersionEntity>();
+
     /// <summary>Every journal entry of every factory seat, append-only (Factory Definition mission, phase 2).</summary>
     public DbSet<FactoryJournalEntryEntity> FactoryJournalEntries => Set<FactoryJournalEntryEntity>();
 
@@ -1386,6 +1387,8 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.AuthorId).HasMaxLength(200);
             b.Property(e => e.ChangeNote).HasMaxLength(500);
             b.Property(e => e.PublishedBy).HasMaxLength(200);
+        });
+
         modelBuilder.Entity<FactoryJournalEntryEntity>(b =>
         {
             b.ToTable("factory_journal_entries");
