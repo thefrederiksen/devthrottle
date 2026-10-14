@@ -209,15 +209,7 @@ public sealed class FactoryDefinitionStore
                     $"backwards: restore version {version}, which publishes a copy of it as the newest version",
                     published);
 
-            // THE ONE CHANGE A STORED ROW EVER SEES, and it only ever happens once: the update matches the row only
-            // while it is still a draft, so two people publishing the same version cannot both be recorded as the
-            // one who did.
-            var changed = ctx.FactoryDefinitions
-                .Where(v => v.Factory == factory && v.Version == version && v.State == FactoryDefinitionStates.Draft)
-                .ExecuteUpdate(set => set
-                    .SetProperty(v => v.State, FactoryDefinitionStates.Published)
-                    .SetProperty(v => v.PublishedAtUtc, (DateTime?)nowUtc)
-                    .SetProperty(v => v.PublishedBy, authorId));
+            var changed = MarkPublished(ctx, factory, version, authorId, nowUtc);
             var now = SummaryOf(ctx, factory, version);
             if (changed == 0)
             {
@@ -329,6 +321,9 @@ public sealed class FactoryDefinitionStore
                     $"the definition takes more than {DefinitionPaths.MaxVersionBytes} bytes; a version takes at most {DefinitionPaths.MaxVersionBytes} in all", head);
             ordered[path] = text;
         }
+        var clashes = DefinitionPaths.Clashes(ordered.Keys);
+        if (clashes.Count > 0)
+            return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.BadPath, clashes[0].Refusal, head);
         return null;
     }
 
@@ -446,6 +441,22 @@ public sealed class FactoryDefinitionStore
         standing.Newest is null
             ? $"{factory} has no definition on the Gateway yet, so there is nothing to {act}. Save a draft first."
             : $"version {version} of the definition of {factory} does not exist; its newest version is {standing.Newest.Version}";
+
+    /// <summary>
+    /// THE ONE CHANGE A STORED ROW EVER SEES, and it only ever happens once: the update matches the row only while it
+    /// is still a draft, so two people publishing the same version on two replicas cannot both be recorded as the one
+    /// who did - the second matches nothing and is told somebody else published first. The check on the version's
+    /// state that <see cref="Publish"/> makes before this runs inside one process and reads from before the other
+    /// replica's update, so THIS condition is the guard. Returns how many rows it marked: 1, or 0 when the row was
+    /// already published.
+    /// </summary>
+    internal static int MarkPublished(GatewayDbContext ctx, string factory, int version, string? publishedBy, DateTime nowUtc)
+        => ctx.FactoryDefinitions
+            .Where(v => v.Factory == factory && v.Version == version && v.State == FactoryDefinitionStates.Draft)
+            .ExecuteUpdate(set => set
+                .SetProperty(v => v.State, FactoryDefinitionStates.Published)
+                .SetProperty(v => v.PublishedAtUtc, (DateTime?)nowUtc)
+                .SetProperty(v => v.PublishedBy, publishedBy));
 
     /// <summary>
     /// Did a second writer really take this version? The head decides: an insert can fail for reasons that have no

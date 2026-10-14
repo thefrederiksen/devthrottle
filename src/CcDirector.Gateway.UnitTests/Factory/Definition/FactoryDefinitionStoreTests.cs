@@ -112,7 +112,7 @@ public sealed class FactoryDefinitionStoreTests : IDisposable
         var files = new Dictionary<string, string>
         {
             ["factory.yaml"] = "factory: warmforward\r\ntitle: \"Warm \\ Forward\"\r\n",
-            ["seats/boss.yaml"] = "seat: boss\n\tbrief: café € \U0001F600 <a href='x'>&amp;</a>\u0000end",
+            ["seats/boss.yaml"] = "seat: boss\n\tbrief: caf\u00e9 \u20ac \U0001F600 <a href='x'>&amp;</a>\u0000end",
             ["files/templates/CEO-BRIEF.md"] = "",
             ["checks/inbox.py"] = "print('{\"count\": 0}')\n",
         };
@@ -252,7 +252,7 @@ public sealed class FactoryDefinitionStoreTests : IDisposable
         var store = NewStore();
         SaveBySession(store, new Dictionary<string, string> { ["factory.yaml"] = "plain" }, expect: 0, note: "a start");
         // Four characters outside the basic alphabet: three bytes each.
-        SaveByOwner(store, new Dictionary<string, string> { ["factory.yaml"] = "€€€€", ["grants.yaml"] = "ab" }, expect: 1);
+        SaveByOwner(store, new Dictionary<string, string> { ["factory.yaml"] = "\u20ac\u20ac\u20ac\u20ac", ["grants.yaml"] = "ab" }, expect: 1);
         PublishByOwner(store, 2, at: Now.AddMinutes(2));
 
         var page = store.History(A, TheFactory);
@@ -492,6 +492,31 @@ public sealed class FactoryDefinitionStoreTests : IDisposable
     }
 
     [Fact]
+    public void THE_PUBLISH_MARK_IS_SET_ONCE_even_by_a_writer_that_read_the_row_before_it_was_published()
+    {
+        // Review finding 2. Two people on two replicas publish one version at the same moment: both read it as a draft
+        // inside their own process, so the in-process state check cannot stop the second. The guard on the update
+        // itself must. This drives that update against a row already published, as the second replica's would be,
+        // and the first publisher stays the one recorded.
+        var store = NewStore();
+        SaveBySession(store, Definition(), expect: 0);
+        SaveBySession(store, Definition("v2"), expect: 1);
+        PublishByOwner(store, 1);
+
+        using var ctx = _h.Open().CreateContext(A);
+        var second = FactoryDefinitionStore.MarkPublished(ctx, TheFactory, 1, "device:the-second-publisher", Now.AddHours(1));
+        var onADraft = FactoryDefinitionStore.MarkPublished(ctx, TheFactory, 2, "device:the-second-publisher", Now.AddHours(1));
+
+        Assert.Equal(0, second);
+        var first = store.Find(A, TheFactory, 1)!.Summary;
+        Assert.Equal(Owner, first.PublishedBy);
+        Assert.Equal(Now.AddMinutes(5), first.PublishedAtUtc);
+        // And on a row that IS still a draft the same update marks it, once.
+        Assert.Equal(1, onADraft);
+        Assert.Equal("device:the-second-publisher", store.Find(A, TheFactory, 2)!.Summary.PublishedBy);
+    }
+
+    [Fact]
     public void PUBLISHING_NEVER_GOES_BACKWARDS_an_older_draft_is_refused_and_told_to_be_restored()
     {
         var store = NewStore();
@@ -681,7 +706,7 @@ public sealed class FactoryDefinitionStoreTests : IDisposable
         var store = NewStore();
         var files = Definition();
         // Three bytes each in UTF-8: a third of the cap in characters, plus one, is over the cap in bytes.
-        files["files/euros.txt"] = new string('€', DefinitionPaths.MaxFileBytes / 3 + 1);
+        files["files/euros.txt"] = new string('\u20ac', DefinitionPaths.MaxFileBytes / 3 + 1);
 
         Assert.Equal(FactoryDefinitionOutcome.FileTooLarge, SaveBySession(store, files, expect: 0).Outcome);
     }
@@ -809,6 +834,26 @@ public sealed class FactoryDefinitionStoreTests : IDisposable
     [InlineData("seats/.yaml", "a seat name is")]
     [InlineData("seats/Boss.yaml", "a seat name is")]
     [InlineData("skills/Prospecting/SKILL.md", "a skill name is")]
+    // A path every machine can write (review finding 1): a Windows device name, in any case and with any extension,
+    // as a file or as a folder on the way ...
+    [InlineData("files/nul", "'nul' is a name Windows keeps for a device")]
+    [InlineData("files/con.txt", "'con.txt' is a name Windows keeps for a device")]
+    [InlineData("files/AUX.md", "'AUX.md' is a name Windows keeps for a device")]
+    [InlineData("files/lpt1/notes.txt", "'lpt1' is a name Windows keeps for a device")]
+    [InlineData("checks/com1.py", "'com1.py' is a name Windows keeps for a device")]
+    [InlineData("skills/prn/SKILL.md", "'prn' is a name Windows keeps for a device")]
+    // ... a part ending in a dot or a space, which Windows strips ...
+    [InlineData("files/report.", "'report.' ends in a dot or a space")]
+    [InlineData("files/report ", "'report ' ends in a dot or a space")]
+    [InlineData("files/drafts./a.md", "'drafts.' ends in a dot or a space")]
+    // ... and every character Windows refuses in a file name.
+    [InlineData("files/a<b.txt", "the character '<'")]
+    [InlineData("files/a>b.txt", "the character '>'")]
+    [InlineData("files/a:b.txt", "the character ':'")]
+    [InlineData("files/\"quoted\".md", "the character '\"'")]
+    [InlineData("files/x|y.txt", "the character '|'")]
+    [InlineData("files/what?.md", "the character '?'")]
+    [InlineData("files/a*.txt", "the character '*'")]
     public void A_path_that_breaks_a_rule_is_REFUSED_and_says_which_rule(string path, string words)
     {
         Assert.Contains(words, FactoryDefinitionStore.WhyNotAPath(path));
@@ -820,6 +865,39 @@ public sealed class FactoryDefinitionStoreTests : IDisposable
         Assert.Equal(FactoryDefinitionOutcome.BadPath, refused.Outcome);
         Assert.Contains(words, refused.Refusal);
         Assert.Equal(0, store.History(A, TheFactory).Total);
+    }
+
+    [Theory]
+    [InlineData("files/Brief.md", "files/brief.md", "'files/brief.md' spells 'files/brief.md' where 'files/Brief.md' spells it 'files/Brief.md'")]
+    [InlineData("files/Drafts/a.md", "files/drafts/b.md", "'files/drafts/b.md' spells 'files/drafts' where 'files/Drafts/a.md' spells it 'files/Drafts'")]
+    [InlineData("files/notes", "files/notes/a.md", "'files/notes' is a file in 'files/notes' and a folder in 'files/notes/a.md'")]
+    [InlineData("files/Notes", "files/notes/a.md", "'files/notes/a.md' spells 'files/notes' where 'files/Notes' spells it 'files/Notes'")]
+    public void TWO_PATHS_NO_MACHINE_CAN_HOLD_SIDE_BY_SIDE_ARE_REFUSED(string one, string two, string words)
+    {
+        // Review finding 1: Windows and macOS hold names that differ only in case as one, and no machine holds a name
+        // as a file and a folder at once. Either way an export writes fewer files than the definition holds.
+        var store = NewStore();
+        var files = Definition();
+        files[one] = "one";
+        files[two] = "two";
+
+        var refused = SaveByOwner(store, files, expect: 0);
+
+        Assert.Equal(FactoryDefinitionOutcome.BadPath, refused.Outcome);
+        Assert.Contains(words, refused.Refusal);
+        Assert.Equal(0, store.History(A, TheFactory).Total);
+    }
+
+    [Fact]
+    public void Paths_that_differ_in_more_than_case_are_ACCEPTED_side_by_side()
+    {
+        var store = NewStore();
+        var files = Definition();
+        files["files/brief.md"] = "one";
+        files["files/brief.txt"] = "two";
+        files["files/briefs/a.md"] = "three";
+
+        Assert.True(SaveByOwner(store, files, expect: 0).Ok);
     }
 
     [Fact]

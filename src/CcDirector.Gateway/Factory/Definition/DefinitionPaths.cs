@@ -54,9 +54,17 @@ public static partial class DefinitionPaths
     [GeneratedRegex("^[a-z0-9]+([-_][a-z0-9]+)*$")]
     private static partial Regex CheckNamePattern();
 
+    /// <summary>The characters Windows does not allow in a file name, beyond the control characters.</summary>
+    public const string CharactersWindowsRefuses = "<>:\"|?*";
+
     /// <summary>
     /// Why <paramref name="path"/> breaks the path rules, or null when it keeps them: forward slashes only, no leading
-    /// slash, no control character, no <c>.</c>, <c>..</c> or empty part, at most <see cref="MaxPathLength"/> characters.
+    /// slash, no control character, no <c>.</c>, <c>..</c> or empty part, at most <see cref="MaxPathLength"/> characters
+    /// - and a path every machine can write as a file (review of the definition store, finding 1): none of the
+    /// characters <see cref="CharactersWindowsRefuses"/>, no part ending in a dot or a space (Windows strips them, so
+    /// the file would land under another name), and no part that is a name Windows keeps for a device. A published
+    /// version's files are downloaded onto the seat's machine (mission 5.5a), so a path one Windows Director cannot
+    /// create stops that seat from starting.
     /// </summary>
     public static string? ShapeProblem(string path)
     {
@@ -66,6 +74,8 @@ public static partial class DefinitionPaths
         else if (path.Length > MaxPathLength) reason = $"it is {path.Length} characters long";
         else if (path.Contains('\\')) reason = "it contains a backslash";
         else if (path.Any(char.IsControl)) reason = "it holds a control character, such as a line break";
+        else if (path.IndexOfAny(CharactersWindowsRefuses.ToCharArray()) is var at and >= 0)
+            reason = $"it holds the character '{path[at]}', which Windows does not allow in a file name";
         else if (path.StartsWith('/')) reason = "it begins with a slash";
         else
         {
@@ -73,12 +83,70 @@ public static partial class DefinitionPaths
             {
                 if (part.Length == 0) { reason = "it has an empty part"; break; }
                 if (part is "." or "..") { reason = $"it has a '{part}' part"; break; }
+                if (part.EndsWith('.') || part.EndsWith(' '))
+                {
+                    reason = $"its part '{part}' ends in a dot or a space, which Windows removes, so the file would get another name";
+                    break;
+                }
+                if (FactoryNames.IsWindowsDeviceName(part))
+                {
+                    reason = $"its part '{part}' is a name Windows keeps for a device, so it cannot be a file or a folder";
+                    break;
+                }
             }
         }
         return reason is null
             ? null
             : $"'{Shown(path.ReplaceLineEndings(" "))}' is not a path a definition can hold: {reason}. A path uses forward " +
-              $"slashes, with no leading slash, no control character and no '.', '..' or empty part, and is at most {MaxPathLength} characters.";
+              $"slashes, with no leading slash, no control character, none of {CharactersWindowsRefuses}, no '.', '..' or " +
+              $"empty part, no part ending in a dot or a space and no device name such as nul, and is at most {MaxPathLength} characters.";
+    }
+
+    /// <summary>
+    /// The paths of one definition that no machine could write side by side (review of the definition store, finding
+    /// 1), each with the sentence refusing it: two paths whose names differ only in the case of their letters
+    /// (<c>files/Brief.md</c> and <c>files/brief.md</c>), which Windows and macOS hold as ONE file, and a name that is a
+    /// file in one path and a folder in another (<c>files/a</c> and <c>files/a/b</c>). Either way an export writes
+    /// fewer files than the definition holds, and importing it gives back a different definition. Every folder on the
+    /// way is compared, not only the file name. Pure; the paths are compared in ordinal order, so the answer is the
+    /// same whatever order they come in, and the later of two clashing paths is the one named.
+    /// </summary>
+    public static IReadOnlyList<(string Path, string Refusal)> Clashes(IEnumerable<string> paths)
+    {
+        ArgumentNullException.ThrowIfNull(paths);
+        // Every name on the way, folded to one case: how it was spelled, whether it was a file, and the path that
+        // brought it first.
+        var seen = new Dictionary<string, (string Spelled, bool IsFile, string FirstPath)>(StringComparer.Ordinal);
+        var clashes = new List<(string, string)>();
+        foreach (var path in paths.OrderBy(p => p, StringComparer.Ordinal))
+        {
+            var parts = path.Split('/');
+            for (var i = 0; i < parts.Length; i++)
+            {
+                var spelled = string.Join('/', parts, 0, i + 1);
+                var isFile = i == parts.Length - 1;
+                var folded = spelled.ToLowerInvariant();
+                if (!seen.TryGetValue(folded, out var before))
+                {
+                    seen[folded] = (spelled, isFile, path);
+                    continue;
+                }
+                if (before.Spelled != spelled)
+                {
+                    clashes.Add((path, $"'{Shown(path)}' spells '{spelled}' where '{Shown(before.FirstPath)}' spells it " +
+                        $"'{before.Spelled}'. Windows and macOS hold names that differ only in the case of their letters " +
+                        "as one, so the two would become one file. Spell them the same, or rename one."));
+                    break;
+                }
+                if (before.IsFile != isFile)
+                {
+                    clashes.Add((path, $"'{spelled}' is a file in '{Shown(isFile ? path : before.FirstPath)}' and a folder in " +
+                        $"'{Shown(isFile ? before.FirstPath : path)}'; no machine can hold both. Rename one."));
+                    break;
+                }
+            }
+        }
+        return clashes;
     }
 
     /// <summary>
