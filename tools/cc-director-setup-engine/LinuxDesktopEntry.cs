@@ -1,3 +1,4 @@
+using CcDirector.Core.Storage;
 using System.Runtime.Versioning;
 
 namespace CcDirector.Setup.Engine;
@@ -128,8 +129,16 @@ public static class LinuxDesktopEntry
     {
         var running = Environment.ProcessPath
             ?? throw new InvalidOperationException("Environment.ProcessPath is null; cannot locate this Director's executable.");
-        return Repair(running, InstallLayout.Default().PathFor(ComponentRegistry.Director), DefaultDataHome());
+        return Repair(running, InstalledDirector(), DefaultDataHome());
     }
+
+    /// <summary>
+    /// The machine's own installed Director, from <see cref="CcStorage.DefaultRoot"/>, which ignores
+    /// CC_DIRECTOR_ROOT. <see cref="InstallLayout.Default"/> honours it, so a Director placed in a test rig
+    /// and pointed at that rig would pass as installed and write the throwaway rig into the person's
+    /// permanent app menu.
+    /// </summary>
+    internal static string InstalledDirector() => new InstallLayout(CcStorage.DefaultRoot()).PathFor(ComponentRegistry.Director);
 
     /// <summary>
     /// See <see cref="Repair()"/>. Acts only when <paramref name="runningExe"/> is
@@ -143,7 +152,10 @@ public static class LinuxDesktopEntry
         ArgumentException.ThrowIfNullOrWhiteSpace(installedExe);
         ArgumentException.ThrowIfNullOrWhiteSpace(dataHome);
 
-        if (!string.Equals(Path.GetFullPath(runningExe), Path.GetFullPath(installedExe), StringComparison.Ordinal))
+        // Compared as real paths: the running path comes from /proc/self/exe with every link resolved, so
+        // where /home is itself a link (/var/home on Fedora Silverblue and its kind) the plain strings differ
+        // and the machine's own install would never be repaired.
+        if (!string.Equals(RealPath(runningExe), RealPath(installedExe), StringComparison.Ordinal))
         {
             EngineLog.Write($"[LinuxDesktopEntry] Repair: running {runningExe} is not the installed Director {installedExe}; left alone");
             return RepairOutcome.NotTheInstalledDirector;
@@ -162,6 +174,30 @@ public static class LinuxDesktopEntry
         EngineLog.Write($"[LinuxDesktopEntry] Repair: entryCurrent={entryCurrent}, iconCurrent={iconCurrent}; rewriting");
         Install(installedExe, dataHome);
         return RepairOutcome.Rewritten;
+    }
+
+    /// <summary>
+    /// <paramref name="path"/> with every symbolic link along it resolved, one component at a time. A
+    /// component that does not exist is kept as written, along with everything after it.
+    /// </summary>
+    internal static string RealPath(string path)
+    {
+        var full = Path.GetFullPath(path);
+        var root = Path.GetPathRoot(full)!;
+        var current = root;
+        var parts = full[root.Length..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
+        for (var i = 0; i < parts.Length; i++)
+        {
+            var next = Path.Combine(current, parts[i]);
+            FileSystemInfo info = Directory.Exists(next) ? new DirectoryInfo(next) : new FileInfo(next);
+            if (!info.Exists)
+                return Path.Combine([current, .. parts[i..]]);
+
+            // The final target may itself sit under a link, so it is resolved again from its root. A loop
+            // of links makes ResolveLinkTarget throw rather than recurse forever.
+            current = info.LinkTarget is null ? next : RealPath(info.ResolveLinkTarget(returnFinalTarget: true)!.FullName);
+        }
+        return current;
     }
 
     /// <summary>The icon the entry names, exactly as the setup engine carries it.</summary>

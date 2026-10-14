@@ -1,3 +1,4 @@
+using CcDirector.Core.Storage;
 using CcDirector.Setup.Engine;
 using Xunit;
 
@@ -154,6 +155,39 @@ public class LinuxDesktopEntryTests : IDisposable
     }
 
     [Fact]
+    public void Repair_ThroughASymbolicLinkInTheInstallPath_StillRecognisesTheInstall()
+    {
+        // The running path comes from /proc/self/exe with every link resolved, while the install path is
+        // composed from the home directory - which on Fedora Silverblue and its kind is a link to /var/home.
+        if (OperatingSystem.IsWindows()) return;
+        Directory.CreateDirectory(Path.GetDirectoryName(_exe)!);
+        File.WriteAllText(_exe, "a director");
+        var linkedHome = Path.Combine(_dir, "linked");
+        Directory.CreateSymbolicLink(linkedHome, _dir);
+        var throughTheLink = Path.Combine(linkedHome, "app", "cc-director");
+
+        var outcome = LinuxDesktopEntry.Repair(_exe, throughTheLink, _dataHome);
+
+        Assert.Equal(LinuxDesktopEntry.RepairOutcome.Rewritten, outcome);
+        Assert.Equal(_exe, LinuxDesktopEntry.RealPath(throughTheLink));
+    }
+
+    [Fact]
+    public void Repair_WithAStaleEntry_ReplacesIt()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(_exe)!);
+        File.WriteAllText(_exe, "a director");
+        LinuxDesktopEntry.Install(_exe, _dataHome);
+        var entryPath = LinuxDesktopEntry.EntryPath(_dataHome);
+        File.WriteAllText(entryPath, LinuxDesktopEntry.BuildEntry(Path.Combine(_dir, "old-place", "cc-director")));
+
+        var outcome = LinuxDesktopEntry.Repair(_exe, _exe, _dataHome);
+
+        Assert.Equal(LinuxDesktopEntry.RepairOutcome.Rewritten, outcome);
+        Assert.Equal(LinuxDesktopEntry.BuildEntry(_exe), File.ReadAllText(entryPath));
+    }
+
+    [Fact]
     public void Install_Twice_ReplacesTheEntry()
     {
         Directory.CreateDirectory(Path.GetDirectoryName(_exe)!);
@@ -205,5 +239,31 @@ public class LinuxDesktopEntryTests : IDisposable
         var shortcut = Assert.Single(plan, t => t.Kind == UninstallKind.Shortcut);
         Assert.Equal("App menu entry", shortcut.Description);
         Assert.EndsWith(Path.Combine("applications", "devthrottle.desktop"), shortcut.Path);
+    }
+}
+
+/// <summary>
+/// Which Director counts as installed. Kept apart because it moves the process-wide CC_DIRECTOR_ROOT setting.
+/// </summary>
+[Collection(MachineRootCollection.Name)]
+public sealed class LinuxDesktopEntryInstalledDirectorTests : IDisposable
+{
+    private const string RootVariable = "CC_DIRECTOR_ROOT";
+    private readonly string? _previousRoot = Environment.GetEnvironmentVariable(RootVariable);
+
+    public void Dispose() => Environment.SetEnvironmentVariable(RootVariable, _previousRoot);
+
+    [Fact]
+    public void InstalledDirector_IgnoresARigRoot()
+    {
+        // A Director placed in a test rig and started with CC_DIRECTOR_ROOT on that rig must not count as
+        // the machine's install, or it would write the throwaway rig into the person's app menu.
+        var rig = Path.Combine(Path.GetTempPath(), "cc-rig-" + Guid.NewGuid().ToString("N"));
+        Environment.SetEnvironmentVariable(RootVariable, rig);
+
+        var installed = LinuxDesktopEntry.InstalledDirector();
+
+        Assert.DoesNotContain(rig, installed);
+        Assert.Equal(new InstallLayout(CcStorage.DefaultRoot()).PathFor(ComponentRegistry.Director), installed);
     }
 }
