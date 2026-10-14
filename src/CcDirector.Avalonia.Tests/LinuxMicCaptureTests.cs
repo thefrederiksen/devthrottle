@@ -66,6 +66,79 @@ public sealed class LinuxMicCaptureTests
     }
 
     [Fact]
+    public void ParsePipeWireDump_ReadsTheExtraArrayPrintedWhenAClientLeftDuringTheDump()
+    {
+        // The real tail of a dump taken on devlinux while a second pw-dump ran (78 of 200 such dumps ended this
+        // way): the other client left, and pw-dump reported it in a second array. Parsed as one JSON value this
+        // failed the Speak dialog with "'[' is invalid after a single JSON value".
+        var snapshot = LinuxMicDevices.ParsePipeWireDump(PipeWireDump + """
+
+            [
+              {
+                "id": 102,
+                "info": null
+              }
+            ]
+
+            """);
+
+        Assert.Equal(
+            [
+                new LinuxMicSource(58, "alsa_input.pci-0000_08_00.3.analog-stereo", "Built-in Audio Analog Stereo"),
+                new LinuxMicSource(55, "alsa_input.usb-Yealink_UH36-00.analog-stereo", "Yealink UH36 Analog Stereo"),
+            ],
+            snapshot.Sources);
+        Assert.Equal("alsa_input.usb-Yealink_UH36-00.analog-stereo", snapshot.DefaultNodeName);
+    }
+
+    [Fact]
+    public void ParsePipeWireDump_DropsAnInputTheExtraArrayRemoves()
+    {
+        // The headset was unplugged while the dump ran.
+        var snapshot = LinuxMicDevices.ParsePipeWireDump(PipeWireDump + """
+            [ { "id": 55, "info": null } ]
+            """);
+
+        Assert.Equal(
+            [new LinuxMicSource(58, "alsa_input.pci-0000_08_00.3.analog-stereo", "Built-in Audio Analog Stereo")],
+            snapshot.Sources);
+    }
+
+    [Fact]
+    public void ParsePipeWireDump_TakesTheDefaultFromALaterArray()
+    {
+        // The default input was switched to the built-in microphone while the dump ran.
+        var snapshot = LinuxMicDevices.ParsePipeWireDump(PipeWireDump + """
+            [ { "id": 40, "type": "PipeWire:Interface:Metadata", "props": { "metadata.name": "default" },
+                "metadata": [
+                  { "subject": 0, "key": "default.audio.source", "type": "Spa:String:JSON", "value": { "name": "alsa_input.pci-0000_08_00.3.analog-stereo" } }
+                ] } ]
+            """);
+
+        Assert.Equal(2, snapshot.Sources.Count);
+        Assert.Equal("alsa_input.pci-0000_08_00.3.analog-stereo", snapshot.DefaultNodeName);
+        Assert.Equal("Built-in Audio Analog Stereo", snapshot.DefaultDescription);
+    }
+
+    [Fact]
+    public void ParsePipeWireDump_ListsAnInputAddedInALaterArray()
+    {
+        var snapshot = LinuxMicDevices.ParsePipeWireDump(PipeWireDump + """
+            [ { "id": 90, "type": "PipeWire:Interface:Node", "info": { "props": {
+                  "media.class": "Audio/Source", "node.name": "alsa_input.usb-C920-00.analog-stereo",
+                  "node.description": "HD Pro Webcam C920 Analog Stereo", "object.serial": 90 } } } ]
+            """);
+
+        Assert.Equal(
+            [
+                new LinuxMicSource(58, "alsa_input.pci-0000_08_00.3.analog-stereo", "Built-in Audio Analog Stereo"),
+                new LinuxMicSource(55, "alsa_input.usb-Yealink_UH36-00.analog-stereo", "Yealink UH36 Analog Stereo"),
+                new LinuxMicSource(90, "alsa_input.usb-C920-00.analog-stereo", "HD Pro Webcam C920 Analog Stereo"),
+            ],
+            snapshot.Sources);
+    }
+
+    [Fact]
     public void CaptureUnavailableMessage_OffersDictationOnWindowsAndOnLinuxWithARecorder()
     {
         Assert.Null(SpeakDialog.CaptureUnavailableMessage(isWindows: true, isLinux: false, linuxCaptureToolsPresent: false));
