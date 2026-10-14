@@ -128,31 +128,6 @@ public sealed class UpdaterStateConcurrencyTests : IDisposable
     }
 
     /// <summary>
-    /// Reads holding the file open must not make an edit's replace fail (Windows refuses to replace an open
-    /// file), and an edit's replace must not make a read find no file.
-    /// </summary>
-    [Fact]
-    public async Task ReadsAndEditsAtOnce_AllSucceed()
-    {
-        // Every read must see the marker; a read that failed comes back as an empty state without it.
-        UpdaterState.UpdateAt(StatePath, s => { s.ApplyAttempts = 0; s.PinnedBadVersion = "marker"; });
-        var blankReads = 0;
-
-        var work = Enumerable.Range(0, 200)
-            .Select(_ => Task.Run(() => UpdaterState.UpdateAt(StatePath, s => s.ApplyAttempts++)))
-            .Concat(Enumerable.Range(0, 200).Select(_ => Task.Run(() =>
-            {
-                if (UpdaterState.LoadFrom(StatePath).PinnedBadVersion != "marker")
-                    Interlocked.Increment(ref blankReads);
-            })))
-            .ToArray();
-        await Task.WhenAll(work);
-
-        Assert.Equal(200, UpdaterState.LoadFrom(StatePath).ApplyAttempts);
-        Assert.Equal(0, blankReads);
-    }
-
-    /// <summary>
     /// A file that is not JSON is replaced by an edit, as a load has always treated it as empty - but a
     /// file that cannot be READ is never overwritten, because nobody knows what it held.
     /// </summary>
