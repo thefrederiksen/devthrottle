@@ -1,0 +1,7 @@
+{
+  "mailbox": "email@devthrottle.com",
+  "folders": ["inbox", "junkemail", "archive"],
+  "ledger": "%LOCALAPPDATA%/cc-factory/devthrottle/outreach/ledger.json",
+  "bounceSubjectMarkers": ["Undeliverable", "Delivery Status Notification", "Mail delivery failed", "Returned mail"],
+  "firstRunLookbackHours": 24
+}

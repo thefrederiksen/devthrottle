@@ -1,0 +1,129 @@
+{
+ "excluded": [
+  ".git",
+  ".pytest_cache",
+  ".temp",
+  "__pycache__",
+  "qa",
+  "research",
+  "sample",
+  "state",
+  "tests",
+  "workshop"
+ ],
+ "factories": [
+  {
+   "definitionBytes": 215844,
+   "factory": "business-research",
+   "largestBytes": 103688,
+   "largestFile": "partner_desk.py",
+   "measured": "registered folder",
+   "wholeBytes": 743591
+  },
+  {
+   "definitionBytes": 88714,
+   "factory": "cc-factory",
+   "largestBytes": 18197,
+   "largestFile": "tools/worktree_cleaner/clean.py",
+   "measured": "registered folder",
+   "wholeBytes": 92693
+  },
+  {
+   "definitionBytes": 273393,
+   "factory": "clickfunnels",
+   "largestBytes": 28748,
+   "largestFile": "REVIEW-2.md",
+   "measured": "registered folder",
+   "wholeBytes": 623424
+  },
+  {
+   "definitionBytes": 180433,
+   "factory": "devthrottle",
+   "largestBytes": 27710,
+   "largestFile": "AUTONOMY.md",
+   "measured": "registered folder",
+   "wholeBytes": 203936
+  },
+  {
+   "definitionBytes": 18338,
+   "factory": "house",
+   "largestBytes": 4058,
+   "largestFile": "README.md",
+   "measured": "registered folder",
+   "wholeBytes": 18338
+  },
+  {
+   "definitionBytes": 1482,
+   "factory": "m-bpm-studio",
+   "largestBytes": 1482,
+   "largestFile": "agents/ceo.yaml",
+   "measured": "registered folder",
+   "wholeBytes": 1482
+  },
+  {
+   "definitionBytes": 1699,
+   "factory": "m-cube-pi",
+   "largestBytes": 1699,
+   "largestFile": "agents/ceo.yaml",
+   "measured": "registered folder",
+   "wholeBytes": 1699
+  },
+  {
+   "definitionBytes": 55271,
+   "factory": "machine-care",
+   "largestBytes": 36564,
+   "largestFile": "orphan_sweep.ps1",
+   "measured": "registered folder",
+   "wholeBytes": 64432
+  },
+  {
+   "definitionBytes": 746434,
+   "factory": "mindzie-ai-reports",
+   "largestBytes": 45026,
+   "largestFile": "validation/2026-10-04-product-for-hosting-partners.md",
+   "measured": "registered folder",
+   "wholeBytes": 2660290
+  },
+  {
+   "definitionBytes": 235892,
+   "factory": "mindzie-web",
+   "largestBytes": 25836,
+   "largestFile": "tools/weekly_usage/server_logs.py",
+   "measured": "registered folder",
+   "wholeBytes": 307400
+  },
+  {
+   "definitionBytes": 102132,
+   "factory": "money-saver",
+   "largestBytes": 25944,
+   "largestFile": "unit_costs.py",
+   "measured": "each seat's own brief folder",
+   "wholeBytes": 157526
+  },
+  {
+   "definitionBytes": 163036,
+   "factory": "tallyhand",
+   "largestBytes": 36824,
+   "largestFile": "BUSINESS-PLAN-draft1.md",
+   "measured": "registered folder",
+   "wholeBytes": 478853
+  },
+  {
+   "definitionBytes": 98582,
+   "factory": "warmforward",
+   "largestBytes": 13155,
+   "largestFile": "MONEY-PLAN.md",
+   "measured": "registered folder",
+   "wholeBytes": 101806
+  },
+  {
+   "definitionBytes": 1093463,
+   "factory": "website-business",
+   "largestBytes": 113403,
+   "largestFile": "cc_website_factory/record.py",
+   "measured": "the folder its triggers start in (registered folder not on this machine)",
+   "wholeBytes": 1165918005
+  }
+ ],
+ "measuredUtc": "2026-10-14T19:00:25+00:00"
+}

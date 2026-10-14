@@ -1,0 +1,67 @@
+Factory records measured on SOREN_NORTH at 2026-10-14T18:37:07+00:00, under %LOCALAPPDATA%
+
+cc-factory/devthrottle  [devthrottle]  225 files, 21.80 MB
+    journal              38 files    296.1 KB   largest    21.6 KB  onboarding/.../*.json
+    working document     44 files     2.09 MB   largest   626.5 KB  defects/.../*.json
+    attachment          143 files    19.43 MB   largest    1.03 MB  onboarding/.../*.png
+                         87 distinct by content    15.31 MB
+cc-factory/cfo  [cc-factory]  9 files, 40.6 KB
+    journal               4 files      6.4 KB   largest     2.2 KB  runs.log
+    working document      5 files     34.2 KB   largest    12.9 KB  register.json
+cc-factory-factory  [cc-factory]  1 files, 29 B
+    working document      1 files        29 B   largest       29 B  worktree-cleaner/.../*.json
+cc-factory/vercel-release  [(no factory: release tool lock log)]  2 files, 5.7 KB
+    journal               1 files      4.1 KB   largest     4.1 KB  releases.log
+    working document      1 files      1.5 KB   largest     1.5 KB  *.json
+business-research-factory  [business-research]  82 files, 1.52 MB
+    journal               7 files     27.4 KB   largest     5.0 KB  ceo/.../*.md
+    working document     74 files    934.9 KB   largest   144.9 KB  work/.../*.vtt
+    database              1 files    592.0 KB   largest   592.0 KB  *.db
+clickfunnels-factory  [clickfunnels]  869 files, 387.85 MB
+    journal              22 files    150.7 KB   largest    33.2 KB  prospects/.../*.jsonl
+    working document    165 files    386.3 KB   largest    73.9 KB  form-replies/.../*.html
+    database              1 files     88.0 KB   largest    88.0 KB  *.sqlite
+    attachment          318 files   215.97 MB   largest    2.69 MB  screens/.../*.png
+                        221 distinct by content   132.29 MB
+    scratch             363 files   171.27 MB   largest    9.16 MB  transcribe/.../*.wav
+mindzie-web-factory  [mindzie-web]  52 files, 3.72 MB
+    working document     52 files     3.72 MB   largest    1.66 MB  weekly-usage/.../*.json
+warmforward-factory  [warmforward]  10 files, 52.3 KB
+    journal               6 files     17.8 KB   largest     4.1 KB  journal/.../*.md
+    working document      4 files     34.5 KB   largest    19.0 KB  savings/.../*.md
+website-factory  [website-business]  231 files, 5.36 MB
+    journal               8 files     63.8 KB   largest    12.1 KB  ceo/.../*.md
+    working document    198 files     2.90 MB   largest    74.3 KB  dashboards/.../*.html
+    database              2 files     1.44 MB   largest    1.25 MB  *.db
+    attachment           23 files    973.7 KB   largest    93.2 KB  livetest-sites/.../*.jpg
+                         23 distinct by content    973.7 KB
+cc-director/factories  [money-saver]  0 files, 0 B
+
+Working documents over 256 KB:
+      626.5 KB  cc-factory/devthrottle/defects/.../*.json  [devthrottle]
+      448.6 KB  cc-factory/devthrottle/defects/.../*.json  [devthrottle]
+      424.7 KB  cc-factory/devthrottle/defects/.../*.json  [devthrottle]
+      312.4 KB  cc-factory/devthrottle/defects/.../*.json  [devthrottle]
+       1.66 MB  mindzie-web-factory/weekly-usage/.../*.json  [mindzie-web]
+      535.8 KB  mindzie-web-factory/cost-watch/.../*.json  [mindzie-web]
+
+Per factory (records = journals + working documents; databases, attachments and scratch apart):
+    clickfunnels                               869 files   387.85 MB  records   537.0 KB  databases    88.0 KB  attachments  215.97 MB
+    devthrottle                                225 files    21.80 MB  records    2.38 MB  databases        0 B  attachments   19.43 MB
+    website-business                           231 files     5.36 MB  records    2.96 MB  databases    1.44 MB  attachments   973.7 KB
+    mindzie-web                                 52 files     3.72 MB  records    3.72 MB  databases        0 B  attachments        0 B
+    business-research                           82 files     1.52 MB  records   962.3 KB  databases   592.0 KB  attachments        0 B
+    warmforward                                 10 files     52.3 KB  records    52.3 KB  databases        0 B  attachments        0 B
+    cc-factory                                  10 files     40.7 KB  records    40.7 KB  databases        0 B  attachments        0 B
+    (no factory: release tool lock log)          2 files      5.7 KB  records     5.7 KB  databases        0 B  attachments        0 B
+    money-saver                                  0 files         0 B  records        0 B  databases        0 B  attachments        0 B
+
+Every factory together, per kind:
+    journal              86 files    566.3 KB  median 4.9 KB, 90% 13.3 KB, 99% 29.4 KB, max 33.2 KB
+                      over 64.0 KB: 0, over 256.0 KB: 0
+    working document    544 files    10.07 MB  median 2.1 KB, 90% 31.4 KB, 99% 312.4 KB, max 1.66 MB
+                      over 256.0 KB: 6, over 1.00 MB: 1, over 2.00 MB: 0
+    attachment          484 files   236.35 MB  median 252.6 KB, 90% 1.52 MB, 99% 2.35 MB, max 2.69 MB
+                      over 1.00 MB: 71, over 2.00 MB: 16, over 3.00 MB: 0, over 5.00 MB: 0
+    database              4 files     2.11 MB  median 592.0 KB, 90% 1.25 MB, 99% 1.25 MB, max 1.25 MB
+    scratch             363 files   171.27 MB  median 812 B, 90% 8.5 KB, 99% 9.16 MB, max 9.16 MB
