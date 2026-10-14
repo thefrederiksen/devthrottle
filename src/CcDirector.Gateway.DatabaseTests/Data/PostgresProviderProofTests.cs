@@ -226,6 +226,11 @@ public sealed class PostgresProviderProofTests
             ("factory_seat_briefs", "Factory"),
             ("factory_seat_briefs", "Seat"),
             ("factory_seat_briefs", "State"),
+            // A factory's definition held on the Gateway (Factory Definition mission, phase 1). The factory is part
+            // of the primary key that keeps two writers from minting the same version, so the two providers must
+            // agree on what counts as the same factory; the state is the closed word the published read selects on.
+            ("factory_definition_versions", "Factory"),
+            ("factory_definition_versions", "State"),
             // The Fleet Manager's stop events (the Fleet Manager mission): the event kind selects and groups, the
             // session the event is about and the session it was delivered to are the two inbox reads, the verdict id
             // binds an event to the stop it was about, and the outcome id binds it to the record it was filed on -
