@@ -105,9 +105,10 @@
     QUARANTINED TESTS NEVER DECIDE A VERDICT. A test tagged [Trait("Gate", "Quarantine")] is excluded from
     EVERY run of this script - default, -Parked, -Gateway - by a filter added to each suite, and runs only
     under -Quarantine, whose result never fails anything. Quarantine is where a test goes that depends on
-    the machine (real git, real processes, the clock) while it is being rewritten against a fake or
-    deleted: out of the gate the same day, so the gate's red keeps meaning a code defect. It is a waiting
-    room, not a home - a quarantined test is fixed or deleted, and the trait is removed when it is fixed.
+    the machine (real git, real processes, the clock) on its way out: out of the gate the same day, so the
+    gate's red keeps meaning a code defect. It is a waiting room, not a home - under the owner's ruling of
+    13 October 2026 a quarantined test is deleted. What it covered, if that matters, is new work: a test
+    against a fake that cannot depend on the machine.
 
 .PARAMETER Quarantine
     Run ONLY the quarantined tests (trait Gate=Quarantine), in every suite including the parked Core.Tests
@@ -145,21 +146,23 @@
          each flaky test there five times. A test is cleared as DELETED when it is no longer collected AND
          no method of that name is left in any test project on main (a rename or a move is not a delete),
          or as FIXED when it passes all five AND a file declaring its class changed since the candidate.
-         A test that passes five times with nobody having changed it is NOT cleared: a flaky test that
-         happened to pass is still flaky. If main's tests do not build or do not pass against the
+         A test that passes five times with nobody having changed it is NOT cleared: a test that failed on
+         correct code and then happened to pass still does not work. DELETED is the expected route under
+         the ruling in step 3; FIXED remains as a mechanism, and is not how such a test is normally handled. If main's tests do not build or do not pass against the
          candidate's product code, the fix needed a product change: the candidate is not cleared, and the
          answer is a new candidate. All cleared: a clearance is recorded, exit 0.
       5. scripts\assert-gated.ps1 then accepts the candidate, once the commit the clearance was made at is
          on origin/main and the runs log shows this was the candidate's ONLY failed release gate (a second
          whole gate followed by a re-run of the better one is a re-roll). It is tagged AS IT IS. Nothing
-         re-runs the whole gate to learn whether a failure was flaky, and nothing accepts a flaky test
-         without fixing or deleting it.
+         re-runs the whole gate to learn whether a failure was FLAKY, and nothing accepts a FLAKY test
+         that is still there unchanged.
 
-    WHAT "FLAKY" DOES AND DOES NOT PROVE. It proves the test passed when run on its own, on the same
+    WHAT "FLAKY" DOES AND DOES NOT PROVE. FLAKY is the name of this verdict, its record and its exit code;
+    in prose, say the test failed on correct code. It proves the test passed when run on its own, on the same
     commit. A real product defect that only shows under the load of the full parallel suite - a race, an
-    ordering fault - can pass alone, and would then read as FLAKY. That is why a flaky test is never
-    accepted as it is: it must be fixed (and the fix must pass against the candidate's own product code)
-    or deleted, and whoever fixes it is looking straight at the place the defect would be. A suite that
+    ordering fault - can pass alone, and would then read as FLAKY. That is why such a test is never
+    accepted as it is: it is deleted, and whoever deletes it reads it first, because that is the place the
+    defect would be. If it shows a real product defect, the product is fixed, and that is a new candidate. A suite that
     exited nonzero without naming a failed test cannot be re-run test by test and is refused.
 
     A re-run that hangs or crashes is named the same way as in the release gate (hang and crash
@@ -1086,7 +1089,7 @@ try {
                 foreach ($e in $stillFailing) { Write-Host "  $($e.suite)  $($e.test)" }
                 if ($flaky.Count -gt 0) {
                     Write-Host ""
-                    Write-Host "And these failed once and passed on the re-run - FLAKY, to be fixed or deleted today as well:"
+                    Write-Host "And these failed once and passed on the re-run - FLAKY, to be deleted today as well, unless one shows a product defect:"
                     foreach ($e in $flaky) { Write-Host "  $($e.suite)  $($e.test)" }
                 }
                 Stop-Gate 1 "FAILED"
@@ -1095,7 +1098,7 @@ try {
             Write-Host "these TESTS are defective:"
             foreach ($e in $flaky) { Write-Host "  $($e.suite)  $($e.test)" }
             Write-Host ""
-            Write-Host "This is still a failure. Fix or delete each test above TODAY, in a test-only pull request on main."
+            Write-Host "This is still a failure. Delete each test above TODAY, in a test-only pull request on main - unless one shows a product defect, and then fix the product and cut a new candidate."
             $isReleaseGate = ([bool] $sourceRun.parked) -and [string]::IsNullOrEmpty([string] $sourceRun.filter)
             if ($isReleaseGate) {
                 $gateRecord = [ordered]@{}
