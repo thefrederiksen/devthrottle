@@ -20,10 +20,10 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="2.*" />
     <!-- Issue #1176 (Phase 1a): the SignalR CLIENT (a separate package from the server, which ships in
          the AspNetCore shared framework) so the integration harness can dial the DirectorHub end to end. -->
-    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.9" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.13" />
     <!-- Gateway Cleanup mission: MessagePack so the mechanism-proof test client speaks the same binary
          tunnel protocol the real Director does. 10.0.9 = the patched servicing release. -->
-    <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.MessagePack" Version="10.0.9" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.MessagePack" Version="10.0.13" />
   </ItemGroup>
 
   <ItemGroup>

@@ -16,12 +16,12 @@
          and connecting out is the entire architecture the mission moved the Director to. -->
     <!-- Issue #1176 (Phase 1a): the SignalR CLIENT (separate from the server in the shared framework)
          so the Director can dial the Gateway's DirectorHub and push its session state. -->
-    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.9" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.13" />
     <!-- Gateway Cleanup mission: MessagePack for the Director's tunnel connection - binary framing so a
          full-cap 48KB up-stream byte[] frame stays ~48KB on the wire (JSON base64 inflates it past the hub
          receive limit and disconnects). 10.0.9 = the patched servicing release (10.0.0 carried a high-severity
          advisory that the repo's NuGet audit blocks). -->
-    <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.MessagePack" Version="10.0.9" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.MessagePack" Version="10.0.13" />
   </ItemGroup>
 
   <ItemGroup>
