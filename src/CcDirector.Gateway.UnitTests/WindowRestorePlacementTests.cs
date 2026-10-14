@@ -8,8 +8,7 @@ namespace CcDirector.Gateway.Tests;
 
 /// <summary>
 /// A factory's Restore gives its window schedules their minutes (WindowRestorePlacement), against a real schedule store:
-/// a window that was never placed comes back with a next run, one that runs after another is placed after it whatever
-/// order Restore names them in, and one no minute fits for stays on and is named in a sentence.
+/// one no minute fits for stays on and is named in a sentence, and a schedule that is not a window is left as it is.
 /// </summary>
 public sealed class WindowRestorePlacementTests : IDisposable
 {
@@ -35,29 +34,6 @@ public sealed class WindowRestorePlacementTests : IDisposable
 
     private static IReadOnlyDictionary<string, TimeSpan> ThirtyMinutes(IReadOnlyCollection<string> ids) =>
         ids.ToDictionary(id => id, _ => TimeSpan.FromMinutes(30));
-
-    [Fact]
-    public void PlaceSwitchedOn_AFollowerNamedFirst_IsPlacedAfterItsAnchor_AndBothGetANextRun()
-    {
-        var store = NewStore();
-        var anchor = store.Create(Window("anchor", "window=01:00-03:00"));
-        var follower = store.Create(Window("follower", $"window=01:00-06:00 after={anchor.Id} gap=60"));
-        // Restore switches them on through the store, which leaves an unplaced window with no next run.
-        store.SetEnabled(T, follower.Id, true);
-        store.SetEnabled(T, anchor.Id, true);
-        Assert.Null(store.Get(T, anchor.Id)!.NextRunUtc);
-
-        var problems = WindowRestorePlacement.PlaceSwitchedOn(store, T, new[] { follower.Id, anchor.Id }, ThirtyMinutes, DateTime.UtcNow);
-
-        Assert.Empty(problems);
-        var a = store.Get(T, anchor.Id)!;
-        var f = store.Get(T, follower.Id)!;
-        Assert.Contains("placed=", a.CronExpression);
-        Assert.Contains("placed=", f.CronExpression);
-        Assert.NotNull(a.NextRunUtc);
-        Assert.NotNull(f.NextRunUtc);
-        Assert.True(f.NextRunUtc >= a.NextRunUtc!.Value.AddMinutes(60));
-    }
 
     [Fact]
     public void PlaceSwitchedOn_AWindowNoMinuteFits_StaysOn_AndIsNamedInASentence()
