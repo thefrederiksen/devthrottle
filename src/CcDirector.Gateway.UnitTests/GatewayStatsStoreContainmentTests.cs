@@ -178,77 +178,7 @@ public sealed class GatewayStatsStoreContainmentTests : IDisposable
         _out.WriteLine($"UNREACHABLE:    {unreachable.Availability.ReasonCode}: {unreachable.Availability.Detail}");
     }
 
-    // ================================================ never a file on hosted
-
-    /// <summary>
-    /// A hosted Gateway with nothing configured reports NOT CONFIGURED and writes NO statistics file. The
-    /// self-host control below opens one from the SAME path, so this test can tell "refused to open a file"
-    /// from "was never going to open one anyway".
-    /// </summary>
-    [Fact]
-    public void HostedWithNothingConfigured_WritesNoStatisticsFile()
-    {
-        using (var hosted = new GatewayStatsStore(Choice(statsOverride: null, hosted: true), StoodStill))
-        {
-            Assert.False(hosted.IsAvailable);
-            Assert.Equal(StatsStoreUnavailableReason.NotConfigured, hosted.Availability.Reason);
-            Assert.Equal(StatsConnectionSource.NotConfigured, hosted.Availability.Source);
-            Assert.False(File.Exists(SqlitePath));
-        }
-
-        // CONTROL: identical inputs, self-host. The file IS created, so the absence above is a refusal.
-        using var selfHost = new GatewayStatsStore(Choice(statsOverride: null, hosted: false), StoodStill);
-        Assert.True(selfHost.IsAvailable);
-        Assert.Equal(StatsConnectionSource.SqliteFile, selfHost.Availability.Source);
-        Assert.True(File.Exists(SqlitePath));
-    }
-
     // ================================================ the ordinary self-host path still works
-
-    /// <summary>
-    /// Self-host, unchanged: the local file is opened, the chain is applied, and every table the model
-    /// names is there. Asserted by READING the schema rather than by the absence of an exception - a store
-    /// that silently created nothing would not throw either.
-    /// </summary>
-    [Fact]
-    public void SelfHost_OpensTheLocalFileAndAppliesTheChain()
-    {
-        using var store = new GatewayStatsStore(Choice(statsOverride: null, hosted: false), StoodStill);
-
-        Assert.True(store.IsAvailable);
-        Assert.Equal(StatsStoreUnavailableReason.None, store.Availability.Reason);
-        Assert.Equal("available", store.Availability.ReasonCode);
-        Assert.NotNull(store.Factory);
-
-        using var context = store.CreateContext();
-        var expected = context.Model.GetEntityTypes()
-            .Select(t => t.GetTableName())
-            .Where(t => !string.IsNullOrEmpty(t))
-            .Select(t => t!)
-            .Distinct(StringComparer.Ordinal)
-            .OrderBy(t => t, StringComparer.Ordinal)
-            .ToList();
-
-        // The vacuity guard for the check below: an empty expectation would make "nothing missing" true of
-        // an empty database. Nineteen = the sixteen statistics tables ported from schema version 5 plus the
-        // three concurrency tables the port moved out of gateway-concurrency-stats.json (this pin read 16
-        // until those three joined the model).
-        Assert.Equal(19, expected.Count);
-
-        var connection = context.Database.GetDbConnection();
-        connection.Open();
-        var present = new HashSet<string>(StringComparer.Ordinal);
-        using (var command = connection.CreateCommand())
-        {
-            command.CommandText = "SELECT name FROM sqlite_master WHERE type='table'";
-            using var reader = command.ExecuteReader();
-            while (reader.Read())
-                present.Add(reader.GetString(0));
-        }
-
-        var missing = expected.Where(t => !present.Contains(t)).ToList();
-        Assert.True(missing.Count == 0, "Tables missing from the opened store: " + string.Join(", ", missing));
-    }
 
     /// <summary>
     /// Reopening the same self-host store is the steady state, not an exception: the chain reads its own

@@ -19,6 +19,9 @@ OUT = os.path.join(ROOT, "apps", "cockpit", "src", "licenses", "fixtures.ts")
 text = io.open(DOC, encoding="utf-8").read()
 blocks = re.findall(r"```json\n(.*?)\n```", text, flags=re.S)
 
+REFUSAL = "{ code: string; error: string }"
+SIGN_IN_FIELDS = "LicenseOverviewSignInFields"
+
 # (constant, its type, the comment above it, the key that proves it is the block expected, a fragment to wrap)
 WANTED = [
     ("OVERVIEW", "LicenseOverview", "GET /gateway/licenses: three accounts (in use, sign-in expires soon, at limit) on two machines.", "machines", False),
@@ -34,22 +37,52 @@ WANTED = [
     ("RENEWAL_FAILED_FIELDS", 'Pick<LicenseHolding, "renewalFailedAtUtc" | "renewalFailedText" | "renewalFailedTone">', "The three fields of a holding whose last sign-in renewal failed.", "renewalFailedText", True),
     (None, None, None, "accountEmail", False),  # the body of Switch now
     ("SWITCH_NOW_ACCEPTED", "LicenseSwitchNowResult", "POST /gateway/licenses/switch-now, accepted: one machine, whose switch waits for its Director.", "switches", False),
-    ("SWITCH_NOW_REFUSED", "{ code: string; error: string }", "POST /gateway/licenses/switch-now, refused 409.", "error", False),
-    ("RENEWAL_OWNER_ONLY", "{ code: string; error: string }", "The renewal date, asked by a caller that is not the owner's own signed-in phone or browser: 403.", "error", False),
-    ("SWITCH_NOW_OWNER_ONLY", "{ code: string; error: string }", "Switch now, asked by the same caller: 403, with its own sentence.", "error", False),
+    ("SWITCH_NOW_REFUSED", REFUSAL, "POST /gateway/licenses/switch-now, refused 409.", "error", False),
+    ("RENEWAL_OWNER_ONLY", REFUSAL, "The renewal date, asked by a caller that is not the owner's own signed-in phone or browser: 403.", "error", False),
+    ("SWITCH_NOW_OWNER_ONLY", REFUSAL, "Switch now, asked by the same caller: 403, with its own sentence.", "error", False),
+    # ---- section 7: sign-ins ----
+    ("APPROVER_SET_OWNER_ONLY", REFUSAL, "Setting an approver, asked by a caller that is not the owner's own signed-in phone or browser: 403.", "error", False),
+    ("APPROVER_REMOVE_OWNER_ONLY", REFUSAL, "Removing an approver, asked by the same caller: 403, with its own sentence.", "error", False),
+    ("SIGN_IN_OWNER_ONLY", REFUSAL, "Add a spare or Renew now, asked by the same caller: 403, with its own sentence.", "error", False),
+    ("APPROVERS_EMPTY", "LicenseApprovers", "GET /gateway/licenses/approvers with no approver set for any account.", "approvers", False),
+    ("APPROVERS", "LicenseApprovers", "GET /gateway/licenses/approvers with two set: one whose Director is connected, one on a machine that never reported.", "approvers", False),
+    ("APPROVER_SET", "LicenseApprover", "PUT /gateway/licenses/approvers, the approver as stored.", "browserProfile", False),
+    ("APPROVER_REFUSED", REFUSAL, "PUT /gateway/licenses/approvers, refused 400: the browser profile is not a name.", "error", False),
+    ("APPROVER_REMOVED", "LicenseApproverRemoved", "DELETE /gateway/licenses/approvers, one removed.", "removed", False),
+    ("SIGN_IN_STARTED", "LicenseSignInStarted", "POST /gateway/licenses/sign-ins/renew, answered 202: the sign-in's row of the log as it stands.", "entry", False),
+    ("SIGN_IN_RUNNING", REFUSAL, "A sign-in refused 409: one for that machine and account has not ended.", "error", False),
+    ("SIGN_IN_DIRECTOR_OFFLINE", REFUSAL, "A sign-in refused 409: the machine's Director is not connected.", "error", False),
+    ("SIGN_IN_ALREADY_HELD", REFUSAL, "Add a spare refused 409: the machine holds the account.", "error", False),
+    ("SIGN_IN_UNKNOWN_MACHINE", REFUSAL, "A sign-in refused 404: no machine with that identifier has reported.", "error", False),
+    ("SIGN_IN_LOG", "LicenseLogPage", "GET /gateway/licenses/log with three sign-ins: one running, one that signed in, one that failed.", "entries", False),
+    ("OVERVIEW_SIGN_IN_FIELDS", SIGN_IN_FIELDS, "The sign-in fields of GET /gateway/licenses, and only those, while a renewal was running on the-windows-machine and the Director on the-mac was not connected. It is another picture than OVERVIEW: there the-mac is on account C.", "machines", False),
 ]
 
 if len(blocks) != len(WANTED):
     sys.exit(f"the document holds {len(blocks)} examples, {len(WANTED)} were expected - nothing was written")
 
+values = {}
+for block, (name, kind, comment, key, fragment) in zip(blocks, WANTED):
+    value = json.loads("{" + block + "}" if fragment else block)
+    if key not in value:
+        sys.exit(f"an example is not the one expected: it has no '{key}' ({block[:60]}...) - nothing was written")
+    if name is not None:
+        values[name] = value
+
+
 out = [
     "import type {",
     "  LicenseAccount,",
+    "  LicenseApprover,",
+    "  LicenseApproverRemoved,",
+    "  LicenseApprovers,",
     "  LicenseForecast,",
     "  LicenseHolding,",
     "  LicenseLogPage,",
+    "  LicenseMachine,",
     "  LicenseOverview,",
     "  LicenseRenewalResult,",
+    "  LicenseSignInStarted,",
     "  LicenseSwitchNowResult,",
     '} from "@devthrottle/client-core/licenses/licensesClient";',
     "",
@@ -58,16 +91,27 @@ out = [
     "// store filled with the reports of its machines and accounts. A test that draws these draws what the Gateway",
     "// sends. This file is written by missions/license-switching/phase-3/copy_fixtures.py and is not edited by hand:",
     "// fixtures.test.ts fails when a constant here differs from its example in the document. Run the script again.",
+    "//",
+    "// In OVERVIEW no approver is set and no Director is connected, so no sign-in is offered anywhere and each sentence",
+    "// says why. A test of a sign-in lays OVERVIEW_SIGN_IN_FIELDS, the Gateway's example of those fields, over it.",
+    "",
+    "/** The sign-in fields of an overview, as section 7.6 of the document shows them: these fields and no others. */",
+    "export interface LicenseOverviewSignInFields {",
+    '  accounts: Array<Pick<LicenseAccount, "accountEmail" | "approver" | "approverText" | "approverTone">>;',
+    "  machines: Array<",
+    '    Pick<LicenseMachine, "machineName" | "canAddSpare" | "addSpareText" | "signInsInProgress"> & {',
+    '      active: Pick<LicenseHolding, "accountEmail" | "canRenewNow" | "renewNowText"> | null;',
+    '      spares: Array<Pick<LicenseHolding, "accountEmail" | "canRenewNow" | "renewNowText">>;',
+    "    }",
+    "  >;",
+    "}",
     "",
 ]
-for block, (name, kind, comment, key, fragment) in zip(blocks, WANTED):
-    value = json.loads("{" + block + "}" if fragment else block)
-    if key not in value:
-        sys.exit(f"an example is not the one expected: it has no '{key}' ({block[:60]}...) - nothing was written")
+for name, kind, comment, key, fragment in WANTED:
     if name is None:
         continue
     out.append(f"/** {comment} */")
-    out.append(f"export const {name}: {kind} = {json.dumps(value, indent=2, ensure_ascii=True)};")
+    out.append(f"export const {name}: {kind} = {json.dumps(values[name], indent=2, ensure_ascii=True)};")
     out.append("")
 out += [
     "/** A fresh copy of a fixture, so a test may change it without changing it for the next test. */",

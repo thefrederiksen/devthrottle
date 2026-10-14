@@ -11,7 +11,7 @@ import { LICENSES_SURFACE, LocalTime, TonePill, WindowBar, toneClass } from "./l
 
 // One Claude account as a card: its status, the day its subscription is billed again and the control that sets it,
 // its two usage windows as bars, what the Gateway says about it, the sign-in each machine holds for it and when that
-// sign-in expires, and Switch now.
+// sign-in expires, who approves a sign-in for it, Renew now on each sign-in, and Switch now.
 
 interface HeldOn {
   machine: LicenseMachine;
@@ -38,6 +38,8 @@ export interface LicenseAccountCardProps {
   onSwitchNow: (account: LicenseAccount) => void;
   /** Store the day the subscription is billed again (yyyy-MM-dd), or clear it with null. Throws on a refusal. */
   onSetRenewalDate: (accountEmail: string, renewsOn: string | null) => Promise<void>;
+  /** Ask to renew the sign-in `holding` that `machine` holds. Nothing is sent until it is confirmed. */
+  onRenewNow: (machine: LicenseMachine, holding: LicenseHolding) => void;
 }
 
 /**
@@ -100,7 +102,7 @@ function RenewalDateEditor({
   );
 }
 
-export function LicenseAccountCard({ account, machines, forecast, onSwitchNow, onSetRenewalDate }: LicenseAccountCardProps) {
+export function LicenseAccountCard({ account, machines, forecast, onSwitchNow, onSetRenewalDate, onRenewNow }: LicenseAccountCardProps) {
   const held = heldOn(account.accountEmail, machines);
   const [editingRenewal, setEditingRenewal] = useState(false);
   return (
@@ -160,6 +162,10 @@ export function LicenseAccountCard({ account, machines, forecast, onSwitchNow, o
           {account.readErrorText}
         </p>
       )}
+      {/* Who approves a sign-in for this account, or that nobody is set to: the Gateway's sentence in its tone. */}
+      <p className={`lic-card-line ${toneClass(account.approverTone)}`} data-testid="lic-account-approver">
+        {account.approverText}
+      </p>
 
       {held.length > 0 && (
         <ul className="lic-holdings" aria-label={`Sign-ins for ${account.accountEmail}`}>
@@ -182,6 +188,15 @@ export function LicenseAccountCard({ account, machines, forecast, onSwitchNow, o
                   {holding.renewalFailedText}
                 </span>
               )}
+              {/* Renew now is offered when the Gateway says so; its sentence says what it does, or why it is not. */}
+              <span className="lic-holding-renew">
+                {holding.canRenewNow && (
+                  <Button variant="ghost" onClick={() => onRenewNow(machine, holding)}>
+                    Renew now
+                  </Button>
+                )}
+                <span data-testid="lic-holding-renew-text">{holding.renewNowText}</span>
+              </span>
             </li>
           ))}
         </ul>

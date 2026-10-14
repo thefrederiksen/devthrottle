@@ -33,7 +33,7 @@ public sealed class FactoryFloorFoldTests
         Rows = f.Seats.Select(s => new FactorySeatRowDto
         {
             SeatId = s.Id, Name = s.Name, Role = s.Role,
-            WhenText = s.Id == "scout" ? "Weekdays 02:00" : "Not scheduled",
+            WhenText = s.Id == "scout" ? "Weekdays 02:00" : "Talk only",
             LastRunText = s.Id == "scout" ? "Today 02:05 - failed" : "Not run yet",
             LastRunTone = s.Id == "scout" ? FactoryTone.Red : FactoryTone.Idle,
         }).ToList(),

@@ -431,6 +431,7 @@ public static class SessionKeyGuard
             if (IsScheduleRoute(verb, s)) return true;
             if (IsTriggerRoute(verb, s)) return true;
             if (IsFactoryMemoryRoute(verb, s)) return true;
+            if (IsFactoryBriefRoute(verb, s)) return true;
 
             // What is installed on another machine, and which files it can see - the "start something over
             // there" discovery pair. Reads only; the start itself is a POST below.
@@ -624,6 +625,7 @@ public static class SessionKeyGuard
             if (IsScheduleRoute(verb, s)) return true;
             if (IsTriggerRoute(verb, s)) return true;
             if (IsFactoryMemoryRoute(verb, s)) return true;
+            if (IsFactoryBriefRoute(verb, s)) return true;
 
             // Create, start, stop, sign in to or rename an automation browser.
             if (IsBrowserRoute(verb, s)) return true;
@@ -650,6 +652,7 @@ public static class SessionKeyGuard
             if (IsScheduleRoute(verb, s)) return true;
             if (IsTriggerRoute(verb, s)) return true;
             if (IsFactoryMemoryRoute(verb, s)) return true;
+            if (IsFactoryBriefRoute(verb, s)) return true;
 
             // Write a workspace - including writing the drain's judgments and, afterwards, what the
             // restart actually produced, back onto a captured one.
@@ -1165,6 +1168,39 @@ public static class SessionKeyGuard
         return false;
     }
 
+    /// <summary>
+    /// A SEAT'S BRIEF, HELD ON THE GATEWAY (Factory Seats mission, phase 2a). Allowed to every session key, and safe
+    /// to be: the route itself lets through only a session of the factory named in the path
+    /// (<c>FactoryNaming.TryAct</c>, the gate a factory's schedules and triggers already pass), so a session key
+    /// cannot reach another factory's brief here.
+    ///
+    /// PUBLISH and RESTORE are allowed THROUGH THIS GUARD and refused BY THE ROUTE, deliberately, as a factory
+    /// memory restore is: the guard can only say "not for a session key", and the route says "only a person
+    /// publishes; save a draft and the owner publishes it", which tells an agent what to do next.
+    /// </summary>
+    private static bool IsFactoryBriefRoute(string verb, string[] s)
+    {
+        if (s.Length < 3 || s[0] != "factory-briefs") return false;
+
+        // /factory-briefs/{factory}/{seat} - the published brief.
+        if (s.Length == 3) return verb is "GET" or "HEAD";
+
+        if (s.Length == 4)
+        {
+            // /draft - read the newest version, or save the next one.
+            if (s[3] == "draft") return verb is "GET" or "HEAD" or "PUT";
+            // /history - one page of the versions, without their text.
+            if (s[3] == "history") return verb is "GET" or "HEAD";
+            // /publish and /restore - refused by the route for a session, in words.
+            if (s[3] is "publish" or "restore") return verb == "POST";
+        }
+
+        // /versions/{version} - one version, with its text.
+        if (s.Length == 5 && s[3] == "versions") return verb is "GET" or "HEAD";
+
+        return false;
+    }
+
     private static bool IsScheduleRoute(string verb, string[] s)
     {
         // /cron/load - each machine's next 24 hours (the load strip), which `schedule load` reads.
@@ -1193,10 +1229,11 @@ public static class SessionKeyGuard
         if (s.Length == 3) return verb is "GET" or "HEAD" or "PUT" or "DELETE";
 
         // /cron/jobs/{id}/run - run it now. /cron/jobs/{id}/runs - its history. /cron/jobs/{id}/plan - a random
-        // schedule's planned fires (#3622).
+        // schedule's planned fires (#3622). /cron/jobs/{id}/unlink - take it off its factory seat (`schedule unlink`);
+        // the route limits a factory's schedule to that factory's own sessions, the same as editing or pausing it.
         if (s.Length == 4)
         {
-            if (s[3] == "run") return verb == "POST";
+            if (s[3] is "run" or "unlink") return verb == "POST";
             if (s[3] is "runs" or "plan") return verb is "GET" or "HEAD";
         }
 

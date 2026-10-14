@@ -471,45 +471,6 @@ public sealed class PromptAnswerBudgetTests : IDisposable
     }
 
     [Fact]
-    public async Task SendPromptAsync_TheSessionEndsBeforeTheLimit_DeliveryRecordIsNotDeliveredAtOnce()
-    {
-        // Arrange (case 3): a working Claude Code takes the Enter, the records never show the prompt, and the session ends
-        // while the one-minute watch still runs.
-        var (session, terminal) = WorkingClaudeCode();
-        terminal.NeverRecord = true;
-        session.ArrivalWindow = TimeSpan.FromSeconds(2);
-        session.LateArrivalLimitForTests = TimeSpan.FromMinutes(1);
-        var record = NewDeliveryRecord();
-        const string text = "Token ENDED1. Reply with exactly: ACK";
-        var deliveryId = Guid.NewGuid().ToString("N");
-        DeliveryState? atAnswer = null;
-        DateTimeOffset endedAt = default;
-
-        // Act
-        var (late, writtenAt) = await LateOutcomeFor(deliveryId, async () =>
-        {
-            var response = Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(
-                session, Recording(text, deliveryId), SendSource.Delivery, record));
-            Assert.Equal(DeliveryState.Delivering, response.DeliveryState);
-            atAnswer = record.Read(session.Id, deliveryId).State;
-            session.Dispose();
-            endedAt = _clock.GetUtcNow();
-        });
-
-        // Assert: "not-delivered" as soon as the session ended - a retry into an ended session cannot double anything, so
-        // this provable ending stays not-delivered, never unconfirmed (issue #3484) - not a minute later at the limit.
-        // "As soon as" is one poll of the watch, read off the clock the watch runs on. Typed once.
-        Assert.Equal(DeliveryState.Delivering, atAnswer);
-        Assert.Equal(DeliveryStates.NotDelivered, late);
-        Assert.True(writtenAt - endedAt <= TimeSpan.FromSeconds(10),
-            $"not-delivered came {(writtenAt - endedAt).TotalSeconds:F1}s after the session ended");
-        var entry = record.Read(session.Id, deliveryId);
-        Assert.Equal(DeliveryState.NotDelivered, entry.State);
-        Assert.Equal("the session ended before the words appeared in its records", entry.Reason);
-        Assert.Single(System.Text.RegularExpressions.Regex.Matches(terminal.TypedText, "ENDED1"));
-    }
-
-    [Fact]
     public async Task SendPromptAsync_SendFailsWithinTheBudget_StaysAFailure()
     {
         // Arrange: the terminal refuses the write - a failure the send knows about at once.

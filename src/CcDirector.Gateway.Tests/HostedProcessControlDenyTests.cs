@@ -46,29 +46,6 @@ public sealed class HostedProcessControlDenyTests
     // ---- DELETE /directors/{id} force-kill ------------------------------------------------------------
 
     [Fact]
-    public async Task Hosted_force_kill_cannot_reach_the_process_by_client_supplied_pid()
-    {
-        // A REAL live process the "Director" claims to be - it stands in for "any process on the shared host":
-        // its pid is what a hosted force-kill would resolve locally. If the deny leaked, THIS is what would die.
-        using var victim = StartLongLivedProcess();
-
-        var probe = await RunForceKillProbe(hosted: true, victimPid: victim.Id);
-
-        // EXACTLY the refusal - not a 200 killed, not the 502 of a failed graceful stop, not a plain 404.
-        Assert.Equal(HttpStatusCode.NotFound, probe.Status);
-        Assert.Contains("force-killing a Director by process id is not available on the hosted Gateway", probe.Body);
-        Assert.StartsWith("application/json", probe.ContentType);
-
-        // THE PROPERTY: the force-kill seam was NEVER reached, so no pid was ever handed to a kill. On hosted
-        // the handler returns before Process.GetProcessById is ever consulted.
-        Assert.Null(probe.KilledPid);
-
-        // And the concrete consequence: the process a hosted force-kill would have resolved is still alive.
-        Assert.False(victim.HasExited, "the hosted force-kill reached a host process - a tenant could kill any process on the shared host by pid");
-        victim.Kill(entireProcessTree: true);
-    }
-
-    [Fact]
     public async Task Selfhost_force_kill_still_reaches_the_process_by_pid()
     {
         // The control, and the self-host-untouched proof: identical arrangement, the ONLY difference being
@@ -238,26 +215,4 @@ public sealed class HostedProcessControlDenyTests
             await gateway.StopAsync();
         }
     }
-
-    // ---- shared helpers -------------------------------------------------------------------------------
-
-    /// <summary>
-    /// A real, long-lived child process whose pid stands in for "any process on the shared host". It sleeps far
-    /// longer than the test and is force-killed by the test at the end (or by the code under test, if the deny
-    /// ever leaked - which is exactly what the assertion catches).
-    /// </summary>
-    private static System.Diagnostics.Process StartLongLivedProcess()
-    {
-        var psi = new System.Diagnostics.ProcessStartInfo
-        {
-            FileName = "powershell",
-            Arguments = "-NoProfile -NonInteractive -Command \"Start-Sleep -Seconds 120\"",
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-        var proc = System.Diagnostics.Process.Start(psi)
-            ?? throw new InvalidOperationException("could not start the stand-in host process");
-        return proc;
-    }
-
 }

@@ -1730,7 +1730,7 @@ USAGE: cc-devthrottle factory status [--factory ID] [--json]
 ```
 
 Without `--factory`, one line per registered factory: its id, its status word - exactly one of `FAILING`,
-`NEEDS YOU`, `PAUSED`, `RUNNING`, worst first - what is waiting on the owner, and the line shown under the
+`NEEDS YOU`, `PAUSED`, `RUNNING`, `TALK ONLY`, worst first - what is waiting on the owner, and the line shown under the
 word. With `--factory`, that factory's page: the word, the reason, how many items wait on the owner, then
 every failing item and every waiting item, each with its row id first, who wrote it and when, its subject
 and its words. A failing item with `(no row)` is a schedule that could not start its run; it is not a row,
@@ -1862,7 +1862,17 @@ registered - so register the seat first, then create its schedule:
 cc-devthrottle factory register --manifest factory.json          the seat is in the manifest
 cc-devthrottle schedule create --name "..." ... --factory devthrottle --seat mail-desk
 cc-devthrottle schedule link cj_abc123 --factory devthrottle --seat mail-desk     an existing schedule
+cc-devthrottle schedule unlink cj_abc123                                          take it off its seat again
 ```
+
+**A seat may have no schedule (the owner, 13 October 2026).** `schedule unlink <id>` takes a schedule off
+its seat. The schedule stays on the Gateway, switched on or off as it was, and belongs to no factory: one
+that is switched on keeps running at its times as a plain schedule, so the command offers `schedule
+disable` first. A seat left with no schedule and no trigger reads "Talk only", and a factory nothing is
+scheduled for reads TALK ONLY, not PAUSED. Only a person or a session of that factory may take a schedule
+off, the same rule as pausing it; anyone else is refused with the Gateway's own sentence and nothing
+changes. A schedule that is on no seat is refused rather than answered as done. `--json` prints what the
+Gateway did (`text`, `factory`, `seat`) with the schedule as it is now (`job`).
 
 An unknown factory or seat, a factory without a seat, or a seat without a factory is refused with the
 fix, and nothing is stored. The seat's schedule list that `list` and the Factories screen show is the
@@ -1915,6 +1925,62 @@ and `delete` keeps current. A note this session never read is sent as version 0 
 exist yet"). When another session wrote the note since, nothing is written: the command exits 1, prints
 the current text, says another writer got there first, and records that version - so the next `set`,
 carrying the merged text, goes through. Without the folder, pass `--expected-version`.
+
+#### Factory brief
+
+A seat's brief held on the Gateway (Factory Seats mission, phase 2a). A brief is what a seat of a factory is
+told to do. The Gateway keeps every version of it, for a registered seat of a registered factory. A seat
+whose brief is still a file in a repository has none here: `get` says so and exits non-zero.
+
+```
+USAGE: cc-devthrottle factory brief COMMAND [ARGS]...
+
+COMMANDS:
+  get --factory ID --seat ID [--draft | --version N]          the published brief; --draft for the newest version;
+                                                              --version for one version by its number
+  history --factory ID --seat ID [--count N] [--before N]     one page of the versions, newest first, without their text
+  set --factory ID --seat ID --file PATH [--expected-version N]
+                                                              save the file as a new draft (PATH of - reads standard input)
+  publish --factory ID --seat ID --version N                  publish one version - a person only
+  restore --factory ID --seat ID --version N [--expected-version N]
+                                                              bring an older version back as the newest, published - a person only
+```
+
+`--json` is available on every command, and is the way to get a brief's exact text: plain output prints
+anything that is not printable ASCII as an escape.
+
+**Who may use them.** A person, or a session of that factory. A session of another factory, or of none, is
+refused: a brief decides what a session of the factory is told to do.
+
+**Draft, then published.** `set` adds a draft version and changes nothing a talk or a run is given. A person
+publishes one version, and the published brief is the highest version that is published. Publishing does
+not go backwards: `restore` publishes a copy of an older version as the newest version, and the versions in
+between stay in the history. These commands run with a session's key, so `publish` and `restore` are refused
+by the Gateway with the sentence "Only a person publishes a seat's brief...", and they exit 1; a session saves
+a draft and the owner publishes it.
+
+**Two writers on one brief.** `set` sends the newest version its caller read, which `get --draft` shows.
+`--expected-version` defaults to 0, meaning "this seat has no brief on the Gateway yet". The command never
+looks the version up for itself. When somebody saved a version since, nothing is saved: the command exits 1
+and says which version is newest and how to read it, so the change can be merged and saved again.
+
+**Every version is kept, so the writing and the reading are bounded.** Nothing is ever pruned or deleted.
+What is limited instead:
+
+- **A session's drafts.** A session is refused another draft while 20 drafts wait above the published version
+  (with nothing published yet, every version is a waiting draft). `set` exits 1 with the Gateway's sentence,
+  which says how many wait and which versions they are, and ends "Ask the owner to read the drafts and publish
+  one: publishing makes room for more." Do not save again; it would be refused again. A person is not bound by
+  this limit, because the person is the one who makes room by publishing - but a person's drafts wait like any
+  other and count toward it.
+- **The history.** `history` prints one page: each version's number, state, when it was written, who wrote it
+  and how many bytes its text takes - never the text. `--count` / `-n` is how many versions the page holds, 1
+  to 100, and the Gateway gives 50 when it is not passed. The first line says how many the page holds of how
+  many there are (`count: 50 of 130.`). When older versions follow, the output says so and names the command
+  that reads the next page, `history ... --before N`; with `--json` that number is `nextBefore`, which is null
+  on the last page. Read one version's text with `get --version N`.
+
+A brief's text takes at most 65,536 bytes, and an empty one is refused.
 
 ### Run
 

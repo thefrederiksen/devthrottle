@@ -14,6 +14,7 @@ import { getDeviceKey } from "../auth/deviceKey";
 import { listAccounts, removeAccount } from "../auth/accountStore";
 import { publishDictationStatus } from "../dictation/status";
 import { reportGatewayReachable, reportGatewayUnreachable } from "../connection/health";
+import { noteRemotePlanRequired } from "../plan/remotePlan";
 
 export type SessionDto = components["schemas"]["SessionDto"] & {
   /** Epic #1159 step A: whether the machine owning this session is reachable right now - its tunnel is up.
@@ -639,6 +640,13 @@ export async function gatewayFetch(
   } else {
     reportGatewayReachable();
   }
+  // An account that was signed in and has lost the Remote plan is refused with a 402 on ANY request (the
+  // Pricing Change mission). There is no one place where every response becomes an error - the throw
+  // sites are spread over the feature clients - so the refusal is recognised here, at the transport
+  // choke point, once: the app-level notice then replaces the screens (plan/RemotePlanNotice.tsx) and
+  // no screen has to know the code. Only a 402 is looked at, and only a copy of it is read, so every
+  // caller still reads the body it always read; every other 402 shape is left exactly as it was.
+  if (res.status === 402) await noteRemotePlanRequired(res);
   return res;
 }
 

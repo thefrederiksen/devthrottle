@@ -4,6 +4,7 @@ using CcDirector.Core.Tenancy;
 using CcDirector.Gateway;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Licenses;
+using CcDirector.Gateway.Tests;
 
 // A REAL GATEWAY WITH SEEDED LICENSE DATA, FOR THE LICENSES PAGE TO BE RUN AGAINST (License Switching, phase 3).
 //
@@ -16,12 +17,23 @@ using CcDirector.Gateway.Licenses;
 //   - "refused": the same two machines, with no log. On the command `fill-b` its machines report account B at its
 //                limit, so a Switch now the page already offered is refused by the Gateway;
 //   - "barred":  the same two machines, with account B barred from the automatic choice of a target;
-//   - "empty":   enrolled, and no machine of it ever reports.
-// Every answer the page then reads, and both of its writes, go over HTTP through the real authentication, the real
-// routes and the real display fold.
+//   - "empty":   enrolled, and no machine of it ever reports;
+//   - "signins": two machines on account A, each with a spare for account B. "the-windows-machine" has a Director on
+//                the Gateway's real tunnel, so a sign-in can be started on it; "the-mac" reports and has none. It
+//                also has a WORKSTATION key, which is refused the four sign-in writes.
+// Every answer the page then reads, and every one of its writes, go over HTTP through the real authentication, the
+// real routes and the real display fold.
+//
+// THE DIRECTOR ON THE TUNNEL IS A STAND-IN, AND WHAT IT STANDS IN FOR IS SAID HERE. It is the one the Gateway's own
+// host tests use (FakeTunnelDirector): a real connection to the real hub, which says Hello, sends usage reports and
+// is sent commands. It runs no Claude command, opens no browser and holds no sign-in. A sign-in command the Gateway
+// sends it is HELD until the command `finish ok` or `finish failed` arrives on standard input, and is then answered
+// the way a Director answers one that worked, or one that failed for want of an approver. So what is real is the
+// Gateway's whole side of a sign-in - the route, the row of the log, the command over the tunnel, the settling of
+// the row by the answer - and what is not is the sign-in itself.
 //
 // No sign-in key exists anywhere in it: a report carries emails, numbers and times only, and these are made up.
-// No Director is connected and no Claude sign-in of this machine is read or touched.
+// No Director of the product is started and no Claude sign-in of this machine is read or touched.
 // It prints one line of JSON (the port and the keys), then answers each command line on standard input with one
 // line, and stops on an empty line.
 //
@@ -59,6 +71,7 @@ var reads = Internal<LicenseReadModel>(gateway, "LicenseReads");
 }
 
 const string A = "account-a@example.com", B = "account-b@example.com", C = "account-c@example.com", D = "account-d@example.com";
+const string E = "account-e@example.com";
 var now = DateTime.UtcNow;
 var earlier = now.AddMinutes(-20);
 
@@ -153,16 +166,84 @@ Switch(C, A, LicenseSwitchReasons.Threshold, now.AddHours(-5), LicenseSwitchOutc
 Switch(A, D, LicenseSwitchReasons.Manual, now.AddHours(-2), LicenseSwitchOutcomes.Failed, LicenseSwitchReasonCodes.SpareNotUsable,
     $"The spare for {D} could not be used.", false);
 
+// ---- "signins": the account the sign-in routes are run against ----
+var signIns = Enroll("signins");
+var signInsWorkstationKey = gateway.Devices.RegisterForTenant(signIns.Tenant, signIns.Subject, "dev-license-qa-signins-workstation", "QA-WORKSTATION", deviceType: "workstation").DeviceKey;
+
+// the-mac reports through the ingest and has no Director on the tunnel.
+const string signInsMac = "director-qa-signins-mac";
+ingest.RegisterConnection(signIns.Tenant, signInsMac, "conn-" + signInsMac);
+Report(signIns.Tenant, signInsMac, 1, "the-mac", now, Read(A, true, 30, 20, now, 25), Read(B, false, 4, 22, now, 20));
+
+// the-windows-machine has a Director on the real tunnel, enrolled with a key of its own as a Director is.
+var signInsDirectorKey = gateway.Devices.RegisterForTenant(signIns.Tenant, signIns.Subject, "dev-license-qa-signins-director", "the-windows-machine").DeviceKey;
+var windowsDirector = await FakeTunnelDirector.StartAsync(gateway, signInsDirectorKey, "director-qa-signins-windows", "the-windows-machine", osUser: "owner");
+
+Task WindowsReports(params LicenseHolding[] holdings) => windowsDirector.PushLicenseUsageAsync(new LicenseUsageReport
+{
+    MachineName = "the-windows-machine", OsUser = "owner", SentAtUtc = DateTime.UtcNow, Trigger = LicenseReportTriggers.Interval, Holdings = holdings.ToList(),
+});
+await WindowsReports(Read(A, true, 30, 20, DateTime.UtcNow, 9), Read(B, false, 4, 22, DateTime.UtcNow, 2.2));
+
+// A sign-in command is held until the run says how it ends; every other command is refused, as a Director that
+// does not know a verb refuses it.
+using var finish = new SemaphoreSlim(0);
+var finishAs = "ok";
+windowsDirector.OnCommand(command =>
+{
+    if (command.Verb != LicenseContract.SignInVerb)
+        return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, $"unexpected verb {command.Verb}");
+    var request = JsonSerializer.Deserialize<LicenseSignInRequest>(command.PayloadJson, FakeTunnelDirector.WebJson)
+                  ?? throw new InvalidOperationException("the sign-in command carried no payload");
+    if (!finish.Wait(TimeSpan.FromMinutes(4)))
+        throw new InvalidOperationException("the run never said how the sign-in ends");
+    var at = DateTime.UtcNow;
+    return FakeTunnelDirector.Ok(finishAs == "failed"
+        ? new LicenseSignInResult
+        {
+            SignInId = request.SignInId, Outcome = LicenseSignInOutcomes.Failed, ReasonCode = LicenseRenewalErrors.NoApprover,
+            Message = $"No browser profile is set to approve {request.AccountEmail}, here or on another machine.", FinishedAtUtc = at,
+        }
+        : new LicenseSignInResult
+        {
+            SignInId = request.SignInId,
+            Outcome = request.Reason == LicenseSignInReasons.Renewal ? LicenseSignInOutcomes.Renewed : LicenseSignInOutcomes.Added,
+            Message = request.Reason == LicenseSignInReasons.Renewal
+                ? $"Signed in to {request.AccountEmail} again."
+                : $"Signed in to {request.AccountEmail} and stored as a spare.",
+            SignedInAtUtc = at, SignInExpiresAtUtc = at.AddDays(29), FinishedAtUtc = at,
+        });
+});
+
 Console.WriteLine(JsonSerializer.Serialize(new
 {
     port = gateway.Port, ownerKey = owner.BrowserKey, workstationKey, refusedKey = refused.BrowserKey, barredKey = barred.BrowserKey,
-    emptyKey = empty.BrowserKey, root,
+    emptyKey = empty.BrowserKey, signInsKey = signIns.BrowserKey, signInsWorkstationKey, root,
 }));
 Console.Out.Flush();
 
 for (var line = Console.In.ReadLine(); !string.IsNullOrWhiteSpace(line); line = Console.In.ReadLine())
 {
-    if (line.Trim() == "fill-b")
+    if (line.Trim() is "finish ok" or "finish failed")
+    {
+        // The Director of "signins" answers the sign-in it is holding.
+        finishAs = line.Trim() == "finish failed" ? "failed" : "ok";
+        finish.Release();
+        Console.WriteLine("ok " + line.Trim());
+    }
+    else if (line.Trim() == "windows-holds-e")
+    {
+        // The machine's next usage report: it now holds a spare for account E as well.
+        await WindowsReports(Read(A, true, 30, 20, DateTime.UtcNow, 9), Read(B, false, 4, 22, DateTime.UtcNow, 29), Read(E, false, 0, 3, DateTime.UtcNow, 29));
+        Console.WriteLine("ok windows-holds-e");
+    }
+    else if (line.Trim() == "drop-windows")
+    {
+        // The Director of the-windows-machine loses its tunnel, as a machine that is switched off does.
+        await windowsDirector.StopTunnelAsync();
+        Console.WriteLine("ok drop-windows");
+    }
+    else if (line.Trim() == "fill-b")
     {
         // The machines of "refused" report again: account B is now at its limit on both.
         var at = DateTime.UtcNow;
@@ -177,5 +258,6 @@ for (var line = Console.In.ReadLine(); !string.IsNullOrWhiteSpace(line); line = 
     }
     Console.Out.Flush();
 }
+await windowsDirector.DisposeAsync();
 await gateway.StopAsync();
 try { Directory.Delete(root, true); } catch (IOException) { /* the folder is under the temporary folder either way */ }

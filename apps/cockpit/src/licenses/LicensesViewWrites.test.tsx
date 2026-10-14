@@ -16,6 +16,7 @@ import { render, screen, cleanup, waitFor, within, fireEvent } from "@testing-li
 //   - the two last fields of an account (barred) and a stored failed renewal are shown as given, or not at all.
 import { LicensesView } from "./LicensesView";
 import {
+  APPROVERS_EMPTY,
   BARRED_FIELDS,
   FORECAST,
   LOG_PAGE,
@@ -65,6 +66,7 @@ beforeEach(() => {
     "GET /gateway/licenses": () => json(200, overview),
     "GET /gateway/licenses/forecast": () => json(200, FORECAST),
     "GET /gateway/licenses/log": () => json(200, LOG_PAGE),
+    "GET /gateway/licenses/approvers": () => json(200, APPROVERS_EMPTY),
   };
   vi.stubGlobal(
     "fetch",

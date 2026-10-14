@@ -4,6 +4,9 @@
 that merged the two write routes, pull request 3936). `README.md` beside this file is the record of the first pull
 request (the page and its three reads); this file is the record of the second.
 
+**The Add sign-in button this file says is still owed is done in the third pull request; `sign-ins.md` beside this
+file is its record, with the run against the real sign-in routes.**
+
 ## What changed
 
 - **Switch now** sends `POST /gateway/licenses/switch-now` as `application/json` with the account and the target, and

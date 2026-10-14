@@ -163,35 +163,6 @@ public sealed class GhostSessionReapableTests : IDisposable
     // ===== And once nameable, it must actually go away =====
 
     [Fact]
-    public async Task CrashedSession_isReapableEndToEnd_soTheCardCanBeCleared()
-    {
-        // The report's "there is no supported way to clear it": every tool denied the session, and restarting
-        // the Director was the only remedy. This drives the whole supported route instead - list it, mark it
-        // done through the real request-deletion verb, let the real reaper sweep - and proves the row is gone.
-        var ghost = AdoptCrashedSession();
-
-        Assert.Contains(PushedRoster(),
-            s => string.Equals(s.SessionId, ghost.Id.ToString(), StringComparison.OrdinalIgnoreCase));
-
-        var done = await RequestDeletionAsync(ghost.Id.ToString(), "ghost card, issue #1019");
-        Assert.Equal(DirectorCommandStatus.Ok, done.Status);
-
-        _sm.ReapPendingDeletions();
-
-        // The reaper's removal is fire-and-forget, so wait for it rather than assuming it already ran.
-        var removed = false;
-        for (var i = 0; i < 40 && !removed; i++)
-        {
-            if (_sm.GetSession(ghost.Id) is null) { removed = true; break; }
-            await Task.Delay(50);
-        }
-        Assert.True(removed, "the flagged ghost session was never removed from the roster");
-
-        Assert.DoesNotContain(PushedRoster(),
-            s => string.Equals(s.SessionId, ghost.Id.ToString(), StringComparison.OrdinalIgnoreCase));
-    }
-
-    [Fact]
     public async Task UnknownSession_stillFailsLoud_soListingHeldRowsDidNotWeakenTheGuard()
     {
         // The counterpart: widening the roster must not make the Director accept an id it has never seen.

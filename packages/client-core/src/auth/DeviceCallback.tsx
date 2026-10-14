@@ -19,7 +19,9 @@ import { useNavigate } from "react-router-dom";
 import { addAccount, clearPendingInstallId, nameAccount, pendingInstallId } from "./accountStore";
 import { enrollmentProfile, takeEnrollNext } from "./enrollRequest";
 import { runEnrollmentCallback } from "./enrollCallback";
-import { isGatewayNotSignedIn } from "../api/enroll";
+import { RemotePlanRequiredError, isGatewayNotSignedIn } from "../api/enroll";
+import { RemotePlanNotice } from "../plan/RemotePlanNotice";
+import type { RemotePlanRequired } from "../plan/remotePlan";
 import { ensureGatewayCookie } from "../api/client";
 import { reportShownError } from "../errors/reportClientError";
 import { beginSignIn, getAccountStatusForKey } from "../account/accountClient";
@@ -33,13 +35,20 @@ import { beginSignIn, getAccountStatusForKey } from "../account/accountClient";
 // sign-in screen and fails again for exactly the same reason - a loop with no exit. The two sign-ins are
 // easy to conflate: the person HAS signed themselves in at devthrottle.com; it is the GATEWAY that has
 // not. So this phase says which one is missing and offers the action that fixes it.
-type Phase = "working" | "denied" | "error" | "gatewaySignedOut";
+//
+// "remotePlanRequired" is the account's plan not including the phone app and the Cockpit (HTTP 402 with
+// the code remote_plan_required - the Pricing Change mission). It is not an error phase for the same
+// reason: the generic one said "Something went wrong" over a bare reason and offered only "Try again",
+// which signs in again and is refused again. This phase shows the Gateway's own sentence and the pricing
+// page it named, through the one notice both shells share.
+type Phase = "working" | "denied" | "error" | "gatewaySignedOut" | "remotePlanRequired";
 
 export function DeviceCallback() {
   const navigate = useNavigate();
   const profile = enrollmentProfile();
   const [phase, setPhase] = useState<Phase>("working");
   const [message, setMessage] = useState("");
+  const [planRequired, setPlanRequired] = useState<RemotePlanRequired | null>(null);
   // Guards the enroll to exactly once (survives React StrictMode's dev double-mount).
   const started = useRef(false);
 
@@ -111,6 +120,12 @@ export function DeviceCallback() {
           setMessage(err.message);
           return;
         }
+        if (err instanceof RemotePlanRequiredError) {
+          // error-report-exempt: the account's plan is the person's state, not a failure of ours - the Gateway refused on purpose and the page shows its sentence
+          setPlanRequired(err.info);
+          setPhase("remotePlanRequired");
+          return;
+        }
         setPhase("error");
         setMessage(
           reportShownError(
@@ -161,6 +176,17 @@ export function DeviceCallback() {
           connect this {profile.deviceLabel}. Once it has, sign in here again.
         </p>
       </div>
+    );
+  }
+
+  // The account is signed in but its plan does not include this device. Nothing was stored, so "try
+  // again" is the sign-in round trip again - the only way to ask the Gateway afresh after subscribing.
+  if (phase === "remotePlanRequired" && planRequired !== null) {
+    return (
+      <RemotePlanNotice
+        info={planRequired}
+        onTryAgain={() => navigate(profile.signInPath, { replace: true })}
+      />
     );
   }
 

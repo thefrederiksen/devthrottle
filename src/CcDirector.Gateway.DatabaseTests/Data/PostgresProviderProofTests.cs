@@ -220,6 +220,12 @@ public sealed class PostgresProviderProofTests
             ("factory_email_reports", "Kind"),
             ("factory_email_reports", "SlotKey"),
             ("factory_email_reports", "State"),
+            // A seat's brief held on the Gateway (Factory Seats mission, phase 2a). The factory and the seat are two
+            // parts of the primary key that keeps two writers from minting the same version, so the two providers
+            // must agree on what counts as the same seat; the state is the closed word the published read selects on.
+            ("factory_seat_briefs", "Factory"),
+            ("factory_seat_briefs", "Seat"),
+            ("factory_seat_briefs", "State"),
             // The Fleet Manager's stop events (the Fleet Manager mission): the event kind selects and groups, the
             // session the event is about and the session it was delivered to are the two inbox reads, the verdict id
             // binds an event to the stop it was about, and the outcome id binds it to the record it was filed on -

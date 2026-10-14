@@ -89,8 +89,7 @@ public sealed class FactoryNumberDto
     public string? Href { get; set; }
 }
 
-/// <summary>The Pause or Resume control, finished. Null on a view means there is nothing to pause, and
-/// <see cref="FactoryAgentPageDto.PauseUnavailableText"/> says why.</summary>
+/// <summary>The Pause or Resume control, finished. Null on a view means there is nothing to pause.</summary>
 public sealed class FactoryPauseDto
 {
     /// <summary>"pause" or "resume" - the route the button posts to.</summary>
@@ -182,47 +181,6 @@ public sealed class FactoryWokenByDto
 
     /// <summary>"07:55 - nothing to do", or that it has never checked.</summary>
     public string LastCheck { get; set; } = "";
-}
-
-/// <summary><c>GET /gateway/factory-agents/factories/{factory}/agents/{agent}</c>: one factory agent (Screen 2).</summary>
-public sealed class FactoryAgentPageDto
-{
-    public string FactoryId { get; set; } = "";
-    public string FactoryTitle { get; set; } = "";
-
-    /// <summary>The factory's page (its Map tab), which the breadcrumb links to (issue #3383).</summary>
-    public string FactoryHref { get; set; } = "";
-
-    public string AgentId { get; set; } = "";
-    public string Name { get; set; } = "";
-    public string StatusWord { get; set; } = "";
-    public string StatusTone { get; set; } = FactoryTone.Idle;
-
-    /// <summary>Exactly "Definition not stored yet - #2177 mission 1" until definitions are stored.</summary>
-    public string DefinitionText { get; set; } = "";
-
-    public List<FactoryWokenByDto> WokenBy { get; set; } = new();
-
-    /// <summary>What the "Woken by" section says when no trigger names this factory agent, or null.</summary>
-    public string? WokenByEmptyText { get; set; }
-
-    /// <summary>The latest check across its triggers, or null when it has fewer than two (a single trigger's own
-    /// line already says it).</summary>
-    public string? LastCheck { get; set; }
-    public string Last7DaysTitle { get; set; } = "";
-    public List<FactoryNumberDto> Last7Days { get; set; } = new();
-
-    public FactoryPauseDto? Pause { get; set; }
-    public string? PauseUnavailableText { get; set; }
-
-    public string AskLabel { get; set; } = "";
-
-    /// <summary>The Fleet Manager page with the request already written; opening it sends nothing.</summary>
-    public string AskHref { get; set; } = "";
-
-    public string RecentTitle { get; set; } = "";
-    public List<FactoryActivityRowViewDto> Recent { get; set; } = new();
-    public string? RecentEmptyText { get; set; }
 }
 
 /// <summary>One line of the Activity tab: a record row, or a run of empty trigger checks collapsed into one.</summary>

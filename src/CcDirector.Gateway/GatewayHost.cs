@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Net;
 using System.Text.Json;
 using CcDirector.Core;
@@ -1027,6 +1027,8 @@ public sealed class GatewayHost : IAsyncDisposable
     // active-tenant sweep that re-reads entitlement and cuts off a cancelled tenant within the sweep bound.
     private Tenancy.TenantAccessRevoker? _accessRevoker;
     private Tenancy.HostedAccessLeaseService? _accessLeases;
+    // Non-null exactly on a hosted Gateway, like the lease service it is built beside.
+    private Tenancy.RemoteAccessRule? _remoteAccess;
     private Tenancy.EntitlementLeaseMonitor? _leaseMonitor;
     private System.Threading.Timer? _leaseSweepTimer;
     private int _leaseSweepInFlight;
@@ -1120,6 +1122,9 @@ public sealed class GatewayHost : IAsyncDisposable
     // against overlap like the cron sweep. Created in StartAsync, disposed in StopAsync.
     private readonly History.SessionHistoryStore _sessionHistory;
     private readonly Factory.Memory.FactoryMemoryStore _factoryMemory;
+
+    /// <summary>Every seat's brief held on the Gateway, every version kept (Factory Seats mission, phase 2a).</summary>
+    private readonly Factory.Briefs.FactoryBriefStore _factoryBriefs;
     private readonly History.KnownRepositoryStore _knownRepositories;
     /// <summary>The one-repository-list mission, phase 2: the third observer on the repository snapshot a
     /// Director already pushes, which folds the root-folder scan into <see cref="_knownRepositories"/> as
@@ -1977,11 +1982,11 @@ public sealed class GatewayHost : IAsyncDisposable
         // the hosted enrollment boundary (which validates the account token and stamps the resolved tenant on
         // the device) in the follow-up increment. Unused on the single-tenant local install.
         TenantRegistry = new Tenancy.TenantRegistry(_gatewayDb);
-        // The free-trial ledger (issue #2117): the Gateway's OWN record of the 14-day Pro trial the public
-        // pricing page promises every new account. It is passed INTO the entitlement registry rather than
-        // consulted beside it, so the enrollment gate, the request-path lease and the 60s sweep all read one
-        // decision and can never disagree about whether an account may use hosted today - which is also what
-        // makes the trial EXPIRE on the request path instead of only at enrollment.
+        // The free-trial ledger (issue #2117): the Gateway's OWN record of the 14-day Pro trials it granted. No
+        // new trial is granted since the Pricing Change mission (B3); a trial already running is honoured to its
+        // end. It is passed INTO the entitlement registry rather than consulted beside it, so the enrollment gate,
+        // the request-path lease and the 60s sweep all read one decision and can never disagree about whether an
+        // account may use hosted today - which is also what makes a trial EXPIRE on the request path.
         TrialRegistry = new Tenancy.TrialRegistry(_gatewayDb);
         EntitlementRegistry = new Tenancy.EntitlementRegistry(_gatewayDb, requireLivemode: Hosted, trials: TrialRegistry);
         // Teams (devthrottle_internal#2300): told about new teams through the tenant registry, so the census every
@@ -2013,8 +2018,14 @@ public sealed class GatewayHost : IAsyncDisposable
         if (Hosted)
         {
             _accessRevoker = new Tenancy.TenantAccessRevoker(Devices, _directorConnections);
+            // The remote access rule (Pricing Change mission, B2 and B4): ONE instance, asked by the lease on the
+            // request path and by the Cockpit and phone door where a key is minted, so the two cannot disagree about
+            // a plan or about the pre-launch grace.
+            // Its team half exists only where Teams is released; dark, there are no teams to ask about.
+            _remoteAccess = new Tenancy.RemoteAccessRule(Options.RemoteAccessGrace,
+                TeamsReleased ? new Teams.TeamRemoteAccess(TeamRegistry, EntitlementRegistry) : null);
             _accessLeases = new Tenancy.HostedAccessLeaseService(EntitlementRegistry, TenantRegistry, _accessRevoker,
-                teams: TeamsReleased ? TeamMemberEntitlement : null);
+                teams: TeamsReleased ? TeamMemberEntitlement : null, remoteAccess: _remoteAccess);
             _leaseMonitor = new Tenancy.EntitlementLeaseMonitor(_accessLeases);
             // TEST ONLY: a hosted gateway that is NOT a real hosted image (a test forcing hosted mode via env,
             // with no baked image marker) auto-provisions the entitlement production requires at the paid
@@ -2620,6 +2631,7 @@ public sealed class GatewayHost : IAsyncDisposable
                 TeamMentorWriter, _tenantSettingsResolver.TimeZone);
         }
         _factoryMemory = new Factory.Memory.FactoryMemoryStore(_gatewayDb);
+        _factoryBriefs = new Factory.Briefs.FactoryBriefStore(_gatewayDb, FactoryRegistry);
         _devReportDelivery = new DevReports.DevReportDelivery(_devReports, DevReportSessionLiveness,
             route: (tenant, directorId) =>
             {
@@ -4988,7 +5000,9 @@ public sealed class GatewayHost : IAsyncDisposable
             ? new Api.HostedEnrollDependencies(
                 Devices, TenantRegistry,
                 CcDirector.Gateway.Account.GatewayAccountFactory.BuildAuthorizationValidator(),
-                EntitlementRegistry, TrialRegistry)
+                EntitlementRegistry,
+                _remoteAccess ?? throw new InvalidOperationException(
+                    "A hosted Gateway builds its remote access rule beside its access lease; it is missing."))
             : null;
 
         // POST /devices/enroll-hosted (Hosted Multi-Tenancy increment 1): the HOSTED counterpart - a REMOTE
@@ -5009,7 +5023,7 @@ public sealed class GatewayHost : IAsyncDisposable
                 : null;
             Api.HostedEnrollmentEndpoint.Map(_app, hostedEnrollDeps.Devices, hostedEnrollDeps.Tenants,
                 hostedEnrollDeps.AccountTokenValidator, entitlements: hostedEnrollDeps.Entitlements,
-                trials: hostedEnrollDeps.Trials, teams: teamEnrollment);
+                teams: teamEnrollment);
         }
 
         // Wingman-voice surface for the Cockpit's Voice tab (issue #531): drive one turn of a
@@ -5191,6 +5205,11 @@ public sealed class GatewayHost : IAsyncDisposable
         Api.FactoriesScreenEndpoints.Map(factoryGate,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             sources: factoriesScreenSources);
+        // One seat's own page (Factory Seats mission): opened from every seat row, with or without a schedule.
+        Api.FactoriesScreenEndpoints.MapSeatPage(factoryGate,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            sources: factoriesScreenSources,
+            memoryNoteCount: (tenant, factory) => _factoryMemory.List(tenant, factory).Count);
         // The owner's actions on a factory (round 2): mark old waiting items handled, archive, restore. Owner-only,
         // and mapped OUTSIDE the gate's group like Talk, so a switch-off refusal can carry a sentence.
         Api.FactoryOwnerActionEndpoints.Map(_app, FactoryAgentsSwitch,
@@ -5782,6 +5801,15 @@ public sealed class GatewayHost : IAsyncDisposable
         Api.FactoryMemoryEndpoints.Map(_app,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             store: _factoryMemory,
+            sessionFactoryOf: _sessionHistory.FactoryOf,
+            nowUtc: () => DateTime.UtcNow);
+
+        // A seat's BRIEF, held on the Gateway (Factory Seats mission, phase 2a): what the seat is told to do, saved as
+        // a draft by a person or a session of the factory and published by a person. Nothing reads it yet; the seat
+        // page and the opening of talks and runs are later phases.
+        Api.FactoryBriefEndpoints.Map(_app,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            store: _factoryBriefs,
             sessionFactoryOf: _sessionHistory.FactoryOf,
             nowUtc: () => DateTime.UtcNow);
 
