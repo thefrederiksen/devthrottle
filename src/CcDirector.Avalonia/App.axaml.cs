@@ -134,6 +134,11 @@ public partial class App : Application
                     // existing slot; each Director updates itself. After the health mark on purpose: an
                     // unproven build is never copied into the standby.
                     StartStandbySlotProvisioning();
+
+                    // Keep the Linux app menu entry and its icon current. An update swaps only the
+                    // executable, so this is the one path by which a fix to either reaches an existing
+                    // install.
+                    if (OperatingSystem.IsLinux()) StartLinuxMenuEntryRepair();
                 }
                 catch (Exception ex)
                 {
@@ -650,6 +655,27 @@ public partial class App : Application
         {
             var layout = CcDirector.Setup.Engine.InstallLayout.Default();
             await CcDirector.Setup.Engine.ToolAutoUpdateTrigger.RunIfEnabledAsync(layout, trigger);
+        });
+    }
+
+    /// <summary>
+    /// Rewrite the Linux app menu entry and icon in the background when they differ from what this build
+    /// installs. Off the UI thread and fire-and-forget; a failure only logs and never touches boot.
+    /// </summary>
+    [System.Runtime.Versioning.SupportedOSPlatform("linux")]
+    private static void StartLinuxMenuEntryRepair()
+    {
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                var outcome = CcDirector.Setup.Engine.LinuxDesktopEntry.Repair();
+                FileLog.Write($"[App] Linux app menu entry: {outcome}");
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[App] Linux app menu entry repair FAILED: {ex}");
+            }
         });
     }
 

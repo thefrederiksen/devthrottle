@@ -76,6 +76,84 @@ public class LinuxDesktopEntryTests : IDisposable
     }
 
     [Fact]
+    public void Icon_OpensWithTheSvgElement_WhereTheLinuxImageLoaderLooksForIt()
+    {
+        // gdk-pixbuf only recognises a file as SVG when "<svg" starts within its first 256 bytes. The icon
+        // used to open with a 900-byte comment, so every Linux desktop failed to load it and DevThrottle
+        // showed as a blank tile in the dock and the app grid.
+        var icon = LinuxDesktopEntry.IconBytes();
+        var head = System.Text.Encoding.UTF8.GetString(icon, 0, Math.Min(icon.Length, 256));
+
+        var at = head.IndexOf("<svg", StringComparison.Ordinal);
+
+        Assert.True(at >= 0, $"\"<svg\" must appear within the first 256 bytes of the icon. The file opens with:\n{head}");
+    }
+
+    [Fact]
+    public void Repair_ForADirectorThatIsNotTheInstalledOne_WritesNothing()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(_exe)!);
+        File.WriteAllText(_exe, "a director");
+        var devBuild = Path.Combine(_dir, "checkout", "bin", "cc-director");
+
+        var outcome = LinuxDesktopEntry.Repair(devBuild, _exe, _dataHome);
+
+        Assert.Equal(LinuxDesktopEntry.RepairOutcome.NotTheInstalledDirector, outcome);
+        Assert.False(LinuxDesktopEntry.IsInstalled(_dataHome));
+        Assert.False(File.Exists(LinuxDesktopEntry.IconPath(_dataHome)));
+    }
+
+    [Fact]
+    public void Repair_WithNoEntry_WritesTheEntryAndTheIcon()
+    {
+        // An install from before the setup engine wrote an entry at all.
+        Directory.CreateDirectory(Path.GetDirectoryName(_exe)!);
+        File.WriteAllText(_exe, "a director");
+
+        var outcome = LinuxDesktopEntry.Repair(_exe, _exe, _dataHome);
+
+        Assert.Equal(LinuxDesktopEntry.RepairOutcome.Rewritten, outcome);
+        Assert.Equal(LinuxDesktopEntry.BuildEntry(_exe), File.ReadAllText(LinuxDesktopEntry.EntryPath(_dataHome)));
+        Assert.Equal(LinuxDesktopEntry.IconBytes(), File.ReadAllBytes(LinuxDesktopEntry.IconPath(_dataHome)));
+    }
+
+    [Fact]
+    public void Repair_WithAStaleIcon_ReplacesIt()
+    {
+        // The case this exists for: an earlier build installed an icon no desktop could load, and updates
+        // since then swapped only the executable.
+        Directory.CreateDirectory(Path.GetDirectoryName(_exe)!);
+        File.WriteAllText(_exe, "a director");
+        LinuxDesktopEntry.Install(_exe, _dataHome);
+        var iconPath = LinuxDesktopEntry.IconPath(_dataHome);
+        File.WriteAllText(iconPath, "<?xml version=\"1.0\"?>\n<!-- an old icon -->\n<svg/>");
+
+        var outcome = LinuxDesktopEntry.Repair(_exe, _exe, _dataHome);
+
+        Assert.Equal(LinuxDesktopEntry.RepairOutcome.Rewritten, outcome);
+        Assert.Equal(LinuxDesktopEntry.IconBytes(), File.ReadAllBytes(iconPath));
+    }
+
+    [Fact]
+    public void Repair_WhenEverythingIsCurrent_WritesNothing()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(_exe)!);
+        File.WriteAllText(_exe, "a director");
+        LinuxDesktopEntry.Install(_exe, _dataHome);
+        var entryPath = LinuxDesktopEntry.EntryPath(_dataHome);
+        var iconPath = LinuxDesktopEntry.IconPath(_dataHome);
+        var past = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(entryPath, past);
+        File.SetLastWriteTimeUtc(iconPath, past);
+
+        var outcome = LinuxDesktopEntry.Repair(_exe, _exe, _dataHome);
+
+        Assert.Equal(LinuxDesktopEntry.RepairOutcome.UpToDate, outcome);
+        Assert.Equal(past, File.GetLastWriteTimeUtc(entryPath));
+        Assert.Equal(past, File.GetLastWriteTimeUtc(iconPath));
+    }
+
+    [Fact]
     public void Install_Twice_ReplacesTheEntry()
     {
         Directory.CreateDirectory(Path.GetDirectoryName(_exe)!);
