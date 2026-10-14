@@ -77,6 +77,11 @@ The owner's, in his words or by his tap, 13 October 2026:
   gets a brief on the Gateway by being given one. Because another account may have factories, a seat whose brief is
   still a file keeps working exactly as it does today (P5).
 
+- **D8. The hosted Gateway deploy.** "yes, deploy once 2c is merged" (14 October 2026, to the Implementation
+  Lead, after being told that the Cockpit ships inside the hosted Gateway image and that a deploy ships all of
+  main). The grant is for one deploy of main by the `deploy-hosted-gateway` workflow, after phase 2c is merged,
+  with both Teams switches left unchanged. It does not cover a desktop release, a tag, or a second deploy.
+
 The Implementation Lead's, where the owner has not spoken. Each is a PROPOSAL the owner can replace; the final
 report lists them:
 
