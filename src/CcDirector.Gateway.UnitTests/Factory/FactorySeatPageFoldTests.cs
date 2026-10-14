@@ -1,5 +1,6 @@
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Factory;
+using CcDirector.Gateway.Factory.Briefs;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests.Factory;
@@ -67,7 +68,7 @@ public sealed class FactorySeatPageFoldTests
         var scout = Seat("scout", "Scout", "Scout", "cj_scout");
         var f = WarmForward(Seat("boss", "Boss", "Boss"), scout);
 
-        var page = FactorySeatPageFold.Page(f, scout, Inputs(f, new[] { Job("cj_scout", "WarmForward Factory - Scout - daily scan") }), memoryNotes: 3);
+        var page = FactorySeatPageFold.Page(f, scout, Inputs(f, new[] { Job("cj_scout", "WarmForward Factory - Scout - daily scan") }), memoryNotes: 3, FactoryBriefStanding.None);
 
         Assert.Equal("Factories / WarmForward / Seats / Scout", page.Crumb);
         Assert.Equal(new[] { "/factories", "/factories/warmforward", "/factories/warmforward/seats" }, page.CrumbHrefs);
@@ -115,7 +116,7 @@ public sealed class FactorySeatPageFoldTests
         };
         var talks = new[] { Row("boss", FactoryActivityOutcome.Talked, "decided: bunkie back to 13 C", Now.AddHours(-2)) };
 
-        var page = FactorySeatPageFold.Page(f, boss, Inputs(f, new[] { Job("cj_scout", "scan") }, talks: talks, number: number), memoryNotes: 0);
+        var page = FactorySeatPageFold.Page(f, boss, Inputs(f, new[] { Job("cj_scout", "scan") }, talks: talks, number: number), memoryNotes: 0, FactoryBriefStanding.None);
 
         // The head: the boss has no name of its own, and the chip says how it starts.
         Assert.Equal("Boss", page.Name);
@@ -160,7 +161,7 @@ public sealed class FactorySeatPageFoldTests
         var scout = Seat("scout", "Scout", "Scout", "cj_gone");
         var f = WarmForward(Seat("boss", "Boss", "Boss"), scout);
 
-        var page = FactorySeatPageFold.Page(f, scout, Inputs(f), memoryNotes: 0);
+        var page = FactorySeatPageFold.Page(f, scout, Inputs(f), memoryNotes: 0, FactoryBriefStanding.None);
 
         // Not "Talk only" - something was set to run it and is gone - and not "Paused", which Resume would fix.
         Assert.Equal("Schedule missing", page.StartsWord);
@@ -183,7 +184,7 @@ public sealed class FactorySeatPageFoldTests
         var scout = Seat("scout", "Scout", "Scout", "cj_gone", "cj_scout");
         var f = WarmForward(scout);
 
-        var page = FactorySeatPageFold.Page(f, scout, Inputs(f, new[] { Job("cj_scout", "scan") }), memoryNotes: 0);
+        var page = FactorySeatPageFold.Page(f, scout, Inputs(f, new[] { Job("cj_scout", "scan") }), memoryNotes: 0, FactoryBriefStanding.None);
 
         Assert.Equal("Scheduled", page.StartsWord);
         Assert.Equal(new[] { "cj_gone", "cj_scout" }, page.Starts.Schedules.Select(s => s.JobId));
@@ -199,7 +200,7 @@ public sealed class FactorySeatPageFoldTests
         var scout = Seat("scout", "Scout", "Scout", "cj_scout");
         var f = WarmForward(scout);
 
-        var page = FactorySeatPageFold.Page(f, scout, Inputs(f, new[] { Job("cj_scout", "scan", enabled: false) }), memoryNotes: 0);
+        var page = FactorySeatPageFold.Page(f, scout, Inputs(f, new[] { Job("cj_scout", "scan", enabled: false) }), memoryNotes: 0, FactoryBriefStanding.None);
 
         Assert.Equal("Paused", page.StartsWord);
         Assert.Equal(FactoryTone.Paused, page.StartsTone);
@@ -219,7 +220,7 @@ public sealed class FactorySeatPageFoldTests
         var f = WarmForward(desk);
         var trigger = new FactoryTriggerFacts("t1", "New business mail", "warmforward", "front-desk", 300, false, false, null, Now.AddMinutes(-5), "nothing to do");
 
-        var page = FactorySeatPageFold.Page(f, desk, Inputs(f, triggers: new[] { trigger }), memoryNotes: 0);
+        var page = FactorySeatPageFold.Page(f, desk, Inputs(f, triggers: new[] { trigger }), memoryNotes: 0, FactoryBriefStanding.None);
 
         Assert.Equal("Triggered", page.StartsWord);
         Assert.Null(page.Starts.TalkOnlyText);
@@ -228,14 +229,14 @@ public sealed class FactorySeatPageFoldTests
         Assert.Equal("OK", woken.StatusWord);
         Assert.Equal("pause", page.Starts.TriggersPause!.Action);
 
-        var paused = FactorySeatPageFold.Page(f, desk, Inputs(f, triggers: new[] { trigger with { Paused = true } }), memoryNotes: 0);
+        var paused = FactorySeatPageFold.Page(f, desk, Inputs(f, triggers: new[] { trigger with { Paused = true } }), memoryNotes: 0, FactoryBriefStanding.None);
         Assert.Equal("Paused", paused.StartsWord);
         Assert.Equal("resume", paused.Starts.TriggersPause!.Action);
 
         var both = Seat("front-desk", "Front Desk", "Front Desk", "cj_desk");
         var g = WarmForward(both);
         Assert.Equal("Scheduled and triggered",
-            FactorySeatPageFold.Page(g, both, Inputs(g, new[] { Job("cj_desk", "desk") }, triggers: new[] { trigger }), memoryNotes: 0).StartsWord);
+            FactorySeatPageFold.Page(g, both, Inputs(g, new[] { Job("cj_desk", "desk") }, triggers: new[] { trigger }), memoryNotes: 0, FactoryBriefStanding.None).StartsWord);
     }
 
     // ---------- take off this seat ----------
@@ -246,7 +247,7 @@ public sealed class FactorySeatPageFoldTests
         var scout = Seat("scout", "Scout", "Scout", "cj_scout");
         var f = WarmForward(scout);
 
-        var unlink = FactorySeatPageFold.Page(f, scout, Inputs(f, new[] { Job("cj_scout", "Scout - daily scan") }), memoryNotes: 0)
+        var unlink = FactorySeatPageFold.Page(f, scout, Inputs(f, new[] { Job("cj_scout", "Scout - daily scan") }), memoryNotes: 0, FactoryBriefStanding.None)
             .Starts.Schedules.Single().Unlink!;
 
         Assert.Equal("Take this schedule off Scout?", unlink.ConfirmTitle);
@@ -268,7 +269,7 @@ public sealed class FactorySeatPageFoldTests
         var f = WarmForward(scout);
 
         var schedules = FactorySeatPageFold.Page(f, scout,
-            Inputs(f, new[] { Job("cj_a", "morning"), Job("cj_b", "evening", enabled: false) }), memoryNotes: 0).Starts.Schedules;
+            Inputs(f, new[] { Job("cj_a", "morning"), Job("cj_b", "evening", enabled: false) }), memoryNotes: 0, FactoryBriefStanding.None).Starts.Schedules;
 
         var off = schedules.Single(s => s.JobId == "cj_b").Unlink!;
         Assert.Contains("It stays switched off, in no factory.", off.ConfirmLines);
@@ -283,7 +284,7 @@ public sealed class FactorySeatPageFoldTests
         var f = WarmForward(desk);
         var trigger = new FactoryTriggerFacts("t1", "Mail", "warmforward", "front-desk", 300, false, false, null, null, null);
 
-        var unlink = FactorySeatPageFold.Page(f, desk, Inputs(f, new[] { Job("cj_desk", "desk") }, triggers: new[] { trigger }), memoryNotes: 0)
+        var unlink = FactorySeatPageFold.Page(f, desk, Inputs(f, new[] { Job("cj_desk", "desk") }, triggers: new[] { trigger }), memoryNotes: 0, FactoryBriefStanding.None)
             .Starts.Schedules.Single().Unlink!;
 
         Assert.DoesNotContain(unlink.ConfirmLines, l => l.Contains("talk only"));
@@ -300,7 +301,7 @@ public sealed class FactorySeatPageFoldTests
         f.ArchivedSchedules = new() { "cj_scout" };
 
         var schedules = FactorySeatPageFold.Page(f, scout,
-            Inputs(f, new[] { Job("cj_scout", "scan", enabled: false), Job("cj_other", "other", enabled: false) }), memoryNotes: 0).Starts.Schedules;
+            Inputs(f, new[] { Job("cj_scout", "scan", enabled: false), Job("cj_other", "other", enabled: false) }), memoryNotes: 0, FactoryBriefStanding.None).Starts.Schedules;
 
         Assert.Null(schedules.Single(s => s.JobId == "cj_scout").Unlink);
         Assert.NotNull(schedules.Single(s => s.JobId == "cj_other").Unlink);
@@ -345,7 +346,7 @@ public sealed class FactorySeatPageFoldTests
             Row("scout", FactoryActivityOutcome.Talked, "agreed to scan twice a day", Now.AddDays(-9)),
         };
 
-        var left = FactorySeatPageFold.Page(f, scout, Inputs(f, new[] { Job("cj_scout", "scan") }, rows, talks: talks), memoryNotes: 1).LeftBehind;
+        var left = FactorySeatPageFold.Page(f, scout, Inputs(f, new[] { Job("cj_scout", "scan") }, rows, talks: talks), memoryNotes: 1, FactoryBriefStanding.None).LeftBehind;
 
         Assert.Equal("What it has left behind", left.Heading);
         Assert.Equal("Today 06:00 - succeeded", left.LastRunText);
@@ -369,7 +370,7 @@ public sealed class FactorySeatPageFoldTests
             .Select(i => Row("scout", FactoryActivityOutcome.Done, $"line {i:00}", Now.AddHours(-48).AddMinutes(i)))
             .ToList();
 
-        var left = FactorySeatPageFold.Page(f, scout, Inputs(f, rows: rows), memoryNotes: 0).LeftBehind;
+        var left = FactorySeatPageFold.Page(f, scout, Inputs(f, rows: rows), memoryNotes: 0, FactoryBriefStanding.None).LeftBehind;
 
         Assert.Equal(FactorySeatPageFold.RecentLines, left.Recent.Count);
         Assert.Contains("line 05", left.Recent[0].What);

@@ -288,6 +288,12 @@ public sealed class UpdaterState
     /// <summary>
     /// Write beside the file and move it over, so an interrupted save leaves the old file whole instead of
     /// a truncated, zero-byte one (issue #3666). Callers hold the file's lock.
+    ///
+    /// The move goes through <see cref="AtomicFileReplace"/> and not a plain <c>File.Move</c>: the lock keeps
+    /// our own readers away, but it cannot keep away a virus scanner or the indexer, which open a file the
+    /// moment it is written. A plain move over the file is refused while one of them is looking, and the
+    /// save threw "access denied" with the lock held (issue #3965). The shared replace writes and renames
+    /// through one handle and waits out that refusal for a bounded time before failing.
     /// </summary>
     private void WriteFile(string path)
     {
@@ -295,16 +301,7 @@ public sealed class UpdaterState
         var dir = Path.GetDirectoryName(path);
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
         var json = JsonSerializer.Serialize(this, JsonOptions);
-        var temporary = $"{path}.{Guid.NewGuid():N}.tmp";
-        try
-        {
-            File.WriteAllText(temporary, json);
-            File.Move(temporary, path, overwrite: true);
-        }
-        finally
-        {
-            if (File.Exists(temporary)) File.Delete(temporary);
-        }
+        AtomicFileReplace.WriteAllText(path, json);
     }
 
     /// <summary>Take the lock for one updater state file, waiting at most <paramref name="wait"/>.</summary>

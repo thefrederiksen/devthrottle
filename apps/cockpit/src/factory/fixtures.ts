@@ -8,10 +8,18 @@ import type {
 import type {
   FactoriesListView,
   FactoryPageView,
+  FactorySeatBrief,
   FactorySeatPageView,
   FactorySeatRow,
   FactorySeatsView,
 } from "@devthrottle/client-core/factory/factoriesScreenClient";
+import type {
+  FactoryBriefAction,
+  FactoryBriefEditorView,
+  FactoryBriefHistoryRow,
+  FactoryBriefHistoryView,
+  FactoryBriefVersionView,
+} from "@devthrottle/client-core/factory/factoryBriefClient";
 
 // Test fixtures in the exact shape the Gateway's FactoryAgentsFold returns. The words are deliberately odd in places
 // ("RUNNING-X", "7 asked, waiting for you (fixture)") so a test that finds them proves the page rendered the
@@ -578,11 +586,18 @@ export const SEAT_PAGE_SCHEDULED: FactorySeatPageView = {
   talk: { label: "Talk to Scout", busyLabel: "Starting the talk with Scout...", factoryId: "warmforward", seatId: "scout" },
   brief: {
     heading: "What this seat does",
+    state: "file",
+    text: null,
+    versionText: null,
+    draftText: null,
+    waitingText: null,
     pathLabel: "Brief file",
     pathText: "/home/soren/factories/warmforward/agents/scout.yaml",
     computerLabel: "Computer",
     computerText: "SOREN_NORTH",
     note: "The brief is a file on SOREN_NORTH. It is not held on the Gateway yet. (fixture)",
+    editLabel: "Write the brief here (fixture)",
+    historyLabel: null,
   },
   starts: {
     heading: "How it starts",
@@ -697,4 +712,151 @@ export const SEAT_PAGE_MISSING: FactorySeatPageView = {
     triggers: [],
     triggersPause: null,
   },
+};
+
+// ---------- the brief panel of a seat's page (Factory Seats mission, phase 2b) ----------
+// Every sentence carries "(fixture)" where the panel could otherwise pass with words of its own.
+
+/** A seat whose brief is published on the Gateway. */
+export const BRIEF_PUBLISHED: FactorySeatBrief = {
+  heading: "What this seat does",
+  state: "published",
+  text: "You are the Scout of WarmForward. Scan every morning.",
+  versionText: "Version 3, published by a person (device browser abc) today 14:00. (fixture)",
+  draftText: null,
+  waitingText: null,
+  pathLabel: null,
+  pathText: null,
+  computerLabel: null,
+  computerText: null,
+  note: null,
+  editLabel: "Edit (fixture)",
+  historyLabel: "History (fixture)",
+};
+
+/** A seat with drafts on the Gateway and nothing published: it still says where its file is. */
+export const BRIEF_DRAFTS: FactorySeatBrief = {
+  ...SEAT_PAGE_SCHEDULED.brief,
+  state: "drafts",
+  draftText: "This seat has 2 drafts on the Gateway and none is published. (fixture)",
+  editLabel: "Open the newest draft (fixture)",
+  historyLabel: "History (fixture)",
+};
+
+/** A published brief with twenty drafts waiting above it. */
+export const BRIEF_WAITING: FactorySeatBrief = {
+  ...BRIEF_PUBLISHED,
+  draftText: "A newer draft, version 23, was written by session 7300 today 13:00. (fixture)",
+  waitingText: "20 drafts are waiting that nobody has published (versions 4 to 23). (fixture)",
+};
+
+export const BRIEF_EDITOR: FactoryBriefEditorView = {
+  heading: "Edit the brief of Scout (fixture)",
+  startText: "This starts from version 3, the published brief. (fixture)",
+  text: "You are the Scout of WarmForward. Scan every morning.",
+  expectedVersion: 3,
+  textLabel: "The brief of Scout",
+  limitText: "A brief takes at most 65,536 bytes. (fixture)",
+  waitingText: null,
+  saveLabel: "Save draft (fixture)",
+  saveBusyLabel: "Saving... (fixture)",
+  savedText: "Saved as a draft. Talks and runs are still given version 3. (fixture)",
+  publish: {
+    version: 3,
+    expectedVersion: 3,
+    label: "Publish (fixture)",
+    busyLabel: "Publishing... (fixture)",
+    confirmTitle: "Publish this brief for Scout? (fixture)",
+    confirmLines: [
+      "Every later talk and every later run of Scout will be given this text. (fixture)",
+      "It replaces version 3, which is kept. (fixture)",
+    ],
+    confirmLabel: "Publish it (fixture)",
+    doneText: "Published. Every later talk and every later run of Scout is given this text. (fixture)",
+  },
+  cancelLabel: "Close without saving (fixture)",
+  conflictText: "Nothing was saved. Your text is still in the box. (fixture)",
+  yoursLabel: "Your text (fixture)",
+  theirsLabel: "The newer version (fixture)",
+  saveOverLabel: "Save my text after the newer version (fixture)",
+  takeTheirsLabel: "Take the newer version and drop my text (fixture)",
+};
+
+/** The editor of a seat with no brief on the Gateway: it starts empty and a save expects version 0. */
+export const BRIEF_EDITOR_FIRST: FactoryBriefEditorView = {
+  ...BRIEF_EDITOR,
+  heading: "Write the brief of Scout (fixture)",
+  startText: "Scout has no brief on the Gateway yet. Write it here. (fixture)",
+  text: "",
+  expectedVersion: 0,
+  publish: { ...BRIEF_EDITOR.publish, version: 0, expectedVersion: 0 },
+};
+
+function historyRow(version: number, stateWord: string, over: Partial<FactoryBriefHistoryRow> = {}): FactoryBriefHistoryRow {
+  return {
+    version,
+    title: `Version ${version} (fixture)`,
+    stateWord,
+    stateTone: "grey",
+    whoText: "session 73000000-0000-4000-8000-000000000001",
+    whenText: "today 13:00",
+    sizeText: "1.2 KB",
+    openLabel: "Open (fixture)",
+    publish: null,
+    bringBack: null,
+    ...over,
+  };
+}
+
+function briefAction(version: number, label: string, expectedVersion: number): FactoryBriefAction {
+  return {
+    version,
+    expectedVersion,
+    label,
+    busyLabel: "Working on it... (fixture)",
+    confirmTitle: `${label} version ${version}? (fixture)`,
+    confirmLines: [`Every later talk and every later run of Scout will be given version ${version}. (fixture)`, "Nothing is removed. (fixture)"],
+    confirmLabel: `${label} it (fixture)`,
+    doneText: `${label} of version ${version} is done. (fixture)`,
+  };
+}
+
+/** The newest page of a long history: 45 versions, 3 shown here, with an older page to come. */
+export const BRIEF_HISTORY_NEWEST: FactoryBriefHistoryView = {
+  heading: "History of the brief of Scout (fixture)",
+  summaryText: "45 versions. Version 44 is published. (fixture)",
+  pageText: "Versions 45 to 43 of 45. (fixture)",
+  waitingText: null,
+  columns: ["Version", "State", "Written by", "When", "Size"],
+  rows: [
+    historyRow(45, "Draft (fixture)", { stateTone: "amber", publish: briefAction(45, "Publish", 45) }),
+    historyRow(44, "Published (fixture)", { stateTone: "ok" }),
+    historyRow(43, "Published earlier (fixture)", { bringBack: briefAction(43, "Bring back", 45) }),
+  ],
+  emptyText: null,
+  nextBefore: 43,
+  olderLabel: "Older versions (fixture)",
+  newestLabel: null,
+  closeLabel: "Back to the brief (fixture)",
+};
+
+/** The page below it: the oldest versions, with the way back to the newest and no older page. */
+export const BRIEF_HISTORY_OLDEST: FactoryBriefHistoryView = {
+  ...BRIEF_HISTORY_NEWEST,
+  pageText: "Versions 2 to 1 of 45. (fixture)",
+  rows: [
+    historyRow(2, "Draft, passed over (fixture)", { bringBack: briefAction(2, "Bring back", 45) }),
+    historyRow(1, "Published earlier (fixture)", { bringBack: briefAction(1, "Bring back", 45) }),
+  ],
+  nextBefore: null,
+  olderLabel: null,
+  newestLabel: "Newest versions (fixture)",
+};
+
+export const BRIEF_VERSION_43: FactoryBriefVersionView = {
+  version: 43,
+  title: "Version 43 (fixture)",
+  lineText: "Published earlier. Written by session 7300 today 13:00. 1.2 KB. (fixture)",
+  text: "The text of version 43.",
+  closeLabel: "Close (fixture)",
 };
