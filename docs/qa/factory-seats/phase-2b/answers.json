@@ -209,7 +209,7 @@
     "body": {
       "computerLabel": "Computer",
       "computerText": "RIG_MACHINE",
-      "draftText": "This seat has 1 draft on the Gateway and none is published. The newest is version 1, written by a person (device browser qa-cockpit-browser) today 20:46. Until you publish one, talks and runs of this seat are told the path of its brief file.",
+      "draftText": "This seat has 1 draft on the Gateway and none is published. The newest is version 1, written by a person (device browser qa-cockpit-browser) today 21:04. Until you publish one, talks and runs of this seat are told the path of its brief file.",
       "editLabel": "Open the newest draft",
       "heading": "What this seat does",
       "historyLabel": "History",
@@ -229,7 +229,7 @@
     "body": {
       "computerLabel": "Computer",
       "computerText": "RIG_MACHINE",
-      "draftText": "This seat has 1 draft on the Gateway and none is published. The newest is version 1, written by a person (device browser qa-cockpit-browser) today 20:46. Until you publish one, talks and runs of this seat are told the path of its brief file.",
+      "draftText": "This seat has 1 draft on the Gateway and none is published. The newest is version 1, written by a person (device browser qa-cockpit-browser) today 21:04. Until you publish one, talks and runs of this seat are told the path of its brief file.",
       "editLabel": "Open the newest draft",
       "heading": "What this seat does",
       "historyLabel": "History",
@@ -251,14 +251,14 @@
       "authorKind": "person",
       "factory": "brief-demo",
       "newestVersion": 1,
-      "publishedAtUtc": "2026-10-14T00:46:05.6380571Z",
+      "publishedAtUtc": "2026-10-14T01:04:27.1661097Z",
       "publishedBy": "device browser qa-cockpit-browser",
       "publishedVersion": 1,
       "seat": "scout",
       "state": "published",
       "text": "You are the Scout of Brief Demo.\n\nEvery morning, read the pages we published this week and check each link.\nWrite what you found to the activity record. Ask the boss before you change a page.",
       "version": 1,
-      "writtenAtUtc": "2026-10-14T00:46:04.9063299Z"
+      "writtenAtUtc": "2026-10-14T01:04:26.4196729Z"
     },
     "credential": "the enrolled browser device key, as Authorization: Bearer",
     "request": "GET /factory-briefs/brief-demo/scout",
@@ -270,14 +270,14 @@
       "authorKind": "person",
       "factory": "brief-demo",
       "newestVersion": 1,
-      "publishedAtUtc": "2026-10-14T00:46:15.6259796Z",
+      "publishedAtUtc": "2026-10-14T01:04:35.6161479Z",
       "publishedBy": "device browser qa-cockpit-browser",
       "publishedVersion": 1,
       "seat": "writer",
       "state": "published",
       "text": "You are the Writer of Brief Demo.\n\nEvery morning, read the pages we published this week and check each link.\nWrite what you found to the activity record. Ask the boss before you change a page.",
       "version": 1,
-      "writtenAtUtc": "2026-10-14T00:46:14.9781271Z"
+      "writtenAtUtc": "2026-10-14T01:04:35.1671471Z"
     },
     "credential": "the enrolled browser device key, as Authorization: Bearer",
     "request": "GET /factory-briefs/brief-demo/writer",
@@ -289,14 +289,14 @@
       "authorKind": "person",
       "factory": "brief-demo",
       "newestVersion": 2,
-      "publishedAtUtc": "2026-10-14T00:46:06.504258Z",
+      "publishedAtUtc": "2026-10-14T01:04:27.7031241Z",
       "publishedBy": "device browser qa-cockpit-browser",
       "publishedVersion": 2,
       "seat": "scout",
       "state": "published",
       "text": "You are the Scout of Brief Demo.\n\nEvery morning, read the pages we published this week and check each link.\nWrite what you found to the activity record. Ask the boss before you change a page.\n\nIn the evening, check the three newest pages a second time.",
       "version": 2,
-      "writtenAtUtc": "2026-10-14T00:46:06.2078821Z"
+      "writtenAtUtc": "2026-10-14T01:04:27.6328217Z"
     },
     "credential": "the enrolled browser device key, as Authorization: Bearer",
     "request": "GET /factory-briefs/brief-demo/scout",
@@ -308,14 +308,14 @@
       "authorKind": "person",
       "factory": "brief-demo",
       "newestVersion": 2,
-      "publishedAtUtc": "2026-10-14T00:46:16.0517356Z",
+      "publishedAtUtc": "2026-10-14T01:04:36.1415542Z",
       "publishedBy": "device browser qa-cockpit-browser",
       "publishedVersion": 2,
       "seat": "writer",
       "state": "published",
       "text": "You are the Writer of Brief Demo.\n\nEvery morning, read the pages we published this week and check each link.\nWrite what you found to the activity record. Ask the boss before you change a page.\n\nIn the evening, check the three newest pages a second time.",
       "version": 2,
-      "writtenAtUtc": "2026-10-14T00:46:16.0054361Z"
+      "writtenAtUtc": "2026-10-14T01:04:36.04938Z"
     },
     "credential": "the enrolled browser device key, as Authorization: Bearer",
     "request": "GET /factory-briefs/brief-demo/writer",
@@ -333,32 +333,32 @@
         {
           "authorId": "device browser qa-cockpit-browser",
           "authorKind": "person",
-          "publishedAtUtc": "2026-10-14T00:46:08.3325868Z",
+          "publishedAtUtc": "2026-10-14T01:04:28.5026324Z",
           "publishedBy": "device browser qa-cockpit-browser",
           "state": "published",
           "textBytes": 191,
           "version": 3,
-          "writtenAtUtc": "2026-10-14T00:46:08.3325868Z"
+          "writtenAtUtc": "2026-10-14T01:04:28.5026324Z"
         },
         {
           "authorId": "device browser qa-cockpit-browser",
           "authorKind": "person",
-          "publishedAtUtc": "2026-10-14T00:46:06.504258Z",
+          "publishedAtUtc": "2026-10-14T01:04:27.7031241Z",
           "publishedBy": "device browser qa-cockpit-browser",
           "state": "published",
           "textBytes": 252,
           "version": 2,
-          "writtenAtUtc": "2026-10-14T00:46:06.2078821Z"
+          "writtenAtUtc": "2026-10-14T01:04:27.6328217Z"
         },
         {
           "authorId": "device browser qa-cockpit-browser",
           "authorKind": "person",
-          "publishedAtUtc": "2026-10-14T00:46:05.6380571Z",
+          "publishedAtUtc": "2026-10-14T01:04:27.1661097Z",
           "publishedBy": "device browser qa-cockpit-browser",
           "state": "published",
           "textBytes": 191,
           "version": 1,
-          "writtenAtUtc": "2026-10-14T00:46:04.9063299Z"
+          "writtenAtUtc": "2026-10-14T01:04:26.4196729Z"
         }
       ]
     },
@@ -378,32 +378,32 @@
         {
           "authorId": "device browser qa-cockpit-browser",
           "authorKind": "person",
-          "publishedAtUtc": "2026-10-14T00:46:17.3560855Z",
+          "publishedAtUtc": "2026-10-14T01:04:36.7816909Z",
           "publishedBy": "device browser qa-cockpit-browser",
           "state": "published",
           "textBytes": 192,
           "version": 3,
-          "writtenAtUtc": "2026-10-14T00:46:17.3560855Z"
+          "writtenAtUtc": "2026-10-14T01:04:36.7816909Z"
         },
         {
           "authorId": "device browser qa-cockpit-browser",
           "authorKind": "person",
-          "publishedAtUtc": "2026-10-14T00:46:16.0517356Z",
+          "publishedAtUtc": "2026-10-14T01:04:36.1415542Z",
           "publishedBy": "device browser qa-cockpit-browser",
           "state": "published",
           "textBytes": 253,
           "version": 2,
-          "writtenAtUtc": "2026-10-14T00:46:16.0054361Z"
+          "writtenAtUtc": "2026-10-14T01:04:36.04938Z"
         },
         {
           "authorId": "device browser qa-cockpit-browser",
           "authorKind": "person",
-          "publishedAtUtc": "2026-10-14T00:46:15.6259796Z",
+          "publishedAtUtc": "2026-10-14T01:04:35.6161479Z",
           "publishedBy": "device browser qa-cockpit-browser",
           "state": "published",
           "textBytes": 192,
           "version": 1,
-          "writtenAtUtc": "2026-10-14T00:46:14.9781271Z"
+          "writtenAtUtc": "2026-10-14T01:04:35.1671471Z"
         }
       ]
     },
@@ -417,14 +417,14 @@
       "authorKind": "person",
       "factory": "brief-demo",
       "newestVersion": 3,
-      "publishedAtUtc": "2026-10-14T00:46:08.3325868Z",
+      "publishedAtUtc": "2026-10-14T01:04:28.5026324Z",
       "publishedBy": "device browser qa-cockpit-browser",
       "publishedVersion": 3,
       "seat": "scout",
       "state": "published",
       "text": "You are the Scout of Brief Demo.\n\nEvery morning, read the pages we published this week and check each link.\nWrite what you found to the activity record. Ask the boss before you change a page.",
       "version": 3,
-      "writtenAtUtc": "2026-10-14T00:46:08.3325868Z"
+      "writtenAtUtc": "2026-10-14T01:04:28.5026324Z"
     },
     "credential": "the enrolled browser device key, as Authorization: Bearer",
     "request": "GET /factory-briefs/brief-demo/scout",
@@ -436,14 +436,14 @@
       "authorKind": "person",
       "factory": "brief-demo",
       "newestVersion": 3,
-      "publishedAtUtc": "2026-10-14T00:46:17.3560855Z",
+      "publishedAtUtc": "2026-10-14T01:04:36.7816909Z",
       "publishedBy": "device browser qa-cockpit-browser",
       "publishedVersion": 3,
       "seat": "writer",
       "state": "published",
       "text": "You are the Writer of Brief Demo.\n\nEvery morning, read the pages we published this week and check each link.\nWrite what you found to the activity record. Ask the boss before you change a page.",
       "version": 3,
-      "writtenAtUtc": "2026-10-14T00:46:17.3560855Z"
+      "writtenAtUtc": "2026-10-14T01:04:36.7816909Z"
     },
     "credential": "the enrolled browser device key, as Authorization: Bearer",
     "request": "GET /factory-briefs/brief-demo/writer",
@@ -456,14 +456,14 @@
         "authorKind": "person",
         "factory": "brief-demo",
         "newestVersion": 3,
-        "publishedAtUtc": "2026-10-14T00:46:08.3325868Z",
+        "publishedAtUtc": "2026-10-14T01:04:28.5026324Z",
         "publishedBy": "device browser qa-cockpit-browser",
         "publishedVersion": 3,
         "seat": "scout",
         "state": "published",
         "text": "You are the Scout of Brief Demo.\n\nEvery morning, read the pages we published this week and check each link.\nWrite what you found to the activity record. Ask the boss before you change a page.",
         "version": 3,
-        "writtenAtUtc": "2026-10-14T00:46:08.3325868Z"
+        "writtenAtUtc": "2026-10-14T01:04:28.5026324Z"
       },
       "error": "version 3 is already the published brief of 'scout'",
       "outcome": "AlreadyPublished"
@@ -482,14 +482,14 @@
         "authorKind": "person",
         "factory": "brief-demo",
         "newestVersion": 3,
-        "publishedAtUtc": "2026-10-14T00:46:17.3560855Z",
+        "publishedAtUtc": "2026-10-14T01:04:36.7816909Z",
         "publishedBy": "device browser qa-cockpit-browser",
         "publishedVersion": 3,
         "seat": "writer",
         "state": "published",
         "text": "You are the Writer of Brief Demo.\n\nEvery morning, read the pages we published this week and check each link.\nWrite what you found to the activity record. Ask the boss before you change a page.",
         "version": 3,
-        "writtenAtUtc": "2026-10-14T00:46:17.3560855Z"
+        "writtenAtUtc": "2026-10-14T01:04:36.7816909Z"
       },
       "error": "version 3 is already the published brief of 'writer'",
       "outcome": "AlreadyPublished"
@@ -508,14 +508,14 @@
         "authorKind": "person",
         "factory": "brief-demo",
         "newestVersion": 3,
-        "publishedAtUtc": "2026-10-14T00:46:08.3325868Z",
+        "publishedAtUtc": "2026-10-14T01:04:28.5026324Z",
         "publishedBy": "device browser qa-cockpit-browser",
         "publishedVersion": 3,
         "seat": "scout",
         "state": "published",
         "text": "You are the Scout of Brief Demo.\n\nEvery morning, read the pages we published this week and check each link.\nWrite what you found to the activity record. Ask the boss before you change a page.",
         "version": 3,
-        "writtenAtUtc": "2026-10-14T00:46:08.3325868Z"
+        "writtenAtUtc": "2026-10-14T01:04:28.5026324Z"
       },
       "error": "version 1 was published before, and version 3 has replaced it. To use its text again, bring version 1 back: that publishes a copy of it as the newest version",
       "outcome": "AlreadyPublished"
@@ -534,14 +534,14 @@
         "authorKind": "person",
         "factory": "brief-demo",
         "newestVersion": 3,
-        "publishedAtUtc": "2026-10-14T00:46:17.3560855Z",
+        "publishedAtUtc": "2026-10-14T01:04:36.7816909Z",
         "publishedBy": "device browser qa-cockpit-browser",
         "publishedVersion": 3,
         "seat": "writer",
         "state": "published",
         "text": "You are the Writer of Brief Demo.\n\nEvery morning, read the pages we published this week and check each link.\nWrite what you found to the activity record. Ask the boss before you change a page.",
         "version": 3,
-        "writtenAtUtc": "2026-10-14T00:46:17.3560855Z"
+        "writtenAtUtc": "2026-10-14T01:04:36.7816909Z"
       },
       "error": "version 1 was published before, and version 3 has replaced it. To use its text again, bring version 1 back: that publishes a copy of it as the newest version",
       "outcome": "AlreadyPublished"
@@ -567,7 +567,7 @@
         "state": "draft",
         "text": "You are the Scout of Brief Demo.\n\nEvery morning, read the pages we published this week and check each link.\nWrite what you found to the activity record. Ask the boss before you change a page.\n\nAdded from another window: check the sitemap too.",
         "version": 4,
-        "writtenAtUtc": "2026-10-14T00:46:09.2403338Z"
+        "writtenAtUtc": "2026-10-14T01:04:29.4779132Z"
       },
       "error": "the brief of 'scout' is at version 4, not 3; read it again, merge, and save once more",
       "outcome": "Stale"
@@ -594,7 +594,7 @@
         "state": "draft",
         "text": "You are the Writer of Brief Demo.\n\nEvery morning, read the pages we published this week and check each link.\nWrite what you found to the activity record. Ask the boss before you change a page.\n\nAdded from another window: check the sitemap too.",
         "version": 4,
-        "writtenAtUtc": "2026-10-14T00:46:17.958054Z"
+        "writtenAtUtc": "2026-10-14T01:04:37.4930536Z"
       },
       "error": "the brief of 'writer' is at version 4, not 3; read it again, merge, and save once more",
       "outcome": "Stale"
@@ -620,7 +620,7 @@
       "state": "draft",
       "text": "You are the Scout of Brief Demo.\n\nEvery morning, read the pages we published this week and check each link.\nWrite what you found to the activity record. Ask the boss before you change a page.\n\nThe owner adds: never publish on a Friday.",
       "version": 5,
-      "writtenAtUtc": "2026-10-14T00:46:09.910472Z"
+      "writtenAtUtc": "2026-10-14T01:04:29.9137869Z"
     },
     "credential": "the enrolled browser device key, as Authorization: Bearer",
     "request": "GET /factory-briefs/brief-demo/scout/draft",
@@ -639,7 +639,7 @@
       "state": "draft",
       "text": "You are the Writer of Brief Demo.\n\nEvery morning, read the pages we published this week and check each link.\nWrite what you found to the activity record. Ask the boss before you change a page.\n\nThe owner adds: never publish on a Friday.",
       "version": 5,
-      "writtenAtUtc": "2026-10-14T00:46:18.4094086Z"
+      "writtenAtUtc": "2026-10-14T01:04:37.7825342Z"
     },
     "credential": "the enrolled browser device key, as Authorization: Bearer",
     "request": "GET /factory-briefs/brief-demo/writer/draft",
@@ -649,7 +649,7 @@
     "body": {
       "computerLabel": null,
       "computerText": null,
-      "draftText": "A newer draft, version 23, was written by a person (device browser qa-cockpit-browser) today 20:46. Talks and runs of this seat are given version 3 until you publish a newer one.",
+      "draftText": "A newer draft, version 23, was written by a person (device browser qa-cockpit-browser) today 21:04. Talks and runs of this seat are given version 3 until you publish a newer one.",
       "editLabel": "Edit",
       "heading": "What this seat does",
       "historyLabel": "History",
@@ -658,7 +658,7 @@
       "pathText": null,
       "state": "published",
       "text": "You are the Scout of Brief Demo.\n\nEvery morning, read the pages we published this week and check each link.\nWrite what you found to the activity record. Ask the boss before you change a page.",
-      "versionText": "Version 3, published by a person (device browser qa-cockpit-browser) today 20:46.",
+      "versionText": "Version 3, published by a person (device browser qa-cockpit-browser) today 21:04.",
       "waitingText": "20 drafts are waiting that nobody has published (versions 4 to 23). A session of this factory is refused another draft while 20 or more are waiting. Publish one to make room. Every version is kept."
     },
     "credential": "the enrolled browser device key, as Authorization: Bearer",
@@ -669,7 +669,7 @@
     "body": {
       "computerLabel": null,
       "computerText": null,
-      "draftText": "A newer draft, version 23, was written by a person (device browser qa-cockpit-browser) today 20:46. Talks and runs of this seat are given version 3 until you publish a newer one.",
+      "draftText": "A newer draft, version 23, was written by a person (device browser qa-cockpit-browser) today 21:04. Talks and runs of this seat are given version 3 until you publish a newer one.",
       "editLabel": "Edit",
       "heading": "What this seat does",
       "historyLabel": "History",
@@ -678,7 +678,7 @@
       "pathText": null,
       "state": "published",
       "text": "You are the Writer of Brief Demo.\n\nEvery morning, read the pages we published this week and check each link.\nWrite what you found to the activity record. Ask the boss before you change a page.",
-      "versionText": "Version 3, published by a person (device browser qa-cockpit-browser) today 20:46.",
+      "versionText": "Version 3, published by a person (device browser qa-cockpit-browser) today 21:04.",
       "waitingText": "20 drafts are waiting that nobody has published (versions 4 to 23). A session of this factory is refused another draft while 20 or more are waiting. Publish one to make room. Every version is kept."
     },
     "credential": "the enrolled browser device key, as Authorization: Bearer",
@@ -766,7 +766,7 @@
       "pathText": null,
       "state": "published",
       "text": "You are the Scout of Brief Demo.\n\nEvery morning, read the pages we published this week and check each link.\nWrite what you found to the activity record. Ask the boss before you change a page.\n\nDraft number 23.",
-      "versionText": "Version 23, published by a person (device browser qa-cockpit-browser) today 20:46.",
+      "versionText": "Version 23, published by a person (device browser qa-cockpit-browser) today 21:04.",
       "waitingText": null
     },
     "credential": "the enrolled browser device key, as Authorization: Bearer",
@@ -786,7 +786,7 @@
       "pathText": null,
       "state": "published",
       "text": "You are the Writer of Brief Demo.\n\nEvery morning, read the pages we published this week and check each link.\nWrite what you found to the activity record. Ask the boss before you change a page.\n\nDraft number 23.",
-      "versionText": "Version 23, published by a person (device browser qa-cockpit-browser) today 20:46.",
+      "versionText": "Version 23, published by a person (device browser qa-cockpit-browser) today 21:04.",
       "waitingText": null
     },
     "credential": "the enrolled browser device key, as Authorization: Bearer",
