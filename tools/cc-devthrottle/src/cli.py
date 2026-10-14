@@ -16,6 +16,7 @@ from . import email_ops
 from . import factory_email_ops
 from . import factory_ops
 from . import factory_brief_ops
+from . import factory_definition_ops
 from . import factory_memory_ops
 from . import factory_registry_ops
 from . import factory_status_ops
@@ -164,6 +165,13 @@ factory_brief_app = typer.Typer(
     no_args_is_help=True,
 )
 factory_app.add_typer(factory_brief_app, name="brief")
+factory_definition_app = typer.Typer(
+    cls=AxiGroup,
+    help="A factory's definition on the Gateway: every file that says what the factory is, every version kept.",
+    add_completion=False,
+    no_args_is_help=True,
+)
+factory_app.add_typer(factory_definition_app, name="definition")
 factory_goal_number_app = typer.Typer(
     cls=AxiGroup,
     help="The number a factory's goal is measured by: its boss posts it on every run.",
@@ -1222,6 +1230,66 @@ _ACTIONS = [
             {"name": "seat", "required": True},
             {"name": "version", "required": True},
             {"name": "expected-version", "required": False},
+        ],
+    },
+    {
+        "id": "factory-definition-get",
+        "description": "Read a factory's definition held on the Gateway: the published version, --draft for the newest, --version N for one; a summary and the file list, or --file <path> for one file's text.",
+        "command": "cc-devthrottle factory definition get <factory>",
+        "mutatesState": False,
+        "args": [
+            {"name": "factory", "required": True},
+            {"name": "draft", "required": False},
+            {"name": "version", "required": False},
+            {"name": "file", "required": False},
+        ],
+    },
+    {
+        "id": "factory-definition-history",
+        "description": "One page of the versions of a factory's definition, newest first, without their content, and which one is published.",
+        "command": "cc-devthrottle factory definition history <factory>",
+        "mutatesState": False,
+        "args": [{"name": "factory", "required": True}],
+    },
+    {
+        "id": "factory-definition-save",
+        "description": "Save every file under a folder as a new draft of a factory's definition; the Gateway checks it first and refuses it with every finding, file and line.",
+        "command": "cc-devthrottle factory definition save <factory> --dir <folder> --expected-version <n>",
+        "mutatesState": True,
+        "args": [
+            {"name": "factory", "required": True},
+            {"name": "dir", "required": True},
+            {"name": "expected-version", "required": True},
+            {"name": "note", "required": False},
+        ],
+    },
+    {
+        "id": "factory-definition-publish",
+        "description": "Publish one version of a factory's definition and see what changes. Only a person publishes: a session is refused and told to save a draft.",
+        "command": "cc-devthrottle factory definition publish <factory> --version <n>",
+        "mutatesState": True,
+        "args": [{"name": "factory", "required": True}, {"name": "version", "required": True}],
+    },
+    {
+        "id": "factory-definition-restore",
+        "description": "Publish a copy of an older version of a factory's definition as the newest. Only a person does this: a session is refused.",
+        "command": "cc-devthrottle factory definition restore <factory> --version <n>",
+        "mutatesState": True,
+        "args": [
+            {"name": "factory", "required": True},
+            {"name": "version", "required": True},
+            {"name": "expected-version", "required": False},
+        ],
+    },
+    {
+        "id": "factory-definition-diff",
+        "description": "What changes from one version of a factory's definition to another, as the Gateway words it: by default from the published version to the newest.",
+        "command": "cc-devthrottle factory definition diff <factory>",
+        "mutatesState": False,
+        "args": [
+            {"name": "factory", "required": True},
+            {"name": "from", "required": False},
+            {"name": "to", "required": False},
         ],
     },
     {
@@ -4473,6 +4541,107 @@ def factory_brief_restore(
     this is refused by the Gateway with the sentence that says so.
     """
     factory_brief_ops.restore(factory, seat, version, expected_version, json_output)
+
+
+_DEFINITION_FACTORY_HELP = "The factory's id, for example warmforward. It need not be registered yet."
+
+
+@factory_definition_app.command("get")
+def factory_definition_get(
+    factory: str = typer.Argument(..., help=_DEFINITION_FACTORY_HELP),
+    draft: bool = typer.Option(False, "--draft", help="Read the newest version, whether or not it is published."),
+    version: Optional[int] = typer.Option(None, "--version", min=1, help="Read this one version, as history numbers it."),
+    file: Optional[str] = typer.Option(None, "--file", help="Print this one file's text, by its path in the definition."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON: the version with every file, or with --file that one file."),
+) -> None:
+    """Read a factory's definition: a summary and the file list, or one file's text.
+
+    The published version by default; --draft reads the newest version and --version the one you name (pass at
+    most one of them). --file prints one file's text; --json gives the exact text.
+    """
+    factory_definition_ops.get_definition(factory, draft, version, file, json_output)
+
+
+@factory_definition_app.command("history")
+def factory_definition_history(
+    factory: str = typer.Argument(..., help=_DEFINITION_FACTORY_HELP),
+    count: Optional[int] = typer.Option(
+        None, "--count", "-n", min=1, max=100,
+        help="How many versions one page holds, 1 to 100. The Gateway gives 50 when this is not passed.",
+    ),
+    before: Optional[int] = typer.Option(
+        None, "--before", min=1,
+        help="Start the page below this version. The page before it says which version to pass.",
+    ),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the page as JSON."),
+) -> None:
+    """One page of a factory's definition versions, newest first, without their content.
+
+    The page says how many versions there are in all and which --before reads the next, older page. A version's
+    files are read with get --version.
+    """
+    factory_definition_ops.history(factory, json_output, count, before)
+
+
+@factory_definition_app.command("save")
+def factory_definition_save(
+    factory: str = typer.Argument(..., help=_DEFINITION_FACTORY_HELP),
+    folder: str = typer.Option(..., "--dir", help="The folder holding the whole definition: factory.yaml, seats/ and the rest."),
+    expected_version: int = typer.Option(
+        ..., "--expected-version", min=0,
+        help="The newest version you read (get --draft shows it). 0 when the factory has no definition here yet.",
+    ),
+    note: Optional[str] = typer.Option(None, "--note", help="A change note, at most 500 characters."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the saved draft as JSON."),
+) -> None:
+    """Save every file under a folder as a new draft version of a factory's definition.
+
+    Paths are relative to the folder, with forward slashes. The Gateway checks the whole definition first: any
+    error refuses the save and every finding is printed with its file and line. If somebody saved a version since
+    the one you read, nothing is saved: read the newest, merge and save again.
+    """
+    factory_definition_ops.save(factory, folder, expected_version, note, json_output)
+
+
+@factory_definition_app.command("publish")
+def factory_definition_publish(
+    factory: str = typer.Argument(..., help=_DEFINITION_FACTORY_HELP),
+    version: int = typer.Option(..., "--version", min=1, help="The version to publish."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the published version as JSON."),
+) -> None:
+    """Publish one version of a factory's definition, and print what changes. Only a person publishes.
+
+    A session that runs this is refused by the Gateway with the sentence that says so, and exits non-zero.
+    """
+    factory_definition_ops.publish(factory, version, json_output)
+
+
+@factory_definition_app.command("restore")
+def factory_definition_restore(
+    factory: str = typer.Argument(..., help=_DEFINITION_FACTORY_HELP),
+    version: int = typer.Option(..., "--version", min=1, help="The older version whose content to restore."),
+    expected_version: int = typer.Option(
+        0, "--expected-version", min=0,
+        help="The newest version you read. 0, the default, means you did not check.",
+    ),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the new version as JSON."),
+) -> None:
+    """Publish a copy of an older version as the newest version. Only a person does.
+
+    The versions in between stay in the history. A session that runs this is refused by the Gateway.
+    """
+    factory_definition_ops.restore(factory, version, expected_version, json_output)
+
+
+@factory_definition_app.command("diff")
+def factory_definition_diff(
+    factory: str = typer.Argument(..., help=_DEFINITION_FACTORY_HELP),
+    from_version: Optional[int] = typer.Option(None, "--from", min=1, help="Compare from this version. Default: the published one."),
+    to_version: Optional[int] = typer.Option(None, "--to", min=1, help="Compare to this version. Default: the newest."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the difference as JSON."),
+) -> None:
+    """What changes from one version of a factory's definition to another, as the Gateway words it."""
+    factory_definition_ops.diff(factory, from_version, to_version, json_output)
 
 
 @trigger_app.callback()

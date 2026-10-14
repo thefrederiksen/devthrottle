@@ -2001,6 +2001,65 @@ Which version a run or a talk was given is kept:
 - a talk: `briefVersion` in the answer that starts the talk, and `factoryAgentVersion` on the `talked` line
   the talk records before it ends (the talk is told to record it with `--version <n>`).
 
+#### Factory definition
+
+A factory's whole definition held on the Gateway (Factory Definition mission, phase 1): `factory.yaml`, one
+file per seat under `seats/`, `grants.yaml`, rule sets under `rules/`, files under `files/`, checks under
+`checks/` and the factory's own skills under `skills/`. The Gateway keeps every version. The factory need not
+be registered. Nothing reads the definition yet: until phase 4 of the mission a factory runs exactly as before.
+
+```
+USAGE: cc-devthrottle factory definition COMMAND FACTORY [OPTIONS]
+
+COMMANDS:
+  get FACTORY [--draft | --version N] [--file PATH]   the published version: a summary and the file list;
+                                                      --draft for the newest, --version for one by its number;
+                                                      --file prints that one file's text
+  history FACTORY [--count N] [--before N]            one page of the versions, newest first, without their content
+  save FACTORY --dir FOLDER --expected-version N [--note TEXT]
+                                                      save every file under FOLDER as a new draft
+  publish FACTORY --version N                         publish one version and print what changes - a person only
+  restore FACTORY --version N [--expected-version N]  publish a copy of an older version as the newest - a person only
+  diff FACTORY [--from N] [--to M]                    what changes: by default from the published version to the newest
+```
+
+`--json` is available on every command and keeps one shape: the Gateway's answer, unchanged. With `--file`,
+`get --json` prints only that file (`factory`, `version`, `path`, `text`) - the filter applies to `--json`
+too. Plain output prints anything that is not printable ASCII as an escape; `--json` gives the exact text.
+
+**Who may use them.** A person, or a session of that factory. A session of another factory, or of none, is
+refused in the same words a factory's schedules and briefs use. The account's shared machine token and a
+Director may read and may not write, because every version records who wrote it.
+
+**Every write is checked first.** `save`, `publish` and `restore` run the whole-definition check on the
+Gateway, with the account's fleet skills and the machines its Directors report now. Any error refuses the
+write and nothing is stored: the command prints the Gateway's sentence and every finding as
+`file:line: message` under `errors[N]:` (a finding about a whole file has no line), and exits 1. Notices
+never refuse; they are printed under `notices[N]:` with the success. A `publish` and a `restore` check again
+even though the version was checked when it was saved, because the account's skills and machines can change.
+
+**Draft, then published.** `save` adds a draft version. A person publishes one version, and the published
+definition is the highest version that is published. Publishing does not go backwards: `restore` publishes a
+copy of an older version as the newest, recording which version it copied, and the versions in between stay
+in the history. With a session's key, `publish` and `restore` are refused by the Gateway with "Only a person
+publishes a factory's definition..." and exit 1; a session saves a draft and the owner publishes it. A
+session is refused another draft while 20 wait above the published version.
+
+**What changes.** `publish` and `restore` print what changes against the version that was published before,
+and `diff` prints it between any two versions. Every sentence, detail and line difference is composed on the
+Gateway and printed as it is; the command decides nothing.
+
+**Two writers on one definition.** `save` sends the newest version its caller read, which `get --draft`
+shows; `--expected-version` is required, and 0 means "this factory has no definition here yet". The command
+never looks the version up for itself. When somebody saved a version since, nothing is saved: the command
+exits 1 and says which version is newest and how to read it.
+
+**What `save` sends.** Every file under the folder, at any depth, by its path relative to the folder with
+forward slashes on every platform, as UTF-8 text with its own line endings kept. Nothing is skipped: a file
+the definition does not hold (a `.DS_Store`, a `README.md` at the top) is refused by the Gateway by name, and
+a file that is not UTF-8 text is refused here, by name, before anything is sent. A file takes at most 256 KB,
+a version at most 4 MB and 1000 files.
+
 ### Run
 
 How each scheduled run went (Factory Control, step 1). Every run says how it went - ok, or a problem with

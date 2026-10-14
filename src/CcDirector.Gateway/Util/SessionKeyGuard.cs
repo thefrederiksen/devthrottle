@@ -432,6 +432,7 @@ public static class SessionKeyGuard
             if (IsTriggerRoute(verb, s)) return true;
             if (IsFactoryMemoryRoute(verb, s)) return true;
             if (IsFactoryBriefRoute(verb, s)) return true;
+            if (IsFactoryDefinitionRoute(verb, s)) return true;
 
             // What is installed on another machine, and which files it can see - the "start something over
             // there" discovery pair. Reads only; the start itself is a POST below.
@@ -626,6 +627,7 @@ public static class SessionKeyGuard
             if (IsTriggerRoute(verb, s)) return true;
             if (IsFactoryMemoryRoute(verb, s)) return true;
             if (IsFactoryBriefRoute(verb, s)) return true;
+            if (IsFactoryDefinitionRoute(verb, s)) return true;
 
             // Create, start, stop, sign in to or rename an automation browser.
             if (IsBrowserRoute(verb, s)) return true;
@@ -653,6 +655,7 @@ public static class SessionKeyGuard
             if (IsTriggerRoute(verb, s)) return true;
             if (IsFactoryMemoryRoute(verb, s)) return true;
             if (IsFactoryBriefRoute(verb, s)) return true;
+            if (IsFactoryDefinitionRoute(verb, s)) return true;
 
             // Write a workspace - including writing the drain's judgments and, afterwards, what the
             // restart actually produced, back onto a captured one.
@@ -1197,6 +1200,38 @@ public static class SessionKeyGuard
 
         // /versions/{version} - one version, with its text.
         if (s.Length == 5 && s[3] == "versions") return verb is "GET" or "HEAD";
+
+        return false;
+    }
+
+    /// <summary>
+    /// A FACTORY'S DEFINITION, HELD ON THE GATEWAY (Factory Definition mission, phase 1). Allowed to every session key,
+    /// and safe to be, for the reason a brief is: the route itself lets through only a session of the factory named in
+    /// the path (<c>FactoryNaming.TryAct</c>), so a session key cannot reach another factory's definition here.
+    ///
+    /// PUBLISH and RESTORE are allowed THROUGH THIS GUARD and refused BY THE STORE, deliberately: the guard can only
+    /// say "not for a session key", and the store says "only a person publishes; save a draft and the owner publishes
+    /// it", which tells an agent what to do next.
+    /// </summary>
+    private static bool IsFactoryDefinitionRoute(string verb, string[] s)
+    {
+        if (s.Length < 2 || s[0] != "factory-definitions") return false;
+
+        // /factory-definitions/{factory} - the published definition.
+        if (s.Length == 2) return verb is "GET" or "HEAD";
+
+        if (s.Length == 3)
+        {
+            // /draft - read the newest version, or save the next one.
+            if (s[2] == "draft") return verb is "GET" or "HEAD" or "PUT";
+            // /history - one page of the versions, without their content; /diff - what changes between two.
+            if (s[2] is "history" or "diff") return verb is "GET" or "HEAD";
+            // /publish and /restore - refused by the store for a session, in words.
+            if (s[2] is "publish" or "restore") return verb == "POST";
+        }
+
+        // /versions/{version} - one version, with its content.
+        if (s.Length == 4 && s[2] == "versions") return verb is "GET" or "HEAD";
 
         return false;
     }

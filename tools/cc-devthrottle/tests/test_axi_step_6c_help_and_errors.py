@@ -362,6 +362,9 @@ _ACTIONS_ADDED_SINCE_PIN = {
     "factory-memory-list", "factory-memory-get", "factory-memory-set", "factory-memory-delete", "factory-memory-history",
     # The Factory Seats mission, phase 2a: a seat's brief held on the Gateway.
     "factory-brief-get", "factory-brief-history", "factory-brief-set", "factory-brief-publish", "factory-brief-restore",
+    # The Factory Definition mission, phase 1: a factory's whole definition held on the Gateway.
+    "factory-definition-get", "factory-definition-history", "factory-definition-save", "factory-definition-publish",
+    "factory-definition-restore", "factory-definition-diff",
     # The Website Business Factory mission, product track: factory triggers.
     "trigger-add", "trigger-list", "trigger-show", "trigger-pause", "trigger-resume", "trigger-runs",
     # The Factories screen mission, phase A: the factory registry and the goal number a boss posts.
