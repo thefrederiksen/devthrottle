@@ -5,6 +5,11 @@ Branch: `factory-seats/phase-2c-gateway-opens-runs`, cut from `origin/main` at `
 screen, so there are no screenshots here. It changes words the Gateway gives to an agent, so the proof is those
 words, as the Gateway composed them.
 
+**Updated after review 1.** The review (`reviews/review-1.md`) returned two findings. Both are accepted and
+answered in `reviews/answer-1.md`: a brief that cannot be read when a run is due is now a run recorded as not
+started with the reason, and a talk of a factory whose boss is stored with another role word is told to register
+the boss as Boss. The check below was run again after those changes and after merging `origin/main`.
+
 ## What was built
 
 - **A talk.** For a seat whose brief is PUBLISHED on the Gateway, `FactoryTalkSeed` gives the talk that brief's
@@ -240,13 +245,13 @@ says `Boss`.
 
 ## The check, as run
 
-Run on Linux on 2026-10-13, from the worktree of the branch, in the foreground, one after another. `origin/main`
-was fetched before the run and again after it and was still `4ebd3e9c2`, the commit the branch was cut from, so
-there was nothing to merge.
+Run on Linux on 2026-10-13, from the worktree of the branch, after review 1's two changes and after `origin/main`
+at `e2264fde2` was merged into the branch (it merged without a conflict and deletes two test files outside this
+phase).
 
 | Command | Result |
 |---|---|
-| `dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Factory\|FullyQualifiedName~Cron\|FullyQualifiedName~Schedule"` | Passed: 1390, failed: 0, skipped: 0 |
+| `dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Factory\|FullyQualifiedName~Cron\|FullyQualifiedName~Schedule"` | Passed: 1393, failed: 0, skipped: 0 |
 | `dotnet test src/CcDirector.Gateway.Tests --filter "FullyQualifiedName~Factory"` | Passed: 28, failed: 0, skipped: 0 |
 | `npm run typecheck` | Exit 0 |
 | `npm test --workspace @devthrottle/client-core` | 166 files, 2058 tests passed |
@@ -257,18 +262,17 @@ Also run, because this change touches what they cover:
 
 | Command | Result | Why |
 |---|---|---|
-| `dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~FactoryTalkEndpoint\|FullyQualifiedName~FactorySeatOpening\|FullyQualifiedName~ScheduledRun\|FullyQualifiedName~FactoryRegistryStore\|FullyQualifiedName~Migration\|FullyQualifiedName~GatewayHostBootSmoke\|FullyQualifiedName~BuiltInSkills\|FullyQualifiedName~ShippedSkills\|FullyQualifiedName~Architecture"` | Passed: 224, failed: 0 | The migration, the host's start, and the guard that the two copies of a shipped skill agree |
-| `dotnet ef migrations has-pending-model-changes`, SQLite | No changes | The local migration agrees with the model |
-| `dotnet ef migrations has-pending-model-changes`, `CC_GATEWAY_EF_PROVIDER=postgres` | No changes | The PostgreSQL migration agrees with the model |
+| `scripts/test-database.ps1` | GREEN: 73 executed against a throwaway PostgreSQL, 0 failed, 0 skipped | The PostgreSQL migration adds a column; this applies it to a throwaway PostgreSQL |
+| `dotnet ef migrations has-pending-model-changes`, SQLite and `CC_GATEWAY_EF_PROVIDER=postgres` (before review 1; the model has not changed since) | No changes, both | Both migrations agree with the model |
+| The talk route, migration, host start, skill guard and architecture tests (before review 1) | Passed: 224, failed: 0 | The host's start, and the guard that the two copies of a shipped skill agree |
 
-The first full run of the first command failed one test, and it was this phase's own: a new assertion expected a
-Windows folder joined to its brief file with a backslash, and the Gateway joins them with the folder's own separator
-and leaves the file's slash as it was registered. The assertion was wrong, not the code; it was corrected and the
-command run again to the result above. The first and the last command were run once more after the last change to
-any file, with `origin/main` fetched first: the numbers in the table are from that run.
+Two runs of the first command failed one test each before the run above, and each was this phase's own assertion,
+not the code: one expected a Windows folder joined to its brief file with a backslash, where the Gateway keeps the
+file's slash as registered; one, after review 1, expected the stored role word to appear nowhere in a talk, where
+the new instruction to register the boss as Boss names it. Each assertion was corrected and the command run again.
 
-Of the Gateway unit tests, 30 are in this phase's two new classes (`FactorySeatOpeningTests`, 19, and
-`ScheduledRunOpeningTests`, 11), three are added to `FactoryTalkEndpointTests`, and two rows to the registry's
+Of the Gateway unit tests, 33 are in this phase's two new classes (`FactorySeatOpeningTests`, 20, and
+`ScheduledRunOpeningTests`, 13), three are added to `FactoryTalkEndpointTests`, and two rows to the registry's
 refusals. The command line has one new test, which runs the exact command a talk is told to run and checks the
 version reaches the Gateway.
 
@@ -319,8 +323,9 @@ command line tests run in an existing environment that holds the tool's dependen
 - **The host's own two wiring lines were not run by a test.** The tests wire the engine and the talk route with the
   same expressions; `GatewayHostBootSmokeTests` shows the host still starts. No run was fired through a real
   `GatewayHost`.
-- **The PostgreSQL migration was not applied to a PostgreSQL.** It adds one nullable integer column and the model
-  check finds no pending change. `scripts/test-database.ps1` was not run.
+- **No test reads or writes the new column on PostgreSQL.** `scripts/test-database.ps1` applied the migration to a
+  throwaway PostgreSQL and its 73 tests passed, and the model check finds no pending change; the tests that write
+  and read a run's brief version run on SQLite.
 - **A talk that ends without its `talked` line leaves no version** except in the answer that started it and the
   Gateway's log (decision 1).
 - **The version on the activity row was not looked at on a screen.** No screenshot was taken.

@@ -50,7 +50,8 @@ public sealed class FactoryTalkSeedTests
         f.Seats[0].Role = "CFO";
         Assert.StartsWith("You are the boss of WarmForward (factory id: warmforward; your agent id: nora-hale).",
             FactoryTalkSeed.Compose(f, Nora(f), "cj_a721e6", MorningRun));
-        Assert.DoesNotContain("CFO", FactoryTalkSeed.Compose(f, Nora(f), "cj_a721e6", MorningRun));
+        // The one place the stored word is still named is the instruction to register the boss as Boss.
+        Assert.DoesNotContain("its CFO", FactoryTalkSeed.Compose(f, Nora(f), "cj_a721e6", MorningRun));
 
         var engineer = new RegisteredFactorySeatDto { Id = "savings-engineer", Name = "Savings Engineer", Role = "Savings Engineer", BriefFile = "agents/savings.yaml", Computer = "SOREN_NORTH" };
         f.Seats.Add(engineer);
