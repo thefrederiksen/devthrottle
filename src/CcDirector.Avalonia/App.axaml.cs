@@ -561,13 +561,17 @@ public partial class App : Application
                 if (!enabled) return;                               // dev/slot build: no periodic auto-update
 
                 // Periodic silent auto-update of the per-user tier (Director self + tools), on the
-                // configured cadence. Tools aren't locked, so they swap in place; the Director self-update
-                // stages and applies at the next restart. All failures only log. Re-reads the config each
-                // cycle so toggling autoUpdate.enabled / intervalHours takes effect without a restart.
+                // configured cadence. The Director self-update stages and applies at the next restart. The
+                // tools CAN be in use - any running cc-* tool holds the shared Python and venv open - so the
+                // tools refresh checks first and, when they are busy, changes nothing and reports a hold that
+                // is retried in minutes rather than at the next full cycle (issue #3987). All failures only
+                // log. Re-reads the config each cycle so toggling autoUpdate.enabled / intervalHours takes
+                // effect without a restart.
                 var layout = CcDirector.Setup.Engine.InstallLayout.Default();
                 var releaseNotReadyRetry = new ReleaseNotReadyRetry();
                 while (true)
                 {
+                    var toolsHeld = false;
                     var cfg = CcDirector.Setup.Engine.AutoUpdateConfig.Load(layout);
                     if (cfg.Enabled)
                     {
@@ -575,7 +579,8 @@ public partial class App : Application
                         {
                             outcome = await Updater.CheckAndStageAsync();
                             var toolResult = await new CcDirector.Setup.Engine.ToolUpdater(layout).RefreshAsync();
-                            FileLog.Write($"[App] tool auto-update: updated={toolResult.Updated}, failed={toolResult.Failed}");
+                            toolsHeld = toolResult.PythonToolsHeld;
+                            FileLog.Write($"[App] tool auto-update: updated={toolResult.Updated}, failed={toolResult.Failed}, pythonToolsHeld={toolsHeld}");
                         }
                         catch (Exception ex)
                         {
@@ -626,6 +631,12 @@ public partial class App : Application
                         FileLog.Write($"[App] the latest release has no downloads attached yet; looking again in "
                                       + $"{delay.TotalMinutes:0} minutes (attempt {releaseNotReadyRetry.Consecutive} of "
                                       + $"{ReleaseNotReadyRetry.MaxConsecutive}) rather than waiting for the next full cycle.");
+                    if (toolsHeld && CcDirector.Setup.Engine.ToolUpdater.HeldRetryDelay < delay)
+                    {
+                        delay = CcDirector.Setup.Engine.ToolUpdater.HeldRetryDelay;
+                        FileLog.Write($"[App] the tools update is held because a cc-* tool is using it; looking again in "
+                                      + $"{delay.TotalMinutes:0} minutes rather than waiting for the next full cycle.");
+                    }
                     await Task.Delay(delay);
                 }
             });

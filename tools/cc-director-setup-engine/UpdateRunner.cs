@@ -20,6 +20,12 @@ public sealed class UpdateRunResult
     public int Updated => Results.Count(r => r.Status == ApplyStatus.Updated);
     public int Failed => Results.Count(r => r.Status == ApplyStatus.Failed);
     public int Skipped => Results.Count(r => r.Status == ApplyStatus.Skipped);
+
+    /// <summary>
+    /// The Python tools bundle update was held because a cc-* tool was using it, and nothing was changed (issue
+    /// #3987). The caller should look again soon rather than at its ordinary cadence.
+    /// </summary>
+    public bool PythonToolsHeld { get; init; }
 }
 
 /// <summary>
