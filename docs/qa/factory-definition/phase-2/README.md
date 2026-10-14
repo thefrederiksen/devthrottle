@@ -1,6 +1,6 @@
 # Factory Definition, phase 2 - factory records on the Gateway: QA report
 
-Machine SOREN_NORTH, 14 October 2026. Branch `factory-definition/p2-records`, rebased onto origin/main `e587b06c0`.
+Machine SOREN_NORTH, 14 October 2026. Branch `factory-definition/p2-records`, rebased onto origin/main `b4f079a0c`.
 
 ## What this phase adds
 
@@ -103,7 +103,8 @@ A person or a session that sends an import key is refused too (400, "only the on
 | Check | Result |
 |---|---|
 | `.\scripts\test-local.ps1` (default) | GREEN, 10 projects |
-| `.\scripts\test-local.ps1 -Parked` | GREEN, 22,121 tests (Gateway.UnitTests 11,946; Gateway.Tests in 4 shards; Core.Tests 4,516) |
+| `.\scripts\test-local.ps1 -Parked` | GREEN at `7dbde7ad9` (the change rebased onto `e587b06c0`), 22,121 tests (Gateway.UnitTests 11,946; Gateway.Tests in 4 shards; Core.Tests 4,516) |
+| After rebasing onto `b4f079a0c` (phase 1, which adds no migration) | Default gate GREEN at `f95de8daf`; every Gateway unit test under `Factory` (1,191) passing |
 | New Gateway tests (stores, routes, the whole pipeline) | 89, all passing |
 | New command line tests (`test_factory_record_ops.py`, a fake Gateway) | 17, all passing |
 | `tools/cc_shared` gateway tests (the new `headers` argument) | 68 passing |

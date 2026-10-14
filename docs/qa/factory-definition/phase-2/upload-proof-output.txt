@@ -1,5 +1,5 @@
 Factory Definition phase 2 - upload proof on SOREN_NORTH, 2026-10-14 16:48:17 -0400
-Worktree: fd-p2-records, commit 7dbde7ad9
+Worktree: fd-p2-records, commit 7dbde7ad9 (before the rebase onto b4f079a0c; the upload code did not change)
 
 == 1. Fingerprint the records folders before ==
 1481 files, 440767674 bytes
