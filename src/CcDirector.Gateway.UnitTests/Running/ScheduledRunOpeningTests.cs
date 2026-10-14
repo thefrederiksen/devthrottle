@@ -37,6 +37,8 @@ public sealed class ScheduledRunOpeningTests : IDisposable
     private FactoryBriefStore? _briefs;
     private FactoryBriefStore Briefs => _briefs ??= new FactoryBriefStore(Db, Registry);
     private readonly List<NewSessionRequest> _handedToTheDirector = new();
+    /// <summary>When set, reading a seat's brief throws with these words, as a database that cannot be read would.</summary>
+    private string? _briefReadFails;
 
     public void Dispose() => _h.Dispose();
 
@@ -263,6 +265,55 @@ public sealed class ScheduledRunOpeningTests : IDisposable
         Assert.Null(run.BriefVersion);
     }
 
+    // ---- the brief cannot be read (review 1, finding 1) ---------------------------------------------------------
+
+    [Fact]
+    public async Task TheBriefCannotBeRead_TheRunIsNotStarted_AndIsRecordedAsARunThatDidNotRunWithTheReason()
+    {
+        Register();
+        var (store, history) = Stores();
+        var created = store.Create(Job(seat: "boss"));
+        _briefReadFails = "the database is locked";
+
+        var fired = await Engine(store, history, created.NextRunUtc!.Value).EvaluateDueAsync(CancellationToken.None);
+
+        // Never started without its brief: the Director was handed nothing.
+        Assert.Empty(_handedToTheDirector);
+        // And not lost: the run is on record, read back from the database by another store, saying why.
+        Assert.Single(fired);
+        var reopened = new CronRunHistoryStore(Db, _h.LegacyPath(Guid.NewGuid().ToString("N") + ".runs.json"));
+        var row = Assert.Single(reopened.List(created.Id));
+        Assert.Null(row.SessionId);
+        Assert.Equal("not-started", row.InfraStatus);
+        Assert.Equal(CronRunResults.Problem, row.Result);
+        Assert.Equal(CronRunProblems.DidNotRun, row.Problem);
+        Assert.Equal("it did not start a session: " + DirectorCronSessionStarter.BriefNotRead + ": the database is locked", row.ResultReason);
+        Assert.Null(row.BriefVersion);
+        Assert.Equal(TheFactory, row.Factory);
+        // The schedule moved on, as it does after any start that failed: it is not left due for ever.
+        Assert.True(store.Get(created.Id)!.NextRunUtc > created.NextRunUtc);
+    }
+
+    [Fact]
+    public async Task TheBriefCanBeReadAgain_TheNextRunStartsWithItsBrief()
+    {
+        Register();
+        SaveDraft("FIRST: be careful with money.", expect: 0);
+        Publish(1);
+        var (store, history) = Stores();
+        var created = store.Create(Job(seat: "boss"));
+        var engine = Engine(store, history, created.NextRunUtc!.Value);
+        _briefReadFails = "the database is locked";
+        await engine.RunNowAsync(created.Id, CancellationToken.None);
+
+        _briefReadFails = null;
+        var second = await engine.RunNowAsync(created.Id, CancellationToken.None);
+
+        Assert.Contains("--- your brief, version 1 ---", Assert.Single(_handedToTheDirector).PrePrompt);
+        Assert.Equal(1, second.Record!.BriefVersion);
+        Assert.Equal(2, history.List(created.Id).Count);
+    }
+
     // ---- the rig ------------------------------------------------------------------------------------------------
 
     private void Register(string scoutName = "Scout") => Registry.Register(Account, new RegisterFactoryRequest
@@ -303,7 +354,9 @@ public sealed class ScheduledRunOpeningTests : IDisposable
         var starter = new DirectorCronSessionStarter(spawner, clock,
             refuseFactoryWork: job => FactoryScheduleLink.Check(job.Factory, job.Seat, id => Registry.Find(Account, id), out _, running: true),
             seatWithABrief: job => ScheduledRunOpening.SeatFor(job, id => Registry.Find(Account, id),
-                (factory, seat) => Briefs.GivenTo(Account, factory, seat)));
+                (factory, seat) => _briefReadFails is { } why
+                    ? throw new InvalidOperationException(why)
+                    : Briefs.GivenTo(Account, factory, seat)));
         return new CronEngine(store, history, starter, new UnusedWorkListRunner(), new NullCronNotifier(), clock);
     }
 

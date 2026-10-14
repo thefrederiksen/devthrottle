@@ -116,6 +116,14 @@ public static class FactoryTalkSeed
                   + "with goalFile ").Append(goalFile).AppendLine(" and goalApprovedOn set to today. If you do not have the manifest, "
                   + "write one from cc-devthrottle factory list --json, keeping only the keys the manifest takes (docs/cli-reference.md, "
                   + "Factory registry and goal number).");
+        // A factory registered before 13 October 2026 may still hold another role word for its boss. Registering it
+        // again with that word is refused, so the talk is told the one change that lets the goal change complete
+        // (phase 2c, review 1, finding 2). Every factory whose boss's role is Boss reads exactly as before.
+        var boss = factory.Seats.FirstOrDefault(s => IsBoss(factory, s));
+        if (boss is not null && !string.Equals(boss.Role, FactoriesScreenFold.BossRoleWord, StringComparison.Ordinal))
+            sb.Append("- in that manifest, set the role of the boss seat ").Append(boss.Id).Append(" to \"").Append(FactoriesScreenFold.BossRoleWord)
+              .Append("\". It is registered today as \"").Append(boss.Role).AppendLine("\", and the boss's role is Boss: a registration that "
+                  + "gives the boss any other role word is refused, and the goal would not be registered.");
         sb.AppendLine();
 
         sb.AppendLine("Before the talk ends you MUST do all three of these:");

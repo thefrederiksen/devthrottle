@@ -30,6 +30,9 @@ public sealed class DirectorCronSessionStarter : ICronSessionStarter
     /// that seat's PUBLISHED brief on the Gateway - or null for a schedule in no factory and for a seat with no
     /// published brief, which are started exactly as before. REQUIRED, so a wiring line that forgot it fails to
     /// compile rather than starting every seat without its brief; a harness with no briefs passes <c>_ =&gt; null</c>.</param>
+    /// <summary>How a run that did not start says its seat's brief could not be read; the failure's own words follow.</summary>
+    public const string BriefNotRead = "not started: the seat's brief could not be read, and a run is never started without its brief";
+
     public DirectorCronSessionStarter(MachineSessionSpawner spawner, IClock clock, Func<CronJobDto, string?> refuseFactoryWork,
         Func<CronJobDto, ScheduledRunSeat?> seatWithABrief)
     {
@@ -62,7 +65,21 @@ public sealed class DirectorCronSessionStarter : ICronSessionStarter
 
         // THE GATEWAY OPENS THE RUN (Factory Seats mission, phase 2c). The seat and its published brief are read
         // once, here, and the version that is given is the version that is reported back to be recorded on the run.
-        var seat = _seatWithABrief(job);
+        //
+        // A READ THAT FAILS IS A RUN THAT DID NOT START, AND IS RECORDED AS ONE (phase 2c, review 1, finding 1). This
+        // seam reports "could not start" rather than throwing, so the engine records the run with its reason. The
+        // brief read is a database read in the fire path; left to throw, it would stop a factory's runs with no run
+        // row and nothing on any screen. The run is never started without its brief instead.
+        ScheduledRunSeat? seat;
+        try
+        {
+            seat = _seatWithABrief(job);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorCronSessionStarter] start FAILED: job={job.Id}, factory={job.Factory}, seat={job.Seat}: the seat's brief could not be read: {ex}");
+            return new CronRunStart(null, null, BriefNotRead + ": " + ex.Message, BriefVersion: null);
+        }
 
         var req = new NewSessionRequest
         {

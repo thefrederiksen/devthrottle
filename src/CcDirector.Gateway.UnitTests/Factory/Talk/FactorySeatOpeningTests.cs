@@ -196,6 +196,27 @@ When you have finished, the last thing you do is report how this scheduled run w
         Assert.StartsWith(who + "\n", ScheduledRunOpening.PromptFor(MorningRun, "nightly", "cj_1", new ScheduledRunSeat(f, f.Seats[1], brief)));
     }
 
+    // ---- a boss stored with another role word, and a goal change (review 1, finding 2) --------------------------
+
+    [Fact]
+    public void Compose_AFactoryWhoseBossIsStoredWithAnotherRoleWord_IsToldToRegisterTheBossAsBoss_SoAGoalChangeCanComplete()
+    {
+        var f = WarmForward(bossRole: "CFO");
+        const string line = "- in that manifest, set the role of the boss seat boss to \"Boss\". It is registered today as \"CFO\", and the "
+                            + "boss's role is Boss: a registration that gives the boss any other role word is refused, and the goal would not be registered.";
+
+        // Said to the boss, and to any other seat of that factory: either may change the goal in a talk.
+        Assert.Contains(line, FactoryTalkSeed.Compose(f, f.Seats[0], "cj_a721e6", MorningRun));
+        Assert.Contains(line, FactoryTalkSeed.Compose(f, f.Seats[1], null, null));
+        // It is the ONE thing that differs from a factory whose boss's role is Boss.
+        var asBoss = WarmForward();
+        Assert.Equal(FactoryTalkSeed.Compose(asBoss, asBoss.Seats[0], "cj_a721e6", MorningRun),
+            FactoryTalkSeed.Compose(f, f.Seats[0], "cj_a721e6", MorningRun).Replace(line + Environment.NewLine, ""));
+        // A factory with no boss has no boss role to correct.
+        asBoss.BossSeat = null;
+        Assert.DoesNotContain("set the role of the boss seat", FactoryTalkSeed.Compose(asBoss, asBoss.Seats[1], null, null));
+    }
+
     // ---- a talk of a seat with a published brief ----------------------------------------------------------------
 
     [Fact]
