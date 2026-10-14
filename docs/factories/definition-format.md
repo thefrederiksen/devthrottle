@@ -9,7 +9,9 @@ This page is the format, for people. The machine-readable contract is the four J
 `FactoryDefinitionCheck`. A test keeps this page and the schemas together: every key a schema names appears here.
 
 Keys are camelCase. Ids (factory, seat, grant, rule set, skill) are lower-case letters and digits joined by single
-hyphens, at most 64 characters. A YAML file may not use anchors, aliases or tags, and may not write a key twice.
+hyphens, at most 64 characters. A YAML file may not use anchors, aliases or tags, may not write a key twice, and may
+not nest lists and mappings more than 64 deep. A YAML or JSON file and a SKILL.md are saved as UTF-8 without a
+byte-order mark.
 
 ## The files a definition holds
 
@@ -24,7 +26,8 @@ hyphens, at most 64 characters. A YAML file may not use anchors, aliases or tags
 | `skills/<name>/SKILL.md` | no | a factory skill |
 | `skills/<name>/<any path>` | no | a file beside a factory skill; its folder must have a `SKILL.md` |
 
-A path uses forward slashes, with no leading slash, no `.`, `..` or empty part, and is at most 200 characters. A file
+A path uses forward slashes, with no leading slash, no control character (such as a line break), no `.`, `..` or
+empty part, and is at most 200 characters. A file
 holds at most 256 KB and a version at most 4 MB, counted in UTF-8 bytes, and a version holds at most 1000 files.
 
 ## factory.yaml
@@ -174,7 +177,8 @@ a publish and a restore. Notices never refuse.
 
 Errors:
 
-- A file that is not valid YAML or JSON, a key written twice, an anchor, alias or tag.
+- A file that is not valid YAML or JSON, a key written twice, an anchor, alias or tag, nesting deeper than 64, a
+  byte-order mark.
 - An unknown key (with the keys that file takes), a missing required key, a wrong type, a bad value.
 - A path that is not one of the places above, a file over 256 KB, a version over 4 MB or over 1000 files.
 - A reference that does not resolve, reported on the line that makes it: a seat's grant, rule set, factory skill,

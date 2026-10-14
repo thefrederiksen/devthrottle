@@ -87,6 +87,28 @@ public sealed class DefinitionSchemaTests
         Assert.Contains("#/properties/a", ex.Message);
     }
 
+    [Theory]
+    [InlineData("""{ "type": "array", "items": { "type": "string" }, "maxLength": 1 }""", "'maxLength' does nothing on type 'array'")]
+    [InlineData("""{ "type": "array", "items": { "type": "string" }, "pattern": "x", "description": "d" }""", "'pattern' does nothing on type 'array'")]
+    [InlineData("""{ "type": "string", "minItems": 5 }""", "'minItems' does nothing on type 'string'")]
+    [InlineData("""{ "type": "string", "items": { "type": "string", "oneOf": [] } }""", "'items' does nothing on type 'string'")]
+    [InlineData("""{ "type": "boolean", "enum": [true] }""", "'enum' does nothing on type 'boolean'")]
+    public void Load_KeywordOnATypeThatDoesNotEnforceIt_IsRefused(string property, string expected)
+    {
+        // Review finding 3: an implemented keyword on the wrong type was accepted and did nothing.
+        var schema = """
+            {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "title": "x", "type": "object", "additionalProperties": false,
+              "properties": { "a": PROPERTY }
+            }
+            """.Replace("PROPERTY", property, StringComparison.Ordinal);
+
+        var ex = Assert.Throws<InvalidOperationException>(() => DefinitionSchema.Load("x.schema.json", schema));
+        Assert.Contains(expected, ex.Message);
+        Assert.Contains("#/properties/a", ex.Message);
+    }
+
     [Fact]
     public void Load_UnimplementedType_IsRefused()
     {

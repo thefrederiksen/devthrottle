@@ -216,6 +216,66 @@ public sealed class FactoryDefinitionCheckTests
         AssertOneError(result, "seats/writer.yaml", 5, "more than one YAML document");
     }
 
+    [Theory]
+    [InlineData(2_000)]
+    [InlineData(120_000)]
+    public void Check_YamlNestedDeeperThanTheLimit_IsAFindingNotACrash(int depth)
+    {
+        // Review finding 1: the tree reader recursed with no limit, so a few kilobytes of brackets overflowed the
+        // stack, which .NET cannot catch, and would end the Gateway process.
+        var text = "seat: writer\nname: W\nrole: W\nbrief: B\nextra: " + new string('[', depth) + new string(']', depth) + "\n";
+
+        var result = Check(With("seats/writer.yaml", text));
+
+        AssertOneError(result, "seats/writer.yaml", 5, $"nested more than {DefinitionDocument.MaxDepth} deep");
+    }
+
+    [Fact]
+    public void Check_YamlNestedToTheLimit_Parses()
+    {
+        // The root mapping is depth 0 and the outermost list under 'extra' depth 1, so this many lists put the
+        // innermost exactly at the limit; one more is refused.
+        string Nested(int lists) => "seat: writer\nname: W\nrole: W\nbrief: B\nextra: " + new string('[', lists) + new string(']', lists) + "\n";
+
+        // Parsed, so the finding is the schema's, not the depth limit's.
+        AssertOneError(Check(With("seats/writer.yaml", Nested(DefinitionDocument.MaxDepth))), "seats/writer.yaml", 5, "'extra' is not a key of a seat file");
+        AssertOneError(Check(With("seats/writer.yaml", Nested(DefinitionDocument.MaxDepth + 1))), "seats/writer.yaml", 5, "nested more than");
+    }
+
+    [Fact]
+    public void Check_YamlBeginningWithAByteOrderMark_IsRefusedByName()
+    {
+        var result = Check(With("factory.yaml", DefinitionDocument.ByteOrderMark + DefinitionFixture.Factory));
+
+        AssertOneError(result, "factory.yaml", 1, "factory.yaml begins with a byte-order mark. Save it as UTF-8 without a byte-order mark.");
+    }
+
+    [Fact]
+    public void Check_JsonBeginningWithAByteOrderMark_IsRefusedByName()
+    {
+        var result = Check(With("rules/base.json", DefinitionDocument.ByteOrderMark + BaseRules));
+
+        AssertOneError(result, "rules/base.json", 1, "rules/base.json begins with a byte-order mark.");
+    }
+
+    [Fact]
+    public void Check_SkillMdBeginningWithAByteOrderMark_IsRefusedByName()
+    {
+        var result = Check(With("skills/mail-voice/SKILL.md", DefinitionDocument.ByteOrderMark + MailVoice));
+
+        AssertOneError(result, "skills/mail-voice/SKILL.md", 1, "skills/mail-voice/SKILL.md begins with a byte-order mark.");
+    }
+
+    [Fact]
+    public void Check_NullText_IsTheCallersDefectAndThrows()
+    {
+        var content = Valid();
+        content["files/null.txt"] = null!;
+
+        var ex = Assert.Throws<ArgumentException>(() => Check(content));
+        Assert.Contains("holds no text for 'files/null.txt'", ex.Message);
+    }
+
     [Fact]
     public void Check_EmptySeatFile_IsRefused()
     {
@@ -429,6 +489,16 @@ public sealed class FactoryDefinitionCheckTests
     }
 
     [Fact]
+    public void Check_PathHoldingALineBreak_IsRefusedInOneLine()
+    {
+        var content = Valid();
+        content["files/a\nb.txt"] = "x";
+
+        var error = AssertOneError(Check(content), "files/a\nb.txt", 0, "it holds a control character, such as a line break");
+        Assert.DoesNotContain('\n', error.Message);
+    }
+
+    [Fact]
     public void Check_PathOver200Characters_IsRefused()
     {
         var path = "files/" + new string('a', 195);
@@ -468,7 +538,7 @@ public sealed class FactoryDefinitionCheckTests
     {
         var content = Valid();
         // Each e-acute is two UTF-8 bytes: under the cap in characters, over it in bytes.
-        content["files/accents.txt"] = new string('é', DefinitionPaths.MaxFileBytes / 2 + 1);
+        content["files/accents.txt"] = new string('\u00e9', DefinitionPaths.MaxFileBytes / 2 + 1);
 
         AssertOneError(Check(content), "files/accents.txt", 0, "a file may hold at most");
     }
@@ -801,6 +871,35 @@ public sealed class FactoryDefinitionCheckTests
         var result = Check(Edit("seats/outreach.yaml", "    prompt: \"New mail", "    preventOverlap: false\n    prompt: \"New mail"));
 
         AssertOneError(result, "seats/outreach.yaml", 15, "A start with a check always prevents overlap, so preventOverlap cannot be false here.");
+    }
+
+    [Theory]
+    [InlineData("False")]
+    [InlineData("FALSE")]
+    public void Check_StartWithACheckAndPreventOverlapFalseInCapitals_IsRefused(string written)
+    {
+        // Review finding 2: YAML reads False and FALSE as false, so the check must too.
+        var result = Check(Edit("seats/outreach.yaml", "    prompt: \"New mail", $"    preventOverlap: {written}\n    prompt: \"New mail"));
+
+        AssertOneError(result, "seats/outreach.yaml", 15, "preventOverlap cannot be false here");
+    }
+
+    [Fact]
+    public void Check_PreventOverlapFalseInCapitals_IsStoredAsFalse()
+    {
+        var result = Check(Edit("seats/boss.yaml", "prompt: Morning round.", "prompt: Morning round.\n    preventOverlap: False"));
+
+        Assert.False(result.HasErrors);
+        Assert.False(result.Definition!.Seats[0].Starts[0].PreventOverlap);
+    }
+
+    [Fact]
+    public void Check_HugeInterval_SaysItsTrueLengthInSeconds()
+    {
+        // Review finding 4: 600000h overflowed an int and was reported as a negative number of seconds.
+        var result = Check(Edit("seats/outreach.yaml", "every: 10m", "every: 600000h"));
+
+        AssertOneError(result, "seats/outreach.yaml", 12, "An interval of 600000h is 2160000000 seconds;");
     }
 
     [Fact]

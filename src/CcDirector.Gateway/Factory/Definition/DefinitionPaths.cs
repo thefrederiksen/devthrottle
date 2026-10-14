@@ -55,7 +55,7 @@ public static partial class DefinitionPaths
 
     /// <summary>
     /// Why <paramref name="path"/> breaks the path rules, or null when it keeps them: forward slashes only, no leading
-    /// slash, no <c>.</c>, <c>..</c> or empty part, at most <see cref="MaxPathLength"/> characters.
+    /// slash, no control character, no <c>.</c>, <c>..</c> or empty part, at most <see cref="MaxPathLength"/> characters.
     /// </summary>
     public static string? ShapeProblem(string path)
     {
@@ -64,6 +64,7 @@ public static partial class DefinitionPaths
         if (path.Length == 0) reason = "it is empty";
         else if (path.Length > MaxPathLength) reason = $"it is {path.Length} characters long";
         else if (path.Contains('\\')) reason = "it contains a backslash";
+        else if (path.Any(char.IsControl)) reason = "it holds a control character, such as a line break";
         else if (path.StartsWith('/')) reason = "it begins with a slash";
         else
         {
@@ -75,8 +76,8 @@ public static partial class DefinitionPaths
         }
         return reason is null
             ? null
-            : $"'{Shown(path)}' is not a path a definition can hold: {reason}. A path uses forward slashes, with no leading " +
-              $"slash and no '.', '..' or empty part, and is at most {MaxPathLength} characters.";
+            : $"'{Shown(path.ReplaceLineEndings(" "))}' is not a path a definition can hold: {reason}. A path uses forward " +
+              $"slashes, with no leading slash, no control character and no '.', '..' or empty part, and is at most {MaxPathLength} characters.";
     }
 
     /// <summary>

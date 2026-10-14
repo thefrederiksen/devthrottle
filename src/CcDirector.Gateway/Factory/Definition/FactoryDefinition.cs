@@ -64,7 +64,7 @@ public sealed record SeatStartDefinition(
     string? Cron,
     string? TimeZone,
     string? Every,
-    int? EverySeconds,
+    long? EverySeconds,
     string? Check,
     IReadOnlyList<string> Secrets,
     string Prompt,

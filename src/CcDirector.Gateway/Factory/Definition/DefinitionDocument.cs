@@ -59,10 +59,20 @@ public sealed record DefinitionParseError(int Line, string Message);
 /// </summary>
 public static partial class DefinitionDocument
 {
+    /// <summary>
+    /// How deep lists and mappings may nest, the same limit System.Text.Json applies to JSON. The deepest real
+    /// definition nests four (a seat's starts, a start, its secrets).
+    /// </summary>
+    public const int MaxDepth = 64;
+
+    /// <summary>The byte-order mark, refused at the start of a file the check parses.</summary>
+    public const char ByteOrderMark = '\uFEFF';
+
     /// <summary>Parse YAML text. Exactly one of the two results is non-null.</summary>
     public static (DefinitionNode? Root, DefinitionParseError? Error) ParseYaml(string path, string text)
     {
         ArgumentNullException.ThrowIfNull(text);
+        if (BeginsWithByteOrderMark(path, text) is { } bom) return (null, bom);
         YamlTreeReader? reader = null;
         try
         {
@@ -100,6 +110,7 @@ public static partial class DefinitionDocument
     public static (DefinitionNode? Root, DefinitionParseError? Error) ParseJson(string path, string text)
     {
         ArgumentNullException.ThrowIfNull(text);
+        if (BeginsWithByteOrderMark(path, text) is { } bom) return (null, bom);
         var bytes = Encoding.UTF8.GetBytes(text);
         var lines = new LineIndex(bytes);
         try
@@ -176,6 +187,15 @@ public static partial class DefinitionDocument
         }
     }
 
+    /// <summary>
+    /// The refusal for a text that begins with a byte-order mark, or null. Refused by name rather than stripped: left
+    /// in, it reads as part of the first key, and the owner would be told that a listed key is not a key.
+    /// </summary>
+    public static DefinitionParseError? BeginsWithByteOrderMark(string path, string text)
+        => text.Length > 0 && text[0] == ByteOrderMark
+            ? new DefinitionParseError(1, $"{path} begins with a byte-order mark. Save it as UTF-8 without a byte-order mark.")
+            : null;
+
     /// <summary>The sentence for a key written twice in one mapping.</summary>
     public static string DuplicateKey(string key, int firstLine)
         => $"The key '{key}' appears twice in this mapping; it was first on line {firstLine}. Keep one.";
@@ -231,11 +251,22 @@ public static partial class DefinitionDocument
         /// <summary>The line of the last event read, for a parser failure that carries no position of its own.</summary>
         public int LastLine { get; private set; }
 
-        public DefinitionNode? Read()
+        public DefinitionNode? Read() => Read(0);
+
+        private DefinitionNode? Read(int depth)
         {
             var ev = _parser.Current ?? throw new InvalidOperationException("The YAML parser has no current event.");
             var line = (int)ev.Start.Line;
             LastLine = line;
+
+            // A depth limit, because the reader recurses: a few kilobytes of "[[[[..." would otherwise overflow the
+            // stack, which .NET cannot catch, and end the whole Gateway process. JSON stops at the same depth.
+            if (depth > MaxDepth)
+            {
+                Error = new DefinitionParseError(line,
+                    $"Lists and mappings are nested more than {MaxDepth} deep here; a definition never needs that. Flatten it.");
+                return null;
+            }
 
             if (ev is AnchorAlias alias)
             {
@@ -262,10 +293,14 @@ public static partial class DefinitionDocument
             switch (ev)
             {
                 case Scalar scalar:
+                {
                     _parser.MoveNext();
-                    return new DefinitionScalar(line, scalar.Value, scalar.Style == ScalarStyle.Plain
-                        ? PlainKind(scalar.Value)
-                        : DefinitionScalarKind.Text);
+                    var kind = scalar.Style == ScalarStyle.Plain ? PlainKind(scalar.Value) : DefinitionScalarKind.Text;
+                    // A true/false is held as "true" or "false" however it was written (True, FALSE), so every reader
+                    // compares one spelling.
+                    var value = kind == DefinitionScalarKind.Boolean ? scalar.Value.ToLowerInvariant() : scalar.Value;
+                    return new DefinitionScalar(line, value, kind);
+                }
 
                 case SequenceStart:
                 {
@@ -273,7 +308,7 @@ public static partial class DefinitionDocument
                     var items = new List<DefinitionNode>();
                     while (_parser.Current is not SequenceEnd)
                     {
-                        var item = Read();
+                        var item = Read(depth + 1);
                         if (Error is not null) return null;
                         items.Add(item!);
                     }
@@ -290,14 +325,14 @@ public static partial class DefinitionDocument
                     {
                         var keyEvent = _parser.Current!;
                         var keyLine = (int)keyEvent.Start.Line;
-                        var key = Read();
+                        var key = Read(depth + 1);
                         if (Error is not null) return null;
                         if (key is not DefinitionScalar keyScalar || keyScalar.Kind == DefinitionScalarKind.Nothing)
                         {
                             Error = new DefinitionParseError(keyLine, "A key must be plain text, written on its own.");
                             return null;
                         }
-                        var value = Read();
+                        var value = Read(depth + 1);
                         if (Error is not null) return null;
                         if (seen.TryGetValue(keyScalar.Value, out var first))
                         {

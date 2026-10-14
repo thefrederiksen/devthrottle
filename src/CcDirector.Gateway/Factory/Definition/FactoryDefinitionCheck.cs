@@ -137,7 +137,9 @@ public static class FactoryDefinitionCheck
 
         foreach (var path in content.Keys.OrderBy(p => p, StringComparer.Ordinal))
         {
-            var text = content[path] ?? "";
+            // A null text is a caller's defect (a request that bound a missing field), never an empty file.
+            var text = content[path]
+                ?? throw new ArgumentException($"The definition's content holds no text for '{path}'; every path must map to a text.", nameof(content));
             var bytes = Encoding.UTF8.GetByteCount(text);
             totalBytes += bytes;
 
@@ -251,6 +253,11 @@ public static class FactoryDefinitionCheck
 
     private static SkillFront? ReadSkillFront(string path, string skill, string text, List<DefinitionFinding> findings)
     {
+        if (DefinitionDocument.BeginsWithByteOrderMark(path, text) is { } bom)
+        {
+            Error(findings, path, bom.Line, bom.Message);
+            return null;
+        }
         var lines = text.Split('\n');
         var close = -1;
         if (lines.Length > 0 && lines[0].TrimEnd('\r') == "---")
@@ -624,10 +631,11 @@ public static class FactoryDefinitionCheck
     }
 
     /// <summary>An interval's length in seconds: <c>10m</c> is 600. The schema has already checked its form.</summary>
-    public static int IntervalSeconds(string every)
+    public static long IntervalSeconds(string every)
     {
         ArgumentNullException.ThrowIfNull(every);
-        var number = int.Parse(every[..^1], NumberStyles.None, CultureInfo.InvariantCulture);
+        // In long: the schema allows up to 999999h, which is more seconds than an int holds.
+        var number = long.Parse(every[..^1], NumberStyles.None, CultureInfo.InvariantCulture);
         return every[^1] switch
         {
             's' => number,

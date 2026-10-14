@@ -44,6 +44,21 @@ public sealed class DefinitionSchema
         "object", "array", "string", "boolean",
     };
 
+    // Keywords that describe and never constrain, allowed on any schema.
+    private static readonly HashSet<string> AnnotationKeywords = new(StringComparer.Ordinal)
+    {
+        "$schema", "$id", "title", "description", "type",
+    };
+
+    // The constraining keywords each type enforces. Together with the annotations these are ImplementedKeywords.
+    private static readonly IReadOnlyDictionary<string, HashSet<string>> KeywordsByType = new Dictionary<string, HashSet<string>>
+    {
+        ["object"] = new(StringComparer.Ordinal) { "properties", "required", "additionalProperties" },
+        ["array"] = new(StringComparer.Ordinal) { "items", "minItems", "uniqueItems" },
+        ["string"] = new(StringComparer.Ordinal) { "enum", "pattern", "minLength", "maxLength" },
+        ["boolean"] = new(StringComparer.Ordinal),
+    };
+
     /// <summary>The draft every schema declares.</summary>
     public const string Draft = "https://json-schema.org/draft/2020-12/schema";
 
@@ -131,6 +146,16 @@ public sealed class DefinitionSchema
         var t = type.GetString()!;
         if (!ImplementedTypes.Contains(t))
             throw new InvalidOperationException($"Schema {name} at {where}: the type '{t}' is not implemented by the definition validator.");
+
+        // A keyword the validator implements still does nothing on a type that does not read it ("maxLength" on an
+        // array), so each keyword is allowed only on the type that enforces it.
+        foreach (var p in schema.EnumerateObject())
+        {
+            if (AnnotationKeywords.Contains(p.Name)) continue;
+            if (!KeywordsByType[t].Contains(p.Name))
+                throw new InvalidOperationException(
+                    $"Schema {name} at {where}: the keyword '{p.Name}' does nothing on type '{t}', so the schema cannot use it there.");
+        }
 
         if (t == "object")
         {
