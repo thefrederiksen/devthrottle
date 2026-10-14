@@ -262,17 +262,43 @@ public sealed class PythonToolsInstaller
             // From the moment anything live is moved, every way out of this method other than success must
             // put the previous Python, the previous venv AND their shims back - so a failed update leaves the
             // machine exactly as it was, never with no tools (issues #3150, #3344, #3987).
-            PythonToolsResult FailAndRollBack(string message)
+            //
+            // Each flag is cleared the moment its tree is back, so a rollback that is somehow entered twice never
+            // reports a restore that already happened as a failure. Nothing in here may throw: it runs from the
+            // catch below, and an exception out of it would skip the rest of the restore.
+            PythonToolsResult FailAndRollBack(string message, bool held = false)
             {
                 var problems = new List<string>();
-                if (venvSetAside && !RestoreDirOver(venvBackup, _layout.PyenvDir, out var venvRestoreError))
-                    problems.Add($"the previous tools environment is at {venvBackup} ({venvRestoreError})");
-                if (pythonSetAside && !RestoreDirOver(pythonBackup, _layout.PythonDir, out var pyRestoreError))
-                    problems.Add($"the previous base Python is at {pythonBackup} ({pyRestoreError})");
-                RestoreShims(restoreScripts);
+                if (venvSetAside)
+                {
+                    if (RestoreDirOver(venvBackup, _layout.PyenvDir, out var venvRestoreError)) venvSetAside = false;
+                    else problems.Add($"the previous tools environment is at {venvBackup} ({venvRestoreError})");
+                }
+                if (pythonSetAside)
+                {
+                    if (RestoreDirOver(pythonBackup, _layout.PythonDir, out var pyRestoreError)) pythonSetAside = false;
+                    else problems.Add($"the previous base Python is at {pythonBackup} ({pyRestoreError})");
+                }
+                try
+                {
+                    RestoreShims(restoreScripts);
+                    // The version and script list go back too: a failure after they were recorded must not leave
+                    // the previous venv labelled as the new bundle.
+                    var record = InstalledManifest.Load(_layout);
+                    if (installedBundle is null) record.Remove(ComponentId);
+                    else record.Set(ComponentId, installedBundle);
+                    record.Save(_layout);
+                    if (restoreScripts.Count > 0) PythonToolsState.SaveScripts(_layout, restoreScripts);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    problems.Add($"the shims or the install record could not be rewritten ({ex.Message})");
+                }
                 if (problems.Count == 0)
-                    return Fail(steps, $"{message} The previous tools were put back, so every tool that worked " +
-                                       "before this update still works.");
+                    return held
+                        ? Held(steps, $"{message} Nothing was left changed: the previous tools were put back.")
+                        : Fail(steps, $"{message} The previous tools were put back, so every tool that worked " +
+                                      "before this update still works.");
                 return Fail(steps, $"{message} The previous tools could NOT all be put back: {string.Join("; ", problems)}. " +
                                    "Run `cc-devthrottle setup repair` once nothing is using the tools.");
             }
@@ -311,7 +337,8 @@ public sealed class PythonToolsInstaller
 
                 Step("swapping in the verified Python");
                 if (!SetDirAside(_layout.PythonDir, pythonBackup, out var pyAsideError))
-                    return FailAndRollBack($"could not move the base Python aside (a running process may be holding its files): {pyAsideError}.");
+                    return FailAndRollBack($"a cc-* tool started using the base Python, so the update to bundle " +
+                                           $"{manifest.BundleVersion} is held: {pyAsideError}.", held: true);
                 pythonSetAside = Directory.Exists(pythonBackup);
                 Directory.Move(staged, _layout.PythonDir);
 
@@ -418,12 +445,6 @@ public sealed class PythonToolsInstaller
                     return FailAndRollBack($"venv is incomplete after pip install: missing console scripts [{string.Join(", ", missing)}]. No shims written, version not recorded.");
                 }
 
-                // The new environment is proven. Only now are the previous ones no longer needed.
-                if (venvSetAside) TryDeleteDir(venvBackup);
-                if (pythonSetAside) TryDeleteDir(pythonBackup);
-                venvSetAside = pythonSetAside = false;
-                RemoveLeftoverTrees();
-
                 // 8. The venv is healthy: NOW write bin\<script>.cmd shims (target exes are guaranteed present).
                 Step($"writing {manifest.Scripts.Count} tool shims to bin");
                 WriteShims(manifest.Scripts);
@@ -437,6 +458,13 @@ public sealed class PythonToolsInstaller
                 // Persist the script list so the auto-updater can probe venv health offline (without re-downloading
                 // the bundle just to learn which scripts to expect).
                 PythonToolsState.SaveScripts(_layout, manifest.Scripts);
+
+                // 10. The new environment is installed, reachable and recorded. Only NOW are the previous ones no
+                // longer needed - deleting them is the one step that cannot be undone, so it is the last one.
+                if (venvSetAside) TryDeleteDir(venvBackup);
+                if (pythonSetAside) TryDeleteDir(pythonBackup);
+                venvSetAside = pythonSetAside = false;
+                RemoveLeftoverTrees();
 
                 Step($"Python tools bundle {manifest.BundleVersion} installed ({manifest.Dists.Count} tools)");
                 return new PythonToolsResult(true,
@@ -917,6 +945,7 @@ public sealed class PythonToolsInstaller
     internal bool ToolTreesAreFree(out string reason)
     {
         reason = "";
+        RecoverStrandedProbes();
         foreach (var dir in new[] { _layout.PythonDir, _layout.PyenvDir })
         {
             if (!Directory.Exists(dir)) continue;
@@ -938,9 +967,35 @@ public sealed class PythonToolsInstaller
     }
 
     /// <summary>
+    /// Put back a live tree that an earlier check left under its probe name, because the rename back was refused
+    /// for longer than <see cref="MoveBack"/> retries (a long antivirus scan) or the process stopped in between.
+    /// Without this the machine would have no tools, the next cycle would see no live tree and reinstall from
+    /// scratch, and the probe copy would sit on disk forever. Acts ONLY when the live tree is missing and exactly
+    /// one probe exists - anything else is not a state this code produces, and is left for a person to look at.
+    /// </summary>
+    private void RecoverStrandedProbes()
+    {
+        foreach (var live in new[] { _layout.PythonDir, _layout.PyenvDir })
+        {
+            var parent = Path.GetDirectoryName(live)!;
+            if (Directory.Exists(live) || !Directory.Exists(parent)) continue;
+            var probes = Directory.EnumerateDirectories(parent, Path.GetFileName(live) + ".probe-*").ToList();
+            if (probes.Count != 1)
+            {
+                if (probes.Count > 1)
+                    EngineLog.Write($"[PythonToolsInstaller] RecoverStrandedProbes FAILED: {live} is missing and {probes.Count} probe directories exist; not guessing which one is the tools tree");
+                continue;
+            }
+            Directory.Move(probes[0], live);
+            EngineLog.Write($"[PythonToolsInstaller] RecoverStrandedProbes: put the stranded tools tree back from {probes[0]} to {live}");
+        }
+    }
+
+    /// <summary>
     /// Undo a probe rename. Nothing can be holding a file inside the probe directory - no shim or tool path
-    /// leads into it - so this is retried briefly against a transient refusal (an antivirus scan) and then
-    /// fails LOUDLY: a tools tree left under its probe name must never pass silently.
+    /// leads into it - so this is retried against a transient refusal (an antivirus scan of a freshly renamed
+    /// tree can take seconds) and then fails LOUDLY. If it does give up, the next check puts the tree back
+    /// (<see cref="RecoverStrandedProbes"/>).
     /// </summary>
     private static void MoveBack(string probe, string dir)
     {
@@ -951,7 +1006,7 @@ public sealed class PythonToolsInstaller
                 Directory.Move(probe, dir);
                 return;
             }
-            catch (Exception ex) when ((ex is IOException or UnauthorizedAccessException) && attempt < 10)
+            catch (Exception ex) when ((ex is IOException or UnauthorizedAccessException) && attempt < 50)
             {
                 // not-an-error: a transient refusal that is retried; the last attempt throws and is reported.
                 EngineLog.Write($"[PythonToolsInstaller] MoveBack: attempt {attempt} to rename {probe} back to {dir} refused ({ex.Message}); retrying");

@@ -150,6 +150,80 @@ public sealed class PythonToolsInUseTests : IDisposable
     }
 
     [Fact]
+    public async Task InstallAsync_AToolStartsInTheVenvAfterTheCheck_HoldsAndPutsTheShimsBack()
+    {
+        // The race the second hold covers: the check passes, then a tool opens a file in the venv before it is
+        // set aside. The shims have just been taken off, so they must come back.
+        GiveTheMachineWorkingTools();
+        FileStream? lateTool = null;
+        var runs = new List<string>();
+        var installer = new PythonToolsInstaller(_layout, Runner(runs, pipSucceeds: true,
+            onStagedPythonProbe: () => lateTool = new FileStream(PreviousConsoleScript, FileMode.Open, FileAccess.Read, FileShare.None)));
+
+        PythonToolsResult result;
+        try { result = await installer.InstallAsync(StageRelease(NewVersion, Tool), new ReleaseSource()); }
+        finally { lateTool?.Dispose(); }
+
+        Assert.True(result.HeldBecauseInUse, result.Message);
+        Assert.DoesNotContain(runs, r => r.StartsWith("-m venv", StringComparison.Ordinal));
+        AssertThePreviousToolsStillWork();
+    }
+
+    [Fact]
+    public async Task InstallAsync_AToolStartsInThePythonAfterTheCheck_PutsTheVenvBackAndHolds()
+    {
+        // Here the venv HAS been set aside when the Python refuses to move, so the hold has to restore it first.
+        GiveTheMachineWorkingTools();
+        FileStream? lateTool = null;
+        var runs = new List<string>();
+        var installer = new PythonToolsInstaller(_layout, Runner(runs, pipSucceeds: true,
+            onStagedPythonProbe: () => lateTool = new FileStream(PythonSentinel, FileMode.Open, FileAccess.Read, FileShare.None)));
+
+        PythonToolsResult result;
+        try { result = await installer.InstallAsync(StageRelease(NewVersion, Tool), new ReleaseSource()); }
+        finally { lateTool?.Dispose(); }
+
+        Assert.True(result.HeldBecauseInUse, result.Message);
+        Assert.DoesNotContain(runs, r => r.StartsWith("-m venv", StringComparison.Ordinal));
+        AssertThePreviousToolsStillWork();
+        Assert.Empty(SiblingsOf(_layout.PythonDir).Concat(SiblingsOf(_layout.PyenvDir)));
+    }
+
+    [Fact]
+    public async Task InstallAsync_AnExceptionMidInstall_PutsEverythingBackInsteadOfEscaping()
+    {
+        // The 14 October failure was an EXCEPTION ("Access to the path '_rust.pyd' is denied"), not an exit code,
+        // and it escaped past every restore. Thrown from inside pip here, after the swap.
+        GiveTheMachineWorkingTools();
+        var runs = new List<string>();
+        var installer = new PythonToolsInstaller(_layout, Runner(runs, pipSucceeds: true, pipThrows: true));
+
+        var result = await installer.InstallAsync(StageRelease(NewVersion, Tool), new ReleaseSource());
+
+        Assert.False(result.Success);
+        Assert.Contains("_rust.pyd", result.Message);
+        Assert.Contains("put back", result.Message);
+        AssertThePreviousToolsStillWork();
+        Assert.Empty(SiblingsOf(_layout.PythonDir).Concat(SiblingsOf(_layout.PyenvDir)));
+    }
+
+    [Fact]
+    public void ToolTreesAreFree_ALiveTreeWasLeftUnderItsProbeName_PutsItBack()
+    {
+        // A probe whose rename back was refused for too long leaves the live tree under its probe name. The next
+        // check must put it back rather than let the next cycle reinstall from nothing.
+        GiveTheMachineWorkingTools();
+        var probe = _layout.PyenvDir + ".probe-0123";
+        Directory.Move(_layout.PyenvDir, probe);
+
+        var free = new PythonToolsInstaller(_layout).ToolTreesAreFree(out var reason);
+
+        Assert.True(free, reason);
+        Assert.False(Directory.Exists(probe));
+        AssertThePreviousToolsStillWork();
+    }
+
+    [Fact]
     public async Task RefreshPythonToolsAsync_AToolIsRunning_HoldsBeforeDownloading()
     {
         GiveTheMachineWorkingTools();
@@ -218,10 +292,17 @@ public sealed class PythonToolsInUseTests : IDisposable
     /// A runner that plays the interpreter: the standard-library probe passes, `-m venv` creates the venv's
     /// interpreter, and pip either writes the tool's console script or fails. Anything else fails the test.
     /// </summary>
-    private RunProcess Runner(List<string> runs, bool pipSucceeds) => (exe, arguments, _, _) =>
+    private RunProcess Runner(List<string> runs, bool pipSucceeds, Action? onStagedPythonProbe = null, bool pipThrows = false) =>
+        (exe, arguments, _, _) =>
     {
         runs.Add(arguments);
-        if (arguments == PythonRuntimeProbe.ProbeArguments) return (0, "");
+        if (arguments == PythonRuntimeProbe.ProbeArguments)
+        {
+            // The staged interpreter is probed AFTER the in-use check and BEFORE anything live moves: the exact
+            // window in which a tool can start and slip past the check.
+            if (exe.Contains(".staging-", StringComparison.Ordinal)) onStagedPythonProbe?.Invoke();
+            return (0, "");
+        }
         if (arguments.StartsWith("-m venv", StringComparison.Ordinal))
         {
             Directory.CreateDirectory(_layout.PyenvBinDir);
@@ -230,6 +311,7 @@ public sealed class PythonToolsInUseTests : IDisposable
         }
         if (arguments.StartsWith("-m pip install", StringComparison.Ordinal))
         {
+            if (pipThrows) throw new IOException("The process cannot access the file '_rust.pyd' (thrown by the test runner)");
             if (!pipSucceeds) return (1, "pip refused by the test runner");
             File.WriteAllText(PythonToolsInstaller.ConsoleScriptPath(_layout, Tool), "new console script");
             return (0, "");

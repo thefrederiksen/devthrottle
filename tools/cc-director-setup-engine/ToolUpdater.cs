@@ -131,8 +131,20 @@ public sealed class ToolUpdater
         var installer = new PythonToolsInstaller(_layout);
         // Check BEFORE downloading: a held update is retried every few minutes (issue #3987), and fetching
         // the ~90 MB bundle each time only to find the tools still in use would be pure waste. The installer
-        // checks again itself, because a tool can start in between.
-        if (!installer.ToolTreesAreFree(out var inUseReason))
+        // checks again itself, because a tool can start in between. The check renames the live trees, so it
+        // runs under the same machine-wide lock as an install: another Director's install in progress must
+        // never see its Python renamed away underneath it, and an install in progress is itself a reason to hold.
+        string? inUseReason = null;
+        try
+        {
+            using var installLock = SharedInstallLock.Acquire(HeldCheckLockWait, _layout.LocalRoot);
+            if (!installer.ToolTreesAreFree(out var reasonFromCheck)) inUseReason = reasonFromCheck;
+        }
+        catch (TimeoutException)
+        {
+            inUseReason = "another tools install is running on this machine";
+        }
+        if (inUseReason is not null)
         {
             var message = $"the cc-* tools are in use, so the update ({reason}) is held and nothing was changed: {inUseReason}";
             EngineLog.Write($"[ToolUpdater] Python tools bundle HELD: {message}");
@@ -168,6 +180,9 @@ public sealed class ToolUpdater
     /// directory renames, so retrying costs nothing.
     /// </summary>
     public static readonly TimeSpan HeldRetryDelay = TimeSpan.FromMinutes(10);
+
+    /// <summary>How long the pre-download check waits for another install to release the shared lock.</summary>
+    private static readonly TimeSpan HeldCheckLockWait = TimeSpan.FromSeconds(5);
 
     private static UpdateRunResult Empty(bool pythonToolsHeld) =>
         new() { Results = Array.Empty<ApplyResult>(), PythonToolsHeld = pythonToolsHeld };
