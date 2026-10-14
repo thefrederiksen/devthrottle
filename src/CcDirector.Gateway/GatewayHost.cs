@@ -1122,6 +1122,9 @@ public sealed class GatewayHost : IAsyncDisposable
     // against overlap like the cron sweep. Created in StartAsync, disposed in StopAsync.
     private readonly History.SessionHistoryStore _sessionHistory;
     private readonly Factory.Memory.FactoryMemoryStore _factoryMemory;
+
+    /// <summary>Every seat's brief held on the Gateway, every version kept (Factory Seats mission, phase 2a).</summary>
+    private readonly Factory.Briefs.FactoryBriefStore _factoryBriefs;
     private readonly History.KnownRepositoryStore _knownRepositories;
     /// <summary>The one-repository-list mission, phase 2: the third observer on the repository snapshot a
     /// Director already pushes, which folds the root-folder scan into <see cref="_knownRepositories"/> as
@@ -2628,6 +2631,7 @@ public sealed class GatewayHost : IAsyncDisposable
                 TeamMentorWriter, _tenantSettingsResolver.TimeZone);
         }
         _factoryMemory = new Factory.Memory.FactoryMemoryStore(_gatewayDb);
+        _factoryBriefs = new Factory.Briefs.FactoryBriefStore(_gatewayDb, FactoryRegistry);
         _devReportDelivery = new DevReports.DevReportDelivery(_devReports, DevReportSessionLiveness,
             route: (tenant, directorId) =>
             {
@@ -5797,6 +5801,15 @@ public sealed class GatewayHost : IAsyncDisposable
         Api.FactoryMemoryEndpoints.Map(_app,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             store: _factoryMemory,
+            sessionFactoryOf: _sessionHistory.FactoryOf,
+            nowUtc: () => DateTime.UtcNow);
+
+        // A seat's BRIEF, held on the Gateway (Factory Seats mission, phase 2a): what the seat is told to do, saved as
+        // a draft by a person or a session of the factory and published by a person. Nothing reads it yet; the seat
+        // page and the opening of talks and runs are later phases.
+        Api.FactoryBriefEndpoints.Map(_app,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            store: _factoryBriefs,
             sessionFactoryOf: _sessionHistory.FactoryOf,
             nowUtc: () => DateTime.UtcNow);
 
