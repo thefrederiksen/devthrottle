@@ -693,7 +693,9 @@ public static class LicenseDisplayFold
             // Held: the automatic switch is not tried before the hold has passed, whatever the numbers say.
             if (dto.ExpectedSwitchAtUtc is { } expected && expected < hold.HeldUntilUtc)
                 dto.ExpectedSwitchAtUtc = Utc(hold.HeldUntilUtc);
-            dto.Text = HeldText(hold, now);
+            // The machine's own heldText says why and for how long, and the page draws it beside this; said twice in
+            // one row it would be read once. So this says only what is next, and no earlier than when.
+            dto.Text = $"Next: {mine.TargetAccountEmail}, not before {Clock(hold.HeldUntilUtc)}: the automatic switch is held for this machine.";
             return dto;
         }
         dto.Text = dto.ExpectedSwitchAtUtc switch

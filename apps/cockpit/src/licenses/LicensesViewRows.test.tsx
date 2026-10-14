@@ -125,6 +125,41 @@ describe("LicensesView: each row shows its own forecast", () => {
     expect(windows.textContent).not.toContain("in about 2 minutes");
   });
 
+  it("draws a held machine's sentence whole, exactly as the Gateway gave it, in that machine's row and in no other", async () => {
+    // The Gateway decides that a machine is held, why and until when. The time below is long past and the sentence
+    // names a wait that fits no clock: a page that compared the time, or wrote a sentence of its own, would show here.
+    const held = "Held out of the automatic switch for 4 minutes, until 2026-10-11 03:16 UTC: its switch from "
+      + "account-a@example.com to account-b@example.com has failed more than once in a row (the exchange failed and the "
+      + "machine went back to the account it was on). Switch now still sends it at once.";
+    const answers = distinctAnswers();
+    const windows = answers.overview.machines.find((m) => m.machineId === answers.windowsId);
+    if (windows === undefined) throw new Error("the example overview has no the-windows-machine");
+    windows.heldUntilUtc = "2001-01-01T00:00:00Z";
+    windows.heldText = held;
+    serve(answers);
+    render(<LicensesView />);
+
+    const rows = within(await screen.findByTestId("lic-schedule")).getAllByTestId("lic-schedule-row");
+    const mac = rows.find((row) => row.textContent?.includes("the-mac")) as HTMLElement;
+    const windowsRow = rows.find((row) => row.textContent?.includes(WINDOWS_LABEL)) as HTMLElement;
+    expect(within(windowsRow).getByTestId("lic-machine-held").textContent).toBe(held);
+    expect(within(mac).queryByTestId("lic-machine-held")).toBeNull();
+    expect(screen.getAllByTestId("lic-machine-held")).toHaveLength(1);
+  });
+
+  it("draws nothing for a hold on a machine the Gateway does not call held, whatever time it carries", async () => {
+    const answers = distinctAnswers();
+    for (const machine of answers.overview.machines) {
+      machine.heldUntilUtc = "2999-01-01T00:00:00Z";
+      machine.heldText = null;
+    }
+    serve(answers);
+    render(<LicensesView />);
+
+    await screen.findByTestId("lic-schedule");
+    expect(screen.queryByTestId("lic-machine-held")).toBeNull();
+  });
+
   it("gives each account's card its own expected sentence", async () => {
     const answers = distinctAnswers();
     render(<LicensesView />);

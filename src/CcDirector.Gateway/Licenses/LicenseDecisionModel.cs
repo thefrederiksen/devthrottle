@@ -136,6 +136,10 @@ public sealed record LicenseSwitchDecision(
 /// <param name="Happened">For the email of an exhaustion event: what the event's row of the Licenses log says
 /// happened, as one clause with no full stop - "no account had room", or "the switch keeps failing". Null on any
 /// other email.</param>
+/// <remarks><c>AccountEmail</c> IS NOT ALWAYS ONE ADDRESS. The email about several sign-ins that could not be renewed
+/// (<see cref="LicenseRenewalEmailService"/>) names every account it is about there, separated by ", ". It is a
+/// label for the log and for a reader, never an address to send to or a key to count by: the owner's own address is
+/// looked up by the mailer from the DevThrottle account.</remarks>
 public sealed record LicenseOwnerEmail(string AccountEmail, string Subject, string BodyText, string? Happened = null);
 
 /// <summary>A machine on a tired account that this tick did not send a switch, and why.</summary>

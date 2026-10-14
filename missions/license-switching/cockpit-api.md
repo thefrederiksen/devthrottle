@@ -140,15 +140,14 @@ its window resets), and one can still be chosen by hand; `switchNowText` says so
 | `active` | Its active sign-in (the shape below); null when signed in to none. |
 | `spares` | The spares it holds, in account email order. |
 | `switchInProgress` | Null, or `switchId`, `fromAccountEmail`, `toAccountEmail`, `text` - the switch it is in the middle of and one sentence saying where it stands. The two emails are "" when only the machine's own report says a switch is running. |
-| `heldUntilUtc`, `heldText` | **Both null unless the machine is held out of the automatic switch** because its switch keeps failing the same way (contract section 5.8). Then: the time it is held until, and the Gateway's sentence saying so, why and until when. Show `heldText` on the machine as given; never compare `heldUntilUtc` with now. Switch now is still offered for its account, and still sends the machine a switch at once. |
+| `heldUntilUtc`, `heldText` | **Both null unless the machine is held out of the automatic switch** because its switch keeps failing the same way (contract section 5.8). Then: the time it is held until, and the Gateway's sentence saying so, why and until when. The page draws `heldText` in the schedule, under the machine's status, exactly as given; never compare `heldUntilUtc` with now. Switch now is still offered for its account, and still sends the machine a switch at once. |
 
 **A machine that is held** (`heldUntilUtc`, `heldText`). The sentence is "Held out of the automatic switch for
 {how long}, until {yyyy-MM-dd HH:mm UTC}: its switch from {account} to {account} has failed more than once in a row
 ({the reason}). Switch now still sends it at once." The reason in brackets is the Gateway's own sentence for the
 machine's reason word, or "the machine's reason word: {word}" when this Gateway has no sentence for it. Both fields
 are null again as soon as the hold has passed, a later switch of the machine is recorded, or the machine reports
-another account as active. They are not in the example below, which shows no machine held; a page built against the
-example reads them as absent, which is the same as null.
+another account as active. The example below shows no machine held, so both are null there.
 
 A sign-in a machine holds (`LicenseMachineHoldingDto`): `accountEmail`, `isActive`, `signedInAtUtc`, `signedInText`
 ("Signed in 21 days ago", or "Sign-in date not known"), `signInExpiresAtUtc`, `expiryVerdict`, `expiryText`,
@@ -453,6 +452,8 @@ show nothing. Section 6 has the sentences and the tone rule.
         }
       ],
       "switchInProgress": null,
+      "heldUntilUtc": null,
+      "heldText": null,
       "canAddSpare": false,
       "addSpareText": "The Director on the-mac is not connected, so a sign-in cannot be started there.",
       "signInsInProgress": []
@@ -526,6 +527,8 @@ show nothing. Section 6 has the sentences and the tone rule.
         }
       ],
       "switchInProgress": null,
+      "heldUntilUtc": null,
+      "heldText": null,
       "canAddSpare": false,
       "addSpareText": "The Director on the-windows-machine is not connected, so a sign-in cannot be started there.",
       "signInsInProgress": []
@@ -556,7 +559,7 @@ than any window lasts - is not expected to reach it, whatever its reset time.
 | `nextSwitchText` | The sentence for it, or "No switch is expected.". When there is no target it gives the reason: no account has room, or no machine on the account can be sent a switch. When every machine that could be switched is held because its switch keeps failing (contract section 5.8), the sentence ends "The automatic switch keeps failing and is held: it is tried again in {how long}, at {yyyy-MM-dd HH:mm UTC}. Switch now still sends it at once." - and so does that account's own `nextSwitchText`. |
 | `accounts[]` | Per account: `isInUse`, `isStale`, the two windows, `expectedAtLimitUtc` and `expectedText` (when it is expected to reach 97% on either window), `nextSwitchTargetAccountEmail` and `nextSwitchText` (where its machines go at its next switch). |
 | `accounts[].fiveHour`, `.sevenDay` | The window in the overview's own words - `utilization`, `utilizationText`, `level`, `resetsAtUtc`, `resetsText`, exactly as section 2 gives them for the same window - and then the forecast: `percentPerHour` (null when there is no rate), `rateText` ("28.5% an hour", "Not rising", "No rate yet"), `expectedAtLimitUtc`, `expectedText`. The schedule colours a window by `level` and shows `resetsText`; it never compares `utilization` with 97 or `resetsAtUtc` with now, and it does not need the overview to do either. |
-| `machines[]` | Per machine: `machineId`, `machineName`, `osUser`, `label` (rule 9), `activeAccountEmail`, `nextAccountEmail` (the account it moves to next; null when there is none), `expectedSwitchAtUtc` (null when no switch is expected yet), and `text`, which says it all: "Next: account-b@example.com, in about 2 minutes.", "Next: account-b@example.com, when account-a@example.com reaches its limit. No switch is expected yet.", "Would not be switched now: its last report is too old.", "Signed in to no account, so there is nothing to switch." **For a machine that is held, `text` is its `heldText` of section 2**, and `expectedSwitchAtUtc` is never earlier than the time it is held until. |
+| `machines[]` | Per machine: `machineId`, `machineName`, `osUser`, `label` (rule 9), `activeAccountEmail`, `nextAccountEmail` (the account it moves to next; null when there is none), `expectedSwitchAtUtc` (null when no switch is expected yet), and `text`, which says it all: "Next: account-b@example.com, in about 2 minutes.", "Next: account-b@example.com, when account-a@example.com reaches its limit. No switch is expected yet.", "Would not be switched now: its last report is too old.", "Signed in to no account, so there is nothing to switch." **For a machine that is held** `text` is "Next: {account}, not before {yyyy-MM-dd HH:mm UTC}: the automatic switch is held for this machine.", and `expectedSwitchAtUtc` is never earlier than the time it is held until. Why and for how long is the machine's own `heldText` of section 2, which the page draws in the same row; the two sentences do not repeat each other. |
 
 ### Example
 
@@ -761,7 +764,9 @@ a later build writes is not said to be under way: its `summary` is its message, 
 A `no-room` row is open while its `finishedAtUtc` is null (nothing on the account can be switched yet), whatever
 its state word. **It is the row of one event in which a tired account's machines could not be switched, for either
 of two reasons, and its `message` and `summary` say which**: no account had room, or - since the whole-phase review -
-every machine that could be switched is held because its switch keeps failing (contract section 5.8). That is why
+every machine that could be switched is held because its switch keeps failing (contract section 5.8). It stays open
+until no machine is left on the account or the account is no longer tired - one machine switched while another is
+still held on the account does not end it. That is why
 its `kindText` is "Nothing was switched" and no longer "No account had room": the word `no-room` is the stored kind
 and is kept, the label must be true of both.
 

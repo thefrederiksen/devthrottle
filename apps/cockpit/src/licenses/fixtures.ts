@@ -318,6 +318,8 @@ export const OVERVIEW: LicenseOverview = {
         }
       ],
       "switchInProgress": null,
+      "heldUntilUtc": null,
+      "heldText": null,
       "canAddSpare": false,
       "addSpareText": "The Director on the-mac is not connected, so a sign-in cannot be started there.",
       "signInsInProgress": []
@@ -391,6 +393,8 @@ export const OVERVIEW: LicenseOverview = {
         }
       ],
       "switchInProgress": null,
+      "heldUntilUtc": null,
+      "heldText": null,
       "canAddSpare": false,
       "addSpareText": "The Director on the-windows-machine is not connected, so a sign-in cannot be started there.",
       "signInsInProgress": []

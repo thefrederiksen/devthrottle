@@ -314,7 +314,7 @@ public sealed class LicenseSwitchHoldTests : IDisposable
         var forecast = LicenseDisplayFold.Forecast(picture, LicenseForecaster.Forecast(picture.Snapshot, new LicenseUsageHistory().Read(Tenant, T0.AddMinutes(3))));
 
         var machine = Assert.Single(forecast.Machines);
-        Assert.StartsWith("Held out of the automatic switch for 1 minute, until 2026-10-11 03:16 UTC: ", machine.Text);
+        Assert.Equal("Next: account-b@example.com, not before 2026-10-11 03:16 UTC: the automatic switch is held for this machine.", machine.Text);
         Assert.Equal(B, machine.NextAccountEmail);
         var account = forecast.Accounts.Single(a => a.AccountEmail == A);
         Assert.EndsWith(" The automatic switch keeps failing and is held: it is tried again in 1 minute, at 2026-10-11 03:16 UTC. Switch now still sends it at once.", account.NextSwitchText);

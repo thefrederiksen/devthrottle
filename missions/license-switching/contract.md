@@ -480,6 +480,12 @@ for ever (the whole-phase review, finding one). The rule, exactly as built:
 - **What counts.** A switch row that ended `failed` on an ANSWER of the machine's Director: the body's `Outcome`
   was `failed`, or the Director returned `BadRequest` or `Error` (`director-error`), or its answer could not be read.
   A switch that was never sent (`director-offline`) is not a failure of the machine and is never held.
+- **A switch that is sent and never answered is not held either.** A Director that takes the command and does not
+  answer leaves the row `unknown`; it is settled `failed` from the machine's next report, with NO reason word
+  (5.5). Such a row is not an answered failure: it is not held, and it ends any run before it. It needs no hold,
+  because it is bounded by its own expiry: the machine is decided afresh only after `NotAfterUtc` (10 minutes) and
+  one more send, not every minute. The owner is not emailed about it, because a target exists and the machine is not
+  held. If a Director that never answers turns out to be common, that is a new finding, not this rule.
 - **In a row.** The machine's switch rows, newest first, whatever asked for them (the minute check or **Switch
   now**). The run is the rows that are the same failure: the same reason word, the same account switched from and
   the same account switched to. Anything else ends the run - a switch that worked, another reason, another from or
@@ -497,8 +503,11 @@ for ever (the whole-phase review, finding one). The rule, exactly as built:
   event, the same row of kind `no-room` in the log, and the same one-email rule, so the owner is told ONCE for the
   event and not again while it lasts. The email and the row say what is true - that the switch keeps failing, on
   which machines, to which account, with which reason and until when each is held - not that no account had room.
-  The event ends as the no-room event ends: when a machine of the account is switched, or the account is no longer
-  tired. A run of failures after that is a new event and a new email. An event that was opened because no account
+  The event ends as the no-room event ends: when NO machine is left on the account (every one was switched, or
+  moved by hand), when a fresh reading shows the account is no longer tired, or when its end time has passed and no
+  fresh reading still shows a tired window. One machine switched while another is still held on the account does not
+  end it: the outage goes on for the held one, and no second email is sent. A run of failures after the event has
+  ended is a new event and a new email. An event that was opened because no account
   had room is not emailed about again when its cause becomes a switch that keeps failing, nor the other way round:
   it is one event for as long as nothing can be switched.
 - **Switch now ignores the hold**, as it ignores a bar: a held machine is sent the switch at once. If that fails
