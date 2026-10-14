@@ -137,12 +137,12 @@ Each run was done one at a time, with its output written to a file. These are th
 - `dotnet test src/CcDirector.Gateway.UnitTests`: 11,861 of 11,861. (Before the migration fix the same run was
   11,859 and 2 failed: the two `TheNewestMigrationsDesigner_IsDiscovered_AndCarriesTheCurrentModel` cases. Both pass
   now.)
-- `.\scripts	est-database.ps1` (a throwaway PostgreSQL in Docker): GREEN, 74 of 74, none skipped. This includes
+- `.\scripts\test-database.ps1` (a throwaway PostgreSQL in Docker): GREEN, 74 of 74, none skipped. This includes
   `AddLicenseSwitchHoldPostgresTests` on the new id.
 - The hosted license tests (`CcDirector.Gateway.Tests`, the `Licenses` namespace and `LicenseHostTests`): 20 of 20,
   run before the migration fix. That fix changes no code those tests run.
 - Cockpit (`apps/cockpit`, all of it): 1,187 of 1,187. `packages/client-core`, all of it: 2,068 of 2,068.
-- `.\scripts	est-local.ps1` (default, not `-Parked`): GREEN, 4,481 tests in 10 suites, at `971100458`.
+- `.\scripts\test-local.ps1` (default, not `-Parked`): GREEN, 4,481 tests in 10 suites, at `971100458`.
 
 **Restore audit.** Every .NET restore on this machine now fails with NU1902 and NU1903. Advisories were published
 against `Microsoft.AspNetCore.SignalR.Common` 10.0.9 (high severity) and
