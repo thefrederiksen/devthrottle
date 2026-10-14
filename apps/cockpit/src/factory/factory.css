@@ -1694,3 +1694,66 @@ a:focus .ff-bay rect {
   margin-top: 8px;
   font-size: 13px;
 }
+
+/* The brief panel of a seat's page (Factory Seats mission, phase 2b). Its text, editor and refusal reuse the Memory
+   tab's own styles; what is added is the layout of the editor and the two texts of a refused save, side by side
+   where there is room and one under the other on a phone. */
+.fa-brief-draft {
+  font-size: 13px;
+}
+
+.fa-brief-editor,
+.fa-brief-history,
+.fa-brief-opened {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fa-brief-editor p,
+.fa-brief-history p {
+  margin: 0;
+  font-size: 13px;
+}
+
+.fa-brief-sides {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+.fa-brief-sides.two {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.fa-brief-side {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.fa-brief-side-label {
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* The newer version stands as tall as the box beside it, so the two are read line against line. */
+.fa-brief-theirs {
+  max-height: none;
+  flex: 1;
+}
+
+.fa-brief-versions {
+  min-width: 720px;
+}
+
+.fa-brief-versions th:last-child {
+  width: 34%;
+}
+
+.fa-brief-opened {
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}

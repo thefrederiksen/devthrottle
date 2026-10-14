@@ -131,7 +131,6 @@ public static class FactoryBriefPanelFold
             StartText = start,
             Text = newest?.Text ?? "",
             ExpectedVersion = newest?.Version ?? 0,
-            StartsFromDraft = fromDraft,
             TextLabel = $"The brief of {name}",
             LimitText = $"A brief takes at most {FactoryBriefStore.MaxBriefBytes.ToString("N0", CultureInfo.InvariantCulture)} bytes.",
             WaitingText = Waiting(brief),

@@ -170,7 +170,7 @@ internal static class FactoriesScreenEndpoints
                 var standing = briefs.Standing(tenant, registered.Factory, found.Id);
                 var dto = FactoryBriefPanelFold.Editor(registered, found, standing,
                     sources.Activity.TimeZone(tenant), sources.Activity.NowUtc());
-                FileLog.Write($"[FactoriesScreenEndpoints] GET brief editor: {registered.Factory}/{found.Id} startsFrom={dto.ExpectedVersion}, draft={dto.StartsFromDraft}");
+                FileLog.Write($"[FactoriesScreenEndpoints] GET brief editor: {registered.Factory}/{found.Id} startsFrom={dto.ExpectedVersion}");
                 return Results.Json(dto);
             }));
 

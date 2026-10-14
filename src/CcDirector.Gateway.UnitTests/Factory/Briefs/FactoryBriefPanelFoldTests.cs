@@ -214,7 +214,6 @@ public sealed class FactoryBriefPanelFoldTests : IDisposable
                      "the path of its brief file, /home/soren/factories/warmforward/agents/scout.yaml on devlinux.", editor.StartText);
         Assert.Equal("", editor.Text);
         Assert.Equal(0, editor.ExpectedVersion);
-        Assert.False(editor.StartsFromDraft);
         Assert.Equal("A brief takes at most 65,536 bytes.", editor.LimitText);
         Assert.Equal("Save draft", editor.SaveLabel);
         Assert.Equal("Saved as a draft. Nothing is published yet, so talks and runs of this seat are still told the path of its brief file.", editor.SavedText);
@@ -233,7 +232,6 @@ public sealed class FactoryBriefPanelFoldTests : IDisposable
         Assert.Equal("This starts from version 3, the published brief.", editor.StartText);
         Assert.Equal("the published brief", editor.Text);
         Assert.Equal(3, editor.ExpectedVersion);
-        Assert.False(editor.StartsFromDraft);
         Assert.Equal("Saved as a draft. Talks and runs of this seat are still given version 3 until you publish.", editor.SavedText);
         Assert.Equal("Publish", editor.Publish.Label);
         Assert.Equal("Publish this brief for Scout?", editor.Publish.ConfirmTitle);
@@ -260,7 +258,6 @@ public sealed class FactoryBriefPanelFoldTests : IDisposable
         // A save must state the NEWEST version, which is the draft's - not the published one's.
         Assert.Equal(5, editor.ExpectedVersion);
         Assert.Equal(5, editor.Publish.Version);
-        Assert.True(editor.StartsFromDraft);
     }
 
     [Fact]
@@ -271,7 +268,6 @@ public sealed class FactoryBriefPanelFoldTests : IDisposable
         var editor = FactoryBriefPanelFold.Editor(WarmForward, Scout, new FactoryBriefStanding(draft, null), TimeZoneInfo.Utc, Now);
 
         Assert.Equal($"This starts from version 2, the newest draft, written by a person ({Owner}) today 13:00. Nothing is published yet.", editor.StartText);
-        Assert.True(editor.StartsFromDraft);
         Assert.Equal(2, editor.ExpectedVersion);
     }
 

@@ -88,6 +88,9 @@ const devProxy = proxyTarget
       "/dev-reports": { target: proxyTarget, changeOrigin: true },
       // A factory's memory (Factory Memory mission, phase 3b): the factory page's Memory tab.
       "/factory-memory": { target: proxyTarget, changeOrigin: true },
+      // A seat's brief (Factory Seats mission, phase 2b): what the seat page's brief panel saves, publishes and
+      // brings back through. Its reads are under /gateway, which is proxied above.
+      "/factory-briefs": { target: proxyTarget, changeOrigin: true },
       // The Transcription Health page and the Transcription tab of Settings. Neither was proxied
       // before, so both could only ever be exercised against a Gateway that served the bundle itself.
       //

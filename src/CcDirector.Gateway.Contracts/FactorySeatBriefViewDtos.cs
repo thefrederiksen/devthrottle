@@ -52,9 +52,6 @@ public sealed class FactoryBriefEditorViewDto
     /// <summary>The seat's newest version: what a save states as the version it read. 0 for a seat with no brief here.</summary>
     public int ExpectedVersion { get; set; }
 
-    /// <summary>True when <see cref="Text"/> is a draft nobody has published, so Publish can publish it as it is.</summary>
-    public bool StartsFromDraft { get; set; }
-
     /// <summary>The label of the text box.</summary>
     public string TextLabel { get; set; } = "";
 
