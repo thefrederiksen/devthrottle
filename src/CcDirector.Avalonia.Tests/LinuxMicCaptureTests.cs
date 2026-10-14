@@ -105,9 +105,26 @@ public sealed class LinuxMicCaptureTests
     }
 
     [Fact]
+    public void ParsePipeWireDump_KeepsTheDefaultWhenALaterArrayChangesAnotherMetadataKey()
+    {
+        // pw-dump reprints a metadata object with only the entries that changed: here the default output moved,
+        // and the default input, which did not change, is not in the later array at all.
+        var snapshot = LinuxMicDevices.ParsePipeWireDump(PipeWireDump + """
+            [ { "id": 40, "type": "PipeWire:Interface:Metadata", "props": { "metadata.name": "default" },
+                "metadata": [
+                  { "subject": 0, "key": "default.audio.sink", "type": "Spa:String:JSON", "value": { "name": "alsa_output.pci-0000_08_00.3.analog-stereo" } }
+                ] } ]
+            """);
+
+        Assert.Equal("alsa_input.usb-Yealink_UH36-00.analog-stereo", snapshot.DefaultNodeName);
+        Assert.Equal("Yealink UH36 Analog Stereo", snapshot.DefaultDescription);
+    }
+
+    [Fact]
     public void ParsePipeWireDump_TakesTheDefaultFromALaterArray()
     {
-        // The default input was switched to the built-in microphone while the dump ran.
+        // The default input was switched to the built-in microphone while the dump ran; pw-dump prints only
+        // that entry.
         var snapshot = LinuxMicDevices.ParsePipeWireDump(PipeWireDump + """
             [ { "id": 40, "type": "PipeWire:Interface:Metadata", "props": { "metadata.name": "default" },
                 "metadata": [
@@ -118,6 +135,55 @@ public sealed class LinuxMicCaptureTests
         Assert.Equal(2, snapshot.Sources.Count);
         Assert.Equal("alsa_input.pci-0000_08_00.3.analog-stereo", snapshot.DefaultNodeName);
         Assert.Equal("Built-in Audio Analog Stereo", snapshot.DefaultDescription);
+    }
+
+    [Fact]
+    public void ParsePipeWireDump_ListsAnInputReprintedInALaterArrayOnce_WithItsNewDetails()
+    {
+        // pw-dump reprints a changed node in full; it replaces the earlier one rather than listing the input twice.
+        var snapshot = LinuxMicDevices.ParsePipeWireDump(PipeWireDump + """
+            [ { "id": 55, "type": "PipeWire:Interface:Node", "info": { "props": {
+                  "media.class": "Audio/Source", "node.name": "alsa_input.usb-Yealink_UH36-00.analog-stereo",
+                  "node.description": "Yealink UH36 Headset", "object.serial": 55 } } } ]
+            """);
+
+        Assert.Equal(
+            [
+                new LinuxMicSource(58, "alsa_input.pci-0000_08_00.3.analog-stereo", "Built-in Audio Analog Stereo"),
+                new LinuxMicSource(55, "alsa_input.usb-Yealink_UH36-00.analog-stereo", "Yealink UH36 Headset"),
+            ],
+            snapshot.Sources);
+    }
+
+    [Fact]
+    public void ParsePipeWireDump_ReadsARemovalPrintedBeforeTheFullArray()
+    {
+        // pw-dump prints a removal the moment it happens, which can be before the full array.
+        var snapshot = LinuxMicDevices.ParsePipeWireDump("""
+            [ { "id": 97, "info": null } ]
+            """ + PipeWireDump);
+
+        Assert.Equal(2, snapshot.Sources.Count);
+        Assert.Equal("alsa_input.usb-Yealink_UH36-00.analog-stereo", snapshot.DefaultNodeName);
+    }
+
+    [Fact]
+    public void ParsePipeWireDump_ListsAnInputWhoseIdWasRemovedAndReused()
+    {
+        // PipeWire hands a freed id straight to the next object: the headset left, and id 55 came back as a webcam.
+        var snapshot = LinuxMicDevices.ParsePipeWireDump(PipeWireDump + """
+            [ { "id": 55, "info": null } ]
+            [ { "id": 55, "type": "PipeWire:Interface:Node", "info": { "props": {
+                  "media.class": "Audio/Source", "node.name": "alsa_input.usb-C920-00.analog-stereo",
+                  "node.description": "HD Pro Webcam C920 Analog Stereo", "object.serial": 91 } } } ]
+            """);
+
+        Assert.Equal(
+            [
+                new LinuxMicSource(58, "alsa_input.pci-0000_08_00.3.analog-stereo", "Built-in Audio Analog Stereo"),
+                new LinuxMicSource(91, "alsa_input.usb-C920-00.analog-stereo", "HD Pro Webcam C920 Analog Stereo"),
+            ],
+            snapshot.Sources);
     }
 
     [Fact]

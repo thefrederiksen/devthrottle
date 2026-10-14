@@ -344,16 +344,22 @@ internal static class LinuxMicDevices
 
     /// <summary>
     /// Every object in <c>pw-dump</c>'s output, as it stood when the dump ended. <c>pw-dump</c> prints one array of
-    /// every object and then, when the sound system changed while it was dumping, one more array per change: a
-    /// changed object in full, a removed one as <c>{ "id": n, "info": null }</c>. Any client coming or going is
-    /// such a change - two dumps at once see each other leave - so the extra array is routine, and reading the
-    /// output as one JSON value failed the Speak dialog with "'[' is invalid after a single JSON value". Every
-    /// array is read in order; a later entry for an id replaces the earlier one, and a removal drops it.
+    /// every object and then, when the sound system changed while it was dumping, one more array per change. Any
+    /// client coming or going is such a change - two dumps at once see each other leave - so the extra array is
+    /// routine, and reading the output as one JSON value failed the Speak dialog with "'[' is invalid after a
+    /// single JSON value". Every array is read in order:
+    /// <list type="bullet">
+    /// <item>A removed object is printed as <c>{ "id": n, "info": null }</c>, and is dropped.</item>
+    /// <item>A changed node is printed in full, and replaces the earlier one.</item>
+    /// <item>A changed metadata object carries only the entries that changed, so it is kept after the earlier one
+    /// rather than replacing it; <see cref="ParsePipeWireDump"/> takes the last value it sees for a key.</item>
+    /// </list>
     /// </summary>
     private static List<JsonElement> MergePipeWireArrays(string json)
     {
-        var objects = new List<JsonElement?>();
-        var indexById = new Dictionary<int, int>();
+        var order = new List<int>();
+        var versionsById = new Dictionary<int, List<JsonElement>>();
+        var withoutId = new List<JsonElement>();
 
         var reader = new Utf8JsonReader(Encoding.UTF8.GetBytes(json), new JsonReaderOptions { AllowMultipleValues = true });
         while (reader.Read())
@@ -364,29 +370,45 @@ internal static class LinuxMicDevices
                 var item = entry.Clone();
                 if (!IntProperty(item, "id", out var id))
                 {
-                    objects.Add(item);
+                    withoutId.Add(item);
                     continue;
                 }
 
                 var removed = item.TryGetProperty("info", out var info) && info.ValueKind == JsonValueKind.Null
                     && !item.TryGetProperty("type", out _);
-                if (indexById.TryGetValue(id, out var index))
-                    objects[index] = removed ? null : item;
-                else if (!removed)
+                if (removed)
                 {
-                    indexById[id] = objects.Count;
-                    objects.Add(item);
+                    versionsById.Remove(id);
+                    continue;
+                }
+
+                if (!versionsById.TryGetValue(id, out var versions))
+                {
+                    versionsById[id] = [item];
+                    order.Remove(id);
+                    order.Add(id);
+                }
+                else if (IsMetadata(item) && versions.Count > 0 && IsMetadata(versions[0]))
+                    versions.Add(item);
+                else
+                {
+                    versions.Clear();
+                    versions.Add(item);
                 }
             }
         }
 
-        var merged = new List<JsonElement>(objects.Count);
-        foreach (var item in objects)
+        var merged = new List<JsonElement>();
+        foreach (var id in order)
         {
-            if (item is { } present) merged.Add(present);
+            if (versionsById.TryGetValue(id, out var versions)) merged.AddRange(versions);
         }
+        merged.AddRange(withoutId);
         return merged;
     }
+
+    private static bool IsMetadata(JsonElement item)
+        => string.Equals(StringProperty(item, "type"), "PipeWire:Interface:Metadata", StringComparison.Ordinal);
 
     private static string DescribeDefault(LinuxMicSnapshot snapshot)
         => snapshot.DefaultDescription is { } name ? $"Default - {name}" : DefaultFallbackLabel;
