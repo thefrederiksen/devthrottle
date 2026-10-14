@@ -2500,6 +2500,9 @@ public sealed class GatewayHost : IAsyncDisposable
             // A null return is DENY - no tenant in scope means the best-effort ring event is skipped rather
             // than filed under a guessed owner. On self-host this is always Local.
             resolveTenant: () => _tenantPass.Current);
+        // Built here, ahead of the scheduler, because the scheduler gives a seat's published brief to its runs
+        // (Factory Seats mission, phase 2c). It needs only the database and the registry, both built above.
+        _factoryBriefs = new Factory.Briefs.FactoryBriefStore(_gatewayDb, FactoryRegistry);
         var cronClock = new Running.SystemClock();
         // Factory Control, step 1 and 6: every run says how it went, and a factory-linked run leaves an activity row.
         // The schedules and the work history are read in the ambient scope the route or the sweep entered; the run
@@ -2519,7 +2522,12 @@ public sealed class GatewayHost : IAsyncDisposable
                 // Issue #3650: a job whose factory or seat the registry does not have never starts. The fire runs in
                 // the job's account's scope, so the ambient tenant is the account the job belongs to.
                 refuseFactoryWork: job => Factory.Registry.FactoryScheduleLink.Check(job.Factory, job.Seat,
-                    id => FactoryRegistry.Find(_tenantContext.Current, id), out _, running: true)),
+                    id => FactoryRegistry.Find(_tenantContext.Current, id), out _, running: true),
+                // Factory Seats mission, phase 2c: a seat with a published brief is told who it is and given that
+                // brief by the Gateway. Read in the same scope as the check above.
+                seatWithABrief: job => Running.ScheduledRunOpening.SeatFor(job,
+                    id => FactoryRegistry.Find(_tenantContext.Current, id),
+                    (factory, seat) => _factoryBriefs.GivenTo(_tenantContext.Current, factory, seat))),
             cronWorkListRunner, cronNotifier, cronClock,
             // MTR (audit MED): partition the overlap guard by the tenant of the CURRENT unit of work - the
             // run-now request scope on hosted, the single Local scope on self-host - the same seam the notifier
@@ -2631,7 +2639,6 @@ public sealed class GatewayHost : IAsyncDisposable
                 TeamMentorWriter, _tenantSettingsResolver.TimeZone);
         }
         _factoryMemory = new Factory.Memory.FactoryMemoryStore(_gatewayDb);
-        _factoryBriefs = new Factory.Briefs.FactoryBriefStore(_gatewayDb, FactoryRegistry);
         _devReportDelivery = new DevReports.DevReportDelivery(_devReports, DevReportSessionLiveness,
             route: (tenant, directorId) =>
             {
@@ -5251,7 +5258,8 @@ public sealed class GatewayHost : IAsyncDisposable
             // Handle the issue (Factory Control, step 1b) reads the one problems fold, as GET /cron/problems does.
             problems: (tenant, factory) => _cronRunResults.Problems(tenant, factory, includeClosed: false),
             timeZone: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)),
-            factoryManager: factoryManagerSources);
+            factoryManager: factoryManagerSources,
+            publishedBrief: (tenant, factory, seat) => _factoryBriefs.GivenTo(tenant, factory, seat));
         // The Factory Manager seat (Factory Control, step 5): its binding, the name check, the screen's card and its talk.
         Api.FactoryManagerEndpoints.Map(_app, factoryGate, FactoryAgentsSwitch,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),

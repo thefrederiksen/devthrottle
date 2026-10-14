@@ -112,6 +112,21 @@ def test_record_Written_ExitsZeroAndPrintsTheId(gateway_answering):
     }
 
 
+def test_record_TheTalkedLineOfATalk_SendsTheBriefVersionTheTalkWasGiven(gateway_answering):
+    # The command a talk of a seat with a published brief is told to run (the Gateway's talk seed writes it out,
+    # --version included): the version reaches the row as the factory agent's version.
+    gw = gateway_answering(201, {"id": ROW_ID, "outcome": "talked"})
+
+    result = runner.invoke(app, ["factory", "record", "--factory", "warmforward", "--agent", "boss", "--version", "3",
+                                 "--outcome", "talked", "--what", "Agreed the plan for the week."])
+
+    assert result.exit_code == 0, result.output
+    assert gw.calls[0]["body"] == {
+        "factory": "warmforward", "factoryAgent": "boss", "outcome": "talked",
+        "what": "Agreed the plan for the week.", "factoryAgentVersion": "3",
+    }
+
+
 def test_record_Json_PrintsTheGatewaysRow(gateway_answering):
     gateway_answering(201, {"id": ROW_ID, "outcome": "done"})
 

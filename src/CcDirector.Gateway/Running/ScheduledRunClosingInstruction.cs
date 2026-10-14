@@ -28,8 +28,15 @@ public static class ScheduledRunClosingInstruction
     public static string PromptFor(string storedPrompt)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(storedPrompt);
-        if (storedPrompt.Contains(OwnWordingMarker, StringComparison.OrdinalIgnoreCase))
+        if (AlreadyTellsItsRunToReport(storedPrompt))
             return storedPrompt;
         return storedPrompt.TrimEnd() + "\n\n" + Text;
+    }
+
+    /// <summary>Whether <paramref name="storedPrompt"/> already names <c>cc-devthrottle run result</c>.</summary>
+    public static bool AlreadyTellsItsRunToReport(string storedPrompt)
+    {
+        ArgumentNullException.ThrowIfNull(storedPrompt);
+        return storedPrompt.Contains(OwnWordingMarker, StringComparison.OrdinalIgnoreCase);
     }
 }

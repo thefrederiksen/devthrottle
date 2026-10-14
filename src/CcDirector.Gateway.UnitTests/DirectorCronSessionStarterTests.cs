@@ -38,7 +38,7 @@ public sealed class DirectorCronSessionStarterTests
             captured = req;
             return Task.FromResult<(bool, SessionDto?, string?)>((true, new SessionDto { SessionId = "sid-1" }, null));
         });
-        var starter = new DirectorCronSessionStarter(spawner, new FixedClock(utcNow), refuseFactoryWork: _ => null);
+        var starter = new DirectorCronSessionStarter(spawner, new FixedClock(utcNow), refuseFactoryWork: _ => null, seatWithABrief: _ => null);
         return (starter, () => captured);
     }
 
@@ -68,7 +68,8 @@ public sealed class DirectorCronSessionStarterTests
         job.Factory = "devthrottle";
         job.Seat = "mail-desk";
         var starter = new DirectorCronSessionStarter(spawner, new FixedClock(DateTime.UtcNow),
-            refuseFactoryWork: j => j.Seat == "mail-desk" ? "'mail-desk' is not a seat of DevThrottle" : null);
+            refuseFactoryWork: j => j.Seat == "mail-desk" ? "'mail-desk' is not a seat of DevThrottle" : null,
+            seatWithABrief: _ => null);
 
         var (sessionId, directorId, error) = await starter.StartAsync(job, CancellationToken.None);
 

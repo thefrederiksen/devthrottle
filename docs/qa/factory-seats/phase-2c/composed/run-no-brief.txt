@@ -1,0 +1,3 @@
+Do the morning run: read the overnight numbers and write the summary. When done, run cc-devthrottle session done.
+
+When you have finished, the last thing you do is report how this scheduled run went: run `cc-devthrottle run result ok`, or `cc-devthrottle run result problem "<one line why>"` if something went wrong.

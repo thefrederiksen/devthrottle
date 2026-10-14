@@ -81,4 +81,8 @@ public sealed class CronRunEntity : GatewayMintedKeyEntity
 
     /// <summary>On the last row of a long outage: how many more due times got no row of their own.</summary>
     public int MissedNotListed { get; set; }
+
+    /// <summary>The version of the seat's published brief the Gateway gave this run, or null when it gave none
+    /// (<see cref="Contracts.CronRunRecord.BriefVersion"/>). Rows recorded before this column existed read null.</summary>
+    public int? BriefVersion { get; set; }
 }

@@ -217,7 +217,7 @@ public sealed class FactoryListRowDto
     /// shown under the name on its card; null when none is set.</summary>
     public string? Purpose { get; set; }
 
-    /// <summary>The boss's role word ("Boss", or "CFO") for the card's avatar and name line - never a person's
+    /// <summary>The boss's registered role word, which is "Boss", for the card's avatar and name line - never a person's
     /// name (the owner, 8 October 2026); null when no boss is named.</summary>
     public string? BossName { get; set; }
 
@@ -255,8 +255,8 @@ public sealed class FactoryPageViewDto
     /// items for NEEDS YOU, its Seats tab for PAUSED and TALK ONLY. Null for RUNNING.</summary>
     public string? StatusHref { get; set; }
 
-    /// <summary>The boss seat's role word - "Boss", or a distinct one the factory registered ("CFO") - or "No boss
-    /// named". Never a person's name: the boss has none.</summary>
+    /// <summary>The boss seat's registered role word, which is "Boss" - or "No boss named". Never a person's name:
+    /// the boss has none.</summary>
     public string BossText { get; set; } = "";
 
     /// <summary>"4 seats".</summary>

@@ -96,6 +96,14 @@ public sealed class CronRunRecord
     /// how many more due times there were that got no row of their own. Zero on every other run.
     /// </summary>
     public int MissedNotListed { get; set; }
+
+    /// <summary>
+    /// The version of the seat's brief the Gateway gave this run when it started it (Factory Seats mission, phase 2c).
+    /// Null when the Gateway gave none: a schedule in no factory, a seat with no brief published on the Gateway (its
+    /// brief is a file its own prompt names), a run that did not start, or a run recorded before briefs were held on
+    /// the Gateway. Fixed when the run is recorded. Read-only: ignored on a write.
+    /// </summary>
+    public int? BriefVersion { get; set; }
 }
 
 /// <summary>

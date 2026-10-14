@@ -109,6 +109,17 @@ public sealed class FactoryBriefStore
     }
 
     /// <summary>
+    /// The brief a talk or a scheduled run of this seat is given by the Gateway (phase 2c): the PUBLISHED version,
+    /// its text and its number. Null when the seat has no published version - it has no brief on the Gateway, or
+    /// only drafts, and a draft is never given to a session.
+    /// </summary>
+    public Talk.FactoryGivenBrief? GivenTo(TenantId tenant, string factory, string seat)
+    {
+        var published = Standing(tenant, factory, seat).Published;
+        return published is null ? null : new Talk.FactoryGivenBrief(published.Version, published.Text);
+    }
+
+    /// <summary>
     /// ONE PAGE of one seat's history, newest first, WITHOUT ANY VERSION'S TEXT: which version, its state, who
     /// wrote it, when, and how many bytes its text takes. <paramref name="before"/> is the version the page starts
     /// below - null for the newest page - and the page says where the next one starts, or that there is none.

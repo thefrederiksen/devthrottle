@@ -1850,9 +1850,12 @@ line it works on, which is the lane its bay stands in on the factory's Floor (on
 A seat with no line stands in a lane called "Other"; when no seat names a line, every seat stands in one lane.
 
 **The boss has no name of its own** (the owner, 8 October 2026). The seat `bossSeat` names is registered with
-the name `Boss`; a manifest that gives it a person's name is refused with the fix. Its role is `Boss` unless
-the factory has a distinct word for it (`CFO`). The screen says "the boss", "Talk to the boss" and "Latest
-from the boss", never a name, so thirteen factories' bosses no longer read like thirteen people.
+the name `Boss`; a manifest that gives it a person's name is refused with the fix. Its role is `Boss` (the
+owner, 13 October 2026), and a manifest that gives it any other role word is refused in the same way: the
+Gateway answers "The boss's role is Boss: set its role to "Boss"." The screen says "the boss", "Talk to the
+boss" and "Latest from the boss", never a name, so thirteen factories' bosses no longer read like thirteen
+people. A factory registered before that day keeps the role word it was registered with until it is
+registered again.
 
 **A seat's schedules live on the schedules (issue #3650).** There are no factory agents without a
 factory: a schedule that runs factory work names its factory AND its seat, and both must already be
@@ -1981,6 +1984,22 @@ What is limited instead:
   on the last page. Read one version's text with `get --version N`.
 
 A brief's text takes at most 65,536 bytes, and an empty one is refused.
+
+**The Gateway gives a published brief to the seat's talks and scheduled runs (13 October 2026).** A seat with
+a published brief is told who it is, from the registration, and given the brief's text with its version, by
+the Gateway, each time a talk or a scheduled run of it starts. So the schedule's own prompt says only what is
+particular to that run, and renaming the seat is one registration: the next talk and the next run say the new
+name. A draft is never given to a session. A seat with no published brief is started exactly as before: a talk
+is told the path of its brief file, and a scheduled run is given the schedule's own prompt and nothing ahead of
+it. A schedule's prompt that begins with a slash is a command, so it stays first and the opening follows it.
+
+Which version a run or a talk was given is kept:
+
+- a scheduled run: `briefVersion` on the run, in `cc-devthrottle schedule runs <id> --json`; it is null when
+  the Gateway gave the run no brief. The activity row the run leaves in its factory carries the same number
+  as its `factoryAgentVersion`.
+- a talk: `briefVersion` in the answer that starts the talk, and `factoryAgentVersion` on the `talked` line
+  the talk records before it ends (the talk is told to record it with `--version <n>`).
 
 ### Run
 

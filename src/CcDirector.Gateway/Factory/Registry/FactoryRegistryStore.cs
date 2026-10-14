@@ -390,11 +390,14 @@ public sealed partial class FactoryRegistryStore
                 throw Refuse($"The boss seat '{m.BossSeat}' is not one of the factory's seats ({string.Join(", ", ids)}).");
             // The boss has no name of its own (the owner's ruling of 8 October 2026): it is the boss of this factory,
             // and its registered name is the word Boss. A manifest that names a person is refused with the fix rather
-            // than quietly shown as "the boss", so the data and the screen never disagree. The ROLE may be a distinct
-            // word the factory chose (CFO); "Boss" when it has none.
+            // than quietly shown as "the boss", so the data and the screen never disagree. Its ROLE is Boss too (the
+            // owner's ruling of 13 October 2026: "She's called the CFO but she shouldn't be. She should just be called
+            // boss"), so a manifest that gives the boss another role word is refused in the same way.
             var bossSeat = seats.First(s => string.Equals(s.Id, bossId, StringComparison.OrdinalIgnoreCase));
             if (!string.Equals(bossSeat.Name, FactoriesScreenFold.BossRoleWord, StringComparison.Ordinal))
-                throw Refuse($"The boss seat '{bossId}' is named '{bossSeat.Name}'. The boss has no name of its own: set its name to \"{FactoriesScreenFold.BossRoleWord}\" (its role may stay '{bossSeat.Role}').");
+                throw Refuse($"The boss seat '{bossId}' is named '{bossSeat.Name}'. The boss has no name of its own: set its name to \"{FactoriesScreenFold.BossRoleWord}\".");
+            if (!string.Equals(bossSeat.Role, FactoriesScreenFold.BossRoleWord, StringComparison.Ordinal))
+                throw Refuse($"The boss seat '{bossId}' has the role '{bossSeat.Role}'. The boss's role is {FactoriesScreenFold.BossRoleWord}: set its role to \"{FactoriesScreenFold.BossRoleWord}\".");
             boss = bossId;
         }
 

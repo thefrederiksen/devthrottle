@@ -7,9 +7,12 @@ using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data;
+using CcDirector.Gateway.Data.Entities;
 using CcDirector.Gateway.Discovery;
 using CcDirector.Gateway.Factory;
+using CcDirector.Gateway.Factory.Briefs;
 using CcDirector.Gateway.Factory.Registry;
+using CcDirector.Gateway.Factory.Talk;
 using CcDirector.Gateway.History;
 using CcDirector.Gateway.Pairing;
 using CcDirector.Gateway.Settings;
@@ -49,6 +52,8 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
     private HttpClient? _http;
     private DirectorRegistry? _directors;
     private FactoryRegistryStore? _registry;
+    private FactoryBriefStore? _briefs;
+    private FactoryBriefStore Briefs => _briefs ??= new FactoryBriefStore(Db, _registry ?? throw new InvalidOperationException("start the route first"));
 
     /// <summary>Every create the route dispatched to a Director, with the Director it went to.</summary>
     private readonly List<(string DirectorId, NewSessionRequest Request)> _sent = new();
@@ -208,7 +213,9 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
                 Problems = _problems.Where(p => string.Equals(p.Factory, factory, StringComparison.OrdinalIgnoreCase)).ToList(),
             },
             timeZone: _ => TimeZoneInfo.Utc,
-            factoryManager: factoryManager);
+            factoryManager: factoryManager,
+            // The real brief store, read the way the host reads it.
+            publishedBrief: (tenant, factory, seat) => Briefs.GivenTo(tenant, factory, seat));
 
         await app.StartAsync();
         _app = app;
@@ -255,6 +262,75 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
         Assert.StartsWith("You are the boss of WarmForward", sent.PrePrompt);
         Assert.Contains(MorningRun, sent.PrePrompt);
         Assert.Contains("--outcome talked", sent.PrePrompt);
+    }
+
+    // ---- the brief on the Gateway (Factory Seats mission, phase 2c) --------------------------------------------
+
+    private void PublishABrief(string seat, string text)
+    {
+        var saved = Briefs.SaveDraft(TenantId.Local, "warmforward", seat, text, Briefs.Standing(TenantId.Local, "warmforward", seat).Newest?.Version ?? 0,
+            FactoryMemoryAuthorKinds.Session, CallingSessionId, DateTime.UtcNow);
+        Assert.True(saved.Ok);
+        Assert.True(Briefs.Publish(TenantId.Local, "warmforward", seat, saved.Brief!.Version, FactoryMemoryAuthorKinds.Person, "device-1", DateTime.UtcNow).Ok);
+    }
+
+    [Fact]
+    public async Task Talk_ToASeatWithAPublishedBrief_IsGivenItsTextAndVersion_AndTheAnswerSaysWhichVersion()
+    {
+        await StartAsync();
+        PublishABrief("nora-hale", "FIRST: be careful with money.");
+        PublishABrief("nora-hale", "SECOND: be careful with money, and say so.");
+        // A newer draft nobody has approved: it must not reach the talk.
+        Assert.True(Briefs.SaveDraft(TenantId.Local, "warmforward", "nora-hale", "DRAFT: spend freely.", 2,
+            FactoryMemoryAuthorKinds.Session, CallingSessionId, DateTime.UtcNow).Ok);
+
+        var response = await Talk("warmforward", "nora-hale");
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var (_, sent) = Assert.Single(_sent);
+        Assert.Contains("--- your brief, version 2 ---", sent.PrePrompt);
+        Assert.Contains("SECOND: be careful with money, and say so.", sent.PrePrompt);
+        Assert.DoesNotContain("FIRST", sent.PrePrompt);
+        Assert.DoesNotContain("DRAFT", sent.PrePrompt);
+        Assert.DoesNotContain("ceo.yaml", sent.PrePrompt);
+        Assert.Contains("--agent nora-hale --version 2 --outcome talked", sent.PrePrompt);
+        var started = await response.Content.ReadFromJsonAsync<FactoryTalkStartedDto>(Web);
+        Assert.Equal(2, started!.BriefVersion);
+    }
+
+    [Fact]
+    public async Task Talk_ToASeatWithNoBriefOnTheGateway_IsToldThePathOfItsFile_AndTheAnswerCarriesNoVersion()
+    {
+        await StartAsync();
+        // Another seat of the same factory has one; this seat is not given it.
+        PublishABrief("savings-engineer", "The engineer's brief.");
+
+        var response = await Talk("warmforward", "nora-hale");
+
+        var (_, sent) = Assert.Single(_sent);
+        Assert.Equal(FactoryTalkSeed.Compose(_registry!.Find(TenantId.Local, "warmforward")!,
+            _registry.Find(TenantId.Local, "warmforward")!.Seats[0], "cj_a721e6", MorningRun), sent.PrePrompt);
+        Assert.Contains(@"- your brief: D:\ReposFred\cc-consult\ideas\warmforward-factory\agents/ceo.yaml", sent.PrePrompt);
+        Assert.DoesNotContain("--- your brief", sent.PrePrompt);
+        var started = await response.Content.ReadFromJsonAsync<FactoryTalkStartedDto>(Web);
+        Assert.Null(started!.BriefVersion);
+    }
+
+    [Fact]
+    public async Task Handle_ATalkAboutAProblem_IsGivenTheBossesPublishedBriefToo()
+    {
+        await StartAsync();
+        PublishABrief("nora-hale", "FIRST: be careful with money.");
+        var problem = ScoutProblem();
+        _problems.Add(problem);
+
+        var response = await Handle("warmforward", problem.RunId);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var (_, sent) = Assert.Single(_sent);
+        Assert.Contains("--- your brief, version 1 ---", sent.PrePrompt);
+        Assert.Contains("THIS TALK IS ABOUT ONE PROBLEM", sent.PrePrompt);
+        Assert.Equal(1, (await response.Content.ReadFromJsonAsync<FactoryTalkStartedDto>(Web))!.BriefVersion);
     }
 
     [Fact]
