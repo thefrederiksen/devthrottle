@@ -136,8 +136,9 @@
       2. A test that fails AGAIN is a code defect. Exit 1: fix it on main and cut a new candidate.
       3. A test that PASSES on the re-run is FLAKY - a defective test. Exit 10, and the gate still fails:
          a FLAKY gate record is written beside the green ones, naming each flaky test, and
-         scripts\assert-gated.ps1 refuses it on its own. The flaky test is fixed or deleted THE SAME DAY,
-         in a test-only pull request merged to main (deleting it is pre-approved by the owner).
+         scripts\assert-gated.ps1 refuses it on its own. A test that failed on correct code is DELETED
+         the same day in a test-only pull request merged to main - pre-approved by the owner (ruling of
+         13 October 2026) - unless it shows a real product defect, and then the product is fixed.
       4. Then, from a clean checkout of main that contains the fix:
              .\scripts\test-local.ps1 -ClearFlaky <candidate>
          builds a throwaway worktree of the CANDIDATE'S product code with MAIN'S test projects, and runs

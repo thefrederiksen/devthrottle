@@ -216,9 +216,16 @@ reviewer from a different agent family reads the change. Then merge. Nothing wai
 that lights at random is worse than no sensor. So a test in a gate suite never lets Docker, a database
 server, a real port, a real process, a sleep or the real clock decide whether it passes: it uses a fake
 (an in-memory host or store, `TestServer`, an injected clock) or it is deleted. The whole release gate
-finishes in 90 minutes or less. A flaky test is fixed or deleted THE SAME DAY - deleting it is
-pre-approved. When a gate fails, re-run ONLY its failed tests (`-RerunFailed`, below), never the whole
-gate.
+finishes in 90 minutes or less. When a gate fails, re-run ONLY its failed tests (`-RerunFailed`, below),
+never the whole gate.
+
+**A TEST WORKS OR IT IS REMOVED (owner ruling, 13 October 2026).** A test that fails while the code is
+correct is DELETED, the first time, with no repair attempt - pre-approved, no question to ask. The one
+exception is a failure that shows a real product defect: then the product is fixed and the test stays
+(issue #3965 is the worked example). Do not call such a test "flaky"; say it failed on correct code. Cut by
+test, not by file: clean tests in the same file stay. A word match is not a wait - an address written as
+text, `Stopwatch.Frequency` or a connection string builder decides nothing. What a deleted test covered,
+if it matters, is new work: a test that cannot depend on the machine.
 
 There is no longer any case in which you hold a merge open waiting for a continuous integration
 result - not a release, not a change to the build or to continuous integration itself, not a
@@ -307,8 +314,8 @@ the candidate, `scripts\assert-gated.ps1 <candidate>` must accept it, and the ta
 candidate even when main has moved on. Work merged after the candidate waits for the next release.
 **A red candidate is never run again whole.** Re-run only its failed tests, once, on the same commit:
 `.\scripts\test-local.ps1 -RerunFailed <run folder>`. A test that fails again is a code defect: fix it on
-main and cut a new candidate. A test that passes alone is FLAKY - treat it as a defect in the test, but
-remember a race in the product can look the same: fix or delete it on main the same day, then run
+main and cut a new candidate. A test that passes alone failed on correct code - delete it on main (the
+rule above), unless it shows a race in the product, which looks the same; then fix the product. Then run
 `.\scripts\test-local.ps1 -ClearFlaky <candidate>` from a clean checkout of main. That proves the fix
 against the CANDIDATE'S product code (a fix that needs a product change means a new candidate), and the
 candidate is then tagged as it is. `assert-gated.ps1` accepts a flaky gate only with that clearance,
