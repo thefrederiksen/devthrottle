@@ -663,15 +663,15 @@ public sealed class FactoryDefinitionStoreTests : IDisposable
     {
         var store = NewStore();
         var files = Definition();
-        files["files/big.txt"] = new string('x', FactoryDefinitionStore.MaxFileBytes + 1);
+        files["files/big.txt"] = new string('x', DefinitionPaths.MaxFileBytes + 1);
 
         var refused = SaveBySession(store, files, expect: 0);
         Assert.Equal(FactoryDefinitionOutcome.FileTooLarge, refused.Outcome);
         Assert.Contains("'files/big.txt'", refused.Refusal);
-        Assert.Contains($"at most {FactoryDefinitionStore.MaxFileBytes}", refused.Refusal);
+        Assert.Contains($"at most {DefinitionPaths.MaxFileBytes}", refused.Refusal);
         Assert.Equal(0, store.History(A, TheFactory).Total);
 
-        files["files/big.txt"] = new string('x', FactoryDefinitionStore.MaxFileBytes);
+        files["files/big.txt"] = new string('x', DefinitionPaths.MaxFileBytes);
         Assert.True(SaveBySession(store, files, expect: 0).Ok);
     }
 
@@ -681,7 +681,7 @@ public sealed class FactoryDefinitionStoreTests : IDisposable
         var store = NewStore();
         var files = Definition();
         // Three bytes each in UTF-8: a third of the cap in characters, plus one, is over the cap in bytes.
-        files["files/euros.txt"] = new string('€', FactoryDefinitionStore.MaxFileBytes / 3 + 1);
+        files["files/euros.txt"] = new string('€', DefinitionPaths.MaxFileBytes / 3 + 1);
 
         Assert.Equal(FactoryDefinitionOutcome.FileTooLarge, SaveBySession(store, files, expect: 0).Outcome);
     }
@@ -692,18 +692,18 @@ public sealed class FactoryDefinitionStoreTests : IDisposable
         var store = NewStore();
         // Sixteen files at the file cap are exactly the version cap.
         var files = new Dictionary<string, string>();
-        var perFile = FactoryDefinitionStore.MaxFileBytes;
-        for (var i = 0; i < FactoryDefinitionStore.MaxVersionBytes / perFile; i++)
+        var perFile = DefinitionPaths.MaxFileBytes;
+        for (var i = 0; i < DefinitionPaths.MaxVersionBytes / perFile; i++)
             files[$"files/part{i:00}.txt"] = new string('x', perFile);
 
         var atCap = SaveByOwner(store, files, expect: 0);
         Assert.True(atCap.Ok, atCap.Refusal);
-        Assert.Equal(FactoryDefinitionStore.MaxVersionBytes, atCap.Version!.ContentBytes);
+        Assert.Equal(DefinitionPaths.MaxVersionBytes, atCap.Version!.ContentBytes);
 
         files["factory.yaml"] = "x";
         var over = SaveByOwner(store, files, expect: 1);
         Assert.Equal(FactoryDefinitionOutcome.VersionTooLarge, over.Outcome);
-        Assert.Contains($"at most {FactoryDefinitionStore.MaxVersionBytes}", over.Refusal);
+        Assert.Contains($"at most {DefinitionPaths.MaxVersionBytes}", over.Refusal);
         Assert.Equal(1, store.History(A, TheFactory).Total);
     }
 
@@ -712,14 +712,14 @@ public sealed class FactoryDefinitionStoreTests : IDisposable
     {
         // The byte caps count text only, so an empty file costs nothing toward them; this cap is what bounds them.
         var store = NewStore();
-        var files = Enumerable.Range(0, FactoryDefinitionStore.MaxFiles).ToDictionary(i => $"files/empty{i}.txt", _ => "");
+        var files = Enumerable.Range(0, DefinitionPaths.MaxFiles).ToDictionary(i => $"files/empty{i}.txt", _ => "");
 
         Assert.True(SaveByOwner(store, files, expect: 0).Ok);
 
         files["files/one-more.txt"] = "";
         var over = SaveByOwner(store, files, expect: 1);
         Assert.Equal(FactoryDefinitionOutcome.TooManyFiles, over.Outcome);
-        Assert.Contains($"at most {FactoryDefinitionStore.MaxFiles}", over.Refusal);
+        Assert.Contains($"at most {DefinitionPaths.MaxFiles}", over.Refusal);
     }
 
     [Fact]
@@ -774,6 +774,7 @@ public sealed class FactoryDefinitionStoreTests : IDisposable
     [InlineData("files/outreach_send.py")]
     [InlineData("files/templates/deep/CEO-BRIEF.md")]
     [InlineData("checks/inbox.py")]
+    [InlineData("checks/new_mail.py")]
     [InlineData("skills/prospecting/SKILL.md")]
     [InlineData("skills/prospecting/scripts/find.py")]
     public void Every_place_a_definition_holds_is_ACCEPTED(string path)
@@ -788,23 +789,26 @@ public sealed class FactoryDefinitionStoreTests : IDisposable
     }
 
     [Theory]
-    [InlineData("seats\\boss.yaml", "backslash")]
-    [InlineData("/factory.yaml", "starts with a slash")]
-    [InlineData("files//double.txt", "empty segment")]
-    [InlineData("files/trailing/", "empty segment")]
-    [InlineData("files/./here.txt", "'.' or '..' segment")]
-    [InlineData("files/../factory.yaml", "'.' or '..' segment")]
+    [InlineData("seats\\boss.yaml", "contains a backslash")]
+    [InlineData("/factory.yaml", "begins with a slash")]
+    [InlineData("files//double.txt", "has an empty part")]
+    [InlineData("files/trailing/", "has an empty part")]
+    [InlineData("files/./here.txt", "has a '.' part")]
+    [InlineData("files/../factory.yaml", "has a '..' part")]
+    [InlineData("files/line\nbreak.txt", "control character")]
+    [InlineData("", "it is empty")]
     [InlineData("README.md", "is not a place a definition holds")]
     [InlineData("Factory.yaml", "is not a place a definition holds")]
     [InlineData("factory.yaml/more", "is not a place a definition holds")]
     [InlineData("seats/boss.yml", "is not a place a definition holds")]
-    [InlineData("seats/.yaml", "is not a place a definition holds")]
     [InlineData("seats/team/boss.yaml", "is not a place a definition holds")]
     [InlineData("rules/outreach.yaml", "is not a place a definition holds")]
     [InlineData("checks/inbox.sh", "is not a place a definition holds")]
     [InlineData("files", "is not a place a definition holds")]
     [InlineData("skills/prospecting", "is not a place a definition holds")]
-    [InlineData("", "no file without a path")]
+    [InlineData("seats/.yaml", "a seat name is")]
+    [InlineData("seats/Boss.yaml", "a seat name is")]
+    [InlineData("skills/Prospecting/SKILL.md", "a skill name is")]
     public void A_path_that_breaks_a_rule_is_REFUSED_and_says_which_rule(string path, string words)
     {
         Assert.Contains(words, FactoryDefinitionStore.WhyNotAPath(path));
@@ -819,18 +823,24 @@ public sealed class FactoryDefinitionStoreTests : IDisposable
     }
 
     [Fact]
-    public void A_path_not_in_the_places_is_told_what_the_places_are()
+    public void THE_STORE_REFUSES_EXACTLY_WHAT_THE_CHECK_REFUSES_because_it_asks_the_same_rule()
     {
-        Assert.Equal($"'notes.txt' is not a place a definition holds. The places are: {FactoryDefinitionStore.ThePlaces}.",
+        // The store holds no path the whole-definition check would refuse, whoever calls it: its answer is the
+        // check's own sentence, word for word.
+        foreach (var path in new[] { "notes.txt", "seats/Boss.yaml", "/factory.yaml", "checks/new_mail.py" })
+            Assert.Equal(DefinitionPaths.ShapeProblem(path) ?? DefinitionPaths.Classify(path).Refusal,
+                FactoryDefinitionStore.WhyNotAPath(path));
+        Assert.Equal($"'notes.txt' is not a place a definition holds. The places are: {DefinitionPaths.PlacesText}.",
             FactoryDefinitionStore.WhyNotAPath("notes.txt"));
+        Assert.Equal("a definition holds no file without a path", FactoryDefinitionStore.WhyNotAPath(null));
     }
 
     [Fact]
     public void A_path_over_its_length_is_REFUSED_and_one_exactly_at_it_is_accepted()
     {
-        var atLimit = "files/" + new string('a', FactoryDefinitionStore.MaxPathLength - "files/".Length);
+        var atLimit = "files/" + new string('a', DefinitionPaths.MaxPathLength - "files/".Length);
         Assert.Null(FactoryDefinitionStore.WhyNotAPath(atLimit));
-        Assert.Contains($"at most {FactoryDefinitionStore.MaxPathLength}", FactoryDefinitionStore.WhyNotAPath(atLimit + "a"));
+        Assert.Contains($"it is {DefinitionPaths.MaxPathLength + 1} characters long", FactoryDefinitionStore.WhyNotAPath(atLimit + "a"));
     }
 
     // ---------- another account ----------

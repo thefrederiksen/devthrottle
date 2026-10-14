@@ -30,8 +30,9 @@ public static partial class DefinitionPaths
     public const int MaxVersionBytes = 4 * 1024 * 1024;
 
     /// <summary>
-    /// The most files one version may hold. The definition store holds the same cap as its own constant; the two are
-    /// joined once both have merged.
+    /// The most files one version may hold. The byte caps count only the files' text, so without this an empty file
+    /// would cost nothing and a version could hold files without end. The definition store reads this cap, and the
+    /// other caps and path rules here, rather than holding its own.
     /// </summary>
     public const int MaxFiles = 1000;
 

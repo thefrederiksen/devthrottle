@@ -38,7 +38,8 @@ namespace CcDirector.Gateway.Factory.Definition;
 /// spelling.
 ///
 /// THE STORE HOLDS NO PATH THE CHECK WOULD REFUSE. Every path is held to the places a definition holds and to the
-/// path rules (<see cref="WhyNotAPath"/>), and every file and the whole version to their caps, whoever calls - so a
+/// path rules (<see cref="WhyNotAPath"/>), and every file and the whole version to their caps (all of them the
+/// whole-definition check's own, in <see cref="DefinitionPaths"/>), whoever calls - so a
 /// caller that forgot to run the whole-definition check still cannot store a definition no export could write. The
 /// whole-definition check itself (schemas, references) is a separate pure function the routes run first.
 ///
@@ -50,20 +51,8 @@ namespace CcDirector.Gateway.Factory.Definition;
 /// </summary>
 public sealed class FactoryDefinitionStore
 {
-    /// <summary>The most one file may take, in UTF-8 bytes.</summary>
-    public const int MaxFileBytes = 256 * 1024;
-
-    /// <summary>The most one version may take, in UTF-8 bytes summed over all its files.</summary>
-    public const int MaxVersionBytes = 4 * 1024 * 1024;
-
-    /// <summary>
-    /// The most files one version may hold. The byte caps count only the files' text, so without this an empty file
-    /// would cost nothing and a version could hold files without end.
-    /// </summary>
-    public const int MaxFiles = 1000;
-
-    /// <summary>The longest a path in a definition may be, in characters.</summary>
-    public const int MaxPathLength = 200;
+    // THE CAPS AND THE PATH RULES ARE THE CHECK'S, read from DefinitionPaths: one constant each and one rule, so the
+    // store can never hold what the whole-definition check would refuse. Only the change note is the store's own.
 
     /// <summary>The longest a change note may be, in characters.</summary>
     public const int MaxChangeNoteLength = 500;
@@ -90,11 +79,6 @@ public sealed class FactoryDefinitionStore
     public const string OnlyAPersonRestores =
         "Only a person publishes a factory's definition, and restoring an older version publishes a copy of it. " +
         "A session of the factory may save the content it wants as a new draft; the owner publishes it.";
-
-    /// <summary>The places a definition holds, as the refusal of any other path names them (design section 1).</summary>
-    public const string ThePlaces =
-        "factory.yaml, seats/<seat>.yaml, grants.yaml, rules/<name>.json, files/<any path>, checks/<name>.py, " +
-        "skills/<name>/SKILL.md and skills/<name>/<any path>";
 
     /// <summary>A strict UTF-8 encoding: a text that cannot be written as UTF-8 (a lone surrogate) throws instead of
     /// being quietly replaced, so a file can never be stored as anything but exactly what was sent.</summary>
@@ -286,44 +270,14 @@ public sealed class FactoryDefinitionStore
     // ---------- the rules ----------
 
     /// <summary>
-    /// Why <paramref name="path"/> cannot be a path in a definition, or null when it can. The path rules of the
-    /// design's section 1: forward slashes only, no leading slash, no <c>.</c> or <c>..</c> segment, no empty segment,
-    /// at most <see cref="MaxPathLength"/> characters, and one of the places a definition holds (<see cref="ThePlaces"/>).
-    /// Public so every reader of a content map holds a path to the same rule.
+    /// Why <paramref name="path"/> cannot be a path in a definition, or null when it can: the path rules and the places
+    /// of the design's section 1, exactly as the whole-definition check holds them (<see cref="DefinitionPaths"/>).
     /// </summary>
     public static string? WhyNotAPath(string? path)
     {
-        if (string.IsNullOrEmpty(path))
-            return "a definition holds no file without a path";
-        if (path.Length > MaxPathLength)
-            return $"'{path[..60]}...' is {path.Length} characters long; a path in a definition is at most {MaxPathLength}";
-        if (path.Contains('\\'))
-            return $"'{path}' has a backslash; a path in a definition uses forward slashes only";
-        if (path.StartsWith('/'))
-            return $"'{path}' starts with a slash; a path in a definition is relative to the definition";
-        var segments = path.Split('/');
-        if (segments.Any(s => s.Length == 0))
-            return $"'{path}' has an empty segment; a path in a definition never has two slashes together or ends in one";
-        if (segments.Any(s => s is "." or ".."))
-            return $"'{path}' has a '.' or '..' segment; a path in a definition names its file directly";
-        return IsAPlace(segments) ? null : $"'{path}' is not a place a definition holds. The places are: {ThePlaces}.";
+        if (path is null) return "a definition holds no file without a path";
+        return DefinitionPaths.ShapeProblem(path) ?? DefinitionPaths.Classify(path).Refusal;
     }
-
-    /// <summary>The shapes of design section 1. The names inside them (a seat's id, a skill's) are the
-    /// whole-definition check's business, which reads them against the files' own keys.</summary>
-    private static bool IsAPlace(string[] s) => s[0] switch
-    {
-        "factory.yaml" or "grants.yaml" => s.Length == 1,
-        "seats" => s.Length == 2 && HasStem(s[1], ".yaml"),
-        "rules" => s.Length == 2 && HasStem(s[1], ".json"),
-        "checks" => s.Length == 2 && HasStem(s[1], ".py"),
-        "files" => s.Length >= 2,
-        "skills" => s.Length >= 3,
-        _ => false,
-    };
-
-    private static bool HasStem(string name, string extension)
-        => name.Length > extension.Length && name.EndsWith(extension, StringComparison.Ordinal);
 
     /// <summary>A version is written by a person or by a session. Anything else is a caller this store was never
     /// meant to be reached by, which is a defect in the route rather than a refusal to word.</summary>
@@ -345,9 +299,9 @@ public sealed class FactoryDefinitionStore
         if (files is null || files.Count == 0)
             return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.Empty,
                 "a definition needs files: at least factory.yaml and one seat", head);
-        if (files.Count > MaxFiles)
+        if (files.Count > DefinitionPaths.MaxFiles)
             return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.TooManyFiles,
-                $"the definition holds {files.Count} files; a definition holds at most {MaxFiles}", head);
+                $"the definition holds {files.Count} files; a definition holds at most {DefinitionPaths.MaxFiles}", head);
 
         foreach (var (path, text) in files)
         {
@@ -366,13 +320,13 @@ public sealed class FactoryDefinitionStore
                 return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.NotText,
                     $"'{path}' is not text that can be written as UTF-8 (it holds half of a character pair)", head);
             }
-            if (bytes > MaxFileBytes)
+            if (bytes > DefinitionPaths.MaxFileBytes)
                 return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.FileTooLarge,
-                    $"'{path}' takes {bytes} bytes; a file in a definition takes at most {MaxFileBytes}", head);
+                    $"'{path}' takes {bytes} bytes; a file in a definition takes at most {DefinitionPaths.MaxFileBytes}", head);
             totalBytes += bytes;
-            if (totalBytes > MaxVersionBytes)
+            if (totalBytes > DefinitionPaths.MaxVersionBytes)
                 return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.VersionTooLarge,
-                    $"the definition takes more than {MaxVersionBytes} bytes; a version takes at most {MaxVersionBytes} in all", head);
+                    $"the definition takes more than {DefinitionPaths.MaxVersionBytes} bytes; a version takes at most {DefinitionPaths.MaxVersionBytes} in all", head);
             ordered[path] = text;
         }
         return null;
@@ -582,15 +536,15 @@ public enum FactoryDefinitionOutcome
     Stale,
     /// <summary>The content holds no files.</summary>
     Empty,
-    /// <summary>The content holds more than <see cref="FactoryDefinitionStore.MaxFiles"/> files.</summary>
+    /// <summary>The content holds more than <see cref="DefinitionPaths.MaxFiles"/> files.</summary>
     TooManyFiles,
     /// <summary>A path breaks the path rules or is not a place a definition holds.</summary>
     BadPath,
     /// <summary>A file has no text, or text that cannot be written as UTF-8.</summary>
     NotText,
-    /// <summary>One file is over <see cref="FactoryDefinitionStore.MaxFileBytes"/>.</summary>
+    /// <summary>One file is over <see cref="DefinitionPaths.MaxFileBytes"/>.</summary>
     FileTooLarge,
-    /// <summary>The files together are over <see cref="FactoryDefinitionStore.MaxVersionBytes"/>.</summary>
+    /// <summary>The files together are over <see cref="DefinitionPaths.MaxVersionBytes"/>.</summary>
     VersionTooLarge,
     /// <summary>The change note is over <see cref="FactoryDefinitionStore.MaxChangeNoteLength"/> characters.</summary>
     ChangeNoteTooLong,
