@@ -113,6 +113,7 @@ A refused write never hands the machine credential the record in the way: every 
 | `.\scripts\test-local.ps1` (default) | GREEN, 10 projects |
 | `.\scripts\test-local.ps1 -Parked` | GREEN at `7dbde7ad9` (the change rebased onto `e587b06c0`), 22,121 tests (Gateway.UnitTests 11,946; Gateway.Tests in 4 shards; Core.Tests 4,516) |
 | After rebasing onto `b4f079a0c` (phase 1, which adds no migration) | Default gate GREEN at `f95de8daf`; every Gateway unit test under `Factory` (1,191) passing |
+| After the review fix | Default gate GREEN at `43ce3514e`; the 90 factory record tests passing |
 | New Gateway tests (stores, routes, the whole pipeline) | 90, all passing (89, plus one added for the review finding) |
 | New command line tests (`test_factory_record_ops.py`, a fake Gateway) | 17, all passing |
 | `tools/cc_shared` gateway tests (the new `headers` argument) | 68 passing |
