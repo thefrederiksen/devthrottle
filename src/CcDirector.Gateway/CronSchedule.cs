@@ -349,6 +349,15 @@ public static class CronSchedule
         return plan;
     }
 
+    /// <summary>
+    /// True when <paramref name="expression"/> is a cron expression a recurring schedule takes. The factory
+    /// definition check asks this, so a definition's start and a schedule can never disagree about one.
+    /// </summary>
+    public static bool IsCronExpression(string? expression) => TryParseCron(expression) is not null;
+
+    /// <summary>True when <paramref name="id"/> is a time zone a schedule takes (the same lookup).</summary>
+    public static bool IsKnownTimeZone(string? id) => TryFindTimeZone(id) is not null;
+
     /// <summary>Parse a standard 5-field cron expression, or null if it is not valid.</summary>
     private static CronExpression? TryParseCron(string? expression)
     {

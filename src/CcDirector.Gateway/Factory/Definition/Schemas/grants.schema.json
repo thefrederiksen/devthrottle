@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://devthrottle.com/schemas/factory-definition/grants.schema.json",
+  "title": "grants.yaml",
+  "description": "The factory's grants: what each allows in plain words, its limits, and which seats hold it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["grants"],
+  "properties": {
+    "grants": {
+      "description": "The grants, each with its own id.",
+      "type": "array",
+      "items": {
+        "title": "a grant",
+        "description": "One grant.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "allows", "seats"],
+        "properties": {
+          "id": {
+            "description": "The grant's id: lower-case letters and digits joined by single hyphens, at most 64 characters.",
+            "type": "string",
+            "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+            "maxLength": 64
+          },
+          "allows": {
+            "description": "What the grant allows, in plain words. Must not be blank.",
+            "type": "string",
+            "pattern": "\\S"
+          },
+          "limits": {
+            "description": "The grant's limits, in plain words. Must not be blank.",
+            "type": "string",
+            "pattern": "\\S"
+          },
+          "seats": {
+            "description": "The seats that hold the grant, by seat id, at least one, each once. Each must name the grant too.",
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "description": "A seat id: lower-case letters and digits joined by single hyphens, at most 64 characters.",
+              "type": "string",
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "maxLength": 64
+            }
+          }
+        }
+      }
+    }
+  }
+}

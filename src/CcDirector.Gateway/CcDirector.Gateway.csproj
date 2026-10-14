@@ -102,6 +102,9 @@
          C# string literals, so they stay diffable against the skill files they came from and cannot
          drift through escaping. -->
     <EmbeddedResource Include="Skills\Content\*.skill.md" />
+    <!-- The factory definition's JSON Schemas (Factory Definition mission): the contract the definition check
+         enforces and phase 3 serves. Files, not literals, so an editor can read them as they are. -->
+    <EmbeddedResource Include="Factory\Definition\Schemas\*.schema.json" LogicalName="CcDirector.Gateway.Factory.Definition.Schemas.%(Filename)%(Extension)" />
     <!-- The one instruction the Mentor's weekly writer gives the model (devthrottle_internal#2305). A file, reviewed
          like code, never a string literal. -->
     <EmbeddedResource Include="Teams\Mentor\Content\mentor-weekly.instructions.md" LogicalName="CcDirector.Gateway.Teams.Mentor.mentor-weekly.instructions.md" />

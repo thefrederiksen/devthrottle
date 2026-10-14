@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://devthrottle.com/schemas/factory-definition/rules.schema.json",
+  "title": "a rule set",
+  "description": "One rule set, rules/<name>.json: enforced permission rules, the permission part of what .claude/settings.json holds. A rule set carries limits, never behaviour.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["permissions"],
+  "properties": {
+    "permissions": {
+      "title": "permissions",
+      "description": "The permission rules.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allow": {
+          "description": "Tool rules that are allowed without asking.",
+          "type": "array",
+          "items": {
+            "description": "One rule, such as Bash(git status). Must not be empty.",
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "deny": {
+          "description": "Tool rules that are refused.",
+          "type": "array",
+          "items": {
+            "description": "One rule, such as Bash(git push:*). Must not be empty.",
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "ask": {
+          "description": "Tool rules that are asked about each time.",
+          "type": "array",
+          "items": {
+            "description": "One rule. Must not be empty.",
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}
