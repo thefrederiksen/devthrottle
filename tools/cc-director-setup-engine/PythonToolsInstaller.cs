@@ -281,6 +281,8 @@ public sealed class PythonToolsInstaller
                 }
                 try
                 {
+                    // Shims the new bundle wrote for scripts the restored venv does not have would point at nothing.
+                    RemoveManagedShims(manifest.Scripts);
                     RestoreShims(restoreScripts);
                     // The version and script list go back too: a failure after they were recorded must not leave
                     // the previous venv labelled as the new bundle.
@@ -945,7 +947,11 @@ public sealed class PythonToolsInstaller
     internal bool ToolTreesAreFree(out string reason)
     {
         reason = "";
-        RecoverStrandedProbes();
+        if (!RecoverStrandedProbes(out var recoverError))
+        {
+            reason = $"a tools tree left under its probe name could not be put back yet ({recoverError})";
+            return false;
+        }
         foreach (var dir in new[] { _layout.PythonDir, _layout.PyenvDir })
         {
             if (!Directory.Exists(dir)) continue;
@@ -973,8 +979,9 @@ public sealed class PythonToolsInstaller
     /// scratch, and the probe copy would sit on disk forever. Acts ONLY when the live tree is missing and exactly
     /// one probe exists - anything else is not a state this code produces, and is left for a person to look at.
     /// </summary>
-    private void RecoverStrandedProbes()
+    private bool RecoverStrandedProbes(out string error)
     {
+        error = "";
         foreach (var live in new[] { _layout.PythonDir, _layout.PyenvDir })
         {
             var parent = Path.GetDirectoryName(live)!;
@@ -986,9 +993,19 @@ public sealed class PythonToolsInstaller
                     EngineLog.Write($"[PythonToolsInstaller] RecoverStrandedProbes FAILED: {live} is missing and {probes.Count} probe directories exist; not guessing which one is the tools tree");
                 continue;
             }
-            Directory.Move(probes[0], live);
+            try
+            {
+                Directory.Move(probes[0], live);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                error = ex.Message;
+                EngineLog.Write($"[PythonToolsInstaller] RecoverStrandedProbes FAILED: could not move {probes[0]} back to {live}: {ex.Message}");
+                return false;
+            }
             EngineLog.Write($"[PythonToolsInstaller] RecoverStrandedProbes: put the stranded tools tree back from {probes[0]} to {live}");
         }
+        return true;
     }
 
     /// <summary>
