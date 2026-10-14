@@ -53,6 +53,18 @@ Also run, beyond the check, because this change touches what they cover:
 | `dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~GatewayHostBootSmoke\|FullyQualifiedName~Tenancy\|FullyQualifiedName~Architecture"` | Passed: 142, failed: 0 | `GatewayHostBootSmokeTests` is where the local snapshot is compared with the model |
 | `python -m pytest tools/cc-devthrottle/tests -q` (the whole command line suite) | 4404 passed, 2 skipped | The commands gained options, and the help of every command is checked there |
 
+**`origin/main` moved once more while this was being handed back**, to `85db31576` (pull request 3962), which
+deletes hosted Gateway tests and changes no file of this phase. It was merged into the branch as well, without a
+conflict, and the two things it can affect were run again on that merge:
+
+| Command | Result |
+|---|---|
+| `dotnet test src/CcDirector.Gateway.Tests --filter "FullyQualifiedName~Factory"` | Passed: 28, failed: 0, skipped: 0 (46 before; that pull request removed the rest) |
+| `dotnet test src/CcDirector.Core.UnitTests --filter "FullyQualifiedName~GateTestsDoNotDependOnTheMachine"` | Passed: 11, failed: 0 (its baseline changed in that pull request) |
+
+The other five commands of the check were not run again after that second merge: it touches no source file, no
+web file and no Python file.
+
 The whole command line suite earned its place: its first run failed one test, because the new one-line summary of
 `factory brief get` was 95 characters and the limit is 80. The summary was shortened and the suite run again, to
 the result above.
