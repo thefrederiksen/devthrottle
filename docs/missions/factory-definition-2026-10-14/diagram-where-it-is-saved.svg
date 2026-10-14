@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 1658" width="100%" style="max-width:704px;display:block" role="img" aria-label="Where a factory is saved after the Factory Definition mission">
+<rect x="0" y="0" width="440" height="1658" fill="#ffffff"/>
+<text x="220.0" y="22" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:16px;font-weight:bold" fill="#1b1f24" text-anchor="middle" xml:space="preserve">Where a factory is saved, after this mission</text>
+<text x="220.0" y="40" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="middle" xml:space="preserve">one definition on the Gateway; the machine only downloads</text>
+<rect x="0" y="52" width="440" height="30" fill="#1f2a44"/>
+<text x="12" y="72" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:13.5px;font-weight:bold" fill="#ffffff" text-anchor="start" xml:space="preserve">ON THE GATEWAY (the server) - the copy that runs</text>
+<rect x="8" y="92" width="424" height="273" rx="8" fill="#e8f0fe" stroke="#1a56db" stroke-width="2"/>
+<text x="20" y="114" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;font-weight:bold" fill="#1a56db" text-anchor="start" xml:space="preserve">PART OF THE FACTORY: its definition</text>
+<rect x="20" y="125" width="29" height="16" rx="8" fill="#b26a00"/>
+<text x="34.5" y="137" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:10.5px;font-weight:bold" fill="#ffffff" text-anchor="middle" xml:space="preserve">NEW</text>
+<text x="57" y="137" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:13px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">factory_definition_versions</text>
+<text x="20" y="152" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">One version is the whole factory. Saved as a draft;</text>
+<text x="20" y="167" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">only a person publishes; every version kept and</text>
+<text x="20" y="182" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">restorable; checked and shown before it goes live.</text>
+<text x="20" y="203" style="font-family:Consolas,Menlo,monospace;font-size:11.5px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">factory.yaml  id, title, purpose, goal, boss seat,</text>
+<text x="20" y="218" style="font-family:Consolas,Menlo,monospace;font-size:11.5px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">              defaults, repositories (0, 1, more)</text>
+<text x="20" y="233" style="font-family:Consolas,Menlo,monospace;font-size:11.5px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">seats/*.yaml  one file per seat: role, machine,</text>
+<text x="20" y="248" style="font-family:Consolas,Menlo,monospace;font-size:11.5px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">              agent and model, the brief, how it</text>
+<text x="20" y="263" style="font-family:Consolas,Menlo,monospace;font-size:11.5px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">              starts (+ check), grants, rules,</text>
+<text x="20" y="278" style="font-family:Consolas,Menlo,monospace;font-size:11.5px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">              secret NAMES, skills, files, repo</text>
+<text x="20" y="293" style="font-family:Consolas,Menlo,monospace;font-size:11.5px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">grants.yaml   what each grant allows, its limits</text>
+<text x="20" y="308" style="font-family:Consolas,Menlo,monospace;font-size:11.5px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">rules/*.json  the enforced permission rules</text>
+<text x="20" y="323" style="font-family:Consolas,Menlo,monospace;font-size:11.5px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">files/...     tools and templates the seats use</text>
+<text x="20" y="338" style="font-family:Consolas,Menlo,monospace;font-size:11.5px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">checks/*.py   Python that decides if a seat starts</text>
+<text x="20" y="353" style="font-family:Consolas,Menlo,monospace;font-size:11.5px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">skills/...    the factory's OWN skills</text>
+<rect x="8" y="375" width="424" height="106" rx="8" fill="#f3f6fb" stroke="#7a8aa8" stroke-width="2"/>
+<text x="20" y="397" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;font-weight:bold" fill="#7a8aa8" text-anchor="start" xml:space="preserve">Built from each publish, in one transaction</text>
+<rect x="20" y="408" width="64" height="16" rx="8" fill="#d0d5dd"/>
+<text x="52.0" y="420" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:10.5px;font-weight:bold" fill="#1b1f24" text-anchor="middle" xml:space="preserve">EXISTING</text>
+<text x="92" y="420" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:13px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">registry, schedules, triggers</text>
+<rect x="20" y="425" width="64" height="16" rx="8" fill="#d0d5dd"/>
+<text x="52.0" y="437" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:10.5px;font-weight:bold" fill="#1b1f24" text-anchor="middle" xml:space="preserve">EXISTING</text>
+<text x="92" y="437" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:13px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">briefs - kept as history; a defined factory's</text>
+<text x="98" y="452" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">brief is read from its definition</text>
+<rect x="20" y="457" width="64" height="16" rx="8" fill="#d0d5dd"/>
+<text x="52.0" y="469" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:10.5px;font-weight:bold" fill="#1b1f24" text-anchor="middle" xml:space="preserve">EXISTING</text>
+<text x="92" y="469" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:13px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">fleet skills - the skill store, named not copied</text>
+<rect x="8" y="491" width="424" height="89" rx="8" fill="#ffffff" stroke="#1a56db" stroke-width="2" stroke-dasharray="6 4"/>
+<text x="20" y="513" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;font-weight:bold" fill="#1a56db" text-anchor="start" xml:space="preserve">FILES: a doorway, not the home</text>
+<text x="20" y="536" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:13px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">export: a published version -&gt; a folder of YAML</text>
+<text x="20" y="553" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:13px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">import: a folder -&gt; a NEW DRAFT (never publishes)</text>
+<text x="20" y="568" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">Byte-identical on a second export of one version.</text>
+<rect x="8" y="590" width="424" height="172" rx="8" fill="#e7f6ec" stroke="#1e7b3a" stroke-width="2"/>
+<text x="20" y="612" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;font-weight:bold" fill="#1e7b3a" text-anchor="start" xml:space="preserve">WHAT THE FACTORY PRODUCES: its records</text>
+<rect x="20" y="623" width="64" height="16" rx="8" fill="#d0d5dd"/>
+<text x="52.0" y="635" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:10.5px;font-weight:bold" fill="#1b1f24" text-anchor="middle" xml:space="preserve">EXISTING</text>
+<text x="92" y="635" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:13px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">activity, run results, problems, 08:00 emails</text>
+<rect x="20" y="640" width="64" height="16" rx="8" fill="#d0d5dd"/>
+<text x="52.0" y="652" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:10.5px;font-weight:bold" fill="#1b1f24" text-anchor="middle" xml:space="preserve">EXISTING</text>
+<text x="92" y="652" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:13px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">memory notes, goal numbers</text>
+<rect x="20" y="657" width="29" height="16" rx="8" fill="#b26a00"/>
+<text x="34.5" y="669" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:10.5px;font-weight:bold" fill="#ffffff" text-anchor="middle" xml:space="preserve">NEW</text>
+<text x="57" y="669" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:13px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">journal entries - append-only, per seat</text>
+<rect x="20" y="674" width="29" height="16" rx="8" fill="#b26a00"/>
+<text x="34.5" y="686" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:10.5px;font-weight:bold" fill="#ffffff" text-anchor="middle" xml:space="preserve">NEW</text>
+<text x="57" y="686" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:13px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">working documents - ledger, playbook, health</text>
+<text x="98" y="701" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">log; versioned, a stale write is refused</text>
+<rect x="20" y="706" width="29" height="16" rx="8" fill="#b26a00"/>
+<text x="34.5" y="718" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:10.5px;font-weight:bold" fill="#ffffff" text-anchor="middle" xml:space="preserve">NEW</text>
+<text x="57" y="718" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:13px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">attachments - screenshots, in their own table</text>
+<rect x="20" y="723" width="29" height="16" rx="8" fill="#b26a00"/>
+<text x="34.5" y="735" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:10.5px;font-weight:bold" fill="#ffffff" text-anchor="middle" xml:space="preserve">NEW</text>
+<text x="57" y="735" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:13px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">check state - what a check remembers</text>
+<text x="20" y="750" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">Records are never part of a definition version.</text>
+<line x1="34" y1="772" x2="34" y2="812" stroke="#1b1f24" stroke-width="2.5"/>
+<polygon points="27,808 41,808 34,820" fill="#1b1f24"/>
+<text x="52" y="788" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12.5px;font-weight:bold" fill="#1b1f24" text-anchor="start" xml:space="preserve">A start is due (time or interval), or a talk</text>
+<text x="52" y="803" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12.5px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">or spawn. A start with a check runs it first.</text>
+<rect x="0" y="828" width="440" height="30" fill="#3d4450"/>
+<text x="12" y="848" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:13.5px;font-weight:bold" fill="#ffffff" text-anchor="start" xml:space="preserve">ON THE MACHINE - downloaded when needed</text>
+<rect x="8" y="868" width="424" height="130" rx="8" fill="#e6f6f8" stroke="#0b6e7a" stroke-width="2"/>
+<text x="20" y="890" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;font-weight:bold" fill="#0b6e7a" text-anchor="start" xml:space="preserve">1. The check - Python, NO model</text>
+<rect x="391" y="877" width="29" height="16" rx="8" fill="#b26a00"/>
+<text x="405.5" y="889" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:10.5px;font-weight:bold" fill="#ffffff" text-anchor="middle" xml:space="preserve">NEW</text>
+<text x="20" y="911" style="font-family:Consolas,Menlo,monospace;font-size:11.5px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">&lt;storage&gt;/factory-checks/&lt;factory&gt;/&lt;version&gt;/</text>
+<text x="20" y="926" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">Runs checks/*.py with only its declared secrets.</text>
+<text x="20" y="941" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">Prints {count, context}; remembers in a state file.</text>
+<text x="20" y="956" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">Count 0: no agent,</text>
+<text x="20" y="971" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">recorded as nothing to do. Above 0: the seat starts</text>
+<text x="20" y="986" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">with what it found. e.g. new mail from listed people.</text>
+<line x1="34" y1="1008" x2="34" y2="1048" stroke="#1b1f24" stroke-width="2.5"/>
+<polygon points="27,1044 41,1044 34,1056" fill="#1b1f24"/>
+<text x="52" y="1024" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12.5px;font-weight:bold" fill="#1b1f24" text-anchor="start" xml:space="preserve">Work found: the Gateway stamps factory, seat,</text>
+<text x="52" y="1039" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12.5px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">version; the Director downloads the run kit.</text>
+<rect x="8" y="1064" width="424" height="249" rx="8" fill="#fff4e0" stroke="#b26a00" stroke-width="2"/>
+<text x="20" y="1086" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;font-weight:bold" fill="#b26a00" text-anchor="start" xml:space="preserve">2. The run kit</text>
+<rect x="391" y="1073" width="29" height="16" rx="8" fill="#b26a00"/>
+<text x="405.5" y="1085" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:10.5px;font-weight:bold" fill="#ffffff" text-anchor="middle" xml:space="preserve">NEW</text>
+<text x="20" y="1107" style="font-family:Consolas,Menlo,monospace;font-size:11.5px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">&lt;storage&gt;/factory-run/&lt;session id&gt;/</text>
+<text x="20" y="1122" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">Outside every checkout. Deleted when the session</text>
+<text x="20" y="1137" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">ends. Path given to the agent as CC_FACTORY_KIT_DIR.</text>
+<text x="20" y="1158" style="font-family:Consolas,Menlo,monospace;font-size:11.5px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">kit.json      what came from which version</text>
+<text x="20" y="1173" style="font-family:Consolas,Menlo,monospace;font-size:11.5px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">brief.md      grants.md</text>
+<text x="20" y="1188" style="font-family:Consolas,Menlo,monospace;font-size:11.5px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">rules.json    merged into the launch settings file,</text>
+<text x="20" y="1203" style="font-family:Consolas,Menlo,monospace;font-size:11.5px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">              never a checkout; it only ADDS limits</text>
+<text x="20" y="1218" style="font-family:Consolas,Menlo,monospace;font-size:11.5px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">files/        records/ (journal, documents)</text>
+<text x="20" y="1233" style="font-family:Consolas,Menlo,monospace;font-size:11.5px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">skills/       the factory skills this seat names,</text>
+<text x="20" y="1248" style="font-family:Consolas,Menlo,monospace;font-size:11.5px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">              seen by this session only</text>
+<text x="20" y="1263" style="font-family:Consolas,Menlo,monospace;font-size:11.5px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">check.json    what the check found</text>
+<text x="20" y="1278" style="font-family:Consolas,Menlo,monospace;font-size:11.5px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">work/         start folder when no repository</text>
+<rect x="20" y="1289" width="64" height="16" rx="8" fill="#d0d5dd"/>
+<text x="52.0" y="1301" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:10.5px;font-weight:bold" fill="#1b1f24" text-anchor="middle" xml:space="preserve">EXISTING</text>
+<text x="92" y="1301" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:13px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">factory-memory/&lt;session id&gt;/ beside it</text>
+<rect x="8" y="1323" width="424" height="125" rx="8" fill="#f1ecfb" stroke="#6b3fb3" stroke-width="2"/>
+<text x="20" y="1345" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;font-weight:bold" fill="#6b3fb3" text-anchor="start" xml:space="preserve">3. A pooled worktree - only when declared</text>
+<text x="20" y="1368" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:13px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">Only for a seat whose definition names a</text>
+<text x="20" y="1385" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:13px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">repository: a fresh pooled slot off origin/main,</text>
+<text x="20" y="1402" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:13px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">whatever the machine setting. It holds that</text>
+<text x="20" y="1419" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:13px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">repository's code. No repository: the kit's work/.</text>
+<text x="20" y="1436" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:13px;font-weight:bold" fill="#1b1f24" text-anchor="start" xml:space="preserve">Nothing of the factory is written into it.</text>
+<line x1="34" y1="1521" x2="34" y2="1466" stroke="#1b1f24" stroke-width="2.5"/>
+<polygon points="27,1470 41,1470 34,1458" fill="#1b1f24"/>
+<text x="52" y="1474" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12.5px;font-weight:bold" fill="#1b1f24" text-anchor="start" xml:space="preserve">Written back ONLY through the command line:</text>
+<text x="52" y="1489" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12.5px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">cc-devthrottle factory journal | doc | attach.</text>
+<text x="52" y="1504" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12.5px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">Editing a downloaded copy changes nothing.</text>
+<rect x="8" y="1529" width="424" height="119" rx="8" fill="#fdecec" stroke="#b42318" stroke-width="2"/>
+<text x="20" y="1551" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;font-weight:bold" fill="#b42318" text-anchor="start" xml:space="preserve">NEVER SAVED ANYWHERE BUT THE MACHINE</text>
+<text x="20" y="1574" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:13px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">secret values (cc-secrets on that machine)</text>
+<text x="20" y="1591" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:13px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">signed-in browser profiles and mailboxes</text>
+<text x="20" y="1606" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">The definition holds secret NAMES only. Publish</text>
+<text x="20" y="1621" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">asks the seat's machine that each name exists;</text>
+<text x="20" y="1636" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">a start with a missing name is refused, with why.</text>
+</svg>
