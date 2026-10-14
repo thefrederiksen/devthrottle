@@ -117,7 +117,8 @@ describe("A seat with nothing scheduled", () => {
     renderSeat("boss");
     await screen.findByTestId("factory-seat-page");
 
-    expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Talk to the boss"]);
+    // Talk, and the brief's own button - which needs no schedule either.
+    expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Talk to the boss", "Write the brief here (fixture)"]);
   });
 
   it("Talk starts the talk for this seat and opens the session", async () => {

@@ -1,0 +1,808 @@
+{
+  "00-writes-the-app-made-desktop": [
+    {
+      "authorization": "Bearer <the enrolled browser device key>",
+      "request": "PUT /factory-briefs/brief-demo/scout/draft"
+    },
+    {
+      "authorization": "Bearer <the enrolled browser device key>",
+      "request": "POST /factory-briefs/brief-demo/scout/publish"
+    },
+    {
+      "authorization": "Bearer <the enrolled browser device key>",
+      "request": "PUT /factory-briefs/brief-demo/scout/draft"
+    },
+    {
+      "authorization": "Bearer <the enrolled browser device key>",
+      "request": "POST /factory-briefs/brief-demo/scout/publish"
+    },
+    {
+      "authorization": "Bearer <the enrolled browser device key>",
+      "request": "POST /factory-briefs/brief-demo/scout/restore"
+    },
+    {
+      "authorization": "Bearer <the enrolled browser device key>",
+      "request": "POST /factory-briefs/brief-demo/scout/publish"
+    },
+    {
+      "authorization": "Bearer <the enrolled browser device key>",
+      "request": "PUT /factory-briefs/brief-demo/scout/draft"
+    },
+    {
+      "authorization": "Bearer <the enrolled browser device key>",
+      "request": "PUT /factory-briefs/brief-demo/scout/draft"
+    },
+    {
+      "authorization": "Bearer <the enrolled browser device key>",
+      "request": "POST /factory-briefs/brief-demo/scout/publish"
+    }
+  ],
+  "00-writes-the-app-made-phone": [
+    {
+      "authorization": "Bearer <the enrolled browser device key>",
+      "request": "PUT /factory-briefs/brief-demo/writer/draft"
+    },
+    {
+      "authorization": "Bearer <the enrolled browser device key>",
+      "request": "POST /factory-briefs/brief-demo/writer/publish"
+    },
+    {
+      "authorization": "Bearer <the enrolled browser device key>",
+      "request": "PUT /factory-briefs/brief-demo/writer/draft"
+    },
+    {
+      "authorization": "Bearer <the enrolled browser device key>",
+      "request": "POST /factory-briefs/brief-demo/writer/publish"
+    },
+    {
+      "authorization": "Bearer <the enrolled browser device key>",
+      "request": "POST /factory-briefs/brief-demo/writer/restore"
+    },
+    {
+      "authorization": "Bearer <the enrolled browser device key>",
+      "request": "POST /factory-briefs/brief-demo/writer/publish"
+    },
+    {
+      "authorization": "Bearer <the enrolled browser device key>",
+      "request": "PUT /factory-briefs/brief-demo/writer/draft"
+    },
+    {
+      "authorization": "Bearer <the enrolled browser device key>",
+      "request": "PUT /factory-briefs/brief-demo/writer/draft"
+    },
+    {
+      "authorization": "Bearer <the enrolled browser device key>",
+      "request": "POST /factory-briefs/brief-demo/writer/publish"
+    }
+  ],
+  "01-published-brief-of-a-seat-with-none-desktop": {
+    "body": {
+      "detail": "A seat with no brief here is told the path of its brief file, as before. Save a draft to hold its brief on the Gateway.",
+      "error": "'scout' of brief-demo has no brief on the Gateway",
+      "newestVersion": 0
+    },
+    "credential": "the enrolled browser device key, as Authorization: Bearer",
+    "request": "GET /factory-briefs/brief-demo/scout",
+    "status": 404
+  },
+  "01-published-brief-of-a-seat-with-none-phone": {
+    "body": {
+      "detail": "A seat with no brief here is told the path of its brief file, as before. Save a draft to hold its brief on the Gateway.",
+      "error": "'writer' of brief-demo has no brief on the Gateway",
+      "newestVersion": 0
+    },
+    "credential": "the enrolled browser device key, as Authorization: Bearer",
+    "request": "GET /factory-briefs/brief-demo/writer",
+    "status": 404
+  },
+  "01-seat-page-brief-no-brief-desktop": {
+    "body": {
+      "computerLabel": "Computer",
+      "computerText": "RIG_MACHINE",
+      "draftText": null,
+      "editLabel": "Write the brief here",
+      "heading": "What this seat does",
+      "historyLabel": null,
+      "note": "The brief is a file on RIG_MACHINE. It is not held on the Gateway yet, so it cannot be read or changed here. A talk and a scheduled run of this seat are told this path and read the file from that computer.",
+      "pathLabel": "Brief file",
+      "pathText": "/home/rig/brief-demo/seats/scout.yaml",
+      "state": "file",
+      "text": null,
+      "versionText": null,
+      "waitingText": null
+    },
+    "credential": "the enrolled browser device key, as Authorization: Bearer",
+    "request": "GET /gateway/factories/brief-demo/seats/scout",
+    "status": 200
+  },
+  "01-seat-page-brief-no-brief-phone": {
+    "body": {
+      "computerLabel": "Computer",
+      "computerText": "RIG_MACHINE",
+      "draftText": null,
+      "editLabel": "Write the brief here",
+      "heading": "What this seat does",
+      "historyLabel": null,
+      "note": "The brief is a file on RIG_MACHINE. It is not held on the Gateway yet, so it cannot be read or changed here. A talk and a scheduled run of this seat are told this path and read the file from that computer.",
+      "pathLabel": "Brief file",
+      "pathText": "/home/rig/brief-demo/seats/writer.yaml",
+      "state": "file",
+      "text": null,
+      "versionText": null,
+      "waitingText": null
+    },
+    "credential": "the enrolled browser device key, as Authorization: Bearer",
+    "request": "GET /gateway/factories/brief-demo/seats/writer",
+    "status": 200
+  },
+  "02-machine-token-publish-refused-desktop": {
+    "body": {
+      "detail": "Every version records who wrote it. This request carried neither a session's key nor a person's device key.",
+      "error": "a seat's brief is written by a person, or by a session of its factory"
+    },
+    "credential": "the Gateway's own machine token, as Authorization: Bearer",
+    "request": "POST /factory-briefs/brief-demo/scout/publish",
+    "sent": {
+      "version": 1
+    },
+    "status": 403
+  },
+  "02-machine-token-publish-refused-phone": {
+    "body": {
+      "detail": "Every version records who wrote it. This request carried neither a session's key nor a person's device key.",
+      "error": "a seat's brief is written by a person, or by a session of its factory"
+    },
+    "credential": "the Gateway's own machine token, as Authorization: Bearer",
+    "request": "POST /factory-briefs/brief-demo/writer/publish",
+    "sent": {
+      "version": 1
+    },
+    "status": 403
+  },
+  "02-machine-token-save-refused-desktop": {
+    "body": {
+      "detail": "Every version records who wrote it. This request carried neither a session's key nor a person's device key.",
+      "error": "a seat's brief is written by a person, or by a session of its factory"
+    },
+    "credential": "the Gateway's own machine token, as Authorization: Bearer",
+    "request": "PUT /factory-briefs/brief-demo/scout/draft",
+    "sent": {
+      "expectedVersion": 0,
+      "text": "(the first brief)"
+    },
+    "status": 403
+  },
+  "02-machine-token-save-refused-phone": {
+    "body": {
+      "detail": "Every version records who wrote it. This request carried neither a session's key nor a person's device key.",
+      "error": "a seat's brief is written by a person, or by a session of its factory"
+    },
+    "credential": "the Gateway's own machine token, as Authorization: Bearer",
+    "request": "PUT /factory-briefs/brief-demo/writer/draft",
+    "sent": {
+      "expectedVersion": 0,
+      "text": "(the first brief)"
+    },
+    "status": 403
+  },
+  "03-published-brief-while-only-a-draft-desktop": {
+    "body": {
+      "detail": "A talk or a run is given the published brief. A person publishes the draft.",
+      "error": "'scout' of brief-demo has no published brief yet: its newest version, 1, is a draft",
+      "newestVersion": 1
+    },
+    "credential": "the enrolled browser device key, as Authorization: Bearer",
+    "request": "GET /factory-briefs/brief-demo/scout",
+    "status": 404
+  },
+  "03-published-brief-while-only-a-draft-phone": {
+    "body": {
+      "detail": "A talk or a run is given the published brief. A person publishes the draft.",
+      "error": "'writer' of brief-demo has no published brief yet: its newest version, 1, is a draft",
+      "newestVersion": 1
+    },
+    "credential": "the enrolled browser device key, as Authorization: Bearer",
+    "request": "GET /factory-briefs/brief-demo/writer",
+    "status": 404
+  },
+  "03-seat-page-brief-drafts-only-desktop": {
+    "body": {
+      "computerLabel": "Computer",
+      "computerText": "RIG_MACHINE",
+      "draftText": "This seat has 1 draft on the Gateway and none is published. The newest is version 1, written by a person (device browser qa-cockpit-browser) today 21:04. Until you publish one, talks and runs of this seat are told the path of its brief file.",
+      "editLabel": "Open the newest draft",
+      "heading": "What this seat does",
+      "historyLabel": "History",
+      "note": "The brief is a file on RIG_MACHINE. It is not held on the Gateway yet, so it cannot be read or changed here. A talk and a scheduled run of this seat are told this path and read the file from that computer.",
+      "pathLabel": "Brief file",
+      "pathText": "/home/rig/brief-demo/seats/scout.yaml",
+      "state": "drafts",
+      "text": null,
+      "versionText": null,
+      "waitingText": null
+    },
+    "credential": "the enrolled browser device key, as Authorization: Bearer",
+    "request": "GET /gateway/factories/brief-demo/seats/scout",
+    "status": 200
+  },
+  "03-seat-page-brief-drafts-only-phone": {
+    "body": {
+      "computerLabel": "Computer",
+      "computerText": "RIG_MACHINE",
+      "draftText": "This seat has 1 draft on the Gateway and none is published. The newest is version 1, written by a person (device browser qa-cockpit-browser) today 21:04. Until you publish one, talks and runs of this seat are told the path of its brief file.",
+      "editLabel": "Open the newest draft",
+      "heading": "What this seat does",
+      "historyLabel": "History",
+      "note": "The brief is a file on RIG_MACHINE. It is not held on the Gateway yet, so it cannot be read or changed here. A talk and a scheduled run of this seat are told this path and read the file from that computer.",
+      "pathLabel": "Brief file",
+      "pathText": "/home/rig/brief-demo/seats/writer.yaml",
+      "state": "drafts",
+      "text": null,
+      "versionText": null,
+      "waitingText": null
+    },
+    "credential": "the enrolled browser device key, as Authorization: Bearer",
+    "request": "GET /gateway/factories/brief-demo/seats/writer",
+    "status": 200
+  },
+  "05-published-brief-version-1-desktop": {
+    "body": {
+      "authorId": "device browser qa-cockpit-browser",
+      "authorKind": "person",
+      "factory": "brief-demo",
+      "newestVersion": 1,
+      "publishedAtUtc": "2026-10-14T01:04:27.1661097Z",
+      "publishedBy": "device browser qa-cockpit-browser",
+      "publishedVersion": 1,
+      "seat": "scout",
+      "state": "published",
+      "text": "You are the Scout of Brief Demo.\n\nEvery morning, read the pages we published this week and check each link.\nWrite what you found to the activity record. Ask the boss before you change a page.",
+      "version": 1,
+      "writtenAtUtc": "2026-10-14T01:04:26.4196729Z"
+    },
+    "credential": "the enrolled browser device key, as Authorization: Bearer",
+    "request": "GET /factory-briefs/brief-demo/scout",
+    "status": 200
+  },
+  "05-published-brief-version-1-phone": {
+    "body": {
+      "authorId": "device browser qa-cockpit-browser",
+      "authorKind": "person",
+      "factory": "brief-demo",
+      "newestVersion": 1,
+      "publishedAtUtc": "2026-10-14T01:04:35.6161479Z",
+      "publishedBy": "device browser qa-cockpit-browser",
+      "publishedVersion": 1,
+      "seat": "writer",
+      "state": "published",
+      "text": "You are the Writer of Brief Demo.\n\nEvery morning, read the pages we published this week and check each link.\nWrite what you found to the activity record. Ask the boss before you change a page.",
+      "version": 1,
+      "writtenAtUtc": "2026-10-14T01:04:35.1671471Z"
+    },
+    "credential": "the enrolled browser device key, as Authorization: Bearer",
+    "request": "GET /factory-briefs/brief-demo/writer",
+    "status": 200
+  },
+  "06-published-brief-version-2-desktop": {
+    "body": {
+      "authorId": "device browser qa-cockpit-browser",
+      "authorKind": "person",
+      "factory": "brief-demo",
+      "newestVersion": 2,
+      "publishedAtUtc": "2026-10-14T01:04:27.7031241Z",
+      "publishedBy": "device browser qa-cockpit-browser",
+      "publishedVersion": 2,
+      "seat": "scout",
+      "state": "published",
+      "text": "You are the Scout of Brief Demo.\n\nEvery morning, read the pages we published this week and check each link.\nWrite what you found to the activity record. Ask the boss before you change a page.\n\nIn the evening, check the three newest pages a second time.",
+      "version": 2,
+      "writtenAtUtc": "2026-10-14T01:04:27.6328217Z"
+    },
+    "credential": "the enrolled browser device key, as Authorization: Bearer",
+    "request": "GET /factory-briefs/brief-demo/scout",
+    "status": 200
+  },
+  "06-published-brief-version-2-phone": {
+    "body": {
+      "authorId": "device browser qa-cockpit-browser",
+      "authorKind": "person",
+      "factory": "brief-demo",
+      "newestVersion": 2,
+      "publishedAtUtc": "2026-10-14T01:04:36.1415542Z",
+      "publishedBy": "device browser qa-cockpit-browser",
+      "publishedVersion": 2,
+      "seat": "writer",
+      "state": "published",
+      "text": "You are the Writer of Brief Demo.\n\nEvery morning, read the pages we published this week and check each link.\nWrite what you found to the activity record. Ask the boss before you change a page.\n\nIn the evening, check the three newest pages a second time.",
+      "version": 2,
+      "writtenAtUtc": "2026-10-14T01:04:36.04938Z"
+    },
+    "credential": "the enrolled browser device key, as Authorization: Bearer",
+    "request": "GET /factory-briefs/brief-demo/writer",
+    "status": 200
+  },
+  "09-history-after-bring-back-desktop": {
+    "body": {
+      "factory": "brief-demo",
+      "newestVersion": 3,
+      "nextBefore": null,
+      "publishedVersion": 3,
+      "seat": "scout",
+      "total": 3,
+      "versions": [
+        {
+          "authorId": "device browser qa-cockpit-browser",
+          "authorKind": "person",
+          "publishedAtUtc": "2026-10-14T01:04:28.5026324Z",
+          "publishedBy": "device browser qa-cockpit-browser",
+          "state": "published",
+          "textBytes": 191,
+          "version": 3,
+          "writtenAtUtc": "2026-10-14T01:04:28.5026324Z"
+        },
+        {
+          "authorId": "device browser qa-cockpit-browser",
+          "authorKind": "person",
+          "publishedAtUtc": "2026-10-14T01:04:27.7031241Z",
+          "publishedBy": "device browser qa-cockpit-browser",
+          "state": "published",
+          "textBytes": 252,
+          "version": 2,
+          "writtenAtUtc": "2026-10-14T01:04:27.6328217Z"
+        },
+        {
+          "authorId": "device browser qa-cockpit-browser",
+          "authorKind": "person",
+          "publishedAtUtc": "2026-10-14T01:04:27.1661097Z",
+          "publishedBy": "device browser qa-cockpit-browser",
+          "state": "published",
+          "textBytes": 191,
+          "version": 1,
+          "writtenAtUtc": "2026-10-14T01:04:26.4196729Z"
+        }
+      ]
+    },
+    "credential": "the enrolled browser device key, as Authorization: Bearer",
+    "request": "GET /factory-briefs/brief-demo/scout/history",
+    "status": 200
+  },
+  "09-history-after-bring-back-phone": {
+    "body": {
+      "factory": "brief-demo",
+      "newestVersion": 3,
+      "nextBefore": null,
+      "publishedVersion": 3,
+      "seat": "writer",
+      "total": 3,
+      "versions": [
+        {
+          "authorId": "device browser qa-cockpit-browser",
+          "authorKind": "person",
+          "publishedAtUtc": "2026-10-14T01:04:36.7816909Z",
+          "publishedBy": "device browser qa-cockpit-browser",
+          "state": "published",
+          "textBytes": 192,
+          "version": 3,
+          "writtenAtUtc": "2026-10-14T01:04:36.7816909Z"
+        },
+        {
+          "authorId": "device browser qa-cockpit-browser",
+          "authorKind": "person",
+          "publishedAtUtc": "2026-10-14T01:04:36.1415542Z",
+          "publishedBy": "device browser qa-cockpit-browser",
+          "state": "published",
+          "textBytes": 253,
+          "version": 2,
+          "writtenAtUtc": "2026-10-14T01:04:36.04938Z"
+        },
+        {
+          "authorId": "device browser qa-cockpit-browser",
+          "authorKind": "person",
+          "publishedAtUtc": "2026-10-14T01:04:35.6161479Z",
+          "publishedBy": "device browser qa-cockpit-browser",
+          "state": "published",
+          "textBytes": 192,
+          "version": 1,
+          "writtenAtUtc": "2026-10-14T01:04:35.1671471Z"
+        }
+      ]
+    },
+    "credential": "the enrolled browser device key, as Authorization: Bearer",
+    "request": "GET /factory-briefs/brief-demo/writer/history",
+    "status": 200
+  },
+  "09-published-brief-after-bring-back-desktop": {
+    "body": {
+      "authorId": "device browser qa-cockpit-browser",
+      "authorKind": "person",
+      "factory": "brief-demo",
+      "newestVersion": 3,
+      "publishedAtUtc": "2026-10-14T01:04:28.5026324Z",
+      "publishedBy": "device browser qa-cockpit-browser",
+      "publishedVersion": 3,
+      "seat": "scout",
+      "state": "published",
+      "text": "You are the Scout of Brief Demo.\n\nEvery morning, read the pages we published this week and check each link.\nWrite what you found to the activity record. Ask the boss before you change a page.",
+      "version": 3,
+      "writtenAtUtc": "2026-10-14T01:04:28.5026324Z"
+    },
+    "credential": "the enrolled browser device key, as Authorization: Bearer",
+    "request": "GET /factory-briefs/brief-demo/scout",
+    "status": 200
+  },
+  "09-published-brief-after-bring-back-phone": {
+    "body": {
+      "authorId": "device browser qa-cockpit-browser",
+      "authorKind": "person",
+      "factory": "brief-demo",
+      "newestVersion": 3,
+      "publishedAtUtc": "2026-10-14T01:04:36.7816909Z",
+      "publishedBy": "device browser qa-cockpit-browser",
+      "publishedVersion": 3,
+      "seat": "writer",
+      "state": "published",
+      "text": "You are the Writer of Brief Demo.\n\nEvery morning, read the pages we published this week and check each link.\nWrite what you found to the activity record. Ask the boss before you change a page.",
+      "version": 3,
+      "writtenAtUtc": "2026-10-14T01:04:36.7816909Z"
+    },
+    "credential": "the enrolled browser device key, as Authorization: Bearer",
+    "request": "GET /factory-briefs/brief-demo/writer",
+    "status": 200
+  },
+  "11-publish-refused-already-published-desktop": {
+    "body": {
+      "current": {
+        "authorId": "device browser qa-cockpit-browser",
+        "authorKind": "person",
+        "factory": "brief-demo",
+        "newestVersion": 3,
+        "publishedAtUtc": "2026-10-14T01:04:28.5026324Z",
+        "publishedBy": "device browser qa-cockpit-browser",
+        "publishedVersion": 3,
+        "seat": "scout",
+        "state": "published",
+        "text": "You are the Scout of Brief Demo.\n\nEvery morning, read the pages we published this week and check each link.\nWrite what you found to the activity record. Ask the boss before you change a page.",
+        "version": 3,
+        "writtenAtUtc": "2026-10-14T01:04:28.5026324Z"
+      },
+      "error": "version 3 is already the published brief of 'scout'",
+      "outcome": "AlreadyPublished"
+    },
+    "credential": "the enrolled browser device key, as Authorization: Bearer",
+    "request": "POST /factory-briefs/brief-demo/scout/publish",
+    "sent": {
+      "version": 3
+    },
+    "status": 409
+  },
+  "11-publish-refused-already-published-phone": {
+    "body": {
+      "current": {
+        "authorId": "device browser qa-cockpit-browser",
+        "authorKind": "person",
+        "factory": "brief-demo",
+        "newestVersion": 3,
+        "publishedAtUtc": "2026-10-14T01:04:36.7816909Z",
+        "publishedBy": "device browser qa-cockpit-browser",
+        "publishedVersion": 3,
+        "seat": "writer",
+        "state": "published",
+        "text": "You are the Writer of Brief Demo.\n\nEvery morning, read the pages we published this week and check each link.\nWrite what you found to the activity record. Ask the boss before you change a page.",
+        "version": 3,
+        "writtenAtUtc": "2026-10-14T01:04:36.7816909Z"
+      },
+      "error": "version 3 is already the published brief of 'writer'",
+      "outcome": "AlreadyPublished"
+    },
+    "credential": "the enrolled browser device key, as Authorization: Bearer",
+    "request": "POST /factory-briefs/brief-demo/writer/publish",
+    "sent": {
+      "version": 3
+    },
+    "status": 409
+  },
+  "11-publish-refused-replaced-version-desktop": {
+    "body": {
+      "current": {
+        "authorId": "device browser qa-cockpit-browser",
+        "authorKind": "person",
+        "factory": "brief-demo",
+        "newestVersion": 3,
+        "publishedAtUtc": "2026-10-14T01:04:28.5026324Z",
+        "publishedBy": "device browser qa-cockpit-browser",
+        "publishedVersion": 3,
+        "seat": "scout",
+        "state": "published",
+        "text": "You are the Scout of Brief Demo.\n\nEvery morning, read the pages we published this week and check each link.\nWrite what you found to the activity record. Ask the boss before you change a page.",
+        "version": 3,
+        "writtenAtUtc": "2026-10-14T01:04:28.5026324Z"
+      },
+      "error": "version 1 was published before, and version 3 has replaced it. To use its text again, bring version 1 back: that publishes a copy of it as the newest version",
+      "outcome": "AlreadyPublished"
+    },
+    "credential": "the enrolled browser device key, as Authorization: Bearer",
+    "request": "POST /factory-briefs/brief-demo/scout/publish",
+    "sent": {
+      "version": 1
+    },
+    "status": 409
+  },
+  "11-publish-refused-replaced-version-phone": {
+    "body": {
+      "current": {
+        "authorId": "device browser qa-cockpit-browser",
+        "authorKind": "person",
+        "factory": "brief-demo",
+        "newestVersion": 3,
+        "publishedAtUtc": "2026-10-14T01:04:36.7816909Z",
+        "publishedBy": "device browser qa-cockpit-browser",
+        "publishedVersion": 3,
+        "seat": "writer",
+        "state": "published",
+        "text": "You are the Writer of Brief Demo.\n\nEvery morning, read the pages we published this week and check each link.\nWrite what you found to the activity record. Ask the boss before you change a page.",
+        "version": 3,
+        "writtenAtUtc": "2026-10-14T01:04:36.7816909Z"
+      },
+      "error": "version 1 was published before, and version 3 has replaced it. To use its text again, bring version 1 back: that publishes a copy of it as the newest version",
+      "outcome": "AlreadyPublished"
+    },
+    "credential": "the enrolled browser device key, as Authorization: Bearer",
+    "request": "POST /factory-briefs/brief-demo/writer/publish",
+    "sent": {
+      "version": 1
+    },
+    "status": 409
+  },
+  "12-stale-save-refused-desktop": {
+    "body": {
+      "current": {
+        "authorId": "device browser qa-cockpit-browser",
+        "authorKind": "person",
+        "factory": "brief-demo",
+        "newestVersion": 4,
+        "publishedAtUtc": null,
+        "publishedBy": null,
+        "publishedVersion": 3,
+        "seat": "scout",
+        "state": "draft",
+        "text": "You are the Scout of Brief Demo.\n\nEvery morning, read the pages we published this week and check each link.\nWrite what you found to the activity record. Ask the boss before you change a page.\n\nAdded from another window: check the sitemap too.",
+        "version": 4,
+        "writtenAtUtc": "2026-10-14T01:04:29.4779132Z"
+      },
+      "error": "the brief of 'scout' is at version 4, not 3; read it again, merge, and save once more",
+      "outcome": "Stale"
+    },
+    "credential": "the enrolled browser device key, as Authorization: Bearer",
+    "request": "PUT /factory-briefs/brief-demo/scout/draft",
+    "sent": {
+      "expectedVersion": 3,
+      "text": "(the owner's text)"
+    },
+    "status": 409
+  },
+  "12-stale-save-refused-phone": {
+    "body": {
+      "current": {
+        "authorId": "device browser qa-cockpit-browser",
+        "authorKind": "person",
+        "factory": "brief-demo",
+        "newestVersion": 4,
+        "publishedAtUtc": null,
+        "publishedBy": null,
+        "publishedVersion": 3,
+        "seat": "writer",
+        "state": "draft",
+        "text": "You are the Writer of Brief Demo.\n\nEvery morning, read the pages we published this week and check each link.\nWrite what you found to the activity record. Ask the boss before you change a page.\n\nAdded from another window: check the sitemap too.",
+        "version": 4,
+        "writtenAtUtc": "2026-10-14T01:04:37.4930536Z"
+      },
+      "error": "the brief of 'writer' is at version 4, not 3; read it again, merge, and save once more",
+      "outcome": "Stale"
+    },
+    "credential": "the enrolled browser device key, as Authorization: Bearer",
+    "request": "PUT /factory-briefs/brief-demo/writer/draft",
+    "sent": {
+      "expectedVersion": 3,
+      "text": "(the owner's text)"
+    },
+    "status": 409
+  },
+  "13-newest-version-after-saving-over-desktop": {
+    "body": {
+      "authorId": "device browser qa-cockpit-browser",
+      "authorKind": "person",
+      "factory": "brief-demo",
+      "newestVersion": 5,
+      "publishedAtUtc": null,
+      "publishedBy": null,
+      "publishedVersion": 3,
+      "seat": "scout",
+      "state": "draft",
+      "text": "You are the Scout of Brief Demo.\n\nEvery morning, read the pages we published this week and check each link.\nWrite what you found to the activity record. Ask the boss before you change a page.\n\nThe owner adds: never publish on a Friday.",
+      "version": 5,
+      "writtenAtUtc": "2026-10-14T01:04:29.9137869Z"
+    },
+    "credential": "the enrolled browser device key, as Authorization: Bearer",
+    "request": "GET /factory-briefs/brief-demo/scout/draft",
+    "status": 200
+  },
+  "13-newest-version-after-saving-over-phone": {
+    "body": {
+      "authorId": "device browser qa-cockpit-browser",
+      "authorKind": "person",
+      "factory": "brief-demo",
+      "newestVersion": 5,
+      "publishedAtUtc": null,
+      "publishedBy": null,
+      "publishedVersion": 3,
+      "seat": "writer",
+      "state": "draft",
+      "text": "You are the Writer of Brief Demo.\n\nEvery morning, read the pages we published this week and check each link.\nWrite what you found to the activity record. Ask the boss before you change a page.\n\nThe owner adds: never publish on a Friday.",
+      "version": 5,
+      "writtenAtUtc": "2026-10-14T01:04:37.7825342Z"
+    },
+    "credential": "the enrolled browser device key, as Authorization: Bearer",
+    "request": "GET /factory-briefs/brief-demo/writer/draft",
+    "status": 200
+  },
+  "14-seat-page-brief-twenty-waiting-desktop": {
+    "body": {
+      "computerLabel": null,
+      "computerText": null,
+      "draftText": "A newer draft, version 23, was written by a person (device browser qa-cockpit-browser) today 21:04. Talks and runs of this seat are given version 3 until you publish a newer one.",
+      "editLabel": "Edit",
+      "heading": "What this seat does",
+      "historyLabel": "History",
+      "note": null,
+      "pathLabel": null,
+      "pathText": null,
+      "state": "published",
+      "text": "You are the Scout of Brief Demo.\n\nEvery morning, read the pages we published this week and check each link.\nWrite what you found to the activity record. Ask the boss before you change a page.",
+      "versionText": "Version 3, published by a person (device browser qa-cockpit-browser) today 21:04.",
+      "waitingText": "20 drafts are waiting that nobody has published (versions 4 to 23). A session of this factory is refused another draft while 20 or more are waiting. Publish one to make room. Every version is kept."
+    },
+    "credential": "the enrolled browser device key, as Authorization: Bearer",
+    "request": "GET /gateway/factories/brief-demo/seats/scout",
+    "status": 200
+  },
+  "14-seat-page-brief-twenty-waiting-phone": {
+    "body": {
+      "computerLabel": null,
+      "computerText": null,
+      "draftText": "A newer draft, version 23, was written by a person (device browser qa-cockpit-browser) today 21:04. Talks and runs of this seat are given version 3 until you publish a newer one.",
+      "editLabel": "Edit",
+      "heading": "What this seat does",
+      "historyLabel": "History",
+      "note": null,
+      "pathLabel": null,
+      "pathText": null,
+      "state": "published",
+      "text": "You are the Writer of Brief Demo.\n\nEvery morning, read the pages we published this week and check each link.\nWrite what you found to the activity record. Ask the boss before you change a page.",
+      "versionText": "Version 3, published by a person (device browser qa-cockpit-browser) today 21:04.",
+      "waitingText": "20 drafts are waiting that nobody has published (versions 4 to 23). A session of this factory is refused another draft while 20 or more are waiting. Publish one to make room. Every version is kept."
+    },
+    "credential": "the enrolled browser device key, as Authorization: Bearer",
+    "request": "GET /gateway/factories/brief-demo/seats/writer",
+    "status": 200
+  },
+  "15-history-view-newest-page-desktop": {
+    "body": {
+      "newestLabel": null,
+      "nextBefore": 4,
+      "olderLabel": "Older versions",
+      "pageText": "Versions 23 to 4 of 23.",
+      "summaryText": "23 versions. Version 3 is published.",
+      "waitingText": "20 drafts are waiting that nobody has published (versions 4 to 23). A session of this factory is refused another draft while 20 or more are waiting. Publish one to make room. Every version is kept."
+    },
+    "credential": "the enrolled browser device key, as Authorization: Bearer",
+    "request": "GET /gateway/factories/brief-demo/seats/scout/brief/history",
+    "status": 200
+  },
+  "15-history-view-newest-page-phone": {
+    "body": {
+      "newestLabel": null,
+      "nextBefore": 4,
+      "olderLabel": "Older versions",
+      "pageText": "Versions 23 to 4 of 23.",
+      "summaryText": "23 versions. Version 3 is published.",
+      "waitingText": "20 drafts are waiting that nobody has published (versions 4 to 23). A session of this factory is refused another draft while 20 or more are waiting. Publish one to make room. Every version is kept."
+    },
+    "credential": "the enrolled browser device key, as Authorization: Bearer",
+    "request": "GET /gateway/factories/brief-demo/seats/writer/brief/history",
+    "status": 200
+  },
+  "16-history-view-bad-starting-version-desktop": {
+    "body": {
+      "error": "before is the version a page of the history starts below: a whole number from 1, not '0'"
+    },
+    "credential": "the enrolled browser device key, as Authorization: Bearer",
+    "request": "GET /gateway/factories/brief-demo/seats/scout/brief/history?before=0",
+    "status": 400
+  },
+  "16-history-view-bad-starting-version-phone": {
+    "body": {
+      "error": "before is the version a page of the history starts below: a whole number from 1, not '0'"
+    },
+    "credential": "the enrolled browser device key, as Authorization: Bearer",
+    "request": "GET /gateway/factories/brief-demo/seats/writer/brief/history?before=0",
+    "status": 400
+  },
+  "16-history-view-older-page-desktop": {
+    "body": {
+      "newestLabel": "Newest versions",
+      "nextBefore": null,
+      "olderLabel": null,
+      "pageText": "Versions 3 to 1 of 23.",
+      "summaryText": "23 versions. Version 3 is published.",
+      "waitingText": "20 drafts are waiting that nobody has published (versions 4 to 23). A session of this factory is refused another draft while 20 or more are waiting. Publish one to make room. Every version is kept."
+    },
+    "credential": "the enrolled browser device key, as Authorization: Bearer",
+    "request": "GET /gateway/factories/brief-demo/seats/scout/brief/history?before=4",
+    "status": 200
+  },
+  "16-history-view-older-page-phone": {
+    "body": {
+      "newestLabel": "Newest versions",
+      "nextBefore": null,
+      "olderLabel": null,
+      "pageText": "Versions 3 to 1 of 23.",
+      "summaryText": "23 versions. Version 3 is published.",
+      "waitingText": "20 drafts are waiting that nobody has published (versions 4 to 23). A session of this factory is refused another draft while 20 or more are waiting. Publish one to make room. Every version is kept."
+    },
+    "credential": "the enrolled browser device key, as Authorization: Bearer",
+    "request": "GET /gateway/factories/brief-demo/seats/writer/brief/history?before=4",
+    "status": 200
+  },
+  "17-seat-page-brief-after-making-room-desktop": {
+    "body": {
+      "computerLabel": null,
+      "computerText": null,
+      "draftText": null,
+      "editLabel": "Edit",
+      "heading": "What this seat does",
+      "historyLabel": "History",
+      "note": null,
+      "pathLabel": null,
+      "pathText": null,
+      "state": "published",
+      "text": "You are the Scout of Brief Demo.\n\nEvery morning, read the pages we published this week and check each link.\nWrite what you found to the activity record. Ask the boss before you change a page.\n\nDraft number 23.",
+      "versionText": "Version 23, published by a person (device browser qa-cockpit-browser) today 21:04.",
+      "waitingText": null
+    },
+    "credential": "the enrolled browser device key, as Authorization: Bearer",
+    "request": "GET /gateway/factories/brief-demo/seats/scout",
+    "status": 200
+  },
+  "17-seat-page-brief-after-making-room-phone": {
+    "body": {
+      "computerLabel": null,
+      "computerText": null,
+      "draftText": null,
+      "editLabel": "Edit",
+      "heading": "What this seat does",
+      "historyLabel": "History",
+      "note": null,
+      "pathLabel": null,
+      "pathText": null,
+      "state": "published",
+      "text": "You are the Writer of Brief Demo.\n\nEvery morning, read the pages we published this week and check each link.\nWrite what you found to the activity record. Ask the boss before you change a page.\n\nDraft number 23.",
+      "versionText": "Version 23, published by a person (device browser qa-cockpit-browser) today 21:04.",
+      "waitingText": null
+    },
+    "credential": "the enrolled browser device key, as Authorization: Bearer",
+    "request": "GET /gateway/factories/brief-demo/seats/writer",
+    "status": 200
+  },
+  "18-development-proxy": {
+    "body": {
+      "factory": "brief-demo",
+      "publishedVersion": 23,
+      "seat": "scout",
+      "state": "published",
+      "version": 23
+    },
+    "request": "GET http://127.0.0.1:5197/factory-briefs/brief-demo/scout",
+    "same_as_the_gateway_answered_directly": true,
+    "status": 200
+  }
+}

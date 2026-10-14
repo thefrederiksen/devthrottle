@@ -5209,7 +5209,9 @@ public sealed class GatewayHost : IAsyncDisposable
         Api.FactoriesScreenEndpoints.MapSeatPage(factoryGate,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             sources: factoriesScreenSources,
-            memoryNoteCount: (tenant, factory) => _factoryMemory.List(tenant, factory).Count);
+            memoryNoteCount: (tenant, factory) => _factoryMemory.List(tenant, factory).Count,
+            // Its brief panel (phase 2b): the published brief, the editor's starting text, the history and one version.
+            briefs: _factoryBriefs);
         // The owner's actions on a factory (round 2): mark old waiting items handled, archive, restore. Owner-only,
         // and mapped OUTSIDE the gate's group like Talk, so a switch-off refusal can carry a sentence.
         Api.FactoryOwnerActionEndpoints.Map(_app, FactoryAgentsSwitch,
@@ -5805,8 +5807,8 @@ public sealed class GatewayHost : IAsyncDisposable
             nowUtc: () => DateTime.UtcNow);
 
         // A seat's BRIEF, held on the Gateway (Factory Seats mission, phase 2a): what the seat is told to do, saved as
-        // a draft by a person or a session of the factory and published by a person. Nothing reads it yet; the seat
-        // page and the opening of talks and runs are later phases.
+        // a draft by a person or a session of the factory and published by a person. The seat page's brief panel
+        // reads it and writes through these routes (phase 2b); opening talks and runs with it is phase 2c.
         Api.FactoryBriefEndpoints.Map(_app,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             store: _factoryBriefs,

@@ -15,6 +15,7 @@ import { ScheduleEditor, type ScheduleEditorRequest } from "../schedule/Schedule
 import { PausedBanner, useSchedulerPause } from "../schedule/SchedulerPause";
 import { useView } from "./FactoryActivityTabs";
 import { ActivityTable, NumberPill, PauseButton, TalkButton, ToneChip } from "./FactoryParts";
+import { FactorySeatBriefPanel } from "./FactorySeatBrief";
 import "./factory.css";
 
 const SURFACE = "cockpit-factory-seat";
@@ -22,7 +23,8 @@ const SURFACE = "cockpit-factory-seat";
 // One seat's page (Factory Seats mission, phase 1): /factories/<factory>/seats/<seat>. Every seat has one, whether
 // or not anything is scheduled for it - before this the only way into a seat was the Edit button of its schedule,
 // so a seat with no schedule could not be opened at all. The panels, in the Gateway's order: who the seat is, what
-// it does (its brief), how it starts, the factory's goal and number, and what it has left behind.
+// it does (its brief, with its editor and history - FactorySeatBrief.tsx), how it starts, the factory's goal and
+// number, and what it has left behind.
 //
 // Rule 7: every word, tone and order is the Gateway's (FactorySeatPageFold). This file lays it out and sends back
 // what a button named; it never decides what "talk only" or "paused" means.
@@ -77,18 +79,15 @@ export function FactorySeatView() {
       {page.truncatedText !== null && <div className="fa-warn">{page.truncatedText}</div>}
 
       <div className="fa-seat-panels">
-        <section className="fa-panel" data-testid="fa-seat-brief">
-          <h2 className="fa-section-title">{page.brief.heading}</h2>
-          <dl className="fa-seat-facts">
-            <dt>{page.brief.pathLabel}</dt>
-            <dd className="mono dt-private" data-testid="fa-seat-brief-path">
-              {page.brief.pathText}
-            </dd>
-            <dt>{page.brief.computerLabel}</dt>
-            <dd>{page.brief.computerText}</dd>
-          </dl>
-          <p className="fa-dim">{page.brief.note}</p>
-        </section>
+        <FactorySeatBriefPanel
+          factory={page.factoryId}
+          seat={page.seatId}
+          brief={page.brief}
+          onChanged={(text) => {
+            setNotice(text);
+            view.reload();
+          }}
+        />
 
         <StartsPanel
           page={page}

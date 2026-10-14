@@ -424,18 +424,36 @@ export interface FactorySeatsView {
 // One seat's page (Factory Seats mission, phase 1), mirroring FactorySeatPageDtos.cs. Every seat has one, whether or
 // not anything is scheduled for it. Every word, tone and order is the Gateway's (FactorySeatPageFold).
 
-/** "What this seat does": where the seat's brief is. In phase 1 the brief is a file on the seat's computer. */
+/**
+ * "What this seat does": the seat's brief (FactorySeatBriefDto). A seat with a published brief on the Gateway shows
+ * its text, its version, who published it and when; a seat with only drafts says so; a seat with no brief on the
+ * Gateway shows where its brief file is. The page draws the fields that are not null.
+ */
 export interface FactorySeatBrief {
   heading: string;
-  /** "Brief file". */
-  pathLabel: string;
-  /** The brief's full path on its computer. */
-  pathText: string;
+  /** How the brief stands, in the Gateway's word. The page lays out fields; it never branches on what this means. */
+  state: "published" | "drafts" | "file";
+  /** The published brief's whole text; null when nothing is published. */
+  text: string | null;
+  /** "Version 3, published by a person (...) today 20:14."; null when nothing is published. */
+  versionText: string | null;
+  /** That a newer draft waits, or that the seat has drafts and none is published; null when no draft waits. */
+  draftText: string | null;
+  /** Set when as many drafts wait as a session may leave; null below that. */
+  waitingText: string | null;
+  /** "Brief file"; null when the brief is published on the Gateway. */
+  pathLabel: string | null;
+  /** The brief file's full path on its computer; null when the brief is published on the Gateway. */
+  pathText: string | null;
   /** "Computer". */
-  computerLabel: string;
-  computerText: string;
-  /** That the brief is a file on that computer and is not held on the Gateway yet. */
-  note: string;
+  computerLabel: string | null;
+  computerText: string | null;
+  /** That the brief is a file on that computer and what a talk and a run are told. */
+  note: string | null;
+  /** The button that opens the editor: "Edit", "Open the newest draft" or "Write the brief here". */
+  editLabel: string;
+  /** "History"; null for a seat with no version on the Gateway. */
+  historyLabel: string | null;
 }
 
 /** "Take off this seat" and the confirm it asks first; every sentence is the Gateway's. */
