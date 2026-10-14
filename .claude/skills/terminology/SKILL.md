@@ -65,7 +65,7 @@ recorded on every session and every run participant.
   every factory is a company, but every factory has a boss (the owner, 8 October 2026). **The boss has no
   name of its own.** It is "the boss of Website Business"; the product says "Talk to the boss" and "Latest
   from the boss", and a manifest that names the boss seat anything but Boss is refused. Its role word is
-  Boss unless the factory registered a distinct one (Center Consulting's boss is its CFO).
+  Boss as well, and a manifest that gives the boss any other role word is refused in the same way.
 
 ## How sessions relate
 

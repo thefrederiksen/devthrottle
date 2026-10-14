@@ -263,6 +263,9 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<Guid?>("ActivityId")
                         .HasColumnType("uuid");
 
+                    b.Property<int?>("BriefVersion")
+                        .HasColumnType("integer");
+
                     b.Property<string>("Factory")
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");

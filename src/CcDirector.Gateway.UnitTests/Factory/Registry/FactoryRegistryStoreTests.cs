@@ -324,6 +324,9 @@ public sealed class FactoryRegistryStoreTests : IDisposable
         yield return new object[] { "boss not a seat", (Action<RegisterFactoryRequest>)(m => m.BossSeat = "max-ridley"), "boss seat" };
         // The boss has no name of its own (the owner, 8 October 2026): a person's name on the boss seat is refused with the fix.
         yield return new object[] { "boss named a person", (Action<RegisterFactoryRequest>)(m => m.Seats[0].Name = "Nora Hale"), "set its name to \"Boss\"" };
+        // The boss's role is Boss (the owner, 13 October 2026): any other role word on the boss seat is refused with the fix.
+        yield return new object[] { "boss with another role word", (Action<RegisterFactoryRequest>)(m => m.Seats[0].Role = "CFO"), "The boss seat 'nora-hale' has the role 'CFO'. The boss's role is Boss: set its role to \"Boss\"." };
+        yield return new object[] { "boss with the role in other letters", (Action<RegisterFactoryRequest>)(m => m.Seats[0].Role = "boss"), "set its role to \"Boss\"" };
         yield return new object[] { "empty line", (Action<RegisterFactoryRequest>)(m => m.Seats[1].Line = "  "), "empty line" };
         yield return new object[] { "long line", (Action<RegisterFactoryRequest>)(m => m.Seats[1].Line = new string('x', 41)), "at most 40" };
         yield return new object[] { "seat with no name", (Action<RegisterFactoryRequest>)(m => m.Seats[0].Name = ""), "name of seat" };

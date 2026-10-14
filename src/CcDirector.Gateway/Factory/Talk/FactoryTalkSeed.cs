@@ -13,6 +13,9 @@ namespace CcDirector.Gateway.Factory.Talk;
 /// sense when nobody is there; it opens by saying what happened and what it needs; and before the talk ends it
 /// leaves a <c>talked</c> line in the activity record and what was decided in the factory's memory, so the factory's
 /// page can say "Talked with you". A goal change is allowed here, because the owner is present to approve it.
+///
+/// THE BRIEF (Factory Seats mission, phase 2c). A seat whose brief is published on the Gateway is given that brief's
+/// text and its version here, by the Gateway. A seat with none is told the path of its brief file, as it always was.
 /// </summary>
 public static class FactoryTalkSeed
 {
@@ -37,7 +40,12 @@ public static class FactoryTalkSeed
     /// <param name="scheduleId">The first schedule the registry names for the seat, or null when it names none.</param>
     /// <param name="scheduleSeed">That schedule's seed text, or null when the seat has no schedule or the schedule is
     /// not on the Gateway (any more).</param>
-    public static string Compose(RegisteredFactoryDto factory, RegisteredFactorySeatDto seat, string? scheduleId, string? scheduleSeed)
+    /// <param name="brief">The seat's PUBLISHED brief on the Gateway, or null when it has none. With one, the talk is
+    /// given its text and its version in place of the path of a file (Factory Seats mission, phase 2c). A seat with
+    /// none is told the path of its brief file, in exactly the words it always was: that is the state every seat
+    /// whose brief is still a file in a repository is in, not a failure.</param>
+    public static string Compose(RegisteredFactoryDto factory, RegisteredFactorySeatDto seat, string? scheduleId, string? scheduleSeed,
+        FactoryGivenBrief? brief = null)
     {
         ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(seat);
@@ -46,20 +54,7 @@ public static class FactoryTalkSeed
         var goalPath = InFolder(factory.Folder, goalFile);
         var sb = new StringBuilder();
 
-        // The boss is "the boss of <factory>", never a person's name (the owner's ruling of 8 October 2026). A seat
-        // whose registered role is a distinct word (CFO) is still introduced as the boss, with that role beside it.
-        if (IsBoss(factory, seat))
-        {
-            sb.Append("You are the boss of ").Append(factory.Title);
-            if (!string.IsNullOrWhiteSpace(seat.Role) && !string.Equals(seat.Role.Trim(), FactoriesScreenFold.BossRoleWord, StringComparison.OrdinalIgnoreCase))
-                sb.Append(" (its ").Append(seat.Role.Trim()).Append(')');
-            sb.Append(" (factory id: ").Append(factory.Factory).Append("; your agent id: ").Append(seat.Id).AppendLine(").");
-        }
-        else
-        {
-            sb.Append("You are ").Append(seat.Name).Append(", ").Append(seat.Role).Append(" of ").Append(factory.Title)
-              .Append(" (factory id: ").Append(factory.Factory).Append("; your agent id: ").Append(seat.Id).AppendLine(").");
-        }
+        sb.AppendLine(FactorySeatOpening.WhoYouAre(factory, seat));
         sb.AppendLine();
         sb.AppendLine("The owner is here now and is talking with you. This is the owner's own session, opened from the "
                       + "Factories screen's Talk button. It is not one of your scheduled runs, and nobody is waiting on a "
@@ -67,7 +62,11 @@ public static class FactoryTalkSeed
         sb.AppendLine();
 
         sb.AppendLine("Before you say anything, read:");
-        sb.Append("- your brief: ").AppendLine(InFolder(factory.Folder, seat.BriefFile));
+        if (brief is null)
+            sb.Append("- your brief: ").AppendLine(InFolder(factory.Folder, seat.BriefFile));
+        else
+            sb.Append("- your brief: version ").Append(brief.Version).AppendLine(", given to you in full below this list. "
+                      + "The Gateway holds it; it is not a file in the factory's folder.");
         sb.Append("- the factory's goal: ").AppendLine(string.IsNullOrWhiteSpace(factory.GoalText)
             ? $"{goalPath} (the registry holds no goal for this factory yet, so there may be none)"
             : goalPath);
@@ -77,6 +76,11 @@ public static class FactoryTalkSeed
         sb.AppendLine("  It prints the same word the owner sees (FAILING, NEEDS YOU, PAUSED, RUNNING or TALK ONLY) and every failing and "
                       + "waiting item with its row id. Say that word to the owner when you open.");
         sb.AppendLine();
+        if (brief is not null)
+        {
+            sb.AppendLine(FactorySeatOpening.BriefBlock(brief, Environment.NewLine));
+            sb.AppendLine();
+        }
 
         sb.AppendLine("You work under the same rules as your scheduled runs.");
         if (scheduleId is null)
@@ -116,7 +120,14 @@ public static class FactoryTalkSeed
 
         sb.AppendLine("Before the talk ends you MUST do all three of these:");
         sb.Append("1. Record one activity line: cc-devthrottle factory record --factory ").Append(factory.Factory)
-          .Append(" --agent ").Append(seat.Id).AppendLine(" --outcome talked --what \"<one line of what was decided>\"");
+          .Append(" --agent ").Append(seat.Id);
+        // WHICH BRIEF THIS TALK WAS GIVEN is recorded where the talk itself is: on its talked line, in the field the
+        // activity record keeps for the factory agent's version. A seat with no brief on the Gateway has no version.
+        if (brief is not null)
+            sb.Append(" --version ").Append(brief.Version);
+        sb.AppendLine(" --outcome talked --what \"<one line of what was decided>\"");
+        if (brief is not null)
+            sb.Append("   Keep --version ").Append(brief.Version).AppendLine(" exactly as written: it records which version of your brief this talk was given.");
         sb.AppendLine("2. Write what was decided into the factory's memory: cc-devthrottle factory memory set <name> \"<what was decided>\"");
         sb.Append("3. Run ").Append(StatusCommand(factory)).AppendLine(" again. For every failing or waiting item that is "
                   + "now resolved, mark it handled with its evidence - and only if it is resolved:");
@@ -144,12 +155,13 @@ public static class FactoryTalkSeed
     /// once it is fixed, and only then.
     /// </summary>
     /// <param name="zone">The account's time zone, the one the problem's shift is counted in.</param>
+    /// <param name="brief">The seat's published brief on the Gateway, or null when it has none; see <see cref="Compose"/>.</param>
     public static string ComposeForProblem(RegisteredFactoryDto factory, RegisteredFactorySeatDto seat, string? scheduleId,
-        string? scheduleSeed, CronRunProblemDto problem, TimeZoneInfo zone)
+        string? scheduleSeed, CronRunProblemDto problem, TimeZoneInfo zone, FactoryGivenBrief? brief = null)
     {
         ArgumentNullException.ThrowIfNull(problem);
         ArgumentNullException.ThrowIfNull(zone);
-        var sb = new StringBuilder(Compose(factory, seat, scheduleId, scheduleSeed));
+        var sb = new StringBuilder(Compose(factory, seat, scheduleId, scheduleSeed, brief));
         sb.AppendLine();
         sb.AppendLine("THIS TALK IS ABOUT ONE PROBLEM. The owner pressed Handle the issue on it, on the factory's page. Open with it, "
                       + "instead of the general summary above: say what you see in it and what you think went wrong.");

@@ -255,6 +255,9 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<Guid?>("ActivityId")
                         .HasColumnType("TEXT");
 
+                    b.Property<int?>("BriefVersion")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("Factory")
                         .HasMaxLength(128)
                         .HasColumnType("TEXT");

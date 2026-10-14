@@ -51,8 +51,8 @@ public sealed record FactoriesScreenInputs(
 /// ruling of 8 October 2026: not every factory is a company, but every factory has a boss - the word is Boss, never
 /// CEO or head). The boss has no name of its own: the product says "the boss", "Talk to the boss", "Latest from the
 /// boss", never a person's name, because real-sounding names across thirteen factories were confusing and collided.
-/// The page header shows the boss seat's own role word, which is "Boss" unless the factory registered a distinct
-/// one ("CFO" for Center Consulting).
+/// The page header shows the boss seat's registered role word. That word is "Boss": since 13 October 2026 the
+/// registry refuses a boss seat with any other role, so only a factory registered before that day can show another.
 ///
 /// Only registry seats are seats. A row written by a session that is not a seat ("Owner Session") counts toward
 /// what is waiting on the owner and toward FAILING - both are the factory's - but it never becomes a row on the
@@ -841,8 +841,8 @@ public static class FactoriesScreenFold
     /// <summary>What a factory with no boss says where the boss's Talk button would be.</summary>
     public const string NoBoss = "No boss named";
 
-    /// <summary>The product's word for the boss seat's role: "Boss", or the distinct role word the factory registered
-    /// ("CFO"). Never the seat's name - the boss has none (the owner's ruling of 8 October 2026).</summary>
+    /// <summary>The product's word for the boss seat's role, and the only role the registry accepts for it. Never the
+    /// seat's name - the boss has none (the owner's ruling of 8 October 2026).</summary>
     public const string BossRoleWord = "Boss";
 
     private static string BossRole(RegisteredFactorySeatDto boss) =>
