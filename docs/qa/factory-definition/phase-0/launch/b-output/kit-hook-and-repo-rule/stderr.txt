@@ -1,0 +1,4 @@
+Reading additional input from stdin...
+2026-10-14T18:29:13.557630Z ERROR codex_core::tools::router: error=Command blocked by PreToolUse hook: KIT-RULE-7702: tagging is forbidden for this seat.. Command: git tag fd-proof
+2026-10-14T18:29:14.039878Z ERROR codex_core::tools::router: error=exec_command failed: CreateProcess { message: "Rejected(\"`\\\"C:\\\\\\\\Windows\\\\\\\\System32\\\\\\\\WindowsPowerShell\\\\\\\\v1.0\\\\\\\\powershell.exe\\\" -Command 'git push origin main'` rejected: REPO-RULE-3318: pushing is forbidden in this repository.\")" }
+

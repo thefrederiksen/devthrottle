@@ -1,0 +1,3 @@
+Reading additional input from stdin...
+2026-10-14T18:29:22.337828Z ERROR codex_core::tools::router: error=exec_command failed: CreateProcess { message: "Rejected(\"`\\\"C:\\\\\\\\Windows\\\\\\\\System32\\\\\\\\WindowsPowerShell\\\\\\\\v1.0\\\\\\\\powershell.exe\\\" -Command 'git push origin main'` rejected: REPO-RULE-3318: pushing is forbidden in this repository.\")" }
+

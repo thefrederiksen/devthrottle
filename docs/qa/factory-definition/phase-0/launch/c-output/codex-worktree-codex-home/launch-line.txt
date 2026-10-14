@@ -1,0 +1,1 @@
+CODEX_HOME=<kit>\codex-home codex exec --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust --json --ephemeral -m scripted -c model_provider='scripted' -c model_providers.scripted.name='scripted' -c model_providers.scripted.base_url='http://127.0.0.1:60862/v1' -c model_providers.scripted.wire_api='responses' "Say which skills you have."
