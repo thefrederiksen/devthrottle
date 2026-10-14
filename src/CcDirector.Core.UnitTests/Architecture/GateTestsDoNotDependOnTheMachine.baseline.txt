@@ -350,7 +350,7 @@ real-clock | src/CcDirector.Gateway.UnitTests/VoiceUploadStoreDeliveryClaimTests
 real-clock | src/CcDirector.Gateway.UnitTests/VoiceUploadStoreTests.cs | 7
 real-clock | src/CcDirector.Gateway.UnitTests/VoiceUploadStoreUnreadableRecordTests.cs | 2
 sleep | src/CcDirector.Gateway.UnitTests/VoiceUploadStoreUnreadableRecordTests.cs | 1
-real-clock | src/CcDirector.Gateway.UnitTests/WindowRestorePlacementTests.cs | 3
+real-clock | src/CcDirector.Gateway.UnitTests/WindowRestorePlacementTests.cs | 2
 real-clock | src/CcDirector.Gateway.UnitTests/WindowScheduleWiringTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/Wingman/DisplayFoldTraceMatchesPushTests.cs | 4
 delay | src/CcDirector.Gateway.UnitTests/Wingman/FakeTurnVerdictEnvironment.cs | 1
