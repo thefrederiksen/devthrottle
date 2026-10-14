@@ -128,6 +128,26 @@ public sealed class UpdaterStateConcurrencyTests : IDisposable
     }
 
     /// <summary>
+    /// A virus scanner or the indexer opens the file the moment it is written, and the lock cannot keep
+    /// them away. An edit must still go through while something outside holds the file open (issue #3965).
+    /// The holder here opens it the way such a reader does - sharing everything - and stays open across the
+    /// edit. With a plain move over the file, Windows refuses the save with "access denied".
+    /// </summary>
+    [Fact]
+    public void AnEdit_GoesThrough_WhileSomethingOutsideTheLockHoldsTheFileOpen()
+    {
+        UpdaterState.UpdateAt(StatePath, s => s.ApplyAttempts = 1);
+
+        using (new FileStream(StatePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+        {
+            UpdaterState.UpdateAt(StatePath, s => s.ApplyAttempts = 2);
+        }
+
+        Assert.Equal(2, UpdaterState.LoadFrom(StatePath).ApplyAttempts);
+        Assert.Equal(new[] { "updater-state.json" }, Directory.GetFiles(_dir).Select(Path.GetFileName));
+    }
+
+    /// <summary>
     /// A file that is not JSON is replaced by an edit, as a load has always treated it as empty - but a
     /// file that cannot be READ is never overwritten, because nobody knows what it held.
     /// </summary>
