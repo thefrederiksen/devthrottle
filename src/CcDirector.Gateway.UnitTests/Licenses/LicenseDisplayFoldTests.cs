@@ -412,9 +412,39 @@ public sealed class LicenseDisplayFoldTests : IDisposable
 
         Assert.Equal(LicenseAccountStatuses.Stale, account.Status);
         Assert.Equal("No usage reading has arrived for this account yet.", account.StatusDetail);
-        Assert.Equal("Never read", account.ReadAgeText);
+        Assert.Equal("Never read on any machine", account.ReadAgeText);
         Assert.Null(account.ReadAtUtc);
         Assert.Equal((LicenseWindowLevels.NotKnown, "Not known"), (account.FiveHour.Level, account.FiveHour.UtilizationText));
+        Assert.Equal((LicenseExtraUsageStates.NotKnown, "Paid extra usage not known"), (account.ExtraUsage.State, account.ExtraUsage.Text));
+    }
+
+    // The whole-phase review's finding 4: a holding's read error spoke of "the numbers shown" on a card that showed
+    // none. It does so only when some machine has read the account.
+    [Fact]
+    public void Holding_ReadError_PointsAtTheNumbersShown_OnlyWhenTheAccountWasEverRead()
+    {
+        var never = Holding(B, false, readError: LicenseReadErrors.Network);
+        never.FiveHour = null;
+        never.SevenDay = null;
+        never.ReadAtUtc = null;
+        Apply(Report("m1", Holding(A, true, readError: LicenseReadErrors.Network), never));
+
+        var machine = Overview(T0).Machines.Single();
+
+        Assert.Equal("The machine could not reach the provider. The numbers shown are the last ones read.", machine.Active!.ReadErrorText);
+        Assert.Equal("The machine could not reach the provider. No usage has been read for this account yet.", machine.Spares.Single().ReadErrorText);
+    }
+
+    // The whole-phase review's finding 5: the role word of a sign-in is the Gateway's, not the page's.
+    [Fact]
+    public void Holding_RoleText_IsActiveOrSpare()
+    {
+        Apply(Report("m1", Holding(A, true), Holding(B, false)));
+
+        var machine = Overview(T0).Machines.Single();
+
+        Assert.Equal((true, "Active"), (machine.Active!.IsActive, machine.Active.RoleText));
+        Assert.Equal((false, "Spare"), (machine.Spares.Single().IsActive, machine.Spares.Single().RoleText));
     }
 
     [Theory]

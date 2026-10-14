@@ -138,6 +138,8 @@ export interface LicenseAccount {
 export interface LicenseHolding {
   accountEmail: string;
   isActive: boolean;
+  /** "Active" or "Spare": what this sign-in is on its machine, ready to show. */
+  roleText: string;
   signedInAtUtc: string | null;
   signedInText: string;
   signInExpiresAtUtc: string | null;

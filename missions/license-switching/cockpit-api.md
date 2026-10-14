@@ -88,9 +88,9 @@ person only: the owner's own phone or browser, and nobody else (section 6).
 | `isInUse` | A machine is working on it. |
 | `fiveHour`, `sevenDay` | The two usage windows: `utilization` (0 to 100, or null), `utilizationText` ("96%", rounded down, or "Not known"), `level`, `resetsAtUtc`, `resetsText`. |
 | `isStale` | The numbers are too old to trust, or there are none. Show them muted. |
-| `readAtUtc`, `readAgeText` | When the numbers were read and the sentence saying how old they are and on which machine ("Read 7 minutes ago on the-mac", or "Never read"). |
+| `readAtUtc`, `readAgeText` | When the numbers were read and the sentence saying how old they are and on which machine ("Read 7 minutes ago on the-mac", or "Never read on any machine"). |
 | `readError`, `readErrorText` | The word and the sentence when the last read failed; both null when it worked. |
-| `extraUsage` | `state` (`on`, `off`, `not-known`), `text`, and `utilization` when the provider gave one. |
+| `extraUsage` | `state` (`on`, `off`, `not-known`), `text` ("Paid extra usage is on (12% used)", "Paid extra usage is off", "Paid extra usage not known"), and `utilization` when the provider gave one. |
 | `renewsOn`, `renewsText` | The date the subscription is billed again, as `yyyy-MM-dd` (a date with no time and no zone), and its sentence: "Renews 17 Oct", or "Renewal date not set". `renewsOn` is null when no date is set (section 6 has the route that sets it and every sentence). Show `renewsText`. |
 | `barredUntilUtc`, `barredText` | Set while the account is barred from the AUTOMATIC choice of a target, because it triggered a switch and its window has not reset: until when, and the sentence to show beside the account ("Left out of the automatic choice for 2 hours, until its 5-hour window resets: it triggered a switch. It can still be chosen by hand."). Both null when it is not barred. A barred account can still be chosen by hand - its row in another account's `switchTargets` stays `canChoose: true`. |
 | `signInExpiry` | The sign-in for this account that expires FIRST, across every machine holding it: `expiresAtUtc`, `machine` (the machine it is on, rule 9), `verdict` (the expiry verdict below), `text` ("Sign-in on the-windows-machine expires in 2 days 5 hours", "Sign-in on the-mac expired 3 hours ago") and `tone`. When no machine holding the account gave an expiry: `expiresAtUtc` and `machine` are null, `verdict` is `not known` and `text` is "Sign-in expiry not known". When no machine holds the account: the same, with "Not signed in on any machine". This is the sign-in expiry, not the subscription's renewal date (section 1). |
@@ -149,10 +149,13 @@ machine's reason word, or "the machine's reason word: {word}" when this Gateway 
 are null again as soon as the hold has passed, a later switch of the machine is recorded, or the machine reports
 another account as active. The example below shows no machine held, so both are null there.
 
-A sign-in a machine holds (`LicenseMachineHoldingDto`): `accountEmail`, `isActive`, `signedInAtUtc`, `signedInText`
+A sign-in a machine holds (`LicenseMachineHoldingDto`): `accountEmail`, `isActive`, `roleText` ("Active" or "Spare":
+show it; `isActive` is the same fact for a test or a style hook), `signedInAtUtc`, `signedInText`
 ("Signed in 21 days ago", or "Sign-in date not known"), `signInExpiresAtUtc`, `expiryVerdict`, `expiryText`,
 `expiryTone`, `renewalFailedAtUtc`, `renewalFailedText`, `renewalFailedTone`, `isReadingStale`, `readError`,
-`readErrorText`.
+`readErrorText`. A read error that leaves the last numbers standing ("The machine could not reach the provider.")
+ends "The numbers shown are the last ones read." only when some machine has read the account; when none ever has, it
+ends "No usage has been read for this account yet.", because the card has no numbers to point at.
 
 **A failed renewal of the sign-in** (`renewalFailedAtUtc`, `renewalFailedText`, `renewalFailedTone`) - the machine
 renewing its SIGN-IN, not the subscription's billing renewal (section 1): when the machine last tried to
@@ -416,6 +419,7 @@ show nothing. Section 6 has the sentences and the tone rule.
       "active": {
         "accountEmail": "account-a@example.com",
         "isActive": true,
+        "roleText": "Active",
         "signedInAtUtc": "2026-09-21T03:12:00Z",
         "signedInText": "Signed in 20 days ago",
         "signInExpiresAtUtc": "2026-10-21T03:12:00Z",
@@ -435,6 +439,7 @@ show nothing. Section 6 has the sentences and the tone rule.
         {
           "accountEmail": "account-b@example.com",
           "isActive": false,
+          "roleText": "Spare",
           "signedInAtUtc": "2026-10-06T03:12:00Z",
           "signedInText": "Signed in 5 days ago",
           "signInExpiresAtUtc": "2026-11-05T03:12:00Z",
@@ -473,6 +478,7 @@ show nothing. Section 6 has the sentences and the tone rule.
       "active": {
         "accountEmail": "account-a@example.com",
         "isActive": true,
+        "roleText": "Active",
         "signedInAtUtc": "2026-09-20T03:12:00Z",
         "signedInText": "Signed in 21 days ago",
         "signInExpiresAtUtc": "2026-10-20T03:12:00Z",
@@ -492,6 +498,7 @@ show nothing. Section 6 has the sentences and the tone rule.
         {
           "accountEmail": "account-b@example.com",
           "isActive": false,
+          "roleText": "Spare",
           "signedInAtUtc": "2026-09-13T03:12:00Z",
           "signedInText": "Signed in 28 days ago",
           "signInExpiresAtUtc": "2026-10-13T08:12:00Z",
@@ -510,6 +517,7 @@ show nothing. Section 6 has the sentences and the tone rule.
         {
           "accountEmail": "account-c@example.com",
           "isActive": false,
+          "roleText": "Spare",
           "signedInAtUtc": "2026-10-10T03:12:00Z",
           "signedInText": "Signed in 1 day ago",
           "signInExpiresAtUtc": "2026-11-09T03:12:00Z",

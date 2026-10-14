@@ -172,7 +172,7 @@ export function LicenseAccountCard({ account, machines, forecast, onSwitchNow, o
           {held.map(({ machine, holding }) => (
             <li key={machine.machineId} className="lic-holding" data-testid="lic-holding" data-verdict={holding.expiryVerdict}>
               <span className="lic-holding-machine">{machine.label}</span>
-              <span className="lic-holding-role">{holding.isActive ? "Active" : "Spare"}</span>
+              <span className="lic-holding-role">{holding.roleText}</span>
               <span className={`lic-holding-expiry ${toneClass(holding.expiryTone)}`}>{holding.expiryText}</span>
               <span className="lic-holding-signed-in">{holding.signedInText}</span>
               {holding.readErrorText !== null && (

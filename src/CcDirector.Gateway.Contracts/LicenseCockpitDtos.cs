@@ -383,6 +383,10 @@ public sealed class LicenseMachineHoldingDto
     public string AccountEmail { get; set; } = "";
     public bool IsActive { get; set; }
 
+    /// <summary>What this sign-in is on its machine, ready to show: "Active" (every session uses it) or "Spare".
+    /// <see cref="IsActive"/> is the same fact for a test or a style hook; the page shows this.</summary>
+    public string RoleText { get; set; } = "";
+
     /// <summary>When the sign-in was made; null when not known.</summary>
     public DateTime? SignedInAtUtc { get; set; }
 

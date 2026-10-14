@@ -157,7 +157,7 @@ public sealed class LicenseEndpointsTests : IDisposable
         var spare = machine.GetProperty("spares")[0];
         Assert.Equal(new[]
         {
-            "accountEmail", "isActive", "signedInAtUtc", "signedInText", "signInExpiresAtUtc", "expiryVerdict", "expiryText", "expiryTone",
+            "accountEmail", "isActive", "roleText", "signedInAtUtc", "signedInText", "signInExpiresAtUtc", "expiryVerdict", "expiryText", "expiryTone",
             "renewalFailedAtUtc", "renewalFailedText", "renewalFailedTone", "isReadingStale", "readError", "readErrorText", "canRenewNow", "renewNowText",
         }, Names(spare));
         Assert.Equal((B, "fine", "Sign-in expires in 9 days", "2026-10-20T03:12:00Z", "Signed in 21 days ago"),
