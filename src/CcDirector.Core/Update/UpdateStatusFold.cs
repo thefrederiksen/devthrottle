@@ -122,6 +122,18 @@ public static class UpdateStatusFold
     private const string InstallNow = "Install it now and restart";
 
     /// <summary>
+    /// The one-line notice shown the moment a build finishes downloading. Same rule as the panel's
+    /// "UPDATE READY" line: it promises an install on its own ONLY when a launcher is running to do it.
+    ///
+    /// It used to say "installs on its own once no sessions are running" on every machine. On a Linux
+    /// machine with no launcher that was false - the build sat downloaded with zero sessions running until
+    /// a person restarted the Director (issue #3091). A notice must never promise what the machine cannot do.
+    /// </summary>
+    public static string ReadyNotice(string version, bool launcherRunning) => launcherRunning
+        ? $"Director {version} downloaded. It installs on its own once no sessions are running."
+        : $"Director {version} downloaded. No launcher is running to install it - restart the Director to install it.";
+
+    /// <summary>
     /// Fold the facts into the finished status. Total: every combination of inputs produces a status,
     /// and there is no path that returns nothing - "nothing to say" was the original defect, so it is
     /// not a possible answer.

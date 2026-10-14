@@ -532,4 +532,19 @@ public class UpdateStatusFoldTests
         // It is a report, not a wait - so it does not promise that looking again will help.
         Assert.DoesNotContain("still being built", noBuild.Detail);
     }
+
+    [Fact]
+    public void ReadyNotice_PromisesAnInstallOnItsOwn_OnlyWhenALauncherIsRunning()
+    {
+        // Issue #3091: a Linux Director with no launcher said "It installs on its own once no sessions are
+        // running" with zero sessions running, and never installed. The notice follows the same fact the
+        // panel does, and never promises what the machine cannot do.
+        var withLauncher = UpdateStatusFold.ReadyNotice("2.20.0", launcherRunning: true);
+        var without = UpdateStatusFold.ReadyNotice("2.20.0", launcherRunning: false);
+
+        Assert.Contains("installs on its own", withLauncher);
+        Assert.DoesNotContain("on its own", without);
+        Assert.Contains("restart the Director to install it", without);
+        Assert.Contains("2.20.0", without);
+    }
 }
