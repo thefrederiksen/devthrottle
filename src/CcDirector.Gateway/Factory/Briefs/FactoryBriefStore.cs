@@ -40,11 +40,35 @@ namespace CcDirector.Gateway.Factory.Briefs;
 ///
 /// THE CURRENT TEXT IS CAPPED, EVERY VERSION IS KEPT. The cap is on one version's text. Nothing is pruned,
 /// because the mission's goal is that every version is kept and an older one can be brought back.
+///
+/// WHAT IS BOUNDED IS THE WRITING AND THE READING, NEVER THE KEEPING (review 1 of phase 2a). "Every version is
+/// kept" rules out pruning; it does not rule out a limit on how many versions nobody has read. A session's key is
+/// a credential no person is watching, and a session that saved a draft on every turn, or one stuck retrying,
+/// would add rows without end. So a SESSION may add a draft only while fewer than <see cref="MaxWaitingDrafts"/>
+/// drafts wait above the published version, and a person's publish is what makes room. A session cannot publish,
+/// so sessions alone can never add more than that between two acts of a person. A PERSON IS NOT BOUND: the person
+/// is the one who makes room, and a person who was bound could correct a pile of bad drafts only by first
+/// publishing one of them. And the history is read ONE PAGE AT A TIME, WITHOUT ANY VERSION'S TEXT
+/// (<see cref="History"/>); the text is read one version at a time (<see cref="Find"/>).
 /// </summary>
 public sealed class FactoryBriefStore
 {
     /// <summary>The most one version's text may take, in UTF-8 bytes.</summary>
     public const int MaxBriefBytes = 64 * 1024;
+
+    /// <summary>
+    /// The most drafts that may wait above a seat's published version before a SESSION is refused another. With
+    /// nothing published yet, every version is a waiting draft. Twenty is far more than a seat's sessions leave
+    /// between two readings by its owner, and small enough that the worst a looping session can add to one seat is
+    /// twenty versions of at most <see cref="MaxBriefBytes"/> each.
+    /// </summary>
+    public const int MaxWaitingDrafts = 20;
+
+    /// <summary>How many versions one page of the history holds when the reader does not say.</summary>
+    public const int DefaultHistoryPage = 50;
+
+    /// <summary>The most versions one page of the history may hold.</summary>
+    public const int MaxHistoryPage = 100;
 
     /// <summary>The sentence a session's publish is refused with. Held here so the routes and the tests say the
     /// same words.</summary>
@@ -84,15 +108,50 @@ public sealed class FactoryBriefStore
         }
     }
 
-    /// <summary>Every version of one seat's brief, newest first.</summary>
-    public IReadOnlyList<FactoryBriefVersionEntity> History(TenantId tenant, string factory, string seat)
+    /// <summary>
+    /// ONE PAGE of one seat's history, newest first, WITHOUT ANY VERSION'S TEXT: which version, its state, who
+    /// wrote it, when, and how many bytes its text takes. <paramref name="before"/> is the version the page starts
+    /// below - null for the newest page - and the page says where the next one starts, or that there is none.
+    ///
+    /// The text is never read here, not even to measure it: every version is kept for ever, so a history that
+    /// carried the text would grow until the answer itself was the outage. <see cref="Find"/> reads one version.
+    /// </summary>
+    public FactoryBriefHistoryPage History(TenantId tenant, string factory, string seat, int? before = null,
+        int limit = DefaultHistoryPage)
     {
-        if (!FactoryNames.TryFactory(factory, out factory, out _)) return Array.Empty<FactoryBriefVersionEntity>();
-        if (!FactoryNames.TrySeat(seat, out seat, out _)) return Array.Empty<FactoryBriefVersionEntity>();
+        if (limit is < 1 or > MaxHistoryPage)
+            throw new ArgumentOutOfRangeException(nameof(limit), limit, $"a page of the history holds 1 to {MaxHistoryPage} versions");
+        if (before is < 1)
+            throw new ArgumentOutOfRangeException(nameof(before), before, "versions count from 1");
+        if (!FactoryNames.TryFactory(factory, out factory, out _)) return FactoryBriefHistoryPage.Empty;
+        if (!FactoryNames.TrySeat(seat, out seat, out _)) return FactoryBriefHistoryPage.Empty;
         lock (_gate)
         {
             using var ctx = _db.CreateContext(tenant);
-            return Versions(ctx, factory, seat).OrderByDescending(v => v.Version).ToList();
+            var all = Versions(ctx, factory, seat);
+            var total = all.Count();
+            var below = before is { } b ? all.Where(v => v.Version < b) : all;
+            // One more than the page, so the page knows whether an older one follows without counting again.
+            var rows = below.OrderByDescending(v => v.Version)
+                .Select(v => new FactoryBriefVersionSummary(v.Factory, v.Seat, v.Version, v.State, v.AuthorKind,
+                    v.AuthorId, v.WrittenAtUtc, v.PublishedAtUtc, v.PublishedBy, v.TextBytes))
+                .Take(limit + 1)
+                .ToList();
+            var more = rows.Count > limit;
+            var page = more ? rows.GetRange(0, limit) : rows;
+            return new FactoryBriefHistoryPage(page, total, more ? page[^1].Version : null);
+        }
+    }
+
+    /// <summary>One version of one seat's brief, with its text, or null when the seat has no such version.</summary>
+    public FactoryBriefVersionEntity? Find(TenantId tenant, string factory, string seat, int version)
+    {
+        if (!FactoryNames.TryFactory(factory, out factory, out _)) return null;
+        if (!FactoryNames.TrySeat(seat, out seat, out _)) return null;
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            return Version(ctx, factory, seat, version);
         }
     }
 
@@ -109,7 +168,8 @@ public sealed class FactoryBriefStore
     /// <summary>
     /// Save a draft: add the next version with this text, not published. <paramref name="expectedVersion"/> is the
     /// seat's newest version as the writer last read it - 0 (or null) meaning "I believe this seat has no brief
-    /// here yet". A mismatch is refused with the newest version attached.
+    /// here yet". A mismatch is refused with the newest version attached. A SESSION is also refused while
+    /// <see cref="MaxWaitingDrafts"/> drafts already wait above the published version; a person is not.
     /// </summary>
     public FactoryBriefWrite SaveDraft(TenantId tenant, string factory, string seat, string? text,
         int? expectedVersion, string authorKind, string? authorId, DateTime nowUtc)
@@ -278,6 +338,10 @@ public sealed class FactoryBriefStore
                 head);
         }
 
+        if (!published && authorKind == FactoryMemoryAuthorKinds.Session
+            && TooManyWaitingDrafts(ctx, factory, seat, head, authorId) is { } tooMany)
+            return tooMany;
+
         if (string.IsNullOrWhiteSpace(text))
             return FactoryBriefWrite.Refused(FactoryBriefOutcome.Empty,
                 "a brief needs text: a seat told nothing has nothing to do", head);
@@ -293,6 +357,7 @@ public sealed class FactoryBriefStore
             Seat = seat,
             Version = current + 1,
             Text = text,
+            TextBytes = bytes,
             State = published ? FactoryBriefStates.Published : FactoryBriefStates.Draft,
             AuthorKind = authorKind,
             AuthorId = authorId,
@@ -332,6 +397,32 @@ public sealed class FactoryBriefStore
 
         FileLog.Write($"[FactoryBriefStore] {factory}/{seat}: wrote version {written.Version} ({written.State}, {bytes} bytes) by {authorKind} {authorId ?? "(unknown)"}");
         return published ? FactoryBriefWrite.Published(written) : FactoryBriefWrite.Saved(written);
+    }
+
+    /// <summary>
+    /// THE BOUND ON A SESSION'S WRITING. The drafts that count are the ones ABOVE the published version - the ones
+    /// nobody has acted on - whoever wrote them; with nothing published, every version counts. Returns the refusal
+    /// when <see cref="MaxWaitingDrafts"/> already wait, or null when there is room.
+    ///
+    /// Two replicas cannot both slip past it: both would be writing the same next version, and the key lets only
+    /// one of them exist. And a person's publish, which is the only thing that lowers the count, can only make a
+    /// refusal that was about to happen unnecessary, never let an extra draft in.
+    /// </summary>
+    private static FactoryBriefWrite? TooManyWaitingDrafts(GatewayDbContext ctx, string factory, string seat,
+        FactoryBriefVersionEntity? head, string? authorId)
+    {
+        if (head is null) return null;
+        var published = Versions(ctx, factory, seat).Where(v => v.State == FactoryBriefStates.Published)
+            .Select(v => (int?)v.Version).Max() ?? 0;
+        var waiting = Versions(ctx, factory, seat).Count(v => v.Version > published);
+        if (waiting < MaxWaitingDrafts) return null;
+
+        FileLog.Write($"[FactoryBriefStore] {factory}/{seat}: REFUSED a draft by session {authorId ?? "(unknown)"} - {waiting} drafts already wait above version {published}");
+        return FactoryBriefWrite.Refused(FactoryBriefOutcome.TooManyDrafts,
+            $"the brief of '{seat}' has {waiting} drafts waiting that nobody has published (versions {published + 1} to {head.Version}), " +
+            $"and a session may add a draft only while fewer than {MaxWaitingDrafts} are waiting. Nothing was saved, and no " +
+            "version was removed. Ask the owner to read the drafts and publish one: publishing makes room for more.",
+            head);
     }
 
     private static string NoSuchVersion(string factory, string seat, int version, FactoryBriefStanding standing, string act) =>
@@ -378,6 +469,24 @@ public sealed record FactoryBriefStanding(FactoryBriefVersionEntity? Newest, Fac
     public static readonly FactoryBriefStanding None = new(null, null);
 }
 
+/// <summary>
+/// One version in a page of the history: everything about it EXCEPT its text. <see cref="TextBytes"/> is how many
+/// bytes that text takes.
+/// </summary>
+public sealed record FactoryBriefVersionSummary(string Factory, string Seat, int Version, string State,
+    string AuthorKind, string? AuthorId, DateTime WrittenAtUtc, DateTime? PublishedAtUtc, string? PublishedBy,
+    int TextBytes);
+
+/// <summary>
+/// One page of a seat's history, newest first. <see cref="Total"/> is how many versions the seat has in all, and
+/// <see cref="NextBefore"/> is the version to ask for the next page below, or null when this page reaches the
+/// oldest version.
+/// </summary>
+public sealed record FactoryBriefHistoryPage(IReadOnlyList<FactoryBriefVersionSummary> Versions, int Total, int? NextBefore)
+{
+    public static readonly FactoryBriefHistoryPage Empty = new(Array.Empty<FactoryBriefVersionSummary>(), 0, null);
+}
+
 /// <summary>What a write to a seat's brief did, or why it was refused.</summary>
 public enum FactoryBriefOutcome
 {
@@ -390,6 +499,9 @@ public enum FactoryBriefOutcome
     /// <summary>The text is empty.</summary>
     Empty,
     TooLarge,
+    /// <summary>A session asked to save a draft while <see cref="FactoryBriefStore.MaxWaitingDrafts"/> drafts
+    /// already wait above the published version. A person's publish makes room.</summary>
+    TooManyDrafts,
     /// <summary>The factory id is not one spelling of a factory id.</summary>
     BadFactory,
     /// <summary>The seat id is not one spelling of a seat id.</summary>

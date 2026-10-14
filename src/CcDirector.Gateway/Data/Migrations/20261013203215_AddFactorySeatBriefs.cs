@@ -20,6 +20,7 @@ namespace CcDirector.Gateway.Data.Migrations
                     Seat = table.Column<string>(type: "TEXT", maxLength: 64, nullable: false),
                     Version = table.Column<int>(type: "INTEGER", nullable: false),
                     Text = table.Column<string>(type: "TEXT", nullable: false),
+                    TextBytes = table.Column<int>(type: "INTEGER", nullable: false),
                     State = table.Column<string>(type: "TEXT", maxLength: 16, nullable: false),
                     AuthorKind = table.Column<string>(type: "TEXT", maxLength: 20, nullable: false),
                     AuthorId = table.Column<string>(type: "TEXT", maxLength: 200, nullable: true),

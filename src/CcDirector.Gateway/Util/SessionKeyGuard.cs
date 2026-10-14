@@ -1189,11 +1189,14 @@ public static class SessionKeyGuard
         {
             // /draft - read the newest version, or save the next one.
             if (s[3] == "draft") return verb is "GET" or "HEAD" or "PUT";
-            // /history - every version.
+            // /history - one page of the versions, without their text.
             if (s[3] == "history") return verb is "GET" or "HEAD";
             // /publish and /restore - refused by the route for a session, in words.
             if (s[3] is "publish" or "restore") return verb == "POST";
         }
+
+        // /versions/{version} - one version, with its text.
+        if (s.Length == 5 && s[3] == "versions") return verb is "GET" or "HEAD";
 
         return false;
     }

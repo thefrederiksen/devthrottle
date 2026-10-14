@@ -2,8 +2,9 @@
 
 A brief is what a seat of a factory is told to do. Five verbs, each naming the factory and the seat:
 
-- `factory brief get`       the published brief - what a talk or a run is given; `--draft` for the newest version
-- `factory brief history`   every version, newest first
+- `factory brief get`       the published brief - what a talk or a run is given; `--draft` for the newest version;
+                            `--version N` for one version by its number
+- `factory brief history`   one page of the versions, newest first, without their text
 - `factory brief set --file` save the file's text as a new DRAFT version
 - `factory brief publish`   make one version the published one - a person's act
 - `factory brief restore`   bring an older version back as the newest, published - a person's act
@@ -11,6 +12,10 @@ A brief is what a seat of a factory is told to do. Five verbs, each naming the f
 DRAFT, THEN PUBLISHED. `set` never changes what a run is given: it adds a draft. A person publishes it. This
 command runs with a session's key, so `publish` and `restore` are refused by the Gateway with the sentence that
 says so, and this module prints that sentence rather than one of its own.
+
+EVERY VERSION IS KEPT, SO THE WRITING AND THE READING ARE BOUNDED. A session is refused another draft while twenty
+wait above the published version; `set` prints the Gateway's sentence, which says to ask the owner to publish. And
+`history` reads one page and never a version's text: `get --version N` reads one version's text.
 
 TWO WRITERS ON ONE BRIEF. `set` sends the version the caller last READ (`--expected-version`, 0 when the seat has no
 brief on the Gateway yet). It is never looked up here just before writing: a version nobody was shown is not a
@@ -24,6 +29,7 @@ import json
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlencode
 
 import typer
 
@@ -64,11 +70,6 @@ def _text_lines(text: Optional[str]) -> List[str]:
     return [axi_cli.ascii_text(line) for line in text.split("\n")]
 
 
-def _first_line(text: Optional[str], width: int = 70) -> str:
-    line = (text or "").split("\n", 1)[0]
-    return line if len(line) <= width else line[: width - 3] + "..."
-
-
 def _is_brief(answer: Any) -> bool:
     return isinstance(answer, dict) and isinstance(answer.get("version"), int) and isinstance(answer.get("state"), str)
 
@@ -98,15 +99,20 @@ def _standing_line(brief: Dict[str, Any]) -> Optional[str]:
 # The verbs.
 # ---------------------------------------------------------------------------------------------------
 
-def get_brief(factory: str, seat: str, draft: bool, json_output: bool) -> None:
-    """The published brief, or with `draft` the newest version whether or not it is published."""
+def get_brief(factory: str, seat: str, draft: bool, json_output: bool, version: Optional[int] = None) -> None:
+    """The published brief; with `draft` the newest version whether or not it is published; with `version` that one."""
     where = _where(factory, seat)
+    if draft and version is not None:
+        axi_cli.usage_error("--draft reads the newest version and --version reads the one you name; pass one of them.")
+        return
+    which = "/draft" if draft else f"/versions/{version}" if version is not None else ""
     try:
-        brief = gateway.get_json(_seat_route(factory, seat) + ("/draft" if draft else ""))
+        brief = gateway.get_json(_seat_route(factory, seat) + which)
     except gateway.GatewayError as exc:
         if exc.status == 404:
-            axi_cli.fail(str(exc), [f"{_TOOL} get {where} --draft", f"{_TOOL} set {where} --file <path>",
-                                    "cc-devthrottle factory list"])
+            axi_cli.fail(str(exc), [f"{_TOOL} history {where}"] if version is not None
+                         else [f"{_TOOL} get {where} --draft", f"{_TOOL} set {where} --file <path>",
+                               "cc-devthrottle factory list"])
         _fail_gateway(exc)
         return
     if not _is_brief(brief):
@@ -130,13 +136,17 @@ def get_brief(factory: str, seat: str, draft: bool, json_output: bool) -> None:
                         f"{_TOOL} history {where}"])
 
 
-def history(factory: str, seat: str, json_output: bool) -> None:
-    """Every version of a seat's brief, newest first."""
+def history(factory: str, seat: str, json_output: bool, count: Optional[int] = None,
+            before: Optional[int] = None) -> None:
+    """One page of a seat's versions, newest first, without their text. `count` is how many the page holds and
+    `before` the version it starts below; the Gateway says where the next page starts."""
     where = _where(factory, seat)
+    query = urlencode([(name, value) for name, value in (("limit", count), ("before", before)) if value is not None])
     try:
-        page = gateway.get_json(_seat_route(factory, seat) + "/history")
+        page = gateway.get_json(_seat_route(factory, seat) + "/history" + (f"?{query}" if query else ""))
     except gateway.GatewayError as exc:
-        _fail_gateway(exc, ["cc-devthrottle factory list"] if exc.status == 404 else None)
+        _fail_gateway(exc, ["cc-devthrottle factory list"] if exc.status == 404
+                      else [f"{_TOOL} history {where}"] if exc.status == 400 else None)
         return
     versions = page.get("versions") if isinstance(page, dict) else None
     if not isinstance(versions, list):
@@ -146,21 +156,26 @@ def history(factory: str, seat: str, json_output: bool) -> None:
     if json_output:
         print(json.dumps(page, indent=2))
         return
-    if not versions:
+    total = page.get("total")
+    if not versions and not total:
         axi_cli.write_lines(f"count: 0. '{seat}' of {factory} has no brief on the Gateway.")
         axi_cli.print_next([f"{_TOOL} set {where} --file <path>"])
         return
     published = page.get("publishedVersion")
-    lines = [f"count: {len(versions)}. " + ("No version is published." if published is None
-                                            else f"Version {published} is the published brief.")]
+    next_before = page.get("nextBefore")
+    lines = [f"count: {len(versions)} of {total}. " + ("No version is published." if published is None
+                                                      else f"Version {published} is the published brief.")]
     for v in versions:
         mark = "published" if v.get("state") == "published" else "draft"
         if v.get("version") == published:
             mark = "PUBLISHED NOW"
         lines.append(f"v{v.get('version')}  {mark}  {axi_output.format_value(v.get('writtenAtUtc'))}  {_by(v)}  "
-                     f"{_first_line(v.get('text'))}")
+                     f"{v.get('textBytes')} bytes")
+    if isinstance(next_before, int):
+        lines.append(f"Older versions follow, below version {next_before}.")
     axi_cli.write_lines(*lines)
-    axi_cli.print_next([f"{_TOOL} get {where} --draft"])
+    older = [f"{_TOOL} history {where} --before {next_before}"] if isinstance(next_before, int) else []
+    axi_cli.print_next(older + [f"{_TOOL} get {where} --version <version>"])
 
 
 def _read_file(path: str) -> str:
@@ -194,6 +209,10 @@ def set_draft(factory: str, seat: str, file: str, expected_version: int, json_ou
                 f"(by {_by(current)}); you sent version {expected_version}. Read version {now}, merge your change "
                 "into it, and save again with that version.",
                 [f"{_TOOL} get {where} --draft", f"{_TOOL} set {where} --file <path> --expected-version {now}"])
+        if exc.status == 409 and _outcome(exc) == "TooManyDrafts":
+            # The Gateway's own sentence says how many wait and that the owner publishing makes room. Saving again
+            # would be refused again, so the next step is to look at what waits, never to retry.
+            axi_cli.fail(f"Not saved: {exc}", [f"{_TOOL} history {where}"])
         _fail_gateway(exc, [f"{_TOOL} get {where} --draft"] if exc.status in (400, 404) else None)
         return
     if not _is_brief(brief):

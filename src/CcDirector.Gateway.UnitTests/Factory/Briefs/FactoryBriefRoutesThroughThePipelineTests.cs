@@ -100,11 +100,15 @@ public sealed class FactoryBriefRoutesThroughThePipelineTests : IDisposable
 
     private async Task<(int Status, JsonElement Body)> Send(string method, string path, Action<HttpContext> who, string? json = null)
     {
+        // What follows a question mark is the query, as a server would split it; the path is what is matched.
+        var query = path.Contains('?') ? path[path.IndexOf('?')..] : "";
+        if (query.Length > 0) path = path[..path.IndexOf('?')];
         var matched = Match(method, path);
         Assert.True(matched is not null, $"no mapped route matches {method} {path}");
         var ctx = new DefaultHttpContext { RequestServices = _services };
         ctx.Request.Method = method;
         ctx.Request.Path = path;
+        ctx.Request.QueryString = new QueryString(query);
         ctx.Request.RouteValues = matched!.Value.Values;
         if (json is not null)
         {
@@ -168,6 +172,68 @@ public sealed class FactoryBriefRoutesThroughThePipelineTests : IDisposable
         var history = await Send("GET", SeatPath + "/history", AsAPerson);
         Assert.Equal(1, history.Body.GetProperty("publishedVersion").GetInt32());
         Assert.Equal(1, history.Body.GetProperty("versions").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task THE_HISTORY_COMES_BACK_AS_ONE_PAGE_WITHOUT_ANY_TEXT_and_one_version_is_read_for_its_text()
+    {
+        // Twelve versions: a session saves, the owner publishes the tenth.
+        for (var i = 0; i < 12; i++)
+            await Send("PUT", SeatPath + "/draft", AsASessionOfTheFactory, $$"""{"text":"the text of version {{i + 1}}","expectedVersion":{{i}}}""");
+        await Send("POST", SeatPath + "/publish", AsAPerson, """{"version":10}""");
+
+        var first = await Send("GET", SeatPath + "/history?limit=5", AsASessionOfTheFactory);
+
+        Assert.Equal(200, first.Status);
+        Assert.Equal(12, first.Body.GetProperty("total").GetInt32());
+        Assert.Equal(12, first.Body.GetProperty("newestVersion").GetInt32());
+        Assert.Equal(10, first.Body.GetProperty("publishedVersion").GetInt32());
+        Assert.Equal(8, first.Body.GetProperty("nextBefore").GetInt32());
+        var versions = first.Body.GetProperty("versions");
+        Assert.Equal(new[] { 12, 11, 10, 9, 8 }, versions.EnumerateArray().Select(v => v.GetProperty("version").GetInt32()).ToArray());
+        // THE NAMES THE COMMAND LINE READS, and no text under any name.
+        var newest = versions[0];
+        Assert.Equal("draft", newest.GetProperty("state").GetString());
+        Assert.Equal("session", newest.GetProperty("authorKind").GetString());
+        Assert.Equal(FactorySession, newest.GetProperty("authorId").GetString());
+        Assert.Equal("the text of version 12".Length, newest.GetProperty("textBytes").GetInt32());
+        Assert.True(newest.TryGetProperty("writtenAtUtc", out _));
+        Assert.DoesNotContain("the text of version", first.Body.GetRawText());
+        Assert.All(versions.EnumerateArray(), v => Assert.False(v.TryGetProperty("text", out _)));
+
+        var second = await Send("GET", SeatPath + "/history?limit=5&before=8", AsAPerson);
+        Assert.Equal(7, second.Body.GetProperty("versions")[0].GetProperty("version").GetInt32());
+        Assert.Equal(3, second.Body.GetProperty("nextBefore").GetInt32());
+        var last = await Send("GET", SeatPath + "/history?limit=5&before=3", AsAPerson);
+        Assert.Equal(2, last.Body.GetProperty("versions").GetArrayLength());
+        Assert.Equal(JsonValueKind.Null, last.Body.GetProperty("nextBefore").ValueKind);
+
+        var one = await Send("GET", SeatPath + "/versions/4", AsASessionOfTheFactory);
+        Assert.Equal(200, one.Status);
+        Assert.Equal(4, one.Body.GetProperty("version").GetInt32());
+        Assert.Equal("the text of version 4", one.Body.GetProperty("text").GetString());
+
+        var missing = await Send("GET", SeatPath + "/versions/40", AsAPerson);
+        Assert.Equal(404, missing.Status);
+        Assert.Equal(12, missing.Body.GetProperty("newestVersion").GetInt32());
+    }
+
+    [Fact]
+    public async Task A_SESSIONS_DRAFT_PAST_THE_LIMIT_COMES_BACK_AS_409_WITH_THE_OUTCOME_BY_NAME_and_a_page_size_that_is_not_one_as_400()
+    {
+        for (var i = 0; i < FactoryBriefStore.MaxWaitingDrafts; i++)
+            await Send("PUT", SeatPath + "/draft", AsASessionOfTheFactory, $$"""{"text":"draft {{i + 1}}","expectedVersion":{{i}}}""");
+
+        var refused = await Send("PUT", SeatPath + "/draft", AsASessionOfTheFactory, """{"text":"one too many","expectedVersion":20}""");
+
+        Assert.Equal(409, refused.Status);
+        Assert.Equal("TooManyDrafts", refused.Body.GetProperty("outcome").GetString());
+        Assert.Contains("Ask the owner to read the drafts and publish one", refused.Body.GetProperty("error").GetString());
+        Assert.Equal(20, refused.Body.GetProperty("current").GetProperty("version").GetInt32());
+
+        var badPage = await Send("GET", SeatPath + "/history?limit=1000", AsAPerson);
+        Assert.Equal(400, badPage.Status);
+        Assert.Contains("a whole number from 1 to 100, not '1000'", badPage.Body.GetProperty("error").GetString());
     }
 
     [Fact]
@@ -244,10 +310,11 @@ public sealed class FactoryBriefRoutesThroughThePipelineTests : IDisposable
     [InlineData("GET", "/factory-briefs/warmforward/boss")]
     [InlineData("GET", "/factory-briefs/warmforward/boss/draft")]
     [InlineData("GET", "/factory-briefs/warmforward/boss/history")]
+    [InlineData("GET", "/factory-briefs/warmforward/boss/versions/3")]
     [InlineData("PUT", "/factory-briefs/warmforward/boss/draft")]
     [InlineData("POST", "/factory-briefs/warmforward/boss/publish")]
     [InlineData("POST", "/factory-briefs/warmforward/boss/restore")]
-    public void EACH_OF_THE_SIX_ROUTES_IS_MAPPED_and_the_session_key_guard_lets_a_session_reach_it(string method, string path)
+    public void EACH_OF_THE_SEVEN_ROUTES_IS_MAPPED_and_the_session_key_guard_lets_a_session_reach_it(string method, string path)
     {
         Assert.NotNull(Match(method, path));
         // The two lists must agree: a route the guard does not know is one no session can reach in production.
@@ -261,6 +328,8 @@ public sealed class FactoryBriefRoutesThroughThePipelineTests : IDisposable
     [InlineData("GET", "/factory-briefs/warmforward/boss/publish")]
     [InlineData("GET", "/factory-briefs/warmforward")]
     [InlineData("GET", "/factory-briefs")]
+    [InlineData("GET", "/factory-briefs/warmforward/boss/versions")]
+    [InlineData("PUT", "/factory-briefs/warmforward/boss/versions/3")]
     public void NOTHING_ELSE_IS_MAPPED_UNDER_THE_PREFIX_and_the_guard_agrees(string method, string path)
     {
         Assert.Null(Match(method, path));

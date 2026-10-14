@@ -17,7 +17,9 @@ namespace CcDirector.Gateway.Api;
 ///
 ///   GET  /factory-briefs/{factory}/{seat}           the published brief - what a talk or a run is given
 ///   GET  /factory-briefs/{factory}/{seat}/draft     the newest version, published or not - what a save must have read
-///   GET  /factory-briefs/{factory}/{seat}/history   every version, newest first
+///   GET  /factory-briefs/{factory}/{seat}/history   one page of the versions, newest first, WITHOUT their text
+///                                                   (?limit=1..100, 50 when not said; ?before=the version to start below)
+///   GET  /factory-briefs/{factory}/{seat}/versions/{version}   one version, with its text
 ///   PUT  /factory-briefs/{factory}/{seat}/draft     save a draft, stating the version last read
 ///   POST /factory-briefs/{factory}/{seat}/publish   publish one version - A PERSON ONLY
 ///   POST /factory-briefs/{factory}/{seat}/restore   bring an older version back as the newest, published - A PERSON ONLY
@@ -30,6 +32,11 @@ namespace CcDirector.Gateway.Api;
 /// publish and bring back routes are reachable by a session key on purpose and refused by the store in words: the
 /// session key guard can only say "not for a session key", and an agent told "save a draft; the owner publishes it"
 /// knows what to do next.
+///
+/// A SESSION'S DRAFTS ARE BOUNDED, AND SO IS EVERY READ (review 1 of phase 2a). Every version is kept for ever, so
+/// what is limited is the writing and the reading: a session is refused another draft while
+/// <see cref="FactoryBriefStore.MaxWaitingDrafts"/> wait above the published version, and no read here answers with
+/// more than one version's text.
 ///
 /// A CALLER THAT IS NEITHER - the account's shared machine token, or a Director - may read, as that gate allows, and
 /// may not write: every version records who wrote it, a person or which session, and such a caller is neither.
@@ -56,6 +63,8 @@ internal static class FactoryBriefEndpoints
             ReadNewest(ctx, factory, seat, store, resolveTenant, sessionFactoryOf));
         app.MapGet(seatRoute + "/history", (HttpContext ctx, string factory, string seat) =>
             History(ctx, factory, seat, store, resolveTenant, sessionFactoryOf));
+        app.MapGet(seatRoute + "/versions/{version}", (HttpContext ctx, string factory, string seat, string version) =>
+            ReadVersion(ctx, factory, seat, version, store, resolveTenant, sessionFactoryOf));
         app.MapPut(seatRoute + "/draft", (HttpContext ctx, string factory, string seat, SaveFactoryBriefDraftRequest? body) =>
             SaveDraft(ctx, factory, seat, body, store, resolveTenant, sessionFactoryOf, nowUtc));
         app.MapPost(seatRoute + "/publish", (HttpContext ctx, string factory, string seat, PublishFactoryBriefRequest? body) =>
@@ -63,7 +72,7 @@ internal static class FactoryBriefEndpoints
         app.MapPost(seatRoute + "/restore", (HttpContext ctx, string factory, string seat, BringBackFactoryBriefRequest? body) =>
             BringBack(ctx, factory, seat, body, store, resolveTenant, sessionFactoryOf, nowUtc));
 
-        FileLog.Write($"[FactoryBriefEndpoints] mapped {seatRoute} and its draft, history, publish and restore routes");
+        FileLog.Write($"[FactoryBriefEndpoints] mapped {seatRoute} and its draft, history, versions, publish and restore routes");
     }
 
     /// <summary>GET the published brief: what a talk or a run of the seat is given.</summary>
@@ -108,7 +117,12 @@ internal static class FactoryBriefEndpoints
         return Results.Json(ToDto(standing.Newest, standing));
     }
 
-    /// <summary>GET every version of the seat's brief, newest first.</summary>
+    /// <summary>
+    /// GET one page of the seat's history, newest first, without any version's text. <c>limit</c> is how many
+    /// versions the page holds and <c>before</c> the version it starts below; a value that is not one is refused in
+    /// words rather than quietly replaced, because a reader that asked for 500 and got 100 would believe it had
+    /// seen them all.
+    /// </summary>
     internal static IResult History(HttpContext ctx, string factory, string seat, FactoryBriefStore store,
         Func<HttpContext, TenantId?> resolveTenant, Func<string, SessionFactoryLookup> sessionFactoryOf)
     {
@@ -116,15 +130,70 @@ internal static class FactoryBriefEndpoints
         if (!TryCaller(ctx, sessionFactoryOf, factory, $"GET {Prefix}/{factory}/{seat}/history", out _, out var error)) return error!;
         if (store.WhyNotASeat(tenant, factory, seat) is { } notASeat) return Answer(notASeat, store, tenant, factory, seat);
 
+        var limit = FactoryBriefStore.DefaultHistoryPage;
+        if (ctx.Request.Query.TryGetValue("limit", out var limitSent)
+            && (!int.TryParse(limitSent.ToString(), out limit) || limit < 1 || limit > FactoryBriefStore.MaxHistoryPage))
+            return Results.BadRequest(new
+            {
+                error = $"limit is how many versions one page holds: a whole number from 1 to {FactoryBriefStore.MaxHistoryPage}, not '{limitSent}'",
+                detail = "Read an older page by sending the nextBefore of the page before it as before.",
+            });
+        int? before = null;
+        if (ctx.Request.Query.TryGetValue("before", out var beforeSent))
+        {
+            if (!int.TryParse(beforeSent.ToString(), out var b) || b < 1)
+                return Results.BadRequest(new
+                {
+                    error = $"before is the version a page starts below: a whole number from 1, not '{beforeSent}'",
+                    detail = "Send the nextBefore of the page before it, or leave before out for the newest page.",
+                });
+            before = b;
+        }
+
         var standing = store.Standing(tenant, factory, seat);
-        var versions = store.History(tenant, factory, seat);
+        var page = store.History(tenant, factory, seat, before, limit);
         return Results.Json(new FactoryBriefHistoryResponse
         {
-            Factory = versions.FirstOrDefault()?.Factory ?? factory.Trim().ToLowerInvariant(),
-            Seat = versions.FirstOrDefault()?.Seat ?? seat.Trim().ToLowerInvariant(),
+            Factory = standing.Newest?.Factory ?? factory.Trim().ToLowerInvariant(),
+            Seat = standing.Newest?.Seat ?? seat.Trim().ToLowerInvariant(),
             PublishedVersion = standing.Published?.Version,
-            Versions = versions.Select(v => ToDto(v, standing)).ToList(),
+            NewestVersion = standing.Newest?.Version ?? 0,
+            Total = page.Total,
+            Versions = page.Versions.Select(v => new FactoryBriefVersionSummaryDto
+            {
+                Version = v.Version,
+                State = v.State,
+                AuthorKind = v.AuthorKind,
+                AuthorId = v.AuthorId,
+                WrittenAtUtc = v.WrittenAtUtc,
+                PublishedAtUtc = v.PublishedAtUtc,
+                PublishedBy = v.PublishedBy,
+                TextBytes = v.TextBytes,
+            }).ToList(),
+            NextBefore = page.NextBefore,
         });
+    }
+
+    /// <summary>GET one version of the seat's brief, with its text: how the history's text is read, one at a time.</summary>
+    internal static IResult ReadVersion(HttpContext ctx, string factory, string seat, string version, FactoryBriefStore store,
+        Func<HttpContext, TenantId?> resolveTenant, Func<string, SessionFactoryLookup> sessionFactoryOf)
+    {
+        if (resolveTenant(ctx) is not { } tenant) return NoAccount();
+        if (!TryCaller(ctx, sessionFactoryOf, factory, $"GET {Prefix}/{factory}/{seat}/versions/{version}", out _, out var error)) return error!;
+        if (store.WhyNotASeat(tenant, factory, seat) is { } notASeat) return Answer(notASeat, store, tenant, factory, seat);
+        if (!int.TryParse(version, out var wanted) || wanted < 1)
+            return Results.BadRequest(new { error = $"a version is a whole number from 1, not '{version}'" });
+
+        var standing = store.Standing(tenant, factory, seat);
+        if (store.Find(tenant, factory, seat, wanted) is not { } found)
+            return Results.Json(new
+            {
+                error = standing.Newest is null
+                    ? $"'{seat}' of {factory} has no brief on the Gateway"
+                    : $"version {wanted} of the brief of '{seat}' does not exist; its newest version is {standing.Newest.Version}",
+                newestVersion = standing.Newest?.Version ?? 0,
+            }, statusCode: StatusCodes.Status404NotFound);
+        return Results.Json(ToDto(found, standing));
     }
 
     /// <summary>PUT a draft: a person, or a session of the factory, saves the next version.</summary>
@@ -225,7 +294,7 @@ internal static class FactoryBriefEndpoints
                 or FactoryBriefOutcome.NoSuchVersion => StatusCodes.Status404NotFound,
             FactoryBriefOutcome.BadFactory or FactoryBriefOutcome.BadSeat
                 or FactoryBriefOutcome.Empty or FactoryBriefOutcome.TooLarge => StatusCodes.Status400BadRequest,
-            // Stale, already published, older than the published one: "not as things stand".
+            // Stale, too many drafts waiting, already published, older than the published one: "not as things stand".
             _ => StatusCodes.Status409Conflict,
         };
         FileLog.Write($"[FactoryBriefEndpoints] {factory}/{seat}: REFUSED ({status}, {write.Outcome}) - {write.Refusal}");

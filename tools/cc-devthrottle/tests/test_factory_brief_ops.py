@@ -1,5 +1,9 @@
 """`cc-devthrottle factory brief get|history|set|publish|restore` (Factory Seats mission, phase 2a).
 
+Also here, from review 1: a session refused a draft because too many wait is told so in the Gateway's own sentence
+and pointed at the history, never at a retry; `history` reads one page, without any version's text, and says how to
+read the next; and `get --version` reads one version's text.
+
 What these tests are about: the route each verb calls and what it sends; that `set` sends the version its caller
 states and never one it looked up for itself; that a stale save says which version is newest and how to read it; and
 that a session's publish is answered with the Gateway's own sentence and a non-zero exit, never a success.
@@ -128,6 +132,38 @@ def test_get_ReadsThePublishedBrief_AndPrintsItsWholeText(gateway):
     assert "Post the goal number every run." in result.stdout
 
 
+def test_get_Version_ReadsThatOneVersionsText(gateway):
+    gw = gateway((200, brief(4, "what version four said", state="draft", newest=9, published=7)))
+
+    result = runner.invoke(app, ["factory", "brief", "get", *WHERE, "--version", "4"])
+
+    assert result.exit_code == 0, result.output
+    assert gw.calls[0]["method"] == "GET"
+    assert gw.calls[0]["path"] == "/factory-briefs/warmforward/boss/versions/4"
+    assert "warmforward/boss  version 4  draft" in result.stdout
+    assert "what version four said" in result.stdout
+
+
+def test_get_AVersionThatDoesNotExist_ExitsNonZeroWithTheGatewaysSentence_AndPointsAtTheHistory(gateway):
+    gateway((404, {"error": "version 40 of the brief of 'boss' does not exist; its newest version is 9", "newestVersion": 9}))
+
+    result = runner.invoke(app, ["factory", "brief", "get", *WHERE, "--version", "40"])
+
+    assert result.exit_code == 1
+    assert "version 40 of the brief of 'boss' does not exist" in result.stderr
+    assert "factory brief history --factory warmforward --seat boss" in result.stderr
+
+
+def test_get_DraftAndVersionTogether_IsAUsageError_AndCallsNothing(gateway):
+    gw = gateway()
+
+    result = runner.invoke(app, ["factory", "brief", "get", *WHERE, "--draft", "--version", "4"])
+
+    assert result.exit_code == 2
+    assert gw.calls == []
+    assert "pass one of them" in result.stderr
+
+
 def test_get_SaysWhenANewerDraftIsWaiting(gateway):
     gateway((200, brief(3, "published text", state="published", newest=5, published=3)))
 
@@ -192,30 +228,131 @@ def test_get_AFactoryNameWithASlash_StaysOneSegmentOfThePath(gateway):
 # history
 # ---------------------------------------------------------------------------------------------------
 
-def test_history_ListsEveryVersion_AndMarksThePublishedOne(gateway):
-    gw = gateway((200, {"factory": FACTORY, "seat": SEAT, "publishedVersion": 2, "versions": [
-        brief(3, "a newer draft", state="draft", newest=3, published=2),
-        brief(2, "the published text", state="published", newest=3, published=2),
-        brief(1, "the first text", state="published", newest=3, published=2),
-    ]}))
+def summary(version, state="draft", size=120, author_kind="session", author="7f0c1a2b"):
+    """One version as a page of the history carries it: everything but its text."""
+    return {
+        "version": version, "state": state, "authorKind": author_kind, "authorId": author,
+        "writtenAtUtc": "2026-10-13T12:00:00Z",
+        "publishedAtUtc": "2026-10-13T12:05:00Z" if state == "published" else None, "publishedBy": None,
+        "textBytes": size,
+    }
+
+
+def page(versions, total, published=None, next_before=None):
+    return {"factory": FACTORY, "seat": SEAT, "publishedVersion": published,
+            "newestVersion": versions[0]["version"] if versions else 0, "total": total, "versions": versions,
+            "nextBefore": next_before}
+
+
+def test_history_ListsOnePageOfVersions_WithEachOnesSize_AndMarksThePublishedOne(gateway):
+    gw = gateway((200, page([summary(3, size=812), summary(2, "published", size=640), summary(1, "published", size=5)],
+                            total=3, published=2)))
 
     result = runner.invoke(app, ["factory", "brief", "history", *WHERE])
 
     assert result.exit_code == 0, result.output
+    # No page size and no starting version were stated, so none is sent: the Gateway's own default applies.
     assert gw.calls[0]["path"] == "/factory-briefs/warmforward/boss/history"
-    assert "count: 3. Version 2 is the published brief." in result.stdout
+    assert "count: 3 of 3. Version 2 is the published brief." in result.stdout
     assert "v3  draft" in result.stdout
+    assert "812 bytes" in result.stdout
     assert "v2  PUBLISHED NOW" in result.stdout
     assert "v1  published" in result.stdout
+    # The last page: nothing older to read, and the text is read one version at a time.
+    assert "--before" not in result.stdout
+    assert "factory brief get --factory warmforward --seat boss --version <version>" in result.stdout
+
+
+def test_history_WhenOlderVersionsFollow_SaysSo_AndNamesTheCommandThatReadsTheNextPage(gateway):
+    gateway((200, page([summary(v) for v in range(130, 80, -1)], total=130, published=None, next_before=81)))
+
+    result = runner.invoke(app, ["factory", "brief", "history", *WHERE])
+
+    assert result.exit_code == 0, result.output
+    # Fifty of a hundred and thirty: the count says both, so a reader never takes one page for the whole history.
+    assert "count: 50 of 130." in result.stdout
+    assert "Older versions follow, below version 81." in result.stdout
+    assert "factory brief history --factory warmforward --seat boss --before 81" in result.stdout
+
+
+def test_history_SendsThePageSizeAndTheStartingVersionTheCallerStated(gateway):
+    gw = gateway((200, page([summary(80), summary(79)], total=130, next_before=79)))
+
+    result = runner.invoke(app, ["factory", "brief", "history", *WHERE, "--count", "2", "--before", "81"])
+
+    assert result.exit_code == 0, result.output
+    assert gw.calls[0]["path"] == "/factory-briefs/warmforward/boss/history?limit=2&before=81"
+
+
+def test_history_ALongHistory_IsReadPageByPage_ByRunningTheCommandEachPageNames(gateway):
+    gw = gateway(
+        (200, page([summary(5), summary(4)], total=5, next_before=4)),
+        (200, page([summary(3), summary(2)], total=5, next_before=2)),
+        (200, page([summary(1)], total=5)),
+    )
+
+    seen, before = [], None
+    for _ in range(3):
+        args = ["factory", "brief", "history", *WHERE, "-n", "2", "--json"] + (["--before", str(before)] if before else [])
+        result = runner.invoke(app, args)
+        assert result.exit_code == 0, result.output
+        answer = json.loads(result.stdout)
+        seen += [v["version"] for v in answer["versions"]]
+        before = answer["nextBefore"]
+
+    assert seen == [5, 4, 3, 2, 1]
+    assert before is None
+    assert [c["path"].split("?")[1] for c in gw.calls] == ["limit=2", "limit=2&before=4", "limit=2&before=2"]
+
+
+def test_history_Json_PrintsTheGatewaysPageUnchanged_AndItCarriesNoText(gateway):
+    answer = page([summary(2), summary(1, "published")], total=2, published=1)
+    gateway((200, answer))
+
+    result = runner.invoke(app, ["factory", "brief", "history", *WHERE, "--json"])
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout) == answer
+    assert all("text" not in v for v in json.loads(result.stdout)["versions"])
+
+
+@pytest.mark.parametrize("flags", [["--count", "0"], ["--count", "101"], ["--before", "0"], ["-n", "many"]])
+def test_history_APageSizeOrAStartingVersionThatIsNotOne_IsAUsageError_AndCallsNothing(gateway, flags):
+    gw = gateway()
+
+    result = runner.invoke(app, ["factory", "brief", "history", *WHERE, *flags])
+
+    assert result.exit_code == 2
+    assert gw.calls == []
+
+
+def test_history_WhenTheGatewayRefusesThePage_PrintsItsSentence_AndExitsNonZero(gateway):
+    gateway((400, {"error": "before is the version a page starts below: a whole number from 1, not '0'"}))
+
+    result = runner.invoke(app, ["factory", "brief", "history", *WHERE, "--before", "7"])
+
+    assert result.exit_code == 1
+    assert "before is the version a page starts below" in result.stderr
+    assert "count:" not in result.stdout
 
 
 def test_history_OfASeatWithNoBrief_SaysCountZero(gateway):
-    gateway((200, {"factory": FACTORY, "seat": SEAT, "publishedVersion": None, "versions": []}))
+    gateway((200, page([], total=0)))
 
     result = runner.invoke(app, ["factory", "brief", "history", *WHERE])
 
     assert result.exit_code == 0, result.output
     assert "count: 0." in result.stdout
+
+
+def test_history_APageBelowTheOldestVersion_IsNotReportedAsASeatWithNoBrief(gateway):
+    gateway((200, page([], total=12, published=10)))
+
+    result = runner.invoke(app, ["factory", "brief", "history", *WHERE, "--before", "1"])
+
+    assert result.exit_code == 0, result.output
+    assert "count: 0 of 12." in result.stdout
+    assert "has no brief on the Gateway" not in result.stdout
 
 
 def test_history_AnAnswerWithNoList_IsNeverReportedAsNoVersions(gateway):
@@ -273,6 +410,25 @@ def test_set_AStaleSave_IsNotSaved_AndSaysWhichVersionToReadAndSendNext(gateway,
     assert "now at version 6 (by session 9d2e4c11); you sent version 4" in result.stderr
     assert "factory brief get --factory warmforward --seat boss --draft" in result.stderr
     assert "--expected-version 6" in result.stderr
+    assert "Saved" not in result.stdout
+
+
+def test_set_WhenTooManyDraftsWait_IsNotSaved_PrintsTheGatewaysSentence_AndPointsAtTheHistoryNotARetry(gateway, brief_file):
+    sentence = ("the brief of 'boss' has 20 drafts waiting that nobody has published (versions 4 to 23), and a session "
+                "may add a draft only while fewer than 20 are waiting. Nothing was saved, and no version was removed. "
+                "Ask the owner to read the drafts and publish one: publishing makes room for more.")
+    gw = gateway((409, {"error": sentence, "outcome": "TooManyDrafts", "current": brief(23, "the newest draft")}))
+
+    result = runner.invoke(app, ["factory", "brief", "set", *WHERE, "--file", brief_file("mine"), "--expected-version", "23"])
+
+    assert result.exit_code == 1
+    # One call: the command does not try again, and nothing it prints tells its caller to.
+    assert len(gw.calls) == 1
+    flat = " ".join(result.stderr.split())
+    assert "Not saved: " + sentence in flat
+    assert "factory brief history --factory warmforward --seat boss" in result.stderr
+    assert "factory brief set" not in result.stderr
+    assert "another writer got there first" not in result.stderr
     assert "Saved" not in result.stdout
 
 

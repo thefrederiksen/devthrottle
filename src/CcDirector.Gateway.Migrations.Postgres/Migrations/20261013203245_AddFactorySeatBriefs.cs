@@ -21,6 +21,7 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     Seat = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false, collation: "C"),
                     Version = table.Column<int>(type: "integer", nullable: false),
                     Text = table.Column<string>(type: "text", nullable: false),
+                    TextBytes = table.Column<int>(type: "integer", nullable: false),
                     State = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: false, collation: "C"),
                     AuthorKind = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: false),
                     AuthorId = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: true),

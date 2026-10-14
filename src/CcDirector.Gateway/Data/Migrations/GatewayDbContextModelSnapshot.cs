@@ -1056,6 +1056,9 @@ namespace CcDirector.Gateway.Data.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<int>("TextBytes")
+                        .HasColumnType("INTEGER");
+
                     b.Property<DateTime>("WrittenAtUtc")
                         .HasColumnType("TEXT");
 

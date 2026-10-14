@@ -4386,24 +4386,38 @@ def factory_brief_get(
     factory: str = typer.Option(..., "--factory", help=_BRIEF_FACTORY_HELP),
     seat: str = typer.Option(..., "--seat", help=_BRIEF_SEAT_HELP),
     draft: bool = typer.Option(False, "--draft", help="Read the newest version, whether or not it is published."),
+    version: Optional[int] = typer.Option(None, "--version", min=1, help="Read this one version, as history numbers it."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the brief as JSON, with its exact text."),
 ) -> None:
-    """Read a seat's brief: the published one, or the newest with --draft.
+    """Read a seat's brief: the published one, the newest, or one version.
 
+    --draft reads the newest version and --version reads the one you name; pass at most one of them.
     The published brief is what a talk or a run of the seat is given. A seat whose brief is still a file in a
     repository has none here, and the command says so and exits non-zero.
     """
-    factory_brief_ops.get_brief(factory, seat, draft, json_output)
+    factory_brief_ops.get_brief(factory, seat, draft, json_output, version)
 
 
 @factory_brief_app.command("history")
 def factory_brief_history(
     factory: str = typer.Option(..., "--factory", help=_BRIEF_FACTORY_HELP),
     seat: str = typer.Option(..., "--seat", help=_BRIEF_SEAT_HELP),
-    json_output: bool = typer.Option(False, "--json", "-j", help="Output every version as JSON, with its exact text."),
+    count: Optional[int] = typer.Option(
+        None, "--count", "-n", min=1, max=100,
+        help="How many versions one page holds, 1 to 100. The Gateway gives 50 when this is not passed.",
+    ),
+    before: Optional[int] = typer.Option(
+        None, "--before", min=1,
+        help="Start the page below this version. The page before it says which version to pass.",
+    ),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the page as JSON."),
 ) -> None:
-    """Every version of a seat's brief, newest first."""
-    factory_brief_ops.history(factory, seat, json_output)
+    """One page of a seat's versions, newest first, without their text.
+
+    Every version is kept, so the history is read a page at a time: the page says how many versions there are in
+    all and which --before reads the next, older page. A version's text is read with get --version.
+    """
+    factory_brief_ops.history(factory, seat, json_output, count, before)
 
 
 @factory_brief_app.command("set")
@@ -4421,7 +4435,8 @@ def factory_brief_set(
 
     A draft changes nothing a talk or a run is given until a person publishes it. If somebody saved a version
     since the one you read, nothing is saved: the command says which version is newest, and you read it, merge
-    and save again.
+    and save again. A session is refused another draft while twenty wait that nobody has published: ask the
+    owner to publish one.
     """
     factory_brief_ops.set_draft(factory, seat, file, expected_version, json_output)
 

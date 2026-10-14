@@ -33,6 +33,13 @@ public sealed class FactoryBriefVersionEntity : TenantScopedEntity
     /// <summary>The brief's whole text at this version, exactly as it was sent.</summary>
     public string Text { get; set; } = "";
 
+    /// <summary>
+    /// How many bytes <see cref="Text"/> takes as UTF-8, written once with the text. It is held beside the text so
+    /// the history can say how big each version is WITHOUT reading any version's text: a history that loaded every
+    /// text to measure it would grow with the very thing it lists.
+    /// </summary>
+    public int TextBytes { get; set; }
+
     /// <summary><see cref="FactoryBriefStates.Draft"/> or <see cref="FactoryBriefStates.Published"/>. The brief a
     /// talk or a run is given is the highest version that is published.</summary>
     public string State { get; set; } = FactoryBriefStates.Draft;

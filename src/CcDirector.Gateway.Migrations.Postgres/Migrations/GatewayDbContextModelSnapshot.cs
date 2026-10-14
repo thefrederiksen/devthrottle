@@ -1082,6 +1082,9 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<int>("TextBytes")
+                        .HasColumnType("integer");
+
                     b.Property<DateTime>("WrittenAtUtc")
                         .HasColumnType("timestamp with time zone");
 
