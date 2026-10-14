@@ -28,8 +28,8 @@ namespace CcDirector.Gateway.Tests.Data;
 public sealed class AddLicenseSwitchHoldPostgresTests
 {
     private const string RuntimeConnectionEnvVar = "CC_GATEWAY_DB_CONNECTION";
-    private const string MigrationBefore = "20261013203245_AddFactorySeatBriefs";
-    private const string MigrationUnderTest = "20261014003240_AddLicenseSwitchHold";
+    private const string MigrationBefore = "20261014003248_AddBriefVersionToCronRuns";
+    private const string MigrationUnderTest = "20261014061624_AddLicenseSwitchHold";
     private const string AccountA = "account-a@example.com";
     private const string AccountB = "account-b@example.com";
     private const string OldMachine = "22222222-2222-2222-2222-222222222222";

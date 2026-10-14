@@ -282,6 +282,7 @@ export const OVERVIEW: LicenseOverview = {
       "active": {
         "accountEmail": "account-a@example.com",
         "isActive": true,
+        "roleText": "Active",
         "signedInAtUtc": "2026-09-21T03:12:00Z",
         "signedInText": "Signed in 20 days ago",
         "signInExpiresAtUtc": "2026-10-21T03:12:00Z",
@@ -301,6 +302,7 @@ export const OVERVIEW: LicenseOverview = {
         {
           "accountEmail": "account-b@example.com",
           "isActive": false,
+          "roleText": "Spare",
           "signedInAtUtc": "2026-10-06T03:12:00Z",
           "signedInText": "Signed in 5 days ago",
           "signInExpiresAtUtc": "2026-11-05T03:12:00Z",
@@ -339,6 +341,7 @@ export const OVERVIEW: LicenseOverview = {
       "active": {
         "accountEmail": "account-a@example.com",
         "isActive": true,
+        "roleText": "Active",
         "signedInAtUtc": "2026-09-20T03:12:00Z",
         "signedInText": "Signed in 21 days ago",
         "signInExpiresAtUtc": "2026-10-20T03:12:00Z",
@@ -358,6 +361,7 @@ export const OVERVIEW: LicenseOverview = {
         {
           "accountEmail": "account-b@example.com",
           "isActive": false,
+          "roleText": "Spare",
           "signedInAtUtc": "2026-09-13T03:12:00Z",
           "signedInText": "Signed in 28 days ago",
           "signInExpiresAtUtc": "2026-10-13T08:12:00Z",
@@ -376,6 +380,7 @@ export const OVERVIEW: LicenseOverview = {
         {
           "accountEmail": "account-c@example.com",
           "isActive": false,
+          "roleText": "Spare",
           "signedInAtUtc": "2026-10-10T03:12:00Z",
           "signedInText": "Signed in 1 day ago",
           "signInExpiresAtUtc": "2026-11-09T03:12:00Z",

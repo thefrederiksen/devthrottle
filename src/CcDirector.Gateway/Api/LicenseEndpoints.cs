@@ -136,8 +136,7 @@ public static class LicenseEndpoints
                 return NoAccount();
             var now = nowUtc();
             var picture = snapshots.ReadPicture(tenant, now, NoExhaustions);
-            var forecast = LicenseForecaster.Forecast(picture.Snapshot, history.Read(tenant, now));
-            var response = LicenseDisplayFold.Forecast(picture, forecast);
+            var response = LicenseDisplayFold.Forecast(picture, history.Read(tenant, now));
             FileLog.Write($"[LicenseEndpoints] GET forecast: tenant={tenant.ToLogString()}, accounts={response.Accounts.Count}, nextSwitch={(response.NextSwitch is null ? "none" : "one")}");
             return Results.Json(response);
         }

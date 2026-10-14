@@ -110,9 +110,9 @@ public static class LicenseDisplayFold
             ReadAtUtc = view.Freshest is { } read ? Utc(read.JudgedReadAtUtc) : null,
             ReadAgeText = view.Freshest is { } freshest
                 ? $"Read {Ago(now - freshest.JudgedReadAtUtc)} on {names.Label(freshest.MachineName, freshest.OsUser)}"
-                : "Never read",
+                : "Never read on any machine",
             ReadError = view.Freshest?.ReadError,
-            ReadErrorText = ReadErrorText(view.Freshest?.ReadError, view.Freshest?.ReadErrorDetail),
+            ReadErrorText = ReadErrorText(view.Freshest?.ReadError, view.Freshest?.ReadErrorDetail, accountWasEverRead: true),
             ExtraUsage = ExtraUsage(view.Freshest?.ExtraUsageEnabled, view.Freshest?.ExtraUsageUtilization),
             RenewsOn = view.RenewsOn?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
             RenewsText = RenewsText(view.RenewsOn, now),
@@ -405,7 +405,10 @@ public static class LicenseDisplayFold
             : inProgress is not null ? (LicenseMachineStatuses.Switching, "Switching", LicenseTones.Neutral)
             : machine.ActiveAccountEmail is null ? (LicenseMachineStatuses.SignedOut, "Signed out", LicenseTones.Warning)
             : (LicenseMachineStatuses.Reporting, "Reporting", LicenseTones.Good);
-        var holdings = machine.Holdings.Select(h => Holding(h, nowUtc)).ToList();
+        // A read error of a sign-in whose account no machine has ever read must not speak of "the numbers shown":
+        // the card shows none.
+        var everRead = picture.Overview.Accounts.Where(a => a.Freshest is not null).Select(a => a.AccountEmail).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var holdings = machine.Holdings.Select(h => Holding(h, nowUtc, everRead.Contains(h.AccountEmail))).ToList();
         var hold = HoldInForce(picture.Snapshot, machine);
         return new LicenseMachineDto
         {
@@ -467,8 +470,10 @@ public static class LicenseDisplayFold
         return null;
     }
 
-    /// <summary>One sign-in a machine holds, with its expiry verdict as the read model gave it and the words for it.</summary>
-    public static LicenseMachineHoldingDto Holding(LicenseHoldingView holding, DateTime nowUtc)
+    /// <summary>One sign-in a machine holds, with its expiry verdict as the read model gave it and the words for it.
+    /// <paramref name="accountWasEverRead"/> is whether any machine has read this account's usage, so a read error
+    /// never points at numbers the page does not have.</summary>
+    public static LicenseMachineHoldingDto Holding(LicenseHoldingView holding, DateTime nowUtc, bool accountWasEverRead)
     {
         ArgumentNullException.ThrowIfNull(holding);
         var (expiryText, expiryTone) = holding.ExpiryVerdict switch
@@ -482,6 +487,7 @@ public static class LicenseDisplayFold
         {
             AccountEmail = holding.AccountEmail,
             IsActive = holding.IsActive,
+            RoleText = holding.IsActive ? "Active" : "Spare",
             SignedInAtUtc = holding.SignedInAtUtc is { } signedIn ? Utc(signedIn) : null,
             SignedInText = holding.SignedInAtUtc is { } at ? $"Signed in {Ago(nowUtc - at)}" : "Sign-in date not known",
             SignInExpiresAtUtc = holding.SignInExpiresAtUtc is { } expires ? Utc(expires) : null,
@@ -498,19 +504,25 @@ public static class LicenseDisplayFold
                 : LicenseTones.Warning,
             IsReadingStale = holding.IsReadingStale,
             ReadError = holding.ReadError,
-            ReadErrorText = ReadErrorText(holding.ReadError, null),
+            ReadErrorText = ReadErrorText(holding.ReadError, null, accountWasEverRead),
         };
     }
 
     // ----- the forecast -----
 
-    /// <summary>The forecast and the schedule, in words. <paramref name="forecast"/> is
-    /// <see cref="LicenseForecaster.Forecast"/> on the picture's own snapshot.</summary>
-    public static LicenseForecastResponse Forecast(LicensePicture picture, LicenseForecast forecast)
+    /// <summary>
+    /// The forecast and the schedule, in words, with the rates from <paramref name="histories"/>.
+    /// Folded from the picture Switch now decides on (<see cref="LicenseSwitchService.SnapshotSwitchNowDecidesOn"/>),
+    /// the same one the overview's Switch now offer is asked of: a switch the Gateway knows it never sent (pending,
+    /// the Director not connected) neither holds its machine back here nor is called a switch "sent to it", so the
+    /// page can never offer Switch now on a card while the schedule says nothing would be switched.
+    /// </summary>
+    public static LicenseForecastResponse Forecast(LicensePicture picture, IReadOnlyList<LicenseAccountHistory> histories)
     {
         ArgumentNullException.ThrowIfNull(picture);
-        ArgumentNullException.ThrowIfNull(forecast);
-        var snapshot = picture.Snapshot;
+        ArgumentNullException.ThrowIfNull(histories);
+        var snapshot = LicenseSwitchService.SnapshotSwitchNowDecidesOn(picture);
+        var forecast = LicenseForecaster.Forecast(snapshot, histories);
         var now = snapshot.NowUtc;
         FileLog.Write($"[LicenseDisplayFold] Forecast: accounts={forecast.Accounts.Count}, nextSwitch={(forecast.NextSwitch is null ? "none" : "one")}");
 
@@ -874,17 +886,22 @@ public static class LicenseDisplayFold
     // ----- words -----
 
     /// <summary>The sentence for a failed read; the Director's own sentence, or the word, when this build does not know it.</summary>
-    public static string? ReadErrorText(string? readError, string? detail) => readError switch
+    public static string? ReadErrorText(string? readError, string? detail, bool accountWasEverRead)
     {
-        null or "" => null,
-        LicenseReadErrors.Unauthorized => "The provider refused this sign-in. It needs a new sign-in.",
-        LicenseReadErrors.RefreshFailed => "The stored sign-in could not be renewed. It needs a new sign-in.",
-        LicenseReadErrors.RateLimited => "The provider is limiting how often usage can be read. The numbers shown are the last ones read.",
-        LicenseReadErrors.Network => "The machine could not reach the provider. The numbers shown are the last ones read.",
-        LicenseReadErrors.UnexpectedAnswer => "The provider's answer could not be understood. The numbers shown are the last ones read.",
-        LicenseReadErrors.StoreUnreadable => "The machine could not read its stored sign-in.",
-        _ => string.IsNullOrWhiteSpace(detail) ? $"The last read failed ({readError})." : detail,
-    };
+        // Said only when there are numbers on the card to point at; an account never read has none.
+        var numbers = accountWasEverRead ? "The numbers shown are the last ones read." : "No usage has been read for this account yet.";
+        return readError switch
+        {
+            null or "" => null,
+            LicenseReadErrors.Unauthorized => "The provider refused this sign-in. It needs a new sign-in.",
+            LicenseReadErrors.RefreshFailed => "The stored sign-in could not be renewed. It needs a new sign-in.",
+            LicenseReadErrors.RateLimited => $"The provider is limiting how often usage can be read. {numbers}",
+            LicenseReadErrors.Network => $"The machine could not reach the provider. {numbers}",
+            LicenseReadErrors.UnexpectedAnswer => $"The provider's answer could not be understood. {numbers}",
+            LicenseReadErrors.StoreUnreadable => "The machine could not read its stored sign-in.",
+            _ => string.IsNullOrWhiteSpace(detail) ? $"The last read failed ({readError})." : detail,
+        };
+    }
 
     /// <summary>
     /// The sentence for an account's renewal date - the day its SUBSCRIPTION is billed again, as a person set it. The
@@ -939,7 +956,7 @@ public static class LicenseDisplayFold
             Utilization = utilization,
         },
         false => new LicenseExtraUsageDto { State = LicenseExtraUsageStates.Off, Text = "Paid extra usage is off", Utilization = utilization },
-        null => new LicenseExtraUsageDto { State = LicenseExtraUsageStates.NotKnown, Text = "Not known", Utilization = utilization },
+        null => new LicenseExtraUsageDto { State = LicenseExtraUsageStates.NotKnown, Text = "Paid extra usage not known", Utilization = utilization },
     };
 
     private static string PlanText(string? plan)

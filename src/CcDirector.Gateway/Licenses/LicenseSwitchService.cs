@@ -600,7 +600,8 @@ public sealed class LicenseSwitchService
 
     /// <summary>
     /// The shared picture, with one mark judged here. <see cref="LicenseSnapshotSource"/> marks every machine that has
-    /// an open switch row as mid-switch, which is what the Licenses page and the forecast should show. For DECIDING,
+    /// an open switch row as mid-switch. For DECIDING - and for the Licenses page and the forecast, which show what Switch
+    /// now would decide (<see cref="SnapshotSwitchNowDecidesOn"/>) -
     /// a row known never to have left its Gateway does not hold its machine back (see the class summary): the engine
     /// must still be asked about that machine, because its answer is what says whether the waiting switch still
     /// stands, and a row this check has just ended no longer holds its machine either. So the mark is set from

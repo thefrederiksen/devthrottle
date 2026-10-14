@@ -412,9 +412,39 @@ public sealed class LicenseDisplayFoldTests : IDisposable
 
         Assert.Equal(LicenseAccountStatuses.Stale, account.Status);
         Assert.Equal("No usage reading has arrived for this account yet.", account.StatusDetail);
-        Assert.Equal("Never read", account.ReadAgeText);
+        Assert.Equal("Never read on any machine", account.ReadAgeText);
         Assert.Null(account.ReadAtUtc);
         Assert.Equal((LicenseWindowLevels.NotKnown, "Not known"), (account.FiveHour.Level, account.FiveHour.UtilizationText));
+        Assert.Equal((LicenseExtraUsageStates.NotKnown, "Paid extra usage not known"), (account.ExtraUsage.State, account.ExtraUsage.Text));
+    }
+
+    // The whole-phase review's finding 4: a holding's read error spoke of "the numbers shown" on a card that showed
+    // none. It does so only when some machine has read the account.
+    [Fact]
+    public void Holding_ReadError_PointsAtTheNumbersShown_OnlyWhenTheAccountWasEverRead()
+    {
+        var never = Holding(B, false, readError: LicenseReadErrors.Network);
+        never.FiveHour = null;
+        never.SevenDay = null;
+        never.ReadAtUtc = null;
+        Apply(Report("m1", Holding(A, true, readError: LicenseReadErrors.Network), never));
+
+        var machine = Overview(T0).Machines.Single();
+
+        Assert.Equal("The machine could not reach the provider. The numbers shown are the last ones read.", machine.Active!.ReadErrorText);
+        Assert.Equal("The machine could not reach the provider. No usage has been read for this account yet.", machine.Spares.Single().ReadErrorText);
+    }
+
+    // The whole-phase review's finding 5: the role word of a sign-in is the Gateway's, not the page's.
+    [Fact]
+    public void Holding_RoleText_IsActiveOrSpare()
+    {
+        Apply(Report("m1", Holding(A, true), Holding(B, false)));
+
+        var machine = Overview(T0).Machines.Single();
+
+        Assert.Equal((true, "Active"), (machine.Active!.IsActive, machine.Active.RoleText));
+        Assert.Equal((false, "Spare"), (machine.Spares.Single().IsActive, machine.Spares.Single().RoleText));
     }
 
     [Theory]
@@ -816,7 +846,60 @@ public sealed class LicenseDisplayFoldTests : IDisposable
     private LicenseForecastResponse Forecast(DateTime now, LicenseUsageHistory history)
     {
         var picture = Picture(now);
-        return LicenseDisplayFold.Forecast(picture, LicenseForecaster.Forecast(picture.Snapshot, history.Read(Tenant, now)));
+        return LicenseDisplayFold.Forecast(picture, history.Read(Tenant, now));
+    }
+
+    // The whole-phase review's finding 1: right after a Switch now with every Director offline, the card offered
+    // Switch now while the schedule said no machine could be switched and that a switch "sent to it" had not
+    // finished - two routes folding one machine from two pictures. A row the Gateway knows it never sent must read
+    // the same on both: the machine can be switched, and the schedule says where it goes next.
+    [Fact]
+    public void ForecastAndOverview_ASwitchKnownNeverSent_AreFoldedFromOnePicture_SoTheThreeSentencesAgree()
+    {
+        var history = new LicenseUsageHistory();
+        history.Record(Tenant, Report("m1", Holding(A, true, 50.25, readAt: T0.AddMinutes(-20))), TimeSpan.Zero, T0);
+        history.Record(Tenant, Report("m1", Holding(A, true, 60.25)), TimeSpan.Zero, T0);
+        var mac = Apply(Report("m1", Holding(A, true, 60.25), Holding(B, false, 4, 22)));
+        var windows = Apply(Report("m2", Holding(A, true, 60.25), Holding(B, false, 4, 22)), seq: 2);
+        foreach (var machine in new[] { mac, windows })
+        {
+            var row = _store.CreatePendingSwitch(Tenant, machine, A, B, LicenseSwitchReasons.Manual, T0)!;
+            Assert.True(_store.TryMark(Tenant, row.SwitchId!, LicenseLogStates.Pending, LicenseGatewayReasonCodes.DirectorOffline, null, T0));
+        }
+
+        var overview = Overview(T0);
+        var forecast = Forecast(T0, history);
+
+        // The card: Switch now is offered, and it moves both machines to B.
+        var card = overview.Accounts.Single(a => a.AccountEmail == A);
+        Assert.True(card.CanSwitchNow);
+        Assert.Equal(B, card.SwitchNowTargetAccountEmail);
+        Assert.Equal($"Moves m1 and m2 to {B}.", card.SwitchNowText);
+        // The schedule's page sentence: the same target, and never "nothing would be switched".
+        Assert.Equal($"{A} is expected to reach 97% of its 5-hour window in about 1 hour 13 minutes; its machines then move to {B}, the account the Gateway would choose today.",
+            forecast.NextSwitchText);
+        Assert.Equal(new[] { "m1", "m2" }, forecast.NextSwitch!.Machines.Select(m => m.Label));
+        Assert.Equal($"Next: {B}, in about 1 hour 13 minutes.", forecast.Accounts.Single(a => a.AccountEmail == A).NextSwitchText);
+        // Each schedule row: where it goes next, beside the overview's true "waiting" sentence - never "sent to it".
+        Assert.All(forecast.Machines, m => Assert.Equal((B, $"Next: {B}, in about 1 hour 13 minutes."), (m.NextAccountEmail, m.Text)));
+        Assert.All(overview.Machines, m => Assert.Equal($"Waiting to switch from {A} to {B}: the machine's Director is not connected.", m.SwitchInProgress!.Text));
+    }
+
+    // The other side of the same picture: a switch that WAS sent and has no answer holds its machine back on both
+    // routes, so the card offers nothing and the schedule says why.
+    [Fact]
+    public void ForecastAndOverview_ASwitchSentWithNoAnswer_HoldsTheMachineBackOnBoth()
+    {
+        var id = Apply(Report("m1", Holding(A, true, 60.25), Holding(B, false, 4, 22)));
+        var row = _store.CreatePendingSwitch(Tenant, id, A, B, LicenseSwitchReasons.Manual, T0)!;
+        Assert.True(_store.TryMark(Tenant, row.SwitchId!, LicenseLogStates.Unknown, null, null, T0));
+
+        var card = Account(A, T0);
+        var machine = Forecast(T0, new LicenseUsageHistory()).Machines.Single();
+
+        Assert.False(card.CanSwitchNow);
+        Assert.Equal("Would not be switched now: a switch sent to it has not finished.", machine.Text);
+        Assert.Null(machine.NextAccountEmail);
     }
 
     [Fact]

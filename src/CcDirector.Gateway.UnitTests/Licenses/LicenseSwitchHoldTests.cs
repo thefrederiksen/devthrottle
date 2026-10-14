@@ -311,7 +311,7 @@ public sealed class LicenseSwitchHoldTests : IDisposable
         HeldSince0314();
         var picture = Picture(T0.AddMinutes(3));
 
-        var forecast = LicenseDisplayFold.Forecast(picture, LicenseForecaster.Forecast(picture.Snapshot, new LicenseUsageHistory().Read(Tenant, T0.AddMinutes(3))));
+        var forecast = LicenseDisplayFold.Forecast(picture, new LicenseUsageHistory().Read(Tenant, T0.AddMinutes(3)));
 
         var machine = Assert.Single(forecast.Machines);
         Assert.Equal("Next: account-b@example.com, not before 2026-10-11 03:16 UTC: the automatic switch is held for this machine.", machine.Text);
