@@ -2354,6 +2354,9 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasColumnType("character varying(320)")
                         .UseCollation("C");
 
+                    b.Property<DateTime?>("HeldUntilUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("Kind")
                         .IsRequired()
                         .HasMaxLength(16)

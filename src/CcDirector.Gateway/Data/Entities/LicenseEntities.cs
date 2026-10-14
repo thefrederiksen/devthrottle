@@ -237,6 +237,12 @@ public sealed class LicenseSwitchLogEntity : GatewayMintedKeyEntity
     /// <summary>When the row reached its final state (by the Gateway's clock); null while pending or unknown. A spare
     /// row is final when written.</summary>
     public DateTime? FinishedAtUtc { get; set; }
+
+    /// <summary>On a <c>failed</c> switch row that was at least the second in a row to fail the same way (the same
+    /// reason word, the same from and to) on its machine: the machine is left out of the AUTOMATIC decision until
+    /// this time (<c>Licenses.LicenseStore.HoldAfterRepeatedFailure</c>). It counts only while the row is the
+    /// machine's latest switch row. Null on every other row.</summary>
+    public DateTime? HeldUntilUtc { get; set; }
 }
 
 /// <summary>

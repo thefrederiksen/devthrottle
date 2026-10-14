@@ -44,6 +44,18 @@ public sealed record LicenseAccountReading(
 /// <param name="SignInExpiresAtUtc">When the spare's sign-in expires, as the Director reports it; null when not known.</param>
 public sealed record LicenseSpare(string AccountEmail, string? ReadError, DateTime? SignInExpiresAtUtc = null);
 
+/// <summary>
+/// A machine held out of the AUTOMATIC decision because its switch keeps failing: its latest switch row was at least
+/// the second in a row to fail the same way (the same reason word, the same from and to). Switch now ignores it, as it
+/// ignores a bar. It counts only while the machine is still on <paramref name="FromAccountEmail"/> and
+/// <paramref name="HeldUntilUtc"/> is ahead.
+/// </summary>
+/// <param name="HeldUntilUtc">The automatic decision leaves the machine out until this time.</param>
+/// <param name="FromAccountEmail">The account the failing switch was to leave, lower-cased.</param>
+/// <param name="ToAccountEmail">The target of the failing switch, lower-cased.</param>
+/// <param name="ReasonCode">The reason word the switch failed with each time.</param>
+public sealed record LicenseHold(DateTime HeldUntilUtc, string FromAccountEmail, string ToAccountEmail, string? ReasonCode);
+
 /// <summary>One machine - (MachineName, OsUser) inside the tenant - as its latest accepted report and the switch log show it.</summary>
 /// <param name="MachineName">As the Director reports it.</param>
 /// <param name="OsUser">As the Director reports it.</param>
@@ -53,6 +65,8 @@ public sealed record LicenseSpare(string AccountEmail, string? ReadError, DateTi
 /// <param name="HasOpenSwitch">The switch log has a row for this machine in <c>pending</c> or <c>unknown</c>.</param>
 /// <param name="SwitchInProgressId">The latest report's <c>SwitchInProgressId</c>, else null.</param>
 /// <param name="ActiveSignInExpiresAtUtc">When the active holding's sign-in expires; null when not known.</param>
+/// <param name="Hold">The hold its latest switch row carries, when that row was a repeated failure; else null. Whether
+/// it is in force is <see cref="LicenseDecisionEngine.IsHeld"/>.</param>
 public sealed record LicenseMachineState(
     string MachineName,
     string OsUser,
@@ -61,7 +75,8 @@ public sealed record LicenseMachineState(
     DateTime LastReportReceivedAtUtc,
     bool HasOpenSwitch,
     string? SwitchInProgressId,
-    DateTime? ActiveSignInExpiresAtUtc = null);
+    DateTime? ActiveSignInExpiresAtUtc = null,
+    LicenseHold? Hold = null);
 
 /// <summary>
 /// An account that triggered a switch is not chosen as a target again until the window that triggered it
@@ -73,8 +88,9 @@ public sealed record LicenseMachineState(
 public sealed record LicenseBar(string AccountEmail, string Window, DateTime BarredUntilUtc);
 
 /// <summary>
-/// An exhaustion event: an account in use is at the threshold and no target exists - one continuous outage.
-/// It starts on the tick that finds no target. It ends when no machine is on the account any more (a switch
+/// An exhaustion event: an account in use is at the threshold and nothing can be switched - one continuous outage.
+/// It starts on the tick that finds no target, or finds that every machine that could be sent a switch is held
+/// because its switch keeps failing (<see cref="LicenseHold"/>). It ends when no machine is on the account any more (a switch
 /// succeeded, or someone moved the machines by hand), when a fresh reading shows no window at the threshold,
 /// or when its end time has passed - but never by time while a fresh reading still shows a tired window;
 /// then its end moves to that window's reset instead. Exactly one owner email is sent per event.
@@ -114,7 +130,17 @@ public sealed record LicenseSwitchDecision(
     string Explanation);
 
 /// <summary>An email to the tenant's owner. The recipient is resolved by the mail service, never named here.</summary>
-public sealed record LicenseOwnerEmail(string AccountEmail, string Subject, string BodyText);
+/// <param name="AccountEmail">The Claude account the email is about.</param>
+/// <param name="Subject">The subject line.</param>
+/// <param name="BodyText">The body, as plain text.</param>
+/// <param name="Happened">For the email of an exhaustion event: what the event's row of the Licenses log says
+/// happened, as one clause with no full stop - "no account had room", or "the switch keeps failing". Null on any
+/// other email.</param>
+/// <remarks><c>AccountEmail</c> IS NOT ALWAYS ONE ADDRESS. The email about several sign-ins that could not be renewed
+/// (<see cref="LicenseRenewalEmailService"/>) names every account it is about there, separated by ", ". It is a
+/// label for the log and for a reader, never an address to send to or a key to count by: the owner's own address is
+/// looked up by the mailer from the DevThrottle account.</remarks>
+public sealed record LicenseOwnerEmail(string AccountEmail, string Subject, string BodyText, string? Happened = null);
 
 /// <summary>A machine on a tired account that this tick did not send a switch, and why.</summary>
 public sealed record LicenseSkippedMachine(string MachineName, string OsUser, string AccountEmail, string Why);

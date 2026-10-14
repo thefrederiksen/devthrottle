@@ -1160,7 +1160,7 @@ public sealed class LicenseDisplayFoldTests : IDisposable
         row.FinishedAtUtc = T0.AddHours(2);
         var ended = LicenseDisplayFold.LogEntry(row);
 
-        Assert.Equal(("no-room", "No account had room", true), (open.Kind, open.KindText, open.IsOpen));
+        Assert.Equal(("no-room", "Nothing was switched", true), (open.Kind, open.KindText, open.IsOpen));
         Assert.Equal("No account had room for the machines on account-a@example.com. You were emailed.", open.Summary);
         Assert.Equal("open", open.StateText);   // a state word this build does not know is shown as it is
         Assert.False(ended.IsOpen);

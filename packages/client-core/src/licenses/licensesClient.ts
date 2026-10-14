@@ -185,6 +185,10 @@ export interface LicenseMachine extends LicenseMachineRef {
   active: LicenseHolding | null;
   spares: LicenseHolding[];
   switchInProgress: LicenseSwitchInProgress | null;
+  /** The time the machine is held out of the automatic switch until; null when it is not held. Never compared here. */
+  heldUntilUtc: string | null;
+  /** The Gateway's sentence saying the machine is held, why and until when; null when it is not held. Drawn as given. */
+  heldText: string | null;
   /** Add a spare is offered for this machine. */
   canAddSpare: boolean;
   /** What Add a spare does, or the sentence saying why it is not offered - the one the route refuses with. */

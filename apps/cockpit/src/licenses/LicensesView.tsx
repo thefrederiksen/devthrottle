@@ -524,6 +524,7 @@ function ScheduleTable({ machines, forecast }: { machines: ReadonlyArray<License
               <td>
                 <TonePill text={machine.statusText} tone={machine.statusTone} />
                 <div className="lic-dim">{machine.lastReportText}</div>
+                {machine.heldText !== null && <div data-testid="lic-machine-held">{machine.heldText}</div>}
               </td>
               <td className="lic-nowrap">{machine.activeAccountEmail}</td>
               <td className="lic-nowrap">{next?.nextAccountEmail}</td>
