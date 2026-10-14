@@ -504,13 +504,19 @@ public static class LicenseDisplayFold
 
     // ----- the forecast -----
 
-    /// <summary>The forecast and the schedule, in words. <paramref name="forecast"/> is
-    /// <see cref="LicenseForecaster.Forecast"/> on the picture's own snapshot.</summary>
-    public static LicenseForecastResponse Forecast(LicensePicture picture, LicenseForecast forecast)
+    /// <summary>
+    /// The forecast and the schedule, in words, with the rates from <paramref name="histories"/>.
+    /// Folded from the picture Switch now decides on (<see cref="LicenseSwitchService.SnapshotSwitchNowDecidesOn"/>),
+    /// the same one the overview's Switch now offer is asked of: a switch the Gateway knows it never sent (pending,
+    /// the Director not connected) neither holds its machine back here nor is called a switch "sent to it", so the
+    /// page can never offer Switch now on a card while the schedule says nothing would be switched.
+    /// </summary>
+    public static LicenseForecastResponse Forecast(LicensePicture picture, IReadOnlyList<LicenseAccountHistory> histories)
     {
         ArgumentNullException.ThrowIfNull(picture);
-        ArgumentNullException.ThrowIfNull(forecast);
-        var snapshot = picture.Snapshot;
+        ArgumentNullException.ThrowIfNull(histories);
+        var snapshot = LicenseSwitchService.SnapshotSwitchNowDecidesOn(picture);
+        var forecast = LicenseForecaster.Forecast(snapshot, histories);
         var now = snapshot.NowUtc;
         FileLog.Write($"[LicenseDisplayFold] Forecast: accounts={forecast.Accounts.Count}, nextSwitch={(forecast.NextSwitch is null ? "none" : "one")}");
 
