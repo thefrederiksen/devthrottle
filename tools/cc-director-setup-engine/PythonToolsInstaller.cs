@@ -928,6 +928,7 @@ public sealed class PythonToolsInstaller
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 reason = $"{dir} cannot be replaced ({ex.Message}); {DescribeProcessesUsing(_layout.PythonDir, _layout.PyenvDir)}";
+                // not-an-error: a tool in use is the expected reason to hold the update; the caller logs the hold.
                 EngineLog.Write($"[PythonToolsInstaller] ToolTreesAreFree: {reason}");
                 return false;
             }
@@ -952,6 +953,7 @@ public sealed class PythonToolsInstaller
             }
             catch (Exception ex) when ((ex is IOException or UnauthorizedAccessException) && attempt < 10)
             {
+                // not-an-error: a transient refusal that is retried; the last attempt throws and is reported.
                 EngineLog.Write($"[PythonToolsInstaller] MoveBack: attempt {attempt} to rename {probe} back to {dir} refused ({ex.Message}); retrying");
                 Thread.Sleep(200);
             }
