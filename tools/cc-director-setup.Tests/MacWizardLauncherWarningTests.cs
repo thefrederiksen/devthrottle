@@ -36,8 +36,9 @@ public sealed class MacWizardLauncherWarningTests
         Assert.Contains("item.FailedStep = InstallWarning.PlaceStep", body);
         Assert.Contains("item.FailedStep = InstallWarning.StartStep", body);
         // Whether the Director has anything to repair is read from the disk AFTER the failure: a first install
-        // launchd refuses has just deleted the property list it wrote (review round five).
-        Assert.Contains("item.LaunchAgentPresent = LauncherLaunchdAutostart.IsRegistered();", body);
+        // launchd refuses has just deleted the property list it wrote (review round five). macOS only: the wizard
+        // installs the launcher on Linux too (#3091), where there is no launch agent and no repair to offer.
+        Assert.Contains("item.LaunchAgentPresent = OperatingSystem.IsMacOS() && LauncherLaunchdAutostart.IsRegistered();", body);
     }
 
     [Fact]
