@@ -12,7 +12,8 @@ namespace CcDirector.Core.Licenses;
 public sealed class LicenseSwitching : IDisposable
 {
     /// <summary>Points the license tool at an isolated default Claude config folder. Every test and every phase 1 run
-    /// sets it; until phase 5 the tool refuses the machine's real default login.</summary>
+    /// sets it. Unset, the tool works on the machine's real default login - which it does only when license switching
+    /// is on (<see cref="LicenseCommandLineOptions.AllowRealDefault"/>).</summary>
     public const string DefaultConfigDirVariable = "CC_LICENSE_DEFAULT_CONFIG_DIR";
 
     /// <summary>Points the license tool at an isolated key store folder. When set, the Director's own files - the key
@@ -84,7 +85,7 @@ public sealed class LicenseSwitching : IDisposable
         var folder = DirectorFolder(storeDir);
         var enabled = Configuration.LicenseSwitchingSetting.Get();
         FileLog.Write($"[LicenseSwitching] CreateForThisMachine: enabled={enabled}, folder={folder}, isolatedConfig={!string.IsNullOrWhiteSpace(configDir)}, isolatedStore={!string.IsNullOrWhiteSpace(storeDir)}");
-        return new LicenseSwitching(new CcDevthrottleLicenseCommandLine(new LicenseCommandLineOptions(configDir, storeDir)),
+        return new LicenseSwitching(new CcDevthrottleLicenseCommandLine(new LicenseCommandLineOptions(configDir, storeDir, AllowRealDefault: enabled)),
             folder, () => DateTime.UtcNow, Environment.MachineName, Environment.UserName, enabled);
     }
 

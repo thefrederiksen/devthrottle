@@ -56,6 +56,7 @@ from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Protocol
 
 from .license_store import (
+    ENV_ALLOW_REAL_DEFAULT,
     LicenseStore,
     LicenseStoreError,
     is_real_default,
@@ -141,6 +142,8 @@ class ClaudeLogin:
             raise SignInError(LOGIN_FAILED, "Claude Code (claude) is not on this machine's PATH.",
                               ["Install Claude Code, then run: claude --version"])
         env = dict(os.environ, CLAUDE_CONFIG_DIR=folder, BROWSER="none")
+        # The allowance is for the store this tool opened, never for anything it starts.
+        env.pop(ENV_ALLOW_REAL_DEFAULT, None)
         if is_real_default(folder):
             # Claude Code names the real default login by CLAUDE_CONFIG_DIR being UNSET (license_store); set to the
             # same folder, it would sign in under another Keychain name.
@@ -405,6 +408,7 @@ def _run_harness(script: str, env: Dict[str, str], timeout_seconds: float) -> st
         raise SignInError(APPROVAL_FAILED, "browser-harness is not on this machine's PATH.",
                           ["Install browser-harness, then run: browser-harness --doctor"])
     full_env = dict(os.environ, **env)
+    full_env.pop(ENV_ALLOW_REAL_DEFAULT, None)
     try:
         done = subprocess.run([exe], input=script, capture_output=True, text=True, encoding="utf-8",
                               errors="replace", env=full_env, timeout=timeout_seconds)

@@ -27,8 +27,9 @@ THE RULES THIS MODULE EXISTS TO KEEP:
   crash can leave a duplicate for recovery to remove but never lose a sign-in.
 - No key value is ever printed, logged, put in an exception message, or written anywhere but its own store.
   ``HeldKey`` hides its value from ``repr`` and ``str``; the operations log carries emails and folders only.
-- The machine's real default folder is refused unless ``allow_real_default`` is passed. Nothing in this release
-  passes it, so no test, proof or command can touch the real login.
+- The machine's real default folder is refused unless ``allow_real_default`` is passed. The command line passes
+  it only when ``CC_LICENSE_ALLOW_REAL_DEFAULT`` is "1", which a Director sets for its own runs of the tool when its
+  license switching setting is on; a command typed by hand, a test or a proof still cannot touch the real login.
 
 FOR OTHER MODULES (usage reading, spare refresh): ``LicenseStore.held_accounts()`` lists what is held;
 ``HeldAccount.read_key()`` gives a ``HeldKey`` whose ``access_token()`` is the Bearer value, and
@@ -63,6 +64,9 @@ KEYCHAIN_INTERACTIVE_LIMIT = 4096
 
 ENV_DEFAULT_CONFIG_DIR = "CC_LICENSE_DEFAULT_CONFIG_DIR"
 ENV_STORE_DIR = "CC_LICENSE_STORE_DIR"
+#: Set to exactly "1" by a Director whose license switching setting is on, in the environment of its own runs of
+#: this tool and nowhere else. It is the only thing that lets a command open the machine's real default folder.
+ENV_ALLOW_REAL_DEFAULT = "CC_LICENSE_ALLOW_REAL_DEFAULT"
 
 JOURNAL_FILE = "journal.json"
 LOG_FILE = "license-store.log"
@@ -592,7 +596,7 @@ class LicenseStore:
         if is_real_default(self.default_config_dir) and not allow_real_default:
             raise LicenseStoreError(
                 f"refusing to use the machine's real default Claude folder ({self.default_config_dir}): "
-                "this release only works on isolated folders",
+                "only a Director with license switching turned on may use it",
                 [f"Pass an isolated folder with --default-config-dir or {ENV_DEFAULT_CONFIG_DIR}"],
             )
         if _inside(self.default_config_dir, self.store_dir) or _inside(self.store_dir, self.default_config_dir):
