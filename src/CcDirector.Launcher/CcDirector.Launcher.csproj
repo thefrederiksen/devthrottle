@@ -43,7 +43,7 @@
        not the capability to LISTEN, and connecting out is the entire architecture this mission moved
        the launcher to. -->
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.0" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.13" />
   </ItemGroup>
 
   <ItemGroup>

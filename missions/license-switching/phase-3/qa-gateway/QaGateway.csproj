@@ -25,8 +25,8 @@
   <ItemGroup>
     <Compile Include="..\..\..\..\src\CcDirector.Gateway.Tests\FakeTunnelDirector.cs" Link="FakeTunnelDirector.cs" />
     <Compile Include="..\..\..\..\src\CcDirector.Gateway.Tests\DeadPortReservation.cs" Link="DeadPortReservation.cs" />
-    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.9" />
-    <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.MessagePack" Version="10.0.9" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.13" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.MessagePack" Version="10.0.13" />
   </ItemGroup>
 
 </Project>

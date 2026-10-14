@@ -25,7 +25,7 @@
          the shared framework, so it is referenced explicitly. Binary framing keeps a 48KB byte[] up-stream
          frame ~48KB on the wire (not ~64KB base64 under JSON), so the MaxBinaryFrameBytes+envelope receive
          limit is correct and there is no 33% base64 tax on every tunnel byte. -->
-    <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.MessagePack" Version="10.0.9" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.MessagePack" Version="10.0.13" />
     <!-- Server-side QR generation for the phone-pairing QR (issue #385). PngByteQRCode renders
          PNG bytes with no System.Drawing dependency, so it works cross-platform / headless. -->
     <PackageReference Include="QRCoder" Version="1.8.0" />
