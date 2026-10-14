@@ -1,11 +1,12 @@
-Factory Definition phase 2 - upload proof on SOREN_NORTH, 2026-10-14 16:48:17 -0400
-Worktree: fd-p2-records, commit 7dbde7ad9 (before the rebase onto b4f079a0c; the upload code did not change)
+Factory Definition phase 2 - upload proof on SOREN_NORTH, 2026-10-14 19:43:04 -0400
+Worktree: fd-p2-records, commit f0452a640 with the review fix applied in the working tree (committed next, unchanged)
+Publishing the desktop Gateway from this worktree ...
 
 == 1. Fingerprint the records folders before ==
 1481 files, 440767674 bytes
 
 == 2. Start a test Gateway on port 7996 with its own storage root ==
-Ready (process 67856). Its machine credential is read from its own token file and never printed.
+Ready (process 69736). Its machine credential is read from its own token file and never printed.
 
 == 3. The upload, first run ==
 Factory records under C:\Users\soren\AppData\Local, uploaded to http://127.0.0.1:7996 as SOREN_NORTH.
@@ -87,13 +88,12 @@ exit code 0
   attachment bytes the rows state: 247830740
 
 == 6. The refusals, over HTTP on the same Gateway, each answer quoted ==
-Version 1 of the ledger: 200 Written
-Two writers both read version 1. Writer A adds row-b, writer B adds row-c:
-  writer A: 200 Written, version 2
-  writer B: 409 outcome Stale
-    error: "'outreach/ledger.json' is at version 2, not 1; read it again, merge, and write once more"
-    current: version 2, text "row-a\nrow-b"
-  writer B merges into what it was handed and writes against version 2: 200 Written, version 3
+Version 1 of the ledger, written by the upload: 200 Written
+The upload writes it again, still expecting version 0 (a second machine's file of the same name):
+  409 outcome Stale
+    error: "'outreach/ledger.json' is at version 1, not 0; read it again, merge, and write once more"
+    current: null - the machine credential is never handed a record's text
+  (and it cannot read the history to see it either: 403)
 An attachment of 4194305 bytes: 413 outcome TooLarge
     error: "'walk/big.png' holds 4194305 bytes; one attachment holds at most 4194304 (4 MB). Nothing was stored. Make the file smaller - a screenshot at a lower resolution, or as a JPEG - and add it again"
 The machine credential writing without an import key: 403
@@ -104,7 +104,7 @@ The machine credential reading the documents: 403
     error: "a factory's records are read by a person, or by a session of the factory"
 A wrong credential: 401
 
-== 7. Stop the test Gateway this run started (process 67856) ==
+== 7. Stop the test Gateway this run started (process 69736) ==
 POST /shutdown -> 200
 Stopped (exit code 0).
 

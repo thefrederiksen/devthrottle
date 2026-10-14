@@ -166,7 +166,7 @@ internal static class FactoryRecordEndpoints
         var write = store.Append(tenant, writer.Factory, body.Seat, body.Date, body.Text, body.AttachmentIds,
             writer.Kind, writer.Id, nowUtc(), body.ImportKey);
         if (write.Ok) return Written(write.Outcome, entry: ToDto(write.Entry!));
-        return Refused(route, write.Outcome, write.Refusal!, current: write.Entry is null ? null : ToDto(write.Entry));
+        return Refused(route, writer, write.Outcome, write.Refusal!, current: write.Entry is null ? null : ToDto(write.Entry));
     }
 
     // ---------- working documents ----------
@@ -259,8 +259,8 @@ internal static class FactoryRecordEndpoints
             writer.Kind, writer.Id, nowUtc(), body.ImportKey);
         if (write.Ok) return Written(write.Outcome, document: ToDto(write.Document!, withText: false));
         // THE CURRENT TEXT RIDES A STALE REFUSAL. Without it a refused writer must read, merge and race again; with
-        // it, it already holds what it needs to merge.
-        return Refused(route, write.Outcome, write.Refusal!,
+        // it, it already holds what it needs to merge. Never to the upload: see Refused.
+        return Refused(route, writer, write.Outcome, write.Refusal!,
             current: write.Document is null ? null : ToDto(write.Document, withText: true));
     }
 
@@ -324,7 +324,7 @@ internal static class FactoryRecordEndpoints
         var write = store.Add(tenant, writer.Factory, body.Seat, body.Name ?? "", body.ContentType, content,
             writer.Kind, writer.Id, nowUtc(), body.ImportKey);
         if (write.Ok) return Written(write.Outcome, attachment: ToDto(write.Attachment!, content: null));
-        return Refused(route, write.Outcome, write.Refusal!,
+        return Refused(route, writer, write.Outcome, write.Refusal!,
             current: write.Attachment is null ? null : ToDto(write.Attachment, content: null));
     }
 
@@ -461,8 +461,15 @@ internal static class FactoryRecordEndpoints
             Attachment = attachment,
         });
 
-    private static IResult Refused(string route, FactoryRecordOutcome outcome, string refusal, object? current)
+    /// <summary>
+    /// A refused write, in words, with the record that stands in the way under <c>current</c> so a person or a session
+    /// can merge into it. THE UPLOAD IS NEVER HANDED THAT RECORD: the machine token reads no record, and a refusal that
+    /// carried one would be a read by another door - a stale write naming any document would hand back its newest
+    /// text. The upload never merges; it reports a refused file by name, so it loses nothing.
+    /// </summary>
+    private static IResult Refused(string route, Writer writer, FactoryRecordOutcome outcome, string refusal, object? current)
     {
+        if (writer.Kind == FactoryRecordAuthorKinds.Upload) current = null;
         var status = outcome switch
         {
             FactoryRecordOutcome.BadFactory or FactoryRecordOutcome.BadSeat or FactoryRecordOutcome.BadName

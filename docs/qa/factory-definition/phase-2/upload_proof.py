@@ -8,8 +8,11 @@ ONE FOREGROUND RUN, START TO FINISH. It:
     Director) is read, written or stopped;
  2. fingerprints every file under the machine's factory records folders (path, size, SHA-256);
  3. runs `cc-devthrottle factory records upload` against that Gateway, then runs it AGAIN;
- 4. proves the refusals over HTTP on the same Gateway, quoting each answer: two writers on one ledger, an oversized
-    attachment, the machine credential without an import key, the machine credential reading;
+ 4. proves the refusals over HTTP on the same Gateway, quoting each answer: a stale write by the upload (refused, and
+    handed no text), an oversized attachment, the machine credential without an import key, the machine credential
+    reading. Two writers on one ledger, the second handed the current text to merge, need a person's or a session's
+    credential, which this standalone Gateway cannot issue without a Director; that answer is quoted from
+    FactoryRecordRoutesThroughThePipelineTests, which sends it through the mapped routes;
  5. counts the rows that Gateway's own database holds, per table, against what the upload said it stored;
  6. fingerprints the records folders again and proves nothing changed;
  7. stops the Gateway it started with its own POST /shutdown, and waits for that process to exit.
@@ -237,16 +240,14 @@ def main():
         root = f"{url}/factory-records/qa-proof"
 
         s, b = http("PUT", root + "/documents", token, {"name": "outreach/ledger.json", "text": "row-a", "expectedVersion": 0, "importKey": "qa/1"}, up)
-        say(f"Version 1 of the ledger: {s} {b['outcome']}")
-        say("Two writers both read version 1. Writer A adds row-b, writer B adds row-c:")
-        s, b = http("PUT", root + "/documents", token, {"name": "outreach/ledger.json", "text": "row-a\nrow-b", "expectedVersion": 1, "importKey": "qa/2"}, up)
-        say(f"  writer A: {s} {b['outcome']}, version {b['document']['version']}")
-        s, b = http("PUT", root + "/documents", token, {"name": "outreach/ledger.json", "text": "row-a\nrow-c", "expectedVersion": 1, "importKey": "qa/3"}, up)
-        say(f"  writer B: {s} outcome {b['outcome']}")
+        say(f"Version 1 of the ledger, written by the upload: {s} {b['outcome']}")
+        say("The upload writes it again, still expecting version 0 (a second machine's file of the same name):")
+        s, b = http("PUT", root + "/documents", token, {"name": "outreach/ledger.json", "text": "row-b", "expectedVersion": 0, "importKey": "qa/2"}, up)
+        say(f"  {s} outcome {b['outcome']}")
         say(f"    error: \"{b['error']}\"")
-        say(f"    current: version {b['current']['version']}, text {json.dumps(b['current']['text'])}")
-        s, b = http("PUT", root + "/documents", token, {"name": "outreach/ledger.json", "text": b["current"]["text"] + "\nrow-c", "expectedVersion": 2, "importKey": "qa/4"}, up)
-        say(f"  writer B merges into what it was handed and writes against version 2: {s} {b['outcome']}, version {b['document']['version']}")
+        say(f"    current: {json.dumps(b['current'])} - the machine credential is never handed a record's text")
+        s, b = http("GET", root + "/documents/history?name=outreach/ledger.json", token)
+        say(f"  (and it cannot read the history to see it either: {s})")
 
         big = os.urandom(records_cap() + 1)
         s, b = http("POST", root + "/attachments", token, {"name": "walk/big.png", "contentType": "image/png",

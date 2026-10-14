@@ -14,6 +14,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.Routing.Template;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace CcDirector.Gateway.Tests.Factory.Records;
 
@@ -37,9 +38,11 @@ public sealed class FactoryRecordRoutesThroughThePipelineTests : IDisposable
     private readonly GatewayDbTestHarness _h = new();
     private readonly ServiceProvider _services;
     private readonly Routes _routes;
+    private readonly ITestOutputHelper _output;
 
-    public FactoryRecordRoutesThroughThePipelineTests()
+    public FactoryRecordRoutesThroughThePipelineTests(ITestOutputHelper output)
     {
+        _output = output;
         var db = _h.Open();
         var attachments = new FactoryAttachmentStore(db);
         _services = new ServiceCollection().AddRouting().AddLogging().BuildServiceProvider();
@@ -145,6 +148,18 @@ public sealed class FactoryRecordRoutesThroughThePipelineTests : IDisposable
             stale.Body.GetProperty("error").GetString());
         Assert.Equal("row-a\nrow-b", stale.Body.GetProperty("current").GetProperty("text").GetString());
         Assert.Equal(2, stale.Body.GetProperty("current").GetProperty("version").GetInt32());
+        // The answer exactly as the wire carries it; the phase 2 QA report quotes this line.
+        _output.WriteLine($"second writer: {stale.Status} {stale.Body.GetRawText()}");
+
+        // The one-time upload naming the same document is refused in the same words, but is never handed its text:
+        // the machine token reads no record, and a refusal that carried one would be a read.
+        var upload = await Send("PUT", Root + "/documents", AsTheMachineToken,
+            """{"name":"outreach/ledger.json","text":"anything","expectedVersion":0,"importKey":"devthrottle/outreach/ledger.json"}""");
+        Assert.Equal(409, upload.Status);
+        Assert.Equal("'outreach/ledger.json' is at version 2, not 0; read it again, merge, and write once more",
+            upload.Body.GetProperty("error").GetString());
+        Assert.Equal(JsonValueKind.Null, upload.Body.GetProperty("current").ValueKind);
+        _output.WriteLine($"the upload: {upload.Status} {upload.Body.GetRawText()}");
 
         var read = await Send("GET", Root + "/documents/read?name=outreach/ledger.json", AsASessionOfTheFactory);
         Assert.Equal("row-a\nrow-b", read.Body.GetProperty("text").GetString());

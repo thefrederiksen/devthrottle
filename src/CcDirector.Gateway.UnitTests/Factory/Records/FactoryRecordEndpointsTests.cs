@@ -232,6 +232,27 @@ public sealed class FactoryRecordEndpointsTests : IDisposable
             Assert.Equal(403, Status(r));
             Assert.Equal("a factory's records are read by a person, or by a session of the factory", ErrorOf(r));
         });
+
+        // NOR THROUGH A REFUSED WRITE. A stale write is answered with the record in the way so its writer can merge;
+        // the upload naming a document a person wrote must not be handed that document's text by the refusal.
+        var stale = WriteDoc(Machine(), "anything", expect: 0, importKey: "devthrottle/outreach/ledger.json");
+        Assert.Equal(409, Status(stale));
+        Assert.Equal("Stale", Field(stale, "outcome"));
+        Assert.Equal("'outreach/ledger.json' is at version 1, not 0; read it again, merge, and write once more", ErrorOf(stale));
+        Assert.Null(Field(stale, "current"));
+        Assert.Equal(1, _documents.History(A, TheFactory, Ledger).Total);
+    }
+
+    [Fact]
+    public void An_upload_whose_file_changed_is_refused_without_the_row_it_stored()
+    {
+        Wrote(AddEntry(Machine(), "the day as uploaded", importKey: "devthrottle/journal/2026-10-01.md"));
+
+        var changed = AddEntry(Machine(), "the day, grown since", importKey: "devthrottle/journal/2026-10-01.md");
+
+        Assert.Equal(409, Status(changed));
+        Assert.Equal("ImportConflict", Field(changed, "outcome"));
+        Assert.Null(Field(changed, "current"));
     }
 
     private IResult ReadDocHistory(HttpContext ctx)
