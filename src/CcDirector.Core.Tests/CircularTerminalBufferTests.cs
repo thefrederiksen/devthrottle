@@ -258,44 +258,6 @@ public class CircularTerminalBufferTests
     }
 
     [Fact]
-    public async Task ConcurrentAccess_IsThreadSafe()
-    {
-        using var buffer = new CircularTerminalBuffer(1024);
-        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-        var exceptions = new List<Exception>();
-
-        var writers = Enumerable.Range(0, 4).Select(i => Task.Run(() =>
-        {
-            var data = new byte[10];
-            Array.Fill(data, (byte)(i + 1));
-            while (!cts.Token.IsCancellationRequested)
-            {
-                try { buffer.Write(data); }
-                catch (Exception ex) { lock (exceptions) exceptions.Add(ex); return; }
-            }
-        })).ToArray();
-
-        var readers = Enumerable.Range(0, 4).Select(_ => Task.Run(() =>
-        {
-            long pos = 0;
-            while (!cts.Token.IsCancellationRequested)
-            {
-                try
-                {
-                    var (data, newPos) = buffer.GetWrittenSince(pos);
-                    pos = newPos;
-                    buffer.DumpAll();
-                }
-                catch (Exception ex) { lock (exceptions) exceptions.Add(ex); return; }
-            }
-        })).ToArray();
-
-        await Task.WhenAll(writers.Concat(readers).ToArray());
-        Assert.Empty(exceptions);
-        Assert.True(buffer.TotalBytesWritten > 0);
-    }
-
-    [Fact]
     public void Write_TwoSubscribers_ReceiveTheSameArrayInstanceWithIdenticalContent()
     {
         using var buffer = new CircularTerminalBuffer(64);

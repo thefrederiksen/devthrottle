@@ -266,12 +266,15 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
 
     // ---- the brief on the Gateway (Factory Seats mission, phase 2c) --------------------------------------------
 
+    /// <summary>When a brief is saved or published here: a fixed time, because when it happened is stored, not judged.</summary>
+    private static readonly DateTime BriefAt = new(2026, 10, 13, 12, 0, 0, DateTimeKind.Utc);
+
     private void PublishABrief(string seat, string text)
     {
         var saved = Briefs.SaveDraft(TenantId.Local, "warmforward", seat, text, Briefs.Standing(TenantId.Local, "warmforward", seat).Newest?.Version ?? 0,
-            FactoryMemoryAuthorKinds.Session, CallingSessionId, DateTime.UtcNow);
+            FactoryMemoryAuthorKinds.Session, CallingSessionId, BriefAt);
         Assert.True(saved.Ok);
-        Assert.True(Briefs.Publish(TenantId.Local, "warmforward", seat, saved.Brief!.Version, FactoryMemoryAuthorKinds.Person, "device-1", DateTime.UtcNow).Ok);
+        Assert.True(Briefs.Publish(TenantId.Local, "warmforward", seat, saved.Brief!.Version, FactoryMemoryAuthorKinds.Person, "device-1", BriefAt).Ok);
     }
 
     [Fact]
@@ -282,7 +285,7 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
         PublishABrief("nora-hale", "SECOND: be careful with money, and say so.");
         // A newer draft nobody has approved: it must not reach the talk.
         Assert.True(Briefs.SaveDraft(TenantId.Local, "warmforward", "nora-hale", "DRAFT: spend freely.", 2,
-            FactoryMemoryAuthorKinds.Session, CallingSessionId, DateTime.UtcNow).Ok);
+            FactoryMemoryAuthorKinds.Session, CallingSessionId, BriefAt).Ok);
 
         var response = await Talk("warmforward", "nora-hale");
 
