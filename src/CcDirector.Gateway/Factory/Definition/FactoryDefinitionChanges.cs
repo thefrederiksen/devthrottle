@@ -11,7 +11,8 @@ namespace CcDirector.Gateway.Factory.Definition;
 ///
 /// Seats are matched by their id, so a seat whose display name changes is a change to that seat, never a removal and
 /// an addition. Starts are matched by what they are: a start written the same in both is unchanged wherever it sits
-/// in the list; the rest are paired in the order written, and an unpaired one is created or switched off. Lists a
+/// in the list; the rest are paired by closeness within one kind (time or interval), and an unpaired one is created
+/// or switched off. Lists a
 /// person writes as a set (a seat's grants, rule sets, secrets, skills and files; a grant's seats; the repositories;
 /// a rule set's rules) are compared as sets, so reordering one changes nothing it defines - the text difference is
 /// still reported, as a change of layout only.
@@ -58,6 +59,7 @@ public static class FactoryDefinitionChanges
         var result = FactoryDefinitionCheck.Read(content);
         if (result.Definition is not null) return result.Definition;
         var first = result.Findings.First(f => f.IsError);
+        FileLog.Write($"[FactoryDefinitionChanges] Compare FAILED: the {which} definition does not parse: {first.File}:{first.Line} {first.Message}");
         throw new ArgumentException(
             $"The {which} definition does not parse, so what changes cannot be shown: {first.File}:{first.Line} {first.Message}");
     }
@@ -179,12 +181,32 @@ public static class FactoryDefinitionChanges
             else added.Add(start);
         }
 
-        // The rest are paired in the order written.
-        var paired = Math.Min(removed.Count, added.Count);
-        for (var i = 0; i < paired; i++)
+        // The rest are paired by closeness, never by position, so where a person wrote a start in the list never
+        // changes the account. Both sides are first put in one fixed order (what the start is, not where it sits);
+        // then each published start takes the closest unpaired start of the SAME kind - a time with a time, an
+        // interval with an interval - preferring the same prompt, then the same check, then the same time zone.
+        // A start whose kind changes is honestly a start switched off and another created, never "moved".
+        removed.Sort(CompareStartsCanonically);
+        added.Sort(CompareStartsCanonically);
+        var pairs = new List<(SeatStartDefinition Old, SeatStartDefinition New)>();
+        var switchedOff = new List<SeatStartDefinition>();
+        foreach (var o in removed)
         {
-            var o = removed[i];
-            var n = added[i];
+            var best = -1;
+            var bestScore = -1;
+            for (var i = 0; i < added.Count; i++)
+            {
+                if ((added[i].Cron is null) != (o.Cron is null)) continue;
+                var score = (added[i].Prompt == o.Prompt ? 4 : 0) + (added[i].Check == o.Check ? 2 : 0) + (added[i].TimeZone == o.TimeZone ? 1 : 0);
+                if (score > bestScore) { best = i; bestScore = score; }
+            }
+            if (best < 0) { switchedOff.Add(o); continue; }
+            pairs.Add((o, added[best]));
+            added.RemoveAt(best);
+        }
+
+        foreach (var (o, n) in pairs)
+        {
             var details = StartDetails(o, n);
             var oldWhen = When(o);
             var newWhen = When(n);
@@ -192,10 +214,24 @@ public static class FactoryDefinitionChanges
                 ? StartEntry(seat, "moved", $"{seat.Name}: start moved, {oldWhen} -> {newWhen}.", details)
                 : StartEntry(seat, "changed", $"{seat.Name}: start {newWhen} changed.", details));
         }
-        foreach (var o in removed.Skip(paired))
+        foreach (var o in switchedOff)
             dto.Starts.Add(StartEntry(seat, "switched off", $"{seat.Name}: start switched off, {When(o)}.", new List<string>()));
-        foreach (var n in added.Skip(paired))
+        foreach (var n in added)
             dto.Starts.Add(StartEntry(seat, "created", $"{seat.Name}: start created, {When(n)}.", StartDetails(null, n)));
+    }
+
+    // One fixed order for starts, from what they are: kind, when, then every other part.
+    private static int CompareStartsCanonically(SeatStartDefinition a, SeatStartDefinition b)
+    {
+        int c;
+        if ((c = (a.Cron is null).CompareTo(b.Cron is null)) != 0) return c;
+        if ((c = string.CompareOrdinal(a.Cron, b.Cron)) != 0) return c;
+        if ((c = string.CompareOrdinal(a.TimeZone, b.TimeZone)) != 0) return c;
+        if ((c = Nullable.Compare(a.EverySeconds, b.EverySeconds)) != 0) return c;
+        if ((c = string.CompareOrdinal(a.Check, b.Check)) != 0) return c;
+        if ((c = string.CompareOrdinal(a.Prompt, b.Prompt)) != 0) return c;
+        if ((c = a.PreventOverlap.CompareTo(b.PreventOverlap)) != 0) return c;
+        return string.CompareOrdinal(string.Join(",", Ordered(a.Secrets)), string.Join(",", Ordered(b.Secrets)));
     }
 
     private static FactoryDefinitionStartChangeDto StartEntry(SeatDefinition seat, string change, string sentence, List<string> details)
@@ -378,7 +414,7 @@ public static class FactoryDefinitionChanges
     {
         if (dto.NothingChanges) return "Nothing changes.";
         var parts = new List<string>();
-        if (dto.Factory.Count > 0) parts.Add($"{Count(dto.Factory.Count, "factory setting", "factory settings")} changed");
+        if (dto.Factory.Count > 0) parts.Add($"{Count(dto.Factory.Count, "factory setting", "factory settings")} {(dto.FirstPublish ? "set" : "changed")}");
         AddCounts(parts, dto.Seats.Select(s => s.Change), "seat", "seats", "added", "removed", "changed");
         AddCounts(parts, dto.Starts.Select(s => s.Change), "start", "starts", "created", "moved", "changed", "switched off");
         foreach (var direction in new[] { Tightened, Loosened })

@@ -51,7 +51,7 @@ public sealed class FactoryDefinitionChangesTests
         Assert.True(dto.FirstPublish);
         Assert.False(dto.NothingChanges);
         Assert.Equal(
-            "First publish: 10 factory settings changed, 3 seats added, 2 starts created, rules tightened on base, outreach " +
+            "First publish: 10 factory settings set, 3 seats added, 2 starts created, rules tightened on base, outreach " +
             "and boss, rules loosened on base, 1 grant added, 1 file added, 1 check added, 2 skill files added.",
             dto.Summary);
         Assert.Equal(new[]
@@ -270,6 +270,42 @@ public sealed class FactoryDefinitionChangesTests
         Assert.Equal("Layout only in 1 file.", dto.Summary);
     }
 
+    private const string MorningStart = "starts:\n  - cron: \"0 8 * * 1-5\"\n    timeZone: Europe/Copenhagen\n    prompt: Morning round.\n";
+    private const string MailStart = "  - every: 15m\n    check: checks/new_mail.py\n    prompt: Mail.\n";
+    private const string NineStart = "  - cron: \"0 9 * * 1-5\"\n    timeZone: Europe/Copenhagen\n    prompt: Morning round.\n";
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Compare_StartAddedAboveAMovedOne_GivesOneTrueAccountWhateverTheOrder(bool mailFirst)
+    {
+        // Review finding 1: the morning round moving to nine and a new mail check must read as exactly that, wherever
+        // in the list the new start is written.
+        var starts = "starts:\n" + (mailFirst ? MailStart + NineStart : NineStart + MailStart);
+        var dto = Changes(DefinitionFixture.Edit("seats/boss.yaml", MorningStart, starts));
+
+        Assert.Equal(new[]
+        {
+            "Boss: start moved, Weekdays 08:00 Europe/Copenhagen -> Weekdays 09:00 Europe/Copenhagen.",
+            "Boss: start created, Every 15 minutes.",
+        }, dto.Starts.Select(s => s.Sentence));
+        Assert.Empty(dto.Starts[0].Details);
+        Assert.Equal(new[] { "check checks/new_mail.py", "prompt \"Mail.\"" }, dto.Starts[1].Details);
+    }
+
+    [Fact]
+    public void Compare_StartKindChanges_IsSwitchedOffAndCreatedNotMoved()
+    {
+        var dto = Changes(DefinitionFixture.Edit("seats/boss.yaml", MorningStart, "starts:\n" + MailStart));
+
+        Assert.Equal(new[]
+        {
+            "Boss: start switched off, Weekdays 08:00 Europe/Copenhagen.",
+            "Boss: start created, Every 15 minutes.",
+        }, dto.Starts.Select(s => s.Sentence));
+        Assert.Equal("1 start created, 1 start switched off.", dto.Summary);
+    }
+
     [Fact]
     public void Compare_StartPreventOverlapAndSecretsChange_NamesEach()
     {
@@ -316,6 +352,18 @@ public sealed class FactoryDefinitionChangesTests
         Assert.Equal("loosened", rule.Direction);
         Assert.Equal("Rule set base loosened: deny Bash(git push:*) removed.", rule.Sentence);
         Assert.Equal("Rules loosened on base.", dto.Summary);
+    }
+
+    [Fact]
+    public void Compare_AskRemoved_IsLoosened()
+    {
+        var before = DefinitionFixture.Edit("rules/base.json", "\"ask\": []", "\"ask\": [\"Bash(npm publish:*)\"]");
+
+        var dto = FactoryDefinitionChanges.Compare(before, Valid());
+
+        var rule = Assert.Single(dto.Rules);
+        Assert.Equal("loosened", rule.Direction);
+        Assert.Equal("Rule set base loosened: ask Bash(npm publish:*) removed.", rule.Sentence);
     }
 
     [Fact]
@@ -569,6 +617,24 @@ public sealed class FactoryDefinitionChangesTests
         Assert.Equal(700, diff.Removed);
         Assert.StartsWith("The two texts are too different to match line by line (more than 1000 changes)", diff.Note);
         Assert.Equal(new[] { " same", "-old 0" }, diff.Lines.Take(2).Select(l => l.Marker + l.Text));
+    }
+
+    [Fact]
+    public void Compare_LongFileAddedOrGrown_IsNeverCalledTooDifferent()
+    {
+        // Review finding 2: one side empty is all added, matched exactly; only the "not shown" note applies.
+        var text = string.Concat(Enumerable.Range(0, 1200).Select(i => $"line {i}\n"));
+        var after = Valid();
+        after["checks/big.py"] = text;
+
+        var added = Assert.Single(Changes(after).Files).Diff;
+        var grown = DefinitionTextDiff.Compare("a\nb\n", "a\nb\n" + text);
+
+        Assert.Equal(1200, added.Added);
+        Assert.Equal("800 more lines of this difference are not shown; at most 400 are shown.", added.Note);
+        Assert.Equal(1200, grown.Added);
+        Assert.Equal(0, grown.Removed);
+        Assert.Equal("802 more lines of this difference are not shown; at most 400 are shown.", grown.Note);
     }
 
     [Fact]

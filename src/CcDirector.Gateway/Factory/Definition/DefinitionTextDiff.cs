@@ -87,8 +87,10 @@ public static class DefinitionTextDiff
 
         var middleA = x[prefix..(x.Length - suffix)];
         var middleB = y[prefix..(y.Length - suffix)];
-        var middle = Myers(middleA, middleB);
-        var matched = middle is not null;
+        // With one side empty the script is all added or all removed; the search is not run, so a long new file is
+        // never reported as too different to match.
+        var middle = middleA.Length == 0 || middleB.Length == 0 ? null : Myers(middleA, middleB);
+        var matched = middle is not null || middleA.Length == 0 || middleB.Length == 0;
         if (middle is null)
         {
             middle = new List<Op>();
