@@ -6,7 +6,7 @@ using Xunit;
 namespace CcDirector.Setup.Engine.Tests;
 
 /// <summary>
-/// Tests for the issue #994 crash-safe base-Python provisioning: the whole-directory swap that leaves the
+/// Tests for the issue #994 crash-safe base-Python provisioning: the whole-directory set-aside that leaves the
 /// live runtime intact when a rebuild cannot complete, the runtime-verify that rejects an incomplete staged
 /// Python before it can replace a working one, and the cross-process install lock. These are the guards that
 /// stop a redundant or interrupted install (a running Director holding a .pyd open) from stripping the shared
@@ -30,64 +30,89 @@ public sealed class PythonToolsCrashSafeTests : IDisposable
         try { Directory.Delete(_dir, recursive: true); } catch { /* best-effort */ }
     }
 
-    // --- SwapDir: the whole-directory atomic swap ---------------------------------------------------
+    // --- SetDirAside / RestoreDirOver: live trees are renamed, never deleted in place ------------------
 
     [Fact]
-    public void SwapDir_NoLiveDir_MovesStagedIntoPlace()
+    public void SetDirAside_ExistingDir_KeepsEveryByteAtTheBackup()
     {
-        var staged = Path.Combine(_dir, "staged");
-        Directory.CreateDirectory(staged);
-        File.WriteAllText(Path.Combine(staged, "new.txt"), "new");
-        var live = Path.Combine(_dir, "live"); // does not exist yet
-
-        var ok = PythonToolsInstaller.SwapDir(staged, live, out var err);
-
-        Assert.True(ok, err);
-        Assert.True(File.Exists(Path.Combine(live, "new.txt")));
-        Assert.False(Directory.Exists(staged)); // staged was renamed into place
-    }
-
-    [Fact]
-    public void SwapDir_ReplacesExistingLive()
-    {
-        var live = Path.Combine(_dir, "live");
-        Directory.CreateDirectory(live);
-        File.WriteAllText(Path.Combine(live, "old.txt"), "old");
-        var staged = Path.Combine(_dir, "staged");
-        Directory.CreateDirectory(staged);
-        File.WriteAllText(Path.Combine(staged, "new.txt"), "new");
-
-        var ok = PythonToolsInstaller.SwapDir(staged, live, out var err);
-
-        Assert.True(ok, err);
-        Assert.True(File.Exists(Path.Combine(live, "new.txt")));
-        Assert.False(File.Exists(Path.Combine(live, "old.txt"))); // old content fully replaced
-    }
-
-    [Fact]
-    public void SwapDir_LiveHasOpenFile_FailsAndLeavesLiveIntact()
-    {
-        // The core issue #994 guarantee: if a running Director holds a file open inside the live Python tree,
-        // Windows refuses to rename that tree, so the swap fails - and the live tree is left EXACTLY as it was
-        // (this is the case that used to partially delete the runtime and strip its standard library).
         var live = Path.Combine(_dir, "live");
         Directory.CreateDirectory(live);
         File.WriteAllText(Path.Combine(live, "keep.txt"), "original");
-        var staged = Path.Combine(_dir, "staged");
-        Directory.CreateDirectory(staged);
-        File.WriteAllText(Path.Combine(staged, "new.txt"), "new");
+        var backup = Path.Combine(_dir, "backup");
+
+        var ok = PythonToolsInstaller.SetDirAside(live, backup, out var err);
+
+        Assert.True(ok, err);
+        Assert.False(Directory.Exists(live));
+        Assert.Equal("original", File.ReadAllText(Path.Combine(backup, "keep.txt")));
+    }
+
+    [Fact]
+    public void SetDirAside_NoLiveDir_SucceedsAndCreatesNoBackup()
+    {
+        // A first install has nothing to keep. That is not a failure, and the caller tells the two apart by
+        // whether the backup exists - so it must not be created empty.
+        var backup = Path.Combine(_dir, "backup");
+
+        var ok = PythonToolsInstaller.SetDirAside(Path.Combine(_dir, "live"), backup, out var err);
+
+        Assert.True(ok, err);
+        Assert.False(Directory.Exists(backup));
+    }
+
+    [Fact]
+    public void SetDirAside_LiveHasOpenFile_FailsAndLeavesLiveIntact()
+    {
+        // The issue #994 and #3987 guarantee: when a running process holds a file open inside the live tree,
+        // Windows refuses the rename, so this fails - and the live tree is left EXACTLY as it was, instead of
+        // the recursive delete that used to strip it and then stop on the locked file.
+        var live = Path.Combine(_dir, "live");
+        Directory.CreateDirectory(live);
+        File.WriteAllText(Path.Combine(live, "keep.txt"), "original");
+        File.WriteAllText(Path.Combine(live, "locked.pyd"), "held by a running tool");
+        var backup = Path.Combine(_dir, "backup");
 
         bool ok;
         string err;
-        using (var _ = new FileStream(Path.Combine(live, "keep.txt"), FileMode.Open, FileAccess.Read, FileShare.None))
+        using (new FileStream(Path.Combine(live, "locked.pyd"), FileMode.Open, FileAccess.Read, FileShare.None))
         {
-            ok = PythonToolsInstaller.SwapDir(staged, live, out err);
+            ok = PythonToolsInstaller.SetDirAside(live, backup, out err);
         }
 
         Assert.False(ok);
         Assert.NotEqual("", err);
-        Assert.Equal("original", File.ReadAllText(Path.Combine(live, "keep.txt"))); // untouched
-        Assert.False(File.Exists(Path.Combine(live, "new.txt")));                    // staged NOT swapped in
+        Assert.Equal("original", File.ReadAllText(Path.Combine(live, "keep.txt")));
+        Assert.False(Directory.Exists(backup));
+    }
+
+    [Fact]
+    public void RestoreDirOver_HalfBuiltTreeInPlace_ReplacesItWithThePreviousOne()
+    {
+        // The shape of the real failure: the rebuild got as far as creating a new tree, then failed.
+        var live = Path.Combine(_dir, "live");
+        var backup = Path.Combine(_dir, "backup");
+        Directory.CreateDirectory(backup);
+        File.WriteAllText(Path.Combine(backup, "keep.txt"), "original");
+        Directory.CreateDirectory(live);
+        File.WriteAllText(Path.Combine(live, "half.txt"), "a half-built tree");
+
+        var ok = PythonToolsInstaller.RestoreDirOver(backup, live, out var err);
+
+        Assert.True(ok, err);
+        Assert.Equal("original", File.ReadAllText(Path.Combine(live, "keep.txt")));
+        Assert.False(File.Exists(Path.Combine(live, "half.txt")));
+        Assert.False(Directory.Exists(backup)); // consumed by the restore
+    }
+
+    [Fact]
+    public void RestoreDirOver_NothingWasSetAside_ReportsItRatherThanClaimingARestore()
+    {
+        var backup = Path.Combine(_dir, "backup");
+
+        var ok = PythonToolsInstaller.RestoreDirOver(backup, Path.Combine(_dir, "live"), out var err);
+
+        Assert.False(ok);
+        Assert.Contains(backup, err);
     }
 
     // --- InstallAsync: an incomplete staged Python never replaces a working one --------------------

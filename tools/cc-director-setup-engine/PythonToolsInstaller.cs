@@ -6,8 +6,13 @@ using System.Threading;
 namespace CcDirector.Setup.Engine;
 
 /// <summary>The outcome of a Python tools bundle install, with the steps taken (for logs / UI).</summary>
+/// <param name="HeldBecauseInUse">
+/// True when the install did not run because a cc-* tool was using the shared Python or venv, and nothing was
+/// changed (issue #3987). <c>Success</c> is false, but this is a hold to retry soon, not a failure.
+/// </param>
 public sealed record PythonToolsResult(
-    bool Success, string Message, IReadOnlyList<string> Steps, int ToolCount, string? BundleVersion);
+    bool Success, string Message, IReadOnlyList<string> Steps, int ToolCount, string? BundleVersion,
+    bool HeldBecauseInUse = false);
 
 /// <summary>
 /// Installs the Python cc-* tools as ONE shared venv, replacing the per-tool PyInstaller exes.
@@ -229,13 +234,77 @@ public sealed class PythonToolsInstaller
             if (installedBundle == manifest.BundleVersion && !runtimeHealthy)
                 Step($"installed.json claims bundle {manifest.BundleVersion}, but the runtime is not healthy; rebuilding to repair");
 
-            // 3. (Re)provision the base Python CRASH-SAFELY. Extract it to a staging dir, verify it is a
-            //    COMPLETE, runnable interpreter (python.exe present AND it can import its own standard
-            //    library), then swap it into place with a whole-directory rename. The delete/extract happens
-            //    on the staging copy, so a partial or locked extract can no longer half-populate the live
-            //    tree: on ANY failure the previous working Python is left untouched.
+            // 2c. A tools update must never leave the machine with FEWER working tools than it had (issue
+            //     #3987). Any cc-* tool that is running - a `cc-secrets ask` pop-up waiting for the owner, a
+            //     `cc-secrets run --timeout 0` job, a long cc-outlook call - holds files open inside the shared
+            //     python\ and pyenv\ trees, often for hours. Replacing them under it used to delete the shims
+            //     and most of the venv and then stop on the locked file, leaving every session on the machine
+            //     without cc-devthrottle. So BEFORE anything destructive, check the trees can actually be
+            //     replaced. If they cannot, change nothing and report a HOLD: the caller retries soon, and the
+            //     tools the machine already has keep working in the meantime.
+            if (!ToolTreesAreFree(out var inUseReason))
+                return Held(steps, $"the cc-* tools are in use, so the update to bundle {manifest.BundleVersion} " +
+                                   $"is held and nothing was changed: {inUseReason}");
+
+            // 3. Stage the new base Python and verify it is a COMPLETE, runnable interpreter (python.exe present
+            //    AND it can import its own standard library) BEFORE anything live is touched. The extract
+            //    happens on the staging copy, so a partial extract never reaches the live tree.
             Step("staging bundled Python");
             var staged = _layout.PythonDir + ".staging-" + Guid.NewGuid().ToString("N");
+            var suffix = Guid.NewGuid().ToString("N");
+            var pythonBackup = _layout.PythonDir + ".old-" + suffix;
+            var venvBackup = _layout.PyenvDir + ".prev-" + suffix;
+            // The scripts of the venv being replaced, so a rollback can put its shims back (issue #3150).
+            var restoreScripts = PythonToolsState.LoadScripts(_layout);
+            var pythonSetAside = false;
+            var venvSetAside = false;
+
+            // From the moment anything live is moved, every way out of this method other than success must
+            // put the previous Python, the previous venv AND their shims back - so a failed update leaves the
+            // machine exactly as it was, never with no tools (issues #3150, #3344, #3987).
+            //
+            // Each flag is cleared the moment its tree is back, so a rollback that is somehow entered twice never
+            // reports a restore that already happened as a failure. Nothing in here may throw: it runs from the
+            // catch below, and an exception out of it would skip the rest of the restore.
+            PythonToolsResult FailAndRollBack(string message, bool held = false)
+            {
+                var problems = new List<string>();
+                if (venvSetAside)
+                {
+                    if (RestoreDirOver(venvBackup, _layout.PyenvDir, out var venvRestoreError)) venvSetAside = false;
+                    else problems.Add($"the previous tools environment is at {venvBackup} ({venvRestoreError})");
+                }
+                if (pythonSetAside)
+                {
+                    if (RestoreDirOver(pythonBackup, _layout.PythonDir, out var pyRestoreError)) pythonSetAside = false;
+                    else problems.Add($"the previous base Python is at {pythonBackup} ({pyRestoreError})");
+                }
+                try
+                {
+                    // Shims the new bundle wrote for scripts the restored venv does not have would point at nothing.
+                    RemoveManagedShims(manifest.Scripts);
+                    RestoreShims(restoreScripts);
+                    // The version and script list go back too: a failure after they were recorded must not leave
+                    // the previous venv labelled as the new bundle.
+                    var record = InstalledManifest.Load(_layout);
+                    if (installedBundle is null) record.Remove(ComponentId);
+                    else record.Set(ComponentId, installedBundle);
+                    record.Save(_layout);
+                    if (restoreScripts.Count > 0) PythonToolsState.SaveScripts(_layout, restoreScripts);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    problems.Add($"the shims or the install record could not be rewritten ({ex.Message})");
+                }
+                if (problems.Count == 0)
+                    return held
+                        ? Held(steps, $"{message} Nothing was left changed: the previous tools were put back.")
+                        : Fail(steps, $"{message} The previous tools were put back, so every tool that worked " +
+                                      "before this update still works.");
+                return Fail(steps, $"{message} The previous tools could NOT all be put back: {string.Join("; ", problems)}. " +
+                                   "Run `cc-devthrottle setup repair` once nothing is using the tools.");
+            }
+
             try
             {
                 ResetDir(staged);
@@ -250,142 +319,171 @@ public sealed class PythonToolsInstaller
                 if (!PythonRuntimeProbe.CanImportStdlib(stagedPythonExe, _run))
                     return Fail(steps, "staged Python is incomplete - it cannot import its standard library (a partial extract). The existing Python was left untouched.");
 
+                // 4. Set the live venv ASIDE (never delete it) and take its shims off, then move the live Python
+                //    aside and the verified one in. Every move is a whole-directory rename on one volume, so it
+                //    is atomic and cannot half-move. Shims come off before their targets move, so a shim never
+                //    outlives the target it points at (issue #577); they come back in step 8 or on rollback.
+                //    The venv cannot be staged beside and renamed in the way the Python is: a venv bakes
+                //    absolute paths into its console scripts, so it has to be built at its real path.
+                Step("setting the current tools environment aside");
+                RemoveManagedShims(manifest.Scripts);
+                if (!SetDirAside(_layout.PyenvDir, venvBackup, out var venvAsideError))
+                {
+                    // Nothing has moved: a tool started between the check above and here. Put the shims back
+                    // and hold, exactly as if the check had caught it.
+                    RestoreShims(restoreScripts);
+                    return Held(steps, $"a cc-* tool started using the tools environment, so the update to bundle " +
+                                       $"{manifest.BundleVersion} is held and nothing was changed: {venvAsideError}");
+                }
+                venvSetAside = Directory.Exists(venvBackup);
+
                 Step("swapping in the verified Python");
-                if (!SwapDir(staged, _layout.PythonDir, out var swapError))
-                    return Fail(steps, $"could not replace the base Python (a running Director may be holding its files): {swapError}. The existing Python was left untouched.");
+                if (!SetDirAside(_layout.PythonDir, pythonBackup, out var pyAsideError))
+                    return FailAndRollBack($"a cc-* tool started using the base Python, so the update to bundle " +
+                                           $"{manifest.BundleVersion} is held: {pyAsideError}.", held: true);
+                pythonSetAside = Directory.Exists(pythonBackup);
+                Directory.Move(staged, _layout.PythonDir);
+
+                if (!File.Exists(pythonExe))
+                    return FailAndRollBack($"bundled python not found at {pythonExe} after the swap.");
+
+                // 5. Create the shared venv from the freshly swapped-in python, at its real path.
+                Step("creating the shared Python venv");
+                Directory.CreateDirectory(_layout.PyenvDir);
+                var (venvExit, venvOut) = _run(pythonExe, $"-m venv \"{_layout.PyenvDir}\"", null, VenvCreateTimeout);
+                if (venvExit != 0) return FailAndRollBack($"venv creation failed ({venvExit}): {Trim(venvOut)}.");
+                // Guard: even on a zero exit, the venv must actually have produced its python. A venv whose
+                // interpreter is missing means the create silently did nothing - fail loud now rather than throw
+                // a Win32 "file not found" when the pip step tries to run the missing interpreter.
+                if (!File.Exists(venvPython))
+                    return FailAndRollBack($"venv creation reported success but produced no interpreter at {venvPython}.");
+
+                // 6. Install every tool OFFLINE from the wheelhouse. Percent bands across the whole
+                //    bundle install: download 0-20 (byte-level, above), extract 20-25, then two-phase
+                //    pip progress for honest pacing:
+                //    a. Parse phase (~10 s): pip prints "Processing <wheel>" for all wheels in a burst.
+                //       Drives status+percent 25->40% so the user sees motion immediately.
+                //    b. Install phase (3-8 min, silent in pip's stdout): poll site-packages\*.dist-info
+                //       directory count on a 1.5 s timer — each installed package writes one .dist-info
+                //       dir, so that count IS real progress. Drives percent 40->95%.
+                //    Using "Processing" lines for the whole 0-100% (as we originally did) was misleading:
+                //    the bar shot to 99% in 10 s then sat there motionless for the 5-minute middle.
+                var wheelCount = Directory.GetFiles(wheelhouse, "*.whl").Length;
+                Step($"installing {manifest.Dists.Count} tools offline from the wheelhouse ({wheelCount} wheels)");
+                var distArgs = string.Join(" ", manifest.Dists.Select(d => $"\"{d}\""));
+                var pipArgs = $"-m pip install --no-index --find-links \"{wheelhouse}\" --no-warn-script-location --progress-bar=off {distArgs}";
+
+                // Where pip will land .dist-info dirs once it starts installing. Resolved relative to the
+                // venv layout: Lib\site-packages on Windows, lib\python*\site-packages on Unix.
+                var sitePackages = ResolveSitePackagesDir(_layout.PyenvDir);
+
+                var installing = false;
+                int processed = 0;
+                void OnPipLine(string line)
+                {
+                    EngineLog.Write($"[pip] {line}");
+                    if (line.StartsWith("Processing ", StringComparison.Ordinal))
+                    {
+                        processed++;
+                        var pkg = ExtractWheelPackageName(line);
+                        progress?.Report(wheelCount > 0
+                            ? $"Parsing {processed}/{wheelCount}: {pkg}"
+                            : $"Parsing: {pkg}");
+                        if (wheelCount > 0) percent?.Report(Math.Min(40, 25 + processed * 15 / wheelCount));
+                    }
+                    else if (line.StartsWith("Installing collected packages", StringComparison.Ordinal))
+                    {
+                        installing = true;
+                        progress?.Report(wheelCount > 0
+                            ? $"Installing {wheelCount} packages (this takes a few minutes)..."
+                            : "Installing packages (this takes a few minutes)...");
+                        percent?.Report(40);
+                    }
+                }
+
+                // Background poller: count .dist-info dirs once pip enters the install phase. Real progress.
+                using var pollCts = new CancellationTokenSource();
+                var pollTask = Task.Run(async () =>
+                {
+                    while (!pollCts.IsCancellationRequested)
+                    {
+                        try { await Task.Delay(1500, pollCts.Token); }
+                        catch (OperationCanceledException) { break; }
+                        if (!installing || !Directory.Exists(sitePackages)) continue;
+                        try
+                        {
+                            var done = Directory.GetDirectories(sitePackages, "*.dist-info").Length;
+                            if (wheelCount > 0)
+                            {
+                                var p = Math.Min(95, 40 + (done * 55 / wheelCount));
+                                percent?.Report(p);
+                                progress?.Report($"Installing {done}/{wheelCount} packages...");
+                                EngineLog.Write($"[PythonToolsInstaller] install-progress: {done}/{wheelCount} ({p}%)");
+                            }
+                        }
+                        catch { /* polling must never throw; pip is the source of truth */ }
+                    }
+                });
+
+                var (pipExit, pipOut) = _run(venvPython, pipArgs, OnPipLine, PipInstallTimeout);
+                pollCts.Cancel();
+                try { await pollTask; } catch { /* poller cancellation */ }
+
+                // A timeout reports the sentinel exit code; surface it as the loud, bounded failure it is so the
+                // user (and the log) see "pip hung and was killed" rather than a generic non-zero exit.
+                if (pipExit == ProcessRunner.TimeoutExitCode)
+                    return FailAndRollBack($"offline pip install timed out after {PipInstallTimeout.TotalMinutes:F0} minutes and was killed: {Trim(pipOut)}.");
+                if (pipExit != 0) return FailAndRollBack($"offline pip install failed ({pipExit}): {Trim(pipOut)}.");
+                percent?.Report(100);
+                progress?.Report($"Installed {wheelCount} packages");
+
+                // 7. Verify the venv is healthy BEFORE writing any shim or recording the version. Every tool's
+                // console script must be on disk. If pip exited 0 but a script is missing (a partial/corrupt
+                // wheelhouse), we must NOT write shims to missing targets nor stamp a version that would suppress
+                // a future repair - we fail loud and leave no stale shim behind.
+                if (!VenvHasAllTools(manifest.Scripts))
+                {
+                    var missing = manifest.Scripts.Where(s => !File.Exists(ConsoleScriptPath(s))).ToList();
+                    return FailAndRollBack($"venv is incomplete after pip install: missing console scripts [{string.Join(", ", missing)}]. No shims written, version not recorded.");
+                }
+
+                // 8. The venv is healthy: NOW write bin\<script>.cmd shims (target exes are guaranteed present).
+                Step($"writing {manifest.Scripts.Count} tool shims to bin");
+                WriteShims(manifest.Scripts);
+
+                // 9. Record the bundle version ONLY now that the venv is healthy and the shims point at real
+                // targets. Gating im.Set on VenvHasAllTools means a half-built venv never records a version that
+                // would make the version-gated auto-update skip the machine forever (issue #577).
+                var im = InstalledManifest.Load(_layout);
+                im.Set(ComponentId, manifest.BundleVersion);
+                im.Save(_layout);
+                // Persist the script list so the auto-updater can probe venv health offline (without re-downloading
+                // the bundle just to learn which scripts to expect).
+                PythonToolsState.SaveScripts(_layout, manifest.Scripts);
+
+                // 10. The new environment is installed, reachable and recorded. Only NOW are the previous ones no
+                // longer needed - deleting them is the one step that cannot be undone, so it is the last one.
+                if (venvSetAside) TryDeleteDir(venvBackup);
+                if (pythonSetAside) TryDeleteDir(pythonBackup);
+                venvSetAside = pythonSetAside = false;
+                RemoveLeftoverTrees();
+
+                Step($"Python tools bundle {manifest.BundleVersion} installed ({manifest.Dists.Count} tools)");
+                return new PythonToolsResult(true,
+                    $"Installed {manifest.Dists.Count} Python tools (bundle {manifest.BundleVersion}).",
+                    steps, manifest.Dists.Count, manifest.BundleVersion);
+            }
+            catch (Exception ex) when (venvSetAside || pythonSetAside)
+            {
+                // A file-system error (a locked file, a full disk) after something live was moved. It must not
+                // escape as a bare exception that skips the rollback - that is exactly how a refresh used to
+                // leave the machine with no tools (issue #3987).
+                return FailAndRollBack($"the tools update stopped on an error: {ex.Message}.");
             }
             finally
             {
                 if (Directory.Exists(staged)) TryDeleteDir(staged);
             }
-
-            if (!File.Exists(pythonExe))
-                return Fail(steps, $"bundled python not found at {pythonExe} after the swap.");
-
-            // 4. Create the shared venv from the freshly swapped-in python (on-target, so console-script
-            // paths are correct). Remove the managed bin shims FIRST, so that if anything below fails or is
-            // interrupted (a hung pip killed by the timeout, the wizard closed mid-run, a crash), we never
-            // leave a bin\<name>.cmd whose pyenv\Scripts\<name>.exe target the venv reset just deleted. The
-            // shim and its target exe live and die together: shims are (re)written ONLY after pip succeeds
-            // AND the venv is verified healthy. This is the atomic-shim guarantee for issue #577.
-            Step("creating the shared Python venv");
-            RemoveManagedShims(manifest.Scripts);
-            ResetDir(_layout.PyenvDir);
-            var (venvExit, venvOut) = _run(pythonExe, $"-m venv \"{_layout.PyenvDir}\"", null, VenvCreateTimeout);
-            if (venvExit != 0) return Fail(steps, $"venv creation failed ({venvExit}): {Trim(venvOut)}");
-            // Guard: even on a zero exit, the venv must actually have produced its python. A venv whose
-            // interpreter is missing means the create silently did nothing - fail loud now rather than throw
-            // a Win32 "file not found" when the pip step tries to run the missing interpreter.
-            if (!File.Exists(venvPython))
-                return Fail(steps, $"venv creation reported success but produced no interpreter at {venvPython}.");
-
-            // 5. Install every tool OFFLINE from the wheelhouse. Percent bands across the whole
-            //    bundle install: download 0-20 (byte-level, above), extract 20-25, then two-phase
-            //    pip progress for honest pacing:
-            //    a. Parse phase (~10 s): pip prints "Processing <wheel>" for all wheels in a burst.
-            //       Drives status+percent 25->40% so the user sees motion immediately.
-            //    b. Install phase (3-8 min, silent in pip's stdout): poll site-packages\*.dist-info
-            //       directory count on a 1.5 s timer — each installed package writes one .dist-info
-            //       dir, so that count IS real progress. Drives percent 40->95%.
-            //    Using "Processing" lines for the whole 0-100% (as we originally did) was misleading:
-            //    the bar shot to 99% in 10 s then sat there motionless for the 5-minute middle.
-            var wheelCount = Directory.GetFiles(wheelhouse, "*.whl").Length;
-            Step($"installing {manifest.Dists.Count} tools offline from the wheelhouse ({wheelCount} wheels)");
-            var distArgs = string.Join(" ", manifest.Dists.Select(d => $"\"{d}\""));
-            var pipArgs = $"-m pip install --no-index --find-links \"{wheelhouse}\" --no-warn-script-location --progress-bar=off {distArgs}";
-
-            // Where pip will land .dist-info dirs once it starts installing. Resolved relative to the
-            // venv layout: Lib\site-packages on Windows, lib\python*\site-packages on Unix.
-            var sitePackages = ResolveSitePackagesDir(_layout.PyenvDir);
-
-            var installing = false;
-            int processed = 0;
-            void OnPipLine(string line)
-            {
-                EngineLog.Write($"[pip] {line}");
-                if (line.StartsWith("Processing ", StringComparison.Ordinal))
-                {
-                    processed++;
-                    var pkg = ExtractWheelPackageName(line);
-                    progress?.Report(wheelCount > 0
-                        ? $"Parsing {processed}/{wheelCount}: {pkg}"
-                        : $"Parsing: {pkg}");
-                    if (wheelCount > 0) percent?.Report(Math.Min(40, 25 + processed * 15 / wheelCount));
-                }
-                else if (line.StartsWith("Installing collected packages", StringComparison.Ordinal))
-                {
-                    installing = true;
-                    progress?.Report(wheelCount > 0
-                        ? $"Installing {wheelCount} packages (this takes a few minutes)..."
-                        : "Installing packages (this takes a few minutes)...");
-                    percent?.Report(40);
-                }
-            }
-
-            // Background poller: count .dist-info dirs once pip enters the install phase. Real progress.
-            using var pollCts = new CancellationTokenSource();
-            var pollTask = Task.Run(async () =>
-            {
-                while (!pollCts.IsCancellationRequested)
-                {
-                    try { await Task.Delay(1500, pollCts.Token); }
-                    catch (OperationCanceledException) { break; }
-                    if (!installing || !Directory.Exists(sitePackages)) continue;
-                    try
-                    {
-                        var done = Directory.GetDirectories(sitePackages, "*.dist-info").Length;
-                        if (wheelCount > 0)
-                        {
-                            var p = Math.Min(95, 40 + (done * 55 / wheelCount));
-                            percent?.Report(p);
-                            progress?.Report($"Installing {done}/{wheelCount} packages...");
-                            EngineLog.Write($"[PythonToolsInstaller] install-progress: {done}/{wheelCount} ({p}%)");
-                        }
-                    }
-                    catch { /* polling must never throw; pip is the source of truth */ }
-                }
-            });
-
-            var (pipExit, pipOut) = _run(venvPython, pipArgs, OnPipLine, PipInstallTimeout);
-            pollCts.Cancel();
-            try { await pollTask; } catch { /* poller cancellation */ }
-
-            // A timeout reports the sentinel exit code; surface it as the loud, bounded failure it is so the
-            // user (and the log) see "pip hung and was killed" rather than a generic non-zero exit.
-            if (pipExit == ProcessRunner.TimeoutExitCode)
-                return Fail(steps, $"offline pip install timed out after {PipInstallTimeout.TotalMinutes:F0} minutes and was killed: {Trim(pipOut)}");
-            if (pipExit != 0) return Fail(steps, $"offline pip install failed ({pipExit}): {Trim(pipOut)}");
-            percent?.Report(100);
-            progress?.Report($"Installed {wheelCount} packages");
-
-            // 6. Verify the venv is healthy BEFORE writing any shim or recording the version. Every tool's
-            // console script must be on disk. If pip exited 0 but a script is missing (a partial/corrupt
-            // wheelhouse), we must NOT write shims to missing targets nor stamp a version that would suppress
-            // a future repair - we fail loud and leave no stale shim behind.
-            if (!VenvHasAllTools(manifest.Scripts))
-            {
-                var missing = manifest.Scripts.Where(s => !File.Exists(ConsoleScriptPath(s))).ToList();
-                return Fail(steps, $"venv is incomplete after pip install: missing console scripts [{string.Join(", ", missing)}]. No shims written, version not recorded.");
-            }
-
-            // 7. The venv is healthy: NOW write bin\<script>.cmd shims (target exes are guaranteed present).
-            Step($"writing {manifest.Scripts.Count} tool shims to bin");
-            WriteShims(manifest.Scripts);
-
-            // 8. Record the bundle version ONLY now that the venv is healthy and the shims point at real
-            // targets. Gating im.Set on VenvHasAllTools means a half-built venv never records a version that
-            // would make the version-gated auto-update skip the machine forever (issue #577).
-            var im = InstalledManifest.Load(_layout);
-            im.Set(ComponentId, manifest.BundleVersion);
-            im.Save(_layout);
-            // Persist the script list so the auto-updater can probe venv health offline (without re-downloading
-            // the bundle just to learn which scripts to expect).
-            PythonToolsState.SaveScripts(_layout, manifest.Scripts);
-
-            Step($"Python tools bundle {manifest.BundleVersion} installed ({manifest.Dists.Count} tools)");
-            return new PythonToolsResult(true,
-                $"Installed {manifest.Dists.Count} Python tools (bundle {manifest.BundleVersion}).",
-                steps, manifest.Dists.Count, manifest.BundleVersion);
         }
         finally
         {
@@ -780,39 +878,232 @@ public sealed class PythonToolsInstaller
     }
 
     /// <summary>
-    /// Replace directory <paramref name="live"/> with <paramref name="staged"/> using whole-directory
-    /// renames, so the swap is atomic and can never half-populate the live tree. The live dir is first
-    /// renamed aside; Windows refuses to rename a directory that has an open handle inside it, so if a
-    /// running Director is holding a Python file open this throws and we abort with the live tree STILL
-    /// INTACT - rather than the partial recursive delete that corrupted the runtime in issue #994. On
-    /// success the aside copy is removed best-effort; on a mid-swap failure it is rolled back into place.
+    /// Move <paramref name="live"/> out of the way to <paramref name="backup"/>, keeping every byte of it, so
+    /// a rebuild that fails can put it back (issues #3150, #3987). A whole-directory rename on one volume:
+    /// atomic, and it cannot half-move. Windows refuses to rename a directory with an open handle inside it,
+    /// so a running tool makes this return false with the live tree STILL INTACT - never the partial recursive
+    /// delete that stripped the runtime in issue #994 and the venv in issue #3987. A live directory that does
+    /// not exist is not an error (there is nothing to keep); the caller tells the two apart by whether the
+    /// backup now exists.
     /// </summary>
-    internal static bool SwapDir(string staged, string live, out string error)
+    internal static bool SetDirAside(string live, string backup, out string error)
     {
         error = "";
-        string? aside = null;
+        if (!Directory.Exists(live)) return true;
+        try
+        {
+            Directory.Move(live, backup);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            error = ex.Message;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Put a directory set aside by <see cref="SetDirAside"/> back at <paramref name="live"/>. Whatever the
+    /// failed rebuild left at <paramref name="live"/> is RENAMED out of the way first rather than deleted - a
+    /// half-built tree can hold a locked file too, and a recursive delete that stops partway is the defect this
+    /// exists to remove. Returns false, with the reason, when there is nothing to restore or a move is refused.
+    /// </summary>
+    internal static bool RestoreDirOver(string backup, string live, out string error)
+    {
+        error = "";
+        if (!Directory.Exists(backup))
+        {
+            error = $"there is nothing to restore at {backup}";
+            return false;
+        }
+        string? failed = null;
         try
         {
             if (Directory.Exists(live))
             {
-                aside = live + ".old-" + Guid.NewGuid().ToString("N");
-                Directory.Move(live, aside);
+                failed = live + ".failed-" + Guid.NewGuid().ToString("N");
+                Directory.Move(live, failed);
             }
-            Directory.Move(staged, live);
-            if (aside is not null) TryDeleteDir(aside);
-            return true;
+            Directory.Move(backup, live);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             error = ex.Message;
-            try
-            {
-                if (aside is not null && Directory.Exists(aside) && !Directory.Exists(live))
-                    Directory.Move(aside, live);
-            }
-            catch { /* best-effort rollback; the live tree may already be restored */ }
             return false;
         }
+        if (failed is not null) TryDeleteDir(failed);
+        EngineLog.Write($"[PythonToolsInstaller] restored {live} from {backup}");
+        return true;
+    }
+
+    /// <summary>
+    /// True when the shared base Python and the tools venv can be replaced right now (issue #3987). The check is
+    /// the operation itself: each tree is renamed aside and straight back. Windows refuses that rename while any
+    /// process has a file open inside the tree, which is exactly the condition under which a replacement would
+    /// stop halfway. On refusal, <paramref name="reason"/> names the processes running from the trees so the log
+    /// says WHO is holding the update. (On macOS and Linux a rename is never refused by an open file, and an
+    /// open file does not block a replacement either, so the check passes there.)
+    /// </summary>
+    internal bool ToolTreesAreFree(out string reason)
+    {
+        reason = "";
+        if (!RecoverStrandedProbes(out var recoverError))
+        {
+            reason = $"a tools tree left under its probe name could not be put back yet ({recoverError})";
+            return false;
+        }
+        foreach (var dir in new[] { _layout.PythonDir, _layout.PyenvDir })
+        {
+            if (!Directory.Exists(dir)) continue;
+            var probe = dir + ".probe-" + Guid.NewGuid().ToString("N");
+            try
+            {
+                Directory.Move(dir, probe);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                reason = $"{dir} cannot be replaced ({ex.Message}); {DescribeProcessesUsing(_layout.PythonDir, _layout.PyenvDir)}";
+                // not-an-error: a tool in use is the expected reason to hold the update; the caller logs the hold.
+                EngineLog.Write($"[PythonToolsInstaller] ToolTreesAreFree: {reason}");
+                return false;
+            }
+            MoveBack(probe, dir);
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Put back a live tree that an earlier check left under its probe name, because the rename back was refused
+    /// for longer than <see cref="MoveBack"/> retries (a long antivirus scan) or the process stopped in between.
+    /// Without this the machine would have no tools, the next cycle would see no live tree and reinstall from
+    /// scratch, and the probe copy would sit on disk forever. Acts ONLY when the live tree is missing and exactly
+    /// one probe exists - anything else is not a state this code produces, and is left for a person to look at.
+    /// </summary>
+    private bool RecoverStrandedProbes(out string error)
+    {
+        error = "";
+        foreach (var live in new[] { _layout.PythonDir, _layout.PyenvDir })
+        {
+            var parent = Path.GetDirectoryName(live)!;
+            if (Directory.Exists(live) || !Directory.Exists(parent)) continue;
+            var probes = Directory.EnumerateDirectories(parent, Path.GetFileName(live) + ".probe-*").ToList();
+            if (probes.Count != 1)
+            {
+                if (probes.Count > 1)
+                    EngineLog.Write($"[PythonToolsInstaller] RecoverStrandedProbes FAILED: {live} is missing and {probes.Count} probe directories exist; not guessing which one is the tools tree");
+                continue;
+            }
+            try
+            {
+                Directory.Move(probes[0], live);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                error = ex.Message;
+                EngineLog.Write($"[PythonToolsInstaller] RecoverStrandedProbes FAILED: could not move {probes[0]} back to {live}: {ex.Message}");
+                return false;
+            }
+            EngineLog.Write($"[PythonToolsInstaller] RecoverStrandedProbes: put the stranded tools tree back from {probes[0]} to {live}");
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Undo a probe rename. Nothing can be holding a file inside the probe directory - no shim or tool path
+    /// leads into it - so this is retried against a transient refusal (an antivirus scan of a freshly renamed
+    /// tree can take seconds) and then fails LOUDLY. If it does give up, the next check puts the tree back
+    /// (<see cref="RecoverStrandedProbes"/>).
+    /// </summary>
+    private static void MoveBack(string probe, string dir)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                Directory.Move(probe, dir);
+                return;
+            }
+            catch (Exception ex) when ((ex is IOException or UnauthorizedAccessException) && attempt < 50)
+            {
+                // not-an-error: a transient refusal that is retried; the last attempt throws and is reported.
+                EngineLog.Write($"[PythonToolsInstaller] MoveBack: attempt {attempt} to rename {probe} back to {dir} refused ({ex.Message}); retrying");
+                Thread.Sleep(200);
+            }
+        }
+    }
+
+    /// <summary>
+    /// "held by: pid 61412 cc-secrets (...\pyenv\Scripts\cc-secrets.exe), ..." for every process whose
+    /// executable lives under one of <paramref name="dirs"/>. Diagnostic only - it decides nothing.
+    /// </summary>
+    private static string DescribeProcessesUsing(params string[] dirs)
+    {
+        var holders = new List<string>();
+        foreach (var p in System.Diagnostics.Process.GetProcesses())
+        {
+            using (p)
+            {
+                string? path;
+                // Reading another process's main module is refused for elevated and system processes. Those are
+                // never cc-* tools, so a process whose path cannot be read is simply not one of the holders.
+                try { path = p.MainModule?.FileName; }
+                catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or NotSupportedException) { continue; }
+                if (path is null) continue;
+                if (dirs.Any(d => path.StartsWith(d + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+                    holders.Add($"pid {p.Id} {p.ProcessName} ({path})");
+            }
+        }
+        return holders.Count == 0
+            ? "no process running from the tools folders was found (a file may be open from another program)"
+            : $"held by: {string.Join(", ", holders)}";
+    }
+
+    /// <summary>
+    /// The sibling directories THIS installer names when it moves a tree aside, and which are obsolete once a new
+    /// install has been verified healthy. Deliberately an explicit list of what may be deleted: a
+    /// <c>.probe-</c> directory is NOT on it, because a probe left behind means the probe rename was never
+    /// undone and that directory IS the live tree.
+    /// </summary>
+    internal static readonly string[] LeftoverSuffixes = { ".old-", ".staging-", ".failed-", ".prev-" };
+
+    /// <summary>
+    /// After a verified install, remove the trees earlier runs set aside and could not delete (a
+    /// <c>python.old-...</c> a running tool was still holding, a <c>pyenv.prev-...</c> from a rollback).
+    /// Best-effort: one that is still in use is left for a later run.
+    /// </summary>
+    private void RemoveLeftoverTrees()
+    {
+        foreach (var live in new[] { _layout.PythonDir, _layout.PyenvDir })
+        {
+            var parent = Path.GetDirectoryName(live)!;
+            var name = Path.GetFileName(live);
+            if (!Directory.Exists(parent)) continue;
+            foreach (var dir in Directory.EnumerateDirectories(parent, name + ".*"))
+            {
+                var rest = Path.GetFileName(dir)[name.Length..];
+                if (!LeftoverSuffixes.Any(s => rest.StartsWith(s, StringComparison.Ordinal))) continue;
+                TryDeleteDir(dir);
+                EngineLog.Write($"[PythonToolsInstaller] RemoveLeftoverTrees: {(Directory.Exists(dir) ? "could not remove (still in use)" : "removed")} {dir}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Put the bin shims back for a venv that is on disk again after a rollback (issue #3150). Only scripts whose
+    /// console script is actually present get a shim, so a rollback can never recreate the dangling shim that
+    /// issue #577 exists to prevent: the restored venv belongs to the PREVIOUS bundle and need not have every
+    /// script the new one promised.
+    /// </summary>
+    private void RestoreShims(IReadOnlyList<string> scripts)
+    {
+        var present = scripts.Where(s => File.Exists(ConsoleScriptPath(s))).ToList();
+        if (present.Count == 0)
+        {
+            EngineLog.Write("[PythonToolsInstaller] RestoreShims: the restored venv has no console scripts; no shims written");
+            return;
+        }
+        WriteShims(present);
+        EngineLog.Write($"[PythonToolsInstaller] RestoreShims: rewrote {present.Count} shim(s) for the restored venv");
     }
 
     private static void TryDelete(string? path)
@@ -861,6 +1152,16 @@ public sealed class PythonToolsInstaller
     {
         EngineLog.Write($"[PythonToolsInstaller] FAILED: {message}");
         return new PythonToolsResult(false, message, steps, 0, null);
+    }
+
+    /// <summary>
+    /// The update could not run because the tools are in use, and NOTHING was changed (issue #3987). Not a
+    /// failure: the tools the machine has keep working, and the caller retries soon.
+    /// </summary>
+    private static PythonToolsResult Held(List<string> steps, string message)
+    {
+        EngineLog.Write($"[PythonToolsInstaller] HELD: {message}");
+        return new PythonToolsResult(false, message, steps, 0, null, HeldBecauseInUse: true);
     }
 }
 

@@ -33,7 +33,8 @@ public sealed class ToolUpdater
 
         // The Python tools now ship as one shared-venv bundle; refresh it independently of the
         // legacy per-tool exe path below (which no-ops for releases that ship only the bundle).
-        await RefreshPythonToolsAsync(release, source, ct);
+        var python = await RefreshPythonToolsAsync(release, source, ct);
+        var held = python?.HeldBecauseInUse == true;
 
         var tools = ComponentRegistry.DiscoverToolIds(release.Manifest)
             .Select(ComponentRegistry.ToolComponent)
@@ -41,7 +42,7 @@ public sealed class ToolUpdater
         if (tools.Count == 0)
         {
             EngineLog.Write("[ToolUpdater] release has no tools; nothing to refresh");
-            return Empty();
+            return Empty(held);
         }
 
         var reader = new InstalledStateReader(_layout);
@@ -54,7 +55,7 @@ public sealed class ToolUpdater
         if (updates.Count == 0)
         {
             EngineLog.Write("[ToolUpdater] all installed tools are up to date");
-            return Empty();
+            return Empty(held);
         }
 
         EngineLog.Write($"[ToolUpdater] refreshing {updates.Count} tool(s): {string.Join(", ", updates.Select(u => u.ComponentId))}");
@@ -62,7 +63,7 @@ public sealed class ToolUpdater
             (item, innerCt) => source.DownloadAssetAsync(item.AssetName, release.DownloadUrls, innerCt));
         var result = await runner.ApplyAsync(new UpdatePlan { Items = updates }, ct);
         EngineLog.Write($"[ToolUpdater] done: updated={result.Updated}, failed={result.Failed}");
-        return result;
+        return new UpdateRunResult { Results = result.Results, PythonToolsHeld = held };
     }
 
     /// <summary>
@@ -127,8 +128,30 @@ public sealed class ToolUpdater
 
         var reason = versionBehind ? $"{installedVer ?? "none"} -> {toolsAsset.Version}" : $"self-heal unhealthy venv ({installedVer})";
         EngineLog.Write($"[ToolUpdater] refreshing Python tools bundle: {reason}");
-        var result = await new PythonToolsInstaller(_layout).InstallAsync(release, source, ct: ct);
-        EngineLog.Write($"[ToolUpdater] Python tools bundle: success={result.Success}, count={result.ToolCount}");
+        var installer = new PythonToolsInstaller(_layout);
+        // Check BEFORE downloading: a held update is retried every few minutes (issue #3987), and fetching
+        // the ~90 MB bundle each time only to find the tools still in use would be pure waste. The installer
+        // checks again itself, because a tool can start in between. The check renames the live trees, so it
+        // runs under the same machine-wide lock as an install: another Director's install in progress must
+        // never see its Python renamed away underneath it, and an install in progress is itself a reason to hold.
+        string? inUseReason = null;
+        try
+        {
+            using var installLock = SharedInstallLock.Acquire(HeldCheckLockWait, _layout.LocalRoot);
+            if (!installer.ToolTreesAreFree(out var reasonFromCheck)) inUseReason = reasonFromCheck;
+        }
+        catch (TimeoutException)
+        {
+            inUseReason = "another tools install is running on this machine";
+        }
+        if (inUseReason is not null)
+        {
+            var message = $"the cc-* tools are in use, so the update ({reason}) is held and nothing was changed: {inUseReason}";
+            EngineLog.Write($"[ToolUpdater] Python tools bundle HELD: {message}");
+            return new PythonToolsResult(false, message, Array.Empty<string>(), 0, null, HeldBecauseInUse: true);
+        }
+        var result = await installer.InstallAsync(release, source, ct: ct);
+        EngineLog.Write($"[ToolUpdater] Python tools bundle: success={result.Success}, held={result.HeldBecauseInUse}, count={result.ToolCount}");
         return result;
     }
 
@@ -147,9 +170,20 @@ public sealed class ToolUpdater
         var source = new ReleaseSource();
         var release = await source.FetchLatestAsync(ct);
         var result = await new PythonToolsInstaller(_layout).InstallAsync(release, source, progress, percent, ct);
-        EngineLog.Write($"[ToolUpdater] Python tools repair: success={result.Success}, count={result.ToolCount}");
+        EngineLog.Write($"[ToolUpdater] Python tools repair: success={result.Success}, held={result.HeldBecauseInUse}, count={result.ToolCount}");
         return result;
     }
 
-    private static UpdateRunResult Empty() => new() { Results = Array.Empty<ApplyResult>() };
+    /// <summary>
+    /// How soon to look again when the Python tools update was held because a tool was using it (issue #3987).
+    /// Short, because the machine is one release behind until it lands; the check that decides it is a pair of
+    /// directory renames, so retrying costs nothing.
+    /// </summary>
+    public static readonly TimeSpan HeldRetryDelay = TimeSpan.FromMinutes(10);
+
+    /// <summary>How long the pre-download check waits for another install to release the shared lock.</summary>
+    private static readonly TimeSpan HeldCheckLockWait = TimeSpan.FromSeconds(5);
+
+    private static UpdateRunResult Empty(bool pythonToolsHeld) =>
+        new() { Results = Array.Empty<ApplyResult>(), PythonToolsHeld = pythonToolsHeld };
 }
