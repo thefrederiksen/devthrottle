@@ -134,6 +134,9 @@ public static class FactoryDefinitionCheck
         long totalBytes = 0;
         var sawFactory = false;
         var sawSeat = false;
+        // The paths that are places, which are the only ones compared for a clash: a path already refused is
+        // reported once, for its own reason.
+        var placed = new List<string>();
 
         foreach (var path in content.Keys.OrderBy(p => p, StringComparer.Ordinal))
         {
@@ -154,6 +157,7 @@ public static class FactoryDefinitionCheck
                 Error(findings, path, 0, refusal!);
                 continue;
             }
+            placed.Add(path);
             if (bytes > DefinitionPaths.MaxFileBytes)
             {
                 Error(findings, path, 0,
@@ -212,6 +216,9 @@ public static class FactoryDefinitionCheck
             }
         }
 
+        // Two paths no machine could write side by side: one name in two cases, or a name both a file and a folder.
+        foreach (var (path, clash) in DefinitionPaths.Clashes(placed))
+            Error(findings, path, 0, clash);
         if (totalBytes > DefinitionPaths.MaxVersionBytes)
             Error(findings, "", 0,
                 $"The definition is {totalBytes} bytes; a version may hold at most {DefinitionPaths.MaxVersionBytes} bytes ({DefinitionPaths.MaxVersionBytes / (1024 * 1024)} MB). Remove or shorten files.");

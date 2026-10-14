@@ -480,12 +480,41 @@ public sealed class FactoryDefinitionCheckTests
     [InlineData("files/./tool.py", "it has a '.' part")]
     [InlineData("files/../factory.yaml", "it has a '..' part")]
     [InlineData("files/tool.py/", "it has an empty part")]
+    // A path every machine can write (review of the definition store, finding 1).
+    [InlineData("files/nul", "its part 'nul' is a name Windows keeps for a device")]
+    [InlineData("files/CON.txt", "its part 'CON.txt' is a name Windows keeps for a device")]
+    [InlineData("files/aux/tool.py", "its part 'aux' is a name Windows keeps for a device")]
+    [InlineData("checks/com1.py", "its part 'com1.py' is a name Windows keeps for a device")]
+    [InlineData("files/tool.", "its part 'tool.' ends in a dot or a space")]
+    [InlineData("files/tool ", "its part 'tool ' ends in a dot or a space")]
+    [InlineData("files/a<b.py", "it holds the character '<'")]
+    [InlineData("files/a>b.py", "it holds the character '>'")]
+    [InlineData("files/a:b.py", "it holds the character ':'")]
+    [InlineData("files/\"a\".py", "it holds the character '\"'")]
+    [InlineData("files/a|b.py", "it holds the character '|'")]
+    [InlineData("files/a?.py", "it holds the character '?'")]
+    [InlineData("files/a*.py", "it holds the character '*'")]
     public void Check_BadPath_SaysWhy(string path, string reason)
     {
         var content = Valid();
         content[path] = "x";
 
         AssertOneError(Check(content), path, 0, "is not a path a definition can hold: " + reason);
+    }
+
+    [Theory]
+    [InlineData("files/Tool.py", "files/tool.py", "files/tool.py", "spells 'files/tool.py' where 'files/Tool.py' spells it 'files/Tool.py'")]
+    [InlineData("files/Lib/a.py", "files/lib/b.py", "files/lib/b.py", "spells 'files/lib' where 'files/Lib/a.py' spells it 'files/Lib'")]
+    [InlineData("files/lib", "files/lib/b.py", "files/lib/b.py", "'files/lib' is a file in 'files/lib' and a folder in 'files/lib/b.py'")]
+    public void Check_TwoPathsNoMachineCanHoldSideBySide_IsAnErrorOnTheLaterPath(string one, string two, string named, string words)
+    {
+        // Review of the definition store, finding 1: Windows and macOS hold names that differ only in case as one, and
+        // no machine holds a name as a file and a folder at once, so an export would write fewer files than this holds.
+        var content = Valid();
+        content[one] = "x";
+        content[two] = "y";
+
+        AssertOneError(Check(content), named, 0, words);
     }
 
     [Fact]

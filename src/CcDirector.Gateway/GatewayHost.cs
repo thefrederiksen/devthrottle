@@ -279,6 +279,11 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>The factory registry and the goal numbers its CEOs post (Factories screen mission, phase A).</summary>
     internal Factory.Registry.FactoryRegistryStore FactoryRegistry { get; }
 
+    /// <summary>Every factory's definition held on the Gateway, every version kept (Factory Definition mission,
+    /// phase 1). Nothing reads it yet: the routes are a later step of phase 1, and how a factory runs does not change
+    /// until phase 4.</summary>
+    internal Factory.Definition.FactoryDefinitionStore FactoryDefinitions { get; }
+
     /// <summary>The factory triggers (Website Business Factory, product track): the definitions, their run
     /// history, and the decision to start a session when a check counts work. Constructed whatever the switch
     /// says, so the database shape does not depend on it; only the routes do.</summary>
@@ -2503,6 +2508,9 @@ public sealed class GatewayHost : IAsyncDisposable
         // Built here, ahead of the scheduler, because the scheduler gives a seat's published brief to its runs
         // (Factory Seats mission, phase 2c). It needs only the database and the registry, both built above.
         _factoryBriefs = new Factory.Briefs.FactoryBriefStore(_gatewayDb, FactoryRegistry);
+        // A factory's whole definition, every version kept (Factory Definition mission, phase 1). It needs only the
+        // database: a definition does not require the factory to be registered.
+        FactoryDefinitions = new Factory.Definition.FactoryDefinitionStore(_gatewayDb);
         var cronClock = new Running.SystemClock();
         // Factory Control, step 1 and 6: every run says how it went, and a factory-linked run leaves an activity row.
         // The schedules and the work history are read in the ambient scope the route or the sweep entered; the run

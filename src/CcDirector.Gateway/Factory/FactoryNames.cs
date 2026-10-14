@@ -64,11 +64,23 @@ public static partial class FactoryNames
         "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
     };
 
+    /// <summary>
+    /// Whether <paramref name="name"/> is a name Windows keeps for a device, with or without an extension
+    /// (<c>nul</c>, <c>NUL.txt</c>, <c>com1.py</c>): Windows reads the part before the first dot, in any case. Such a
+    /// name can never be a file on a Windows machine. Shared by notes and by the paths of a factory's definition.
+    /// </summary>
+    public static bool IsWindowsDeviceName(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        var dot = name.IndexOf('.');
+        return Reserved.Contains((dot < 0 ? name : name[..dot]).ToLowerInvariant());
+    }
+
     /// <summary>Fold a note's name to the one spelling and say whether it is allowed.</summary>
     public static bool TryNoteName(string? raw, out string name, out string? refusal)
     {
         if (!Try(raw, MaxNoteNameLength, "note name", out name, out refusal)) return false;
-        if (Reserved.Contains(name))
+        if (IsWindowsDeviceName(name))
         {
             refusal = $"'{name}' is a name Windows keeps for a device, so it cannot become a file; " +
                       "a note is written as one before an agent starts, so call it something else";
