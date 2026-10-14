@@ -6,6 +6,7 @@ using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Factory;
+using CcDirector.Gateway.Factory.Briefs;
 using CcDirector.Gateway.Factory.Registry;
 using CcDirector.Gateway.History;
 using CcDirector.Gateway.Pairing;
@@ -44,6 +45,7 @@ public sealed class FactorySeatRoutesTests : IAsyncDisposable
     private CronJobStore _schedules = null!;
     private FactoryRegistryStore _registry = null!;
     private FactoryActivityRecord _record = null!;
+    private FactoryBriefStore _briefs = null!;
     private WebApplication? _app;
     private HttpClient _http = null!;
     private int _memoryNotes;
@@ -78,6 +80,7 @@ public sealed class FactorySeatRoutesTests : IAsyncDisposable
         _schedules = new CronJobStore(_db, _h.LegacyPath(Guid.NewGuid().ToString("N") + ".json"));
         _registry = new FactoryRegistryStore(_db);
         _record = new FactoryActivityRecord(_db);
+        _briefs = new FactoryBriefStore(_db, _registry);
 
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
@@ -125,7 +128,9 @@ public sealed class FactorySeatRoutesTests : IAsyncDisposable
             (_, f) => new CronRunProblemsDto { Factory = f },
             (_, f) => new FactoryEmailsDto { Factory = f });
         FactoriesScreenEndpoints.Map(app, _ => T, sources);
-        FactoriesScreenEndpoints.MapSeatPage(app, _ => T, sources, (_, _) => _memoryNotes);
+        FactoriesScreenEndpoints.MapSeatPage(app, _ => T, sources, (_, _) => _memoryNotes, _briefs);
+        // The brief's own routes, as the host maps them: what the brief panel's buttons send.
+        FactoryBriefEndpoints.Map(app, _ => T, _briefs, _ => sessionFactory ?? SessionFactoryLookup.NotKnown, () => Now);
 
         await app.StartAsync();
         _app = app;
@@ -232,6 +237,300 @@ public sealed class FactorySeatRoutesTests : IAsyncDisposable
         var response = await _http.GetAsync("gateway/factories/warmforward/seats/scout");
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    // ---------- the brief panel (phase 2b) ----------
+
+    private const string BriefRoute = "factory-briefs/warmforward/scout";
+    private const string BriefView = "gateway/factories/warmforward/seats/scout/brief";
+    private const string OwnerActor = "device browser device-1";
+
+    private Task<HttpResponseMessage> SaveDraft(string text, int expectedVersion) =>
+        _http.PutAsJsonAsync($"{BriefRoute}/draft", new SaveFactoryBriefDraftRequest { Text = text, ExpectedVersion = expectedVersion });
+
+    private Task<HttpResponseMessage> Publish(int version) =>
+        _http.PostAsJsonAsync($"{BriefRoute}/publish", new PublishFactoryBriefRequest { Version = version });
+
+    private async Task<T2> Read<T2>(string path) => (await _http.GetFromJsonAsync<T2>(path, Web))!;
+
+    private void SessionDraft(string text, int expectedVersion) =>
+        Assert.True(_briefs.SaveDraft(T, "warmforward", "scout", text, expectedVersion,
+            CcDirector.Gateway.Data.Entities.FactoryMemoryAuthorKinds.Session, SessionId, Now.AddMinutes(-30)).Ok);
+
+    [Fact]
+    public async Task Brief_ASeatWithNoBriefOnTheGateway_KeepsTheFile_OffersToWriteItHere_AndTheEditorStartsEmpty()
+    {
+        await StartAsync();
+        Seed();
+
+        var brief = (await SeatPage("scout")).Brief;
+        Assert.Equal(FactorySeatBriefStates.File, brief.State);
+        Assert.Equal("/home/soren/factories/warmforward/agents/scout.yaml", brief.PathText);
+        Assert.Equal("Write the brief here", brief.EditLabel);
+        Assert.Null(brief.HistoryLabel);
+
+        var editor = await Read<FactoryBriefEditorViewDto>($"{BriefView}/editor");
+        Assert.Equal("Write the brief of Scout", editor.Heading);
+        Assert.Equal("", editor.Text);
+        Assert.Equal(0, editor.ExpectedVersion);
+
+        var history = await Read<FactoryBriefHistoryViewDto>($"{BriefView}/history");
+        Assert.Empty(history.Rows);
+        Assert.Equal("This seat has no brief on the Gateway, so it has no history.", history.EmptyText);
+    }
+
+    [Fact]
+    public async Task Brief_WrittenSavedPublishedAndBroughtBack_ByAPersonThroughTheRealRoutes_IsWhatTheSeatPageShows()
+    {
+        await StartAsync();
+        Seed();
+
+        // A first draft: the seat has drafts and nothing published, and still says where its file is.
+        Assert.Equal(HttpStatusCode.OK, (await SaveDraft("You are the Scout. Scan every morning.", 0)).StatusCode);
+        var drafts = (await SeatPage("scout")).Brief;
+        Assert.Equal(FactorySeatBriefStates.Drafts, drafts.State);
+        Assert.Equal($"This seat has 1 draft on the Gateway and none is published. The newest is version 1, written by a person ({OwnerActor}) today 15:00. " +
+                     "Until you publish one, talks and runs of this seat are told the path of its brief file.", drafts.DraftText);
+        Assert.Equal("Open the newest draft", drafts.EditLabel);
+        Assert.NotNull(drafts.PathText);
+
+        // Published: the page shows the text, its version, who published it and when.
+        Assert.Equal(HttpStatusCode.OK, (await Publish(1)).StatusCode);
+        var published = (await SeatPage("scout")).Brief;
+        Assert.Equal(FactorySeatBriefStates.Published, published.State);
+        Assert.Equal("You are the Scout. Scan every morning.", published.Text);
+        Assert.Equal($"Version 1, published by a person ({OwnerActor}) today 15:00.", published.VersionText);
+        Assert.Null(published.PathText);
+        Assert.Null(published.DraftText);
+
+        // A second version, saved and published.
+        Assert.Equal(HttpStatusCode.OK, (await SaveDraft("You are the Scout. Scan every morning and every evening.", 1)).StatusCode);
+        var waiting = (await SeatPage("scout")).Brief;
+        Assert.Equal("You are the Scout. Scan every morning.", waiting.Text);
+        Assert.StartsWith("A newer draft, version 2, was written by", waiting.DraftText);
+        Assert.Equal(HttpStatusCode.OK, (await Publish(2)).StatusCode);
+        Assert.Equal("You are the Scout. Scan every morning and every evening.", (await SeatPage("scout")).Brief.Text);
+
+        // The history offers Bring back on version 1, and pressing it sends what the confirm named.
+        var history = await Read<FactoryBriefHistoryViewDto>($"{BriefView}/history");
+        Assert.Equal("2 versions. Version 2 is published.", history.SummaryText);
+        Assert.Equal(new[] { "Published", "Published earlier" }, history.Rows.Select(r => r.StateWord).ToArray());
+        var back = history.Rows[1].BringBack!;
+        var restored = await _http.PostAsJsonAsync($"{BriefRoute}/restore",
+            new BringBackFactoryBriefRequest { Version = back.Version, ExpectedVersion = back.ExpectedVersion });
+        Assert.Equal(HttpStatusCode.OK, restored.StatusCode);
+
+        var after = (await SeatPage("scout")).Brief;
+        Assert.Equal("You are the Scout. Scan every morning.", after.Text);
+        Assert.Equal($"Version 3, published by a person ({OwnerActor}) today 15:00.", after.VersionText);
+        // Nothing was removed: all three versions are in the history.
+        var kept = await Read<FactoryBriefHistoryViewDto>($"{BriefView}/history");
+        Assert.Equal(new[] { 3, 2, 1 }, kept.Rows.Select(r => r.Version).ToArray());
+        Assert.Equal(new[] { "Published", "Published earlier", "Published earlier" }, kept.Rows.Select(r => r.StateWord).ToArray());
+    }
+
+    [Fact]
+    public async Task Brief_AStaleSave_IsRefusedWithTheNewerVersion_NothingIsOverwritten_AndTheEditorThenStartsFromIt()
+    {
+        await StartAsync();
+        Seed();
+        Assert.Equal(HttpStatusCode.OK, (await SaveDraft("the owner's first text", 0)).StatusCode);
+        var editor = await Read<FactoryBriefEditorViewDto>($"{BriefView}/editor");
+        Assert.Equal(1, editor.ExpectedVersion);
+
+        // A session of the factory saves a draft while the owner's editor is open.
+        SessionDraft("what the session wrote meanwhile", 1);
+
+        var refused = await SaveDraft("the owner's second text", editor.ExpectedVersion);
+
+        Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+        var body = await refused.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("the brief of 'scout' is at version 2, not 1; read it again, merge, and save once more", body.GetProperty("error").GetString());
+        Assert.Equal("Stale", body.GetProperty("outcome").GetString());
+        // The newer version rides the refusal: its number and its whole text, which the editor shows beside the owner's.
+        Assert.Equal(2, body.GetProperty("current").GetProperty("version").GetInt32());
+        Assert.Equal("what the session wrote meanwhile", body.GetProperty("current").GetProperty("text").GetString());
+        // Nothing was overwritten and nothing was added.
+        Assert.Equal(2, _briefs.Standing(T, "warmforward", "scout").Newest!.Version);
+        Assert.Equal("what the session wrote meanwhile", _briefs.Find(T, "warmforward", "scout", 2)!.Text);
+
+        // Asked again, the editor starts from the session's draft and says whose it is.
+        var again = await Read<FactoryBriefEditorViewDto>($"{BriefView}/editor");
+        Assert.Equal(2, again.ExpectedVersion);
+        Assert.Equal($"This starts from version 2, the newest draft, written by session {SessionId} today 14:30. Nothing is published yet.", again.StartText);
+
+        // Saving the owner's text after the newer version is then accepted, as version 3.
+        var saved = await SaveDraft("the owner's second text, merged", 2);
+        Assert.Equal(HttpStatusCode.OK, saved.StatusCode);
+        Assert.Equal(3, (await saved.Content.ReadFromJsonAsync<FactoryBriefDto>(Web))!.Version);
+    }
+
+    [Fact]
+    public async Task Brief_APublishOfTheVersionThatIsAlreadyPublished_IsRefusedInWords_AndNothingChanges()
+    {
+        await StartAsync();
+        Seed();
+        await SaveDraft("the brief", 0);
+        Assert.Equal(HttpStatusCode.OK, (await Publish(1)).StatusCode);
+
+        var refused = await Publish(1);
+
+        Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+        Assert.Equal("version 1 is already the published brief of 'scout'", await ErrorOf(refused));
+        Assert.Equal(1, _briefs.Standing(T, "warmforward", "scout").Newest!.Version);
+    }
+
+    [Fact]
+    public async Task Brief_APublishByASession_IsRefusedByTheRoute_AndTheSeatPageStillShowsNothingPublished()
+    {
+        await StartAsync(Caller.SessionKey, SessionFactoryLookup.In("warmforward"));
+        Seed();
+        Assert.Equal(HttpStatusCode.OK, (await SaveDraft("a session's draft", 0)).StatusCode);
+
+        var refused = await Publish(1);
+
+        Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
+        Assert.Equal("Only a person publishes a seat's brief. A session of the factory may save a draft; the owner reads it and publishes it.", await ErrorOf(refused));
+        Assert.Null(_briefs.Standing(T, "warmforward", "scout").Published);
+    }
+
+    [Fact]
+    public async Task BriefHistory_ALongHistory_IsReadOnePageAtATime_NewestFirst_AndEveryVersionIsReached()
+    {
+        await StartAsync();
+        Seed();
+        for (var n = 1; n <= 45; n++) SessionDraftOrOwner(n);
+        Assert.Equal(HttpStatusCode.OK, (await Publish(45)).StatusCode);
+
+        var first = await Read<FactoryBriefHistoryViewDto>($"{BriefView}/history");
+        Assert.Equal("45 versions. Version 45 is published.", first.SummaryText);
+        Assert.Equal("Versions 45 to 26 of 45.", first.PageText);
+        Assert.Equal(Enumerable.Range(26, 20).Reverse().ToArray(), first.Rows.Select(r => r.Version).ToArray());
+        Assert.Equal(26, first.NextBefore);
+        Assert.Equal("Older versions", first.OlderLabel);
+        Assert.Null(first.NewestLabel);
+
+        var second = await Read<FactoryBriefHistoryViewDto>($"{BriefView}/history?before={first.NextBefore}");
+        Assert.Equal("Versions 25 to 6 of 45.", second.PageText);
+        Assert.Equal(6, second.NextBefore);
+        Assert.Equal("Newest versions", second.NewestLabel);
+
+        var third = await Read<FactoryBriefHistoryViewDto>($"{BriefView}/history?before={second.NextBefore}");
+        Assert.Equal("Versions 5 to 1 of 45.", third.PageText);
+        Assert.Equal(new[] { 5, 4, 3, 2, 1 }, third.Rows.Select(r => r.Version).ToArray());
+        // The Gateway says there is no older page; the screen never works it out.
+        Assert.Null(third.NextBefore);
+        Assert.Null(third.OlderLabel);
+
+        // No page carries a version's text; Open reads one version.
+        var one = await Read<FactoryBriefVersionViewDto>($"{BriefView}/versions/7");
+        Assert.Equal("Version 7", one.Title);
+        Assert.Equal("text of version 7", one.Text);
+        Assert.StartsWith("Draft. Written by a person (device browser device-1) today 15:00.", one.LineText);
+    }
+
+    // A person's drafts are not bound by the limit on waiting drafts, so a long history is written as the owner.
+    private void SessionDraftOrOwner(int version) =>
+        Assert.True(_briefs.SaveDraft(T, "warmforward", "scout", $"text of version {version}", version - 1,
+            CcDirector.Gateway.Data.Entities.FactoryMemoryAuthorKinds.Person, OwnerActor, Now).Ok);
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("-3")]
+    [InlineData("newest")]
+    public async Task BriefHistory_AStartingVersionThatIsNotOne_IsRefusedInWords_NeverQuietlyReplaced(string before)
+    {
+        await StartAsync();
+        Seed();
+
+        var response = await _http.GetAsync($"{BriefView}/history?before={before}");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal($"before is the version a page of the history starts below: a whole number from 1, not '{before}'", await ErrorOf(response));
+    }
+
+    [Fact]
+    public async Task BriefVersion_AVersionThatDoesNotExist_Is404_AndSaysWhichIsNewest()
+    {
+        await StartAsync();
+        Seed();
+        await SaveDraft("the brief", 0);
+
+        var missing = await _http.GetAsync($"{BriefView}/versions/9");
+        Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
+        Assert.Equal("version 9 of the brief of 'scout' does not exist; its newest version is 1", await ErrorOf(missing));
+
+        var notANumber = await _http.GetAsync($"{BriefView}/versions/latest");
+        Assert.Equal(HttpStatusCode.BadRequest, notANumber.StatusCode);
+        Assert.Equal("a version is a whole number from 1, not 'latest'", await ErrorOf(notANumber));
+    }
+
+    [Fact]
+    public async Task Brief_TwentyDraftsWaiting_IsSaidOnThePageTheEditorAndTheHistory_AndAPersonsPublishMakesRoom()
+    {
+        await StartAsync();
+        Seed();
+        for (var n = 1; n <= 20; n++) SessionDraft($"draft {n}", n - 1);
+        // The store refuses the session's twenty-first, in its own sentence.
+        var refused = _briefs.SaveDraft(T, "warmforward", "scout", "draft 21", 20,
+            CcDirector.Gateway.Data.Entities.FactoryMemoryAuthorKinds.Session, SessionId, Now);
+        Assert.Equal(FactoryBriefOutcome.TooManyDrafts, refused.Outcome);
+
+        const string said = "20 drafts are waiting that nobody has published (versions 1 to 20). " +
+                            "A session of this factory is refused another draft while 20 or more are waiting. " +
+                            "Publish one to make room. Every version is kept.";
+        Assert.Equal(said, (await SeatPage("scout")).Brief.WaitingText);
+        Assert.Equal(said, (await Read<FactoryBriefEditorViewDto>($"{BriefView}/editor")).WaitingText);
+        var history = await Read<FactoryBriefHistoryViewDto>($"{BriefView}/history");
+        Assert.Equal(said, history.WaitingText);
+        // Every one of the twenty can be published from the history.
+        Assert.All(history.Rows, r => Assert.NotNull(r.Publish));
+
+        // The person publishes the newest: nothing waits, the sentence goes, and the session may write again.
+        Assert.Equal(HttpStatusCode.OK, (await Publish(20)).StatusCode);
+        Assert.Null((await SeatPage("scout")).Brief.WaitingText);
+        SessionDraft("draft 21", 20);
+    }
+
+    [Theory]
+    [InlineData("editor")]
+    [InlineData("history")]
+    [InlineData("versions/1")]
+    public async Task BriefViews_AreTheOwners_ASessionKeyIsRefused(string view)
+    {
+        await StartAsync(Caller.SessionKey, SessionFactoryLookup.In("warmforward"));
+        Seed();
+
+        var response = await _http.GetAsync($"{BriefView}/{view}");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("editor")]
+    [InlineData("history")]
+    [InlineData("versions/1")]
+    public async Task BriefViews_OfASeatTheFactoryDoesNotHave_Are404_NamingItsSeats(string view)
+    {
+        await StartAsync();
+        Seed();
+
+        var response = await _http.GetAsync($"gateway/factories/warmforward/seats/night-watch/brief/{view}");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.StartsWith("WarmForward has no seat 'night-watch'. Its seats are: boss, scout.", await ErrorOf(response));
+    }
+
+    [Theory]
+    [InlineData("GET", "/gateway/factories/warmforward/seats/scout/brief/editor")]
+    [InlineData("GET", "/gateway/factories/warmforward/seats/scout/brief/history")]
+    [InlineData("GET", "/gateway/factories/warmforward/seats/scout/brief/versions/3")]
+    [InlineData("GET", "/gateway/factories/warmforward/seats/scout")]
+    public void SessionKeyGuard_KeepsTheOwnersBriefViewsFromASessionKey(string verb, string path)
+    {
+        // A session reads and writes a brief through /factory-briefs, where the factory rule answers it. The owner's
+        // screen views are refused at the guard, before any route runs.
+        Assert.False(SessionKeyGuard.Check(verb, path).Allowed);
     }
 
     // ---------- take a schedule off a seat ----------

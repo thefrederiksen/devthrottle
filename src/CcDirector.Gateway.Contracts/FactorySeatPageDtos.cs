@@ -45,29 +45,68 @@ public sealed class FactorySeatPageViewDto
     public string? TruncatedText { get; set; }
 }
 
+/// <summary>The three ways a seat's brief can stand, as <see cref="FactorySeatBriefDto.State"/> says it.</summary>
+public static class FactorySeatBriefStates
+{
+    /// <summary>The seat has a published brief on the Gateway: the panel shows its text.</summary>
+    public const string Published = "published";
+
+    /// <summary>The seat has drafts on the Gateway and none is published.</summary>
+    public const string Drafts = "drafts";
+
+    /// <summary>The seat has no brief on the Gateway: its brief is a file on its computer.</summary>
+    public const string File = "file";
+}
+
 /// <summary>
-/// "What this seat does": the seat's brief. In phase 1 the brief is a file on the seat's computer, so the panel says
-/// where that file is and that the Gateway does not hold it yet.
+/// "What this seat does": the seat's brief (Factory Seats mission, phases 1 and 2b). A seat with a published brief on
+/// the Gateway shows its text, its version, who published it and when. A seat with only drafts says so. A seat with
+/// no brief on the Gateway shows where its brief file is. Every word is the Gateway's
+/// (<c>FactoryBriefPanelFold</c>); the Cockpit draws the fields that are not null.
 /// </summary>
 public sealed class FactorySeatBriefDto
 {
     /// <summary>"What this seat does".</summary>
     public string Heading { get; set; } = "";
 
-    /// <summary>"Brief file".</summary>
-    public string PathLabel { get; set; } = "";
+    /// <summary>One of <see cref="FactorySeatBriefStates"/>.</summary>
+    public string State { get; set; } = FactorySeatBriefStates.File;
 
-    /// <summary>The brief's full path on its computer.</summary>
-    public string PathText { get; set; } = "";
+    /// <summary>The published brief's whole text; null when nothing is published.</summary>
+    public string? Text { get; set; }
 
-    /// <summary>"Computer".</summary>
-    public string ComputerLabel { get; set; } = "";
+    /// <summary>"Version 3, published by a person (device browser abc) today 20:14."; null when nothing is published.</summary>
+    public string? VersionText { get; set; }
 
-    /// <summary>The computer the file is on: the seat's.</summary>
-    public string ComputerText { get; set; } = "";
+    /// <summary>What is waiting: that a newer draft exists and is not what talks and runs are given, or that the
+    /// seat has drafts and none is published. Null when no draft waits.</summary>
+    public string? DraftText { get; set; }
 
-    /// <summary>That the brief is a file on that computer and is not held on the Gateway yet.</summary>
-    public string Note { get; set; } = "";
+    /// <summary>Set when as many drafts wait as a session may leave: sessions are refused another until one is
+    /// published. Null below that.</summary>
+    public string? WaitingText { get; set; }
+
+    /// <summary>"Brief file"; null when the brief is published on the Gateway.</summary>
+    public string? PathLabel { get; set; }
+
+    /// <summary>The brief file's full path on its computer; null when the brief is published on the Gateway.</summary>
+    public string? PathText { get; set; }
+
+    /// <summary>"Computer"; null when the brief is published on the Gateway.</summary>
+    public string? ComputerLabel { get; set; }
+
+    /// <summary>The computer the file is on: the seat's. Null when the brief is published on the Gateway.</summary>
+    public string? ComputerText { get; set; }
+
+    /// <summary>That the brief is a file on that computer and what a talk and a run are told. Null when the brief is
+    /// published on the Gateway.</summary>
+    public string? Note { get; set; }
+
+    /// <summary>The button that opens the editor: "Edit", "Open the newest draft" or "Write the brief here".</summary>
+    public string EditLabel { get; set; } = "";
+
+    /// <summary>"History"; null for a seat with no version on the Gateway, which has no history.</summary>
+    public string? HistoryLabel { get; set; }
 }
 
 /// <summary>"How it starts": the seat's schedules and triggers, or that it is talk only.</summary>

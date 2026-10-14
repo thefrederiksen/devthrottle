@@ -1,4 +1,5 @@
 using CcDirector.Gateway.Contracts;
+using CcDirector.Gateway.Factory.Briefs;
 using CcDirector.Gateway.Factory.Talk;
 using CcDirector.Gateway.Running;
 
@@ -24,11 +25,6 @@ public static class FactorySeatPageFold
 
     public const string TakeOffLabel = "Take off this seat";
 
-    /// <summary>What the brief's panel says while a brief is a file on the seat's computer (phase 1).</summary>
-    internal static string BriefNote(string computer) =>
-        $"The brief is a file on {computer}. It is not held on the Gateway yet, so it cannot be read or changed here. " +
-        "A talk and a scheduled run of this seat are told this path and read the file from that computer.";
-
     public const string TalkOnlyText = "Talk only. Nothing is scheduled for this seat. You run it by talking to it.";
 
     /// <param name="factory">The registered factory.</param>
@@ -36,13 +32,16 @@ public static class FactorySeatPageFold
     /// <param name="input">What the Factories screen reads, over the last 7 days, with <c>Talks</c> holding THIS
     /// seat's newest talk rather than the factory's.</param>
     /// <param name="memoryNotes">How many notes the factory's memory holds now.</param>
+    /// <param name="brief">How the seat's brief stands on the Gateway: its newest version and its published one.
+    /// <see cref="FactoryBriefStanding.None"/> for a seat whose brief is still a file.</param>
     public static FactorySeatPageViewDto Page(RegisteredFactoryDto factory, RegisteredFactorySeatDto seat,
-        FactoriesScreenInputs input, int memoryNotes)
+        FactoriesScreenInputs input, int memoryNotes, FactoryBriefStanding brief)
     {
         ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(seat);
         ArgumentNullException.ThrowIfNull(input);
         ArgumentOutOfRangeException.ThrowIfNegative(memoryNotes);
+        ArgumentNullException.ThrowIfNull(brief);
         var a = input.Activity;
         var isBoss = FactoryTalkSeed.IsBoss(factory, seat);
         // The boss has no name of its own (the owner, 8 October 2026): its page says Boss.
@@ -79,15 +78,7 @@ public static class FactorySeatPageFold
                 FactoryId = factory.Factory,
                 SeatId = seat.Id,
             },
-            Brief = new FactorySeatBriefDto
-            {
-                Heading = "What this seat does",
-                PathLabel = "Brief file",
-                PathText = FactoryTalkSeed.InFolder(factory.Folder, seat.BriefFile),
-                ComputerLabel = "Computer",
-                ComputerText = seat.Computer,
-                Note = BriefNote(seat.Computer),
-            },
+            Brief = FactoryBriefPanelFold.Panel(factory, seat, brief, a.Zone, a.NowUtc),
             Starts = Starts(factory, seat, name, named, schedules, triggers, input),
             Goal = FactoriesScreenFold.GoalCard(factory),
             GoalNumber = FactoriesScreenFold.GoalNumberCard(number, factory, a.Zone, a.NowUtc),
