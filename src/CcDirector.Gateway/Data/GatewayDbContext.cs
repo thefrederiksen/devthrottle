@@ -286,6 +286,18 @@ public sealed class GatewayDbContext : DbContext
 
     /// <summary>Every version of every factory's definition (Factory Definition mission, phase 1).</summary>
     public DbSet<FactoryDefinitionVersionEntity> FactoryDefinitions => Set<FactoryDefinitionVersionEntity>();
+    /// <summary>Every journal entry of every factory seat, append-only (Factory Definition mission, phase 2).</summary>
+    public DbSet<FactoryJournalEntryEntity> FactoryJournalEntries => Set<FactoryJournalEntryEntity>();
+
+    /// <summary>Every version of every factory's working documents (Factory Definition mission, phase 2).</summary>
+    public DbSet<FactoryDocumentVersionEntity> FactoryDocumentVersions => Set<FactoryDocumentVersionEntity>();
+
+    /// <summary>What each file a factory kept is (Factory Definition mission, phase 2). The bytes are in
+    /// <see cref="FactoryAttachmentContents"/>.</summary>
+    public DbSet<FactoryAttachmentEntity> FactoryAttachments => Set<FactoryAttachmentEntity>();
+
+    /// <summary>The bytes of each file a factory kept, one row per attachment.</summary>
+    public DbSet<FactoryAttachmentContentEntity> FactoryAttachmentContents => Set<FactoryAttachmentContentEntity>();
 
     /// <summary>The registered factories, one row per factory (Factories screen mission, phase A).</summary>
     public DbSet<FactoryRegistryEntity> FactoryRegistry => Set<FactoryRegistryEntity>();
@@ -1374,6 +1386,62 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.AuthorId).HasMaxLength(200);
             b.Property(e => e.ChangeNote).HasMaxLength(500);
             b.Property(e => e.PublishedBy).HasMaxLength(200);
+        modelBuilder.Entity<FactoryJournalEntryEntity>(b =>
+        {
+            b.ToTable("factory_journal_entries");
+            b.HasKey(e => e.Id);
+            // Lengths are enforced by the store with a sentence; these are the column's outer bound.
+            b.Property(e => e.Factory).HasMaxLength(64);
+            b.Property(e => e.Seat).HasMaxLength(64);
+            b.Property(e => e.EntryDate).HasMaxLength(10);
+            b.Property(e => e.AuthorKind).HasMaxLength(20);
+            b.Property(e => e.AuthorId).HasMaxLength(200);
+            b.Property(e => e.ImportKey).HasMaxLength(400);
+            // The read: one factory's journal, or one seat's, newest day first.
+            b.HasIndex(e => new { e.TenantId, e.Factory, e.Seat, e.EntryDate });
+            // THE UPLOAD STORES NOTHING TWICE. A null key is an ordinary entry, and both providers let any number of
+            // nulls through a unique index, so only the upload's own names are held to it.
+            b.HasIndex(e => new { e.TenantId, e.Factory, e.ImportKey }).IsUnique();
+        });
+
+        modelBuilder.Entity<FactoryDocumentVersionEntity>(b =>
+        {
+            b.ToTable("factory_document_versions");
+            // THE KEY IS THE CONCURRENCY CONTROL, as it is for factory memory: two runs writing the same document at
+            // the same moment both compute the same next version, and with this key the second insert cannot exist.
+            // It is also the only index the reads need - a document's newest version and its history.
+            b.HasKey(e => new { e.TenantId, e.Factory, e.Name, e.Version });
+            b.Property(e => e.Factory).HasMaxLength(64);
+            b.Property(e => e.Name).HasMaxLength(200);
+            b.Property(e => e.AuthorKind).HasMaxLength(20);
+            b.Property(e => e.AuthorId).HasMaxLength(200);
+            b.Property(e => e.ImportKey).HasMaxLength(400);
+            b.HasIndex(e => new { e.TenantId, e.Factory, e.ImportKey }).IsUnique();
+        });
+
+        modelBuilder.Entity<FactoryAttachmentEntity>(b =>
+        {
+            b.ToTable("factory_attachments");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Factory).HasMaxLength(64);
+            b.Property(e => e.Seat).HasMaxLength(64);
+            b.Property(e => e.Name).HasMaxLength(200);
+            b.Property(e => e.ContentType).HasMaxLength(100);
+            b.Property(e => e.Sha256).HasMaxLength(64);
+            b.Property(e => e.AuthorKind).HasMaxLength(20);
+            b.Property(e => e.AuthorId).HasMaxLength(200);
+            b.Property(e => e.ImportKey).HasMaxLength(400);
+            // The reads: one factory's files (and their total, which the cap counts), or one seat's.
+            b.HasIndex(e => new { e.TenantId, e.Factory, e.Seat });
+            b.HasIndex(e => new { e.TenantId, e.Factory, e.ImportKey }).IsUnique();
+        });
+
+        modelBuilder.Entity<FactoryAttachmentContentEntity>(b =>
+        {
+            b.ToTable("factory_attachment_contents");
+            // One row of bytes per attachment. A value reference to the attachment's id rather than a foreign key,
+            // as everywhere in the factory record: nothing here ever cascades.
+            b.HasKey(e => new { e.TenantId, e.AttachmentId });
         });
 
         modelBuilder.Entity<FactoryRegistryEntity>(b =>
@@ -2075,6 +2143,10 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<FactoryMemoryNoteEntity>(modelBuilder);
         ApplyTenantScope<FactoryBriefVersionEntity>(modelBuilder);
         ApplyTenantScope<FactoryDefinitionVersionEntity>(modelBuilder);
+        ApplyTenantScope<FactoryJournalEntryEntity>(modelBuilder);
+        ApplyTenantScope<FactoryDocumentVersionEntity>(modelBuilder);
+        ApplyTenantScope<FactoryAttachmentEntity>(modelBuilder);
+        ApplyTenantScope<FactoryAttachmentContentEntity>(modelBuilder);
         ApplyTenantScope<FactoryRegistryEntity>(modelBuilder);
         ApplyTenantScope<FactoryGoalNumberEntity>(modelBuilder);
         ApplyTenantScope<KnownRepositoryEntity>(modelBuilder);
@@ -2260,6 +2332,19 @@ public sealed class GatewayDbContext : DbContext
             // same version, and the state is a closed word the published read selects on.
             modelBuilder.Entity<FactoryDefinitionVersionEntity>().Property(e => e.Factory).UseCollation("C");
             modelBuilder.Entity<FactoryDefinitionVersionEntity>().Property(e => e.State).UseCollation("C");
+            // factory records (Factory Definition, phase 2): the factory, the seat, the document's name and the
+            // upload's names are exact keys - the document's name is part of the key that keeps two writers from
+            // minting the same version, and the upload's name is what makes running it twice store nothing twice.
+            modelBuilder.Entity<FactoryJournalEntryEntity>().Property(e => e.Factory).UseCollation("C");
+            modelBuilder.Entity<FactoryJournalEntryEntity>().Property(e => e.Seat).UseCollation("C");
+            modelBuilder.Entity<FactoryJournalEntryEntity>().Property(e => e.EntryDate).UseCollation("C");
+            modelBuilder.Entity<FactoryJournalEntryEntity>().Property(e => e.ImportKey).UseCollation("C");
+            modelBuilder.Entity<FactoryDocumentVersionEntity>().Property(e => e.Factory).UseCollation("C");
+            modelBuilder.Entity<FactoryDocumentVersionEntity>().Property(e => e.Name).UseCollation("C");
+            modelBuilder.Entity<FactoryDocumentVersionEntity>().Property(e => e.ImportKey).UseCollation("C");
+            modelBuilder.Entity<FactoryAttachmentEntity>().Property(e => e.Factory).UseCollation("C");
+            modelBuilder.Entity<FactoryAttachmentEntity>().Property(e => e.Seat).UseCollation("C");
+            modelBuilder.Entity<FactoryAttachmentEntity>().Property(e => e.ImportKey).UseCollation("C");
             // factory_email_reports: the slot key, the kind and the state are exact keys.
             modelBuilder.Entity<FactoryEmailReportEntity>().Property(e => e.SlotKey).UseCollation("C");
             modelBuilder.Entity<FactoryEmailReportEntity>().Property(e => e.Kind).UseCollation("C");

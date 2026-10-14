@@ -17,6 +17,7 @@ from . import factory_email_ops
 from . import factory_ops
 from . import factory_brief_ops
 from . import factory_memory_ops
+from . import factory_record_ops
 from . import factory_registry_ops
 from . import factory_status_ops
 from . import factory_manager_ops
@@ -164,6 +165,34 @@ factory_brief_app = typer.Typer(
     no_args_is_help=True,
 )
 factory_app.add_typer(factory_brief_app, name="brief")
+factory_journal_app = typer.Typer(
+    cls=AxiGroup,
+    help="A factory's journals on the Gateway: what each seat wrote down about a day. Append-only.",
+    add_completion=False,
+    no_args_is_help=True,
+)
+factory_app.add_typer(factory_journal_app, name="journal")
+factory_doc_app = typer.Typer(
+    cls=AxiGroup,
+    help="A factory's working documents on the Gateway - the ledger, the playbook - every version kept.",
+    add_completion=False,
+    no_args_is_help=True,
+)
+factory_app.add_typer(factory_doc_app, name="doc")
+factory_attach_app = typer.Typer(
+    cls=AxiGroup,
+    help="The files a factory keeps on the Gateway - screenshots, walk records - kept apart from its journals.",
+    add_completion=False,
+    no_args_is_help=True,
+)
+factory_app.add_typer(factory_attach_app, name="attach")
+factory_records_app = typer.Typer(
+    cls=AxiGroup,
+    help="The one-time upload of this machine's local factory records to the Gateway.",
+    add_completion=False,
+    no_args_is_help=True,
+)
+factory_app.add_typer(factory_records_app, name="records")
 factory_goal_number_app = typer.Typer(
     cls=AxiGroup,
     help="The number a factory's goal is measured by: its boss posts it on every run.",
@@ -4473,6 +4502,167 @@ def factory_brief_restore(
     this is refused by the Gateway with the sentence that says so.
     """
     factory_brief_ops.restore(factory, seat, version, expected_version, json_output)
+
+
+_RECORD_FACTORY_HELP = "The factory's id, for example devthrottle. A session may name only its own factory."
+
+
+@factory_journal_app.command("list")
+def factory_journal_list(
+    factory: str = typer.Option(..., "--factory", help=_RECORD_FACTORY_HELP),
+    seat: Optional[str] = typer.Option(None, "--seat", help="Only this seat's journal."),
+    factory_only: bool = typer.Option(False, "--factory-only", help="Only the journal the factory keeps as a whole, not a seat's."),
+    since: Optional[str] = typer.Option(None, "--since", help="Only entries about this day or later, yyyy-MM-dd."),
+    until: Optional[str] = typer.Option(None, "--until", help="Only entries about this day or earlier, yyyy-MM-dd."),
+    count: Optional[int] = typer.Option(None, "--count", "-n", min=1, max=200,
+                                        help="How many entries to list, 1 to 200. The Gateway gives 50 when this is not passed."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the page as JSON."),
+) -> None:
+    """A factory's journal entries, newest day first, without their text.
+
+    Says how many match in all; when more match than are listed, narrow the days. An entry's text is read with get.
+    """
+    factory_record_ops.journal_list(factory, seat, factory_only, since, until, count, json_output)
+
+
+@factory_journal_app.command("get")
+def factory_journal_get(
+    factory: str = typer.Option(..., "--factory", help=_RECORD_FACTORY_HELP),
+    entry_id: str = typer.Option(..., "--id", help="The entry's id, as list shows it."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the entry as JSON, with its exact text."),
+) -> None:
+    """One journal entry, with its text and the attachments it names."""
+    factory_record_ops.journal_get(factory, entry_id, json_output)
+
+
+@factory_journal_app.command("add")
+def factory_journal_add(
+    factory: str = typer.Option(..., "--factory", help=_RECORD_FACTORY_HELP),
+    file: str = typer.Option(..., "--file", help="The file holding the entry's text. Pass - to read standard input."),
+    seat: Optional[str] = typer.Option(None, "--seat", help="The seat whose journal it goes in. Leave out for the factory's own."),
+    date: Optional[str] = typer.Option(None, "--date", help="The day it is about, yyyy-MM-dd. Leave out for today."),
+    attachment: List[str] = typer.Option([], "--attachment", help="The id of a file the factory holds that the entry names. Repeat for more."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the added entry as JSON."),
+) -> None:
+    """Add one entry to a journal. An entry is never edited: correct one by adding another.
+
+    An attachment is kept first with 'factory attach add', and the entry names its id.
+    """
+    factory_record_ops.journal_add(factory, seat, date, file, attachment, json_output)
+
+
+@factory_doc_app.command("list")
+def factory_doc_list(
+    factory: str = typer.Option(..., "--factory", help=_RECORD_FACTORY_HELP),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the list as JSON."),
+) -> None:
+    """A factory's working documents as they stand: each one's newest version, without its text."""
+    factory_record_ops.doc_list(factory, json_output)
+
+
+@factory_doc_app.command("get")
+def factory_doc_get(
+    factory: str = typer.Option(..., "--factory", help=_RECORD_FACTORY_HELP),
+    name: str = typer.Option(..., "--name", help="The document's name, a relative path such as outreach/ledger.json."),
+    version: Optional[int] = typer.Option(None, "--version", min=1, help="Read this one version instead of the newest."),
+    out: Optional[str] = typer.Option(None, "--out", help="Write the text to this file instead of printing it."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the document as JSON, with its exact text."),
+) -> None:
+    """Read a working document: its newest version, or the one you name. The version shown is the one to write against."""
+    factory_record_ops.doc_get(factory, name, version, out, json_output)
+
+
+@factory_doc_app.command("history")
+def factory_doc_history(
+    factory: str = typer.Option(..., "--factory", help=_RECORD_FACTORY_HELP),
+    name: str = typer.Option(..., "--name", help="The document's name."),
+    count: Optional[int] = typer.Option(None, "--count", "-n", min=1, max=100,
+                                        help="How many versions one page holds, 1 to 100. The Gateway gives 50 when this is not passed."),
+    before: Optional[int] = typer.Option(None, "--before", min=1, help="Start the page below this version."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the page as JSON."),
+) -> None:
+    """One page of a working document's versions, newest first, without their text. Every version is kept."""
+    factory_record_ops.doc_history(factory, name, count, before, json_output)
+
+
+@factory_doc_app.command("write")
+def factory_doc_write(
+    factory: str = typer.Option(..., "--factory", help=_RECORD_FACTORY_HELP),
+    name: str = typer.Option(..., "--name", help="The document's name, a relative path such as outreach/ledger.json."),
+    file: str = typer.Option(..., "--file", help="The file holding the document's whole new text. Pass - to read standard input."),
+    expected_version: int = typer.Option(
+        ..., "--expected-version", min=0,
+        help="The version you read (get shows it). 0 means the document does not exist yet.",
+    ),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the written version as JSON."),
+) -> None:
+    """Write a file as the next version of a working document.
+
+    If somebody wrote a version since the one you read, nothing is written: the command prints the document's
+    current text and its version, and exits non-zero. Merge your change into that text and write again with that
+    version. Nothing anybody wrote is lost.
+    """
+    factory_record_ops.doc_write(factory, name, file, expected_version, json_output)
+
+
+@factory_attach_app.command("list")
+def factory_attach_list(
+    factory: str = typer.Option(..., "--factory", help=_RECORD_FACTORY_HELP),
+    seat: Optional[str] = typer.Option(None, "--seat", help="Only the files this seat kept."),
+    count: Optional[int] = typer.Option(None, "--count", "-n", min=1, max=1000,
+                                        help="How many files to list, 1 to 1000. The Gateway gives 200 when this is not passed."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the list as JSON."),
+) -> None:
+    """The files a factory keeps, newest first, without their bytes, and how much of its cap they use."""
+    factory_record_ops.attach_list(factory, seat, count, json_output)
+
+
+@factory_attach_app.command("get")
+def factory_attach_get(
+    factory: str = typer.Option(..., "--factory", help=_RECORD_FACTORY_HELP),
+    attachment_id: str = typer.Option(..., "--id", help="The attachment's id, as list shows it."),
+    out: str = typer.Option(..., "--out", help="The file to write the bytes to."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output what was written as JSON."),
+) -> None:
+    """Fetch one file a factory keeps, checked against the SHA-256 the Gateway stored for it."""
+    factory_record_ops.attach_get(factory, attachment_id, out, json_output)
+
+
+@factory_attach_app.command("add")
+def factory_attach_add(
+    factory: str = typer.Option(..., "--factory", help=_RECORD_FACTORY_HELP),
+    file: str = typer.Option(..., "--file", help="The file to keep."),
+    seat: Optional[str] = typer.Option(None, "--seat", help="The seat that keeps it. Leave out for the factory as a whole."),
+    name: Optional[str] = typer.Option(None, "--name", help="Its name on the Gateway, a relative path. The file's own name when left out."),
+    content_type: Optional[str] = typer.Option(None, "--content-type", help="Its media type, such as image/png. Told from the name when left out."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the kept attachment as JSON."),
+) -> None:
+    """Keep one file on the Gateway, and print the id a journal entry names it by.
+
+    Each file and each factory's files together are capped; a file over either is refused in words and nothing is kept.
+    """
+    factory_record_ops.attach_add(factory, seat, file, name, content_type, json_output)
+
+
+@factory_records_app.command("upload")
+def factory_records_upload(
+    root: Optional[str] = typer.Option(None, "--root", help="The folder that holds the records folders. This machine's LOCALAPPDATA when left out."),
+    gateway_url: Optional[str] = typer.Option(None, "--gateway", help="The Gateway to upload to. CC_GATEWAY_URL when left out."),
+    machine: Optional[str] = typer.Option(None, "--machine", help="The machine's name every stored row records. COMPUTERNAME when left out."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Read and count everything, and send nothing."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the counts and every file's outcome as JSON."),
+) -> None:
+    """Upload every factory records folder on this machine to the Gateway, once, and reconcile the counts.
+
+    Each file is stored as what it is - a journal entry, a working document or an attachment - by the phase 0
+    inventory's rules. Databases, scratch files and a folder that belongs to no factory are counted and listed by
+    name, and not uploaded. It prints how many files it read against how many it stored and exits non-zero unless
+    every file is accounted for. Running it again stores nothing twice. Nothing on this machine is deleted or changed.
+
+    It writes with the account's machine credential from CC_GATEWAY_UPLOAD_TOKEN (a session's key reaches one
+    factory only): cc-secrets run devthrottle-gateway-upload-token -- cc-devthrottle factory records upload.
+    """
+    factory_record_ops.upload(root, gateway_url, machine, dry_run, json_output)
 
 
 @trigger_app.callback()
