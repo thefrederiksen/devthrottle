@@ -1,0 +1,5 @@
+| missing | tag created: yes | stderr: nothing | hook or block events: 0 |
+| crash | tag created: yes | stderr: nothing | hook or block events: 0 |
+| timeout | tag created: yes | stderr: nothing | hook or block events: 0 |
+| exit-2 | tag created: yes | stderr: nothing | hook or block events: 0 |
+| deny-control | tag created: no | stderr: 2026-10-14T20:59:08.762420Z ERROR codex_core::tools::router: error=Command blocked by PreToolUse hook: DENY-CONTROL: tagging is forbidden.. Command: git tag fd-proof | hook or block events: 0 |

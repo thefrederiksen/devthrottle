@@ -1,0 +1,6 @@
+CODEX EXIT CODE: 0, run took 4 s
+TAG CREATED: no
+STDERR (stdin notice removed): '2026-10-14T20:59:08.762420Z ERROR codex_core::tools::router: error=Command blocked by PreToolUse hook: DENY-CONTROL: tagging is forbidden.. Command: git tag fd-proof'
+JSON EVENTS NAMING A HOOK OR A BLOCK: 0
+REQUESTS: 3 (2 model turns)
+COMMAND RESULT call_1: Command blocked by PreToolUse hook: DENY-CONTROL: tagging is forbidden.. Command: git tag fd-proof

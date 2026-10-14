@@ -8,7 +8,7 @@ hooks or skill folders, and none starts a Director.
 | Proof | Verdict |
 |---|---|
 | (a) Claude Code: rules merged into the one settings file | **PASS** |
-| (b) Codex: rules at launch from a file outside the checkout | **PASS, as a command-line hook, with limits** |
+| (b) Codex: rules at launch from a file outside the checkout | **REFUSED: a command-line hook can carry a rule, but Codex enforces it fail-open, so by A4 a Codex seat that carries rules is refused at publish** (Delivery Lead ruling, 14 October 2026) |
 | (c) Factory skills for one session only | **Claude Code PASS. Codex: refuse factory skills** |
 
 ## The Director's real launch lines (origin/main)
@@ -30,7 +30,8 @@ hooks or skill folders, and none starts a Director.
 ## (a) The gate - `a-claude-gate.ps1` - PASS
 
 The Director's real `hooks-settings.json` is copied and given `permissions.deny = ["Read(./kit-denied.txt)",
-"Bash(git push:*)"]`: the merge phase 5 will do, still one `--settings`. The start folder is a git repository whose
+"Bash(git push:*)"]`, and the session is given that copy: still one `--settings`. Phase 5 must build it the same
+way, as a per-session copy in the kit, never as a merge into the shared file. See finding 3 below. The start folder is a git repository whose
 own `.claude/settings.json` denies `Read(./repo-denied.txt)`. The session is asked to read three files and run
 `git push origin main`.
 
@@ -53,7 +54,29 @@ Deviations from the Director's line, none of which touches permissions: `-p` wit
 `--output-format stream-json --verbose` (non-interactive, so every tool result is captured), and `--model sonnet`
 (the Director composes a model into the line when an entry names one).
 
-## (b) Codex - `b-codex-rules.ps1` - PASS, as a command-line hook, with limits
+## (b) Codex - `b-codex-rules.ps1` and `b2-codex-hook-failure-modes.ps1` - REFUSED
+
+**Verdict.** A command-line hook can carry a factory rule to a Codex session, and a hook that answers a well-formed
+deny does block (below). But Codex enforces that hook fail-open: when the hook is missing, crashes, times out or
+exits 2, the command runs and nothing anywhere says the rule was skipped. A rule that is skipped when the machine is
+busy is not a rule the product can promise, so under mission rule A4 ("an agent that cannot take them that way
+cannot run a seat that has rules: publish refuses it") **a Codex seat that carries rules is refused at publish**.
+This is the Delivery Lead's ruling on review finding 1. Only the owner can reverse it, in writing in the mission
+document, and the definition check would then have to say "guardrail only" to the person publishing.
+
+The failure modes, measured with `b2-codex-hook-failure-modes.ps1`: the same `-c` hook route, both Director bypass
+flags and the scripted endpoint asking for `git tag fd-proof`. The review session measured this first; this script
+reproduces it (`b2-output/summary.txt`):
+
+| Hook | What Codex 0.160.1 did | Tag created | Anything on standard error or in the `--json` events |
+|---|---|---|---|
+| script file missing | ran the command | yes | nothing |
+| exits 1, writes garbage to stdout | ran the command | yes | nothing |
+| sleeps 20 seconds against `timeout=3` | ran the command | yes | nothing |
+| exits 2, reason on stderr (the block Codex documents) | ran the command | yes | nothing |
+| well-formed `permissionDecision: deny` (control) | blocked: `Command blocked by PreToolUse hook: DENY-CONTROL: tagging is forbidden.` | no | the block, on stderr |
+
+The rest of this section is the original proof that the route works when the hook answers correctly.
 
 Codex has no `--settings`. Its `.rules` files load only from a `rules/` folder beside a config layer - the user's
 `~/.codex` or a trusted project's `.codex` (Codex documentation, "Rules"); no option or `-c` key names a rules file
@@ -82,11 +105,11 @@ instead of the interactive screen, `--json`, `--ephemeral` (no session file in t
 `-c projects.'<start folder>'.trust_level='trusted'`, which is what `config.toml` already says for the folders the
 Director starts Codex in.
 
-**Limits phase 5 must carry.** Codex's own documentation calls tool hooks "a useful guardrail, not a complete
-enforcement boundary": a hook that errors, times out or answers malformed lets the call through, hosted tools such
-as web search never reach a hook, and some specialised tool paths can opt out. This proof matched shell commands
-only; phase 5 must match every tool. A Codex rule is therefore weaker than a Claude Code rule, and the definition
-check should say so to the person publishing a Codex seat.
+**Further holes, even if the owner overrode the refusal.** Codex's own documentation calls tool hooks "a useful
+guardrail, not a complete enforcement boundary". Hosted tools such as web search never reach a hook, and some
+specialised tool paths can opt out. `write_stdin` does not run the hook again, so a model can start a shell that
+matches no rule and then type the forbidden command into it. This proof matched shell commands only, and matching
+every tool would not close the `write_stdin` hole.
 
 ## (c) Factory skills for one session - `c-factory-skills.ps1`
 
@@ -130,10 +153,48 @@ reason. Fleet skills still reach Codex sessions as today.
 Also seen during the run: the Director rewrote every fleet skill under `~/.agents/skills` at once, mid-run, when it
 refreshed them from the Gateway. So the script compares entry names, not write times.
 
+## Review and answers
+
+The review is `reviews/phase0-launch-review.md`, written by a separate review session that re-ran (a) and (c) and
+reproduced them exactly. Finding 1 is answered by the Delivery Lead's ruling in section (b). The rest:
+
+- **Finding 2, two more holes in the Codex hook route: accepted.** `write_stdin` is now named in section (b). With
+  (b) refused, it bears only on an owner override.
+- **Finding 3, phase 5 must write a per-session copy, not merge into the shared file: accepted, and it is the
+  shape phase 5 must build.** The file the Director passes today, `hooks-settings.json`, is ONE file shared by every
+  Claude Code session on the machine. `ClaudeHookInstaller.EnsureInstalled` rewrites it whole, with
+  `File.WriteAllText`, on every launch (`ClaudeHookInstaller.cs:139-140` on origin/main). A merge into it would do
+  two wrong things at once. First, every other session on the machine, factory or not, would get this seat's deny
+  list from the next launch onward. Second, the next launch of any session would rewrite the file and erase the
+  merge, including under a seat that is still running. So phase 5 writes the session's own
+  `<storage>/factory-run/<session id>/settings.json`: the hooks content `ClaudeHookInstaller` produces plus the
+  kit's `rules.json` as `permissions`. That copy, not the shared file, is the one `--settings` on that session's
+  line. It lives and dies with the kit, so no other session can see it and no launch can rewrite it. That is what
+  proof (a) did. Section 5.5 step 4's "merged into THAT file for the session" must be read as "merged into a copy of
+  that file, for that session only".
+- **Finding 4, a `/path` rule in a `--settings` file anchors at the file's folder: accepted.** In a file passed with
+  `--settings`, Claude Code resolves `Read(/x)` against the folder holding that file, which is the kit, and
+  `Read(./x)` against the start folder. Proof (a) used `./`. The phase 1 definition check, or the rules schema,
+  should refuse or warn on a leading-`/` path rule, because it would match nothing in the worktree.
+- **Finding 5, a usage trace of the kit skill lands in `~/.claude.json`: accepted, confirmed.** After the runs,
+  `~/.claude.json` holds `skillUsage["factory-kit:fd-proof-skill"]` and `pluginUsage["factory-kit@inline"]`
+  (counts and timestamps). That is a statistic, not a skill. The no-kit sessions, run after the kit sessions,
+  still answered `Unknown skill`. So "nothing written into the user's skills folders" in (c) holds, but "nothing in
+  the user's home" does not. Phase 5's check must say "skills folders", not "home".
+- **Finding 6, the scripted model's edge: accepted.** It proves enforcement for the shell calls it made, through
+  `exec_command`. It does not show a real model's choice of tool, `apply_patch` or MCP tools reaching a hook, or
+  what a real model does after a refusal. For Codex these are moot while rules-bearing seats are refused.
+
+The review also notes that a Claude Code `Bash(git push:*)` deny does not match the same program given by path
+or inside `sh -c`, and that a `Read` deny does not stop a subprocess opening the file. A Claude Code rule binds
+the model's ordinary tool calls, and it is not an operating-system boundary. The definition's wording to the
+person publishing must not promise more.
+
 ## Running them again
 
     powershell -NoProfile -File a-claude-gate.ps1
     powershell -NoProfile -File b-codex-rules.ps1
+    powershell -NoProfile -File b2-codex-hook-failure-modes.ps1
     powershell -NoProfile -File c-factory-skills.ps1
 
 They need a Director's `hooks-settings.json` on the machine (proofs a and c), `claude`, `codex`, `git` and `python`
