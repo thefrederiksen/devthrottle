@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 using CcDirector.Core.Utilities;
 
@@ -185,6 +186,10 @@ internal static class LinuxMicDevices
 
     private static volatile LinuxMicSnapshot? _last;
 
+    // The look at the inputs that is running now, shared by every caller that asks while it runs.
+    private static readonly object LookGate = new();
+    private static TaskCompletionSource<LinuxMicSnapshot>? _lookInFlight;
+
     /// <summary>The Windows-shaped device list: the default entry first, then every PipeWire input.</summary>
     public static IReadOnlyList<MicDevice> Enumerate()
     {
@@ -226,8 +231,43 @@ internal static class LinuxMicDevices
     /// <summary>The sound system the last look found, for playing the ready cue. Null before any look.</summary>
     public static LinuxAudioBackend? LastBackend => _last?.Backend;
 
-    /// <summary>Look at the machine's audio inputs now, and remember the answer for <see cref="CaptureTargetFor"/>.</summary>
+    /// <summary>
+    /// Look at the machine's audio inputs now, and remember the answer for <see cref="CaptureTargetFor"/>. A call
+    /// made while another look is running waits for that look and shares its answer: the Speak dialog resolves
+    /// the saved microphone and fills the selector at the same moment, and two <c>pw-dump</c>s at once each saw
+    /// the other leave the sound system, which made a routine extra array in both outputs.
+    /// </summary>
     internal static LinuxMicSnapshot TakeSnapshot()
+    {
+        TaskCompletionSource<LinuxMicSnapshot>? running;
+        TaskCompletionSource<LinuxMicSnapshot> look;
+        lock (LookGate)
+        {
+            running = _lookInFlight;
+            look = running ?? new TaskCompletionSource<LinuxMicSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _lookInFlight = look;
+        }
+        if (running is not null)
+            return running.Task.GetAwaiter().GetResult();
+
+        try
+        {
+            var snapshot = LookNow();
+            look.SetResult(snapshot);
+            return snapshot;
+        }
+        catch (Exception ex)
+        {
+            look.SetException(ex);
+            throw;
+        }
+        finally
+        {
+            lock (LookGate) _lookInFlight = null;
+        }
+    }
+
+    private static LinuxMicSnapshot LookNow()
     {
         LinuxMicSnapshot? snapshot = null;
         if (LinuxAudioTools.PipeWireToolsPresent)
@@ -268,8 +308,7 @@ internal static class LinuxMicDevices
         var sources = new List<LinuxMicSource>();
         string? defaultNodeName = null;
 
-        using var document = JsonDocument.Parse(json);
-        foreach (var item in document.RootElement.EnumerateArray())
+        foreach (var item in MergePipeWireArrays(json))
         {
             var type = StringProperty(item, "type");
             if (string.Equals(type, "PipeWire:Interface:Node", StringComparison.Ordinal))
@@ -302,6 +341,74 @@ internal static class LinuxMicDevices
 
         return new LinuxMicSnapshot(LinuxAudioBackend.PipeWire, sources, defaultNodeName);
     }
+
+    /// <summary>
+    /// Every object in <c>pw-dump</c>'s output, as it stood when the dump ended. <c>pw-dump</c> prints one array of
+    /// every object and then, when the sound system changed while it was dumping, one more array per change. Any
+    /// client coming or going is such a change - two dumps at once see each other leave - so the extra array is
+    /// routine, and reading the output as one JSON value failed the Speak dialog with "'[' is invalid after a
+    /// single JSON value". Every array is read in order:
+    /// <list type="bullet">
+    /// <item>A removed object is printed as <c>{ "id": n, "info": null }</c>, and is dropped.</item>
+    /// <item>A changed node is printed in full, and replaces the earlier one.</item>
+    /// <item>A changed metadata object carries only the entries that changed, so it is kept after the earlier one
+    /// rather than replacing it; <see cref="ParsePipeWireDump"/> takes the last value it sees for a key.</item>
+    /// </list>
+    /// </summary>
+    private static List<JsonElement> MergePipeWireArrays(string json)
+    {
+        var order = new List<int>();
+        var versionsById = new Dictionary<int, List<JsonElement>>();
+        var withoutId = new List<JsonElement>();
+
+        var reader = new Utf8JsonReader(Encoding.UTF8.GetBytes(json), new JsonReaderOptions { AllowMultipleValues = true });
+        while (reader.Read())
+        {
+            using var document = JsonDocument.ParseValue(ref reader);
+            foreach (var entry in document.RootElement.EnumerateArray())
+            {
+                var item = entry.Clone();
+                if (!IntProperty(item, "id", out var id))
+                {
+                    withoutId.Add(item);
+                    continue;
+                }
+
+                var removed = item.TryGetProperty("info", out var info) && info.ValueKind == JsonValueKind.Null
+                    && !item.TryGetProperty("type", out _);
+                if (removed)
+                {
+                    versionsById.Remove(id);
+                    continue;
+                }
+
+                if (!versionsById.TryGetValue(id, out var versions))
+                {
+                    versionsById[id] = [item];
+                    order.Remove(id);
+                    order.Add(id);
+                }
+                else if (IsMetadata(item) && versions.Count > 0 && IsMetadata(versions[0]))
+                    versions.Add(item);
+                else
+                {
+                    versions.Clear();
+                    versions.Add(item);
+                }
+            }
+        }
+
+        var merged = new List<JsonElement>();
+        foreach (var id in order)
+        {
+            if (versionsById.TryGetValue(id, out var versions)) merged.AddRange(versions);
+        }
+        merged.AddRange(withoutId);
+        return merged;
+    }
+
+    private static bool IsMetadata(JsonElement item)
+        => string.Equals(StringProperty(item, "type"), "PipeWire:Interface:Metadata", StringComparison.Ordinal);
 
     private static string DescribeDefault(LinuxMicSnapshot snapshot)
         => snapshot.DefaultDescription is { } name ? $"Default - {name}" : DefaultFallbackLabel;
