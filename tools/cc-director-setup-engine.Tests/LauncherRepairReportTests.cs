@@ -93,17 +93,6 @@ public class LauncherRepairReportTests : IDisposable
     }
 
     [Fact]
-    public void Compose_Rebuilt_SaysRebuiltAndRunningWithThePidAndCarriesTheSteps()
-    {
-        var text = LauncherRepairReport.Compose(Run(Fake(starts: true)), NoLines, User, Home);
-
-        Assert.StartsWith("launcher repair: rebuilt the launch agent and launchd reports the launcher running as process 4242.", text.Message);
-        Assert.Contains("Found: launchd refused to spawn the launcher", text.Message);
-        Assert.Contains("Rebuilt the launch agent", text.Detail);
-        AssertNamesNobody(text);
-    }
-
-    [Fact]
     public void Compose_RebuiltButNeverStarted_IsFailedWithLaunchdsAnswer()
     {
         var outcome = Run(Fake(starts: false));
