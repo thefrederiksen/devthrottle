@@ -240,6 +240,33 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
     }
 
     [Fact]
+    public async Task A_PUBLISH_ANSWERS_WITH_WHAT_CHANGES_and_the_diff_route_answers_it_between_any_two_versions()
+    {
+        await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(DefinitionFixture.Valid(), 0));
+        var first = await Send("POST", FactoryPath + "/publish", AsAPerson, """{"version":1}""");
+        Assert.True(first.Body.GetProperty("changes").GetProperty("firstPublish").GetBoolean());
+
+        await Send("PUT", FactoryPath + "/draft", AsAPerson,
+            SaveBody(DefinitionFixture.Edit("seats/writer.yaml", "name: Writer", "name: Author"), 1));
+        var diff = await Send("GET", FactoryPath + "/diff", AsASessionOfTheFactory);
+
+        Assert.Equal(200, diff.Status);
+        Assert.Equal(1, diff.Body.GetProperty("from").GetInt32());
+        Assert.Equal(2, diff.Body.GetProperty("to").GetInt32());
+        var changes = diff.Body.GetProperty("changes");
+        Assert.False(changes.GetProperty("nothingChanges").GetBoolean());
+        var seat = changes.GetProperty("seats")[0];
+        Assert.Equal("writer", seat.GetProperty("seat").GetString());
+        Assert.Equal("changed", seat.GetProperty("change").GetString());
+
+        var second = await Send("POST", FactoryPath + "/publish", AsAPerson, """{"version":2}""");
+        Assert.Equal(changes.GetRawText(), second.Body.GetProperty("changes").GetRawText());
+
+        var none = await Send("GET", FactoryPath + "/diff?from=2&to=2", AsAPerson);
+        Assert.True(none.Body.GetProperty("changes").GetProperty("nothingChanges").GetBoolean());
+    }
+
+    [Fact]
     public async Task The_factory_in_the_path_is_folded_to_its_one_spelling()
     {
         await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(DefinitionFixture.Valid(), 0));
@@ -264,6 +291,7 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
     [InlineData("GET", "/factory-definitions/devthrottle/draft")]
     [InlineData("GET", "/factory-definitions/devthrottle/history")]
     [InlineData("GET", "/factory-definitions/devthrottle/versions/3")]
+    [InlineData("GET", "/factory-definitions/devthrottle/diff")]
     [InlineData("PUT", "/factory-definitions/devthrottle/draft")]
     [InlineData("POST", "/factory-definitions/devthrottle/publish")]
     [InlineData("POST", "/factory-definitions/devthrottle/restore")]
@@ -285,6 +313,7 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
     [InlineData("PUT", "/factory-definitions/devthrottle/versions/3")]
     [InlineData("GET", "/factory-definitions/devthrottle/versions/3/files")]
     [InlineData("POST", "/factory-definitions/devthrottle/anything-else")]
+    [InlineData("POST", "/factory-definitions/devthrottle/diff")]
     public void NOTHING_ELSE_IS_MAPPED_UNDER_THE_PREFIX_and_the_guard_agrees(string method, string path)
     {
         Assert.Null(Match(method, path));

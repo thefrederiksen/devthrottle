@@ -21,6 +21,8 @@ namespace CcDirector.Gateway.Api;
 ///   GET  /factory-definitions/{factory}/history            one page of the versions, newest first, WITHOUT content
 ///                                                          (?limit=1..100, 50 when not said; ?before=the version to start below)
 ///   GET  /factory-definitions/{factory}/versions/{version} one version, with its content
+///   GET  /factory-definitions/{factory}/diff               what changes (?from=N, default the published version;
+///                                                          ?to=M, default the newest)
 ///   PUT  /factory-definitions/{factory}/draft              save a draft, stating the version last read
 ///   POST /factory-definitions/{factory}/publish            publish one version - A PERSON ONLY
 ///   POST /factory-definitions/{factory}/restore            publish a copy of an older version as the newest - A PERSON ONLY
@@ -40,6 +42,9 @@ namespace CcDirector.Gateway.Api;
 /// store in its own words, as a brief's are: an agent told "save a draft; the owner publishes it" knows what to do
 /// next. A session's publish goes straight to the store, so it is told that rather than what the check thinks of a
 /// version it may not publish anyway.
+///
+/// A PUBLISH AND A RESTORE ANSWER WITH WHAT CHANGES against the version that was published just before, so the person
+/// sees what they just did; <c>/diff</c> answers the same between any two versions.
 ///
 /// NOTHING ELSE READS THE DEFINITION YET: these routes are the only reader until phase 4.
 /// </summary>
@@ -75,6 +80,8 @@ internal static class FactoryDefinitionEndpoints
             History(ctx, factory, store, resolveTenant, sessionFactoryOf));
         app.MapGet(factoryRoute + "/versions/{version}", (HttpContext ctx, string factory, string version) =>
             ReadVersion(ctx, factory, version, store, resolveTenant, sessionFactoryOf));
+        app.MapGet(factoryRoute + "/diff", (HttpContext ctx, string factory) =>
+            Diff(ctx, factory, store, resolveTenant, sessionFactoryOf));
         app.MapPut(factoryRoute + "/draft", (HttpContext ctx, string factory, SaveFactoryDefinitionDraftRequest? body) =>
             SaveDraft(ctx, factory, body, store, resolveTenant, sessionFactoryOf, account, nowUtc));
         app.MapPost(factoryRoute + "/publish", (HttpContext ctx, string factory, PublishFactoryDefinitionRequest? body) =>
@@ -82,7 +89,7 @@ internal static class FactoryDefinitionEndpoints
         app.MapPost(factoryRoute + "/restore", (HttpContext ctx, string factory, RestoreFactoryDefinitionRequest? body) =>
             Restore(ctx, factory, body, store, resolveTenant, sessionFactoryOf, account, nowUtc));
 
-        FileLog.Write($"[FactoryDefinitionEndpoints] mapped {factoryRoute} and its draft, history, versions, publish and restore routes");
+        FileLog.Write($"[FactoryDefinitionEndpoints] mapped {factoryRoute} and its draft, history, versions, diff, publish and restore routes");
     }
 
     /// <summary>What the whole-definition check needs to know about the account: its fleet skill ids and the machines
@@ -205,6 +212,49 @@ internal static class FactoryDefinitionEndpoints
         return Results.Json(ToDto(found, standing));
     }
 
+    /// <summary>
+    /// GET what changes from one version to another (<see cref="FactoryDefinitionChanges.Compare"/>): <c>from</c>
+    /// defaults to the published version - nothing, before the first publish, so everything is listed as added - and
+    /// <c>to</c> to the newest. Every sentence is composed here; the command line and the Cockpit print it as it is.
+    /// </summary>
+    internal static IResult Diff(HttpContext ctx, string factory, FactoryDefinitionStore store,
+        Func<HttpContext, TenantId?> resolveTenant, Func<string, SessionFactoryLookup> sessionFactoryOf)
+    {
+        if (resolveTenant(ctx) is not { } tenant) return NoAccount();
+        if (!TryCaller(ctx, sessionFactoryOf, factory, $"GET {Prefix}/{factory}/diff", out _, out var error)) return error!;
+        if (!TryFold(factory, out var folded, out error)) return error!;
+        int? from = null, to = null;
+        if (ctx.Request.Query.TryGetValue("from", out var fromSent))
+        {
+            if (!TryVersion(fromSent.ToString(), "version to compare from", out var f, out error)) return error!;
+            from = f;
+        }
+        if (ctx.Request.Query.TryGetValue("to", out var toSent))
+        {
+            if (!TryVersion(toSent.ToString(), "version to compare to", out var t, out error)) return error!;
+            to = t;
+        }
+
+        var standing = store.Standing(tenant, folded);
+        if (standing.Newest is null) return NoSuchVersion(folded, to ?? 1, standing);
+        var compared = store.Find(tenant, folded, to ?? standing.Newest.Version);
+        if (compared is null) return NoSuchVersion(folded, to!.Value, standing);
+        var fromVersion = from ?? standing.Published?.Version;
+        FactoryDefinitionVersion? published = null;
+        if (fromVersion is { } fv && (published = store.Find(tenant, folded, fv)) is null)
+            return NoSuchVersion(folded, fv, standing);
+
+        var changes = FactoryDefinitionChanges.Compare(published?.Files, compared.Files);
+        FileLog.Write($"[FactoryDefinitionEndpoints] {folded}: diff {fromVersion?.ToString() ?? "nothing"} -> {compared.Summary.Version}: {changes.Summary}");
+        return Results.Json(new FactoryDefinitionDiffResponse
+        {
+            Factory = folded,
+            From = fromVersion,
+            To = compared.Summary.Version,
+            Changes = changes,
+        });
+    }
+
     /// <summary>PUT a draft: a person, or a session of the factory, saves the next version - once the check finds no error.</summary>
     internal static IResult SaveDraft(HttpContext ctx, string factory, SaveFactoryDefinitionDraftRequest? body,
         FactoryDefinitionStore store, Func<HttpContext, TenantId?> resolveTenant,
@@ -243,13 +293,20 @@ internal static class FactoryDefinitionEndpoints
             return Answer(store.Publish(tenant, folded, body.Version, caller.Kind, caller.Id, nowUtc()), store, tenant, folded, null);
 
         // A version that does not exist is the store's to word; only one that does is checked.
-        var check = store.Find(tenant, folded, body.Version) is { } wanted ? Check(wanted.Files, folded, tenant, account) : null;
+        var wanted = store.Find(tenant, folded, body.Version);
+        var check = wanted is null ? null : Check(wanted.Files, folded, tenant, account);
         if (check is { HasErrors: true })
             return CheckRefused(folded, check, $"Version {body.Version} was not published");
 
+        var before = PublishedContent(store, tenant, folded);
         var write = store.Publish(tenant, folded, body.Version, caller.Kind, caller.Id, nowUtc());
-        return Answer(write, store, tenant, folded, check);
+        return Answer(write, store, tenant, folded, check, write.Ok ? FactoryDefinitionChanges.Compare(before, wanted!.Files) : null);
     }
+
+    /// <summary>The content of the version published now, or null when none is: what a publish's "what changes" is
+    /// measured against, read just before the publish.</summary>
+    private static IReadOnlyDictionary<string, string>? PublishedContent(FactoryDefinitionStore store, TenantId tenant, string factory)
+        => store.Standing(tenant, factory).Published is { } published ? store.Find(tenant, factory, published.Version)?.Files : null;
 
     /// <summary>POST a restore: a person publishes a copy of an older version as the newest version - once the check
     /// finds no error in it.</summary>
@@ -268,13 +325,15 @@ internal static class FactoryDefinitionEndpoints
             return Answer(store.Restore(tenant, folded, body.Version, caller.Kind, caller.Id, null, nowUtc(), body.ExpectedVersion),
                 store, tenant, folded, null);
 
-        var check = store.Find(tenant, folded, body.Version) is { } wanted ? Check(wanted.Files, folded, tenant, account) : null;
+        var wanted = store.Find(tenant, folded, body.Version);
+        var check = wanted is null ? null : Check(wanted.Files, folded, tenant, account);
         if (check is { HasErrors: true })
             return CheckRefused(folded, check, $"Version {body.Version} was not restored");
 
+        var before = PublishedContent(store, tenant, folded);
         // The copy records the version it came from (restoredFrom), so it carries no change note of its own.
         var write = store.Restore(tenant, folded, body.Version, caller.Kind, caller.Id, null, nowUtc(), body.ExpectedVersion);
-        return Answer(write, store, tenant, folded, check);
+        return Answer(write, store, tenant, folded, check, write.Ok ? FactoryDefinitionChanges.Compare(before, wanted!.Files) : null);
     }
 
     // ---------- the check ----------
@@ -365,7 +424,7 @@ internal static class FactoryDefinitionEndpoints
     // ---------- answers ----------
 
     private static IResult Answer(FactoryDefinitionWrite write, FactoryDefinitionStore store, TenantId tenant, string factory,
-        FactoryDefinitionCheckResult? check)
+        FactoryDefinitionCheckResult? check, FactoryDefinitionChangesDto? changes = null)
     {
         // Read after the write, so the answer says how the factory stands now: which version is newest and which is published.
         var standing = store.Standing(tenant, factory);
@@ -373,6 +432,7 @@ internal static class FactoryDefinitionEndpoints
         {
             var dto = ToDto(write.Version!, standing);
             if (check is not null) dto.Findings = check.Findings.Select(ToDto).ToList();
+            dto.Changes = changes;
             return Results.Json(dto);
         }
         var status = write.Outcome switch

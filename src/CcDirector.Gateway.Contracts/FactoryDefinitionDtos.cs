@@ -62,6 +62,12 @@ public sealed class FactoryDefinitionDto
     /// refuses the write. Empty on a read.
     /// </summary>
     public List<FactoryDefinitionFindingDto> Findings { get; set; } = new();
+
+    /// <summary>
+    /// On a publish or a restore: what changes against the version that was published before it (everything, on the
+    /// first publish), so the person sees what they just did. Null on a save and on a read.
+    /// </summary>
+    public FactoryDefinitionChangesDto? Changes { get; set; }
 }
 
 /// <summary>
@@ -136,6 +142,21 @@ public sealed class FactoryDefinitionHistoryResponse
     /// version. The Gateway decides whether there is more; a reader never works it out for itself.
     /// </summary>
     public int? NextBefore { get; set; }
+}
+
+/// <summary>What changes from one version of a definition to another, as <c>GET .../diff</c> answers it.</summary>
+public sealed class FactoryDefinitionDiffResponse
+{
+    public string Factory { get; set; } = "";
+
+    /// <summary>The version compared from, or null when nothing is published yet and no version was named.</summary>
+    public int? From { get; set; }
+
+    /// <summary>The version compared to.</summary>
+    public int To { get; set; }
+
+    /// <summary>What changes, every sentence composed on the Gateway.</summary>
+    public FactoryDefinitionChangesDto Changes { get; set; } = new();
 }
 
 /// <summary>

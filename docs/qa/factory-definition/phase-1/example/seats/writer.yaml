@@ -1,0 +1,9 @@
+seat: writer
+name: Writer
+role: Writer
+brief: |
+  Write one post from the template.
+grants: [publish-posts]
+skills:
+  fleet: [dev-throttle]
+files: [files/post-template.md]

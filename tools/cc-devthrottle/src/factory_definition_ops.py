@@ -187,7 +187,9 @@ def get_definition(factory: str, draft: bool, version: Optional[int], file: Opti
             return
         sys.stdout.flush()
         text = files[file]
-        axi_output.write_blocks(sys.stdout, *([axi_cli.ascii_text(line) for line in text.split("\n")] if text else ["(empty)"]))
+        # write_blocks ends the output with a newline of its own, so a file that ends with one is not given a second.
+        lines = (text[:-1] if text.endswith("\n") else text).split("\n")
+        axi_output.write_blocks(sys.stdout, *([axi_cli.ascii_text(line) for line in lines] if text else ["(empty)"]))
         return
     if json_output:
         print(json.dumps(found, indent=2))
@@ -295,8 +297,7 @@ def save(factory: str, folder: str, expected_version: int, note: Optional[str], 
                 # No current version on a stale refusal is the factory having no definition at all.
                 axi_cli.fail(f"Not saved: {exc}.", [f"{_TOOL} save {_f(factory)} --dir <folder> --expected-version 0"])
             axi_cli.fail(
-                f"Not saved: {exc}. The definition is at version {now} (by {_by(current)}); you sent version "
-                f"{expected_version}. Read version {now}, merge your change into it, and save again with that version.",
+                f"Not saved: {exc}. Version {now} was written by {_by(current)}.",
                 [f"{_TOOL} get {_f(factory)} --draft",
                  f"{_TOOL} save {_f(factory)} --dir <folder> --expected-version {now}"])
         if exc.status == 409 and _outcome(exc) == "TooManyDrafts":

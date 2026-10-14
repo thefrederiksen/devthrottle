@@ -183,7 +183,7 @@ def test_get_File_PrintsThatOneFilesText(gateway):
     result = run("get", FACTORY, "--file", "seats/boss.yaml")
 
     assert result.exit_code == 0, result.output
-    assert result.stdout == FILES["seats/boss.yaml"] + "\n"
+    assert result.stdout == FILES["seats/boss.yaml"]
 
 
 def test_get_File_WithJson_PrintsOnlyThatFile_BecauseTheFilterAppliesToJsonToo(gateway):
@@ -370,6 +370,7 @@ def test_save_Stale_IsNotSaved_AndSaysWhichVersionToReadAndSendNext(gateway, fol
 
     assert result.exit_code == 1
     assert "the definition of warmforward is at version 3, not 2" in result.stderr
+    assert "Version 3 was written by person soren." in result.stderr
     assert "factory definition get warmforward --draft" in result.stderr
     assert "--expected-version 3" in result.stderr
 

@@ -186,6 +186,9 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
         // The owner publishes it.
         var first = Version(Publish(Person(), 1));
         Assert.Equal("published", first.State);
+        // The first publish lists everything as added, so the person sees what they just published.
+        Assert.True(first.Changes!.FirstPublish);
+        Assert.Contains(first.Changes.Seats, s => s.Seat == "writer" && s.Change == "added");
         Assert.Equal(Now.AddMinutes(5), first.PublishedAtUtc);
         Assert.Equal(1, first.PublishedVersion);
         var read = Version(Published(Session(FactorySession)));
@@ -193,8 +196,16 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
 
         // A second version, written and published by the owner.
         var changed = DefinitionFixture.Edit("seats/writer.yaml", "Write the posts.", "Write the posts every day.");
-        Assert.Equal(2, Version(Save(Person(), changed, expect: 1)).Version);
-        Assert.Equal(2, Version(Publish(Person(), 2)).PublishedVersion);
+        var saved = Version(Save(Person(), changed, expect: 1));
+        Assert.Equal(2, saved.Version);
+        Assert.Null(saved.Changes);
+        var second = Version(Publish(Person(), 2));
+        Assert.Equal(2, second.PublishedVersion);
+        // What changes against the version that was published before it: only the writer's brief.
+        Assert.False(second.Changes!.FirstPublish);
+        var seat = Assert.Single(second.Changes.Seats);
+        Assert.Equal("writer", seat.Seat);
+        Assert.NotNull(seat.BriefDiff);
         Assert.Equal(changed, Version(Published(Person())).Files);
 
         // The first is restored: a copy of it, as version 3, published, recording where it came from.
@@ -203,6 +214,7 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
         Assert.Equal("published", back.State);
         Assert.Equal(1, back.RestoredFrom);
         Assert.Equal(3, back.PublishedVersion);
+        Assert.Equal("writer", Assert.Single(back.Changes!.Seats).Seat);
         Assert.Equal(DefinitionFixture.Valid(), Version(Published(Person())).Files);
 
         var history = Page(History(Person()));
@@ -241,6 +253,77 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
         Assert.Empty(history.Versions);
         Assert.Equal(0, history.Total);
         Assert.Null(history.PublishedVersion);
+    }
+
+    // ---------- what changes ----------
+
+    private IResult Diff(HttpContext ctx, string? query = null)
+    {
+        if (query is not null) ctx.Request.QueryString = new QueryString("?" + query);
+        return FactoryDefinitionEndpoints.Diff(ctx, TheFactory, _store, InA, FactoryOf);
+    }
+
+    private static FactoryDefinitionDiffResponse DiffOf(IResult result) =>
+        Assert.IsType<JsonHttpResult<FactoryDefinitionDiffResponse>>(result).Value!;
+
+    [Fact]
+    public void THE_DIFF_DEFAULTS_FROM_THE_PUBLISHED_VERSION_TO_THE_NEWEST()
+    {
+        Save(Person(), DefinitionFixture.Valid(), expect: 0);
+        Publish(Person(), 1);
+        Save(Person(), DefinitionFixture.Edit("seats/writer.yaml", "name: Writer", "name: Author"), expect: 1);
+
+        var diff = DiffOf(Diff(Session(FactorySession)));
+
+        Assert.Equal(TheFactory, diff.Factory);
+        Assert.Equal(1, diff.From);
+        Assert.Equal(2, diff.To);
+        var seat = Assert.Single(diff.Changes.Seats);
+        Assert.Equal("writer", seat.Seat);
+        Assert.Contains(seat.Details, d => d.Contains("Writer") && d.Contains("Author"));
+    }
+
+    [Fact]
+    public void BEFORE_THE_FIRST_PUBLISH_THE_DIFF_IS_FROM_NOTHING_and_lists_everything_as_added()
+    {
+        Save(Person(), DefinitionFixture.Valid(), expect: 0);
+
+        var diff = DiffOf(Diff(Person()));
+
+        Assert.Null(diff.From);
+        Assert.Equal(1, diff.To);
+        Assert.True(diff.Changes.FirstPublish);
+        Assert.Equal(3, diff.Changes.Seats.Count);
+    }
+
+    [Fact]
+    public void THE_DIFF_BETWEEN_TWO_NAMED_VERSIONS_and_between_two_with_the_same_content_says_nothing_changes()
+    {
+        Save(Person(), DefinitionFixture.Valid(), expect: 0);
+        Save(Person(), DefinitionFixture.Edit("seats/writer.yaml", "name: Writer", "name: Author"), expect: 1);
+        Save(Person(), DefinitionFixture.Valid(), expect: 2);
+
+        Assert.True(DiffOf(Diff(Person(), "from=1&to=3")).Changes.NothingChanges);
+        var oneToTwo = DiffOf(Diff(Person(), "from=1&to=2"));
+        Assert.Equal((1, 2), (oneToTwo.From, oneToTwo.To));
+        Assert.False(oneToTwo.Changes.NothingChanges);
+    }
+
+    [Fact]
+    public void A_DIFF_NAMING_A_VERSION_THAT_DOES_NOT_EXIST_IS_NOT_FOUND_and_one_that_is_not_a_number_is_a_BAD_REQUEST()
+    {
+        Assert.Equal(404, Status(Diff(Person())));
+
+        Save(Person(), DefinitionFixture.Valid(), expect: 0);
+
+        var missing = Diff(Person(), "from=7");
+        Assert.Equal(404, Status(missing));
+        Assert.Equal($"version 7 of the definition of {TheFactory} does not exist; its newest version is 1", ErrorOf(missing));
+        Assert.Equal(404, Status(Diff(Person(), "to=7")));
+
+        var notANumber = Diff(Person(), "to=newest");
+        Assert.Equal(400, Status(notANumber));
+        Assert.Equal("a version to compare to is a whole number from 1, not 'newest'", ErrorOf(notANumber));
     }
 
     // ---------- only a person publishes ----------
@@ -299,7 +382,7 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
         foreach (var refused in new[]
                  {
                      Published(Session(outside)), Newest(Session(outside)), History(Session(outside)),
-                     OneVersion(Session(outside), "1"),
+                     OneVersion(Session(outside), "1"), Diff(Session(outside)),
                      Save(Session(outside), DefinitionFixture.Valid(), expect: 1),
                      Publish(Session(outside), 1), Restore(Session(outside), 1),
                  })
