@@ -1722,8 +1722,9 @@ a:focus .ff-bay rect {
   gap: 12px;
 }
 
+/* Never wider than the panel: on a phone the panel is narrower than one column's least width. */
 .fa-brief-sides.two {
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
 }
 
 .fa-brief-side {
@@ -1749,8 +1750,25 @@ a:focus .ff-bay rect {
   min-width: 720px;
 }
 
-.fa-brief-versions th:last-child {
-  width: 34%;
+/* The table's columns are fixed, so each is given what it holds: who wrote a version is the long one. */
+.fa-brief-versions th:nth-child(1) {
+  width: 12%;
+}
+
+.fa-brief-versions th:nth-child(2) {
+  width: 16%;
+}
+
+.fa-brief-versions th:nth-child(3) {
+  width: 30%;
+}
+
+.fa-brief-versions th:nth-child(4) {
+  width: 12%;
+}
+
+.fa-brief-versions th:nth-child(5) {
+  width: 9%;
 }
 
 .fa-brief-opened {
