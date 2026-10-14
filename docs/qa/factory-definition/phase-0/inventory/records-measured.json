@@ -1,0 +1,434 @@
+{
+ "base": "%LOCALAPPDATA%",
+ "machine": "SOREN_NORTH",
+ "measuredUtc": "2026-10-14T18:37:07+00:00",
+ "perFactory": {
+  "(no factory: release tool lock log)": {
+   "attachmentBytes": 0,
+   "bytes": 5786,
+   "databaseBytes": 0,
+   "files": 2,
+   "recordBytes": 5786
+  },
+  "business-research": {
+   "attachmentBytes": 0,
+   "bytes": 1591568,
+   "databaseBytes": 606208,
+   "files": 82,
+   "recordBytes": 985360
+  },
+  "cc-factory": {
+   "attachmentBytes": 0,
+   "bytes": 41646,
+   "databaseBytes": 0,
+   "files": 10,
+   "recordBytes": 41646
+  },
+  "clickfunnels": {
+   "attachmentBytes": 226463599,
+   "bytes": 406690432,
+   "databaseBytes": 90112,
+   "files": 869,
+   "recordBytes": 549874
+  },
+  "devthrottle": {
+   "attachmentBytes": 20370061,
+   "bytes": 22862784,
+   "databaseBytes": 0,
+   "files": 225,
+   "recordBytes": 2492723
+  },
+  "mindzie-web": {
+   "attachmentBytes": 0,
+   "bytes": 3900845,
+   "databaseBytes": 0,
+   "files": 52,
+   "recordBytes": 3900845
+  },
+  "money-saver": {
+   "attachmentBytes": 0,
+   "bytes": 0,
+   "databaseBytes": 0,
+   "files": 0,
+   "recordBytes": 0
+  },
+  "warmforward": {
+   "attachmentBytes": 0,
+   "bytes": 53606,
+   "databaseBytes": 0,
+   "files": 10,
+   "recordBytes": 53606
+  },
+  "website-business": {
+   "attachmentBytes": 997080,
+   "bytes": 5616911,
+   "databaseBytes": 1511424,
+   "files": 231,
+   "recordBytes": 3108407
+  }
+ },
+ "roots": [
+  {
+   "attachmentsDistinct": {
+    "bytes": 16056544,
+    "files": 87
+   },
+   "bigDocuments": [
+    {
+     "at": "defects/.../*.json",
+     "size": 641527
+    },
+    {
+     "at": "defects/.../*.json",
+     "size": 459322
+    },
+    {
+     "at": "defects/.../*.json",
+     "size": 434908
+    },
+    {
+     "at": "defects/.../*.json",
+     "size": 319940
+    }
+   ],
+   "bytes": 22862784,
+   "exists": true,
+   "factory": "devthrottle",
+   "files": 225,
+   "kinds": {
+    "attachment": {
+     "bytes": 20370061,
+     "files": 143,
+     "largest": 1082943,
+     "largestAt": "onboarding/.../*.png"
+    },
+    "journal": {
+     "bytes": 303196,
+     "files": 38,
+     "largest": 22114,
+     "largestAt": "onboarding/.../*.json"
+    },
+    "working document": {
+     "bytes": 2189527,
+     "files": 44,
+     "largest": 641527,
+     "largestAt": "defects/.../*.json"
+    }
+   },
+   "root": "cc-factory/devthrottle"
+  },
+  {
+   "attachmentsDistinct": {
+    "bytes": 0,
+    "files": 0
+   },
+   "bigDocuments": [],
+   "bytes": 41617,
+   "exists": true,
+   "factory": "cc-factory",
+   "files": 9,
+   "kinds": {
+    "journal": {
+     "bytes": 6579,
+     "files": 4,
+     "largest": 2296,
+     "largestAt": "runs.log"
+    },
+    "working document": {
+     "bytes": 35038,
+     "files": 5,
+     "largest": 13217,
+     "largestAt": "register.json"
+    }
+   },
+   "root": "cc-factory/cfo"
+  },
+  {
+   "attachmentsDistinct": {
+    "bytes": 0,
+    "files": 0
+   },
+   "bigDocuments": [],
+   "bytes": 29,
+   "exists": true,
+   "factory": "cc-factory",
+   "files": 1,
+   "kinds": {
+    "working document": {
+     "bytes": 29,
+     "files": 1,
+     "largest": 29,
+     "largestAt": "worktree-cleaner/.../*.json"
+    }
+   },
+   "root": "cc-factory-factory"
+  },
+  {
+   "attachmentsDistinct": {
+    "bytes": 0,
+    "files": 0
+   },
+   "bigDocuments": [],
+   "bytes": 5786,
+   "exists": true,
+   "factory": "(no factory: release tool lock log)",
+   "files": 2,
+   "kinds": {
+    "journal": {
+     "bytes": 4204,
+     "files": 1,
+     "largest": 4204,
+     "largestAt": "releases.log"
+    },
+    "working document": {
+     "bytes": 1582,
+     "files": 1,
+     "largest": 1582,
+     "largestAt": "*.json"
+    }
+   },
+   "root": "cc-factory/vercel-release"
+  },
+  {
+   "attachmentsDistinct": {
+    "bytes": 0,
+    "files": 0
+   },
+   "bigDocuments": [],
+   "bytes": 1591568,
+   "exists": true,
+   "factory": "business-research",
+   "files": 82,
+   "kinds": {
+    "database": {
+     "bytes": 606208,
+     "files": 1,
+     "largest": 606208,
+     "largestAt": "*.db"
+    },
+    "journal": {
+     "bytes": 28032,
+     "files": 7,
+     "largest": 5099,
+     "largestAt": "ceo/.../*.md"
+    },
+    "working document": {
+     "bytes": 957328,
+     "files": 74,
+     "largest": 148406,
+     "largestAt": "work/.../*.vtt"
+    }
+   },
+   "root": "business-research-factory"
+  },
+  {
+   "attachmentsDistinct": {
+    "bytes": 138717997,
+    "files": 221
+   },
+   "bigDocuments": [],
+   "bytes": 406690432,
+   "exists": true,
+   "factory": "clickfunnels",
+   "files": 869,
+   "kinds": {
+    "attachment": {
+     "bytes": 226463599,
+     "files": 318,
+     "largest": 2825835,
+     "largestAt": "screens/.../*.png"
+    },
+    "database": {
+     "bytes": 90112,
+     "files": 1,
+     "largest": 90112,
+     "largestAt": "*.sqlite"
+    },
+    "journal": {
+     "bytes": 154306,
+     "files": 22,
+     "largest": 34045,
+     "largestAt": "prospects/.../*.jsonl"
+    },
+    "scratch": {
+     "bytes": 179586847,
+     "files": 363,
+     "largest": 9600420,
+     "largestAt": "transcribe/.../*.wav"
+    },
+    "working document": {
+     "bytes": 395568,
+     "files": 165,
+     "largest": 75634,
+     "largestAt": "form-replies/.../*.html"
+    }
+   },
+   "root": "clickfunnels-factory"
+  },
+  {
+   "attachmentsDistinct": {
+    "bytes": 0,
+    "files": 0
+   },
+   "bigDocuments": [
+    {
+     "at": "weekly-usage/.../*.json",
+     "size": 1743373
+    },
+    {
+     "at": "cost-watch/.../*.json",
+     "size": 548638
+    }
+   ],
+   "bytes": 3900845,
+   "exists": true,
+   "factory": "mindzie-web",
+   "files": 52,
+   "kinds": {
+    "working document": {
+     "bytes": 3900845,
+     "files": 52,
+     "largest": 1743373,
+     "largestAt": "weekly-usage/.../*.json"
+    }
+   },
+   "root": "mindzie-web-factory"
+  },
+  {
+   "attachmentsDistinct": {
+    "bytes": 0,
+    "files": 0
+   },
+   "bigDocuments": [],
+   "bytes": 53606,
+   "exists": true,
+   "factory": "warmforward",
+   "files": 10,
+   "kinds": {
+    "journal": {
+     "bytes": 18232,
+     "files": 6,
+     "largest": 4213,
+     "largestAt": "journal/.../*.md"
+    },
+    "working document": {
+     "bytes": 35374,
+     "files": 4,
+     "largest": 19431,
+     "largestAt": "savings/.../*.md"
+    }
+   },
+   "root": "warmforward-factory"
+  },
+  {
+   "attachmentsDistinct": {
+    "bytes": 997080,
+    "files": 23
+   },
+   "bigDocuments": [],
+   "bytes": 5616911,
+   "exists": true,
+   "factory": "website-business",
+   "files": 231,
+   "kinds": {
+    "attachment": {
+     "bytes": 997080,
+     "files": 23,
+     "largest": 95442,
+     "largestAt": "livetest-sites/.../*.jpg"
+    },
+    "database": {
+     "bytes": 1511424,
+     "files": 2,
+     "largest": 1314816,
+     "largestAt": "*.db"
+    },
+    "journal": {
+     "bytes": 65360,
+     "files": 8,
+     "largest": 12425,
+     "largestAt": "ceo/.../*.md"
+    },
+    "working document": {
+     "bytes": 3043047,
+     "files": 198,
+     "largest": 76092,
+     "largestAt": "dashboards/.../*.html"
+    }
+   },
+   "root": "website-factory"
+  },
+  {
+   "attachmentsDistinct": {
+    "bytes": 0,
+    "files": 0
+   },
+   "bigDocuments": [],
+   "bytes": 0,
+   "exists": true,
+   "factory": "money-saver",
+   "files": 0,
+   "kinds": {},
+   "root": "cc-director/factories"
+  }
+ ],
+ "totals": {
+  "attachment": {
+   "bytes": 247830740,
+   "files": 484,
+   "max": 2825835,
+   "overCap": {
+    "1048576": 71,
+    "2097152": 16,
+    "3145728": 0,
+    "5242880": 0
+   },
+   "p50": 258673,
+   "p90": 1589528,
+   "p99": 2468305
+  },
+  "database": {
+   "bytes": 2207744,
+   "files": 4,
+   "max": 1314816,
+   "overCap": {},
+   "p50": 606208,
+   "p90": 1314816,
+   "p99": 1314816
+  },
+  "journal": {
+   "bytes": 579909,
+   "files": 86,
+   "max": 34045,
+   "overCap": {
+    "262144": 0,
+    "65536": 0
+   },
+   "p50": 5015,
+   "p90": 13649,
+   "p99": 30113
+  },
+  "scratch": {
+   "bytes": 179586847,
+   "files": 363,
+   "max": 9600420,
+   "overCap": {},
+   "p50": 812,
+   "p90": 8695,
+   "p99": 9600420
+  },
+  "working document": {
+   "bytes": 10558338,
+   "files": 544,
+   "max": 1743373,
+   "overCap": {
+    "1048576": 1,
+    "2097152": 0,
+    "262144": 6
+   },
+   "p50": 2183,
+   "p90": 32136,
+   "p99": 319940
+  }
+ }
+}

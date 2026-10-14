@@ -1,0 +1,410 @@
+Factory parts read on SOREN_NORTH at 2026-10-14T18:39:52+00:00
+
+=== business-research  (Business Research)  boss seat: boss  registered computer: SOREN_NORTH
+    seats: 5, schedules: 1 (1 enabled), triggers: 0
+    brief store: REFUSED to this session - Error: this brief belongs to factory 'business-research', so only a person or a session of 'business-research' may change or run it
+    seat ceo                    role Boss                   on SOREN_NORTH          brief file agents/ceo.yaml  schedules cj_ebe3cd
+    seat boss                   role Boss                   on SOREN_NORTH          brief file agents/ceo.yaml  schedules -
+    seat cto                    role CTO                    on SOREN_NORTH          brief file agents/cto.yaml  schedules -
+    seat sales-leader           role Sales Leader           on SOREN_NORTH          brief file agents/sales-leader.yaml  schedules -
+    seat reviewer               role Reviewer               on SOREN_NORTH          brief file agents/reviewer.yaml  schedules -
+    schedule cj_ebe3cd on  active seat ceo                  0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/ReposFred/cc-consult/ideas/business-research/factory
+        names: agents/ceo.yaml
+    records: %LOCALAPPDATA%/business-research-factory
+    folder: D:\ReposFred\cc-consult\ideas\business-research\factory
+    clone:  D:/ReposFred/cc-consult  branch main  remote https://github.com/thefrederiksen/cc-consult.git
+    factory files in: (the folder itself)
+    brief files on disk: 5 of 5
+    templates/docs: -
+    tools: ceo_ship.py, partner_desk.py
+    rules files: permissions/__init__.py, permissions/deny_direct_mail.py
+    .claude/settings.json in folder: allow 0, deny 64, ask 0, hooks ['PreToolUse']
+    skills in folder: research-ceo
+    other folders: tests
+
+=== cc-factory  (Center Consulting)  boss seat: boss  registered computer: SOREN_NORTH
+    seats: 4, schedules: 4 (3 enabled), triggers: 0
+    brief store: REFUSED to this session - Error: this brief belongs to factory 'cc-factory', so only a person or a session of 'cc-factory' may change or run it
+    seat boss                   role Boss                   on SOREN_NORTH          brief file agents/boss.yaml  schedules -
+    seat cost-sweep             role Cost Sweep             on SOREN_NORTH          brief file agents/cost-sweep.yaml  schedules cj_f8e403
+    seat worktree-cleaner       role Worktree Cleaner       on SOREN_NORTH          brief file agents/worktree-cleaner.yaml  schedules cj_c8b4e1
+    seat books                  role Books                  on SOREN_NORTH          brief file agents/books.yaml  schedules cj_33022a
+    schedule cj_14734a OFF paused seat cfo                  0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/ReposFred/cc-consult/ideas/cc-factory  [not in registry]
+        names: CFO-BRIEF.md, agents/cfo.yaml
+    schedule cj_33022a on  active seat books                0 0 31 2 * (never fires)       on SOREN_NORTH  in D:\ReposFred\cc-consult
+        names: skill finance-business
+    schedule cj_c8b4e1 on  active seat worktree-cleaner     0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/ReposFred/cc-consult/ideas/cc-factory
+        names: ideas/cc-factory/agents/worktree-cleaner.yaml
+    schedule cj_f8e403 on  active seat cost-sweep           0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/ReposFred/cc-consult/ideas/cc-factory
+        names: CFO-BRIEF.md, agents/cost-sweep.yaml
+    records: %LOCALAPPDATA%/cc-factory/cfo, %LOCALAPPDATA%/cc-factory-factory
+    folder: D:\ReposFred\cc-consult\ideas\cc-factory
+    clone:  D:/ReposFred/cc-consult  branch main  remote https://github.com/thefrederiksen/cc-consult.git
+    factory files in: (the folder itself)
+    brief files on disk: 4 of 4
+    templates/docs: AUTONOMY.md, BOSS-BRIEF.md, CFO-BRIEF.md, FACTORY.md, GOAL.md, PORTFOLIO.md, README.md
+    tools: tools/cfo_numbers.py, tools/effort_split.py
+    rules files: -
+    .claude/settings.json in folder: allow 0, deny 106, ask 0, hooks -
+    other folders: .temp
+
+=== clickfunnels  (ClickFunnels)  boss seat: boss  registered computer: SOREN_NORTH
+    seats: 11, schedules: 11 (11 enabled), triggers: 0
+    brief store: REFUSED to this session - Error: this brief belongs to factory 'clickfunnels', so only a person or a session of 'clickfunnels' may change or run it
+    seat ceo                    role Boss                   on SOREN_NORTH          brief file agents/ceo.yaml  schedules cj_3c7722
+    seat boss                   role Boss                   on SOREN_NORTH          brief file agents/ceo.yaml  schedules -
+    seat hacker                 role ClickFunnels Hacker    on SOREN_NORTH          brief file agents/hacker.yaml  schedules cj_6ddb8a
+    seat certifier              role Certifier              on SOREN_NORTH          brief file agents/certifier.yaml  schedules cj_b8be16
+    seat builder                role Builder                on SOREN_NORTH          brief file agents/builder.yaml  schedules cj_ffba1d
+    seat sales                  role Outreach Manager       on SOREN_NORTH          brief file agents/sales.yaml  schedules cj_378912,cj_e844c4
+    seat marketing              role Marketing Manager      on SOREN_NORTH          brief file agents/marketing.yaml  schedules cj_daafd6
+    seat sales-manager          role Sales Manager          on SOREN_NORTH          brief file agents/sales-manager.yaml  schedules cj_1251ab
+    seat facebook-reader        role Facebook Reader        on SOREN_NORTH          brief file FACTORY.md  schedules cj_a872fa
+    seat badge-runner           role Badge Runner           on SOREN_NORTH          brief file FACTORY.md  schedules cj_efee28
+    seat sales-sender           role Sales Sender           on SOREN_NORTH          brief file FACTORY.md  schedules cj_f05973
+    schedule cj_1251ab on  active seat sales-manager        0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/ReposFred/cc-clickfunnels/factory
+        names: agents/sales-manager.yaml
+    schedule cj_378912 on  active seat sales                0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/ReposFred/cc-clickfunnels
+        names: BRIEF.md
+    schedule cj_3c7722 on  active seat ceo                  0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/ReposFred/cc-clickfunnels/factory
+        names: agents/ceo.yaml
+    schedule cj_6ddb8a on  active seat hacker               0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/ReposFred/cc-clickfunnels/factory
+        names: agents/hacker.yaml
+    schedule cj_a872fa on  active seat facebook-reader      0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/ReposFred/cc-clickfunnels
+    schedule cj_b8be16 on  active seat certifier            0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/ReposFred/cc-clickfunnels/factory
+        names: agents/certifier.yaml
+    schedule cj_daafd6 on  active seat marketing            0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/ReposFred/cc-clickfunnels/factory
+        names: agents/marketing.yaml
+    schedule cj_e844c4 on  active seat sales                0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/ReposFred/cc-clickfunnels/factory
+        names: agents/sales.yaml
+    schedule cj_efee28 on  active seat badge-runner         0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/ReposFred/cc-clickfunnels
+    schedule cj_f05973 on  active seat sales-sender         0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/ReposFred/cc-clickfunnels
+    schedule cj_ffba1d on  active seat builder              0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/ReposFred/cc-clickfunnels/factory
+        names: agents/builder.yaml
+    records: %LOCALAPPDATA%/clickfunnels-factory
+    folder: D:/ReposFred/cc-clickfunnels/factory
+    clone:  D:/ReposFred/cc-clickfunnels  branch main  remote https://github.com/thefrederiksen/cc-clickfunnels.git
+    factory files in: (the folder itself)
+    brief files on disk: 11 of 11
+    templates/docs: CEO-BRIEF.md, CERTIFICATION.md, FACTORY.md, REVIEW-1.md, REVIEW-2.md, REVIEW-3.md, schedules.json
+    tools: tools/bh.py, tools/cf_api.py, tools/cf_badge_mail.py, tools/cf_login.py, tools/cfb.py, tools/common.py, tools/fw_piece.py, tools/lessons.py, tools/morning_email.py, tools/outbox.py, tools/runlog.py, tools/transcribe.py, tools/wf_check.py
+    rules files: -
+    .claude/settings.json in folder: allow 0, deny 0, ask 0, hooks ['PreToolUse']
+    other folders: .temp, state
+
+=== devthrottle  (DevThrottle)  boss seat: boss  registered computer: SOREN_NORTH
+    seats: 20, schedules: 20 (8 enabled), triggers: 0
+    brief store: REFUSED to this session - Error: this brief belongs to factory 'devthrottle', so only a person or a session of 'devthrottle' may change or run it
+    seat ceo                    role Boss                   on SOREN_NORTH          brief file agents/ceo.yaml  schedules cj_99e21a
+    seat boss                   role Boss                   on SOREN_NORTH          brief file agents/boss.yaml  schedules -
+    seat onboarding             role Onboarding             on SOREN_NORTH          brief file agents/onboarding.yaml  schedules cj_f9a6e2
+    seat mail-desk              role Mail Desk              on SOREN_NORTH          brief file agents/mail-desk.yaml  schedules cj_9ff295,cj_a8c00b,cj_bd920f
+    seat health-watch           role Health Watch           on SOREN_NORTH          brief file agents/health-watch.yaml  schedules cj_d82eb7
+    seat usage-watch            role Usage Watch            on SOREN_NORTH          brief file agents/usage-watch.yaml  schedules cj_624959
+    seat outreach               role Outreach               on SOREN_NORTH          brief file agents/outreach.yaml  schedules cj_490b77
+    seat defects                role Nightly Defects        on SOREN_NORTH          brief file agents/defects.yaml  schedules cj_5b2352
+    seat defect-checker         role Defect Checker         on SOREN_NORTH          brief file agents/defect-checker.yaml  schedules -
+    seat merge-review           role Merge Review           on SOREN_NORTH          brief file agents/merge-review.yaml  schedules cj_5174a4
+    seat sales-desk             role Sales Desk             on SOREN_NORTH          brief file agents/sales-desk.yaml  schedules cj_db8ce1
+    seat reddit-manager         role Reddit Manager         on SOREN_NORTH          brief file agents/reddit-manager.yaml  schedules cj_247da6
+    seat creator-outreach       role Creator Outreach       on SOREN_NORTH          brief file agents/creator-outreach.yaml  schedules cj_4f60b5
+    seat dictionary-digest      role Dictionary Digest      on SOREN_NORTH          brief file agents/dictionary-digest.yaml  schedules cj_9df33c
+    seat code-signing-check     role Code Signing Check     on SOREN_NORTH          brief file agents/code-signing-check.yaml  schedules cj_b2cd42
+    seat blog-writer            role Blog Writer            on SOREN_NORTH          brief file agents/blog-writer.yaml  schedules cj_d6c8f7
+    seat motivation-videos      role Motivation Videos      on SOREN_NORTH          brief file agents/motivation-videos.yaml  schedules cj_dc5736
+    seat youtube-channel        role YouTube Channel Manager on SOREN_NORTH          brief file agents/youtube-channel.yaml  schedules cj_77ef6f
+    seat turn-log-labelling     role Turn-Log Labelling     on SOREN_NORTH          brief file agents/turn-log-labelling.yaml  schedules cj_f4281c
+    seat reminders              role Reminders              on SOREN_NORTH          brief file agents/reminders.yaml  schedules cj_5984a7
+    schedule cj_247da6 OFF paused seat reddit-manager       0 0 31 2 * (never fires)       on SOREN_NORTH  in D:\ReposFred\devthrottle_internal
+    schedule cj_490b77 OFF paused seat outreach             0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/ReposFred/devthrottle-factory/factory/outreach
+        names: ../agents/outreach.yaml, /ReposFred/devthrottle-factory/factory/agents/outreach.yaml
+    schedule cj_4f60b5 OFF paused seat creator-outreach     0 0 31 2 * (never fires)       on SOREN_NORTH  in D:\ReposFred\devthrottle_internal
+    schedule cj_5174a4 OFF paused seat merge-review         0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/ReposFred/devthrottle-factory/factory
+        names: agents/merge-review.yaml
+    schedule cj_5984a7 on  active seat reminders            0 0 31 2 * (never fires)       on SOREN_NORTH  in D:\ReposFred\devthrottle_internal
+    schedule cj_5b2352 on  active seat defects              0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/ReposFred/devthrottle-factory/factory
+        names: agents/defects.yaml
+    schedule cj_624959 on  active seat usage-watch          0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/ReposFred/devthrottle-factory/factory
+        names: agents/usage-watch.yaml
+    schedule cj_77ef6f OFF paused seat youtube-channel      0 0 31 2 * (never fires)       on SOREN_NORTH  in D:\ReposFred\devthrottle_internal
+        names: skill youtube-channel-manager
+    schedule cj_99e21a on  active seat ceo                  0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/ReposFred/devthrottle-factory/factory
+        names: agents/ceo.yaml
+    schedule cj_9df33c OFF paused seat dictionary-digest    0 0 31 2 * (never fires)       on SOREN_NORTH  in D:\ReposFred\devthrottle
+    schedule cj_9ff295 OFF paused seat mail-desk            0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/ReposFred/devthrottle-factory/factory
+        names: agents/mail-desk.yaml
+    schedule cj_a8c00b OFF paused seat mail-desk            0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/ReposFred/devthrottle-factory/factory
+        names: agents/mail-desk.yaml
+    schedule cj_b2cd42 on  active seat code-signing-check   0 0 31 2 * (never fires)       on SOREN_NORTH  in D:\ReposFred\devthrottle
+    schedule cj_bd920f on  active seat mail-desk            0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/ReposFred/devthrottle-factory/factory
+        names: agents/mail-desk.yaml
+    schedule cj_d6c8f7 OFF paused seat blog-writer          0 0 31 2 * (never fires)       on SOREN_NORTH  in D:\ReposFred\devthrottle_internal
+    schedule cj_d82eb7 on  active seat health-watch         0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/ReposFred/devthrottle-factory/factory
+        names: agents/health-watch.yaml
+    schedule cj_db8ce1 OFF paused seat sales-desk           0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/ReposFred/devthrottle-factory/factory
+        names: agents/sales-desk.yaml
+    schedule cj_dc5736 OFF paused seat motivation-videos    0 0 31 2 * (never fires)       on SOREN_NORTH  in D:\ReposFred\devthrottle_internal
+    schedule cj_f4281c OFF paused seat turn-log-labelling   0 0 31 2 * (never fires)       on SOREN_NORTH  in D:\ReposFred\devthrottle_internal
+    schedule cj_f9a6e2 on  active seat onboarding           0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/ReposFred/devthrottle-factory/factory
+        names: agents/onboarding.yaml
+    records: %LOCALAPPDATA%/cc-factory/devthrottle
+    folder: D:/ReposFred/devthrottle-factory/factory
+    clone:  D:/ReposFred/devthrottle-factory  branch main  remote https://github.com/thefrederiksen/devthrottle_internal.git
+    factory files in: (the folder itself)
+    brief files on disk: 19 of 20  MISSING: agents/ceo.yaml
+    templates/docs: AUTONOMY.md, BOSS-BRIEF.md, EXPANSION.md, FACTORY.md, GOAL.md, MAP.html, README.md
+    tools: outreach/outreach_send.py
+    rules files: -
+    .claude/settings.json in folder: allow 0, deny 216, ask 0, hooks -
+    other folders: .temp, outreach
+
+=== house  (House)  boss seat: (none)  registered computer: SOREN_NORTH
+    seats: 7, schedules: 8 (7 enabled), triggers: 0
+    brief store: REFUSED to this session - Error: this brief belongs to factory 'house', so only a person or a session of 'house' may change or run it
+    seat job-search             role Job Search             on SOREN_NORTH          brief file agents/job-search.yaml  schedules cj_27128e
+    seat upwork                 role Upwork                 on SOREN_NORTH          brief file agents/upwork.yaml  schedules cj_5196d5
+    seat training               role Training Check-in      on SOREN_NORTH          brief file agents/training.yaml  schedules cj_6eb620
+    seat linkedin-inbox         role LinkedIn Inbox         on SOREN_NORTH          brief file agents/linkedin-inbox.yaml  schedules cj_74144e
+    seat email-assistant        role Email Assistant        on SOREN_NORTH          brief file agents/email-assistant.yaml  schedules cj_9dedee
+    seat budget                 role Budget                 on SOREN_NORTH          brief file agents/budget.yaml  schedules cj_af97e6
+    seat youtube-scanner        role YouTube Scanner        on SOREN_NORTH          brief file agents/youtube-scanner.yaml  schedules cj_cc3a26
+    schedule cj_27128e on  active seat job-search           0 0 31 2 * (never fires)       on SOREN_NORTH  in D:\ReposFred\private
+        names: skill job-search
+    schedule cj_5196d5 on  active seat upwork               0 0 31 2 * (never fires)       on SOREN_NORTH  in D:\ReposFred\cc-consult
+        names: skill files, skill jobs
+    schedule cj_6eb620 on  active seat training             0 0 31 2 * (never fires)       on SOREN_NORTH  in D:\ReposFred\private
+    schedule cj_74144e on  active seat linkedin-inbox       0 0 31 2 * (never fires)       on SOREN_NORTH  in D:\ReposFred\devthrottle_internal
+    schedule cj_9d2b12 OFF paused seat erik-website         0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/ReposFred/<a folder not registered as a repository>  [not in registry]
+    schedule cj_9dedee on  active seat email-assistant      0 0 31 2 * (never fires)       on SOREN_NORTH  in D:\ReposFred\cc-consult
+    schedule cj_af97e6 on  active seat budget               0 0 31 2 * (never fires)       on SOREN_NORTH  in D:\ReposFred\private
+        names: skill finance-advisor
+    schedule cj_cc3a26 on  active seat youtube-scanner      0 0 31 2 * (never fires)       on SOREN_NORTH  in D:\ReposFred\cc-consult
+        names: skill youtube-scanner
+    records: (none found on this machine)
+    folder: D:/ReposFred/cc-consult/house
+    clone:  D:/ReposFred/cc-consult  branch main  remote https://github.com/thefrederiksen/cc-consult.git
+    factory files in: (the folder itself)
+    brief files on disk: 7 of 7
+    templates/docs: README.md
+    tools: -
+    rules files: -
+
+=== m-bpm-studio  (M-BPM Studio)  boss seat: boss  registered computer: SOREN_NORTH
+    seats: 1, schedules: 0 (0 enabled), triggers: 0
+    brief store: REFUSED to this session - Error: this brief belongs to factory 'm-bpm-studio', so only a person or a session of 'm-bpm-studio' may change or run it
+    seat boss                   role Boss                   on SOREN_NORTH          brief file factory/bpm-studio/agents/ceo.yaml  schedules -
+    records: (none found on this machine)
+    folder: D:/ReposMindzie/mindzieWeb
+    clone:  D:/ReposMindzie/mindzieWeb  branch master  remote https://dev.azure.com/mindzie/mindzieStudio1/_git/mindzieWeb
+    factory files in: factory/bpm-studio
+    brief files on disk: 1 of 1
+    templates/docs: -
+    tools: -
+    rules files: -
+    skills in folder: DOMAIN_LIBRARY.md, INDEX.md, _shared, agent-reviewer, api-email-llm, api-manager, api-test, architecture-review, aws, block-rendering, bpmn-generate, bpmn-score, bug-reviewer, business-value-review, cencon-generate, code-standards, commit, container-dev-loop, copy-release, cube-qa, daily-error-triage, dashboard-builder, dashboard-parity-score, data-readiness, data-readiness-review, dead-code-finder, deploy, dev-machine, developer-agent, devops-picker, devops-work-items, docs, download-version, enrichment-builder, feature-marker, find-mapper, generate-url, godaddy-dns, i18n-coverage-nightly, implementation-loop, insights-report, log-analyzer, merged-fix-review, mindzie-analyst, mindzie-analyst-qa, mindzie-cli, mindzie-consultant, mindzie-engine-report, mindzie-qa, mindzie-user-lifecycle, mindziestudio-ai-projects, nightly-code-review, notebook-builder, pipeline-doctor, pipeline-monitor, pr-manager, priority-loop, process-audit, prod-errors, product-agent, project-tester, qa-agent, qa-batch-runner, qa-brief-builder, qa-code-review, qa-manager, qa-release-report, qa-testing, qa-user-walk, release-container, release-manager, review-code, server-management, sql-query, support-agent, teams, tenant-rebuild, translation-manager, upwork-manager, warning-fixer
+
+=== m-cube-pi  (M-Cube PI)  boss seat: boss  registered computer: SOREN_NORTH
+    seats: 1, schedules: 0 (0 enabled), triggers: 0
+    brief store: REFUSED to this session - Error: this brief belongs to factory 'm-cube-pi', so only a person or a session of 'm-cube-pi' may change or run it
+    seat boss                   role Boss                   on SOREN_NORTH          brief file factory/cube-pi/agents/ceo.yaml  schedules -
+    records: (none found on this machine)
+    folder: D:/ReposMindzie/mindzieWeb
+    clone:  D:/ReposMindzie/mindzieWeb  branch master  remote https://dev.azure.com/mindzie/mindzieStudio1/_git/mindzieWeb
+    factory files in: factory/cube-pi
+    brief files on disk: 1 of 1
+    templates/docs: -
+    tools: -
+    rules files: -
+    skills in folder: DOMAIN_LIBRARY.md, INDEX.md, _shared, agent-reviewer, api-email-llm, api-manager, api-test, architecture-review, aws, block-rendering, bpmn-generate, bpmn-score, bug-reviewer, business-value-review, cencon-generate, code-standards, commit, container-dev-loop, copy-release, cube-qa, daily-error-triage, dashboard-builder, dashboard-parity-score, data-readiness, data-readiness-review, dead-code-finder, deploy, dev-machine, developer-agent, devops-picker, devops-work-items, docs, download-version, enrichment-builder, feature-marker, find-mapper, generate-url, godaddy-dns, i18n-coverage-nightly, implementation-loop, insights-report, log-analyzer, merged-fix-review, mindzie-analyst, mindzie-analyst-qa, mindzie-cli, mindzie-consultant, mindzie-engine-report, mindzie-qa, mindzie-user-lifecycle, mindziestudio-ai-projects, nightly-code-review, notebook-builder, pipeline-doctor, pipeline-monitor, pr-manager, priority-loop, process-audit, prod-errors, product-agent, project-tester, qa-agent, qa-batch-runner, qa-brief-builder, qa-code-review, qa-manager, qa-release-report, qa-testing, qa-user-walk, release-container, release-manager, review-code, server-management, sql-query, support-agent, teams, tenant-rebuild, translation-manager, upwork-manager, warning-fixer
+
+=== machine-care  (Machine Care)  boss seat: (none)  registered computer: SOREN_NORTH
+    seats: 2, schedules: 2 (2 enabled), triggers: 0
+    brief store: REFUSED to this session - Error: this brief belongs to factory 'machine-care', so only a person or a session of 'machine-care' may change or run it
+    seat factory-cleaner        role Factory Cleaner        on SOREN_NORTH          brief file tools/factory-cleaner/factory-cleaner.yaml  schedules cj_28d5b2
+    seat machine-setup          role Machine Setup          on devthrottle-mac-mini brief file tools/factory-cleaner/machine-setup.yaml  schedules cj_a6a2cf
+    schedule cj_28d5b2 on  active seat factory-cleaner      0 0 31 2 * (never fires)       on SOREN_NORTH  in D:\ReposFred\cc-consult
+    schedule cj_a6a2cf on  active seat machine-setup        0 0 31 2 * (never fires)       on devthrottle-mac-mini  in /Users/soren/ReposFred/devthrottle_internal
+    records: (none found on this machine)
+    folder: D:\ReposFred\cc-consult
+    clone:  D:/ReposFred/cc-consult  branch main  remote https://github.com/thefrederiksen/cc-consult.git
+    factory files in: tools/factory-cleaner
+    brief files on disk: 2 of 2
+    templates/docs: factory-cleaner.yaml, machine-setup.yaml
+    tools: -
+    rules files: -
+    skills in folder: assistant, autonomous-earner, brand-marketing, business, clean, coach, coach-manager, commit, contact-interview, content-pipeline, craft, dev-manager, domain-check, domain-move, email-assistant, fb-prospect-gatherer, finance-business, financial, godaddy, health, jobs, jobs-auto, linkedin-outreach, make-money, mindset, money-saver, niche-evaluator, prioritize, reddit, relationships, repo-review, review-proposal, score-jobs, shorts, speechwriter, submit-proposal, taki-coach, taki-review, todo, upwork, upwork-nav, vault, vercel-analytics, video-review, website-audit, youtube, youtube-scanner
+    other folders: tests
+
+=== mindzie-ai-reports  (M-AI Reports)  boss seat: boss  registered computer: SOREN_NORTH
+    seats: 5, schedules: 1 (1 enabled), triggers: 0
+    brief store: REFUSED to this session - Error: this brief belongs to factory 'mindzie-ai-reports', so only a person or a session of 'mindzie-ai-reports' may change or run it
+    seat ceo                    role Boss                   on SOREN_NORTH          brief file factory/ai-reports/agents/ceo.yaml  schedules cj_b605fe
+    seat boss                   role Boss                   on SOREN_NORTH          brief file factory/ai-reports/agents/ceo.yaml  schedules -
+    seat cto                    role CTO                    on SOREN_NORTH          brief file factory/ai-reports/agents/cto.yaml  schedules -
+    seat sales-lead             role Sales Lead             on SOREN_NORTH          brief file factory/ai-reports/agents/sales-lead.yaml  schedules -
+    seat market-scout           role Market Scout           on SOREN_NORTH          brief file factory/ai-reports/agents/market-scout.yaml  schedules -
+    schedule cj_b605fe on  active seat ceo                  0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/wt/<a folder not registered as a repository>
+    records: (none found on this machine)
+    folder: D:/wt/ai-reports-factory
+    clone:  D:/wt/ai-reports-factory  branch HEAD  remote https://dev.azure.com/mindzie/mindzieStudio1/_git/mindzieWeb
+    factory files in: factory/ai-reports
+    brief files on disk: 5 of 5
+    templates/docs: BUILD-SPEC-epic-9730.md, CEO-BRIEF-2-system-cubes.md, CEO-BRIEF.md, EPIC-DRAFT.md, HANDOVER.md, MOVE-TO-TRIGGER.md, NIGHTLY.md, PLAN-v1-hosting-only.md, PLAN.md, README.md, factory.yaml, report-2026-10-04-founder-start.html, report-2026-10-04-hosting-plan.html, report-2026-10-05-epic-9730-explained.html, report-2026-10-05-nightly.html, report-2026-10-06-nightly.html, report-2026-10-10-nightly.html, report-2026-10-11-nightly.html
+    tools: tools/due.py
+    rules files: -
+    skills in folder: DOMAIN_LIBRARY.md, INDEX.md, _shared, agent-reviewer, api-email-llm, api-manager, api-test, architecture-review, aws, block-rendering, bpmn-generate, bpmn-score, bug-reviewer, business-value-review, cencon-generate, code-standards, commit, container-dev-loop, copy-release, cube-qa, daily-error-triage, dashboard-builder, dashboard-parity-score, data-readiness, data-readiness-review, dead-code-finder, deploy, dev-machine, developer-agent, devops-picker, devops-work-items, docs, download-version, enrichment-builder, feature-marker, find-mapper, generate-url, godaddy-dns, i18n-coverage-nightly, implementation-loop, insights-report, log-analyzer, merged-fix-review, mindzie-analyst, mindzie-analyst-qa, mindzie-cli, mindzie-consultant, mindzie-engine-report, mindzie-qa, mindzie-user-lifecycle, mindziestudio-ai-projects, nightly-code-review, notebook-builder, pipeline-doctor, pipeline-monitor, pr-manager, priority-loop, process-audit, prod-errors, product-agent, project-tester, qa-agent, qa-batch-runner, qa-brief-builder, qa-code-review, qa-manager, qa-release-report, qa-testing, qa-user-walk, release-container, release-manager, review-code, server-management, sql-query, support-agent, teams, tenant-rebuild, translation-manager, upwork-manager, warning-fixer
+    other folders: briefs, knowledge, research, sales, sample, validation
+
+=== mindzie-web  (M-Studio)  boss seat: boss  registered computer: SOREN_NORTH
+    seats: 12, schedules: 10 (10 enabled), triggers: 0
+    brief store: REFUSED to this session - Error: this brief belongs to factory 'mindzie-web', so only a person or a session of 'mindzie-web' may change or run it
+    seat boss                   role Boss                   on SOREN_NORTH          brief file factory/agents/ceo.yaml  schedules -
+    seat cost-watch             role Cost Watch             on SOREN_NORTH          brief file factory/agents/cost-watch.yaml  schedules cj_42d61e
+    seat usage-watch            role Usage Watch            on SOREN_NORTH          brief file factory/agents/usage-watch.yaml  schedules cj_006d84
+    seat weekly-usage-report    role Weekly Usage Report    on SOREN_NORTH          brief file factory/agents/weekly-usage-report.yaml  schedules -
+    seat ai-spend-watch         role AI Spend Watch         on SOREN_NORTH          brief file factory/agents/ai-spend-watch.yaml  schedules cj_16ea2b
+    seat nightly-build-watch    role Build Watch            on SOREN_NORTH          brief file factory/agents/nightly-build-watch.yaml  schedules cj_6f61ab
+    seat worktree-cleaner       role Worktree Cleaner       on SOREN_NORTH          brief file factory/agents/worktree-cleaner.yaml  schedules cj_9c4d4b
+    seat error-triage           role Error Triage           on SOREN_NORTH          brief file factory/agents/error-triage.yaml  schedules cj_3d1e47
+    seat i18n-coverage          role i18n Coverage          on SOREN_NORTH          brief file factory/agents/i18n-coverage.yaml  schedules cj_778917
+    seat code-review            role Code Review            on SOREN_NORTH          brief file factory/agents/code-review.yaml  schedules cj_c536b9
+    seat qa-manager             role QA Manager             on SOREN_NORTH          brief file factory/agents/qa-manager.yaml  schedules cj_c82baf
+    seat repo-hygiene           role Repo Hygiene           on SOREN_NORTH          brief file factory/agents/repo-hygiene.yaml  schedules cj_fec3e1
+    schedule cj_006d84 on  active seat usage-watch          0 0 31 2 * (never fires)       on SOREN_NORTH  in D:\ReposMindzie\mindzieWeb
+        names: factory/agents/usage-watch.yaml
+    schedule cj_16ea2b on  active seat ai-spend-watch       0 0 31 2 * (never fires)       on SOREN_NORTH  in D:\ReposMindzie\mindzieWeb
+        names: factory/agents/ai-spend-watch.yaml
+    schedule cj_3d1e47 on  active seat error-triage         0 0 31 2 * (never fires)       on SOREN_NORTH  in D:\ReposMindzie\mindzieWeb
+    schedule cj_42d61e on  active seat cost-watch           0 0 31 2 * (never fires)       on SOREN_NORTH  in D:\ReposMindzie\mindzieWeb
+        names: factory/agents/cost-watch.yaml
+    schedule cj_6f61ab on  active seat nightly-build-watch  0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/ReposMindzie/mindzieWeb
+        names: factory/agents/nightly-build-watch.yaml
+    schedule cj_778917 on  active seat i18n-coverage        0 0 31 2 * (never fires)       on SOREN_NORTH  in D:\ReposMindzie\mindzieWeb
+    schedule cj_9c4d4b on  active seat worktree-cleaner     0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/ReposMindzie/mindzieWeb
+        names: factory/agents/worktree-cleaner.yaml
+    schedule cj_c536b9 on  active seat code-review          0 0 31 2 * (never fires)       on SOREN_NORTH  in D:\ReposMindzie\mindzieWeb
+    schedule cj_c82baf on  active seat qa-manager           0 0 31 2 * (never fires)       on SOREN_NORTH  in D:\ReposMindzie\mindzieWeb
+    schedule cj_fec3e1 on  active seat repo-hygiene         0 0 31 2 * (never fires)       on SOREN_NORTH  in D:\ReposMindzie\mindzieWeb
+    records: %LOCALAPPDATA%/mindzie-web-factory
+    folder: D:/ReposMindzie/mindzieWeb
+    clone:  D:/ReposMindzie/mindzieWeb  branch master  remote https://dev.azure.com/mindzie/mindzieStudio1/_git/mindzieWeb
+    factory files in: factory
+    brief files on disk: 6 of 12  MISSING: factory/agents/worktree-cleaner.yaml, factory/agents/error-triage.yaml, factory/agents/i18n-coverage.yaml, factory/agents/code-review.yaml, factory/agents/qa-manager.yaml, factory/agents/repo-hygiene.yaml
+    templates/docs: MOVE-TO-TRIGGER.md, README.md, factory.yaml
+    tools: -
+    rules files: -
+    skills in folder: DOMAIN_LIBRARY.md, INDEX.md, _shared, agent-reviewer, api-email-llm, api-manager, api-test, architecture-review, aws, block-rendering, bpmn-generate, bpmn-score, bug-reviewer, business-value-review, cencon-generate, code-standards, commit, container-dev-loop, copy-release, cube-qa, daily-error-triage, dashboard-builder, dashboard-parity-score, data-readiness, data-readiness-review, dead-code-finder, deploy, dev-machine, developer-agent, devops-picker, devops-work-items, docs, download-version, enrichment-builder, feature-marker, find-mapper, generate-url, godaddy-dns, i18n-coverage-nightly, implementation-loop, insights-report, log-analyzer, merged-fix-review, mindzie-analyst, mindzie-analyst-qa, mindzie-cli, mindzie-consultant, mindzie-engine-report, mindzie-qa, mindzie-user-lifecycle, mindziestudio-ai-projects, nightly-code-review, notebook-builder, pipeline-doctor, pipeline-monitor, pr-manager, priority-loop, process-audit, prod-errors, product-agent, project-tester, qa-agent, qa-batch-runner, qa-brief-builder, qa-code-review, qa-manager, qa-release-report, qa-testing, qa-user-walk, release-container, release-manager, review-code, server-management, sql-query, support-agent, teams, tenant-rebuild, translation-manager, upwork-manager, warning-fixer
+    other folders: bpm-studio, cube-pi
+
+=== money-saver  (Money Saver)  boss seat: (none)  registered computer: SOREN_NORTH
+    seats: 2, schedules: 2 (2 enabled), triggers: 0
+    brief store: REFUSED to this session - Error: this brief belongs to factory 'money-saver', so only a person or a session of 'money-saver' may change or run it
+    seat daily-cost-report      role Daily Cost Report      on SOREN_NORTH          brief file tools/daily-cost-report/daily-cost-report.yaml  schedules cj_81ca8e
+    seat weekly-cost-report     role Weekly Cost Report     on SOREN_NORTH          brief file tools/weekly-cost-report/weekly-cost-report.yaml  schedules cj_1075bd
+    schedule cj_1075bd on  active seat weekly-cost-report   0 0 31 2 * (never fires)       on SOREN_NORTH  in D:\ReposFred\cc-consult
+    schedule cj_81ca8e on  active seat daily-cost-report    0 0 31 2 * (never fires)       on SOREN_NORTH  in D:\ReposFred\cc-consult
+    records: %LOCALAPPDATA%/cc-director/factories
+    folder: D:/ReposFred/cc-consult
+    clone:  D:/ReposFred/cc-consult  branch main  remote https://github.com/thefrederiksen/cc-consult.git
+    factory files in: tools
+    brief files on disk: 2 of 2
+    templates/docs: -
+    tools: -
+    rules files: -
+    skills in folder: assistant, autonomous-earner, brand-marketing, business, clean, coach, coach-manager, commit, contact-interview, content-pipeline, craft, dev-manager, domain-check, domain-move, email-assistant, fb-prospect-gatherer, finance-business, financial, godaddy, health, jobs, jobs-auto, linkedin-outreach, make-money, mindset, money-saver, niche-evaluator, prioritize, reddit, relationships, repo-review, review-proposal, score-jobs, shorts, speechwriter, submit-proposal, taki-coach, taki-review, todo, upwork, upwork-nav, vault, vercel-analytics, video-review, website-audit, youtube, youtube-scanner
+    other folders: cc-comm-queue, cc-linkedin, communication_manager, daily-cost-report, disk-sweep, factory-cleaner, hoka-catalog, linkedin, shorts-final, vercel-release, weekly-cost-report
+
+=== tallyhand  (Tallyhand)  boss seat: boss  registered computer: SOREN_NORTH
+    seats: 3, schedules: 0 (0 enabled), triggers: 0
+    brief store: REFUSED to this session - Error: this brief belongs to factory 'tallyhand', so only a person or a session of 'tallyhand' may change or run it
+    seat boss                   role Boss                   on SOREN_NORTH          brief file CEO-BRIEF.md  schedules -
+    seat market-scout           role Market Scout           on SOREN_NORTH          brief file agents/market-scout.yaml  schedules -
+    seat cto                    role CTO                    on SOREN_NORTH          brief file agents/cto.yaml  schedules -
+    records: (none found on this machine)
+    folder: D:\ReposFred\cc-consult\ideas\tallyhand
+    clone:  D:/ReposFred/cc-consult  branch main  remote https://github.com/thefrederiksen/cc-consult.git
+    factory files in: (the folder itself)
+    brief files on disk: 3 of 3
+    templates/docs: BUSINESS-PLAN-draft1.md, BUSINESS-PLAN.md, CEO-BRIEF.md, FACTORY.md, FEATURES.md, MOVED.md, README.md, RESEARCH.md
+    tools: -
+    rules files: -
+    other folders: model, research
+
+=== warmforward  (WarmForward)  boss seat: boss  registered computer: SOREN_NORTH
+    seats: 6, schedules: 5 (5 enabled), triggers: 0
+    brief store: REFUSED to this session - Error: this brief belongs to factory 'warmforward', so only a person or a session of 'warmforward' may change or run it
+    seat ceo                    role Boss                   on SOREN_NORTH          brief file agents/ceo.yaml  schedules cj_54663c
+    seat boss                   role Boss                   on SOREN_NORTH          brief file agents/ceo.yaml  schedules -
+    seat savings-engineer       role Savings Engineer       on SOREN_NORTH          brief file agents/savings-engineer.yaml  schedules cj_dd0e31
+    seat value-hunter           role Value Hunter           on SOREN_NORTH          brief file agents/value-hunter.yaml  schedules cj_eb5ae1
+    seat reliability-watch      role Reliability Watch      on SOREN_NORTH          brief file agents/reliability-watch.yaml  schedules cj_2e587d
+    seat electricity            role Electricity            on SOREN_NORTH          brief file agents/electricity.yaml  schedules cj_b92f73
+    schedule cj_2e587d on  active seat reliability-watch    0 0 31 2 * (never fires)       on devlinux  in /home/soren/ReposFred/cc-consult/ideas/warmforward-factory
+        names: agents/reliability-watch.yaml
+    schedule cj_54663c on  active seat ceo                  0 0 31 2 * (never fires)       on devlinux  in /home/soren/ReposFred/cc-consult/ideas/warmforward-factory
+        names: agents/ceo.yaml
+    schedule cj_b92f73 on  active seat electricity          0 0 31 2 * (never fires)       on SOREN_NORTH  in D:\ReposFred\cc-consult
+    schedule cj_dd0e31 on  active seat savings-engineer     0 0 31 2 * (never fires)       on devlinux  in /home/soren/ReposFred/cc-consult/ideas/warmforward-factory
+        names: agents/savings-engineer.yaml
+    schedule cj_eb5ae1 on  active seat value-hunter         0 0 31 2 * (never fires)       on devlinux  in /home/soren/ReposFred/cc-consult/ideas/warmforward-factory
+        names: agents/value-hunter.yaml
+    records: %LOCALAPPDATA%/warmforward-factory
+    folder: D:\ReposFred\cc-consult\ideas\warmforward-factory
+    clone:  D:/ReposFred/cc-consult  branch main  remote https://github.com/thefrederiksen/cc-consult.git
+    factory files in: (the folder itself)
+    brief files on disk: 6 of 6
+    templates/docs: AUTONOMY.md, CEO-BRIEF.md, CLAUDE.md, FACTORY.md, GOAL.md, LESSONS.md, MONEY-PLAN.md, PLAN-WINTER-2026.md, README.md, WARMBOARD-TARGETS.md, factory.yaml
+    tools: tools/daily_data.py, tools/feed_check.py
+    rules files: -
+    .claude/settings.json in folder: allow 0, deny 43, ask 0, hooks -
+    other folders: .temp
+
+=== website-business  (Website Business)  boss seat: boss  registered computer: SOREN_NORTH
+    seats: 11, schedules: 6 (5 enabled), triggers: 3
+    brief store: REFUSED to this session - Error: this brief belongs to factory 'website-business', so only a person or a session of 'website-business' may change or run it
+    seat boss                   role Boss                   on devlinux             brief file agents/ceo.yaml  schedules -
+    seat scout                  role Scout                  on SOREN_NORTH          brief file agents/scout.yaml  schedules cj_332296
+    seat sender                 role Sender                 on SOREN_NORTH          brief file agents/sender.yaml  schedules -
+    seat site-checker           role Site Checker           on SOREN_NORTH          brief file agents/site-checker.yaml  schedules -
+    seat front-desk             role Front Desk             on SOREN_NORTH          brief file agents/front-desk.yaml  schedules -
+    seat site-keeper            role Site Keeper            on SOREN_NORTH          brief file agents/site-keeper.yaml  schedules cj_725f8d
+    seat mail-watcher           role Mail Watcher           on SOREN_NORTH          brief file agents/mail-watcher.yaml  schedules cj_e8bfdb
+    seat mail-warmer            role Mail Warmer            on SOREN_NORTH          brief file agents/mail-warmer.yaml  schedules cj_84c39b
+    seat business-reviewer      role Business Reviewer      on SOREN_NORTH          brief file agents/business-reviewer.yaml  schedules cj_e196e3
+    seat bookkeeper             role Bookkeeper             on SOREN_NORTH          brief file agents/bookkeeper.yaml  schedules -
+    seat resends                role Resends                on SOREN_NORTH          brief file README.md  schedules cj_1d9b66
+    schedule cj_1d9b66 on  active seat resends              0 0 31 2 * (never fires)       on SOREN_NORTH  in D:\ReposFred\cc-consult
+    schedule cj_332296 on  active seat scout                0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/ReposFred/cc-consult/ideas/website-factory/factory
+        names: agents/scout.yaml
+    schedule cj_725f8d OFF paused seat site-keeper          0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/ReposFred/cc-consult/ideas/website-factory/factory
+        names: agents/site-keeper.yaml
+    schedule cj_84c39b on  active seat mail-warmer          0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/ReposFred/cc-consult/ideas/website-factory/factory
+        names: agents/mail-warmer.yaml, skill names
+    schedule cj_e196e3 on  active seat business-reviewer    0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/ReposFred/cc-consult/ideas/website-factory/factory
+        names: agents/business-reviewer.yaml
+    schedule cj_e8bfdb on  active seat mail-watcher         0 0 31 2 * (never fires)       on SOREN_NORTH  in D:/ReposFred/cc-consult/ideas/website-factory/factory
+        names: agents/mail-watcher.yaml
+    trigger website-new-mail seat Front Desk every 300s on SOREN_NORTH in D:/ReposFred/cc-consult/ideas/website-factory/factory  OK
+        check: py -m cc_website_factory --actor trigger mail-waiting --json
+    trigger website-notify-owner-on-failure seat chain every 600s on SOREN_NORTH in D:/ReposFred/cc-consult/ideas/website-factory/factory  OK
+        check: py -m cc_website_factory --actor trigger chain-waiting --notify owner --json
+    trigger website-sender-after-scout seat sender every 300s on SOREN_NORTH in D:/ReposFred/cc-consult/ideas/website-factory/factory  OK
+        check: py -m cc_website_factory --actor trigger chain-waiting --start sender --json
+    records: %LOCALAPPDATA%/website-factory
+    folder: /home/soren/wt/website-business/ideas/website-factory/factory  NOT READ (a path on another machine)
+
+Factory schedules: 70; whose cron is 31 February and never fires: 70
+Factory seats: 90; factories whose brief store refused this session: 14 of 14
+
+Schedules with no factory: 11
+    cj_0503fc on  on SOREN_NORTH  TEST Factory Control - reports ok
+    cj_07ad64 OFF on SOREN_NORTH  Business Research Factory - Reviewer - surety-wip 2026-10-11 10:30
+    cj_1c40a2 on  on SOREN_NORTH  TEST Factory Control - fails on purpose
+    cj_46a958 OFF on SOREN_NORTH  CC Factory - Boss - weekly memo
+    cj_6a4fe5 on  on SOREN_NORTH  CC Factory - Cost Sweep - one item
+    cj_781315 on  on SOREN_NORTH  Website Business Factory - Customer Care - 08:00 daily
+    cj_78b027 OFF on SOREN_NORTH  Business Research Factory - Sales Leader - surety-wip 2026-10-11 08:10
+    cj_94a572 OFF on SOREN_NORTH  Business Research Factory - CTO - surety-wip 2026-10-11 08:00
+    cj_a6ab29 on  on SOREN_NORTH  TEST Factory Control - ends without reporting
+    cj_c6c3ad on  on SOREN_NORTH  TEST Factory Control - says nothing about reporting
+    cj_e967e6 on  on SOREN_NORTH  M-Studio - Weekly Usage Report - Monday

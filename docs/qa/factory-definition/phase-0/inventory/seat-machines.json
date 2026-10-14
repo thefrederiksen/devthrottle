@@ -1,0 +1,1734 @@
+{
+ "machines": [
+  {
+   "directorVersion": "2.20.1+344c31a8e7fdc203982852a2877be46bd8050b1b",
+   "machine": "SOREN_NORTH",
+   "online": true,
+   "repositories": [
+    {
+     "name": "cc-clickfunnels",
+     "path": "D:\\ReposFred\\cc-clickfunnels",
+     "remote": "https://github.com/thefrederiksen/cc-clickfunnels.git"
+    },
+    {
+     "name": "cc-consult",
+     "path": "D:\\ReposFred\\cc-consult",
+     "remote": "https://github.com/thefrederiksen/cc-consult.git"
+    },
+    {
+     "name": "devthrottle",
+     "path": "D:\\ReposFred\\devthrottle",
+     "remote": "https://github.com/thefrederiksen/devthrottle.git"
+    },
+    {
+     "name": "devthrottle-factory",
+     "path": "D:\\ReposFred\\devthrottle-factory",
+     "remote": "https://github.com/thefrederiksen/devthrottle_internal.git"
+    },
+    {
+     "name": "devthrottle_internal",
+     "path": "D:\\ReposFred\\devthrottle_internal",
+     "remote": "https://github.com/thefrederiksen/devthrottle_internal.git"
+    },
+    {
+     "name": "mindzieWeb",
+     "path": "D:\\ReposMindzie\\mindzieWeb",
+     "remote": "https://dev.azure.com/mindzie/mindzieStudio1/_git/mindzieWeb"
+    },
+    {
+     "name": "private",
+     "path": "D:\\ReposFred\\private",
+     "remote": "https://github.com/thefrederiksen/private.git"
+    }
+   ],
+   "repositoryCount": 82,
+   "seats": [
+    {
+     "factory": "business-research",
+     "folders": [
+      {
+       "folder": "D:\\ReposFred\\cc-consult\\ideas\\business-research\\factory",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      }
+     ],
+     "seat": "boss"
+    },
+    {
+     "factory": "business-research",
+     "folders": [
+      {
+       "folder": "D:\\ReposFred\\cc-consult\\ideas\\business-research\\factory",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "registry folder (the factory's one folder)",
+        "schedule cj_ebe3cd"
+       ]
+      }
+     ],
+     "seat": "ceo"
+    },
+    {
+     "factory": "business-research",
+     "folders": [
+      {
+       "folder": "D:\\ReposFred\\cc-consult\\ideas\\business-research\\factory",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      }
+     ],
+     "seat": "cto"
+    },
+    {
+     "factory": "business-research",
+     "folders": [
+      {
+       "folder": "D:\\ReposFred\\cc-consult\\ideas\\business-research\\factory",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      }
+     ],
+     "seat": "reviewer"
+    },
+    {
+     "factory": "business-research",
+     "folders": [
+      {
+       "folder": "D:\\ReposFred\\cc-consult\\ideas\\business-research\\factory",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      }
+     ],
+     "seat": "sales-leader"
+    },
+    {
+     "factory": "cc-factory",
+     "folders": [
+      {
+       "folder": "D:\\ReposFred\\cc-consult\\ideas\\cc-factory",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      },
+      {
+       "folder": "D:\\ReposFred\\cc-consult",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "schedule cj_33022a"
+       ]
+      }
+     ],
+     "seat": "books"
+    },
+    {
+     "factory": "cc-factory",
+     "folders": [
+      {
+       "folder": "D:\\ReposFred\\cc-consult\\ideas\\cc-factory",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      }
+     ],
+     "seat": "boss"
+    },
+    {
+     "factory": "cc-factory",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/cc-consult/ideas/cc-factory",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "schedule cj_14734a"
+       ]
+      }
+     ],
+     "seat": "cfo"
+    },
+    {
+     "factory": "cc-factory",
+     "folders": [
+      {
+       "folder": "D:\\ReposFred\\cc-consult\\ideas\\cc-factory",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "registry folder (the factory's one folder)",
+        "schedule cj_f8e403"
+       ]
+      }
+     ],
+     "seat": "cost-sweep"
+    },
+    {
+     "factory": "cc-factory",
+     "folders": [
+      {
+       "folder": "D:\\ReposFred\\cc-consult\\ideas\\cc-factory",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "registry folder (the factory's one folder)",
+        "schedule cj_c8b4e1"
+       ]
+      }
+     ],
+     "seat": "worktree-cleaner"
+    },
+    {
+     "factory": "clickfunnels",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/cc-clickfunnels/factory",
+       "repository": "cc-clickfunnels",
+       "repositoryPath": "D:\\ReposFred\\cc-clickfunnels",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      },
+      {
+       "folder": "D:/ReposFred/cc-clickfunnels",
+       "repository": "cc-clickfunnels",
+       "repositoryPath": "D:\\ReposFred\\cc-clickfunnels",
+       "sources": [
+        "schedule cj_efee28"
+       ]
+      }
+     ],
+     "seat": "badge-runner"
+    },
+    {
+     "factory": "clickfunnels",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/cc-clickfunnels/factory",
+       "repository": "cc-clickfunnels",
+       "repositoryPath": "D:\\ReposFred\\cc-clickfunnels",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      }
+     ],
+     "seat": "boss"
+    },
+    {
+     "factory": "clickfunnels",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/cc-clickfunnels/factory",
+       "repository": "cc-clickfunnels",
+       "repositoryPath": "D:\\ReposFred\\cc-clickfunnels",
+       "sources": [
+        "registry folder (the factory's one folder)",
+        "schedule cj_ffba1d"
+       ]
+      }
+     ],
+     "seat": "builder"
+    },
+    {
+     "factory": "clickfunnels",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/cc-clickfunnels/factory",
+       "repository": "cc-clickfunnels",
+       "repositoryPath": "D:\\ReposFred\\cc-clickfunnels",
+       "sources": [
+        "registry folder (the factory's one folder)",
+        "schedule cj_3c7722"
+       ]
+      }
+     ],
+     "seat": "ceo"
+    },
+    {
+     "factory": "clickfunnels",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/cc-clickfunnels/factory",
+       "repository": "cc-clickfunnels",
+       "repositoryPath": "D:\\ReposFred\\cc-clickfunnels",
+       "sources": [
+        "registry folder (the factory's one folder)",
+        "schedule cj_b8be16"
+       ]
+      }
+     ],
+     "seat": "certifier"
+    },
+    {
+     "factory": "clickfunnels",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/cc-clickfunnels/factory",
+       "repository": "cc-clickfunnels",
+       "repositoryPath": "D:\\ReposFred\\cc-clickfunnels",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      },
+      {
+       "folder": "D:/ReposFred/cc-clickfunnels",
+       "repository": "cc-clickfunnels",
+       "repositoryPath": "D:\\ReposFred\\cc-clickfunnels",
+       "sources": [
+        "schedule cj_a872fa"
+       ]
+      }
+     ],
+     "seat": "facebook-reader"
+    },
+    {
+     "factory": "clickfunnels",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/cc-clickfunnels/factory",
+       "repository": "cc-clickfunnels",
+       "repositoryPath": "D:\\ReposFred\\cc-clickfunnels",
+       "sources": [
+        "registry folder (the factory's one folder)",
+        "schedule cj_6ddb8a"
+       ]
+      }
+     ],
+     "seat": "hacker"
+    },
+    {
+     "factory": "clickfunnels",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/cc-clickfunnels/factory",
+       "repository": "cc-clickfunnels",
+       "repositoryPath": "D:\\ReposFred\\cc-clickfunnels",
+       "sources": [
+        "registry folder (the factory's one folder)",
+        "schedule cj_daafd6"
+       ]
+      }
+     ],
+     "seat": "marketing"
+    },
+    {
+     "factory": "clickfunnels",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/cc-clickfunnels/factory",
+       "repository": "cc-clickfunnels",
+       "repositoryPath": "D:\\ReposFred\\cc-clickfunnels",
+       "sources": [
+        "registry folder (the factory's one folder)",
+        "schedule cj_e844c4"
+       ]
+      },
+      {
+       "folder": "D:/ReposFred/cc-clickfunnels",
+       "repository": "cc-clickfunnels",
+       "repositoryPath": "D:\\ReposFred\\cc-clickfunnels",
+       "sources": [
+        "schedule cj_378912"
+       ]
+      }
+     ],
+     "seat": "sales"
+    },
+    {
+     "factory": "clickfunnels",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/cc-clickfunnels/factory",
+       "repository": "cc-clickfunnels",
+       "repositoryPath": "D:\\ReposFred\\cc-clickfunnels",
+       "sources": [
+        "registry folder (the factory's one folder)",
+        "schedule cj_1251ab"
+       ]
+      }
+     ],
+     "seat": "sales-manager"
+    },
+    {
+     "factory": "clickfunnels",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/cc-clickfunnels/factory",
+       "repository": "cc-clickfunnels",
+       "repositoryPath": "D:\\ReposFred\\cc-clickfunnels",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      },
+      {
+       "folder": "D:/ReposFred/cc-clickfunnels",
+       "repository": "cc-clickfunnels",
+       "repositoryPath": "D:\\ReposFred\\cc-clickfunnels",
+       "sources": [
+        "schedule cj_f05973"
+       ]
+      }
+     ],
+     "seat": "sales-sender"
+    },
+    {
+     "factory": "devthrottle",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/devthrottle-factory/factory",
+       "repository": "devthrottle-factory",
+       "repositoryPath": "D:\\ReposFred\\devthrottle-factory",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      },
+      {
+       "folder": "D:\\ReposFred\\devthrottle_internal",
+       "repository": "devthrottle_internal",
+       "repositoryPath": "D:\\ReposFred\\devthrottle_internal",
+       "sources": [
+        "schedule cj_d6c8f7"
+       ]
+      }
+     ],
+     "seat": "blog-writer"
+    },
+    {
+     "factory": "devthrottle",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/devthrottle-factory/factory",
+       "repository": "devthrottle-factory",
+       "repositoryPath": "D:\\ReposFred\\devthrottle-factory",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      }
+     ],
+     "seat": "boss"
+    },
+    {
+     "factory": "devthrottle",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/devthrottle-factory/factory",
+       "repository": "devthrottle-factory",
+       "repositoryPath": "D:\\ReposFred\\devthrottle-factory",
+       "sources": [
+        "registry folder (the factory's one folder)",
+        "schedule cj_99e21a"
+       ]
+      }
+     ],
+     "seat": "ceo"
+    },
+    {
+     "factory": "devthrottle",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/devthrottle-factory/factory",
+       "repository": "devthrottle-factory",
+       "repositoryPath": "D:\\ReposFred\\devthrottle-factory",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      },
+      {
+       "folder": "D:\\ReposFred\\devthrottle",
+       "repository": "devthrottle",
+       "repositoryPath": "D:\\ReposFred\\devthrottle",
+       "sources": [
+        "schedule cj_b2cd42"
+       ]
+      }
+     ],
+     "seat": "code-signing-check"
+    },
+    {
+     "factory": "devthrottle",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/devthrottle-factory/factory",
+       "repository": "devthrottle-factory",
+       "repositoryPath": "D:\\ReposFred\\devthrottle-factory",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      },
+      {
+       "folder": "D:\\ReposFred\\devthrottle_internal",
+       "repository": "devthrottle_internal",
+       "repositoryPath": "D:\\ReposFred\\devthrottle_internal",
+       "sources": [
+        "schedule cj_4f60b5"
+       ]
+      }
+     ],
+     "seat": "creator-outreach"
+    },
+    {
+     "factory": "devthrottle",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/devthrottle-factory/factory",
+       "repository": "devthrottle-factory",
+       "repositoryPath": "D:\\ReposFred\\devthrottle-factory",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      }
+     ],
+     "seat": "defect-checker"
+    },
+    {
+     "factory": "devthrottle",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/devthrottle-factory/factory",
+       "repository": "devthrottle-factory",
+       "repositoryPath": "D:\\ReposFred\\devthrottle-factory",
+       "sources": [
+        "registry folder (the factory's one folder)",
+        "schedule cj_5b2352"
+       ]
+      }
+     ],
+     "seat": "defects"
+    },
+    {
+     "factory": "devthrottle",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/devthrottle-factory/factory",
+       "repository": "devthrottle-factory",
+       "repositoryPath": "D:\\ReposFred\\devthrottle-factory",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      },
+      {
+       "folder": "D:\\ReposFred\\devthrottle",
+       "repository": "devthrottle",
+       "repositoryPath": "D:\\ReposFred\\devthrottle",
+       "sources": [
+        "schedule cj_9df33c"
+       ]
+      }
+     ],
+     "seat": "dictionary-digest"
+    },
+    {
+     "factory": "devthrottle",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/devthrottle-factory/factory",
+       "repository": "devthrottle-factory",
+       "repositoryPath": "D:\\ReposFred\\devthrottle-factory",
+       "sources": [
+        "registry folder (the factory's one folder)",
+        "schedule cj_d82eb7"
+       ]
+      }
+     ],
+     "seat": "health-watch"
+    },
+    {
+     "factory": "devthrottle",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/devthrottle-factory/factory",
+       "repository": "devthrottle-factory",
+       "repositoryPath": "D:\\ReposFred\\devthrottle-factory",
+       "sources": [
+        "registry folder (the factory's one folder)",
+        "schedule cj_9ff295",
+        "schedule cj_a8c00b",
+        "schedule cj_bd920f"
+       ]
+      }
+     ],
+     "seat": "mail-desk"
+    },
+    {
+     "factory": "devthrottle",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/devthrottle-factory/factory",
+       "repository": "devthrottle-factory",
+       "repositoryPath": "D:\\ReposFred\\devthrottle-factory",
+       "sources": [
+        "registry folder (the factory's one folder)",
+        "schedule cj_5174a4"
+       ]
+      }
+     ],
+     "seat": "merge-review"
+    },
+    {
+     "factory": "devthrottle",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/devthrottle-factory/factory",
+       "repository": "devthrottle-factory",
+       "repositoryPath": "D:\\ReposFred\\devthrottle-factory",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      },
+      {
+       "folder": "D:\\ReposFred\\devthrottle_internal",
+       "repository": "devthrottle_internal",
+       "repositoryPath": "D:\\ReposFred\\devthrottle_internal",
+       "sources": [
+        "schedule cj_dc5736"
+       ]
+      }
+     ],
+     "seat": "motivation-videos"
+    },
+    {
+     "factory": "devthrottle",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/devthrottle-factory/factory",
+       "repository": "devthrottle-factory",
+       "repositoryPath": "D:\\ReposFred\\devthrottle-factory",
+       "sources": [
+        "registry folder (the factory's one folder)",
+        "schedule cj_f9a6e2"
+       ]
+      }
+     ],
+     "seat": "onboarding"
+    },
+    {
+     "factory": "devthrottle",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/devthrottle-factory/factory",
+       "repository": "devthrottle-factory",
+       "repositoryPath": "D:\\ReposFred\\devthrottle-factory",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      },
+      {
+       "folder": "D:/ReposFred/devthrottle-factory/factory/outreach",
+       "repository": "devthrottle-factory",
+       "repositoryPath": "D:\\ReposFred\\devthrottle-factory",
+       "sources": [
+        "schedule cj_490b77"
+       ]
+      }
+     ],
+     "seat": "outreach"
+    },
+    {
+     "factory": "devthrottle",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/devthrottle-factory/factory",
+       "repository": "devthrottle-factory",
+       "repositoryPath": "D:\\ReposFred\\devthrottle-factory",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      },
+      {
+       "folder": "D:\\ReposFred\\devthrottle_internal",
+       "repository": "devthrottle_internal",
+       "repositoryPath": "D:\\ReposFred\\devthrottle_internal",
+       "sources": [
+        "schedule cj_247da6"
+       ]
+      }
+     ],
+     "seat": "reddit-manager"
+    },
+    {
+     "factory": "devthrottle",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/devthrottle-factory/factory",
+       "repository": "devthrottle-factory",
+       "repositoryPath": "D:\\ReposFred\\devthrottle-factory",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      },
+      {
+       "folder": "D:\\ReposFred\\devthrottle_internal",
+       "repository": "devthrottle_internal",
+       "repositoryPath": "D:\\ReposFred\\devthrottle_internal",
+       "sources": [
+        "schedule cj_5984a7"
+       ]
+      }
+     ],
+     "seat": "reminders"
+    },
+    {
+     "factory": "devthrottle",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/devthrottle-factory/factory",
+       "repository": "devthrottle-factory",
+       "repositoryPath": "D:\\ReposFred\\devthrottle-factory",
+       "sources": [
+        "registry folder (the factory's one folder)",
+        "schedule cj_db8ce1"
+       ]
+      }
+     ],
+     "seat": "sales-desk"
+    },
+    {
+     "factory": "devthrottle",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/devthrottle-factory/factory",
+       "repository": "devthrottle-factory",
+       "repositoryPath": "D:\\ReposFred\\devthrottle-factory",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      },
+      {
+       "folder": "D:\\ReposFred\\devthrottle_internal",
+       "repository": "devthrottle_internal",
+       "repositoryPath": "D:\\ReposFred\\devthrottle_internal",
+       "sources": [
+        "schedule cj_f4281c"
+       ]
+      }
+     ],
+     "seat": "turn-log-labelling"
+    },
+    {
+     "factory": "devthrottle",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/devthrottle-factory/factory",
+       "repository": "devthrottle-factory",
+       "repositoryPath": "D:\\ReposFred\\devthrottle-factory",
+       "sources": [
+        "registry folder (the factory's one folder)",
+        "schedule cj_624959"
+       ]
+      }
+     ],
+     "seat": "usage-watch"
+    },
+    {
+     "factory": "devthrottle",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/devthrottle-factory/factory",
+       "repository": "devthrottle-factory",
+       "repositoryPath": "D:\\ReposFred\\devthrottle-factory",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      },
+      {
+       "folder": "D:\\ReposFred\\devthrottle_internal",
+       "repository": "devthrottle_internal",
+       "repositoryPath": "D:\\ReposFred\\devthrottle_internal",
+       "sources": [
+        "schedule cj_77ef6f"
+       ]
+      }
+     ],
+     "seat": "youtube-channel"
+    },
+    {
+     "factory": "house",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/cc-consult/house",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      },
+      {
+       "folder": "D:\\ReposFred\\private",
+       "repository": "private",
+       "repositoryPath": "D:\\ReposFred\\private",
+       "sources": [
+        "schedule cj_af97e6"
+       ]
+      }
+     ],
+     "seat": "budget"
+    },
+    {
+     "factory": "house",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/cc-consult/house",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      },
+      {
+       "folder": "D:\\ReposFred\\cc-consult",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "schedule cj_9dedee"
+       ]
+      }
+     ],
+     "seat": "email-assistant"
+    },
+    {
+     "factory": "house",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/<a folder not registered as a repository>",
+       "repository": null,
+       "repositoryPath": null,
+       "sources": [
+        "schedule cj_9d2b12"
+       ]
+      }
+     ],
+     "seat": "erik-website"
+    },
+    {
+     "factory": "house",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/cc-consult/house",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      },
+      {
+       "folder": "D:\\ReposFred\\private",
+       "repository": "private",
+       "repositoryPath": "D:\\ReposFred\\private",
+       "sources": [
+        "schedule cj_27128e"
+       ]
+      }
+     ],
+     "seat": "job-search"
+    },
+    {
+     "factory": "house",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/cc-consult/house",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      },
+      {
+       "folder": "D:\\ReposFred\\devthrottle_internal",
+       "repository": "devthrottle_internal",
+       "repositoryPath": "D:\\ReposFred\\devthrottle_internal",
+       "sources": [
+        "schedule cj_74144e"
+       ]
+      }
+     ],
+     "seat": "linkedin-inbox"
+    },
+    {
+     "factory": "house",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/cc-consult/house",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      },
+      {
+       "folder": "D:\\ReposFred\\private",
+       "repository": "private",
+       "repositoryPath": "D:\\ReposFred\\private",
+       "sources": [
+        "schedule cj_6eb620"
+       ]
+      }
+     ],
+     "seat": "training"
+    },
+    {
+     "factory": "house",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/cc-consult/house",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      },
+      {
+       "folder": "D:\\ReposFred\\cc-consult",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "schedule cj_5196d5"
+       ]
+      }
+     ],
+     "seat": "upwork"
+    },
+    {
+     "factory": "house",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/cc-consult/house",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      },
+      {
+       "folder": "D:\\ReposFred\\cc-consult",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "schedule cj_cc3a26"
+       ]
+      }
+     ],
+     "seat": "youtube-scanner"
+    },
+    {
+     "factory": "m-bpm-studio",
+     "folders": [
+      {
+       "folder": "D:/ReposMindzie/mindzieWeb",
+       "repository": "mindzieWeb",
+       "repositoryPath": "D:\\ReposMindzie\\mindzieWeb",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      }
+     ],
+     "seat": "boss"
+    },
+    {
+     "factory": "m-cube-pi",
+     "folders": [
+      {
+       "folder": "D:/ReposMindzie/mindzieWeb",
+       "repository": "mindzieWeb",
+       "repositoryPath": "D:\\ReposMindzie\\mindzieWeb",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      }
+     ],
+     "seat": "boss"
+    },
+    {
+     "factory": "machine-care",
+     "folders": [
+      {
+       "folder": "D:\\ReposFred\\cc-consult",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "registry folder (the factory's one folder)",
+        "schedule cj_28d5b2"
+       ]
+      }
+     ],
+     "seat": "factory-cleaner"
+    },
+    {
+     "factory": "mindzie-ai-reports",
+     "folders": [
+      {
+       "folder": "D:/wt/ai-reports-factory",
+       "repository": null,
+       "repositoryPath": null,
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      }
+     ],
+     "seat": "boss"
+    },
+    {
+     "factory": "mindzie-ai-reports",
+     "folders": [
+      {
+       "folder": "D:/wt/ai-reports-factory",
+       "repository": null,
+       "repositoryPath": null,
+       "sources": [
+        "registry folder (the factory's one folder)",
+        "schedule cj_b605fe"
+       ]
+      }
+     ],
+     "seat": "ceo"
+    },
+    {
+     "factory": "mindzie-ai-reports",
+     "folders": [
+      {
+       "folder": "D:/wt/ai-reports-factory",
+       "repository": null,
+       "repositoryPath": null,
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      }
+     ],
+     "seat": "cto"
+    },
+    {
+     "factory": "mindzie-ai-reports",
+     "folders": [
+      {
+       "folder": "D:/wt/ai-reports-factory",
+       "repository": null,
+       "repositoryPath": null,
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      }
+     ],
+     "seat": "market-scout"
+    },
+    {
+     "factory": "mindzie-ai-reports",
+     "folders": [
+      {
+       "folder": "D:/wt/ai-reports-factory",
+       "repository": null,
+       "repositoryPath": null,
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      }
+     ],
+     "seat": "sales-lead"
+    },
+    {
+     "factory": "mindzie-web",
+     "folders": [
+      {
+       "folder": "D:/ReposMindzie/mindzieWeb",
+       "repository": "mindzieWeb",
+       "repositoryPath": "D:\\ReposMindzie\\mindzieWeb",
+       "sources": [
+        "registry folder (the factory's one folder)",
+        "schedule cj_16ea2b"
+       ]
+      }
+     ],
+     "seat": "ai-spend-watch"
+    },
+    {
+     "factory": "mindzie-web",
+     "folders": [
+      {
+       "folder": "D:/ReposMindzie/mindzieWeb",
+       "repository": "mindzieWeb",
+       "repositoryPath": "D:\\ReposMindzie\\mindzieWeb",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      }
+     ],
+     "seat": "boss"
+    },
+    {
+     "factory": "mindzie-web",
+     "folders": [
+      {
+       "folder": "D:/ReposMindzie/mindzieWeb",
+       "repository": "mindzieWeb",
+       "repositoryPath": "D:\\ReposMindzie\\mindzieWeb",
+       "sources": [
+        "registry folder (the factory's one folder)",
+        "schedule cj_c536b9"
+       ]
+      }
+     ],
+     "seat": "code-review"
+    },
+    {
+     "factory": "mindzie-web",
+     "folders": [
+      {
+       "folder": "D:/ReposMindzie/mindzieWeb",
+       "repository": "mindzieWeb",
+       "repositoryPath": "D:\\ReposMindzie\\mindzieWeb",
+       "sources": [
+        "registry folder (the factory's one folder)",
+        "schedule cj_42d61e"
+       ]
+      }
+     ],
+     "seat": "cost-watch"
+    },
+    {
+     "factory": "mindzie-web",
+     "folders": [
+      {
+       "folder": "D:/ReposMindzie/mindzieWeb",
+       "repository": "mindzieWeb",
+       "repositoryPath": "D:\\ReposMindzie\\mindzieWeb",
+       "sources": [
+        "registry folder (the factory's one folder)",
+        "schedule cj_3d1e47"
+       ]
+      }
+     ],
+     "seat": "error-triage"
+    },
+    {
+     "factory": "mindzie-web",
+     "folders": [
+      {
+       "folder": "D:/ReposMindzie/mindzieWeb",
+       "repository": "mindzieWeb",
+       "repositoryPath": "D:\\ReposMindzie\\mindzieWeb",
+       "sources": [
+        "registry folder (the factory's one folder)",
+        "schedule cj_778917"
+       ]
+      }
+     ],
+     "seat": "i18n-coverage"
+    },
+    {
+     "factory": "mindzie-web",
+     "folders": [
+      {
+       "folder": "D:/ReposMindzie/mindzieWeb",
+       "repository": "mindzieWeb",
+       "repositoryPath": "D:\\ReposMindzie\\mindzieWeb",
+       "sources": [
+        "registry folder (the factory's one folder)",
+        "schedule cj_6f61ab"
+       ]
+      }
+     ],
+     "seat": "nightly-build-watch"
+    },
+    {
+     "factory": "mindzie-web",
+     "folders": [
+      {
+       "folder": "D:/ReposMindzie/mindzieWeb",
+       "repository": "mindzieWeb",
+       "repositoryPath": "D:\\ReposMindzie\\mindzieWeb",
+       "sources": [
+        "registry folder (the factory's one folder)",
+        "schedule cj_c82baf"
+       ]
+      }
+     ],
+     "seat": "qa-manager"
+    },
+    {
+     "factory": "mindzie-web",
+     "folders": [
+      {
+       "folder": "D:/ReposMindzie/mindzieWeb",
+       "repository": "mindzieWeb",
+       "repositoryPath": "D:\\ReposMindzie\\mindzieWeb",
+       "sources": [
+        "registry folder (the factory's one folder)",
+        "schedule cj_fec3e1"
+       ]
+      }
+     ],
+     "seat": "repo-hygiene"
+    },
+    {
+     "factory": "mindzie-web",
+     "folders": [
+      {
+       "folder": "D:/ReposMindzie/mindzieWeb",
+       "repository": "mindzieWeb",
+       "repositoryPath": "D:\\ReposMindzie\\mindzieWeb",
+       "sources": [
+        "registry folder (the factory's one folder)",
+        "schedule cj_006d84"
+       ]
+      }
+     ],
+     "seat": "usage-watch"
+    },
+    {
+     "factory": "mindzie-web",
+     "folders": [
+      {
+       "folder": "D:/ReposMindzie/mindzieWeb",
+       "repository": "mindzieWeb",
+       "repositoryPath": "D:\\ReposMindzie\\mindzieWeb",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      }
+     ],
+     "seat": "weekly-usage-report"
+    },
+    {
+     "factory": "mindzie-web",
+     "folders": [
+      {
+       "folder": "D:/ReposMindzie/mindzieWeb",
+       "repository": "mindzieWeb",
+       "repositoryPath": "D:\\ReposMindzie\\mindzieWeb",
+       "sources": [
+        "registry folder (the factory's one folder)",
+        "schedule cj_9c4d4b"
+       ]
+      }
+     ],
+     "seat": "worktree-cleaner"
+    },
+    {
+     "factory": "money-saver",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/cc-consult",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "registry folder (the factory's one folder)",
+        "schedule cj_81ca8e"
+       ]
+      }
+     ],
+     "seat": "daily-cost-report"
+    },
+    {
+     "factory": "money-saver",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/cc-consult",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "registry folder (the factory's one folder)",
+        "schedule cj_1075bd"
+       ]
+      }
+     ],
+     "seat": "weekly-cost-report"
+    },
+    {
+     "factory": "tallyhand",
+     "folders": [
+      {
+       "folder": "D:\\ReposFred\\cc-consult\\ideas\\tallyhand",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      }
+     ],
+     "seat": "boss"
+    },
+    {
+     "factory": "tallyhand",
+     "folders": [
+      {
+       "folder": "D:\\ReposFred\\cc-consult\\ideas\\tallyhand",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      }
+     ],
+     "seat": "cto"
+    },
+    {
+     "factory": "tallyhand",
+     "folders": [
+      {
+       "folder": "D:\\ReposFred\\cc-consult\\ideas\\tallyhand",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      }
+     ],
+     "seat": "market-scout"
+    },
+    {
+     "factory": "warmforward",
+     "folders": [
+      {
+       "folder": "D:\\ReposFred\\cc-consult\\ideas\\warmforward-factory",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      }
+     ],
+     "seat": "boss"
+    },
+    {
+     "factory": "warmforward",
+     "folders": [
+      {
+       "folder": "D:\\ReposFred\\cc-consult\\ideas\\warmforward-factory",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      }
+     ],
+     "seat": "ceo"
+    },
+    {
+     "factory": "warmforward",
+     "folders": [
+      {
+       "folder": "D:\\ReposFred\\cc-consult\\ideas\\warmforward-factory",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      },
+      {
+       "folder": "D:\\ReposFred\\cc-consult",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "schedule cj_b92f73"
+       ]
+      }
+     ],
+     "seat": "electricity"
+    },
+    {
+     "factory": "warmforward",
+     "folders": [
+      {
+       "folder": "D:\\ReposFred\\cc-consult\\ideas\\warmforward-factory",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      }
+     ],
+     "seat": "reliability-watch"
+    },
+    {
+     "factory": "warmforward",
+     "folders": [
+      {
+       "folder": "D:\\ReposFred\\cc-consult\\ideas\\warmforward-factory",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      }
+     ],
+     "seat": "savings-engineer"
+    },
+    {
+     "factory": "warmforward",
+     "folders": [
+      {
+       "folder": "D:\\ReposFred\\cc-consult\\ideas\\warmforward-factory",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      }
+     ],
+     "seat": "value-hunter"
+    },
+    {
+     "factory": "website-business",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/cc-consult/ideas/website-factory/factory",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "trigger website-new-mail"
+       ]
+      }
+     ],
+     "seat": "Front Desk"
+    },
+    {
+     "factory": "website-business",
+     "folders": [
+      {
+       "folder": "/home/soren/wt/website-business/ideas/website-factory/factory",
+       "repository": null,
+       "repositoryPath": null,
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      }
+     ],
+     "seat": "bookkeeper"
+    },
+    {
+     "factory": "website-business",
+     "folders": [
+      {
+       "folder": "/home/soren/wt/website-business/ideas/website-factory/factory",
+       "repository": null,
+       "repositoryPath": null,
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      },
+      {
+       "folder": "D:/ReposFred/cc-consult/ideas/website-factory/factory",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "schedule cj_e196e3"
+       ]
+      }
+     ],
+     "seat": "business-reviewer"
+    },
+    {
+     "factory": "website-business",
+     "folders": [
+      {
+       "folder": "D:/ReposFred/cc-consult/ideas/website-factory/factory",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "trigger website-notify-owner-on-failure"
+       ]
+      }
+     ],
+     "seat": "chain"
+    },
+    {
+     "factory": "website-business",
+     "folders": [
+      {
+       "folder": "/home/soren/wt/website-business/ideas/website-factory/factory",
+       "repository": null,
+       "repositoryPath": null,
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      }
+     ],
+     "seat": "front-desk"
+    },
+    {
+     "factory": "website-business",
+     "folders": [
+      {
+       "folder": "/home/soren/wt/website-business/ideas/website-factory/factory",
+       "repository": null,
+       "repositoryPath": null,
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      },
+      {
+       "folder": "D:/ReposFred/cc-consult/ideas/website-factory/factory",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "schedule cj_84c39b"
+       ]
+      }
+     ],
+     "seat": "mail-warmer"
+    },
+    {
+     "factory": "website-business",
+     "folders": [
+      {
+       "folder": "/home/soren/wt/website-business/ideas/website-factory/factory",
+       "repository": null,
+       "repositoryPath": null,
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      },
+      {
+       "folder": "D:/ReposFred/cc-consult/ideas/website-factory/factory",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "schedule cj_e8bfdb"
+       ]
+      }
+     ],
+     "seat": "mail-watcher"
+    },
+    {
+     "factory": "website-business",
+     "folders": [
+      {
+       "folder": "/home/soren/wt/website-business/ideas/website-factory/factory",
+       "repository": null,
+       "repositoryPath": null,
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      },
+      {
+       "folder": "D:\\ReposFred\\cc-consult",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "schedule cj_1d9b66"
+       ]
+      }
+     ],
+     "seat": "resends"
+    },
+    {
+     "factory": "website-business",
+     "folders": [
+      {
+       "folder": "/home/soren/wt/website-business/ideas/website-factory/factory",
+       "repository": null,
+       "repositoryPath": null,
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      },
+      {
+       "folder": "D:/ReposFred/cc-consult/ideas/website-factory/factory",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "schedule cj_332296"
+       ]
+      }
+     ],
+     "seat": "scout"
+    },
+    {
+     "factory": "website-business",
+     "folders": [
+      {
+       "folder": "/home/soren/wt/website-business/ideas/website-factory/factory",
+       "repository": null,
+       "repositoryPath": null,
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      },
+      {
+       "folder": "D:/ReposFred/cc-consult/ideas/website-factory/factory",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "trigger website-sender-after-scout"
+       ]
+      }
+     ],
+     "seat": "sender"
+    },
+    {
+     "factory": "website-business",
+     "folders": [
+      {
+       "folder": "/home/soren/wt/website-business/ideas/website-factory/factory",
+       "repository": null,
+       "repositoryPath": null,
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      }
+     ],
+     "seat": "site-checker"
+    },
+    {
+     "factory": "website-business",
+     "folders": [
+      {
+       "folder": "/home/soren/wt/website-business/ideas/website-factory/factory",
+       "repository": null,
+       "repositoryPath": null,
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      },
+      {
+       "folder": "D:/ReposFred/cc-consult/ideas/website-factory/factory",
+       "repository": "cc-consult",
+       "repositoryPath": "D:\\ReposFred\\cc-consult",
+       "sources": [
+        "schedule cj_725f8d"
+       ]
+      }
+     ],
+     "seat": "site-keeper"
+    }
+   ]
+  },
+  {
+   "directorVersion": null,
+   "machine": "devlinux",
+   "online": false,
+   "repositories": [
+    {
+     "name": "cc-consult",
+     "path": "/home/soren/ReposFred/cc-consult",
+     "remote": "https://github.com/thefrederiksen/cc-consult.git"
+    }
+   ],
+   "repositoryCount": 7,
+   "seats": [
+    {
+     "factory": "warmforward",
+     "folders": [
+      {
+       "folder": "/home/soren/ReposFred/cc-consult/ideas/warmforward-factory",
+       "repository": "cc-consult",
+       "repositoryPath": "/home/soren/ReposFred/cc-consult",
+       "sources": [
+        "schedule cj_54663c"
+       ]
+      }
+     ],
+     "seat": "ceo"
+    },
+    {
+     "factory": "warmforward",
+     "folders": [
+      {
+       "folder": "/home/soren/ReposFred/cc-consult/ideas/warmforward-factory",
+       "repository": "cc-consult",
+       "repositoryPath": "/home/soren/ReposFred/cc-consult",
+       "sources": [
+        "schedule cj_2e587d"
+       ]
+      }
+     ],
+     "seat": "reliability-watch"
+    },
+    {
+     "factory": "warmforward",
+     "folders": [
+      {
+       "folder": "/home/soren/ReposFred/cc-consult/ideas/warmforward-factory",
+       "repository": "cc-consult",
+       "repositoryPath": "/home/soren/ReposFred/cc-consult",
+       "sources": [
+        "schedule cj_dd0e31"
+       ]
+      }
+     ],
+     "seat": "savings-engineer"
+    },
+    {
+     "factory": "warmforward",
+     "folders": [
+      {
+       "folder": "/home/soren/ReposFred/cc-consult/ideas/warmforward-factory",
+       "repository": "cc-consult",
+       "repositoryPath": "/home/soren/ReposFred/cc-consult",
+       "sources": [
+        "schedule cj_eb5ae1"
+       ]
+      }
+     ],
+     "seat": "value-hunter"
+    },
+    {
+     "factory": "website-business",
+     "folders": [
+      {
+       "folder": "/home/soren/wt/website-business/ideas/website-factory/factory",
+       "repository": null,
+       "repositoryPath": null,
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      }
+     ],
+     "seat": "boss"
+    }
+   ]
+  },
+  {
+   "directorVersion": "2.1.0+db141e2868e6f99e42373a5053a68a378f74ed62",
+   "machine": "devthrottle-mac-mini",
+   "online": true,
+   "repositories": [
+    {
+     "name": "devthrottle_internal",
+     "path": "/Users/soren/ReposFred/devthrottle_internal",
+     "remote": "https://github.com/thefrederiksen/devthrottle_internal.git"
+    }
+   ],
+   "repositoryCount": 8,
+   "seats": [
+    {
+     "factory": "machine-care",
+     "folders": [
+      {
+       "folder": "D:\\ReposFred\\cc-consult",
+       "repository": null,
+       "repositoryPath": null,
+       "sources": [
+        "registry folder (the factory's one folder)"
+       ]
+      },
+      {
+       "folder": "/Users/soren/ReposFred/devthrottle_internal",
+       "repository": "devthrottle_internal",
+       "repositoryPath": "/Users/soren/ReposFred/devthrottle_internal",
+       "sources": [
+        "schedule cj_a6a2cf"
+       ]
+      }
+     ],
+     "seat": "machine-setup"
+    }
+   ]
+  }
+ ],
+ "readUtc": "2026-10-14T18:39:45+00:00"
+}

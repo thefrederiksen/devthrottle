@@ -1,0 +1,15 @@
+cc-secrets get outreach-mail-tenant-id: refused: No setting named 'outreach-mail-tenant-id' is on this machine.
+cc-secrets get outreach-mail-client-id: refused: No setting named 'outreach-mail-client-id' is on this machine.
+
+=== A. One secret, --env-name by the rule
+$ cc-secrets run outreach-mail-client-secret --via env --env-name OUTREACH_MAIL_CLIENT_SECRET -- python check_new_mail.py
+    exit 2
+    refused: No secret named 'outreach-mail-client-secret' is on this machine.
+    CONTRACT: failed check (non-zero exit), recorded with the reason above
+
+=== B. Two secrets, --with, each in the variable its entry names
+$ cc-secrets run outreach-mail-client-secret --with outreach-mail-client-id -- python check_new_mail.py
+    exit 2
+    refused: No secret named 'outreach-mail-client-secret' is on this machine.
+    CONTRACT: failed check (non-zero exit), recorded with the reason above
+

@@ -1,0 +1,4247 @@
+{
+ "factories": [
+  {
+   "bossSeat": "boss",
+   "briefStore": {
+    "refused": "Error: this brief belongs to factory 'business-research', so only a person or a session of 'business-research' may change or run it"
+   },
+   "computer": "SOREN_NORTH",
+   "disk": {
+    "briefsOnDisk": [
+     {
+      "bytes": 12273,
+      "name": "agents/ceo.yaml",
+      "seat": "ceo"
+     },
+     {
+      "bytes": 12273,
+      "name": "agents/ceo.yaml",
+      "seat": "boss"
+     },
+     {
+      "bytes": 6844,
+      "name": "agents/cto.yaml",
+      "seat": "cto"
+     },
+     {
+      "bytes": 7347,
+      "name": "agents/sales-leader.yaml",
+      "seat": "sales-leader"
+     },
+     {
+      "bytes": 7965,
+      "name": "agents/reviewer.yaml",
+      "seat": "reviewer"
+     }
+    ],
+    "clone": "D:/ReposFred/cc-consult",
+    "cloneBranch": "main",
+    "cloneRemote": "https://github.com/thefrederiksen/cc-consult.git",
+    "factoryFiles": "(the folder itself)",
+    "folder": "D:\\ReposFred\\cc-consult\\ideas\\business-research\\factory",
+    "otherFolders": [
+     "tests"
+    ],
+    "present": true,
+    "rulesFiles": [
+     {
+      "bytes": 0,
+      "name": "permissions/__init__.py"
+     },
+     {
+      "bytes": 17929,
+      "name": "permissions/deny_direct_mail.py"
+     }
+    ],
+    "settingsInClone": null,
+    "settingsInFolder": {
+     "allow": 0,
+     "ask": 0,
+     "deny": 64,
+     "file": "D:/ReposFred/cc-consult/ideas/business-research/factory/.claude/settings.json",
+     "hooks": [
+      "PreToolUse"
+     ]
+    },
+    "skillsInFolder": [
+     "research-ceo"
+    ],
+    "templates": [],
+    "tools": [
+     {
+      "bytes": 21265,
+      "name": "ceo_ship.py"
+     },
+     {
+      "bytes": 103688,
+      "name": "partner_desk.py"
+     }
+    ]
+   },
+   "goalFile": null,
+   "goalText": false,
+   "id": "business-research",
+   "purpose": "Researches new business ideas and says which ones are worth starting.",
+   "recordsRoots": [
+    "business-research-factory"
+   ],
+   "schedules": [
+    {
+     "autoDismiss": true,
+     "briefsNamed": [
+      "agents/ceo.yaml"
+     ],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_ebe3cd",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:/ReposFred/cc-consult/ideas/business-research/factory",
+     "runAt": null,
+     "seat": "ceo",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    }
+   ],
+   "schedulesInRegistryButNotFound": [],
+   "seats": [
+    {
+     "briefFile": "agents/ceo.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "ceo",
+     "line": null,
+     "name": "Boss",
+     "role": "Boss",
+     "schedules": [
+      "cj_ebe3cd"
+     ]
+    },
+    {
+     "briefFile": "agents/ceo.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "boss",
+     "line": null,
+     "name": "Boss",
+     "role": "Boss",
+     "schedules": []
+    },
+    {
+     "briefFile": "agents/cto.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "cto",
+     "line": null,
+     "name": "CTO",
+     "role": "CTO",
+     "schedules": []
+    },
+    {
+     "briefFile": "agents/sales-leader.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "sales-leader",
+     "line": null,
+     "name": "Sales Leader",
+     "role": "Sales Leader",
+     "schedules": []
+    },
+    {
+     "briefFile": "agents/reviewer.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "reviewer",
+     "line": null,
+     "name": "Reviewer",
+     "role": "Reviewer",
+     "schedules": []
+    }
+   ],
+   "title": "Business Research",
+   "triggers": []
+  },
+  {
+   "bossSeat": "boss",
+   "briefStore": {
+    "refused": "Error: this brief belongs to factory 'cc-factory', so only a person or a session of 'cc-factory' may change or run it"
+   },
+   "computer": "SOREN_NORTH",
+   "disk": {
+    "briefsOnDisk": [
+     {
+      "bytes": 2853,
+      "name": "agents/boss.yaml",
+      "seat": "boss"
+     },
+     {
+      "bytes": 3150,
+      "name": "agents/cost-sweep.yaml",
+      "seat": "cost-sweep"
+     },
+     {
+      "bytes": 3445,
+      "name": "agents/worktree-cleaner.yaml",
+      "seat": "worktree-cleaner"
+     },
+     {
+      "bytes": 2053,
+      "name": "agents/books.yaml",
+      "seat": "books"
+     }
+    ],
+    "clone": "D:/ReposFred/cc-consult",
+    "cloneBranch": "main",
+    "cloneRemote": "https://github.com/thefrederiksen/cc-consult.git",
+    "factoryFiles": "(the folder itself)",
+    "folder": "D:\\ReposFred\\cc-consult\\ideas\\cc-factory",
+    "otherFolders": [
+     ".temp"
+    ],
+    "present": true,
+    "rulesFiles": [],
+    "settingsInClone": null,
+    "settingsInFolder": {
+     "allow": 0,
+     "ask": 0,
+     "deny": 106,
+     "file": "D:/ReposFred/cc-consult/ideas/cc-factory/.claude/settings.json",
+     "hooks": []
+    },
+    "skillsInFolder": [],
+    "templates": [
+     {
+      "bytes": 8211,
+      "name": "AUTONOMY.md"
+     },
+     {
+      "bytes": 5148,
+      "name": "BOSS-BRIEF.md"
+     },
+     {
+      "bytes": 4700,
+      "name": "CFO-BRIEF.md"
+     },
+     {
+      "bytes": 6346,
+      "name": "FACTORY.md"
+     },
+     {
+      "bytes": 2657,
+      "name": "GOAL.md"
+     },
+     {
+      "bytes": 2906,
+      "name": "PORTFOLIO.md"
+     },
+     {
+      "bytes": 2931,
+      "name": "README.md"
+     }
+    ],
+    "tools": [
+     {
+      "bytes": 15059,
+      "name": "tools/cfo_numbers.py"
+     },
+     {
+      "bytes": 7078,
+      "name": "tools/effort_split.py"
+     }
+    ]
+   },
+   "goalFile": null,
+   "goalText": false,
+   "id": "cc-factory",
+   "purpose": "Runs the company itself: the bank account, the card and every subscription behind the other businesses.",
+   "recordsRoots": [
+    "cc-factory/cfo",
+    "cc-factory-factory"
+   ],
+   "schedules": [
+    {
+     "autoDismiss": true,
+     "briefsNamed": [
+      "CFO-BRIEF.md",
+      "agents/cfo.yaml"
+     ],
+     "cron": "0 0 31 2 *",
+     "enabled": false,
+     "id": "cj_14734a",
+     "inRegistry": false,
+     "kind": "recurring",
+     "lifecycle": "paused",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:/ReposFred/cc-consult/ideas/cc-factory",
+     "runAt": null,
+     "seat": "cfo",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_33022a",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:\\ReposFred\\cc-consult",
+     "runAt": null,
+     "seat": "books",
+     "shifts": [],
+     "skillsNamed": [
+      "finance-business"
+     ],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [
+      "ideas/cc-factory/agents/worktree-cleaner.yaml"
+     ],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_c8b4e1",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:/ReposFred/cc-consult/ideas/cc-factory",
+     "runAt": null,
+     "seat": "worktree-cleaner",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [
+      "CFO-BRIEF.md",
+      "agents/cost-sweep.yaml"
+     ],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_f8e403",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:/ReposFred/cc-consult/ideas/cc-factory",
+     "runAt": null,
+     "seat": "cost-sweep",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    }
+   ],
+   "schedulesInRegistryButNotFound": [],
+   "seats": [
+    {
+     "briefFile": "agents/boss.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "boss",
+     "line": null,
+     "name": "Boss",
+     "role": "Boss",
+     "schedules": []
+    },
+    {
+     "briefFile": "agents/cost-sweep.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "cost-sweep",
+     "line": null,
+     "name": "Cost Sweep",
+     "role": "Cost Sweep",
+     "schedules": [
+      "cj_f8e403"
+     ]
+    },
+    {
+     "briefFile": "agents/worktree-cleaner.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "worktree-cleaner",
+     "line": null,
+     "name": "Worktree Cleaner",
+     "role": "Worktree Cleaner",
+     "schedules": [
+      "cj_c8b4e1"
+     ]
+    },
+    {
+     "briefFile": "agents/books.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "books",
+     "line": null,
+     "name": "Books",
+     "role": "Books",
+     "schedules": [
+      "cj_33022a"
+     ]
+    }
+   ],
+   "title": "Center Consulting",
+   "triggers": []
+  },
+  {
+   "bossSeat": "boss",
+   "briefStore": {
+    "refused": "Error: this brief belongs to factory 'clickfunnels', so only a person or a session of 'clickfunnels' may change or run it"
+   },
+   "computer": "SOREN_NORTH",
+   "disk": {
+    "briefsOnDisk": [
+     {
+      "bytes": 5988,
+      "name": "agents/ceo.yaml",
+      "seat": "ceo"
+     },
+     {
+      "bytes": 5988,
+      "name": "agents/ceo.yaml",
+      "seat": "boss"
+     },
+     {
+      "bytes": 4735,
+      "name": "agents/hacker.yaml",
+      "seat": "hacker"
+     },
+     {
+      "bytes": 5245,
+      "name": "agents/certifier.yaml",
+      "seat": "certifier"
+     },
+     {
+      "bytes": 5275,
+      "name": "agents/builder.yaml",
+      "seat": "builder"
+     },
+     {
+      "bytes": 5121,
+      "name": "agents/sales.yaml",
+      "seat": "sales"
+     },
+     {
+      "bytes": 4144,
+      "name": "agents/marketing.yaml",
+      "seat": "marketing"
+     },
+     {
+      "bytes": 3267,
+      "name": "agents/sales-manager.yaml",
+      "seat": "sales-manager"
+     },
+     {
+      "bytes": 15493,
+      "name": "FACTORY.md",
+      "seat": "facebook-reader"
+     },
+     {
+      "bytes": 15493,
+      "name": "FACTORY.md",
+      "seat": "badge-runner"
+     },
+     {
+      "bytes": 15493,
+      "name": "FACTORY.md",
+      "seat": "sales-sender"
+     }
+    ],
+    "clone": "D:/ReposFred/cc-clickfunnels",
+    "cloneBranch": "main",
+    "cloneRemote": "https://github.com/thefrederiksen/cc-clickfunnels.git",
+    "factoryFiles": "(the folder itself)",
+    "folder": "D:/ReposFred/cc-clickfunnels/factory",
+    "otherFolders": [
+     ".temp",
+     "state"
+    ],
+    "present": true,
+    "rulesFiles": [],
+    "settingsInClone": null,
+    "settingsInFolder": {
+     "allow": 0,
+     "ask": 0,
+     "deny": 0,
+     "file": "D:/ReposFred/cc-clickfunnels/factory/.claude/settings.json",
+     "hooks": [
+      "PreToolUse"
+     ]
+    },
+    "skillsInFolder": [],
+    "templates": [
+     {
+      "bytes": 7896,
+      "name": "CEO-BRIEF.md"
+     },
+     {
+      "bytes": 4795,
+      "name": "CERTIFICATION.md"
+     },
+     {
+      "bytes": 15493,
+      "name": "FACTORY.md"
+     },
+     {
+      "bytes": 24721,
+      "name": "REVIEW-1.md"
+     },
+     {
+      "bytes": 28748,
+      "name": "REVIEW-2.md"
+     },
+     {
+      "bytes": 24891,
+      "name": "REVIEW-3.md"
+     },
+     {
+      "bytes": 1802,
+      "name": "schedules.json"
+     }
+    ],
+    "tools": [
+     {
+      "bytes": 7476,
+      "name": "tools/bh.py"
+     },
+     {
+      "bytes": 13324,
+      "name": "tools/cf_api.py"
+     },
+     {
+      "bytes": 1393,
+      "name": "tools/cf_badge_mail.py"
+     },
+     {
+      "bytes": 2264,
+      "name": "tools/cf_login.py"
+     },
+     {
+      "bytes": 20241,
+      "name": "tools/cfb.py"
+     },
+     {
+      "bytes": 6591,
+      "name": "tools/common.py"
+     },
+     {
+      "bytes": 1339,
+      "name": "tools/fw_piece.py"
+     },
+     {
+      "bytes": 7231,
+      "name": "tools/lessons.py"
+     },
+     {
+      "bytes": 5368,
+      "name": "tools/morning_email.py"
+     },
+     {
+      "bytes": 16793,
+      "name": "tools/outbox.py"
+     },
+     {
+      "bytes": 3299,
+      "name": "tools/runlog.py"
+     },
+     {
+      "bytes": 17764,
+      "name": "tools/transcribe.py"
+     },
+     {
+      "bytes": 2032,
+      "name": "tools/wf_check.py"
+     }
+    ]
+   },
+   "goalFile": null,
+   "goalText": false,
+   "id": "clickfunnels",
+   "purpose": "Finds small-business owners in Facebook groups and brings them to our funnels.",
+   "recordsRoots": [
+    "clickfunnels-factory"
+   ],
+   "schedules": [
+    {
+     "autoDismiss": true,
+     "briefsNamed": [
+      "agents/sales-manager.yaml"
+     ],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_1251ab",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:/ReposFred/cc-clickfunnels/factory",
+     "runAt": null,
+     "seat": "sales-manager",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [
+      "BRIEF.md"
+     ],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_378912",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:/ReposFred/cc-clickfunnels",
+     "runAt": null,
+     "seat": "sales",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [
+      "agents/ceo.yaml"
+     ],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_3c7722",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:/ReposFred/cc-clickfunnels/factory",
+     "runAt": null,
+     "seat": "ceo",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [
+      "agents/hacker.yaml"
+     ],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_6ddb8a",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:/ReposFred/cc-clickfunnels/factory",
+     "runAt": null,
+     "seat": "hacker",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_a872fa",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:/ReposFred/cc-clickfunnels",
+     "runAt": null,
+     "seat": "facebook-reader",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [
+      "agents/certifier.yaml"
+     ],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_b8be16",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:/ReposFred/cc-clickfunnels/factory",
+     "runAt": null,
+     "seat": "certifier",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [
+      "agents/marketing.yaml"
+     ],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_daafd6",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:/ReposFred/cc-clickfunnels/factory",
+     "runAt": null,
+     "seat": "marketing",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [
+      "agents/sales.yaml"
+     ],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_e844c4",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:/ReposFred/cc-clickfunnels/factory",
+     "runAt": null,
+     "seat": "sales",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_efee28",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:/ReposFred/cc-clickfunnels",
+     "runAt": null,
+     "seat": "badge-runner",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_f05973",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:/ReposFred/cc-clickfunnels",
+     "runAt": null,
+     "seat": "sales-sender",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [
+      "agents/builder.yaml"
+     ],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_ffba1d",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:/ReposFred/cc-clickfunnels/factory",
+     "runAt": null,
+     "seat": "builder",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    }
+   ],
+   "schedulesInRegistryButNotFound": [],
+   "seats": [
+    {
+     "briefFile": "agents/ceo.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "ceo",
+     "line": null,
+     "name": "Boss",
+     "role": "Boss",
+     "schedules": [
+      "cj_3c7722"
+     ]
+    },
+    {
+     "briefFile": "agents/ceo.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "boss",
+     "line": null,
+     "name": "Boss",
+     "role": "Boss",
+     "schedules": []
+    },
+    {
+     "briefFile": "agents/hacker.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "hacker",
+     "line": null,
+     "name": "ClickFunnels Hacker",
+     "role": "ClickFunnels Hacker",
+     "schedules": [
+      "cj_6ddb8a"
+     ]
+    },
+    {
+     "briefFile": "agents/certifier.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "certifier",
+     "line": null,
+     "name": "Certifier",
+     "role": "Certifier",
+     "schedules": [
+      "cj_b8be16"
+     ]
+    },
+    {
+     "briefFile": "agents/builder.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "builder",
+     "line": null,
+     "name": "Builder",
+     "role": "Builder",
+     "schedules": [
+      "cj_ffba1d"
+     ]
+    },
+    {
+     "briefFile": "agents/sales.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "sales",
+     "line": null,
+     "name": "Outreach Manager",
+     "role": "Outreach Manager",
+     "schedules": [
+      "cj_378912",
+      "cj_e844c4"
+     ]
+    },
+    {
+     "briefFile": "agents/marketing.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "marketing",
+     "line": null,
+     "name": "Marketing Manager",
+     "role": "Marketing Manager",
+     "schedules": [
+      "cj_daafd6"
+     ]
+    },
+    {
+     "briefFile": "agents/sales-manager.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "sales-manager",
+     "line": null,
+     "name": "Sales Manager",
+     "role": "Sales Manager",
+     "schedules": [
+      "cj_1251ab"
+     ]
+    },
+    {
+     "briefFile": "FACTORY.md",
+     "computer": "SOREN_NORTH",
+     "id": "facebook-reader",
+     "line": null,
+     "name": "Facebook Reader",
+     "role": "Facebook Reader",
+     "schedules": [
+      "cj_a872fa"
+     ]
+    },
+    {
+     "briefFile": "FACTORY.md",
+     "computer": "SOREN_NORTH",
+     "id": "badge-runner",
+     "line": null,
+     "name": "Badge Runner",
+     "role": "Badge Runner",
+     "schedules": [
+      "cj_efee28"
+     ]
+    },
+    {
+     "briefFile": "FACTORY.md",
+     "computer": "SOREN_NORTH",
+     "id": "sales-sender",
+     "line": null,
+     "name": "Sales Sender",
+     "role": "Sales Sender",
+     "schedules": [
+      "cj_f05973"
+     ]
+    }
+   ],
+   "title": "ClickFunnels",
+   "triggers": []
+  },
+  {
+   "bossSeat": "boss",
+   "briefStore": {
+    "refused": "Error: this brief belongs to factory 'devthrottle', so only a person or a session of 'devthrottle' may change or run it"
+   },
+   "computer": "SOREN_NORTH",
+   "disk": {
+    "briefsOnDisk": [
+     {
+      "bytes": null,
+      "name": "agents/ceo.yaml",
+      "seat": "ceo"
+     },
+     {
+      "bytes": 7327,
+      "name": "agents/boss.yaml",
+      "seat": "boss"
+     },
+     {
+      "bytes": 8954,
+      "name": "agents/onboarding.yaml",
+      "seat": "onboarding"
+     },
+     {
+      "bytes": 4024,
+      "name": "agents/mail-desk.yaml",
+      "seat": "mail-desk"
+     },
+     {
+      "bytes": 3110,
+      "name": "agents/health-watch.yaml",
+      "seat": "health-watch"
+     },
+     {
+      "bytes": 4306,
+      "name": "agents/usage-watch.yaml",
+      "seat": "usage-watch"
+     },
+     {
+      "bytes": 9096,
+      "name": "agents/outreach.yaml",
+      "seat": "outreach"
+     },
+     {
+      "bytes": 14030,
+      "name": "agents/defects.yaml",
+      "seat": "defects"
+     },
+     {
+      "bytes": 2854,
+      "name": "agents/defect-checker.yaml",
+      "seat": "defect-checker"
+     },
+     {
+      "bytes": 1408,
+      "name": "agents/merge-review.yaml",
+      "seat": "merge-review"
+     },
+     {
+      "bytes": 1954,
+      "name": "agents/sales-desk.yaml",
+      "seat": "sales-desk"
+     },
+     {
+      "bytes": 1717,
+      "name": "agents/reddit-manager.yaml",
+      "seat": "reddit-manager"
+     },
+     {
+      "bytes": 1603,
+      "name": "agents/creator-outreach.yaml",
+      "seat": "creator-outreach"
+     },
+     {
+      "bytes": 1406,
+      "name": "agents/dictionary-digest.yaml",
+      "seat": "dictionary-digest"
+     },
+     {
+      "bytes": 1659,
+      "name": "agents/code-signing-check.yaml",
+      "seat": "code-signing-check"
+     },
+     {
+      "bytes": 1620,
+      "name": "agents/blog-writer.yaml",
+      "seat": "blog-writer"
+     },
+     {
+      "bytes": 1927,
+      "name": "agents/motivation-videos.yaml",
+      "seat": "motivation-videos"
+     },
+     {
+      "bytes": 1487,
+      "name": "agents/youtube-channel.yaml",
+      "seat": "youtube-channel"
+     },
+     {
+      "bytes": 1541,
+      "name": "agents/turn-log-labelling.yaml",
+      "seat": "turn-log-labelling"
+     },
+     {
+      "bytes": 1242,
+      "name": "agents/reminders.yaml",
+      "seat": "reminders"
+     }
+    ],
+    "clone": "D:/ReposFred/devthrottle-factory",
+    "cloneBranch": "main",
+    "cloneRemote": "https://github.com/thefrederiksen/devthrottle_internal.git",
+    "factoryFiles": "(the folder itself)",
+    "folder": "D:/ReposFred/devthrottle-factory/factory",
+    "otherFolders": [
+     ".temp",
+     "outreach"
+    ],
+    "present": true,
+    "rulesFiles": [],
+    "settingsInClone": null,
+    "settingsInFolder": {
+     "allow": 0,
+     "ask": 0,
+     "deny": 216,
+     "file": "D:/ReposFred/devthrottle-factory/factory/.claude/settings.json",
+     "hooks": []
+    },
+    "skillsInFolder": [],
+    "templates": [
+     {
+      "bytes": 27710,
+      "name": "AUTONOMY.md"
+     },
+     {
+      "bytes": 5314,
+      "name": "BOSS-BRIEF.md"
+     },
+     {
+      "bytes": 11295,
+      "name": "EXPANSION.md"
+     },
+     {
+      "bytes": 6524,
+      "name": "FACTORY.md"
+     },
+     {
+      "bytes": 3885,
+      "name": "GOAL.md"
+     },
+     {
+      "bytes": 17651,
+      "name": "MAP.html"
+     },
+     {
+      "bytes": 3185,
+      "name": "README.md"
+     }
+    ],
+    "tools": [
+     {
+      "bytes": 11729,
+      "name": "outreach/outreach_send.py"
+     }
+    ]
+   },
+   "goalFile": null,
+   "goalText": false,
+   "id": "devthrottle",
+   "purpose": "Runs DevThrottle as a business: the website, the signups and getting new users set up.",
+   "recordsRoots": [
+    "cc-factory/devthrottle"
+   ],
+   "schedules": [
+    {
+     "autoDismiss": true,
+     "briefsNamed": [],
+     "cron": "0 0 31 2 *",
+     "enabled": false,
+     "id": "cj_247da6",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "paused",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:\\ReposFred\\devthrottle_internal",
+     "runAt": null,
+     "seat": "reddit-manager",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [
+      "../agents/outreach.yaml",
+      "/ReposFred/devthrottle-factory/factory/agents/outreach.yaml"
+     ],
+     "cron": "0 0 31 2 *",
+     "enabled": false,
+     "id": "cj_490b77",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "paused",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:/ReposFred/devthrottle-factory/factory/outreach",
+     "runAt": null,
+     "seat": "outreach",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [],
+     "cron": "0 0 31 2 *",
+     "enabled": false,
+     "id": "cj_4f60b5",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "paused",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:\\ReposFred\\devthrottle_internal",
+     "runAt": null,
+     "seat": "creator-outreach",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [
+      "agents/merge-review.yaml"
+     ],
+     "cron": "0 0 31 2 *",
+     "enabled": false,
+     "id": "cj_5174a4",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "paused",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:/ReposFred/devthrottle-factory/factory",
+     "runAt": null,
+     "seat": "merge-review",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_5984a7",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:\\ReposFred\\devthrottle_internal",
+     "runAt": null,
+     "seat": "reminders",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [
+      "agents/defects.yaml"
+     ],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_5b2352",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:/ReposFred/devthrottle-factory/factory",
+     "runAt": null,
+     "seat": "defects",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [
+      "agents/usage-watch.yaml"
+     ],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_624959",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:/ReposFred/devthrottle-factory/factory",
+     "runAt": null,
+     "seat": "usage-watch",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [],
+     "cron": "0 0 31 2 *",
+     "enabled": false,
+     "id": "cj_77ef6f",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "paused",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:\\ReposFred\\devthrottle_internal",
+     "runAt": null,
+     "seat": "youtube-channel",
+     "shifts": [],
+     "skillsNamed": [
+      "youtube-channel-manager"
+     ],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [
+      "agents/ceo.yaml"
+     ],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_99e21a",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:/ReposFred/devthrottle-factory/factory",
+     "runAt": null,
+     "seat": "ceo",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [],
+     "cron": "0 0 31 2 *",
+     "enabled": false,
+     "id": "cj_9df33c",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "paused",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:\\ReposFred\\devthrottle",
+     "runAt": null,
+     "seat": "dictionary-digest",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/New_York"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [
+      "agents/mail-desk.yaml"
+     ],
+     "cron": "0 0 31 2 *",
+     "enabled": false,
+     "id": "cj_9ff295",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "paused",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:/ReposFred/devthrottle-factory/factory",
+     "runAt": null,
+     "seat": "mail-desk",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [
+      "agents/mail-desk.yaml"
+     ],
+     "cron": "0 0 31 2 *",
+     "enabled": false,
+     "id": "cj_a8c00b",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "paused",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:/ReposFred/devthrottle-factory/factory",
+     "runAt": null,
+     "seat": "mail-desk",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_b2cd42",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:\\ReposFred\\devthrottle",
+     "runAt": null,
+     "seat": "code-signing-check",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [
+      "agents/mail-desk.yaml"
+     ],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_bd920f",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:/ReposFred/devthrottle-factory/factory",
+     "runAt": null,
+     "seat": "mail-desk",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [],
+     "cron": "0 0 31 2 *",
+     "enabled": false,
+     "id": "cj_d6c8f7",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "paused",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:\\ReposFred\\devthrottle_internal",
+     "runAt": null,
+     "seat": "blog-writer",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [
+      "agents/health-watch.yaml"
+     ],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_d82eb7",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:/ReposFred/devthrottle-factory/factory",
+     "runAt": null,
+     "seat": "health-watch",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [
+      "agents/sales-desk.yaml"
+     ],
+     "cron": "0 0 31 2 *",
+     "enabled": false,
+     "id": "cj_db8ce1",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "paused",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:/ReposFred/devthrottle-factory/factory",
+     "runAt": null,
+     "seat": "sales-desk",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [],
+     "cron": "0 0 31 2 *",
+     "enabled": false,
+     "id": "cj_dc5736",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "paused",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:\\ReposFred\\devthrottle_internal",
+     "runAt": null,
+     "seat": "motivation-videos",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [],
+     "cron": "0 0 31 2 *",
+     "enabled": false,
+     "id": "cj_f4281c",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "paused",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:\\ReposFred\\devthrottle_internal",
+     "runAt": null,
+     "seat": "turn-log-labelling",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [
+      "agents/onboarding.yaml"
+     ],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_f9a6e2",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:/ReposFred/devthrottle-factory/factory",
+     "runAt": null,
+     "seat": "onboarding",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    }
+   ],
+   "schedulesInRegistryButNotFound": [],
+   "seats": [
+    {
+     "briefFile": "agents/ceo.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "ceo",
+     "line": null,
+     "name": "Boss",
+     "role": "Boss",
+     "schedules": [
+      "cj_99e21a"
+     ]
+    },
+    {
+     "briefFile": "agents/boss.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "boss",
+     "line": null,
+     "name": "Boss",
+     "role": "Boss",
+     "schedules": []
+    },
+    {
+     "briefFile": "agents/onboarding.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "onboarding",
+     "line": null,
+     "name": "Onboarding",
+     "role": "Onboarding",
+     "schedules": [
+      "cj_f9a6e2"
+     ]
+    },
+    {
+     "briefFile": "agents/mail-desk.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "mail-desk",
+     "line": null,
+     "name": "Mail Desk",
+     "role": "Mail Desk",
+     "schedules": [
+      "cj_9ff295",
+      "cj_a8c00b",
+      "cj_bd920f"
+     ]
+    },
+    {
+     "briefFile": "agents/health-watch.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "health-watch",
+     "line": null,
+     "name": "Health Watch",
+     "role": "Health Watch",
+     "schedules": [
+      "cj_d82eb7"
+     ]
+    },
+    {
+     "briefFile": "agents/usage-watch.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "usage-watch",
+     "line": null,
+     "name": "Usage Watch",
+     "role": "Usage Watch",
+     "schedules": [
+      "cj_624959"
+     ]
+    },
+    {
+     "briefFile": "agents/outreach.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "outreach",
+     "line": null,
+     "name": "Outreach",
+     "role": "Outreach",
+     "schedules": [
+      "cj_490b77"
+     ]
+    },
+    {
+     "briefFile": "agents/defects.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "defects",
+     "line": null,
+     "name": "Nightly Defects",
+     "role": "Nightly Defects",
+     "schedules": [
+      "cj_5b2352"
+     ]
+    },
+    {
+     "briefFile": "agents/defect-checker.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "defect-checker",
+     "line": null,
+     "name": "Defect Checker",
+     "role": "Defect Checker",
+     "schedules": []
+    },
+    {
+     "briefFile": "agents/merge-review.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "merge-review",
+     "line": null,
+     "name": "Merge Review",
+     "role": "Merge Review",
+     "schedules": [
+      "cj_5174a4"
+     ]
+    },
+    {
+     "briefFile": "agents/sales-desk.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "sales-desk",
+     "line": null,
+     "name": "Sales Desk",
+     "role": "Sales Desk",
+     "schedules": [
+      "cj_db8ce1"
+     ]
+    },
+    {
+     "briefFile": "agents/reddit-manager.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "reddit-manager",
+     "line": null,
+     "name": "Reddit Manager",
+     "role": "Reddit Manager",
+     "schedules": [
+      "cj_247da6"
+     ]
+    },
+    {
+     "briefFile": "agents/creator-outreach.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "creator-outreach",
+     "line": null,
+     "name": "Creator Outreach",
+     "role": "Creator Outreach",
+     "schedules": [
+      "cj_4f60b5"
+     ]
+    },
+    {
+     "briefFile": "agents/dictionary-digest.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "dictionary-digest",
+     "line": null,
+     "name": "Dictionary Digest",
+     "role": "Dictionary Digest",
+     "schedules": [
+      "cj_9df33c"
+     ]
+    },
+    {
+     "briefFile": "agents/code-signing-check.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "code-signing-check",
+     "line": null,
+     "name": "Code Signing Check",
+     "role": "Code Signing Check",
+     "schedules": [
+      "cj_b2cd42"
+     ]
+    },
+    {
+     "briefFile": "agents/blog-writer.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "blog-writer",
+     "line": null,
+     "name": "Blog Writer",
+     "role": "Blog Writer",
+     "schedules": [
+      "cj_d6c8f7"
+     ]
+    },
+    {
+     "briefFile": "agents/motivation-videos.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "motivation-videos",
+     "line": null,
+     "name": "Motivation Videos",
+     "role": "Motivation Videos",
+     "schedules": [
+      "cj_dc5736"
+     ]
+    },
+    {
+     "briefFile": "agents/youtube-channel.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "youtube-channel",
+     "line": null,
+     "name": "YouTube Channel Manager",
+     "role": "YouTube Channel Manager",
+     "schedules": [
+      "cj_77ef6f"
+     ]
+    },
+    {
+     "briefFile": "agents/turn-log-labelling.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "turn-log-labelling",
+     "line": null,
+     "name": "Turn-Log Labelling",
+     "role": "Turn-Log Labelling",
+     "schedules": [
+      "cj_f4281c"
+     ]
+    },
+    {
+     "briefFile": "agents/reminders.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "reminders",
+     "line": null,
+     "name": "Reminders",
+     "role": "Reminders",
+     "schedules": [
+      "cj_5984a7"
+     ]
+    }
+   ],
+   "title": "DevThrottle",
+   "triggers": []
+  },
+  {
+   "bossSeat": null,
+   "briefStore": {
+    "refused": "Error: this brief belongs to factory 'house', so only a person or a session of 'house' may change or run it"
+   },
+   "computer": "SOREN_NORTH",
+   "disk": {
+    "briefsOnDisk": [
+     {
+      "bytes": 1903,
+      "name": "agents/job-search.yaml",
+      "seat": "job-search"
+     },
+     {
+      "bytes": 1647,
+      "name": "agents/upwork.yaml",
+      "seat": "upwork"
+     },
+     {
+      "bytes": 1557,
+      "name": "agents/training.yaml",
+      "seat": "training"
+     },
+     {
+      "bytes": 1993,
+      "name": "agents/linkedin-inbox.yaml",
+      "seat": "linkedin-inbox"
+     },
+     {
+      "bytes": 1535,
+      "name": "agents/email-assistant.yaml",
+      "seat": "email-assistant"
+     },
+     {
+      "bytes": 1741,
+      "name": "agents/budget.yaml",
+      "seat": "budget"
+     },
+     {
+      "bytes": 1333,
+      "name": "agents/youtube-scanner.yaml",
+      "seat": "youtube-scanner"
+     }
+    ],
+    "clone": "D:/ReposFred/cc-consult",
+    "cloneBranch": "main",
+    "cloneRemote": "https://github.com/thefrederiksen/cc-consult.git",
+    "factoryFiles": "(the folder itself)",
+    "folder": "D:/ReposFred/cc-consult/house",
+    "otherFolders": [],
+    "present": true,
+    "rulesFiles": [],
+    "settingsInClone": null,
+    "settingsInFolder": null,
+    "skillsInFolder": [],
+    "templates": [
+     {
+      "bytes": 4058,
+      "name": "README.md"
+     }
+    ],
+    "tools": []
+   },
+   "goalFile": null,
+   "goalText": false,
+   "id": "house",
+   "purpose": "Looks after the owner himself: job hunting, Upwork, budget, training, his inboxes and the YouTube watch list.",
+   "recordsRoots": [],
+   "schedules": [
+    {
+     "autoDismiss": true,
+     "briefsNamed": [],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_27128e",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:\\ReposFred\\private",
+     "runAt": null,
+     "seat": "job-search",
+     "shifts": [],
+     "skillsNamed": [
+      "job-search"
+     ],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_5196d5",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:\\ReposFred\\cc-consult",
+     "runAt": null,
+     "seat": "upwork",
+     "shifts": [],
+     "skillsNamed": [
+      "files",
+      "jobs"
+     ],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_6eb620",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:\\ReposFred\\private",
+     "runAt": null,
+     "seat": "training",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_74144e",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:\\ReposFred\\devthrottle_internal",
+     "runAt": null,
+     "seat": "linkedin-inbox",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [],
+     "cron": "0 0 31 2 *",
+     "enabled": false,
+     "id": "cj_9d2b12",
+     "inRegistry": false,
+     "kind": "recurring",
+     "lifecycle": "paused",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:/ReposFred/<a folder not registered as a repository>",
+     "runAt": null,
+     "seat": "erik-website",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_9dedee",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:\\ReposFred\\cc-consult",
+     "runAt": null,
+     "seat": "email-assistant",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_af97e6",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:\\ReposFred\\private",
+     "runAt": null,
+     "seat": "budget",
+     "shifts": [],
+     "skillsNamed": [
+      "finance-advisor"
+     ],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_cc3a26",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:\\ReposFred\\cc-consult",
+     "runAt": null,
+     "seat": "youtube-scanner",
+     "shifts": [],
+     "skillsNamed": [
+      "youtube-scanner"
+     ],
+     "timeZone": "America/Toronto"
+    }
+   ],
+   "schedulesInRegistryButNotFound": [],
+   "seats": [
+    {
+     "briefFile": "agents/job-search.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "job-search",
+     "line": null,
+     "name": "Job Search",
+     "role": "Job Search",
+     "schedules": [
+      "cj_27128e"
+     ]
+    },
+    {
+     "briefFile": "agents/upwork.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "upwork",
+     "line": null,
+     "name": "Upwork",
+     "role": "Upwork",
+     "schedules": [
+      "cj_5196d5"
+     ]
+    },
+    {
+     "briefFile": "agents/training.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "training",
+     "line": null,
+     "name": "Training Check-in",
+     "role": "Training Check-in",
+     "schedules": [
+      "cj_6eb620"
+     ]
+    },
+    {
+     "briefFile": "agents/linkedin-inbox.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "linkedin-inbox",
+     "line": null,
+     "name": "LinkedIn Inbox",
+     "role": "LinkedIn Inbox",
+     "schedules": [
+      "cj_74144e"
+     ]
+    },
+    {
+     "briefFile": "agents/email-assistant.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "email-assistant",
+     "line": null,
+     "name": "Email Assistant",
+     "role": "Email Assistant",
+     "schedules": [
+      "cj_9dedee"
+     ]
+    },
+    {
+     "briefFile": "agents/budget.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "budget",
+     "line": null,
+     "name": "Budget",
+     "role": "Budget",
+     "schedules": [
+      "cj_af97e6"
+     ]
+    },
+    {
+     "briefFile": "agents/youtube-scanner.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "youtube-scanner",
+     "line": null,
+     "name": "YouTube Scanner",
+     "role": "YouTube Scanner",
+     "schedules": [
+      "cj_cc3a26"
+     ]
+    }
+   ],
+   "title": "House",
+   "triggers": []
+  },
+  {
+   "bossSeat": "boss",
+   "briefStore": {
+    "refused": "Error: this brief belongs to factory 'm-bpm-studio', so only a person or a session of 'm-bpm-studio' may change or run it"
+   },
+   "computer": "SOREN_NORTH",
+   "disk": {
+    "briefsOnDisk": [
+     {
+      "bytes": 1482,
+      "name": "factory/bpm-studio/agents/ceo.yaml",
+      "seat": "boss"
+     }
+    ],
+    "clone": "D:/ReposMindzie/mindzieWeb",
+    "cloneBranch": "master",
+    "cloneRemote": "https://dev.azure.com/mindzie/mindzieStudio1/_git/mindzieWeb",
+    "factoryFiles": "factory/bpm-studio",
+    "folder": "D:/ReposMindzie/mindzieWeb",
+    "otherFolders": [],
+    "present": true,
+    "rulesFiles": [],
+    "settingsInClone": null,
+    "settingsInFolder": null,
+    "skillsInFolder": [
+     "DOMAIN_LIBRARY.md",
+     "INDEX.md",
+     "_shared",
+     "agent-reviewer",
+     "api-email-llm",
+     "api-manager",
+     "api-test",
+     "architecture-review",
+     "aws",
+     "block-rendering",
+     "bpmn-generate",
+     "bpmn-score",
+     "bug-reviewer",
+     "business-value-review",
+     "cencon-generate",
+     "code-standards",
+     "commit",
+     "container-dev-loop",
+     "copy-release",
+     "cube-qa",
+     "daily-error-triage",
+     "dashboard-builder",
+     "dashboard-parity-score",
+     "data-readiness",
+     "data-readiness-review",
+     "dead-code-finder",
+     "deploy",
+     "dev-machine",
+     "developer-agent",
+     "devops-picker",
+     "devops-work-items",
+     "docs",
+     "download-version",
+     "enrichment-builder",
+     "feature-marker",
+     "find-mapper",
+     "generate-url",
+     "godaddy-dns",
+     "i18n-coverage-nightly",
+     "implementation-loop",
+     "insights-report",
+     "log-analyzer",
+     "merged-fix-review",
+     "mindzie-analyst",
+     "mindzie-analyst-qa",
+     "mindzie-cli",
+     "mindzie-consultant",
+     "mindzie-engine-report",
+     "mindzie-qa",
+     "mindzie-user-lifecycle",
+     "mindziestudio-ai-projects",
+     "nightly-code-review",
+     "notebook-builder",
+     "pipeline-doctor",
+     "pipeline-monitor",
+     "pr-manager",
+     "priority-loop",
+     "process-audit",
+     "prod-errors",
+     "product-agent",
+     "project-tester",
+     "qa-agent",
+     "qa-batch-runner",
+     "qa-brief-builder",
+     "qa-code-review",
+     "qa-manager",
+     "qa-release-report",
+     "qa-testing",
+     "qa-user-walk",
+     "release-container",
+     "release-manager",
+     "review-code",
+     "server-management",
+     "sql-query",
+     "support-agent",
+     "teams",
+     "tenant-rebuild",
+     "translation-manager",
+     "upwork-manager",
+     "warning-fixer"
+    ],
+    "templates": [],
+    "tools": []
+   },
+   "goalFile": null,
+   "goalText": false,
+   "id": "m-bpm-studio",
+   "purpose": "Builds mindzie's BPM Studio.",
+   "recordsRoots": [],
+   "schedules": [],
+   "schedulesInRegistryButNotFound": [],
+   "seats": [
+    {
+     "briefFile": "factory/bpm-studio/agents/ceo.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "boss",
+     "line": null,
+     "name": "Boss",
+     "role": "Boss",
+     "schedules": []
+    }
+   ],
+   "title": "M-BPM Studio",
+   "triggers": []
+  },
+  {
+   "bossSeat": "boss",
+   "briefStore": {
+    "refused": "Error: this brief belongs to factory 'm-cube-pi', so only a person or a session of 'm-cube-pi' may change or run it"
+   },
+   "computer": "SOREN_NORTH",
+   "disk": {
+    "briefsOnDisk": [
+     {
+      "bytes": 1699,
+      "name": "factory/cube-pi/agents/ceo.yaml",
+      "seat": "boss"
+     }
+    ],
+    "clone": "D:/ReposMindzie/mindzieWeb",
+    "cloneBranch": "master",
+    "cloneRemote": "https://dev.azure.com/mindzie/mindzieStudio1/_git/mindzieWeb",
+    "factoryFiles": "factory/cube-pi",
+    "folder": "D:/ReposMindzie/mindzieWeb",
+    "otherFolders": [],
+    "present": true,
+    "rulesFiles": [],
+    "settingsInClone": null,
+    "settingsInFolder": null,
+    "skillsInFolder": [
+     "DOMAIN_LIBRARY.md",
+     "INDEX.md",
+     "_shared",
+     "agent-reviewer",
+     "api-email-llm",
+     "api-manager",
+     "api-test",
+     "architecture-review",
+     "aws",
+     "block-rendering",
+     "bpmn-generate",
+     "bpmn-score",
+     "bug-reviewer",
+     "business-value-review",
+     "cencon-generate",
+     "code-standards",
+     "commit",
+     "container-dev-loop",
+     "copy-release",
+     "cube-qa",
+     "daily-error-triage",
+     "dashboard-builder",
+     "dashboard-parity-score",
+     "data-readiness",
+     "data-readiness-review",
+     "dead-code-finder",
+     "deploy",
+     "dev-machine",
+     "developer-agent",
+     "devops-picker",
+     "devops-work-items",
+     "docs",
+     "download-version",
+     "enrichment-builder",
+     "feature-marker",
+     "find-mapper",
+     "generate-url",
+     "godaddy-dns",
+     "i18n-coverage-nightly",
+     "implementation-loop",
+     "insights-report",
+     "log-analyzer",
+     "merged-fix-review",
+     "mindzie-analyst",
+     "mindzie-analyst-qa",
+     "mindzie-cli",
+     "mindzie-consultant",
+     "mindzie-engine-report",
+     "mindzie-qa",
+     "mindzie-user-lifecycle",
+     "mindziestudio-ai-projects",
+     "nightly-code-review",
+     "notebook-builder",
+     "pipeline-doctor",
+     "pipeline-monitor",
+     "pr-manager",
+     "priority-loop",
+     "process-audit",
+     "prod-errors",
+     "product-agent",
+     "project-tester",
+     "qa-agent",
+     "qa-batch-runner",
+     "qa-brief-builder",
+     "qa-code-review",
+     "qa-manager",
+     "qa-release-report",
+     "qa-testing",
+     "qa-user-walk",
+     "release-container",
+     "release-manager",
+     "review-code",
+     "server-management",
+     "sql-query",
+     "support-agent",
+     "teams",
+     "tenant-rebuild",
+     "translation-manager",
+     "upwork-manager",
+     "warning-fixer"
+    ],
+    "templates": [],
+    "tools": []
+   },
+   "goalFile": null,
+   "goalText": false,
+   "id": "m-cube-pi",
+   "purpose": "Builds the process-intelligence cubes in mindzieStudio.",
+   "recordsRoots": [],
+   "schedules": [],
+   "schedulesInRegistryButNotFound": [],
+   "seats": [
+    {
+     "briefFile": "factory/cube-pi/agents/ceo.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "boss",
+     "line": null,
+     "name": "Boss",
+     "role": "Boss",
+     "schedules": []
+    }
+   ],
+   "title": "M-Cube PI",
+   "triggers": []
+  },
+  {
+   "bossSeat": null,
+   "briefStore": {
+    "refused": "Error: this brief belongs to factory 'machine-care', so only a person or a session of 'machine-care' may change or run it"
+   },
+   "computer": "SOREN_NORTH",
+   "disk": {
+    "briefsOnDisk": [
+     {
+      "bytes": 4938,
+      "name": "tools/factory-cleaner/factory-cleaner.yaml",
+      "seat": "factory-cleaner"
+     },
+     {
+      "bytes": 1622,
+      "name": "tools/factory-cleaner/machine-setup.yaml",
+      "seat": "machine-setup"
+     }
+    ],
+    "clone": "D:/ReposFred/cc-consult",
+    "cloneBranch": "main",
+    "cloneRemote": "https://github.com/thefrederiksen/cc-consult.git",
+    "factoryFiles": "tools/factory-cleaner",
+    "folder": "D:\\ReposFred\\cc-consult",
+    "otherFolders": [
+     "tests"
+    ],
+    "present": true,
+    "rulesFiles": [],
+    "settingsInClone": null,
+    "settingsInFolder": null,
+    "skillsInFolder": [
+     "assistant",
+     "autonomous-earner",
+     "brand-marketing",
+     "business",
+     "clean",
+     "coach",
+     "coach-manager",
+     "commit",
+     "contact-interview",
+     "content-pipeline",
+     "craft",
+     "dev-manager",
+     "domain-check",
+     "domain-move",
+     "email-assistant",
+     "fb-prospect-gatherer",
+     "finance-business",
+     "financial",
+     "godaddy",
+     "health",
+     "jobs",
+     "jobs-auto",
+     "linkedin-outreach",
+     "make-money",
+     "mindset",
+     "money-saver",
+     "niche-evaluator",
+     "prioritize",
+     "reddit",
+     "relationships",
+     "repo-review",
+     "review-proposal",
+     "score-jobs",
+     "shorts",
+     "speechwriter",
+     "submit-proposal",
+     "taki-coach",
+     "taki-review",
+     "todo",
+     "upwork",
+     "upwork-nav",
+     "vault",
+     "vercel-analytics",
+     "video-review",
+     "website-audit",
+     "youtube",
+     "youtube-scanner"
+    ],
+    "templates": [
+     {
+      "bytes": 4938,
+      "name": "factory-cleaner.yaml"
+     },
+     {
+      "bytes": 1622,
+      "name": "machine-setup.yaml"
+     }
+    ],
+    "tools": []
+   },
+   "goalFile": null,
+   "goalText": false,
+   "id": "machine-care",
+   "purpose": "Keeps the computers healthy: disks, memory and updates.",
+   "recordsRoots": [],
+   "schedules": [
+    {
+     "autoDismiss": true,
+     "briefsNamed": [],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_28d5b2",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:\\ReposFred\\cc-consult",
+     "runAt": null,
+     "seat": "factory-cleaner",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_a6a2cf",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "devthrottle-mac-mini",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "/Users/soren/ReposFred/devthrottle_internal",
+     "runAt": null,
+     "seat": "machine-setup",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    }
+   ],
+   "schedulesInRegistryButNotFound": [],
+   "seats": [
+    {
+     "briefFile": "tools/factory-cleaner/factory-cleaner.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "factory-cleaner",
+     "line": null,
+     "name": "Factory Cleaner",
+     "role": "Factory Cleaner",
+     "schedules": [
+      "cj_28d5b2"
+     ]
+    },
+    {
+     "briefFile": "tools/factory-cleaner/machine-setup.yaml",
+     "computer": "devthrottle-mac-mini",
+     "id": "machine-setup",
+     "line": null,
+     "name": "Machine Setup",
+     "role": "Machine Setup",
+     "schedules": [
+      "cj_a6a2cf"
+     ]
+    }
+   ],
+   "title": "Machine Care",
+   "triggers": []
+  },
+  {
+   "bossSeat": "boss",
+   "briefStore": {
+    "refused": "Error: this brief belongs to factory 'mindzie-ai-reports', so only a person or a session of 'mindzie-ai-reports' may change or run it"
+   },
+   "computer": "SOREN_NORTH",
+   "disk": {
+    "briefsOnDisk": [
+     {
+      "bytes": 692,
+      "name": "factory/ai-reports/agents/ceo.yaml",
+      "seat": "ceo"
+     },
+     {
+      "bytes": 692,
+      "name": "factory/ai-reports/agents/ceo.yaml",
+      "seat": "boss"
+     },
+     {
+      "bytes": 2430,
+      "name": "factory/ai-reports/agents/cto.yaml",
+      "seat": "cto"
+     },
+     {
+      "bytes": 1386,
+      "name": "factory/ai-reports/agents/sales-lead.yaml",
+      "seat": "sales-lead"
+     },
+     {
+      "bytes": 597,
+      "name": "factory/ai-reports/agents/market-scout.yaml",
+      "seat": "market-scout"
+     }
+    ],
+    "clone": "D:/wt/ai-reports-factory",
+    "cloneBranch": "HEAD",
+    "cloneRemote": "https://dev.azure.com/mindzie/mindzieStudio1/_git/mindzieWeb",
+    "factoryFiles": "factory/ai-reports",
+    "folder": "D:/wt/ai-reports-factory",
+    "otherFolders": [
+     "briefs",
+     "knowledge",
+     "research",
+     "sales",
+     "sample",
+     "validation"
+    ],
+    "present": true,
+    "rulesFiles": [],
+    "settingsInClone": null,
+    "settingsInFolder": null,
+    "skillsInFolder": [
+     "DOMAIN_LIBRARY.md",
+     "INDEX.md",
+     "_shared",
+     "agent-reviewer",
+     "api-email-llm",
+     "api-manager",
+     "api-test",
+     "architecture-review",
+     "aws",
+     "block-rendering",
+     "bpmn-generate",
+     "bpmn-score",
+     "bug-reviewer",
+     "business-value-review",
+     "cencon-generate",
+     "code-standards",
+     "commit",
+     "container-dev-loop",
+     "copy-release",
+     "cube-qa",
+     "daily-error-triage",
+     "dashboard-builder",
+     "dashboard-parity-score",
+     "data-readiness",
+     "data-readiness-review",
+     "dead-code-finder",
+     "deploy",
+     "dev-machine",
+     "developer-agent",
+     "devops-picker",
+     "devops-work-items",
+     "docs",
+     "download-version",
+     "enrichment-builder",
+     "feature-marker",
+     "find-mapper",
+     "generate-url",
+     "godaddy-dns",
+     "i18n-coverage-nightly",
+     "implementation-loop",
+     "insights-report",
+     "log-analyzer",
+     "merged-fix-review",
+     "mindzie-analyst",
+     "mindzie-analyst-qa",
+     "mindzie-cli",
+     "mindzie-consultant",
+     "mindzie-engine-report",
+     "mindzie-qa",
+     "mindzie-user-lifecycle",
+     "mindziestudio-ai-projects",
+     "nightly-code-review",
+     "notebook-builder",
+     "pipeline-doctor",
+     "pipeline-monitor",
+     "pr-manager",
+     "priority-loop",
+     "process-audit",
+     "prod-errors",
+     "product-agent",
+     "project-tester",
+     "qa-agent",
+     "qa-batch-runner",
+     "qa-brief-builder",
+     "qa-code-review",
+     "qa-manager",
+     "qa-release-report",
+     "qa-testing",
+     "qa-user-walk",
+     "release-container",
+     "release-manager",
+     "review-code",
+     "server-management",
+     "sql-query",
+     "support-agent",
+     "teams",
+     "tenant-rebuild",
+     "translation-manager",
+     "upwork-manager",
+     "warning-fixer"
+    ],
+    "templates": [
+     {
+      "bytes": 7767,
+      "name": "BUILD-SPEC-epic-9730.md"
+     },
+     {
+      "bytes": 5779,
+      "name": "CEO-BRIEF-2-system-cubes.md"
+     },
+     {
+      "bytes": 5498,
+      "name": "CEO-BRIEF.md"
+     },
+     {
+      "bytes": 9227,
+      "name": "EPIC-DRAFT.md"
+     },
+     {
+      "bytes": 10463,
+      "name": "HANDOVER.md"
+     },
+     {
+      "bytes": 3037,
+      "name": "MOVE-TO-TRIGGER.md"
+     },
+     {
+      "bytes": 6875,
+      "name": "NIGHTLY.md"
+     },
+     {
+      "bytes": 11611,
+      "name": "PLAN-v1-hosting-only.md"
+     },
+     {
+      "bytes": 11357,
+      "name": "PLAN.md"
+     },
+     {
+      "bytes": 3858,
+      "name": "README.md"
+     },
+     {
+      "bytes": 2577,
+      "name": "factory.yaml"
+     },
+     {
+      "bytes": 7406,
+      "name": "report-2026-10-04-founder-start.html"
+     },
+     {
+      "bytes": 19368,
+      "name": "report-2026-10-04-hosting-plan.html"
+     },
+     {
+      "bytes": 9877,
+      "name": "report-2026-10-05-epic-9730-explained.html"
+     },
+     {
+      "bytes": 9916,
+      "name": "report-2026-10-05-nightly.html"
+     },
+     {
+      "bytes": 3763,
+      "name": "report-2026-10-06-nightly.html"
+     },
+     {
+      "bytes": 2709,
+      "name": "report-2026-10-10-nightly.html"
+     },
+     {
+      "bytes": 2780,
+      "name": "report-2026-10-11-nightly.html"
+     }
+    ],
+    "tools": [
+     {
+      "bytes": 2427,
+      "name": "tools/due.py"
+     }
+    ]
+   },
+   "goalFile": null,
+   "goalText": false,
+   "id": "mindzie-ai-reports",
+   "purpose": "Builds the AI reports in mindzieStudio.",
+   "recordsRoots": [],
+   "schedules": [
+    {
+     "autoDismiss": true,
+     "briefsNamed": [],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_b605fe",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:/wt/<a folder not registered as a repository>",
+     "runAt": null,
+     "seat": "ceo",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    }
+   ],
+   "schedulesInRegistryButNotFound": [],
+   "seats": [
+    {
+     "briefFile": "factory/ai-reports/agents/ceo.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "ceo",
+     "line": null,
+     "name": "Boss",
+     "role": "Boss",
+     "schedules": [
+      "cj_b605fe"
+     ]
+    },
+    {
+     "briefFile": "factory/ai-reports/agents/ceo.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "boss",
+     "line": null,
+     "name": "Boss",
+     "role": "Boss",
+     "schedules": []
+    },
+    {
+     "briefFile": "factory/ai-reports/agents/cto.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "cto",
+     "line": null,
+     "name": "CTO",
+     "role": "CTO",
+     "schedules": []
+    },
+    {
+     "briefFile": "factory/ai-reports/agents/sales-lead.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "sales-lead",
+     "line": null,
+     "name": "Sales Lead",
+     "role": "Sales Lead",
+     "schedules": []
+    },
+    {
+     "briefFile": "factory/ai-reports/agents/market-scout.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "market-scout",
+     "line": null,
+     "name": "Market Scout",
+     "role": "Market Scout",
+     "schedules": []
+    }
+   ],
+   "title": "M-AI Reports",
+   "triggers": []
+  },
+  {
+   "bossSeat": "boss",
+   "briefStore": {
+    "refused": "Error: this brief belongs to factory 'mindzie-web', so only a person or a session of 'mindzie-web' may change or run it"
+   },
+   "computer": "SOREN_NORTH",
+   "disk": {
+    "briefsOnDisk": [
+     {
+      "bytes": 1747,
+      "name": "factory/agents/ceo.yaml",
+      "seat": "boss"
+     },
+     {
+      "bytes": 11876,
+      "name": "factory/agents/cost-watch.yaml",
+      "seat": "cost-watch"
+     },
+     {
+      "bytes": 8913,
+      "name": "factory/agents/usage-watch.yaml",
+      "seat": "usage-watch"
+     },
+     {
+      "bytes": 10148,
+      "name": "factory/agents/weekly-usage-report.yaml",
+      "seat": "weekly-usage-report"
+     },
+     {
+      "bytes": 8023,
+      "name": "factory/agents/ai-spend-watch.yaml",
+      "seat": "ai-spend-watch"
+     },
+     {
+      "bytes": 6333,
+      "name": "factory/agents/nightly-build-watch.yaml",
+      "seat": "nightly-build-watch"
+     },
+     {
+      "bytes": null,
+      "name": "factory/agents/worktree-cleaner.yaml",
+      "seat": "worktree-cleaner"
+     },
+     {
+      "bytes": null,
+      "name": "factory/agents/error-triage.yaml",
+      "seat": "error-triage"
+     },
+     {
+      "bytes": null,
+      "name": "factory/agents/i18n-coverage.yaml",
+      "seat": "i18n-coverage"
+     },
+     {
+      "bytes": null,
+      "name": "factory/agents/code-review.yaml",
+      "seat": "code-review"
+     },
+     {
+      "bytes": null,
+      "name": "factory/agents/qa-manager.yaml",
+      "seat": "qa-manager"
+     },
+     {
+      "bytes": null,
+      "name": "factory/agents/repo-hygiene.yaml",
+      "seat": "repo-hygiene"
+     }
+    ],
+    "clone": "D:/ReposMindzie/mindzieWeb",
+    "cloneBranch": "master",
+    "cloneRemote": "https://dev.azure.com/mindzie/mindzieStudio1/_git/mindzieWeb",
+    "factoryFiles": "factory",
+    "folder": "D:/ReposMindzie/mindzieWeb",
+    "otherFolders": [
+     "bpm-studio",
+     "cube-pi"
+    ],
+    "present": true,
+    "rulesFiles": [],
+    "settingsInClone": null,
+    "settingsInFolder": null,
+    "skillsInFolder": [
+     "DOMAIN_LIBRARY.md",
+     "INDEX.md",
+     "_shared",
+     "agent-reviewer",
+     "api-email-llm",
+     "api-manager",
+     "api-test",
+     "architecture-review",
+     "aws",
+     "block-rendering",
+     "bpmn-generate",
+     "bpmn-score",
+     "bug-reviewer",
+     "business-value-review",
+     "cencon-generate",
+     "code-standards",
+     "commit",
+     "container-dev-loop",
+     "copy-release",
+     "cube-qa",
+     "daily-error-triage",
+     "dashboard-builder",
+     "dashboard-parity-score",
+     "data-readiness",
+     "data-readiness-review",
+     "dead-code-finder",
+     "deploy",
+     "dev-machine",
+     "developer-agent",
+     "devops-picker",
+     "devops-work-items",
+     "docs",
+     "download-version",
+     "enrichment-builder",
+     "feature-marker",
+     "find-mapper",
+     "generate-url",
+     "godaddy-dns",
+     "i18n-coverage-nightly",
+     "implementation-loop",
+     "insights-report",
+     "log-analyzer",
+     "merged-fix-review",
+     "mindzie-analyst",
+     "mindzie-analyst-qa",
+     "mindzie-cli",
+     "mindzie-consultant",
+     "mindzie-engine-report",
+     "mindzie-qa",
+     "mindzie-user-lifecycle",
+     "mindziestudio-ai-projects",
+     "nightly-code-review",
+     "notebook-builder",
+     "pipeline-doctor",
+     "pipeline-monitor",
+     "pr-manager",
+     "priority-loop",
+     "process-audit",
+     "prod-errors",
+     "product-agent",
+     "project-tester",
+     "qa-agent",
+     "qa-batch-runner",
+     "qa-brief-builder",
+     "qa-code-review",
+     "qa-manager",
+     "qa-release-report",
+     "qa-testing",
+     "qa-user-walk",
+     "release-container",
+     "release-manager",
+     "review-code",
+     "server-management",
+     "sql-query",
+     "support-agent",
+     "teams",
+     "tenant-rebuild",
+     "translation-manager",
+     "upwork-manager",
+     "warning-fixer"
+    ],
+    "templates": [
+     {
+      "bytes": 3643,
+      "name": "MOVE-TO-TRIGGER.md"
+     },
+     {
+      "bytes": 2300,
+      "name": "README.md"
+     },
+     {
+      "bytes": 1758,
+      "name": "factory.yaml"
+     }
+    ],
+    "tools": []
+   },
+   "goalFile": null,
+   "goalText": false,
+   "id": "mindzie-web",
+   "purpose": "Develops mindzieStudio, the process mining platform.",
+   "recordsRoots": [
+    "mindzie-web-factory"
+   ],
+   "schedules": [
+    {
+     "autoDismiss": true,
+     "briefsNamed": [
+      "factory/agents/usage-watch.yaml"
+     ],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_006d84",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:\\ReposMindzie\\mindzieWeb",
+     "runAt": null,
+     "seat": "usage-watch",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [
+      "factory/agents/ai-spend-watch.yaml"
+     ],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_16ea2b",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:\\ReposMindzie\\mindzieWeb",
+     "runAt": null,
+     "seat": "ai-spend-watch",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_3d1e47",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:\\ReposMindzie\\mindzieWeb",
+     "runAt": null,
+     "seat": "error-triage",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/New_York"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [
+      "factory/agents/cost-watch.yaml"
+     ],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_42d61e",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:\\ReposMindzie\\mindzieWeb",
+     "runAt": null,
+     "seat": "cost-watch",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [
+      "factory/agents/nightly-build-watch.yaml"
+     ],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_6f61ab",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:/ReposMindzie/mindzieWeb",
+     "runAt": null,
+     "seat": "nightly-build-watch",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_778917",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:\\ReposMindzie\\mindzieWeb",
+     "runAt": null,
+     "seat": "i18n-coverage",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/New_York"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [
+      "factory/agents/worktree-cleaner.yaml"
+     ],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_9c4d4b",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:/ReposMindzie/mindzieWeb",
+     "runAt": null,
+     "seat": "worktree-cleaner",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_c536b9",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:\\ReposMindzie\\mindzieWeb",
+     "runAt": null,
+     "seat": "code-review",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/New_York"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_c82baf",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:\\ReposMindzie\\mindzieWeb",
+     "runAt": null,
+     "seat": "qa-manager",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/New_York"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_fec3e1",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:\\ReposMindzie\\mindzieWeb",
+     "runAt": null,
+     "seat": "repo-hygiene",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    }
+   ],
+   "schedulesInRegistryButNotFound": [],
+   "seats": [
+    {
+     "briefFile": "factory/agents/ceo.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "boss",
+     "line": null,
+     "name": "Boss",
+     "role": "Boss",
+     "schedules": []
+    },
+    {
+     "briefFile": "factory/agents/cost-watch.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "cost-watch",
+     "line": null,
+     "name": "Cost Watch",
+     "role": "Cost Watch",
+     "schedules": [
+      "cj_42d61e"
+     ]
+    },
+    {
+     "briefFile": "factory/agents/usage-watch.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "usage-watch",
+     "line": null,
+     "name": "Usage Watch",
+     "role": "Usage Watch",
+     "schedules": [
+      "cj_006d84"
+     ]
+    },
+    {
+     "briefFile": "factory/agents/weekly-usage-report.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "weekly-usage-report",
+     "line": null,
+     "name": "Weekly Usage Report",
+     "role": "Weekly Usage Report",
+     "schedules": []
+    },
+    {
+     "briefFile": "factory/agents/ai-spend-watch.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "ai-spend-watch",
+     "line": null,
+     "name": "AI Spend Watch",
+     "role": "AI Spend Watch",
+     "schedules": [
+      "cj_16ea2b"
+     ]
+    },
+    {
+     "briefFile": "factory/agents/nightly-build-watch.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "nightly-build-watch",
+     "line": null,
+     "name": "Build Watch",
+     "role": "Build Watch",
+     "schedules": [
+      "cj_6f61ab"
+     ]
+    },
+    {
+     "briefFile": "factory/agents/worktree-cleaner.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "worktree-cleaner",
+     "line": null,
+     "name": "Worktree Cleaner",
+     "role": "Worktree Cleaner",
+     "schedules": [
+      "cj_9c4d4b"
+     ]
+    },
+    {
+     "briefFile": "factory/agents/error-triage.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "error-triage",
+     "line": null,
+     "name": "Error Triage",
+     "role": "Error Triage",
+     "schedules": [
+      "cj_3d1e47"
+     ]
+    },
+    {
+     "briefFile": "factory/agents/i18n-coverage.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "i18n-coverage",
+     "line": null,
+     "name": "i18n Coverage",
+     "role": "i18n Coverage",
+     "schedules": [
+      "cj_778917"
+     ]
+    },
+    {
+     "briefFile": "factory/agents/code-review.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "code-review",
+     "line": null,
+     "name": "Code Review",
+     "role": "Code Review",
+     "schedules": [
+      "cj_c536b9"
+     ]
+    },
+    {
+     "briefFile": "factory/agents/qa-manager.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "qa-manager",
+     "line": null,
+     "name": "QA Manager",
+     "role": "QA Manager",
+     "schedules": [
+      "cj_c82baf"
+     ]
+    },
+    {
+     "briefFile": "factory/agents/repo-hygiene.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "repo-hygiene",
+     "line": null,
+     "name": "Repo Hygiene",
+     "role": "Repo Hygiene",
+     "schedules": [
+      "cj_fec3e1"
+     ]
+    }
+   ],
+   "title": "M-Studio",
+   "triggers": []
+  },
+  {
+   "bossSeat": null,
+   "briefStore": {
+    "refused": "Error: this brief belongs to factory 'money-saver', so only a person or a session of 'money-saver' may change or run it"
+   },
+   "computer": "SOREN_NORTH",
+   "disk": {
+    "briefsOnDisk": [
+     {
+      "bytes": 8543,
+      "name": "tools/daily-cost-report/daily-cost-report.yaml",
+      "seat": "daily-cost-report"
+     },
+     {
+      "bytes": 5531,
+      "name": "tools/weekly-cost-report/weekly-cost-report.yaml",
+      "seat": "weekly-cost-report"
+     }
+    ],
+    "clone": "D:/ReposFred/cc-consult",
+    "cloneBranch": "main",
+    "cloneRemote": "https://github.com/thefrederiksen/cc-consult.git",
+    "factoryFiles": "tools",
+    "folder": "D:/ReposFred/cc-consult",
+    "otherFolders": [
+     "cc-comm-queue",
+     "cc-linkedin",
+     "communication_manager",
+     "daily-cost-report",
+     "disk-sweep",
+     "factory-cleaner",
+     "hoka-catalog",
+     "linkedin",
+     "shorts-final",
+     "vercel-release",
+     "weekly-cost-report"
+    ],
+    "present": true,
+    "rulesFiles": [],
+    "settingsInClone": null,
+    "settingsInFolder": null,
+    "skillsInFolder": [
+     "assistant",
+     "autonomous-earner",
+     "brand-marketing",
+     "business",
+     "clean",
+     "coach",
+     "coach-manager",
+     "commit",
+     "contact-interview",
+     "content-pipeline",
+     "craft",
+     "dev-manager",
+     "domain-check",
+     "domain-move",
+     "email-assistant",
+     "fb-prospect-gatherer",
+     "finance-business",
+     "financial",
+     "godaddy",
+     "health",
+     "jobs",
+     "jobs-auto",
+     "linkedin-outreach",
+     "make-money",
+     "mindset",
+     "money-saver",
+     "niche-evaluator",
+     "prioritize",
+     "reddit",
+     "relationships",
+     "repo-review",
+     "review-proposal",
+     "score-jobs",
+     "shorts",
+     "speechwriter",
+     "submit-proposal",
+     "taki-coach",
+     "taki-review",
+     "todo",
+     "upwork",
+     "upwork-nav",
+     "vault",
+     "vercel-analytics",
+     "video-review",
+     "website-audit",
+     "youtube",
+     "youtube-scanner"
+    ],
+    "templates": [],
+    "tools": []
+   },
+   "goalFile": null,
+   "goalText": false,
+   "id": "money-saver",
+   "purpose": "Finds subscriptions and costs we can cut.",
+   "recordsRoots": [
+    "cc-director/factories"
+   ],
+   "schedules": [
+    {
+     "autoDismiss": true,
+     "briefsNamed": [],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_1075bd",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:\\ReposFred\\cc-consult",
+     "runAt": null,
+     "seat": "weekly-cost-report",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_81ca8e",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:\\ReposFred\\cc-consult",
+     "runAt": null,
+     "seat": "daily-cost-report",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    }
+   ],
+   "schedulesInRegistryButNotFound": [],
+   "seats": [
+    {
+     "briefFile": "tools/daily-cost-report/daily-cost-report.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "daily-cost-report",
+     "line": null,
+     "name": "Daily Cost Report",
+     "role": "Daily Cost Report",
+     "schedules": [
+      "cj_81ca8e"
+     ]
+    },
+    {
+     "briefFile": "tools/weekly-cost-report/weekly-cost-report.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "weekly-cost-report",
+     "line": null,
+     "name": "Weekly Cost Report",
+     "role": "Weekly Cost Report",
+     "schedules": [
+      "cj_1075bd"
+     ]
+    }
+   ],
+   "title": "Money Saver",
+   "triggers": []
+  },
+  {
+   "bossSeat": "boss",
+   "briefStore": {
+    "refused": "Error: this brief belongs to factory 'tallyhand', so only a person or a session of 'tallyhand' may change or run it"
+   },
+   "computer": "SOREN_NORTH",
+   "disk": {
+    "briefsOnDisk": [
+     {
+      "bytes": 7211,
+      "name": "CEO-BRIEF.md",
+      "seat": "boss"
+     },
+     {
+      "bytes": 1880,
+      "name": "agents/market-scout.yaml",
+      "seat": "market-scout"
+     },
+     {
+      "bytes": 1888,
+      "name": "agents/cto.yaml",
+      "seat": "cto"
+     }
+    ],
+    "clone": "D:/ReposFred/cc-consult",
+    "cloneBranch": "main",
+    "cloneRemote": "https://github.com/thefrederiksen/cc-consult.git",
+    "factoryFiles": "(the folder itself)",
+    "folder": "D:\\ReposFred\\cc-consult\\ideas\\tallyhand",
+    "otherFolders": [
+     "model",
+     "research"
+    ],
+    "present": true,
+    "rulesFiles": [],
+    "settingsInClone": null,
+    "settingsInFolder": null,
+    "skillsInFolder": [],
+    "templates": [
+     {
+      "bytes": 36824,
+      "name": "BUSINESS-PLAN-draft1.md"
+     },
+     {
+      "bytes": 30335,
+      "name": "BUSINESS-PLAN.md"
+     },
+     {
+      "bytes": 7211,
+      "name": "CEO-BRIEF.md"
+     },
+     {
+      "bytes": 3350,
+      "name": "FACTORY.md"
+     },
+     {
+      "bytes": 8639,
+      "name": "FEATURES.md"
+     },
+     {
+      "bytes": 382,
+      "name": "MOVED.md"
+     },
+     {
+      "bytes": 2577,
+      "name": "README.md"
+     },
+     {
+      "bytes": 5948,
+      "name": "RESEARCH.md"
+     }
+    ],
+    "tools": []
+   },
+   "goalFile": null,
+   "goalText": false,
+   "id": "tallyhand",
+   "purpose": null,
+   "recordsRoots": [],
+   "schedules": [],
+   "schedulesInRegistryButNotFound": [],
+   "seats": [
+    {
+     "briefFile": "CEO-BRIEF.md",
+     "computer": "SOREN_NORTH",
+     "id": "boss",
+     "line": null,
+     "name": "Boss",
+     "role": "Boss",
+     "schedules": []
+    },
+    {
+     "briefFile": "agents/market-scout.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "market-scout",
+     "line": null,
+     "name": "Market Scout",
+     "role": "Market Scout",
+     "schedules": []
+    },
+    {
+     "briefFile": "agents/cto.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "cto",
+     "line": null,
+     "name": "CTO",
+     "role": "CTO",
+     "schedules": []
+    }
+   ],
+   "title": "Tallyhand",
+   "triggers": []
+  },
+  {
+   "bossSeat": "boss",
+   "briefStore": {
+    "refused": "Error: this brief belongs to factory 'warmforward', so only a person or a session of 'warmforward' may change or run it"
+   },
+   "computer": "SOREN_NORTH",
+   "disk": {
+    "briefsOnDisk": [
+     {
+      "bytes": 3284,
+      "name": "agents/ceo.yaml",
+      "seat": "ceo"
+     },
+     {
+      "bytes": 3284,
+      "name": "agents/ceo.yaml",
+      "seat": "boss"
+     },
+     {
+      "bytes": 2938,
+      "name": "agents/savings-engineer.yaml",
+      "seat": "savings-engineer"
+     },
+     {
+      "bytes": 1277,
+      "name": "agents/value-hunter.yaml",
+      "seat": "value-hunter"
+     },
+     {
+      "bytes": 2307,
+      "name": "agents/reliability-watch.yaml",
+      "seat": "reliability-watch"
+     },
+     {
+      "bytes": 1981,
+      "name": "agents/electricity.yaml",
+      "seat": "electricity"
+     }
+    ],
+    "clone": "D:/ReposFred/cc-consult",
+    "cloneBranch": "main",
+    "cloneRemote": "https://github.com/thefrederiksen/cc-consult.git",
+    "factoryFiles": "(the folder itself)",
+    "folder": "D:\\ReposFred\\cc-consult\\ideas\\warmforward-factory",
+    "otherFolders": [
+     ".temp"
+    ],
+    "present": true,
+    "rulesFiles": [],
+    "settingsInClone": null,
+    "settingsInFolder": {
+     "allow": 0,
+     "ask": 0,
+     "deny": 43,
+     "file": "D:/ReposFred/cc-consult/ideas/warmforward-factory/.claude/settings.json",
+     "hooks": []
+    },
+    "skillsInFolder": [],
+    "templates": [
+     {
+      "bytes": 11421,
+      "name": "AUTONOMY.md"
+     },
+     {
+      "bytes": 3682,
+      "name": "CEO-BRIEF.md"
+     },
+     {
+      "bytes": 1151,
+      "name": "CLAUDE.md"
+     },
+     {
+      "bytes": 6933,
+      "name": "FACTORY.md"
+     },
+     {
+      "bytes": 1678,
+      "name": "GOAL.md"
+     },
+     {
+      "bytes": 4290,
+      "name": "LESSONS.md"
+     },
+     {
+      "bytes": 13155,
+      "name": "MONEY-PLAN.md"
+     },
+     {
+      "bytes": 3512,
+      "name": "PLAN-WINTER-2026.md"
+     },
+     {
+      "bytes": 6514,
+      "name": "README.md"
+     },
+     {
+      "bytes": 5932,
+      "name": "WARMBOARD-TARGETS.md"
+     },
+     {
+      "bytes": 6479,
+      "name": "factory.yaml"
+     }
+    ],
+    "tools": [
+     {
+      "bytes": 10496,
+      "name": "tools/daily_data.py"
+     },
+     {
+      "bytes": 10063,
+      "name": "tools/feed_check.py"
+     }
+    ]
+   },
+   "goalFile": null,
+   "goalText": false,
+   "id": "warmforward",
+   "purpose": "Turns a Warmboard radiant-heat system into a measurable cut in the heating bill.",
+   "recordsRoots": [
+    "warmforward-factory"
+   ],
+   "schedules": [
+    {
+     "autoDismiss": true,
+     "briefsNamed": [
+      "agents/reliability-watch.yaml"
+     ],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_2e587d",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "devlinux",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "/home/soren/ReposFred/cc-consult/ideas/warmforward-factory",
+     "runAt": null,
+     "seat": "reliability-watch",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [
+      "agents/ceo.yaml"
+     ],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_54663c",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "devlinux",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "/home/soren/ReposFred/cc-consult/ideas/warmforward-factory",
+     "runAt": null,
+     "seat": "ceo",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_b92f73",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:\\ReposFred\\cc-consult",
+     "runAt": null,
+     "seat": "electricity",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [
+      "agents/savings-engineer.yaml"
+     ],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_dd0e31",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "devlinux",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "/home/soren/ReposFred/cc-consult/ideas/warmforward-factory",
+     "runAt": null,
+     "seat": "savings-engineer",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [
+      "agents/value-hunter.yaml"
+     ],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_eb5ae1",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "devlinux",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "/home/soren/ReposFred/cc-consult/ideas/warmforward-factory",
+     "runAt": null,
+     "seat": "value-hunter",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    }
+   ],
+   "schedulesInRegistryButNotFound": [],
+   "seats": [
+    {
+     "briefFile": "agents/ceo.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "ceo",
+     "line": null,
+     "name": "Boss",
+     "role": "Boss",
+     "schedules": [
+      "cj_54663c"
+     ]
+    },
+    {
+     "briefFile": "agents/ceo.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "boss",
+     "line": null,
+     "name": "Boss",
+     "role": "Boss",
+     "schedules": []
+    },
+    {
+     "briefFile": "agents/savings-engineer.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "savings-engineer",
+     "line": null,
+     "name": "Savings Engineer",
+     "role": "Savings Engineer",
+     "schedules": [
+      "cj_dd0e31"
+     ]
+    },
+    {
+     "briefFile": "agents/value-hunter.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "value-hunter",
+     "line": null,
+     "name": "Value Hunter",
+     "role": "Value Hunter",
+     "schedules": [
+      "cj_eb5ae1"
+     ]
+    },
+    {
+     "briefFile": "agents/reliability-watch.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "reliability-watch",
+     "line": null,
+     "name": "Reliability Watch",
+     "role": "Reliability Watch",
+     "schedules": [
+      "cj_2e587d"
+     ]
+    },
+    {
+     "briefFile": "agents/electricity.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "electricity",
+     "line": null,
+     "name": "Electricity",
+     "role": "Electricity",
+     "schedules": [
+      "cj_b92f73"
+     ]
+    }
+   ],
+   "title": "WarmForward",
+   "triggers": []
+  },
+  {
+   "bossSeat": "boss",
+   "briefStore": {
+    "refused": "Error: this brief belongs to factory 'website-business', so only a person or a session of 'website-business' may change or run it"
+   },
+   "computer": "SOREN_NORTH",
+   "disk": {
+    "folder": "/home/soren/wt/website-business/ideas/website-factory/factory",
+    "present": false,
+    "why": "a path on another machine"
+   },
+   "goalFile": "GOAL.md",
+   "goalText": true,
+   "id": "website-business",
+   "purpose": "Builds and sells websites for local trades.",
+   "recordsRoots": [
+    "website-factory"
+   ],
+   "schedules": [
+    {
+     "autoDismiss": true,
+     "briefsNamed": [],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_1d9b66",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:\\ReposFred\\cc-consult",
+     "runAt": null,
+     "seat": "resends",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [
+      "agents/scout.yaml"
+     ],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_332296",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:/ReposFred/cc-consult/ideas/website-factory/factory",
+     "runAt": null,
+     "seat": "scout",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [
+      "agents/site-keeper.yaml"
+     ],
+     "cron": "0 0 31 2 *",
+     "enabled": false,
+     "id": "cj_725f8d",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "paused",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:/ReposFred/cc-consult/ideas/website-factory/factory",
+     "runAt": null,
+     "seat": "site-keeper",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [
+      "agents/mail-warmer.yaml"
+     ],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_84c39b",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:/ReposFred/cc-consult/ideas/website-factory/factory",
+     "runAt": null,
+     "seat": "mail-warmer",
+     "shifts": [],
+     "skillsNamed": [
+      "names"
+     ],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [
+      "agents/business-reviewer.yaml"
+     ],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_e196e3",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:/ReposFred/cc-consult/ideas/website-factory/factory",
+     "runAt": null,
+     "seat": "business-reviewer",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    },
+    {
+     "autoDismiss": true,
+     "briefsNamed": [
+      "agents/mail-watcher.yaml"
+     ],
+     "cron": "0 0 31 2 *",
+     "enabled": true,
+     "id": "cj_e8bfdb",
+     "inRegistry": true,
+     "kind": "recurring",
+     "lifecycle": "active",
+     "machine": "SOREN_NORTH",
+     "neverFires": true,
+     "preventOverlap": true,
+     "repoPath": "D:/ReposFred/cc-consult/ideas/website-factory/factory",
+     "runAt": null,
+     "seat": "mail-watcher",
+     "shifts": [],
+     "skillsNamed": [],
+     "timeZone": "America/Toronto"
+    }
+   ],
+   "schedulesInRegistryButNotFound": [],
+   "seats": [
+    {
+     "briefFile": "agents/ceo.yaml",
+     "computer": "devlinux",
+     "id": "boss",
+     "line": null,
+     "name": "Boss",
+     "role": "Boss",
+     "schedules": []
+    },
+    {
+     "briefFile": "agents/scout.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "scout",
+     "line": null,
+     "name": "Scout",
+     "role": "Scout",
+     "schedules": [
+      "cj_332296"
+     ]
+    },
+    {
+     "briefFile": "agents/sender.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "sender",
+     "line": null,
+     "name": "Sender",
+     "role": "Sender",
+     "schedules": []
+    },
+    {
+     "briefFile": "agents/site-checker.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "site-checker",
+     "line": null,
+     "name": "Site Checker",
+     "role": "Site Checker",
+     "schedules": []
+    },
+    {
+     "briefFile": "agents/front-desk.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "front-desk",
+     "line": null,
+     "name": "Front Desk",
+     "role": "Front Desk",
+     "schedules": []
+    },
+    {
+     "briefFile": "agents/site-keeper.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "site-keeper",
+     "line": null,
+     "name": "Site Keeper",
+     "role": "Site Keeper",
+     "schedules": [
+      "cj_725f8d"
+     ]
+    },
+    {
+     "briefFile": "agents/mail-watcher.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "mail-watcher",
+     "line": null,
+     "name": "Mail Watcher",
+     "role": "Mail Watcher",
+     "schedules": [
+      "cj_e8bfdb"
+     ]
+    },
+    {
+     "briefFile": "agents/mail-warmer.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "mail-warmer",
+     "line": null,
+     "name": "Mail Warmer",
+     "role": "Mail Warmer",
+     "schedules": [
+      "cj_84c39b"
+     ]
+    },
+    {
+     "briefFile": "agents/business-reviewer.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "business-reviewer",
+     "line": null,
+     "name": "Business Reviewer",
+     "role": "Business Reviewer",
+     "schedules": [
+      "cj_e196e3"
+     ]
+    },
+    {
+     "briefFile": "agents/bookkeeper.yaml",
+     "computer": "SOREN_NORTH",
+     "id": "bookkeeper",
+     "line": null,
+     "name": "Bookkeeper",
+     "role": "Bookkeeper",
+     "schedules": []
+    },
+    {
+     "briefFile": "README.md",
+     "computer": "SOREN_NORTH",
+     "id": "resends",
+     "line": null,
+     "name": "Resends",
+     "role": "Resends",
+     "schedules": [
+      "cj_1d9b66"
+     ]
+    }
+   ],
+   "title": "Website Business",
+   "triggers": [
+    {
+     "briefsNamed": [
+      "agents/front-desk.yaml"
+     ],
+     "checkCommand": "py -m cc_website_factory --actor trigger mail-waiting --json",
+     "id": "1db9b845-c1e1-40f4-92ba-d6cf9994f1bf",
+     "intervalSeconds": 300,
+     "machine": "SOREN_NORTH",
+     "name": "website-new-mail",
+     "paused": false,
+     "repoPath": "D:/ReposFred/cc-consult/ideas/website-factory/factory",
+     "seat": "Front Desk",
+     "skillsNamed": [
+      "website-front-desk"
+     ],
+     "status": "OK"
+    },
+    {
+     "briefsNamed": [],
+     "checkCommand": "py -m cc_website_factory --actor trigger chain-waiting --notify owner --json",
+     "id": "668eea60-8f14-47dc-8e94-838c75cb3337",
+     "intervalSeconds": 600,
+     "machine": "SOREN_NORTH",
+     "name": "website-notify-owner-on-failure",
+     "paused": false,
+     "repoPath": "D:/ReposFred/cc-consult/ideas/website-factory/factory",
+     "seat": "chain",
+     "skillsNamed": [],
+     "status": "OK"
+    },
+    {
+     "briefsNamed": [
+      "agents/sender.yaml"
+     ],
+     "checkCommand": "py -m cc_website_factory --actor trigger chain-waiting --start sender --json",
+     "id": "5bfb9d24-6d9b-4ae9-bb81-39bf0b27ef61",
+     "intervalSeconds": 300,
+     "machine": "SOREN_NORTH",
+     "name": "website-sender-after-scout",
+     "paused": false,
+     "repoPath": "D:/ReposFred/cc-consult/ideas/website-factory/factory",
+     "seat": "sender",
+     "skillsNamed": [
+      "website-send"
+     ],
+     "status": "OK"
+    }
+   ]
+  }
+ ],
+ "machine": "SOREN_NORTH",
+ "readUtc": "2026-10-14T18:39:52+00:00",
+ "schedulesWithNoFactory": [
+  {
+   "enabled": true,
+   "id": "cj_0503fc",
+   "machine": "SOREN_NORTH",
+   "name": "TEST Factory Control - reports ok"
+  },
+  {
+   "enabled": false,
+   "id": "cj_07ad64",
+   "machine": "SOREN_NORTH",
+   "name": "Business Research Factory - Reviewer - surety-wip 2026-10-11 10:30"
+  },
+  {
+   "enabled": true,
+   "id": "cj_1c40a2",
+   "machine": "SOREN_NORTH",
+   "name": "TEST Factory Control - fails on purpose"
+  },
+  {
+   "enabled": false,
+   "id": "cj_46a958",
+   "machine": "SOREN_NORTH",
+   "name": "CC Factory - Boss - weekly memo"
+  },
+  {
+   "enabled": true,
+   "id": "cj_6a4fe5",
+   "machine": "SOREN_NORTH",
+   "name": "CC Factory - Cost Sweep - one item"
+  },
+  {
+   "enabled": true,
+   "id": "cj_781315",
+   "machine": "SOREN_NORTH",
+   "name": "Website Business Factory - Customer Care - 08:00 daily"
+  },
+  {
+   "enabled": false,
+   "id": "cj_78b027",
+   "machine": "SOREN_NORTH",
+   "name": "Business Research Factory - Sales Leader - surety-wip 2026-10-11 08:10"
+  },
+  {
+   "enabled": false,
+   "id": "cj_94a572",
+   "machine": "SOREN_NORTH",
+   "name": "Business Research Factory - CTO - surety-wip 2026-10-11 08:00"
+  },
+  {
+   "enabled": true,
+   "id": "cj_a6ab29",
+   "machine": "SOREN_NORTH",
+   "name": "TEST Factory Control - ends without reporting"
+  },
+  {
+   "enabled": true,
+   "id": "cj_c6c3ad",
+   "machine": "SOREN_NORTH",
+   "name": "TEST Factory Control - says nothing about reporting"
+  },
+  {
+   "enabled": true,
+   "id": "cj_e967e6",
+   "machine": "SOREN_NORTH",
+   "name": "M-Studio - Weekly Usage Report - Monday"
+  }
+ ]
+}

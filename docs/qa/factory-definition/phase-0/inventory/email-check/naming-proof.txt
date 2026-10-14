@@ -1,0 +1,65 @@
+=== 1. One secret, --env-name by the rule; the entry's own variable equals the rule
+$ cc-secrets run posthog-personal-api-key --env-name POSTHOG_PERSONAL_API_KEY -- python env_names_probe.py POSTHOG_PERSONAL_API_KEY CC_SECRET
+    POSTHOG_PERSONAL_API_KEY: SET
+    CC_SECRET: not set
+    standard input: empty
+    [cc-secrets] command exited 0
+    (exit 0)
+
+=== 2. One entry with NO variable of its own, --env-name by the rule, no --via
+$ cc-secrets run cloudflare-account-id --env-name CLOUDFLARE_ACCOUNT_ID -- python env_names_probe.py CLOUDFLARE_ACCOUNT_ID CC_SECRET
+    CLOUDFLARE_ACCOUNT_ID: not set
+    CC_SECRET: not set
+    standard input: carries data
+    [cc-secrets] command exited 0
+    (exit 0)
+
+=== 3. The same with --via env
+$ cc-secrets run cloudflare-account-id --via env --env-name CLOUDFLARE_ACCOUNT_ID -- python env_names_probe.py CLOUDFLARE_ACCOUNT_ID CC_SECRET
+    CLOUDFLARE_ACCOUNT_ID: SET
+    CC_SECRET: not set
+    standard input: empty
+    [cc-secrets] command exited 0
+    (exit 0)
+
+=== 4. One secret whose own variable differs from the rule, --env-name by the rule
+$ cc-secrets run laptop-2-rustdesk --env-name LAPTOP_2_RUSTDESK -- python env_names_probe.py LAPTOP_2_RUSTDESK LAPTOP2_RUSTDESK_PASSWORD CC_SECRET
+    LAPTOP_2_RUSTDESK: SET
+    LAPTOP2_RUSTDESK_PASSWORD: not set
+    CC_SECRET: not set
+    standard input: empty
+    [cc-secrets] command exited 0
+    (exit 0)
+
+=== 5. Two entries (--with), both with own variables equal to the rule
+$ cc-secrets run posthog-personal-api-key --with posthog-api-host -- python env_names_probe.py POSTHOG_PERSONAL_API_KEY POSTHOG_API_HOST CC_SECRET
+    POSTHOG_PERSONAL_API_KEY: SET
+    POSTHOG_API_HOST: SET
+    CC_SECRET: not set
+    standard input: empty
+    [cc-secrets] command exited 0
+    (exit 0)
+
+=== 6. Two entries, one whose own variable differs from the rule and one with none
+$ cc-secrets run laptop-2-rustdesk --with cloudflare-account-id -- python env_names_probe.py LAPTOP_2_RUSTDESK LAPTOP2_RUSTDESK_PASSWORD CLOUDFLARE_ACCOUNT_ID CC_SECRET
+    LAPTOP_2_RUSTDESK: not set
+    LAPTOP2_RUSTDESK_PASSWORD: SET
+    CLOUDFLARE_ACCOUNT_ID: SET
+    CC_SECRET: not set
+    standard input: empty
+    [cc-secrets] command exited 0
+    (exit 0)
+
+=== 7. A declared name this machine does not hold, alone
+$ cc-secrets run outreach-mail-client-secret --via env --env-name OUTREACH_MAIL_CLIENT_SECRET -- python env_names_probe.py OUTREACH_MAIL_CLIENT_SECRET
+    refused: No secret named 'outreach-mail-client-secret' is on this machine.
+    (exit 2)
+
+=== 8. A declared name this machine does not hold, beside one it does
+$ cc-secrets run posthog-api-host --with outreach-mail-client-secret -- python env_names_probe.py POSTHOG_API_HOST OUTREACH_MAIL_CLIENT_SECRET
+    refused: No secret named 'outreach-mail-client-secret' is on this machine.
+    (exit 2)
+
+=== 9. An entry allowed for browser login only
+    None exists on this machine: every one of its entries allows 'run' (cc-secrets list --json, 'uses').
+    The refusal cannot be shown without an owner-made entry; entries are owner-only to add.
