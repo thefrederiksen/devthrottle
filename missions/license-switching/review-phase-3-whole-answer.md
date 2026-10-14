@@ -109,24 +109,46 @@ card status pills, the page-level next-switch sentence and the newest log rows, 
 `client-core` so both surfaces share it, as Settings does. The review recommends yes. If the answer is no, the
 mission record should say so, so that phase 5 does not look for it.
 
+## Added by the Delivery Lead - the hold migration generated again
+
+Main was red. Pull request 3963's hold migration (`20261014003138_AddLicenseSwitchHold`, and `20261014003240` in the
+PostgreSQL project) sorted BEFORE the Factory Seats migration `AddBriefVersionToCronRuns` (`003217` and `003248`). That
+Designer was made without the hold column, so the newest Designer of each provider did not carry the current model.
+Production has applied `AddBriefVersionToCronRuns` and has not applied the hold migration. So the hold migration was
+removed from both projects, its column was taken out of both model snapshots, and it was generated again with
+`dotnet ef migrations add` as the newest of each provider: `20261014061558_AddLicenseSwitchHold` (SQLite) and
+`20261014061624_AddLicenseSwitchHold` (PostgreSQL). Its `Up` and `Down` are word for word what they were, and the two
+regenerated snapshots are byte for byte what main had. No migration production has applied was touched.
+`AddLicenseSwitchHoldPostgresTests` now names the new id, and `AddBriefVersionToCronRuns` as the migration before it.
+
+**What production applies on the next deploy:** one migration, `20261014061624_AddLicenseSwitchHold`. It adds the
+nullable column `gateway.license_switch_log."HeldUntilUtc"` (`timestamp with time zone`). Nothing else.
+
+**One thing to know.** A SQLite Gateway built from main between pull request 3963 and this one will have applied the
+old `20261014003138` id and already has the column. The new id will then try to add the column again, and that
+Gateway's migration will fail. No release carries the old id (v2.20.0 was cut before pull request 3963), so this
+reaches only a Gateway someone built from main in that window. That Gateway's fix is to drop the column, or delete
+the old history row, before it starts.
+
 ## What was run
 
-Each run was done one at a time, with its output written to a file.
+Each run was done one at a time, with its output written to a file. These are the counts on the final commit.
 
-- `dotnet test src/CcDirector.Gateway.UnitTests`: 11,859 passed, 2 failed. Both failures were
-  `FleetOutcomeStopIdentityMigrationTests.TheNewestMigrationsDesigner_IsDiscovered_AndCarriesTheCurrentModel`
-  (sqlite and postgres): "The Designer of '20261014003217_AddBriefVersionToCronRuns' does not carry the current
-  model". That migration arrived on main with pull request 3970, and this branch changes no data model or migration.
-  The 828 license tests in that project all passed.
-- The hosted license tests (`CcDirector.Gateway.Tests`, the `Licenses` namespace and `LicenseHostTests`): 20 of 20.
+- `dotnet test src/CcDirector.Gateway.UnitTests`: 11,861 of 11,861. (Before the migration fix the same run was
+  11,859 and 2 failed: the two `TheNewestMigrationsDesigner_IsDiscovered_AndCarriesTheCurrentModel` cases. Both pass
+  now.)
+- `.\scripts	est-database.ps1` (a throwaway PostgreSQL in Docker): GREEN, 74 of 74, none skipped. This includes
+  `AddLicenseSwitchHoldPostgresTests` on the new id.
+- The hosted license tests (`CcDirector.Gateway.Tests`, the `Licenses` namespace and `LicenseHostTests`): 20 of 20,
+  run before the migration fix. That fix changes no code those tests run.
 - Cockpit (`apps/cockpit`, all of it): 1,187 of 1,187. `packages/client-core`, all of it: 2,068 of 2,068.
-- `.\scripts\test-local.ps1` (default, not `-Parked`): GREEN, 4,481 tests in 10 suites, at `df2c63790`.
+- `.\scripts	est-local.ps1` (default, not `-Parked`): GREEN, 4,481 tests in 10 suites, at `971100458`.
 
 **Restore audit.** Every .NET restore on this machine now fails with NU1902 and NU1903. Advisories were published
 against `Microsoft.AspNetCore.SignalR.Common` 10.0.9 (high severity) and
 `Microsoft.AspNetCore.SignalR.Protocols.MessagePack` 10.0.9 (moderate). Main fails the same way, so this branch did
-not cause it. The hosted tests and the default gate above were therefore run with `NuGetAudit=false`, for that
-local run only. Nothing in the repository was changed to turn the audit off.
+not cause it. Every .NET run above was therefore made with `NuGetAudit=false`, for that local run only. Nothing in
+the repository was changed to turn the audit off.
 
 ## Not proved
 
@@ -137,4 +159,6 @@ local run only. Nothing in the repository was changed to turn the audit off.
   regenerated fixtures, but nobody looked at the reviewer's offline-Director scenario on a screen after the fix.
 - Only finding 1 was shown red with its fix reverted. The tests for findings 4 and 5 were not run against reverted
   code; they assert the new words exactly.
+- The migration was not applied to the hosted database. Its proof is the two Designer tests and the database tests
+  on a throwaway PostgreSQL, which migrate from `AddBriefVersionToCronRuns` to the new id and back.
 - No lint and no separate type check were run. The Gateway build runs the web type check, which passed.
