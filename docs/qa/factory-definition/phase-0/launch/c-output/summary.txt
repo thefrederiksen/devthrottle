@@ -1,0 +1,52 @@
+﻿[claude-worktree-kit]
+  INIT factory skill names in the session: [factory-kit:fd-proof-skill]
+  INIT fleet skill fleet-naming in the session: [fleet-naming]
+  FINAL ANSWER: The secret word is **OCELOT-4471**.
+[claude-worktree-no-kit]
+  INIT factory skill names in the session: []
+  INIT fleet skill fleet-naming in the session: [fleet-naming]
+  FINAL ANSWER: NOT AVAILABLE
+
+Error: `<tool_use_error>Unknown skill: fd-proof-skill</tool_use_error>`
+[claude-plain-folder-kit]
+  INIT factory skill names in the session: [factory-kit:fd-proof-skill]
+  INIT fleet skill fleet-naming in the session: [fleet-naming]
+  FINAL ANSWER: The secret word is **OCELOT-4471**.
+[claude-plain-folder-no-kit]
+  INIT factory skill names in the session: []
+  INIT fleet skill fleet-naming in the session: [fleet-naming]
+  FINAL ANSWER: NOT AVAILABLE
+
+The error was: `<tool_use_error>Unknown skill: fd-proof-skill</tool_use_error>`
+[codex-worktree-skills-config]
+  CODEX EXIT CODE: 0
+  NEEDLE 'fd-proof-skill': ABSENT from what the session was given
+  NEEDLE 'fleet-naming': PRESENT
+[codex-worktree-codex-home]
+  CODEX EXIT CODE: 0
+  CODEX STDERR: WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir "C:\\Users\\soren\\AppData\\Local\\Temp\\" (codex_home: AbsolutePathBuf("<scratch>\\kit\\codex-home"))
+  NEEDLE 'fd-proof-skill': PRESENT
+  NEEDLE 'fleet-naming': PRESENT
+[codex-worktree-none]
+  CODEX EXIT CODE: 0
+  NEEDLE 'fd-proof-skill': ABSENT from what the session was given
+  NEEDLE 'fleet-naming': PRESENT
+[codex-plain-folder-skills-config]
+  CODEX EXIT CODE: 0
+  NEEDLE 'fd-proof-skill': ABSENT from what the session was given
+  NEEDLE 'fleet-naming': PRESENT
+[codex-plain-folder-codex-home]
+  CODEX EXIT CODE: 0
+  CODEX STDERR: WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir "C:\\Users\\soren\\AppData\\Local\\Temp\\" (codex_home: AbsolutePathBuf("<scratch>\\kit\\codex-home"))
+  NEEDLE 'fd-proof-skill': PRESENT
+  NEEDLE 'fleet-naming': PRESENT
+[codex-plain-folder-none]
+  CODEX EXIT CODE: 0
+  NEEDLE 'fd-proof-skill': ABSENT from what the session was given
+  NEEDLE 'fleet-naming': PRESENT
+[codex login status, the user's own CODEX_HOME] Logged in using ChatGPT
+[codex login status, CODEX_HOME = a per-session kit folder] WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir "C:\\Users\\soren\\AppData\\Local\\Temp\\" (codex_home: AbsolutePathBuf("<scratch>\\kit\\codex-home"))
+Not logged in
+[git status --porcelain of the worktree after every run] '?? .claude/sounds/.current_session'
+[user's skill folders (~/.claude/skills, ~/.agents/skills, ~/.codex/skills): same entries before and after the runs] True
+[SKILL.md files in those folders carrying the factory skill's secret word] 0

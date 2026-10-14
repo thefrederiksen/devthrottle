@@ -1,0 +1,7 @@
+﻿CODEX EXIT CODE: 0
+REQUESTS: 2 (1 model turns)
+NEEDLE 'fd-proof-skill': ABSENT from what the session was given
+NEEDLE 'fleet-naming': PRESENT ...  the task involves: fleet manager, you are the fleet manager, what's waiting on me, take me through them, what did I miss. (file: r1/fleet-manager/SKILL.md)\n- fleet-naming: Every session belongs to a Mission and is named to one convention: <Mission> - <Role> - <what this seat does>. A session with no Mission is invisible on the fleet map. Use when the task  ...
+EVENT: {"type":"item.completed","item":{"id":"item_0","type":"error","message":"`--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation."}}
+EVENT: {"type":"item.completed","item":{"id":"item_1","type":"error","message":"`--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation."}}
+EVENT: {"type":"item.completed","item":{"id":"item_2","type":"error","message":"Model metadata for `scripted` not found. Defaulting to fallback metadata; this can degrade performance and cause issues."}}

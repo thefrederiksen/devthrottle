@@ -1,0 +1,9 @@
+﻿INIT cwd=<scratch>\worktree
+INIT factory skill names in the session: []
+INIT fleet skill fleet-naming in the session: [fleet-naming]
+INIT plugins: 
+TOOL_USE Skill: {"skill":"fd-proof-skill"}
+TOOL_RESULT is_error=True: <tool_use_error>Unknown skill: fd-proof-skill</tool_use_error>
+FINAL ANSWER: NOT AVAILABLE
+
+Error: `<tool_use_error>Unknown skill: fd-proof-skill</tool_use_error>`

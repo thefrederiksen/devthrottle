@@ -1,0 +1,7 @@
+claude --permission-mode auto --session-id 70537cd7-f5aa-4105-bd1d-f20ecda41640 --settings <scratch>\permission-mode-auto\kit\settings.json -p "This is an automated permission test. Do exactly these steps, using ONLY the Read tool for reads:
+1. Read allowed.txt.
+2. Read kit-denied.txt.
+3. Read repo-denied.txt.
+4. Run this Bash command: git push origin main
+Do not retry any refused step and do not try any other way to get the content.
+Then answer with one line per step giving the content or the exact refusal text, and a fifth line saying whether you can see a line starting PREAMBLE-MARKER in your context, and if so its number." --output-format stream-json --verbose --model sonnet
