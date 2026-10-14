@@ -1,0 +1,281 @@
+# Gateway: http://127.0.0.1:7994, built from this tree; its storage root is <rig>\root, made empty for this run
+
+$ cc-devthrottle factory definition history qa-outreach      (as a person: the rig's enrolled browser device)
+count: 0. qa-outreach has no definition on the Gateway.
+help[1]:
+  cc-devthrottle factory definition save qa-outreach --dir <folder> --expected-version 0
+[exit 0]
+
+$ cc-devthrottle factory definition save qa-outreach --dir <repo>\docs\qa\factory-definition\phase-1\example --expected-version 0 --note "the first definition"      (as a person: the rig's enrolled browser device)
+Saved: version 1 of the definition of qa-outreach is a draft (6 files, 936 bytes).
+No version is published yet.
+notices[1]:
+  factory.yaml:9: No Director on SOREN_NORTH is connected now, so it could not be confirmed.
+help[2]:
+  cc-devthrottle factory definition diff qa-outreach --to 1
+  cc-devthrottle factory definition publish qa-outreach --version 1
+[exit 0]
+
+$ cc-devthrottle factory definition publish qa-outreach --version 1      (as a person: the rig's enrolled browser device)
+Published: version 1 of the definition of qa-outreach. Version 1 is now the published definition.
+what changes: First publish: 9 factory settings set, 2 seats added, 1 start created, rules tightened on base and boss, rules loosened on base, 1 grant added, 1 file added.
+  factory qa-outreach
+  title QA Outreach
+  purpose Shows a factory definition held on the Gateway
+  goal text set: 1 line
+      + Two posts a week, every week.
+  goalApprovedOn 2026-10-14
+  bossSeat boss
+  defaults.machine SOREN_NORTH
+  defaults.agent ClaudeCode
+  defaults.model claude-opus-5-5
+  Seat Boss (boss) added.
+    role Boss
+    machine SOREN_NORTH (the factory's default)
+    agent ClaudeCode (the factory's default)
+    model claude-opus-5-5 (the factory's default)
+    rule set base added
+    brief: 1 line
+      + Run the factory. Read what the writer made and decide what is next.
+  Seat Writer (writer) added.
+    role Writer
+    machine SOREN_NORTH (the factory's default)
+    agent ClaudeCode (the factory's default)
+    model claude-opus-5-5 (the factory's default)
+    grant publish-posts added
+    fleet skill dev-throttle added
+    file files/post-template.md added
+    brief: 1 line
+      + Write one post from the template.
+  Boss: start created, Weekdays 08:00 Europe/Copenhagen.
+    prompt "Morning round."
+  Rule set base (new) tightened: deny Bash(git push:*) added.
+  Rule set base (new) loosened: allow Bash(git status) added.
+  Seat Boss (boss) tightened: now takes rule set base.
+  Grant publish-posts added.
+    allows Publish a post on the blog
+    limits At most two a week
+    seat writer added
+  File files/post-template.md added: 3 lines.
+      + # Title
+      + 
+      + One paragraph that says what the post is about.
+notices[1]:
+  factory.yaml:9: No Director on SOREN_NORTH is connected now, so it could not be confirmed.
+help[2]:
+  cc-devthrottle factory definition get qa-outreach
+  cc-devthrottle factory definition history qa-outreach
+[exit 0]
+
+# variant 'second-version': the example with seats/writer.yaml: 'name: Writer' -> 'name: Author'; seats/writer.yaml: 'Write one post from the template.' -> 'Write one post from the template, and link the last one.'; seats/boss.yaml: '"0 8 * * 1-5"' -> '"0 9 * * 1-5"'
+
+$ cc-devthrottle factory definition save qa-outreach --dir <rig>\variants\second-version --expected-version 1 --note "the second definition"      (as a person: the rig's enrolled browser device)
+Saved: version 2 of the definition of qa-outreach is a draft (6 files, 959 bytes).
+Version 1 stays the published definition until a person publishes this draft.
+notices[1]:
+  factory.yaml:9: No Director on SOREN_NORTH is connected now, so it could not be confirmed.
+help[2]:
+  cc-devthrottle factory definition diff qa-outreach --to 2
+  cc-devthrottle factory definition publish qa-outreach --version 2
+[exit 0]
+
+$ cc-devthrottle factory definition diff qa-outreach      (as a person: the rig's enrolled browser device)
+qa-outreach: from version 1 to version 2.
+what changes: 1 seat changed, 1 start moved.
+  Seat Author (writer) changed.
+    name Writer -> Author
+    brief changed: 1 line added, 1 removed
+      - Write one post from the template.
+      + Write one post from the template, and link the last one.
+  Boss: start moved, Weekdays 08:00 Europe/Copenhagen -> Weekdays 09:00 Europe/Copenhagen.
+help[2]:
+  cc-devthrottle factory definition publish qa-outreach --version 2
+  cc-devthrottle factory definition history qa-outreach
+[exit 0]
+
+$ cc-devthrottle factory definition publish qa-outreach --version 2      (as a person: the rig's enrolled browser device)
+Published: version 2 of the definition of qa-outreach. Version 2 is now the published definition.
+what changes: 1 seat changed, 1 start moved.
+  Seat Author (writer) changed.
+    name Writer -> Author
+    brief changed: 1 line added, 1 removed
+      - Write one post from the template.
+      + Write one post from the template, and link the last one.
+  Boss: start moved, Weekdays 08:00 Europe/Copenhagen -> Weekdays 09:00 Europe/Copenhagen.
+notices[1]:
+  factory.yaml:9: No Director on SOREN_NORTH is connected now, so it could not be confirmed.
+help[2]:
+  cc-devthrottle factory definition get qa-outreach
+  cc-devthrottle factory definition history qa-outreach
+[exit 0]
+
+$ cc-devthrottle factory definition restore qa-outreach --version 1 --expected-version 2      (as a person: the rig's enrolled browser device)
+Restored: version 1 of the definition of qa-outreach. Version 3 is now the published definition.
+what changes: 1 seat changed, 1 start moved.
+  Seat Writer (writer) changed.
+    name Author -> Writer
+    brief changed: 1 line added, 1 removed
+      - Write one post from the template, and link the last one.
+      + Write one post from the template.
+  Boss: start moved, Weekdays 09:00 Europe/Copenhagen -> Weekdays 08:00 Europe/Copenhagen.
+notices[1]:
+  factory.yaml:9: No Director on SOREN_NORTH is connected now, so it could not be confirmed.
+help[2]:
+  cc-devthrottle factory definition get qa-outreach
+  cc-devthrottle factory definition history qa-outreach
+[exit 0]
+
+$ cc-devthrottle factory definition history qa-outreach      (as a person: the rig's enrolled browser device)
+count: 3 of 3. Version 3 is the published definition.
+versions[3]{version,state,written,by,files,bytes,note}:
+  v3,PUBLISHED NOW,2026-10-14T23:54:27.3820593Z,person device browser qa-browser,6,936,"restored from version 1."
+  v2,published,2026-10-14T23:54:25.6214006Z,person device browser qa-browser,6,959,"the second definition"
+  v1,published,2026-10-14T23:54:24.3038678Z,person device browser qa-browser,6,936,"the first definition"
+help[2]:
+  cc-devthrottle factory definition get qa-outreach --version <version>
+  cc-devthrottle factory definition diff qa-outreach --to <version>
+[exit 0]
+
+$ cc-devthrottle factory definition get qa-outreach      (as a person: the rig's enrolled browser device)
+qa-outreach  version 3  published  written by person device browser qa-browser  2026-10-14T23:54:27.3820593Z  6 files  936 bytes
+A copy of version 1, restored.
+files[6]{path,bytes}:
+  factory.yaml,260
+  files/post-template.md,57
+  grants.yaml,120
+  rules/base.json,110
+  seats/boss.yaml,217
+  seats/writer.yaml,172
+help[3]:
+  cc-devthrottle factory definition get qa-outreach --version 3 --file <path>
+  cc-devthrottle factory definition save qa-outreach --dir <folder> --expected-version 3
+  cc-devthrottle factory definition history qa-outreach
+[exit 0]
+
+$ cc-devthrottle factory definition get qa-outreach --file seats/writer.yaml      (as a person: the rig's enrolled browser device)
+seat: writer
+name: Writer
+role: Writer
+brief: |
+  Write one post from the template.
+grants: [publish-posts]
+skills:
+  fleet: [dev-throttle]
+files: [files/post-template.md]
+[exit 0]
+
+$ cc-devthrottle factory definition diff qa-outreach --from 2 --to 3      (as a person: the rig's enrolled browser device)
+qa-outreach: from version 2 to version 3.
+what changes: 1 seat changed, 1 start moved.
+  Seat Writer (writer) changed.
+    name Author -> Writer
+    brief changed: 1 line added, 1 removed
+      - Write one post from the template, and link the last one.
+      + Write one post from the template.
+  Boss: start moved, Weekdays 09:00 Europe/Copenhagen -> Weekdays 08:00 Europe/Copenhagen.
+help[2]:
+  cc-devthrottle factory definition publish qa-outreach --version 3
+  cc-devthrottle factory definition history qa-outreach
+[exit 0]
+
+$ cc-devthrottle factory definition save qa-outreach --dir <rig>\variants\second-version --expected-version 1      (as a person: the rig's enrolled browser device)
+Error: Not saved: the definition of qa-outreach is at version 3, not 1; read it again, merge, and save once more. Version 3 was written by person device browser qa-browser.
+help[2]:
+  cc-devthrottle factory definition get qa-outreach --draft
+  cc-devthrottle factory definition save qa-outreach --dir <folder> --expected-version 3
+[exit 1]
+
+$ cc-devthrottle factory definition save qa-outreach --dir <rig>\variants\second-version --expected-version 3 --note "proposed by a session"      (as session 89c50be0-e0bd-4c4d-8a95-d1197d36b234, of factory qa-outreach)
+Saved: version 4 of the definition of qa-outreach is a draft (6 files, 959 bytes).
+Version 3 stays the published definition until a person publishes this draft.
+notices[1]:
+  factory.yaml:9: No Director on SOREN_NORTH is connected now, so it could not be confirmed.
+help[2]:
+  cc-devthrottle factory definition diff qa-outreach --to 4
+  cc-devthrottle factory definition publish qa-outreach --version 4
+[exit 0]
+
+$ cc-devthrottle factory definition publish qa-outreach --version 4      (as session 89c50be0-e0bd-4c4d-8a95-d1197d36b234, of factory qa-outreach)
+Error: Only a person publishes a factory's definition. A session of the factory may save a draft; the owner reads it and publishes it.
+help[2]:
+  cc-devthrottle factory definition save qa-outreach --dir <folder> --expected-version <newest version>
+  cc-devthrottle factory definition history qa-outreach
+[exit 1]
+
+$ cc-devthrottle factory definition restore qa-outreach --version 2 --expected-version 4      (as session 89c50be0-e0bd-4c4d-8a95-d1197d36b234, of factory qa-outreach)
+Error: Only a person publishes a factory's definition, and restoring an older version publishes a copy of it. A session of the factory may save the content it wants as a new draft; the owner publishes it.
+help[2]:
+  cc-devthrottle factory definition save qa-outreach --dir <folder> --expected-version <newest version>
+  cc-devthrottle factory definition history qa-outreach
+[exit 1]
+
+$ cc-devthrottle factory definition get qa-outreach --draft      (as session de71efa5-417f-45f8-9346-ee8f6e926429, of factory invoice-factory)
+Error: this definition belongs to factory 'qa-outreach', so only a person or a session of 'qa-outreach' may change or run it
+help[1]:
+  cc-devthrottle setup status
+[exit 1]
+
+$ cc-devthrottle factory definition save qa-outreach --dir <repo>\docs\qa\factory-definition\phase-1\example --expected-version 4      (as session de71efa5-417f-45f8-9346-ee8f6e926429, of factory invoice-factory)
+Error: this definition belongs to factory 'qa-outreach', so only a person or a session of 'qa-outreach' may change or run it
+help[1]:
+  cc-devthrottle setup status
+[exit 1]
+
+# variant 'unknown-key': the example with seats/writer.yaml: 'role: Writer\n' -> 'role: Writer\ncolour: red\n'
+
+$ cc-devthrottle factory definition save qa-outreach --dir <rig>\variants\unknown-key --expected-version 4      (as a person: the rig's enrolled browser device)
+Error: The definition was not saved: the check found 1 error in the definition of qa-outreach. Fix each one where it is and try again.
+errors[1]:
+  seats/writer.yaml:4: 'colour' is not a key of a seat file. The keys are: seat, name, role, line, machine, agent, model, repository, brief, starts, grants, rules, secrets, skills, files.
+help[1]:
+  cc-devthrottle factory definition save qa-outreach --dir <folder> --expected-version 4
+[exit 1]
+
+# variant 'dangling-reference': the example with seats/writer.yaml: 'files: [files/post-template.md]' -> 'files: [files/post-template.md, files/missing.md]'
+
+$ cc-devthrottle factory definition save qa-outreach --dir <rig>\variants\dangling-reference --expected-version 4      (as a person: the rig's enrolled browser device)
+Error: The definition was not saved: the check found 1 error in the definition of qa-outreach. Fix each one where it is and try again.
+errors[1]:
+  seats/writer.yaml:9: The seat names the file 'files/missing.md', which is not in this definition.
+notices[1]:
+  factory.yaml:9: No Director on SOREN_NORTH is connected now, so it could not be confirmed.
+help[1]:
+  cc-devthrottle factory definition save qa-outreach --dir <folder> --expected-version 4
+[exit 1]
+
+# variant 'skill-name-clash': the example with skills/dev-throttle/SKILL.md added: '---\nname: dev-throttle\ndescription: Our own notes on the product.\n---\nRead these.\n'
+
+$ cc-devthrottle factory definition save qa-outreach --dir <rig>\variants\skill-name-clash --expected-version 4      (as a person: the rig's enrolled browser device)
+Error: The definition was not saved: the check found 1 error in the definition of qa-outreach. Fix each one where it is and try again.
+errors[1]:
+  seats/writer.yaml:8: 'dev-throttle' is both a factory skill (skills/dev-throttle/SKILL.md) and a fleet skill, so a seat would not know which one it got. Rename the factory skill.
+notices[2]:
+  factory.yaml:9: No Director on SOREN_NORTH is connected now, so it could not be confirmed.
+  skills/dev-throttle/SKILL.md: The factory skill 'dev-throttle' is not named by any seat.
+help[1]:
+  cc-devthrottle factory definition save qa-outreach --dir <folder> --expected-version 4
+[exit 1]
+
+# variant 'factory-skill-on-codex': the example with seats/writer.yaml: 'role: Writer\n' -> 'role: Writer\nagent: Codex\n'; seats/writer.yaml: '  fleet: [dev-throttle]\n' -> '  fleet: [dev-throttle]\n  factory: [house-style]\n'; skills/house-style/SKILL.md added: '---\nname: house-style\ndescription: How this factory writes.\n---\nWrite plainly.\n'
+
+$ cc-devthrottle factory definition save qa-outreach --dir <rig>\variants\factory-skill-on-codex --expected-version 4      (as a person: the rig's enrolled browser device)
+Error: The definition was not saved: the check found 1 error in the definition of qa-outreach. Fix each one where it is and try again.
+errors[1]:
+  seats/writer.yaml:10: Phase 0 has not shown that Codex can load a factory skill, so a seat on Codex cannot name one yet.
+notices[1]:
+  factory.yaml:9: No Director on SOREN_NORTH is connected now, so it could not be confirmed.
+help[1]:
+  cc-devthrottle factory definition save qa-outreach --dir <folder> --expected-version 4
+[exit 1]
+
+$ cc-devthrottle factory definition history qa-outreach --count 2      (as a person: the rig's enrolled browser device)
+count: 2 of 4. Version 3 is the published definition.
+versions[2]{version,state,written,by,files,bytes,note}:
+  v4,draft,2026-10-14T23:54:31.3086401Z,session 89c50be0-e0bd-4c4d-8a95-d1197d36b234,6,959,"proposed by a session"
+  v3,PUBLISHED NOW,2026-10-14T23:54:27.3820593Z,person device browser qa-browser,6,936,"restored from version 1."
+Older versions follow, below version 3.
+help[3]:
+  cc-devthrottle factory definition history qa-outreach --before 3
+  cc-devthrottle factory definition get qa-outreach --version <version>
+  cc-devthrottle factory definition diff qa-outreach --to <version>
+[exit 0]

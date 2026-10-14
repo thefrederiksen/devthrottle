@@ -135,7 +135,8 @@ def cli(who, args, expect_exit):
               "from src.cli import tool_main; tool_main()")
     r = subprocess.run([sys.executable, "-c", launch, str(CLI_DIR), str(CLI_DIR.parent), *args], cwd=str(CLI_DIR),
                        env=env, capture_output=True, text=True, timeout=120)
-    shown = " ".join(a if " " not in a else f'"{a}"' for a in args)
+    # The two folders a command names are written as <repo> and <rig>, so the transcript names no one's machine.
+    shown = " ".join(a if " " not in a else f'"{a}"' for a in args).replace(str(RIG), "<rig>").replace(str(REPO), "<repo>")
     TRANSCRIPT.append(f"$ cc-devthrottle {shown}      (as {label})\n{r.stdout}{r.stderr}[exit {r.returncode}]\n")
     print(f"cli {shown} as {label}: exit {r.returncode}", flush=True)
     if r.returncode != expect_exit:
@@ -192,7 +193,7 @@ def main():
         person = (PERSON_KEY, "a person: the rig's enrolled browser device")
         session = (SESSION_KEY, f"session {SESSION_ID}, of factory {FACTORY}")
         outsider = (OUTSIDER_KEY, f"session {OUTSIDER_ID}, of factory invoice-factory")
-        TRANSCRIPT.append(f"# Gateway: {GW}, built from this tree; storage root {ROOT}\n")
+        TRANSCRIPT.append(f"# Gateway: {GW}, built from this tree; its storage root is <rig>\\root, made empty for this run\n")
 
         d = "factory definition"
         cli(person, [*d.split(), "history", FACTORY], 0)

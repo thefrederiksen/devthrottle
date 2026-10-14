@@ -167,7 +167,7 @@ factory_brief_app = typer.Typer(
 factory_app.add_typer(factory_brief_app, name="brief")
 factory_definition_app = typer.Typer(
     cls=AxiGroup,
-    help="A factory's definition on the Gateway: every file that says what the factory is, every version kept.",
+    help="A factory's whole definition on the Gateway, every version kept.",
     add_completion=False,
     no_args_is_help=True,
 )
@@ -4575,7 +4575,7 @@ def factory_definition_history(
     ),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the page as JSON."),
 ) -> None:
-    """One page of a factory's definition versions, newest first, without their content.
+    """One page of the versions, newest first, without their content.
 
     The page says how many versions there are in all and which --before reads the next, older page. A version's
     files are read with get --version.
@@ -4609,7 +4609,7 @@ def factory_definition_publish(
     version: int = typer.Option(..., "--version", min=1, help="The version to publish."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the published version as JSON."),
 ) -> None:
-    """Publish one version of a factory's definition, and print what changes. Only a person publishes.
+    """Publish one version and print what changes. Only a person publishes.
 
     A session that runs this is refused by the Gateway with the sentence that says so, and exits non-zero.
     """
@@ -4640,7 +4640,7 @@ def factory_definition_diff(
     to_version: Optional[int] = typer.Option(None, "--to", min=1, help="Compare to this version. Default: the newest."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the difference as JSON."),
 ) -> None:
-    """What changes from one version of a factory's definition to another, as the Gateway words it."""
+    """What changes from one version to another, as the Gateway words it."""
     factory_definition_ops.diff(factory, from_version, to_version, json_output)
 
 
