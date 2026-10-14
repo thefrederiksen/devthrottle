@@ -48,4 +48,4 @@ directions are now asserted to the exact sentence.
 ## Checks after the fixes
 
 - `dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Factory"`: 1238 passed, 0 failed.
-- `.\scripts\test-local.ps1`: see the message to the Tech Lead and the pull request.
+- `.\scripts\test-local.ps1`: GREEN, 10 suites, every outcome Completed (4495 tests), on the branch rebased onto origin/main.
