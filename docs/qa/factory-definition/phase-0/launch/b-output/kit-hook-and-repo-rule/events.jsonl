@@ -1,4 +1,4 @@
-﻿{"type":"thread.started","thread_id":"01a13bac-ed07-7bc2-a5cc-ae3236976c6c"}
+{"type":"thread.started","thread_id":"01a13bac-ed07-7bc2-a5cc-ae3236976c6c"}
 {"type":"item.completed","item":{"id":"item_0","type":"error","message":"`--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation."}}
 {"type":"item.completed","item":{"id":"item_1","type":"error","message":"`--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation."}}
 {"type":"item.completed","item":{"id":"item_2","type":"error","message":"Model metadata for `scripted` not found. Defaulting to fallback metadata; this can degrade performance and cause issues."}}

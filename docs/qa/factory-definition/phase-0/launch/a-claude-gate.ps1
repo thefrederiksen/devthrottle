@@ -96,7 +96,7 @@ Then answer with one line per step giving the content or the exact refusal text,
         try {
             $line = 'claude ' + (($claudeArgs | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } }) -join ' ')
             Set-Content -LiteralPath (Join-Path $outDir 'launch-line.txt') -Value ($line.Replace($scratch, '<scratch>')) -Encoding ascii
-            & claude @claudeArgs | Set-Content -LiteralPath $stream -Encoding utf8
+            & claude @claudeArgs | Set-Content -LiteralPath $stream -Encoding ascii
             Write-Host "claude exit code: $LASTEXITCODE"
         }
         finally {
@@ -111,7 +111,7 @@ Then answer with one line per step giving the content or the exact refusal text,
         # Evidence the session hook ran: the pointer file it writes, carrying OUR session id.
         $verdict = New-Object System.Collections.Generic.List[string]
         if (Test-Path -LiteralPath $pointer) {
-            (Get-Content -Raw -LiteralPath $pointer).Replace($scratch.Replace('\', '\\'), '<scratch>') | Set-Content -LiteralPath (Join-Path $outDir 'pointer.json') -Encoding utf8
+            (Get-Content -Raw -LiteralPath $pointer).Replace($scratch.Replace('\', '\\'), '<scratch>') | Set-Content -LiteralPath (Join-Path $outDir 'pointer.json') -Encoding ascii
             $p = Get-Content -Raw -LiteralPath $pointer | ConvertFrom-Json
             $verdict.Add("HOOK: pointer file written by report-session.ps1, session_id=$($p.session_id), source=$($p.source), matches launch id: $($p.session_id -eq $sessionId)")
         } else {
@@ -153,9 +153,9 @@ Then answer with one line per step giving the content or the exact refusal text,
             }
             ($o | ConvertTo-Json -Compress -Depth 30).Replace($scratch.Replace('\', '\\'), '<scratch>').Replace($scratch, '<scratch>')
         }
-        $trimmed | Set-Content -LiteralPath (Join-Path $outDir 'stream.jsonl') -Encoding utf8
+        $trimmed | Set-Content -LiteralPath (Join-Path $outDir 'stream.jsonl') -Encoding ascii
         $verdict = $verdict | ForEach-Object { $_.Replace($scratch.Replace('\', '\\'), '<scratch>').Replace($scratch, '<scratch>') }
-        $verdict | Set-Content -LiteralPath (Join-Path $outDir 'verdict.txt') -Encoding utf8
+        $verdict | Set-Content -LiteralPath (Join-Path $outDir 'verdict.txt') -Encoding ascii
         $verdict | ForEach-Object { Write-Host $_ }
     }
 }

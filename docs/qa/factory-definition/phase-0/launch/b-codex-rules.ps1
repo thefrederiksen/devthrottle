@@ -171,11 +171,11 @@ exit 0
             if ($t -eq 'error' -or $t -eq 'turn.failed') { $verdict.Add("EVENT $t : $($l)") }
             Sanitize $l
         }
-        $trimmed | Set-Content -LiteralPath (Join-Path $outDir 'events.jsonl') -Encoding utf8
+        $trimmed | Set-Content -LiteralPath (Join-Path $outDir 'events.jsonl') -Encoding ascii
         $err = Get-Content -Raw -LiteralPath (Join-Path $root 'stderr.txt') -ErrorAction SilentlyContinue
-        if ($err) { Set-Content -LiteralPath (Join-Path $outDir 'stderr.txt') -Value (Sanitize $err) -Encoding utf8 }
+        if ($err) { Set-Content -LiteralPath (Join-Path $outDir 'stderr.txt') -Value (Sanitize $err) -Encoding ascii }
         $verdict = $verdict | ForEach-Object { Sanitize $_ }
-        $verdict | Set-Content -LiteralPath (Join-Path $outDir 'verdict.txt') -Encoding utf8
+        $verdict | Set-Content -LiteralPath (Join-Path $outDir 'verdict.txt') -Encoding ascii
         $verdict | ForEach-Object { Write-Host $_ }
     }
 }

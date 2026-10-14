@@ -121,7 +121,7 @@ The factory proof secret word is OCELOT-4471.
             $saved = Clear-SessionEnvironment
             $env:CC_SESSION_POINTER_FILE = Join-Path $sessionDir 'pointer.json'
             Push-Location $f.Path
-            try { & claude @claudeArgs | Set-Content -LiteralPath $raw -Encoding utf8 }
+            try { & claude @claudeArgs | Set-Content -LiteralPath $raw -Encoding ascii }
             finally { Pop-Location; Restore-SessionEnvironment $saved }
 
             $v = New-Object System.Collections.Generic.List[string]
@@ -147,9 +147,9 @@ The factory proof secret word is OCELOT-4471.
                 if ($o.type -eq 'result') { $v.Add("FINAL ANSWER: $($o.result)") }
                 Sanitize ($o | ConvertTo-Json -Compress -Depth 30)
             }
-            $trimmed | Set-Content -LiteralPath (Join-Path $outDir 'stream.jsonl') -Encoding utf8
+            $trimmed | Set-Content -LiteralPath (Join-Path $outDir 'stream.jsonl') -Encoding ascii
             $v = $v | ForEach-Object { Sanitize $_ }
-            $v | Set-Content -LiteralPath (Join-Path $outDir 'verdict.txt') -Encoding utf8
+            $v | Set-Content -LiteralPath (Join-Path $outDir 'verdict.txt') -Encoding ascii
             $v | ForEach-Object { Write-Host $_ }
             $summary.Add("[$n]"); $v | Where-Object { $_ -like 'INIT factory*' -or $_ -like 'INIT fleet*' -or $_ -like 'FINAL*' } | ForEach-Object { $summary.Add("  $_") }
         }
@@ -217,7 +217,7 @@ The factory proof secret word is OCELOT-4471.
                 if ($l -match '"type":"error"' -or $l -match 'turn.failed') { $v.Add("EVENT: $l") }
             }
             $v = $v | ForEach-Object { Sanitize $_ }
-            $v | Set-Content -LiteralPath (Join-Path $outDir 'verdict.txt') -Encoding utf8
+            $v | Set-Content -LiteralPath (Join-Path $outDir 'verdict.txt') -Encoding ascii
             $v | ForEach-Object { Write-Host $_ }
             $summary.Add("[$n]"); $v | Where-Object { $_ -like 'NEEDLE*' -or $_ -like 'CODEX EXIT*' -or $_ -like 'CODEX STDERR*' -or $_ -like 'REQUESTS: none*' } | ForEach-Object { $summary.Add("  " + ($_ -replace ' \.\.\. .*$', '')) }
         }
@@ -240,7 +240,7 @@ The factory proof secret word is OCELOT-4471.
     $after = Get-SkillsFolderState
     $summary.Add("[user's skill folders (~/.claude/skills, ~/.agents/skills, ~/.codex/skills): same entries before and after the runs] $($before -eq $after)")
     $summary.Add("[SKILL.md files in those folders carrying the factory skill's secret word] $(Test-FactorySkillInUserFolders)")
-    $summary | ForEach-Object { Sanitize $_ } | Set-Content -LiteralPath (Join-Path $outRoot 'summary.txt') -Encoding utf8
+    $summary | ForEach-Object { Sanitize $_ } | Set-Content -LiteralPath (Join-Path $outRoot 'summary.txt') -Encoding ascii
     Write-Host '=== SUMMARY ==='
     $summary | ForEach-Object { Write-Host (Sanitize $_) }
 }

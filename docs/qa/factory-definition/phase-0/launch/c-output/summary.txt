@@ -1,4 +1,4 @@
-﻿[claude-worktree-kit]
+[claude-worktree-kit]
   INIT factory skill names in the session: [factory-kit:fd-proof-skill]
   INIT fleet skill fleet-naming in the session: [fleet-naming]
   FINAL ANSWER: The secret word is **OCELOT-4471**.

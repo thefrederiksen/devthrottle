@@ -1,4 +1,4 @@
-﻿HOOK: pointer file written by report-session.ps1, session_id=f2ec9502-209f-4743-a38c-87c2418f7d40, source=startup, matches launch id: True
+HOOK: pointer file written by report-session.ps1, session_id=f2ec9502-209f-4743-a38c-87c2418f7d40, source=startup, matches launch id: True
 TOOL_USE Read: {"file_path":"<scratch>\\skip-permissions\\repo\\allowed.txt"}
 TOOL_RESULT is_error=: 1	ALLOWED-CONTENT-4410
 2	

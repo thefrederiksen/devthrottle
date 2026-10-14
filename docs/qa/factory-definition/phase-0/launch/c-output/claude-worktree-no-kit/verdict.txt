@@ -1,4 +1,4 @@
-﻿INIT cwd=<scratch>\worktree
+INIT cwd=<scratch>\worktree
 INIT factory skill names in the session: []
 INIT fleet skill fleet-naming in the session: [fleet-naming]
 INIT plugins: 

@@ -1,4 +1,4 @@
-﻿INIT cwd=<scratch>\plain-folder
+INIT cwd=<scratch>\plain-folder
 INIT factory skill names in the session: []
 INIT fleet skill fleet-naming in the session: [fleet-naming]
 INIT plugins: 
