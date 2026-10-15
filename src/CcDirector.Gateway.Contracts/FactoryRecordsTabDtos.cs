@@ -103,6 +103,31 @@ public sealed class FactoryRecordsTabViewDto
     public FactoryRecordsSectionDto Attachments { get; set; } = new();
     public List<string> AttachmentColumns { get; set; } = new();
     public List<FactoryRecordsAttachmentRowDto> AttachmentRows { get; set; } = new();
+
+    /// <summary>The cursor of the next page of attachments, read from <c>/records/attachments?before=</c>; null when
+    /// every attachment is listed.</summary>
+    public Guid? AttachmentsNextBefore { get; set; }
+
+    /// <summary>"Older files"; null when <see cref="AttachmentsNextBefore"/> is.</summary>
+    public string? AttachmentsOlderLabel { get; set; }
+}
+
+/// <summary><c>GET /gateway/factories/{factory}/records/attachments?before=</c>: one later page of the attachments, drawn in
+/// the tab's attachment table (its columns are the tab's).</summary>
+public sealed class FactoryRecordsAttachmentPageViewDto
+{
+    /// <summary>"143 files, 2.1 MB in all. Files 101 to 143 are listed, newest first."</summary>
+    public string SummaryText { get; set; } = "";
+
+    public List<FactoryRecordsAttachmentRowDto> Rows { get; set; } = new();
+
+    public Guid? NextBefore { get; set; }
+
+    /// <summary>"Older files"; null when this is the last page.</summary>
+    public string? OlderLabel { get; set; }
+
+    /// <summary>"Newest files", back to the tab's first page.</summary>
+    public string NewestLabel { get; set; } = "";
 }
 
 /// <summary>One journal entry with its text.</summary>
@@ -128,13 +153,23 @@ public sealed class FactoryRecordsJournalViewDto
     /// <summary>"The journal of Writer (writer)".</summary>
     public string Heading { get; set; } = "";
 
-    /// <summary>"12 entries. The newest 10 are shown." / "3 entries."</summary>
+    /// <summary>"57 entries. Entries 21 to 40 are shown, newest first." / "3 entries."</summary>
     public string SummaryText { get; set; } = "";
 
     public List<FactoryRecordsJournalEntryDto> Entries { get; set; } = new();
 
     /// <summary>Set when there is no entry, else null.</summary>
     public string? EmptyText { get; set; }
+
+    /// <summary>The cursor of the next, older page (the oldest entry shown), sent back as <c>before=</c>; null on the
+    /// last page.</summary>
+    public Guid? NextBefore { get; set; }
+
+    /// <summary>"Older entries"; null when <see cref="NextBefore"/> is.</summary>
+    public string? OlderLabel { get; set; }
+
+    /// <summary>"Newest entries" on any page but the first, else null.</summary>
+    public string? NewestLabel { get; set; }
 
     /// <summary>"Back to the records".</summary>
     public string CloseLabel { get; set; } = "";

@@ -14,7 +14,8 @@ namespace CcDirector.Gateway.Api;
 ///
 ///   GET /gateway/factories/{factory}/records                              -> FactoryRecordsTabViewDto
 ///   GET /gateway/factories/{factory}/records/journal                      -> FactoryRecordsJournalViewDto
-///                                                                            (?seat=, none for the factory's own)
+///                                                                            (?seat=, none for the factory's own; ?before=)
+///   GET /gateway/factories/{factory}/records/attachments                  -> FactoryRecordsAttachmentPageViewDto (?before=)
 ///   GET /gateway/factories/{factory}/records/documents/read               -> FactoryRecordsDocumentViewDto (?name= ?version=)
 ///   GET /gateway/factories/{factory}/records/documents/history            -> FactoryRecordsDocumentHistoryViewDto (?name= ?before=)
 ///   GET /gateway/factories/{factory}/records/attachments/{id}             -> the file itself, to save
@@ -44,7 +45,7 @@ internal static class FactoryRecordsTabEndpoints
                 if (sources.Registry.Find(tenant, factory) is not { } registered) return NotRegistered(factory);
                 var dto = FactoryRecordsTabFold.Tab(registered, journal.Journals(tenant, registered.Factory),
                     documents.List(tenant, registered.Factory),
-                    attachments.List(tenant, registered.Factory, seat: null, limit: FactoryRecordsTabFold.AttachmentPage),
+                    attachments.Page(tenant, registered.Factory, before: null, FactoryRecordsTabFold.AttachmentPage)!,
                     sources.Activity.TimeZone(tenant), nowUtc());
                 FileLog.Write($"[FactoryRecordsTabEndpoints] GET tab: {registered.Factory} journals={dto.JournalGroups.Count}, documents={dto.DocumentRows.Count}, attachments={dto.AttachmentRows.Count}");
                 return Results.Json(dto);
@@ -60,22 +61,24 @@ internal static class FactoryRecordsTabEndpoints
                     if (!FactoryRecordNames.TryOptionalSeat(seatSent.ToString(), out seat, out var refusal))
                         return Results.BadRequest(new { error = refusal });
                 }
-                var page = journal.List(tenant, registered.Factory, seat, factoryOnly: seat is null, limit: FactoryRecordsTabFold.JournalPage);
-                var entries = page.Entries.Select(e => journal.Get(tenant, registered.Factory, e.Id))
-                    .Where(e => e is not null).Select(e => e!).ToList();
+                if (!TryCursor(ctx, out var before, out var badCursor)) return badCursor!;
+                if (journal.Page(tenant, registered.Factory, seat, before, FactoryRecordsTabFold.JournalPage) is not { } page)
+                    return Results.Json(new { error = $"{before} is not an entry of this journal, so no page starts after it" },
+                        statusCode: StatusCodes.Status404NotFound);
+                var entries = page.Entries;
                 // Every file the page's entries name, read at once (review of #4032, finding 5). An entry can name only
                 // a file its factory holds (the journal checks at write) and a file is never removed, so a missing one
                 // is a broken store, said as such - never quietly left out.
                 var named = entries.ToDictionary(e => e.Id, e => AttachmentIdsOf(e));
                 var files = attachments.Find(tenant, registered.Factory, named.Values.SelectMany(ids => ids).Distinct().ToList());
-                var dto = FactoryRecordsTabFold.Journal(registered, seat, entries, page.Total,
+                var dto = FactoryRecordsTabFold.Journal(registered, seat, page,
                     entry => named[entry.Id]
                         .Select(id => files.TryGetValue(id, out var file)
                             ? file
                             : throw new InvalidOperationException($"journal entry {entry.Id} of {registered.Factory} names attachment {id}, which the store does not hold"))
                         .ToList(),
                     sources.Activity.TimeZone(tenant), nowUtc());
-                FileLog.Write($"[FactoryRecordsTabEndpoints] GET journal: {registered.Factory}/{seat ?? "(factory)"} entries={dto.Entries.Count} of {page.Total}");
+                FileLog.Write($"[FactoryRecordsTabEndpoints] GET journal: {registered.Factory}/{seat ?? "(factory)"} before={before?.ToString() ?? "(newest)"} entries={dto.Entries.Count} of {page.Total}");
                 return Results.Json(dto);
             }));
 
@@ -124,6 +127,19 @@ internal static class FactoryRecordsTabEndpoints
                 return Results.Json(dto);
             }));
 
+        app.MapGet(route + "/attachments", (HttpContext ctx, string factory) =>
+            FactoryAgentsViewEndpoints.Owner(ctx, resolveTenant, $"GET factory records attachments page {factory}", tenant =>
+            {
+                if (sources.Registry.Find(tenant, factory) is not { } registered) return NotRegistered(factory);
+                if (!TryCursor(ctx, out var before, out var badCursor)) return badCursor!;
+                if (attachments.Page(tenant, registered.Factory, before, FactoryRecordsTabFold.AttachmentPage) is not { } page)
+                    return Results.Json(new { error = $"{before} is not an attachment of {registered.Factory}, so no page starts after it" },
+                        statusCode: StatusCodes.Status404NotFound);
+                var dto = FactoryRecordsTabFold.AttachmentPageView(registered, page, sources.Activity.TimeZone(tenant), nowUtc());
+                FileLog.Write($"[FactoryRecordsTabEndpoints] GET attachments page: {registered.Factory} before={before?.ToString() ?? "(newest)"} rows={dto.Rows.Count} of {page.Total}");
+                return Results.Json(dto);
+            }));
+
         app.MapGet(route + "/attachments/{id:guid}", (HttpContext ctx, string factory, Guid id) =>
             FactoryAgentsViewEndpoints.Owner(ctx, resolveTenant, $"GET factory records attachment {factory}/{id}", tenant =>
             {
@@ -141,6 +157,22 @@ internal static class FactoryRecordsTabEndpoints
             }));
 
         FileLog.Write($"[FactoryRecordsTabEndpoints] mapped {route} and its journal, documents and attachments");
+    }
+
+    /// <summary>The page cursor a request names (<c>?before=</c>, the id of the last row the page before showed), or
+    /// none; a cursor that is not an id is refused in words.</summary>
+    private static bool TryCursor(HttpContext ctx, out Guid? before, out IResult? refusal)
+    {
+        before = null;
+        refusal = null;
+        if (!ctx.Request.Query.TryGetValue("before", out var sent)) return true;
+        if (!Guid.TryParse(sent.ToString(), out var id))
+        {
+            refusal = Results.BadRequest(new { error = $"before is the id of the last row the page before showed, not '{sent}'" });
+            return false;
+        }
+        before = id;
+        return true;
     }
 
     /// <summary>An attachment's name as a file name: its folders kept, with hyphens for slashes, so

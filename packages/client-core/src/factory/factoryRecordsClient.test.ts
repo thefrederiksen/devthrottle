@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   attachmentNameOf,
+  getFactoryRecordsAttachments,
   getFactoryRecordsDocument,
   getFactoryRecordsDocumentHistory,
   getFactoryRecordsJournal,
@@ -35,12 +36,26 @@ describe("the factory records client", () => {
     expect(url()).toBe("/gateway/factories/qa%20outreach/records");
 
     url = capture(() => jsonResponse({ entries: [] }));
-    await getFactoryRecordsJournal("qa-outreach", "writer");
+    await getFactoryRecordsJournal("qa-outreach", "writer", null);
     expect(url()).toBe("/gateway/factories/qa-outreach/records/journal?seat=writer");
 
     url = capture(() => jsonResponse({ entries: [] }));
-    await getFactoryRecordsJournal("qa-outreach", null);
+    await getFactoryRecordsJournal("qa-outreach", null, null);
     expect(url()).toBe("/gateway/factories/qa-outreach/records/journal");
+  });
+
+  it("asks for the page after the cursor the Gateway gave, for a journal and for the attachments", async () => {
+    let url = capture(() => jsonResponse({ entries: [] }));
+    await getFactoryRecordsJournal("qa-outreach", "writer", "e1");
+    expect(url()).toBe("/gateway/factories/qa-outreach/records/journal?seat=writer&before=e1");
+
+    url = capture(() => jsonResponse({ entries: [] }));
+    await getFactoryRecordsJournal("qa-outreach", null, "e1");
+    expect(url()).toBe("/gateway/factories/qa-outreach/records/journal?before=e1");
+
+    url = capture(() => jsonResponse({ rows: [] }));
+    await getFactoryRecordsAttachments("qa-outreach", "a1");
+    expect(url()).toBe("/gateway/factories/qa-outreach/records/attachments?before=a1");
   });
 
   it("sends a document's name escaped in the query, with a version or a page when one is asked for", async () => {

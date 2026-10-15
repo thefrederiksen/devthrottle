@@ -17,10 +17,10 @@ namespace CcDirector.Gateway.Factory.Records;
 /// </summary>
 public static class FactoryRecordsTabFold
 {
-    /// <summary>How many entries of one journal the owner's screen shows, newest day first.</summary>
+    /// <summary>How many entries one page of a journal shows, newest day first.</summary>
     public const int JournalPage = 20;
 
-    /// <summary>How many attachments the tab lists, newest first.</summary>
+    /// <summary>How many attachments one page of the tab lists, newest first.</summary>
     public const int AttachmentPage = 100;
 
     /// <summary>How many versions one page of a document's history holds.</summary>
@@ -33,7 +33,7 @@ public static class FactoryRecordsTabFold
 
     /// <summary>The Records tab.</summary>
     public static FactoryRecordsTabViewDto Tab(RegisteredFactoryDto factory, IReadOnlyList<FactoryJournalGroup> journals,
-        IReadOnlyList<FactoryDocumentSummary> documents, FactoryAttachmentList attachments, TimeZoneInfo zone, DateTime nowUtc)
+        IReadOnlyList<FactoryDocumentSummary> documents, FactoryAttachmentPage attachments, TimeZoneInfo zone, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(journals);
@@ -55,7 +55,6 @@ public static class FactoryRecordsTabFold
             }).ToList();
         var entries = journals.Sum(g => g.Entries);
 
-        var shown = attachments.Attachments.Count;
         return new FactoryRecordsTabViewDto
         {
             Factory = factory.Factory,
@@ -93,16 +92,45 @@ public static class FactoryRecordsTabFold
             Attachments = new FactoryRecordsSectionDto
             {
                 Heading = "Attachments",
-                SummaryText = attachments.Total == 0
-                    ? ""
-                    : $"{FactoriesScreenFold.Count(attachments.Total, "file")}, {Size(attachments.FactoryBytes)} in all." +
-                      (shown < attachments.Total ? $" The newest {shown} are listed." : ""),
+                SummaryText = AttachmentsSummary(attachments),
                 EmptyText = attachments.Total == 0 ? $"No attachment yet. A seat of {factory.Title} keeps one with cc-devthrottle factory attach add." : null,
             },
             AttachmentColumns = new List<string> { "File", "Seat", "Type", "Size", "Kept by", "When" },
             AttachmentRows = attachments.Attachments.Select(a => AttachmentRow(factory, a, zone, nowUtc)).ToList(),
+            AttachmentsNextBefore = attachments.NextBefore,
+            AttachmentsOlderLabel = attachments.NextBefore is null ? null : OlderFilesLabel,
         };
     }
+
+    public const string OlderFilesLabel = "Older files";
+
+    /// <summary>A later page of the attachments, for the tab's attachment table.</summary>
+    public static FactoryRecordsAttachmentPageViewDto AttachmentPageView(RegisteredFactoryDto factory, FactoryAttachmentPage page,
+        TimeZoneInfo zone, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+        ArgumentNullException.ThrowIfNull(page);
+        ArgumentNullException.ThrowIfNull(zone);
+        return new FactoryRecordsAttachmentPageViewDto
+        {
+            SummaryText = AttachmentsSummary(page),
+            Rows = page.Attachments.Select(a => AttachmentRow(factory, a, zone, nowUtc)).ToList(),
+            NextBefore = page.NextBefore,
+            OlderLabel = page.NextBefore is null ? null : OlderFilesLabel,
+            NewestLabel = "Newest files",
+        };
+    }
+
+    // "143 files, 2.1 MB in all." and, when the page is not all of them, which ones it lists.
+    private static string AttachmentsSummary(FactoryAttachmentPage page) =>
+        page.Total == 0
+            ? ""
+            : $"{FactoriesScreenFold.Count(page.Total, "file")}, {Size(page.FactoryBytes)} in all." +
+              (page.Attachments.Count < page.Total ? $" Files {Range(page.Newer, page.Attachments.Count)} are listed, newest first." : "");
+
+    // "21 to 40", or "57" for a page of one.
+    private static string Range(int newer, int count) =>
+        count == 1 ? $"{newer + 1}" : $"{newer + 1} to {newer + count}";
 
     internal static FactoryRecordsAttachmentRowDto AttachmentRow(RegisteredFactoryDto factory, FactoryAttachmentEntity a,
         TimeZoneInfo zone, DateTime nowUtc) => new()
@@ -122,12 +150,12 @@ public static class FactoryRecordsTabFold
 
     /// <summary>One seat's journal (or the factory's own), newest day first, each entry with its text and its files.</summary>
     /// <param name="attachmentsOf">The files an entry names, as the attachment store holds them.</param>
-    public static FactoryRecordsJournalViewDto Journal(RegisteredFactoryDto factory, string? seat,
-        IReadOnlyList<FactoryJournalEntryEntity> entries, int total,
+    public static FactoryRecordsJournalViewDto Journal(RegisteredFactoryDto factory, string? seat, FactoryJournalPage page,
         Func<FactoryJournalEntryEntity, IReadOnlyList<FactoryAttachmentEntity>> attachmentsOf, TimeZoneInfo zone, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(factory);
-        ArgumentNullException.ThrowIfNull(entries);
+        ArgumentNullException.ThrowIfNull(page);
+        var (entries, total) = (page.Entries, page.Total);
         ArgumentNullException.ThrowIfNull(attachmentsOf);
         ArgumentNullException.ThrowIfNull(zone);
         return new FactoryRecordsJournalViewDto
@@ -136,7 +164,7 @@ public static class FactoryRecordsTabFold
             SummaryText = total == 0
                 ? ""
                 : Entries(total) + "." +
-                  (entries.Count < total ? $" The newest {entries.Count} are shown." : ""),
+                  (entries.Count < total ? $" Entries {Range(page.Newer, entries.Count)} are shown, newest first." : ""),
             Entries = entries.Select(e => new FactoryRecordsJournalEntryDto
             {
                 Id = e.Id,
@@ -146,6 +174,9 @@ public static class FactoryRecordsTabFold
                 Attachments = attachmentsOf(e).Select(a => AttachmentRow(factory, a, zone, nowUtc)).ToList(),
             }).ToList(),
             EmptyText = total == 0 ? "This journal has no entry." : null,
+            NextBefore = page.NextBefore,
+            OlderLabel = page.NextBefore is null ? null : "Older entries",
+            NewestLabel = page.Newer > 0 ? "Newest entries" : null,
             CloseLabel = "Back to the records",
         };
     }

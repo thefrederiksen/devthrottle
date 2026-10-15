@@ -304,6 +304,44 @@ def flow(page, key, picture):
                                            "sha256": hashlib.sha256(sent).hexdigest(), "same_bytes_as_kept": True}
     shot(page, "28-attachment-downloaded")
 
+    # 6. Paging: the writer's journal grows past one page (24 entries written by the upload at one sitting, so many
+    #    share a day), and the factory's attachments past one page of 100.
+    root = f"/factory-records/{FACTORY}"
+    for i in range(24):
+        call("POST", root + "/journal", key, {"seat": "writer", "date": f"2026-09-{10 + i % 12:02d}",
+                                              "text": f"Older work, note {i + 1}.", "attachmentIds": []})
+    for i in range(100):
+        call("POST", root + "/attachments", key, {"seat": "writer", "name": f"shots/run-{i:03d}.png", "contentType": "image/png",
+                                                  "contentBase64": base64.b64encode(png(4, 4, (i, 80, 160))).decode()})
+    log("26 journal entries for the writer and 103 attachments in all")
+
+    open_tab(page, FACTORY)
+    page.click("[data-testid=fa-rec-journal-writer] >> text=Read")
+    wait(page, "[data-testid=fa-rec-journal] >> text=Older entries", "the writer's journal with an Older step")
+    must("Entries 1 to 20 are shown" in page.inner_text("[data-testid=fa-rec-journal]"), "the first journal page does not say which entries it shows")
+    shot(page, "33-journal-first-page")
+    first = call("GET", tab + "/journal?seat=writer", key)
+    page.click("[data-testid=fa-rec-journal] >> text=Older entries")
+    wait(page, "[data-testid=fa-rec-journal] >> text=Newest entries", "the older page of the writer's journal")
+    must("Entries 21 to 26 are shown" in page.inner_text("[data-testid=fa-rec-journal]"), "the older journal page does not say which entries it shows")
+    shot(page, "34-journal-older-entries")
+    older = call("GET", tab + f"/journal?seat=writer&before={first['nextBefore']}", key)
+    seen = [e["id"] for e in first["entries"]] + [e["id"] for e in older["entries"]]
+    must(len(seen) == len(set(seen)) == 26 and older["nextBefore"] is None, f"the two journal pages do not hold the 26 entries once each: {len(seen)}")
+    ANSWERS["34-journal-pages"] = {"first": first["summaryText"], "older": older["summaryText"], "entries_once_each": 26}
+    page.click("[data-testid=fa-rec-journal] >> text=Back to the records")
+
+    wait(page, "[data-testid=fa-rec-attachments] >> text=Older files", "Older files on the tab")
+    shot(page, "35-attachments-first-page")
+    page.click("[data-testid=fa-rec-attachments] >> text=Older files")
+    wait(page, "[data-testid=fa-rec-attachments] >> text=Newest files", "the older page of the attachments")
+    shot(page, "36-attachments-older-files")
+    tab_view = call("GET", tab, key)
+    rest = call("GET", tab + f"/attachments?before={tab_view['attachmentsNextBefore']}", key)
+    ids = [a["id"] for a in tab_view["attachmentRows"]] + [a["id"] for a in rest["rows"]]
+    must(len(ids) == len(set(ids)) == 103 and rest["nextBefore"] is None, f"the two attachment pages do not hold the 103 files once each: {len(ids)}")
+    ANSWERS["36-attachment-pages"] = {"first": tab_view["attachments"]["summaryText"], "older": rest["summaryText"], "files_once_each": 103}
+
 
 def capture(key, picture):
     with sync_playwright() as p:
