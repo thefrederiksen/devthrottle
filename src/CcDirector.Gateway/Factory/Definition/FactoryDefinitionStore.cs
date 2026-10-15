@@ -289,6 +289,11 @@ public sealed class FactoryDefinitionStore
         return DefinitionPaths.ShapeProblem(path) ?? DefinitionPaths.Classify(path).Refusal;
     }
 
+    /// <summary>The refusal of a path that maps to no text at all (a JSON null): the route says it in these words before
+    /// the check runs, and the store says the same if a caller reaches it directly.</summary>
+    public static string NoTextRefusal(string path) =>
+        $"'{path}' has no text; every file in a definition is text, even if it is empty";
+
     /// <summary>A version is written by a person or by a session. Anything else is a caller this store was never
     /// meant to be reached by, which is a defect in the route rather than a refusal to word.</summary>
     private static void RequireAWriter(string authorKind)
@@ -318,8 +323,7 @@ public sealed class FactoryDefinitionStore
             if (WhyNotAPath(path) is { } badPath)
                 return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.BadPath, badPath, head);
             if (text is null)
-                return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.NotText,
-                    $"'{path}' has no text; every file in a definition is text, even if it is empty", head);
+                return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.NotText, NoTextRefusal(path), head);
             int bytes;
             try
             {

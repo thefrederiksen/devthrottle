@@ -11,6 +11,14 @@ the factory:
 - `factory definition publish`  make one version the published definition - a person's act
 - `factory definition restore`  publish a copy of an older version as the newest - a person's act
 - `factory definition diff`     what changes from one version to another, as the Gateway words it
+- `factory definition schemas`  the JSON Schemas the Gateway's check enforces, to check a folder without saving it
+
+And two that move a whole definition between the Gateway and a folder (phase 3):
+
+- `factory export`  write a factory's definition to a folder, byte for byte as the Gateway holds it; a factory with no
+                    definition is written from what is live, and what could not be written is listed
+- `factory import`  send a folder; the Gateway checks it exactly as a save and stores it as the next draft. It never
+                    publishes.
 
 THE GATEWAY RULES, THIS MODULE PRINTS (rule 7). Every refusal and every finding of the whole-definition check is
 printed as the Gateway wrote it - `file:line: message` - and "what changes" is printed sentence by sentence and line
@@ -260,12 +268,12 @@ def history(factory: str, json_output: bool, count: Optional[int] = None, before
                                 f"{_TOOL} diff {_f(factory)} --to <version>"])
 
 
-def read_folder(folder: str) -> Dict[str, str]:
+def read_folder(folder: str, verb: str = "save", help_command: str = f"{_TOOL} save --help") -> Dict[str, str]:
     """Every file under `folder`, by its path relative to the folder with forward slashes, as UTF-8 text. Nothing is
     skipped: a file the Gateway does not take is refused there, by name, rather than quietly left out here."""
     root = Path(folder)
     if not root.is_dir():
-        axi_cli.fail(f"there is no folder at {root}, so there is no definition to save.", [f"{_TOOL} save --help"])
+        axi_cli.fail(f"there is no folder at {root}, so there is no definition to {verb}.", [help_command])
     content: Dict[str, str] = {}
     for path in sorted(p for p in root.rglob("*") if p.is_file()):
         relative = path.relative_to(root).as_posix()
@@ -275,9 +283,9 @@ def read_folder(folder: str) -> Dict[str, str]:
                 content[relative] = handle.read()
         except (OSError, UnicodeDecodeError) as exc:
             axi_cli.fail(f"the file {relative} could not be read as UTF-8 text: {exc}. Every file in a definition is "
-                         "text.", [f"{_TOOL} save --help"])
+                         "text.", [help_command])
     if not content:
-        axi_cli.fail(f"the folder {root} holds no files, so there is no definition to save.", [f"{_TOOL} save --help"])
+        axi_cli.fail(f"the folder {root} holds no files, so there is no definition to {verb}.", [help_command])
     return content
 
 
@@ -394,3 +402,144 @@ def diff(factory: str, from_version: Optional[int], to_version: Optional[int], j
         + f" to version {answer['to']}.",
         *_changes_lines(changes))
     axi_cli.print_next([f"{_TOOL} publish {_f(factory)} --version {answer['to']}", f"{_TOOL} history {_f(factory)}"])
+
+
+# ---------------------------------------------------------------------------------------------------
+# Export, import and the schemas (phase 3). The Gateway composes the folder and rules on the import; this module moves
+# the files, byte for byte, and prints what the Gateway said.
+# ---------------------------------------------------------------------------------------------------
+
+_FACTORY_TOOL = "cc-devthrottle factory"
+
+
+def _out_path(root: Path, relative: str) -> Path:
+    """Where one file of the folder goes. The Gateway holds only paths inside a definition; a path that would land
+    outside the folder is refused here too, because this is the code that writes to the disk."""
+    target = (root / relative).resolve()
+    if (not relative or relative.startswith("/") or "\\" in relative or ".." in relative.split("/")
+            or root.resolve() not in target.parents):
+        axi_cli.fail(f"the Gateway's answer holds the path '{relative}', which is not inside the folder; nothing was "
+                     "written.", [axi_cli.CHECK_GATEWAY])
+    return target
+
+
+def export(factory: str, out: str, version: Optional[int], json_output: bool) -> None:
+    """Write a factory's definition into a new or empty folder, every file exactly as the Gateway sent it: UTF-8 with no
+    byte-order mark and the file's own line endings, so two exports of one version are the same bytes."""
+    root = Path(out)
+    if root.exists() and (not root.is_dir() or any(root.iterdir())):
+        axi_cli.fail(f"{root} is not an empty folder. An export writes a whole definition, so it goes into a new or "
+                     "empty folder: a file left over from before would be imported with it.",
+                     [f"{_FACTORY_TOOL} export {_f(factory)} --out <new folder>"])
+        return
+    query = f"?version={version}" if version is not None else ""
+    try:
+        answer = gateway.get_json(_route(factory) + "/export" + query)
+    except gateway.GatewayError as exc:
+        _fail_gateway(exc, [f"{_TOOL} history {_f(factory)}"] if exc.status in (400, 404) else None)
+        return
+    files = answer.get("files") if isinstance(answer, dict) else None
+    reported = answer.get("reported") if isinstance(answer, dict) else None
+    if (not isinstance(files, dict) or not files or not all(isinstance(t, str) for t in files.values())
+            or not isinstance(reported, list)):
+        # Absent is not empty: an answer without files must never be written as an empty folder.
+        axi_cli.fail("the Gateway's answer carried no files to write; nothing was written.", [axi_cli.CHECK_GATEWAY])
+        return
+
+    targets = {path: _out_path(root, path) for path in sorted(files)}
+    written: List[Dict[str, Any]] = []
+    for path, target in targets.items():
+        data = files[path].encode("utf-8")
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with target.open("wb") as handle:
+                handle.write(data)
+        except OSError as exc:
+            axi_cli.fail(f"{path} could not be written to {root}: {exc}. {len(written)} of {len(targets)} files were "
+                         "written before it; the folder is incomplete, so delete it before exporting again.",
+                         [f"{_FACTORY_TOOL} export {_f(factory)} --out <new folder>"])
+        written.append({"path": path, "bytes": len(data)})
+
+    if json_output:
+        shown = {key: answer.get(key) for key in ("factory", "source", "version", "state", "summary")}
+        shown.update({"out": str(root), "files": written, "reported": reported})
+        print(json.dumps(shown, indent=2))
+        return
+    lines = [axi_cli.ascii_text(str(answer.get("summary", ""))),
+             f"Written to {root}.",
+             f"files[{len(written)}]{{path,bytes}}:"]
+    lines.extend(f"  {w['path']},{w['bytes']}" for w in written)
+    if reported:
+        lines.append(f"reported[{len(reported)}]{{file,message}}:")
+        lines.extend(axi_cli.ascii_text(f"  {r.get('file', '')}: {r.get('message', '')}") for r in reported
+                     if isinstance(r, dict))
+    axi_cli.write_lines(*lines)
+    axi_cli.print_next([f"{_FACTORY_TOOL} import {root}", f"{_TOOL} schemas"])
+
+
+def import_folder(folder: str, note: Optional[str], json_output: bool) -> None:
+    """Send every file under a folder; the Gateway checks it exactly as a draft save and stores it as the next draft of
+    the factory its factory.yaml names. It never publishes: the published version is the same after as before."""
+    content = read_folder(folder, "import", f"{_FACTORY_TOOL} import --help")
+    body: Dict[str, Any] = {"content": content}
+    if note is not None:
+        body["note"] = note
+    named = "<factory>"
+    try:
+        saved = gateway.post_json(f"{ROUTE}/import", body)
+    except gateway.GatewayError as exc:
+        if exc.status == 409 and _outcome(exc) == "TooManyDrafts":
+            axi_cli.fail(f"Not imported: {exc}", [f"{_TOOL} history {named}"])
+        _fail_gateway(exc, [f"{_FACTORY_TOOL} import {folder}", f"{_TOOL} schemas"]
+                      if exc.status in (400, 409, 422) else None)
+        return
+    if not _is_version(saved):
+        axi_cli.fail("the Gateway answered without the version it stored, so this command cannot show the folder was "
+                     "imported. Read it back before relying on it.", [f"{_TOOL} get {named} --draft"])
+        return
+    if json_output:
+        print(json.dumps(saved, indent=2))
+        return
+    target = _f(str(saved.get("factory") or ""))
+    published = saved.get("publishedVersion")
+    axi_cli.write_lines(
+        f"Imported: version {saved['version']} of the definition of {saved.get('factory')} is a draft "
+        f"({saved.get('fileCount')} files, {saved.get('contentBytes')} bytes).",
+        *(["This import created the factory's definition."] if saved.get("created") is True else []),
+        "Nothing was published: " + ("no version is published yet." if published is None
+                                     else f"version {published} stays the published definition."),
+        *_findings_lines(saved.get("findings")),
+    )
+    axi_cli.print_next([f"{_TOOL} diff {target} --to {saved['version']}",
+                        f"{_TOOL} publish {target} --version {saved['version']}"])
+
+
+def schemas(out: Optional[str], json_output: bool) -> None:
+    """The JSON Schemas the Gateway's check enforces, one per file type; with `out`, each written as its own file."""
+    try:
+        answer = gateway.get_json("factory-definition-schemas")
+    except gateway.GatewayError as exc:
+        _fail_gateway(exc)
+        return
+    items = answer.get("schemas") if isinstance(answer, dict) else None
+    if not isinstance(items, list) or not items or not all(isinstance(i, dict) for i in items):
+        axi_cli.fail("the Gateway answered with no schemas; this command will not report that as none.",
+                     [axi_cli.CHECK_GATEWAY])
+        return
+    if out is not None:
+        root = Path(out)
+        root.mkdir(parents=True, exist_ok=True)
+        for item in items:
+            target = _out_path(root, str(item.get("name", "")))
+            with target.open("wb") as handle:
+                handle.write((json.dumps(item.get("schema"), indent=2) + "\n").encode("utf-8"))
+    if json_output:
+        print(json.dumps(answer, indent=2))
+        return
+    lines = [f"count: {len(items)}. " + axi_cli.ascii_text(str(answer.get("note", ""))),
+             f"schemas[{len(items)}]{{name,applies}}:"]
+    lines.extend(f"  {item.get('name')},{item.get('applies')}" for item in items)
+    if out is not None:
+        lines.append(f"Written to {out}.")
+    axi_cli.write_lines(*lines)
+    axi_cli.print_next([f"{_TOOL} schemas --out <folder>", f"{_FACTORY_TOOL} import <folder>"])

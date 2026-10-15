@@ -202,8 +202,11 @@ seat is named in `factory.yaml`).
   of one version are byte-identical. For a factory with no definition it writes the folder from the registry, the
   published briefs, the schedules and the triggers, so the owner's first import of each factory starts from what is
   live (A8).
-- `cc-devthrottle factory import <folder> [--factory id]` checks the folder exactly as a save would and stores it as a
-  draft, creating the factory if it is new. It never publishes.
+  A start has no name: a schedule that becomes a start does not carry its old name, and a start's schedule name is
+  generated when the definition is published (review of #4007, the Delivery Lead's ruling).
+- `cc-devthrottle factory import <folder>` checks the folder exactly as a save would and stores it as a draft,
+  creating the factory if it is new. The factory is the one `factory.yaml` names: import never rewrites a file, so a
+  copy under a new id is a folder whose `factory.yaml` names that id. It never publishes.
 - The Gateway serves the schemas, so an editor or an agent can check a folder without saving it.
 - Cockpit: Export downloads a zip; Import uploads one and lands on the draft view.
 

@@ -365,6 +365,8 @@ _ACTIONS_ADDED_SINCE_PIN = {
     # The Factory Definition mission, phase 1: a factory's whole definition held on the Gateway.
     "factory-definition-get", "factory-definition-history", "factory-definition-save", "factory-definition-publish",
     "factory-definition-restore", "factory-definition-diff",
+    # The Factory Definition mission, phase 3: the schemas, and a definition exported to and imported from a folder.
+    "factory-definition-schemas", "factory-export", "factory-import",
     # The Website Business Factory mission, product track: factory triggers.
     "trigger-add", "trigger-list", "trigger-show", "trigger-pause", "trigger-resume", "trigger-runs",
     # The Factories screen mission, phase A: the factory registry and the goal number a boss posts.

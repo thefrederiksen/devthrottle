@@ -336,6 +336,29 @@ public sealed class GatewayHost : IAsyncDisposable
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+    /// <summary>
+    /// What the Gateway holds today about one factory, for the export of a factory that has no definition (Factory
+    /// Definition, phase 3; decision A8): its registry entry, each seat's published brief, and the schedules and
+    /// triggers that name it. Null when the factory is not registered.
+    /// </summary>
+    private Factory.Definition.FactoryLiveParts? FactoryLivePartsOf(Core.Tenancy.TenantId tenant, string factory)
+    {
+        if (FactoryRegistry.Find(tenant, factory) is not { } registry) return null;
+        var briefs = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var seat in registry.Seats)
+            if (_factoryBriefs.Standing(tenant, registry.Factory, seat.Id).Published is { } published)
+                briefs[seat.Id] = published.Text;
+        var schedules = _cronJobs.ListAll(tenant)
+            .Where(j => string.Equals(j.Factory, registry.Factory, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var triggers = Triggers.Store.List(tenant)
+            .Where(t => string.Equals(t.Factory, registry.Factory, StringComparison.OrdinalIgnoreCase))
+            .Select(t => new Factory.Definition.LiveTrigger(t.Name, t.FactoryAgent, t.Machine, t.RepoPath, t.CheckCommand,
+                t.IntervalSeconds, t.Prompt, t.Paused))
+            .ToList();
+        return new Factory.Definition.FactoryLiveParts(registry, briefs, schedules, triggers);
+    }
+
     private IReadOnlySet<string> LiveSessionIdsFor(Core.Tenancy.TenantId tenant)
     {
         var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -5875,6 +5898,7 @@ public sealed class GatewayHost : IAsyncDisposable
             sessionFactoryOf: _sessionHistory.FactoryOf,
             fleetSkillsOf: FleetSkillIdsOf,
             connectedMachinesOf: ConnectedMachinesOf,
+            liveOf: FactoryLivePartsOf,
             nowUtc: () => DateTime.UtcNow);
 
         // A factory's RECORDS (Factory Definition mission, phase 2): its journals, working documents and attachments,

@@ -1250,7 +1250,13 @@ public static class SessionKeyGuard
     /// </summary>
     private static bool IsFactoryDefinitionRoute(string verb, string[] s)
     {
+        // /factory-definition-schemas - the JSON Schemas the check enforces (phase 3), so an agent can check a folder's
+        // shape without saving it.
+        if (s.Length == 1 && s[0] == "factory-definition-schemas") return verb is "GET" or "HEAD";
         if (s.Length < 2 || s[0] != "factory-definitions") return false;
+
+        // /factory-definitions/import - a folder stored as the next draft (phase 3). Checked first, never published.
+        if (s.Length == 2 && s[1] == "import") return verb == "POST";
 
         // /factory-definitions/{factory} - the published definition.
         if (s.Length == 2) return verb is "GET" or "HEAD";
@@ -1261,6 +1267,8 @@ public static class SessionKeyGuard
             if (s[2] == "draft") return verb is "GET" or "HEAD" or "PUT";
             // /history - one page of the versions, without their content; /diff - what changes between two.
             if (s[2] is "history" or "diff") return verb is "GET" or "HEAD";
+            // /export - the definition as a folder of files (phase 3); a read.
+            if (s[2] == "export") return verb is "GET" or "HEAD";
             // /publish and /restore - refused by the store for a session, in words.
             if (s[2] is "publish" or "restore") return verb == "POST";
         }

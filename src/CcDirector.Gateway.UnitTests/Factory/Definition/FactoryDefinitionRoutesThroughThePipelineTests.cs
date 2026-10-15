@@ -52,6 +52,7 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
             sessionFactoryOf: _ => SessionFactoryLookup.In(TheFactory),
             fleetSkillsOf: _ => DefinitionFixture.FleetSkills,
             connectedMachinesOf: _ => DefinitionFixture.Machines,
+            liveOf: (_, _) => null,
             nowUtc: () => Now);
     }
 
@@ -286,6 +287,58 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
         Assert.Equal("a body is required", refused.Body.GetProperty("error").GetString());
     }
 
+    [Fact]
+    public async Task A_DRAFT_THAT_MAPS_A_PATH_TO_NULL_IS_REFUSED_WITH_400_NAMING_THE_PATH_NOT_A_500()
+    {
+        // The exact body review 2 of 4004 sent: JSON null for one file. It used to reach the check, which threw.
+        var body = """{"expectedVersion":0,"content":{"factory.yaml":null,"seats/boss.yaml":"seat: boss"}}""";
+
+        var refused = await Send("PUT", FactoryPath + "/draft", AsAPerson, body);
+
+        Assert.Equal(400, refused.Status);
+        Assert.Equal("NotText", refused.Body.GetProperty("outcome").GetString());
+        Assert.Equal("'factory.yaml' has no text; every file in a definition is text, even if it is empty",
+            refused.Body.GetProperty("error").GetString());
+        Assert.Equal(404, (await Send("GET", FactoryPath + "/draft", AsAPerson)).Status);
+    }
+
+    [Fact]
+    public async Task AN_IMPORT_SENT_AS_JSON_IS_STORED_AS_A_DRAFT_AND_EXPORTS_BACK_AS_THE_SAME_FILES()
+    {
+        var body = JsonSerializer.Serialize(new Dictionary<string, object?> { ["content"] = DefinitionFixture.Valid() });
+
+        var imported = await Send("POST", "/factory-definitions/import", AsAPerson, body);
+
+        Assert.Equal(200, imported.Status);
+        Assert.Equal(TheFactory, imported.Body.GetProperty("factory").GetString());
+        Assert.Equal(1, imported.Body.GetProperty("version").GetInt32());
+        Assert.Equal("draft", imported.Body.GetProperty("state").GetString());
+        Assert.True(imported.Body.GetProperty("created").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, imported.Body.GetProperty("publishedVersion").ValueKind);
+
+        var exported = await Send("GET", FactoryPath + "/export", AsASessionOfTheFactory);
+        Assert.Equal(200, exported.Status);
+        Assert.Equal("definition", exported.Body.GetProperty("source").GetString());
+        Assert.Equal(1, exported.Body.GetProperty("version").GetInt32());
+        var files = exported.Body.GetProperty("files").EnumerateObject().ToDictionary(p => p.Name, p => p.Value.GetString()!);
+        Assert.Equal(DefinitionFixture.Valid(), files);
+        Assert.Empty(exported.Body.GetProperty("reported").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task THE_SCHEMAS_ARE_SERVED_AS_JSON_SCHEMA_DOCUMENTS_ONE_PER_FILE_TYPE()
+    {
+        var served = await Send("GET", "/factory-definition-schemas", AsASessionOfTheFactory);
+
+        Assert.Equal(200, served.Status);
+        var schemas = served.Body.GetProperty("schemas").EnumerateArray().ToList();
+        Assert.Equal(new[] { "factory.schema.json", "seat.schema.json", "grants.schema.json", "rules.schema.json" },
+            schemas.Select(x => x.GetProperty("name").GetString()));
+        var seat = schemas.Single(x => x.GetProperty("applies").GetString() == "seats/<seat>.yaml").GetProperty("schema");
+        Assert.Equal("https://json-schema.org/draft/2020-12/schema", seat.GetProperty("$schema").GetString());
+        Assert.False(seat.GetProperty("additionalProperties").GetBoolean());
+    }
+
     [Theory]
     [InlineData("GET", "/factory-definitions/devthrottle")]
     [InlineData("GET", "/factory-definitions/devthrottle/draft")]
@@ -295,6 +348,9 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
     [InlineData("PUT", "/factory-definitions/devthrottle/draft")]
     [InlineData("POST", "/factory-definitions/devthrottle/publish")]
     [InlineData("POST", "/factory-definitions/devthrottle/restore")]
+    [InlineData("GET", "/factory-definitions/devthrottle/export")]
+    [InlineData("POST", "/factory-definitions/import")]
+    [InlineData("GET", "/factory-definition-schemas")]
     public void EACH_ROUTE_IS_MAPPED_and_the_session_key_guard_lets_a_session_reach_it(string method, string path)
     {
         Assert.NotNull(Match(method, path));
@@ -314,6 +370,11 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
     [InlineData("GET", "/factory-definitions/devthrottle/versions/3/files")]
     [InlineData("POST", "/factory-definitions/devthrottle/anything-else")]
     [InlineData("POST", "/factory-definitions/devthrottle/diff")]
+    [InlineData("POST", "/factory-definitions/devthrottle/export")]
+    [InlineData("PUT", "/factory-definitions/import")]
+    [InlineData("POST", "/factory-definitions/devthrottle/import")]
+    [InlineData("POST", "/factory-definition-schemas")]
+    [InlineData("GET", "/factory-definition-schemas/seat")]
     public void NOTHING_ELSE_IS_MAPPED_UNDER_THE_PREFIX_and_the_guard_agrees(string method, string path)
     {
         Assert.Null(Match(method, path));

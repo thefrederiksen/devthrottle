@@ -1,0 +1,457 @@
+# Gateway: http://127.0.0.1:7996, built from this tree; its storage root is <rig>\root, made empty for this run
+
+$ cc-devthrottle factory definition schemas --out <rig>\schemas      (as a person: the rig's enrolled browser device)
+count: 4. Each schema checks the shape of one kind of file. A save or an import also checks what no schema can: the places a path may be (factory.yaml, seats/<seat>.yaml, grants.yaml, rules/<name>.json, files/<any path>, checks/<name>.py, skills/<name>/SKILL.md and skills/<name>/<any path>), the caps, a factory skill's frontmatter, and that every reference resolves - and answers with every finding by file and line.
+schemas[4]{name,applies}:
+  factory.schema.json,factory.yaml
+  seat.schema.json,seats/<seat>.yaml
+  grants.schema.json,grants.yaml
+  rules.schema.json,rules/<name>.json
+Written to <rig>\schemas.
+help[2]:
+  cc-devthrottle factory definition schemas --out <folder>
+  cc-devthrottle factory import <folder>
+[exit 0]
+
+$ cc-devthrottle factory export qa-outreach --out <rig>\exports\nothing      (as a person: the rig's enrolled browser device)
+Error: qa-outreach has no definition on the Gateway and is not a registered factory, so there is nothing to export
+help[1]:
+  cc-devthrottle factory definition history qa-outreach
+[exit 1]
+
+$ cc-devthrottle factory register --manifest <rig>\qa-live.manifest.json      (as a person: the rig's enrolled browser device)
+registered: qa-live
+title: QA Live
+computer: SOREN_NORTH
+folder: <rig>\qa-live-folder
+boss: boss
+goal: none
+purpose: none
+seats[2]{id,name,role,computer,schedules}:
+  boss,Boss,Boss,SOREN_NORTH,
+  writer,Writer,Writer,SOREN_NORTH,
+help[2]:
+  cc-devthrottle factory list
+  cc-devthrottle factory goal-number show --factory qa-live
+[exit 0]
+
+$ cc-devthrottle factory brief set --factory qa-live --seat boss --file <rig>\boss-brief.md      (as a person: the rig's enrolled browser device)
+Saved: version 1 of the brief of 'boss' is a draft.
+A talk or a run is given nothing from the Gateway until a person publishes this draft.
+help[1]:
+  cc-devthrottle factory brief get --factory qa-live --seat boss --draft
+[exit 0]
+
+$ cc-devthrottle factory brief publish --factory qa-live --seat boss --version 1      (as a person: the rig's enrolled browser device)
+Published: version 1 of the brief of 'boss'. Version 1 is now the brief a talk or a run is given.
+help[1]:
+  cc-devthrottle factory brief get --factory qa-live --seat boss
+[exit 0]
+
+$ cc-devthrottle schedule create --name "QA Live boss morning" --machine SOREN_NORTH --repo <rig>\qa-live-folder --cron "0 8 * * 1-5" --tz Europe/Copenhagen --seed "Morning round." --factory qa-live --seat boss      (as a person: the rig's enrolled browser device)
+Created schedule.
+  Id:        cj_e81e40
+  Name:      QA Live boss morning
+  Schedule:  cron 0 8 * * 1-5
+  Next run:  2026-10-16T06:00:00Z UTC
+  Seat:      boss of qa-live
+  Gateway:   http://127.0.0.1:7996
+help[3]:
+  cc-devthrottle schedule get cj_e81e40
+  cc-devthrottle schedule run cj_e81e40
+  cc-devthrottle schedule disable cj_e81e40
+[exit 0]
+
+$ cc-devthrottle schedule create --name "QA Live writer at random" --machine SOREN_NORTH --repo <rig>\qa-live-folder --random 09:00-17:00 --per-day 2 --min-gap 30 --tz Europe/Copenhagen --seed "Write a post." --factory qa-live --seat writer      (as a person: the rig's enrolled browser device)
+Created schedule.
+  Id:        cj_23c03c
+  Name:      QA Live writer at random
+  Schedule:  random window=09:00-17:00 perDay=2 minGap=30 shape=human
+  Next run:  2026-10-15T14:21:00Z UTC
+  Seat:      writer of qa-live
+  Gateway:   http://127.0.0.1:7996
+help[4]:
+  cc-devthrottle schedule get cj_23c03c
+  cc-devthrottle schedule plan cj_23c03c
+  cc-devthrottle schedule run cj_23c03c
+  cc-devthrottle schedule disable cj_23c03c
+[exit 0]
+
+$ cc-devthrottle trigger add --name qa-live-new-mail --factory qa-live --agent writer --machine SOREN_NORTH --repo <rig>\qa-live-folder --check "python check_mail.py" --every 10m --prompt "Answer the {count} new mails." --paused      (as a person: the rig's enrolled browser device)
+Created trigger qa-live-new-mail (3032b852-2e3e-438c-9c63-24db7c676ba4): checks every 10m on SOREN_NORTH, paused.
+help[2]:
+  cc-devthrottle trigger show "qa-live-new-mail"
+  cc-devthrottle trigger runs "qa-live-new-mail"
+[exit 0]
+
+$ cc-devthrottle factory export qa-live --out <rig>\exports\qa-live      (as a person: the rig's enrolled browser device)
+qa-live has no definition on the Gateway, so the folder is written from what it has today: its registry entry, published briefs, schedules and triggers (3 files). 6 things it has are not in the folder; each is listed with the file it would have gone in.
+Written to <rig>\exports\qa-live.
+files[3]{path,bytes}:
+  factory.yaml,100
+  seats/boss.yaml,205
+  seats/writer.yaml,49
+reported[6]{file,message}:
+  factory.yaml: No agent or model is recorded for this factory today: every factory seat runs ClaudeCode, on the model its machine uses by default. The folder says agent ClaudeCode and names no model.
+  factory.yaml: The factory's folder '<rig>\qa-live-folder' on SOREN_NORTH is not part of a definition: nothing of a factory is kept in a folder of its own. The Gateway holds folders, not repository names, so no repository is listed: name the ones the seats work in under repositories.
+  seats/boss.yaml: The schedule 'QA Live boss morning' (cj_e81e40) is a start here, but its working folder '<rig>\qa-live-folder' is not kept: a seat works in a repository named under repositories in factory.yaml, or in none.
+  seats/writer.yaml: The seat has no published brief on the Gateway; its brief is the file 'WRITER.md' in the factory's folder. The brief is left empty here: write it in before importing.
+  seats/writer.yaml: The schedule 'QA Live writer at random' (cj_23c03c) is not a start here: it is a random schedule (window=09:00-17:00 perDay=2 minGap=30 shape=human), and a start is a five-field cron expression or an interval.
+  seats/writer.yaml: The trigger 'qa-live-new-mail' (paused) is not a start here: its check is the command 'python check_mail.py', and a start's check is a Python file under checks/ in the definition. It runs every 600 seconds on SOREN_NORTH in '<rig>\qa-live-folder' with the prompt: Answer the {count} new mails.
+help[2]:
+  cc-devthrottle factory import <rig>\exports\qa-live
+  cc-devthrottle factory definition schemas
+[exit 0]
+
+# SHA-256 of every file in <rig>\exports\qa-live (qa-live, first export from what is live)
+  7df18e8814120a558605e8814f7babf4ca952aaad88083321d7c59390b799e3f    100  factory.yaml
+  838b4cd098a7d4bdd5f65462884dfee457e78ade3645dee8827276075b9ee225    205  seats/boss.yaml
+  818f03a9fd4beb25b65f56cb110924de80878a17f34fcee469427e4151b8818b     49  seats/writer.yaml
+
+$ cc-devthrottle factory export qa-live --out <rig>\exports\qa-live-again      (as a person: the rig's enrolled browser device)
+qa-live has no definition on the Gateway, so the folder is written from what it has today: its registry entry, published briefs, schedules and triggers (3 files). 6 things it has are not in the folder; each is listed with the file it would have gone in.
+Written to <rig>\exports\qa-live-again.
+files[3]{path,bytes}:
+  factory.yaml,100
+  seats/boss.yaml,205
+  seats/writer.yaml,49
+reported[6]{file,message}:
+  factory.yaml: No agent or model is recorded for this factory today: every factory seat runs ClaudeCode, on the model its machine uses by default. The folder says agent ClaudeCode and names no model.
+  factory.yaml: The factory's folder '<rig>\qa-live-folder' on SOREN_NORTH is not part of a definition: nothing of a factory is kept in a folder of its own. The Gateway holds folders, not repository names, so no repository is listed: name the ones the seats work in under repositories.
+  seats/boss.yaml: The schedule 'QA Live boss morning' (cj_e81e40) is a start here, but its working folder '<rig>\qa-live-folder' is not kept: a seat works in a repository named under repositories in factory.yaml, or in none.
+  seats/writer.yaml: The seat has no published brief on the Gateway; its brief is the file 'WRITER.md' in the factory's folder. The brief is left empty here: write it in before importing.
+  seats/writer.yaml: The schedule 'QA Live writer at random' (cj_23c03c) is not a start here: it is a random schedule (window=09:00-17:00 perDay=2 minGap=30 shape=human), and a start is a five-field cron expression or an interval.
+  seats/writer.yaml: The trigger 'qa-live-new-mail' (paused) is not a start here: its check is the command 'python check_mail.py', and a start's check is a Python file under checks/ in the definition. It runs every 600 seconds on SOREN_NORTH in '<rig>\qa-live-folder' with the prompt: Answer the {count} new mails.
+help[2]:
+  cc-devthrottle factory import <rig>\exports\qa-live-again
+  cc-devthrottle factory definition schemas
+[exit 0]
+
+# SHA-256 of every file in <rig>\exports\qa-live-again (qa-live, second export from what is live)
+  7df18e8814120a558605e8814f7babf4ca952aaad88083321d7c59390b799e3f    100  factory.yaml
+  838b4cd098a7d4bdd5f65462884dfee457e78ade3645dee8827276075b9ee225    205  seats/boss.yaml
+  818f03a9fd4beb25b65f56cb110924de80878a17f34fcee469427e4151b8818b     49  seats/writer.yaml
+
+# qa-live first export against qa-live second export: 3 files identical, 0 differ
+
+$ cc-devthrottle factory import <rig>\exports\qa-live      (as a person: the rig's enrolled browser device)
+Error: The folder was not imported: the check found 1 error in the definition of qa-live. Fix each one where it is and try again.
+errors[1]:
+  seats/writer.yaml:4: 'brief' is '', which is not right. What the seat is told to do. Must not be blank.
+help[2]:
+  cc-devthrottle factory import <rig>\exports\qa-live
+  cc-devthrottle factory definition schemas
+[exit 1]
+
+$ cc-devthrottle factory definition history qa-live      (as a person: the rig's enrolled browser device)
+count: 0. qa-live has no definition on the Gateway.
+help[1]:
+  cc-devthrottle factory definition save qa-live --dir <folder> --expected-version 0
+[exit 0]
+
+# folder 'qa-live-with-writer-brief': <rig>\exports\qa-live with seats/writer.yaml: 'brief: ""' -> 'brief: |\n  Write one post a day.'
+
+$ cc-devthrottle factory import <rig>\variants\qa-live-with-writer-brief --note "recreated from what was live"      (as a person: the rig's enrolled browser device)
+Imported: version 1 of the definition of qa-live is a draft (3 files, 377 bytes).
+This import created the factory's definition.
+Nothing was published: no version is published yet.
+notices[1]:
+  factory.yaml:5: No Director on SOREN_NORTH is connected now, so it could not be confirmed.
+help[2]:
+  cc-devthrottle factory definition diff qa-live --to 1
+  cc-devthrottle factory definition publish qa-live --version 1
+[exit 0]
+
+$ cc-devthrottle factory import <repo>\docs\qa\factory-definition\phase-1\example --note "the example"      (as a person: the rig's enrolled browser device)
+Imported: version 1 of the definition of qa-outreach is a draft (6 files, 981 bytes).
+This import created the factory's definition.
+Nothing was published: no version is published yet.
+notices[1]:
+  factory.yaml:9: No Director on SOREN_NORTH is connected now, so it could not be confirmed.
+help[2]:
+  cc-devthrottle factory definition diff qa-outreach --to 1
+  cc-devthrottle factory definition publish qa-outreach --version 1
+[exit 0]
+
+$ cc-devthrottle factory definition publish qa-outreach --version 1      (as a person: the rig's enrolled browser device)
+Published: version 1 of the definition of qa-outreach. Version 1 is now the published definition.
+what changes: First publish: 9 factory settings set, 2 seats added, 1 start created, rules tightened on base and boss, rules loosened on base, 1 grant added, 1 file added.
+  factory qa-outreach
+  title QA Outreach
+  purpose Shows a factory definition held on the Gateway
+  goal text set: 1 line
+      + Two posts a week, every week.
+  goalApprovedOn 2026-10-14
+  bossSeat boss
+  defaults.machine SOREN_NORTH
+  defaults.agent ClaudeCode
+  defaults.model claude-opus-5-5
+  Seat Boss (boss) added.
+    role Boss
+    machine SOREN_NORTH (the factory's default)
+    agent ClaudeCode (the factory's default)
+    model claude-opus-5-5 (the factory's default)
+    rule set base added
+    brief: 1 line
+      + Run the factory. Read what the writer made and decide what is next.
+  Seat Writer (writer) added.
+    role Writer
+    machine SOREN_NORTH (the factory's default)
+    agent ClaudeCode (the factory's default)
+    model claude-opus-5-5 (the factory's default)
+    grant publish-posts added
+    fleet skill dev-throttle added
+    file files/post-template.md added
+    brief: 1 line
+      + Write one post from the template.
+  Boss: start created, Weekdays 08:00 Europe/Copenhagen.
+    prompt "Morning round."
+  Rule set base (new) tightened: deny Bash(git push:*) added.
+  Rule set base (new) loosened: allow Bash(git status) added.
+  Seat Boss (boss) tightened: now takes rule set base.
+  Grant publish-posts added.
+    allows Publish a post on the blog
+    limits At most two a week
+    seat writer added
+  File files/post-template.md added: 3 lines.
+      + # Title
+      + 
+      + One paragraph that says what the post is about.
+notices[1]:
+  factory.yaml:9: No Director on SOREN_NORTH is connected now, so it could not be confirmed.
+help[2]:
+  cc-devthrottle factory definition get qa-outreach
+  cc-devthrottle factory definition history qa-outreach
+[exit 0]
+
+$ cc-devthrottle factory export qa-outreach --out <rig>\exports\a      (as a person: the rig's enrolled browser device)
+Version 1 of the definition of qa-outreach, published, exactly as stored (6 files).
+Written to <rig>\exports\a.
+files[6]{path,bytes}:
+  factory.yaml,271
+  files/post-template.md,60
+  grants.yaml,125
+  rules/base.json,117
+  seats/boss.yaml,227
+  seats/writer.yaml,181
+help[2]:
+  cc-devthrottle factory import <rig>\exports\a
+  cc-devthrottle factory definition schemas
+[exit 0]
+
+# SHA-256 of every file in <rig>\exports\a (qa-outreach version 1, first export)
+  e2148ee56d0b3bd35de2a0d82c75d6fe136a74ec9c0c18376e378d446db9af99    271  factory.yaml
+  f1cde814e5a43007b31b6a7a6a590738bd1ffa354e9cd2d784b43704ae987b95     60  files/post-template.md
+  de7c6209057eaa57162f115c477a83b0663660d61c56b5f578dd160395cb2adc    125  grants.yaml
+  b4b33052929417a16eec6d4a685eadd3660466ab2a4d4016a9dd0a4fda2b8887    117  rules/base.json
+  e50bfd508dbaae41769260110267dc3049c64640778c082c3fb3e7cdc6016b2c    227  seats/boss.yaml
+  fbe59b0f18c45fe4c60493e1a7e209132b2ee1a22805bb885a5a0468aef4797f    181  seats/writer.yaml
+
+$ cc-devthrottle factory export qa-outreach --out <rig>\exports\a-again --version 1      (as a person: the rig's enrolled browser device)
+Version 1 of the definition of qa-outreach, published, exactly as stored (6 files).
+Written to <rig>\exports\a-again.
+files[6]{path,bytes}:
+  factory.yaml,271
+  files/post-template.md,60
+  grants.yaml,125
+  rules/base.json,117
+  seats/boss.yaml,227
+  seats/writer.yaml,181
+help[2]:
+  cc-devthrottle factory import <rig>\exports\a-again
+  cc-devthrottle factory definition schemas
+[exit 0]
+
+# SHA-256 of every file in <rig>\exports\a-again (qa-outreach version 1, second export)
+  e2148ee56d0b3bd35de2a0d82c75d6fe136a74ec9c0c18376e378d446db9af99    271  factory.yaml
+  f1cde814e5a43007b31b6a7a6a590738bd1ffa354e9cd2d784b43704ae987b95     60  files/post-template.md
+  de7c6209057eaa57162f115c477a83b0663660d61c56b5f578dd160395cb2adc    125  grants.yaml
+  b4b33052929417a16eec6d4a685eadd3660466ab2a4d4016a9dd0a4fda2b8887    117  rules/base.json
+  e50bfd508dbaae41769260110267dc3049c64640778c082c3fb3e7cdc6016b2c    227  seats/boss.yaml
+  fbe59b0f18c45fe4c60493e1a7e209132b2ee1a22805bb885a5a0468aef4797f    181  seats/writer.yaml
+
+# first export against second export: 6 files identical, 0 differ
+
+# SHA-256 of every file in <repo>\docs\qa\factory-definition\phase-1\example (the folder first imported)
+  e2148ee56d0b3bd35de2a0d82c75d6fe136a74ec9c0c18376e378d446db9af99    271  factory.yaml
+  f1cde814e5a43007b31b6a7a6a590738bd1ffa354e9cd2d784b43704ae987b95     60  files/post-template.md
+  de7c6209057eaa57162f115c477a83b0663660d61c56b5f578dd160395cb2adc    125  grants.yaml
+  b4b33052929417a16eec6d4a685eadd3660466ab2a4d4016a9dd0a4fda2b8887    117  rules/base.json
+  e50bfd508dbaae41769260110267dc3049c64640778c082c3fb3e7cdc6016b2c    227  seats/boss.yaml
+  fbe59b0f18c45fe4c60493e1a7e209132b2ee1a22805bb885a5a0468aef4797f    181  seats/writer.yaml
+
+# the example folder against first export: 6 files identical, 0 differ
+
+# folder 'into-a-new-id': <rig>\exports\a with factory.yaml: 'factory: qa-outreach\r\n' -> 'factory: qa-outreach-copy\r\n'
+
+# SHA-256 of every file in <rig>\variants\into-a-new-id (the folder imported into the new id)
+  8bbc9357de4267f217e0da00669f739a17b01812a36f279d63f44efadbcabee1    276  factory.yaml
+  f1cde814e5a43007b31b6a7a6a590738bd1ffa354e9cd2d784b43704ae987b95     60  files/post-template.md
+  de7c6209057eaa57162f115c477a83b0663660d61c56b5f578dd160395cb2adc    125  grants.yaml
+  b4b33052929417a16eec6d4a685eadd3660466ab2a4d4016a9dd0a4fda2b8887    117  rules/base.json
+  e50bfd508dbaae41769260110267dc3049c64640778c082c3fb3e7cdc6016b2c    227  seats/boss.yaml
+  fbe59b0f18c45fe4c60493e1a7e209132b2ee1a22805bb885a5a0468aef4797f    181  seats/writer.yaml
+
+$ cc-devthrottle factory import <rig>\variants\into-a-new-id      (as a person: the rig's enrolled browser device)
+Imported: version 1 of the definition of qa-outreach-copy is a draft (6 files, 986 bytes).
+This import created the factory's definition.
+Nothing was published: no version is published yet.
+notices[1]:
+  factory.yaml:9: No Director on SOREN_NORTH is connected now, so it could not be confirmed.
+help[2]:
+  cc-devthrottle factory definition diff qa-outreach-copy --to 1
+  cc-devthrottle factory definition publish qa-outreach-copy --version 1
+[exit 0]
+
+$ cc-devthrottle factory export qa-outreach-copy --out <rig>\exports\b      (as a person: the rig's enrolled browser device)
+Version 1 of the definition of qa-outreach-copy, draft, exactly as stored (6 files). No version is published, so the newest is exported.
+Written to <rig>\exports\b.
+files[6]{path,bytes}:
+  factory.yaml,276
+  files/post-template.md,60
+  grants.yaml,125
+  rules/base.json,117
+  seats/boss.yaml,227
+  seats/writer.yaml,181
+help[2]:
+  cc-devthrottle factory import <rig>\exports\b
+  cc-devthrottle factory definition schemas
+[exit 0]
+
+# SHA-256 of every file in <rig>\exports\b (qa-outreach-copy version 1, exported after the import)
+  8bbc9357de4267f217e0da00669f739a17b01812a36f279d63f44efadbcabee1    276  factory.yaml
+  f1cde814e5a43007b31b6a7a6a590738bd1ffa354e9cd2d784b43704ae987b95     60  files/post-template.md
+  de7c6209057eaa57162f115c477a83b0663660d61c56b5f578dd160395cb2adc    125  grants.yaml
+  b4b33052929417a16eec6d4a685eadd3660466ab2a4d4016a9dd0a4fda2b8887    117  rules/base.json
+  e50bfd508dbaae41769260110267dc3049c64640778c082c3fb3e7cdc6016b2c    227  seats/boss.yaml
+  fbe59b0f18c45fe4c60493e1a7e209132b2ee1a22805bb885a5a0468aef4797f    181  seats/writer.yaml
+
+# the folder imported into the new id against the export of qa-outreach-copy: 6 files identical, 0 differ
+
+# the first export of qa-outreach against the export of qa-outreach-copy: 5 files identical, 1 differ (factory.yaml)
+
+$ cc-devthrottle factory definition get qa-outreach      (as a person: the rig's enrolled browser device)
+qa-outreach  version 1  published  written by person device browser qa-browser  2026-10-15T12:05:15.757626Z  6 files  981 bytes
+note: the example
+files[6]{path,bytes}:
+  factory.yaml,271
+  files/post-template.md,60
+  grants.yaml,125
+  rules/base.json,117
+  seats/boss.yaml,227
+  seats/writer.yaml,181
+help[3]:
+  cc-devthrottle factory definition get qa-outreach --version 1 --file <path>
+  cc-devthrottle factory definition save qa-outreach --dir <folder> --expected-version 1
+  cc-devthrottle factory definition history qa-outreach
+[exit 0]
+
+# folder 'writer-renamed': <rig>\exports\a with seats/writer.yaml: 'name: Writer' -> 'name: Author'
+
+$ cc-devthrottle factory import <rig>\variants\writer-renamed --note "renamed the writer"      (as a person: the rig's enrolled browser device)
+Imported: version 2 of the definition of qa-outreach is a draft (6 files, 981 bytes).
+Nothing was published: version 1 stays the published definition.
+notices[1]:
+  factory.yaml:9: No Director on SOREN_NORTH is connected now, so it could not be confirmed.
+help[2]:
+  cc-devthrottle factory definition diff qa-outreach --to 2
+  cc-devthrottle factory definition publish qa-outreach --version 2
+[exit 0]
+
+$ cc-devthrottle factory definition get qa-outreach      (as a person: the rig's enrolled browser device)
+qa-outreach  version 1  published  written by person device browser qa-browser  2026-10-15T12:05:15.757626Z  6 files  981 bytes
+note: the example
+A newer version, 2, is waiting and is not published. Read it with 'get --draft'.
+files[6]{path,bytes}:
+  factory.yaml,271
+  files/post-template.md,60
+  grants.yaml,125
+  rules/base.json,117
+  seats/boss.yaml,227
+  seats/writer.yaml,181
+help[3]:
+  cc-devthrottle factory definition get qa-outreach --version 1 --file <path>
+  cc-devthrottle factory definition save qa-outreach --dir <folder> --expected-version 2
+  cc-devthrottle factory definition history qa-outreach
+[exit 0]
+
+$ cc-devthrottle factory definition history qa-outreach      (as a person: the rig's enrolled browser device)
+count: 2 of 2. Version 1 is the published definition.
+versions[2]{version,state,written,by,files,bytes,note}:
+  v2,draft,2026-10-15T12:05:26.5325111Z,person device browser qa-browser,6,981,"renamed the writer"
+  v1,PUBLISHED NOW,2026-10-15T12:05:15.757626Z,person device browser qa-browser,6,981,"the example"
+help[2]:
+  cc-devthrottle factory definition get qa-outreach --version <version>
+  cc-devthrottle factory definition diff qa-outreach --to <version>
+[exit 0]
+
+$ cc-devthrottle factory import <rig>\exports\a --note "proposed by a session"      (as session 49e236f8-7d58-47e1-905f-97cd61d32e30, of factory qa-outreach)
+Imported: version 3 of the definition of qa-outreach is a draft (6 files, 981 bytes).
+Nothing was published: version 1 stays the published definition.
+notices[1]:
+  factory.yaml:9: No Director on SOREN_NORTH is connected now, so it could not be confirmed.
+help[2]:
+  cc-devthrottle factory definition diff qa-outreach --to 3
+  cc-devthrottle factory definition publish qa-outreach --version 3
+[exit 0]
+
+$ cc-devthrottle factory import <rig>\exports\a      (as session b354a157-0bb0-4fb6-a5d7-a66ec36c5738, of factory invoice-factory)
+Error: this definition belongs to factory 'qa-outreach', so only a person or a session of 'qa-outreach' may change or run it
+help[1]:
+  cc-devthrottle setup status
+[exit 1]
+
+$ cc-devthrottle factory definition get qa-outreach      (as a person: the rig's enrolled browser device)
+qa-outreach  version 1  published  written by person device browser qa-browser  2026-10-15T12:05:15.757626Z  6 files  981 bytes
+note: the example
+A newer version, 3, is waiting and is not published. Read it with 'get --draft'.
+files[6]{path,bytes}:
+  factory.yaml,271
+  files/post-template.md,60
+  grants.yaml,125
+  rules/base.json,117
+  seats/boss.yaml,227
+  seats/writer.yaml,181
+help[3]:
+  cc-devthrottle factory definition get qa-outreach --version 1 --file <path>
+  cc-devthrottle factory definition save qa-outreach --dir <folder> --expected-version 3
+  cc-devthrottle factory definition history qa-outreach
+[exit 0]
+
+# folder 'unknown-key': <rig>\exports\a with seats/writer.yaml: 'role: Writer' -> 'role: Writer\ncolour: red'
+
+$ cc-devthrottle factory import <rig>\variants\unknown-key      (as a person: the rig's enrolled browser device)
+Error: The folder was not imported: the check found 1 error in the definition of qa-outreach. Fix each one where it is and try again.
+errors[1]:
+  seats/writer.yaml:4: 'colour' is not a key of a seat file. The keys are: seat, name, role, line, machine, agent, model, repository, brief, starts, grants, rules, secrets, skills, files.
+help[2]:
+  cc-devthrottle factory import <rig>\variants\unknown-key
+  cc-devthrottle factory definition schemas
+[exit 1]
+
+$ cc-devthrottle factory import <rig>\variants\into-a-new-id      (as session 49e236f8-7d58-47e1-905f-97cd61d32e30, of factory qa-outreach)
+Error: this definition belongs to factory 'qa-outreach-copy', so only a person or a session of 'qa-outreach-copy' may change or run it
+help[1]:
+  cc-devthrottle setup status
+[exit 1]
+
+$ PUT /factory-definitions/qa-outreach/draft      (raw HTTP, as a person)
+  body: {"expectedVersion": 3, "content": {"factory.yaml": null, "seats/boss.yaml": "seat: boss"}}
+  status: 400
+  answer: {"error":"'factory.yaml' has no text; every file in a definition is text, even if it is empty","outcome":"NotText"}
+
+$ POST /factory-definitions/import      (raw HTTP, as a person)
+  body: {"factory": "qa-outreach", "content": {"factory.yaml": "factory: qa-outreach", "seats/writer.yaml": null}}
+  status: 400
+  answer: {"error":"'seats/writer.yaml' has no text; every file in a definition is text, even if it is empty","outcome":"NotText"}
+
+$ cc-devthrottle factory definition history qa-outreach --count 1      (as a person: the rig's enrolled browser device)
+count: 1 of 3. Version 1 is the published definition.
+versions[1]{version,state,written,by,files,bytes,note}:
+  v3,draft,2026-10-15T12:05:28.2281825Z,session 49e236f8-7d58-47e1-905f-97cd61d32e30,6,981,"proposed by a session"
+Older versions follow, below version 3.
+help[3]:
+  cc-devthrottle factory definition history qa-outreach --before 3
+  cc-devthrottle factory definition get qa-outreach --version <version>
+  cc-devthrottle factory definition diff qa-outreach --to <version>
+[exit 0]
