@@ -165,6 +165,56 @@ public sealed class FactoryDefinitionStore
         }
     }
 
+    /// <summary>
+    /// THE STORE'S RULINGS ON A PERSON'S PUBLISH, WITHOUT WRITING: the refusal (no such version, already published,
+    /// older than the published one), or null with the version to check. A publish that drives the factory asks this
+    /// first, for the sentence, and never calls <see cref="Publish"/>: if the answer changes before its transaction,
+    /// the transaction rules again on what it reads there (review of 4006, finding 1).
+    /// </summary>
+    public FactoryDefinitionWrite? RuleOnPublish(TenantId tenant, string factory, int version, out FactoryDefinitionVersion? wanted)
+    {
+        wanted = null;
+        if (!FactoryNames.TryFactory(factory, out factory, out var factoryRefusal))
+            return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.BadFactory, factoryRefusal!, null);
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            if (WhyNotPublish(ctx, factory, version) is { } refused) return refused;
+            wanted = FindInside(ctx, factory, version);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// THE STORE'S RULINGS ON A PERSON'S RESTORE, WITHOUT WRITING: no such version, already the published one, and a
+    /// stale <paramref name="expectedVersion"/> - or null with the version to check. As <see cref="RuleOnPublish"/>,
+    /// for a restore that drives the factory.
+    /// </summary>
+    public FactoryDefinitionWrite? RuleOnRestore(TenantId tenant, string factory, int version, int? expectedVersion,
+        out FactoryDefinitionVersion? wanted)
+    {
+        wanted = null;
+        if (!FactoryNames.TryFactory(factory, out factory, out var factoryRefusal))
+            return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.BadFactory, factoryRefusal!, null);
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            if (WhyNotRestore(ctx, factory, version, out wanted) is { } refused)
+            {
+                wanted = null;
+                return refused;
+            }
+            var head = Newest(ctx, factory);
+            var expected = ExpectedForRestore(ctx, factory, expectedVersion);
+            if (expected != (head?.Version ?? 0))
+            {
+                wanted = null;
+                return StaleWrite(factory, expected, head);
+            }
+            return null;
+        }
+    }
+
     // ---------- writes ----------
 
     /// <summary>
@@ -429,6 +479,21 @@ public sealed class FactoryDefinitionStore
     }
 
     /// <summary>
+    /// THE TWO-WRITER REFUSAL: the writer expected another newest version. The newest version rides the refusal so the
+    /// caller can merge rather than read again and race again.
+    /// </summary>
+    private static FactoryDefinitionWrite StaleWrite(string factory, int expectedVersion, FactoryDefinitionVersionSummary? head)
+    {
+        var current = head?.Version ?? 0;
+        FileLog.Write($"[FactoryDefinitionStore] {factory}: REFUSED a stale write (expected {expectedVersion}, newest {current})");
+        return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.Stale,
+            current == 0
+                ? $"{factory} has no definition on the Gateway yet, so save it expecting version 0"
+                : $"the definition of {factory} is at version {current}, not {expectedVersion}; read it again, merge, and save once more",
+            head);
+    }
+
+    /// <summary>
     /// Every rule an appended version is held to - the writer's version is the newest, a session's waiting drafts,
     /// the content, the change note - and the row it would be. Returns the refusal, or null with
     /// <paramref name="written"/> ready to add. Adds nothing to <paramref name="ctx"/>: the store's own append and a
@@ -442,16 +507,7 @@ public sealed class FactoryDefinitionStore
         var head = Newest(ctx, factory);
         var current = head?.Version ?? 0;
         if (expectedVersion != current)
-        {
-            // THE TWO-WRITER REFUSAL. The newest version rides the refusal so the caller can merge rather than read
-            // again and race again.
-            FileLog.Write($"[FactoryDefinitionStore] {factory}: REFUSED a stale write (expected {expectedVersion}, newest {current})");
-            return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.Stale,
-                current == 0
-                    ? $"{factory} has no definition on the Gateway yet, so save it expecting version 0"
-                    : $"the definition of {factory} is at version {current}, not {expectedVersion}; read it again, merge, and save once more",
-                head);
-        }
+            return StaleWrite(factory, expectedVersion, head);
 
         if (!published && authorKind == FactoryMemoryAuthorKinds.Session
             && TooManyWaitingDrafts(ctx, factory, head, authorId) is { } tooMany)

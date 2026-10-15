@@ -359,6 +359,27 @@ public sealed class FactoryPublishPlanTests
     }
 
     [Fact]
+    public void Compose_AnIntervalStartWithNoCheck_IsRefusedInItsOwnWords_NotAsAStartWithACheck()
+    {
+        // Arrange: the writer starts on an interval with no check, as a version stored before the check's interval
+        // rule could hold.
+        var d = WithSeat(Definition(), "writer", s => s with
+        {
+            Starts = new[] { new SeatStartDefinition(null, null, "1h", 3600, null, Array.Empty<string>(), "Write.", true) },
+        });
+
+        // Act
+        var refusal = Refusal(d);
+
+        // Assert
+        Assert.Equal(FactoryDefinitionOutcome.PlanRefused, refusal.Outcome);
+        var finding = Assert.Single(refusal.Findings);
+        Assert.Equal("seats/writer.yaml", finding.File);
+        Assert.Equal("This start runs on an interval and has no check. Until phase 5b a publish turns only a start with a cron time " +
+                     "into a schedule, so give it a cron time, or publish it without the start.", finding.Message);
+    }
+
+    [Fact]
     public void Compose_ATitleTheRegistryRefuses_IsRefused_OnFactoryYaml_InTheRegistrysWords()
     {
         var refusal = Refusal(Definition() with { Title = new string('T', FactoryRegistryStore.MaxTitleChars + 1) });

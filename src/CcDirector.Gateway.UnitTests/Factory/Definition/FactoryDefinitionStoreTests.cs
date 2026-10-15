@@ -604,6 +604,131 @@ public sealed class FactoryDefinitionStoreTests : IDisposable
         Assert.Equal(3, store.History(A, TheFactory).Total);
     }
 
+    // ---------- the rulings a publish that drives the factory asks first (review of 4006, finding 1) ----------
+
+    [Fact]
+    public void RuleOnPublish_RefusesAVersionThatDoesNotExist_AndADraftSavedUnderTheRuling_IsNotPublished()
+    {
+        // Arrange: version 1 published; version 2 does not exist yet.
+        var store = NewStore();
+        SaveBySession(store, Definition("v1"), expect: 0);
+        PublishByOwner(store, 1);
+
+        // Act: the ruling refuses, then a session saves version 2 - the window in which the endpoint used to call the
+        // store's writing Publish for the sentence.
+        var refused = store.RuleOnPublish(A, TheFactory, 2, out var wanted);
+        SaveBySession(store, Definition("v2, saved under the ruling"), expect: 1);
+
+        // Assert: the refusal, and nothing published by it.
+        Assert.Equal(FactoryDefinitionOutcome.NoSuchVersion, refused!.Outcome);
+        Assert.Equal("version 2 of the definition of warmforward does not exist; its newest version is 1", refused.Refusal);
+        Assert.Null(wanted);
+        Assert.Equal(1, store.Standing(A, TheFactory).Published!.Version);
+        Assert.Equal(FactoryDefinitionStates.Draft, store.Find(A, TheFactory, 2)!.Summary.State);
+    }
+
+    [Fact]
+    public void RuleOnPublish_RefusesWhatPublishRefuses_WithTheSameSentence_AndWritesNothing()
+    {
+        // Arrange: version 1 a draft, version 2 published.
+        var store = NewStore();
+        SaveBySession(store, Definition("v1"), expect: 0);
+        SaveBySession(store, Definition("v2"), expect: 1);
+        PublishByOwner(store, 2);
+
+        // Act
+        var older = store.RuleOnPublish(A, TheFactory, 1, out _);
+        var again = store.RuleOnPublish(A, TheFactory, 2, out _);
+
+        // Assert: the writing Publish's own answers, and the history as it was.
+        Assert.Equal(FactoryDefinitionOutcome.OlderThanPublished, older!.Outcome);
+        Assert.Equal(PublishByOwner(store, 1).Refusal, older.Refusal);
+        Assert.Equal(FactoryDefinitionOutcome.AlreadyPublished, again!.Outcome);
+        Assert.Equal("version 2 is already the published definition of warmforward", again.Refusal);
+        Assert.Equal(2, store.History(A, TheFactory).Total);
+        Assert.Equal(FactoryDefinitionStates.Draft, store.Find(A, TheFactory, 1)!.Summary.State);
+    }
+
+    [Fact]
+    public void RuleOnPublish_ADraftThatMayBePublished_ComesBackWithItsFiles_AndIsStillADraft()
+    {
+        // Arrange
+        var store = NewStore();
+        SaveBySession(store, Definition("v1"), expect: 0);
+
+        // Act
+        var refused = store.RuleOnPublish(A, TheFactory, 1, out var wanted);
+
+        // Assert
+        Assert.Null(refused);
+        Assert.Contains("v1", wanted!.Files["seats/boss.yaml"]);
+        Assert.Null(store.Standing(A, TheFactory).Published);
+    }
+
+    [Fact]
+    public void RuleOnRestore_RefusesThePublishedVersion_AndAPublishLandingUnderTheRuling_AppendsNoCopy()
+    {
+        // Arrange: version 1 published, version 2 a draft.
+        var store = NewStore();
+        SaveBySession(store, Definition("v1"), expect: 0);
+        PublishByOwner(store, 1);
+        SaveBySession(store, Definition("v2"), expect: 1);
+
+        // Act: the ruling refuses version 1 as the published one, then another publish moves the published version -
+        // the window in which the endpoint used to call the store's writing Restore for the sentence.
+        var refused = store.RuleOnRestore(A, TheFactory, 1, expectedVersion: 2, out var wanted);
+        PublishByOwner(store, 2);
+
+        // Assert: the refusal, and no copy appended by it.
+        Assert.Equal(FactoryDefinitionOutcome.AlreadyPublished, refused!.Outcome);
+        Assert.Equal("version 1 is the published definition of warmforward already, so there is nothing to restore", refused.Refusal);
+        Assert.Null(wanted);
+        Assert.Equal(2, store.History(A, TheFactory).Total);
+    }
+
+    [Fact]
+    public void RuleOnRestore_AStaleExpectedVersion_IsTheStoresStaleRefusal_CarryingTheNewest_AndWritesNothing()
+    {
+        // Arrange: versions 1 and 2 published, version 3 a session's draft.
+        var store = NewStore();
+        SaveBySession(store, Definition("v1"), expect: 0);
+        PublishByOwner(store, 1);
+        SaveBySession(store, Definition("v2"), expect: 1);
+        PublishByOwner(store, 2);
+        SaveBySession(store, Definition("v3, a session's draft"), expect: 2);
+
+        // Act
+        var refused = store.RuleOnRestore(A, TheFactory, 1, expectedVersion: 2, out var wanted);
+
+        // Assert
+        Assert.Equal(FactoryDefinitionOutcome.Stale, refused!.Outcome);
+        Assert.Equal("the definition of warmforward is at version 3, not 2; read it again, merge, and save once more", refused.Refusal);
+        Assert.Equal(3, refused.Version!.Version);
+        Assert.Null(wanted);
+        Assert.Equal(3, store.History(A, TheFactory).Total);
+    }
+
+    [Fact]
+    public void RuleOnRestore_AnOlderVersion_ComesBackWithItsFiles_AndNothingIsAppended()
+    {
+        // Arrange
+        var store = NewStore();
+        SaveBySession(store, Definition("v1"), expect: 0);
+        PublishByOwner(store, 1);
+        SaveBySession(store, Definition("v2"), expect: 1);
+        PublishByOwner(store, 2);
+
+        // Act: once naming the newest version, once naming none.
+        var named = store.RuleOnRestore(A, TheFactory, 1, expectedVersion: 2, out var wanted);
+        var unnamed = store.RuleOnRestore(A, TheFactory, 1, expectedVersion: null, out _);
+
+        // Assert
+        Assert.Null(named);
+        Assert.Null(unnamed);
+        Assert.Contains("v1", wanted!.Files["seats/boss.yaml"]);
+        Assert.Equal(2, store.History(A, TheFactory).Total);
+    }
+
     [Fact]
     public void A_restore_that_states_no_version_goes_after_whatever_is_newest()
     {

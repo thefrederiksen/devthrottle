@@ -622,6 +622,21 @@ def test_diff_PrintsThePublishedVersionItComparedAgainst_AndThePlanVerbatim(gate
     assert "factory definition publish warmforward --version 5 --replaces 4" in out
 
 
+def test_diff_OfAVersionOlderThanThePublishedOne_SuggestsRestore_AsTheGatewaysPlanSays(gateway):
+    plan = {**PLAN, "version": 2, "act": "restore",
+            "heading": "Version 2 is older than the published version 5, so it can only be restored. "
+                       "What restoring version 2 would do to the live factory now:"}
+    gateway((200, {"factory": FACTORY, "from": 5, "to": 2, "changes": CHANGES, "publishedVersion": 5, "plan": plan}))
+
+    result = run("diff", FACTORY, "--to", "2")
+
+    assert result.exit_code == 0, result.output
+    out = result.stdout
+    assert plan["heading"] in out
+    assert "factory definition restore warmforward --version 2 --replaces 5" in out
+    assert "factory definition publish warmforward" not in out
+
+
 def test_diff_WithNothingPublished_TellsThePersonToPassReplacesZero(gateway):
     gateway((200, {"factory": FACTORY, "from": None, "to": 1, "publishedVersion": None, "plan": {**PLAN, "version": 1},
                    "changes": {**CHANGES, "summary": "Everything is new.", "seats": [], "firstPublish": True}}))

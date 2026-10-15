@@ -2072,7 +2072,8 @@ or is archived (exit 1, the Gateway's sentence), a row the registry or schedule 
 
 **What it replaces.** `diff` prints `published version: N` - the published version it compared against - and
 `plan`: what publishing the compared version would do to the live factory now, step by step, or why it would be
-refused. Pass that number to `publish --replaces N` (0 when none is published): if another publish got there
+refused. A version older than the published one can only be restored, so its plan is worded as a restore and the
+next command it suggests is `restore`. Pass that number to `publish --replaces N` (0 when none is published): if another publish got there
 first, nothing is written and the command exits 1 with "Not published: version M is the published definition
 now, not N. Read what changes again and publish once more." Without `--replaces` there is no such check. Either
 way, what changes is computed inside the transaction against the version really replaced. `--json` prints the

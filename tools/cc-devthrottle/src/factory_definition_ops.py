@@ -441,7 +441,9 @@ def diff(factory: str, from_version: Optional[int], to_version: Optional[int], j
         *_changes_lines(changes),
         *_plan_lines(answer.get("plan")))
     replaces = published if isinstance(published, int) else 0
-    axi_cli.print_next([f"{_TOOL} publish {_f(factory)} --version {answer['to']} --replaces {replaces}",
+    plan = answer.get("plan")
+    act = "restore" if isinstance(plan, dict) and plan.get("act") == "restore" else "publish"
+    axi_cli.print_next([f"{_TOOL} {act} {_f(factory)} --version {answer['to']} --replaces {replaces}",
                         f"{_TOOL} history {_f(factory)}"])
 
 

@@ -278,7 +278,7 @@ internal static class FactoryDefinitionEndpoints
             return DoesNotParse(folded, published.Summary.Version, badFrom);
 
         var changes = FactoryDefinitionChanges.Compare(published?.Files, compared.Files);
-        var plan = PlanOf(apply, tenant, compared);
+        var plan = PlanOf(apply, tenant, compared, standing.Published?.Version);
         FileLog.Write($"[FactoryDefinitionEndpoints] {folded}: diff {fromVersion?.ToString() ?? "nothing"} -> {compared.Summary.Version}: {changes.Summary}; plan: {plan.Steps.Count} steps{(plan.Refused is null ? "" : ", refused")}");
         return Results.Json(new FactoryDefinitionDiffResponse
         {
@@ -293,17 +293,25 @@ internal static class FactoryDefinitionEndpoints
 
     /// <summary>
     /// What a publish of <paramref name="compared"/> WOULD do to the live factory now (design section 6), composed by
-    /// the same plan a publish applies. The version already parses (the diff checked it above).
+    /// the same plan a publish applies. The version already parses (the diff checked it above). A version older than
+    /// the published one can only be restored, so its plan is worded as a restore (review of 4006, observation 3): a
+    /// restore's copy has the same content, so the steps are the same.
     /// </summary>
-    private static FactoryDefinitionPlanDto PlanOf(FactoryPublishApply apply, TenantId tenant, FactoryDefinitionVersion compared)
+    private static FactoryDefinitionPlanDto PlanOf(FactoryPublishApply apply, TenantId tenant, FactoryDefinitionVersion compared,
+        int? publishedVersion)
     {
         var version = compared.Summary.Version;
         var definition = FactoryDefinitionCheck.Read(compared.Files).Definition!;
         var composed = apply.Plan(tenant, definition);
+        var restore = publishedVersion is { } published && published > version;
         return new FactoryDefinitionPlanDto
         {
             Version = version,
-            Heading = $"What publishing version {version} would do to the live factory now:",
+            Act = restore ? "restore" : "publish",
+            Heading = restore
+                ? $"Version {version} is older than the published version {publishedVersion}, so it can only be restored. " +
+                  $"What restoring version {version} would do to the live factory now:"
+                : $"What publishing version {version} would do to the live factory now:",
             Steps = composed.Plan?.Sentences().ToList() ?? new List<string>(),
             Refused = composed.Refusal?.Sentence,
             Findings = composed.Refusal?.Findings.Select(ToDto).ToList() ?? new List<FactoryDefinitionFindingDto>(),
@@ -546,14 +554,12 @@ internal static class FactoryDefinitionEndpoints
 
         // THE STORE'S OWN RULINGS COME FIRST (review of 4004, finding 3): no such version, already published, older
         // than the published one. They say which version is live, and the check's "was not published" must never be
-        // said of the version that IS published.
-        var standing = store.Standing(tenant, folded);
-        var wanted = store.Find(tenant, folded, body.Version);
-        if (wanted is null || wanted.Summary.State == FactoryDefinitionStates.Published
-            || standing.Published is { } live && live.Version > body.Version)
-            return Answer(store.Publish(tenant, folded, body.Version, caller.Kind, caller.Id, nowUtc()), store, tenant, folded, null);
+        // said of the version that IS published. They are asked WITHOUT writing (review of 4006, finding 1): a person's
+        // publish writes only through the transaction below, which rules again on what it reads.
+        if (store.RuleOnPublish(tenant, folded, body.Version, out var wanted) is { } refused)
+            return Answer(refused, store, tenant, folded, null);
 
-        var check = Check(wanted.Files, folded, tenant, account, DefinitionCheckPurpose.Publish);
+        var check = Check(wanted!.Files, folded, tenant, account, DefinitionCheckPurpose.Publish);
         if (check.HasErrors)
             return CheckRefused(folded, check, $"Version {body.Version} was not published");
 
@@ -585,15 +591,12 @@ internal static class FactoryDefinitionEndpoints
             return Answer(store.Restore(tenant, folded, body.Version, caller.Kind, caller.Id, null, nowUtc(), body.ExpectedVersion),
                 store, tenant, folded, null);
 
-        // The store's own rulings first, as for a publish: no such version, already the published one, a stale view.
-        var standing = store.Standing(tenant, folded);
-        var wanted = store.Find(tenant, folded, body.Version);
-        if (wanted is null || standing.Published?.Version == body.Version
-            || body.ExpectedVersion > 0 && body.ExpectedVersion != standing.Newest?.Version)
-            return Answer(store.Restore(tenant, folded, body.Version, caller.Kind, caller.Id, null, nowUtc(), body.ExpectedVersion),
-                store, tenant, folded, null);
+        // The store's own rulings first, as for a publish and asked without writing: no such version, already the
+        // published one, a stale view.
+        if (store.RuleOnRestore(tenant, folded, body.Version, body.ExpectedVersion, out var wanted) is { } refused)
+            return Answer(refused, store, tenant, folded, null);
 
-        var check = Check(wanted.Files, folded, tenant, account, DefinitionCheckPurpose.Publish);
+        var check = Check(wanted!.Files, folded, tenant, account, DefinitionCheckPurpose.Publish);
         if (check.HasErrors)
             return CheckRefused(folded, check, $"Version {body.Version} was not restored");
 

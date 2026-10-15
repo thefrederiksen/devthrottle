@@ -25,6 +25,11 @@ namespace CcDirector.Gateway.Factory.Definition;
 /// </summary>
 public static class FactoryPublishPlan
 {
+    /// <summary>The refusal for an interval start with no check: a publish turns only a timed start into a schedule.</summary>
+    public const string IntervalStartNotYet =
+        "This start runs on an interval and has no check. Until phase 5b a publish turns only a start with a cron time " +
+        "into a schedule, so give it a cron time, or publish it without the start.";
+
     /// <summary>
     /// The plan for publishing <paramref name="definition"/> onto the live factory, or why it cannot be. The live rows
     /// may name other factories; only this factory's are planned.
@@ -51,9 +56,15 @@ public static class FactoryPublishPlan
         // A START WITH A CHECK CANNOT RUN BEFORE PHASE 5B. The whole-definition check refuses it at publish on its
         // check line; refused here too, because a plan that dropped it would quietly lose a start, and one that made it
         // a schedule would run it without its check.
+        // An interval start with no check is refused by the check at every save, so a checked definition never holds
+        // one; a version stored before that rule can, and it is refused in its own words (review of 4006, observation 4).
         foreach (var seat in definition.Seats)
-            if (seat.Starts.Any(s => s.Check is not null || s.Cron is null))
+        {
+            if (seat.Starts.Any(s => s.Check is not null))
                 findings.Add(Error(SeatFile(seat), FactoryDefinitionCheck.CheckStartNotYet));
+            else if (seat.Starts.Any(s => s.Cron is null))
+                findings.Add(Error(SeatFile(seat), IntervalStartNotYet));
+        }
         if (findings.Count > 0) return RowRulesRefused(factory, findings);
 
         var mine = liveSchedules.Where(j => string.Equals(j.Factory, factory, StringComparison.Ordinal))

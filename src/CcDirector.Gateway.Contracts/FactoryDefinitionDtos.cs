@@ -91,6 +91,12 @@ public sealed class FactoryDefinitionPlanDto
     /// <summary>The version whose publish is planned (the diff's <c>to</c>).</summary>
     public int Version { get; set; }
 
+    /// <summary>
+    /// The act that would apply the plan: <c>publish</c>, or <c>restore</c> when the version is older than the published
+    /// one, because publishing does not go backwards and a restore publishes a copy of it as the newest version.
+    /// </summary>
+    public string Act { get; set; } = "publish";
+
     /// <summary>The line that says what the steps are, composed on the Gateway.</summary>
     public string Heading { get; set; } = "";
 

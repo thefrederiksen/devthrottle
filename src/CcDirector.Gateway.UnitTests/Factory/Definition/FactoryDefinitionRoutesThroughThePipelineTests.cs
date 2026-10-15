@@ -323,6 +323,7 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
         var plan = before.Body.GetProperty("plan");
         Assert.Equal(1, plan.GetProperty("version").GetInt32());
         Assert.Equal("What publishing version 1 would do to the live factory now:", plan.GetProperty("heading").GetString());
+        Assert.Equal("publish", plan.GetProperty("act").GetString());
         Assert.Equal(JsonValueKind.Null, plan.GetProperty("refused").ValueKind);
         var steps = plan.GetProperty("steps").EnumerateArray().Select(a => a.GetString()!).ToList();
         Assert.Contains("A new schedule (DevThrottle - Boss) for seat boss: Weekdays 08:00 Europe/Copenhagen.", steps);
@@ -336,6 +337,29 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
         Assert.Equal(1, after.Body.GetProperty("publishedVersion").GetInt32());
         Assert.Contains("Registry: seat writer renamed Writer -> Author.",
             after.Body.GetProperty("plan").GetProperty("steps").EnumerateArray().Select(a => a.GetString()));
+    }
+
+    [Fact]
+    public async Task THE_DIFF_PLAN_OF_A_VERSION_OLDER_THAN_THE_PUBLISHED_ONE_IS_WORDED_AS_A_RESTORE()
+    {
+        // Arrange: version 1 published, then version 2 (the writer renamed Author) published over it.
+        await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(DefinitionFixture.Publishable(), 0));
+        await Send("POST", FactoryPath + "/publish", AsAPerson, """{"version":1}""");
+        await Send("PUT", FactoryPath + "/draft", AsAPerson,
+            SaveBody(DefinitionFixture.PublishableEdit("seats/writer.yaml", "name: Writer", "name: Author"), 1));
+        await Send("POST", FactoryPath + "/publish", AsAPerson, """{"version":2,"replaces":1}""");
+
+        // Act
+        var diff = await Send("GET", FactoryPath + "/diff?to=1", AsAPerson);
+
+        // Assert
+        Assert.Equal(200, diff.Status);
+        var plan = diff.Body.GetProperty("plan");
+        Assert.Equal("restore", plan.GetProperty("act").GetString());
+        Assert.Equal("Version 1 is older than the published version 2, so it can only be restored. " +
+                     "What restoring version 1 would do to the live factory now:", plan.GetProperty("heading").GetString());
+        Assert.Contains("Registry: seat writer renamed Author -> Writer.",
+            plan.GetProperty("steps").EnumerateArray().Select(a => a.GetString()));
     }
 
     [Fact]
