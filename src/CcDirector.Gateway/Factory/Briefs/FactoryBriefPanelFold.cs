@@ -57,43 +57,67 @@ public static class FactoryBriefPanelFold
     /// see them. This names each one, beside the line that the whole definition goes live.
     /// </summary>
     /// <param name="seat">The seat whose brief is being published: its own brief change is left out, it is what the
-    /// person is looking at. Every other change of that seat is named.</param>
-    /// <param name="published">The published definition version; <paramref name="publishedFiles"/> are its files.</param>
+    /// person is looking at. Every other change of that seat is named, its removal or addition among them.</param>
+    /// <param name="published">The published definition version, read once per request.</param>
     /// <param name="goingLive">The files of the definition version the publish puts live.</param>
-    public static string AlsoGoesLive(string seat, int published, IReadOnlyDictionary<string, string> publishedFiles,
-        IReadOnlyDictionary<string, string> goingLive)
+    /// <param name="bringingBack">For a Bring back: the older version brought back. A copy of it is published, so the
+    /// whole definition goes back to it and the line says what that changes in the published version. Null for a
+    /// publish of a newer version.</param>
+    public static string AlsoGoesLive(string seat, PublishedDefinition published, IReadOnlyDictionary<string, string> goingLive,
+        int? bringingBack = null)
     {
         ArgumentNullException.ThrowIfNull(seat);
-        ArgumentNullException.ThrowIfNull(publishedFiles);
+        ArgumentNullException.ThrowIfNull(published);
         ArgumentNullException.ThrowIfNull(goingLive);
+        var p = published.Version;
         // A stored version that no longer passes the format check cannot be compared: say so, and where to look.
-        if (FactoryPublishApply.FirstFormatError(goingLive) is not null || FactoryPublishApply.FirstFormatError(publishedFiles) is not null)
-            return $"What else changed since version {published} was published cannot be shown here, because a version no " +
-                   "longer passes the format check. The Definition tab says where.";
+        if (!published.Readable || FactoryPublishApply.FirstFormatError(goingLive) is not null)
+            return (bringingBack is { } b
+                       ? $"What else bringing back version {b} changes in version {p}, the published one, cannot be shown here"
+                       : $"What else changed since version {p} was published cannot be shown here") +
+                   ", because a version no longer passes the format check. The Definition tab says where.";
 
-        var changes = FactoryDefinitionChanges.Compare(publishedFiles, goingLive);
+        var changes = FactoryDefinitionChanges.Compare(published.Files, goingLive);
         var others = new List<string>();
         others.AddRange(changes.Factory.Select(c => Sentence(c.Sentence)));
         foreach (var c in changes.Seats)
         {
             var own = string.Equals(c.Seat, seat, StringComparison.Ordinal);
             var details = own ? c.Details.Where(d => !d.StartsWith("brief", StringComparison.Ordinal)).ToList() : c.Details;
-            if (own && details.Count == 0) continue;
+            // Only a change of this seat that was nothing but its brief is left out; its removal or addition is named.
+            if (own && c.Change == "changed" && details.Count == 0) continue;
             others.Add(WithDetails(c.Sentence, details));
         }
-        others.AddRange(changes.Starts.Select(c => c.Sentence));
+        others.AddRange(changes.Starts.Select(c => WithDetails(c.Sentence, c.Details)));
         others.AddRange(changes.Rules.Select(c => c.Sentence));
         others.AddRange(changes.Grants.Select(c => WithDetails(c.Sentence, c.Details)));
         others.AddRange(changes.Files.Select(c => c.Sentence));
 
         if (others.Count == 0)
-            return $"Nothing else in the definition has changed since version {published} was published, so this brief is the only change that goes live.";
+            return bringingBack is { } none
+                ? $"Nothing else in definition version {none} differs from version {p}, which is published, so this brief is the only change it makes."
+                : $"Nothing else in the definition has changed since version {p} was published, so this brief is the only change that goes live.";
         var shown = string.Join(" ", others.Take(AlsoGoesLiveShown));
         var more = others.Count > AlsoGoesLiveShown
             ? $" And {others.Count - AlsoGoesLiveShown} more; the Definition tab lists every change."
             : "";
+        if (bringingBack is { } back)
+        {
+            var these = others.Count == 1 ? "this other change" : $"these {others.Count} other changes";
+            return $"It also brings back the rest of definition version {back}, not only this brief, and so makes {these} to version {p}, the published one: {shown}{more}";
+        }
         var which = others.Count == 1 ? "the other change" : $"the {others.Count} other changes";
-        return $"It also puts live {which} saved in the definition since version {published} was published, not only this brief: {shown}{more}";
+        return $"It also puts live {which} saved in the definition since version {p} was published, not only this brief: {shown}{more}";
+    }
+
+    /// <summary>
+    /// The published definition version a confirm is compared against, read and checked ONCE per request: a history
+    /// page asks for up to <see cref="HistoryPage"/> confirms, and each would otherwise read and parse it again.
+    /// </summary>
+    public sealed record PublishedDefinition(int Version, IReadOnlyDictionary<string, string> Files, bool Readable)
+    {
+        public static PublishedDefinition Of(int version, IReadOnlyDictionary<string, string> files) =>
+            new(version, files, FactoryPublishApply.FirstFormatError(files) is null);
     }
 
     // A change sentence ends with a full stop wherever it is shown in a list.
@@ -311,7 +335,8 @@ public static class FactoryBriefPanelFold
     /// each row that carries Publish, so its confirm names every other change that goes live with it.</param>
     public static FactoryBriefHistoryViewDto History(RegisteredFactoryDto factory, RegisteredFactorySeatDto seat,
         FactoryBriefStanding brief, FactoryBriefHistoryPage page, bool firstPage, TimeZoneInfo zone, DateTime nowUtc,
-        string? definition = null, int? publishedDefinition = null, Func<int, string?>? alsoGoesLive = null)
+        string? definition = null, int? publishedDefinition = null, Func<int, string?>? alsoGoesLive = null,
+        Func<int, string?>? alsoBroughtBack = null)
     {
         ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(seat);
@@ -368,6 +393,7 @@ public static class FactoryBriefPanelFold
             row.Publish?.ConfirmLines.Add(definition);
             if (row.Publish is not null && alsoGoesLive?.Invoke(row.Version) is { } also) row.Publish.ConfirmLines.Add(also);
             row.BringBack?.ConfirmLines.Add(definition);
+            if (row.BringBack is not null && alsoBroughtBack?.Invoke(row.Version) is { } back) row.BringBack.ConfirmLines.Add(back);
         }
         return view;
     }
@@ -399,7 +425,7 @@ public static class FactoryBriefPanelFold
             OpenLabel = "Open",
             // The store's own rules: a draft above the published version is published; anything below it is brought back.
             Publish = isDraft && v.Version > (published ?? 0) ? PublishAction(name, v.Version, published, newest) : null,
-            BringBack = published is { } current && v.Version < current ? BringBackAction(name, v.Version, current, newest) : null,
+            BringBack = published is { } current && v.Version < current ? BringBackAction(name, v.Version, current, newest, defined) : null,
         };
     }
 
@@ -429,12 +455,16 @@ public static class FactoryBriefPanelFold
         };
     }
 
-    internal static FactoryBriefActionDto BringBackAction(string name, int version, int published, int newest)
+    /// <param name="defined">A defined factory's Bring back restores the whole definition version, which can take files,
+    /// seats and starts out of the live definition: its line says only that no VERSION is removed.</param>
+    internal static FactoryBriefActionDto BringBackAction(string name, int version, int published, int newest, bool defined = false)
     {
         var lines = new List<string>
         {
             $"A copy of version {version} becomes version {newest + 1}, and it is published. Every later talk and every later run of {name} will be given that text.",
-            $"Nothing is removed. Version {published}, which is published now, and every other version are kept.",
+            defined
+                ? $"No version is removed: version {published}, which is published now, and every other version are kept."
+                : $"Nothing is removed. Version {published}, which is published now, and every other version are kept.",
         };
         var waiting = newest - published;
         if (waiting > 0)

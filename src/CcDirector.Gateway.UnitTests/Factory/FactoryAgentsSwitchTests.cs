@@ -168,7 +168,8 @@ public sealed class FactoryAgentsSwitchTests : IDisposable
             new CcDirector.Gateway.Factory.Registry.FactoryRegistryStore(Db), _ => Array.Empty<CronJobDto>(),
             (_, _, _) => new Dictionary<string, IReadOnlyList<CronRunRecord>>(),
             (_, f) => new CronRunProblemsDto { Factory = f },
-            (_, f) => new FactoryEmailsDto { Factory = f }));
+            (_, f) => new FactoryEmailsDto { Factory = f }),
+            isDefined: (_, _) => false);
         TriggerEndpoints.Map(FactoryAgentsGate.Group(app, sw, resolve), resolve, triggers,
             directorMachine: (_, _) => "NORTH", nowUtc: () => _now, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown,
             isDefined: (_, _) => false);

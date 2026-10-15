@@ -316,6 +316,16 @@ function SeatsTab({ view: d, onChanged }: { view: FactorySeatsView; onChanged: (
           </Button>
         </div>
       )}
+      {d.definedText !== null && (
+        <p className="fa-seat-defined" data-testid="fa-seats-defined">
+          {d.definedText}{" "}
+          {d.definitionHref !== null && d.definitionLabel !== null && (
+            <Link className="fa-link" to={d.definitionHref}>
+              {d.definitionLabel}
+            </Link>
+          )}
+        </p>
+      )}
       <div className="fa-scroll">
         <table className="fa-table fa-seats" data-testid="fa-seats-table">
           <thead>

@@ -130,7 +130,7 @@ public sealed class FactorySeatRoutesTests : IAsyncDisposable
             (_, _, _) => new Dictionary<string, IReadOnlyList<CronRunRecord>>(),
             (_, f) => new CronRunProblemsDto { Factory = f },
             (_, f) => new FactoryEmailsDto { Factory = f });
-        FactoriesScreenEndpoints.Map(app, _ => T, sources);
+        FactoriesScreenEndpoints.Map(app, _ => T, sources, isDefined: (_, _) => false);
         // No factory here has a definition, so the seat page and the brief routes read the brief store, as before phase 4.
         var defined = new FactoryDefinitionBriefs(new FactoryDefinitionStore(_db), _briefs);
         FactoriesScreenEndpoints.MapSeatPage(app, _ => T, sources, (_, _) => _memoryNotes, _briefs, defined);

@@ -398,6 +398,8 @@ describe("A factory's Seats tab (mockup 3)", () => {
     expect(within(table).queryByText(/change - coming/)).toBeNull();
     expect(within(within(table).getByTestId("fa-seat-none-value-hunter")).getByText("Not run yet")).toBeTruthy();
     expect(screen.getByText("Only seats the boss hired are listed.")).toBeTruthy();
+    // A factory with no definition says nothing of one.
+    expect(screen.queryByTestId("fa-seats-defined")).toBeNull();
     expect(screenClient.getFactorySeats).toHaveBeenCalledWith("warmforward", expect.anything());
   });
 
@@ -455,6 +457,28 @@ describe("A factory's Seats tab (mockup 3)", () => {
     expect(banner).toContain("SOREN_NORTH has 7 sessions open at 06:00.");
     // The shift-end warning rides beside it, verbatim.
     expect(banner).toContain("Ends after its shift: the run on Mon 12 Oct at 07:45 starts in the night shift (fixture).");
+  });
+
+  it("on a defined factory, draws no Edit the Gateway withheld, and its sentence with the link to the Definition tab", async () => {
+    const nora = FACTORY_SEATS.rows[0];
+    const withheld = { ...nora, schedules: nora.schedules.map((s) => ({ ...s, editLabel: null })) };
+    screenClient.getFactorySeats.mockResolvedValue({
+      ...FACTORY_SEATS,
+      rows: [withheld],
+      groups: [{ shift: "night", title: "Night shift, 00:00-08:00 (fixture)", rows: [withheld] }],
+      definedText: "WarmForward has a definition, and its seats' schedules come from it. (fixture)",
+      definitionLabel: "Open the Definition tab",
+      definitionHref: "/factories/warmforward/definition",
+    });
+    renderAt("/factories/warmforward/seats");
+
+    const table = await screen.findByTestId("fa-seats-table");
+    expect(within(table).queryByRole("button", { name: "Edit schedule" })).toBeNull();
+    const defined = screen.getByTestId("fa-seats-defined");
+    expect(defined.textContent).toContain("WarmForward has a definition, and its seats' schedules come from it. (fixture)");
+    expect(within(defined).getByRole("link", { name: "Open the Definition tab" }).getAttribute("href")).toBe(
+      "/factories/warmforward/definition",
+    );
   });
 
   it("groups the seats under the Gateway's shift headings, in its order, a seat in two shifts under each", async () => {

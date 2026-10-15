@@ -9,7 +9,7 @@
       "schedules": [
         {
           "editLabel": null,
-          "jobId": "cj_36775a",
+          "jobId": "cj_a0c22e",
           "missingText": null,
           "name": "QA Outreach - Boss",
           "paused": false,
@@ -45,7 +45,7 @@
       "schedules": [
         {
           "editLabel": "Edit schedule",
-          "jobId": "cj_cf408b",
+          "jobId": "cj_1e7eb2",
           "missingText": null,
           "name": "QA Undefined scout at noon",
           "paused": false,
@@ -62,7 +62,7 @@
               "Scout will then be talk only."
             ],
             "confirmTitle": "Take this schedule off Scout?",
-            "jobId": "cj_cf408b",
+            "jobId": "cj_1e7eb2",
             "label": "Take off this seat"
           },
           "whenText": "Daily 12:00 (Europe/Copenhagen)"
@@ -72,5 +72,29 @@
       "triggers": [],
       "triggersPause": null
     }
+  },
+  "38-defined-seats-tab": {
+    "definedText": "QA Outreach has a definition, and its seats' schedules come from it, so none is edited here. To change or remove one, change the seat's start in the definition's folder, import it on the Definition tab, and publish it.",
+    "definitionHref": "/factories/qa-outreach/definition",
+    "request": "GET /gateway/factories/qa-outreach/seats",
+    "schedules": [
+      {
+        "editLabel": null,
+        "jobId": "cj_a0c22e",
+        "paused": false,
+        "shiftText": "Night shift",
+        "toggleLabel": "Pause",
+        "whenText": "Weekdays 08:00 (Europe/Copenhagen)"
+      }
+    ]
+  },
+  "39-bring-back-confirm": {
+    "confirmLines": [
+      "A copy of version 1 becomes version 4, and it is published. Every later talk and every later run of Boss will be given that text.",
+      "No version is removed: version 3, which is published now, and every other version are kept.",
+      "This brief is part of the definition of QA Outreach. Its versions are the definition's versions, and a publish publishes the whole definition - every seat, start and file in it - not only this brief.",
+      "It also brings back the rest of definition version 1, not only this brief, and so makes this other change to version 3, the published one: Seat Writer (writer) changed: name Author -> Writer."
+    ],
+    "request": "GET /gateway/factories/qa-outreach/seats/boss/brief/history"
   }
 }
