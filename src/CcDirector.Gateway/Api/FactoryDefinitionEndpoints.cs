@@ -552,21 +552,34 @@ internal static class FactoryDefinitionEndpoints
         if (caller.Kind != FactoryMemoryAuthorKinds.Person)
             return Answer(store.Publish(tenant, folded, body.Version, caller.Kind, caller.Id, nowUtc()), store, tenant, folded, null);
 
+        return PublishAsPerson(tenant, folded, body.Version, body.Replaces, caller.Id, store, apply, account, nowUtc());
+    }
+
+    /// <summary>
+    /// A PERSON'S PUBLISH of one definition version, which drives the factory. The one path for it, shared with a
+    /// defined factory's brief publish (<see cref="FactoryBriefEndpoints"/>, design section 9), which publishes the whole
+    /// definition the same way. <paramref name="published"/> composes the answer to a publish that went through; every
+    /// refusal is answered here, the same for both routes. Null answers as this route does.
+    /// </summary>
+    internal static IResult PublishAsPerson(TenantId tenant, string folded, int version, int? replaces, string? personId,
+        FactoryDefinitionStore store, FactoryPublishApply apply, Account account, DateTime nowUtc,
+        Func<FactoryPublishResult, FactoryDefinitionCheckResult, IResult>? published = null)
+    {
         // THE STORE'S OWN RULINGS COME FIRST (review of 4004, finding 3): no such version, already published, older
         // than the published one. They say which version is live, and the check's "was not published" must never be
         // said of the version that IS published. They are asked WITHOUT writing (review of 4006, finding 1): a person's
         // publish writes only through the transaction below, which rules again on what it reads.
-        if (store.RuleOnPublish(tenant, folded, body.Version, out var wanted) is { } refused)
+        if (store.RuleOnPublish(tenant, folded, version, out var wanted) is { } refused)
             return Answer(refused, store, tenant, folded, null);
 
         var check = Check(wanted!.Files, folded, tenant, account, DefinitionCheckPurpose.Publish);
         if (check.HasErrors)
-            return CheckRefused(folded, check, $"Version {body.Version} was not published");
+            return CheckRefused(folded, check, $"Version {version} was not published");
 
         // THE PUBLISH DRIVES THE FACTORY, in one transaction; what changes is worked out inside it, against the
         // version it really replaces.
-        var result = apply.Publish(tenant, folded, body.Version, check.Definition!, wanted.Files, body.Replaces, caller.Id, nowUtc());
-        return Answer(result, store, tenant, folded, check);
+        var result = apply.Publish(tenant, folded, version, check.Definition!, wanted.Files, replaces, personId, nowUtc);
+        return result.Write.Ok && published is not null ? published(result, check) : Answer(result, store, tenant, folded, check);
     }
 
     private static string Where(DefinitionFinding f) => FactoryPublishApply.Where(f);
@@ -591,19 +604,31 @@ internal static class FactoryDefinitionEndpoints
             return Answer(store.Restore(tenant, folded, body.Version, caller.Kind, caller.Id, null, nowUtc(), body.ExpectedVersion),
                 store, tenant, folded, null);
 
+        return RestoreAsPerson(tenant, folded, body.Version, body.ExpectedVersion, body.Replaces, caller.Id, store, apply,
+            account, nowUtc());
+    }
+
+    /// <summary>
+    /// A PERSON'S RESTORE of one older definition version, which drives the factory. Shared with a defined factory's
+    /// brief restore exactly as <see cref="PublishAsPerson"/> is shared with its publish.
+    /// </summary>
+    internal static IResult RestoreAsPerson(TenantId tenant, string folded, int version, int expectedVersion, int? replaces,
+        string? personId, FactoryDefinitionStore store, FactoryPublishApply apply, Account account, DateTime nowUtc,
+        Func<FactoryPublishResult, FactoryDefinitionCheckResult, IResult>? published = null)
+    {
         // The store's own rulings first, as for a publish and asked without writing: no such version, already the
         // published one, a stale view.
-        if (store.RuleOnRestore(tenant, folded, body.Version, body.ExpectedVersion, out var wanted) is { } refused)
+        if (store.RuleOnRestore(tenant, folded, version, expectedVersion, out var wanted) is { } refused)
             return Answer(refused, store, tenant, folded, null);
 
         var check = Check(wanted!.Files, folded, tenant, account, DefinitionCheckPurpose.Publish);
         if (check.HasErrors)
-            return CheckRefused(folded, check, $"Version {body.Version} was not restored");
+            return CheckRefused(folded, check, $"Version {version} was not restored");
 
         // The copy records the version it came from (restoredFrom), so it carries no change note of its own.
-        var result = apply.Restore(tenant, folded, body.Version, check.Definition!, wanted.Files, body.Replaces,
-            body.ExpectedVersion, caller.Id, nowUtc());
-        return Answer(result, store, tenant, folded, check);
+        var result = apply.Restore(tenant, folded, version, check.Definition!, wanted.Files, replaces,
+            expectedVersion, personId, nowUtc);
+        return result.Write.Ok && published is not null ? published(result, check) : Answer(result, store, tenant, folded, check);
     }
 
     /// <summary>422 for a diff naming a version the format check now refuses: which version, where, and what to do.</summary>

@@ -244,7 +244,8 @@ internal static class FactoryBriefEndpoints
         if (!TryCaller(ctx, sessionFactoryOf, factory, route, out var caller, out var error)) return error!;
         if (!TryWriter(caller, route, out error)) return error!;
         if (body is null) return NoBody();
-        if (defined.Briefs.IsDefined(tenant, factory)) return DefinedPublishOrRestore(caller, factory, seat, body.Version, restore: false);
+        if (defined.Briefs.IsDefined(tenant, factory))
+            return DefinedPublishOrRestore(defined, tenant, caller, factory, seat, body.Version, null, body.Replaces, nowUtc(), restore: false);
         return Answer(store.Publish(tenant, factory, seat, body.Version, caller.Kind, caller.Id, nowUtc()),
             store, tenant, factory, seat);
     }
@@ -259,29 +260,21 @@ internal static class FactoryBriefEndpoints
         if (!TryCaller(ctx, sessionFactoryOf, factory, route, out var caller, out var error)) return error!;
         if (!TryWriter(caller, route, out error)) return error!;
         if (body is null) return NoBody();
-        if (defined.Briefs.IsDefined(tenant, factory)) return DefinedPublishOrRestore(caller, factory, seat, body.Version, restore: true);
+        if (defined.Briefs.IsDefined(tenant, factory))
+            return DefinedPublishOrRestore(defined, tenant, caller, factory, seat, body.Version, body.ExpectedVersion, body.Replaces,
+                nowUtc(), restore: true);
         return Answer(store.BringBack(tenant, factory, seat, body.Version, caller.Kind, caller.Id, nowUtc(), body.ExpectedVersion),
             store, tenant, factory, seat);
     }
 
     // ---------- a defined factory: the brief is part of the definition ----------
 
-    /// <summary>What the routes need for a DEFINED factory: its briefs as the definition holds them, and the account's
-    /// fleet skills and machines the whole-definition check is run with on a save. REQUIRED, so a wiring line that
-    /// forgot it fails to compile rather than answering a defined factory from the brief store.</summary>
-    internal sealed record Defined(FactoryDefinitionBriefs Briefs, FactoryDefinitionEndpoints.Account Account);
-
-    /// <summary>
-    /// The sentence a person's publish of a defined factory's brief is answered with until the publish transaction
-    /// (phase 4, Developer A) is wired here: the brief is part of the definition, so it is the definition that is
-    /// published, through its own command.
-    /// </summary>
-    internal static string PublishTheDefinition(string factory, int version) =>
-        $"Publish the definition: cc-devthrottle factory definition publish {factory} --version {version}.";
-
-    /// <summary>As <see cref="PublishTheDefinition"/>, for a restore: an older version is used again by restoring it.</summary>
-    internal static string RestoreTheDefinition(string factory, int version) =>
-        $"Restore the definition: cc-devthrottle factory definition restore {factory} --version {version}.";
+    /// <summary>What the routes need for a DEFINED factory: its briefs as the definition holds them, the account's
+    /// fleet skills and machines the whole-definition check is run with, and the publish transaction a person's publish
+    /// and restore go through. REQUIRED, so a wiring line that forgot it fails to compile rather than answering a
+    /// defined factory from the brief store.</summary>
+    internal sealed record Defined(FactoryDefinitionBriefs Briefs, FactoryDefinitionEndpoints.Account Account,
+        FactoryPublishApply Apply);
 
     /// <summary>
     /// One read of a defined factory's brief: the seat's brief in the definition version <paramref name="which"/> picks,
@@ -415,17 +408,25 @@ internal static class FactoryBriefEndpoints
     }
 
     /// <summary>
-    /// A publish or restore of a defined factory's brief. Only a person publishes, so a session is refused first, in the
-    /// definition's own words. A person is sent to the definition's own command: the brief is part of the definition,
-    /// and publishing it publishes the whole definition.
+    /// A PUBLISH OR A RESTORE OF A DEFINED FACTORY'S BRIEF publishes DEFINITION version <paramref name="version"/>
+    /// (design section 9): it is the whole definition that is published, through the phase 4 transaction that drives
+    /// the factory, by the same function the definition's own publish and restore call - so every ruling, the check and
+    /// every refusal are theirs. A person only, as today: a session is refused with the definition's own sentence. The
+    /// version must hold this seat's brief, or the seat's route would publish a definition that has none for it. The
+    /// answer is the seat's brief in the version now published, with the line saying the whole definition was
+    /// published, what changes and what the transaction applied.
     /// </summary>
-    private static IResult DefinedPublishOrRestore(Caller caller, string factory, string seat, int version, bool restore)
+    private static IResult DefinedPublishOrRestore(Defined defined, TenantId tenant, Caller caller, string factory,
+        string seat, int version, int? expectedVersion, int? replaces, DateTime nowUtc, bool restore)
     {
-        var factoryId = FactoryNames.TryFactory(factory, out var folded, out _) ? folded : factory;
         var act = restore ? "restore" : "publish";
+        if (!FactoryNames.TrySeat(seat, out var folded, out var seatRefusal))
+            return Results.BadRequest(new { error = seatRefusal, outcome = FactoryBriefOutcome.BadSeat.ToString() });
+        var standing = defined.Briefs.Definitions.Standing(tenant, factory);
+        var factoryId = standing.Newest!.Factory;
         if (caller.Kind != FactoryMemoryAuthorKinds.Person)
         {
-            FileLog.Write($"[FactoryBriefEndpoints] {factoryId}/{seat}: defined factory, a {act} by a session REFUSED");
+            FileLog.Write($"[FactoryBriefEndpoints] {factoryId}/{folded}: defined factory, a {act} by a session REFUSED");
             return Results.Json(new
             {
                 error = restore ? FactoryDefinitionStore.OnlyAPersonRestores : FactoryDefinitionStore.OnlyAPersonPublishes,
@@ -433,13 +434,36 @@ internal static class FactoryBriefEndpoints
                 definition = FactoryBriefPanelFold.DefinitionLine(factoryId),
             }, statusCode: StatusCodes.Status403Forbidden);
         }
-        FileLog.Write($"[FactoryBriefEndpoints] {factoryId}/{seat}: defined factory, a {act} of version {version} sent to the definition");
-        return Results.Json(new
+        if (defined.Briefs.Definitions.Find(tenant, factoryId, version) is not null
+            && defined.Briefs.InVersion(tenant, factoryId, folded, version) is null)
         {
-            error = restore ? RestoreTheDefinition(factoryId, version) : PublishTheDefinition(factoryId, version),
-            outcome = "PublishTheDefinition",
-            definition = FactoryBriefPanelFold.DefinitionLine(factoryId),
-        }, statusCode: StatusCodes.Status409Conflict);
+            FileLog.Write($"[FactoryBriefEndpoints] {factoryId}/{folded}: defined factory, a {act} of version {version} REFUSED - no brief for the seat");
+            return Results.Json(new
+            {
+                error = FactoryDefinitionBriefs.NotInVersion(factoryId, folded, version, "named"),
+                outcome = FactoryBriefOutcome.SeatNotRegistered.ToString(),
+                definition = FactoryBriefPanelFold.DefinitionLine(factoryId),
+            }, statusCode: StatusCodes.Status404NotFound);
+        }
+
+        FileLog.Write($"[FactoryBriefEndpoints] {factoryId}/{folded}: defined factory, a {act} of definition version {version} by a person");
+        IResult Published(FactoryPublishResult result, FactoryDefinitionCheckResult check)
+        {
+            var now = defined.Briefs.Definitions.Standing(tenant, factoryId);
+            var brief = defined.Briefs.InVersion(tenant, factoryId, folded, result.Write.Version!.Version)!;
+            var dto = DefinedDto(brief, now);
+            dto.Findings = check.Findings.Select(f => FactoryDefinitionEndpoints.ToDto(f)).ToList();
+            if (result.ChangesNotice is not null) dto.Findings.Add(FactoryDefinitionEndpoints.ToDto(result.ChangesNotice));
+            dto.Changes = result.Changes;
+            dto.Applied = result.Applied.ToList();
+            FileLog.Write($"[FactoryBriefEndpoints] {factoryId}/{folded}: definition version {brief.Version.Version} published, {dto.Applied.Count} steps applied");
+            return Results.Json(dto);
+        }
+        return restore
+            ? FactoryDefinitionEndpoints.RestoreAsPerson(tenant, factoryId, version, expectedVersion ?? 0, replaces, caller.Id,
+                defined.Briefs.Definitions, defined.Apply, defined.Account, nowUtc, Published)
+            : FactoryDefinitionEndpoints.PublishAsPerson(tenant, factoryId, version, replaces, caller.Id,
+                defined.Briefs.Definitions, defined.Apply, defined.Account, nowUtc, Published);
     }
 
     /// <summary>A defined factory's brief in one definition version, as the brief routes answer it.</summary>

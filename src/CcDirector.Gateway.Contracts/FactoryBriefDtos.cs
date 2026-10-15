@@ -59,6 +59,18 @@ public sealed class FactoryBriefDto
     /// <summary>For a brief saved into a definition: the whole-definition check's notices on the saved version, each
     /// with its file and line. Empty otherwise.</summary>
     public List<FactoryDefinitionFindingDto> Findings { get; set; } = new();
+
+    /// <summary>
+    /// For a defined factory's brief publish or restore, which publishes the WHOLE definition: what changes against the
+    /// definition version that was published before it. Null on every other answer.
+    /// </summary>
+    public FactoryDefinitionChangesDto? Changes { get; set; }
+
+    /// <summary>
+    /// For a defined factory's brief publish or restore: what the publish transaction did to the live factory, one
+    /// sentence per step, composed on the Gateway and shown verbatim. Null on every other answer.
+    /// </summary>
+    public List<string>? Applied { get; set; }
 }
 
 /// <summary>
@@ -142,6 +154,12 @@ public sealed class SaveFactoryBriefDraftRequest
 public sealed class PublishFactoryBriefRequest
 {
     public int Version { get; set; }
+
+    /// <summary>
+    /// For a defined factory only, where a brief publish publishes the whole definition: the published definition
+    /// version the person saw, as a definition publish takes it (0 = none was published). Null (absent): no such check.
+    /// </summary>
+    public int? Replaces { get; set; }
 }
 
 /// <summary>Body of a person's bring back: which older version to publish a copy of as the newest version.</summary>
@@ -155,6 +173,9 @@ public sealed class BringBackFactoryBriefRequest
     /// means "I did not check", and the copy is then added after whatever is newest.
     /// </summary>
     public int ExpectedVersion { get; set; }
+
+    /// <summary>For a defined factory only: the published definition version the person saw, as for a publish.</summary>
+    public int? Replaces { get; set; }
 }
 
 /// <summary>

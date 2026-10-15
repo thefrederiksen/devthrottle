@@ -632,13 +632,56 @@ def test_set_DefinedFactory_PrintsTheDefinitionLine_AndEachNoticeOfTheCheck(gate
     assert "notice: seats/outreach.yaml:5: No Director on SOREN_SOUTH is connected now, so it could not be confirmed." in lines
 
 
-def test_publish_DefinedFactory_PrintsTheGatewaysSentence_AndPointsAtWhatChanges(gateway):
-    sentence = "Publish the definition: cc-devthrottle factory definition publish warmforward --version 4."
-    gateway((409, {"error": sentence, "outcome": "PublishTheDefinition", "definition": DEFINITION_LINE}))
+def published_definition(version):
+    answer = defined(version, "Run it.\n", state="published", published=version)
+    answer["changes"] = {"summary": "1 seat changed.",
+                         "seats": [{"sentence": "The brief of 'boss' changed.", "details": []}]}
+    answer["applied"] = [f"Definition: version {version} published.", "Registry: the row of warmforward written."]
+    return answer
 
-    result = runner.invoke(app, ["factory", "brief", "publish", *WHERE, "--version", "4"])
+
+def test_publish_DefinedFactory_SendsReplaces_AndPrintsTheLineWhatChangesAndApplied(gateway):
+    gw = gateway((200, published_definition(4)))
+
+    result = runner.invoke(app, ["factory", "brief", "publish", *WHERE, "--version", "4", "--replaces", "3"])
+
+    assert result.exit_code == 0, result.output
+    assert gw.calls[0]["body"] == {"version": 4, "replaces": 3}
+    lines = result.stdout.splitlines()
+    assert DEFINITION_LINE in lines
+    assert "what changes: 1 seat changed." in lines
+    assert "  The brief of 'boss' changed." in lines
+    assert lines[lines.index("applied:") + 1:lines.index("applied:") + 3] == [
+        "  Definition: version 4 published.", "  Registry: the row of warmforward written."]
+
+
+def test_publish_WithoutReplaces_SendsNoReplaces(gateway):
+    gw = gateway((200, brief(2, "text", state="published", published=2)))
+
+    result = runner.invoke(app, ["factory", "brief", "publish", *WHERE, "--version", "2"])
+
+    assert result.exit_code == 0, result.output
+    assert gw.calls[0]["body"] == {"version": 2}
+    assert "applied:" not in result.stdout
+
+
+def test_restore_DefinedFactory_SendsReplaces_AndPrintsApplied(gateway):
+    gw = gateway((200, published_definition(5)))
+
+    result = runner.invoke(app, ["factory", "brief", "restore", *WHERE, "--version", "1", "--expected-version", "4",
+                                 "--replaces", "4"])
+
+    assert result.exit_code == 0, result.output
+    assert gw.calls[0]["body"] == {"version": 1, "expectedVersion": 4, "replaces": 4}
+    assert "  Definition: version 5 published." in result.stdout.splitlines()
+
+
+def test_publish_DefinedFactory_AStaleReplaces_PrintsTheGatewaysSentence(gateway):
+    sentence = "Not published: version 4 is the published definition now, not 3. Read what changes again and publish once more."
+    gateway((409, {"error": sentence, "outcome": "Stale"}))
+
+    result = runner.invoke(app, ["factory", "brief", "publish", *WHERE, "--version", "5", "--replaces", "3"])
 
     assert result.exit_code == 1
     assert sentence in result.stderr
-    assert "cc-devthrottle factory definition diff warmforward" in result.stderr
     assert "Published" not in result.stdout

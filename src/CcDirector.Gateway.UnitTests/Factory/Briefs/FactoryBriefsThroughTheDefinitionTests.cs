@@ -86,7 +86,8 @@ public sealed class FactoryBriefsThroughTheDefinitionTests : IDisposable
             sessionFactoryOf: _ => SessionFactoryLookup.In(TheFactory),
             nowUtc: () => Now,
             defined: new FactoryBriefEndpoints.Defined(defined,
-                new FactoryDefinitionEndpoints.Account(_ => _fleetSkills.ToList(), _ => DefinitionFixture.Machines)));
+                new FactoryDefinitionEndpoints.Account(_ => _fleetSkills.ToList(), _ => DefinitionFixture.Machines),
+                new FactoryPublishApply(_db)));
 
         var schedules = new CronJobStore(_db, _h.LegacyPath(Guid.NewGuid().ToString("N") + ".json"));
         var record = new FactoryActivityRecord(_db);
@@ -118,13 +119,21 @@ public sealed class FactoryBriefsThroughTheDefinitionTests : IDisposable
 
     // ---------- the factory's definition ----------
 
-    /// <summary>Version 1 of the fixture's valid definition, saved by a person and, unless told otherwise, published.</summary>
+    /// <summary>Version 1 of the fixture's definition as a publish takes it (no start with a check), saved by a person
+    /// and, unless told otherwise, published.</summary>
     private void Define(bool publish = true)
     {
-        var saved = _definitions.SaveDraft(A, TheFactory, DefinitionFixture.Valid(), 0, FactoryMemoryAuthorKinds.Person, "owner", null, Now.AddHours(-3));
+        var saved = _definitions.SaveDraft(A, TheFactory, DefinitionFixture.Publishable(), 0, FactoryMemoryAuthorKinds.Person, "owner", null, Now.AddHours(-3));
         Assert.True(saved.Ok, saved.Refusal);
         if (!publish) return;
         var published = _definitions.Publish(A, TheFactory, 1, FactoryMemoryAuthorKinds.Person, "owner", Now.AddHours(-2));
+        Assert.True(published.Ok, published.Refusal);
+    }
+
+    /// <summary>Publish one definition version straight in the store, as a person: the starting state of a restore.</summary>
+    private void PublishDefinition(int version)
+    {
+        var published = _definitions.Publish(A, TheFactory, version, FactoryMemoryAuthorKinds.Person, "owner", Now.AddMinutes(-30));
         Assert.True(published.Ok, published.Refusal);
     }
 
@@ -433,32 +442,111 @@ public sealed class FactoryBriefsThroughTheDefinitionTests : IDisposable
     }
 
     [Fact]
-    public async Task Publish_DefinedFactory_ByAPerson_IsSentToTheDefinitionsOwnPublish()
+    public async Task Publish_DefinedFactory_ByAPerson_PublishesTheWholeDefinitionThroughTheTransaction()
     {
         Define();
         SaveDefinitionDraft("boss", "Run it.\n");
 
-        var (status, body) = await Send("POST", Boss + "/publish", AsAPerson, new { version = 2 });
+        var (status, body) = await Send("POST", Boss + "/publish", AsAPerson, new { version = 2, replaces = 1 });
+
+        Assert.Equal(200, status);
+        Assert.Equal(2, _definitions.Standing(A, TheFactory).Published!.Version);
+        Assert.Equal(2, body.GetProperty("version").GetInt32());
+        Assert.Equal("Run it.\n", Text(body, "text"));
+        Assert.Equal(FactoryBriefVersionKinds.Definition, Text(body, "versionKind"));
+        Assert.Equal(2, body.GetProperty("publishedVersion").GetInt32());
+        // The answer says it is the whole definition that was published, and carries what changes and what was applied.
+        Assert.Equal(Line, Text(body, "definition"));
+        var applied = body.GetProperty("applied").EnumerateArray().Select(a => a.GetString()).ToList();
+        Assert.Equal("Definition: version 2 published.", applied[0]);
+        Assert.Contains(applied, a => a!.StartsWith("Registry: ", StringComparison.Ordinal));
+        Assert.Equal(JsonValueKind.Object, body.GetProperty("changes").ValueKind);
+        // The registry now holds what the definition says, written by the same transaction.
+        Assert.Contains(_registry.Find(A, TheFactory)!.Seats, s => s.Id == "outreach");
+    }
+
+    [Fact]
+    public async Task Publish_DefinedFactory_AStaleReplaces_IsRefusedWithTheTransactionsSentence_AndNothingIsPublished()
+    {
+        Define();
+        SaveDefinitionDraft("boss", "Run it.\n");
+
+        var (status, body) = await Send("POST", Boss + "/publish", AsAPerson, new { version = 2, replaces = 0 });
 
         Assert.Equal(409, status);
-        Assert.Equal("Publish the definition: cc-devthrottle factory definition publish devthrottle --version 2.", Text(body, "error"));
+        Assert.Equal("Not published: version 1 is the published definition now, not 0. Read what changes again and publish once more.",
+            Text(body, "error"));
         Assert.Equal(1, _definitions.Standing(A, TheFactory).Published!.Version);
     }
 
     [Fact]
-    public async Task Restore_DefinedFactory_ByASession_IsRefused_AndByAPerson_IsSentToTheDefinitionsOwnRestore()
+    public async Task Publish_DefinedFactory_AVersionTheCheckRefuses_Is422_AndNothingIsPublished()
+    {
+        Define();
+        // The draft brings back the start with a check, which a publish cannot take yet.
+        var content = new Dictionary<string, string>(_definitions.Find(A, TheFactory, 1)!.Files)
+        {
+            ["seats/outreach.yaml"] = DefinitionFixture.Valid()["seats/outreach.yaml"],
+        };
+        Assert.True(_definitions.SaveDraft(A, TheFactory, content, 1, FactoryMemoryAuthorKinds.Person, "owner", null, Now.AddHours(-1)).Ok);
+
+        var (status, body) = await Send("POST", Boss + "/publish", AsAPerson, new { version = 2 });
+
+        Assert.Equal(422, status);
+        Assert.StartsWith("Version 2 was not published: the check found 1 error in the definition of devthrottle.", Text(body, "error"));
+        Assert.Equal(1, _definitions.Standing(A, TheFactory).Published!.Version);
+    }
+
+    [Fact]
+    public async Task Publish_DefinedFactory_ASeatTheVersionHasNoFileFor_Is404_AndNothingIsPublished()
     {
         Define();
         SaveDefinitionDraft("boss", "Run it.\n");
 
+        var (status, body) = await Send("POST", "/factory-briefs/devthrottle/ghost/publish", AsAPerson, new { version = 2 });
+
+        Assert.Equal(404, status);
+        Assert.Equal(FactoryDefinitionBriefs.NotInVersion(TheFactory, "ghost", 2, "named"), Text(body, "error"));
+        Assert.Equal(1, _definitions.Standing(A, TheFactory).Published!.Version);
+    }
+
+    [Fact]
+    public async Task Restore_DefinedFactory_ByASession_IsRefused_AndByAPerson_PublishesACopyThroughTheTransaction()
+    {
+        Define();
+        var original = _definitions.Find(A, TheFactory, 1)!.Files["seats/boss.yaml"];
+        SaveDefinitionDraft("boss", "Run it.\n");
+        PublishDefinition(2);
+
         var (sessionStatus, session) = await Send("POST", Boss + "/restore", AsASessionOfTheFactory, new { version = 1, expectedVersion = 2 });
-        var (personStatus, person) = await Send("POST", Boss + "/restore", AsAPerson, new { version = 1, expectedVersion = 2 });
+        var (personStatus, person) = await Send("POST", Boss + "/restore", AsAPerson, new { version = 1, expectedVersion = 2, replaces = 2 });
 
         Assert.Equal(403, sessionStatus);
         Assert.Equal(FactoryDefinitionStore.OnlyAPersonRestores, Text(session, "error"));
-        Assert.Equal(409, personStatus);
-        Assert.Equal("Restore the definition: cc-devthrottle factory definition restore devthrottle --version 1.", Text(person, "error"));
+        Assert.Equal(200, personStatus);
+        var standing = _definitions.Standing(A, TheFactory);
+        Assert.Equal(3, standing.Newest!.Version);
+        Assert.Equal(3, standing.Published!.Version);
+        Assert.Equal(3, person.GetProperty("version").GetInt32());
+        Assert.Equal(SeatBriefText.Read("seats/boss.yaml", original), Text(person, "text"));
+        Assert.Equal(Line, Text(person, "definition"));
+        Assert.Equal("Definition: version 3 written, a copy of version 1, and published.",
+            person.GetProperty("applied")[0].GetString());
+    }
+
+    [Fact]
+    public async Task Restore_DefinedFactory_AStaleExpectedVersion_IsRefused_AndNothingIsWritten()
+    {
+        Define();
+        SaveDefinitionDraft("boss", "Run it.\n");
+        PublishDefinition(2);
+
+        var (status, body) = await Send("POST", Boss + "/restore", AsAPerson, new { version = 1, expectedVersion = 1 });
+
+        Assert.Equal(409, status);
+        Assert.Equal("Stale", Text(body, "outcome"));
         Assert.Equal(2, _definitions.Standing(A, TheFactory).Newest!.Version);
+        Assert.Equal(2, _definitions.Standing(A, TheFactory).Published!.Version);
     }
 
     // ---------- the seat page's views ----------

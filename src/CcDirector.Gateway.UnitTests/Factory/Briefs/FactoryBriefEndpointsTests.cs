@@ -51,7 +51,7 @@ public sealed class FactoryBriefEndpointsTests : IDisposable
         _store = new FactoryBriefStore(db, registry);
         // No factory here has a definition, so every route takes the brief store's paths, exactly as before phase 4.
         _defined = new FactoryBriefEndpoints.Defined(new FactoryDefinitionBriefs(new FactoryDefinitionStore(db), _store),
-            new FactoryDefinitionEndpoints.Account(_ => Array.Empty<string>(), _ => Array.Empty<string>()));
+            new FactoryDefinitionEndpoints.Account(_ => Array.Empty<string>(), _ => Array.Empty<string>()), new FactoryPublishApply(db));
     }
 
     public void Dispose() => _h.Dispose();

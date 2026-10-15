@@ -19,8 +19,10 @@ wait above the published version; `set` prints the Gateway's sentence, which say
 
 A DEFINED FACTORY'S BRIEF IS PART OF ITS DEFINITION (Factory Definition, phase 4). For a factory with a published
 definition the Gateway answers every verb from the definition: a version is a definition version, `set` saves a new
-definition draft, and `publish` and `restore` are answered with the definition's own command to run. The Gateway says
-so in one sentence (`definition`), which this module prints exactly as it is sent; it decides nothing itself.
+definition draft, and `publish` and `restore` publish the WHOLE definition through the transaction that drives the
+factory (`--replaces` states the published definition version read, as `factory definition publish` does). The Gateway
+says so in one sentence (`definition`) and sends what changes and what it applied; this module prints each exactly as
+it is sent and decides nothing itself.
 
 TWO WRITERS ON ONE BRIEF. `set` sends the version the caller last READ (`--expected-version`, 0 when the seat has no
 brief on the Gateway yet). It is never looked up here just before writing: a version nobody was shown is not a
@@ -45,6 +47,7 @@ if _tools_dir not in sys.path:
 from cc_shared import axi_output, gateway  # noqa: E402
 
 from . import axi_cli  # noqa: E402
+from .factory_definition_ops import _applied_lines, _changes_lines  # noqa: E402
 
 #: The Gateway's routes for a seat's brief.
 ROUTE = "factory-briefs"
@@ -257,23 +260,31 @@ def set_draft(factory: str, seat: str, file: str, expected_version: int, json_ou
     axi_cli.print_next([f"{_TOOL} get {where} --draft"])
 
 
-def publish(factory: str, seat: str, version: int, json_output: bool) -> None:
+def _with_replaces(body: Dict[str, Any], replaces: Optional[int]) -> Dict[str, Any]:
+    """`replaces` is sent only when given: absent, the Gateway makes no such check, as for the definition's publish."""
+    if replaces is not None:
+        body["replaces"] = replaces
+    return body
+
+
+def publish(factory: str, seat: str, version: int, json_output: bool, replaces: Optional[int] = None) -> None:
     """Publish one version. A person's act: with a session's key the Gateway refuses it and says so."""
     where = _where(factory, seat)
     try:
-        brief = gateway.post_json(_seat_route(factory, seat) + "/publish", {"version": version})
+        brief = gateway.post_json(_seat_route(factory, seat) + "/publish", _with_replaces({"version": version}, replaces))
     except gateway.GatewayError as exc:
         _fail_gateway(exc, _after_refusal(exc, where, factory))
         return
     _published(brief, where, json_output, f"Published: version {version}")
 
 
-def restore(factory: str, seat: str, version: int, expected_version: int, json_output: bool) -> None:
+def restore(factory: str, seat: str, version: int, expected_version: int, json_output: bool,
+            replaces: Optional[int] = None) -> None:
     """Bring an older version back as the newest, published. A person's act, refused for a session's key."""
     where = _where(factory, seat)
     try:
         brief = gateway.post_json(_seat_route(factory, seat) + "/restore",
-                                  {"version": version, "expectedVersion": expected_version})
+                                  _with_replaces({"version": version, "expectedVersion": expected_version}, replaces))
     except gateway.GatewayError as exc:
         _fail_gateway(exc, _after_refusal(exc, where, factory))
         return
@@ -285,10 +296,7 @@ def _after_refusal(exc: gateway.GatewayError, where: str, factory: str) -> List[
     thing it may do; everything else starts from the history."""
     if _outcome(exc) == "OnlyAPersonPublishes":
         return [f"{_TOOL} set {where} --file <path> --expected-version <newest version>", f"{_TOOL} history {where}"]
-    if _outcome(exc) == "PublishTheDefinition":
-        # The Gateway's sentence names the definition's own command; what a person reads first is what it changes.
-        return [f"cc-devthrottle factory definition diff {axi_cli.bare(factory, '<factory>')}", f"{_TOOL} history {where}"]
-    if exc.status in (400, 404, 409):
+    if exc.status in (400, 404, 409, 422):
         return [f"{_TOOL} history {where}"]
     return [axi_cli.CHECK_GATEWAY]
 
@@ -302,5 +310,8 @@ def _published(brief: Any, where: str, json_output: bool, what: str) -> None:
         print(json.dumps(brief, indent=2))
         return
     axi_cli.write_lines(f"{what} of the brief of '{brief.get('seat')}'. Version {brief['version']} is now the brief "
-                        "a talk or a run is given.")
+                        "a talk or a run is given.",
+                        *_definition_lines(brief),
+                        *_changes_lines(brief.get("changes")),
+                        *_applied_lines(brief.get("applied")))
     axi_cli.print_next([f"{_TOOL} get {where}"])

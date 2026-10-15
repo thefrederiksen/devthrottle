@@ -5901,9 +5901,10 @@ public sealed class GatewayHost : IAsyncDisposable
             store: _factoryBriefs,
             sessionFactoryOf: _sessionHistory.FactoryOf,
             nowUtc: () => DateTime.UtcNow,
-            // A defined factory's briefs are read from and saved into its definition, checked as any definition save is.
+            // A defined factory's briefs are read from and saved into its definition, checked as any definition save is,
+            // and a person's publish or restore of one publishes the whole definition through the publish transaction.
             defined: new Api.FactoryBriefEndpoints.Defined(_factorySeatBriefs,
-                new Api.FactoryDefinitionEndpoints.Account(FleetSkillIdsOf, ConnectedMachinesOf)));
+                new Api.FactoryDefinitionEndpoints.Account(FleetSkillIdsOf, ConnectedMachinesOf), FactoryDefinitionPublish));
 
         // A factory's whole DEFINITION, held on the Gateway (Factory Definition mission, phase 1): saved as a draft by a
         // person or a session of the factory, published and restored by a person, every write checked first against

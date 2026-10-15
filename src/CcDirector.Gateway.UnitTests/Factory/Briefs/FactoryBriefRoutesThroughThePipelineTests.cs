@@ -66,7 +66,7 @@ public sealed class FactoryBriefRoutesThroughThePipelineTests : IDisposable
             sessionFactoryOf: _ => SessionFactoryLookup.In(TheFactory),
             nowUtc: () => Now,
             defined: new FactoryBriefEndpoints.Defined(new FactoryDefinitionBriefs(new FactoryDefinitionStore(db), briefs),
-                new FactoryDefinitionEndpoints.Account(_ => Array.Empty<string>(), _ => Array.Empty<string>())));
+                new FactoryDefinitionEndpoints.Account(_ => Array.Empty<string>(), _ => Array.Empty<string>()), new FactoryPublishApply(db)));
     }
 
     public void Dispose()
