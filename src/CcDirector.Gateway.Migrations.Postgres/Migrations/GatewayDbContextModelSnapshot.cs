@@ -3101,6 +3101,9 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<string>("OriginSurface")
                         .HasColumnType("text");
 
+                    b.Property<string>("Os")
+                        .HasColumnType("text");
+
                     b.Property<long?>("OutputTokens")
                         .HasColumnType("bigint");
 

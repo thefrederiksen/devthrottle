@@ -115,6 +115,25 @@ def repos_summary(has_data):
             "topRepoName": "repo-alpha", "topShare": 0.7368421052631579, "topPercent": 74, "hasData": True}
 
 
+def systems_summary(has_data):
+    if not has_data:
+        return {"systemCount": 0, "machineCount": 0, "totalTurns": 0, "totalSessions": 0, "topSystemName": None,
+                "topShare": None, "topPercent": None, "topMachineName": None, "topMachineTurns": None,
+                "topMachineOsName": None, "agentDrivenTurns": 0, "topAgentDrivenSystemName": None,
+                "topAgentDrivenPercent": None, "unknownTurns": 0, "hasData": False}
+    # Hostile like the other summaries: the one system row says 10 turns on one machine; the summary says three
+    # systems, four machines and the week's 1786 turns.
+    return {"systemCount": 3, "machineCount": 4, "totalTurns": 1786, "totalSessions": 129,
+            "topSystemName": "Windows", "topShare": 0.5612, "topPercent": 56,
+            "topMachineName": "machine-alpha", "topMachineTurns": 481, "topMachineOsName": "Windows",
+            "agentDrivenTurns": 4, "topAgentDrivenSystemName": "Windows", "topAgentDrivenPercent": 80,
+            "unknownTurns": 7, "hasData": True}
+
+
+# The finished agent-driven share on a system or machine row: hostile, 4 agent-driven turns of 4 served as 75 per cent.
+HOSTILE_DRIVEN = {"agentDrivenShare": 0.75, "agentDrivenPercent": 75}
+
+
 # Who runs the sessions (owner's ask, 2026-09-27): the four starter groups, finished by the library. Hostile like
 # the rest: its human share is served as 27 per cent, and 64 of 238 sessions rounds to 27 - but its groups' own
 # session shares are served as 30, 60, 5 and 5, which is not what 64, 150, 16 and 8 of 238 round to. A consumer
@@ -150,8 +169,15 @@ def wire(turns, voice, typed, buckets, head, excluded=None):
                          "typedTurns": typed, "sessions": 3, "agentDrivenTurns": 4}, **HOSTILE_ROW)],
         "repos": [dict({"repo": "owner/repo-alpha", "repoName": "repo-alpha", "turns": turns, "voiceTurns": voice,
                         "typedTurns": typed, "sessions": 3, "checkouts": ["D:/repo-alpha"]}, **HOSTILE_ROW)],
+        "systems": [dict({"os": "windows", "osName": "Windows", "turns": turns, "voiceTurns": voice, "typedTurns": typed,
+                          "sessions": 3, "agentDrivenTurns": 4,
+                          "machines": [dict({"machineName": "machine-alpha", "displayName": "machine-alpha", "turns": turns,
+                                             "voiceTurns": voice, "typedTurns": typed, "sessions": 3, "agentDrivenTurns": 4},
+                                            **HOSTILE_ROW, **HOSTILE_DRIVEN)]},
+                         **HOSTILE_ROW, **HOSTILE_DRIVEN)],
         "agentsSummary": agents_summary(has_data),
         "reposSummary": repos_summary(has_data),
+        "systemsSummary": systems_summary(has_data),
         "reposUnattributedTurns": 0,
         "excluded": excluded or {"noInputOrigin": 662, "agentDriven": 4, "framework": 160, "unresolved": 498,
                                  "notStartedByYou": 1204},
@@ -189,6 +215,16 @@ def rendered(w):
                    "sessionShare": r["sessionShare"], "sessionPercent": r["sessionPercent"],
                    "voiceShare": r["voiceShare"], "voicePercent": r["voicePercent"]} for r in w["repos"]],
         "reposSummary": dict(w["reposSummary"]),
+        "systems": [{"osName": s["osName"], "turns": s["turns"], "sessions": s["sessions"],
+                     "agentDrivenTurns": s["agentDrivenTurns"], "turnShare": s["turnShare"], "turnPercent": s["turnPercent"],
+                     "sessionShare": s["sessionShare"], "sessionPercent": s["sessionPercent"],
+                     "agentDrivenShare": s["agentDrivenShare"], "agentDrivenPercent": s["agentDrivenPercent"],
+                     "voiceShare": s["voiceShare"], "voicePercent": s["voicePercent"],
+                     "machines": [{"displayName": m["displayName"], "turns": m["turns"], "sessions": m["sessions"],
+                                   "agentDrivenTurns": m["agentDrivenTurns"], "turnPercent": m["turnPercent"],
+                                   "sessionPercent": m["sessionPercent"], "agentDrivenPercent": m["agentDrivenPercent"],
+                                   "voicePercent": m["voicePercent"]} for m in s["machines"]]} for s in w["systems"]],
+        "systemsSummary": dict(w["systemsSummary"]),
     }
 
 
@@ -388,6 +424,51 @@ INVENTORY = {
     "reposSummary.topPercent": BROWSER,
     "reposSummary.hasData": BROWSER,
     "reposUnattributedTurns": BROWSER,
+    "systems[].os": BROWSER,
+    "systems[].osName": BROWSER,
+    "systems[].turns": BROWSER,
+    "systems[].voiceTurns": BROWSER,
+    "systems[].typedTurns": BROWSER,
+    "systems[].sessions": BROWSER,
+    "systems[].agentDrivenTurns": BROWSER,
+    "systems[].turnShare": BROWSER,
+    "systems[].turnPercent": BROWSER,
+    "systems[].sessionShare": BROWSER,
+    "systems[].sessionPercent": BROWSER,
+    "systems[].agentDrivenShare": BROWSER,
+    "systems[].agentDrivenPercent": BROWSER,
+    "systems[].voiceShare": BROWSER,
+    "systems[].voicePercent": BROWSER,
+    "systems[].machines[].machineName": BROWSER,
+    "systems[].machines[].displayName": BROWSER,
+    "systems[].machines[].turns": BROWSER,
+    "systems[].machines[].voiceTurns": BROWSER,
+    "systems[].machines[].typedTurns": BROWSER,
+    "systems[].machines[].sessions": BROWSER,
+    "systems[].machines[].agentDrivenTurns": BROWSER,
+    "systems[].machines[].turnShare": BROWSER,
+    "systems[].machines[].turnPercent": BROWSER,
+    "systems[].machines[].sessionShare": BROWSER,
+    "systems[].machines[].sessionPercent": BROWSER,
+    "systems[].machines[].agentDrivenShare": BROWSER,
+    "systems[].machines[].agentDrivenPercent": BROWSER,
+    "systems[].machines[].voiceShare": BROWSER,
+    "systems[].machines[].voicePercent": BROWSER,
+    "systemsSummary.systemCount": BROWSER,
+    "systemsSummary.machineCount": BROWSER,
+    "systemsSummary.totalTurns": BROWSER,
+    "systemsSummary.totalSessions": BROWSER,
+    "systemsSummary.topSystemName": BROWSER,
+    "systemsSummary.topShare": BROWSER,
+    "systemsSummary.topPercent": BROWSER,
+    "systemsSummary.topMachineName": BROWSER,
+    "systemsSummary.topMachineTurns": BROWSER,
+    "systemsSummary.topMachineOsName": BROWSER,
+    "systemsSummary.agentDrivenTurns": BROWSER,
+    "systemsSummary.topAgentDrivenSystemName": BROWSER,
+    "systemsSummary.topAgentDrivenPercent": BROWSER,
+    "systemsSummary.unknownTurns": BROWSER,
+    "systemsSummary.hasData": BROWSER,
     "excluded.noInputOrigin": BOTH,
     "excluded.agentDriven": BOTH,
     "excluded.framework": BOTH,

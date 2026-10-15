@@ -67,6 +67,13 @@ public sealed class SessionHistoryEntity : TenantScopedEntity
     /// </summary>
     public string? DirectorVersion { get; set; }
 
+    /// <summary>
+    /// The operating system the session's Director runs on (<see cref="Contracts.DirectorOs"/>), from the connection
+    /// hello. Null when the Director's build is too old to report one - never guessed from a path or a name. The
+    /// Systems tab of Your Throttle reads it, and fills a null from another row of the same machine that has one.
+    /// </summary>
+    public string? Os { get; set; }
+
     public string DirectorId { get; set; } = "";
     public string? RepoPath { get; set; }
 

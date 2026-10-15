@@ -2,8 +2,12 @@ import { describe, expect, it } from "vitest";
 import { TABS, DEFAULT_TAB, isThrottleTab } from "./throttleTabs";
 
 describe("TABS", () => {
-  it("lists the five tabs in reading order, the private breakdowns last", () => {
-    expect(TABS.map((t) => t.key)).toEqual(["overview", "activity", "breakdown", "repos", "agents"]);
+  it("lists the six tabs in reading order, the private breakdowns last", () => {
+    expect(TABS.map((t) => t.key)).toEqual(["overview", "activity", "breakdown", "repos", "agents", "systems"]);
+  });
+
+  it("carries the Systems tab - which operating system the work runs on", () => {
+    expect(TABS.find((t) => t.key === "systems")?.label).toBe("Systems");
   });
 
   it("carries the Repos tab folded in from the retired standalone page", () => {
@@ -33,6 +37,10 @@ describe("isThrottleTab", () => {
 
   it("accepts a stored agents tab", () => {
     expect(isThrottleTab("agents")).toBe(true);
+  });
+
+  it("accepts a stored systems tab", () => {
+    expect(isThrottleTab("systems")).toBe(true);
   });
 
   it("rejects a tab that no longer exists, junk, and empty text", () => {

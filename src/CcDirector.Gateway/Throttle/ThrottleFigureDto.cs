@@ -63,6 +63,14 @@ public sealed class ThrottleFigureDto
     /// <summary>The Repos page's headline cards, finished here (fix-round finding F-01).</summary>
     public ThrottleReposSummaryDto ReposSummary { get; set; } = new();
 
+    /// <summary>The counted turns per operating system the session's Director ran on, most-driven first, each with
+    /// its machines (the Systems tab). A session whose system is not known is its own "Unknown" row, never dropped
+    /// and never guessed, so the rows add up to <see cref="Turns"/>.</summary>
+    public List<ThrottleSystemDto> Systems { get; set; } = new();
+
+    /// <summary>The Systems page's headline cards, finished here like the Agents and Repos cards.</summary>
+    public ThrottleSystemsSummaryDto SystemsSummary { get; set; } = new();
+
     /// <summary>Counted turns whose session history holds no repository for. Disclosed beside the split
     /// (R7), never folded into a guessed row.</summary>
     public long ReposUnattributedTurns { get; set; }
@@ -255,6 +263,103 @@ public sealed class ThrottleAgentDto
     /// <summary>The spoken fraction of THIS agent's turns, and its printed percent; null when it has no turns.</summary>
     public double? VoiceShare { get; set; }
     public int? VoicePercent { get; set; }
+}
+
+/// <summary>One operating system's row on the Systems tab: the same counts and finished shares as an agent row, plus
+/// the machines that make it up.</summary>
+public sealed class ThrottleSystemDto
+{
+    /// <summary>The system (<see cref="Contracts.DirectorOs"/>), or "" when not known.</summary>
+    public string Os { get; set; } = "";
+
+    /// <summary>The display name: Windows, Linux, Mac, or Unknown.</summary>
+    public string OsName { get; set; } = "";
+
+    public long Turns { get; set; }
+    public long VoiceTurns { get; set; }
+    public long TypedTurns { get; set; }
+
+    /// <summary>Distinct sessions the counted turns went into on this system.</summary>
+    public int Sessions { get; set; }
+
+    /// <summary>Turns OTHER sessions drove into sessions on this system. Never added to <see cref="Turns"/>.</summary>
+    public long AgentDrivenTurns { get; set; }
+
+    /// <summary>Shares of every counted turn, every counted session, and every agent-driven turn, each with the
+    /// whole-number percent the row prints; null when the denominator is zero.</summary>
+    public double? TurnShare { get; set; }
+    public int? TurnPercent { get; set; }
+    public double? SessionShare { get; set; }
+    public int? SessionPercent { get; set; }
+    public double? AgentDrivenShare { get; set; }
+    public int? AgentDrivenPercent { get; set; }
+
+    /// <summary>The spoken fraction of THIS system's turns, and its printed percent; null when it has no turns.</summary>
+    public double? VoiceShare { get; set; }
+    public int? VoicePercent { get; set; }
+
+    /// <summary>The machines on this system, most-driven first. Shares on a machine are of the WHOLE figure, the
+    /// same denominators as the system row, so a machine row and a system row are read on one scale.</summary>
+    public List<ThrottleMachineDto> Machines { get; set; } = new();
+}
+
+/// <summary>One machine under its system on the Systems tab.</summary>
+public sealed class ThrottleMachineDto
+{
+    /// <summary>The machine name session history recorded, or "" when it recorded none.</summary>
+    public string MachineName { get; set; } = "";
+
+    /// <summary>The display name; "(machine not recorded)" when empty.</summary>
+    public string DisplayName { get; set; } = "";
+
+    public long Turns { get; set; }
+    public long VoiceTurns { get; set; }
+    public long TypedTurns { get; set; }
+    public int Sessions { get; set; }
+    public long AgentDrivenTurns { get; set; }
+
+    public double? TurnShare { get; set; }
+    public int? TurnPercent { get; set; }
+    public double? SessionShare { get; set; }
+    public int? SessionPercent { get; set; }
+    public double? AgentDrivenShare { get; set; }
+    public int? AgentDrivenPercent { get; set; }
+    public double? VoiceShare { get; set; }
+    public int? VoicePercent { get; set; }
+}
+
+/// <summary>The Systems page's headline cards, finished on the Gateway: nothing on the page totals a row.</summary>
+public sealed class ThrottleSystemsSummaryDto
+{
+    /// <summary>Known systems with a counted or agent-driven turn. "Unknown" is not a system and is not counted.</summary>
+    public int SystemCount { get; set; }
+
+    /// <summary>Distinct recorded machines with a counted or agent-driven turn.</summary>
+    public int MachineCount { get; set; }
+
+    public long TotalTurns { get; set; }
+    public int TotalSessions { get; set; }
+
+    /// <summary>The system with the most counted turns, its share and printed percent; null when nothing counted.</summary>
+    public string? TopSystemName { get; set; }
+    public double? TopShare { get; set; }
+    public int? TopPercent { get; set; }
+
+    /// <summary>The single machine with the most counted turns, its turns, and its system's display name.</summary>
+    public string? TopMachineName { get; set; }
+    public long? TopMachineTurns { get; set; }
+    public string? TopMachineOsName { get; set; }
+
+    /// <summary>Turns other sessions drove, the system most of them ran on, and that system's printed share.</summary>
+    public long AgentDrivenTurns { get; set; }
+    public string? TopAgentDrivenSystemName { get; set; }
+    public int? TopAgentDrivenPercent { get; set; }
+
+    /// <summary>Counted turns in sessions whose system is not known (their Director predates the report, or
+    /// history holds no row for the session). Disclosed beside the split, like the Repos tab's unattributed count.</summary>
+    public long UnknownTurns { get; set; }
+
+    public bool HasData { get; set; }
 }
 
 public sealed class ThrottleRepoDto

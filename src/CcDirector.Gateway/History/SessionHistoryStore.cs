@@ -73,6 +73,7 @@ public sealed class SessionHistoryStore
             entity.MachineName = machine ?? entity.MachineName;
             // The version has no pushed counterpart at all - it exists only on the connection.
             entity.DirectorVersion = string.IsNullOrWhiteSpace(facts.Version) ? entity.DirectorVersion : facts.Version;
+            entity.Os = Contracts.DirectorOs.Normalize(facts.Os) ?? entity.Os;
             entity.RepoPath = string.IsNullOrWhiteSpace(session.RepoPath) ? entity.RepoPath : session.RepoPath;
             entity.RepoName = string.IsNullOrWhiteSpace(session.RepoName) ? entity.RepoName : session.RepoName;
             entity.AgentKind = string.IsNullOrWhiteSpace(session.Agent) ? entity.AgentKind : session.Agent;

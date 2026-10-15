@@ -87,6 +87,8 @@ function figure(buckets: ThrottleFigure["buckets"], head?: ThrottleHeadline): Th
     repos: [],
     agentsSummary: { agentCount: 0, totalTurns: 0, totalSessions: 0, voiceTurns: 0, voiceShare: null, voicePercent: null, topAgentName: null, topShare: null, topPercent: null, agentDrivenTurns: 0, leverage: null, leverageText: null, hasData: false },
     reposSummary: { repoCount: 0, totalTurns: 0, totalSessions: 0, voiceTurns: 0, voiceShare: null, voicePercent: null, topRepoName: null, topShare: null, topPercent: null, hasData: false },
+    systems: [],
+    systemsSummary: { systemCount: 0, machineCount: 0, totalTurns: 0, totalSessions: 0, topSystemName: null, topShare: null, topPercent: null, topMachineName: null, topMachineTurns: null, topMachineOsName: null, agentDrivenTurns: 0, topAgentDrivenSystemName: null, topAgentDrivenPercent: null, unknownTurns: 0, hasData: false },
     reposUnattributedTurns: 0,
     excluded: { noInputOrigin: 0, agentDriven: 0, framework: 0, unresolved: 0, notStartedByYou: 0 },
     agentDrivenTurns: 0,

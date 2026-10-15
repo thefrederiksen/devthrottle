@@ -35,6 +35,10 @@ public sealed class DirectorDto
     /// <summary>Director version string (informational).</summary>
     public string Version { get; set; } = "";
 
+    /// <summary>The operating system the Director runs on (<see cref="DirectorOs"/>), from its Hello. Empty when
+    /// the Director's build is too old to report it.</summary>
+    public string Os { get; set; } = "";
+
     /// <summary>Schema version for forward-compat. Always 1 in v1.</summary>
     public int SchemaVersion { get; set; } = 1;
 

@@ -50,12 +50,25 @@ export interface ContractRendered {
     voiceShare: number | null; voicePercent: number | null; topRepoName: string | null;
     topShare: number | null; topPercent: number | null; hasData: boolean;
   };
+  systems: ({
+    osName: string; turns: number; sessions: number; agentDrivenTurns: number;
+    agentDrivenShare: number | null; agentDrivenPercent: number | null;
+    machines: { displayName: string; turns: number; sessions: number; agentDrivenTurns: number;
+      turnPercent: number | null; sessionPercent: number | null; agentDrivenPercent: number | null; voicePercent: number | null }[];
+  } & ContractRowShares)[];
+  systemsSummary: {
+    systemCount: number; machineCount: number; totalTurns: number; totalSessions: number;
+    topSystemName: string | null; topShare: number | null; topPercent: number | null;
+    topMachineName: string | null; topMachineTurns: number | null; topMachineOsName: string | null;
+    agentDrivenTurns: number; topAgentDrivenSystemName: string | null; topAgentDrivenPercent: number | null;
+    unknownTurns: number; hasData: boolean;
+  };
 }
 
 /** What the recorded answer looks like from the browser's side: shares rounded the way a page's DOM lets
  * them be read back (ten places, through a style's percentage), and the surface split as the pages draw
  * it - surfaces with a turn, largest first. The report-only field (a surface's remainder) is left out. */
-export type BrowserRendered = Omit<ContractRendered, "voiceShare" | "phoneShare" | "surfaces" | "hourly" | "agents" | "repos"> & {
+export type BrowserRendered = Omit<ContractRendered, "voiceShare" | "phoneShare" | "surfaces" | "hourly" | "agents" | "repos" | "systems"> & {
   voiceShare: number | null;
   phoneShare: number | null;
   surfaces: { surface: string; label: string; turns: number; share: number | null; percent: number | null }[];
@@ -63,6 +76,7 @@ export type BrowserRendered = Omit<ContractRendered, "voiceShare" | "phoneShare"
   hourly: ContractRendered["hourly"];
   agents: ContractRendered["agents"];
   repos: ContractRendered["repos"];
+  systems: ContractRendered["systems"];
 };
 
 function round10(n: number | null): number | null {
@@ -80,6 +94,7 @@ export function browserRenderedAnswer(rendered: ContractRendered): BrowserRender
     hourly: rendered.hourly.map((h) => ({ ...h, voiceShare: round10(h.voiceShare), typedShare: round10(h.typedShare) })),
     agents: rendered.agents.map((a) => ({ ...a, voiceShare: round10(a.voiceShare) })),
     repos: rendered.repos.map((r) => ({ ...r, voiceShare: round10(r.voiceShare) })),
+    systems: rendered.systems.map((s) => ({ ...s, voiceShare: round10(s.voiceShare) })),
   };
 }
 

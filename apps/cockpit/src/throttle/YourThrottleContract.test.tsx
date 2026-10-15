@@ -155,6 +155,8 @@ describe("the Your Throttle contract, on the rendered Cockpit page - the whole a
         await screen.findByText(/No agent usage counted/);
         clickTab("Repos");
         await screen.findByText(/No turn counted in this window/);
+        clickTab("Systems");
+        await screen.findByText(/split by operating\s+system will appear here/);
         return;
       }
       const expected: BrowserRendered = browserRenderedAnswer(fixture.expected.rendered!);
@@ -237,6 +239,44 @@ describe("the Your Throttle contract, on the rendered Cockpit page - the whole a
       })));
       clickRanking(container, "Sessions");
       expect(rankedTabFromDom(container).rows.map((x) => ({ value: x.value, share: x.share }))).toEqual(expected.repos.map((row) => ({ value: row.sessions, share: row.sessionPercent })));
+
+      // Systems: the summary's cards, each system row's served shares, and its machines under it - under all
+      // three rankings. The fixture's row shares disagree with its counts, so a page that divides is caught.
+      clickTab("Systems");
+      await waitFor(() => expect(container.querySelectorAll(".repo-row").length).toBeGreaterThan(0));
+      const s = expected.systemsSummary;
+      const systemCards = [
+        { value: String(s.systemCount), sub: `across ${s.machineCount.toLocaleString()} machine${s.machineCount === 1 ? "" : "s"}` },
+        { value: s.totalTurns.toLocaleString(), sub: expect.any(String) },
+        { value: s.topPercent === null ? "n/a" : `${s.topPercent}%`, sub: s.topSystemName !== null ? `${s.topSystemName} leads` : "of your turns" },
+        { value: s.topMachineTurns === null ? "-" : s.topMachineTurns.toLocaleString(), sub: s.topMachineName !== null ? `${s.topMachineName}${s.topMachineOsName !== null ? ` (${s.topMachineOsName})` : ""}` : "no machine recorded" },
+        ...(s.agentDrivenTurns > 0 ? [{ value: s.agentDrivenTurns.toLocaleString(), sub: s.topAgentDrivenSystemName !== null ? `${s.topAgentDrivenPercent === null ? "n/a" : s.topAgentDrivenPercent + "%"} on ${s.topAgentDrivenSystemName}` : "on no known system" }] : []),
+      ];
+      const systems = rankedTabFromDom(container);
+      expect(systems.cards).toEqual(systemCards);
+      const pctText = (p: number | null) => (p === null ? "n/a" : `${p}%`);
+      const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? "" : "s"}`;
+      expect(systems.rows).toEqual(expected.systems.map((row) => ({
+        name: row.osName, value: row.turns, share: row.turnPercent,
+        meta: `${plural(row.machines.filter((m) => m.displayName !== "(machine not recorded)").length, "machine")} - ${plural(row.sessions, "session")} - ${pctText(row.voicePercent)} voice${row.agentDrivenTurns > 0 ? ` - ${row.agentDrivenTurns.toLocaleString()} from agents` : ""}`,
+        voiceWidth: row.voiceShare,
+      })));
+      const machinesFromDom = () => Array.from(container.querySelectorAll(".sys-machine-row")).map((m) => ({
+        name: m.querySelector(".sys-machine-name")!.textContent,
+        value: count(m.querySelector(".sys-machine-num")!.textContent),
+        share: percent(m.querySelector(".sys-machine-share")!.textContent),
+        meta: m.querySelector(".repo-meta")!.textContent,
+      }));
+      expect(machinesFromDom()).toEqual(expected.systems.flatMap((row) => row.machines.map((m) => ({
+        name: m.displayName, value: m.turns, share: m.turnPercent,
+        meta: `${plural(m.sessions, "session")} - ${pctText(m.voicePercent)} voice${m.agentDrivenTurns > 0 ? ` - ${m.agentDrivenTurns.toLocaleString()} from agents` : ""}`,
+      }))));
+      clickRanking(container, "Sessions");
+      expect(rankedTabFromDom(container).rows.map((x) => ({ value: x.value, share: x.share }))).toEqual(expected.systems.map((row) => ({ value: row.sessions, share: row.sessionPercent })));
+      expect(machinesFromDom().map((x) => ({ value: x.value, share: x.share }))).toEqual(expected.systems.flatMap((row) => row.machines.map((m) => ({ value: m.sessions, share: m.sessionPercent }))));
+      clickRanking(container, "From agents");
+      expect(rankedTabFromDom(container).rows.map((x) => ({ value: x.value, share: x.share }))).toEqual(expected.systems.map((row) => ({ value: row.agentDrivenTurns, share: row.agentDrivenPercent })));
+      expect(machinesFromDom().map((x) => ({ value: x.value, share: x.share }))).toEqual(expected.systems.flatMap((row) => row.machines.map((m) => ({ value: m.agentDrivenTurns, share: m.agentDrivenPercent }))));
     });
   }
 });

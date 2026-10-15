@@ -26,6 +26,7 @@ import {
 import { ThrottleWindowSelector } from "@devthrottle/client-core/stats/ThrottleWindowSelector";
 import { ReposTab } from "./ReposTab";
 import { AgentsTab } from "./AgentsTab";
+import { SystemsTab } from "./SystemsTab";
 import { TABS, DEFAULT_TAB, isThrottleTab, type ThrottleTab } from "./throttleTabs";
 import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 
@@ -181,6 +182,7 @@ export function YourThrottleView() {
           {tab === "breakdown" && <BreakdownTab summary={summary} data={served} />}
           {tab === "repos" && <ReposTab figure={served.throttle} />}
           {tab === "agents" && <AgentsTab figure={served.throttle} />}
+          {tab === "systems" && <SystemsTab figure={served.throttle} />}
         </>
       )}
     </div>

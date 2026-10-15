@@ -124,6 +124,64 @@ export interface AgentStat extends RowShares {
   agentDrivenTurns: number;
 }
 
+/** The finished share of the agent-driven turns on a system or machine row. */
+export interface DrivenShares {
+  agentDrivenShare: number | null;
+  agentDrivenPercent: number | null;
+}
+
+/** One machine under its operating system on the Systems tab. Mirrors the Gateway ThrottleMachineDto. Its
+ * shares are of the WHOLE figure, the same denominators as its system's row. */
+export interface MachineStat extends RowShares, DrivenShares {
+  /** The machine name session history recorded, or "" when it recorded none. */
+  machineName: string;
+  /** The name the row prints; "(machine not recorded)" when the name is empty. */
+  displayName: string;
+  turns: number;
+  voiceTurns: number;
+  typedTurns: number;
+  sessions: number;
+  /** Turns other sessions drove into sessions on this machine. Never part of `turns`. */
+  agentDrivenTurns: number;
+}
+
+/** One operating system's count of submitted turns over the window, with its machines. Mirrors the Gateway
+ * ThrottleSystemDto. "Unknown" (os "") is a row of its own: a session whose system is not known is never dropped. */
+export interface SystemStat extends RowShares, DrivenShares {
+  /** "windows", "linux", "macos", or "" when not known. */
+  os: string;
+  /** Windows, Linux, Mac, or Unknown - the Gateway's spelling. */
+  osName: string;
+  turns: number;
+  voiceTurns: number;
+  typedTurns: number;
+  sessions: number;
+  agentDrivenTurns: number;
+  /** Most-driven first. */
+  machines: MachineStat[];
+}
+
+/** The Systems tab's headline cards, finished on the Gateway. Mirrors ThrottleSystemsSummaryDto. */
+export interface SystemSummary {
+  /** Known systems with a counted or agent-driven turn ("Unknown" is not a system). */
+  systemCount: number;
+  machineCount: number;
+  totalTurns: number;
+  totalSessions: number;
+  topSystemName: string | null;
+  topShare: number | null;
+  topPercent: number | null;
+  topMachineName: string | null;
+  topMachineTurns: number | null;
+  topMachineOsName: string | null;
+  agentDrivenTurns: number;
+  topAgentDrivenSystemName: string | null;
+  topAgentDrivenPercent: number | null;
+  /** Counted turns in sessions whose system is not known - disclosed beside the split. */
+  unknownTurns: number;
+  hasData: boolean;
+}
+
 /** How a served window came to be - the four query forms GET /stats/data accepts. */
 export type ThrottleWindowKind = "default" | "days" | "week" | "explicit";
 
@@ -275,6 +333,11 @@ export interface ThrottleFigure {
   agentsSummary: AgentSummary;
   /** The Repos tab's headline cards, finished on the Gateway. */
   reposSummary: RepoSummary;
+  /** Per-operating-system split, most-driven first, each with its machines. */
+  systems: SystemStat[];
+  /** The Systems tab's headline cards, or null from a Gateway too old to serve them - the tab then says so
+   * rather than the whole page refusing, because every other tab is still right. */
+  systemsSummary: SystemSummary | null;
   /** Counted turns whose session has no repository on record - disclosed, never folded into a row. */
   reposUnattributedTurns: number;
   excluded: ThrottleExcluded;
@@ -503,6 +566,8 @@ function normalizeFigure(raw: unknown): ThrottleFigure {
     repos: Array.isArray(f.repos) ? f.repos.map(normalizeRepo) : [],
     agentsSummary: normalizeAgentsSummary(f.agentsSummary),
     reposSummary: normalizeReposSummary(f.reposSummary),
+    systems: Array.isArray(f.systems) ? f.systems.map(normalizeSystem) : [],
+    systemsSummary: f.systemsSummary === undefined || f.systemsSummary === null ? null : normalizeSystemsSummary(f.systemsSummary),
     reposUnattributedTurns: num(f.reposUnattributedTurns),
     excluded: {
       noInputOrigin: num(x.noInputOrigin),
@@ -646,6 +711,67 @@ function normalizeRepo(raw: unknown): RepoStat {
     sessions: num(r.sessions),
     checkouts: Array.isArray(r.checkouts) ? r.checkouts.map((c) => String(c)) : [],
     ...normalizeRowShares(r, "a repository row's"),
+  };
+}
+
+function normalizeDrivenShares(raw: Partial<Record<keyof DrivenShares, unknown>>, what: string): DrivenShares {
+  return {
+    agentDrivenShare: ratioOrNull(raw.agentDrivenShare, what + " agent-driven share"),
+    agentDrivenPercent: ratioOrNull(raw.agentDrivenPercent, what + " agent-driven percent"),
+  };
+}
+
+function normalizeMachine(raw: unknown): MachineStat {
+  const m = (raw ?? {}) as Partial<Record<keyof MachineStat, unknown>>;
+  return {
+    machineName: String(m.machineName ?? ""),
+    displayName: String(m.displayName ?? ""),
+    turns: num(m.turns),
+    voiceTurns: num(m.voiceTurns),
+    typedTurns: num(m.typedTurns),
+    sessions: num(m.sessions),
+    agentDrivenTurns: num(m.agentDrivenTurns),
+    ...normalizeRowShares(m, "a machine row's"),
+    ...normalizeDrivenShares(m, "a machine row's"),
+  };
+}
+
+function normalizeSystem(raw: unknown): SystemStat {
+  const s = (raw ?? {}) as Partial<Record<keyof SystemStat, unknown>>;
+  return {
+    os: String(s.os ?? ""),
+    osName: String(s.osName ?? ""),
+    turns: num(s.turns),
+    voiceTurns: num(s.voiceTurns),
+    typedTurns: num(s.typedTurns),
+    sessions: num(s.sessions),
+    agentDrivenTurns: num(s.agentDrivenTurns),
+    machines: Array.isArray(s.machines) ? s.machines.map(normalizeMachine) : [],
+    ...normalizeRowShares(s, "a system row's"),
+    ...normalizeDrivenShares(s, "a system row's"),
+  };
+}
+
+function normalizeSystemsSummary(raw: unknown): SystemSummary {
+  if (typeof raw !== "object" || raw === null) throw new Error("GET /stats/data answered a Systems summary that is not an object");
+  const s = raw as Partial<Record<keyof SystemSummary, unknown>>;
+  if (typeof s.hasData !== "boolean") throw new Error("GET /stats/data answered a Systems summary without its empty state");
+  return {
+    systemCount: num(s.systemCount),
+    machineCount: num(s.machineCount),
+    totalTurns: num(s.totalTurns),
+    totalSessions: num(s.totalSessions),
+    topSystemName: textOrNull(s.topSystemName, "the Systems summary's leading system"),
+    topShare: ratioOrNull(s.topShare, "the Systems summary's leading share"),
+    topPercent: ratioOrNull(s.topPercent, "the Systems summary's leading percent"),
+    topMachineName: textOrNull(s.topMachineName, "the Systems summary's busiest machine"),
+    topMachineTurns: ratioOrNull(s.topMachineTurns, "the Systems summary's busiest machine's turns"),
+    topMachineOsName: textOrNull(s.topMachineOsName, "the Systems summary's busiest machine's system"),
+    agentDrivenTurns: num(s.agentDrivenTurns),
+    topAgentDrivenSystemName: textOrNull(s.topAgentDrivenSystemName, "the Systems summary's leading agent-driven system"),
+    topAgentDrivenPercent: ratioOrNull(s.topAgentDrivenPercent, "the Systems summary's leading agent-driven percent"),
+    unknownTurns: num(s.unknownTurns),
+    hasData: s.hasData,
   };
 }
 

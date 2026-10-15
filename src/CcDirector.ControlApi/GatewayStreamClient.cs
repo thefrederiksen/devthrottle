@@ -906,6 +906,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
                 StartedAt = _startedAt,
                 DisplayName = ReadDisplayName(),
                 SecretTransferPublicKey = ReadSecretTransferPublicKey(),
+                Os = DirectorOs.Current(),        // the Systems tab of Your Throttle counts turns by this
                 PushesTurns = true,   // this build carries the TurnPusher (turn-push mission)
                 ChecksIdleBeforeTyping = true,   // this build honours PromptRequest.OnlyWhenWaitingForInput
                 CreatesFleetManagerHome = true,   // this build honours NewSessionRequest.FleetManagerHome
