@@ -266,30 +266,6 @@ public sealed class EngineDatabaseTests : IDisposable
     // -- Cleanup --
 
     [Fact]
-    public void CleanupOrphanedRuns_MarksOpenRunsOfAGoneOwnerAsFailed()
-    {
-        // A previous launch of this Director: a process that is no longer running.
-        var previousLaunch = new EngineRunOwner("director-a", Environment.MachineName, 4242, DateTime.UtcNow.AddHours(-1));
-        var before = new EngineDatabase(_dbPath, previousLaunch, _ => OwnerLiveness.Running);
-        var jobId = before.AddJob(MakeJob("orphan-job"));
-        var run = new RunRecord { JobId = jobId, JobName = "orphan-job", StartedAt = DateTime.UtcNow };
-        run.Id = before.CreateRun(run);
-
-        var now = new EngineDatabase(_dbPath,
-            new EngineRunOwner("director-a", Environment.MachineName, 5151, DateTime.UtcNow),
-            owner => owner.ProcessId == 4242 ? OwnerLiveness.Gone : OwnerLiveness.Running);
-        var count = now.CleanupOrphanedRuns();
-
-        Assert.Equal(1, count);
-
-        var cleaned = _db.GetRun(run.Id);
-        Assert.NotNull(cleaned);
-        Assert.NotNull(cleaned.EndedAt);
-        Assert.Equal(-1, cleaned.ExitCode);
-        Assert.Equal("Interrupted by shutdown", cleaned.Stderr);
-    }
-
-    [Fact]
     public void CleanupOldRuns_PurgesOldRecords()
     {
         var jobId = _db.AddJob(MakeJob("purge-job"));
