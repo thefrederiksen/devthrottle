@@ -96,6 +96,17 @@ public static class ResourcePressure
     /// <summary>A volume with less than this share free is Critical (red): 5 percent.</summary>
     public const double DiskFreeCriticalPercent = 5.0;
 
+    /// <summary>
+    /// The gigabyte floors apply only to a volume at least this large: 20 GB, the amber floor itself.
+    ///
+    /// Read literally, "red below 5 GB free" makes every small system partition red for ever: devlinux's
+    /// 1 GB <c>/boot/efi</c> is 99% free and still under 5 GB, and nearly every machine has one. A volume
+    /// smaller than the floor can never have that much free, so the floor says nothing about it; such a
+    /// volume is judged by its percentage alone. A DEPARTURE FROM THE WORDING OF MISSION SECTION 5B,
+    /// found by the phase 1 live reading and put to the Tech Lead.
+    /// </summary>
+    public const ulong DiskFreeAbsoluteFloorsFromBytes = DiskFreeTightBytes;
+
     /// <summary>A volume with less than this much free is Critical (red): 5 GB - one build's output from full.</summary>
     public const ulong DiskFreeCriticalBytes = 5UL * 1024 * 1024 * 1024;
 
@@ -400,7 +411,8 @@ public static class ResourcePressure
                 continue;
             }
 
-            if (worstVolume is null || level > worstLevel || (level == worstLevel && volume.FreeBytes < worstVolume.FreeBytes))
+            // Between volumes at the same level, the one with the smallest share free is the one to name.
+            if (worstVolume is null || level > worstLevel || (level == worstLevel && FreeFraction(volume) < FreeFraction(worstVolume)))
             {
                 worstLevel = level;
                 worstVolume = volume;
@@ -420,9 +432,11 @@ public static class ResourcePressure
     }
 
     /// <summary>
-    /// One volume's level. The percentage OR the absolute floor raises it, whichever is worse: a small
-    /// volume is caught by its percentage, a large one by its gigabytes. Unknown when its space cannot be
-    /// read, or reads as a zero-sized volume, or reads as more free than its size.
+    /// One volume's level. The percentage OR the gigabyte floor raises it, whichever is worse, so a volume
+    /// with room in percent but not in gigabytes is still caught. The gigabyte floors apply only from
+    /// <see cref="DiskFreeAbsoluteFloorsFromBytes"/> up; a smaller volume is judged by percentage alone.
+    /// Unknown when its space cannot be read, or reads as a zero-sized volume, or reads as more free than
+    /// its size.
     /// </summary>
     public static ResourceLevel VolumeLevel(VolumeReading volume)
     {
@@ -430,10 +444,13 @@ public static class ResourcePressure
         if (!volume.CouldRead || volume.TotalBytes == 0 || volume.FreeBytes > volume.TotalBytes) return ResourceLevel.Unknown;
 
         var freePercent = 100.0 * volume.FreeBytes / volume.TotalBytes;
-        if (freePercent < DiskFreeCriticalPercent || volume.FreeBytes < DiskFreeCriticalBytes) return ResourceLevel.Critical;
-        if (freePercent < DiskFreeTightPercent || volume.FreeBytes < DiskFreeTightBytes) return ResourceLevel.Tight;
+        var floorsApply = volume.TotalBytes >= DiskFreeAbsoluteFloorsFromBytes;
+        if (freePercent < DiskFreeCriticalPercent || (floorsApply && volume.FreeBytes < DiskFreeCriticalBytes)) return ResourceLevel.Critical;
+        if (freePercent < DiskFreeTightPercent || (floorsApply && volume.FreeBytes < DiskFreeTightBytes)) return ResourceLevel.Tight;
         return ResourceLevel.Normal;
     }
+
+    private static double FreeFraction(VolumeReading volume) => (double)volume.FreeBytes / volume.TotalBytes;
 
     private static string Percent(double value) => string.Create(CultureInfo.InvariantCulture, $"{value:F0}%");
 

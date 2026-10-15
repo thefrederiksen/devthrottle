@@ -568,6 +568,20 @@ public class ResourcePressureTests
         Assert.Equal(expected, ResourcePressure.VolumeLevel(volume));
     }
 
+    [Theory]
+    [InlineData(1.0, 0.99, ResourceLevel.Normal)]    // devlinux /boot/efi: 99% free, the 5 GB floor does not apply
+    [InlineData(1.0, 0.10, ResourceLevel.Tight)]     // a small volume is still judged by its percentage
+    [InlineData(1.0, 0.04, ResourceLevel.Critical)]
+    [InlineData(19.9, 19.0, ResourceLevel.Normal)]   // just under the size the floors start at
+    [InlineData(20.0, 19.0, ResourceLevel.Tight)]    // from 20 GB up, under 20 GB free is amber
+    [InlineData(20.0, 4.5, ResourceLevel.Critical)]  // and under 5 GB free is red
+    public void VolumeLevel_SmallVolume_IsJudgedByPercentageAlone(double totalGigabytes, double freeGigabytes, ResourceLevel expected)
+    {
+        var volume = VolumeReading.Read("/boot/efi", (ulong)(totalGigabytes * Gigabyte), (ulong)(freeGigabytes * Gigabyte), Array.Empty<string>());
+
+        Assert.Equal(expected, ResourcePressure.VolumeLevel(volume));
+    }
+
     [Fact]
     public void Evaluate_DiskFree_TheWorstVolumeWins()
     {
@@ -589,6 +603,28 @@ public class ResourcePressureTests
         Assert.Equal(ResourceLevel.Critical, free.Level);
         Assert.Contains("/data", free.Evidence);
         Assert.Contains("50.0 GB", free.Evidence);
+    }
+
+    [Fact]
+    public void Evaluate_DiskFreeAllNormal_NamesTheVolumeWithTheSmallestShareFree()
+    {
+        // devlinux: / is 91% free of 3.2 TB, /boot/efi is 99% free of 1 GB. / is the fuller one.
+        var history = new[]
+        {
+            new ResourceSampleBuilder
+            {
+                Volumes = new[]
+                {
+                    VolumeReading.Read("/", 3_200 * Gigabyte, 2_900 * Gigabyte, new[] { "sda", "sdb", "sdc" }),
+                    VolumeReading.Read("/boot/efi", 1 * Gigabyte, (ulong)(0.99 * Gigabyte), new[] { "sdc" }),
+                },
+            }.Build(),
+        };
+
+        var free = Verdict(history, ResourceKind.DiskFree);
+
+        Assert.Equal(ResourceLevel.Normal, free.Level);
+        Assert.StartsWith("the fullest volume is / with", free.Evidence);
     }
 
     [Fact]
