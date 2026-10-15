@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Bytes (Read)</key>
+	<integer>431900520448</integer>
+	<key>Bytes (Write)</key>
+	<integer>78900072448</integer>
+	<key>Errors (Read)</key>
+	<integer>0</integer>
+	<key>Errors (Write)</key>
+	<integer>0</integer>
+	<key>Latency Time (Read)</key>
+	<integer>0</integer>
+	<key>Latency Time (Write)</key>
+	<integer>0</integer>
+	<key>Operations (Read)</key>
+	<integer>8096100</integer>
+	<key>Operations (Write)</key>
+	<integer>3692471</integer>
+	<key>Retries (Read)</key>
+	<integer>0</integer>
+	<key>Retries (Write)</key>
+	<integer>0</integer>
+	<key>Total Time (Read)</key>
+	<integer>2230432340709</integer>
+	<key>Total Time (Write)</key>
+	<integer>323914863274</integer>
+</dict>
+</plist>

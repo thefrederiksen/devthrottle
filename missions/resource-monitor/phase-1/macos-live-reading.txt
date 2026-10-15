@@ -1,0 +1,208 @@
+ONE FULL RESOURCE SAMPLE FROM THIS MACHINE, NEXT TO THE OPERATING SYSTEM'S OWN FIGURES
+
+Machine   devthrottle-mac-mini, Apple M4, 10 cores, 16 GiB, macOS 26.5.2 (build 25F84), arm64
+Taken     2026-10-15 15:07:59 local time, 19:07:59 utc
+Read by   MacOsResourceProbe, with no subprocess of any kind
+
+This repository is public, so paths printed by the machine's own tools are shortened: the home
+directory to a tilde, a temporary directory to a phrase, and this harness's own executable to
+what it is. A process that names the vendor of a coding agent appears as (a coding agent
+session), because this repository never names one. No figure is changed anywhere.
+
+The probe's own figures are first. Underneath each one is what the machine's own tool said for
+the same moment, so the two can be compared by eye.
+
+====================================================================================================
+THE FIRST SAMPLE, THROWN AWAY: a rate needs two readings, and the probe says so rather than
+reporting zero. This is what the Director sees on its very first meter draw.
+
+   processor  processor unreadable (first sample, no interval yet)
+   disks      disk disk0 (solid-state) unreadable (first sample, no interval yet)
+   network    network unreadable (first sample, no interval yet)
+   memory     5.3 GB available of 16.0 GB   (needs no interval, so it is reported)
+   swap       swap 0.0 GB used of 0.0 GB   (needs no interval)
+   stalls     stalls (MacOsSignals): run queue 6.1, macOS memory pressure level 1   (needs no interval)
+
+====================================================================================================
+PROCESSOR
+
+   THE PROBE   processor 20% busy, busiest core 40%, 10 cores
+
+   top -l 2 -s 1 -n 0, the second reading being the one over its own interval:
+      CPU usage: 8.57% user, 10.95% sys, 80.47% idle
+      CPU usage: 14.95% user, 4.80% sys, 80.23% idle
+      Load Avg: 6.06, 13.43, 9.96
+      Load Avg: 6.06, 13.43, 9.96
+
+====================================================================================================
+MEMORY AND SWAP
+
+   THE PROBE   5.1 GB available of 16.0 GB
+   THE PROBE   swap 0.0 GB used of 0.0 GB
+
+   sysctl hw.memsize, and sysctl vm.swapusage:
+      hw.memsize: 17179869184
+      vm.swapusage: total = 0.00M  used = 0.00M  free = 0.00M  (encrypted)
+   vm_stat, the page counts the memory figure is built from:
+      Mach Virtual Memory Statistics: (page size of 16384 bytes)
+      Pages free:                                   132781.
+      Pages active:                                 196792.
+      Pages inactive:                               189957.
+      Pages speculative:                              9795.
+      Pages throttled:                                   0.
+      Pages wired down:                             240844.
+      Pages purgeable:                                2533.
+
+====================================================================================================
+PHYSICAL DISKS
+
+   THE PROBE   disk disk0 (solid-state) 1.2 MB/s read, 0.0 MB/s written, 0.0 operations in flight
+               busy percent      null - macOS publishes no utilisation figure, see macos-disk-busy-risk.txt
+               queue depth       0.005  (average operations in flight)
+               per read          0.231 ms
+               per write         - ms
+               read              1.18 MiB/s
+               written           0.00 MiB/s
+               kind              SolidState
+
+   iostat -d -w 1 -c 2 disk0. Note it has NO busy column: macOS does not publish one, which is
+   why the probe reports null rather than inventing a percentage.
+                    disk0
+          KB/t  tps  MB/s
+         39.26  100  3.85
+        400.00    5  1.94
+
+====================================================================================================
+VOLUMES
+
+   THE PROBE   volume / 72.6 GB free of 228.3 GB on disk0
+   THE PROBE   volume /dev 0.0 GB free of 0.0 GB
+   THE PROBE   volume /System/Volumes/VM 73.0 GB free of 228.3 GB on disk0
+   THE PROBE   volume /System/Volumes/Preboot 73.0 GB free of 228.3 GB on disk0
+   THE PROBE   volume /System/Volumes/Update 73.0 GB free of 228.3 GB on disk0
+   THE PROBE   volume /System/Volumes/xarts 0.5 GB free of 0.5 GB on disk0
+   THE PROBE   volume /System/Volumes/iSCPreboot 0.5 GB free of 0.5 GB on disk0
+   THE PROBE   volume /System/Volumes/Hardware 0.5 GB free of 0.5 GB on disk0
+   THE PROBE   volume /System/Volumes/Data 72.6 GB free of 228.3 GB on disk0
+   THE PROBE   volume /System/Volumes/Data/home 0.0 GB free of 0.0 GB
+
+   df -h:
+      Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+      /dev/disk3s1s1   228Gi    12Gi    73Gi    14%    459k  762M    0%   /
+      devfs            200Ki   200Ki     0Bi   100%     692     0  100%   /dev
+      /dev/disk3s6     228Gi    20Ki    73Gi     1%       0  762M    0%   /System/Volumes/VM
+      /dev/disk3s2     228Gi    10Gi    73Gi    13%    2.0k  762M    0%   /System/Volumes/Preboot
+      /dev/disk3s4     228Gi   6.2Mi    73Gi     1%     108  762M    0%   /System/Volumes/Update
+      /dev/disk1s2     500Mi   6.0Mi   483Mi     2%       1  4.9M    0%   /System/Volumes/xarts
+      /dev/disk1s1     500Mi   6.0Mi   483Mi     2%      33  4.9M    0%   /System/Volumes/iSCPreboot
+      /dev/disk1s3     500Mi   700Ki   483Mi     1%      76  4.9M    0%   /System/Volumes/Hardware
+      /dev/disk3s5     228Gi   131Gi    73Gi    65%    3.2M  762M    0%   /System/Volumes/Data
+      map auto_home      0Bi     0Bi     0Bi   100%       0     0     -   /System/Volumes/Data/home
+
+====================================================================================================
+NETWORK
+
+   THE PROBE   network 0.0 MB/s in, 0.1 MB/s out
+               the loopback is skipped on purpose: traffic a machine sends to itself is not
+               traffic on the network, and on a machine running many sessions it is the
+               busiest interface by far.
+
+   netstat -ib, the cumulative counters the rate is the difference of:
+      Name       Mtu   Network       Address            Ipkts Ierrs     Ibytes    Opkts Oerrs     Obytes  Coll
+      lo0        16384 <Link#1>                        224049     0   52112723   224049     0   52112723     0
+      gif0*      1280  <Link#2>                             0     0          0        0     0          0     0
+      stf0*      1280  <Link#3>                             0     0          0        0     0          0     0
+      anpi3      1500  <Link#4>    92:2d:e0:1a:83:99        0     0          0        0     0          0     0
+      anpi0      1500  <Link#5>    92:2d:e0:1a:83:96        0     0          0        0     0          0     0
+      anpi1      1500  <Link#6>    92:2d:e0:1a:83:97        0     0          0        0     0          0     0
+      en0        1500  <Link#7>    1c:f6:4c:49:ea:76        0     0          0        0     0          0     0
+      en5        1500  <Link#8>    92:2d:e0:1a:83:76        0     0          0        0     0          0     0
+      en6        1500  <Link#9>    92:2d:e0:1a:83:77        0     0          0        0     0          0     0
+      en7        1500  <Link#10>   92:2d:e0:1a:83:79        0     0          0        0     0          0     0
+      en2        1500  <Link#11>   36:dd:fb:0c:46:40        0     0          0        0     0          0     0
+
+====================================================================================================
+STALL SIGNALS - WHY THE MACHINE IS SLOW
+
+   THE PROBE   stalls (MacOsSignals): run queue 6.1, macOS memory pressure level 1
+               run queue                   6.06
+               kernel memory pressure      1 (Normal)
+               processor stalled percent   null - not offered on macOS
+               memory stalled percent      null - not offered on macOS
+               disk stalled percent        null - not offered on macOS
+               hard page faults a second   null - not offered on macOS
+               processes waiting on disk   null - not offered on macOS
+
+   Linux publishes, in /proc/pressure, the share of time programs spent frozen waiting on each
+   resource. macOS publishes nothing equivalent, so those four figures are NULL and not zero:
+   zero would read as "nothing was ever stalled", which is the opposite of "we cannot tell".
+
+   sysctl vm.loadavg and kern.memorystatus_vm_pressure_level, and kern.memorystatus_level which
+   is the percentage of memory free, for context on what level 1 means:
+      vm.loadavg: { 5.81 13.26 9.92 }
+      kern.memorystatus_vm_pressure_level: 1
+      kern.memorystatus_level: 52
+
+====================================================================================================
+PROCESSES
+
+   THE PROBE   646 processes
+
+   The ten busiest by processor, as the probe reports them. A hundred percent is the WHOLE
+   machine, not one core, because that is what the shared reading type asks for - so a process
+   holding one core of ten reads ten percent. Every monitor on this platform shows the other
+   figure, which is why this is said out loud.
+
+       process    parent  name                              processor        memory
+           479         1  mediaanalysisd                         6.7%      345.9 MiB
+           622         1  textunderstandingd                     1.9%       51.4 MiB
+         38169     10846  Google Chrome Helper (Renderer)        1.7%      229.5 MiB
+         78884         1  cc-director                            1.4%      251.8 MiB
+           461         1  WallpaperAerialsExtension              0.6%       25.4 MiB
+         86782     78884  2.1.300                                0.4%      332.5 MiB
+         24481     78884  2.1.301                                0.4%      281.7 MiB
+         38168     38167  probeharness                           0.3%       62.3 MiB
+         38167     38166  dotnet                                 0.3%      147.4 MiB
+         62661     78884  2.1.300                                0.2%      376.6 MiB
+
+   The ten busiest the probe may NOT measure. They are listed and named - that is the point of
+   them - and their figures say refused rather than nought. Before this, they were not in the
+   list at all, and on this machine the two busiest processes on it were among the missing.
+
+         38170     38168  top                                 refused        refused
+         11949         1  diagnosticservic                    refused        refused
+         93594         1  PerfPowerService                    refused        refused
+         93569         1  mdsync                              refused        refused
+         82639         1  StandaloneUpdate                    refused        refused
+         79283         1  TGOnDeviceInfere                    refused        refused
+         79280         1  GenerativeExperi                    refused        refused
+         73048         1  SetStoreUpdateSe                    refused        refused
+         73042         1  STExtractionServ                    refused        refused
+         73041         1  ReportSystemMemo                    refused        refused
+
+   ps -A -o pid,ppid,%cpu,rss,comm -r, the machine's own list, busiest first:
+        PID  PPID  %CPU    RSS COMM
+      38168 38167  22.1  70384 (the proof harness)
+      78884     1  17.3 257760 ~/Applications/Director.app/Contents/MacOS/cc-director
+        172     1  16.3  70736 /System/Library/CoreServices/loginwindow.app/Contents/MacOS/loginwindow
+        169     1   9.2  24912 /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer
+        461     1   7.5  25952 /System/Library/ExtensionKit/Extensions/WallpaperAerialsExtension.appex/Contents/MacOS/WallpaperAerialsExtension
+      62661 78884   7.1 385920 (a coding agent session)
+      86782 78884   5.8 340432 (a coding agent session)
+        472     1   2.4  29056 /System/Library/Frameworks/VideoToolbox.framework/Versions/A/XPCServices/VTDecoderXPCService.xpc/Contents/MacOS/VTDecoderXPCService
+        622     1   2.2 106752 /usr/libexec/textunderstandingd
+        293     1   1.5  34240 /System/Library/DriverExtensions/com.apple.DriverKit-AppleBCMWLAN.dext/com.apple.DriverKit-AppleBCMWLAN
+
+   The probe listed 646 processes and ps lists 645 on the machine. Of those, 389 could be
+   measured and 257 could not: they belong to another user, so the platform refuses their
+   figures. Every one of them is still in the list with a name, a parent and a start time, and
+   with its figures null rather than nought - which is the only way the busiest process on the
+   machine can be named when it is not ours.
+
+====================================================================================================
+WHAT ONE SAMPLE COSTS
+
+   1.8 milliseconds of processor time a sample, reading all 646 processes.
+   At the mission's five second interval that is 0.035% of one core,
+   against a budget of 0.5%.
+
