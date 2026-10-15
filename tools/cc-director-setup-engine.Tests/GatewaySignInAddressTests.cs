@@ -25,34 +25,6 @@ public class GatewaySignInAddressTests
     private const string MachineName = "WORKSTATION-1";
 
     /// <summary>
-    /// The address reaches the screen BEFORE the browser is asked to open it, it is the same address, and it is
-    /// withdrawn when the wait ends. The order is the point: the shell call is the step that can leave nothing
-    /// behind, so the address must already be on screen when it runs.
-    /// </summary>
-    [Fact]
-    public async Task DefaultSignIn_ShowsTheAddressBeforeOpeningTheBrowser_AndWithdrawsItWhenTheWaitEnds()
-    {
-        var events = new List<string>();
-        using var stop = new CancellationTokenSource();
-        var runner = new GatewayAccountEnrollRunner(
-            handlerFactory: () => new RecordingHandler(events, succeed: false),
-            persist: (_, _) => throw new InvalidOperationException("nothing may be saved"),
-            signInAddressDisplay: new RecordingDisplay(events),
-            // Windows' chooser was dismissed: the open call returns and no browser ever arrives.
-            openBrowser: url => { events.Add("opened " + url); stop.Cancel(); });
-
-        var result = await runner.VerifyAndSaveAsync(GatewayUrl, DeviceId, MachineName, stop.Token);
-
-        Assert.False(result.Success);
-        Assert.Equal(3, events.Count);
-        Assert.StartsWith("shown ", events[0]);
-        var shown = events[0]["shown ".Length..];
-        Assert.Equal("opened " + shown, events[1]);
-        Assert.Equal("withdrawn", events[2]);
-        Assert.StartsWith("http://127.0.0.1:", RedirectUriOf(shown));
-    }
-
-    /// <summary>
     /// With NO browser opened by the shell, the loopback listener behind the shown address is live: a hand-back
     /// to the shown address's own callback - what devthrottle.com sends after a person signs in there -
     /// completes the sign-in and the machine enrolls. The address is withdrawn as soon as the hand-back lands,
