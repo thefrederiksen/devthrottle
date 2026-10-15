@@ -3018,6 +3018,9 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<string>("OriginSurface")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Os")
+                        .HasColumnType("TEXT");
+
                     b.Property<long?>("OutputTokens")
                         .HasColumnType("INTEGER");
 

@@ -1,5 +1,6 @@
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
+using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -96,17 +97,50 @@ public sealed class ThrottleLedgerReader
 
     private static Dictionary<string, ThrottleDefinition.SessionFacts> SessionFacts(GatewayDbContext ctx, List<string> sessionIds)
     {
-        var facts = new Dictionary<string, ThrottleDefinition.SessionFacts>(StringComparer.Ordinal);
+        var found = new List<(string SessionId, string? RepoName, string? RepoPath, string? OriginKind, string? Machine, string? Os)>();
         for (var i = 0; i < sessionIds.Count; i += HistoryChunk)
         {
             var chunk = sessionIds.Skip(i).Take(HistoryChunk).ToList();
-            var found = ctx.SessionHistory.AsNoTracking()
+            found.AddRange(ctx.SessionHistory.AsNoTracking()
                 .Where(s => chunk.Contains(s.SessionId))
-                .Select(s => new { s.SessionId, s.RepoName, s.RepoPath, s.OriginKind })
-                .ToList();
-            foreach (var s in found)
-                facts[s.SessionId] = new ThrottleDefinition.SessionFacts(s.RepoName, s.RepoPath, s.OriginKind);
+                .Select(s => new { s.SessionId, s.RepoName, s.RepoPath, s.OriginKind, s.MachineName, s.Os })
+                .ToList()
+                .Select(s => (s.SessionId, s.RepoName, s.RepoPath, s.OriginKind, s.MachineName, s.Os)));
+        }
+
+        var machineOs = MachineSystems(ctx, found.Where(s => DirectorOs.Normalize(s.Os) is null).Select(s => s.Machine));
+
+        var facts = new Dictionary<string, ThrottleDefinition.SessionFacts>(StringComparer.Ordinal);
+        foreach (var s in found)
+        {
+            // The row's own report first. A row written before its Director reported a system takes the system that
+            // machine HAS reported on another row - a machine's system does not change between sessions, and this is
+            // what lets the Systems tab answer the whole retention window, not only the days since the report began.
+            var os = DirectorOs.Normalize(s.Os)
+                     ?? (s.Machine is { Length: > 0 } m && machineOs.TryGetValue(m, out var known) ? known : null);
+            facts[s.SessionId] = new ThrottleDefinition.SessionFacts(s.RepoName, s.RepoPath, s.OriginKind, s.Machine, os);
         }
         return facts;
+    }
+
+    /// <summary>The system each named machine most recently reported, from this tenant's session history. A machine no
+    /// row reports a system for is absent - its sessions are Unknown, never guessed.</summary>
+    private static Dictionary<string, string> MachineSystems(GatewayDbContext ctx, IEnumerable<string?> machines)
+    {
+        var wanted = machines.Where(m => !string.IsNullOrWhiteSpace(m)).Select(m => m!)
+            .Distinct(StringComparer.Ordinal).ToList();
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (wanted.Count == 0) return result;
+        for (var i = 0; i < wanted.Count; i += HistoryChunk)
+        {
+            var chunk = wanted.Skip(i).Take(HistoryChunk).ToList();
+            var reported = ctx.SessionHistory.AsNoTracking()
+                .Where(s => s.MachineName != null && chunk.Contains(s.MachineName) && s.Os != null)
+                .Select(s => new { s.MachineName, s.Os, s.LastSeenUtc })
+                .ToList();
+            foreach (var r in reported.OrderByDescending(r => r.LastSeenUtc))
+                if (DirectorOs.Normalize(r.Os) is { } os) result.TryAdd(r.MachineName!, os);
+        }
+        return result;
     }
 }

@@ -382,7 +382,7 @@ public sealed class DirectorRegistry : IDisposable
     /// already bound to. The caller closes the connection; nothing about the existing entry changes.
     /// </summary>
     public DirectorDto RegisterFromStream(string directorId, string machineName, string user, string version, int pid, DateTime startedAt, TenantId tenant,
-        string displayName = "", string? registeredByCredential = null)
+        string displayName = "", string? registeredByCredential = null, string? os = null)
     {
         if (string.IsNullOrEmpty(directorId))
             throw new ArgumentException("directorId is required", nameof(directorId));
@@ -437,6 +437,9 @@ public sealed class DirectorRegistry : IDisposable
                 // older build's Hello is "no statement", not an instruction to erase the stored name.
                 DisplayName = !string.IsNullOrEmpty(cleanDisplayName) ? cleanDisplayName : (existing?.DisplayName ?? ""),
                 Version = !string.IsNullOrEmpty(version) ? version : (existing?.Version ?? ""),
+                // The Hello is client-written: only a system DirectorOs names is stored, and an older build's
+                // empty field is "no statement", like the fields above, never an erase.
+                Os = DirectorOs.Normalize(os) ?? (existing?.Os ?? ""),
                 SchemaVersion = 1,
                 LastSeen = now,
                 Source = "stream",

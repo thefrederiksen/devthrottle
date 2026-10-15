@@ -20,9 +20,10 @@ namespace CcDirector.Gateway.History;
 /// <param name="PersonSubject">In a TEAM's tenant, the account subject of the person the Director's key was issued to
 /// (devthrottle_internal#2305), read through the team caller resolver of devthrottle_internal#2311. Null in a personal
 /// tenant, and null when the resolver cannot name the person - never guessed.</param>
-public readonly record struct DirectorFacts(string? MachineName, string? Version, string? PersonSubject = null)
+/// <param name="Os">The operating system the Director reported in its Hello, or null when it did not report one.</param>
+public readonly record struct DirectorFacts(string? MachineName, string? Version, string? PersonSubject = null, string? Os = null)
 {
     /// <summary>Nothing known - the Gateway has no live record for this Director. Distinct from a
     /// record whose fields are blank, and both are written as null rather than "".</summary>
-    public static readonly DirectorFacts Unknown = new(null, null, null);
+    public static readonly DirectorFacts Unknown = new(null, null, null, null);
 }

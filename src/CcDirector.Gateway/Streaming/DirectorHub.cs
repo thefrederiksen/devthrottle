@@ -464,7 +464,7 @@ public sealed class DirectorHub : Hub
         try
         {
             _registry.RegisterFromStream(directorId, hello.MachineName, hello.User, hello.Version, hello.Pid, hello.StartedAt, tenant,
-                hello.DisplayName, registeringCredential);
+                hello.DisplayName, registeringCredential, hello.Os);
         }
         catch (DirectorIdBoundToAnotherCredentialException ex)
         {

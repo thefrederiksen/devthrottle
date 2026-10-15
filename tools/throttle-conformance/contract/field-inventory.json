@@ -321,6 +321,141 @@
     "starters.turns": [
       "browser"
     ],
+    "systemsSummary.agentDrivenTurns": [
+      "browser"
+    ],
+    "systemsSummary.hasData": [
+      "browser"
+    ],
+    "systemsSummary.machineCount": [
+      "browser"
+    ],
+    "systemsSummary.systemCount": [
+      "browser"
+    ],
+    "systemsSummary.topAgentDrivenPercent": [
+      "browser"
+    ],
+    "systemsSummary.topAgentDrivenSystemName": [
+      "browser"
+    ],
+    "systemsSummary.topMachineName": [
+      "browser"
+    ],
+    "systemsSummary.topMachineOsName": [
+      "browser"
+    ],
+    "systemsSummary.topMachineTurns": [
+      "browser"
+    ],
+    "systemsSummary.topPercent": [
+      "browser"
+    ],
+    "systemsSummary.topShare": [
+      "browser"
+    ],
+    "systemsSummary.topSystemName": [
+      "browser"
+    ],
+    "systemsSummary.totalSessions": [
+      "browser"
+    ],
+    "systemsSummary.totalTurns": [
+      "browser"
+    ],
+    "systemsSummary.unknownTurns": [
+      "browser"
+    ],
+    "systems[].agentDrivenPercent": [
+      "browser"
+    ],
+    "systems[].agentDrivenShare": [
+      "browser"
+    ],
+    "systems[].agentDrivenTurns": [
+      "browser"
+    ],
+    "systems[].machines[].agentDrivenPercent": [
+      "browser"
+    ],
+    "systems[].machines[].agentDrivenShare": [
+      "browser"
+    ],
+    "systems[].machines[].agentDrivenTurns": [
+      "browser"
+    ],
+    "systems[].machines[].displayName": [
+      "browser"
+    ],
+    "systems[].machines[].machineName": [
+      "browser"
+    ],
+    "systems[].machines[].sessionPercent": [
+      "browser"
+    ],
+    "systems[].machines[].sessionShare": [
+      "browser"
+    ],
+    "systems[].machines[].sessions": [
+      "browser"
+    ],
+    "systems[].machines[].turnPercent": [
+      "browser"
+    ],
+    "systems[].machines[].turnShare": [
+      "browser"
+    ],
+    "systems[].machines[].turns": [
+      "browser"
+    ],
+    "systems[].machines[].typedTurns": [
+      "browser"
+    ],
+    "systems[].machines[].voicePercent": [
+      "browser"
+    ],
+    "systems[].machines[].voiceShare": [
+      "browser"
+    ],
+    "systems[].machines[].voiceTurns": [
+      "browser"
+    ],
+    "systems[].os": [
+      "browser"
+    ],
+    "systems[].osName": [
+      "browser"
+    ],
+    "systems[].sessionPercent": [
+      "browser"
+    ],
+    "systems[].sessionShare": [
+      "browser"
+    ],
+    "systems[].sessions": [
+      "browser"
+    ],
+    "systems[].turnPercent": [
+      "browser"
+    ],
+    "systems[].turnShare": [
+      "browser"
+    ],
+    "systems[].turns": [
+      "browser"
+    ],
+    "systems[].typedTurns": [
+      "browser"
+    ],
+    "systems[].voicePercent": [
+      "browser"
+    ],
+    "systems[].voiceShare": [
+      "browser"
+    ],
+    "systems[].voiceTurns": [
+      "browser"
+    ],
     "turns": [
       "browser",
       "report"

@@ -161,6 +161,61 @@
       "sessions": 238,
       "turns": 3020
     },
+    "systems": [
+      {
+        "agentDrivenPercent": 75,
+        "agentDrivenShare": 0.75,
+        "agentDrivenTurns": 4,
+        "machines": [
+          {
+            "agentDrivenPercent": 75,
+            "agentDrivenShare": 0.75,
+            "agentDrivenTurns": 4,
+            "displayName": "machine-alpha",
+            "machineName": "machine-alpha",
+            "sessionPercent": 33,
+            "sessionShare": 0.3333333333333333,
+            "sessions": 3,
+            "turnPercent": 57,
+            "turnShare": 0.5683090705487122,
+            "turns": 1786,
+            "typedTurns": 771,
+            "voicePercent": 61,
+            "voiceShare": 0.612,
+            "voiceTurns": 1015
+          }
+        ],
+        "os": "windows",
+        "osName": "Windows",
+        "sessionPercent": 33,
+        "sessionShare": 0.3333333333333333,
+        "sessions": 3,
+        "turnPercent": 57,
+        "turnShare": 0.5683090705487122,
+        "turns": 1786,
+        "typedTurns": 771,
+        "voicePercent": 61,
+        "voiceShare": 0.612,
+        "voiceTurns": 1015
+      }
+    ],
+    "systemsSummary": {
+      "agentDrivenTurns": 4,
+      "hasData": true,
+      "machineCount": 4,
+      "systemCount": 3,
+      "topAgentDrivenPercent": 80,
+      "topAgentDrivenSystemName": "Windows",
+      "topMachineName": "machine-alpha",
+      "topMachineOsName": "Windows",
+      "topMachineTurns": 481,
+      "topPercent": 56,
+      "topShare": 0.5612,
+      "topSystemName": "Windows",
+      "totalSessions": 129,
+      "totalTurns": 1786,
+      "unknownTurns": 7
+    },
     "turns": 1786,
     "typedTurns": 771,
     "unit": "submitted turns",

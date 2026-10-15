@@ -88,4 +88,11 @@ public sealed class DirectorStreamHello
     /// only: the Gateway sanitizes it and never keys on it.
     /// </summary>
     public string DisplayName { get; set; } = "";
+
+    /// <summary>
+    /// The operating system this Director runs on, one of <see cref="DirectorOs.Windows"/>,
+    /// <see cref="DirectorOs.Linux"/> or <see cref="DirectorOs.MacOs"/> (the Systems tab of Your Throttle). EMPTY from
+    /// a build too old to send it - the Gateway then records the OS as not known, never guesses one.
+    /// </summary>
+    public string Os { get; set; } = "";
 }

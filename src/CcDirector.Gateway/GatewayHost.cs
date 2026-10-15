@@ -2780,7 +2780,7 @@ public sealed class GatewayHost : IAsyncDisposable
             {
                 var d = Registry.Get(tenant, directorId);
                 return d is null ? History.DirectorFacts.Unknown
-                                 : new History.DirectorFacts(d.MachineName, d.Version);
+                                 : new History.DirectorFacts(d.MachineName, d.Version, Os: d.Os);
             },
             _knownRepositories,
             personOf: TeamSessionPersonOf,

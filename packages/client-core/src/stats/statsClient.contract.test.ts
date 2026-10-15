@@ -39,7 +39,7 @@ afterEach(() => {
  * computed here either. */
 function renderedAnswer(figure: ThrottleFigure) {
   const summary = summarizeThrottle(figure);
-  const shares = (row: ThrottleFigure["agents"][number] | ThrottleFigure["repos"][number]) => ({
+  const shares = (row: ThrottleFigure["agents"][number] | ThrottleFigure["repos"][number] | ThrottleFigure["systems"][number]) => ({
     turnShare: row.turnShare, turnPercent: row.turnPercent, sessionShare: row.sessionShare, sessionPercent: row.sessionPercent,
     voiceShare: row.voiceShare, voicePercent: row.voicePercent,
   });
@@ -61,6 +61,15 @@ function renderedAnswer(figure: ThrottleFigure) {
     agentsSummary: figure.agentsSummary,
     repos: figure.repos.map((r) => ({ repoName: r.repoName, turns: r.turns, sessions: r.sessions, ...shares(r) })),
     reposSummary: figure.reposSummary,
+    systems: figure.systems.map((s) => ({
+      osName: s.osName, turns: s.turns, sessions: s.sessions, agentDrivenTurns: s.agentDrivenTurns,
+      agentDrivenShare: s.agentDrivenShare, agentDrivenPercent: s.agentDrivenPercent, ...shares(s),
+      machines: s.machines.map((m) => ({
+        displayName: m.displayName, turns: m.turns, sessions: m.sessions, agentDrivenTurns: m.agentDrivenTurns,
+        turnPercent: m.turnPercent, sessionPercent: m.sessionPercent, agentDrivenPercent: m.agentDrivenPercent, voicePercent: m.voicePercent,
+      })),
+    })),
+    systemsSummary: figure.systemsSummary,
   };
 }
 

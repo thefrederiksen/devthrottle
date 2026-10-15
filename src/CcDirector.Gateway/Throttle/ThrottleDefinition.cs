@@ -106,7 +106,11 @@ public static class ThrottleDefinition
     /// <param name="OriginKind">Who started the session, as session history recorded it at birth
     /// (<see cref="Core.Sessions.SessionOriginKinds"/>): human, agent, schedule or unknown; null when the row
     /// predates the field.</param>
-    public readonly record struct SessionFacts(string? RepoName, string? RepoPath, string? OriginKind = null);
+    /// <param name="MachineName">The machine the session ran on, as session history recorded it; null when it did not.</param>
+    /// <param name="Os">The operating system of that machine (<see cref="Contracts.DirectorOs"/>), already resolved by the
+    /// reader; null when no Director on that machine has reported one.</param>
+    public readonly record struct SessionFacts(string? RepoName, string? RepoPath, string? OriginKind = null,
+        string? MachineName = null, string? Os = null);
 
     /// <summary>
     /// The four starter groups of <see cref="ThrottleStartersDto"/>, in the order every page draws them, with the
@@ -167,6 +171,7 @@ public static class ThrottleDefinition
         var hours = new Dictionary<string, (long Voice, long Typed)>(StringComparer.Ordinal);
         var agents = new Dictionary<string, AgentTally>(StringComparer.Ordinal);
         var repos = new Dictionary<string, RepoTally>(StringComparer.Ordinal);
+        var systems = new Dictionary<string, SystemTally>(StringComparer.Ordinal);
         var countedSessions = new HashSet<string>(StringComparer.Ordinal);
         var starterSessions = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
         var starterTurns = new Dictionary<string, long>(StringComparer.Ordinal);
@@ -201,6 +206,10 @@ public static class ThrottleDefinition
                     // Consequence 2: agent traffic is out of the human figure, reported beside it, and
                     // attributed to the agent RUNNING the session it was driven into.
                     Tally(agents, agentKey).AgentDrivenTurns++;
+                    // ...and to the system and machine that session ran on.
+                    var (drivenSystem, drivenMachine) = SystemTallies(systems, row.SessionId, sessions);
+                    drivenSystem.AgentDrivenTurns++;
+                    drivenMachine.AgentDrivenTurns++;
                 }
                 else if (string.Equals(row.SendSource, FrameworkSendSource, StringComparison.Ordinal))
                 {
@@ -236,6 +245,16 @@ public static class ThrottleDefinition
             agent.Turns++;
             if (isVoice) agent.VoiceTurns++; else agent.TypedTurns++;
             agent.Sessions.Add(row.SessionId);
+
+            // The Systems split: every counted turn lands on exactly one system and one machine - "Unknown" when the
+            // session's system is not known - so the rows add up to the headline and nothing is dropped.
+            var (system, machine) = SystemTallies(systems, row.SessionId, sessions);
+            foreach (var t in new TurnTally[] { system, machine })
+            {
+                t.Turns++;
+                if (isVoice) t.VoiceTurns++; else t.TypedTurns++;
+                t.Sessions.Add(row.SessionId);
+            }
 
             // Consequence 3 applied to the repository split too: a session that history holds no repository
             // for is disclosed as unattributed, never folded into a guessed row.
@@ -340,6 +359,45 @@ public static class ThrottleDefinition
             });
         }
         dto.ReposSummary = ReposSummary(dto.Repos);
+
+        var systemSessions = systems.Values.Sum(s => s.Sessions.Count);
+        foreach (var s in systems.Values.OrderByDescending(s => s.Turns).ThenByDescending(s => s.AgentDrivenTurns)
+                     .ThenBy(s => s.Key.Length == 0 ? 1 : 0).ThenBy(s => s.Key, StringComparer.Ordinal))
+        {
+            var row = new ThrottleSystemDto { Os = s.Key, OsName = Contracts.DirectorOs.DisplayName(s.Key.Length == 0 ? null : s.Key) };
+            FillShares(s, counted, systemSessions, noOriginAgent,
+                (t, ts, ss, ads, v) =>
+                {
+                    row.Turns = t.Turns; row.VoiceTurns = t.VoiceTurns; row.TypedTurns = t.TypedTurns;
+                    row.Sessions = t.Sessions.Count; row.AgentDrivenTurns = t.AgentDrivenTurns;
+                    row.TurnShare = ts.Share; row.TurnPercent = ts.Percent;
+                    row.SessionShare = ss.Share; row.SessionPercent = ss.Percent;
+                    row.AgentDrivenShare = ads.Share; row.AgentDrivenPercent = ads.Percent;
+                    row.VoiceShare = v.Share; row.VoicePercent = v.Percent;
+                });
+            foreach (var m in s.Machines.Values.OrderByDescending(m => m.Turns).ThenByDescending(m => m.AgentDrivenTurns)
+                         .ThenBy(m => m.Key, StringComparer.Ordinal))
+            {
+                var machine = new ThrottleMachineDto
+                {
+                    MachineName = m.Key,
+                    DisplayName = m.Key.Length == 0 ? "(machine not recorded)" : m.Key,
+                };
+                FillShares(m, counted, systemSessions, noOriginAgent,
+                    (t, ts, ss, ads, v) =>
+                    {
+                        machine.Turns = t.Turns; machine.VoiceTurns = t.VoiceTurns; machine.TypedTurns = t.TypedTurns;
+                        machine.Sessions = t.Sessions.Count; machine.AgentDrivenTurns = t.AgentDrivenTurns;
+                        machine.TurnShare = ts.Share; machine.TurnPercent = ts.Percent;
+                        machine.SessionShare = ss.Share; machine.SessionPercent = ss.Percent;
+                        machine.AgentDrivenShare = ads.Share; machine.AgentDrivenPercent = ads.Percent;
+                        machine.VoiceShare = v.Share; machine.VoicePercent = v.Percent;
+                    });
+                row.Machines.Add(machine);
+            }
+            dto.Systems.Add(row);
+        }
+        dto.SystemsSummary = SystemsSummary(dto.Systems, noOriginAgent);
 
         dto.Starters = StartersSummary(starterSessions, starterTurns);
 
@@ -461,6 +519,42 @@ public static class ThrottleDefinition
         };
     }
 
+    /// <summary>The Systems page's headline cards from the finished rows. "Unknown" is a row but never a system: it is
+    /// not counted as one, never named the top system, and its turns are disclosed as <c>UnknownTurns</c>.</summary>
+    public static ThrottleSystemsSummaryDto SystemsSummary(IReadOnlyList<ThrottleSystemDto> rows, long agentDrivenTurns)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        var total = rows.Sum(s => s.Turns);
+        var known = rows.Where(s => s.Os.Length > 0).ToList();
+        var top = known.OrderByDescending(s => s.Turns).FirstOrDefault(s => s.Turns > 0);
+        var topShare = ShareOf(top?.Turns ?? 0, total);
+        var topMachine = known
+            .SelectMany(s => s.Machines.Where(m => m.MachineName.Length > 0).Select(m => (System: s, Machine: m)))
+            .OrderByDescending(x => x.Machine.Turns).ThenBy(x => x.Machine.MachineName, StringComparer.Ordinal)
+            .FirstOrDefault(x => x.Machine.Turns > 0);
+        var topDriven = known.OrderByDescending(s => s.AgentDrivenTurns).FirstOrDefault(s => s.AgentDrivenTurns > 0);
+        return new ThrottleSystemsSummaryDto
+        {
+            SystemCount = known.Count(s => s.Turns > 0 || s.AgentDrivenTurns > 0),
+            MachineCount = rows.SelectMany(s => s.Machines)
+                .Where(m => m.MachineName.Length > 0 && (m.Turns > 0 || m.AgentDrivenTurns > 0))
+                .Select(m => m.MachineName).Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+            TotalTurns = total,
+            TotalSessions = rows.Sum(s => s.Sessions),
+            TopSystemName = top?.OsName,
+            TopShare = top is null ? null : topShare.Share,
+            TopPercent = top is null ? null : topShare.Percent,
+            TopMachineName = topMachine.Machine?.MachineName,
+            TopMachineTurns = topMachine.Machine?.Turns,
+            TopMachineOsName = topMachine.System?.OsName,
+            AgentDrivenTurns = agentDrivenTurns,
+            TopAgentDrivenSystemName = topDriven?.OsName,
+            TopAgentDrivenPercent = topDriven?.AgentDrivenPercent,
+            UnknownTurns = rows.Where(s => s.Os.Length == 0).Sum(s => s.Turns),
+            HasData = total > 0 || agentDrivenTurns > 0,
+        };
+    }
+
     /// <summary>The Repos page's headline cards from the finished rows (fix-round finding F-01).</summary>
     public static ThrottleReposSummaryDto ReposSummary(IReadOnlyList<ThrottleRepoDto> rows)
     {
@@ -557,6 +651,37 @@ public static class ThrottleDefinition
         public string Key { get; } = key;
         public long Turns, VoiceTurns, TypedTurns, AgentDrivenTurns;
         public HashSet<string> Sessions { get; } = new(StringComparer.Ordinal);
+    }
+
+    /// <summary>The system and machine tallies one session's turns land on. A session history holds no row for, or
+    /// whose system is not known, lands on the "" (Unknown) system; a missing machine name is the "" machine.</summary>
+    private static (SystemTally System, TurnTally Machine) SystemTallies(
+        Dictionary<string, SystemTally> systems, string sessionId, IReadOnlyDictionary<string, SessionFacts> sessions)
+    {
+        sessions.TryGetValue(sessionId, out var facts);
+        var os = Contracts.DirectorOs.Normalize(facts.Os) ?? "";
+        var machineKey = facts.MachineName?.Trim() ?? "";
+        var system = systems.TryGetValue(os, out var s) ? s : systems[os] = new SystemTally(os);
+        var machine = system.Machines.TryGetValue(machineKey, out var m) ? m : system.Machines[machineKey] = new TurnTally(machineKey);
+        return (system, machine);
+    }
+
+    /// <summary>The four finished shares of one system or machine tally, over the whole figure's denominators.</summary>
+    private static void FillShares(TurnTally t, long counted, long sessions, long agentDriven,
+        Action<TurnTally, ThrottleShareDto, ThrottleShareDto, ThrottleShareDto, ThrottleShareDto> fill)
+        => fill(t, ShareOf(t.Turns, counted), ShareOf(t.Sessions.Count, sessions), ShareOf(t.AgentDrivenTurns, agentDriven),
+            ShareOf(t.VoiceTurns, t.Turns));
+
+    private class TurnTally(string key)
+    {
+        public string Key { get; } = key;
+        public long Turns, VoiceTurns, TypedTurns, AgentDrivenTurns;
+        public HashSet<string> Sessions { get; } = new(StringComparer.Ordinal);
+    }
+
+    private sealed class SystemTally(string key) : TurnTally(key)
+    {
+        public Dictionary<string, TurnTally> Machines { get; } = new(StringComparer.OrdinalIgnoreCase);
     }
 
     private sealed class RepoTally(string key, string leaf)
