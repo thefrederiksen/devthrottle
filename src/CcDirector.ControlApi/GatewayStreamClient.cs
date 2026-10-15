@@ -913,6 +913,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
                 ChangesOwner = true,              // this build carries out the set-controller verb (hand over)
                 ChangesOwnerIfExpected = true,    // ...and makes the change only while the owner is still the expected one
                 AnswersFactoryMachineQuestion = true, // this build answers the factory-machine-question verb
+                AnswersFactoryCheckMachineQuestion = true, // and its Python and uv parts (phase 5b)
                 DefinitionChecks = true,          // this build runs checks from a factory's definition (phase 5b)
                 // FALSE ON PURPOSE (Factory Definition mission, phase 5). This build stamps the seat-start fields it is
                 // sent but does not yet build the seat's kit, so it must not be sent a seat start. The LAST Director

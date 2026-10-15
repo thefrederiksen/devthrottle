@@ -114,6 +114,15 @@ public sealed class DirectorStreamHello
     public bool AnswersFactoryMachineQuestion { get; set; }
 
     /// <summary>
+    /// This Director also answers the check parts of that verb (Factory Definition, phase 5b): whether the Python and
+    /// the uv its check runner would use are on this machine (<see cref="FactoryMachineQuestionRequest.AskPython"/>,
+    /// <see cref="FactoryMachineQuestionRequest.AskUv"/>). False from an older build, which answers the secrets and
+    /// repositories but ignores those two - so a publish says that machine cannot answer about Python or uv yet,
+    /// instead of reading its silence as either answer.
+    /// </summary>
+    public bool AnswersFactoryCheckMachineQuestion { get; set; }
+
+    /// <summary>
     /// This Director runs checks from a factory's definition (Factory Definition, phase 5b): it understands
     /// <see cref="TriggerAssignmentDto.Kind"/> <c>definition</c>, downloads the published version's checks and runs one
     /// under Python with its secrets and its state file. False from an older build, which would ignore the kind and

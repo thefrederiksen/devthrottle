@@ -492,7 +492,8 @@ public sealed class DirectorHub : Hub
         // or a newer Director, and a stale answer here would put the wrong sentence on an empty Chat screen.
         _turnPushCapabilities?.Record(tenant, directorId, hello.PushesTurns, hello.ChecksIdleBeforeTyping);
         _fleetManagerHomeCapabilities?.Record(tenant, directorId, hello.CreatesFleetManagerHome, hello.ChangesOwnerIfExpected);
-        _factoryMachineQuestionCapabilities?.Record(tenant, directorId, hello.AnswersFactoryMachineQuestion);
+        _factoryMachineQuestionCapabilities?.Record(tenant, directorId, hello.AnswersFactoryMachineQuestion,
+            hello.AnswersFactoryCheckMachineQuestion);
         _factoryKitCapabilities?.Record(tenant, directorId, hello.BuildsFactoryKit);
         _definitionChecks?.Record(tenant, directorId, hello.DefinitionChecks);
         _secretMachines?.Record(tenant, directorId, hello.MachineName, hello.SecretTransferPublicKey, DateTime.UtcNow,

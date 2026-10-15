@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
+using CcDirector.Core.Factory;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
@@ -93,7 +94,24 @@ public sealed class DefinitionCheckRunner
         => Path.Combine(_storageRoot, ChecksFolder, factory, version.ToString(System.Globalization.CultureInfo.InvariantCulture));
 
     /// <summary>The name of the Python this machine runs a check with: <c>python.exe</c> on Windows, else <c>python3</c>.</summary>
-    public string PythonName => _isWindows ? "python.exe" : "python3";
+    public string PythonName => PythonNameFor(_isWindows);
+
+    /// <summary>The name of the Python a check runs with on Windows or elsewhere.</summary>
+    public static string PythonNameFor(bool isWindows) => isWindows ? "python.exe" : "python3";
+
+    /// <summary>The name of the uv a check that declares packages runs under on Windows or elsewhere.</summary>
+    public static string UvNameFor(bool isWindows) => isWindows ? "uv.exe" : "uv";
+
+    /// <summary>
+    /// The Python a check runs with, found the one way the runner finds it: <see cref="PythonNameFor"/> on PATH, never
+    /// the Windows Store alias. The publish's machine question asks with this same code, so its answer and the run agree.
+    /// </summary>
+    public static string? FindPython(ICheckProcesses processes, bool isWindows)
+        => (processes ?? throw new ArgumentNullException(nameof(processes))).FindOnPath(PythonNameFor(isWindows));
+
+    /// <summary>The uv a check that declares packages runs under, found the one way the runner finds it.</summary>
+    public static string? FindUv(ICheckProcesses processes, bool isWindows)
+        => (processes ?? throw new ArgumentNullException(nameof(processes))).FindOnPath(UvNameFor(isWindows));
 
     /// <summary>
     /// The variable a cc-secrets entry arrives in: its own <c>envName</c> when it has one, else the entry name
@@ -310,12 +328,12 @@ public sealed class DefinitionCheckRunner
     {
         if (declaresPackages)
         {
-            var uv = _processes.FindOnPath(_isWindows ? "uv.exe" : "uv");
+            var uv = FindUv(_processes, _isWindows);
             return uv is null
                 ? (null, "the check declares packages and uv is not on this machine")
                 : (new[] { uv, "run", "--script", checkFile }, null);
         }
-        var python = _processes.FindOnPath(PythonName);
+        var python = FindPython(_processes, _isWindows);
         return python is null
             ? (null, $"no Python on this machine (looked for {PythonName} on PATH)")
             : (new[] { python, checkFile }, null);

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using CcDirector.ControlApi.Triggers;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
@@ -12,6 +13,11 @@ namespace CcDirector.ControlApi;
 /// defined factory's definition, whether this machine holds the seats' secrets and has their repositories registered.
 /// <see cref="FactoryMachineQuestion"/> answers; this class reads the payload and hands the answer back.
 ///
+/// Phase 5b: when a start's check runs here, the Gateway also asks whether Python (a check that declares no packages)
+/// or uv (one that does) is on this machine. That is answered HERE, with the check runner's own lookup
+/// (<see cref="DefinitionCheckRunner.FindPython"/>, <see cref="DefinitionCheckRunner.FindUv"/>) through the same
+/// <see cref="ICheckProcesses"/> seam, so the publish's answer and the run can never disagree.
+///
 /// A payload it cannot read is <see cref="DirectorCommandStatus.BadRequest"/>. Every answer, including "cc-secrets
 /// could not answer", is a SUCCESSFUL result carrying a <see cref="FactoryMachineAnswer"/>: the question was answered,
 /// and the answer says what it could not find out. It types nothing into any session.
@@ -22,17 +28,24 @@ internal sealed class FactoryMachineQuestionExecutor : ISessionCommandArea
 
     private readonly FactoryMachineQuestion _question;
     private readonly string _machine;
+    private readonly ICheckProcesses _processes;
+    private readonly bool _isWindows;
 
-    public FactoryMachineQuestionExecutor() : this(FactoryMachineQuestion.ForThisMachine(), Environment.MachineName)
+    public FactoryMachineQuestionExecutor()
+        : this(FactoryMachineQuestion.ForThisMachine(), Environment.MachineName, new CheckProcesses(), OperatingSystem.IsWindows())
     {
     }
 
     /// <param name="question">Test seam: the question with a fake cc-secrets.</param>
     /// <param name="machine">The machine name the answer is given for, as this Director says it on Hello.</param>
-    internal FactoryMachineQuestionExecutor(FactoryMachineQuestion question, string machine)
+    /// <param name="processes">Test seam: where the check runner looks for Python and uv.</param>
+    /// <param name="isWindows">Whether the names looked for are the Windows ones.</param>
+    internal FactoryMachineQuestionExecutor(FactoryMachineQuestion question, string machine, ICheckProcesses processes, bool isWindows)
     {
         _question = question ?? throw new ArgumentNullException(nameof(question));
         _machine = machine ?? throw new ArgumentNullException(nameof(machine));
+        _processes = processes ?? throw new ArgumentNullException(nameof(processes));
+        _isWindows = isWindows;
     }
 
     public IReadOnlyCollection<string> Verbs { get; } = new[] { FactoryMachineQuestionContract.Verb };
@@ -64,10 +77,21 @@ internal sealed class FactoryMachineQuestionExecutor : ISessionCommandArea
         }
 
         var answer = await _question.AnswerAsync(_machine, request.Secrets, request.Repositories, registered, cancellationToken);
+        if (request.AskPython)
+            answer.Python = Program(DefinitionCheckRunner.PythonNameFor(_isWindows), DefinitionCheckRunner.FindPython(_processes, _isWindows));
+        if (request.AskUv)
+            answer.Uv = Program(DefinitionCheckRunner.UvNameFor(_isWindows), DefinitionCheckRunner.FindUv(_processes, _isWindows));
         FileLog.Write($"[FactoryMachineQuestionExecutor] {command.Verb}: cmdId={command.CommandId}, secrets={answer.Secrets.Count}, " +
-                      $"secretsUnavailable={answer.SecretsUnavailable is not null}, repositories={answer.Repositories.Count}");
+                      $"secretsUnavailable={answer.SecretsUnavailable is not null}, repositories={answer.Repositories.Count}, " +
+                      $"python={Said(answer.Python)}, uv={Said(answer.Uv)}");
         return DirectorCommandResult.Success(JsonSerializer.Serialize(answer, JsonOptions));
     }
+
+    private static FactoryProgramAnswer Program(string lookedFor, string? path)
+        => new() { LookedFor = lookedFor, Found = path is not null, Path = path };
+
+    private static string Said(FactoryProgramAnswer? program)
+        => program is null ? "not asked" : program.Found ? "found" : "missing";
 
     /// <summary>The request when the payload reads as one, with no empty or missing name; null otherwise.</summary>
     internal static FactoryMachineQuestionRequest? ReadRequest(string? payloadJson)

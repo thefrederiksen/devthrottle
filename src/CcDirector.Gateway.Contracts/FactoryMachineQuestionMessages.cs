@@ -6,7 +6,8 @@ namespace CcDirector.Gateway.Contracts;
 /// <see cref="Verb"/> only to a Director whose Hello says <see cref="DirectorStreamHello.AnswersFactoryMachineQuestion"/>.
 ///
 /// The answer is open to more fields: phase 5b adds the Python and uv answers beside the secrets and repositories,
-/// so a reader ignores what it does not know and a writer never removes a field.
+/// so a reader ignores what it does not know and a writer never removes a field. Those two are asked only of a
+/// Director whose Hello also says <see cref="DirectorStreamHello.AnswersFactoryCheckMachineQuestion"/>.
 /// </summary>
 public static class FactoryMachineQuestionContract
 {
@@ -22,6 +23,16 @@ public sealed class FactoryMachineQuestionRequest
 
     /// <summary>The repository names the seats work in.</summary>
     public List<string> Repositories { get; set; } = new();
+
+    /// <summary>
+    /// Phase 5b: a start on this machine has a check that declares no packages, so it runs under plain Python - say
+    /// whether the Python the check runner would use is here. A Director too old to know the field ignores it.
+    /// </summary>
+    public bool AskPython { get; set; }
+
+    /// <summary>Phase 5b: a start on this machine has a check that declares packages, so it runs under uv - say whether
+    /// the uv the check runner would use is here.</summary>
+    public bool AskUv { get; set; }
 }
 
 /// <summary>What one machine answers.</summary>
@@ -42,6 +53,26 @@ public sealed class FactoryMachineAnswer
 
     /// <summary>One answer per repository name asked, in the order asked.</summary>
     public List<FactoryRepositoryAnswer> Repositories { get; set; } = new();
+
+    /// <summary>Phase 5b: whether the check runner's Python is here. Null when it was not asked.</summary>
+    public FactoryProgramAnswer? Python { get; set; }
+
+    /// <summary>Phase 5b: whether the check runner's uv is here. Null when it was not asked.</summary>
+    public FactoryProgramAnswer? Uv { get; set; }
+}
+
+/// <summary>Whether one program a check runs under is on this machine, found exactly as the check runner finds it.</summary>
+public sealed class FactoryProgramAnswer
+{
+    /// <summary>The name looked for on PATH, as this machine's runner names it (<c>python.exe</c>, <c>python3</c>,
+    /// <c>uv.exe</c>, <c>uv</c>).</summary>
+    public string LookedFor { get; set; } = "";
+
+    /// <summary>It was found.</summary>
+    public bool Found { get; set; }
+
+    /// <summary>Where it was found; null when it was not.</summary>
+    public string? Path { get; set; }
 }
 
 /// <summary>Whether this machine holds one secret, and whether it may be used for <c>cc-secrets run</c>.</summary>

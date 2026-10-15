@@ -40,10 +40,11 @@ public sealed class FactoryMachineQuestionAskerTests
         }
     }
 
-    private static async Task<MachineReply> AskSouth(Tunnel tunnel, IReadOnlyList<DirectorDto> connected, ISet<string> answering)
+    private static async Task<MachineReply> AskSouth(Tunnel tunnel, IReadOnlyList<DirectorDto> connected, ISet<string> answering,
+        ISet<string>? answeringChecks = null, MachineQuestion? question = null)
     {
-        var asker = new FactoryMachineQuestionAsker(_ => connected, (_, id) => answering.Contains(id), tunnel.SendAsync);
-        var replies = await asker.AskAsync(A, new[] { South }, CancellationToken.None);
+        var asker = new FactoryMachineQuestionAsker(_ => connected, (_, id) => answering.Contains(id), (_, id) => answeringChecks?.Contains(id) == true, tunnel.SendAsync);
+        var replies = await asker.AskAsync(A, new[] { question ?? South }, CancellationToken.None);
         return Assert.Single(replies).Value;
     }
 
@@ -144,7 +145,7 @@ public sealed class FactoryMachineQuestionAskerTests
     {
         var tunnel = new Tunnel();
         var read = false;
-        var asker = new FactoryMachineQuestionAsker(_ => { read = true; return Array.Empty<DirectorDto>(); }, (_, _) => true, tunnel.SendAsync);
+        var asker = new FactoryMachineQuestionAsker(_ => { read = true; return Array.Empty<DirectorDto>(); }, (_, _) => true, (_, _) => true, tunnel.SendAsync);
 
         var replies = await asker.AskAsync(A, Array.Empty<MachineQuestion>(), CancellationToken.None);
 
@@ -158,7 +159,7 @@ public sealed class FactoryMachineQuestionAskerTests
     {
         // The valid definition: the outreach seat on SOREN_SOUTH with a seat secret and a start secret; the boss and the
         // writer on the default SOREN_NORTH with neither a secret nor a repository.
-        var questions = FactoryMachineQuestionAsker.QuestionsFor(FactoryDefinitionCheck.Read(DefinitionFixture.Valid()).Definition);
+        var questions = FactoryMachineQuestionAsker.QuestionsFor(FactoryDefinitionCheck.Read(DefinitionFixture.Valid()).Definition, DefinitionFixture.Valid());
 
         var question = Assert.Single(questions);
         Assert.Equal("SOREN_SOUTH", question.Machine);
@@ -166,9 +167,169 @@ public sealed class FactoryMachineQuestionAskerTests
         Assert.Equal(new[] { "devthrottle" }, question.Repositories);
     }
 
+    // ---------- phase 5b: Python and uv ----------
+
+    private static readonly MachineQuestion SouthWithACheck = South with { AskPython = true };
+
+    private static FactoryMachineQuestionRequest Request(Tunnel tunnel)
+        => JsonSerializer.Deserialize<FactoryMachineQuestionRequest>(Assert.Single(tunnel.Sent).Command.PayloadJson, Json)!;
+
+    private static Tunnel AnsweringPython(bool found) => new()
+    {
+        Answer = _ => DirectorCommandResult.Success(JsonSerializer.Serialize(new FactoryMachineAnswer
+        {
+            Machine = "SOREN_SOUTH",
+            Secrets = new() { new() { Name = "smtp-password", Held = true, AllowedForRun = true } },
+            Repositories = new() { new() { Name = "devthrottle", Registered = true } },
+            Python = new() { LookedFor = "python.exe", Found = found, Path = found ? @"C:\Python313\python.exe" : null },
+        }, Json)),
+    };
+
+    [Fact]
+    public async Task AskAsync_ACheckToAnswerForAndADirectorThatAnswersChecks_AsksForPythonAndCarriesItsAnswer()
+    {
+        var tunnel = AnsweringPython(found: false);
+
+        var reply = await AskSouth(tunnel, new[] { Director("south-1", "SOREN_SOUTH") }, new HashSet<string> { "south-1" },
+            answeringChecks: new HashSet<string> { "south-1" }, question: SouthWithACheck);
+
+        var request = Request(tunnel);
+        Assert.True(request.AskPython);
+        Assert.False(request.AskUv);
+        Assert.Null(reply.ChecksNotAnswered);
+        Assert.False(reply.Answer!.Python!.Found);
+        Assert.Equal("python.exe", reply.Answer.Python.LookedFor);
+    }
+
+    [Fact]
+    public async Task AskAsync_ACheckToAnswerForAndAPhase5Director_AsksTheRestAndSaysItCannotAnswerAboutPythonOrUvYet()
+    {
+        var tunnel = new Tunnel();
+
+        var reply = await AskSouth(tunnel, new[] { Director("south-5", "SOREN_SOUTH", "2.22.0") }, new HashSet<string> { "south-5" },
+            question: SouthWithACheck with { AskUv = true });
+
+        var request = Request(tunnel);
+        Assert.False(request.AskPython);
+        Assert.False(request.AskUv);
+        Assert.Equal(new[] { "smtp-password" }, request.Secrets);
+        Assert.Null(reply.NotAsked);
+        Assert.True(reply.Answer!.Secrets.Single().AllowedForRun);
+        Assert.Equal("the Director on SOREN_SOUTH is version 2.22.0, which cannot answer about Python or uv yet. Update it.", reply.ChecksNotAnswered);
+    }
+
+    [Fact]
+    public async Task AskAsync_ACheckToAnswerFor_PrefersTheDirectorOnTheMachineThatAnswersChecks()
+    {
+        var tunnel = AnsweringPython(found: true);
+
+        await AskSouth(tunnel, new[] { Director("south-5", "SOREN_SOUTH"), Director("south-5b", "SOREN_SOUTH") },
+            new HashSet<string> { "south-5", "south-5b" }, answeringChecks: new HashSet<string> { "south-5b" }, question: SouthWithACheck);
+
+        Assert.Equal("south-5b", Assert.Single(tunnel.Sent).DirectorId);
+    }
+
+    [Fact]
+    public async Task AskAsync_ADirectorThatSaysItAnswersChecksButLeavesPythonOut_AnsweredInAShapeNotRead()
+    {
+        var tunnel = new Tunnel();
+
+        var reply = await AskSouth(tunnel, new[] { Director("south-1", "SOREN_SOUTH") }, new HashSet<string> { "south-1" },
+            answeringChecks: new HashSet<string> { "south-1" }, question: SouthWithACheck);
+
+        Assert.Equal("the Director on SOREN_SOUTH answered in a shape the Gateway does not read.", reply.NotAsked);
+    }
+
+    [Fact]
+    public async Task AskAsync_NoCheckToAnswerFor_ADirectorThatAnswersChecksIsAskedExactlyWhatPhase5Asked()
+    {
+        var tunnel = new Tunnel();
+
+        var reply = await AskSouth(tunnel, new[] { Director("south-1", "SOREN_SOUTH") }, new HashSet<string> { "south-1" },
+            answeringChecks: new HashSet<string> { "south-1" });
+
+        var request = Request(tunnel);
+        Assert.False(request.AskPython);
+        Assert.False(request.AskUv);
+        Assert.Null(reply.ChecksNotAnswered);
+        Assert.Null(reply.Answer!.Python);
+        Assert.Null(reply.Answer.Uv);
+    }
+
+    [Fact]
+    public void QuestionsFor_ACheckWithNoPackages_AsksForPythonOnTheSeatsMachine()
+    {
+        var question = Assert.Single(FactoryMachineQuestionAsker.QuestionsFor(
+            FactoryDefinitionCheck.Read(DefinitionFixture.Valid()).Definition, DefinitionFixture.Valid()));
+
+        Assert.True(question.AskPython);
+        Assert.False(question.AskUv);
+    }
+
+    [Fact]
+    public void QuestionsFor_ACheckThatDeclaresPackages_AsksForUvAndNotPython()
+    {
+        var content = DefinitionFixture.With("checks/new_mail.py", WithPackages);
+
+        var question = Assert.Single(FactoryMachineQuestionAsker.QuestionsFor(FactoryDefinitionCheck.Read(content).Definition, content));
+
+        Assert.True(question.AskUv);
+        Assert.False(question.AskPython);
+    }
+
+    [Fact]
+    public void QuestionsFor_ACheckWhoseHeaderNeverCloses_AsksForNeither()
+    {
+        var content = DefinitionFixture.With("checks/new_mail.py", "# /// script\n# dependencies = [\"requests\"]\nprint('{}')\n");
+
+        var question = Assert.Single(FactoryMachineQuestionAsker.QuestionsFor(FactoryDefinitionCheck.Read(content).Definition, content));
+
+        Assert.False(question.AskPython);
+        Assert.False(question.AskUv);
+    }
+
+    [Fact]
+    public void QuestionsFor_AStartWhoseCheckNamesAFileOutsideChecks_RaisesNoQuestion()
+    {
+        // The seat schema refuses a check path outside checks/, so such a definition does not parse and the publish
+        // asks no machine anything.
+        var content = DefinitionFixture.Edit("seats/outreach.yaml", "check: checks/new_mail.py", "check: files/outreach_send.py");
+
+        Assert.Empty(FactoryMachineQuestionAsker.QuestionsFor(FactoryDefinitionCheck.Read(content).Definition, content));
+    }
+
+    [Theory]
+    [InlineData("files/outreach_send.py")]
+    [InlineData("seats/outreach.yaml")]
+    public void ProgramFor_APathInTheDefinitionThatIsNotPlacedAsACheck_IsNone(string path)
+    {
+        // The file is in the content, so only the classification keeps it from being asked about as a check.
+        Assert.Equal(CheckProgram.None, FactoryMachineQuestionAsker.ProgramFor(path, DefinitionFixture.Valid()));
+    }
+
+    [Fact]
+    public void ProgramFor_ACheckPlacedAsOne_IsItsProgram()
+    {
+        Assert.Equal(CheckProgram.Python, FactoryMachineQuestionAsker.ProgramFor("checks/new_mail.py", DefinitionFixture.Valid()));
+    }
+
+    [Fact]
+    public void QuestionsFor_AFactoryWithNoChecks_AsksForNeither()
+    {
+        var content = DefinitionFixture.Publishable();
+
+        var question = Assert.Single(FactoryMachineQuestionAsker.QuestionsFor(FactoryDefinitionCheck.Read(content).Definition, content));
+
+        Assert.False(question.AskPython);
+        Assert.False(question.AskUv);
+    }
+
+    /// <summary>A check whose PEP 723 header declares one package.</summary>
+    internal const string WithPackages = "# /// script\n# dependencies = [\"requests\"]\n# ///\nprint('{\"count\": 0}')\n";
+
     [Fact]
     public void QuestionsFor_ADefinitionThatDoesNotParse_RaisesNone()
     {
-        Assert.Empty(FactoryMachineQuestionAsker.QuestionsFor(null));
+        Assert.Empty(FactoryMachineQuestionAsker.QuestionsFor(null, new Dictionary<string, string>()));
     }
 }

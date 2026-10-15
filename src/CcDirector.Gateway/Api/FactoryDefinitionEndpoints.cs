@@ -768,7 +768,7 @@ internal static class FactoryDefinitionEndpoints
     private static async Task<FactoryDefinitionCheckResult> PublishCheckAsync(IReadOnlyDictionary<string, string> content,
         string factory, TenantId tenant, Account account, CancellationToken ct)
     {
-        var questions = FactoryMachineQuestionAsker.QuestionsFor(FactoryDefinitionCheck.Read(content).Definition);
+        var questions = FactoryMachineQuestionAsker.QuestionsFor(FactoryDefinitionCheck.Read(content).Definition, content);
         var replies = await account.AskMachines(tenant, questions, ct);
         return FactoryDefinitionCheck.Check(content, factory, account.FleetSkillsOf(tenant), account.ConnectedMachinesOf(tenant),
             DefinitionCheckPurpose.Publish, replies);
