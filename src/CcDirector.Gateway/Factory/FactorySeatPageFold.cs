@@ -25,6 +25,16 @@ public static class FactorySeatPageFold
 
     public const string TakeOffLabel = "Take off this seat";
 
+    public const string DefinitionLabel = "Open the Definition tab";
+
+    /// <summary>Why a defined factory's schedules offer no edit and no take-off, and where they change instead.</summary>
+    public static string DefinedText(RegisteredFactoryDto factory) =>
+        $"{factory.Title} has a definition, and this seat's schedules come from it. To change or remove one, change the " +
+        "seat's start in the definition's folder, import it on the Definition tab, and publish it.";
+
+    /// <summary>The factory page's Definition tab.</summary>
+    public static string DefinitionHref(string factory) => FactoriesScreenFold.PageHref(factory) + "/definition";
+
     public const string TalkOnlyText = "Talk only. Nothing is scheduled for this seat. You run it by talking to it.";
 
     /// <param name="factory">The registered factory.</param>
@@ -82,7 +92,7 @@ public static class FactorySeatPageFold
                 SeatId = seat.Id,
             },
             Brief = FactoryBriefPanelFold.Panel(factory, seat, brief, a.Zone, a.NowUtc, briefDefinition),
-            Starts = Starts(factory, seat, name, named, schedules, triggers, input),
+            Starts = Starts(factory, seat, name, named, schedules, triggers, input, defined: briefDefinition is not null),
             Goal = FactoriesScreenFold.GoalCard(factory),
             GoalNumber = FactoriesScreenFold.GoalNumberCard(number, factory, a.Zone, a.NowUtc),
             LeftBehind = LeftBehind(factory, seat, named.Count, schedules, input, memoryNotes),
@@ -108,9 +118,12 @@ public static class FactorySeatPageFold
         return ("Paused", FactoryTone.Paused);
     }
 
+    /// <param name="defined">True for a factory with a published definition (the seat page is then handed the brief's
+    /// definition line). Its schedules come from the definition, so the Gateway refuses an edit of one and a take-off
+    /// (phase 4); the page offers neither, and says where they change instead.</param>
     private static FactorySeatStartsDto Starts(RegisteredFactoryDto f, RegisteredFactorySeatDto seat, string name,
         IReadOnlyList<string> named, IReadOnlyList<CronJobDto> schedules, IReadOnlyList<FactoryTriggerFacts> triggers,
-        FactoriesScreenInputs input)
+        FactoriesScreenInputs input, bool defined)
     {
         var a = input.Activity;
         var shifts = FactoriesScreenFold.ShiftsBySchedule(seat, input);
@@ -129,7 +142,7 @@ public static class FactorySeatPageFold
                         WhenText = FactoryScheduleText.Describe(job, a.Zone),
                         ShiftText = ScheduleShifts.Text(shifts[id]),
                         PausedText = job.Enabled ? null : "Paused",
-                        EditLabel = "Edit schedule",
+                        EditLabel = defined ? null : "Edit schedule",
                         Paused = !job.Enabled,
                         // A one-off that has run has nothing to pause or resume.
                         ToggleLabel = CronSchedule.LifecycleOf(job) == CronLifecycle.Spent
@@ -137,7 +150,8 @@ public static class FactorySeatPageFold
                             : CronSchedule.ToggleLabelOf(job.Enabled),
                         // A schedule the factory's archive switched off is what its Restore switches back on, so it
                         // is not taken off while the factory is archived (the route refuses it too).
-                        Unlink = f.ArchivedAtUtc is not null && f.ArchivedSchedules.Contains(job.Id, StringComparer.Ordinal)
+                        // A defined factory's schedule is taken off by publishing a definition without its start.
+                        Unlink = defined || (f.ArchivedAtUtc is not null && f.ArchivedSchedules.Contains(job.Id, StringComparer.Ordinal))
                             ? null
                             : UnlinkAction(f, name, job, leavesTalkOnly: found == 1 && triggers.Count == 0),
                     }
@@ -151,6 +165,9 @@ public static class FactorySeatPageFold
                 .ToList(),
             Triggers = triggers.Select(t => FactoryAgentsFold.WokenBy(t, a.Window, a.Zone)).ToList(),
             TriggersPause = FactoryAgentsFold.PauseFor(triggers, $"the triggers of {name}", "triggers"),
+            DefinedText = defined ? DefinedText(f) : null,
+            DefinitionLabel = defined ? DefinitionLabel : null,
+            DefinitionHref = defined ? DefinitionHref(f.Factory) : null,
         };
     }
 

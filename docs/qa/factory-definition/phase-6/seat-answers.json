@@ -1,0 +1,76 @@
+{
+  "30-defined-seat-starts": {
+    "request": "GET /gateway/factories/qa-outreach/seats/boss",
+    "starts": {
+      "definedText": "QA Outreach has a definition, and this seat's schedules come from it. To change or remove one, change the seat's start in the definition's folder, import it on the Definition tab, and publish it.",
+      "definitionHref": "/factories/qa-outreach/definition",
+      "definitionLabel": "Open the Definition tab",
+      "heading": "How it starts",
+      "schedules": [
+        {
+          "editLabel": null,
+          "jobId": "cj_55d02a",
+          "missingText": null,
+          "name": "QA Outreach - Boss",
+          "paused": false,
+          "pausedText": null,
+          "shiftText": "Night shift",
+          "toggleLabel": "Pause",
+          "unlink": null,
+          "whenText": "Weekdays 08:00 (Europe/Copenhagen)"
+        }
+      ],
+      "talkOnlyText": null,
+      "triggers": [],
+      "triggersPause": null
+    }
+  },
+  "31-brief-publish-confirm": {
+    "confirmLines": [
+      "Every later talk and every later run of Boss will be given this text.",
+      "A text you have changed is saved as a new version first, and that version is published.",
+      "It replaces version 1, which is kept. History can bring it back.",
+      "This brief is part of the definition of QA Outreach. Its versions are the definition's versions, and a publish publishes the whole definition - every seat, start and file in it - not only this brief.",
+      "It also puts live the other change saved in the definition since version 1 was published, not only this brief: Seat Author (writer) changed: name Writer -> Author."
+    ],
+    "request": "GET /gateway/factories/qa-outreach/seats/boss/brief/editor"
+  },
+  "32-undefined-seat-starts": {
+    "request": "GET /gateway/factories/qa-undefined/seats/scout",
+    "starts": {
+      "definedText": null,
+      "definitionHref": null,
+      "definitionLabel": null,
+      "heading": "How it starts",
+      "schedules": [
+        {
+          "editLabel": "Edit schedule",
+          "jobId": "cj_a96639",
+          "missingText": null,
+          "name": "QA Undefined scout at noon",
+          "paused": false,
+          "pausedText": null,
+          "shiftText": "Night shift",
+          "toggleLabel": "Pause",
+          "unlink": {
+            "busyLabel": "Taking it off...",
+            "confirmLabel": "Take it off",
+            "confirmLines": [
+              "'QA Undefined scout at noon' stops being a schedule of Scout. The sessions it starts no longer belong to QA Undefined.",
+              "It stays switched on and keeps running at its times, as a plain schedule in no factory. Pause it first if it should stop.",
+              "It is kept, not deleted. It is listed on the Schedule page, and cc-devthrottle schedule link puts it back on a seat.",
+              "Scout will then be talk only."
+            ],
+            "confirmTitle": "Take this schedule off Scout?",
+            "jobId": "cj_a96639",
+            "label": "Take off this seat"
+          },
+          "whenText": "Daily 12:00 (Europe/Copenhagen)"
+        }
+      ],
+      "talkOnlyText": null,
+      "triggers": [],
+      "triggersPause": null
+    }
+  }
+}

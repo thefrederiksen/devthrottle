@@ -628,6 +628,9 @@ export const SEAT_PAGE_SCHEDULED: FactorySeatPageView = {
     ],
     triggers: [],
     triggersPause: null,
+    definedText: null,
+    definitionLabel: null,
+    definitionHref: null,
   },
   ...SEAT_PAGE_GOAL,
   leftBehind: {
@@ -671,6 +674,9 @@ export const SEAT_PAGE_TALK_ONLY: FactorySeatPageView = {
     schedules: [],
     triggers: [],
     triggersPause: null,
+    definedText: null,
+    definitionLabel: null,
+    definitionHref: null,
   },
   leftBehind: {
     ...SEAT_PAGE_SCHEDULED.leftBehind,
@@ -710,6 +716,9 @@ export const SEAT_PAGE_MISSING: FactorySeatPageView = {
     ],
     triggers: [],
     triggersPause: null,
+    definedText: null,
+    definitionLabel: null,
+    definitionHref: null,
   },
 };
 
