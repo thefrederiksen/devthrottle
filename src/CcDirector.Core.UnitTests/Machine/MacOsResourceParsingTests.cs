@@ -576,9 +576,6 @@ public class MacOsResourceParsingTests
         Assert.Equal(569803776U, en1.BytesSent);
         Assert.Equal(1977133U, en1.PacketsReceived);
         Assert.Equal(1260622U, en1.PacketsSent);
-        Assert.Equal(0U, en1.ErrorsIn);
-        Assert.Equal(0U, en1.ErrorsOut);
-        Assert.Equal(0U, en1.DropsIn);
     }
 
     [Fact]

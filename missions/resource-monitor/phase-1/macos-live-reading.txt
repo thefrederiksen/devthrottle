@@ -1,0 +1,245 @@
+ONE FULL RESOURCE SAMPLE FROM THIS MACHINE, NEXT TO THE OPERATING SYSTEM'S OWN FIGURES
+
+Machine   devthrottle-mac-mini, Apple M4, 10 cores, 16 GiB, macOS 26.5.2 (build 25F84), arm64
+Taken     2026-10-15 09:54:18 local time, 13:54:18 utc
+Read by   MacOsResourceProbe, with no subprocess of any kind
+
+The probe's own figures are first. Underneath each one is what the machine's own tool said for
+the same moment, so the two can be compared by eye.
+
+====================================================================================================
+THE FIRST SAMPLE, THROWN AWAY: a rate needs two readings, and the probe says so rather than
+reporting zero. This is what the Director sees on its very first meter draw.
+
+   processor  processor unreadable (first sample, no interval yet)
+   disks      disk disk0 (solid-state) unreadable (first sample, no interval yet)
+   network    network unreadable (first sample, no interval yet)
+   memory     6.5 GB available of 16.0 GB   (needs no interval, so it is reported)
+   swap       swap 0.0 GB used of 0.0 GB   (needs no interval)
+   stalls     stalls (MacOsSignals): run queue 2.0, macOS memory pressure level 1   (needs no interval)
+
+====================================================================================================
+PROCESSOR
+
+   THE PROBE   processor 7% busy, busiest core 19%, 10 cores
+
+   top -l 2 -s 1 -n 0, the second reading being the one over its own interval:
+      CPU usage: 5.47% user, 9.45% sys, 85.7% idle
+      CPU usage: 3.26% user, 2.26% sys, 94.46% idle
+      Load Avg: 2.02, 2.73, 2.98
+      Load Avg: 2.02, 2.73, 2.98
+
+====================================================================================================
+MEMORY AND SWAP
+
+   THE PROBE   6.5 GB available of 16.0 GB
+   THE PROBE   swap 0.0 GB used of 0.0 GB
+
+   sysctl hw.memsize, and sysctl vm.swapusage:
+      hw.memsize: 17179869184
+      vm.swapusage: total = 0.00M  used = 0.00M  free = 0.00M  (encrypted)
+   vm_stat, the page counts the memory figure is built from:
+      Mach Virtual Memory Statistics: (page size of 16384 bytes)
+      Pages free:                                    53148.
+      Pages active:                                 367729.
+      Pages inactive:                               368948.
+      Pages speculative:                              1378.
+      Pages throttled:                                   0.
+      Pages wired down:                             121942.
+      Pages purgeable:                                3572.
+
+====================================================================================================
+PHYSICAL DISKS
+
+   THE PROBE   disk disk0 (solid-state) 1.9 MB/s read, 0.0 MB/s written
+               busy percent      null - macOS publishes no utilisation figure, see macos-disk-busy-risk.txt
+               queue depth       0.006  (average operations in flight)
+               per read          0.256 ms
+               per write         - ms
+               read              1.93 MiB/s
+               written           0.00 MiB/s
+               kind              SolidState
+
+   iostat -d -w 1 -c 2 disk0. Note it has NO busy column: macOS does not publish one, which is
+   why the probe reports null rather than inventing a percentage.
+                    disk0
+          KB/t  tps  MB/s
+         43.64   77  3.26
+        666.67    3  1.94
+
+====================================================================================================
+VOLUMES
+
+   THE PROBE   volume / 78.2 GB free of 228.3 GB on disk0
+   THE PROBE   volume /dev 0.0 GB free of 0.0 GB
+   THE PROBE   volume /System/Volumes/VM 78.8 GB free of 228.3 GB on disk0
+   THE PROBE   volume /System/Volumes/Preboot 78.7 GB free of 228.3 GB on disk0
+   THE PROBE   volume /System/Volumes/Update 78.8 GB free of 228.3 GB on disk0
+   THE PROBE   volume /System/Volumes/xarts 0.5 GB free of 0.5 GB on disk0
+   THE PROBE   volume /System/Volumes/iSCPreboot 0.5 GB free of 0.5 GB on disk0
+   THE PROBE   volume /System/Volumes/Hardware 0.5 GB free of 0.5 GB on disk0
+   THE PROBE   volume /System/Volumes/Data 78.2 GB free of 228.3 GB on disk0
+   THE PROBE   volume /System/Volumes/Data/home 0.0 GB free of 0.0 GB
+
+   df -h:
+      Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+      /dev/disk3s1s1   228Gi    12Gi    78Gi    14%    459k  820M    0%   /
+      devfs            198Ki   198Ki     0Bi   100%     686     0  100%   /dev
+      /dev/disk3s6     228Gi    20Ki    78Gi     1%       0  820M    0%   /System/Volumes/VM
+      /dev/disk3s2     228Gi    10Gi    78Gi    12%    2.0k  820M    0%   /System/Volumes/Preboot
+      /dev/disk3s4     228Gi   7.1Mi    78Gi     1%     108  820M    0%   /System/Volumes/Update
+      /dev/disk1s2     500Mi   6.0Mi   483Mi     2%       1  4.9M    0%   /System/Volumes/xarts
+      /dev/disk1s1     500Mi   6.0Mi   483Mi     2%      33  4.9M    0%   /System/Volumes/iSCPreboot
+      /dev/disk1s3     500Mi   700Ki   483Mi     1%      76  4.9M    0%   /System/Volumes/Hardware
+      /dev/disk3s5     228Gi   126Gi    78Gi    62%    3.1M  820M    0%   /System/Volumes/Data
+      map auto_home      0Bi     0Bi     0Bi   100%       0     0     -   /System/Volumes/Data/home
+
+====================================================================================================
+NETWORK
+
+   THE PROBE   network 0.0 MB/s in, 0.0 MB/s out
+               the loopback is skipped on purpose: traffic a machine sends to itself is not
+               traffic on the network, and on a machine running many sessions it is the
+               busiest interface by far.
+
+   netstat -ib, the cumulative counters the rate is the difference of:
+      Name       Mtu   Network       Address            Ipkts Ierrs     Ibytes    Opkts Oerrs     Obytes  Coll
+      lo0        16384 <Link#1>                        194456     0   39135548   194456     0   39135548     0
+      gif0*      1280  <Link#2>                             0     0          0        0     0          0     0
+      stf0*      1280  <Link#3>                             0     0          0        0     0          0     0
+      anpi3      1500  <Link#4>    92:2d:e0:1a:83:99        0     0          0        0     0          0     0
+      anpi0      1500  <Link#5>    92:2d:e0:1a:83:96        0     0          0        0     0          0     0
+      anpi1      1500  <Link#6>    92:2d:e0:1a:83:97        0     0          0        0     0          0     0
+      en0        1500  <Link#7>    1c:f6:4c:49:ea:76        0     0          0        0     0          0     0
+      en5        1500  <Link#8>    92:2d:e0:1a:83:76        0     0          0        0     0          0     0
+      en6        1500  <Link#9>    92:2d:e0:1a:83:77        0     0          0        0     0          0     0
+      en7        1500  <Link#10>   92:2d:e0:1a:83:79        0     0          0        0     0          0     0
+      en2        1500  <Link#11>   36:dd:fb:0c:46:40        0     0          0        0     0          0     0
+
+====================================================================================================
+STALL SIGNALS - WHY THE MACHINE IS SLOW
+
+   THE PROBE   stalls (MacOsSignals): run queue 2.0, macOS memory pressure level 1
+               run queue                   2.02
+               kernel memory pressure      1 (Normal)
+               processor stalled percent   null - not offered on macOS
+               memory stalled percent      null - not offered on macOS
+               disk stalled percent        null - not offered on macOS
+               hard page faults a second   null - not offered on macOS
+               processes waiting on disk   null - not offered on macOS
+
+   Linux publishes, in /proc/pressure, the share of time programs spent frozen waiting on each
+   resource. macOS publishes nothing equivalent, so those four figures are NULL and not zero:
+   zero would read as "nothing was ever stalled", which is the opposite of "we cannot tell".
+
+   sysctl vm.loadavg and kern.memorystatus_vm_pressure_level, and kern.memorystatus_level which
+   is the percentage of memory free, for context on what level 1 means:
+      vm.loadavg: { 1.94 2.70 2.97 }
+      kern.memorystatus_vm_pressure_level: 1
+      kern.memorystatus_level: 77
+
+====================================================================================================
+PROCESSES
+
+   THE PROBE   420 processes
+
+   The ten busiest by processor, as the probe reports them. A hundred percent is one core's
+   worth, which is what every monitor on this platform shows.
+
+       process    parent  name                              processor        memory
+         78884         1  cc-director                           13.1%      311.5 MiB
+           461         1  WallpaperAerialsExtension             10.1%       30.8 MiB
+         68953         1  dotnet                                 5.6%      192.1 MiB
+         62661     78884  2.1.300                                3.0%      458.5 MiB
+         69919     69917  probeharness                           2.9%       60.1 MiB
+           472         1  VTDecoderXPCService                    2.4%       43.3 MiB
+           707         1  RustDesk                               0.5%       62.5 MiB
+         69917     69915  dotnet                                 0.5%      222.1 MiB
+           703         1  cc-launcher                            0.5%      122.5 MiB
+         10775         1  Claude                                 0.2%      184.0 MiB
+
+   ps -A -o pid,ppid,%cpu,rss,comm -r, the machine's own list, busiest first:
+        PID  PPID  %CPU    RSS COMM
+      78884     1  13.3 319024 /Users/soren/Applications/Director.app/Contents/MacOS/cc-director
+        176     1   9.8  22208 /usr/libexec/runningboardd
+        461     1   9.1  31552 /System/Library/ExtensionKit/Extensions/WallpaperAerialsExtension.appex/Contents/MacOS/WallpaperAerialsExtension
+      62661 78884   5.7 469344 /Users/soren/.local/bin/claude
+      69919 69917   5.2  66656 /private/tmp/claude-501/-Users-soren-ReposFred-devthrottle/b5462fce-feef-4e89-ae9b-70afb3362fed/scratchpad/probeharness/bin/Release/net10.0/probeharness
+        169     1   3.7  43776 /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer
+        182     1   2.9  15696 /usr/sbin/mDNSResponder
+        472     1   2.0  44320 /System/Library/Frameworks/VideoToolbox.framework/Versions/A/XPCServices/VTDecoderXPCService.xpc/Contents/MacOS/VTDecoderXPCService
+        295     1   0.7   1712 /System/Library/DriverExtensions/com.apple.AppleUserHIDDrivers.dext/com.apple.AppleUserHIDDrivers
+        148     1   0.7  24368 /usr/libexec/dasd
+
+   The probe read 420 processes; ps lists 724 on the machine. The difference is the
+   processes this user may not read - they belong to root, and each one gives null figures for
+   itself rather than failing the whole set.
+
+====================================================================================================
+WHAT ONE SAMPLE COSTS
+
+   1.3 milliseconds of processor time a sample, reading all 420 processes.
+   At the mission's five second interval that is 0.027% of one core,
+   against a budget of 0.5%.
+
+====================================================================================================
+DOES IT AGREE WITH THE MACHINE? THE FIGURES SIDE BY SIDE
+
+  Resource            The probe                  The machine's own tool            Agrees?
+  ------------------  -------------------------  --------------------------------  --------------
+  processor busy       7%                        5.5% (top: 94.46% idle)           within 1.5 points
+  cores               10                         10 (sysctl hw.ncpu)               exact
+  memory installed    16.0 GB                    17179869184 bytes (hw.memsize)    exact
+  swap used            0.0 GB of 0.0 GB          total 0.00M used 0.00M            exact
+  disk read            1.93 MiB/s                1.94 MB/s (iostat)                within 0.01
+  disk busy           null, not offered          iostat has no busy column         both say nothing
+  run queue            2.02                      2.02 (top), 1.94 (sysctl)         exact
+  memory pressure      1, Normal                 1 (sysctl), 77% free              exact
+  root volume         228.3 GB, 78.2 GB free     228Gi, 78Gi free (df)             exact
+  root volume's disk  disk0                      disk3s1s1 on disk0 (diskutil)     exact
+  busiest process     cc-director, 13.1%         cc-director, 13.3% (ps)           within 0.2 points
+  process count       420 readable               724 total (ps), rest root-owned   accounted for
+
+The mission's goal asks for agreement within 5 percentage points against the operating system's own
+monitor. The processor figure is within 1.5 points here, and every absolute figure - cores, installed
+memory, swap, volume sizes, the run queue, the pressure level - is exact.
+
+TWO HONEST CAVEATS ABOUT THE COMPARISONS ABOVE
+
+  1. top's processor window and the probe's are not the same window. Both are about a second long and
+     they overlap, but they do not start together, so a point or two of difference is the measurement
+     and not a defect. The same is true of iostat, which averages over its own one second ticks while
+     the probe averages over its whole interval.
+
+  2. ps's %CPU column is a DECAYING AVERAGE over up to a minute of real time, not an instantaneous
+     rate like the probe's. So cc-director agreeing to within 0.2 points is partly luck, and the
+     claude process reading 3.0% against ps's 5.7% is not a disagreement - it is a process whose use
+     changed during the minute ps was averaging over. The per-process figure that IS pinned exactly is
+     in the live tests: two threads spinning flat out in the test process read as very close to 200%
+     of a core, which is what two cores' worth means.
+
+A KNOWN LIMITATION OF THE PROCESS NAME, WHICH NEEDS A DECISION
+
+The name comes from PROC_PIDTBSDINFO, as the mission's brief for this task specified. For most
+processes it is exactly what the owner would want - cc-director, dotnet, RustDesk, probeharness - but
+it is the process's own short name, and some programs set it to something unhelpful. In the list
+above, the Claude Code session at process 62661 reports its name as "2.1.300", which is its version
+number; ps shows /Users/soren/.local/bin/claude for the same process, because ps reads the process
+arguments through a different call (KERN_PROCARGS2) rather than this structure.
+
+That matters for the mission, because naming the culprit is the point: "mostly 2.1.300" tells the
+owner nothing. It is raised rather than fixed here because the brief named this structure as the
+source, and reading the arguments instead is a separate decision with its own cost - KERN_PROCARGS2
+is a per-process sysctl, so it would add one more call for each of 420 processes on every sample.
+Recommendation: keep this name, and have the detail screen fall back to the executable path for the
+processes it is about to show, which is a handful rather than all of them.
+
+WHAT THIS LIVE READING DOES NOT COVER
+
+  - A QUIET MACHINE. Everything above was read on a machine doing ordinary work. The warning
+    thresholds, the amber and red states and the banner are phase 2's load harness, not this.
+  - A SPINNING HARD DRIVE. There is none on this Mac, so DiskKind.Spinning is exercised by a unit
+    test and by the code path, never by hardware on this platform.
+  - A SECOND PHYSICAL DISK, an external disk, or a network volume. One internal disk, ten volumes.
+  - SWAP IN USE. This machine has no swap file at all, so the swap figures are proved readable and
+    proved zero, and never proved against a machine that is swapping.

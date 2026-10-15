@@ -536,17 +536,18 @@ internal static class MacOsResourceParsing
     // Network interfaces
     // ---------------------------------------------------------------------------------------------
 
-    /// <summary>How many bytes of <c>struct if_data</c> this probe reads. The structure is longer; the
-    /// counters it needs all sit in the first stretch of it.</summary>
-    internal const int InterfaceDataReadLength = 64;
+    /// <summary>
+    /// How many bytes of <c>struct if_data</c> this probe reads. The structure is considerably longer;
+    /// the four counters this probe uses all sit within the first 48 bytes, and reading no further
+    /// than that is what keeps the length check honest - a shorter structure on some future macOS
+    /// fails the check rather than being read with a field cut off.
+    /// </summary>
+    internal const int InterfaceDataReadLength = 48;
 
     private const int IfDataPacketsInOffset = 20;
-    private const int IfDataErrorsInOffset = 24;
     private const int IfDataPacketsOutOffset = 28;
-    private const int IfDataErrorsOutOffset = 32;
     private const int IfDataBytesInOffset = 40;
     private const int IfDataBytesOutOffset = 44;
-    private const int IfDataDropsInOffset = 56;
 
     /// <summary>
     /// One network interface's cumulative counters.
@@ -557,15 +558,19 @@ internal static class MacOsResourceParsing
     /// about once a minute. Subtracting the readings without allowing for the wrap gives a hugely
     /// negative rate roughly once a minute, on exactly the busy machine the owner is asking about.
     /// </summary>
+    /// <remarks>
+    /// ONLY THE FOUR COUNTERS THAT ARE ACTUALLY USED ARE READ. The structure also carries error,
+    /// collision and drop counters, and they were read here at first. They came out as zero on this
+    /// machine - which is what a healthy machine reports, and also what a wrong offset reports - so
+    /// nothing proved them right, and nothing in the mission reads them. Four counters that are
+    /// checked against <c>netstat</c> are worth more than seven where three are unverified.
+    /// </remarks>
     internal readonly record struct InterfaceCounters(
         string Name,
         uint BytesReceived,
         uint BytesSent,
         uint PacketsReceived,
-        uint PacketsSent,
-        uint ErrorsIn,
-        uint ErrorsOut,
-        uint DropsIn);
+        uint PacketsSent);
 
     /// <summary>Reads the counters out of the <c>struct if_data</c> that hangs off an AF_LINK address.</summary>
     internal static bool TryReadInterfaceCounters(
@@ -589,10 +594,7 @@ internal static class MacOsResourceParsing
             BytesReceived: BitConverter.ToUInt32(buffer.Slice(IfDataBytesInOffset, 4)),
             BytesSent: BitConverter.ToUInt32(buffer.Slice(IfDataBytesOutOffset, 4)),
             PacketsReceived: BitConverter.ToUInt32(buffer.Slice(IfDataPacketsInOffset, 4)),
-            PacketsSent: BitConverter.ToUInt32(buffer.Slice(IfDataPacketsOutOffset, 4)),
-            ErrorsIn: BitConverter.ToUInt32(buffer.Slice(IfDataErrorsInOffset, 4)),
-            ErrorsOut: BitConverter.ToUInt32(buffer.Slice(IfDataErrorsOutOffset, 4)),
-            DropsIn: BitConverter.ToUInt32(buffer.Slice(IfDataDropsInOffset, 4)));
+            PacketsSent: BitConverter.ToUInt32(buffer.Slice(IfDataPacketsOutOffset, 4)));
         return true;
     }
 
