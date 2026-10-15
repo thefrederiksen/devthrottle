@@ -142,6 +142,31 @@ public sealed class CronEngineCheckedFireTests : IDisposable
     }
 
     [Fact]
+    public async Task EvaluateDueAsync_ARunFiredWithTheSwitchOn_SupersededAfterItWasTurnedOff_IsNotBlamedOnTheSwitch()
+    {
+        // Arrange: fired at 13:00 with factory agents on; the switch is turned off before 14:00.
+        var store = NewJobStore();
+        var history = NewHistory();
+        var job = WithCheck(store, store.Create(Hourly("Mail Desk")));
+        MakeDue(store, job.Id, Now);
+        var clock = new FakeClock(Now);
+        var on = true;
+        var engine = new CronEngine(store, history, new RecordingStarter(), new UnusedWorkListRunner(), new NullCronNotifier(), clock,
+            factoryAgentsOn: _ => on);
+        await engine.EvaluateDueAsync(CancellationToken.None);
+
+        // Act
+        on = false;
+        clock.UtcNow = Now.AddHours(1);
+        await engine.EvaluateDueAsync(CancellationToken.None);
+
+        // Assert: the 13:00 run could have been handed out, so it says no Director ran it; the 14:00 run carries the switch.
+        var runs = history.List(job.Id);
+        Assert.Equal("no Director on SOREN_NORTH ran the check of Mail Desk before its next time", runs[1].ResultReason);
+        Assert.Equal(CronEngine.CheckDueSwitchedOffStatus, runs[0].InfraStatus);
+    }
+
+    [Fact]
     public async Task EvaluateDueAsync_ADueCheckOffForThreeTimes_IsThreeProblems_NotAPileOfWaitingRows()
     {
         var store = NewJobStore();

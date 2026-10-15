@@ -110,20 +110,28 @@ public sealed class CronRunHistoryStore
     /// <summary>
     /// Which of a schedule's rows (oldest first) the cap removes. The history is bounded at
     /// <see cref="MaxRecordsPerJob"/>, but a row that still MEANS something is never removed for space: a problem
-    /// that is still open (unresolved, and no later run of the schedule reported ok) stays until it is cleared or
-    /// resolved, and a row still owing the factory activity record its row stays until the row is written. Only
-    /// the oldest rows that are neither are removed, so the history can stand above the cap while problems are open.
+    /// that is still open (unresolved, and not cleared by a later run - see <see cref="CronRunResultFold"/>: a later ok
+    /// clears any problem, a later nothing-to-do clears a check problem) stays until it is cleared or resolved, and a
+    /// row still owing the factory activity record its row stays until the row is written. Only the oldest rows that
+    /// are neither are removed, so the history can stand above the cap while problems are open. A checking or
+    /// nothing-to-do row is removed like any other closed row.
     /// </summary>
     internal static IReadOnlyList<CronRunEntity> PrunableBeyondCap(IReadOnlyList<CronRunEntity> oldestFirst)
     {
         var overflow = oldestFirst.Count - MaxRecordsPerJob;
         if (overflow <= 0) return Array.Empty<CronRunEntity>();
         var newestOk = -1;
+        var newestNothingToDo = -1;
         for (var i = 0; i < oldestFirst.Count; i++)
+        {
             if (oldestFirst[i].Result == CronRunResults.Ok) newestOk = i;
+            if (oldestFirst[i].Result == CronRunResults.NothingToDo) newestNothingToDo = i;
+        }
+        bool Open(CronRunEntity row, int i) =>
+            row.Result == CronRunResults.Problem && row.ResolvedUtc is null && i > newestOk
+            && !(CronRunProblems.IsCheckProblem(row.Problem) && i < newestNothingToDo);
         return oldestFirst
-            .Select((row, i) => (row, keep: row.ActivityDue
-                || (row.Result == CronRunResults.Problem && row.ResolvedUtc is null && i > newestOk)))
+            .Select((row, i) => (row, keep: row.ActivityDue || Open(row, i)))
             .Where(x => !x.keep)
             .Take(overflow)
             .Select(x => x.row)
@@ -573,6 +581,52 @@ public sealed class CronRunHistoryStore
     /// <summary>The infrastructure status of a due check whose check counted work while its session is being started.</summary>
     public const string CheckStartingStatus = "check-starting";
 
+    /// <summary>The infrastructure status of a due check whose session start never returned (<see cref="FailStalledDueStarts"/>).</summary>
+    public const string CheckStartLostStatus = "check-start-lost";
+
+    /// <summary>
+    /// How long a decided due check's session start may take before its run is recorded as not started: the same
+    /// grace a trigger's start has (<see cref="Factory.Triggers.TriggerService.StartGrace"/>).
+    /// </summary>
+    public static readonly TimeSpan DueStartGrace = Factory.Triggers.TriggerService.StartGrace;
+
+    /// <summary>
+    /// A DECIDED DUE CHECK WHOSE START NEVER RETURNED (phase 5b, review 2, finding 3): its check counted work and its
+    /// session start began, but the start never came back - the Gateway stopped in between, or the start hung - so
+    /// nothing else would ever end it. Every such run of the account (still checking, its check reported, no session)
+    /// decided before <paramref name="decidedBeforeUtc"/> becomes a did-not-run problem that says so, in one write.
+    /// Returns those runs. A start that does come back later still writes its session onto the run
+    /// (<see cref="FinishDueStart"/>), so the record never denies a session that exists.
+    /// </summary>
+    public IReadOnlyList<JobRun> FailStalledDueStarts(Core.Tenancy.TenantId tenant, DateTime decidedBeforeUtc, DateTime nowUtc)
+    {
+        FileLog.Write($"[CronRunHistoryStore] FailStalledDueStarts: decided before {decidedBeforeUtc:o}");
+        if (!tenant.IsValid) return Array.Empty<JobRun>();
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var rows = ctx.CronRuns
+                .Where(e => e.Result == CronRunResults.Checking && e.CheckedUtc != null && e.SessionId == null)
+                .ToList()
+                .Where(e => SpecifyUtc(e.CheckedUtc)!.Value < decidedBeforeUtc)
+                .ToList();
+            foreach (var row in rows)
+            {
+                var counted = row.CheckCount?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "work";
+                row.Result = CronRunResults.Problem;
+                row.Problem = CronRunProblems.DidNotRun;
+                row.ResultReason = TruncateReason(
+                    $"its check counted {counted} at {SpecifyUtc(row.CheckedUtc):yyyy-MM-dd HH:mm} UTC, and the session it asked for had not started by {nowUtc:yyyy-MM-dd HH:mm} UTC");
+                row.ResultUtc = nowUtc;
+                row.InfraStatus = CheckStartLostStatus;
+                row.ActivityDue = row.ActivityDue || row.ActivityId is null;
+                FileLog.Write($"[CronRunHistoryStore] FailStalledDueStarts: run={row.Id}, job={row.JobId}: {row.ResultReason}");
+            }
+            if (rows.Count > 0) ctx.SaveChanges();
+            return rows.Select(ToJobRun).ToList();
+        }
+    }
+
     /// <summary>
     /// Mark a due check DECIDED: its check counted work and a session start is beginning. The run stays
     /// <c>checking</c> until the start returns (<see cref="FinishDueStart"/>), but it is no longer handed out and a
@@ -601,6 +655,18 @@ public sealed class CronRunHistoryStore
         {
             using var ctx = _db.CreateContext(tenant);
             var row = ctx.CronRuns.FirstOrDefault(e => e.Id == runId);
+            if (row is not null && row.InfraStatus == CheckStartLostStatus && row.SessionId is null
+                && !string.IsNullOrEmpty(start.SessionId))
+            {
+                // The start came back after its run was recorded as not started: the problem stands, and the run names the
+                // session that did start, so the record never denies it.
+                row.SessionId = start.SessionId;
+                row.TargetDirectorId = start.DirectorId ?? directorId;
+                row.ResultReason = TruncateReason($"{row.ResultReason} - session {start.SessionId} started later, at {nowUtc:yyyy-MM-dd HH:mm} UTC");
+                ctx.SaveChanges();
+                FileLog.Write($"[CronRunHistoryStore] FinishDueStart: run={runId} was recorded as not started; its late session {start.SessionId} is written onto it");
+                return ToRecord(row);
+            }
             if (row is null || row.Result != CronRunResults.Checking || row.CheckedUtc is null)
             {
                 FileLog.Write($"[CronRunHistoryStore] FinishDueStart NOT APPLIED: run={runId}, found={row?.Result ?? "no row"}");

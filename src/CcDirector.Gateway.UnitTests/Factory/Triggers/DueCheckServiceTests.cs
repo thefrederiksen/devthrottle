@@ -290,7 +290,9 @@ public sealed class DueCheckServiceTests : IDisposable
             .RunNowAsync(job.Id, CancellationToken.None);
         Assert.Equal(CronRunResults.Checking, Run(runId).Result);
 
-        // Act: the start returns after the next time.
+        // Act: the start returns after the next time - the service's clock has moved on too, so a start that rewrote the
+        // fire time would write this later one.
+        _now = Now.AddHours(1).AddMinutes(1);
         _starter.Gate.SetResult();
         await first.Starting!;
 
@@ -299,6 +301,53 @@ public sealed class DueCheckServiceTests : IDisposable
         Assert.Equal((CronRunResults.Pending, "sid-checked-1", (string?)null), (run.Result, run.SessionId, run.Problem));
         Assert.Equal(Now, run.FiredUtc);
         Assert.DoesNotContain(_runs.List(job.Id), r => r.Problem == CronRunProblems.CheckNotRun);
+    }
+
+    [Fact]
+    public async Task EvaluateDueAsync_ADueStartThatNeverReturned_IsDidNotRunOnceItsGraceHasPassed_NeverCheckingForGood()
+    {
+        // Arrange: the check counted work at 13:00 and its session start never comes back (a Gateway that stopped
+        // mid-start leaves exactly this row behind).
+        var (job, runId) = await ADueCheck();
+        _starter.Gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var service = Service();
+        service.AssignmentsFor(T, Capable, Machine);
+        service.Report(T, Capable, Guid.Parse(runId), Report("""{"count": 3}"""));
+        CronEngine Sweep(DateTime at) => new(_jobs, _runs, _starter, new NoWorkLists(), new NullCronNotifier(), new FixedClock(at));
+
+        // Act: a sweep inside the start's grace, then one after it.
+        await Sweep(Now.AddMinutes(4)).EvaluateDueAsync(CancellationToken.None);
+        var inside = Run(runId).Result;
+        await Sweep(Now.AddMinutes(6)).EvaluateDueAsync(CancellationToken.None);
+
+        // Assert
+        Assert.Equal(CronRunResults.Checking, inside);
+        var run = Run(runId);
+        Assert.Equal((CronRunResults.Problem, CronRunProblems.DidNotRun, CronRunHistoryStore.CheckStartLostStatus),
+            (run.Result, run.Problem, run.InfraStatus));
+        Assert.Equal("its check counted 3 at 2026-10-15 13:00 UTC, and the session it asked for had not started by 2026-10-15 13:06 UTC",
+            run.ResultReason);
+        Assert.Equal(job.Id, _runs.Find(T, Guid.Parse(runId))!.JobId);
+    }
+
+    [Fact]
+    public async Task FinishDueStart_AStartThatReturnsAfterItsRunWasRecordedAsNotStarted_WritesItsSessionOntoTheRun()
+    {
+        var (_, runId) = await ADueCheck();
+        _starter.Gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var service = Service();
+        service.AssignmentsFor(T, Capable, Machine);
+        var report = service.Report(T, Capable, Guid.Parse(runId), Report("""{"count": 3}"""));
+        await new CronEngine(_jobs, _runs, _starter, new NoWorkLists(), new NullCronNotifier(), new FixedClock(Now.AddMinutes(6)))
+            .EvaluateDueAsync(CancellationToken.None);
+
+        _now = Now.AddMinutes(7);
+        _starter.Gate.SetResult();
+        await report.Starting!;
+
+        var run = Run(runId);
+        Assert.Equal((CronRunResults.Problem, "sid-checked-1"), (run.Result, run.SessionId));
+        Assert.EndsWith(" - session sid-checked-1 started later, at 2026-10-15 13:07 UTC", run.ResultReason);
     }
 
     [Fact]

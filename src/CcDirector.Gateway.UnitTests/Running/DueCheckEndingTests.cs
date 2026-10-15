@@ -69,6 +69,32 @@ public sealed class DueCheckEndingTests
     public void IsProblem_NamesEveryResult(string result, bool expected)
         => Assert.Equal(expected, CronRunResultFold.IsProblem(Run(result, 1)));
 
+    private static CcDirector.Gateway.Data.Entities.CronRunEntity Row(string result, string? problem = null) => new()
+    {
+        JobId = "cj_mail", Result = result, Problem = problem, InfraStatus = result, TaskStatus = CronRunHistoryStore.TaskStatusUnknown,
+    };
+
+    [Theory]
+    [InlineData(CronRunProblems.CheckFailed, true)]
+    [InlineData(CronRunProblems.CheckNotRun, true)]
+    [InlineData(CronRunProblems.Reported, false)]
+    public void PrunableBeyondCap_AProblemALaterNothingToDoCleared_IsPrunedOnlyWhenItIsACheckProblem(string problem, bool pruned)
+    {
+        // Arrange: the oldest row is the problem; a nothing-to-do comes after it and no run ever reported ok; the history
+        // is one row over its cap.
+        var rows = new List<CcDirector.Gateway.Data.Entities.CronRunEntity> { Row(CronRunResults.Problem, problem), Row(CronRunResults.NothingToDo) };
+        while (rows.Count < CronRunHistoryStore.MaxRecordsPerJob + 1) rows.Add(Row(CronRunResults.Checking));
+
+        // Act
+        var gone = CronRunHistoryStore.PrunableBeyondCap(rows);
+
+        // Assert: a quiet check clears a check problem, as the fold says, so the cap may remove it; a problem a session
+        // reported stays open and is kept, and the oldest closed row goes instead.
+        var removed = Assert.Single(gone);
+        Assert.Equal(pruned, ReferenceEquals(rows[0], removed));
+        if (!pruned) Assert.Same(rows[1], removed);
+    }
+
     [Fact]
     public void IsProblem_AResultNoFoldKnows_IsAnErrorNotAQuietOmission()
         => Assert.Throws<InvalidOperationException>(() => CronRunResultFold.IsProblem(Run("half-done", 1)));

@@ -133,6 +133,7 @@ public sealed class CronEngine
             FileLog.Write($"[CronEngine] EvaluateDueAsync: tenant={sweepTenant.ToLogString()} is paused; nothing fired");
             return Array.Empty<CronRunRecord>();
         }
+        FailStalledDueStarts(now);
         var due = _store.ListAll()
             .Where(j => j.Enabled && j.NextRunUtc is not null && j.NextRunUtc.Value <= now)
             .ToList();
@@ -335,6 +336,22 @@ public sealed class CronEngine
     /// <summary>The infrastructure status of a run whose check is due and has not reported.</summary>
     public const string CheckDueStatus = "check-due";
 
+    /// <summary>
+    /// A due check whose check counted work and whose session start never returned (phase 5b, review 2, finding 3) is
+    /// recorded as did-not-run once <see cref="CronRunHistoryStore.DueStartGrace"/> has passed - read on every sweep,
+    /// and so also on the first sweep after a Gateway start, never left reading "checking" for good.
+    /// </summary>
+    private void FailStalledDueStarts(DateTime now)
+    {
+        if (_resolveTenant() is not { } tenant) return;
+        foreach (var stalled in _history.FailStalledDueStarts(tenant, now - CronRunHistoryStore.DueStartGrace, now))
+        {
+            FileLog.Write($"[CronEngine] due start never returned: job={stalled.JobId}, run={stalled.Run.RunId}: {stalled.Run.ResultReason}");
+            if (_store.Get(stalled.JobId) is { } job)
+                _onResultRecorded?.Invoke(tenant, job, stalled.Run);
+        }
+    }
+
     /// <summary>The infrastructure status of a due check fired while the account's Factory Agents switch is off: no
     /// Director can be handed it.</summary>
     public const string CheckDueSwitchedOffStatus = "check-due-switched-off";
@@ -359,7 +376,8 @@ public sealed class CronEngine
         // A Director is handed a due check only through the factory routes, which answer nothing while the account's
         // Factory Agents switch is off - so then the check cannot run, and the run and the schedule say why.
         var switchedOff = !_factoryAgentsOn(tenant);
-        var superseded = _history.SupersedeUnreportedCheck(tenant, job.Id, infra => switchedOff || infra == CheckDueSwitchedOffStatus
+        // The reason is the superseded run's own truth: whether the switch was off when IT fired.
+        var superseded = _history.SupersedeUnreportedCheck(tenant, job.Id, infra => infra == CheckDueSwitchedOffStatus
             ? $"{FactoryAgentsOffSentence}; the check of {job.Name} did not run before its next time"
             : $"no Director on {job.Target.Machine} ran the check of {job.Name} before its next time", firedUtc);
         if (superseded is not null)
