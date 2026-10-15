@@ -166,6 +166,41 @@ public class LinuxProcParsingTests
         Assert.Equal("/dev/sda2", data.Source);
     }
 
+    [Fact]
+    public void SelectVolumes_RealFiles_GivesRootBootAndEfiButNoSnapOrVirtualFileSystem()
+    {
+        var mounts = LinuxProcParsing.ParseMountInfo(Lines("snapshot-1", "proc", "mountinfo"));
+        var disks = LinuxProcParsing.ParseDiskStats(Lines("snapshot-1", "proc", "diskstats"));
+
+        var volumes = LinuxProcParsing.SelectVolumes(mounts, disks);
+
+        Assert.Equal(["/", "/boot", "/boot/efi"], volumes.Select(v => v.MountPoint).ToArray());
+        Assert.Equal(["dm-0", "sdc2", "sdc1"], volumes.Select(v => v.DeviceName).ToArray());
+    }
+
+    [Fact]
+    public void SelectVolumes_SameDeviceMountedTwice_IsOneVolumeUnderTheFirstMount()
+    {
+        LinuxMount[] mounts =
+        [
+            new(8, 1, "/", "ext4", "/dev/sda1"),
+            new(8, 1, "/var/lib/docker/bind", "ext4", "/dev/sda1"),
+        ];
+        LinuxDiskCounters[] disks = [new(8, 1, "sda1", 0, 0, 0, 0, 0, 0, 0, 0, 0)];
+
+        Assert.Equal("/", Assert.Single(LinuxProcParsing.SelectVolumes(mounts, disks)).MountPoint);
+    }
+
+    [Fact]
+    public void SelectVolumes_BtrfsAnonymousDeviceNumber_MatchesBySourceName()
+    {
+        LinuxMount[] mounts = [new(0, 31, "/", "btrfs", "/dev/nvme0n1p2"), new(0, 32, "/tmp", "tmpfs", "tmpfs")];
+        LinuxDiskCounters[] disks = [new(259, 2, "nvme0n1p2", 0, 0, 0, 0, 0, 0, 0, 0, 0)];
+
+        var volume = Assert.Single(LinuxProcParsing.SelectVolumes(mounts, disks));
+        Assert.Equal("nvme0n1p2", volume.DeviceName);
+    }
+
     // ----- /proc/<pid>/stat, statm, io --------------------------------------------------------------
 
     [Fact]

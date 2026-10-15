@@ -39,6 +39,9 @@ internal sealed record LinuxMount(int Major, int Minor, string MountPoint, strin
 /// <summary>The fields of <c>/proc/&lt;pid&gt;/stat</c> the probe needs.</summary>
 internal sealed record LinuxProcessStat(int ProcessId, string Name, char State, int ParentProcessId, ulong CpuTicks, ulong StartTimeTicks);
 
+/// <summary>A mount that is a real volume: where it is mounted, its file system, and the block device under it.</summary>
+internal sealed record LinuxVolumeSource(string MountPoint, string FileSystemType, string DeviceName);
+
 /// <summary>What <c>/sys/block/&lt;device&gt;</c> says about one whole block device.</summary>
 /// <param name="Name">The device name, for example <c>sdc</c> or <c>dm-0</c>.</param>
 /// <param name="Rotational">The <c>queue/rotational</c> flag: 1 spinning, 0 solid-state, null when the file is missing.</param>
@@ -296,6 +299,47 @@ internal static class LinuxProcParsing
         value = 0;
         return line.StartsWith(key, StringComparison.Ordinal)
                && ulong.TryParse(line.AsSpan(key.Length).Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out value);
+    }
+
+    /// <summary>
+    /// The mounts that are volumes a person stores work on: each mount whose device is a block device
+    /// the kernel counts in <c>/proc/diskstats</c>, leaving out loop devices (snap packages, which are
+    /// read-only and always full, and would raise a "disk full" warning forever) and RAM disks. A device
+    /// mounted more than once (a bind mount, a container's view) is one volume, under its first mount.
+    ///
+    /// The device is found by its major and minor number. Btrfs reports an anonymous number (major 0)
+    /// for every mount, so for those the mount source's own name ("/dev/nvme0n1p2" gives "nvme0n1p2") is
+    /// used when the kernel counts a device of that name. A mount that matches neither way is not a
+    /// volume this probe can attribute, and is left out rather than guessed at.
+    /// </summary>
+    public static IReadOnlyList<LinuxVolumeSource> SelectVolumes(IReadOnlyList<LinuxMount> mounts, IReadOnlyList<LinuxDiskCounters> disks)
+    {
+        var byNumber = new Dictionary<(int, int), string>();
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var disk in disks)
+        {
+            byNumber.TryAdd((disk.Major, disk.Minor), disk.Name);
+            names.Add(disk.Name);
+        }
+
+        var result = new List<LinuxVolumeSource>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var mount in mounts)
+        {
+            string? device = null;
+            if (mount.Major != 0) byNumber.TryGetValue((mount.Major, mount.Minor), out device);
+            else if (mount.Source.StartsWith("/dev/", StringComparison.Ordinal) && names.Contains(mount.Source[5..])) device = mount.Source[5..];
+
+            if (device is null) continue;
+            if (device.StartsWith("loop", StringComparison.Ordinal)
+                || device.StartsWith("ram", StringComparison.Ordinal)
+                || device.StartsWith("zram", StringComparison.Ordinal)) continue;
+            if (!seen.Add(device)) continue;
+
+            result.Add(new LinuxVolumeSource(mount.MountPoint, mount.FileSystemType, device));
+        }
+
+        return result;
     }
 
     /// <summary>
