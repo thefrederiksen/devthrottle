@@ -53,35 +53,35 @@
       "attachmentRows": [
         {
           "contentType": "text/plain",
-          "downloadHref": "/gateway/factories/qa-outreach/records/attachments/8e48bfce-7575-44d7-9be7-782ce047593a",
+          "downloadHref": "/gateway/factories/qa-outreach/records/attachments/ba5bf79b-e3bd-4e2f-8562-69c8524fc387",
           "downloadLabel": "Download",
-          "id": "8e48bfce-7575-44d7-9be7-782ce047593a",
+          "id": "ba5bf79b-e3bd-4e2f-8562-69c8524fc387",
           "name": "notes/kickoff.txt",
           "seatText": "The factory as a whole",
           "sizeText": "30 bytes",
-          "whenText": "today 13:58",
+          "whenText": "today 14:48",
           "whoText": "a person (device browser qa-cockpit-browser)"
         },
         {
           "contentType": "text/csv",
-          "downloadHref": "/gateway/factories/qa-outreach/records/attachments/a47749a6-485e-40e0-b232-12ec544e05b2",
+          "downloadHref": "/gateway/factories/qa-outreach/records/attachments/188d3374-bf9e-4c32-a20f-f3b8aabab286",
           "downloadLabel": "Download",
-          "id": "a47749a6-485e-40e0-b232-12ec544e05b2",
+          "id": "188d3374-bf9e-4c32-a20f-f3b8aabab286",
           "name": "exports/leads-2026-10-13.csv",
           "seatText": "Boss (boss)",
           "sizeText": "39 bytes",
-          "whenText": "today 13:58",
+          "whenText": "today 14:48",
           "whoText": "the one-time upload from RIG_MACHINE"
         },
         {
           "contentType": "image/png",
-          "downloadHref": "/gateway/factories/qa-outreach/records/attachments/080e2feb-a974-40da-8113-fe8933b3e3af",
+          "downloadHref": "/gateway/factories/qa-outreach/records/attachments/96527a22-045a-4fd4-9394-c30733926be8",
           "downloadLabel": "Download",
-          "id": "080e2feb-a974-40da-8113-fe8933b3e3af",
+          "id": "96527a22-045a-4fd4-9394-c30733926be8",
           "name": "shots/home-page.png",
           "seatText": "Writer (writer)",
           "sizeText": "146 bytes",
-          "whenText": "today 13:58",
+          "whenText": "today 14:48",
           "whoText": "a person (device browser qa-cockpit-browser)"
         }
       ],
@@ -104,7 +104,7 @@
           "openLabel": "Open",
           "sizeText": "54 bytes",
           "versionText": "Version 1",
-          "whenText": "today 13:58",
+          "whenText": "today 14:48",
           "whoText": "Written by a person (device browser qa-cockpit-browser)"
         },
         {
@@ -113,7 +113,7 @@
           "openLabel": "Open",
           "sizeText": "175 bytes",
           "versionText": "Version 3",
-          "whenText": "today 13:58",
+          "whenText": "today 14:48",
           "whoText": "Written by a person (device browser qa-cockpit-browser)"
         }
       ],
@@ -162,26 +162,26 @@
           "attachments": [
             {
               "contentType": "image/png",
-              "downloadHref": "/gateway/factories/qa-outreach/records/attachments/080e2feb-a974-40da-8113-fe8933b3e3af",
+              "downloadHref": "/gateway/factories/qa-outreach/records/attachments/96527a22-045a-4fd4-9394-c30733926be8",
               "downloadLabel": "Download",
-              "id": "080e2feb-a974-40da-8113-fe8933b3e3af",
+              "id": "96527a22-045a-4fd4-9394-c30733926be8",
               "name": "shots/home-page.png",
               "seatText": "Writer (writer)",
               "sizeText": "146 bytes",
-              "whenText": "today 13:58",
+              "whenText": "today 14:48",
               "whoText": "a person (device browser qa-cockpit-browser)"
             }
           ],
           "dateText": "2026-10-14",
-          "id": "e1ad2ede-845f-4fe6-8d3b-f20e138f0310",
-          "lineText": "Written by a person (device browser qa-cockpit-browser) today 13:58.",
+          "id": "3009d19c-9df9-4184-9024-08f83c47a176",
+          "lineText": "Written by a person (device browser qa-cockpit-browser) today 14:48.",
           "text": "Published the first post. Screenshot of the home page attached."
         },
         {
           "attachments": [],
           "dateText": "2026-10-13",
-          "id": "a2f0648f-3f0e-4e51-9e02-7eec3145c216",
-          "lineText": "Written by the one-time upload from RIG_MACHINE today 13:58.",
+          "id": "9d5c742e-55f6-418c-bc49-feb67242f260",
+          "lineText": "Written by the one-time upload from RIG_MACHINE today 14:48.",
           "text": "Drafted the first post from the template."
         }
       ],
@@ -213,7 +213,7 @@
           "stateWord": "Newest",
           "title": "Version 3",
           "version": 3,
-          "whenText": "today 13:58",
+          "whenText": "today 14:48",
           "whoText": "Written by a person (device browser qa-cockpit-browser)"
         },
         {
@@ -223,7 +223,7 @@
           "stateWord": "Earlier",
           "title": "Version 2",
           "version": 2,
-          "whenText": "today 13:58",
+          "whenText": "today 14:48",
           "whoText": "Written by a person (device browser qa-cockpit-browser)"
         },
         {
@@ -233,7 +233,7 @@
           "stateWord": "Earlier",
           "title": "Version 1",
           "version": 1,
-          "whenText": "today 13:58",
+          "whenText": "today 14:48",
           "whoText": "Written by the one-time upload from RIG_MACHINE"
         }
       ],
@@ -243,7 +243,7 @@
   },
   "28-attachment-downloaded": {
     "file": "shots-home-page.png",
-    "id": "080e2feb-a974-40da-8113-fe8933b3e3af",
+    "id": "96527a22-045a-4fd4-9394-c30733926be8",
     "same_bytes_as_kept": true,
     "sha256": "7b36187ded79a3dc2bbcda5f0d4e916a47b6a0f54c2f409a8e521751f4a2a928"
   }
