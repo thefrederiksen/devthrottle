@@ -16,6 +16,7 @@ Raw bytes the Windows resource probe reads from the operating system, captured o
 | `processor-performance-1.bin`, `-2.bin` | `NtQuerySystemInformation(SystemProcessorPerformanceInformation)`, one second apart |
 | `process-information.bin` (+ `.address.txt`) | `NtQuerySystemInformation(SystemProcessInformation)`, while 48 threads spun on 24 processors |
 | `page-file.bin` | `NtQuerySystemInformation(SystemPageFileInformation)` |
+| `system-performance-1.bin`, `-2.bin` | `NtQuerySystemInformation(SystemPerformanceInformation)`, one second apart, captured at 13:43 UTC (the last lines of `capture-notes.txt`) |
 | `disk<N>-performance-1.bin`, `-2.bin` | `IOCTL_DISK_PERFORMANCE` on `\\.\PhysicalDrive<N>`, one second apart |
 | `disk<N>-seek-penalty.bin` | `IOCTL_STORAGE_QUERY_PROPERTY(StorageDeviceSeekPenaltyProperty)` |
 | `volume-<L>-extents.bin` | `IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS` on `\\.\<L>:` |

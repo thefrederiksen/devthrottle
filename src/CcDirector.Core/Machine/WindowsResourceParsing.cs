@@ -124,7 +124,6 @@ internal static class WindowsResourceParsing
                 CreateTime: ReadInt64(entry, 32),
                 UserTime: ReadInt64(entry, 40),
                 KernelTime: ReadInt64(entry, 48),
-                HardFaultCount: ReadUInt32(entry, 16),
                 ThreadCount: threadCount,
                 ThreadsWaitingOnCpu: waitingOnCpu,
                 WorkingSetBytes: ReadUInt64(entry, 144),
@@ -153,6 +152,38 @@ internal static class WindowsResourceParsing
         if (start < 0 || start + length > buffer.Length) return null;
         return Encoding.Unicode.GetString(buffer.Slice((int)start, length));
     }
+
+    // ---------------------------------------------------------------------------------------------
+    // Paging activity
+    // ---------------------------------------------------------------------------------------------
+
+    /// <summary>The bytes SYSTEM_PERFORMANCE_INFORMATION must have for PageReadCount to be in it.</summary>
+    internal const int SystemPerformanceMinimumSize = 88;
+
+    /// <summary>
+    /// Reads PageReadCount from SYSTEM_PERFORMANCE_INFORMATION
+    /// (<c>NtQuerySystemInformation(SystemPerformanceInformation)</c>): the pages the whole machine has
+    /// read back from disk to satisfy hard page faults, cumulative since boot. It is the counter the
+    /// "Memory\Pages Input/sec" performance counter is computed from, and it counts faults no single
+    /// process is charged with - the file cache's among them. Adding up each process's own hard fault
+    /// count instead measured a tenth of the true figure on a machine running builds.
+    ///
+    /// The structure is only partly documented; its leading fields have kept these offsets since
+    /// Windows NT. PageReadCount is at 80, after AvailablePages (44) and CommitLimit (52), which the
+    /// tests check against GlobalMemoryStatusEx read at the same capture.
+    /// </summary>
+    internal static uint ParsePageReadCount(ReadOnlySpan<byte> buffer)
+    {
+        if (buffer.Length < SystemPerformanceMinimumSize)
+            throw new FormatException($"SYSTEM_PERFORMANCE_INFORMATION is {buffer.Length} bytes, expected at least {SystemPerformanceMinimumSize}");
+        return ReadUInt32(buffer, 80);
+    }
+
+    /// <summary>AvailablePages from the same structure, in pages. Read only to prove the layout against GlobalMemoryStatusEx.</summary>
+    internal static uint ParseAvailablePages(ReadOnlySpan<byte> buffer) => ReadUInt32(buffer, 44);
+
+    /// <summary>CommitLimit from the same structure, in pages. Read only to prove the layout against GlobalMemoryStatusEx.</summary>
+    internal static uint ParseCommitLimitPages(ReadOnlySpan<byte> buffer) => ReadUInt32(buffer, 52);
 
     // ---------------------------------------------------------------------------------------------
     // Page file
@@ -360,7 +391,6 @@ internal sealed record RawProcess(
     long CreateTime,
     long UserTime,
     long KernelTime,
-    uint HardFaultCount,
     int ThreadCount,
     int ThreadsWaitingOnCpu,
     ulong WorkingSetBytes,

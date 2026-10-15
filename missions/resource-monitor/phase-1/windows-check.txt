@@ -1,0 +1,63 @@
+RESOURCE MONITOR - PHASE 1 - WINDOWS PROBE - THE CHECK
+Run on SOREN_NORTH (Windows 11 Enterprise 10.0.26200, 24 logical processors), 2026-10-15,
+from the worktree of branch resource-monitor/windows-probe, rebased on resource-monitor/probe-interface.
+
+1. dotnet build cc-director.sln -c Release
+   Build succeeded.
+       0 Warning(s)
+       0 Error(s)
+   Time Elapsed 00:02:56.32
+
+2. dotnet test src/CcDirector.Core.UnitTests --filter "Category=Resources"
+   Passed!  - Failed: 0, Passed: 92, Skipped: 0, Total: 92 - CcDirector.Core.UnitTests.dll (net10.0)
+   (92 = the interface's own tests plus this task's 57: WindowsResourceParsingTests 34 and
+   WindowsResourceProbeArithmeticTests 23 - decoding from real captured bytes, and the arithmetic
+   between two readings, both runnable on any platform.)
+
+3. dotnet test src/CcDirector.Core.Tests --filter "Category=Resources"   (ON THIS MACHINE)
+   Total tests: 11, Passed: 11
+     Passed Read_WallClockWentBackwards_TakesAFreshSampleRatherThanReuseOne
+     Passed Cpu_EveryProcessorSpun_ReadsTheRealCoreCountAndHeavyLoad
+     Passed Read_TwiceWithinASecond_ReturnsTheCachedSample
+     Passed Stall_GivesTheWindowsProxiesAndNullForWhatWindowsDoesNotOffer
+     Passed Disks_AtLeastOneNamedDiskOfAKnownKind_AndTheTempDiskSawTheWrite
+     Passed FirstSample_RatesSayNoIntervalYet_LevelsAreReadable
+     Passed MemoryAndPageFile_ReadRealTotals
+     Passed Network_IsReadable
+     Passed Volumes_EachHasARealSizeAndSitsOnAListedDisk
+     Passed Read_CostOfOneUncachedSample_IsReported
+       one uncached sample took 10.7 ms of wall time and 13.3 ms of processor time (average of
+       twenty warm reads); at one sample every 5 seconds that is 0.27% of one core
+     Passed Processes_IncludeThisTestProcessWithItsParentStartTimeAndTheLoadItMade
+   On a non-Windows machine these 11 report SKIPPED with the reason, never passed.
+
+4. The live reading next to the operating system's own figures: windows-live-reading.txt, produced by
+   windows-live-reading/ (dotnet run -c Release -- ../windows-live-reading.txt). Two rounds - the
+   machine as it was, and with 12 of 24 processors spun. Agreement, probe against typeperf over the
+   same three seconds:
+     processor, whole machine     within 1 percentage point in both rounds
+     busiest core                 within 1 point
+     disk busy                    within 1 point idle, within 4 points with the machine at 99%
+     disk write rate, queue       close; the gap grows when the machine is saturated and the harness
+                                  itself is delayed in taking its readings
+     memory, page file, volumes   match
+     network                      within 0.25 MB/s
+     pages input per second       within 3 to 9 percent
+     run queue                    a count at a moment on both sides, so compared as a mean of several
+                                  moments; same size under load, noisy at idle
+   Disk kind and which disk each volume sits on match Get-PhysicalDisk and Get-Partition.
+
+WHAT THIS DOES NOT PROVE
+- The mission's 5-point agreement is for the toolbar meter (phase 2); this proves the readings the
+  meter will show.
+- Measured cost varies with how busy the machine is: 12.5 to 53 ms of processor time per sample was
+  seen across runs. Almost all of it is the one kernel call that lists every process and thread
+  (about 800 processes and 12,400 threads here; 9 to 18 ms on its own). The sampler's whole budget,
+  under 0.5% of one core, is measured in phase 2; if it is over, the lever is how often the process
+  list is read, not this code.
+- No spinning hard drive is attached to this machine. The spinning case is proved from the real
+  solid-state bytes with the one flag a hard drive sets, not from a hard drive.
+- The per-processor figures cover one processor group: every processor on a machine with 64 or
+  fewer. The whole-machine figure covers all of them regardless.
+- Processes' disk bytes on Windows are every read and write the process makes (files, devices,
+  network, cache hits), because Windows keeps no per-process count of physical disk bytes.

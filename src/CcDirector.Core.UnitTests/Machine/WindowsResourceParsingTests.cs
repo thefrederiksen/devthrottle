@@ -133,9 +133,6 @@ public class WindowsResourceParsingTests
         Assert.Equal(35221504UL, lsass.PrivateBytes);
         Assert.Equal(52810615UL, lsass.ReadBytes);
         Assert.Equal(30832433UL, lsass.WriteBytes);
-
-        var compression = Assert.Single(processes, p => p.Name == "Memory Compression");
-        Assert.Equal(685561U, compression.HardFaultCount);
     }
 
     [Fact]
@@ -184,6 +181,38 @@ public class WindowsResourceParsingTests
         BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(0), 4096);
 
         Assert.Throws<FormatException>(() => WindowsResourceParsing.ParseProcessInformation(bytes, 0));
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Paging activity
+    // ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void ParsePageReadCount_RealCaptures_ReadsTheCumulativePagesReadFromDisk()
+    {
+        Assert.Equal(694021597U, WindowsResourceParsing.ParsePageReadCount(Fixture("system-performance-1.bin")));
+        Assert.Equal(694022508U, WindowsResourceParsing.ParsePageReadCount(Fixture("system-performance-2.bin")));
+    }
+
+    [Fact]
+    public void SystemPerformanceLayout_RealCapture_AgreesWithGlobalMemoryStatusExReadAtTheSameMoment()
+    {
+        // The structure is only partly documented, so its offsets are proved against a documented call
+        // made at the same capture (capture-notes.txt): GlobalMemoryStatusEx reported 20,584,345,600
+        // bytes available and a commit limit of 120,024,301,568 bytes. If the fields at 44 and 52 are
+        // right, PageReadCount at 80 is read from the same, correctly placed structure.
+        var bytes = Fixture("system-performance-2.bin");
+
+        Assert.Equal(120024301568UL, WindowsResourceParsing.ParseCommitLimitPages(bytes) * 4096UL);
+        // Available memory moves from moment to moment; the two reads were microseconds apart.
+        var available = WindowsResourceParsing.ParseAvailablePages(bytes) * 4096L;
+        Assert.InRange(available, 20584345600L - 64 * 1024 * 1024, 20584345600L + 64 * 1024 * 1024);
+    }
+
+    [Fact]
+    public void ParsePageReadCount_TooShortToHoldTheField_Throws()
+    {
+        Assert.Throws<FormatException>(() => WindowsResourceParsing.ParsePageReadCount(new byte[80]));
     }
 
     // ---------------------------------------------------------------------------------------------

@@ -58,3 +58,6 @@ Trimmed process fixture keeps 41 operating-system processes:
   pid=3856 parent=1816 name=svchost.exe threads=8 waitingOnCpu=0 ws=21753856 private=5754880 read=0 write=0 hardFaults=177 created=2026-10-13T18:10:21.1920708Z
   pid=3884 parent=1816 name=svchost.exe threads=16 waitingOnCpu=0 ws=18317312 private=38170624 read=0 write=32768 hardFaults=238 created=2026-10-13T18:10:21.1965078Z
   pid=57092 parent=47756 name=Capture.exe threads=56 waitingOnCpu=25 ws=33177600 private=13197312 read=12594 write=13304 hardFaults=3 created=2026-10-15T13:26:41.0393547Z
+
+Added later, from a second capture at 2026-10-15T13:43:08Z by the same tool (the probe started reading this structure after the first capture):
+System performance: 376 bytes; PageReadCount 1=694021597 2=694022508; AvailablePages=5025556 CommitLimit=29302808; GlobalMemoryStatusEx just after: available=20584345600 commitLimit=120024301568

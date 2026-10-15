@@ -23,8 +23,8 @@ public class WindowsResourceProbeArithmeticTests
             Fixture("process-information.bin"),
             long.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "TestData", "resource-monitor", "windows", "process-information.address.txt")).Trim()));
 
-    private static RawProcess Process(int pid, long created, long cpu = 0, uint faults = 0, ulong read = 0, ulong written = 0, int waiting = 0, string? name = "worker.exe") =>
-        new(pid, ParentProcessId: 1, name, created, UserTime: cpu, KernelTime: 0, faults, ThreadCount: 1, waiting,
+    private static RawProcess Process(int pid, long created, long cpu = 0, ulong read = 0, ulong written = 0, int waiting = 0, string? name = "worker.exe") =>
+        new(pid, ParentProcessId: 1, name, created, UserTime: cpu, KernelTime: 0, ThreadCount: 1, waiting,
             WorkingSetBytes: 1000, PrivateBytes: 1000, read, written);
 
     // ---------------------------------------------------------------------------------------------
@@ -259,11 +259,13 @@ public class WindowsResourceProbeArithmeticTests
     // Stall proxies
     // ---------------------------------------------------------------------------------------------
 
+    private static readonly ProcessSnapshot NoProcesses = new(0, []);
+
     [Fact]
     public void StallBetween_FirstSample_IsUnreadable()
     {
         Assert.Equal(ResourceUnreadableReasons.FirstSample,
-            WindowsResourceProbe.StallBetween(null, new ProcessSnapshot(0, RealProcesses())).UnreadableReason);
+            WindowsResourceProbe.StallBetween(new ProcessSnapshot(0, RealProcesses()), null, new PagingSnapshot(0, 5)).UnreadableReason);
     }
 
     [Fact]
@@ -271,44 +273,50 @@ public class WindowsResourceProbeArithmeticTests
     {
         var processes = RealProcesses();
 
-        var reading = WindowsResourceProbe.StallBetween(new ProcessSnapshot(0, processes), new ProcessSnapshot(OneSecond, processes));
+        var reading = WindowsResourceProbe.StallBetween(new ProcessSnapshot(OneSecond, processes), new PagingSnapshot(0, 10), new PagingSnapshot(OneSecond, 10));
 
         Assert.True(reading.CouldRead);
         Assert.Equal(StallSource.WindowsCounters, reading.Source);
         Assert.Equal(processes.Sum(p => p.ThreadsWaitingOnCpu), reading.RunQueueLength);
         Assert.True(reading.RunQueueLength >= 25, "the capture tool alone had 25 threads waiting");
-        Assert.Equal(0, reading.HardPageFaultsPerSecond);
+    }
+
+    [Fact]
+    public void StallBetween_RealPagingCaptures_PagesReadPerSecond()
+    {
+        // The two captures were one second apart (911 pages read between them); timed here as exactly
+        // one second, since the capture's own interval is not part of the bytes.
+        var earlier = new PagingSnapshot(0, WindowsResourceParsing.ParsePageReadCount(Fixture("system-performance-1.bin")));
+        var later = new PagingSnapshot(OneSecond, WindowsResourceParsing.ParsePageReadCount(Fixture("system-performance-2.bin")));
+
+        Assert.Equal(911, WindowsResourceProbe.StallBetween(NoProcesses, earlier, later).HardPageFaultsPerSecond!.Value, 9);
+    }
+
+    [Fact]
+    public void StallBetween_PageReadCountWrapsPastThirtyTwoBits_StillCountsTheGrowth()
+    {
+        var reading = WindowsResourceProbe.StallBetween(NoProcesses, new PagingSnapshot(0, uint.MaxValue - 9), new PagingSnapshot(2 * OneSecond, 10));
+
+        Assert.Equal(10, reading.HardPageFaultsPerSecond!.Value, 9);
+    }
+
+    [Fact]
+    public void StallBetween_NoTimePassed_IsUnreadable()
+    {
+        var paging = new PagingSnapshot(7, 100);
+
+        Assert.False(WindowsResourceProbe.StallBetween(NoProcesses, paging, paging).CouldRead);
     }
 
     [Fact]
     public void StallBetween_WhatWindowsDoesNotOffer_IsNullNotZero()
     {
-        var reading = WindowsResourceProbe.StallBetween(new ProcessSnapshot(0, []), new ProcessSnapshot(OneSecond, []));
+        var reading = WindowsResourceProbe.StallBetween(NoProcesses, new PagingSnapshot(0, 0), new PagingSnapshot(OneSecond, 0));
 
         Assert.Null(reading.CpuStalledPercent);
         Assert.Null(reading.MemoryStalledPercent);
         Assert.Null(reading.IoStalledPercent);
         Assert.Null(reading.ProcessesWaitingOnDisk);
         Assert.Null(reading.MacOsMemoryPressureLevel);
-    }
-
-    [Fact]
-    public void StallBetween_HardFaults_CountsGrowthAndEveryFaultOfANewProcess()
-    {
-        // Process 1 faulted 300 more times; process 2 is new, and its 100 faults all happened in the
-        // interval; process 3 exited and is not counted. Over two seconds: 400 / 2.
-        var earlier = new ProcessSnapshot(0, [Process(1, created: 1, faults: 1_000), Process(3, created: 1, faults: 50)]);
-        var later = new ProcessSnapshot(2 * OneSecond, [Process(1, created: 1, faults: 1_300), Process(2, created: 5, faults: 100)]);
-
-        Assert.Equal(200, WindowsResourceProbe.StallBetween(earlier, later).HardPageFaultsPerSecond);
-    }
-
-    [Fact]
-    public void StallBetween_HardFaultCountWrapsPastThirtyTwoBits_StillCountsTheGrowth()
-    {
-        var earlier = new ProcessSnapshot(0, [Process(1, created: 1, faults: uint.MaxValue - 9)]);
-        var later = new ProcessSnapshot(OneSecond, [Process(1, created: 1, faults: 10)]);
-
-        Assert.Equal(20, WindowsResourceProbe.StallBetween(earlier, later).HardPageFaultsPerSecond);
     }
 }

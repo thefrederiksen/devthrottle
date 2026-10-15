@@ -11,6 +11,7 @@ notes.AppendLine($"Captured on {Environment.MachineName}, {System.Runtime.Intero
 notes.AppendLine($"Logical processors: {Environment.ProcessorCount}, page size: {Environment.SystemPageSize}");
 
 // CPU: two readings one second apart.
+var systemPerformance1 = WindowsResourceNative.ReadSystemPerformance();
 var sys1 = WindowsResourceNative.ReadSystemTimes();
 var cpu1 = WindowsResourceNative.ReadProcessorPerformance();
 var disks1 = new Dictionary<int, byte[]>();
@@ -23,7 +24,15 @@ for (var n = 0; n <= WindowsResourceNative.MaxPhysicalDiskNumber; n++)
     disks1[n] = WindowsResourceNative.ReadDiskPerformance(h);
 }
 Thread.Sleep(1000);
+var systemPerformance2 = WindowsResourceNative.ReadSystemPerformance();
 var sys2 = WindowsResourceNative.ReadSystemTimes();
+File.WriteAllBytes(Path.Combine(outDir, "system-performance-1.bin"), systemPerformance1);
+File.WriteAllBytes(Path.Combine(outDir, "system-performance-2.bin"), systemPerformance2);
+var memoryStatus = new MemoryStatus { Length = (uint)System.Runtime.InteropServices.Marshal.SizeOf<MemoryStatus>() };
+GlobalMemoryStatusEx(ref memoryStatus);
+notes.AppendLine($"System performance: {systemPerformance2.Length} bytes; PageReadCount 1={WindowsResourceParsing.ParsePageReadCount(systemPerformance1)} 2={WindowsResourceParsing.ParsePageReadCount(systemPerformance2)}; " +
+                 $"AvailablePages={WindowsResourceParsing.ParseAvailablePages(systemPerformance2)} CommitLimit={WindowsResourceParsing.ParseCommitLimitPages(systemPerformance2)}; " +
+                 $"GlobalMemoryStatusEx just after: available={memoryStatus.AvailPhys} commitLimit={memoryStatus.TotalPageFile}");
 var cpu2 = WindowsResourceNative.ReadProcessorPerformance();
 File.WriteAllBytes(Path.Combine(outDir, "processor-performance-1.bin"), cpu1);
 File.WriteAllBytes(Path.Combine(outDir, "processor-performance-2.bin"), cpu2);
@@ -80,7 +89,7 @@ File.WriteAllText(Path.Combine(outDir, "process-information.address.txt"), addre
 var trimmedParsed = WindowsResourceParsing.ParseProcessInformation(trimmed, address);
 notes.AppendLine($"Trimmed process fixture keeps {kept} operating-system processes:");
 foreach (var p in trimmedParsed)
-    notes.AppendLine($"  pid={p.ProcessId} parent={p.ParentProcessId} name={p.Name ?? "(none)"} threads={p.ThreadCount} waitingOnCpu={p.ThreadsWaitingOnCpu} ws={p.WorkingSetBytes} private={p.PrivateBytes} read={p.ReadBytes} write={p.WriteBytes} hardFaults={p.HardFaultCount} created={(p.CreateTime == 0 ? "0" : DateTime.FromFileTimeUtc(p.CreateTime).ToString("O"))}");
+    notes.AppendLine($"  pid={p.ProcessId} parent={p.ParentProcessId} name={p.Name ?? "(none)"} threads={p.ThreadCount} waitingOnCpu={p.ThreadsWaitingOnCpu} ws={p.WorkingSetBytes} private={p.PrivateBytes} read={p.ReadBytes} write={p.WriteBytes} created={(p.CreateTime == 0 ? "0" : DateTime.FromFileTimeUtc(p.CreateTime).ToString("O"))}");
 
 File.WriteAllText(Path.Combine(outDir, "capture-notes.txt"), notes.ToString());
 Console.WriteLine(notes);
@@ -172,3 +181,9 @@ static byte[] KeepInterfaces(byte[] b, HashSet<string> aliases)
         b.AsSpan(8 + kept[k] * WindowsResourceParsing.InterfaceRowSize, WindowsResourceParsing.InterfaceRowSize).CopyTo(result.AsSpan(8 + k * WindowsResourceParsing.InterfaceRowSize));
     return result;
 }
+
+[System.Runtime.InteropServices.DllImport("kernel32.dll")]
+static extern bool GlobalMemoryStatusEx(ref MemoryStatus status);
+
+[System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+struct MemoryStatus { public uint Length, Load; public ulong TotalPhys, AvailPhys, TotalPageFile, AvailPageFile, TotalVirtual, AvailVirtual, AvailExtendedVirtual; }

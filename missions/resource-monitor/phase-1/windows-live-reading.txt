@@ -1,0 +1,141 @@
+WINDOWS RESOURCE PROBE - LIVE READING NEXT TO THE OPERATING SYSTEM'S OWN FIGURES
+Machine SOREN_NORTH, Microsoft Windows 10.0.26200, 24 logical processors
+Taken 2026-10-15T13:59:36.6575821Z
+
+====================================================================================================
+ROUND 1: the machine as it is
+====================================================================================================
+
+THE PROBE'S SAMPLE (the second reading; its rates cover the same three seconds as typeperf's rows 2 to 4)
+  taken at        2026-10-15T13:59:41.6509782Z
+  processor       processor 62% busy, busiest core 81%, 24 cores
+  memory          17.9 GB available of 63.8 GB
+  page file       swap 2.7 GB used of 48.0 GB
+  disks           (2 listed)
+                  disk PhysicalDrive0 (solid-state) 59% busy, 0.6 MB/s read, 25.4 MB/s written, 0 ms per write; ms per read 24.573, ms per write 0.229, average queue 1.177
+                  disk PhysicalDrive1 (solid-state) 5% busy, 3.9 MB/s read, 2.6 MB/s written, 0 ms per write; ms per read 0.138, ms per write 0.038, average queue 0.035
+  volumes         (2)
+                  volume C:\ 47.1 GB free of 930.5 GB on PhysicalDrive1
+                  volume D:\ 273.8 GB free of 3815.4 GB on PhysicalDrive0
+  network         network 0.7 MB/s in, 1.1 MB/s out
+  stalls          stalls (WindowsCounters): run queue 0.0, 1084 hard page faults/s
+  processes       750 processes; the ten using the most processor:
+                  MsMpEng.exe (process 5212) 7.1% processor, 1219 MB, parent 1816, started 2026-10-13T18:10:21.3209466Z, read 0.00 MB/s, written 0.00 MB/s
+                  dotnet.exe (process 42236) 3.5% processor, 146 MB, parent 75544, started 2026-10-15T13:59:38.8928985Z, read 3.13 MB/s, written 0.23 MB/s
+                  svchost.exe (process 14176) 3.4% processor, 40 MB, parent 1816, started 2026-10-13T18:12:25.0328746Z, read 0.33 MB/s, written 0.00 MB/s
+                  System (process 4) 2.3% processor, 7 MB, parent 0, started 2026-10-13T18:10:18.2588605Z, read 0.00 MB/s, written 0.47 MB/s
+                  dotnet.exe (process 64784) 1.9% processor, 93 MB, parent 42236, started 2026-10-15T13:59:39.3991453Z, read 0.52 MB/s, written 0.31 MB/s
+                  dotnet.exe (process 68688) 1.8% processor, 91 MB, parent 42236, started 2026-10-15T13:59:39.3979498Z, read 0.56 MB/s, written 0.24 MB/s
+                  dotnet.exe (process 54488) 1.7% processor, 91 MB, parent 42236, started 2026-10-15T13:59:39.3928515Z, read 0.60 MB/s, written 0.33 MB/s
+                  dotnet.exe (process 76560) 1.7% processor, 98 MB, parent 42236, started 2026-10-15T13:59:39.3949403Z, read 0.52 MB/s, written 0.30 MB/s
+                  dotnet.exe (process 49328) 1.7% processor, 91 MB, parent 42236, started 2026-10-15T13:59:39.3964489Z, read 0.53 MB/s, written 0.32 MB/s
+                  dotnet.exe (process 6588) 1.6% processor, 90 MB, parent 42236, started 2026-10-15T13:59:39.3913265Z, read 0.53 MB/s, written 0.33 MB/s
+  this harness    LiveReading.exe (process 26288) 0.7% processor, 43 MB, parent 30016, started 2026-10-15T13:59:36.4986646Z
+
+SIDE BY SIDE                                   probe              operating system (typeperf average, rows 2-4)
+  processor, whole machine, % busy                    61.94              60.94
+  processor, busiest core, % busy                     80.90              80.19
+  memory available, GB                                19.27              19.22
+  page file, % in use                                  5.66               5.66
+  PhysicalDrive0 = typeperf instance "0 D:"
+      PhysicalDrive0 % busy                           58.83              57.77
+      PhysicalDrive0 read MB/s                         0.68               0.55
+      PhysicalDrive0 write MB/s                       26.66              25.31
+      PhysicalDrive0 ms per write                      0.23               0.62
+      PhysicalDrive0 average queue length              1.18               1.17
+  PhysicalDrive1 = typeperf instance "1 C:"
+      PhysicalDrive1 % busy                            4.85               5.02
+      PhysicalDrive1 read MB/s                         4.13               4.46
+      PhysicalDrive1 write MB/s                        2.71               2.81
+      PhysicalDrive1 ms per write                      0.04               0.04
+      PhysicalDrive1 average queue length              0.03               0.04
+  volume C: free, GB                                  50.60              50.60
+  volume D: free, GB                                 294.02             294.02
+  run queue, mean of 10 moments / of 3 moments         9.70               0.67
+  hard page faults (pages input) per second         1084.25            1116.79
+  network: the probe counts only physical interfaces that are up; typeperf lists every interface, so the
+  Ethernet adapter's own row is the comparable one:
+  network received MB/s                                0.76               0.76
+  network sent MB/s                                    1.16               1.17
+
+  Note on the run queue: each figure is a count at a moment, not an average over time, so the two tools
+  are compared as the mean of several moments each, taken at different instants within the same seconds.
+  Note on milliseconds per write: typeperf's figure here is the mean of three per-second averages; the probe's
+  is every write's time over the number of writes in the three seconds. They differ when the seconds differ.
+
+====================================================================================================
+ROUND 2: 12 of 24 logical processors spun for the whole interval
+====================================================================================================
+
+THE PROBE'S SAMPLE (the second reading; its rates cover the same three seconds as typeperf's rows 2 to 4)
+  taken at        2026-10-15T13:59:49.6745998Z
+  processor       processor 99% busy, busiest core 100%, 24 cores
+  memory          17.4 GB available of 63.8 GB
+  page file       swap 2.7 GB used of 48.0 GB
+  disks           (2 listed)
+                  disk PhysicalDrive0 (solid-state) 35% busy, 1.4 MB/s read, 16.2 MB/s written, 0 ms per write; ms per read 3.384, ms per write 0.256, average queue 0.554
+                  disk PhysicalDrive1 (solid-state) 6% busy, 0.1 MB/s read, 1.3 MB/s written, 1 ms per write; ms per read 0.227, ms per write 0.773, average queue 0.080
+  volumes         (2)
+                  volume C:\ 47.1 GB free of 930.5 GB on PhysicalDrive1
+                  volume D:\ 273.8 GB free of 3815.4 GB on PhysicalDrive0
+  network         network 1.0 MB/s in, 0.0 MB/s out
+  stalls          stalls (WindowsCounters): run queue 7.0, 366 hard page faults/s
+  processes       759 processes; the ten using the most processor:
+                  VBCSCompiler.exe (process 56252) 39.7% processor, 2240 MB, parent 56472, started 2026-10-15T10:26:53.7244879Z, read 0.00 MB/s, written 0.00 MB/s
+                  LiveReading.exe (process 26288) 30.9% processor, 50 MB, parent 30016, started 2026-10-15T13:59:36.4986646Z, read 0.15 MB/s, written 0.00 MB/s
+                  MsMpEng.exe (process 5212) 2.8% processor, 1201 MB, parent 1816, started 2026-10-13T18:10:21.3209466Z, read 0.00 MB/s, written 0.00 MB/s
+                  git.exe (process 69732) 2.4% processor, 36 MB, parent 68100, started 2026-10-15T13:59:45.7314688Z, read 0.09 MB/s, written 0.00 MB/s
+                  dotnet.exe (process 42236) 1.5% processor, 167 MB, parent 75544, started 2026-10-15T13:59:38.8928985Z, read 0.00 MB/s, written 0.00 MB/s
+                  dotnet.exe (process 54488) 1.4% processor, 120 MB, parent 42236, started 2026-10-15T13:59:39.3928515Z, read 0.00 MB/s, written 0.00 MB/s
+                  System (process 4) 1.1% processor, 7 MB, parent 0, started 2026-10-13T18:10:18.2588605Z, read 0.00 MB/s, written 0.26 MB/s
+                  svchost.exe (process 14176) 1.1% processor, 39 MB, parent 1816, started 2026-10-13T18:12:25.0328746Z, read 0.13 MB/s, written 0.00 MB/s
+                  dotnet.exe (process 64784) 0.9% processor, 118 MB, parent 42236, started 2026-10-15T13:59:39.3991453Z, read 0.00 MB/s, written 0.00 MB/s
+                  git.exe (process 73408) 0.8% processor, 36 MB, parent 79352, started 2026-10-15T13:59:48.6956541Z, read 0.08 MB/s, written 0.00 MB/s
+  this harness    LiveReading.exe (process 26288) 30.9% processor, 50 MB, parent 30016, started 2026-10-15T13:59:36.4986646Z
+
+SIDE BY SIDE                                   probe              operating system (typeperf average, rows 2-4)
+  processor, whole machine, % busy                    98.94              98.37
+  processor, busiest core, % busy                    100.00             100.00
+  memory available, GB                                18.66              18.64
+  page file, % in use                                  5.66               5.66
+  PhysicalDrive0 = typeperf instance "0 D:"
+      PhysicalDrive0 % busy                           34.65              38.84
+      PhysicalDrive0 read MB/s                         1.49               1.63
+      PhysicalDrive0 write MB/s                       17.00              19.44
+      PhysicalDrive0 ms per write                      0.26               1.95
+      PhysicalDrive0 average queue length              0.55               0.64
+  PhysicalDrive1 = typeperf instance "1 C:"
+      PhysicalDrive1 % busy                            5.54               4.62
+      PhysicalDrive1 read MB/s                         0.08               0.05
+      PhysicalDrive1 write MB/s                        1.39               1.28
+      PhysicalDrive1 ms per write                      0.77               0.57
+      PhysicalDrive1 average queue length              0.08               0.05
+  volume C: free, GB                                  50.63              50.63
+  volume D: free, GB                                 294.02             294.02
+  run queue, mean of 7 moments / of 3 moments         87.71              63.00
+  hard page faults (pages input) per second          366.24             401.21
+  network: the probe counts only physical interfaces that are up; typeperf lists every interface, so the
+  Ethernet adapter's own row is the comparable one:
+  network received MB/s                                1.07               1.30
+  network sent MB/s                                    0.02               0.03
+
+  Note on the run queue: each figure is a count at a moment, not an average over time, so the two tools
+  are compared as the mean of several moments each, taken at different instants within the same seconds.
+  Note on milliseconds per write: typeperf's figure here is the mean of three per-second averages; the probe's
+  is every write's time over the number of writes in the three seconds. They differ when the seconds differ.
+
+====================================================================================================
+INDEPENDENT CHECK OF DISK KIND AND VOLUME PLACEMENT (Get-PhysicalDisk and Get-Partition, read by hand)
+====================================================================================================
+  probe: PhysicalDrive0 kind SolidState
+  probe: PhysicalDrive1 kind SolidState
+  probe: volume C:\ on PhysicalDrive1
+  probe: volume D:\ on PhysicalDrive0
+  os:    DeviceId FriendlyName       MediaType BusType
+  os:    -------- ------------       --------- -------
+  os:    0        Fanxiang S101 4TB  SSD       SATA
+  os:    1        WD_BLACK SN770 1TB SSD       NVMe
+  os:    DriveLetter DiskNumber
+  os:    ----------- ----------
+  os:              D          0
+  os:              C          1

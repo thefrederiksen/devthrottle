@@ -10,7 +10,7 @@ namespace CcDirector.Core.Machine;
 /// <see cref="WindowsResourceParsing"/>'s job, so the decoding is tested from captured bytes.
 ///
 /// NO SUBPROCESS, AND NO PERFORMANCE COUNTER LIBRARY. Every figure comes from a direct call:
-/// NtQuerySystemInformation for processors, processes and page files, IOCTL_DISK_PERFORMANCE for each
+/// NtQuerySystemInformation for processors, processes, paging activity and page files, IOCTL_DISK_PERFORMANCE for each
 /// physical disk (the same cumulative counters the PhysicalDisk performance counters are computed
 /// from), and GetIfTable2 for the network. Performance counter names are translated on non-English
 /// Windows; none of these calls are.
@@ -20,6 +20,7 @@ namespace CcDirector.Core.Machine;
 /// </summary>
 internal static class WindowsResourceNative
 {
+    private const int SystemPerformanceInformation = 2;
     private const int SystemProcessInformation = 5;
     private const int SystemProcessorPerformanceInformation = 8;
     private const int SystemPageFileInformation = 18;
@@ -64,6 +65,12 @@ internal static class WindowsResourceNative
     /// </summary>
     internal static byte[] ReadProcessInformation(ref int sizeHint, out long bufferAddress) =>
         QuerySystemInformation(SystemProcessInformation, ref sizeHint, out bufferAddress);
+
+    internal static byte[] ReadSystemPerformance()
+    {
+        var size = 1024;
+        return QuerySystemInformation(SystemPerformanceInformation, ref size, out _);
+    }
 
     internal static byte[] ReadPageFileInformation()
     {

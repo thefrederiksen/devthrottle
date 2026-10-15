@@ -45,6 +45,7 @@ public sealed class WindowsResourceProbe : IResourceProbe
     private readonly Dictionary<int, DiskCounters> _previousDisks = new();
     private InterfaceSnapshot? _previousInterfaces;
     private ProcessSnapshot? _previousProcesses;
+    private PagingSnapshot? _previousPaging;
     private int _processListSize = 1 << 20;
 
     /// <summary>
@@ -298,9 +299,13 @@ public sealed class WindowsResourceProbe : IResourceProbe
             var buffer = WindowsResourceNative.ReadProcessInformation(ref _processListSize, out var address);
             var current = new ProcessSnapshot(Stopwatch.GetTimestamp(), WindowsResourceParsing.ParseProcessInformation(buffer, address));
 
+            var paging = new PagingSnapshot(Stopwatch.GetTimestamp(),
+                WindowsResourceParsing.ParsePageReadCount(WindowsResourceNative.ReadSystemPerformance()));
+
             var processes = ProcessesBetween(_previousProcesses, current, Environment.ProcessorCount);
-            var stall = StallBetween(_previousProcesses, current);
+            var stall = StallBetween(current, _previousPaging, paging);
             _previousProcesses = current;
+            _previousPaging = paging;
             return (processes, stall);
         }
         catch (Exception ex)
@@ -444,42 +449,32 @@ public sealed class WindowsResourceProbe : IResourceProbe
     private static ulong Growth(ulong earlier, ulong later) => later >= earlier ? later - earlier : 0;
 
     /// <summary>
-    /// The stall proxies Windows offers, from the same process list:
+    /// The stall proxies Windows offers:
     ///
     /// RUN QUEUE: threads in the Ready or Deferred Ready state - runnable, waiting only for a processor -
-    /// at the moment of the later reading. This is what the "System\Processor Queue Length" performance
-    /// counter counts, and like it, it is a moment, not an average.
+    /// in the latest process list. This is what the "System\Processor Queue Length" performance counter
+    /// counts, and like it, it is a moment, not an average.
     ///
-    /// HARD PAGE FAULTS PER SECOND: every process's hard fault count, added up over the interval - each
-    /// one a page the process needed that had to be fetched from disk. This is the figure behind
-    /// "Memory\Page Reads/sec". A process that exited during the interval takes its faults with it, so
-    /// this can only undercount.
+    /// HARD PAGE FAULTS PER SECOND: pages the whole machine read back from disk to satisfy hard faults,
+    /// over the interval - the arithmetic of "Memory\Pages Input/sec", on the same kernel counter.
     ///
     /// The stalled percentages and the count of processes waiting on the disk are not offered by Windows
     /// and stay null. The disk side of the diagnosis reads each disk's busy share, time per transfer and
     /// queue length from <see cref="DiskSetReading"/>.
     /// </summary>
-    internal static StallReading StallBetween(ProcessSnapshot? earlier, ProcessSnapshot later)
+    internal static StallReading StallBetween(ProcessSnapshot processes, PagingSnapshot? earlierPaging, PagingSnapshot laterPaging)
     {
-        if (earlier is null) return StallReading.Unreadable(ResourceUnreadableReasons.FirstSample);
+        if (earlierPaging is null) return StallReading.Unreadable(ResourceUnreadableReasons.FirstSample);
 
-        var seconds = (later.Timestamp - earlier.Timestamp) / (double)Stopwatch.Frequency;
-        if (seconds <= 0) return StallReading.Unreadable("no time passed between the two readings of the processes");
+        var seconds = (laterPaging.Timestamp - earlierPaging.Timestamp) / (double)Stopwatch.Frequency;
+        if (seconds <= 0) return StallReading.Unreadable("no time passed between the two readings of the paging counters");
 
-        var before = earlier.ByIdentity();
-        long faults = 0;
-        var waitingOnCpu = 0;
-        foreach (var p in later.Processes)
-        {
-            waitingOnCpu += p.ThreadsWaitingOnCpu;
-            faults += before.TryGetValue((p.ProcessId, p.CreateTime), out var then)
-                ? unchecked(p.HardFaultCount - then.HardFaultCount)
-                : p.HardFaultCount;
-        }
+        // A 32-bit counter: subtracted unchecked, so a wrap past four billion still gives the growth.
+        var pagesRead = unchecked(laterPaging.PageReadCount - earlierPaging.PageReadCount);
 
         return StallReading.Read(StallSource.WindowsCounters,
-            runQueueLength: waitingOnCpu,
-            hardPageFaultsPerSecond: faults / seconds);
+            runQueueLength: processes.Processes.Sum(p => p.ThreadsWaitingOnCpu),
+            hardPageFaultsPerSecond: pagesRead / seconds);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -520,6 +515,9 @@ public sealed class WindowsResourceProbe : IResourceProbe
 
 /// <summary>The physical interfaces at one moment, with the monotonic time they were read.</summary>
 internal sealed record InterfaceSnapshot(long Timestamp, IReadOnlyList<RawInterface> Interfaces);
+
+/// <summary>The machine's cumulative pages-read-from-disk count at one moment, with the monotonic time it was read.</summary>
+internal sealed record PagingSnapshot(long Timestamp, uint PageReadCount);
 
 /// <summary>Every process at one moment, with the monotonic time the list was read.</summary>
 internal sealed record ProcessSnapshot(long Timestamp, IReadOnlyList<RawProcess> Processes)
