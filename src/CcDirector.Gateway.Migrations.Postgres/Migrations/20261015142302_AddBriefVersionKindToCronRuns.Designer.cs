@@ -13,7 +13,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CcDirector.Gateway.Migrations.Postgres.Migrations
 {
     [DbContext(typeof(GatewayDbContext))]
-    [Migration("20261015105521_AddBriefVersionKindToCronRuns")]
+    [Migration("20261015142302_AddBriefVersionKindToCronRuns")]
     partial class AddBriefVersionKindToCronRuns
     {
         /// <inheritdoc />
@@ -2863,6 +2863,57 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.ToTable("repo_state", "gateway");
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.SavedSessionFilterEntity", b =>
+                {
+                    b.Property<string>("TenantId")
+                        .HasColumnType("text")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Id")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .UseCollation("C");
+
+                    b.Property<string>("Colour")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("MachinesJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("NameKey")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .UseCollation("C");
+
+                    b.Property<string>("ReposJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("TenantId", "Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "NameKey")
+                        .IsUnique();
+
+                    b.ToTable("saved_session_filters", "gateway");
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.SecretTransferEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3055,6 +3106,9 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasColumnType("text");
 
                     b.Property<string>("OriginSurface")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Os")
                         .HasColumnType("text");
 
                     b.Property<long?>("OutputTokens")

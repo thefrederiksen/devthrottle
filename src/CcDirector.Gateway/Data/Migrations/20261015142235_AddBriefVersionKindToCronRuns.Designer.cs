@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CcDirector.Gateway.Data.Migrations
 {
     [DbContext(typeof(GatewayDbContext))]
-    [Migration("20261015105439_AddBriefVersionKindToCronRuns")]
+    [Migration("20261015142235_AddBriefVersionKindToCronRuns")]
     partial class AddBriefVersionKindToCronRuns
     {
         /// <inheritdoc />
@@ -2785,6 +2785,55 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.ToTable("repo_state", (string)null);
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.SavedSessionFilterEntity", b =>
+                {
+                    b.Property<string>("TenantId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Id")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Colour")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MachinesJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("NameKey")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ReposJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("TenantId", "Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "NameKey")
+                        .IsUnique();
+
+                    b.ToTable("saved_session_filters", (string)null);
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.SecretTransferEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2974,6 +3023,9 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<string>("OriginSurface")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Os")
                         .HasColumnType("TEXT");
 
                     b.Property<long?>("OutputTokens")
