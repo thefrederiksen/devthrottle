@@ -14,7 +14,7 @@ namespace CcDirector.Gateway.Tests.Factory.Definition;
 /// WHAT A DIRECTOR SAYS ON HELLO ABOUT THE SEAT'S KIT IS RECORDED (Factory Definition mission, phase 5), through the real
 /// hub on a fake caller: a Director that says it builds the kit is recorded as one, an older Director that says nothing
 /// is recorded as not, and the same Director coming back older is recorded again. And this build of the Director says
-/// FALSE until the last Director pull request of the phase turns it on.
+/// TRUE: the last Director pull request of the phase (the launch, P4) turned it on.
 /// </summary>
 [Trait("Category", "FactoryDefinition")]
 public sealed class FactoryKitHelloTests : IDisposable
@@ -69,14 +69,15 @@ public sealed class FactoryKitHelloTests : IDisposable
     }
 
     [Fact]
-    public void GatewayStreamClient_ThisBuildOfTheDirector_DoesNotYetSayItBuildsTheKit()
+    public void GatewayStreamClient_ThisBuildOfTheDirector_SaysItBuildsTheKit()
     {
-        // The flag is turned on by the LAST Director pull request of phase 5, so a Director built from main never
-        // advertises a kit it cannot yet build. This reads the line that says it.
+        // The flag was turned on by the LAST Director pull request of phase 5 (the launch: rules, skills and secrets),
+        // once the kit, the launch and the machine question were all on main. This reads the line that says it; the
+        // Hello itself is SecretTransferMachineKeyTests.ReseedAsync_Always_HelloSaysThisDirectorBuildsASeatsKit.
         var source = File.ReadAllText(Path.Combine(RepoRoot(), "src", "CcDirector.ControlApi", "GatewayStreamClient.cs"));
 
-        Assert.Contains("BuildsFactoryKit = false,", source);
-        Assert.DoesNotContain("BuildsFactoryKit = true", source);
+        Assert.Contains("BuildsFactoryKit = true,", source);
+        Assert.DoesNotContain("BuildsFactoryKit = false", source);
     }
 
     private static string RepoRoot()

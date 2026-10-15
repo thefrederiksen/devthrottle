@@ -155,6 +155,21 @@ public sealed class SecretTransferMachineKeyTests
         Assert.True(Assert.Single(hub.Hellos).DefinitionChecks);
     }
 
+    [Fact]
+    public async Task ReseedAsync_Always_HelloSaysThisDirectorBuildsASeatsKit()
+    {
+        // Factory Definition, phase 5: the Gateway sends a seat start only to a Director that says it builds the kit.
+        // Arrange
+        var hub = new HelloRecordingHub();
+        var client = NewClient(() => "");
+
+        // Act
+        await client.ReseedAsync(hub, client.CurrentConnectionGeneration);
+
+        // Assert
+        Assert.True(Assert.Single(hub.Hellos).BuildsFactoryKit);
+    }
+
     // ===================== helpers =====================
 
     private static GatewayStreamClient NewClient(Func<string> secretTransferPublicKey)

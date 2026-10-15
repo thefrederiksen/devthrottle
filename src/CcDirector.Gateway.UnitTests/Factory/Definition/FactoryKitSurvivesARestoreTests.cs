@@ -49,7 +49,9 @@ public sealed class FactoryKitSurvivesARestoreTests : IDisposable
             Kind = kit.Kind,
             Files = new List<FactoryKitFileDto>
             {
+                // Every kit the Gateway composes carries kit.json and rules.json; the launch reads both.
                 new() { Path = "kit.json", Text = "{}\n" },
+                new() { Path = "rules.json", Text = "{\"permissions\":{\"deny\":[],\"ask\":[]}}\n" },
                 new() { Path = "brief.md", Text = $"Brief of version {kit.Version}.\n" },
             },
         };

@@ -34,3 +34,19 @@ public sealed class FactoryKitUnavailableException : InvalidOperationException
     /// <summary>Why, on its own - the message says it in full.</summary>
     public string Reason { get; }
 }
+
+/// <summary>
+/// A seat's kit was put in place, but the seat may not start on this machine with this agent (Factory Definition
+/// mission, phase 5): the agent cannot take the kit's rules or factory skills, or the machine does not hold a secret
+/// the seat lists. The message is the one sentence a person reads; the kit this create wrote is already gone.
+/// </summary>
+public sealed class FactorySeatRefusedException : InvalidOperationException
+{
+    public FactorySeatRefusedException(FactoryKitRequest kit, string reason) : base(reason)
+    {
+        Kit = kit;
+    }
+
+    /// <summary>The seat that was refused.</summary>
+    public FactoryKitRequest Kit { get; }
+}
