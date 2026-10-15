@@ -1271,6 +1271,7 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>Which Directors run checks from a factory's definition (Factory Definition, phase 5b) - recorded at
     /// Hello, read when a Director asks for its triggers and when a trigger's status is decided.</summary>
     private readonly Streaming.DefinitionCheckCapabilityRegistry _definitionCheckCapabilities = new();
+
     /// <summary>The machines that can receive a secret (the Secret Handoff mission), from each Director's Hello.
     /// Exposed for the host tests, which stand in for a Director's Hello without connecting one.</summary>
     internal Secrets.SecretMachineRegistry SecretMachines { get; } = new();
