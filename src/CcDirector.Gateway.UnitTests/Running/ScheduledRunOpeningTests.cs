@@ -322,7 +322,7 @@ public sealed class ScheduledRunOpeningTests : IDisposable
     // ---- a defined factory: the brief comes from the published definition (Factory Definition, phase 4) ----------
 
     /// <summary>A definition of WarmForward whose seat files hold these briefs; published unless told otherwise. The
-    /// store holds what it is given - the whole-definition check is the routes' - so only the seat files matter here.</summary>
+    /// definition is a whole one: since phase 5 a defined factory's run is built from it, so it must be readable.</summary>
     private void Define(string bossBrief, bool publish = true, bool withScout = true)
     {
         var content = new Dictionary<string, string>
@@ -361,6 +361,44 @@ public sealed class ScheduledRunOpeningTests : IDisposable
         Assert.Equal(FactoryBriefVersionKinds.Definition, stored.BriefVersionKind);
         stored.Result = CronRunResults.Ok;
         Assert.Equal("definition v1", CronRunResultService.ActivityFor(created.Id, stored)!.FactoryAgentVersion);
+    }
+
+    [Fact]
+    public async Task ADefinedFactory_ItsRunIsASeatStartBuiltFromTheDefinition_InNoFolder()
+    {
+        Register();
+        Define("DEFINED: be careful with money.");
+        var (store, history) = Stores();
+        // Written before the factory was defined: the folder on the row is no longer where the run starts.
+        var created = store.Create(Job(seat: "boss"));
+
+        await Engine(store, history, created.NextRunUtc!.Value).EvaluateDueAsync(CancellationToken.None);
+
+        var sent = Assert.Single(_handedToTheDirector);
+        Assert.Equal("", sent.RepoPath);
+        Assert.True(sent.FactoryHome);
+        Assert.Equal("boss", sent.FactorySeat);
+        Assert.Equal(1, sent.FactoryDefinitionVersion);
+        Assert.Equal(FactoryKits.Seat, sent.FactoryKit);
+        Assert.Equal("ClaudeCode", sent.Agent);
+        Assert.Equal(TheFactory, sent.Factory);
+        Assert.Contains("CC_FACTORY_KIT_DIR", sent.PrePrompt);
+    }
+
+    [Fact]
+    public async Task ADraftOnlyDefinition_UNDEFINED_FACTORY_ItsRunIsNoSeatStart_InItsFolder()
+    {
+        Register();
+        Define("DEFINED BUT NEVER PUBLISHED.", publish: false);
+        var (store, history) = Stores();
+        var created = store.Create(Job(seat: "boss"));
+
+        await Engine(store, history, created.NextRunUtc!.Value).EvaluateDueAsync(CancellationToken.None);
+
+        var sent = Assert.Single(_handedToTheDirector);
+        Assert.Equal("/home/soren/factories/warmforward", sent.RepoPath);
+        Assert.False(sent.CarriesSeatStartFields());
+        Assert.DoesNotContain("CC_FACTORY_KIT_DIR", sent.PrePrompt);
     }
 
     [Fact]
@@ -436,14 +474,19 @@ public sealed class ScheduledRunOpeningTests : IDisposable
                 return Task.FromResult<(bool, SessionDto?, string?)>((false, null, "the machine is asleep"));
             _handedToTheDirector.Add(req);
             return Task.FromResult<(bool, SessionDto?, string?)>((true, new SessionDto { SessionId = $"sid-{_handedToTheDirector.Count}" }, null));
-        });
+        })
+        {
+            // The Director builds a seat's kit (Factory Definition mission, phase 5), so a defined factory's run is sent.
+            RefuseSeatStart = (_, _) => null,
+        };
         // The two factory lines, as GatewayHost writes them.
         var starter = new DirectorCronSessionStarter(spawner, clock,
             refuseFactoryWork: job => FactoryScheduleLink.Check(job.Factory, job.Seat, id => Registry.Find(Account, id), out _, running: true),
             seatWithABrief: job => ScheduledRunOpening.SeatFor(job, id => Registry.Find(Account, id),
                 (factory, seat) => _briefReadFails is { } why
                     ? throw new InvalidOperationException(why)
-                    : SeatBriefs.GivenTo(Account, factory, seat)));
+                    : SeatBriefs.GivenTo(Account, factory, seat)),
+            definitionOf: job => FactorySeatStart.ReadPublished(Definitions, Account, job.Factory));
         return new CronEngine(store, history, starter, new UnusedWorkListRunner(), new NullCronNotifier(), clock);
     }
 

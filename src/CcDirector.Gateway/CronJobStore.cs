@@ -182,13 +182,14 @@ public sealed class CronJobStore
     /// <summary>
     /// Replace an existing job's editable fields from a validated definition, preserving its id, creation
     /// time, and last-run metadata, and recomputing <see cref="CronJobDto.NextRunUtc"/>. Returns the updated
-    /// copy, or null if no job with that id exists.
+    /// copy, or null if no job with that id exists. <paramref name="factoryIsDefined"/> says the job's factory has a
+    /// published definition, whose schedules carry no folder (<see cref="CronSchedule.Validate(CronJobDto, bool)"/>).
     /// </summary>
-    public CronJobDto? Update(string id, CronJobDto incoming)
+    public CronJobDto? Update(string id, CronJobDto incoming, bool factoryIsDefined = false)
     {
         if (incoming is null)
             throw new ArgumentNullException(nameof(incoming));
-        var (ok, error) = CronSchedule.Validate(incoming);
+        var (ok, error) = CronSchedule.Validate(incoming, factoryIsDefined);
         if (!ok)
             throw new ArgumentException($"invalid cron job: {error}", nameof(incoming));
 

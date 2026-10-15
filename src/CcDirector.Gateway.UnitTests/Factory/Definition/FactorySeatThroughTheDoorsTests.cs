@@ -175,6 +175,113 @@ public sealed class FactorySeatThroughTheDoorsTests : IDisposable
     }
 
     [Fact]
+    public async Task DirectorDoor_APersonSendingAFolderlessSeatStartByHand_IsRefusedAsNamingASeat_AndNothingLeaves()
+    {
+        // Phase 5: a seat start carries no folder, so the door's "a folder is required" no longer answers it - the
+        // person's own refusal does.
+        _kit.Record(TenantId.Local, DirectorId, buildsFactoryKit: true);
+        var req = ChildSpawn();
+        req.RepoPath = "";
+        req.Factory = TheFactory;
+        req.FactorySeat = "outreach";
+        req.FactoryDefinitionVersion = 4;
+        req.FactoryKit = FactoryKits.Seat;
+        req.FactoryHome = true;
+
+        var outcome = await GatewayEndpoints.StartSessionOnDirectorAsync(AsPerson(), DirectorId, req, Door());
+
+        Assert.Equal("A seat is started from its factory's page or its schedule, not named on a spawn.", ErrorOf(outcome.Refusal));
+        Assert.Empty(_sent);
+    }
+
+    [Fact]
+    public async Task DirectorDoor_TheGatewaysOwnFolderlessSeatStartForAPerson_Leaves()
+    {
+        _kit.Record(TenantId.Local, DirectorId, buildsFactoryKit: true);
+        var ctx = AsPerson();
+        SpawnFactory.MarkGatewaySeatStart(ctx);
+        var req = ChildSpawn();
+        req.RepoPath = "";
+        req.Factory = TheFactory;
+        req.FactorySeat = "outreach";
+        req.FactoryDefinitionVersion = 4;
+        req.FactoryKit = FactoryKits.Seat;
+        req.FactoryWorktree = "devthrottle";
+
+        var outcome = await GatewayEndpoints.StartSessionOnDirectorAsync(ctx, DirectorId, req, Door());
+
+        Assert.NotNull(outcome.Session);
+        var sent = Assert.Single(_sent);
+        Assert.Equal("", sent.RepoPath);
+        Assert.Equal("devthrottle", sent.FactoryWorktree);
+    }
+
+    private const string ForgedOverride = "agent Codex, model gpt-6, machine SOREN_SOUTH, chosen by the person";
+
+    [Fact]
+    public async Task DirectorDoor_APersonsCreateCarryingAnOverrideRecord_LeavesWithNone()
+    {
+        // Review finding 1: the override record is the talk's alone; a body cannot write it.
+        _kit.Record(TenantId.Local, DirectorId, buildsFactoryKit: true);
+        var req = ChildSpawn();
+        req.FactoryStartOverride = ForgedOverride;
+
+        var outcome = await GatewayEndpoints.StartSessionOnDirectorAsync(AsPerson(), DirectorId, req, Door());
+
+        Assert.NotNull(outcome.Session);
+        Assert.Null(Assert.Single(_sent).FactoryStartOverride);
+    }
+
+    [Fact]
+    public async Task DirectorDoor_ASessionsChildCarryingAnOverrideRecord_LeavesWithNone()
+    {
+        _kit.Record(TenantId.Local, DirectorId, buildsFactoryKit: true);
+        var req = ChildSpawn();
+        req.FactoryStartOverride = ForgedOverride;
+
+        var outcome = await GatewayEndpoints.StartSessionOnDirectorAsync(AsSession(), DirectorId, req, Door());
+
+        Assert.NotNull(outcome.Session);
+        Assert.Null(Assert.Single(_sent).FactoryStartOverride);
+    }
+
+    [Fact]
+    public async Task DirectorDoor_TheGatewaysOwnTalkWithAnOverride_KeepsTheRecord()
+    {
+        _kit.Record(TenantId.Local, DirectorId, buildsFactoryKit: true);
+        var ctx = AsPerson();
+        SpawnFactory.MarkGatewaySeatStart(ctx);
+        var req = ChildSpawn();
+        req.RepoPath = "";
+        req.Factory = TheFactory;
+        req.FactorySeat = "outreach";
+        req.FactoryDefinitionVersion = 4;
+        req.FactoryKit = FactoryKits.Seat;
+        req.FactoryHome = true;
+        req.FactoryStartOverride = ForgedOverride;
+
+        var outcome = await GatewayEndpoints.StartSessionOnDirectorAsync(ctx, DirectorId, req, Door());
+
+        Assert.NotNull(outcome.Session);
+        Assert.Equal(ForgedOverride, Assert.Single(_sent).FactoryStartOverride);
+    }
+
+    [Fact]
+    public async Task DirectorDoor_UNDEFINED_FACTORY_ACreateWithNoFolderAndNoSeat_IsStill400()
+    {
+        _kit.Record(TenantId.Local, DirectorId, buildsFactoryKit: true);
+        var req = ChildSpawn();
+        req.RepoPath = "";
+        // A home or a repository name without a seat kit is no seat start: the folder is still required.
+        req.FactoryHome = true;
+
+        var outcome = await GatewayEndpoints.StartSessionOnDirectorAsync(AsPerson(), DirectorId, req, Door());
+
+        Assert.Equal("repoPath is required", ErrorOf(outcome.Refusal));
+        Assert.Empty(_sent);
+    }
+
+    [Fact]
     public async Task DirectorDoor_TheGatewaysOwnSeatStartForAPerson_ToAnOlderDirector_IsRefused()
     {
         // The talk takes this door: its seat start is let through the person's credential by the Gateway's own mark,

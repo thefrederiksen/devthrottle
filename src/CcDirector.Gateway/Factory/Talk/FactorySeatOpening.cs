@@ -59,6 +59,27 @@ public static class FactorySeatOpening
         return sb.ToString();
     }
 
+    /// <summary>The environment variable that names a seat's kit folder on its machine (Factory Definition mission,
+    /// phase 5): the Director sets it on a session of a defined factory's seat.</summary>
+    public const string KitDirVariable = "CC_FACTORY_KIT_DIR";
+
+    /// <summary>
+    /// Where a seat of a DEFINED factory finds its kit (Factory Definition mission, phase 5; phase 4 QA report, finding
+    /// 2): the folder <see cref="KitDirVariable"/> names, with <c>brief.md</c> and <c>grants.md</c> in it. Said by name of
+    /// the variable, never as a path: the folder is on the seat's machine and only the Director that started it knows it.
+    /// </summary>
+    public const string KitSentence =
+        "Your kit is in the folder the environment variable " + KitDirVariable + " names: brief.md in it holds this same "
+        + "brief, and grants.md what you are allowed to do, with its limits. Read grants.md before you act on anything it covers.";
+
+    /// <summary>
+    /// How a seat of a DEFINED factory changes the factory's goal (Factory Definition mission, phase 5): the goal is part
+    /// of the definition, so a goal change is a definition change the owner publishes - never a goal file, never a
+    /// registration (a defined factory's registration is written by a publish, and any other is refused).
+    /// </summary>
+    public const string GoalChange =
+        "save a draft of the definition with the new goal (cc-devthrottle factory definition save); the owner publishes it.";
+
     /// <summary>
     /// The brief as the session reads it: its text between two lines that say which version it is. The text is given
     /// whole and unchanged; only line ends at its very end are dropped, so the closing line always starts a line.

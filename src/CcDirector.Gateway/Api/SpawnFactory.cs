@@ -99,6 +99,11 @@ internal static class SpawnFactory
                 return false;
             }
 
+            // THE OVERRIDE RECORD IS THE TALK'S ALONE (phase 5 P2 review, finding 1). It says a person chose another
+            // agent, model or machine for a seat's talk; only the talk, which marks the request it built, writes it.
+            // A body cannot: any other person's create carries none.
+            if (!IsGatewaySeatStart(ctx)) ClearOverride(req, route, "a person's create");
+
             // ONE SPELLING (phase 2 review, finding 1). A person's hand spawn is one of the two places a factory
             // id first comes into being, so it is folded here and refused if it is not one: membership compares
             // ids without regard to case while the memory is keyed on the exact string, so 'Website-Factory'
@@ -131,6 +136,9 @@ internal static class SpawnFactory
             FileLog.Write($"[SpawnFactory] {route}: no session or device credential - factory passed through as sent: {req.Factory ?? "(none)"}");
             return true;
         }
+
+        // A SESSION'S CHILD IS NEVER A TALK, so it never carries the person's override record (review finding 1).
+        ClearOverride(req, route, $"session {caller.SessionId}'s create");
 
         // NO READER AT ALL is a different thing from "this session has no row yet", and conflating the two was a
         // mistake worth naming: a Gateway built without the reader (a harness, an older wiring) cannot read
@@ -302,12 +310,30 @@ internal static class SpawnFactory
         return string.Join(", ", parts);
     }
 
+    private static void ClearOverride(NewSessionRequest req, string route, string whose)
+    {
+        if (req.FactoryStartOverride is null) return;
+        FileLog.Write($"[SpawnFactory] {route}: the override record '{req.FactoryStartOverride}' on {whose} was dropped - only a talk writes it");
+        req.FactoryStartOverride = null;
+    }
+
     private static void ClearSeat(NewSessionRequest req)
     {
         req.FactorySeat = null;
         req.FactoryDefinitionVersion = null;
         req.FactoryKit = null;
     }
+
+    /// <summary>
+    /// True for a SEAT START that names where it runs without a folder (Factory Definition mission, phase 5): a seat kit
+    /// with the repository name it works in, or a home in its kit. Such a create carries an empty
+    /// <see cref="NewSessionRequest.RepoPath"/> on purpose, and a door's "a folder is required" does not apply to it.
+    /// Who may send one is still settled by <see cref="TryEstablish"/>, from the credential.
+    /// </summary>
+    internal static bool StartsWithoutAFolder(NewSessionRequest req)
+        => req is not null
+           && string.Equals(req.FactoryKit?.Trim(), FactoryKits.Seat, StringComparison.Ordinal)
+           && (!string.IsNullOrWhiteSpace(req.FactoryWorktree) || req.FactoryHome == true);
 
     /// <summary>The <see cref="HttpContext.Items"/> key that marks a request the GATEWAY built as a seat start and sent
     /// through a person's door (the talk). Only Gateway code can set it; a body cannot.</summary>

@@ -78,7 +78,9 @@ internal static class CronJobEndpoints
             if (job is null)
                 return Results.BadRequest(new { error = "a cron job body is required" });
 
-            var (ok, error) = CronSchedule.Validate(job);
+            // A defined factory's schedule carries no folder (Factory Definition, phase 5); it is refused below in the
+            // definition's own sentence, not as a missing folder.
+            var (ok, error) = CronSchedule.Validate(job, isDefined(ctx, job.Factory));
             if (!ok)
                 return Results.BadRequest(new { error });
 
@@ -323,7 +325,7 @@ internal static class CronJobEndpoints
 
             // A stored job was valid when written; this only answers when the host no longer agrees (a zone it
             // cannot find), and says why instead of failing inside the plan.
-            var (valid, invalidReason) = CronSchedule.Validate(job);
+            var (valid, invalidReason) = CronSchedule.Validate(job, isDefined(ctx, job.Factory));
             if (!valid)
                 return Results.Conflict(new { error = $"this schedule no longer validates: {invalidReason}", id });
 
@@ -357,7 +359,11 @@ internal static class CronJobEndpoints
             if (incoming is null)
                 return Results.BadRequest(new { error = "a cron job body is required" });
 
-            var (ok, error) = CronSchedule.Validate(incoming);
+            // A DEFINED FACTORY'S SCHEDULE CARRIES NO FOLDER (Factory Definition, phase 5): its switch on or off re-sends
+            // the stored job, folder and all, so the folder is not asked of it. A body that names no factory keeps the
+            // stored one, so the stored one is what is asked about.
+            var (ok, error) = CronSchedule.Validate(incoming,
+                isDefined(ctx, string.IsNullOrWhiteSpace(incoming.Factory) ? store.Get(id)?.Factory : incoming.Factory));
             if (!ok)
                 return Results.BadRequest(new { error });
 
@@ -402,7 +408,7 @@ internal static class CronJobEndpoints
             if (CronSchedule.IsWindow(incoming.ScheduleKind) && incoming.Enabled && PlaceWindow(incoming) is { } placeError)
                 return Results.BadRequest(new { error = placeError, id });
 
-            var updated = store.Update(id, incoming);
+            var updated = store.Update(id, incoming, isDefined(ctx, incoming.Factory));
             if (updated is null)
                 return Results.NotFound(new { error = "no such cron job", id });
             // The followers move first, so the load warning describes the night as it now is.

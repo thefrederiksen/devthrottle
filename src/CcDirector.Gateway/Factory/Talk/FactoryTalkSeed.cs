@@ -43,7 +43,9 @@ public static class FactoryTalkSeed
     /// <param name="brief">The seat's PUBLISHED brief on the Gateway, or null when it has none. With one, the talk is
     /// given its text and its version in place of the path of a file (Factory Seats mission, phase 2c). A seat with
     /// none is told the path of its brief file, in exactly the words it always was: that is the state every seat
-    /// whose brief is still a file in a repository is in, not a failure.</param>
+    /// whose brief is still a file in a repository is in, not a failure. A brief from a definition version is a DEFINED
+    /// factory's talk (Factory Definition mission, phase 5): it is also told where its kit is and given the goal as the
+    /// definition holds it, and a goal change is a draft of the definition the owner publishes.</param>
     public static string Compose(RegisteredFactoryDto factory, RegisteredFactorySeatDto seat, string? scheduleId, string? scheduleSeed,
         FactoryGivenBrief? brief = null)
     {
@@ -69,9 +71,21 @@ public static class FactoryTalkSeed
                       + (brief.FromDefinition
                           ? "It is part of the factory's definition, which the Gateway holds; it is not a file in the factory's folder."
                           : "The Gateway holds it; it is not a file in the factory's folder."));
-        sb.Append("- the factory's goal: ").AppendLine(string.IsNullOrWhiteSpace(factory.GoalText)
-            ? $"{goalPath} (the registry holds no goal for this factory yet, so there may be none)"
-            : goalPath);
+        // A DEFINED FACTORY (Factory Definition mission, phase 5; phase 4 QA report, finding 2): its brief is a definition
+        // version, and the talk is told where its kit is and given the goal as the definition holds it - never a goal
+        // file in a folder. Every other talk reads exactly as before.
+        var defined = brief is { FromDefinition: true };
+        if (defined)
+        {
+            sb.Append("- ").AppendLine(FactorySeatOpening.KitSentence);
+            sb.AppendLine(string.IsNullOrWhiteSpace(factory.GoalText)
+                ? "- the factory's goal: its definition holds none yet."
+                : "- the factory's goal: given to you in full below this list, as the factory's definition holds it.");
+        }
+        else
+            sb.Append("- the factory's goal: ").AppendLine(string.IsNullOrWhiteSpace(factory.GoalText)
+                ? $"{goalPath} (the registry holds no goal for this factory yet, so there may be none)"
+                : goalPath);
         sb.AppendLine("- the factory's memory: cc-devthrottle factory memory list, then cc-devthrottle factory memory get <name> for each note that matters");
         sb.Append("- the factory's recent activity: cc-devthrottle factory activity --factory ").Append(factory.Factory).AppendLine(" -n 30");
         sb.Append("- the factory's status as the owner sees it on the Factories screen: ").AppendLine(StatusCommand(factory));
@@ -81,6 +95,13 @@ public static class FactoryTalkSeed
         if (brief is not null)
         {
             sb.AppendLine(FactorySeatOpening.BriefBlock(brief, Environment.NewLine));
+            sb.AppendLine();
+        }
+        if (defined && !string.IsNullOrWhiteSpace(factory.GoalText))
+        {
+            sb.AppendLine("--- the factory's goal ---");
+            sb.AppendLine(factory.GoalText.TrimEnd('\r', '\n'));
+            sb.AppendLine("--- end of the factory's goal ---");
             sb.AppendLine();
         }
 
@@ -112,6 +133,14 @@ public static class FactoryTalkSeed
 
         sb.AppendLine("In a talk the owner and you may change anything about the factory, the goal included - the owner is here "
                       + "to approve it. If the goal changes:");
+        if (defined)
+        {
+            // The goal is part of the definition, and a defined factory is changed only through it: a goal file is not
+            // where it is held, and registering it again is refused.
+            sb.Append("- ").AppendLine(FactorySeatOpening.GoalChange);
+            sb.AppendLine();
+            return CloseTalk(sb, factory, seat, brief);
+        }
         sb.Append("- write the new goal into ").Append(goalPath)
           .AppendLine(", with today's date and this session's id (cc-devthrottle session whoami) beside it;");
         sb.Append("- register the factory again so the page shows it: cc-devthrottle factory register --manifest <the factory's manifest>, "
@@ -127,7 +156,12 @@ public static class FactoryTalkSeed
               .Append("\". It is registered today as \"").Append(boss.Role).AppendLine("\", and the boss's role is Boss: a registration that "
                   + "gives the boss any other role word is refused, and the goal would not be registered.");
         sb.AppendLine();
+        return CloseTalk(sb, factory, seat, brief);
+    }
 
+    /// <summary>The three things every talk must do before it ends, and the end of its first prompt.</summary>
+    private static string CloseTalk(StringBuilder sb, RegisteredFactoryDto factory, RegisteredFactorySeatDto seat, FactoryGivenBrief? brief)
+    {
         sb.AppendLine("Before the talk ends you MUST do all three of these:");
         sb.Append("1. Record one activity line: cc-devthrottle factory record --factory ").Append(factory.Factory)
           .Append(" --agent ").Append(seat.Id);

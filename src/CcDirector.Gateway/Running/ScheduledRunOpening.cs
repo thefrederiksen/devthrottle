@@ -83,6 +83,12 @@ public static class ScheduledRunOpening
                + $"to you here in full, as the Gateway holds it ({seat.Brief.VersionWords}"
                + (seat.Brief.FromDefinition ? ", part of the factory's definition" : "")
                + "); it is not a file in the factory's folder. With it comes what this schedule asks of this run.\n\n"
-               + FactorySeatOpening.BriefBlock(seat.Brief, "\n");
+               + FactorySeatOpening.BriefBlock(seat.Brief, "\n")
+               // A DEFINED FACTORY'S RUN is told where its kit is, and that its goal changes only through the definition
+               // (Factory Definition mission, phase 5). Every other run's opening ends at its brief, as before.
+               + (seat.Brief.FromDefinition
+                   ? "\n\n" + FactorySeatOpening.KitSentence + "\n\n"
+                     + "The factory's goal is part of its definition. If it should change, " + FactorySeatOpening.GoalChange
+                   : "");
     }
 }

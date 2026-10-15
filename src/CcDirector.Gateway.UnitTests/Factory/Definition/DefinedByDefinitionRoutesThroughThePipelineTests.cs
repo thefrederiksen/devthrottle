@@ -521,6 +521,78 @@ public sealed class DefinedByDefinitionRoutesThroughThePipelineTests : IDisposab
         Assert.True(Job("cj_dt").Enabled);
     }
 
+    // ---------- a defined factory's schedule has no folder (Factory Definition, phase 5) ----------
+
+    /// <summary>Make cj_dt as a phase 5 publish writes it: with no folder.</summary>
+    private void WithNoFolder(string id)
+    {
+        using var ctx = _db.CreateContext(T);
+        var row = ctx.CronJobs.Single(j => j.Id == id);
+        row.Action = new CronJobAction { RepoPath = "", Seed = row.Action.Seed, AutoDismiss = row.Action.AutoDismiss };
+        ctx.SaveChanges();
+    }
+
+    [Fact]
+    public async Task DisableThenEnable_AScheduleOfADefinedFactoryWithNoFolder_BothWork()
+    {
+        Seed(Standing.Published);
+        WithNoFolder("cj_dt");
+
+        var off = await ScheduleJson("cj_dt");
+        off["enabled"] = false;
+        AssertNotRefusedByTheDefinition(await Send("PUT", "/cron/jobs/cj_dt", off.ToJsonString()), 200);
+        Assert.False(Job("cj_dt").Enabled);
+
+        var on = await ScheduleJson("cj_dt");
+        on["enabled"] = true;
+        AssertNotRefusedByTheDefinition(await Send("PUT", "/cron/jobs/cj_dt", on.ToJsonString()), 200);
+        Assert.True(Job("cj_dt").Enabled);
+        Assert.Equal("", Job("cj_dt").Action.RepoPath);
+        // When it fires does not depend on where: it still has its next run.
+        Assert.NotNull(Job("cj_dt").NextRunUtc);
+    }
+
+    [Fact]
+    public async Task CreateSchedule_NamingADefinedFactory_WithNoFolder_IsRefusedInTheDefinitionsWords()
+    {
+        Seed(Standing.Published);
+        var body = JsonNode.Parse(NewSchedule(Defined))!.AsObject();
+        body["action"]!["repoPath"] = "";
+
+        AssertRefused(await Send("POST", "/cron/jobs", body.ToJsonString()));
+    }
+
+    [Theory]
+    [InlineData(Standing.NoDefinition)]
+    [InlineData(Standing.DraftOnly)]
+    public async Task CreateSchedule_UNDEFINED_FACTORY_WithNoFolder_IsRefusedAsOnMain(Standing standing)
+    {
+        Seed(standing);
+        var body = JsonNode.Parse(NewSchedule(Defined))!.AsObject();
+        body["action"]!["repoPath"] = "";
+
+        var answer = await Send("POST", "/cron/jobs", body.ToJsonString());
+
+        Assert.Equal(400, answer.Status);
+        Assert.Equal("action.repoPath is required", answer.Body.GetProperty("error").GetString());
+    }
+
+    [Theory]
+    [InlineData(Standing.NoDefinition)]
+    [InlineData(Standing.DraftOnly)]
+    public async Task EditSchedule_UNDEFINED_FACTORY_ToNoFolder_IsRefusedAsOnMain(Standing standing)
+    {
+        Seed(standing);
+        var body = await ScheduleJson("cj_dt");
+        body["action"]!["repoPath"] = "";
+
+        var answer = await Send("PUT", "/cron/jobs/cj_dt", body.ToJsonString());
+
+        Assert.Equal(400, answer.Status);
+        Assert.Equal("action.repoPath is required", answer.Body.GetProperty("error").GetString());
+        Assert.NotEqual("", Job("cj_dt").Action.RepoPath);
+    }
+
     // ---------- what the answer tells a client it may offer (phase 5b, carried from phase 4's Finding 4) ----------
 
     [Fact]
