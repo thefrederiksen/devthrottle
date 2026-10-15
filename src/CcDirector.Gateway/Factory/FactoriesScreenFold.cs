@@ -369,7 +369,9 @@ public static class FactoriesScreenFold
     // ---------------------------------------------------------------------------------------------------------
     // The Seats tab
 
-    public static FactorySeatsViewDto Seats(RegisteredFactoryDto factory, FactoriesScreenInputs input)
+    /// <param name="defined">The factory has a definition, so its schedules are the definition's: no schedule offers Edit
+    /// schedule (the schedule routes refuse it), Pause and Resume stay, and the tab says where a schedule changes.</param>
+    public static FactorySeatsViewDto Seats(RegisteredFactoryDto factory, FactoriesScreenInputs input, bool defined = false)
     {
         ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(input);
@@ -387,7 +389,7 @@ public static class FactoriesScreenFold
         {
             var rows = seats.Where(s => s.Shifts.Values.Any(v => v.Contains(shift)))
                 .Select(s => SeatRow(factory, s.Seat, input, s.Shifts,
-                    s.Shifts.Where(kv => kv.Value.Contains(shift)).Select(kv => kv.Key).ToHashSet(StringComparer.Ordinal)))
+                    s.Shifts.Where(kv => kv.Value.Contains(shift)).Select(kv => kv.Key).ToHashSet(StringComparer.Ordinal), defined))
                 .ToList();
             if (rows.Count > 0)
                 groups.Add(new FactorySeatGroupDto { Shift = shift, Title = ScheduleShifts.Heading(shift), Rows = rows });
@@ -401,7 +403,7 @@ public static class FactoriesScreenFold
             .Select(s => SeatRow(factory, s.Seat, input, s.Shifts,
                 s.Shifts.Count == 0
                     ? null
-                    : s.Shifts.Where(kv => kv.Value.Count == 0).Select(kv => kv.Key).ToHashSet(StringComparer.Ordinal)))
+                    : s.Shifts.Where(kv => kv.Value.Count == 0).Select(kv => kv.Key).ToHashSet(StringComparer.Ordinal), defined))
             .ToList();
         if (idle.Count > 0)
             groups.Add(new FactorySeatGroupDto { Shift = "none", Title = ScheduleShifts.Text(Array.Empty<string>()), Rows = idle });
@@ -412,13 +414,21 @@ public static class FactoriesScreenFold
             Title = factory.Title,
             Crumb = $"Factories / {factory.Title} / Seats",
             Columns = new() { "Seat", "When it runs", "Last run", "Computer" },
-            Rows = seats.Select(s => SeatRow(factory, s.Seat, input, s.Shifts, only: null)).ToList(),
+            Rows = seats.Select(s => SeatRow(factory, s.Seat, input, s.Shifts, only: null, defined)).ToList(),
             Groups = groups,
             Note = "Only seats the boss hired are listed. Sessions that only wrote activity rows are not seats and do not appear. "
                 + $"Shifts are counted in {a.Zone.Id}. A seat that works in two shifts is listed under each, with that shift's schedules, "
                 + "and a seat with a schedule that has no run in the next 7 days is also listed under that heading with it.",
+            DefinedText = defined ? DefinedSeatsText(factory) : null,
+            DefinitionLabel = defined ? FactorySeatPageFold.DefinitionLabel : null,
+            DefinitionHref = defined ? FactorySeatPageFold.DefinitionHref(factory.Factory) : null,
         };
     }
+
+    /// <summary>Why a defined factory's Seats tab offers no Edit schedule, and where a schedule changes instead.</summary>
+    public static string DefinedSeatsText(RegisteredFactoryDto factory) =>
+        $"{factory.Title} has a definition, and its seats' schedules come from it, so none is edited here. To change or " +
+        "remove one, change the seat's start in the definition's folder, import it on the Definition tab, and publish it.";
 
     // The shifts each of a seat's schedules starts runs in over the next 7 days (ScheduleShifts), by schedule id. A
     // schedule the store no longer has starts nothing, so it has no shift.
@@ -434,9 +444,10 @@ public static class FactoriesScreenFold
             StringComparer.Ordinal);
     }
 
-    // One seat's row. `only` narrows its schedules to one shift's; null lists them all.
+    // One seat's row. `only` narrows its schedules to one shift's; null lists them all. On a `defined` factory no
+    // schedule offers Edit schedule: the definition writes it, and the schedule routes refuse an edit.
     private static FactorySeatRowDto SeatRow(RegisteredFactoryDto f, RegisteredFactorySeatDto seat, FactoriesScreenInputs input,
-        IReadOnlyDictionary<string, IReadOnlyList<string>> shifts, IReadOnlySet<string>? only)
+        IReadOnlyDictionary<string, IReadOnlyList<string>> shifts, IReadOnlySet<string>? only, bool defined)
     {
         var a = input.Activity;
         var schedules = SchedulesOf(seat, input.Schedules);
@@ -470,7 +481,7 @@ public static class FactoriesScreenFold
                     {
                         JobId = job.Id,
                         WhenText = FactoryScheduleText.Describe(job, a.Zone),
-                        EditLabel = "Edit schedule",
+                        EditLabel = defined ? null : "Edit schedule",
                         Paused = !job.Enabled,
                         // A one-off that has run has nothing to pause or resume.
                         ToggleLabel = CronSchedule.LifecycleOf(job) == CronLifecycle.Spent

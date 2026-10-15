@@ -228,6 +228,14 @@ def flow(page, key):
     ANSWERS["30-defined-seat-starts"] = {"request": f"GET {boss}", "starts": starts}
     shot(page, "30-defined-seat-no-edit-no-take-off")
 
+    # 1b. The sentence's link opens the factory's Definition tab.
+    page.click("[data-testid=fa-seat-defined] a")
+    page.wait_for_url(f"**/factories/{FACTORY}/definition")
+    wait(page, ".fa-tab.active:has-text('Definition')", "the Definition tab, selected")
+    shot(page, "37-seat-link-opens-the-definition-tab")
+    page.goto(f"{BASE}/factories/{FACTORY}/seats/boss", wait_until="networkidle")
+    wait(page, "[data-testid=fa-seat-defined]", "the seat page again")
+
     # 2. The publish confirm of an edit of the boss's brief names the rename waiting in the definition.
     page.click("[data-testid=fa-seat-brief-edit]")
     wait(page, "[data-testid=fa-brief-text]", "the brief editor")
@@ -253,6 +261,39 @@ def flow(page, key):
     must(page.locator("[data-testid=fa-seat-defined]").count() == 0, "the factory with no definition shows the definition sentence")
     ANSWERS["32-undefined-seat-starts"] = {"request": f"GET {scout}", "starts": undefined}
     shot(page, "32-no-definition-seat-unchanged")
+
+    # 4. The defined factory's Seats tab, one crumb from the seat page: no Edit schedule there either, and the sentence.
+    seats_route = f"/gateway/factories/{FACTORY}/seats"
+    page.goto(f"{BASE}/factories/{FACTORY}/seats", wait_until="networkidle")
+    wait(page, "[data-testid=fa-seats-defined]", "the defined factory's sentence on the Seats tab")
+    seats = call("GET", seats_route, key)
+    schedules = [s for row in seats["rows"] for s in row["schedules"]]
+    must(schedules and all(s["editLabel"] is None for s in schedules), f"a schedule on the Seats tab still offers an edit: {schedules}")
+    must(page.locator("text=Edit schedule").count() == 0, "the Seats tab still draws Edit schedule")
+    ANSWERS["38-defined-seats-tab"] = {"request": f"GET {seats_route}", "definedText": seats["definedText"],
+                                       "definitionHref": seats["definitionHref"], "schedules": schedules}
+    shot(page, "38-defined-seats-tab-no-edit")
+
+    # 5. Bring back on the boss's brief history. A boss brief edit is saved over the waiting rename (version 3) and
+    #    published, so version 1 is below the published one and offers Bring back - which restores ALL of version 1.
+    call("PUT", f"/factory-briefs/{FACTORY}/boss/draft", key,
+         {"text": "Run the factory, and check the writer's posts before they go out.\n", "expectedVersion": 2})
+    call("POST", f"/factory-definitions/{FACTORY}/publish", key, {"version": 3, "replaces": 1})
+    page.goto(f"{BASE}/factories/{FACTORY}/seats/boss", wait_until="networkidle")
+    page.click("[data-testid=fa-seat-brief-history]")
+    wait(page, "[data-testid=fa-brief-back-1]", "Bring back on version 1 of the boss's brief history")
+    page.click("[data-testid=fa-brief-back-1]")
+    wait(page, "[role=alertdialog] [data-testid=fa-confirm-lines]", "the Bring back confirm")
+    lines = page.inner_text("[role=alertdialog] [data-testid=fa-confirm-lines]")
+    must("It also brings back the rest of definition version 1" in lines and "name Author -> Writer" in lines,
+         f"the Bring back confirm does not name the rename it undoes: {lines}")
+    history = call("GET", boss + "/brief/history", key)
+    row = next(r for r in history["rows"] if r["version"] == 1)
+    ANSWERS["39-bring-back-confirm"] = {"request": f"GET {boss}/brief/history", "confirmLines": row["bringBack"]["confirmLines"]}
+    shot(page, "39-bring-back-confirm-names-what-it-undoes")
+    page.keyboard.press("Escape")
+    wait(page, "[role=alertdialog]", "the confirm closing", state="detached")
+    must(call("GET", f"/factory-definitions/{FACTORY}", key)["publishedVersion"] == 3, "something was published from the Bring back confirm")
 
 
 def capture(key):

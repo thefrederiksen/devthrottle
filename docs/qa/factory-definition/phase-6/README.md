@@ -4,8 +4,8 @@ Date: 2026-10-15. Mission document: `docs/missions/factory-definition-2026-10-14
 5.3 the store and publish, 5.4 export and import, 5.6 records; section 7, phase 6: desktop screenshots of every state).
 Desktop only: the phone has no factory page.
 
-This report grows with each pull request of the phase. Part 1 covers **the Definition tab**, which replaces the
-Documents tab; part 2 covers **the Records tab**, beside Memory.
+Part 1 covers **the Definition tab**, which replaces the Documents tab; part 2 covers **the Records tab**, beside
+Memory; part 3 covers **the seat page on a defined factory**, the two items the phase 4 QA report handed to phase 6.
 
 ## Part 1: the Definition tab
 
@@ -92,7 +92,7 @@ From this worktree rebased onto origin/main `5c068319f`, with the review's rulin
 
 | Command | Result |
 |---|---|
-| `.\scripts	est-local.ps1` | GREEN, ten suites, every TRX `outcome=Completed` |
+| `.\scripts\test-local.ps1` | GREEN, ten suites, every TRX `outcome=Completed` |
 | `dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Factory\|FullyQualifiedName~Cron\|FullyQualifiedName~Trigger"` | Passed 2,215, failed 0 |
 | `dotnet test src/CcDirector.Gateway.Tests --filter "FullyQualifiedName~Factory"` | Passed 28, failed 0 |
 | `npm run typecheck` | Exit 0 |
@@ -183,4 +183,105 @@ guard), `FactoryRecordsTab.test.tsx` (6) and `factoryRecordsClient.test.ts` (5).
   session's records read ("session" and its id, whole) is proven in `FactoryRecordsTabTests`, not in a picture.
 - **Paging**: the pictures hold fewer rows than a page (20 journal entries, 100 attachments, 20 document versions). The
   page sizes and the "older versions" step are in the fold and its tests, not in a picture.
+- **The phone.** Desktop only, as the mission says.
+
+## Part 3: the seat page on a defined factory
+
+This part covers the two seat page items the phase 4 QA report handed to phase 6
+(`docs/qa/factory-definition/phase-4/README.md`, findings 3 and 5).
+
+### The two items
+
+- **Finding 3: the seat page offered actions the Gateway refuses.** On a factory with a definition, every schedule
+  offered Edit schedule and Take off this seat, and the Gateway refused both. Now the seat page fold offers neither on a
+  defined factory, says why in the Gateway's words, and links to the Definition tab, where a start is changed. Pause
+  stays: switching a schedule off is not defining it. A factory with no definition is unchanged.
+- **Finding 5: a brief publish also publishes every draft change beneath it.** A brief is saved on the definition's
+  newest version, so a person publishing a one-line brief edit also published a waiting rename. The publish confirm
+  (in the brief's editor, and on each history row that carries Publish) now names every other change that goes live
+  with it, composed on the Gateway from the definition's own comparison; the seat's own brief change is left out, it is
+  what the person is looking at. When nothing else changed it says so. It names up to six and then says how many more,
+  pointing at the Definition tab.
+
+The review of #4036 found the same two defects one step away, and this part covers them too:
+
+- **The Seats tab** (one crumb from the seat page) still offered Edit schedule on a defined factory. It now offers
+  Pause or Resume only, and says why above the table, with the same link.
+- **Bring back** on a defined factory's brief history publishes a copy of the WHOLE older definition version, and its
+  confirm named nothing else and said "Nothing is removed". It now says "No version is removed" and names, in the
+  restore's direction, every other change bringing that version back makes to the published one.
+- A seat removed in the version going live is named, never counted as "only the brief changed"; a start is named with
+  what changed in it (its prompt, check, secrets, overlap), as a seat or a grant is; and a history page reads the
+  published version once, not once per row.
+
+### How the pictures were made
+
+`capture_seat.py` beside this file, run in the foreground from the repository root after building the Gateway (Debug)
+and the Cockpit:
+
+```
+dotnet build src/CcDirector.Gateway/CcDirector.Gateway.csproj
+(cd apps/cockpit && npm run build)
+uv run --no-project --with playwright --with typer --with click --with rich --with requests python docs/qa/factory-definition/phase-6/capture_seat.py
+```
+
+It starts a Gateway built from this tree on port 7991 with its own empty data folder (factory area on, Tailscale off,
+authentication on), registers `qa-outreach` and `qa-undefined` with the Gateway's machine token, and enrolls one browser
+device. As that person it gives qa-undefined's scout a schedule with this tree's own command line, saves the phase 1
+example as qa-outreach's definition version 1 and publishes it (which makes the boss's schedule from its start), and
+saves version 2, in which the writer is renamed Author, as a draft. It then drives the Cockpit in headless Chrome,
+signed in with the person's key. The brief publish confirm is cancelled: nothing is published from it, and the script
+checks the published version is still 1 afterwards. For Bring back it then saves a boss brief edit over the waiting
+rename (version 3) and publishes it, so version 1 lies below the published one; that confirm is cancelled too, and the
+script checks version 3 is still the published one. `seat-answers.json` holds the Gateway's answers.
+
+Playwright is used as a library, not browser-harness, because this is a repeatable script a reviewer re-runs to get the
+same pictures; the browser is a headless one the script starts and stops.
+
+### State by state
+
+| # | Picture | State |
+|---|---|---|
+| 30 | `30-defined-seat-no-edit-no-take-off.png` | The defined factory's boss seat. How it starts: the Gateway's sentence ("QA Outreach has a definition, and this seat's schedules come from it. To change or remove one, change the seat's start in the definition's folder, import it on the Definition tab, and publish it."), **Open the Definition tab**, and the schedule with Pause only - no Edit schedule, no Take off this seat. |
+| 37 | `37-seat-link-opens-the-definition-tab.png` | **Open the Definition tab** pressed on that seat page: the factory's Definition tab, selected, with version 1 published and the rename waiting as version 2. |
+| 31 | `31-brief-publish-confirm-names-the-rename.png` | An edit of the boss's brief, Publish pressed: the confirm's last line is "It also puts live the other change saved in the definition since version 1 was published, not only this brief: Seat Author (writer) changed: name Writer -> Author." |
+| 32 | `32-no-definition-seat-unchanged.png` | The scout seat of the factory with **no definition**: Edit schedule, Pause and Take off this seat, as before, and no definition sentence. |
+| 38 | `38-defined-seats-tab-no-edit.png` | The defined factory's **Seats tab**: the boss's schedule with Pause only, and above the table "QA Outreach has a definition, and its seats' schedules come from it, so none is edited here. ..." with **Open the Definition tab**. |
+| 39 | `39-bring-back-confirm-names-what-it-undoes.png` | Version 3 published (the boss's brief edit and the rename); **Bring back** on version 1 of the boss's brief: "No version is removed: version 3, which is published now, and every other version are kept." and the last line "It also brings back the rest of definition version 1, not only this brief, and so makes this other change to version 3, the published one: Seat Writer (writer) changed: name Author -> Writer." |
+
+### What was built
+
+- **Gateway**: `FactorySeatPageFold` takes Edit and Take off away on a defined factory and adds `DefinedText`,
+  `DefinitionLabel` and `DefinitionHref` to the seat's starts. `FactoryBriefPanelFold.AlsoGoesLive` composes the
+  publish confirm's line from `FactoryDefinitionChanges.Compare` of the published version and the version going live;
+  the seat page's editor and history routes hand it to the editor and to each history row that carries Publish, and,
+  in the restore's direction, to each row that carries Bring back. The published version is read once per request.
+- **The Seats tab**: `FactoriesScreenFold.Seats` takes whether the factory is defined (the route asks the definition
+  store); on a defined factory no schedule has an Edit, and the view carries `DefinedText`, `DefinitionLabel` and
+  `DefinitionHref`.
+- **Cockpit**: `FactorySeatView` and the Seats tab draw the sentence and the link; the confirm lines were already drawn
+  verbatim.
+
+### Tests
+
+`FactorySeatPageFoldTests` (2 new: a defined factory offers no edit and no take-off and says where they change; a factory
+with no definition is unchanged), `BriefPublishAlsoGoesLiveTests` (4: only this brief changed; another seat renamed and a
+start moved, both named and the brief not; this seat's own other change named without its brief; eight changes, six
+named and "2 more"), `FactoryBriefsThroughTheDefinitionTests` (2 new, through the mapped routes: the editor's and the
+history row's confirm name the waiting rename word for word; with nothing else saved the editor says the brief is the
+only change), and `FactorySeatView.test.tsx` (1 new).
+
+For the review's findings: `BriefPublishAlsoGoesLiveTests` (4 more: this seat removed is named; a start whose time
+stayed is named with its prompt change; a Bring back names the rename and the file it undoes; a Bring back that differs
+only in the brief says so, and the moved-start test now asserts the whole start sentence), `FactoryBriefsThroughTheDefinitionTests` (2
+more, through the mapped routes: the Seats tab of a defined factory has no Edit, keeps Pause and carries the sentence,
+while before the definition the same schedule offered Edit; the Bring back confirm names what version 1 undoes and no
+longer says "Nothing is removed"), and `FactoriesScreen.test.tsx` (1 new, and the plain Seats tab draws no sentence).
+
+### What this does NOT prove
+
+- **The history row's Publish confirm in a picture.** It is proven word for word through the routes, not photographed;
+  its Bring back confirm is picture 39.
+- **The Definition tab's own Restore confirm** still says "Nothing is removed" and does not list what a restore changes
+  in the live definition. It is outside this pull request and is reported to the Delivery Lead as open.
 - **The phone.** Desktop only, as the mission says.

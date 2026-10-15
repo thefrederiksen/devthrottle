@@ -464,6 +464,18 @@ public sealed class FactorySeatsViewDto
 
     /// <summary>"Only seats the boss hired are listed. ..."</summary>
     public string Note { get; set; } = "";
+
+    /// <summary>
+    /// For a factory with a definition (Factory Definition, phase 6): why no schedule on the tab offers Edit schedule,
+    /// and where a schedule is changed instead. Null for a factory with no definition.
+    /// </summary>
+    public string? DefinedText { get; set; }
+
+    /// <summary>"Open the Definition tab", beside <see cref="DefinedText"/>; null with it.</summary>
+    public string? DefinitionLabel { get; set; }
+
+    /// <summary>The factory page's Definition tab; null with <see cref="DefinedText"/>.</summary>
+    public string? DefinitionHref { get; set; }
 }
 
 /// <summary>One seat: who it is, when it runs, how its last run ended, where it runs, and its Talk button.</summary>

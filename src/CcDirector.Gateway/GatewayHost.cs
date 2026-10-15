@@ -5324,7 +5324,8 @@ public sealed class GatewayHost : IAsyncDisposable
             (tenant, factory) => FactoryEmailReports!.List(tenant, factory, kind: null, Factory.FactoryEmailsFold.Shown, allStates: false));
         Api.FactoriesScreenEndpoints.Map(factoryGate,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
-            sources: factoriesScreenSources);
+            sources: factoriesScreenSources,
+            isDefined: _factorySeatBriefs.IsDefined);
         // One seat's own page (Factory Seats mission): opened from every seat row, with or without a schedule.
         Api.FactoriesScreenEndpoints.MapSeatPage(factoryGate,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),

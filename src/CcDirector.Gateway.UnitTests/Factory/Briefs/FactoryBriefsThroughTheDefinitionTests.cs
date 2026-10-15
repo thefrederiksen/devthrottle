@@ -15,6 +15,7 @@ using CcDirector.Gateway.Running;
 using CcDirector.Gateway.Settings;
 using CcDirector.Gateway.Tests.Data;
 using CcDirector.Gateway.Tests.Factory.Definition;
+using CcDirector.Gateway.Tests.Factory.Registry;
 using CcDirector.Gateway.Util;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -109,6 +110,8 @@ public sealed class FactoryBriefsThroughTheDefinitionTests : IDisposable
             (_, f) => new CronRunProblemsDto { Factory = f },
             (_, f) => new FactoryEmailsDto { Factory = f });
         FactoriesScreenEndpoints.MapSeatPage(_routes, _ => A, sources, (_, _) => 0, _briefs, defined);
+        // The factory page's Seats tab, as the host maps it: told whether the factory is defined.
+        FactoriesScreenEndpoints.Map(_routes, _ => A, sources, isDefined: defined.IsDefined);
     }
 
     public void Dispose()
@@ -811,5 +814,54 @@ public sealed class FactoryBriefsThroughTheDefinitionTests : IDisposable
         Assert.Equal("Version 1", Text(view, "title"));
         Assert.Equal("One.\n", Text(view, "text"));
         Assert.DoesNotContain("definition", Text(view, "lineText"));
+    }
+
+    [Fact]
+    public async Task SeatsTab_DefinedFactory_OffersNoEditSchedule_KeepsPause_AndSaysWhereASchedulesChanges()
+    {
+        // Review of #4036, finding 1: the Seats tab, one crumb from the seat page, still offered Edit schedule on a
+        // defined factory's schedule, and the schedule routes refuse the edit.
+        ScheduleLinkSeed.Link(_db, A, TheFactory, "boss", "cj_boss");
+        var (_, before) = await Send("GET", "/gateway/factories/devthrottle/seats");
+        Define();
+
+        var (status, view) = await Send("GET", "/gateway/factories/devthrottle/seats");
+
+        Assert.Equal(200, status);
+        var schedule = view.GetProperty("rows").EnumerateArray().Single(r => Text(r, "seatId") == "boss").GetProperty("schedules")[0];
+        Assert.Equal(JsonValueKind.Null, schedule.GetProperty("editLabel").ValueKind);
+        Assert.Equal(CronSchedule.ToggleLabelOf(true), Text(schedule, "toggleLabel"));
+        Assert.Equal(FactoriesScreenFold.DefinedSeatsText(_registry.Find(A, TheFactory)!), Text(view, "definedText"));
+        Assert.Equal(FactorySeatPageFold.DefinitionLabel, Text(view, "definitionLabel"));
+        Assert.Equal("/factories/devthrottle/definition", Text(view, "definitionHref"));
+        // Before the definition existed the same schedule offered its edit, and the tab said nothing of a definition.
+        var undefined = before.GetProperty("rows").EnumerateArray().Single(r => Text(r, "seatId") == "boss").GetProperty("schedules")[0];
+        Assert.Equal("Edit schedule", Text(undefined, "editLabel"));
+        Assert.Equal(JsonValueKind.Null, before.GetProperty("definedText").ValueKind);
+    }
+
+    [Fact]
+    public async Task History_DefinedFactory_BringBackConfirm_NamesWhatTheOlderVersionChangesInTheLiveDefinition()
+    {
+        // Review of #4036, finding 2: Bring back publishes a copy of the whole older definition version; its confirm
+        // named none of what else that changes, and said "Nothing is removed".
+        Define();
+        var content = new Dictionary<string, string>(_definitions.Find(A, TheFactory, 1)!.Files);
+        content["seats/writer.yaml"] = content["seats/writer.yaml"].Replace("name: Writer", "name: Author", StringComparison.Ordinal);
+        content["files/plan.md"] = "the plan\n";
+        content["seats/boss.yaml"] = SeatBriefText.Replace("seats/boss.yaml", content["seats/boss.yaml"], "Run it better.\n").Text!;
+        Assert.True(_definitions.SaveDraft(A, TheFactory, content, 1, FactoryMemoryAuthorKinds.Person, "owner", null, Now.AddHours(-1)).Ok);
+        PublishDefinition(2);
+
+        var (status, history) = await Send("GET", BossView + "/brief/history");
+
+        Assert.Equal(200, status);
+        var lines = history.GetProperty("rows").EnumerateArray().Single(r => r.GetProperty("version").GetInt32() == 1)
+            .GetProperty("bringBack").GetProperty("confirmLines").EnumerateArray().Select(l => l.GetString()!).ToList();
+        Assert.Contains("No version is removed: version 2, which is published now, and every other version are kept.", lines);
+        Assert.DoesNotContain(lines, l => l.StartsWith("Nothing is removed", StringComparison.Ordinal));
+        Assert.StartsWith("It also brings back the rest of definition version 1, not only this brief, and so makes these 2 other changes to version 2, the published one: ", lines[^1]);
+        Assert.Contains("Seat Writer (writer) changed: name Author -> Writer.", lines[^1]);
+        Assert.Contains("files/plan.md", lines[^1]);
     }
 }

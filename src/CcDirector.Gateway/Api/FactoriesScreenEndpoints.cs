@@ -50,7 +50,9 @@ internal static class FactoriesScreenEndpoints
 {
     public const string Prefix = "/gateway/factories";
 
-    public static void Map(IEndpointRouteBuilder app, Func<HttpContext, TenantId?> resolveTenant, FactoriesScreenSources sources)
+    /// <param name="isDefined">Whether a factory has a definition: its Seats tab then offers no Edit schedule.</param>
+    public static void Map(IEndpointRouteBuilder app, Func<HttpContext, TenantId?> resolveTenant, FactoriesScreenSources sources,
+        Func<TenantId, string, bool> isDefined)
     {
         ArgumentNullException.ThrowIfNull(resolveTenant);
         ArgumentNullException.ThrowIfNull(sources);
@@ -82,8 +84,9 @@ internal static class FactoriesScreenEndpoints
             {
                 if (sources.Registry.Find(tenant, factory) is not { } registered) return NotRegistered(factory);
                 var input = Inputs(sources, tenant, FactoryAgentsFold.WindowLast7d, registered.Factory);
-                var dto = FactoriesScreenFold.Seats(registered, input);
-                FileLog.Write($"[FactoriesScreenEndpoints] GET seats: {registered.Factory} seats={dto.Rows.Count}");
+                var defined = isDefined(tenant, registered.Factory);
+                var dto = FactoriesScreenFold.Seats(registered, input, defined);
+                FileLog.Write($"[FactoriesScreenEndpoints] GET seats: {registered.Factory} seats={dto.Rows.Count}, defined={defined}");
                 return Results.Json(dto);
             }));
 
@@ -94,7 +97,7 @@ internal static class FactoriesScreenEndpoints
             {
                 if (sources.Registry.Find(tenant, factory) is not { } registered) return NotRegistered(factory);
                 var input = Inputs(sources, tenant, FactoryAgentsFold.WindowLast7d, registered.Factory);
-                var dto = FactoryFloorFold.View(registered, FactoriesScreenFold.Seats(registered, input),
+                var dto = FactoryFloorFold.View(registered, FactoriesScreenFold.Seats(registered, input, isDefined(tenant, registered.Factory)),
                     FactoriesScreenFold.Page(registered, input), sources.Activity.Maps.Find(tenant, registered.Factory));
                 FileLog.Write($"[FactoriesScreenEndpoints] GET floor: {registered.Factory} lanes={dto.Lanes.Count}, bays={dto.Bays.Count}, arrows={dto.Arrows.Count}");
                 return Results.Json(dto);
@@ -178,7 +181,7 @@ internal static class FactoriesScreenEndpoints
                 var brief = BriefOf(briefs, definedBriefs, tenant, registered, found);
                 var dto = FactoryBriefPanelFold.Editor(registered, found, brief.Standing,
                     sources.Activity.TimeZone(tenant), sources.Activity.NowUtc(), brief.Definition,
-                    brief.NewestDefinition is { } newest ? AlsoGoesLive(definedBriefs, tenant, registered, found, brief, newest) : null);
+                    brief.NewestDefinition is { } newest ? new OtherChanges(definedBriefs, tenant, registered, found, brief).Publishing(newest) : null);
                 FileLog.Write($"[FactoriesScreenEndpoints] GET brief editor: {registered.Factory}/{found.Id} startsFrom={dto.ExpectedVersion}");
                 return Results.Json(dto);
             }));
@@ -203,9 +206,11 @@ internal static class FactoriesScreenEndpoints
                 var page = brief.Definition is null
                     ? briefs.History(tenant, registered.Factory, found.Id, before, FactoryBriefPanelFold.HistoryPage)
                     : definedBriefs.History(tenant, registered.Factory, found.Id, before, FactoryBriefPanelFold.HistoryPage);
+                // One published version read for the whole page, however many rows carry a confirm.
+                var others = new OtherChanges(definedBriefs, tenant, registered, found, brief);
                 var dto = FactoryBriefPanelFold.History(registered, found, brief.Standing, page, firstPage: before is null,
                     sources.Activity.TimeZone(tenant), sources.Activity.NowUtc(), brief.Definition, brief.PublishedDefinition,
-                    version => AlsoGoesLive(definedBriefs, tenant, registered, found, brief, version));
+                    others.Publishing, others.BringingBack);
                 FileLog.Write($"[FactoriesScreenEndpoints] GET brief history: {registered.Factory}/{found.Id} before={before?.ToString() ?? "(newest)"}, rows={dto.Rows.Count}, total={page.Total}, next={dto.NextBefore?.ToString() ?? "(none)"}");
                 return Results.Json(dto);
             }));
@@ -271,22 +276,42 @@ internal static class FactoriesScreenEndpoints
     }
 
     /// <summary>
-    /// For a DEFINED factory, what else goes live when <paramref name="version"/> is published with the seat's brief
-    /// (<see cref="FactoryBriefPanelFold.AlsoGoesLive"/>). The editor asks for the newest version even when it IS the
-    /// published one: its save adds only the brief, and the confirm says nothing else goes live. Null for every other
-    /// factory, and when nothing is published or the version is below the published one (a publish of it is refused).
+    /// For a DEFINED factory, what else changes in the live definition when a version goes live with the seat's brief
+    /// (<see cref="FactoryBriefPanelFold.AlsoGoesLive"/>): a publish of a newer version, or a Bring back of an older
+    /// one, which publishes a copy of that whole version. The published version is read once, on the first ask, for
+    /// every confirm of one request. Every answer is null for a factory with no definition or nothing published.
     /// </summary>
-    private static string? AlsoGoesLive(FactoryDefinitionBriefs definedBriefs, TenantId tenant, RegisteredFactoryDto registered,
-        RegisteredFactorySeatDto seat, SeatBrief brief, int version)
+    private sealed class OtherChanges(FactoryDefinitionBriefs definedBriefs, TenantId tenant, RegisteredFactoryDto registered,
+        RegisteredFactorySeatDto seat, SeatBrief brief)
     {
-        if (brief.Definition is null || brief.PublishedDefinition is not { } published || version < published) return null;
-        var live = definedBriefs.Definitions.Find(tenant, registered.Factory, published)
-                   ?? throw new InvalidOperationException($"{registered.Factory} names definition version {published} as published, and the store has no such version");
-        var going = definedBriefs.Definitions.Find(tenant, registered.Factory, version)
-                    ?? throw new InvalidOperationException($"{registered.Factory} has no definition version {version}, which its brief listed");
-        var line = FactoryBriefPanelFold.AlsoGoesLive(seat.Id, published, live.Files, going.Files);
-        FileLog.Write($"[FactoriesScreenEndpoints] AlsoGoesLive: {registered.Factory}/{seat.Id} version {version} over {published}: {line}");
-        return line;
+        private FactoryBriefPanelFold.PublishedDefinition? _published;
+
+        /// <summary>A publish of <paramref name="version"/>. The editor asks for the newest version even when it IS the
+        /// published one: its save adds only the brief, and the confirm says nothing else goes live. Null below the
+        /// published version, whose publish is refused.</summary>
+        public string? Publishing(int version) =>
+            brief.Definition is null || brief.PublishedDefinition is not { } published || version < published
+                ? null
+                : Line(version, bringingBack: null);
+
+        /// <summary>A Bring back of <paramref name="version"/>, below the published one; null otherwise.</summary>
+        public string? BringingBack(int version) =>
+            brief.Definition is null || brief.PublishedDefinition is not { } published || version >= published
+                ? null
+                : Line(version, bringingBack: version);
+
+        private string Line(int version, int? bringingBack)
+        {
+            var published = brief.PublishedDefinition!.Value;
+            _published ??= FactoryBriefPanelFold.PublishedDefinition.Of(published,
+                (definedBriefs.Definitions.Find(tenant, registered.Factory, published)
+                 ?? throw new InvalidOperationException($"{registered.Factory} names definition version {published} as published, and the store has no such version")).Files);
+            var going = definedBriefs.Definitions.Find(tenant, registered.Factory, version)
+                        ?? throw new InvalidOperationException($"{registered.Factory} has no definition version {version}, which its brief listed");
+            var line = FactoryBriefPanelFold.AlsoGoesLive(seat.Id, _published, going.Files, bringingBack);
+            FileLog.Write($"[FactoriesScreenEndpoints] OtherChanges: {registered.Factory}/{seat.Id} version {version} over {published}{(bringingBack is null ? "" : " (bring back)")}: {line}");
+            return line;
+        }
     }
 
     /// <summary>

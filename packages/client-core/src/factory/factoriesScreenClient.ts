@@ -417,6 +417,12 @@ export interface FactorySeatsView {
   /** The seats grouped by shift; the Seats tab renders these. */
   groups: FactorySeatGroup[];
   note: string;
+  /** For a factory with a definition: why no schedule offers Edit schedule, and where one changes. Null otherwise. */
+  definedText: string | null;
+  /** "Open the Definition tab", beside definedText; null with it. */
+  definitionLabel: string | null;
+  /** The factory page's Definition tab; null with definedText. */
+  definitionHref: string | null;
 }
 
 // One seat's page (Factory Seats mission, phase 1), mirroring FactorySeatPageDtos.cs. Every seat has one, whether or

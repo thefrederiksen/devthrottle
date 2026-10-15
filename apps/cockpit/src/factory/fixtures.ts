@@ -554,6 +554,9 @@ export const FACTORY_SEATS: FactorySeatsView = {
     { shift: "none", title: "No run in the next 7 days (fixture)", rows: [SEAT_VALUE] },
   ],
   note: "Only seats the boss hired are listed.",
+  definedText: null,
+  definitionLabel: null,
+  definitionHref: null,
 };
 
 // One seat's page (Factory Seats mission). Three seats: one with a schedule, one with nothing scheduled, and one
