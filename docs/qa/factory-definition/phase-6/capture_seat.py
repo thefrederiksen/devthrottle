@@ -228,6 +228,14 @@ def flow(page, key):
     ANSWERS["30-defined-seat-starts"] = {"request": f"GET {boss}", "starts": starts}
     shot(page, "30-defined-seat-no-edit-no-take-off")
 
+    # 1b. The sentence's link opens the factory's Definition tab.
+    page.click("[data-testid=fa-seat-defined] a")
+    page.wait_for_url(f"**/factories/{FACTORY}/definition")
+    wait(page, ".fa-tab.active:has-text('Definition')", "the Definition tab, selected")
+    shot(page, "37-seat-link-opens-the-definition-tab")
+    page.goto(f"{BASE}/factories/{FACTORY}/seats/boss", wait_until="networkidle")
+    wait(page, "[data-testid=fa-seat-defined]", "the seat page again")
+
     # 2. The publish confirm of an edit of the boss's brief names the rename waiting in the definition.
     page.click("[data-testid=fa-seat-brief-edit]")
     wait(page, "[data-testid=fa-brief-text]", "the brief editor")

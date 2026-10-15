@@ -9,7 +9,7 @@
       "schedules": [
         {
           "editLabel": null,
-          "jobId": "cj_55d02a",
+          "jobId": "cj_36775a",
           "missingText": null,
           "name": "QA Outreach - Boss",
           "paused": false,
@@ -45,7 +45,7 @@
       "schedules": [
         {
           "editLabel": "Edit schedule",
-          "jobId": "cj_a96639",
+          "jobId": "cj_cf408b",
           "missingText": null,
           "name": "QA Undefined scout at noon",
           "paused": false,
@@ -62,7 +62,7 @@
               "Scout will then be talk only."
             ],
             "confirmTitle": "Take this schedule off Scout?",
-            "jobId": "cj_a96639",
+            "jobId": "cj_cf408b",
             "label": "Take off this seat"
           },
           "whenText": "Daily 12:00 (Europe/Copenhagen)"

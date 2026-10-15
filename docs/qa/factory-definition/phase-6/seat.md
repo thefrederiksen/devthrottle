@@ -45,6 +45,7 @@ same pictures; the browser is a headless one the script starts and stops.
 | # | Picture | State |
 |---|---|---|
 | 30 | `30-defined-seat-no-edit-no-take-off.png` | The defined factory's boss seat. How it starts: the Gateway's sentence ("QA Outreach has a definition, and this seat's schedules come from it. To change or remove one, change the seat's start in the definition's folder, import it on the Definition tab, and publish it."), **Open the Definition tab**, and the schedule with Pause only - no Edit schedule, no Take off this seat. |
+| 37 | `37-seat-link-opens-the-definition-tab.png` | **Open the Definition tab** pressed on that seat page: the factory's Definition tab, selected, with version 1 published and the rename waiting as version 2. |
 | 31 | `31-brief-publish-confirm-names-the-rename.png` | An edit of the boss's brief, Publish pressed: the confirm's last line is "It also puts live the other change saved in the definition since version 1 was published, not only this brief: Seat Author (writer) changed: name Writer -> Author." |
 | 32 | `32-no-definition-seat-unchanged.png` | The scout seat of the factory with **no definition**: Edit schedule, Pause and Take off this seat, as before, and no definition sentence. |
 
@@ -67,7 +68,5 @@ only change), and `FactorySeatView.test.tsx` (1 new).
 
 ## What this does NOT prove
 
-- **The Definition tab link's target.** The Definition tab is in its own pull request (#4028). Until that is on main,
-  `/factories/<id>/definition` opens the factory's Overview.
 - **The history row's confirm in a picture.** It is proven word for word through the routes, not photographed.
 - **The phone.** Desktop only, as the mission says.
