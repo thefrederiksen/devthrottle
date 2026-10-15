@@ -216,22 +216,45 @@ public sealed class DefinedByDefinitionTests : IDisposable
         Assert.False(DefinedByDefinition.DiffersOnlyInEnabled(Stored(), Resent(b => { change(b); b.Enabled = false; })), field);
     }
 
-    [Fact]
-    public void EveryDefinitionField_CoversEveryFieldTheStoreWritesFromABody()
+    /// <summary>
+    /// What a schedule's body carries that is NOT part of its definition: its identity, the switch itself, and what
+    /// the Gateway only stamps on a read (firing state, display words, shifts). Every OTHER property of
+    /// <see cref="CronJobDto"/> is a definition field, so a property added to the DTO later is a definition field
+    /// unless it is named here - and the two guards below fail until the switch rule compares it or it is named.
+    /// </summary>
+    private static readonly string[] NotADefinitionField =
     {
-        // The store's own list (CronJobStore.ApplyDefinition): a field added there and not here would let an edit
-        // through as a switch. Enabled is the one field a switch may change.
-        var written = new[]
-        {
-            "Name", "ScheduleKind", "CronExpression", "RunAt", "TimeZoneId", "Factory", "Seat", "Target.Machine",
-            "Action.RepoPath", "Action.Seed", "Action.WorkListName", "Action.AutoDismiss", "PreventOverlap", "NotifyOn",
-            "NotifyWebhookUrl",
-        };
+        nameof(CronJobDto.Id), nameof(CronJobDto.Enabled), nameof(CronJobDto.CreatedUtc), nameof(CronJobDto.LastFiredUtc),
+        nameof(CronJobDto.NextRunUtc), nameof(CronJobDto.LastStatus), nameof(CronJobDto.ScheduleText),
+        nameof(CronJobDto.RemainingToday), nameof(CronJobDto.Lifecycle), nameof(CronJobDto.StateLabel),
+        nameof(CronJobDto.ToggleLabel), nameof(CronJobDto.RunRecord), nameof(CronJobDto.FactoryTitle),
+        nameof(CronJobDto.FactoryHref), nameof(CronJobDto.ShortName), nameof(CronJobDto.LoadWarning),
+        nameof(CronJobDto.Shifts), nameof(CronJobDto.ShiftText), nameof(CronJobDto.ShiftWarning), nameof(CronJobDto.ShiftRule),
+    };
 
-        Assert.Equal(written, EveryDefinitionField().Select(row => (string)row[0]));
-        Assert.Equal(new[] { "AutoDismiss", "RepoPath", "Seed", "WorkListName" },
-            typeof(CronJobAction).GetProperties().Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal));
-        Assert.Equal(new[] { "Machine" }, typeof(CronJobTarget).GetProperties().Select(p => p.Name));
+    /// <summary>Every definition field of a schedule, READ FROM <see cref="CronJobDto"/> itself: its properties minus
+    /// <see cref="NotADefinitionField"/>, with the target and the action opened into their own properties.</summary>
+    internal static IReadOnlyList<string> DefinitionFieldsOfTheDto() => typeof(CronJobDto).GetProperties()
+        .Where(p => !NotADefinitionField.Contains(p.Name))
+        .SelectMany(p => p.PropertyType == typeof(CronJobTarget) || p.PropertyType == typeof(CronJobAction)
+            ? p.PropertyType.GetProperties().Select(c => $"{p.Name}.{c.Name}")
+            : new[] { p.Name })
+        .OrderBy(n => n, StringComparer.Ordinal)
+        .ToList();
+
+    [Fact]
+    public void EveryDefinitionField_IsEveryDefinitionFieldOfTheDto()
+    {
+        Assert.Equal(DefinitionFieldsOfTheDto(),
+            EveryDefinitionField().Select(row => (string)row[0]).OrderBy(n => n, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void NotADefinitionField_NamesOnlyPropertiesTheDtoHas()
+    {
+        // A stale name here would hide nothing today, but it would be a claim about a field that no longer exists.
+        var properties = typeof(CronJobDto).GetProperties().Select(p => p.Name).ToHashSet(StringComparer.Ordinal);
+        Assert.All(NotADefinitionField, name => Assert.Contains(name, properties));
     }
 
     [Fact]

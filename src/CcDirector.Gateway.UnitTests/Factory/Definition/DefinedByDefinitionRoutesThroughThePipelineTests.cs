@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -359,6 +360,19 @@ public sealed class DefinedByDefinitionRoutesThroughThePipelineTests : IDisposab
         ("scheduleKind and runAt", j => { j["scheduleKind"] = "oneOff"; j["runAt"] = "2026-11-01T08:00"; j["cronExpression"] = null; }),
     }.Select(f => new object[] { f.Field, f.Change });
 
+    [Fact]
+    public void EveryEditableField_IsEveryDefinitionFieldOfTheDto()
+    {
+        // The same guard as the switch rule's own list: a field added to the DTO is a definition field, and this
+        // theory must change it through the route before it is proven refused.
+        var touched = EveryEditableField()
+            .SelectMany(row => ((string)row[0]).Split(" and "))
+            .Select(field => string.Join('.', field.Split('.').Select(part => char.ToUpperInvariant(part[0]) + part[1..])))
+            .OrderBy(n => n, StringComparer.Ordinal);
+
+        Assert.Equal(DefinedByDefinitionTests.DefinitionFieldsOfTheDto(), touched);
+    }
+
     [Theory]
     [MemberData(nameof(EveryEditableField))]
     public async Task EditSchedule_OfADefinedFactory_AnyDefinitionFieldChanged_IsRefused(string field, Action<JsonObject> change)
@@ -521,32 +535,32 @@ public sealed class DefinedByDefinitionRoutesThroughThePipelineTests : IDisposab
         Assert.Equal((false, Defined, "boss"), (Job("cj_dt").Enabled, Job("cj_dt").Factory, Job("cj_dt").Seat));
     }
 
+    /// <summary>The Cockpit's pause, held once for this suite and client-core's (cronJobPauseBody.fixture.json).</summary>
+    private static JsonElement CockpitPauseFixture([CallerFilePath] string thisFile = "")
+    {
+        // this file: <repo>/src/CcDirector.Gateway.UnitTests/Factory/Definition/<this>.cs
+        var root = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(thisFile)!, "..", "..", "..", ".."));
+        var path = Path.Combine(root, "packages", "client-core", "src", "schedule", "cronJobPauseBody.fixture.json");
+        Assert.True(File.Exists(path), $"Resolved the repository root to {root}, but it has no {path}. Run the suite from a checkout.");
+        using var document = JsonDocument.Parse(File.ReadAllText(path));
+        return document.RootElement.Clone();
+    }
+
     [Fact]
-    public async Task Disable_ASchedulesOfADefinedFactory_InTheCockpitsBodyShape_Works()
+    public async Task Disable_ASchedulesOfADefinedFactory_WithTheBodyTheCockpitSends_Works()
     {
         Seed(Standing.Published);
-        // client-core's cronJobWriteBody: no id, no factory or seat (said nothing, so kept), none of the display words.
-        var job = Job("cj_dt");
-        var cockpit = Json(new
-        {
-            id = "",
-            name = job.Name,
-            enabled = false,
-            scheduleKind = job.ScheduleKind,
-            cronExpression = job.CronExpression,
-            runAt = job.RunAt,
-            timeZoneId = job.TimeZoneId,
-            target = new { machine = job.Target.Machine },
-            action = new { repoPath = job.Action.RepoPath, seed = job.Action.Seed, workListName = job.Action.WorkListName, autoDismiss = job.Action.AutoDismiss },
-            preventOverlap = job.PreventOverlap,
-            notifyOn = job.NotifyOn,
-            notifyWebhookUrl = job.NotifyWebhookUrl,
-        });
+        // The schedule stored as the fixture says it was read, then the very body client-core's test proves the
+        // Cockpit sends for its pause.
+        var fixture = CockpitPauseFixture();
+        var stored = fixture.GetProperty("stored").Deserialize<CronJobDto>(Web)!;
+        Assert.NotNull(_schedules.Update("cj_dt", stored));
 
-        var answer = await Send("PUT", "/cron/jobs/cj_dt", cockpit);
+        var answer = await Send("PUT", "/cron/jobs/cj_dt", fixture.GetProperty("pauseBody").GetRawText());
 
         AssertNotRefusedByTheDefinition(answer, 200);
-        Assert.Equal((false, Defined, "boss"), (Job("cj_dt").Enabled, Job("cj_dt").Factory, Job("cj_dt").Seat));
+        var after = Job("cj_dt");
+        Assert.Equal((false, Defined, "boss", false), (after.Enabled, after.Factory, after.Seat, after.Action.AutoDismiss));
     }
 
     [Fact]

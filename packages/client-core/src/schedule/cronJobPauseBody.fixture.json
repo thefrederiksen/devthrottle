@@ -1,0 +1,40 @@
+{
+  "about": "The Cockpit's pause, held once for two suites. 'stored' is a schedule as the Gateway answers GET /cron/jobs/{id}; 'pauseBody' is exactly what cronJobWriteBody(stored, { enabled: false }) sends. scheduleClient.test.ts proves the client sends this body; the Gateway test DefinedByDefinitionRoutesThroughThePipelineTests proves the Gateway lets this body switch a schedule of a factory with a published definition. Change it here and both suites check the change.",
+  "stored": {
+    "id": "cj_dt",
+    "name": "DevThrottle - Boss",
+    "enabled": true,
+    "scheduleKind": "recurring",
+    "cronExpression": "0 8 * * 1-5",
+    "runAt": null,
+    "timeZoneId": "Europe/Copenhagen",
+    "factory": "devthrottle",
+    "seat": "boss",
+    "target": { "machine": "SOREN_NORTH" },
+    "action": { "repoPath": "D:\\factories\\devthrottle", "seed": "Morning round.", "workListName": null, "autoDismiss": false },
+    "preventOverlap": true,
+    "notifyOn": "failure",
+    "notifyWebhookUrl": "https://example.test/hook",
+    "createdUtc": "2026-10-01T00:00:00Z",
+    "lastFiredUtc": "2026-10-14T06:00:00Z",
+    "nextRunUtc": "2026-10-16T06:00:00Z",
+    "lastStatus": "started",
+    "lifecycle": "active",
+    "stateLabel": "Active",
+    "toggleLabel": "Pause"
+  },
+  "pauseBody": {
+    "id": "",
+    "name": "DevThrottle - Boss",
+    "enabled": false,
+    "scheduleKind": "recurring",
+    "cronExpression": "0 8 * * 1-5",
+    "runAt": null,
+    "timeZoneId": "Europe/Copenhagen",
+    "target": { "machine": "SOREN_NORTH" },
+    "action": { "repoPath": "D:\\factories\\devthrottle", "seed": "Morning round.", "workListName": null, "autoDismiss": false },
+    "preventOverlap": true,
+    "notifyOn": "failure",
+    "notifyWebhookUrl": "https://example.test/hook"
+  }
+}

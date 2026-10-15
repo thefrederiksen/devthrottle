@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { GatewayError } from "../api/client";
 import { cronJobWriteBody, getCronPause, setCronJobEnabled, setCronPause, type CronJob } from "./scheduleClient";
+import pauseFixture from "./cronJobPauseBody.fixture.json";
 
 // Pausing from where the state is read (issue #3910). What is held down:
 //   * one schedule is paused or resumed to the state the CALLER names - never "the opposite of what is stored" -
@@ -107,17 +108,12 @@ describe("cronJobWriteBody", () => {
     expect(body.action).toEqual({ repoPath: STORED.action.repoPath, seed: STORED.action.seed, workListName: null });
   });
 
-  it("sends a schedule's autoDismiss back as stored, so a pause changes nothing but enabled", () => {
-    const stored: CronJob = { ...STORED, action: { ...STORED.action, autoDismiss: false } };
+  it("sends exactly the pause body the Gateway test sends, autoDismiss included (shared fixture)", () => {
+    // cronJobPauseBody.fixture.json is also what the Gateway's defined-factory test PUTs, so a field this body drops
+    // or renames fails here, and the Gateway test proves that very body is still allowed as a switch.
+    const body = cronJobWriteBody(pauseFixture.stored as CronJob, { enabled: false });
 
-    const body = cronJobWriteBody(stored, { enabled: false });
-
-    expect(JSON.parse(JSON.stringify(body)).action).toEqual({
-      repoPath: STORED.action.repoPath,
-      seed: STORED.action.seed,
-      workListName: null,
-      autoDismiss: false,
-    });
+    expect(JSON.parse(JSON.stringify(body))).toStrictEqual(pauseFixture.pauseBody);
   });
 });
 
