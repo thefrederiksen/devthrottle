@@ -1,0 +1,147 @@
+THE NAMED RISK ON macOS: DOES THE IOKit DISK-TIME STATISTIC GIVE A USABLE BUSY FIGURE?
+
+Machine     devthrottle-mac-mini, Apple M4, 10 cores, 16 GiB, macOS 26.5.2 (build 25F84), arm64
+Disk        disk0, medium type "Solid State", read through IOKit with no subprocess
+Taken       2026-10-15 09:44:03 local time
+
+Each phase puts a real load on the disk, samples the IOKit counters across a one second window,
+and runs the operating system's own iostat across the same window. The probe's figures and
+iostat's are then side by side for the same moment.
+
+----------------------------------------------------------------------------------------------------
+PHASE 0: idle
+  load: none
+
+  THE PROBE      busy      0.31%   queue depth   0.00   read      1.6 MiB/s   write      0.0 MiB/s
+                  0.325 ms per read       0.000 ms per write            10 operations a second
+
+  iostat, same window:
+                    disk0
+          KB/t  tps  MB/s
+         42.33   76  3.13
+        992.00    2  1.93
+          0.00    0  0.00
+        115.26   27  3.02
+
+----------------------------------------------------------------------------------------------------
+PHASE 1: one writer, flushing to disk after every 2 mebibyte block
+  load: latency bound - the disk is NOT saturated, each write waits for the one before
+
+  THE PROBE      busy     17.23%   queue depth   0.17   read      1.9 MiB/s   write    366.9 MiB/s
+                  0.214 ms per read       0.052 ms per write          3190 operations a second
+
+  iostat, same window (macOS iostat reports no busy percentage of its own - see the finding):
+                    disk0
+          KB/t  tps  MB/s
+         42.36   76  3.13
+        115.71 3316 374.71
+        119.29 3133 365.04
+        120.03 3130 366.85
+
+----------------------------------------------------------------------------------------------------
+PHASE 2: one writer, 32 mebibyte blocks, occasional flush
+  load: bandwidth bound - a single stream going as fast as the disk will take it
+
+  THE PROBE      busy    234.11%   queue depth   2.34   read     12.4 MiB/s   write   1711.2 MiB/s
+                  0.875 ms per read       1.099 ms per write          2170 operations a second
+
+  iostat, same window (macOS iostat reports no busy percentage of its own - see the finding):
+                    disk0
+          KB/t  tps  MB/s
+         42.63   76  3.16
+        930.16 1711 1554.05
+        925.09 2179 1968.59
+        645.28 2619 1650.22
+
+----------------------------------------------------------------------------------------------------
+PHASE 3: four writers, 32 mebibyte blocks, occasional flush
+  load: saturated and contended - four streams competing, which is where latency collapses
+
+  THE PROBE      busy   2453.99%   queue depth  24.54   read     16.7 MiB/s   write   1419.9 MiB/s
+                  1.992 ms per read      15.785 ms per write          2002 operations a second
+
+  iostat, same window (macOS iostat reports no busy percentage of its own - see the finding):
+                    disk0
+          KB/t  tps  MB/s
+         43.28   76  3.21
+        931.63 1497 1361.81
+        977.82 1960 1871.36
+        434.76 2545 1080.37
+
+====================================================================================================
+WHAT THE FOUR PHASES SHOW
+
+1. THE PROBE'S THROUGHPUT AND OPERATION COUNTS AGREE WITH THE OPERATING SYSTEM'S OWN TOOL.
+   Read side by side above, for the same windows:
+
+       phase 1    probe  366.9 MiB/s,  3190 operations a second
+                  iostat 365 to 374 MB/s,  3130 to 3316 transfers a second
+       phase 2    probe 1711.2 MiB/s,  2170 operations a second
+                  iostat 1554 to 1968 MB/s,  1711 to 2619 transfers a second
+       phase 3    probe 1419.9 MiB/s,  2002 operations a second
+                  iostat 1080 to 1871 MB/s,  1497 to 2545 transfers a second
+
+   iostat averages over its own one second ticks while the probe averages over the whole window, so
+   the two cannot be identical; they are the same figures. The bytes, the operation counts and the
+   per-operation times coming out of IOKit are therefore sound, and the mission's disk read and write
+   rates can be built on them.
+
+2. THE "BUSY PERCENTAGE" IS NOT A PERCENTAGE. It is the average number of operations in flight,
+   multiplied by a hundred, and it runs away above 100 whenever the disk is doing more than one thing
+   at a time:
+
+       idle                                      0.31%     queue depth  0.00
+       one writer, flushing every block         17.23%     queue depth  0.17
+       one writer, going flat out              234.11%     queue depth  2.34
+       four writers, contended                2453.99%     queue depth 24.54
+
+   The identity was checked directly: operations a second multiplied by milliseconds an operation
+   reproduces the figure to within five percent on every load measured. So the mission's proposed
+   limits of "above 80 percent for 60 seconds" for amber and 95 for red CANNOT be evaluated against
+   this counter on macOS. Phase 2 is one program copying a file at full speed - a perfectly healthy
+   machine - and it reads 234 percent, which is red twice over. Capping the figure at 100 would not
+   rescue it, because the ordering is wrong rather than the scale.
+
+   Supporting evidence that the platform simply does not offer utilisation: macOS's own iostat
+   reports kilobytes per transfer, transfers a second and megabytes a second, and NO busy column at
+   all. Linux's iostat has one; macOS's does not, because the figure is not available to report.
+
+3. WHAT DOES TRACK SATURATION IS MILLISECONDS AN OPERATION, cleanly and in the right order:
+
+       idle                                      0.000 ms per write
+       one writer, flushing every block          0.052 ms per write
+       one writer, going flat out                1.099 ms per write
+       four writers, contended                  15.785 ms per write
+
+   That is a monotonic, physically meaningful signal, and it is the same figure the mission's own
+   evidence from devlinux used when it named the cause: "sdc, 75% busy, 26 ms per write". The
+   milliseconds are the part of that sentence which means the same thing on all three platforms.
+
+THE RULING TAKEN, AND BY WHOM
+
+Reported to the phase 1 Tech Lead on 2026-10-15 with a recommendation; accepted the same day, all
+three parts:
+
+  - PhysicalDiskReading.BusyPercent becomes double? and is NULL on macOS, because the platform does
+    not offer a utilisation figure and the mission says a figure the platform does not offer is null,
+    never invented and never zero.
+  - QueueLength is replaced by double? AverageQueueDepth, which is what this counter honestly
+    measures, filled from total time over the interval.
+  - The slowness diagnosis rests the macOS disk verdict on MillisecondsPerRead and
+    MillisecondsPerWrite rather than on a percentage.
+
+WHAT THIS PROOF DOES NOT COVER
+
+  - ONE MACHINE, ONE DISK, ONE KIND OF DISK. This is an Apple M4 with a single internal solid-state
+    disk. No spinning hard drive was measured on macOS at all, so the Rotational branch of the medium
+    type is covered only by a committed fixture and by the code path, not by hardware. The mission's
+    spinning-disk evidence is from devlinux, a different platform.
+  - NO EXTERNAL OR NETWORK VOLUME was attached, so a disk appearing and disappearing while the probe
+    is sampling is untested here.
+  - THE READ SIDE IS UNDER-LOADED. These phases are write-heavy; the read figures above are whatever
+    the machine happened to be doing. Reads were saturated separately during the investigation, at
+    about 900 mebibytes a second for one reader with the file cache turned off and about 2765 for
+    four, giving busy figures of 260 and 380 percent - the same conclusion by the same arithmetic.
+  - THE LIMITS THEMSELVES ARE STILL PROPOSALS. This says what the macOS disk figure means, not what
+    the right threshold on milliseconds per write is. That needs the phase 2 load harness on all
+    three platforms, as the mission document already says.
