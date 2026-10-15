@@ -6,6 +6,7 @@ using CcDirector.Gateway.Factory.Triggers;
 using CcDirector.Gateway.Util;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Routing;
 
 namespace CcDirector.Gateway.Api;
@@ -236,6 +237,11 @@ internal static class TriggerEndpoints
             FileLog.Write($"[TriggerEndpoints] POST /directors/{directorId}/triggers/{id}/checks");
             if (resolveTenant(ctx) is not { } tenant) return NoAccount();
             if (directorMachine(tenant, directorId) is null) return NoSuchDirector(directorId);
+            // Factory Definition, phase 5b: a report carries up to 16 KB of each output and 64 KB of a check's state.
+            // The body is capped at what a full report needs at the worst JSON escaping (TriggerCheckLimits) - below
+            // the server's own default, so this is a bound set to fit, not a raise.
+            var sizeFeature = ctx.Features.Get<IHttpMaxRequestBodySizeFeature>();
+            if (sizeFeature is { IsReadOnly: false }) sizeFeature.MaxRequestBodySize = TriggerCheckLimits.ReportBodyLimitBytes;
             var (report, bad) = await ReadBody<TriggerCheckReport>(ctx, "a check report");
             if (bad is not null) return bad;
 
@@ -291,6 +297,12 @@ internal static class TriggerEndpoints
         {
             FileLog.Write($"[TriggerEndpoints] bad JSON for {what}: {ex.Message}");
             return (null, Refuse(StatusCodes.Status400BadRequest, "invalid_json", $"{what} must be JSON"));
+        }
+        catch (BadHttpRequestException ex) when (ex.StatusCode == StatusCodes.Status413PayloadTooLarge)
+        {
+            FileLog.Write($"[TriggerEndpoints] {what} is too large: {ex.Message}");
+            return (null, Refuse(StatusCodes.Status413PayloadTooLarge, "body_too_large",
+                $"{what} is larger than the {TriggerCheckLimits.ReportBodyLimitBytes} bytes this route reads"));
         }
     }
 

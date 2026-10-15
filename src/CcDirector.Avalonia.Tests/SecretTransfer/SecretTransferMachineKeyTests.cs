@@ -140,6 +140,21 @@ public sealed class SecretTransferMachineKeyTests
         Assert.Equal("", Assert.Single(hub.Hellos).SecretTransferPublicKey);
     }
 
+    [Fact]
+    public async Task ReseedAsync_Always_HelloSaysThisDirectorRunsChecksFromADefinition()
+    {
+        // Factory Definition, phase 5b: the Gateway hands a check from a definition only to a Director that says so.
+        // Arrange
+        var hub = new HelloRecordingHub();
+        var client = NewClient(() => "");
+
+        // Act
+        await client.ReseedAsync(hub, client.CurrentConnectionGeneration);
+
+        // Assert
+        Assert.True(Assert.Single(hub.Hellos).DefinitionChecks);
+    }
+
     // ===================== helpers =====================
 
     private static GatewayStreamClient NewClient(Func<string> secretTransferPublicKey)

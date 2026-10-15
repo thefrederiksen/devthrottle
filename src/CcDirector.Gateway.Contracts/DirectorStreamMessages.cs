@@ -103,4 +103,13 @@ public sealed class DirectorStreamHello
     /// Director is too old to be asked instead.
     /// </summary>
     public bool AnswersFactoryMachineQuestion { get; set; }
+
+    /// <summary>
+    /// This Director runs checks from a factory's definition (Factory Definition, phase 5b): it understands
+    /// <see cref="TriggerAssignmentDto.Kind"/> <c>definition</c>, downloads the published version's checks and runs one
+    /// under Python with its secrets and its state file. False from an older build, which would ignore the kind and
+    /// run the empty command - so the Gateway hands a definition check only to a Director that says true, and a
+    /// command trigger to every Director as before.
+    /// </summary>
+    public bool DefinitionChecks { get; set; }
 }

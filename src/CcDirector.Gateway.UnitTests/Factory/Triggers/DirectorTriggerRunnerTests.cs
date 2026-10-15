@@ -34,6 +34,7 @@ public sealed class DirectorTriggerRunnerTests
     private sealed class FakeGateway : ITriggerGateway
     {
         public TriggerFetch Next { get; set; } = TriggerFetch.Off("factory agents are off");
+        public string? Refusal { get; set; }
         public List<(string director, string trigger, TriggerCheckReport report)> Reports { get; } = new();
 
         public Task<TriggerFetch> FetchTriggersAsync(string directorId, CancellationToken ct) => Task.FromResult(Next);
@@ -41,7 +42,7 @@ public sealed class DirectorTriggerRunnerTests
         public Task<string?> ReportTriggerCheckAsync(string directorId, string triggerId, TriggerCheckReport report, CancellationToken ct)
         {
             lock (Reports) Reports.Add((directorId, triggerId, report));
-            return Task.FromResult<string?>(null);
+            return Task.FromResult(Refusal);
         }
     }
 
@@ -127,6 +128,153 @@ public sealed class DirectorTriggerRunnerTests
         _now = _now.AddHours(1);
         Assert.Empty(await runner.TickAsync(CancellationToken.None));
         Assert.Single(_checked);
+    }
+
+    // ---------- Factory Definition, phase 5b: due checks and the two kinds ----------
+
+    private static TriggerAssignmentDto DueCheck(string runId) => new()
+    {
+        Id = "cj_outreach", Name = "outreach-morning", Kind = TriggerKinds.Definition, Factory = "devthrottle",
+        Seat = "outreach", DefinitionVersion = 3, CheckPath = "checks/new_mail.py", DueRunId = runId, State = "",
+        IntervalSeconds = 0, TimeoutSeconds = TriggerCheckLimits.DueCheckTimeoutSeconds,
+    };
+
+    [Fact]
+    public async Task ADueCheck_IsRunOnce_ReportedUnderItsRunId_AndNeverAgainWhileTheGatewayStillHandsItOut()
+    {
+        _gateway.Next = Assigned(DueCheck("run-41"));
+        var runner = Runner();
+
+        await Task.WhenAll(await runner.TickAsync(CancellationToken.None));
+        _now = _now.AddHours(1);
+        Assert.Empty(await runner.TickAsync(CancellationToken.None));
+
+        Assert.Equal(new[] { "cj_outreach" }, _checked);
+        Assert.Equal("run-41", Assert.Single(_gateway.Reports).trigger);
+    }
+
+    [Fact]
+    public async Task ADueCheckWhoseReportWasNotRecorded_RunsAgainWhenItIsHandedOutAgain()
+    {
+        _gateway.Next = Assigned(DueCheck("run-41"));
+        _gateway.Refusal = "No connection could be made because the target machine actively refused it.";
+        var runner = Runner();
+        await Task.WhenAll(await runner.TickAsync(CancellationToken.None));
+
+        _gateway.Refusal = null;
+        await Task.WhenAll(await runner.TickAsync(CancellationToken.None));
+        Assert.Empty(await runner.TickAsync(CancellationToken.None));
+
+        Assert.Equal(new[] { "run-41", "run-41" }, _gateway.Reports.Select(r => r.trigger));
+    }
+
+    [Fact]
+    public async Task ADueCheckTheGatewayAlreadyRecorded_IsNotRunAgain()
+    {
+        _gateway.Next = Assigned(DueCheck("run-41"));
+        _gateway.Refusal = "HTTP 409: {\"code\":\"already_recorded\",\"error\":\"run run-41 is already recorded\"}";
+        var runner = Runner();
+        await Task.WhenAll(await runner.TickAsync(CancellationToken.None));
+
+        Assert.Empty(await runner.TickAsync(CancellationToken.None));
+        Assert.Single(_gateway.Reports);
+    }
+
+    [Theory]
+    [InlineData("HTTP 409: {\"error\":\"run 7 is already recorded\"}", true)]
+    [InlineData("HTTP 409: {\"code\":\"held_by_another_director\"}", false)]
+    [InlineData("HTTP 500: already recorded", false)]
+    [InlineData("A task was canceled.", false)]
+    public void IsAlreadyRecorded_OnlyTheGatewaysTerminal409(string refusal, bool expected)
+        => Assert.Equal(expected, DirectorTriggerRunner.IsAlreadyRecorded(refusal));
+
+    [Fact]
+    public async Task TheNextDueRunOfTheSameSchedule_IsRunToo()
+    {
+        _gateway.Next = Assigned(DueCheck("run-41"));
+        var runner = Runner();
+        await Task.WhenAll(await runner.TickAsync(CancellationToken.None));
+
+        _gateway.Next = Assigned(DueCheck("run-42"));
+        await Task.WhenAll(await runner.TickAsync(CancellationToken.None));
+
+        Assert.Equal(new[] { "run-41", "run-42" }, _gateway.Reports.Select(r => r.trigger));
+    }
+
+    [Fact]
+    public async Task ACommandTrigger_RunsItsCommandExactlyAsBefore_AndIsNeverHandedToTheDefinitionRunner()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "dtr-" + Guid.NewGuid().ToString("N"));
+        var definitions = new DefinitionCheckRunner(Director, root, () => null, new NoProcesses(),
+            () => new Dictionary<string, string>(), () => _now, isWindows: true);
+        var commands = new List<string>();
+        var dispatch = DirectorTriggerRunner.Dispatch(definitions, (t, _) =>
+        {
+            commands.Add(t.CheckCommand);
+            return Task.FromResult(new TriggerCheckReport { CheckedAtUtc = _now, ExitCode = 0, Output = "{\"count\": 0}" });
+        });
+        _gateway.Next = Assigned(Trigger());
+
+        await Task.WhenAll(await Runner(dispatch).TickAsync(CancellationToken.None));
+
+        Assert.Equal(new[] { "check" }, commands);
+        var (_, trigger, report) = Assert.Single(_gateway.Reports);
+        Assert.Equal("t1", trigger);
+        Assert.Null(report.State);
+        Assert.False(report.StateOversize);
+        Assert.False(Directory.Exists(root));
+    }
+
+    [Fact]
+    public async Task ADefinitionCheck_GoesToTheDefinitionRunner_NotTheCommandRunner()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "dtr-" + Guid.NewGuid().ToString("N"));
+        var definitions = new DefinitionCheckRunner(Director, root, () => null, new NoProcesses(),
+            () => new Dictionary<string, string>(), () => _now, isWindows: true);
+        var dispatch = DirectorTriggerRunner.Dispatch(definitions,
+            (_, _) => throw new InvalidOperationException("a definition check must not run as a command"));
+        _gateway.Next = Assigned(DueCheck("run-7"));
+
+        await Task.WhenAll(await Runner(dispatch).TickAsync(CancellationToken.None));
+
+        var (_, _, report) = Assert.Single(_gateway.Reports);
+        Assert.Equal("version 3 of the checks of devthrottle could not be downloaded: no Gateway is configured", report.StartError);
+    }
+
+    [Fact]
+    public async Task TheAssignedHook_IsToldWhatWasHanded_AndNothingWhenTheSwitchIsOff_AndNotToldOnAFailedFetch()
+    {
+        var told = new List<int>();
+        var runner = new DirectorTriggerRunner(Director, () => _gateway,
+            (_, _) => Task.FromResult(new TriggerCheckReport { CheckedAtUtc = _now, ExitCode = 0, Output = "{\"count\": 0}" }),
+            () => _now, assigned => told.Add(assigned.Count));
+
+        _gateway.Next = Assigned(Trigger("t1"), Trigger("t2"));
+        await Task.WhenAll(await runner.TickAsync(CancellationToken.None));
+        _gateway.Next = TriggerFetch.Failed("the Gateway could not be reached");
+        await runner.TickAsync(CancellationToken.None);
+        _gateway.Next = TriggerFetch.Off("factory agents are off");
+        await runner.TickAsync(CancellationToken.None);
+
+        Assert.Equal(new[] { 2, 0 }, told);
+    }
+
+    [Fact]
+    public void ACommandTriggerAssignment_SerializesWithNoneOfTheDefinitionFields()
+    {
+        var json = System.Text.Json.JsonSerializer.Serialize(Trigger(), new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+
+        Assert.Equal("{\"id\":\"t1\",\"name\":\"website-new-mail\",\"checkCommand\":\"check\",\"repoPath\":\".\"," +
+                     "\"intervalSeconds\":300,\"timeoutSeconds\":30}", json);
+    }
+
+    /// <summary>A process seam that must never be reached.</summary>
+    private sealed class NoProcesses : ICheckProcesses
+    {
+        public string? FindOnPath(string name) => throw new InvalidOperationException("no process may be looked for");
+        public string? FindCcSecrets() => throw new InvalidOperationException("no process may be looked for");
+        public Task<CheckProcessResult> RunAsync(CheckProcessStart start, CancellationToken ct)
+            => throw new InvalidOperationException("no process may run");
     }
 
     // ---------- the real process: RunCheckAsync over ProcessJob ----------

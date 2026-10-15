@@ -25,15 +25,20 @@ public delegate Task<TriggerCheckReport> TriggerCheckRunner(TriggerAssignmentDto
 ///
 /// A check is never run twice at once: a trigger whose previous check is still running is not started again until
 /// it has finished, and its next check is due one interval after that.
+///
+/// TWO KINDS (Factory Definition, phase 5b): a command trigger runs its command line (<see cref="RunCheckAsync"/>), as
+/// it always has; a check from a definition runs in <see cref="DefinitionCheckRunner"/> (<see cref="Dispatch"/>). A
+/// DUE check - a timed start's check, which carries <see cref="TriggerAssignmentDto.DueRunId"/> - is one-shot: it is
+/// run once, reported under its run id, and never run again on an interval.
 /// </summary>
 public sealed class DirectorTriggerRunner
 {
     /// <summary>How often the Director asks the Gateway for its triggers.</summary>
     public static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(30);
 
-    /// <summary>How much of a check's output travels to the Gateway. The contract needs a small JSON object; the
-    /// rest is only ever quoted in a failure reason.</summary>
-    public const int OutputCap = 8192;
+    /// <summary>How much of a check's output travels to the Gateway. The contract needs a small JSON object and its
+    /// context; the rest is only ever quoted in a failure reason.</summary>
+    public const int OutputCap = TriggerCheckLimits.OutputCap;
 
     private readonly string _directorId;
     private readonly Func<ITriggerGateway?> _gateway;
@@ -43,18 +48,37 @@ public sealed class DirectorTriggerRunner
     // The triggers whose check is running now. Marked BEFORE the check starts and cleared when it ends, so a check
     // that finishes at once cannot clear the mark before it is set and leave its trigger marked forever.
     private readonly ConcurrentDictionary<string, byte> _running = new(StringComparer.OrdinalIgnoreCase);
+    // The due checks already REPORTED. A due check is one-shot: the Gateway stops handing it out once the report is
+    // recorded, and until then this keeps a slow Gateway from having it run twice. A due check whose report did not
+    // arrive is not in here, so it runs again at the next poll.
+    private readonly ConcurrentDictionary<string, byte> _dueDone = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Action<IReadOnlyList<TriggerAssignmentDto>>? _assigned;
     private TriggerFetchKind? _lastFetchKind;
 
     /// <param name="gateway">Read on every poll, so a settings change that replaces the Gateway client is picked up.
     /// Null means no Gateway: nothing runs.</param>
+    /// <param name="assigned">Told what this Director is handed after every answered fetch (nothing, when the Gateway
+    /// serves no triggers), so the downloaded checks no assignment names any more can be deleted. Null: nobody asks.</param>
     public DirectorTriggerRunner(string directorId, Func<ITriggerGateway?> gateway, TriggerCheckRunner runCheck,
-        Func<DateTime> nowUtc)
+        Func<DateTime> nowUtc, Action<IReadOnlyList<TriggerAssignmentDto>>? assigned = null)
     {
         if (string.IsNullOrWhiteSpace(directorId)) throw new ArgumentException("a Director id is required", nameof(directorId));
         _directorId = directorId;
         _gateway = gateway ?? throw new ArgumentNullException(nameof(gateway));
         _runCheck = runCheck ?? throw new ArgumentNullException(nameof(runCheck));
         _nowUtc = nowUtc ?? throw new ArgumentNullException(nameof(nowUtc));
+        _assigned = assigned;
+    }
+
+    /// <summary>
+    /// The production check runner: a check from a definition goes to <paramref name="definitions"/>, and every other
+    /// trigger - a command trigger, whose kind is absent - runs its command exactly as before.
+    /// </summary>
+    public static TriggerCheckRunner Dispatch(DefinitionCheckRunner definitions, TriggerCheckRunner commands)
+    {
+        ArgumentNullException.ThrowIfNull(definitions);
+        ArgumentNullException.ThrowIfNull(commands);
+        return (trigger, ct) => trigger.IsDefinitionCheck ? definitions.RunAsync(trigger, ct) : commands(trigger, ct);
     }
 
     /// <summary>Poll on <see cref="PollInterval"/> until cancelled. The first poll is immediate.</summary>
@@ -102,21 +126,31 @@ public sealed class DirectorTriggerRunner
         }
         if (fetch.Kind != TriggerFetchKind.Assigned)
         {
-            if (fetch.Kind == TriggerFetchKind.Off) _nextDueUtc.Clear();
+            if (fetch.Kind == TriggerFetchKind.Off)
+            {
+                _nextDueUtc.Clear();
+                _assigned?.Invoke(Array.Empty<TriggerAssignmentDto>());
+            }
             return Array.Empty<Task>();
         }
+        _assigned?.Invoke(fetch.Triggers);
 
-        // Forget the schedule of a trigger this Director no longer runs, so it is due at once if it comes back.
-        var assigned = new HashSet<string>(fetch.Triggers.Select(t => t.Id), StringComparer.OrdinalIgnoreCase);
+        // Forget the schedule of a trigger this Director no longer runs, so it is due at once if it comes back, and
+        // the due checks the Gateway no longer hands out.
+        var assigned = new HashSet<string>(fetch.Triggers.Select(t => t.ReportId), StringComparer.OrdinalIgnoreCase);
         foreach (var id in _nextDueUtc.Keys.Where(id => !assigned.Contains(id)).ToList())
             _nextDueUtc.TryRemove(id, out _);
+        foreach (var id in _dueDone.Keys.Where(id => !assigned.Contains(id)).ToList())
+            _dueDone.TryRemove(id, out _);
 
         var started = new List<Task>();
         var now = _nowUtc();
         foreach (var trigger in fetch.Triggers)
         {
-            if (_nextDueUtc.TryGetValue(trigger.Id, out var due) && now < due) continue;
-            if (!_running.TryAdd(trigger.Id, 0)) continue;
+            var key = trigger.ReportId;
+            if (_dueDone.ContainsKey(key)) continue;
+            if (_nextDueUtc.TryGetValue(key, out var due) && now < due) continue;
+            if (!_running.TryAdd(key, 0)) continue;
 
             started.Add(CheckAndReportAsync(gateway, trigger, ct));
         }
@@ -127,12 +161,16 @@ public sealed class DirectorTriggerRunner
     {
         try
         {
-            FileLog.Write($"[DirectorTriggerRunner] check: trigger={trigger.Name}, command={trigger.CheckCommand}");
+            FileLog.Write(trigger.IsDefinitionCheck
+                ? $"[DirectorTriggerRunner] check: trigger={trigger.Name}, factory={trigger.Factory}, check={trigger.CheckPath}, due={trigger.DueRunId ?? "-"}"
+                : $"[DirectorTriggerRunner] check: trigger={trigger.Name}, command={trigger.CheckCommand}");
             var report = await _runCheck(trigger, ct).ConfigureAwait(false);
-            var refused = await gateway.ReportTriggerCheckAsync(_directorId, trigger.Id, report, ct).ConfigureAwait(false);
+            var refused = await gateway.ReportTriggerCheckAsync(_directorId, trigger.ReportId, report, ct).ConfigureAwait(false);
             FileLog.Write(refused is null
                 ? $"[DirectorTriggerRunner] reported: trigger={trigger.Name}, exit={report.ExitCode?.ToString() ?? "none"}, timedOut={report.TimedOut}"
                 : $"[DirectorTriggerRunner] report NOT recorded: trigger={trigger.Name}, {refused}");
+            if (!string.IsNullOrEmpty(trigger.DueRunId) && (refused is null || IsAlreadyRecorded(refused)))
+                _dueDone[trigger.DueRunId] = 0;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -140,10 +178,17 @@ public sealed class DirectorTriggerRunner
         }
         finally
         {
-            _nextDueUtc[trigger.Id] = _nowUtc() + TimeSpan.FromSeconds(trigger.IntervalSeconds);
-            _running.TryRemove(trigger.Id, out _);
+            if (string.IsNullOrEmpty(trigger.DueRunId))
+                _nextDueUtc[trigger.Id] = _nowUtc() + TimeSpan.FromSeconds(trigger.IntervalSeconds);
+            _running.TryRemove(trigger.ReportId, out _);
         }
     }
+
+    /// <summary>The Gateway's terminal answer to a due check's report: 409, the run was already recorded. Any other
+    /// refusal - the Gateway unreachable, a server error - leaves the due check to run again.</summary>
+    public static bool IsAlreadyRecorded(string refusal)
+        => refusal.StartsWith("HTTP 409", StringComparison.Ordinal)
+           && refusal.Contains("already recorded", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Run one check the way the Engine runs a job (<see cref="ProcessJob"/>: the shell, the timeout, the exit code,

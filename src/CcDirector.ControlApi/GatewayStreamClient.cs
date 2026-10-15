@@ -913,6 +913,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
                 ChangesOwner = true,              // this build carries out the set-controller verb (hand over)
                 ChangesOwnerIfExpected = true,    // ...and makes the change only while the owner is still the expected one
                 AnswersFactoryMachineQuestion = true, // this build answers the factory-machine-question verb
+                DefinitionChecks = true,          // this build runs checks from a factory's definition (phase 5b)
             });
             awaitGateway += DateTime.UtcNow - helloStarted;
             helloAnswered = true;

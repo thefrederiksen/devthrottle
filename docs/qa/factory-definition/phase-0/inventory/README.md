@@ -194,6 +194,12 @@ one secret - **does not hold as written**:
 The Delivery Lead answers this in the mission record. The three entries the email check asks for are made
 with `--env-name` set to the rule's names, so the check itself is not affected.
 
+**Answered in phase 5b** (mission 5.5a): each secret arrives in its own cc-secrets variable, one secret is passed
+with `--via env --env-name`, and the Director tells the check where each arrived in `CC_CHECK_SECRET_VARS`. The email
+check now reads its three entries through that variable, by the entry names `mail-rules.json` gives (`secrets`), and
+a folder with more than 500 new messages no longer fails forever: the check reads the oldest 500, advances that
+folder's state past them and says "more not shown" (the state is kept per folder for that reason).
+
 ### Refusals
 
 - **A declared name this machine does not hold** is refused before the check runs, alone or beside a held

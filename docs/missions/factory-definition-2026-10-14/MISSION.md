@@ -300,11 +300,19 @@ it forgets everything between runs; and a time-of-day schedule cannot have one.
   tried.
 - **Secrets.** The start lists secret NAMES; the Director runs the check under `cc-secrets run` with those names, so
   the values are in the check's environment and nowhere else, and a check cannot read a name it did not declare.
-  ONE rule for the variable name, whatever the count: the entry name upper-cased, dashes and dots turned to
-  underscores (`outreach-imap-password` is `OUTREACH_IMAP_PASSWORD`). The tool does that by itself for two or more
-  names; for exactly one the Director passes `--env-name` with the same name, because the tool would otherwise use
-  `CC_SECRET`. The question asked at publish and at start is "exists AND is allowed for run" - an entry marked for
-  browser login only is refused with the tool's own words, not discovered at the first run.
+  The variable each secret arrives in (the Delivery Lead's ruling in phase 5b, replacing a "one rule" that phase 0
+  proved false for cc-secrets: with two or more secrets each entry arrives in ITS OWN variable, and `cc-secrets run`
+  cannot rename a `--with` entry):
+  - Each secret arrives in its own cc-secrets variable (`envName` in `cc-secrets list --json`); an entry with none
+    gets the entry name upper-cased, dashes and dots turned to underscores (`outreach-imap-password` is
+    `OUTREACH_IMAP_PASSWORD`).
+  - With exactly one secret the Director passes `--via env --env-name <that same name>`, so one secret and several
+    behave the same, and an entry with no variable is never delivered on standard input. With two or more it passes
+    `--with` for each after the first, which supplies every entry in the environment.
+  - The Director sets `CC_CHECK_SECRET_VARS` in the check's environment: a JSON object from each declared entry name
+    to the variable it arrived in. A check finds its secrets by the entry name it declared, on any machine.
+  The question asked at publish and at start is "exists AND is allowed for run" - an entry marked for browser login
+  only is refused with the tool's own words, not discovered at the first run.
 - **The contract**, today's plus three optional keys. Exit 0 and print one JSON object:
   - `count` (integer, required): 0 means nothing to do.
   - `context` (text, at most 8 KB): what was found, for the agent - the senders and subjects, say. It replaces
