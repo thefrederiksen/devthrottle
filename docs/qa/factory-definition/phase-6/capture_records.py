@@ -304,7 +304,7 @@ def flow(page, key, picture):
                                            "sha256": hashlib.sha256(sent).hexdigest(), "same_bytes_as_kept": True}
     shot(page, "28-attachment-downloaded")
 
-    # 6. Paging: the writer's journal grows past one page (24 entries written by the upload at one sitting, so many
+    # 6. Paging: the writer's journal grows past one page (24 more entries written as the person, on 12 days, so many
     #    share a day), and the factory's attachments past one page of 100.
     root = f"/factory-records/{FACTORY}"
     for i in range(24):

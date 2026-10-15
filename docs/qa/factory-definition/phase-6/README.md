@@ -176,20 +176,23 @@ same pictures; the browser is a headless one the script starts and stops.
 - **Paging.** A journal shows 20 entries and the attachment list 100 files at a time. The next page starts after the last
   row the page before showed (`?before=<id>`), not at a count, so a record written while someone reads never shifts a
   row onto two pages or off both; rows written in the same instant are ordered by id. A cursor that is not a row of that
-  journal or factory is answered 404 in words, and a cursor that is not an id 400.
+  journal or factory, or that is the last row it lists, is answered 404 in words, and a cursor that is not an id 400.
+  A page of one row is said in the singular ("Entry 21 is shown.").
 - **Cockpit**: `FactoryRecordsTab.tsx` and `factoryRecordsClient.ts`.
 
 ### The check, as run
 
 From this worktree on origin/main plus this change; the commands and their results are in the pull request.
 
-New tests: `FactoryRecordsTabTests` (17: the empty tab's sentences, the journals' order, who wrote a record and that
+New tests at #4032: `FactoryRecordsTabTests` (17: the empty tab's sentences, the journals' order, who wrote a record and that
 an unknown author kind is a broken row, the whole tab through the mapped routes over real stores in memory, a missing
 document or version answered in words, an HTML attachment answered as a download with nosniff, a calling session
 refused 403 by each of the five routes, another account finding no such factory on four of them, and the session key
 guard), `FactoryRecordsTab.test.tsx` (6) and `factoryRecordsClient.test.ts` (5). Paging adds store tests that walk
-25 entries written in one instant and attachments with equal times page by page, route tests for both summaries and
-both cursor refusals, two Cockpit tests (older and back to newest, for a journal and for files) and one client test.
+25 entries written in one instant and attachments with equal times page by page, route tests for both summaries,
+a last page of one row said in the singular, the cursor refusals (not an id, not a row, the last row), the attachments
+page route added to the session 403, other-account and session key guard tests, two Cockpit tests (older and back to
+newest, for a journal and for files) and one client test.
 
 ### What this does NOT prove
 

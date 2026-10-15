@@ -246,7 +246,7 @@ describe("The factory page's Records tab (Factory Definition mission, phase 6)",
   it("lists older files from the Gateway's cursor in the same table, and goes back to the newest", async () => {
     client.getFactoryRecordsTab.mockResolvedValue({ ...TAB, attachmentsNextBefore: ATTACHMENT.id, attachmentsOlderLabel: "Older files" });
     client.getFactoryRecordsAttachments.mockResolvedValue({
-      summaryText: "101 files. Files 101 is listed. (fixture)",
+      summaryText: "101 files. File 101 is listed. (fixture)",
       rows: [{ ...ATTACHMENT, id: "f-old", name: "shots/oldest.png" }],
       nextBefore: null,
       olderLabel: null,
@@ -257,7 +257,7 @@ describe("The factory page's Records tab (Factory Definition mission, phase 6)",
     fireEvent.click(await screen.findByRole("button", { name: "Older files" }));
     await screen.findByTestId("fa-rec-attachment-shots/oldest.png");
     expect(client.getFactoryRecordsAttachments).toHaveBeenCalledWith("qa-outreach", ATTACHMENT.id);
-    expect(screen.getByText("101 files. Files 101 is listed. (fixture)")).toBeTruthy();
+    expect(screen.getByText("101 files. File 101 is listed. (fixture)")).toBeTruthy();
     expect(screen.queryByTestId("fa-rec-attachment-shots/home.png")).toBeNull();
     expect(screen.queryByRole("button", { name: "Older files" })).toBeNull();
 

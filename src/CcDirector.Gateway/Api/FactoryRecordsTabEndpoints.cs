@@ -65,6 +65,11 @@ internal static class FactoryRecordsTabEndpoints
                 if (journal.Page(tenant, registered.Factory, seat, before, FactoryRecordsTabFold.JournalPage) is not { } page)
                     return Results.Json(new { error = $"{before} is not an entry of this journal, so no page starts after it" },
                         statusCode: StatusCodes.Status404NotFound);
+                // The Cockpit never sends the last row as a cursor (the last page offers no Older); a request that does
+                // is told so, never answered with an empty page that names rows it does not hold.
+                if (before is not null && page.Entries.Count == 0)
+                    return Results.Json(new { error = $"{before} is the last entry this journal lists, so no page starts after it" },
+                        statusCode: StatusCodes.Status404NotFound);
                 var entries = page.Entries;
                 // Every file the page's entries name, read at once (review of #4032, finding 5). An entry can name only
                 // a file its factory holds (the journal checks at write) and a file is never removed, so a missing one
@@ -134,6 +139,9 @@ internal static class FactoryRecordsTabEndpoints
                 if (!TryCursor(ctx, out var before, out var badCursor)) return badCursor!;
                 if (attachments.Page(tenant, registered.Factory, before, FactoryRecordsTabFold.AttachmentPage) is not { } page)
                     return Results.Json(new { error = $"{before} is not an attachment of {registered.Factory}, so no page starts after it" },
+                        statusCode: StatusCodes.Status404NotFound);
+                if (before is not null && page.Attachments.Count == 0)
+                    return Results.Json(new { error = $"{before} is the last attachment {registered.Factory} lists, so no page starts after it" },
                         statusCode: StatusCodes.Status404NotFound);
                 var dto = FactoryRecordsTabFold.AttachmentPageView(registered, page, sources.Activity.TimeZone(tenant), nowUtc());
                 FileLog.Write($"[FactoryRecordsTabEndpoints] GET attachments page: {registered.Factory} before={before?.ToString() ?? "(newest)"} rows={dto.Rows.Count} of {page.Total}");

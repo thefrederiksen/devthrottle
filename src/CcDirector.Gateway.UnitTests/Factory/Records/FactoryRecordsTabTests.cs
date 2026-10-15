@@ -247,6 +247,42 @@ public sealed class FactoryRecordsTabTests : IDisposable
         Assert.Equal("Newest files", next.Body.GetProperty("newestLabel").GetString());
     }
 
+    [Fact]
+    public async Task A_LAST_PAGE_OF_ONE_ROW_is_said_in_the_singular()
+    {
+        // Review of #4040, finding 1: "Entries 21 are shown" and "Files 101 are listed".
+        for (var i = 0; i < FactoryRecordsTabFold.JournalPage + 1; i++)
+            _journal.Append(T, F, "writer", "2026-10-10", $"entry {i}", null, "session", Session, Now.AddMinutes(i));
+        for (var i = 0; i < FactoryRecordsTabFold.AttachmentPage + 1; i++)
+            _attachments.Add(T, F, null, $"shots/s{i:000}.png", "image/png", new byte[] { 1 }, "session", Session, Now.AddSeconds(i));
+
+        var first = await Get($"/gateway/factories/{F}/records/journal?seat=writer");
+        var journal = await Get($"/gateway/factories/{F}/records/journal?seat=writer&before={first.Body.GetProperty("nextBefore").GetGuid()}");
+        var tab = await Get($"/gateway/factories/{F}/records");
+        var files = await Get($"/gateway/factories/{F}/records/attachments?before={tab.Body.GetProperty("attachmentsNextBefore").GetGuid()}");
+
+        Assert.Equal("21 entries. Entry 21 is shown.", journal.Body.GetProperty("summaryText").GetString());
+        Assert.EndsWith(" File 101 is listed.", files.Body.GetProperty("summaryText").GetString());
+    }
+
+    [Fact]
+    public async Task A_CURSOR_AT_THE_LAST_ROW_is_refused_in_words_never_answered_with_an_empty_page()
+    {
+        // Review of #4040, finding 2: the page after the last row read "26 entries. Entries 27 to 26 are shown".
+        var oldestEntry = _journal.Append(T, F, "writer", "2026-09-01", "the oldest", null, "session", Session, Now.AddDays(-9)).Entry!.Id;
+        _journal.Append(T, F, "writer", "2026-10-10", "the newest", null, "session", Session, Now);
+        var oldestFile = _attachments.Add(T, F, null, "a.txt", "text/plain", new byte[] { 1 }, "session", Session, Now.AddDays(-9)).Attachment!.Id;
+        _attachments.Add(T, F, null, "b.txt", "text/plain", new byte[] { 2 }, "session", Session, Now);
+
+        var journal = await Get($"/gateway/factories/{F}/records/journal?seat=writer&before={oldestEntry}");
+        var files = await Get($"/gateway/factories/{F}/records/attachments?before={oldestFile}");
+
+        Assert.Equal(404, journal.Status);
+        Assert.Equal($"{oldestEntry} is the last entry this journal lists, so no page starts after it", journal.Body.GetProperty("error").GetString());
+        Assert.Equal(404, files.Status);
+        Assert.Equal($"{oldestFile} is the last attachment qa-outreach lists, so no page starts after it", files.Body.GetProperty("error").GetString());
+    }
+
     [Theory]
     [InlineData("/records/journal?seat=writer&before=x", 400, "before is the id of the last row the page before showed, not 'x'")]
     [InlineData("/records/attachments?before=x", 400, "before is the id of the last row the page before showed, not 'x'")]
@@ -337,6 +373,8 @@ public sealed class FactoryRecordsTabTests : IDisposable
     [InlineData("/records/documents/read?name=focus.md")]
     [InlineData("/records/documents/history?name=focus.md")]
     [InlineData("/records/attachments/ATTACHMENT")]
+    [InlineData("/records/attachments")]
+    [InlineData("/records/attachments?before=ATTACHMENT")]
     public async Task A_CALLING_SESSION_is_refused_403_by_every_route_of_the_tab_itself(string rest)
     {
         var file = _attachments.Add(T, F, null, "a.txt", "text/plain", new byte[] { 1 }, "session", Session, Now).Attachment!;
@@ -352,6 +390,7 @@ public sealed class FactoryRecordsTabTests : IDisposable
     [InlineData("/records/journal")]
     [InlineData("/records/documents/read?name=focus.md")]
     [InlineData("/records/attachments/ATTACHMENT")]
+    [InlineData("/records/attachments?before=ATTACHMENT")]
     public async Task ANOTHER_ACCOUNT_finds_no_such_factory_and_none_of_its_records(string rest)
     {
         var file = _attachments.Add(T, F, null, "a.txt", "text/plain", new byte[] { 1 }, "session", Session, Now).Attachment!;
@@ -376,6 +415,7 @@ public sealed class FactoryRecordsTabTests : IDisposable
         Assert.False(SessionKeyGuard.Check("GET", $"/gateway/factories/{F}/records").Allowed);
         Assert.False(SessionKeyGuard.Check("GET", $"/gateway/factories/{F}/records/journal").Allowed);
         Assert.False(SessionKeyGuard.Check("GET", $"/gateway/factories/{F}/records/attachments/{Guid.NewGuid()}").Allowed);
+        Assert.False(SessionKeyGuard.Check("GET", $"/gateway/factories/{F}/records/attachments").Allowed);
     }
 
     // ---------- the in-memory pipeline ----------

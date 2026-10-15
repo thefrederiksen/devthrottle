@@ -126,11 +126,13 @@ public static class FactoryRecordsTabFold
         page.Total == 0
             ? ""
             : $"{FactoriesScreenFold.Count(page.Total, "file")}, {Size(page.FactoryBytes)} in all." +
-              (page.Attachments.Count < page.Total ? $" Files {Range(page.Newer, page.Attachments.Count)} are listed, newest first." : "");
+              (page.Attachments.Count < page.Total ? Shown(page.Newer, page.Attachments.Count, "File", "Files", "listed") : "");
 
-    // "21 to 40", or "57" for a page of one.
-    private static string Range(int newer, int count) =>
-        count == 1 ? $"{newer + 1}" : $"{newer + 1} to {newer + count}";
+    // " Entries 21 to 40 are shown, newest first.", or " Entry 21 is shown." for a page of one.
+    private static string Shown(int newer, int count, string one, string many, string verb) =>
+        count == 1
+            ? $" {one} {newer + 1} is {verb}."
+            : $" {many} {newer + 1} to {newer + count} are {verb}, newest first.";
 
     internal static FactoryRecordsAttachmentRowDto AttachmentRow(RegisteredFactoryDto factory, FactoryAttachmentEntity a,
         TimeZoneInfo zone, DateTime nowUtc) => new()
@@ -164,7 +166,7 @@ public static class FactoryRecordsTabFold
             SummaryText = total == 0
                 ? ""
                 : Entries(total) + "." +
-                  (entries.Count < total ? $" Entries {Range(page.Newer, entries.Count)} are shown, newest first." : ""),
+                  (entries.Count < total ? Shown(page.Newer, entries.Count, "Entry", "Entries", "shown") : ""),
             Entries = entries.Select(e => new FactoryRecordsJournalEntryDto
             {
                 Id = e.Id,
