@@ -1775,3 +1775,135 @@ a:focus .ff-bay rect {
   padding-top: 4px;
   border-top: 1px solid var(--border);
 }
+
+/* ---------- the Definition tab (Factory Definition, phase 6) ---------- */
+
+.fa-def {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.fa-def-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* The history and the findings size their columns to what they hold: a fixed layout gives the actions and the
+   severity word as much room as the sentences. */
+.fa-table.fa-def-history-table,
+.fa-table.fa-def-findings {
+  table-layout: auto;
+}
+
+.fa-def-history-table td:last-child {
+  width: 1%;
+  min-width: 220px;
+}
+
+.fa-def-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.fa-def-head p {
+  margin: 4px 0 0;
+}
+
+.fa-def-empty {
+  margin: 0;
+  color: var(--text);
+}
+
+.fa-def-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.fa-def-card {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.fa-def-card p {
+  margin: 0;
+}
+
+.fa-def-changes,
+.fa-def-history,
+.fa-def-version {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fa-def-summary {
+  margin: 0;
+  font-weight: 600;
+}
+
+.fa-def-change p {
+  margin: 4px 0;
+}
+
+.fa-def-list {
+  margin: 4px 0;
+  padding-left: 20px;
+}
+
+.fa-def-lines {
+  margin: 4px 0;
+  padding: 8px 10px;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: "Cascadia Mono", Consolas, Menlo, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.fa-def-line.added {
+  color: var(--ok-text);
+}
+
+.fa-def-line.removed {
+  color: var(--danger-text);
+}
+
+.fa-def-line.skipped {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.fa-def-plan p {
+  margin: 4px 0;
+}
+
+.fa-def-findings td {
+  vertical-align: top;
+}
+
+.fa-def-finding-error td:nth-child(2) {
+  color: var(--danger-text);
+}
+
+.fa-def-file summary {
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.fa-def-moves p {
+  margin: 4px 0;
+}

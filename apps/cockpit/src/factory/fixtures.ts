@@ -342,7 +342,7 @@ export const FACTORY_PAGE: FactoryPageView = {
     { key: "activity", label: "Activity" },
     { key: "reports", label: "Reports" },
     { key: "memory", label: "Memory" },
-    { key: "documents", label: "Documents" },
+    { key: "definition", label: "Definition" },
   ],
   goal: {
     heading: "Goal",
@@ -486,7 +486,6 @@ export const FACTORY_PAGE: FactoryPageView = {
     allHref: "/factories?tab=activity&factory=warmforward&agent=nora-hale",
   },
   lastTalk: { heading: "Last talk with you", text: "None yet." },
-  documentsText: "The factory's documents are not on the Gateway yet (fixture).",
   truncatedText: null,
   archive: {
     action: "archive",
