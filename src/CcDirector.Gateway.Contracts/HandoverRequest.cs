@@ -27,6 +27,22 @@ public sealed class HandoverRequest
     public string? Factory { get; set; }
 
     /// <summary>
+    /// The SEAT the target is born as, with its definition version, kit kind and requested model (Factory Definition
+    /// mission, phase 5), or null. SETTLED BY THE GATEWAY, like <see cref="Factory"/>: the source's own, carried
+    /// exactly when the factory is, and overwritten whatever arrives here. The Director stamps them on a new target.
+    /// </summary>
+    public string? FactorySeat { get; set; }
+
+    /// <summary>See <see cref="FactorySeat"/>.</summary>
+    public int? FactoryDefinitionVersion { get; set; }
+
+    /// <summary>See <see cref="FactorySeat"/>.</summary>
+    public string? FactoryKit { get; set; }
+
+    /// <summary>The model the source was started on, carried with <see cref="FactorySeat"/>; see it.</summary>
+    public string? Model { get; set; }
+
+    /// <summary>
     /// Existing target session id. Mutually exclusive with ToRepoPath.
     /// When set, the context is pushed into this session as a new prompt.
     /// </summary>

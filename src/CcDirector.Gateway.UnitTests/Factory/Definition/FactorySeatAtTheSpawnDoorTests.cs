@@ -412,6 +412,21 @@ public sealed class FactorySeatAtTheSpawnDoorTests
         Assert.Equal("The agent 'RawCli' cannot take a seat's rules at launch, so it cannot start under the seat outreach.", ErrorOf(error));
     }
 
+    [Theory]
+    [InlineData("99")]
+    [InlineData("-1")]
+    public void TryEstablish_ANumericAgentWordUnderASeatWithRules_IsRefusedInWordsNotThrown(string agentWord)
+    {
+        // Review finding 1: Enum.TryParse accepts any number, and the rules table throws for a kind it has no row for.
+        var req = Body(agentWord);
+
+        Assert.False(SpawnFactory.TryEstablish(req, AsSession(Caller), "test", ASeat(), out var error,
+            new RulesReader(SeatRulesRead.Carries(true)).Read));
+
+        Assert.Equal(StatusCodes.Status409Conflict, StatusOf(error));
+        Assert.Equal($"The agent '{agentWord}' cannot take a seat's rules at launch, so it cannot start under the seat outreach.", ErrorOf(error));
+    }
+
     [Fact]
     public void TryEstablish_CodexChildWithNoRulesReader_IsRefusedNotLetBy()
     {

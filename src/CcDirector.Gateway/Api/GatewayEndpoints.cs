@@ -5422,6 +5422,8 @@ internal static partial class GatewayEndpoints
             // this door sees the credential, and whatever the body said is overwritten. The rule itself lives
             // beside the spawn-door rule, in SpawnFactory, where it can be tested as a function.
             req.Factory = SpawnFactory.ForHandover(ctx, req.FromSessionId, sourceSession.Factory);
+            // And the seat moves with the factory, on exactly the same answer (Factory Definition mission, phase 5).
+            SpawnFactory.SettleHandoverSeat(req, sourceSession);
 
             DirectorDto? targetDirector = null;
             if (!string.IsNullOrEmpty(req.ToDirectorId)
@@ -5438,6 +5440,16 @@ internal static partial class GatewayEndpoints
                 if (targetDirector is null)
                     return Results.NotFound(new { error = "target director not found" });
             }
+
+            // A handover that starts a seat goes only to a Director that builds the kit - whichever Director starts the
+            // target - for the reason every other door refuses it: an older one would drop the seat and start it free
+            // of its limits.
+            var handoverTenant = ResolveReadTenant(ctx, tenantBoundary);
+            var startsOn = targetDirector ?? sourceDirector;
+            if (SpawnFactory.HandoverCreate(req) is { } handoverCreate
+                && SpawnFactory.DirectorCannotBuildKit(handoverCreate, startsOn,
+                    handoverTenant is { } ht && (factoryKitCapabilities?.BuildsFactoryKit(ht, startsOn.DirectorId) ?? false)) is { } handoverNoKit)
+                return Results.Json(new { error = handoverNoKit }, statusCode: StatusCodes.Status409Conflict);
 
             if (targetDirector is null)
             {
@@ -5480,31 +5492,7 @@ internal static partial class GatewayEndpoints
                 return Results.Problem("failed to read handover-context from source director: " + DirectorCommandRouter.DescribeFailure(ctxSr), statusCode: 502);
             string contextText = DirectorCommandRouter.ReadBody<HandoverContextResponse>(ctxSr)?.Text ?? "";
 
-            var spawnReq = new NewSessionRequest
-            {
-                RepoPath = req.ToRepoPath,
-                Agent = req.ToAgent,
-                PrePrompt = contextText,
-                // Session origin (devthrottle_internal issue #982): a direct API route, like the
-                // interrupted-session restore above. WHO asked for the handover cannot be told apart here -
-                // a person moving work or a session handing itself over - but that is not the question the
-                // kind answers. The target CONTINUES the source's work, so it is born with the source's
-                // recorded starter: the owner's session moved to another machine is still one he started,
-                // and Your Throttle counts it as his (2026-09-27). A source with no recorded starter passes
-                // nothing, and the target records "unknown", which is exactly what is known.
-                Origin = Core.Sessions.SessionOriginKinds.Normalize(sourceSession.OriginKind),
-                //
-                // The SOURCE session is deliberately NOT recorded as the parent. ParentSessionId means
-                // "the session that asked for this one", and in a handover the source is the session
-                // being LEFT, which is a different relationship; putting it here would make the lineage
-                // tree quietly mean two things at once.
-                OriginSurface = Core.Sessions.SessionOriginSurfaces.Api,
-
-                // The factory settled above. The cross-Director leg builds its own create rather than proxying
-                // the handover request, so it has to carry the same answer - otherwise the same act of handing
-                // work over would keep membership on one Director and drop it between two.
-                Factory = req.Factory,
-            };
+            var spawnReq = HandoverTargetCreate(req, sourceSession, contextText);
             // Gateway Cleanup Phase 2: create the target over the tunnel (create verb, director-level), tunnel-first;
             // the dedicated 20s HTTP client is the fallback pre-cut (the tunnel unary has no 2s aggregate timeout).
             // Post-cut: tunnel-only. A null result means the target Director is not connected -> 502.
@@ -6157,6 +6145,45 @@ internal static partial class GatewayEndpoints
                 $"{ctx.Request.Method} {ctx.Request.Path} was allowed inside a team, but this Gateway gave the endpoint no way to cut its answer to the caller's own.");
         return null;
     }
+
+    /// <summary>
+    /// The create a CROSS-Director handover sends to the target Director: the source's context as the first prompt, the
+    /// source's starter, and the factory and seat the Gateway settled for this handover (<see cref="SpawnFactory.ForHandover"/>,
+    /// <see cref="SpawnFactory.SettleHandoverSeat"/>) - the same answer the same-Director leg hands its Director, so the
+    /// one act of handing work over keeps or drops the same facts whichever leg it takes. Its own method so a test can
+    /// read what the leg sends.
+    /// </summary>
+    internal static NewSessionRequest HandoverTargetCreate(HandoverRequest req, SessionDto sourceSession, string contextText)
+        => new()
+        {
+            RepoPath = req.ToRepoPath!,
+            Agent = req.ToAgent,
+            PrePrompt = contextText,
+            // Session origin (devthrottle_internal issue #982): a direct API route, like the
+            // interrupted-session restore above. WHO asked for the handover cannot be told apart here -
+            // a person moving work or a session handing itself over - but that is not the question the
+            // kind answers. The target CONTINUES the source's work, so it is born with the source's
+            // recorded starter: the owner's session moved to another machine is still one he started,
+            // and Your Throttle counts it as his (2026-09-27). A source with no recorded starter passes
+            // nothing, and the target records "unknown", which is exactly what is known.
+            Origin = Core.Sessions.SessionOriginKinds.Normalize(sourceSession.OriginKind),
+            //
+            // The SOURCE session is deliberately NOT recorded as the parent. ParentSessionId means
+            // "the session that asked for this one", and in a handover the source is the session
+            // being LEFT, which is a different relationship; putting it here would make the lineage
+            // tree quietly mean two things at once.
+            OriginSurface = Core.Sessions.SessionOriginSurfaces.Api,
+
+            // The factory settled above. The cross-Director leg builds its own create rather than proxying
+            // the handover request, so it has to carry the same answer - otherwise the same act of handing
+            // work over would keep membership on one Director and drop it between two.
+            Factory = req.Factory,
+            // And the seat settled with it (Factory Definition mission, phase 5), on the same terms.
+            FactorySeat = req.FactorySeat,
+            FactoryDefinitionVersion = req.FactoryDefinitionVersion,
+            FactoryKit = req.FactoryKit,
+            Model = req.Model,
+        };
 
     /// <summary>
     /// The create that continues an interrupted session, built from the dead Director's own journal row and never from

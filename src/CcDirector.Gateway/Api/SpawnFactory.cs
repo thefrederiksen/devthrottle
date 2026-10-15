@@ -272,7 +272,9 @@ internal static class SpawnFactory
     {
         var agentWord = string.IsNullOrWhiteSpace(req.Agent) ? "ClaudeCode" : req.Agent.Trim();
         string? cannot;
-        if (Enum.TryParse<AgentKind>(agentWord, ignoreCase: true, out var agent) && agent != AgentKind.RawCli)
+        // Enum.TryParse accepts any number ("99" parses to an agent the enum does not define), and the rules table throws
+        // for a kind it holds no row for - so an undefined kind is refused in words here, never handed to the table.
+        if (Enum.TryParse<AgentKind>(agentWord, ignoreCase: true, out var agent) && Enum.IsDefined(agent) && agent != AgentKind.RawCli)
         {
             var answer = FactoryRulesSupport.For(agent);
             if (answer.CanTake) return null;
@@ -450,6 +452,40 @@ internal static class SpawnFactory
         "A session's children are held by its own seat's rules and nothing else: naming another seat or another " +
         "version here would let a session choose the limits its children run under, which is the whole thing the " +
         "seat decides. Leave the seat out and the new session inherits this one's.";
+
+    /// <summary>
+    /// THE SEAT A HANDOVER'S TARGET IS BORN AS (Factory Definition mission, phase 5): the source's seat, definition
+    /// version, kit kind and requested model, carried EXACTLY when <see cref="ForHandover"/> carries the factory, and
+    /// otherwise none. A handover is the work moving on, so a seat that hands itself over is still that seat, held by
+    /// the same rules; a handover that moves no factory moves no seat, because a seat outside its factory names a kit
+    /// nobody could build. Whatever the request body said is overwritten: only the source's own record is believed.
+    /// Call after <see cref="ForHandover"/> has set <see cref="HandoverRequest.Factory"/>.
+    /// </summary>
+    internal static void SettleHandoverSeat(HandoverRequest req, SessionDto source)
+    {
+        ArgumentNullException.ThrowIfNull(req);
+        var moves = req.Factory is not null && source is not null;
+        req.FactorySeat = moves && !string.IsNullOrWhiteSpace(source!.FactorySeat) ? source.FactorySeat.Trim() : null;
+        req.FactoryDefinitionVersion = moves ? source!.FactoryDefinitionVersion : null;
+        req.FactoryKit = moves && !string.IsNullOrWhiteSpace(source!.FactoryKit) ? source.FactoryKit.Trim() : null;
+        req.Model = moves && !string.IsNullOrWhiteSpace(source!.LaunchModel) ? source.LaunchModel.Trim() : null;
+        FileLog.Write($"[SpawnFactory] handover: seat={req.FactorySeat ?? "(none)"} v{req.FactoryDefinitionVersion} ({req.FactoryKit ?? "no kit"}), model={req.Model ?? "(none)"} (factory carried={moves})");
+    }
+
+    /// <summary>The seat-start fields a handover that starts a NEW session carries, as the create they describe - so the
+    /// older-Director refusal asks one question of every create. Null for a handover into an existing session, which
+    /// starts nothing.</summary>
+    internal static NewSessionRequest? HandoverCreate(HandoverRequest req)
+        => req is null || string.IsNullOrEmpty(req.ToRepoPath) ? null : new NewSessionRequest
+        {
+            RepoPath = req.ToRepoPath!,
+            Agent = req.ToAgent,
+            Factory = req.Factory,
+            FactorySeat = req.FactorySeat,
+            FactoryDefinitionVersion = req.FactoryDefinitionVersion,
+            FactoryKit = req.FactoryKit,
+            Model = req.Model,
+        };
 
     /// <summary>Why one spelling matters, in words a person can act on.</summary>
     internal const string OneSpelling =
