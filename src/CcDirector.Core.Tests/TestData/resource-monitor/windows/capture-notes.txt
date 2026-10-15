@@ -1,0 +1,60 @@
+Captured on SOREN_NORTH, Microsoft Windows 10.0.26200, 2026-10-15T13:26:41.2024771Z
+Logical processors: 24, page size: 4096
+GetSystemTimes 1: idle=21479250781250 kernel=27843232187500 user=9546977500000
+GetSystemTimes 2: idle=21479423125000 kernel=27843443281250 user=9547009687500
+Whole-machine busy between them: 29.2%
+PhysicalDrive0: model=Fanxiang S101 4TB bus=11 seekPenalty=False size=4096805658624 busy=14.4% read/s=64803 write/s=19317790 sec/read=0.0035207 sec/write=5.403444778362133E-05 queue=0
+PhysicalDrive1: model=WD_BLACK SN770 1TB bus=17 seekPenalty=False size=1000204886016 busy=0.3% read/s=4027 write/s=358393 sec/read=0.0002662 sec/write=5.9729629629629626E-05 queue=0
+Volume C: disks=1 free=57975996416 total=999149268992
+Volume D: disks=0 free=299701293056 total=4096804253696
+Page files: count=1 total=51539607552 inUse=3187798016
+Interface 38: alias=Ethernet-WFP Native MAC Layer LightWeight Filter-0000 type=6 hardware=False oper=1 in=96390806574 out=42206131110 physicalAndUp=False
+Interface 39: alias=Ethernet-QoS Packet Scheduler-0000 type=6 hardware=False oper=1 in=96390806574 out=42206131110 physicalAndUp=False
+Interface 40: alias=Ethernet-WFP 802.3 MAC Layer LightWeight Filter-0000 type=6 hardware=False oper=1 in=96390806574 out=42206131110 physicalAndUp=False
+Interface 19: alias=Ethernet type=6 hardware=True oper=1 in=96390806574 out=42206131110 physicalAndUp=True
+Interface 27: alias=vEthernet (Default Switch) type=6 hardware=False oper=1 in=0 out=876563 physicalAndUp=False
+Interface 1: alias=Loopback Pseudo-Interface 1 type=24 hardware=False oper=1 in=0 out=0 physicalAndUp=False
+Interface 14: alias=Wi-Fi type=71 hardware=True oper=2 in=0 out=0 physicalAndUp=False
+Processes: 804, threads waiting on a processor: 195, self present: True
+Trimmed process fixture keeps 41 operating-system processes:
+  pid=0 parent=0 name=(none) threads=72 waitingOnCpu=0 ws=8192 private=61440 read=0 write=0 hardFaults=0 created=2026-10-13T18:10:18.2588605Z
+  pid=4 parent=0 name=System threads=534 waitingOnCpu=8 ws=139264 private=36864 read=7567616478 write=24885979683 hardFaults=130 created=2026-10-13T18:10:18.2588605Z
+  pid=372 parent=4 name=Registry threads=4 waitingOnCpu=0 ws=44060672 private=7254016 read=5251072 write=1564852224 hardFaults=29237 created=2026-10-13T18:10:08.6870597Z
+  pid=1084 parent=4 name=smss.exe threads=2 waitingOnCpu=0 ws=1531904 private=1200128 read=2858869 write=24740 hardFaults=170 created=2026-10-13T18:10:18.2623737Z
+  pid=1564 parent=1452 name=csrss.exe threads=16 waitingOnCpu=0 ws=6909952 private=2867200 read=555857 write=0 hardFaults=289 created=2026-10-13T18:10:19.9228446Z
+  pid=1676 parent=1452 name=wininit.exe threads=2 waitingOnCpu=0 ws=8880128 private=1777664 read=61444 write=131072 hardFaults=285 created=2026-10-13T18:10:20.2292033Z
+  pid=1816 parent=1676 name=services.exe threads=9 waitingOnCpu=0 ws=20480000 private=8736768 read=532712 write=320 hardFaults=1036 created=2026-10-13T18:10:20.5323074Z
+  pid=1868 parent=1676 name=lsass.exe threads=12 waitingOnCpu=0 ws=35926016 private=35221504 read=52810615 write=30832433 hardFaults=782 created=2026-10-13T18:10:20.5571761Z
+  pid=2008 parent=1816 name=svchost.exe threads=21 waitingOnCpu=0 ws=44187648 private=26157056 read=4691680 write=253952 hardFaults=1331 created=2026-10-13T18:10:20.8458963Z
+  pid=2040 parent=1676 name=fontdrvhost.exe threads=5 waitingOnCpu=0 ws=5382144 private=1892352 read=0 write=0 hardFaults=56 created=2026-10-13T18:10:20.8544640Z
+  pid=1760 parent=1816 name=svchost.exe threads=12 waitingOnCpu=0 ws=27058176 private=16814080 read=1220608 write=0 hardFaults=429 created=2026-10-13T18:10:20.9177752Z
+  pid=1928 parent=1816 name=svchost.exe threads=6 waitingOnCpu=0 ws=14684160 private=5001216 read=252 write=188 hardFaults=101 created=2026-10-13T18:10:20.9309172Z
+  pid=2192 parent=1816 name=svchost.exe threads=5 waitingOnCpu=0 ws=42004480 private=78630912 read=620905940 write=23215496 hardFaults=328 created=2026-10-13T18:10:20.9928342Z
+  pid=2208 parent=1816 name=svchost.exe threads=3 waitingOnCpu=0 ws=7004160 private=1527808 read=0 write=0 hardFaults=0 created=2026-10-13T18:10:20.9930398Z
+  pid=2364 parent=1816 name=svchost.exe threads=9 waitingOnCpu=0 ws=18153472 private=7360512 read=6 write=29782776 hardFaults=1144 created=2026-10-13T18:10:21.0100565Z
+  pid=2396 parent=1816 name=svchost.exe threads=3 waitingOnCpu=0 ws=6852608 private=1396736 read=0 write=0 hardFaults=0 created=2026-10-13T18:10:21.0179300Z
+  pid=2416 parent=1816 name=svchost.exe threads=5 waitingOnCpu=0 ws=13209600 private=3850240 read=0 write=0 hardFaults=44 created=2026-10-13T18:10:21.0198624Z
+  pid=2424 parent=1816 name=svchost.exe threads=5 waitingOnCpu=0 ws=14462976 private=2945024 read=2924544 write=0 hardFaults=117 created=2026-10-13T18:10:21.0199980Z
+  pid=2436 parent=1816 name=svchost.exe threads=4 waitingOnCpu=0 ws=15831040 private=2744320 read=0 write=0 hardFaults=11 created=2026-10-13T18:10:21.0203251Z
+  pid=2544 parent=1816 name=svchost.exe threads=3 waitingOnCpu=0 ws=7954432 private=2019328 read=0 write=0 hardFaults=5 created=2026-10-13T18:10:21.0284074Z
+  pid=2592 parent=1816 name=svchost.exe threads=8 waitingOnCpu=0 ws=7327744 private=1912832 read=0 write=0 hardFaults=0 created=2026-10-13T18:10:21.0337838Z
+  pid=2600 parent=1816 name=svchost.exe threads=7 waitingOnCpu=0 ws=15986688 private=3899392 read=0 write=0 hardFaults=118 created=2026-10-13T18:10:21.0339564Z
+  pid=2684 parent=1816 name=svchost.exe threads=5 waitingOnCpu=0 ws=10522624 private=11124736 read=0 write=0 hardFaults=0 created=2026-10-13T18:10:21.0388882Z
+  pid=2816 parent=1816 name=svchost.exe threads=17 waitingOnCpu=0 ws=23228416 private=9244672 read=116 write=160 hardFaults=215 created=2026-10-13T18:10:21.0472846Z
+  pid=3056 parent=1816 name=svchost.exe threads=19 waitingOnCpu=0 ws=61571072 private=70561792 read=1196945442 write=6065664 hardFaults=327 created=2026-10-13T18:10:21.0836498Z
+  pid=3084 parent=1816 name=svchost.exe threads=11 waitingOnCpu=0 ws=14311424 private=6230016 read=30001 write=0 hardFaults=63 created=2026-10-13T18:10:21.0920736Z
+  pid=3312 parent=1816 name=svchost.exe threads=7 waitingOnCpu=0 ws=10911744 private=3366912 read=0 write=0 hardFaults=36 created=2026-10-13T18:10:21.1210486Z
+  pid=3360 parent=1816 name=svchost.exe threads=8 waitingOnCpu=0 ws=23564288 private=21524480 read=1119012336 write=1114961776 hardFaults=14673 created=2026-10-13T18:10:21.1330048Z
+  pid=3408 parent=1816 name=svchost.exe threads=5 waitingOnCpu=0 ws=11661312 private=2625536 read=0 write=0 hardFaults=7 created=2026-10-13T18:10:21.1399733Z
+  pid=3416 parent=1816 name=svchost.exe threads=5 waitingOnCpu=0 ws=7618560 private=1679360 read=0 write=0 hardFaults=9 created=2026-10-13T18:10:21.1404007Z
+  pid=3428 parent=1816 name=svchost.exe threads=6 waitingOnCpu=1 ws=19480576 private=3227648 read=5222511 write=962961647 hardFaults=2737 created=2026-10-13T18:10:21.1406863Z
+  pid=3436 parent=1816 name=svchost.exe threads=5 waitingOnCpu=0 ws=10719232 private=2326528 read=754 write=0 hardFaults=36 created=2026-10-13T18:10:21.1411235Z
+  pid=3520 parent=1816 name=svchost.exe threads=9 waitingOnCpu=0 ws=16011264 private=4837376 read=482 write=0 hardFaults=182 created=2026-10-13T18:10:21.1467473Z
+  pid=3584 parent=4 name=Memory Compression threads=66 waitingOnCpu=1 ws=607866880 private=9666560 read=0 write=0 hardFaults=685561 created=2026-10-13T18:10:21.1524458Z
+  pid=3644 parent=1816 name=svchost.exe threads=3 waitingOnCpu=0 ws=12283904 private=2588672 read=8404 write=0 hardFaults=22 created=2026-10-13T18:10:21.1548034Z
+  pid=3712 parent=1816 name=svchost.exe threads=6 waitingOnCpu=0 ws=10571776 private=2289664 read=0 write=0 hardFaults=3750 created=2026-10-13T18:10:21.1643106Z
+  pid=3724 parent=1816 name=svchost.exe threads=3 waitingOnCpu=0 ws=13299712 private=2949120 read=0 write=14142 hardFaults=105 created=2026-10-13T18:10:21.1644551Z
+  pid=3800 parent=1816 name=svchost.exe threads=3 waitingOnCpu=0 ws=8769536 private=1765376 read=0 write=0 hardFaults=0 created=2026-10-13T18:10:21.1775921Z
+  pid=3856 parent=1816 name=svchost.exe threads=8 waitingOnCpu=0 ws=21753856 private=5754880 read=0 write=0 hardFaults=177 created=2026-10-13T18:10:21.1920708Z
+  pid=3884 parent=1816 name=svchost.exe threads=16 waitingOnCpu=0 ws=18317312 private=38170624 read=0 write=32768 hardFaults=238 created=2026-10-13T18:10:21.1965078Z
+  pid=57092 parent=47756 name=Capture.exe threads=56 waitingOnCpu=25 ws=33177600 private=13197312 read=12594 write=13304 hardFaults=3 created=2026-10-15T13:26:41.0393547Z
