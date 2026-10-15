@@ -112,9 +112,10 @@ export function RosterFilterPanel({
     try {
       const input = { name, colour, repos: draft.repos, machines: draft.machines };
       if (mode.kind === "edit") {
+        // The tab follows the edit only when it was showing that filter (the roster decides); editing another filter
+        // from here never switches what this tab shows.
         const after = await saved.update(mode.filter.id, input);
         onEdited(mode.filter, after);
-        onApplySaved(after.name);
       } else {
         const created = await saved.create(input);
         onApplySaved(created.name);

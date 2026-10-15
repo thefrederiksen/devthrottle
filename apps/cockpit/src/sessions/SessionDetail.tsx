@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useOutletContext, useParams, useSearchParams } from "react-router-dom";
+import { filterSearchOf } from "@devthrottle/client-core/sessions/filter";
 import { getQueue, type QueueItem, type SessionDto } from "@devthrottle/client-core/api/client";
 import { modelChipOf } from "@devthrottle/client-core/sessions/model";
 import { TerminalPane } from "../panes/TerminalPane";
@@ -86,6 +87,9 @@ export function SessionDetail() {
   const [dockCollapsed, setDockCollapsed] = useState(initialDockCollapsed);
   const [searchParams, setSearchParams] = useSearchParams();
   const mainTab = tabFromAddress(searchParams.get("tab"));
+  // The tab's Sessions filter (issue #4009) rides on every move this screen makes within Sessions, so closing a
+  // session or opening a related one never turns a filtered tab back into every session.
+  const filterSearch = filterSearchOf(searchParams);
   // Only the Reports tab has an open report, so `report=` outside it means nothing and is not read.
   const openReportId = mainTab === "reports" ? searchParams.get("report") || null : null;
 
@@ -257,7 +261,7 @@ export function SessionDetail() {
           {sessionId && <SecretTransferChip sessionId={sessionId} />}
           {/* The session menu (issue #1214): Rename, Hold/Resume, Handover info, Close - top right of
               the session header, driving the shared Gateway calls. */}
-          {selected && <SessionMenu session={selected} variant="page" onClosed={() => navigate("/sessions")} />}
+          {selected && <SessionMenu session={selected} variant="page" onClosed={() => navigate(`/sessions${filterSearch}`)} />}
         </div>
 
         <div className="session-content">
@@ -296,9 +300,9 @@ export function SessionDetail() {
                 actions={(now) =>
                   wingmanNowActions(sessionId, selected, now.state, {
                     openTerminal: () => setMainTab("terminal"),
-                    goToSession: (id) => navigate(`/session/${id}`),
+                    goToSession: (id) => navigate(`/session/${id}${filterSearch}`),
                     openSettings: () => navigate("/settings"),
-                    openStop: () => selected && openStop(selected, () => navigate("/sessions")),
+                    openStop: () => selected && openStop(selected, () => navigate(`/sessions${filterSearch}`)),
                   })
                 }
                 /* THE ONE MESSAGE BOX ON THIS TAB (the review's item B1). It is the page's own composer, moved

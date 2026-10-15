@@ -218,6 +218,14 @@ describe("the Sessions filter on the Cockpit roster", () => {
     expect(rowNames()).toHaveLength(0);
   });
 
+  it("offers Try again when the saved filters could not be read", () => {
+    setSaved(null, "the Gateway is not reachable");
+    renderAt("/?filter=Product");
+
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(savedState.current.reload).toHaveBeenCalledTimes(1);
+  });
+
   it("Attention keeps working inside the filter", () => {
     renderAt("/?repo=acme,devthrottle", "attention");
 
@@ -358,6 +366,21 @@ describe("the filter panel", () => {
       machines: [],
     });
     expect(address()).toBe("?filter=Products");
+  });
+
+  it("editing a filter this tab is NOT showing changes it without switching the tab", async () => {
+    setSaved([savedFilter("p", "Product", ["devthrottle", "website"]), savedFilter("c", "Client", ["acme"])]);
+    renderAt("/?filter=Product");
+    fireEvent.click(filterButton());
+    fireEvent.click(screen.getByRole("button", { name: "Edit Client" }));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Client X" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    });
+
+    expect(savedState.current.update).toHaveBeenCalledWith("c", expect.objectContaining({ name: "Client X" }));
+    expect(address()).toBe("?filter=Product");
+    expect(filterButton().textContent).toBe("Product");
   });
 
   it("Delete asks once in the row, deletes, and clears this tab when it was showing that filter", async () => {

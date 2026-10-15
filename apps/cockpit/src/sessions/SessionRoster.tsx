@@ -248,8 +248,8 @@ export function SessionRoster({ sessions, directors, portByDirector, selectedId,
           onDeleted={(f) => {
             if (activeSaved?.id === f.id) rosterFilter.clear();
           }}
-          onEdited={() => {
-            /* the panel applies the edited filter by its new name, which is what this tab then shows */
+          onEdited={(before, after) => {
+            if (activeSaved?.id === before.id) rosterFilter.applySaved(after.name);
           }}
           onClear={rosterFilter.clear}
           onClose={() => setShowFilter(false)}
@@ -315,6 +315,11 @@ function FilterLines({
           ? // error-reported-by: useSavedFilters
             `Could not load the saved filter "${resolved.name}": ${saved.error}`
           : `Loading the saved filter "${resolved.name}"...`}
+        {saved.error !== null && (
+          <button type="button" className="roster-filter-link" onClick={saved.reload}>
+            Try again
+          </button>
+        )}
         <button type="button" className="roster-filter-link" onClick={clear}>
           Show all sessions
         </button>
