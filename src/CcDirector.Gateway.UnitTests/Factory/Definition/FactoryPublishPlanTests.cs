@@ -39,7 +39,7 @@ public sealed class FactoryPublishPlanTests
     /// <paramref name="folder"/> gives it one, as a schedule written before the factory was defined has.</summary>
     private static CronJobEntity Live(string id, string? seat, string cron = "0 8 * * 1-5", string prompt = "Morning round.",
         string factory = TheFactory, bool enabled = true, string zone = "Europe/Copenhagen", string? name = null,
-        string folder = "") => new()
+        string folder = "", string? workList = null, bool autoDismiss = true) => new()
     {
         Id = id,
         TenantId = "acct-a",
@@ -51,7 +51,7 @@ public sealed class FactoryPublishPlanTests
         Factory = factory,
         Seat = seat,
         Target = new CronJobTarget { Machine = "SOREN_NORTH" },
-        Action = new CronJobAction { RepoPath = folder, Seed = prompt },
+        Action = new CronJobAction { RepoPath = folder, Seed = prompt, WorkListName = workList, AutoDismiss = autoDismiss },
         PreventOverlap = true,
         NotifyOn = CronNotify.None,
     };
@@ -600,6 +600,37 @@ public sealed class FactoryPublishPlanTests
         Assert.Equal(@"Schedule cj_boss (DevThrottle - Boss) changed: folder D:\ReposFred\devthrottle no longer used: the run starts where the definition says.",
             boss.Sentence());
         Assert.All(plan.Schedules, s => Assert.Equal("", s.Job!.Action.RepoPath));
+    }
+
+    [Fact]
+    public void Compose_APairedScheduleThatDrainedAWorkList_IsWrittenWithoutIt_AndItsStepSaysSo()
+    {
+        // Review finding 2: a start only starts the seat with its prompt, built from the definition; a work list kept on
+        // the row would fire outside that builder, with no seat, no kit and no folder.
+        var live = Live("cj_boss", "boss", name: "DevThrottle - Boss", workList: "inbox", autoDismiss: false);
+
+        var plan = Plan(schedules: new[] { live });
+
+        var boss = Assert.Single(plan.Schedules, s => s.Seat == "boss");
+        Assert.Equal(PlannedScheduleAction.Update, boss.Action);
+        Assert.Null(boss.Job!.Action.WorkListName);
+        // The drain's own close-itself setting goes with the drain: the start's run takes the default.
+        Assert.True(boss.Job.Action.AutoDismiss);
+        Assert.Equal("Schedule cj_boss (DevThrottle - Boss) changed: it no longer drains the work list 'inbox': a start only starts the seat with its prompt.",
+            boss.Sentence());
+        Assert.Contains(boss.Sentence(), plan.Sentences());
+    }
+
+    [Fact]
+    public void Compose_APairedScheduleWithNoWorkList_KeepsWhetherItsRunsCloseThemselves()
+    {
+        var live = Live("cj_boss", "boss", name: "DevThrottle - Boss", autoDismiss: false);
+
+        var plan = Plan(schedules: new[] { live });
+
+        var boss = Assert.Single(plan.Schedules, s => s.Seat == "boss");
+        Assert.Equal(PlannedScheduleAction.Keep, boss.Action);
+        Assert.False(boss.Job!.Action.AutoDismiss);
     }
 
     [Fact]

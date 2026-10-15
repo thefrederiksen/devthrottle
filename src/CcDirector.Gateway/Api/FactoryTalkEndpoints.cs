@@ -141,9 +141,17 @@ internal static class FactoryTalkEndpoints
                 return Refused(StatusCodes.Status404NotFound,
                     $"{registered.Title} has no open problem on run '{runId}'. It may have been resolved, or cleared by a later run that reported ok - reload the page.");
 
+            // The body is read before the handoff is decided, so both arms answer the same body the same way (phase 5
+            // P2 review, finding 3): a choice is never dropped without a word.
+            var (byPerson, badBody) = await ReadOverrideAsync(ctx);
+            if (badBody is not null) return badBody;
+
             var handoff = FactoryProblemHandoff.Route(registered);
             if (handoff.ToFactoryManager)
             {
+                // A factory with no boss has no published definition (a definition names its boss), so a talk with it
+                // runs as it is registered, and an override is refused in the seat arm's own sentence.
+                if (byPerson is not null) return OverrideOfAnUndefinedFactory(registered);
                 // A factory with no boss: the Factory Manager, briefed in the boss's words (Factory Control, step 5).
                 FileLog.Write($"[FactoryTalkEndpoints] handle the issue: {registered.Factory} has no boss - handing it to the Factory Manager");
                 return await FactoryManagerEndpoints.StartAsync(ctx, tenant, factoryManager, body: null,
@@ -154,8 +162,6 @@ internal static class FactoryTalkEndpoints
 
             var seated = handoff.Seat!;
             var (scheduleId, scheduleSeed) = RulesOf(tenant, seated, schedule);
-            var (byPerson, badBody) = await ReadOverrideAsync(ctx);
-            if (badBody is not null) return badBody;
             if (!TryDefinition(definitionOf, tenant, registered, out var published, out var unread)) return unread!;
             if (published is not null)
             {

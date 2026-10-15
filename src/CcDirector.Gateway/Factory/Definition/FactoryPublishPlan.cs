@@ -210,7 +210,12 @@ public static class FactoryPublishPlan
 
     /// <summary>
     /// A paired schedule keeps what is the person's, not the definition's: its switch (a publish never turns a schedule
-    /// on or off), its notifications and its work-list settings.
+    /// on or off), its notifications, and whether its runs close themselves.
+    ///
+    /// NOT A WORK LIST (phase 5 P2 review, finding 2). A start only starts the seat with its prompt, built from the
+    /// definition; a schedule that drained a work list would fire outside that one builder, with no seat, no kit and -
+    /// since phase 5 - no folder. So a paired schedule is written without its work list, and a drain's own close-itself
+    /// setting goes with the drain: the run takes the default a start's run has. The step's sentence names the list.
     /// </summary>
     private static CronJobDto Kept(CronJobDto job, CronJobEntity live)
     {
@@ -218,8 +223,9 @@ public static class FactoryPublishPlan
         job.Enabled = live.Enabled;
         job.NotifyOn = live.NotifyOn;
         job.NotifyWebhookUrl = live.NotifyWebhookUrl;
-        job.Action.WorkListName = live.Action.WorkListName;
-        job.Action.AutoDismiss = live.Action.AutoDismiss;
+        job.Action.WorkListName = null;
+        if (string.IsNullOrWhiteSpace(live.Action.WorkListName))
+            job.Action.AutoDismiss = live.Action.AutoDismiss;
         return job;
     }
 
@@ -229,7 +235,8 @@ public static class FactoryPublishPlan
            && live.RunAt == job.RunAt && live.TimeZoneId == job.TimeZoneId && live.Factory == job.Factory
            && live.Seat == job.Seat && live.Target.Machine == job.Target.Machine
            && live.Action.RepoPath == job.Action.RepoPath && live.Action.Seed == job.Action.Seed
-           && live.PreventOverlap == job.PreventOverlap;
+           && live.PreventOverlap == job.PreventOverlap
+           && string.IsNullOrWhiteSpace(live.Action.WorkListName) == string.IsNullOrWhiteSpace(job.Action.WorkListName);
 
     /// <summary>
     /// A live schedule as a start, so the one pairing can match it: its time (whatever kind it is, it is a time, never
@@ -538,6 +545,8 @@ public sealed record PlannedSchedule(PlannedScheduleAction Action, string? Id, s
                 if (Live!.Name != Job!.Name) details.Add($"name \"{Live.Name}\" -> \"{Job.Name}\"");
                 if (Live.Target.Machine != Job.Target.Machine) details.Add($"machine {Live.Target.Machine} -> {Job.Target.Machine}");
                 if (Live.Action.Seed != Job.Action.Seed) details.Add("prompt changed");
+                if (!string.IsNullOrWhiteSpace(Live.Action.WorkListName) && string.IsNullOrWhiteSpace(Job.Action.WorkListName))
+                    details.Add($"it no longer drains the work list '{Live.Action.WorkListName}': a start only starts the seat with its prompt");
                 if (Live.PreventOverlap != Job.PreventOverlap) details.Add($"prevent overlap {(Live.PreventOverlap ? "on" : "off")} -> {(Job.PreventOverlap ? "on" : "off")}");
                 if (Live.Action.RepoPath != Job.Action.RepoPath)
                     details.Add(string.IsNullOrEmpty(Job.Action.RepoPath)

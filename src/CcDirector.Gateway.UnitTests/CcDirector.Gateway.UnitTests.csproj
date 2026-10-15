@@ -37,6 +37,8 @@
     <PackageReference Include="Mono.Cecil" Version="0.11.3" />
     <PackageReference Include="xunit" Version="2.*" />
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.*" />
+    <!-- An in-memory host for route tests: no listener, no port (the repository test standard). -->
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="10.*" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.*" />
   </ItemGroup>
 

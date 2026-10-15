@@ -21,6 +21,8 @@ using CcDirector.Gateway.Tenancy;
 using CcDirector.Gateway.Tests.Data;
 using CcDirector.Gateway.Util;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Logging;
 using Xunit;
 
@@ -131,8 +133,9 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
         Directory.CreateDirectory(_dir);
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
+        // An in-memory host: the routes are driven over HTTP with no listener and no port.
+        builder.WebHost.UseTestServer();
         var app = builder.Build();
-        app.Urls.Add("http://127.0.0.1:0");
 
         // The credential the auth middleware would have verified, stamped the way it stamps it.
         app.Use(async (ctx, next) =>
@@ -227,7 +230,7 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
 
         await app.StartAsync();
         _app = app;
-        _http = new HttpClient { BaseAddress = new Uri(app.Urls.First() + "/") };
+        _http = app.GetTestServer().CreateClient();
     }
 
     private Task<HttpResponseMessage> Talk(string factory, string seat) =>
@@ -801,6 +804,25 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
         Assert.Contains("morning shift, Sun 11 Oct, 08:00-16:00", sent.PrePrompt);
         Assert.Contains("cc-devthrottle session buffer " + problem.SessionId, sent.PrePrompt);
         Assert.Contains($"cc-devthrottle run resolve {problem.RunId} \"<one line: what fixed it>\"", sent.PrePrompt);
+    }
+
+    [Fact]
+    public async Task Handle_AFactoryWithNoBoss_WithAnOverride_IsRefusedInTheSeatArmsWords_AndNothingIsStartedOrBound()
+    {
+        // Review finding 3: the Factory Manager arm answers the same body the seat arm does, never dropping it silently.
+        await StartAsync(bossless: true);
+        _placement = ("SOREN_NORTH", Folder);
+        var problem = ScoutProblem();
+        _problems.Add(problem);
+
+        var response = await _http!.PostAsync($"gateway/factory-agents/factories/warmforward/problems/{problem.RunId}/handle",
+            new StringContent("""{"agent":"Codex"}""", System.Text.Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("WarmForward has no published definition, so a talk with it runs as it is registered: an agent, a model or a machine can be chosen only for a seat of a defined factory. Press Talk without choosing them.",
+            await ErrorOf(response));
+        Assert.Empty(_sent);
+        Assert.Null(_factoryManager);
     }
 
     [Fact]

@@ -89,7 +89,7 @@ internal sealed class FactoryPublishScenario
         return check.Definition!;
     }
 
-    public void AddSchedule(string factory, string? seat, string id, string cron, string prompt)
+    public void AddSchedule(string factory, string? seat, string id, string cron, string prompt, string? workList = null)
     {
         using var ctx = Db.CreateContext(Tenant);
         ctx.CronJobs.Add(new CronJobEntity
@@ -104,7 +104,7 @@ internal sealed class FactoryPublishScenario
             Factory = factory,
             Seat = seat,
             Target = new CronJobTarget { Machine = "SOREN_NORTH" },
-            Action = new CronJobAction { RepoPath = @"D:\somewhere", Seed = prompt },
+            Action = new CronJobAction { RepoPath = @"D:\somewhere", Seed = prompt, WorkListName = workList },
             PreventOverlap = true,
             NotifyOn = CronNotify.None,
             CreatedUtc = Now.AddDays(-2),

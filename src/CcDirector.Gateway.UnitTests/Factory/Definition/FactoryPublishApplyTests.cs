@@ -233,6 +233,21 @@ public sealed class FactoryPublishApplyTests : IDisposable
         Assert.Contains("Trigger devthrottle-outreach-start-1 deleted: no start in the definition names it; its run history is kept.", result.Applied);
     }
 
+    [Fact]
+    public void Publish_OverAScheduleThatDrainedAWorkList_WritesItWithoutTheList_AndSaysSo()
+    {
+        // Review finding 2: the paired schedule becomes a start of the seat; the drain does not survive the publish.
+        _s.AddSchedule(TheFactory, "boss", "cj_boss", "0 8 * * 1-5", "Morning round.", workList: "inbox");
+
+        var result = _s.SaveAndPublish(DefinitionFixture.Publishable());
+
+        var boss = _s.Schedules(TheFactory).Single(j => j.Id == "cj_boss");
+        Assert.Null(boss.Action.WorkListName);
+        Assert.Equal("", boss.Action.RepoPath);
+        Assert.Contains(result.Applied, s => s.StartsWith("Schedule cj_boss (DevThrottle - Boss) changed:", StringComparison.Ordinal)
+            && s.Contains("it no longer drains the work list 'inbox': a start only starts the seat with its prompt", StringComparison.Ordinal));
+    }
+
     // ---------- the failure: nothing changes ----------
 
     [Fact]

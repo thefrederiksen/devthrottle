@@ -99,6 +99,11 @@ internal static class SpawnFactory
                 return false;
             }
 
+            // THE OVERRIDE RECORD IS THE TALK'S ALONE (phase 5 P2 review, finding 1). It says a person chose another
+            // agent, model or machine for a seat's talk; only the talk, which marks the request it built, writes it.
+            // A body cannot: any other person's create carries none.
+            if (!IsGatewaySeatStart(ctx)) ClearOverride(req, route, "a person's create");
+
             // ONE SPELLING (phase 2 review, finding 1). A person's hand spawn is one of the two places a factory
             // id first comes into being, so it is folded here and refused if it is not one: membership compares
             // ids without regard to case while the memory is keyed on the exact string, so 'Website-Factory'
@@ -131,6 +136,9 @@ internal static class SpawnFactory
             FileLog.Write($"[SpawnFactory] {route}: no session or device credential - factory passed through as sent: {req.Factory ?? "(none)"}");
             return true;
         }
+
+        // A SESSION'S CHILD IS NEVER A TALK, so it never carries the person's override record (review finding 1).
+        ClearOverride(req, route, $"session {caller.SessionId}'s create");
 
         // NO READER AT ALL is a different thing from "this session has no row yet", and conflating the two was a
         // mistake worth naming: a Gateway built without the reader (a harness, an older wiring) cannot read
@@ -300,6 +308,13 @@ internal static class SpawnFactory
         if (req.FactoryDefinitionVersion is not null) parts.Add($"definition version {req.FactoryDefinitionVersion}");
         if (req.FactoryKit is not null) parts.Add($"a '{req.FactoryKit}' kit");
         return string.Join(", ", parts);
+    }
+
+    private static void ClearOverride(NewSessionRequest req, string route, string whose)
+    {
+        if (req.FactoryStartOverride is null) return;
+        FileLog.Write($"[SpawnFactory] {route}: the override record '{req.FactoryStartOverride}' on {whose} was dropped - only a talk writes it");
+        req.FactoryStartOverride = null;
     }
 
     private static void ClearSeat(NewSessionRequest req)

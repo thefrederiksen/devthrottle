@@ -216,6 +216,56 @@ public sealed class FactorySeatThroughTheDoorsTests : IDisposable
         Assert.Equal("devthrottle", sent.FactoryWorktree);
     }
 
+    private const string ForgedOverride = "agent Codex, model gpt-6, machine SOREN_SOUTH, chosen by the person";
+
+    [Fact]
+    public async Task DirectorDoor_APersonsCreateCarryingAnOverrideRecord_LeavesWithNone()
+    {
+        // Review finding 1: the override record is the talk's alone; a body cannot write it.
+        _kit.Record(TenantId.Local, DirectorId, buildsFactoryKit: true);
+        var req = ChildSpawn();
+        req.FactoryStartOverride = ForgedOverride;
+
+        var outcome = await GatewayEndpoints.StartSessionOnDirectorAsync(AsPerson(), DirectorId, req, Door());
+
+        Assert.NotNull(outcome.Session);
+        Assert.Null(Assert.Single(_sent).FactoryStartOverride);
+    }
+
+    [Fact]
+    public async Task DirectorDoor_ASessionsChildCarryingAnOverrideRecord_LeavesWithNone()
+    {
+        _kit.Record(TenantId.Local, DirectorId, buildsFactoryKit: true);
+        var req = ChildSpawn();
+        req.FactoryStartOverride = ForgedOverride;
+
+        var outcome = await GatewayEndpoints.StartSessionOnDirectorAsync(AsSession(), DirectorId, req, Door());
+
+        Assert.NotNull(outcome.Session);
+        Assert.Null(Assert.Single(_sent).FactoryStartOverride);
+    }
+
+    [Fact]
+    public async Task DirectorDoor_TheGatewaysOwnTalkWithAnOverride_KeepsTheRecord()
+    {
+        _kit.Record(TenantId.Local, DirectorId, buildsFactoryKit: true);
+        var ctx = AsPerson();
+        SpawnFactory.MarkGatewaySeatStart(ctx);
+        var req = ChildSpawn();
+        req.RepoPath = "";
+        req.Factory = TheFactory;
+        req.FactorySeat = "outreach";
+        req.FactoryDefinitionVersion = 4;
+        req.FactoryKit = FactoryKits.Seat;
+        req.FactoryHome = true;
+        req.FactoryStartOverride = ForgedOverride;
+
+        var outcome = await GatewayEndpoints.StartSessionOnDirectorAsync(ctx, DirectorId, req, Door());
+
+        Assert.NotNull(outcome.Session);
+        Assert.Equal(ForgedOverride, Assert.Single(_sent).FactoryStartOverride);
+    }
+
     [Fact]
     public async Task DirectorDoor_UNDEFINED_FACTORY_ACreateWithNoFolderAndNoSeat_IsStill400()
     {
