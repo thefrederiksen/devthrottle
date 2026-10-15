@@ -1,5 +1,6 @@
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
+using CcDirector.Gateway.Data.Entities;
 using CcDirector.Gateway.Factory.Records;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -62,11 +63,17 @@ internal static class FactoryRecordsTabEndpoints
                 var page = journal.List(tenant, registered.Factory, seat, factoryOnly: seat is null, limit: FactoryRecordsTabFold.JournalPage);
                 var entries = page.Entries.Select(e => journal.Get(tenant, registered.Factory, e.Id))
                     .Where(e => e is not null).Select(e => e!).ToList();
+                // Every file the page's entries name, read at once (review of #4032, finding 5). An entry can name only
+                // a file its factory holds (the journal checks at write) and a file is never removed, so a missing one
+                // is a broken store, said as such - never quietly left out.
+                var named = entries.ToDictionary(e => e.Id, e => AttachmentIdsOf(e));
+                var files = attachments.Find(tenant, registered.Factory, named.Values.SelectMany(ids => ids).Distinct().ToList());
                 var dto = FactoryRecordsTabFold.Journal(registered, seat, entries, page.Total,
-                    entry => entry.AttachmentIds
-                        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                        .Select(id => Guid.TryParse(id, out var g) ? attachments.Get(tenant, registered.Factory, g) : null)
-                        .Where(a => a is not null).Select(a => a!).ToList(),
+                    entry => named[entry.Id]
+                        .Select(id => files.TryGetValue(id, out var file)
+                            ? file
+                            : throw new InvalidOperationException($"journal entry {entry.Id} of {registered.Factory} names attachment {id}, which the store does not hold"))
+                        .ToList(),
                     sources.Activity.TimeZone(tenant), nowUtc());
                 FileLog.Write($"[FactoryRecordsTabEndpoints] GET journal: {registered.Factory}/{seat ?? "(factory)"} entries={dto.Entries.Count} of {page.Total}");
                 return Results.Json(dto);
@@ -126,11 +133,27 @@ internal static class FactoryRecordsTabEndpoints
                 if (found is null || bytes is null)
                     return Results.Json(new { error = $"{registered.Factory} has no attachment {id}" }, statusCode: StatusCodes.Status404NotFound);
                 FileLog.Write($"[FactoryRecordsTabEndpoints] GET attachment: {registered.Factory} {id} '{found.Name}' bytes={bytes.Length}");
-                return Results.File(bytes, found.ContentType, Path.GetFileName(found.Name));
+                // ALWAYS A DOWNLOAD, NEVER RENDERED (review of #4032, finding 2). A session may keep any content type,
+                // text/html among them, and this origin carries the owner's cookie: the file name makes the answer
+                // Content-Disposition: attachment, and nosniff stops a browser second-guessing the type.
+                ctx.Response.Headers["X-Content-Type-Options"] = "nosniff";
+                return Results.File(bytes, found.ContentType, DownloadName(found.Name));
             }));
 
         FileLog.Write($"[FactoryRecordsTabEndpoints] mapped {route} and its journal, documents and attachments");
     }
+
+    /// <summary>An attachment's name as a file name: its folders kept, with hyphens for slashes, so
+    /// <c>a/report.md</c> and <c>b/report.md</c> are saved as two files (review of #4032, finding 6).</summary>
+    internal static string DownloadName(string name) => name.Replace('/', '-');
+
+    private static IReadOnlyList<Guid> AttachmentIdsOf(FactoryJournalEntryEntity entry) =>
+        entry.AttachmentIds
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(id => Guid.TryParse(id, out var g)
+                ? g
+                : throw new InvalidOperationException($"journal entry {entry.Id} holds '{id}' among its attachment ids, which is not an id"))
+            .ToList();
 
     private static IResult NoDocument(string factory, string name) =>
         Results.Json(new { error = $"{factory} has no working document '{name}'" }, statusCode: StatusCodes.Status404NotFound);

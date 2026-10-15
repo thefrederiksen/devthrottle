@@ -231,9 +231,11 @@ public static class FactoryRecordsTabFold
         var known = !string.IsNullOrWhiteSpace(id);
         return kind switch
         {
-            FactoryMemoryAuthorKinds.Session => known ? $"session {id}" : "a session",
-            FactoryMemoryAuthorKinds.Person => known ? $"a person ({id})" : "a person",
-            _ => known ? $"the one-time upload from {id}" : "the one-time upload",
+            FactoryRecordAuthorKinds.Session => known ? $"session {id}" : "a session",
+            FactoryRecordAuthorKinds.Person => known ? $"a person ({id})" : "a person",
+            FactoryRecordAuthorKinds.Upload => known ? $"the one-time upload from {id}" : "the one-time upload",
+            // The store refuses any other writer, so another kind here is a broken row - never named as someone it is not.
+            _ => throw new InvalidOperationException($"a record names an author kind '{kind}', which is none of session, person or upload"),
         };
     }
 

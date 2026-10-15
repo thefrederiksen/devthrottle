@@ -37,7 +37,7 @@ same pictures; the browser is a headless one the script starts and stops.
 | 25 | `25-document-newest-version.png` | A **working document** opened at its newest version. |
 | 26 | `26-document-history.png` | **Every version** of it: Newest and Earlier, who wrote each (the first by the upload), when, and its size. |
 | 27 | `27-document-earlier-version.png` | **An earlier version** opened: "An earlier version; the newest is version 3." and its text. |
-| 28 | `28-attachment-downloaded.png` | The **image downloaded** through the tab. The saved file is byte for byte the image that was kept (`records-answers.json`, `same_bytes_as_kept`). |
+| 28 | `28-attachment-downloaded.png` | The **image downloaded** through the tab, saved as `shots-home-page.png` (its folder kept, a hyphen for the slash). The saved file is byte for byte the image that was kept (`records-answers.json`, `same_bytes_as_kept`). |
 
 ## What was built
 
@@ -46,15 +46,21 @@ same pictures; the browser is a headless one the script starts and stops.
   count, empty sentence, author line and label (rule 7), and an attachment's bytes to save. The routes only read and are
   the owner's: a session key is refused by `SessionKeyGuard` (a session reads its factory's records through
   `/factory-records` with the command line). The page's tabs gain Records after Memory.
+- **An attachment is always a download.** A session may keep any content type, `text/html` among them, and the
+  Cockpit's origin carries the owner's cookie; the answer is `Content-Disposition: attachment` with
+  `X-Content-Type-Options: nosniff`, so a kept page can never render in that origin. Both are asserted.
+- A journal page reads every attachment its entries name in one query.
 - **Cockpit**: `FactoryRecordsTab.tsx` and `factoryRecordsClient.ts`.
 
 ## The check, as run
 
 From this worktree on origin/main plus this change; the commands and their results are in the pull request.
 
-New tests: `FactoryRecordsTabTests` (6: the empty tab's sentences, the journals' order, who wrote a record, the whole
-tab through the mapped routes over real stores in memory, a missing document or version answered in words, and the
-session key guard), `FactoryRecordsTab.test.tsx` (6) and `factoryRecordsClient.test.ts` (5).
+New tests: `FactoryRecordsTabTests` (17: the empty tab's sentences, the journals' order, who wrote a record and that
+an unknown author kind is a broken row, the whole tab through the mapped routes over real stores in memory, a missing
+document or version answered in words, an HTML attachment answered as a download with nosniff, a calling session
+refused 403 by each of the five routes, another account finding no such factory on four of them, and the session key
+guard), `FactoryRecordsTab.test.tsx` (6) and `factoryRecordsClient.test.ts` (5).
 
 ## What this does NOT prove
 

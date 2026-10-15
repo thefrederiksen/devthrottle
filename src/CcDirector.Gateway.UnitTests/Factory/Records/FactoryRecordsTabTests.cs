@@ -54,6 +54,9 @@ public sealed class FactoryRecordsTabTests : IDisposable
     private readonly FactoryDocumentStore _documents;
     private readonly FactoryAttachmentStore _attachments;
 
+    // The account the routes resolve for a request: this test's, unless a test asks as another account.
+    private TenantId _asTenant = T;
+
     public FactoryRecordsTabTests()
     {
         _db = _h.Open();
@@ -90,7 +93,7 @@ public sealed class FactoryRecordsTabTests : IDisposable
             (_, _, _) => new Dictionary<string, IReadOnlyList<CronRunRecord>>(),
             (_, f) => new CronRunProblemsDto { Factory = f },
             (_, f) => new FactoryEmailsDto { Factory = f });
-        FactoryRecordsTabEndpoints.Map(_routes, _ => T, sources, _journal, _documents, _attachments, () => Now);
+        FactoryRecordsTabEndpoints.Map(_routes, _ => _asTenant, sources, _journal, _documents, _attachments, () => Now);
     }
 
     public void Dispose()
@@ -181,6 +184,10 @@ public sealed class FactoryRecordsTabTests : IDisposable
         var file = await Send($"/gateway/factories/{F}/records/attachments/{picture.Id}");
         Assert.Equal((200, "image/png"), (file.Status, file.ContentType));
         Assert.Equal(new byte[] { 1, 2, 3 }, file.Bytes);
+        // Always a download, never rendered in this origin (review of #4032, finding 2), and named with its folder.
+        Assert.StartsWith("attachment;", file.Disposition);
+        Assert.Contains("filename=shots-home.png", file.Disposition);
+        Assert.Equal("nosniff", file.NoSniff);
     }
 
     [Fact]
@@ -193,6 +200,57 @@ public sealed class FactoryRecordsTabTests : IDisposable
         Assert.Equal("qa-outreach has no working document 'nope.md'", none.Body.GetProperty("error").GetString());
         var noVersion = await Get($"/gateway/factories/{F}/records/documents/read?name=focus.md&version=9");
         Assert.Equal("'focus.md' has no version 9; its newest is version 1", noVersion.Body.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task AN_HTML_ATTACHMENT_is_a_download_with_nosniff_never_a_page_in_the_gateways_origin()
+    {
+        var page = _attachments.Add(T, F, null, "notes/page.html", "text/html", Encoding.UTF8.GetBytes("<script>1</script>"), "session", Session, Now).Attachment!;
+
+        var file = await Send($"/gateway/factories/{F}/records/attachments/{page.Id}");
+
+        Assert.Equal((200, "text/html"), (file.Status, file.ContentType));
+        Assert.StartsWith("attachment;", file.Disposition);
+        Assert.Equal("nosniff", file.NoSniff);
+    }
+
+    [Theory]
+    [InlineData("/records")]
+    [InlineData("/records/journal?seat=writer")]
+    [InlineData("/records/documents/read?name=focus.md")]
+    [InlineData("/records/documents/history?name=focus.md")]
+    [InlineData("/records/attachments/ATTACHMENT")]
+    public async Task A_CALLING_SESSION_is_refused_403_by_every_route_of_the_tab_itself(string rest)
+    {
+        var file = _attachments.Add(T, F, null, "a.txt", "text/plain", new byte[] { 1 }, "session", Session, Now).Attachment!;
+        Assert.True(_documents.Write(T, F, "focus.md", "x", 0, "session", Session, Now).Ok);
+
+        var answer = await Send($"/gateway/factories/{F}" + rest.Replace("ATTACHMENT", file.Id.ToString()), asSession: true);
+
+        Assert.Equal(403, answer.Status);
+    }
+
+    [Theory]
+    [InlineData("/records")]
+    [InlineData("/records/journal")]
+    [InlineData("/records/documents/read?name=focus.md")]
+    [InlineData("/records/attachments/ATTACHMENT")]
+    public async Task ANOTHER_ACCOUNT_finds_no_such_factory_and_none_of_its_records(string rest)
+    {
+        var file = _attachments.Add(T, F, null, "a.txt", "text/plain", new byte[] { 1 }, "session", Session, Now).Attachment!;
+        Assert.True(_documents.Write(T, F, "focus.md", "x", 0, "session", Session, Now).Ok);
+        _asTenant = new TenantId("another-account");
+
+        var answer = await Get($"/gateway/factories/{F}" + rest.Replace("ATTACHMENT", file.Id.ToString()));
+
+        Assert.Equal(404, answer.Status);
+        Assert.Equal("There is no factory 'qa-outreach' in this account.", answer.Body.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public void Who_AnAuthorKindTheStoreNeverWrites_IsABrokenRow_NeverNamedAsTheUpload()
+    {
+        Assert.Throws<InvalidOperationException>(() => FactoryRecordsTabFold.Who("robot", "x"));
     }
 
     [Fact]
@@ -212,7 +270,7 @@ public sealed class FactoryRecordsTabTests : IDisposable
         public IApplicationBuilder CreateApplicationBuilder() => new ApplicationBuilder(ServiceProvider);
     }
 
-    private async Task<(int Status, string ContentType, byte[] Bytes)> Send(string path)
+    private async Task<(int Status, string ContentType, byte[] Bytes, string Disposition, string NoSniff)> Send(string path, bool asSession = false)
     {
         var query = path.Contains('?') ? path[path.IndexOf('?')..] : "";
         if (query.Length > 0) path = path[..path.IndexOf('?')];
@@ -238,10 +296,13 @@ public sealed class FactoryRecordsTabTests : IDisposable
         ctx.Items[AuthMiddleware.AuthenticatedCredentialItemKey] = "credential";
         ctx.Items[AuthMiddleware.DeviceTypeItemKey] = "browser";
         ctx.Items[AuthMiddleware.AuthenticatedDeviceItemKey] = new DeviceCredentialIdentity("device-1", T.Value, "browser", "active");
+        if (asSession)
+            ctx.Items[AuthMiddleware.AuthenticatedSessionItemKey] = new SessionCredentialIdentity(Guid.Parse(Session), T, "director-a");
 
         await matched.Value.Endpoint.RequestDelegate!(ctx);
 
-        return (ctx.Response.StatusCode, (ctx.Response.ContentType ?? "").Split(';')[0], ((MemoryStream)ctx.Response.Body).ToArray());
+        return (ctx.Response.StatusCode, (ctx.Response.ContentType ?? "").Split(';')[0], ((MemoryStream)ctx.Response.Body).ToArray(),
+            ctx.Response.Headers.ContentDisposition.ToString(), ctx.Response.Headers["X-Content-Type-Options"].ToString());
     }
 
     private async Task<(int Status, JsonElement Body)> Get(string path)

@@ -83,6 +83,24 @@ public sealed class FactoryAttachmentStore
         }
     }
 
+    /// <summary>
+    /// The factory's attachments among <paramref name="ids"/>, in ONE read (a journal page names up to
+    /// <c>MaxAttachmentsPerEntry</c> files per entry; one read per file would open thousands of contexts). An id the
+    /// factory does not hold is absent from the answer.
+    /// </summary>
+    public IReadOnlyDictionary<Guid, FactoryAttachmentEntity> Find(TenantId tenant, string factory, IReadOnlyCollection<Guid> ids)
+    {
+        ArgumentNullException.ThrowIfNull(ids);
+        if (ids.Count == 0 || !FactoryNames.TryFactory(factory, out factory, out _)) return new Dictionary<Guid, FactoryAttachmentEntity>();
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            return ctx.FactoryAttachments.AsNoTracking()
+                .Where(a => a.Factory == factory && ids.Contains(a.Id))
+                .ToDictionary(a => a.Id);
+        }
+    }
+
     /// <summary>One attachment's bytes, or null when the factory holds no such attachment.</summary>
     public byte[]? Content(TenantId tenant, string factory, Guid id)
     {
