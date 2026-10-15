@@ -6002,6 +6002,17 @@ public sealed class GatewayHost : IAsyncDisposable
             // Factory Definition, phase 4: a defined factory's triggers are its definition's to write.
             isDefined: FactoryDefinitions.IsDefined);
 
+        // Factory Definition, phase 5b: a Director downloads the checks of a PUBLISHED version of a factory whose seat
+        // runs on its machine. Behind the same switch as the triggers that name them.
+        FactoryCheckEndpoints.Map(
+            Api.FactoryAgentsGate.Group(_app, FactoryAgentsSwitch,
+                resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary)),
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            directorMachine: (tenant, directorId) => Registry.ListDirectors(tenant)
+                .FirstOrDefault(d => string.Equals(d.DirectorId, directorId, StringComparison.OrdinalIgnoreCase))
+                ?.MachineName,
+            definitions: FactoryDefinitions);
+
         // The queue runner (issue #274, child 3 of #270): the thin orchestration that turns a named
         // work list into unattended, ordered runs - one implementation session per github item,
         // watched to its IMPL-LOOP-TERMINAL sentinel (child 1, #272) before advancing. All runner

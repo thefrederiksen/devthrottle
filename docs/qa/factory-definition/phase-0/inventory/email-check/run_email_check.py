@@ -29,7 +29,11 @@ SECRETS = shutil.which("cc-secrets")
 if SECRETS is None:
     sys.exit("ERROR: cc-secrets is not on the PATH; it is installed with DevThrottle's tools.")
 with open(os.path.join(HERE, "mail-rules.json"), encoding="utf-8") as fh:
-    MARKERS = json.load(fh)["bounceSubjectMarkers"]
+    _RULES = json.load(fh)
+MARKERS = _RULES["bounceSubjectMarkers"]
+# Each entry the rules name, to the variable it arrives in here: the client secret through cc-secrets in its own
+# variable, the two settings handed over by this script in the variables the rule names.
+SECRET_VARS = {entry: entry.upper().replace("-", "_").replace(".", "_") for entry in _RULES["secrets"].values()}
 
 
 def setting(name):
@@ -58,7 +62,8 @@ def one_run(title, args, extra_env):
     with tempfile.TemporaryDirectory() as tmp:
         state = os.path.join(tmp, "state.json")
         open(state, "w").close()
-        env = dict(os.environ, CC_CHECK_STATE_FILE=state, **extra_env)
+        # As the Director sets it (mission 5.5a): which variable each entry the check reads arrived in.
+        env = dict(os.environ, CC_CHECK_STATE_FILE=state, CC_CHECK_SECRET_VARS=json.dumps(SECRET_VARS), **extra_env)
         p = subprocess.run([SECRETS, "run", *args, "--", sys.executable, CHECK], capture_output=True, text=True,
                            env=env, stdin=subprocess.DEVNULL)
         lines = [ln.rstrip() for ln in p.stdout.splitlines() if ln.strip() and not ln.startswith("[cc-secrets]")]

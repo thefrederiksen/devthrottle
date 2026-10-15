@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace CcDirector.Gateway.Contracts;
 
 /// <summary>
@@ -160,8 +162,103 @@ public sealed class TriggerAssignmentDto
     public string RepoPath { get; set; } = "";
     public int IntervalSeconds { get; set; }
 
-    /// <summary>How long the check may run before the Director kills it and reports a timeout.</summary>
+    /// <summary>How long the check may run before the Director kills it and reports a timeout. A due check (one with
+    /// <see cref="DueRunId"/>) is fixed at <see cref="TriggerCheckLimits.DueCheckTimeoutSeconds"/>.</summary>
     public int TimeoutSeconds { get; set; }
+
+    // ---------- A check from a factory's definition (Factory Definition, phase 5b) ----------
+    // Every field below is ABSENT on a command trigger (null, and left out of the JSON), so a command trigger is
+    // handed out exactly as before, and a Director too old to know these fields is never handed a definition check:
+    // the Gateway hands one only to a Director whose hello says DefinitionChecks.
+
+    /// <summary><see cref="TriggerKinds.Definition"/> for a check from a factory's definition; null (absent) or
+    /// <see cref="TriggerKinds.Command"/> for a command trigger, which runs <see cref="CheckCommand"/> as always.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Kind { get; set; }
+
+    /// <summary>The factory whose definition holds the check.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Factory { get; set; }
+
+    /// <summary>The seat the start belongs to. The check reads it in <c>CC_CHECK_SEAT</c>.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Seat { get; set; }
+
+    /// <summary>The PUBLISHED version of the definition the check is downloaded from.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? DefinitionVersion { get; set; }
+
+    /// <summary>The check's path inside the definition, <c>checks/&lt;name&gt;.py</c>.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? CheckPath { get; set; }
+
+    /// <summary>The cc-secrets entry names the start declares, in declared order. Null or empty: no secrets.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? Secrets { get; set; }
+
+    /// <summary>
+    /// Set on a TIMED due check: the id of the schedule run row waiting for this check. Null on an interval check.
+    /// A due check is one-shot: the Director runs it once, reports it keyed by this id
+    /// (<c>POST /directors/{directorId}/triggers/{DueRunId}/checks</c>), and never re-runs it on an interval.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DueRunId { get; set; }
+
+    /// <summary>The newest stored state of this start (empty on a first run). The Director writes it into the file
+    /// it names in <c>CC_CHECK_STATE_FILE</c> before the run.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? State { get; set; }
+
+    /// <summary>True when this assignment is a check from a definition. Anything else is a command trigger.</summary>
+    [JsonIgnore]
+    public bool IsDefinitionCheck => string.Equals(Kind, TriggerKinds.Definition, StringComparison.Ordinal);
+
+    /// <summary>The id the Director runs and reports this check under: the due run's id for a due check, else the
+    /// trigger's own id.</summary>
+    [JsonIgnore]
+    public string ReportId => string.IsNullOrEmpty(DueRunId) ? Id : DueRunId;
+}
+
+/// <summary>The two kinds of trigger a Director is handed (<see cref="TriggerAssignmentDto.Kind"/>).</summary>
+public static class TriggerKinds
+{
+    /// <summary>A command run in a repository folder - every trigger before phase 5b. Also what an absent kind means.</summary>
+    public const string Command = "command";
+
+    /// <summary>A Python check from a factory's PUBLISHED definition, run in the downloaded version's folder.</summary>
+    public const string Definition = "definition";
+}
+
+/// <summary>The sizes and times every side of a trigger check agrees on (Factory Definition, phase 5b).</summary>
+public static class TriggerCheckLimits
+{
+    /// <summary>How many characters of each of a check's two outputs travel to the Gateway.</summary>
+    public const int OutputCap = 16_384;
+
+    /// <summary>The largest state a check may leave, in bytes of UTF-8. Above it the Director sends no state and
+    /// says <see cref="TriggerCheckReport.StateOversize"/>.</summary>
+    public const int StateCapBytes = 64 * 1024;
+
+    /// <summary>How long a due check (a timed start's check) may run.</summary>
+    public const int DueCheckTimeoutSeconds = 300;
+
+    /// <summary>
+    /// The largest check report body the Gateway reads. Two outputs of <see cref="OutputCap"/> characters and a
+    /// state of <see cref="StateCapBytes"/> bytes, each at the worst JSON escaping (six bytes for one character or
+    /// byte), plus room for the other fields.
+    /// </summary>
+    public const long ReportBodyLimitBytes = (2L * OutputCap + StateCapBytes) * 6 + 64 * 1024;
+}
+
+/// <summary>
+/// The answer to <c>GET /directors/{directorId}/factory-checks/{factory}/{version}</c>: the <c>checks/</c> and
+/// <c>files/</c> entries of one PUBLISHED version of a factory's definition, path to text.
+/// </summary>
+public sealed class FactoryCheckFilesResponse
+{
+    public string Factory { get; set; } = "";
+    public int Version { get; set; }
+    public Dictionary<string, string> Files { get; set; } = new(StringComparer.Ordinal);
 }
 
 /// <summary>The answer to <c>GET /directors/{directorId}/triggers</c>.</summary>
@@ -193,4 +290,15 @@ public sealed class TriggerCheckReport
 
     /// <summary>What the check printed on standard error, capped by the Director.</summary>
     public string? ErrorOutput { get; set; }
+
+    /// <summary>
+    /// A check from a definition only: the state file's content after the run, or null when the file is gone or
+    /// <see cref="StateOversize"/>. Null on every command trigger, which has no state.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? State { get; set; }
+
+    /// <summary>True when the state file was larger than <see cref="TriggerCheckLimits.StateCapBytes"/> after the
+    /// run; its content is then not sent.</summary>
+    public bool StateOversize { get; set; }
 }

@@ -28,7 +28,7 @@ namespace CcDirector.ControlApi;
 /// When the config is disabled (no gateway.url) the client is inert - every method
 /// is a no-op so the Director boots normally in local-only mode.
 /// </summary>
-public sealed class GatewayClient : IGatewayHold, IGatewayColourLegend, IGatewayLinkRequests, Triggers.ITriggerGateway, IDisposable
+public sealed class GatewayClient : IGatewayHold, IGatewayColourLegend, IGatewayLinkRequests, Triggers.ITriggerGateway, Triggers.IFactoryCheckSource, IDisposable
 {
     /// <summary>How often the heartbeat fires.</summary>
     public static TimeSpan HeartbeatInterval { get; } = TimeSpan.FromSeconds(15);
@@ -995,6 +995,54 @@ public sealed class GatewayClient : IGatewayHold, IGatewayColourLegend, IGateway
             FileLog.Write($"[GatewayClient] ReportTriggerCheckAsync FAILED: trigger={triggerId}, {ex.Message}");
             return ex.Message;
         }
+    }
+
+    /// <summary>
+    /// The checks and files of one PUBLISHED version of a factory's definition (Factory Definition, phase 5b):
+    /// <c>GET /directors/{id}/factory-checks/{factory}/{version}</c>. The Gateway refuses a draft, and a factory with
+    /// no seat on this Director's machine, with a sentence - which becomes the check's start error.
+    /// </summary>
+    public async Task<Triggers.FactoryCheckFetch> FetchFactoryChecksAsync(string directorId, string factory, int version, CancellationToken ct)
+    {
+        FileLog.Write($"[GatewayClient] FetchFactoryChecksAsync: factory={factory}, version={version}");
+        if (!_config.IsEnabled) return Triggers.FactoryCheckFetch.Refused("no Gateway is configured");
+        try
+        {
+            using var resp = await _http.GetAsync(
+                $"directors/{Uri.EscapeDataString(directorId)}/factory-checks/{Uri.EscapeDataString(factory)}/{version}", ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                var body = await resp.Content.ReadAsStringAsync(ct);
+                return Triggers.FactoryCheckFetch.Refused($"HTTP {(int)resp.StatusCode}: {RefusalSentence(body)}");
+            }
+            var answer = await resp.Content.ReadFromJsonAsync<FactoryCheckFilesResponse>(ct);
+            if (answer?.Files is null)
+                return Triggers.FactoryCheckFetch.Refused("the Gateway answered with no files");
+            FileLog.Write($"[GatewayClient] FetchFactoryChecksAsync: factory={factory}, version={version}, files={answer.Files.Count}");
+            return new Triggers.FactoryCheckFetch(answer.Files, null);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            FileLog.Write($"[GatewayClient] FetchFactoryChecksAsync FAILED: factory={factory}, version={version}, {ex.Message}");
+            return Triggers.FactoryCheckFetch.Refused(ex.Message);
+        }
+    }
+
+    /// <summary>The <c>error</c> sentence of a refusal body, or the body itself cut short.</summary>
+    private static string RefusalSentence(string body)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.ValueKind == JsonValueKind.Object
+                && doc.RootElement.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.String)
+                return error.GetString()!;
+        }
+        catch (JsonException)
+        {
+            // not-an-error: a body that is not JSON is quoted as it is, below
+        }
+        return body.Length > 300 ? body[..300] : body;
     }
 
     /// <summary>

@@ -3,5 +3,10 @@
   "folders": ["inbox", "junkemail", "archive"],
   "ledger": "%LOCALAPPDATA%/cc-factory/devthrottle/outreach/ledger.json",
   "bounceSubjectMarkers": ["Undeliverable", "Delivery Status Notification", "Mail delivery failed", "Returned mail"],
-  "firstRunLookbackHours": 24
+  "firstRunLookbackHours": 24,
+  "secrets": {
+    "tenantId": "outreach-mail-tenant-id",
+    "clientId": "outreach-mail-client-id",
+    "clientSecret": "outreach-mail-client-secret"
+  }
 }

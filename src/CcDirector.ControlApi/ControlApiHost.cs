@@ -694,8 +694,15 @@ public sealed class ControlApiHost : IAsyncDisposable
         // change that replaces it is picked up. A Gateway with factory agents off hands out nothing, so nothing runs.
         if (gatewayConfig.IsEnabled)
         {
+            // Factory Definition, phase 5b: a check from a definition is downloaded from the Gateway and run under
+            // Python in this Director's own storage; a command trigger runs its command exactly as before.
+            var definitionChecks = new Triggers.DefinitionCheckRunner(DirectorId, Core.Storage.CcStorage.Root(),
+                () => _gatewayClient, new Triggers.CheckProcesses(),
+                Triggers.DefinitionCheckRunner.SessionInheritedEnvironment, () => DateTime.UtcNow,
+                OperatingSystem.IsWindows());
             var triggerRunner = new Triggers.DirectorTriggerRunner(DirectorId, () => _gatewayClient,
-                Triggers.DirectorTriggerRunner.RunCheckAsync, () => DateTime.UtcNow);
+                Triggers.DirectorTriggerRunner.Dispatch(definitionChecks, Triggers.DirectorTriggerRunner.RunCheckAsync),
+                () => DateTime.UtcNow, definitionChecks.Prune);
             _ = Task.Run(() => triggerRunner.RunAsync(_triggerRunnerCts.Token));
         }
         _turnPusher = BuildTurnPusher(gatewayConfig);
