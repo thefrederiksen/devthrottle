@@ -10,17 +10,23 @@ public sealed record FactorySkillAnswer(bool CanLoad, string? Reason);
 ///
 /// A factory skill must be visible to ONE session only - never copied into a checkout, never into the user's home
 /// skills folder every session shares. Whether each agent can be pointed at a folder of skills outside both is phase
-/// 0's proof (c). Until that proof lands every agent reads "not shown yet", so a seat that names a factory skill is
-/// refused with that reason rather than started with a skill it silently does not get. When phase 0(c) answers for
-/// an agent, its row below is the one edit that changes the check.
+/// 0's proof (c) (design section 9): Claude Code can (a plugin folder passed at launch); Codex cannot. Every other
+/// agent reads "not shown yet", so a seat that names a factory skill is refused with that reason rather than started
+/// with a skill it silently does not get. When a proof answers for an agent, its row below is the one edit that
+/// changes the check. <see cref="FactoryRulesSupport"/> is the same table for rules at launch.
 /// </summary>
 public static class FactorySkillSupport
 {
+    /// <summary>Why a Codex seat cannot name a factory skill (phase 0 proof (c)).</summary>
+    public const string CodexReason =
+        "Codex reads skills only from the start folder and its parents, the user's home folder and an administrator " +
+        "folder; none of them is for one session alone, so a Codex seat cannot be given a factory skill.";
+
     private static readonly IReadOnlyDictionary<AgentKind, FactorySkillAnswer> Table = new Dictionary<AgentKind, FactorySkillAnswer>
     {
-        [AgentKind.ClaudeCode] = NotShownYet(AgentKind.ClaudeCode),
+        [AgentKind.ClaudeCode] = new(true, null),
         [AgentKind.Pi] = NotShownYet(AgentKind.Pi),
-        [AgentKind.Codex] = NotShownYet(AgentKind.Codex),
+        [AgentKind.Codex] = new(false, CodexReason),
         [AgentKind.Gemini] = NotShownYet(AgentKind.Gemini),
         [AgentKind.OpenCode] = NotShownYet(AgentKind.OpenCode),
         [AgentKind.Cursor] = NotShownYet(AgentKind.Cursor),
@@ -40,7 +46,7 @@ public static class FactorySkillSupport
             ? answer
             : throw new InvalidOperationException($"The factory-skill table has no row for the agent {agent}; add one.");
 
-    /// <summary>The reason a seat on <paramref name="agent"/> cannot name a factory skill until phase 0(c) shows it can.</summary>
+    /// <summary>The reason a seat on <paramref name="agent"/> cannot name a factory skill until a phase 0 proof shows it can.</summary>
     public static string NotShownYetReason(AgentKind agent)
         => $"Phase 0 has not shown that {agent} can load a factory skill, so a seat on {agent} cannot name one yet.";
 

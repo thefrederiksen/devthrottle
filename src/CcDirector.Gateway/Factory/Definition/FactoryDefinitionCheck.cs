@@ -192,7 +192,10 @@ public static class FactoryDefinitionCheck
 
                 case DefinitionPlace.RuleSet:
                     if (ParseAndValidate(path, text, DefinitionFileKind.Rules, findings) is { } rules)
+                    {
                         parsed.RuleSets[info.Name!] = rules;
+                        CheckRulePaths(rules, findings);
+                    }
                     break;
 
                 case DefinitionPlace.File:
@@ -241,6 +244,33 @@ public static class FactoryDefinitionCheck
         }
 
         return findings.Count > errorsBefore ? null : parsed;
+    }
+
+    /// <summary>
+    /// A LEADING-SLASH PATH RULE (phase 0 finding 4, design section 9). Claude Code reads a rule path that begins with
+    /// exactly one slash from the folder its settings file was launched from - the seat's kit, never its repository -
+    /// so <c>Read(/secrets/**)</c> would match nothing there and the rule would bind nothing. Refused on the entry's
+    /// line. A <c>Bash(...)</c> entry is a command, not a path, and <c>//</c>, <c>./</c> and <c>~/</c> paths are
+    /// already exact, so none of them is touched.
+    /// </summary>
+    private static void CheckRulePaths(ParsedFile rules, List<DefinitionFinding> findings)
+    {
+        if (rules.Map.Find("permissions") is not { Value: DefinitionMap permissions }) return;
+        foreach (var list in permissions.Entries)
+        {
+            foreach (var (entry, line) in Items(list))
+            {
+                var open = entry.IndexOf('(');
+                if (open <= 0 || !entry.EndsWith(')')) continue;
+                var tool = entry[..open];
+                var argument = entry[(open + 1)..^1];
+                if (tool == "Bash" || !argument.StartsWith('/') || argument.StartsWith("//", StringComparison.Ordinal)) continue;
+                var rest = argument[1..];
+                Error(findings, rules.Path, line,
+                    $"'{entry}' starts with one slash, which Claude Code reads from the folder the rules are launched from, " +
+                    $"not the seat's repository, so it would match nothing there. Write ./{rest} for the start folder, or //{rest} for an absolute path.");
+            }
+        }
     }
 
     private static ParsedFile? ParseAndValidate(string path, string text, DefinitionFileKind kind, List<DefinitionFinding> findings)
@@ -456,6 +486,14 @@ public static class FactoryDefinitionCheck
                     named.RuleSets.Add(rule);
                     if (!_p.RuleSets.ContainsKey(rule))
                         Error(_findings, path, line, $"The seat names the rule set '{rule}', but there is no rules/{rule}.json.");
+                }
+                // A rule that does not bind is worse than none (mission rule A4): a seat on an agent that cannot take
+                // rules at launch may not name any.
+                if (Items(rules).Count > 0)
+                {
+                    var answer = FactoryRulesSupport.For(Enum.Parse<AgentKind>(agent));
+                    if (!answer.CanTake)
+                        Error(_findings, path, rules.KeyLine, answer.Reason!);
                 }
             }
 
