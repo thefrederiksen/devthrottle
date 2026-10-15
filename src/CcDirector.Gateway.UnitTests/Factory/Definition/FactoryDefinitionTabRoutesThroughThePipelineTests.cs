@@ -53,10 +53,10 @@ public sealed class FactoryDefinitionTabRoutesThroughThePipelineTests : IDisposa
         var apply = new FactoryPublishApply(_db);
         var record = new FactoryActivityRecord(_db);
         var settings = new TenantSettingsStore(_db);
-        var account = new FactoryDefinitionEndpoints.Account(_ => DefinitionFixture.FleetSkills, _ => DefinitionFixture.Machines);
+        var account = new FactoryDefinitionEndpoints.Account(_ => DefinitionFixture.FleetSkills, _ => DefinitionFixture.Machines, DefinitionFixture.AskNobody);
 
         FactoryDefinitionEndpoints.Map(_routes, _ => T, store, _ => SessionFactoryLookup.NotKnown,
-            account.FleetSkillsOf, account.ConnectedMachinesOf, (_, _) => null, apply, () => Now);
+            account.FleetSkillsOf, account.ConnectedMachinesOf, (_, _) => null, apply, () => Now, DefinitionFixture.AskNobody);
         var sources = new FactoriesScreenSources(
             new FactoryAgentsSources(
                 Query: (tenant, q) => record.Query(tenant, q.Factory, q.Agent, q.Outcome, q.FromUtc, q.ToUtc, q.OldestFirst, q.Offset, q.Limit),
