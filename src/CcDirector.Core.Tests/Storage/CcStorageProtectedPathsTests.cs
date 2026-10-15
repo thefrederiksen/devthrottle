@@ -95,6 +95,14 @@ public sealed class CcStorageProtectedPathsTests
             // removed. It holds no credential. Losing it costs a running agent the files it was reading - the
             // next session downloads them again - which is the same bargain the preamble beside it makes.
             ["FactoryMemory"] = DataTheMissionReportsAndNeverOffers,
+            // A seat's kit folder (Factory Definition mission, phase 5). NOT protected, and decided rather than
+            // defaulted: it is one folder per session holding a COPY of what the Gateway holds, written before the
+            // agent starts. It holds no credential - secret values never enter it, only the secret NAMES in kit.json.
+            // A live session's kit is never swept by a storage clean-up, because no reclaim rule offers anything under
+            // the product's root. A kit left behind by a crashed session is removed by the Director's start-up sweep,
+            // SessionManager.SweepFactoryRunFolders (the kit writer is FactoryRunKit), which deletes only a folder no
+            // live, persisted or captured session names.
+            ["FactoryRun"] = DataTheMissionReportsAndNeverOffers,
             ["SessionPreambles"] = DataTheMissionReportsAndNeverOffers,
             ["SessionPointers"] = DataTheMissionReportsAndNeverOffers,
             ["SessionRecordings"] = DataTheMissionReportsAndNeverOffers,
