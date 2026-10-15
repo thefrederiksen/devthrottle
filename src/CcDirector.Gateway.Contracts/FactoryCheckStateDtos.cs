@@ -12,7 +12,8 @@ public sealed class FactoryCheckStateDto
     /// <summary>The seat the start belongs to.</summary>
     public string Seat { get; set; } = "";
 
-    /// <summary>The start's number among the seat's checked starts, counting from 1.</summary>
+    /// <summary>The start's number: its place in the seat's <c>starts:</c> list, counting every start from 1 - the number
+    /// in its trigger's name, <c>&lt;factory&gt;-&lt;seat&gt;-start-&lt;N&gt;</c>.</summary>
     public int Start { get; set; }
 
     /// <summary>The trigger's or the schedule's name.</summary>
