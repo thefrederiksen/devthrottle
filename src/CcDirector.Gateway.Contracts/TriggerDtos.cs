@@ -141,6 +141,10 @@ public sealed class TriggerStartAccepted
 public sealed class TriggerRunListResponse
 {
     public string TriggerId { get; set; } = "";
+
+    /// <summary>True when the trigger itself was deleted and these are its kept runs, read by the id it had.</summary>
+    public bool Deleted { get; set; }
+
     public List<TriggerRunDto> Runs { get; set; } = new();
 }
 

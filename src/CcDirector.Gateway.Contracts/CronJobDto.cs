@@ -202,6 +202,14 @@ public sealed class CronJobDto
 
     /// <summary>The rule behind <see cref="ShiftWarning"/>, in words, set with it. Read-only.</summary>
     public string? ShiftRule { get; set; }
+
+    /// <summary>
+    /// True when this schedule's factory has a published definition (Factory Definition, phase 4), so the schedule is
+    /// the definition's to write: editing, deleting, linking or unlinking it is refused, and switching it on or off is
+    /// all that is allowed. False for a schedule of no factory or of a factory with no definition. Stamped by the
+    /// Gateway on every answer so a client offers only what is allowed instead of working it out. Read-only.
+    /// </summary>
+    public bool DefinedByDefinition { get; set; }
 }
 
 /// <summary>

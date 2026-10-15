@@ -28,6 +28,7 @@ namespace CcDirector.Gateway.Api;
 /// A factory with a PUBLISHED definition (Factory Definition, phase 4): the add, the edit and the delete of one of its
 /// triggers answer 409 { error, outcome: "DefinedByDefinition" }. Pause and resume still work.
 ///   GET    /triggers/{id}/runs       ?limit=N (default 50, at most 500) -> TriggerRunListResponse | 404
+///                                     (a deleted trigger's kept runs by its id, with deleted=true; 404 when neither)
 ///
 /// The Director's half - never a session key's, since <see cref="SessionKeyGuard"/> lists neither:
 ///
@@ -195,13 +196,28 @@ internal static class TriggerEndpoints
 
         app.MapGet("/triggers/{id}/runs", (string id, int? limit, HttpContext ctx) =>
         {
+            FileLog.Write($"[TriggerEndpoints] GET /triggers/{id}/runs");
             if (resolveTenant(ctx) is not { } tenant) return NoAccount();
-            if (store.Find(tenant, id) is not { } t) return NoSuchTrigger(id);
             var take = Math.Clamp(limit ?? DefaultRunLimit, 1, TriggerStore.RunsKept);
+            if (store.Find(tenant, id) is { } t)
+                return Results.Json(new TriggerRunListResponse
+                {
+                    TriggerId = t.Id.ToString("D"),
+                    Runs = store.ListRuns(tenant, t.Id, take).Select(TriggerService.ToDto).ToList(),
+                });
+            // A deleted trigger's run history is kept (a publish that removes a trigger says so), so its rows stay
+            // readable by the id the trigger had. Only by id: the name went with the trigger's row. The read is in
+            // this account's context, so another account's kept rows are never found. Neither a trigger nor kept
+            // rows is the one 404.
+            if (!Guid.TryParse(id, out var deletedId)) return NoSuchTrigger(id);
+            var kept = store.ListRuns(tenant, deletedId, take);
+            if (kept.Count == 0) return NoSuchTrigger(id);
+            FileLog.Write($"[TriggerEndpoints] GET /triggers/{id}/runs: trigger deleted, {kept.Count} kept run(s) served");
             return Results.Json(new TriggerRunListResponse
             {
-                TriggerId = t.Id.ToString("D"),
-                Runs = store.ListRuns(tenant, t.Id, take).Select(TriggerService.ToDto).ToList(),
+                TriggerId = deletedId.ToString("D"),
+                Deleted = true,
+                Runs = kept.Select(TriggerService.ToDto).ToList(),
             });
         });
 

@@ -131,6 +131,34 @@ def test_runs_prints_every_outcome_with_its_session_and_reason():
     assert "nothing-to-do  count=0" in result.stdout
 
 
+def test_runs_of_a_deleted_trigger_says_it_was_deleted_and_prints_its_kept_checks():
+    history = {"triggerId": _TRIGGER["id"], "deleted": True, "runs": [
+        {"checkedUtc": "2026-10-15T14:52:38Z", "outcome": "nothing-to-do", "count": 0},
+    ]}
+    with patch("src.trigger_ops.TriggerClient") as client_cls:
+        client_cls.return_value.runs.return_value = history
+        result = runner.invoke(app, ["trigger", "runs", _TRIGGER["id"]])
+    assert result.exit_code == 0, result.output
+    assert f"Trigger {_TRIGGER['id']} was deleted. Its run history is kept: 1 most recent check(s)" in result.stdout
+    assert "nothing-to-do  count=0" in result.stdout
+    # A deleted trigger cannot be shown, so it is not offered.
+    assert "trigger show" not in result.stdout
+    assert "cc-devthrottle trigger list" in result.stdout
+
+
+def test_runs_of_a_live_trigger_does_not_say_deleted():
+    history = {"triggerId": _TRIGGER["id"], "deleted": False, "runs": [
+        {"checkedUtc": "2026-10-15T14:52:38Z", "outcome": "nothing-to-do", "count": 0},
+    ]}
+    with patch("src.trigger_ops.TriggerClient") as client_cls:
+        client_cls.return_value.runs.return_value = history
+        result = runner.invoke(app, ["trigger", "runs", "website-new-mail"])
+    assert result.exit_code == 0, result.output
+    assert "was deleted" not in result.stdout
+    assert "1 most recent check(s) of website-new-mail, newest first:" in result.stdout
+    assert 'cc-devthrottle trigger show "website-new-mail"' in result.stdout
+
+
 def test_runs_takes_the_fleets_short_count_flag():
     with patch("src.trigger_ops.TriggerClient") as client_cls:
         client_cls.return_value.runs.return_value = {"triggerId": _TRIGGER["id"], "runs": []}

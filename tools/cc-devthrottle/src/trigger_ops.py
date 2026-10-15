@@ -285,7 +285,12 @@ def runs(key: str, count: int, json_output: bool) -> None:
         axi_cli.print_next([f"cc-devthrottle trigger show {axi_cli.quoted(key, '<name>')}"])
         return
 
+    # The Gateway says whether the trigger itself is gone and these are its kept runs; this only prints it.
+    deleted = data.get("deleted") is True
     lines = [f"{len(history)} most recent check(s) of {key}, newest first:"]
+    if deleted:
+        lines = [f"Trigger {key} was deleted. Its run history is kept: "
+                 f"{len(history)} most recent check(s), newest first:"]
     for r in history:
         detail = ""
         if r.get("sessionId"):
@@ -294,4 +299,7 @@ def runs(key: str, count: int, json_output: bool) -> None:
             detail += f" reason: {r['reason']}"
         lines.append(f"  {_v(r.get('checkedUtc'))}  {_v(r.get('outcome'))}  count={_v(r.get('count'))}{detail}")
     axi_cli.write_lines(*lines)
+    if deleted:
+        axi_cli.print_next([_LIST])
+        return
     axi_cli.print_next([f"cc-devthrottle trigger show {axi_cli.quoted(key, '<name>')}"])
