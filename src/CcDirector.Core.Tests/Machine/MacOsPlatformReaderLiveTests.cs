@@ -206,12 +206,12 @@ public class MacOsPlatformReaderLiveTests
     {
         var before = ReadCores();
 
-        // Real work, so the busy counters have something to count. Kept small: the assertion is that
-        // the counters advance at all, not how fast this machine is.
-        var until = DateTime.UtcNow.AddMilliseconds(300);
-        var spin = 0L;
-        while (DateTime.UtcNow < until) spin++;
-        Assert.True(spin > 0);
+        // Real work, measured in WORK rather than in time - see MachineWork for why a sleep or a
+        // clock-bounded spin is refused here. The result is asserted on so the loop cannot be
+        // optimised away, which would otherwise leave this test proving that no work moves no
+        // counters.
+        var burned = MachineWork.Burn();
+        Assert.True(burned > 0);
 
         var after = ReadCores();
 
@@ -220,12 +220,12 @@ public class MacOsPlatformReaderLiveTests
         var totalBefore = before.Sum(core => (double)core.Total);
         var totalAfter = after.Sum(core => (double)core.Total);
         Assert.True(totalAfter > totalBefore,
-            $"no processor ticks passed across {before.Count} cores in 300 milliseconds");
+            $"no processor ticks passed across {before.Count} cores while a unit of work was done");
 
         // And at least one core must have done some of that work.
         var busyBefore = before.Sum(core => (double)core.Busy);
         var busyAfter = after.Sum(core => (double)core.Busy);
-        Assert.True(busyAfter > busyBefore, "the machine did 300 milliseconds of work and no core recorded any of it");
+        Assert.True(busyAfter > busyBefore, "a unit of real arithmetic was done and no core recorded any of it");
     }
 
     private static IReadOnlyList<MacOsResourceParsing.CoreTicks> ReadCores()
@@ -394,7 +394,16 @@ public class MacOsPlatformReaderLiveTests
         Assert.True(bsd.ParentPid > 0);
         Assert.False(string.IsNullOrWhiteSpace(bsd.Name));
         Assert.Equal(DateTimeKind.Utc, bsd.StartedAtUtc.Kind);
-        Assert.InRange(bsd.StartedAtUtc, DateTime.UtcNow.AddHours(-24), DateTime.UtcNow.AddMinutes(1));
+
+        // A WIDE, FIXED WINDOW RATHER THAN ONE AROUND THE CLOCK. What this test is for is the epoch
+        // and the field offset, and both failure modes land far outside any plausible date - the wrong
+        // offset read 1970, and reading the microseconds field as the seconds field lands hundreds of
+        // thousands of years out. Bounding it by "the last day" instead would measure the clock, which
+        // a gate test may not do, and would catch nothing extra.
+        Assert.InRange(
+            bsd.StartedAtUtc,
+            new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2100, 1, 1, 0, 0, 0, DateTimeKind.Utc));
     }
 
     [MacOsOnlyFact("proc_pidinfo is a libproc call")]
