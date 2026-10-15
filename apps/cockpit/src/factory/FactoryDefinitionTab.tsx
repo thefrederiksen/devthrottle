@@ -203,7 +203,7 @@ export function FactoryDefinitionTab({ factory }: FactoryDefinitionTabProps) {
             disabled={exporting}
             onClick={() => void exportZip(view.export.href)}
           >
-            {exporting ? "Exporting..." : view.export.label}
+            {exporting ? view.export.busyLabel : view.export.label}
           </Button>
           <Button
             variant="secondary"

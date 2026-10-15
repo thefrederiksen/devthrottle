@@ -94,7 +94,21 @@ public sealed class FactoryDefinitionTabFoldTests
     }
 
     [Fact]
-    public void Tab_TwoDraftsAboveThePublished_PublishConfirmSaysEveryChangeSinceGoesLive_NotOnlyTheNewestEdit()
+    public void PublishAction_SeveralDraftsBetween_NamesThemAsPassedOver_AndAHistoryRowSaysNothingOfADifferenceItDoesNotShow()
+    {
+        var row = FactoryDefinitionTabFold.PublishAction("QA Outreach", 7, published: 3, newest: 7, changesSummary: null);
+        var first = FactoryDefinitionTabFold.PublishAction("QA Outreach", 3, published: null, newest: 3, changesSummary: "3 seats added.");
+        var next = FactoryDefinitionTabFold.PublishAction("QA Outreach", 4, published: 3, newest: 4, changesSummary: "1 seat changed.");
+
+        Assert.Contains("Version 7 goes live exactly as it is. Versions 4 to 6 are passed over: they stay in the history, and History " +
+                        "can restore one.", row.ConfirmLines);
+        Assert.Contains("Version 3 goes live exactly as it is. Versions 1 to 2 are passed over: they stay in the history, and History " +
+                        "can restore one.", first.ConfirmLines);
+        Assert.DoesNotContain(next.ConfirmLines, l => l.Contains("passed over", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Tab_TwoDraftsAboveThePublished_PublishConfirmSaysTheNewestGoesLiveAsItIs_AndTheOneBetweenIsPassedOver()
     {
         var v3 = Version(3, FactoryDefinitionStates.Published);
         var v5 = Version(5, FactoryDefinitionStates.Draft,
@@ -105,8 +119,10 @@ public sealed class FactoryDefinitionTabFoldTests
         Assert.Equal(5, view.Publish!.Version);
         Assert.Equal(3, view.Publish.Replaces);
         Assert.Equal(5, view.Publish.ExpectedVersion);
-        Assert.Contains(view.Publish.ConfirmLines, l =>
-            l == "Versions 4 to 5 were all saved since version 3 was published, and version 5 holds every change in them. They all go live with it, not only the newest edit.");
+        // Never that version 5 holds version 4's change: an import replaces the whole definition (review of #4028).
+        Assert.Contains("Version 5 goes live exactly as it is. Version 4 is passed over: it stays in the history, and History can " +
+                        "restore it. What changes, above, is the whole difference between version 3 and version 5.", view.Publish.ConfirmLines);
+        Assert.DoesNotContain(view.Publish.ConfirmLines, l => l.Contains("holds every change", StringComparison.Ordinal));
         Assert.Contains("Version 3, published now, is kept. History can restore it.", view.Publish.ConfirmLines);
         Assert.Contains(view.Changes!.Changes!.Seats, s => s.Seat == "boss" && s.BriefDiff is not null);
     }

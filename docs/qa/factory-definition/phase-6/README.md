@@ -47,6 +47,8 @@ same pictures; the browser is a headless one the script starts and stops.
 | 12 | `12-restore-confirm.png` | The **restore confirm** of version 1: a copy becomes version 4 and is published, nothing is removed, and the draft above the published version is then older than it. |
 | 13 | `13-restored-version-1-as-version-4.png` | **Restored**: version 4 published, "Restored from version 1.", and the steps applied (the rename and the moved start undone). |
 | 14 | `14-exported.png` | **Export** of the published version, downloaded twice. |
+| 15 | `15-import-refused-with-findings.png` | **An import the check refuses**: the writer's seat file has a key no seat file can have (`colour: red`). The tab keeps the Gateway's sentence and the finding by file and line; nothing is stored. |
+| 16 | `16-import-for-another-factory-refused.png` | **An import of a folder for another factory**: its `factory.yaml` names `qa-elsewhere`, and the tab says to import it on that factory's page. Nothing is stored: the newest version is 4 before and after both refused imports (`answers.json`). |
 
 The answers behind the pictures, from `answers.json`:
 
@@ -72,31 +74,37 @@ The answers behind the pictures, from `answers.json`:
 - **Publish and restore** go to the definition's own routes, `/factory-definitions/{factory}/publish` and `/restore`,
   with exactly the versions the Gateway's confirm named (`version`, `replaces`, and for a restore `expectedVersion`).
   Only a person may do either; that rule is the Gateway's, unchanged.
-- **The publish confirm says the whole version goes live.** When more than one draft was saved since the published
-  version, it says "Versions 4 to 5 were all saved since version 3 was published, and version 5 holds every change in
-  them. They all go live with it, not only the newest edit." (proven in `FactoryDefinitionTabFoldTests`).
+- **The publish confirm says the version goes live exactly as it is.** When drafts were saved between the published
+  version and the one being published, it says so and that they are passed over and kept, for example "Version 5 goes
+  live exactly as it is. Version 4 is passed over: it stays in the history, and History can restore it. What changes,
+  above, is the whole difference between version 3 and version 5." It never says a version holds an earlier draft's
+  change: an import replaces the whole definition, so it may not (review finding 1; proven in
+  `FactoryDefinitionTabFoldTests`).
 - **An import of a folder for another factory is refused on this factory's page**, naming both, and nothing is stored.
 - **Cockpit**: `FactoryDefinitionTab.tsx`, `factoryDefinitionClient.ts`, the `/factory-definitions` line of the
   development proxy, and `/factories/<id>/documents` opening the Definition tab.
 
 ## The check, as run
 
-From this worktree at `bf398bd95` (origin/main) plus this change:
+From this worktree rebased onto origin/main `5c068319f`, with the review's rulings applied:
 
 | Command | Result |
 |---|---|
-| `.\scripts\test-local.ps1` | GREEN, ten suites, every TRX `outcome=Completed` |
-| `dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Factory\|FullyQualifiedName~Cron\|FullyQualifiedName~Trigger"` | Passed 2,194, failed 0 |
+| `.\scripts	est-local.ps1` | GREEN, ten suites, every TRX `outcome=Completed` |
+| `dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Factory\|FullyQualifiedName~Cron\|FullyQualifiedName~Trigger"` | Passed 2,215, failed 0 |
 | `dotnet test src/CcDirector.Gateway.Tests --filter "FullyQualifiedName~Factory"` | Passed 28, failed 0 |
 | `npm run typecheck` | Exit 0 |
-| `npm test --workspace @devthrottle/client-core` | 169 files passed |
-| `npm test --workspace @devthrottle/cockpit` | 113 files passed |
+| `npm test --workspace @devthrottle/client-core` | 169 files, 2,107 tests passed |
+| `npm test --workspace @devthrottle/cockpit` | 113 files, 1,223 tests passed |
 
-New tests: `FactoryDefinitionTabFoldTests` (12: every tab state, the history's buttons, one version, the import
-sentence, the zip round trip and its refusals) and `FactoryDefinitionTabRoutesThroughThePipelineTests` (4: the
-Cockpit's whole loop through the mapped routes, an import for another factory refused, an import the check refuses with
-422 and its findings, and the session key guard), `FactoryDefinitionTab.test.tsx` (6) and
-`factoryDefinitionClient.test.ts` (5).
+New tests: `FactoryDefinitionTabFoldTests` (13: every tab state, the history's buttons, one version, the import
+sentence, the zip round trip and its refusals, and the publish confirm's passed-over drafts) and
+`FactoryDefinitionTabRoutesThroughThePipelineTests` (12: the Cockpit's whole loop through the mapped routes, an import
+for another factory refused, an import the check refuses with 422 and its findings, an import over the size cap, an
+import whose files declare more than a version holds, five pages or versions that are not a whole number from 1, a
+version that does not exist, and the session key guard on every route of the tab), `FactoryDefinitionTab.test.tsx` (8,
+including a refused import kept on the tab and the Gateway's busy word on Export) and `factoryDefinitionClient.test.ts`
+(5).
 
 ## What this does NOT prove
 

@@ -27,6 +27,14 @@
     {
       "authorization": "Bearer <the enrolled browser device key>",
       "request": "POST /factory-definitions/qa-outreach/restore"
+    },
+    {
+      "authorization": "Bearer <the enrolled browser device key>",
+      "request": "POST /gateway/factories/qa-outreach/definition/import"
+    },
+    {
+      "authorization": "Bearer <the enrolled browser device key>",
+      "request": "POST /gateway/factories/qa-outreach/definition/import"
     }
   ],
   "01-export-from-today": {
@@ -43,6 +51,7 @@
       "draft": null,
       "emptyText": "Today QA Undefined is defined by its registry entry, its briefs, its schedules and its triggers, and it keeps working exactly that way. To give it a definition: Export writes a folder from what it has today; change it if you want, import it here as a draft, read what changes, and publish it.",
       "export": {
+        "busyLabel": "Exporting...",
         "href": "/gateway/factories/qa-undefined/definition/export",
         "label": "Export",
         "leavesOut": [
@@ -299,7 +308,7 @@
         }
       },
       "draft": {
-        "lineText": "Written by a person (device browser qa-cockpit-browser) today 12:23. 6 files, 936 bytes.",
+        "lineText": "Written by a person (device browser qa-cockpit-browser) today 13:35. 6 files, 936 bytes.",
         "noteText": "imported from a zip on the factory page",
         "openLabel": "Open",
         "stateTone": "amber",
@@ -309,6 +318,7 @@
       },
       "emptyText": null,
       "export": {
+        "busyLabel": "Exporting...",
         "href": "/gateway/factories/qa-outreach/definition/export?version=1",
         "label": "Export",
         "leavesOut": [],
@@ -351,6 +361,7 @@
       "draft": null,
       "emptyText": null,
       "export": {
+        "busyLabel": "Exporting...",
         "href": "/gateway/factories/qa-outreach/definition/export?version=1",
         "label": "Export",
         "leavesOut": [],
@@ -368,7 +379,7 @@
       },
       "publish": null,
       "published": {
-        "lineText": "Published by a person (device browser qa-cockpit-browser) today 12:23. Written by a person (device browser qa-cockpit-browser) today 12:23. 6 files, 936 bytes.",
+        "lineText": "Published by a person (device browser qa-cockpit-browser) today 13:35. Written by a person (device browser qa-cockpit-browser) today 13:35. 6 files, 936 bytes.",
         "noteText": "imported from a zip on the factory page",
         "openLabel": "Open",
         "stateTone": "ok",
@@ -443,13 +454,13 @@
           "refused": null,
           "steps": [
             "Registry: seat writer renamed Writer -> Author.",
-            "Schedule cj_258b44 (QA Outreach - Boss) moved: Weekdays 08:00 Europe/Copenhagen -> Weekdays 09:00 Europe/Copenhagen."
+            "Schedule cj_93ae31 (QA Outreach - Boss) moved: Weekdays 08:00 Europe/Copenhagen -> Weekdays 09:00 Europe/Copenhagen."
           ],
           "version": 2
         }
       },
       "draft": {
-        "lineText": "Written by a person (device browser qa-cockpit-browser) today 12:23. 6 files, 959 bytes.",
+        "lineText": "Written by a person (device browser qa-cockpit-browser) today 13:35. 6 files, 959 bytes.",
         "noteText": "imported from a zip on the factory page",
         "openLabel": "Open",
         "stateTone": "amber",
@@ -459,6 +470,7 @@
       },
       "emptyText": null,
       "export": {
+        "busyLabel": "Exporting...",
         "href": "/gateway/factories/qa-outreach/definition/export?version=1",
         "label": "Export",
         "leavesOut": [],
@@ -490,7 +502,7 @@
         "version": 2
       },
       "published": {
-        "lineText": "Published by a person (device browser qa-cockpit-browser) today 12:23. Written by a person (device browser qa-cockpit-browser) today 12:23. 6 files, 936 bytes.",
+        "lineText": "Published by a person (device browser qa-cockpit-browser) today 13:35. Written by a person (device browser qa-cockpit-browser) today 13:35. 6 files, 936 bytes.",
         "noteText": "imported from a zip on the factory page",
         "openLabel": "Open",
         "stateTone": "ok",
@@ -568,7 +580,7 @@
           "stateWord": "Draft",
           "title": "Version 3",
           "version": 3,
-          "whenText": "today 12:23",
+          "whenText": "today 13:35",
           "whoText": "Written by a person (device browser qa-cockpit-browser)"
         },
         {
@@ -583,7 +595,7 @@
           "stateWord": "Published",
           "title": "Version 2",
           "version": 2,
-          "whenText": "today 12:23",
+          "whenText": "today 13:35",
           "whoText": "Written by a person (device browser qa-cockpit-browser)"
         },
         {
@@ -612,7 +624,7 @@
           "stateWord": "Published earlier",
           "title": "Version 1",
           "version": 1,
-          "whenText": "today 12:23",
+          "whenText": "today 13:35",
           "whoText": "Written by a person (device browser qa-cockpit-browser)"
         }
       ],
@@ -627,6 +639,7 @@
       "draft": null,
       "emptyText": null,
       "export": {
+        "busyLabel": "Exporting...",
         "href": "/gateway/factories/qa-outreach/definition/export?version=4",
         "label": "Export",
         "leavesOut": [],
@@ -644,7 +657,7 @@
       },
       "publish": null,
       "published": {
-        "lineText": "Published by a person (device browser qa-cockpit-browser) today 12:23. Written by a person (device browser qa-cockpit-browser) today 12:23. 6 files, 936 bytes.",
+        "lineText": "Published by a person (device browser qa-cockpit-browser) today 13:35. Written by a person (device browser qa-cockpit-browser) today 13:35. 6 files, 936 bytes.",
         "noteText": "Restored from version 1.",
         "openLabel": "Open",
         "stateTone": "ok",
@@ -670,7 +683,35 @@
     "sha256_first": "831f52b271a850cbf5243329771a7ed6da6954864299f3073f2a0751980bdf44",
     "sha256_second": "831f52b271a850cbf5243329771a7ed6da6954864299f3073f2a0751980bdf44"
   },
-  "15-development-proxy": {
+  "15-import-refused": {
+    "body": {
+      "error": "The folder was not imported: the check found 1 error in the definition of qa-outreach. Fix each one where it is and try again.",
+      "findings": [
+        {
+          "file": "seats/writer.yaml",
+          "line": 10,
+          "message": "'colour' is not a key of a seat file. The keys are: seat, name, role, line, machine, agent, model, repository, brief, starts, grants, rules, secrets, skills, files.",
+          "severity": "error"
+        }
+      ],
+      "outcome": "CheckFailed"
+    },
+    "request": "POST /gateway/factories/qa-outreach/definition/import",
+    "status": 422
+  },
+  "16-import-for-another-factory": {
+    "body": {
+      "error": "This folder's factory.yaml names the factory 'qa-elsewhere', not 'qa-outreach'. Import it on the page of 'qa-elsewhere', or with cc-devthrottle factory import when that factory has no page yet. Nothing was imported.",
+      "outcome": "NotImported"
+    },
+    "request": "POST /gateway/factories/qa-outreach/definition/import",
+    "status": 400
+  },
+  "16-newest-version-before-and-after-the-refused-imports": {
+    "after": 4,
+    "before": 4
+  },
+  "development-proxy": {
     "body": {
       "factory": "qa-outreach",
       "publishedVersion": 4,

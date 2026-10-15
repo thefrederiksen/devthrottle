@@ -62,6 +62,7 @@ const UNDEFINED = {
   historyLabel: null,
   export: {
     label: "Export",
+    busyLabel: "Exporting... (fixture)",
     href: "/gateway/factories/qa-outreach/definition/export",
     noteText: "A zip of a folder written from what QA Outreach has today.",
     leavesOut: ["factory.yaml: The goal is held in a file."],
@@ -77,7 +78,7 @@ const PUBLISH = {
   label: "Publish version 5",
   busyLabel: "Publishing...",
   confirmTitle: "Publish version 5 of the definition of QA Outreach?",
-  confirmLines: ["Versions 4 to 5 were all saved since version 3 was published. They all go live with it, not only the newest edit."],
+  confirmLines: ["Version 5 goes live exactly as it is. Version 4 is passed over: it stays in the history, and History can restore it."],
   confirmLabel: "Publish",
   doneText: "Version 5 is published. It is the definition of QA Outreach now.",
 };
@@ -123,7 +124,7 @@ const DRAFTED = {
   },
   publish: PUBLISH,
   historyLabel: "History",
-  export: { label: "Export", href: "/gateway/factories/qa-outreach/definition/export?version=3", noteText: "A zip of the folder of version 3.", leavesOut: [] },
+  export: { label: "Export", busyLabel: "Exporting... (fixture)", href: "/gateway/factories/qa-outreach/definition/export?version=3", noteText: "A zip of the folder of version 3.", leavesOut: [] },
 };
 
 const RESTORE = { ...PUBLISH, version: 2, label: "Restore", confirmTitle: "Restore version 2 of the definition of QA Outreach?", confirmLabel: "Restore", doneText: "Version 2 was restored as version 6." };
@@ -253,5 +254,33 @@ describe("the Definition tab", () => {
 
     await waitFor(() => expect(client.importFactoryDefinitionZip).toHaveBeenCalledWith(IMPORT.href, file));
     expect(await screen.findByText("Imported 6 files as version 1, a draft.")).toBeTruthy();
+  });
+
+  it("leaves a refused import on the tab with the Gateway's sentence and every finding by file and line", async () => {
+    client.getFactoryDefinitionTab.mockResolvedValue(UNDEFINED);
+    client.importFactoryDefinitionZip.mockRejectedValue(
+      new FactoryDefinitionRefusal(422, "Nothing was imported: the check found 1 error in the folder. (fixture)", "CheckFailed", [
+        { severity: "error", file: "seats/writer.yaml", line: 4, message: "colour is not a key a seat file can have. (fixture)" },
+      ]),
+    );
+    renderAt("/factories/qa-outreach/definition");
+
+    const input = (await screen.findByTestId("fa-def-import-file")) as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [new File(["zip"], "qa-outreach.zip", { type: "application/zip" })] } });
+
+    const refused = await screen.findByTestId("fa-def-refused");
+    expect(refused.textContent).toContain("Nothing was imported: the check found 1 error in the folder. (fixture)");
+    expect(within(refused).getByText("seats/writer.yaml:4")).toBeTruthy();
+    expect(within(refused).getByText("colour is not a key a seat file can have. (fixture)")).toBeTruthy();
+  });
+
+  it("says the Gateway's busy word on Export while the zip is read", async () => {
+    client.getFactoryDefinitionTab.mockResolvedValue(UNDEFINED);
+    client.downloadFactoryDefinitionZip.mockReturnValue(new Promise(() => {}));
+    renderAt("/factories/qa-outreach/definition");
+
+    fireEvent.click(await screen.findByTestId("fa-def-export"));
+
+    expect(await screen.findByText("Exporting... (fixture)")).toBeTruthy();
   });
 });

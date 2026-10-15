@@ -24,6 +24,7 @@ public static class FactoryDefinitionTabFold
     public const int HistoryPage = 20;
 
     public const string ExportLabel = "Export";
+    public const string ExportBusyLabel = "Exporting...";
     public const string ExportVersionLabel = "Export this version";
     public const string ImportLabel = "Import a folder";
 
@@ -84,6 +85,7 @@ public static class FactoryDefinitionTabFold
             view.Export = new FactoryDefinitionExportActionDto
             {
                 Label = ExportLabel,
+                BusyLabel = ExportBusyLabel,
                 Href = ExportHref(factory),
                 NoteText = $"A zip of a folder written from what {title} has today: its registry entry, published briefs, " +
                            "schedules and triggers." + (exportLeavesOut.Count == 0
@@ -111,6 +113,7 @@ public static class FactoryDefinitionTabFold
         view.Export = new FactoryDefinitionExportActionDto
         {
             Label = ExportLabel,
+            BusyLabel = ExportBusyLabel,
             Href = ExportHref(factory, chosen),
             NoteText = $"A zip of the folder of version {chosen}, {(p is null ? "the newest draft, as nothing is published" : "the published version")}, " +
                        "exactly as stored. Two exports of one version are the same bytes. To export another version, open it in History.",
@@ -186,8 +189,8 @@ public static class FactoryDefinitionTabFold
     // ---------- the acts ----------
 
     /// <summary>
-    /// Publish a draft. The confirm says that the WHOLE version goes live - every change saved since the published one,
-    /// not only the newest edit - and what it does to the registry, the schedules and the triggers.
+    /// Publish a draft. The confirm says that the version goes live exactly as it is, that any drafts between it and the
+    /// published one are passed over and kept, and what it does to the registry, the schedules and the triggers.
     /// </summary>
     /// <param name="changesSummary">The one-line summary of what changes, when it is known.</param>
     internal static FactoryDefinitionActionDto PublishAction(string title, int version, int? published, int newest,
@@ -199,13 +202,20 @@ public static class FactoryDefinitionTabFold
             "to match in one step, or nothing changes.",
         };
         if (!string.IsNullOrWhiteSpace(changesSummary)) lines.Add($"What changes: {changesSummary}");
-        var since = version - (published ?? 0);
-        if (since > 1)
-            lines.Add(published is { } p
-                ? $"Versions {p + 1} to {version} were all saved since version {p} was published, and version {version} holds " +
-                  "every change in them. They all go live with it, not only the newest edit."
-                : $"Versions 1 to {version} were all saved before anything was published, and version {version} holds every " +
-                  "change in them. They all go live with it, not only the newest edit.");
+        // THE VERSIONS BETWEEN ARE PASSED OVER, NOT MERGED (review of #4028, finding 1). A version holds what was saved
+        // in it - an import replaces the whole definition - so nothing says it holds an earlier draft's change. What is
+        // known: this version goes live as it is, and the drafts between stay in the history.
+        var first = (published ?? 0) + 1;
+        if (version > first)
+        {
+            var passed = version - 1 == first
+                ? $"Version {first} is passed over: it stays in the history, and History can restore it."
+                : $"Versions {first} to {version - 1} are passed over: they stay in the history, and History can restore one.";
+            var difference = published is { } p && !string.IsNullOrWhiteSpace(changesSummary)
+                ? $" What changes, above, is the whole difference between version {p} and version {version}."
+                : "";
+            lines.Add($"Version {version} goes live exactly as it is. {passed}{difference}");
+        }
         lines.Add(published is { } old
             ? $"Version {old}, published now, is kept. History can restore it."
             : "It is the first published version. From then on the definition owns this factory's registry entry, schedules " +

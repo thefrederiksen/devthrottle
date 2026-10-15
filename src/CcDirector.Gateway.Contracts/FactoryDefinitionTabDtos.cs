@@ -87,6 +87,9 @@ public sealed class FactoryDefinitionExportActionDto
     /// <summary>"Export".</summary>
     public string Label { get; set; } = "";
 
+    /// <summary>"Exporting...", while the zip is read.</summary>
+    public string BusyLabel { get; set; } = "";
+
     /// <summary>Where the zip is read: <c>/gateway/factories/{factory}/definition/export</c>, with <c>?version=N</c> for one version.</summary>
     public string Href { get; set; } = "";
 

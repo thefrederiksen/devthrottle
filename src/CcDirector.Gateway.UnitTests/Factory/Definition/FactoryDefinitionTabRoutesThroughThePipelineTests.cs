@@ -148,11 +148,75 @@ public sealed class FactoryDefinitionTabRoutesThroughThePipelineTests : IDisposa
         Assert.Contains(refused.Body.GetProperty("findings").EnumerateArray(), f => f.GetProperty("file").GetString() == "seats/writer.yaml");
     }
 
+    // ---------- every refusal of the tab's routes, each one a test that fails if the refusal is removed ----------
+
+    [Fact]
+    public async Task AN_IMPORT_LARGER_THAN_THE_CAP_is_refused_in_words_before_it_is_unzipped_and_nothing_is_stored()
+    {
+        var body = new byte[FactoryDefinitionTabEndpoints.MaxZipBytes + 1];
+
+        var refused = await Json("POST", Tab + "/import", body, "application/zip");
+
+        Assert.Equal(400, refused.Status);
+        Assert.Equal("NotImported", refused.Body.GetProperty("outcome").GetString());
+        var error = refused.Body.GetProperty("error").GetString()!;
+        Assert.StartsWith("The file is larger than ", error);
+        Assert.EndsWith(", more than a definition can hold. Nothing was imported.", error);
+        Assert.Equal("DevThrottle has no definition on the Gateway.", (await Json("GET", Tab)).Body.GetProperty("stateText").GetString());
+    }
+
+    [Fact]
+    public async Task AN_IMPORT_WHOSE_FILES_COME_TO_MORE_THAN_A_VERSION_HOLDS_is_refused_from_the_sizes_the_zip_declares()
+    {
+        // Zeros compress to almost nothing, so the zip is far under the body cap while its files are over a version's.
+        var files = new Dictionary<string, string>(DefinitionFixture.Publishable(), StringComparer.Ordinal)
+        {
+            ["files/big.md"] = new string('0', DefinitionPaths.MaxVersionBytes),
+        };
+        var zip = FactoryDefinitionTabEndpoints.Zip(files);
+        Assert.True(zip.Length < FactoryDefinitionTabEndpoints.MaxZipBytes);
+
+        var refused = await Json("POST", Tab + "/import", zip, "application/zip");
+
+        Assert.Equal(400, refused.Status);
+        Assert.StartsWith("The files in the zip come to more than ", refused.Body.GetProperty("error").GetString());
+        Assert.EndsWith(", the most a definition holds. Nothing was imported.", refused.Body.GetProperty("error").GetString());
+        Assert.Equal("DevThrottle has no definition on the Gateway.", (await Json("GET", Tab)).Body.GetProperty("stateText").GetString());
+    }
+
+    [Theory]
+    [InlineData("/history?before=0", "before is the version a page of the history starts below: a whole number from 1, not '0'")]
+    [InlineData("/history?before=seven", "before is the version a page of the history starts below: a whole number from 1, not 'seven'")]
+    [InlineData("/versions/0", "a version is a whole number from 1, not '0'")]
+    [InlineData("/versions/x", "a version is a whole number from 1, not 'x'")]
+    [InlineData("/export?version=-1", "a version is a whole number from 1, not '-1'")]
+    public async Task A_PAGE_OR_VERSION_THAT_IS_NOT_A_WHOLE_NUMBER_FROM_1_is_refused_in_words(string rest, string sentence)
+    {
+        await Json("POST", Tab + "/import", FactoryDefinitionTabEndpoints.Zip(DefinitionFixture.Publishable()), "application/zip");
+
+        var refused = await Json("GET", Tab + rest);
+
+        Assert.Equal(400, refused.Status);
+        Assert.Equal(sentence, refused.Body.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task A_VERSION_THAT_DOES_NOT_EXIST_answers_404_in_words()
+    {
+        await Json("POST", Tab + "/import", FactoryDefinitionTabEndpoints.Zip(DefinitionFixture.Publishable()), "application/zip");
+
+        var missing = await Json("GET", Tab + "/versions/9");
+
+        Assert.Equal(404, missing.Status);
+        Assert.Equal("version 9 of the definition of devthrottle does not exist", missing.Body.GetProperty("error").GetString());
+    }
+
     [Fact]
     public void THE_TABS_ROUTES_ARE_THE_OWNERS_a_session_key_is_refused_by_the_guard()
     {
         Assert.False(SessionKeyGuard.Check("GET", Tab).Allowed);
         Assert.False(SessionKeyGuard.Check("GET", Tab + "/history").Allowed);
+        Assert.False(SessionKeyGuard.Check("GET", Tab + "/versions/3").Allowed);
         Assert.False(SessionKeyGuard.Check("GET", Tab + "/export").Allowed);
         Assert.False(SessionKeyGuard.Check("POST", Tab + "/import").Allowed);
     }

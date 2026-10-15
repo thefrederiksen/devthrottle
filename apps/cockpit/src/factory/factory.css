@@ -1895,6 +1895,12 @@ a:focus .ff-bay rect {
   vertical-align: top;
 }
 
+/* The file and line, and the severity word, are each one token: they never break mid-word. The message wraps. */
+.fa-def-findings td:nth-child(1),
+.fa-def-findings td:nth-child(2) {
+  white-space: nowrap;
+}
+
 .fa-def-finding-error td:nth-child(2) {
   color: var(--danger-text);
 }

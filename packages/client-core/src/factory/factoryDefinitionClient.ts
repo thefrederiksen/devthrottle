@@ -140,6 +140,7 @@ export interface FactoryDefinitionTabChanges {
 
 export interface FactoryDefinitionExportAction {
   label: string;
+  busyLabel: string;
   href: string;
   noteText: string;
   leavesOut: string[];

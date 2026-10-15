@@ -195,6 +195,33 @@ def with_a_check(files):
     return changed
 
 
+def with_unknown_key(files):
+    """A folder the check refuses: the writer's seat file has a key no seat file can have."""
+    changed = dict(files)
+    changed["seats/writer.yaml"] = changed["seats/writer.yaml"] + "colour: red\n"
+    return changed
+
+
+def for_another_factory(files):
+    """A folder whose factory.yaml names another factory."""
+    changed = dict(files)
+    must(f"factory: {FACTORY}" in changed["factory.yaml"], "the example's factory.yaml does not name qa-outreach")
+    changed["factory.yaml"] = changed["factory.yaml"].replace(f"factory: {FACTORY}", "factory: qa-elsewhere")
+    return changed
+
+
+def post_zip(path, key, zip_path):
+    """Send a zip as the tab does; returns (status, the Gateway's answer)."""
+    req = urllib.request.Request(BASE + path, data=zip_path.read_bytes(), method="POST")
+    req.add_header("Authorization", f"Bearer {key}")
+    req.add_header("Content-Type", "application/zip")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as res:
+            return res.status, json.loads(res.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        return exc.code, json.loads(exc.read().decode("utf-8"))
+
+
 def zip_of(files, folder):
     """A zip as the operating system makes one of a folder: every file under the folder's own name."""
     path = SCRATCH / f"{folder}.zip"
@@ -338,6 +365,24 @@ def flow(page, key):
         "same_bytes": True,
     }
 
+    # 8. Imports the tab refuses: the check's findings by file and line, and a folder for another factory. Neither
+    #    stores anything: the newest version is 4 before and after.
+    before = call("GET", f"/factory-definitions/{FACTORY}", key)["version"]
+    bad = zip_of(with_unknown_key(example_files()), FACTORY)
+    page.set_input_files("[data-testid=fa-def-import-file]", str(bad))
+    wait(page, "[data-testid=fa-def-refused]", "the refused import")
+    must("seats/writer.yaml" in text(page, "[data-testid=fa-def-refused]"), "the refused import does not name the file")
+    shot(page, "15-import-refused-with-findings")
+    keep("15-import-refused", "POST", tab + "/import", *post_zip(tab + "/import", key, bad))
+    other = zip_of(for_another_factory(example_files()), "qa-elsewhere")
+    page.set_input_files("[data-testid=fa-def-import-file]", str(other))
+    wait(page, "[data-testid=fa-def-refused] >> text=names the factory", "the refusal of a folder for another factory")
+    shot(page, "16-import-for-another-factory-refused")
+    keep("16-import-for-another-factory", "POST", tab + "/import", *post_zip(tab + "/import", key, other))
+    after = call("GET", f"/factory-definitions/{FACTORY}", key)["version"]
+    must(before == after == 4, f"a refused import stored a version: newest {before} before, {after} after")
+    ANSWERS["16-newest-version-before-and-after-the-refused-imports"] = {"before": before, "after": after}
+
 
 def capture(key):
     with sync_playwright() as p:
@@ -391,7 +436,7 @@ def development_proxy(key):
             raise SystemExit(f"the development server did not pass {path} to the Gateway within 90 seconds: HTTP {status} {through}")
         _, direct = request("GET", path, key)
         must(through == direct, "the answer through the development proxy is not the Gateway's own answer")
-        ANSWERS["15-development-proxy"] = {"request": f"GET {dev}{path}", "status": status,
+        ANSWERS["development-proxy"] = {"request": f"GET {dev}{path}", "status": status,
                                            "body": {k: through[k] for k in ("factory", "version", "state", "publishedVersion")},
                                            "same_as_the_gateway_answered_directly": True}
         log("the development proxy passed /factory-definitions to the Gateway")
