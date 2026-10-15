@@ -44,9 +44,10 @@ public sealed class FactoryDefinitionBriefs
 
     /// <summary>
     /// IS THIS FACTORY DEFINED: does it have a PUBLISHED definition version (design section 1). A factory with only
-    /// drafts is not. The one place this module asks it.
+    /// drafts is not. The one place this module asks it, and it asks the definition store's own function - the one
+    /// every route that refuses a write to a defined factory asks (design section 8) - so the two never disagree.
     /// </summary>
-    public bool IsDefined(TenantId tenant, string factory) => _definitions.Standing(tenant, factory).Published is not null;
+    public bool IsDefined(TenantId tenant, string factory) => _definitions.IsDefined(tenant, factory);
 
     /// <summary>
     /// The brief a talk or a scheduled run of this seat is given. For a defined factory, the seat's <c>brief:</c> in
