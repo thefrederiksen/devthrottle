@@ -46,7 +46,7 @@ same pictures; the browser is a headless one the script starts and stops.
 | 9 | `09-publish-refused-with-findings.png` | **Publish refused with its findings**: version 3 starts the writer by a check, which saves but cannot be published before phase 5b. The confirm closes and the tab keeps the Gateway's sentence with each finding by file and line (`seats/writer.yaml:8`, error), and the notice. What changes already showed the same refusal in the live plan before Publish was pressed. |
 | 10 | `10-history.png` | **History**: three versions, the published one marked, the draft carrying Publish, the older version carrying Restore, and Open and Export on every row. |
 | 11 | `11-version-1-open.png` | One version **opened**: every file, folded, the first one open. |
-| 12 | `12-restore-confirm.png` | The **restore confirm** of version 1: a copy becomes version 4 and is published, nothing is removed, and the draft above the published version is then older than it. |
+| 12 | `12-restore-confirm.png` | The **restore confirm** of version 1: a copy becomes version 4 and is published, no version is removed, the draft above the published version is then older than it, and the last line names what the restore changes in published version 2: "Restoring it makes these 2 changes to version 2, the published one: Seat Writer (writer) changed: name Author -> Writer; brief changed: 1 line added, 1 removed. Boss: start moved, Weekdays 09:00 Europe/Copenhagen -> Weekdays 08:00 Europe/Copenhagen." |
 | 13 | `13-restored-version-1-as-version-4.png` | **Restored**: version 4 published, "Restored from version 1.", and the steps applied (the rename and the moved start undone). |
 | 14 | `14-exported.png` | **Export** of the published version, downloaded twice. |
 | 15 | `15-import-refused-with-findings.png` | **An import the check refuses**: the writer's seat file has a key no seat file can have (`colour: red`). The tab keeps the Gateway's sentence and the finding by file and line; nothing is stored. |
@@ -73,6 +73,10 @@ The answers behind the pictures, from `answers.json`:
   goes through the SAME checked import the command line uses and answers with the Gateway's sentence. The tab's routes
   are the owner's: a session key is refused by `SessionKeyGuard`. The page's tabs now say Definition where they said
   Documents, and the old `DocumentsText` field is gone.
+- **A restore's confirm names what it changes in the live definition.** A restore publishes a copy of the WHOLE older
+  version, so its confirm says only that no VERSION is removed, and its last line (`FactoryDefinitionTabFold.RestoreMakes`)
+  lists every change it makes to the published version, up to six and then how many more, from
+  `FactoryDefinitionChanges.Compare` in the restore's direction. The history route reads the published version once.
 - **Publish and restore** go to the definition's own routes, `/factory-definitions/{factory}/publish` and `/restore`,
   with exactly the versions the Gateway's confirm named (`version`, `replaces`, and for a restore `expectedVersion`).
   Only a person may do either; that rule is the Gateway's, unchanged.

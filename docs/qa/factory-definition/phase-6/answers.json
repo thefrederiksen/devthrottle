@@ -308,7 +308,7 @@
         }
       },
       "draft": {
-        "lineText": "Written by a person (device browser qa-cockpit-browser) today 13:35. 6 files, 936 bytes.",
+        "lineText": "Written by a person (device browser qa-cockpit-browser) today 16:23. 6 files, 936 bytes.",
         "noteText": "imported from a zip on the factory page",
         "openLabel": "Open",
         "stateTone": "amber",
@@ -379,7 +379,7 @@
       },
       "publish": null,
       "published": {
-        "lineText": "Published by a person (device browser qa-cockpit-browser) today 13:35. Written by a person (device browser qa-cockpit-browser) today 13:35. 6 files, 936 bytes.",
+        "lineText": "Published by a person (device browser qa-cockpit-browser) today 16:23. Written by a person (device browser qa-cockpit-browser) today 16:23. 6 files, 936 bytes.",
         "noteText": "imported from a zip on the factory page",
         "openLabel": "Open",
         "stateTone": "ok",
@@ -454,13 +454,13 @@
           "refused": null,
           "steps": [
             "Registry: seat writer renamed Writer -> Author.",
-            "Schedule cj_93ae31 (QA Outreach - Boss) moved: Weekdays 08:00 Europe/Copenhagen -> Weekdays 09:00 Europe/Copenhagen."
+            "Schedule cj_769b05 (QA Outreach - Boss) moved: Weekdays 08:00 Europe/Copenhagen -> Weekdays 09:00 Europe/Copenhagen."
           ],
           "version": 2
         }
       },
       "draft": {
-        "lineText": "Written by a person (device browser qa-cockpit-browser) today 13:35. 6 files, 959 bytes.",
+        "lineText": "Written by a person (device browser qa-cockpit-browser) today 16:23. 6 files, 959 bytes.",
         "noteText": "imported from a zip on the factory page",
         "openLabel": "Open",
         "stateTone": "amber",
@@ -502,7 +502,7 @@
         "version": 2
       },
       "published": {
-        "lineText": "Published by a person (device browser qa-cockpit-browser) today 13:35. Written by a person (device browser qa-cockpit-browser) today 13:35. 6 files, 936 bytes.",
+        "lineText": "Published by a person (device browser qa-cockpit-browser) today 16:23. Written by a person (device browser qa-cockpit-browser) today 16:23. 6 files, 936 bytes.",
         "noteText": "imported from a zip on the factory page",
         "openLabel": "Open",
         "stateTone": "ok",
@@ -580,7 +580,7 @@
           "stateWord": "Draft",
           "title": "Version 3",
           "version": 3,
-          "whenText": "today 13:35",
+          "whenText": "today 16:23",
           "whoText": "Written by a person (device browser qa-cockpit-browser)"
         },
         {
@@ -595,7 +595,7 @@
           "stateWord": "Published",
           "title": "Version 2",
           "version": 2,
-          "whenText": "today 13:35",
+          "whenText": "today 16:23",
           "whoText": "Written by a person (device browser qa-cockpit-browser)"
         },
         {
@@ -609,8 +609,9 @@
             "confirmLabel": "Restore",
             "confirmLines": [
               "A copy of version 1 becomes version 4, and it is published. The registry entry, schedules and triggers are changed to match in one step, or nothing changes.",
-              "Nothing is removed. Version 2, published now, and every other version are kept.",
-              "Version 3, a draft, is then older than the published version. It is kept and can be restored."
+              "No version is removed: version 2, published now, and every other version are kept.",
+              "Version 3, a draft, is then older than the published version. It is kept and can be restored.",
+              "Restoring it makes these 2 changes to version 2, the published one: Seat Writer (writer) changed: name Author -> Writer; brief changed: 1 line added, 1 removed. Boss: start moved, Weekdays 09:00 Europe/Copenhagen -> Weekdays 08:00 Europe/Copenhagen."
             ],
             "confirmTitle": "Restore version 1 of the definition of QA Outreach?",
             "doneText": "Version 1 was restored as version 4, and it is published. It is the definition of QA Outreach now.",
@@ -624,7 +625,7 @@
           "stateWord": "Published earlier",
           "title": "Version 1",
           "version": 1,
-          "whenText": "today 13:35",
+          "whenText": "today 16:23",
           "whoText": "Written by a person (device browser qa-cockpit-browser)"
         }
       ],
@@ -657,7 +658,7 @@
       },
       "publish": null,
       "published": {
-        "lineText": "Published by a person (device browser qa-cockpit-browser) today 13:35. Written by a person (device browser qa-cockpit-browser) today 13:35. 6 files, 936 bytes.",
+        "lineText": "Published by a person (device browser qa-cockpit-browser) today 16:23. Written by a person (device browser qa-cockpit-browser) today 16:23. 6 files, 936 bytes.",
         "noteText": "Restored from version 1.",
         "openLabel": "Open",
         "stateTone": "ok",

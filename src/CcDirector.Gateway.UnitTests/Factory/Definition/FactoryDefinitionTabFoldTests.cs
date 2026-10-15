@@ -168,6 +168,8 @@ public sealed class FactoryDefinitionTabFoldTests
         Assert.Equal(2, v2.Restore!.Version);
         Assert.Equal((4, (int?)3), (v2.Restore.ExpectedVersion, v2.Restore.Replaces));
         Assert.Contains("A copy of version 2 becomes version 5, and it is published.", v2.Restore.ConfirmLines[0]);
+        // Only versions are kept: the live definition does become version 2 again.
+        Assert.Equal("No version is removed: version 3, published now, and every other version are kept.", v2.Restore.ConfirmLines[1]);
         Assert.Equal("Version 4, a draft, is then older than the published version. It is kept and can be restored.", v2.Restore.ConfirmLines[2]);
         Assert.Equal(("Draft, passed over", "Written by session 1f3a"), (v1.StateWord, v1.WhoText));
         Assert.NotNull(v1.Restore);
@@ -251,5 +253,55 @@ public sealed class FactoryDefinitionTabFoldTests
                 s.Write(Encoding.UTF8.GetBytes(text));
             }
         return buffer.ToArray();
+    }
+
+    [Fact]
+    public void RestoreMakes_TheRestoredVersionDiffers_NamesEachChangeToThePublishedOne_InTheRestoresDirection()
+    {
+        var restored = DefinitionFixture.Publishable();
+        var published = new Dictionary<string, string>(restored, StringComparer.Ordinal);
+        published["seats/writer.yaml"] = published["seats/writer.yaml"].Replace("name: Writer", "name: Author", StringComparison.Ordinal);
+        published["files/plan.md"] = "the plan\n";
+
+        var line = FactoryDefinitionTabFold.RestoreMakes(1, 2, published, true, restored);
+
+        Assert.StartsWith("Restoring it makes these 2 changes to version 2, the published one: ", line);
+        Assert.Contains("Seat Writer (writer) changed: name Author -> Writer.", line);
+        Assert.Contains("files/plan.md", line);
+    }
+
+    [Fact]
+    public void RestoreMakes_TheSameDefinition_SaysTheLiveDefinitionDoesNotChange()
+    {
+        var files = DefinitionFixture.Publishable();
+
+        Assert.Equal("Version 1 holds the same definition as version 2, so the live definition does not change.",
+            FactoryDefinitionTabFold.RestoreMakes(1, 2, files, true, new Dictionary<string, string>(files, StringComparer.Ordinal)));
+    }
+
+    [Fact]
+    public void RestoreMakes_ManyChanges_NamesTheFirstSix_AndSaysHowManyMore()
+    {
+        var restored = DefinitionFixture.Publishable();
+        var published = new Dictionary<string, string>(restored, StringComparer.Ordinal);
+        for (var i = 0; i < 8; i++) published[$"files/note{i}.md"] = $"note {i}\n";
+
+        var line = FactoryDefinitionTabFold.RestoreMakes(1, 2, published, true, restored);
+
+        Assert.StartsWith("Restoring it makes these 8 changes to version 2, the published one: ", line);
+        Assert.Contains("files/note5.md", line);
+        Assert.DoesNotContain("files/note6.md", line);
+        Assert.EndsWith(" And 2 more; Open version 1 to read it whole.", line);
+    }
+
+    [Fact]
+    public void RestoreMakes_APublishedVersionTheCheckRefuses_SaysItCannotBeShown()
+    {
+        var files = DefinitionFixture.Publishable();
+
+        var line = FactoryDefinitionTabFold.RestoreMakes(1, 2, files, publishedReadable: false, files);
+
+        Assert.Equal("What restoring version 1 changes in version 2, the published one, cannot be shown here, because a version " +
+                     "no longer passes the format check. Open each version to see why.", line);
     }
 }

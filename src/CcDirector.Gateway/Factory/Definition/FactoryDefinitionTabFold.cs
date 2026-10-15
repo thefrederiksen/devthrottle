@@ -239,7 +239,8 @@ public static class FactoryDefinitionTabFold
     }
 
     /// <summary>Restore an older version: a copy of it is published as the newest version.</summary>
-    internal static FactoryDefinitionActionDto RestoreAction(string title, int version, int published, int newest) =>
+    /// <param name="makes"><see cref="RestoreMakes"/>: what the restore changes in the published version, said last.</param>
+    internal static FactoryDefinitionActionDto RestoreAction(string title, int version, int published, int newest, string? makes = null) =>
         new()
         {
             Version = version,
@@ -248,33 +249,79 @@ public static class FactoryDefinitionTabFold
             Label = "Restore",
             BusyLabel = "Restoring...",
             ConfirmTitle = $"Restore version {version} of the definition of {title}?",
-            ConfirmLines = RestoreLines(version, published, newest),
+            ConfirmLines = RestoreLines(version, published, newest, makes),
             ConfirmLabel = "Restore",
             DoneText = $"Version {version} was restored as version {newest + 1}, and it is published. It is the definition of {title} now.",
         };
 
-    private static List<string> RestoreLines(int version, int published, int newest)
+    private static List<string> RestoreLines(int version, int published, int newest, string? makes)
     {
         var lines = new List<string>
         {
             $"A copy of version {version} becomes version {newest + 1}, and it is published. The registry entry, schedules " +
             "and triggers are changed to match in one step, or nothing changes.",
-            $"Nothing is removed. Version {published}, published now, and every other version are kept.",
+            // Only VERSIONS are kept: the live definition becomes version {version} again, which can take seats, starts
+            // and files out of it - the last line names them.
+            $"No version is removed: version {published}, published now, and every other version are kept.",
         };
         var waiting = newest - published;
         if (waiting > 0)
             lines.Add(waiting == 1
                 ? $"Version {newest}, a draft, is then older than the published version. It is kept and can be restored."
                 : $"The {waiting} drafts above version {published} are then older than the published version. They are kept and each can be restored.");
+        if (makes is not null) lines.Add(makes);
         return lines;
     }
+
+    /// <summary>How many changes a restore confirm names before it says how many more.</summary>
+    public const int RestoreMakesShown = 6;
+
+    /// <summary>
+    /// WHAT A RESTORE CHANGES IN THE LIVE DEFINITION (review of #4036, carried to the Definition tab): a copy of the older
+    /// version is published, so every seat, start, rule, grant and file goes back to what that version held. Composed
+    /// from <see cref="FactoryDefinitionChanges.Compare"/> of the published version and the restored one, in that
+    /// direction, so each sentence says what happens to the live definition.
+    /// </summary>
+    /// <param name="publishedReadable">The published version passes the format check; checked once per request with
+    /// its files read.</param>
+    public static string RestoreMakes(int version, int published, IReadOnlyDictionary<string, string> publishedFiles,
+        bool publishedReadable, IReadOnlyDictionary<string, string> restored)
+    {
+        ArgumentNullException.ThrowIfNull(publishedFiles);
+        ArgumentNullException.ThrowIfNull(restored);
+        if (!publishedReadable || FactoryPublishApply.FirstFormatError(restored) is not null)
+            return $"What restoring version {version} changes in version {published}, the published one, cannot be shown here, " +
+                   "because a version no longer passes the format check. Open each version to see why.";
+
+        var changes = FactoryDefinitionChanges.Compare(publishedFiles, restored);
+        var all = new List<string>();
+        all.AddRange(changes.Factory.Select(c => c.Sentence.EndsWith('.') ? c.Sentence : c.Sentence + "."));
+        all.AddRange(changes.Seats.Select(c => WithDetails(c.Sentence, c.Details)));
+        all.AddRange(changes.Starts.Select(c => WithDetails(c.Sentence, c.Details)));
+        all.AddRange(changes.Rules.Select(c => c.Sentence));
+        all.AddRange(changes.Grants.Select(c => WithDetails(c.Sentence, c.Details)));
+        all.AddRange(changes.Files.Select(c => c.Sentence));
+        if (all.Count == 0)
+            return $"Version {version} holds the same definition as version {published}, so the live definition does not change.";
+        var shown = string.Join(" ", all.Take(RestoreMakesShown));
+        var more = all.Count > RestoreMakesShown
+            ? $" And {all.Count - RestoreMakesShown} more; Open version {version} to read it whole."
+            : "";
+        var these = all.Count == 1 ? "this change" : $"these {all.Count} changes";
+        return $"Restoring it makes {these} to version {published}, the published one: {shown}{more}";
+    }
+
+    // "Seat Writer (writer) changed: name Author -> Writer." - a change with what it changed, in one sentence.
+    private static string WithDetails(string sentence, IReadOnlyList<string> details) =>
+        details.Count == 0 ? sentence : $"{sentence.TrimEnd('.')}: {string.Join("; ", details)}.";
 
     // ---------- the history ----------
 
     /// <summary>One page of the history, newest first. <paramref name="firstPage"/> is false when the page was asked for
     /// with a starting version, so the screen can offer the way back to the newest.</summary>
+    /// <param name="restoreMakes"><see cref="RestoreMakes"/> of a version below the published one, for its Restore confirm.</param>
     public static FactoryDefinitionHistoryViewDto History(string factory, string title, FactoryDefinitionStanding standing,
-        FactoryDefinitionHistoryPage page, bool firstPage, TimeZoneInfo zone, DateTime nowUtc)
+        FactoryDefinitionHistoryPage page, bool firstPage, TimeZoneInfo zone, DateTime nowUtc, Func<int, string>? restoreMakes = null)
     {
         ArgumentNullException.ThrowIfNull(standing);
         ArgumentNullException.ThrowIfNull(page);
@@ -294,7 +341,7 @@ public static class FactoryDefinitionTabFold
                     ? $"Version {page.Versions[0].Version} of {page.Total}."
                     : $"Versions {page.Versions[0].Version} to {page.Versions[^1].Version} of {page.Total}.",
             Columns = new List<string> { "Version", "State", "Written by", "When", "Note", "Size" },
-            Rows = page.Versions.Select(v => Row(factory, title, v, published, newest, zone, nowUtc)).ToList(),
+            Rows = page.Versions.Select(v => Row(factory, title, v, published, newest, zone, nowUtc, restoreMakes)).ToList(),
             EmptyText = page.Total == 0
                 ? $"{title} has no definition on the Gateway, so it has no history."
                 : page.Versions.Count == 0 ? "There is no older version." : null,
@@ -306,7 +353,7 @@ public static class FactoryDefinitionTabFold
     }
 
     private static FactoryDefinitionHistoryRowDto Row(string factory, string title, FactoryDefinitionVersionSummary v,
-        int? published, int newest, TimeZoneInfo zone, DateTime nowUtc)
+        int? published, int newest, TimeZoneInfo zone, DateTime nowUtc, Func<int, string>? restoreMakes)
     {
         var isDraft = v.State == FactoryDefinitionStates.Draft;
         var (word, tone) = (isDraft, published) switch
@@ -331,7 +378,9 @@ public static class FactoryDefinitionTabFold
             ExportHref = ExportHref(factory, v.Version),
             // The store's own rules: a draft above the published version is published; anything below it is restored.
             Publish = isDraft && v.Version > (published ?? 0) ? PublishAction(title, v.Version, published, newest, null) : null,
-            Restore = published is { } current && v.Version < current ? RestoreAction(title, v.Version, current, newest) : null,
+            Restore = published is { } current && v.Version < current
+                ? RestoreAction(title, v.Version, current, newest, restoreMakes?.Invoke(v.Version))
+                : null,
         };
     }
 

@@ -123,6 +123,36 @@ public sealed class FactoryDefinitionTabRoutesThroughThePipelineTests : IDisposa
     }
 
     [Fact]
+    public async Task A_RESTORE_CONFIRM_NAMES_WHAT_THE_OLDER_VERSION_CHANGES_IN_THE_LIVE_DEFINITION()
+    {
+        // A restore publishes a copy of the WHOLE older version: a file added since leaves the live definition and a
+        // renamed seat gets its old name back. The confirm said "Nothing is removed" and named none of it.
+        var first = DefinitionFixture.Publishable();
+        var second = new Dictionary<string, string>(first, StringComparer.Ordinal);
+        second["seats/writer.yaml"] = second["seats/writer.yaml"].Replace("name: Writer", "name: Author", StringComparison.Ordinal);
+        second["files/plan.md"] = "the plan\n";
+        foreach (var (files, version, replaces) in new[] { (first, 1, "null"), (second, 2, "1") })
+        {
+            var imported = await Json("POST", Tab + "/import", FactoryDefinitionTabEndpoints.Zip(files), "application/zip");
+            Assert.True(imported.Status == 200, imported.Body.ToString());
+            var published = await Json("POST", "/factory-definitions/devthrottle/publish",
+                Encoding.UTF8.GetBytes($$$"""{"version":{{{version}}},"replaces":{{{replaces}}}}"""), "application/json");
+            Assert.True(published.Status == 200, published.Body.ToString());
+        }
+
+        var history = await Json("GET", Tab + "/history");
+
+        Assert.Equal(200, history.Status);
+        var lines = history.Body.GetProperty("rows").EnumerateArray().Single(r => r.GetProperty("version").GetInt32() == 1)
+            .GetProperty("restore").GetProperty("confirmLines").EnumerateArray().Select(l => l.GetString()!).ToList();
+        Assert.Contains("No version is removed: version 2, published now, and every other version are kept.", lines);
+        Assert.DoesNotContain(lines, l => l.StartsWith("Nothing is removed", StringComparison.Ordinal));
+        Assert.StartsWith("Restoring it makes these 2 changes to version 2, the published one: ", lines[^1]);
+        Assert.Contains("Seat Writer (writer) changed: name Author -> Writer.", lines[^1]);
+        Assert.Contains("files/plan.md", lines[^1]);
+    }
+
+    [Fact]
     public async Task AN_IMPORT_OF_A_FOLDER_FOR_ANOTHER_FACTORY_IS_REFUSED_ON_THIS_FACTORYS_PAGE_and_nothing_is_stored()
     {
         var files = DefinitionFixture.Publishable();
