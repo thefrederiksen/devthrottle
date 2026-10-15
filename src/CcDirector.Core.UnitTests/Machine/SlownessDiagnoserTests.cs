@@ -132,7 +132,7 @@ public class SlownessDiagnoserTests
             Memory = MachineMemoryReading.Read(16 * Gigabyte, (ulong)(0.4 * Gigabyte), Start),
         });
 
-        var diagnosis = SlownessDiagnoser.Diagnose(history, null);
+        var diagnosis = SlownessDiagnoser.Diagnose(history, sessionIdByRootPid: null);
 
         Assert.Equal(SlownessCause.Memory, diagnosis.Cause);
         Assert.Equal("chrome", diagnosis.Culprit?.ProcessName);
@@ -145,7 +145,7 @@ public class SlownessDiagnoserTests
     {
         var history = Every5Seconds(Minute, _ => LinuxStalls(cpu: 2, memory: 30, io: 45));
 
-        var diagnosis = SlownessDiagnoser.Diagnose(history, null);
+        var diagnosis = SlownessDiagnoser.Diagnose(history, sessionIdByRootPid: null);
 
         Assert.Equal(SlownessCause.Memory | SlownessCause.Disk, diagnosis.Cause);
         Assert.Equal("chrome", diagnosis.Culprit?.ProcessName);
@@ -158,7 +158,7 @@ public class SlownessDiagnoserTests
     {
         var history = Every5Seconds(Minute, _ => new ResourceSampleBuilder());
 
-        var diagnosis = SlownessDiagnoser.Diagnose(history, null);
+        var diagnosis = SlownessDiagnoser.Diagnose(history, sessionIdByRootPid: null);
 
         Assert.True(diagnosis.CouldDiagnose);
         Assert.False(diagnosis.IsSlow);
@@ -180,7 +180,7 @@ public class SlownessDiagnoserTests
     {
         var history = Every5Seconds(Minute, _ => LinuxStalls(cpu, memory, io));
 
-        Assert.Equal(expected, SlownessDiagnoser.Diagnose(history, null).Cause);
+        Assert.Equal(expected, SlownessDiagnoser.Diagnose(history, sessionIdByRootPid: null).Cause);
     }
 
     [Fact]
@@ -188,7 +188,7 @@ public class SlownessDiagnoserTests
     {
         var history = Every5Seconds(Minute, offset => LinuxStalls(cpu: 0, memory: 0, io: offset == TimeSpan.FromSeconds(30) ? 90 : 2));
 
-        Assert.False(SlownessDiagnoser.Diagnose(history, null).IsSlow);
+        Assert.False(SlownessDiagnoser.Diagnose(history, sessionIdByRootPid: null).IsSlow);
     }
 
     [Fact]
@@ -197,7 +197,7 @@ public class SlownessDiagnoserTests
         // Ten minutes of heavy disk stall, then a quiet minute: the machine is not slow NOW.
         var history = Every5Seconds(TimeSpan.FromMinutes(11), offset => LinuxStalls(cpu: 0, memory: 0, io: offset < TimeSpan.FromMinutes(10) ? 80 : 1));
 
-        Assert.False(SlownessDiagnoser.Diagnose(history, null).IsSlow);
+        Assert.False(SlownessDiagnoser.Diagnose(history, sessionIdByRootPid: null).IsSlow);
     }
 
     [Fact]
@@ -205,7 +205,7 @@ public class SlownessDiagnoserTests
     {
         var history = new[] { LinuxStalls(cpu: 0, memory: 0, io: 60).Build() };
 
-        var diagnosis = SlownessDiagnoser.Diagnose(history, null);
+        var diagnosis = SlownessDiagnoser.Diagnose(history, sessionIdByRootPid: null);
 
         Assert.Equal(SlownessCause.Disk, diagnosis.Cause);
         Assert.Contains(diagnosis.Evidence, line => line.Contains("one reading"));
@@ -230,7 +230,7 @@ public class SlownessDiagnoserTests
     {
         var history = Every5Seconds(Minute, _ => Unreadable());
 
-        var diagnosis = SlownessDiagnoser.Diagnose(history, null);
+        var diagnosis = SlownessDiagnoser.Diagnose(history, sessionIdByRootPid: null);
 
         Assert.False(diagnosis.CouldDiagnose);
         Assert.False(diagnosis.IsSlow);
@@ -243,7 +243,7 @@ public class SlownessDiagnoserTests
     [Fact]
     public void Diagnose_EmptyHistory_CannotTell()
     {
-        var diagnosis = SlownessDiagnoser.Diagnose(Array.Empty<ResourceSample>(), null);
+        var diagnosis = SlownessDiagnoser.Diagnose(Array.Empty<ResourceSample>(), sessionIdByRootPid: null);
 
         Assert.False(diagnosis.CouldDiagnose);
         Assert.StartsWith("Cannot tell", diagnosis.Summary);
@@ -258,7 +258,7 @@ public class SlownessDiagnoserTests
             Stall = StallReading.Read(StallSource.MacOsSignals, runQueueLength: 2, macOsMemoryPressureLevel: 1),
         });
 
-        var diagnosis = SlownessDiagnoser.Diagnose(history, null);
+        var diagnosis = SlownessDiagnoser.Diagnose(history, sessionIdByRootPid: null);
 
         Assert.False(diagnosis.CouldDiagnose);
         Assert.False(diagnosis.IsSlow);
@@ -275,7 +275,7 @@ public class SlownessDiagnoserTests
             Stall = StallReading.Read(StallSource.MacOsSignals, runQueueLength: 20, macOsMemoryPressureLevel: 1),
         });
 
-        var diagnosis = SlownessDiagnoser.Diagnose(history, null);
+        var diagnosis = SlownessDiagnoser.Diagnose(history, sessionIdByRootPid: null);
 
         Assert.True(diagnosis.CouldDiagnose);
         Assert.Equal(SlownessCause.Cpu, diagnosis.Cause);
@@ -322,7 +322,7 @@ public class SlownessDiagnoserTests
     [Fact]
     public void Diagnose_WindowsQuiet_IsNotSlow()
     {
-        var diagnosis = SlownessDiagnoser.Diagnose(Every5Seconds(Minute, _ => Windows()), null);
+        var diagnosis = SlownessDiagnoser.Diagnose(Every5Seconds(Minute, _ => Windows()), sessionIdByRootPid: null);
 
         Assert.True(diagnosis.CouldDiagnose);
         Assert.False(diagnosis.IsSlow);
@@ -331,7 +331,7 @@ public class SlownessDiagnoserTests
     [Fact]
     public void Diagnose_WindowsProcessorBusy_IsCpu()
     {
-        var diagnosis = SlownessDiagnoser.Diagnose(Every5Seconds(Minute, _ => Windows(cpuBusy: 96)), null);
+        var diagnosis = SlownessDiagnoser.Diagnose(Every5Seconds(Minute, _ => Windows(cpuBusy: 96)), sessionIdByRootPid: null);
 
         Assert.Equal(SlownessCause.Cpu, diagnosis.Cause);
         Assert.Equal("agent.exe", diagnosis.Culprit?.ProcessName);
@@ -342,7 +342,7 @@ public class SlownessDiagnoserTests
     [InlineData(17.0, SlownessCause.Cpu)]
     public void Diagnose_WindowsQueuePerCore_IsHonoured(double queue, SlownessCause expected)
     {
-        var diagnosis = SlownessDiagnoser.Diagnose(Every5Seconds(Minute, _ => Windows(cores: 8, queue: queue)), null);
+        var diagnosis = SlownessDiagnoser.Diagnose(Every5Seconds(Minute, _ => Windows(cores: 8, queue: queue)), sessionIdByRootPid: null);
 
         Assert.Equal(expected, diagnosis.Cause);
     }
@@ -350,7 +350,7 @@ public class SlownessDiagnoserTests
     [Fact]
     public void Diagnose_WindowsHardPageFaults_IsMemory()
     {
-        var diagnosis = SlownessDiagnoser.Diagnose(Every5Seconds(Minute, _ => Windows(faults: 2500, availableGigabytes: 1.5)), null);
+        var diagnosis = SlownessDiagnoser.Diagnose(Every5Seconds(Minute, _ => Windows(faults: 2500, availableGigabytes: 1.5)), sessionIdByRootPid: null);
 
         Assert.Equal(SlownessCause.Memory, diagnosis.Cause);
         Assert.Equal("Teams.exe", diagnosis.Culprit?.ProcessName);
@@ -360,7 +360,7 @@ public class SlownessDiagnoserTests
     [Fact]
     public void Diagnose_WindowsMemoryCritical_IsMemoryEvenWithoutPageFaults()
     {
-        var diagnosis = SlownessDiagnoser.Diagnose(Every5Seconds(Minute, _ => Windows(availableGigabytes: 0.5)), null);
+        var diagnosis = SlownessDiagnoser.Diagnose(Every5Seconds(Minute, _ => Windows(availableGigabytes: 0.5)), sessionIdByRootPid: null);
 
         Assert.Equal(SlownessCause.Memory, diagnosis.Cause);
     }
@@ -368,7 +368,7 @@ public class SlownessDiagnoserTests
     [Fact]
     public void Diagnose_WindowsDiskBusyAndSlow_IsDiskAndNamesTheBusiestReader()
     {
-        var diagnosis = SlownessDiagnoser.Diagnose(Every5Seconds(Minute, _ => Windows(diskBusy: 70, msPerWrite: 45)), null);
+        var diagnosis = SlownessDiagnoser.Diagnose(Every5Seconds(Minute, _ => Windows(diskBusy: 70, msPerWrite: 45)), sessionIdByRootPid: null);
 
         Assert.Equal(SlownessCause.Disk, diagnosis.Cause);
         Assert.Equal("PhysicalDrive0", diagnosis.Culprit?.DiskName);
@@ -381,7 +381,7 @@ public class SlownessDiagnoserTests
     public void Diagnose_WindowsDiskBusyButFast_IsNotSlow()
     {
         // A fast solid-state drive can be busy and still answer at once.
-        var diagnosis = SlownessDiagnoser.Diagnose(Every5Seconds(Minute, _ => Windows(diskBusy: 80, msPerWrite: 0.5)), null);
+        var diagnosis = SlownessDiagnoser.Diagnose(Every5Seconds(Minute, _ => Windows(diskBusy: 80, msPerWrite: 0.5)), sessionIdByRootPid: null);
 
         Assert.False(diagnosis.IsSlow);
     }
@@ -389,7 +389,7 @@ public class SlownessDiagnoserTests
     [Fact]
     public void Diagnose_DiskSaturatedWithNoTimingsOffered_IsDisk()
     {
-        var diagnosis = SlownessDiagnoser.Diagnose(Every5Seconds(Minute, _ => Windows(diskBusy: 95, msPerWrite: null)), null);
+        var diagnosis = SlownessDiagnoser.Diagnose(Every5Seconds(Minute, _ => Windows(diskBusy: 95, msPerWrite: null)), sessionIdByRootPid: null);
 
         Assert.Equal(SlownessCause.Disk, diagnosis.Cause);
     }
@@ -402,7 +402,7 @@ public class SlownessDiagnoserTests
             Stall = StallReading.Read(StallSource.MacOsSignals, runQueueLength: 2, macOsMemoryPressureLevel: 2),
         });
 
-        var diagnosis = SlownessDiagnoser.Diagnose(history, null);
+        var diagnosis = SlownessDiagnoser.Diagnose(history, sessionIdByRootPid: null);
 
         Assert.Equal(SlownessCause.Memory, diagnosis.Cause);
         Assert.Contains("warn", diagnosis.Summary);
@@ -418,7 +418,41 @@ public class SlownessDiagnoserTests
             Stall = StallReading.Read(StallSource.MacOsSignals, runQueueLength: queue, macOsMemoryPressureLevel: 1),
         });
 
-        Assert.Equal(expected, SlownessDiagnoser.Diagnose(history, null).Cause);
+        Assert.Equal(expected, SlownessDiagnoser.Diagnose(history, sessionIdByRootPid: null).Cause);
+    }
+
+    private static ResourceSampleBuilder MacOs(double msPerWrite) => Windows() with
+    {
+        Disks = DiskSetReading.Read(new[]
+        {
+            PhysicalDiskReading.Read("disk0", DiskKind.SolidState, busyPercent: null, 1_000_000, 80_000_000, 0.3, msPerWrite, 4),
+            PhysicalDiskReading.Read("disk4", DiskKind.Spinning, busyPercent: null, 0, 0, null, null, null),
+        }),
+        Volumes = new[] { VolumeReading.Read("/", 1000 * Gigabyte, 600 * Gigabyte, new[] { "disk0" }) },
+        Stall = StallReading.Read(StallSource.MacOsSignals, runQueueLength: 2, macOsMemoryPressureLevel: 1),
+    };
+
+    [Theory]
+    [InlineData(1.1, false)]   // one saturating writer on an M4
+    [InlineData(10.0, false)]  // exactly the limit is not over it
+    [InlineData(19.0, true)]   // four writers
+    public void Diagnose_MacOsNoBusyFigure_JudgesTheDiskByTimePerOperation(double msPerWrite, bool expectSlow)
+    {
+        var diagnosis = SlownessDiagnoser.Diagnose(Every5Seconds(Minute, _ => MacOs(msPerWrite)), sessionIdByRootPid: null);
+
+        Assert.True(diagnosis.CouldDiagnose);
+        Assert.Equal(expectSlow, diagnosis.Cause.HasFlag(SlownessCause.Disk));
+    }
+
+    [Fact]
+    public void Diagnose_MacOsSlowDisk_NamesItWithoutInventingABusyFigure()
+    {
+        var diagnosis = SlownessDiagnoser.Diagnose(Every5Seconds(Minute, _ => MacOs(19)), sessionIdByRootPid: null);
+
+        Assert.Equal("disk0", diagnosis.Culprit?.DiskName);
+        Assert.Contains("solid-state drive disk0 is taking 19 ms per write", diagnosis.Summary);
+        Assert.DoesNotContain("% busy", diagnosis.Summary);
+        Assert.DoesNotContain(diagnosis.Evidence, line => line.Contains("disk0") && line.Contains("busy"));
     }
 
     [Fact]
@@ -430,7 +464,7 @@ public class SlownessDiagnoserTests
             Processes = ProcessSetReading.Read(new[] { new ProcessReading(200, 4, "agent.exe", Start.AddHours(-1), 70, 700_000_000, null, null) }),
         });
 
-        var diagnosis = SlownessDiagnoser.Diagnose(history, null);
+        var diagnosis = SlownessDiagnoser.Diagnose(history, sessionIdByRootPid: null);
 
         Assert.Equal("PhysicalDrive0", diagnosis.Culprit?.DiskName);
         Assert.Null(diagnosis.Culprit?.ProcessName);

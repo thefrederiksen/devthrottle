@@ -22,6 +22,9 @@ namespace CcDirector.Core.Machine;
 /// single failed read does not reset a real warning; the level is then decided by the readable samples,
 /// which must still reach back the whole window.
 ///
+/// A FIGURE THE PLATFORM DOES NOT OFFER IS NEVER ZERO. macOS gives no disk a busy percentage, so there
+/// disk activity is judged by milliseconds per operation, against its own limits.
+///
 /// THE BUSIEST SINGLE CORE NEVER RAISES A LEVEL. One stuck core of thirty-two is not a machine out of
 /// processor; it is shown in the detail screen and nowhere else.
 /// </summary>
@@ -48,6 +51,26 @@ public static class ResourcePressure
 
     /// <summary>Above this disk activity percent, held for 60 seconds, disk activity is Critical (red).</summary>
     public const double DiskActivityCriticalPercent = 95.0;
+
+    /// <summary>
+    /// WHERE NO DISK OFFERS A BUSY PERCENTAGE (macOS), disk activity is judged on how long one operation
+    /// takes, and above this many milliseconds per operation, held for 60 seconds, it is Tight (amber): 10.
+    ///
+    /// A PROPOSAL THE QUALITY ASSURANCE RUN MUST CONFIRM. It is chosen from what was measured: on an M4
+    /// Mac a light load wrote in 0.06 ms, one saturating writer in 1.1 ms and four writers in 19 ms, reads
+    /// took 0.27 ms idle and 2.6 ms saturated; devlinux's struggling hard drive sdc took 26 ms per write.
+    /// Ten milliseconds is well above anything a solid-state drive does when it is keeping up, and below
+    /// the four-writer pile-up that a person at the keyboard notices.
+    /// </summary>
+    public const double DiskLatencyTightMilliseconds = 10.0;
+
+    /// <summary>
+    /// Where no disk offers a busy percentage: above this many milliseconds per operation, held for 60
+    /// seconds, disk activity is Critical (red): 25. A proposal the quality assurance run must confirm;
+    /// it sits beyond the M4's four-writer 19 ms and at devlinux's 26 ms, the disk that made the machine
+    /// "super slow".
+    /// </summary>
+    public const double DiskLatencyCriticalMilliseconds = 25.0;
 
     /// <summary>
     /// The window swap growth is measured over: 5 minutes (mission section 5b). Swap growing fast is the
@@ -116,7 +139,8 @@ public static class ResourcePressure
 
     /// <summary>
     /// The disk activity figure for one sample: the busiest readable physical disk's busy percent, or the
-    /// Linux disk stall percent, whichever is higher. Null when neither could be read.
+    /// Linux disk stall percent, whichever is higher. Null when neither is offered - on macOS, where no
+    /// disk has a true busy figure, disk activity is judged by <see cref="SlowestDiskMilliseconds"/> instead.
     ///
     /// The stall percent counts only when it came from Linux pressure stall information, because only
     /// there is it a direct "share of time programs waited on the disk" on the same 0 to 100 scale as busy.
@@ -135,7 +159,10 @@ public static class ResourcePressure
         return Math.Max(busiest.Value, stalled.Value);
     }
 
-    /// <summary>The busiest physical disk whose statistics could be read, or null when there is none.</summary>
+    /// <summary>
+    /// The busiest physical disk that offers a busy percentage, or null when none does. A disk whose busy
+    /// figure is not offered (macOS) is never ranked as if it were idle.
+    /// </summary>
     public static PhysicalDiskReading? BusiestDisk(ResourceSample sample)
     {
         ArgumentNullException.ThrowIfNull(sample);
@@ -144,11 +171,39 @@ public static class ResourcePressure
         PhysicalDiskReading? busiest = null;
         foreach (var disk in sample.Disks.Disks)
         {
-            if (!disk.CouldRead) continue;
-            if (busiest is null || disk.BusyPercent > busiest.Value.BusyPercent) busiest = disk;
+            if (!disk.CouldRead || disk.BusyPercent is not { } busy) continue;
+            if (busiest is null || busy > busiest.Value.BusyPercent) busiest = disk;
         }
         return busiest;
     }
+
+    /// <summary>
+    /// How long one operation took on the slowest disk, in milliseconds: the slower of its read and write
+    /// times, over the readable disks that did any work in the interval. Null when no disk offers a time.
+    ///
+    /// A disk that moved no bytes is left out: its time per operation describes nothing it did, and an
+    /// idle disk must not be named slow off a figure with no operations behind it.
+    /// </summary>
+    public static double? SlowestDiskMilliseconds(ResourceSample sample)
+    {
+        ArgumentNullException.ThrowIfNull(sample);
+        if (!sample.Disks.CouldRead) return null;
+
+        double? slowest = null;
+        foreach (var disk in sample.Disks.Disks)
+        {
+            if (!disk.CouldRead || disk.ReadBytesPerSecond + disk.WriteBytesPerSecond <= 0) continue;
+            if (MillisecondsPerOperation(disk) is not { } milliseconds) continue;
+            if (slowest is null || milliseconds > slowest) slowest = milliseconds;
+        }
+        return slowest;
+    }
+
+    /// <summary>The slower of a disk's read and write times, or null when it offers neither.</summary>
+    public static double? MillisecondsPerOperation(PhysicalDiskReading disk) =>
+        disk.MillisecondsPerRead is { } read
+            ? disk.MillisecondsPerWrite is { } write ? Math.Max(read, write) : read
+            : disk.MillisecondsPerWrite;
 
     /// <summary>Map the existing memory level onto the shared ladder, unchanged.</summary>
     public static ResourceLevel FromMemoryLevel(MemoryPressureLevel level) => level switch
@@ -178,18 +233,25 @@ public static class ResourcePressure
 
         return Sustained(ResourceKind.Cpu, ordered,
             sample => sample.Cpu.CouldRead ? sample.Cpu.TotalBusyPercent : null,
-            CpuTightPercent, CpuCriticalPercent, "the processor is");
+            CpuTightPercent, CpuCriticalPercent, "the processor is", Percent, "busy");
     }
 
     private static ResourceVerdict DiskActivity(List<ResourceSample> ordered)
     {
         var newest = ordered[^1];
-        if (DiskActivityPercent(newest) is null)
-            return new ResourceVerdict(ResourceKind.DiskActivity, ResourceLevel.Unknown,
-                $"disk activity cannot be read: {DiskUnreadableReason(newest)}");
+        if (DiskActivityPercent(newest) is not null)
+            return Sustained(ResourceKind.DiskActivity, ordered, DiskActivityPercent,
+                DiskActivityTightPercent, DiskActivityCriticalPercent, "the disk is", Percent, "busy");
 
-        return Sustained(ResourceKind.DiskActivity, ordered, DiskActivityPercent,
-            DiskActivityTightPercent, DiskActivityCriticalPercent, "the disk is");
+        // No busy figure and no Linux stall figure - macOS. Judge how long one operation takes instead.
+        // The mode is chosen from the newest sample and kept for the whole window, so a percentage and a
+        // number of milliseconds are never compared with each other.
+        if (SlowestDiskMilliseconds(newest) is not null)
+            return Sustained(ResourceKind.DiskActivity, ordered, SlowestDiskMilliseconds,
+                DiskLatencyTightMilliseconds, DiskLatencyCriticalMilliseconds, "the slowest disk is taking", Milliseconds, "per operation");
+
+        return new ResourceVerdict(ResourceKind.DiskActivity, ResourceLevel.Unknown,
+            $"disk activity cannot be read: {DiskUnreadableReason(newest)}");
     }
 
     /// <summary>
@@ -204,7 +266,9 @@ public static class ResourcePressure
         Func<ResourceSample, double?> percentOf,
         double tightPercent,
         double criticalPercent,
-        string subject)
+        string subject,
+        Func<double, string> format,
+        string unit)
     {
         var newest = ordered[^1];
         var newestPercent = percentOf(newest) ?? throw new InvalidOperationException("The newest sample must be readable here.");
@@ -227,24 +291,24 @@ public static class ResourcePressure
             }
         }
 
-        var now = Percent(newestPercent);
+        var now = format(newestPercent);
         if (!reachedBack)
         {
             var heldFor = newest.TakenAtUtc - oldestCounted;
             return new ResourceVerdict(kind, ResourceLevel.Normal,
-                $"{subject} {now} busy; only {Seconds(heldFor)} of readings so far, a limit counts after {Seconds(SustainedWindow)}");
+                $"{subject} {now} {unit}; only {Seconds(heldFor)} of readings so far, a limit counts after {Seconds(SustainedWindow)}");
         }
 
         var span = Seconds(newest.TakenAtUtc - oldestCounted);
         if (lowest > criticalPercent)
             return new ResourceVerdict(kind, ResourceLevel.Critical,
-                $"{subject} {now} busy and has been over {Percent(criticalPercent)} for {span}");
+                $"{subject} {now} {unit} and has been over {format(criticalPercent)} for {span}");
         if (lowest > tightPercent)
             return new ResourceVerdict(kind, ResourceLevel.Tight,
-                $"{subject} {now} busy and has been over {Percent(tightPercent)} for {span}");
+                $"{subject} {now} {unit} and has been over {format(tightPercent)} for {span}");
 
         return new ResourceVerdict(kind, ResourceLevel.Normal,
-            $"{subject} {now} busy; it has not stayed over {Percent(tightPercent)} for {Seconds(SustainedWindow)}");
+            $"{subject} {now} {unit}; it has not stayed over {format(tightPercent)} for {Seconds(SustainedWindow)}");
     }
 
     private static string DiskUnreadableReason(ResourceSample sample)
@@ -255,7 +319,7 @@ public static class ResourcePressure
         {
             if (!disk.CouldRead) return $"disk {disk.Name}: {disk.UnreadableReason}";
         }
-        return "no physical disk was found and no disk stall figure is offered";
+        return "no disk offers a busy figure or a time per operation, and no disk stall figure is offered";
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -372,6 +436,8 @@ public static class ResourcePressure
     }
 
     private static string Percent(double value) => string.Create(CultureInfo.InvariantCulture, $"{value:F0}%");
+
+    private static string Milliseconds(double value) => string.Create(CultureInfo.InvariantCulture, $"{value:0.#} ms");
 
     private static string Seconds(TimeSpan span) =>
         span.TotalSeconds >= 120

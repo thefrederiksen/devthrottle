@@ -335,6 +335,93 @@ public class ResourcePressureTests
     }
 
     // -------------------------------------------------------------------------------------------
+    // Disk activity where no disk offers a busy figure (macOS): time per operation
+    // -------------------------------------------------------------------------------------------
+
+    private static ResourceSampleBuilder MacDisk(double? msPerRead, double? msPerWrite, double writeBytesPerSecond = 50_000_000) => new()
+    {
+        Disks = DiskSetReading.Read(new[]
+        {
+            PhysicalDiskReading.Read("disk0", DiskKind.SolidState, busyPercent: null, 1_000_000, writeBytesPerSecond, msPerRead, msPerWrite, 1.5),
+        }),
+        Stall = StallReading.Read(StallSource.MacOsSignals, runQueueLength: 2, macOsMemoryPressureLevel: 1),
+    };
+
+    [Theory]
+    [InlineData(0.06, ResourceLevel.Normal)]   // the M4 under a light load
+    [InlineData(1.1, ResourceLevel.Normal)]    // one saturating writer
+    [InlineData(10.0, ResourceLevel.Normal)]   // exactly the amber limit is not over it
+    [InlineData(19.0, ResourceLevel.Tight)]    // four writers
+    [InlineData(25.0, ResourceLevel.Tight)]
+    [InlineData(26.0, ResourceLevel.Critical)] // devlinux's sdc
+    public void Evaluate_NoBusyFigure_JudgesDiskActivityByMillisecondsPerOperation(double msPerWrite, ResourceLevel expected)
+    {
+        var history = Every5Seconds(TimeSpan.FromSeconds(60), _ => MacDisk(0.27, msPerWrite));
+
+        Assert.Equal(expected, Verdict(history, ResourceKind.DiskActivity).Level);
+    }
+
+    [Fact]
+    public void Evaluate_NoBusyFigure_NeverReadsTheMissingBusyAsZero()
+    {
+        // With no busy figure the old reading of null-as-zero would say "0% busy" - Normal on a machine
+        // whose disk is taking 40 ms per write. It must be judged on the time instead, and red.
+        var history = Every5Seconds(TimeSpan.FromSeconds(60), _ => MacDisk(2.6, 40));
+
+        var disk = Verdict(history, ResourceKind.DiskActivity);
+
+        Assert.Equal(ResourceLevel.Critical, disk.Level);
+        Assert.Contains("40 ms per operation", disk.Evidence);
+        Assert.DoesNotContain("0%", disk.Evidence);
+    }
+
+    [Fact]
+    public void Evaluate_NoBusyFigure_ReadsSlowerThanWrites_UsesTheSlowerOfTheTwo()
+    {
+        var history = Every5Seconds(TimeSpan.FromSeconds(60), _ => MacDisk(msPerRead: 30, msPerWrite: 1));
+
+        Assert.Equal(ResourceLevel.Critical, Verdict(history, ResourceKind.DiskActivity).Level);
+    }
+
+    [Fact]
+    public void Evaluate_NoBusyFigure_LatencyHeldUnderSixtySeconds_IsNormal()
+    {
+        var history = Every5Seconds(TimeSpan.FromSeconds(55), _ => MacDisk(0.27, 40));
+
+        Assert.Equal(ResourceLevel.Normal, Verdict(history, ResourceKind.DiskActivity).Level);
+    }
+
+    [Fact]
+    public void SlowestDiskMilliseconds_IdleDisk_IsLeftOut()
+    {
+        var sample = MacDisk(50, 50, writeBytesPerSecond: 0) with
+        {
+            Disks = DiskSetReading.Read(new[] { PhysicalDiskReading.Read("disk0", DiskKind.SolidState, null, 0, 0, 50, 50, 0) }),
+        };
+
+        Assert.Null(ResourcePressure.SlowestDiskMilliseconds(sample.Build()));
+    }
+
+    [Fact]
+    public void Evaluate_NoBusyFigureAndNoTimes_IsUnknown()
+    {
+        var history = Every5Seconds(TimeSpan.FromSeconds(60), _ => MacDisk(null, null));
+
+        Assert.Equal(ResourceLevel.Unknown, Verdict(history, ResourceKind.DiskActivity).Level);
+    }
+
+    [Fact]
+    public void BusiestDisk_DiskWithoutABusyFigure_IsNotRankedAsIdle()
+    {
+        var sample = new ResourceSampleBuilder
+        {
+            Disks = DiskSetReading.Read(new[] { PhysicalDiskReading.Read("disk0", DiskKind.SolidState, null, 0, 0, 1, 1, 1) }),
+        }.Build();
+
+        Assert.Null(ResourcePressure.BusiestDisk(sample));
+    }
+
+    // -------------------------------------------------------------------------------------------
     // Memory: the existing MemoryPressure levels, unchanged, on the newest sample
     // -------------------------------------------------------------------------------------------
 

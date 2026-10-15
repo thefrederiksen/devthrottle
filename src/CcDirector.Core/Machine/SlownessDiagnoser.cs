@@ -21,7 +21,8 @@ namespace CcDirector.Core.Machine;
 /// used alone: the Linux load average counts programs waiting on the disk as well as the processor,
 /// which is exactly how devlinux showed a load of 19 to 23 while 80% idle. Elsewhere the verdict is built
 /// from proxies - the run queue against the core count, hard page faults, the macOS memory-pressure
-/// level, and how busy and how slow each disk is.
+/// level, and how busy and how slow each disk is. macOS offers no disk a busy figure, so there the disk
+/// is judged on time per operation alone; a busy figure that is not offered is never read as zero.
 ///
 /// "CANNOT TELL" IS NEVER "NOT SLOW". The machine is called not slow only when the processor, memory
 /// and the disk could all be judged and none was stalled. When nothing could be read the diagnosis says
@@ -108,6 +109,14 @@ public static class SlownessDiagnoser
     /// </summary>
     public const double DiskBusySaturatedPercent = 90.0;
 
+    /// <summary>
+    /// Where no disk offers a busy figure (macOS): a disk taking longer than this per operation, on
+    /// average, is the cause: the same 10 milliseconds at which <see cref="ResourcePressure"/> turns disk
+    /// activity amber there, so the meter and the diagnosis agree. A proposal the quality assurance run
+    /// must confirm; see <see cref="ResourcePressure.DiskLatencyTightMilliseconds"/> for the measurements.
+    /// </summary>
+    public const double DiskLatencyOnlySlowMilliseconds = ResourcePressure.DiskLatencyTightMilliseconds;
+
     private const double BytesPerGigabyte = 1024.0 * 1024 * 1024;
 
     /// <summary>
@@ -123,6 +132,33 @@ public static class SlownessDiagnoser
         IReadOnlyDictionary<int, string>? sessionIdByRootPid)
     {
         ArgumentNullException.ThrowIfNull(history);
+
+        // With only the roots, the membership is what the parent walk finds in the newest process list.
+        // A caller that keeps a membership across samples passes it instead, and detached children count.
+        var membership = SessionProcessMembership.Empty;
+        var processes = history.OrderBy(sample => sample.TakenAtUtc).LastOrDefault(sample => sample.Processes.CouldRead)?.Processes;
+        if (processes is not null && sessionIdByRootPid is { Count: > 0 })
+        {
+            var rootPidBySessionId = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var (rootPid, sessionId) in sessionIdByRootPid) rootPidBySessionId.TryAdd(sessionId, rootPid);
+            membership = SessionProcessMembership.Update(SessionProcessMembership.Empty, processes, rootPidBySessionId);
+        }
+        return Diagnose(history, membership);
+    }
+
+    /// <summary>
+    /// Diagnose a history of samples, naming the culprit's session from a membership the caller has kept
+    /// across samples - so a process that detached from its session's tree is still named as that
+    /// session's (see <see cref="SessionProcessMembership"/>).
+    /// </summary>
+    /// <param name="history">The samples, oldest first and newest last; put in time order before they are judged.</param>
+    /// <param name="membership">Which session each live process belongs to. <see cref="SessionProcessMembership.Empty"/> names no session.</param>
+    public static SlownessDiagnosis Diagnose(
+        IReadOnlyList<ResourceSample> history,
+        SessionProcessMembership membership)
+    {
+        ArgumentNullException.ThrowIfNull(history);
+        ArgumentNullException.ThrowIfNull(membership);
         if (history.Count == 0) return SlownessDiagnosis.CannotDiagnose("no sample has been taken yet");
 
         var ordered = ResourcePressure.InTimeOrder(history);
@@ -169,7 +205,7 @@ public static class SlownessDiagnoser
 
         if (unjudged.Count > 0) evidence.Add($"{Join(unjudged)} could not be read, so it is not ruled out");
 
-        var culprit = Culprit(cause, window, busiestDisk, sessionIdByRootPid);
+        var culprit = Culprit(cause, window, busiestDisk, membership);
         return new SlownessDiagnosis(
             CouldDiagnose: true, IsSlow: true, cause, evidence, culprit,
             NextStep(cause, culprit),
@@ -330,42 +366,60 @@ public static class SlownessDiagnoser
         var evidence = new List<string>();
         foreach (var name in names)
         {
-            var busy = Average(window, sample => DiskNamed(sample, name)?.BusyPercent) ?? 0;
-            var perOperation = SlowerOf(
-                Average(window, sample => DiskNamed(sample, name)?.MillisecondsPerRead),
-                Average(window, sample => DiskNamed(sample, name)?.MillisecondsPerWrite));
+            // A busy figure that is not offered (macOS) stays null: it is never read as an idle disk.
+            var busy = Average(window, sample => DiskNamed(sample, name)?.BusyPercent);
+            var perOperation = Average(window, sample => OperationMilliseconds(sample, name));
 
-            if (busy > DiskBusySaturatedPercent || (busy > DiskBusySlowPercent && perOperation > MillisecondsPerOperationSlow))
-            {
-                slow = true;
-                headline ??= $"disk {name} is {Percent(busy)} busy";
-                evidence.Add(string.Create(CultureInfo.InvariantCulture,
-                    $"disk {name} was {Percent(busy)} busy{(perOperation is { } ms ? $", {ms:F0} ms per operation" : "")} (averaged over {seconds})"));
-            }
+            var diskSlow = busy is { } busyPercent
+                ? busyPercent > DiskBusySaturatedPercent || (busyPercent > DiskBusySlowPercent && perOperation > MillisecondsPerOperationSlow)
+                : perOperation > DiskLatencyOnlySlowMilliseconds;
+            if (!diskSlow) continue;
+
+            slow = true;
+            headline ??= busy is { } shown
+                ? $"disk {name} is {Percent(shown)} busy"
+                : string.Create(CultureInfo.InvariantCulture, $"disk {name} is taking {perOperation:0.#} ms per operation");
+            var figures = new List<string>();
+            if (busy is { } busyFigure) figures.Add($"{Percent(busyFigure)} busy");
+            if (perOperation is { } ms) figures.Add(string.Create(CultureInfo.InvariantCulture, $"{ms:0.#} ms per operation"));
+            evidence.Add($"disk {name} was {string.Join(", ", figures)} (averaged over {seconds})");
         }
 
         if (!slow) evidence.Add($"no disk was both busy and slow (averaged over {seconds})");
         return new Judgement("the disk", true, slow, evidence, null, headline);
     }
 
+    /// <summary>
+    /// How long one operation took on the named disk in this sample, when it did any work. See
+    /// <see cref="ResourcePressure.SlowestDiskMilliseconds"/> for why an idle disk's time is left out.
+    /// </summary>
+    private static double? OperationMilliseconds(ResourceSample sample, string name) =>
+        DiskNamed(sample, name) is { } disk && disk.ReadBytesPerSecond + disk.WriteBytesPerSecond > 0
+            ? ResourcePressure.MillisecondsPerOperation(disk)
+            : null;
+
     // ---------------------------------------------------------------------------------------------
     // The culprit
     // ---------------------------------------------------------------------------------------------
 
     /// <summary>
-    /// The disk that was busiest on average over the window, as its newest readable reading. Null when no
-    /// disk could be read.
+    /// The disk that was busiest on average over the window, as its newest readable reading with the
+    /// averaged figures in place of the newest ones. Ranked by busy percent where any disk offers one;
+    /// where none does (macOS), by time per operation. Null when no disk could be read.
     /// </summary>
     private static PhysicalDiskReading? BusiestDiskOverWindow(List<ResourceSample> window)
     {
-        PhysicalDiskReading? best = null;
-        var bestBusy = double.MinValue;
         var names = window.SelectMany(sample => sample.Disks.CouldRead ? sample.Disks.Disks.Where(disk => disk.CouldRead).Select(disk => disk.Name) : Array.Empty<string>())
-            .Distinct(StringComparer.Ordinal);
+            .Distinct(StringComparer.Ordinal).ToList();
+        var anyBusy = names.Any(name => Average(window, sample => DiskNamed(sample, name)?.BusyPercent) is not null);
+
+        PhysicalDiskReading? best = null;
+        double? bestRank = null;
         foreach (var name in names)
         {
-            var busy = Average(window, sample => DiskNamed(sample, name)?.BusyPercent) ?? 0;
-            if (busy <= bestBusy) continue;
+            var busy = Average(window, sample => DiskNamed(sample, name)?.BusyPercent);
+            var rank = anyBusy ? busy : Average(window, sample => OperationMilliseconds(sample, name));
+            if (rank is null || (bestRank is not null && rank <= bestRank)) continue;
 
             var latest = window.Select(sample => DiskNamed(sample, name)).Last(disk => disk is not null);
             if (latest is not { } reading) continue;
@@ -377,7 +431,7 @@ public static class SlownessDiagnoser
                 MillisecondsPerRead = Average(window, sample => DiskNamed(sample, name)?.MillisecondsPerRead),
                 MillisecondsPerWrite = Average(window, sample => DiskNamed(sample, name)?.MillisecondsPerWrite),
             };
-            bestBusy = busy;
+            bestRank = rank;
         }
         return best;
     }
@@ -386,7 +440,7 @@ public static class SlownessDiagnoser
         SlownessCause cause,
         List<ResourceSample> window,
         PhysicalDiskReading? busiestDisk,
-        IReadOnlyDictionary<int, string>? sessionIdByRootPid)
+        SessionProcessMembership membership)
     {
         var processes = window.LastOrDefault(sample => sample.Processes.CouldRead)?.Processes;
 
@@ -405,14 +459,7 @@ public static class SlownessDiagnoser
                 process = processes.Processes.MaxBy(candidate => candidate.CpuPercent);
         }
 
-        string? sessionId = null;
-        if (process is not null && processes is not null && sessionIdByRootPid is { Count: > 0 })
-        {
-            var rootPidBySessionId = new Dictionary<string, int>();
-            foreach (var (rootPid, id) in sessionIdByRootPid) rootPidBySessionId.TryAdd(id, rootPid);
-            sessionId = ProcessTreeUsage.BySession(processes, rootPidBySessionId)
-                .FirstOrDefault(usage => usage.Pids.Contains(process.Pid))?.SessionId;
-        }
+        var sessionId = process is null ? null : membership.SessionOf(ProcessIdentity.Of(process));
 
         var disk = cause.HasFlag(SlownessCause.Disk) ? busiestDisk : null;
         if (process is null && disk is null) return null;
@@ -478,21 +525,31 @@ public static class SlownessDiagnoser
 
     private static string DiskPhrase(PhysicalDiskReading disk)
     {
-        var text = $"the {KindNoun(disk.Kind)} {disk.Name} is {Percent(disk.BusyPercent)} busy";
-        if (disk.MillisecondsPerWrite is { } perWrite)
-            text += string.Create(CultureInfo.InvariantCulture, $", {perWrite:F0} ms per write");
-        return text;
+        return $"the {KindNoun(disk.Kind)} {disk.Name} is {DiskFigures(disk)}";
     }
 
     private static string DiskLine(PhysicalDiskReading disk, ResourceSample newest)
     {
-        var line = $"the busiest physical disk is the {KindNoun(disk.Kind)} {disk.Name}, {Percent(disk.BusyPercent)} busy";
-        if (disk.MillisecondsPerWrite is { } perWrite)
-            line += string.Create(CultureInfo.InvariantCulture, $", {perWrite:F0} ms per write");
+        var line = $"the busiest physical disk is the {KindNoun(disk.Kind)} {disk.Name}, {DiskFigures(disk)}";
         var volumes = newest.Volumes.Where(volume => volume.PhysicalDiskNames.Contains(disk.Name, StringComparer.Ordinal))
             .Select(volume => volume.MountPoint).ToList();
         if (volumes.Count > 0) line += $", part of the volume{(volumes.Count > 1 ? "s" : "")} {string.Join(", ", volumes)}";
         return line;
+    }
+
+    /// <summary>
+    /// "75% busy, 26 ms per write" - or, where the platform offers no busy figure, "taking 19 ms per
+    /// write". Only the figures offered are printed; a missing one is never shown as zero.
+    /// </summary>
+    private static string DiskFigures(PhysicalDiskReading disk)
+    {
+        var parts = new List<string>();
+        if (disk.BusyPercent is { } busy) parts.Add($"{Percent(busy)} busy");
+        if (disk.MillisecondsPerWrite is { } perWrite)
+            parts.Add(string.Create(CultureInfo.InvariantCulture, $"{(disk.BusyPercent is null ? "taking " : "")}{perWrite:F0} ms per write"));
+        else if (disk.MillisecondsPerRead is { } perRead)
+            parts.Add(string.Create(CultureInfo.InvariantCulture, $"{(disk.BusyPercent is null ? "taking " : "")}{perRead:F0} ms per read"));
+        return parts.Count == 0 ? "the busiest disk" : string.Join(", ", parts);
     }
 
     /// <summary>What to call a disk of this kind in a sentence for the owner.</summary>
@@ -541,9 +598,6 @@ public static class SlownessDiagnoser
         }
         return count == 0 ? null : sum / count;
     }
-
-    private static double? SlowerOf(double? first, double? second) =>
-        first is null ? second : second is null ? first : Math.Max(first.Value, second.Value);
 
     private static string ReasonOf(List<ResourceSample> window, Func<ResourceSample, string?> reasonOf, string otherwise) =>
         window.Select(reasonOf).LastOrDefault(reason => reason is not null) ?? otherwise;
