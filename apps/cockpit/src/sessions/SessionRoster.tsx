@@ -58,7 +58,6 @@ import {
   emptyFilterMessage,
   filterSearchOf,
   filterSummary,
-  outsideNeedingYou,
   selectedValueCount,
   type SessionFilter,
 } from "@devthrottle/client-core/sessions/filter";
@@ -131,7 +130,6 @@ export function SessionRoster({ sessions, directors, portByDirector, selectedId,
   const shown: SessionDto[] | null =
     sessions === null ? null : activeFilter !== null ? applyFilter(sessions, activeFilter) : withheld ? [] : sessions;
   const shownCount = shown?.length ?? 0;
-  const outside = sessions !== null && activeFilter !== null ? outsideNeedingYou(sessions, activeFilter) : [];
 
   return (
     <div className="roster-rail">
@@ -187,7 +185,6 @@ export function SessionRoster({ sessions, directors, portByDirector, selectedId,
           activeSaved={activeSaved}
           shownCount={shownCount}
           total={total}
-          outside={outside}
         />
       )}
 
@@ -289,23 +286,22 @@ function FilterButton({ resolved, onOpen }: { resolved: RosterFilter["resolved"]
   );
 }
 
-// The lines under the header while a filter is on (issue #4009): what is shown and Clear; a red line naming any
-// session OUTSIDE the filter that is waiting on you (a filter must never hide a stuck session - clicking it clears the
-// filter); and, for a saved filter the address names but that cannot be shown, why.
+// The lines under the header while a filter is on (issue #4009): what is shown and Clear, and, for a saved filter the
+// address names but that cannot be shown, why. Sessions outside the filter are NOT mentioned here, waiting or not
+// (owner ruling, 15 October 2026): a filter is a deliberate choice of what to look at, and a warning about the rest
+// defeated it. The app badge still counts every session that needs you.
 function FilterLines({
   rosterFilter,
   activeFilter,
   activeSaved,
   shownCount,
   total,
-  outside,
 }: {
   rosterFilter: RosterFilter;
   activeFilter: SessionFilter | null;
   activeSaved: SavedSessionFilter | null;
   shownCount: number;
   total: number;
-  outside: SessionDto[];
 }) {
   const { resolved, saved, clear } = rosterFilter;
   if (resolved.status === "loading") {
@@ -338,7 +334,6 @@ function FilterLines({
     );
   }
   if (activeFilter === null) return null;
-  const n = outside.length;
   return (
     <>
       <div
@@ -354,27 +349,8 @@ function FilterLines({
           Clear
         </button>
       </div>
-      {n > 0 && (
-        <button
-          type="button"
-          className="roster-filter-outside"
-          onClick={clear}
-          title="Clear the filter to see every session"
-          data-testid="roster-filter-outside"
-        >
-          {n === 1 ? "1 session outside this filter needs you: " : `${n} sessions outside this filter need you: `}
-          {outside.map(sessionLabel).join(", ")}
-        </button>
-      )}
     </>
   );
-}
-
-function sessionLabel(s: SessionDto): string {
-  const num = s.number;
-  const hasNum = num !== null && num !== undefined && String(num).trim().length > 0;
-  const name = s.name && s.name.trim().length > 0 ? s.name.trim() : s.repoPath || "(unnamed session)";
-  return hasNum ? `${num} ${name}` : name;
 }
 
 // ONE tree over the whole roster. The pinned rows (the Fleet Manager, step 8) come first, each with its team under it;

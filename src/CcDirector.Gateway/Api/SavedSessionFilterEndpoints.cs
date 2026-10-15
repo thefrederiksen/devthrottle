@@ -42,10 +42,16 @@ internal static class SavedSessionFilterEndpoints
     {
         FileLog.Write($"[SavedSessionFilterEndpoints] mapping GET/POST {Route} and PUT/DELETE {Route}/{{id}}");
 
-        app.MapGet(Route, (HttpContext ctx) => HandleList(ctx, store, boundary));
-        app.MapPost(Route, async (HttpContext ctx) => await HandleCreateAsync(ctx, store, boundary, DateTime.UtcNow));
-        app.MapPut(Route + "/{id}", async (HttpContext ctx, string id) => await HandleUpdateAsync(ctx, store, boundary, id, DateTime.UtcNow));
-        app.MapDelete(Route + "/{id}", (HttpContext ctx, string id) => HandleDelete(ctx, store, boundary, id));
+        // Each lambda states its RETURN TYPE on purpose. A lambda taking only an HttpContext and returning a Task -
+        // `async (HttpContext ctx) => await Handle(...)` - is bound by ASP.NET as a plain request delegate, which runs the
+        // handler and DISCARDS the IResult it returns: the save was stored and answered 200 with an empty body, and the
+        // Cockpit failed to read it (found live, 15 October 2026). A lambda whose declared return type is Task<IResult>
+        // cannot become a request delegate, so the result is always written. SavedSessionFilterRoutesThroughThePipelineTests
+        // drives the routes as mapped to hold this.
+        app.MapGet(Route, IResult (HttpContext ctx) => HandleList(ctx, store, boundary));
+        app.MapPost(Route, async Task<IResult> (HttpContext ctx) => await HandleCreateAsync(ctx, store, boundary, DateTime.UtcNow));
+        app.MapPut(Route + "/{id}", async Task<IResult> (HttpContext ctx, string id) => await HandleUpdateAsync(ctx, store, boundary, id, DateTime.UtcNow));
+        app.MapDelete(Route + "/{id}", IResult (HttpContext ctx, string id) => HandleDelete(ctx, store, boundary, id));
     }
 
     internal static IResult HandleList(HttpContext ctx, SavedSessionFilterStore store, Tenancy.HostedTenantBoundary? boundary)

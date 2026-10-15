@@ -7,7 +7,6 @@ import {
   filterSearchOf,
   filteredDocumentTitle,
   findSavedFilter,
-  outsideNeedingYou,
   parseFilterQuery,
   reposFilterFirst,
   resolveFilterQuery,
@@ -17,8 +16,7 @@ import {
 } from "./filter";
 
 // The Cockpit's filter lives in each tab's address (issue #4009). These hold the address round trip, the saved-filter
-// resolution (including the name that no longer exists, which must never read as "all sessions"), and the line that
-// names a stuck session the filter hides.
+// resolution (including the name that no longer exists, which must never read as "all sessions").
 
 function session(fields: Partial<SessionDto> & { sessionId?: string } = {}): SessionDto {
   return { sessionId: "s1", createdAt: "2026-07-08T00:00:00Z", sortOrder: 0, ...fields } as unknown as SessionDto;
@@ -155,27 +153,6 @@ describe("selectedValueCount", () => {
   it("counts ticked values across both facets", () => {
     expect(selectedValueCount(EMPTY_FILTER)).toBe(0);
     expect(selectedValueCount({ repos: ["a", "b"], machines: ["x"] })).toBe(3);
-  });
-});
-
-describe("outsideNeedingYou", () => {
-  const roster = [
-    session({ sessionId: "in-waiting", repoPath: "/r/devthrottle", triageBucket: "needsYou" } as Partial<SessionDto>),
-    session({ sessionId: "out-waiting", repoPath: "/r/acme", triageBucket: "needsYou" } as Partial<SessionDto>),
-    session({ sessionId: "out-busy", repoPath: "/r/acme", triageBucket: "active" } as Partial<SessionDto>),
-    session({ sessionId: "out-unreachable", repoPath: "/r/acme", triageBucket: "needsYou", machineReachable: false } as Partial<SessionDto>),
-  ];
-
-  it("names the waiting sessions outside the filter, on machines that can be acted on", () => {
-    expect(outsideNeedingYou(roster, { repos: ["devthrottle"], machines: [] }).map((s) => s.sessionId)).toEqual(["out-waiting"]);
-  });
-
-  it("is empty with no filter, because nothing is hidden", () => {
-    expect(outsideNeedingYou(roster, EMPTY_FILTER)).toEqual([]);
-  });
-
-  it("never names a session the filter shows", () => {
-    expect(outsideNeedingYou(roster, { repos: ["devthrottle", "acme"], machines: [] })).toEqual([]);
   });
 });
 

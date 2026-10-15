@@ -3,7 +3,7 @@
 // machine and/or one set of repositories. The model is deliberately simple and pure so it is fully
 // unit-tested and the UI (the full-screen panel) stays a thin renderer over it.
 import type { SessionDto } from "../api/client";
-import { classify, machineCanBeActedOn, repoLeaf } from "./ordering";
+import { repoLeaf } from "./ordering";
 
 // The active selection. An empty list for a facet means "all" - no restriction on that facet - so the
 // default (no filter) is two empty lists. Selections combine across facets (machine AND repo) and
@@ -192,14 +192,6 @@ export function resolveFilterQuery<T extends NamedFilter>(query: FilterQuery, sa
 // How many values a selection ticks, across both facets - the "n" in the "Filter (n)" button.
 export function selectedValueCount(f: SessionFilter): number {
   return f.repos.length + f.machines.length;
-}
-
-// The sessions OUTSIDE the filter that are waiting on the person, by the same rule as the app badge: needs you, on a
-// machine that can be acted on. A filter must never silently hide a stuck session, so the Cockpit names these in a
-// red line above the filtered list. Input order is kept.
-export function outsideNeedingYou(sessions: SessionDto[], f: SessionFilter): SessionDto[] {
-  if (!filterIsActive(f)) return [];
-  return sessions.filter((s) => !sessionMatchesFilter(s, f) && classify(s) === "needsYou" && machineCanBeActedOn(s));
 }
 
 // The "New session" picker's repositories with the filter's repos first (in the filter's order), then the rest in
