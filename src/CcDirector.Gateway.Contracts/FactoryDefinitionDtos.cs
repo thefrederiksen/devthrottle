@@ -57,6 +57,10 @@ public sealed class FactoryDefinitionDto
     /// </summary>
     public Dictionary<string, string>? Files { get; set; }
 
+    /// <summary>On the answer to an import only: true when the import made the factory's first version, so the
+    /// factory's definition was created by it; false when a definition already existed. Null on every other answer.</summary>
+    public bool? Created { get; set; }
+
     /// <summary>
     /// What the whole-definition check noticed on a save, a publish or a restore: notices only, because an error
     /// refuses the write. Empty on a read.
@@ -190,4 +194,81 @@ public sealed class RestoreFactoryDefinitionRequest
     /// means "I did not check", and the copy is then added after whatever is newest.
     /// </summary>
     public int ExpectedVersion { get; set; }
+}
+
+/// <summary>
+/// A factory's definition as a folder of files (Factory Definition mission, phase 3): what
+/// <c>GET /factory-definitions/{factory}/export</c> answers and the command line writes to disk, byte for byte.
+/// </summary>
+public sealed class FactoryDefinitionExportDto
+{
+    /// <summary>The factory exported.</summary>
+    public string Factory { get; set; } = "";
+
+    /// <summary>
+    /// <c>definition</c> when the files are one stored version, exactly as stored; <c>live</c> when the factory has no
+    /// definition and the files were written from what the Gateway holds today (its registry entry, published briefs,
+    /// schedules and triggers).
+    /// </summary>
+    public string Source { get; set; } = "";
+
+    /// <summary>The version exported, when <see cref="Source"/> is <c>definition</c>; otherwise null.</summary>
+    public int? Version { get; set; }
+
+    /// <summary>That version's state, <c>draft</c> or <c>published</c>, when <see cref="Source"/> is <c>definition</c>.</summary>
+    public string? State { get; set; }
+
+    /// <summary>One sentence saying what was exported, composed by the Gateway.</summary>
+    public string Summary { get; set; } = "";
+
+    /// <summary>Every file, path to text, in ordinal order of the paths.</summary>
+    public Dictionary<string, string> Files { get; set; } = new(StringComparer.Ordinal);
+
+    /// <summary>What the factory has today that the folder does not hold, each with the file it would have gone in.
+    /// Always empty for a stored version, which is exported whole.</summary>
+    public List<FactoryDefinitionExportReportDto> Reported { get; set; } = new();
+}
+
+/// <summary>One thing an export could not carry into the folder: the file it would have gone in, and why.</summary>
+public sealed class FactoryDefinitionExportReportDto
+{
+    public string File { get; set; } = "";
+
+    public string Message { get; set; } = "";
+}
+
+/// <summary>
+/// Body of an import (phase 3): a folder's files, checked exactly as a draft save is and stored as the next draft,
+/// never published.
+/// </summary>
+public sealed class ImportFactoryDefinitionRequest
+{
+    /// <summary>The factory to import into. When null, the factory factory.yaml names.</summary>
+    public string? Factory { get; set; }
+
+    public string? Note { get; set; }
+
+    public Dictionary<string, string>? Content { get; set; }
+}
+
+/// <summary>The definition's JSON Schemas, as the Gateway's check enforces them (phase 3).</summary>
+public sealed class FactoryDefinitionSchemasDto
+{
+    /// <summary>One sentence on what the schemas cover and what only the whole check decides.</summary>
+    public string Note { get; set; } = "";
+
+    public List<FactoryDefinitionSchemaDto> Schemas { get; set; } = new();
+}
+
+/// <summary>One file type's schema.</summary>
+public sealed class FactoryDefinitionSchemaDto
+{
+    /// <summary>The schema's own file name, such as <c>seat.schema.json</c>.</summary>
+    public string Name { get; set; } = "";
+
+    /// <summary>The paths in a definition this schema checks, such as <c>seats/&lt;seat&gt;.yaml</c>.</summary>
+    public string Applies { get; set; } = "";
+
+    /// <summary>The schema itself, a JSON Schema (draft 2020-12) document, exactly as embedded in the Gateway.</summary>
+    public System.Text.Json.JsonElement Schema { get; set; }
 }

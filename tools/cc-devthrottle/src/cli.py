@@ -1322,6 +1322,35 @@ _ACTIONS = [
         ],
     },
     {
+        "id": "factory-definition-schemas",
+        "description": "The JSON Schemas the Gateway checks a factory's definition files against, to check a folder without saving it.",
+        "command": "cc-devthrottle factory definition schemas",
+        "mutatesState": False,
+        "args": [{"name": "out", "required": False}],
+    },
+    {
+        "id": "factory-export",
+        "description": "Write a factory's definition to a new folder, byte for byte; a factory with no definition is written from what is live, and what could not be written is listed.",
+        "command": "cc-devthrottle factory export <factory> --out <folder>",
+        "mutatesState": False,
+        "args": [
+            {"name": "factory", "required": True},
+            {"name": "out", "required": True},
+            {"name": "version", "required": False},
+        ],
+    },
+    {
+        "id": "factory-import",
+        "description": "Store a folder as the next draft of a factory's definition, checked exactly as a save is. It never publishes.",
+        "command": "cc-devthrottle factory import <folder>",
+        "mutatesState": True,
+        "args": [
+            {"name": "folder", "required": True},
+            {"name": "factory", "required": False},
+            {"name": "note", "required": False},
+        ],
+    },
+    {
         "id": "factory-activity",
         "description": "Read the factory activity record, newest first.",
         "command": "cc-devthrottle factory activity",
@@ -4671,6 +4700,54 @@ def factory_definition_diff(
 ) -> None:
     """What changes from one version to another, as the Gateway words it."""
     factory_definition_ops.diff(factory, from_version, to_version, json_output)
+
+
+@factory_definition_app.command("schemas")
+def factory_definition_schemas(
+    out: Optional[str] = typer.Option(None, "--out", help="Also write each schema to this folder as its own .schema.json file."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the schemas as JSON."),
+) -> None:
+    """The JSON Schemas the Gateway checks each definition file against.
+
+    One per file type: factory.yaml, seats/<seat>.yaml, grants.yaml and rules/<name>.json. They check a file's
+    shape; a save or an import also checks paths, caps and that every reference resolves.
+    """
+    factory_definition_ops.schemas(out, json_output)
+
+
+@factory_app.command("export")
+def factory_export(
+    factory: str = typer.Argument(..., help=_DEFINITION_FACTORY_HELP),
+    out: str = typer.Option(..., "--out", help="A new or empty folder to write the definition into."),
+    version: Optional[int] = typer.Option(
+        None, "--version", min=1,
+        help="Export this version. Default: the published one, or the newest when none is published.",
+    ),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output what was written as JSON."),
+) -> None:
+    """Write a factory's definition to a folder, every file exactly as the Gateway holds it.
+
+    Two exports of one version are the same bytes. A factory with no definition is written from its registry
+    entry, published briefs, schedules and triggers; what a definition cannot hold is listed, not dropped.
+    """
+    factory_definition_ops.export(factory, out, version, json_output)
+
+
+@factory_app.command("import")
+def factory_import(
+    folder: str = typer.Argument(..., help="The folder holding the whole definition: factory.yaml, seats/ and the rest."),
+    factory: Optional[str] = typer.Option(
+        None, "--factory", help="The factory to import into. Default: the one factory.yaml names; the two must agree.",
+    ),
+    note: Optional[str] = typer.Option(None, "--note", help="A change note, at most 500 characters."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the stored draft as JSON."),
+) -> None:
+    """Store a folder as the next draft of a factory's definition. It never publishes.
+
+    The Gateway checks the folder exactly as a save: any error refuses it and every finding is printed with
+    its file and line. A factory with no definition gets its first version.
+    """
+    factory_definition_ops.import_folder(folder, factory, note, json_output)
 
 
 _RECORD_FACTORY_HELP = "The factory's id, for example devthrottle. A session may name only its own factory."

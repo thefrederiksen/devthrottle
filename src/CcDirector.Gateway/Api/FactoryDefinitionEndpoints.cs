@@ -26,6 +26,11 @@ namespace CcDirector.Gateway.Api;
 ///   PUT  /factory-definitions/{factory}/draft              save a draft, stating the version last read
 ///   POST /factory-definitions/{factory}/publish            publish one version - A PERSON ONLY
 ///   POST /factory-definitions/{factory}/restore            publish a copy of an older version as the newest - A PERSON ONLY
+///   GET  /factory-definitions/{factory}/export             the definition as a folder of files (phase 3, ?version=N);
+///                                                          for a factory with NO definition, written from what is live
+///   POST /factory-definitions/import                       a folder's files, checked as a save is, stored as the next
+///                                                          draft - NEVER published (phase 3)
+///   GET  /factory-definition-schemas                       the JSON Schemas the check enforces (phase 3)
 ///
 /// WHO IS ASKING is read exactly as it is for a seat's brief and a factory's schedules and triggers
 /// (<see cref="FactoryNaming.TryAct"/>): a person, or a session of that factory. A session of another factory, or of
@@ -52,6 +57,12 @@ internal static class FactoryDefinitionEndpoints
 {
     internal const string Prefix = "/factory-definitions";
 
+    /// <summary>Where a folder is imported. Not under <c>{factory}</c>: the factory may be the one factory.yaml names.</summary>
+    internal const string ImportRoute = Prefix + "/import";
+
+    /// <summary>Where the schemas are served. Not under <see cref="Prefix"/>, where any one-word path is a factory.</summary>
+    internal const string SchemasRoute = "/factory-definition-schemas";
+
     /// <summary>The noun the shared gate names in its refusal: "this definition belongs to factory ...".</summary>
     private const string What = "definition";
 
@@ -61,6 +72,7 @@ internal static class FactoryDefinitionEndpoints
         Func<string, SessionFactoryLookup> sessionFactoryOf,
         Func<TenantId, IReadOnlyCollection<string>> fleetSkillsOf,
         Func<TenantId, IReadOnlyCollection<string>> connectedMachinesOf,
+        Func<TenantId, string, FactoryLiveParts?> liveOf,
         Func<DateTime> nowUtc)
     {
         ArgumentNullException.ThrowIfNull(resolveTenant);
@@ -68,6 +80,7 @@ internal static class FactoryDefinitionEndpoints
         ArgumentNullException.ThrowIfNull(sessionFactoryOf);
         ArgumentNullException.ThrowIfNull(fleetSkillsOf);
         ArgumentNullException.ThrowIfNull(connectedMachinesOf);
+        ArgumentNullException.ThrowIfNull(liveOf);
         ArgumentNullException.ThrowIfNull(nowUtc);
 
         var account = new Account(fleetSkillsOf, connectedMachinesOf);
@@ -88,8 +101,13 @@ internal static class FactoryDefinitionEndpoints
             Publish(ctx, factory, body, store, resolveTenant, sessionFactoryOf, account, nowUtc));
         app.MapPost(factoryRoute + "/restore", (HttpContext ctx, string factory, RestoreFactoryDefinitionRequest? body) =>
             Restore(ctx, factory, body, store, resolveTenant, sessionFactoryOf, account, nowUtc));
+        app.MapGet(factoryRoute + "/export", (HttpContext ctx, string factory) =>
+            Export(ctx, factory, store, resolveTenant, sessionFactoryOf, liveOf));
+        app.MapPost(ImportRoute, (HttpContext ctx, ImportFactoryDefinitionRequest? body) =>
+            Import(ctx, body, store, resolveTenant, sessionFactoryOf, account, nowUtc));
+        app.MapGet(SchemasRoute, (HttpContext ctx) => Schemas(ctx, resolveTenant));
 
-        FileLog.Write($"[FactoryDefinitionEndpoints] mapped {factoryRoute} and its draft, history, versions, diff, publish and restore routes");
+        FileLog.Write($"[FactoryDefinitionEndpoints] mapped {factoryRoute} and its draft, history, versions, diff, publish, restore and export routes, {ImportRoute} and {SchemasRoute}");
     }
 
     /// <summary>What the whole-definition check needs to know about the account: its fleet skill ids and the machines
@@ -278,12 +296,205 @@ internal static class FactoryDefinitionEndpoints
         if (!TryFold(factory, out var folded, out error)) return error!;
 
         var content = body.Content ?? new Dictionary<string, string>();
+        if (NoText(content) is { } noText) return noText;
+        return SaveChecked(store, tenant, folded, content, body.ExpectedVersion, caller, body.Note, account, nowUtc,
+            "The definition was not saved", created: null);
+    }
+
+    /// <summary>
+    /// THE ONE CHECKED SAVE, shared by a draft save and an import (phase 3: an import checks a folder EXACTLY as a save
+    /// does): the whole-definition check with the account's skills and machines, a 422 with every finding when it finds
+    /// an error, and otherwise the store's draft. <paramref name="created"/> is set on an import's answer only.
+    /// </summary>
+    private static IResult SaveChecked(FactoryDefinitionStore store, TenantId tenant, string folded,
+        IReadOnlyDictionary<string, string> content, int expectedVersion, Caller caller, string? note, Account account,
+        Func<DateTime> nowUtc, string notStored, bool? created)
+    {
         var check = Check(content, folded, tenant, account);
         if (check.HasErrors)
-            return CheckRefused(folded, check, "The definition was not saved");
+            return CheckRefused(folded, check, notStored);
 
-        var write = store.SaveDraft(tenant, folded, content, body.ExpectedVersion, caller.Kind, caller.Id, body.Note, nowUtc());
-        return Answer(write, store, tenant, folded, check);
+        var write = store.SaveDraft(tenant, folded, content, expectedVersion, caller.Kind, caller.Id, note, nowUtc());
+        return Answer(write, store, tenant, folded, check, created: write.Ok ? created : null);
+    }
+
+    /// <summary>
+    /// A path that maps to no text at all - <c>{"factory.yaml": null}</c> - refused with 400 and the path, in the store's
+    /// own words, BEFORE the check reads the content (review of 4004: the check threw on it and the request ended as a
+    /// 500). Null when every path maps to a text. The first such path in ordinal order is named.
+    /// </summary>
+    internal static IResult? NoText(IReadOnlyDictionary<string, string> content)
+    {
+        foreach (var path in content.Keys.OrderBy(p => p, StringComparer.Ordinal))
+        {
+            if (content[path] is not null) continue;
+            FileLog.Write($"[FactoryDefinitionEndpoints] REFUSED (400, NotText) - '{path}' maps to no text");
+            return Results.BadRequest(new
+            {
+                error = FactoryDefinitionStore.NoTextRefusal(path),
+                outcome = FactoryDefinitionOutcome.NotText.ToString(),
+            });
+        }
+        return null;
+    }
+
+    // ---------- export, import and the schemas (phase 3) ----------
+
+    /// <summary>
+    /// GET the definition as a folder of files. With <c>?version=N</c> that version; without, the published version,
+    /// or the newest when none is published yet. A stored version is exported EXACTLY as stored, so two exports of one
+    /// version are the same bytes. A factory with NO definition is written from what the Gateway holds today (mission
+    /// decision A8, <see cref="FactoryDefinitionExport.FromLive"/>), and everything that could not be written is listed.
+    /// </summary>
+    internal static IResult Export(HttpContext ctx, string factory, FactoryDefinitionStore store,
+        Func<HttpContext, TenantId?> resolveTenant, Func<string, SessionFactoryLookup> sessionFactoryOf,
+        Func<TenantId, string, FactoryLiveParts?> liveOf)
+    {
+        if (resolveTenant(ctx) is not { } tenant) return NoAccount();
+        if (!TryCaller(ctx, sessionFactoryOf, factory, $"GET {Prefix}/{factory}/export", out _, out var error)) return error!;
+        if (!TryFold(factory, out var folded, out error)) return error!;
+        int? asked = null;
+        if (ctx.Request.Query.TryGetValue("version", out var versionSent))
+        {
+            if (!TryVersion(versionSent.ToString(), "version", out var v, out error)) return error!;
+            asked = v;
+        }
+
+        var standing = store.Standing(tenant, folded);
+        if (asked is not null || standing.Newest is not null)
+        {
+            var chosen = asked ?? standing.Published?.Version ?? standing.Newest!.Version;
+            var found = store.Find(tenant, folded, chosen);
+            if (found is null) return NoSuchVersion(folded, chosen, standing);
+            var summary = $"Version {chosen} of the definition of {folded}, {found.Summary.State}, exactly as stored ({found.Files.Count} files).";
+            if (asked is null && standing.Published is null)
+                summary += " No version is published, so the newest is exported.";
+            else if (asked is null && standing.Newest!.Version > chosen)
+                summary += $" A newer draft, version {standing.Newest.Version}, is not exported; name its version to export it.";
+            FileLog.Write($"[FactoryDefinitionEndpoints] {folded}: export version {chosen} ({found.Summary.State}), files={found.Files.Count}");
+            return Results.Json(new FactoryDefinitionExportDto
+            {
+                Factory = folded,
+                Source = "definition",
+                Version = chosen,
+                State = found.Summary.State,
+                Summary = summary,
+                Files = new Dictionary<string, string>(found.Files, StringComparer.Ordinal),
+            });
+        }
+
+        if (liveOf(tenant, folded) is not { } live)
+        {
+            FileLog.Write($"[FactoryDefinitionEndpoints] {folded}: export REFUSED (404) - no definition and not registered");
+            return Results.Json(new
+            {
+                error = $"{folded} has no definition on the Gateway and is not a registered factory, so there is nothing to export",
+                newestVersion = 0,
+            }, statusCode: StatusCodes.Status404NotFound);
+        }
+        var result = FactoryDefinitionExport.FromLive(live);
+        var dto = new FactoryDefinitionExportDto
+        {
+            Factory = folded,
+            Source = "live",
+            Summary = $"{folded} has no definition on the Gateway, so the folder is written from what it has today: its registry entry, " +
+                      $"published briefs, schedules and triggers ({result.Files.Count} files). " +
+                      (result.Reported.Count == 0
+                          ? "Everything it has is in the folder."
+                          : $"{result.Reported.Count} {(result.Reported.Count == 1 ? "thing it has is" : "things it has are")} not in the folder; each is listed with the file it would have gone in."),
+            Files = new Dictionary<string, string>(result.Files, StringComparer.Ordinal),
+            Reported = result.Reported.Select(x => new FactoryDefinitionExportReportDto { File = x.File, Message = x.Message }).ToList(),
+        };
+        FileLog.Write($"[FactoryDefinitionEndpoints] {folded}: export from live, files={dto.Files.Count}, reported={dto.Reported.Count}");
+        return Results.Json(dto);
+    }
+
+    /// <summary>
+    /// POST a folder's files as the next DRAFT: checked exactly as a draft save is (<see cref="SaveChecked"/>), by the
+    /// same callers, and stored after the newest version - creating the factory's definition when it has none. It never
+    /// publishes. The factory is the one the body names, or else the one factory.yaml names; the check then requires
+    /// the two to agree, as a save does.
+    /// </summary>
+    internal static IResult Import(HttpContext ctx, ImportFactoryDefinitionRequest? body, FactoryDefinitionStore store,
+        Func<HttpContext, TenantId?> resolveTenant, Func<string, SessionFactoryLookup> sessionFactoryOf,
+        Account account, Func<DateTime> nowUtc)
+    {
+        if (resolveTenant(ctx) is not { } tenant) return NoAccount();
+        if (body is null) return NoBody();
+        var content = body.Content ?? new Dictionary<string, string>();
+        if (NoText(content) is { } noText) return noText;
+
+        var factory = string.IsNullOrWhiteSpace(body.Factory) ? FactoryNamedIn(content) : body.Factory;
+        if (factory is null)
+        {
+            // Nothing says which factory: the format check's own findings say why factory.yaml does not.
+            var findings = FactoryDefinitionCheck.Read(content).Findings.Where(f => f.IsError).Select(ToDto).ToList();
+            if (findings.Count == 0)
+                findings.Add(ToDto(new DefinitionFinding(DefinitionSeverity.Error, FactoryDefinitionCheck.FactoryFile, 0,
+                    "factory.yaml names no factory, so the import cannot tell which factory the folder is for.")));
+            FileLog.Write($"[FactoryDefinitionEndpoints] import REFUSED (422) - no factory named; findings={findings.Count}");
+            return Results.Json(new
+            {
+                error = "The folder was not imported: nothing says which factory it is for. Name the factory, or fix factory.yaml.",
+                outcome = "CheckFailed",
+                findings,
+            }, statusCode: StatusCodes.Status422UnprocessableEntity);
+        }
+
+        var route = $"POST {ImportRoute} ({factory})";
+        if (!TryCaller(ctx, sessionFactoryOf, factory, route, out var caller, out var error)) return error!;
+        if (!TryWriter(caller, route, out error)) return error!;
+        if (!TryFold(factory, out var folded, out error)) return error!;
+
+        // AFTER THE NEWEST VERSION, whatever it is: an import is a whole definition, not an edit of one, and the version
+        // it follows stays in the history. A write landing in between is still refused as stale by the store.
+        var after = store.Standing(tenant, folded).Newest?.Version ?? 0;
+        FileLog.Write($"[FactoryDefinitionEndpoints] {folded}: import of {content.Count} files after version {after} by {caller.Kind}");
+        return SaveChecked(store, tenant, folded, content, after, caller, body.Note ?? "imported from a folder", account, nowUtc,
+            "The folder was not imported", created: after == 0);
+    }
+
+    /// <summary>The factory id factory.yaml names, read with the definition's own parser, or null when it names none.</summary>
+    private static string? FactoryNamedIn(IReadOnlyDictionary<string, string> content)
+    {
+        if (!content.TryGetValue(FactoryDefinitionCheck.FactoryFile, out var text)) return null;
+        var (root, _) = DefinitionDocument.ParseYaml(FactoryDefinitionCheck.FactoryFile, text);
+        return root is DefinitionMap map && map.Find("factory")?.Value is DefinitionScalar { Kind: DefinitionScalarKind.Text } id
+               && !string.IsNullOrWhiteSpace(id.Value)
+            ? id.Value
+            : null;
+    }
+
+    /// <summary>
+    /// GET the JSON Schemas the check enforces, one per file type, exactly as embedded: what an editor or an agent
+    /// checks a folder's shape against without saving it. The schemas say no more than the check does (the loader
+    /// refuses any keyword it does not implement), and the check says more than they do - references, the places a
+    /// path may be, the caps - which the note says.
+    /// </summary>
+    internal static IResult Schemas(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant)
+    {
+        if (resolveTenant(ctx) is null) return NoAccount();
+        var schemas = Enum.GetValues<DefinitionFileKind>().Select(kind => new FactoryDefinitionSchemaDto
+        {
+            Name = DefinitionSchema.ResourceFileName(kind),
+            Applies = kind switch
+            {
+                DefinitionFileKind.Factory => FactoryDefinitionCheck.FactoryFile,
+                DefinitionFileKind.Seat => "seats/<seat>.yaml",
+                DefinitionFileKind.Grants => FactoryDefinitionCheck.GrantsFile,
+                DefinitionFileKind.Rules => "rules/<name>.json",
+                _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
+            },
+            Schema = DefinitionSchema.For(kind).Root,
+        }).ToList();
+        FileLog.Write($"[FactoryDefinitionEndpoints] GET {SchemasRoute}: {schemas.Count} schemas");
+        return Results.Json(new FactoryDefinitionSchemasDto
+        {
+            Note = "Each schema checks the shape of one kind of file. A save or an import also checks what no schema can: " +
+                   $"the places a path may be ({DefinitionPaths.PlacesText}), the caps, a factory skill's frontmatter, and that " +
+                   "every reference resolves - and answers with every finding by file and line.",
+            Schemas = schemas,
+        });
     }
 
     /// <summary>POST a publish: a person makes one version the factory's definition - once the check finds no error in it.</summary>
@@ -486,7 +697,8 @@ internal static class FactoryDefinitionEndpoints
     // ---------- answers ----------
 
     private static IResult Answer(FactoryDefinitionWrite write, FactoryDefinitionStore store, TenantId tenant, string factory,
-        FactoryDefinitionCheckResult? check, FactoryDefinitionChangesDto? changes = null, DefinitionFinding? notice = null)
+        FactoryDefinitionCheckResult? check, FactoryDefinitionChangesDto? changes = null, DefinitionFinding? notice = null,
+        bool? created = null)
     {
         // Read after the write, so the answer says how the factory stands now: which version is newest and which is published.
         var standing = store.Standing(tenant, factory);
@@ -496,6 +708,7 @@ internal static class FactoryDefinitionEndpoints
             if (check is not null) dto.Findings = check.Findings.Select(ToDto).ToList();
             if (notice is not null) dto.Findings.Add(ToDto(notice));
             dto.Changes = changes;
+            dto.Created = created;
             return Results.Json(dto);
         }
         var status = write.Outcome switch

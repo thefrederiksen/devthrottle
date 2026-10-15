@@ -2021,6 +2021,7 @@ COMMANDS:
   publish FACTORY --version N                         publish one version and print what changes - a person only
   restore FACTORY --version N [--expected-version N]  publish a copy of an older version as the newest - a person only
   diff FACTORY [--from N] [--to M]                    what changes: by default from the published version to the newest
+  schemas [--out FOLDER]                              the JSON Schemas the check enforces, one per file type
 ```
 
 `--json` is available on every command and keeps one shape: the Gateway's answer, unchanged. With `--file`,
@@ -2059,6 +2060,45 @@ forward slashes on every platform, as UTF-8 text with its own line endings kept.
 the definition does not hold (a `.DS_Store`, a `README.md` at the top) is refused by the Gateway by name, and
 a file that is not UTF-8 text is refused here, by name, before anything is sent. A file takes at most 256 KB,
 a version at most 4 MB and 1000 files.
+
+#### Factory export and import
+
+A factory's definition as a folder of files (Factory Definition mission, phase 3). The Gateway composes the
+folder and rules on the import; the command line moves the files.
+
+```
+USAGE: cc-devthrottle factory export FACTORY --out FOLDER [--version N] [--json]
+       cc-devthrottle factory import FOLDER [--factory ID] [--note TEXT] [--json]
+```
+
+**Export** writes into a new or empty folder (anything else is refused, because a file left over would be
+imported with it). Without `--version` it writes the published version, or the newest when none is published.
+Every file is written exactly as the Gateway holds it - UTF-8 with no byte-order mark, its own line endings, no
+date or other changing value added - so two exports of one version are the same bytes.
+
+A factory with **no definition** is written from what the Gateway holds today: its registry entry gives
+`factory.yaml` and one `seats/<seat>.yaml` per seat, each seat's published brief its `brief`, and each of the
+seat's switched-on recurring schedules one start. What a definition cannot hold is listed under
+`reported[N]{file,message}:` with the file it would have gone in - the factory's folder, a goal held in a file,
+a schedule's working folder, machine, notification or work list, a one-off, random or switched-off schedule, a
+trigger (its check is a command, and a definition's check is a Python file) - and a seat with no published
+brief is written with an empty brief for the import's check to name. Export never stores anything.
+
+**Import** sends every file under the folder, read exactly as `factory definition save` reads it. The Gateway
+checks it exactly as a draft save - the same check, the same callers, the same refusal with every finding as
+`file:line: message` - and stores it as the next draft after whatever version is newest. A factory with no
+definition gets its first version (`This import created the factory's definition.`). Import NEVER publishes:
+the published version is the same before and after, and a person publishes the draft with
+`factory definition publish`. Without `--factory` the factory is the one `factory.yaml` names; with it, the two
+must agree, or the check refuses on `factory.yaml` line 1.
+
+A save or an import whose content maps a path to no text at all (JSON `null`) is refused with 400 and the path:
+`'factory.yaml' has no text; every file in a definition is text, even if it is empty`.
+
+**The schemas.** `factory definition schemas` lists the JSON Schemas (draft 2020-12) the Gateway serves at
+`GET /factory-definition-schemas`, and `--out` writes each to a file, so an editor or an agent can check a
+file's shape without saving. A schema says no more than the check enforces; the check also covers paths, caps,
+a factory skill's frontmatter and every reference.
 
 ### Run
 
