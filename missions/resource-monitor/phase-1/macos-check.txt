@@ -1,0 +1,56 @@
+THE CHECKS FOR THE MAC RESOURCE PROBE, RUN ON THIS MACHINE
+
+Machine        devthrottle-mac-mini, Apple M4, 10 cores, 16 GiB, macOS 26.5.2 (build 25F84), arm64
+Software kit   dotnet 10.0.301
+Branch         resource-monitor/macos-probe, rebased onto main at 5c068319f
+Run at         2026-10-15 17:12:02 utc
+
+The solution contains two projects that only build for Windows, so the build carries the
+switch the error message itself names. Everything else is exactly the command the brief asks
+for. The PowerShell gate script cannot run on a Mac; it should be run on Windows before this
+lands.
+
+====================================================================================================
+1. dotnet build cc-director.sln -c Release -p:EnableWindowsTargeting=true
+
+   Build succeeded.
+       0 Warning(s)
+       0 Error(s)
+   Time Elapsed 00:00:41.50
+
+====================================================================================================
+2. dotnet test src/CcDirector.Core.UnitTests --filter "Category=Resources"
+
+   Passed!  - Failed:     0, Passed:   110, Skipped:     0, Total:   110, Duration: 39 ms - CcDirector.Core.UnitTests.dll (net10.0)
+
+   110 tests: the pure parsers for every figure the probe reads, from fixtures captured on this
+   machine and committed beside them, plus the shared reading types' own tests and four safety
+   tests that run on every operating system.
+
+====================================================================================================
+3. dotnet test src/CcDirector.Core.Tests --filter "Category=Resources"   ON THIS MACHINE
+
+   Passed!  - Failed:     0, Passed:    36, Skipped:     0, Total:    36, Duration: 466 ms - CcDirector.Core.Tests.dll (net10.0)
+
+   36 tests against the real operating system: the core count, the memory total, disk0 with its
+   kind read from the device characteristics, every mounted volume and the physical disk it sits
+   on, and a process list holding this test process and its parent.
+
+====================================================================================================
+4. The architecture gate: a test failure must mean a code defect, not a slow machine
+
+   Passed!  - Failed:     0, Passed:    11, Skipped:     0, Total:    11, Duration: 461 ms - CcDirector.Core.UnitTests.dll (net10.0)
+
+   This gate enforces the owner's ruling of 11 October 2026. The live tests therefore do a fixed
+   amount of arithmetic rather than sleeping, and are handed the clock rather than reading it, so
+   nothing in them turns machine speed into a pass or a failure.
+
+====================================================================================================
+NOT RUN, AND WHY
+
+   scripts/test-local.ps1 is PowerShell and does not run on a Mac. The full Core.UnitTests suite
+   on this machine has five failures that are nothing to do with this work - they expect Windows
+   path separators. They were baselined against main in a clean throwaway worktree before this
+   branch existed: main gives 1658 passed and the same 5 failed. They still need owning, and are
+   named in the pull request rather than written off.
+
