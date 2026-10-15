@@ -279,6 +279,20 @@ public sealed class LicenseRenewerTests : IDisposable
     }
 
     [Fact]
+    public void Start_LicenseSwitchingTurnedOn_SchedulesTheReporterAndTheRenewal()
+    {
+        // Both answers are set inside Start itself, so the renewal's first background run cannot change them. The
+        // lock is deliberately not asserted: that run takes it on its own timer.
+        using var other = new TempFolder();
+        using var on = new LicenseSwitching(_tool, other.Path, _clock.UtcNow, "the-windows-machine", "owner", enabled: true);
+
+        on.Start();
+
+        Assert.True(on.Reporter.IsScheduled);
+        Assert.True(on.Renewer.IsScheduled);
+    }
+
+    [Fact]
     public async Task Reporter_KeyHolderThatHoldsNothing_StillReports_WithNoHoldings()
     {
         // Contract 2.4 as amended by 8.3: a machine that only APPROVES other machines' sign-ins holds nothing, and
