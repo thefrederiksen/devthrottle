@@ -2664,7 +2664,10 @@ public sealed class GatewayHost : IAsyncDisposable
             resolveTenant: () => _tenantPass.Current,
             onResultRecorded: (tenant, job, run) => _cronRunResults.Announce(tenant, job, run),
             // Issue #3910: the account's pause-everything switch, read at the top of every sweep and run-now.
-            isPaused: _cronPause.IsPaused);
+            isPaused: _cronPause.IsPaused,
+            // Phase 5b: a due check is handed to a Director only through the factory routes, which answer nothing while
+            // the account's Factory Agents switch is off - so the fire of a checked schedule says so instead.
+            factoryAgentsOn: tenant => FactoryAgentsSwitch.MachineWide || FactoryAgentsSwitch.IsOn(tenant));
         // G8 increment 2: wrap the cron engine in the per-tenant worker seam so the background sweep enters
         // each tenant's scope before it reads the tenant-scoped cron_jobs store. The same pass records the runs that
         // did not report or ran past their shift (Factory Control, step 1).
@@ -2733,7 +2736,8 @@ public sealed class GatewayHost : IAsyncDisposable
             cronStarter,
             directorRunsDefinitionChecks: _definitionCheckCapabilities.RunsDefinitionChecks,
             resultRecorded: (tenant, run) => _cronRunResults.WriteOwedActivityFor(tenant, run),
-            nowUtc: () => DateTime.UtcNow,
+            // The clock the engine fires by and the result service reads by, so one row is never on two clocks.
+            nowUtc: () => cronClock.UtcNow,
             startLifetime: _triggerStartLifetime.Token);
 
         // The activity ledger's 30-day retention, on the same per-tenant worker seam.
@@ -6061,6 +6065,10 @@ public sealed class GatewayHost : IAsyncDisposable
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             sessionFactoryOf: _sessionHistory.FactoryOf,
             findRun: (tenant, runId) => _cronRuns.Find(tenant, runId),
+            // A check whose trigger is gone falls through to the service, which refuses it in its own words.
+            findTriggerCheck: (tenant, runId) => Triggers.Store.FindRun(tenant, runId) is { Trigger: { } trigger }
+                ? new Api.TriggerCheckOwner(trigger.Factory)
+                : null,
             factoryManagerOf: tenant => _tenantSettingsResolver.FactoryManagerSessionId(tenant),
             wasFactoryManager: (tenant, sid) => _tenantSettingsResolver.WasFactoryManager(tenant, sid));
 

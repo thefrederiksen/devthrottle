@@ -102,7 +102,10 @@ public sealed class DueCheckService
     /// <summary>True when <paramref name="id"/> names a run of this account - the report route's way of telling a due
     /// check's report from a trigger's.</summary>
     public bool IsRun(TenantId tenant, string id)
-        => Guid.TryParse(id, out var runId) && _runs.FindDueCheck(tenant, runId) is not null;
+    {
+        FileLog.Write($"[DueCheckService] IsRun: id={id}");
+        return Guid.TryParse(id, out var runId) && _runs.FindDueCheck(tenant, runId) is not null;
+    }
 
     /// <summary>
     /// The due checks this Director must run now: every run on its machine still waiting on its check that is unclaimed,
@@ -112,6 +115,8 @@ public sealed class DueCheckService
     public IReadOnlyList<TriggerAssignmentDto> AssignmentsFor(TenantId tenant, string directorId, string machine)
     {
         if (!_directorRunsDefinitionChecks(tenant, directorId)) return Array.Empty<TriggerAssignmentDto>();
+        // Every pull re-writes the claim of a check this Director already holds, on purpose: that refresh is what keeps a
+        // live Director's claim from lapsing while its check runs.
         var claimed = _runs.ClaimDueChecks(tenant, directorId, machine, _nowUtc(), ClaimLapse);
         var assignments = new List<TriggerAssignmentDto>();
         foreach (var due in claimed)

@@ -26,9 +26,9 @@ public sealed class CronEngineCheckedFireTests : IDisposable
     private CronRunHistoryStore NewHistory() => new(Db, _h.LegacyPath(Guid.NewGuid().ToString("N") + ".runs.json"));
 
     private static CronEngine Engine(CronJobStore store, CronRunHistoryStore history, ICronSessionStarter starter, IClock clock,
-        List<CronRunRecord>? announced = null)
+        List<CronRunRecord>? announced = null, bool factoryAgentsOn = true)
         => new(store, history, starter, new UnusedWorkListRunner(), new NullCronNotifier(), clock,
-            onResultRecorded: (_, _, run) => announced?.Add(run));
+            onResultRecorded: (_, _, run) => announced?.Add(run), factoryAgentsOn: _ => factoryAgentsOn);
 
     private static CronJobDto Hourly(string name) => new()
     {
@@ -113,6 +113,32 @@ public sealed class CronEngineCheckedFireTests : IDisposable
         Assert.Equal((CronRunResults.Problem, CronRunProblems.CheckNotRun), (runs[1].Result, runs[1].Problem));
         Assert.Equal("no Director on SOREN_NORTH ran the check of Mail Desk before its next time", runs[1].ResultReason);
         Assert.Equal(runs[1].RunId, Assert.Single(announced).RunId);
+    }
+
+    [Fact]
+    public async Task EvaluateDueAsync_OnAnAccountWithFactoryAgentsSwitchedOff_SaysTheSwitch_NotThatNoDirectorRanIt()
+    {
+        // Arrange: the account's Factory Agents switch is off, so no Director can be handed the check.
+        var store = NewJobStore();
+        var history = NewHistory();
+        var job = WithCheck(store, store.Create(Hourly("Mail Desk")));
+        MakeDue(store, job.Id, Now);
+        var clock = new FakeClock(Now);
+        var engine = Engine(store, history, new RecordingStarter(), clock, factoryAgentsOn: false);
+        await engine.EvaluateDueAsync(CancellationToken.None);
+
+        // Act: its next time comes.
+        clock.UtcNow = Now.AddHours(1);
+        await engine.EvaluateDueAsync(CancellationToken.None);
+
+        // Assert
+        var superseded = history.List(job.Id)[1];
+        Assert.Equal(CronRunProblems.CheckNotRun, superseded.Problem);
+        Assert.Equal("factory agents are switched off for this account, so no Director is handed the check; the check of Mail Desk did not run before its next time",
+            superseded.ResultReason);
+        Assert.Equal("check-due: factory agents are switched off for this account, so no Director is handed the check",
+            store.Get(job.Id)!.LastStatus);
+        Assert.Equal(CronEngine.CheckDueSwitchedOffStatus, history.List(job.Id)[0].InfraStatus);
     }
 
     [Fact]

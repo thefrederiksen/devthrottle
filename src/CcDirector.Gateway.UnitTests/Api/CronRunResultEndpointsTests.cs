@@ -35,11 +35,15 @@ public sealed class CronRunResultEndpointsTests : IDisposable
     private readonly GatewayDbTestHarness _harness = new();
     private readonly CronRunHistoryStore _runs;
     private readonly CronRunResultService _service;
+    private readonly CcDirector.Gateway.Data.GatewayDatabase _db;
+    private readonly CcDirector.Gateway.Factory.Triggers.TriggerStore _triggers;
     private readonly Dictionary<string, CronJobDto> _jobs = new(StringComparer.Ordinal);
 
     public CronRunResultEndpointsTests()
     {
         var db = _harness.Open();
+        _db = db;
+        _triggers = new CcDirector.Gateway.Factory.Triggers.TriggerStore(db);
         _runs = new CronRunHistoryStore(db, _harness.LegacyPath(Guid.NewGuid().ToString("N") + ".runs.json"));
         var activity = new FactoryActivityRecord(db);
         _service = new CronRunResultService(_runs,
@@ -49,7 +53,7 @@ public sealed class CronRunResultEndpointsTests : IDisposable
             zoneOf: _ => TimeZoneInfo.FindSystemTimeZoneById("America/Toronto"),
             writeActivity: (tenant, run, row, correction) => _runs.WriteActivityRow(tenant, run, row, correction),
             nowUtc: () => new DateTime(2026, 10, 10, 14, 0, 0, DateTimeKind.Utc),
-            triggers: new CcDirector.Gateway.Factory.Triggers.TriggerStore(db));
+            triggers: _triggers);
         _jobs["cj_mail"] = new CronJobDto { Id = "cj_mail", Name = "Mail Desk", Factory = "mail", Seat = "mail-desk" };
         _runs.Append("cj_mail", new CronRunRecord
         {
@@ -90,7 +94,35 @@ public sealed class CronRunResultEndpointsTests : IDisposable
 
     private IResult Resolve(HttpContext ctx, string runId, string? reason) =>
         CronRunResultEndpoints.Resolve(ctx, runId, new CronRunResolveRequest { Reason = reason }, _service, Local,
-            FactoryOf, (t, id) => _runs.Find(t, id), _ => _factoryManager, (_, sid) => _earlierFactoryManagers.Contains(sid));
+            FactoryOf, (t, id) => _runs.Find(t, id),
+            (t, id) => _triggers.FindRun(t, id) is { Trigger: { } trigger } ? new TriggerCheckOwner(trigger.Factory) : null,
+            _ => _factoryManager, (_, sid) => _earlierFactoryManagers.Contains(sid));
+
+    /// <summary>A failed check of the mail factory's definition trigger (phase 5b): an interval check's problem.</summary>
+    private string FailedIntervalCheck()
+    {
+        using var ctx = _db.CreateContext(TenantId.Local);
+        var trigger = new CcDirector.Gateway.Data.Entities.TriggerEntity
+        {
+            Name = "mail-desk-start-1", Factory = "mail", FactoryAgent = "mail-desk", Machine = "SOREN_NORTH",
+            IntervalSeconds = 600, Prompt = "New mail: {count}.", CheckCommand = "", RepoPath = "", Seat = "mail-desk",
+            DefinitionVersion = 1, CheckPath = "checks/new_mail.py", CreatedBy = "definition of mail",
+            CreatedUtc = new DateTime(2026, 10, 10, 12, 0, 0, DateTimeKind.Utc),
+        };
+        trigger.TenantId = ctx.ActiveTenant!;
+        ctx.Triggers.Add(trigger);
+        var run = new CcDirector.Gateway.Data.Entities.TriggerRunEntity
+        {
+            TriggerId = trigger.Id, DirectorId = "dir-a", Outcome = CcDirector.Gateway.Contracts.TriggerRunOutcome.Failed,
+            Reason = "the check exited with code 1",
+            CheckedUtc = new DateTime(2026, 10, 10, 13, 30, 0, DateTimeKind.Utc),
+            RecordedUtc = new DateTime(2026, 10, 10, 13, 30, 0, DateTimeKind.Utc),
+        };
+        run.TenantId = ctx.ActiveTenant!;
+        ctx.TriggerRuns.Add(run);
+        ctx.SaveChanges();
+        return run.Id.ToString("D");
+    }
 
     private static string ErrorOf(IResult result)
     {
@@ -168,6 +200,31 @@ public sealed class CronRunResultEndpointsTests : IDisposable
 
         Assert.Equal(403, Status(result));
         Assert.Null(_runs.List("cj_mail").Single().ResolvedUtc);
+    }
+
+    [Fact]
+    public void Resolve_AnIntervalChecksProblem_ByASessionOfAnotherFactory_IsRefusedWithTheSame403AsARun()
+    {
+        var checkId = FailedIntervalCheck();
+        var runId = ReportProblem();
+
+        var check = Resolve(Request(BillingSession), checkId, "not mine to fix");
+        var run = Resolve(Request(BillingSession), runId, "not mine to fix");
+
+        Assert.Equal((403, 403), (Status(check), Status(run)));
+        Assert.Equal(ErrorOf(run), ErrorOf(check));
+        Assert.Null(_triggers.FindRun(TenantId.Local, Guid.Parse(checkId))!.Value.Run.ResolvedUtc);
+    }
+
+    [Fact]
+    public void Resolve_AnIntervalChecksProblem_ByASessionOfItsFactory_IsAllowed()
+    {
+        var checkId = FailedIntervalCheck();
+
+        var result = Resolve(Request(MailSession), checkId, "fixed the parser");
+
+        Assert.Equal(200, Status(result));
+        Assert.NotNull(_triggers.FindRun(TenantId.Local, Guid.Parse(checkId))!.Value.Run.ResolvedUtc);
     }
 
     [Fact]

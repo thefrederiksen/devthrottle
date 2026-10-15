@@ -58,6 +58,7 @@ public sealed class CronEngine
     // CronRunResultService.Announce; a test that does not watch factory rows passes nothing.
     private readonly Action<TenantId, CronJobDto, CronRunRecord>? _onResultRecorded;
     private readonly Func<TenantId, bool> _isPaused;
+    private readonly Func<TenantId, bool> _factoryAgentsOn;
 
     private readonly object _inFlightGate = new();
     // Overlap admission, PARTITIONED BY TENANT (audit MED, gap audit-e). A cron job's id is tenant-relative
@@ -101,9 +102,11 @@ public sealed class CronEngine
         TimeSpan? catchUpThreshold = null,
         Func<TenantId?>? resolveTenant = null,
         Action<TenantId, CronJobDto, CronRunRecord>? onResultRecorded = null,
-        Func<TenantId, bool>? isPaused = null)
+        Func<TenantId, bool>? isPaused = null,
+        Func<TenantId, bool>? factoryAgentsOn = null)
     {
         _onResultRecorded = onResultRecorded;
+        _factoryAgentsOn = factoryAgentsOn ?? (_ => true);
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _history = history ?? throw new ArgumentNullException(nameof(history));
         _starter = starter ?? throw new ArgumentNullException(nameof(starter));
@@ -332,6 +335,14 @@ public sealed class CronEngine
     /// <summary>The infrastructure status of a run whose check is due and has not reported.</summary>
     public const string CheckDueStatus = "check-due";
 
+    /// <summary>The infrastructure status of a due check fired while the account's Factory Agents switch is off: no
+    /// Director can be handed it.</summary>
+    public const string CheckDueSwitchedOffStatus = "check-due-switched-off";
+
+    /// <summary>Why a due check cannot run on an account whose Factory Agents switch is off.</summary>
+    public const string FactoryAgentsOffSentence =
+        "factory agents are switched off for this account, so no Director is handed the check";
+
     /// <summary>
     /// THE FIRE OF A SCHEDULE WITH A CHECK (Factory Definition, phase 5b, design 3.3). It starts no session and calls no
     /// Director: it appends the run row with result <c>checking</c> - that row IS the due check, handed to a Director on
@@ -345,19 +356,19 @@ public sealed class CronEngine
     private CronRunNowResult FireCheck(TenantId tenant, CronJobDto job, DateTime scheduledUtc, bool isManual)
     {
         var firedUtc = _clock.UtcNow;
-        if (_history.NewestChecking(tenant, job.Id) is { } previous)
+        // A Director is handed a due check only through the factory routes, which answer nothing while the account's
+        // Factory Agents switch is off - so then the check cannot run, and the run and the schedule say why.
+        var switchedOff = !_factoryAgentsOn(tenant);
+        var superseded = _history.SupersedeUnreportedCheck(tenant, job.Id, infra => switchedOff || infra == CheckDueSwitchedOffStatus
+            ? $"{FactoryAgentsOffSentence}; the check of {job.Name} did not run before its next time"
+            : $"no Director on {job.Target.Machine} ran the check of {job.Name} before its next time", firedUtc);
+        if (superseded is not null)
         {
-            var reason = previous.Run.CheckedUtc is null
-                ? $"no Director on {job.Target.Machine} ran the check of {job.Name} before its next time"
-                : $"its check counted {previous.Run.CheckCount?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "work"}, and the session it asked for had not started by the schedule's next time";
-            var superseded = _history.RecordResult(tenant, Guid.Parse(previous.Run.RunId), CronRunResults.Checking, null,
-                CronRunResults.Problem, CronRunProblems.CheckNotRun, reason, firedUtc);
-            if (superseded.Applied && superseded.Run is not null)
-            {
-                FileLog.Write($"[CronEngine] check not run: job={job.Id}, run={previous.Run.RunId}: {reason}");
-                _onResultRecorded?.Invoke(tenant, job, superseded.Run);
-            }
+            FileLog.Write($"[CronEngine] check not run: job={job.Id}, run={superseded.RunId}: {superseded.ResultReason}");
+            _onResultRecorded?.Invoke(tenant, job, superseded);
         }
+        var infraStatus = switchedOff ? CheckDueSwitchedOffStatus : CheckDueStatus;
+        var lastStatus = switchedOff ? $"{CheckDueStatus}: {FactoryAgentsOffSentence}" : CheckDueStatus;
 
         var record = new CronRunRecord
         {
@@ -366,7 +377,7 @@ public sealed class CronEngine
             Machine = job.Target.Machine,
             TargetDirectorId = "",
             SessionId = null,
-            InfraStatus = CheckDueStatus,
+            InfraStatus = infraStatus,
             TaskStatus = TaskStatusUnknown,
             Result = CronRunResults.Checking,
         };
@@ -374,13 +385,13 @@ public sealed class CronEngine
         _history.Append(job.Id, record);
 
         if (isManual)
-            _store.MarkFired(job.Id, firedUtc, CheckDueStatus, job.NextRunUtc, job.Enabled);
+            _store.MarkFired(job.Id, firedUtc, lastStatus, job.NextRunUtc, job.Enabled);
         else if (CronSchedule.KindOneOff.Equals(job.ScheduleKind?.Trim(), StringComparison.OrdinalIgnoreCase))
-            _store.MarkFired(job.Id, firedUtc, CheckDueStatus, nextRunUtc: null, enabled: false);
+            _store.MarkFired(job.Id, firedUtc, lastStatus, nextRunUtc: null, enabled: false);
         else
-            _store.MarkFired(job.Id, firedUtc, CheckDueStatus, CronSchedule.ComputeNextRunUtc(job, firedUtc), enabled: true);
+            _store.MarkFired(job.Id, firedUtc, lastStatus, CronSchedule.ComputeNextRunUtc(job, firedUtc), enabled: true);
 
-        FileLog.Write($"[CronEngine] fired a due check: job={job.Id}, manual={isManual}, run={record.RunId}, check={job.CheckPath}, machine={job.Target.Machine}");
+        FileLog.Write($"[CronEngine] fired a due check: job={job.Id}, manual={isManual}, run={record.RunId}, check={job.CheckPath}, machine={job.Target.Machine}, factory agents on={!switchedOff}");
         return new CronRunNowResult(CronFireOutcome.Fired, record);
     }
 

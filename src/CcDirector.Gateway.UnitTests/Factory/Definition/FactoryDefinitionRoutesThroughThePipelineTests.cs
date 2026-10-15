@@ -621,6 +621,25 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
     }
 
     [Fact]
+    public async Task A_SECOND_PUBLISH_THAT_CHANGES_ONLY_A_TIMED_STARTS_CHECK_MOVES_ITS_SCHEDULE_TO_THE_NEW_VERSION_AND_SAYS_SO()
+    {
+        // The Director downloads the check from the version on the schedule; a version left behind would run the old one.
+        await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(DefinitionFixture.TimedChecked(), 0));
+        await Send("POST", FactoryPath + "/publish", AsAPerson, """{"version":1}""");
+        var changed = new Dictionary<string, string>(DefinitionFixture.TimedChecked()) { ["checks/new_mail.py"] = "print('{\"count\": 1}')\n" };
+        await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(changed, 1));
+
+        var second = await Send("POST", FactoryPath + "/publish", AsAPerson, """{"version":2}""");
+
+        Assert.Equal(200, second.Status);
+        using var ctx = _db.CreateContext(A);
+        var job = Assert.Single(ctx.CronJobs.AsNoTracking().ToList(), j => j.Seat == "outreach");
+        Assert.Equal(("checks/new_mail.py", 2), (job.CheckPath, job.DefinitionVersion));
+        Assert.Contains($"Schedule {job.Id} ({job.Name}) kept as it is; its check is read from version 2.",
+            second.Body.GetProperty("applied").EnumerateArray().Select(a => a.GetString()));
+    }
+
+    [Fact]
     public async Task A_PUBLISH_OF_A_FACTORY_THE_REGISTRY_DOES_NOT_HOLD_REGISTERS_IT_WITH_NO_FOLDER()
     {
         using (var ctx = _db.CreateContext(A))

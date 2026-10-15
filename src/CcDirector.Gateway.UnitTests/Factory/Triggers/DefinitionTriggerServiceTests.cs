@@ -178,6 +178,29 @@ public sealed class DefinitionTriggerServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ResolveRun_AFailedDefinitionCheck_WritesOneCorrectingActivityRow_LikeARunsResolve()
+    {
+        // Arrange: a check that broke its contract, which the service records with a failed activity row.
+        var service = Service();
+        var t = AddDefinitionTrigger();
+        var failed = await Send(service, t, Report("not json"));
+        Assert.Equal(TriggerRunOutcome.Failed, failed.Outcome);
+        var record = new FactoryActivityRecord(_db);
+        var failedRow = Assert.Single(record.Query(Tenant, outcome: FactoryActivityOutcome.Failed).Rows);
+
+        // Act: resolved by hand, then a second resolve of the same check.
+        var first = service.Store.ResolveRun(Tenant, Guid.Parse(failed.Id), "you", "fixed the parser", _now.AddMinutes(5));
+        var second = service.Store.ResolveRun(Tenant, Guid.Parse(failed.Id), "you", "again", _now.AddMinutes(6));
+
+        // Assert
+        Assert.Equal((true, false), (first, second));
+        var correction = Assert.Single(record.Query(Tenant, outcome: FactoryActivityOutcome.Done).Rows);
+        Assert.Equal((failedRow.Id, "Resolved by you: fixed the parser", "you"), (correction.CorrectsId, correction.What, correction.Actor));
+        Assert.Equal((Factory, "frontdesk", "warmforward-frontdesk"), (correction.Factory, correction.FactoryAgent, correction.Subject));
+        Assert.Equal(_now.AddMinutes(5), correction.OccurredUtc);
+    }
+
+    [Fact]
     public async Task ADefinitionCheckWithNoContext_ReplacesTheContextWithNothing()
     {
         var service = Service();

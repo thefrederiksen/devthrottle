@@ -48,7 +48,7 @@ public sealed class DueCheckServiceTests : IDisposable
         resultRecorded: (_, run) => _recorded.Add(run), nowUtc: () => _now, startLifetime: CancellationToken.None);
 
     /// <summary>A schedule of the mail factory with a check, and one fire of it: the run waiting on its check.</summary>
-    private async Task<(CronJobDto Job, string RunId)> ADueCheck()
+    private async Task<(CronJobDto Job, string RunId)> ADueCheck(string machine = Machine)
     {
         var created = _jobs.Create(new CronJobDto
         {
@@ -59,7 +59,7 @@ public sealed class DueCheckServiceTests : IDisposable
             TimeZoneId = "UTC",
             Factory = "mail",
             Seat = "desk",
-            Target = new CronJobTarget { Machine = Machine },
+            Target = new CronJobTarget { Machine = machine },
             Action = new CronJobAction { RepoPath = @"D:\factories\mail", Seed = "New mail: {count}. Found: {context}" },
         });
         using (var ctx = _db.CreateContext(T))
@@ -264,6 +264,41 @@ public sealed class DueCheckServiceTests : IDisposable
 
         Assert.Equal(DueCheckRefusal.AlreadyRecorded, second.Refusal);
         Assert.Single(_starter.Started);
+    }
+
+    [Fact]
+    public async Task AssignmentsFor_AScheduleWhoseMachineIsSpelledInAnotherCase_IsHandedToTheDirectorOnThatMachine()
+    {
+        // A seat written "Soren_North" publishes and its plain runs start there; its due check must reach it too.
+        var (_, runId) = await ADueCheck(machine: "Soren_North");
+
+        var handed = Assert.Single(Service().AssignmentsFor(T, Capable, "SOREN_NORTH"));
+
+        Assert.Equal(runId, handed.DueRunId);
+    }
+
+    [Fact]
+    public async Task Report_ACheckThatCountedWork_WhoseStartIsSlowerThanTheInterval_IsNotSuperseded_AndKeepsItsSession()
+    {
+        // The check counted work and its session is starting when the schedule's next time comes.
+        var (job, runId) = await ADueCheck();
+        _starter.Gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var service = Service();
+        service.AssignmentsFor(T, Capable, Machine);
+        var first = service.Report(T, Capable, Guid.Parse(runId), Report("""{"count": 2}"""));
+        await new CronEngine(_jobs, _runs, _starter, new NoWorkLists(), new NullCronNotifier(), new FixedClock(Now.AddHours(1)))
+            .RunNowAsync(job.Id, CancellationToken.None);
+        Assert.Equal(CronRunResults.Checking, Run(runId).Result);
+
+        // Act: the start returns after the next time.
+        _starter.Gate.SetResult();
+        await first.Starting!;
+
+        // Assert: the run that asked for the session holds it, kept at the time it fired; nothing reads "check did not run".
+        var run = Run(runId);
+        Assert.Equal((CronRunResults.Pending, "sid-checked-1", (string?)null), (run.Result, run.SessionId, run.Problem));
+        Assert.Equal(Now, run.FiredUtc);
+        Assert.DoesNotContain(_runs.List(job.Id), r => r.Problem == CronRunProblems.CheckNotRun);
     }
 
     [Fact]

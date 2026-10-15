@@ -201,6 +201,7 @@ public sealed class TriggerStore
     /// </summary>
     public IReadOnlyList<(TriggerEntity Trigger, IReadOnlyList<TriggerRunEntity> Runs)> DefinitionTriggerRuns(TenantId tenant)
     {
+        FileLog.Write($"[TriggerStore] DefinitionTriggerRuns: tenant={tenant.ToLogString()}");
         using var ctx = _db.CreateContext(tenant);
         var triggers = ctx.Triggers.AsNoTracking().ToList().Where(t => t.IsDefinitionCheck).ToList();
         if (triggers.Count == 0) return Array.Empty<(TriggerEntity, IReadOnlyList<TriggerRunEntity>)>();
@@ -216,6 +217,7 @@ public sealed class TriggerStore
     /// <summary>One check of a trigger by the check's id, with its trigger (null when the trigger is gone), or null.</summary>
     public (TriggerRunEntity Run, TriggerEntity? Trigger)? FindRun(TenantId tenant, Guid runId)
     {
+        FileLog.Write($"[TriggerStore] FindRun: run={runId}");
         using var ctx = _db.CreateContext(tenant);
         var run = ctx.TriggerRuns.AsNoTracking().FirstOrDefault(r => r.Id == runId);
         if (run is null) return null;
@@ -225,6 +227,11 @@ public sealed class TriggerStore
     /// <summary>
     /// Mark a failed check's problem resolved by hand, keeping who and why - only while the check is a failure not
     /// already resolved. Returns whether it was written.
+    ///
+    /// THE LEDGER SHOWS THE RESOLVE (phase 5b review, item a): in the same write, the factory activity row this failed
+    /// check wrote is answered by a correcting row - "Resolved by ...: reason" - exactly as a schedule run's resolve is,
+    /// so the ledger never shows a failure with no word that it was dealt with. A failed row the ledger no longer holds
+    /// (its 30-day retention) has nothing to correct, and that is logged.
     /// </summary>
     public bool ResolveRun(TenantId tenant, Guid runId, string resolvedBy, string reason, DateTime nowUtc)
     {
@@ -238,8 +245,32 @@ public sealed class TriggerStore
             row.ResolvedUtc = Utc(nowUtc);
             row.ResolvedBy = resolvedBy.Trim();
             row.ResolvedReason = reason.Trim();
+
+            var trigger = ctx.Triggers.FirstOrDefault(t => t.Id == row.TriggerId);
+            var actor = TriggerService.ActorPrefix + row.TriggerId.ToString("D");
+            var checkedUtc = Utc(row.CheckedUtc);
+            var failed = trigger is null ? null : ctx.FactoryActivity
+                .Where(a => a.Actor == actor && a.Outcome == FactoryActivityOutcome.Failed)
+                .ToList()
+                .FirstOrDefault(a => Utc(a.OccurredUtc) == checkedUtc);
+            if (failed is not null)
+            {
+                var what = $"Resolved by {row.ResolvedBy}: {row.ResolvedReason}";
+                ctx.FactoryActivity.Add(FactoryActivityRecord.NewRow(ctx, new AppendFactoryActivityRequest
+                {
+                    Factory = trigger!.Factory,
+                    FactoryAgent = trigger.FactoryAgent,
+                    What = what.Length <= FactoryActivityRecord.MaxWhatChars ? what : what[..(FactoryActivityRecord.MaxWhatChars - 3)] + "...",
+                    Outcome = FactoryActivityOutcome.Done,
+                    Subject = trigger.Name,
+                    Actor = row.ResolvedBy,
+                    CorrectsId = failed.Id,
+                    OccurredUtc = row.ResolvedUtc.Value,
+                }, callingActor: null, Utc(nowUtc)));
+            }
             ctx.SaveChanges();
-            FileLog.Write($"[TriggerStore] ResolveRun: tenant={tenant.ToLogString()}, run={runId}, trigger={row.TriggerId}, by={row.ResolvedBy}");
+            FileLog.Write($"[TriggerStore] ResolveRun: tenant={tenant.ToLogString()}, run={runId}, trigger={row.TriggerId}, by={row.ResolvedBy}, "
+                          + (failed is null ? "no failed activity row to correct" : $"corrects activity row {failed.Id}"));
             return true;
         }
     }

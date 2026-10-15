@@ -69,7 +69,7 @@ public static class FactoryCheckStateFold
             }
         }
         rows = rows.OrderBy(r => r.Seat, StringComparer.Ordinal).ThenBy(r => r.Start).ToList();
-        FileLog.Write($"[FactoryCheckStateFold] List: factory={definition.Factory}, checked starts with a trigger={rows.Count}");
+        FileLog.Write($"[FactoryCheckStateFold] List: factory={definition.Factory}, checked starts with a trigger or a schedule={rows.Count}");
         return rows;
     }
 

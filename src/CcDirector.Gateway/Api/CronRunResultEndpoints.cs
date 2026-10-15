@@ -24,6 +24,10 @@ namespace CcDirector.Gateway.Api;
 /// resolver is recorded as the Factory Manager. A session that WAS the Factory Manager and has lost the mark is
 /// refused like any session outside the factory, and is told that the mark has moved.
 /// </summary>
+/// <summary>A trigger's check as the resolve route guards it: the factory of the trigger it belongs to, or null for a
+/// trigger outside any factory.</summary>
+internal sealed record TriggerCheckOwner(string? Factory);
+
 internal static class CronRunResultEndpoints
 {
     public const string ResultRoute = "/cron/runs/result";
@@ -34,6 +38,9 @@ internal static class CronRunResultEndpoints
         Func<HttpContext, TenantId?> resolveTenant,
         Func<string, History.SessionFactoryLookup> sessionFactoryOf,
         Func<TenantId, Guid, CronRunHistoryStore.JobRun?> findRun,
+        // A definition trigger's check by id (phase 5b): whether the account has it, and the factory of its trigger. Its
+        // problem is resolved on this same route, so it is guarded by its factory exactly as a run is. REQUIRED.
+        Func<TenantId, Guid, TriggerCheckOwner?> findTriggerCheck,
         // The account's bound Factory Manager session id, or null. REQUIRED, so a wiring line that forgot it fails to
         // compile rather than refusing the seat every resolve.
         Func<TenantId, string?> factoryManagerOf,
@@ -47,10 +54,11 @@ internal static class CronRunResultEndpoints
         ArgumentNullException.ThrowIfNull(resolveTenant);
         ArgumentNullException.ThrowIfNull(sessionFactoryOf);
         ArgumentNullException.ThrowIfNull(findRun);
+        ArgumentNullException.ThrowIfNull(findTriggerCheck);
 
         app.MapPost(ResultRoute, (HttpContext ctx, CronRunResultRequest? body) => Result(ctx, body, service, resolveTenant));
         app.MapPost(ResolveRoute, (string runId, HttpContext ctx, CronRunResolveRequest? body) =>
-            Resolve(ctx, runId, body, service, resolveTenant, sessionFactoryOf, findRun, factoryManagerOf, wasFactoryManager));
+            Resolve(ctx, runId, body, service, resolveTenant, sessionFactoryOf, findRun, findTriggerCheck, factoryManagerOf, wasFactoryManager));
         app.MapGet(ProblemsRoute, (HttpContext ctx, string? factory, string? state, string? asOf) =>
             ListProblems(ctx, factory, state, service, resolveTenant, asOf));
 
@@ -71,6 +79,7 @@ internal static class CronRunResultEndpoints
     internal static IResult Resolve(HttpContext ctx, string runId, CronRunResolveRequest? body, CronRunResultService service,
         Func<HttpContext, TenantId?> resolveTenant,
         Func<string, History.SessionFactoryLookup> sessionFactoryOf, Func<TenantId, Guid, CronRunHistoryStore.JobRun?> findRun,
+        Func<TenantId, Guid, TriggerCheckOwner?> findTriggerCheck,
         Func<TenantId, string?> factoryManagerOf, Func<TenantId, string, bool> wasFactoryManager)
     {
         if (resolveTenant(ctx) is not { } tenant)
@@ -86,10 +95,19 @@ internal static class CronRunResultEndpoints
             return Answer(service.Resolve(tenant, runId, $"the Factory Manager (session {caller})", body?.Reason), route);
         }
         // Who may resolve it is decided by the factory the RUN was in - fixed on the run when it was created, so deleting
-        // or moving the schedule cannot open its problem to another factory. Read the run first. An unknown id falls through
-        // to the service, which refuses it in its own words.
-        if (Guid.TryParse(runId?.Trim(), out var id) && findRun(tenant, id) is { } found
-            && !FactoryNaming.TryAct(ctx, sessionFactoryOf, found.Run.Factory, "run", route, out var actError))
+        // or moving the schedule cannot open its problem to another factory. Read the run first; a definition trigger's
+        // check (phase 5b) is guarded by its trigger's factory the same way. An unknown id falls through to the service,
+        // which refuses it in its own words.
+        var known = false;
+        string? factory = null;
+        if (Guid.TryParse(runId?.Trim(), out var id))
+        {
+            if (findRun(tenant, id) is { } found)
+                (known, factory) = (true, found.Run.Factory);
+            else if (findTriggerCheck(tenant, id) is { } check)
+                (known, factory) = (true, check.Factory);
+        }
+        if (known && !FactoryNaming.TryAct(ctx, sessionFactoryOf, factory, "run", route, out var actError))
         {
             // A session that WAS the Factory Manager believes it may resolve anything. The sentence about the run's
             // factory alone would not tell it what changed, so it is told first that the mark has moved.
@@ -99,7 +117,7 @@ internal static class CronRunResultEndpoints
                 FileLog.Write($"[CronRunResultEndpoints] {route}: REFUSED - session {caller} was the Factory Manager; the mark is now {bound ?? "cleared"}");
                 return Results.Json(new
                 {
-                    error = MarkMoved(bound) + " " + FactoryNaming.ActRefusal("run", found.Run.Factory!.Trim()),
+                    error = MarkMoved(bound) + " " + FactoryNaming.ActRefusal("run", factory!.Trim()),
                     detail = MarkMovedDetail,
                 }, statusCode: StatusCodes.Status403Forbidden);
             }

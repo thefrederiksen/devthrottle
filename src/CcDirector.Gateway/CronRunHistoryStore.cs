@@ -443,18 +443,36 @@ public sealed class CronRunHistoryStore
     // whose result is "checking"; that row IS the due check. Every write below is conditional on the row still being
     // in the state the caller read, under this store's lock, so two reports of one check can never both land.
 
-    /// <summary>The newest run of this schedule still waiting on its check, or null.</summary>
-    public JobRun? NewestChecking(Core.Tenancy.TenantId tenant, string jobId)
+    /// <summary>
+    /// A DUE CHECK NOBODY REPORTED BEFORE ITS NEXT TIME (phase 5b, design 3.3): the newest run of the job still waiting on
+    /// its check and NOT yet reported (<c>CheckedUtc</c> null) becomes a <c>check-not-run</c> problem, in one write under
+    /// the store's lock - so a report that decides it at the same moment either wins or is refused as already recorded,
+    /// never both. A run whose check was reported and whose session is being started is left alone: its start is the
+    /// one writer that finishes it (<see cref="FinishDueStart"/>). <paramref name="reasonFor"/> words the reason from
+    /// the run's infrastructure status. Returns the superseded run, or null when none was waiting.
+    /// </summary>
+    public CronRunRecord? SupersedeUnreportedCheck(Core.Tenancy.TenantId tenant, string jobId, Func<string, string> reasonFor,
+        DateTime nowUtc)
     {
+        ArgumentNullException.ThrowIfNull(reasonFor);
+        FileLog.Write($"[CronRunHistoryStore] SupersedeUnreportedCheck: job={jobId}");
         if (!tenant.IsValid || string.IsNullOrWhiteSpace(jobId)) return null;
         lock (_gate)
         {
             using var ctx = _db.CreateContext(tenant);
-            var row = ctx.CronRuns.AsNoTracking()
-                .Where(e => e.JobId == jobId && e.Result == CronRunResults.Checking)
+            var row = ctx.CronRuns
+                .Where(e => e.JobId == jobId && e.Result == CronRunResults.Checking && e.CheckedUtc == null)
                 .OrderByDescending(e => e.Sequence)
                 .FirstOrDefault();
-            return row is null ? null : ToJobRun(row);
+            if (row is null) return null;
+            row.Result = CronRunResults.Problem;
+            row.Problem = CronRunProblems.CheckNotRun;
+            row.ResultReason = TruncateReason(reasonFor(row.InfraStatus));
+            row.ResultUtc = nowUtc;
+            row.ActivityDue = row.ActivityDue || row.ActivityId is null;
+            ctx.SaveChanges();
+            FileLog.Write($"[CronRunHistoryStore] SupersedeUnreportedCheck: run={row.Id}, job={jobId}: {row.ResultReason}");
+            return ToRecord(row);
         }
     }
 
@@ -471,15 +489,19 @@ public sealed class CronRunHistoryStore
         DateTime nowUtc, TimeSpan claimLapse)
     {
         if (string.IsNullOrWhiteSpace(directorId)) throw new ArgumentException("a Director id is required", nameof(directorId));
+        FileLog.Write($"[CronRunHistoryStore] ClaimDueChecks: director={directorId}, machine={machine}");
         if (!tenant.IsValid) return Array.Empty<DueCheck>();
         lock (_gate)
         {
             using var ctx = _db.CreateContext(tenant);
             var lapsedBefore = nowUtc - claimLapse;
+            // The machine is compared ignoring case, in memory, as the trigger store and the Director lookup compare it:
+            // a seat written "soren_north" runs on the Director registered as SOREN_NORTH.
             var rows = ctx.CronRuns
-                .Where(e => e.Result == CronRunResults.Checking && e.CheckedUtc == null && e.Machine == machine)
+                .Where(e => e.Result == CronRunResults.Checking && e.CheckedUtc == null)
                 .OrderBy(e => e.Sequence)
                 .ToList()
+                .Where(e => string.Equals(e.Machine, machine, StringComparison.OrdinalIgnoreCase))
                 .Where(e => e.ClaimedByDirectorId is null || e.ClaimedByDirectorId == directorId
                             || e.ClaimedUtc is null || e.ClaimedUtc.Value < lapsedBefore)
                 .ToList();
@@ -499,6 +521,7 @@ public sealed class CronRunHistoryStore
     /// <summary>A run with its claim, by id, or null when this account has no such run.</summary>
     public DueCheck? FindDueCheck(Core.Tenancy.TenantId tenant, Guid runId)
     {
+        FileLog.Write($"[CronRunHistoryStore] FindDueCheck: run={runId}");
         if (!tenant.IsValid) return null;
         lock (_gate)
         {
@@ -583,8 +606,9 @@ public sealed class CronRunHistoryStore
                 FileLog.Write($"[CronRunHistoryStore] FinishDueStart NOT APPLIED: run={runId}, found={row?.Result ?? "no row"}");
                 return null;
             }
+            // The fire time is kept: the run fired when its schedule said; the start's time is its CheckedUtc (when the
+            // report decided it) and, for a start that failed, its ResultUtc.
             row.TargetDirectorId = start.DirectorId ?? directorId;
-            row.FiredUtc = nowUtc;
             if (!string.IsNullOrEmpty(start.SessionId))
             {
                 row.Result = CronRunResults.Pending;
