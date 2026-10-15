@@ -9,8 +9,8 @@ row it counted. The Gateway holds it, one history per checked start, and the new
                                                              run is a first run - the way out of a stuck state. Only a
                                                              person resets; a session is refused by the Gateway.
 
-A start is named by its seat and its number: the Nth start with a check in that seat's file, counting from 1. A seat
-with one checked start needs no --start.
+A start is named by its seat and its number: its place in that seat's `starts:` list, counting EVERY start from 1 -
+the number in its trigger's name, `<factory>-<seat>-start-<N>`. A seat with one checked start needs no --start.
 
 THE GATEWAY RULES, THIS MODULE PRINTS (rule 7): the starts, their numbers and every refusal are the Gateway's.
 """

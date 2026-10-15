@@ -137,7 +137,8 @@ public sealed class FactoryAgentsSwitchTests : IDisposable
         var triggers = new TriggerService(new TriggerStore(Db), record,
             (_, _, _) => Task.FromResult(TriggerStartAttempt.Failed("no machine in this test")),
             findSession: (_, _) => null, findSessionByName: (_, _) => null,
-            timeZone: _ => TimeZoneInfo.Utc, nowUtc: () => _now, startLifetime: CancellationToken.None);
+            timeZone: _ => TimeZoneInfo.Utc, nowUtc: () => _now, startLifetime: CancellationToken.None,
+            directorRunsDefinitionChecks: (_, _) => true, machineRunsDefinitionChecks: (_, _) => true);
         var sources = new FactoryAgentsSources(
             Query: (tenant, q) => record.Query(tenant, q.Factory, q.Agent, q.Outcome, q.FromUtc, q.ToUtc,
                 q.OldestFirst, q.Offset, q.Limit),

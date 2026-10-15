@@ -139,6 +139,9 @@ internal static class FactoryDefinitionEndpoints
         "Only a person resets a check's state. A session of the factory may read it with " +
         "'cc-devthrottle factory check-state show'; ask the owner to reset it.";
 
+    /// <summary>The outcome word of that refusal: its own, so a client never reads a reset refusal as a publish one.</summary>
+    public const string OnlyAPersonResetsOutcome = "OnlyAPersonResets";
+
     /// <summary>GET every checked start of the published definition, with the newest state its check left.</summary>
     internal static IResult ListCheckState(HttpContext ctx, string factory, FactoryDefinitionStore store,
         CheckStateParts checkStates, Func<HttpContext, TenantId?> resolveTenant, Func<string, SessionFactoryLookup> sessionFactoryOf)
@@ -167,7 +170,7 @@ internal static class FactoryDefinitionEndpoints
         if (caller.Kind != FactoryMemoryAuthorKinds.Person)
         {
             FileLog.Write($"[FactoryDefinitionEndpoints] {route}: REFUSED - a {caller.Kind} may not reset a check's state");
-            return Results.Json(new { error = OnlyAPersonResets, outcome = FactoryDefinitionOutcome.OnlyAPersonPublishes.ToString() },
+            return Results.Json(new { error = OnlyAPersonResets, outcome = OnlyAPersonResetsOutcome },
                 statusCode: StatusCodes.Status403Forbidden);
         }
         if (body is null || string.IsNullOrWhiteSpace(body.OwnerKey)) return Results.BadRequest(new { error = "ownerKey is required" });

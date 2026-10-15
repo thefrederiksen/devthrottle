@@ -212,8 +212,11 @@ public sealed class TriggerStore
     /// is held by the Director that claimed it for as long as that Director keeps asking; a claim not renewed for
     /// two intervals and a minute lapses, and the next Director on the machine to ask takes it over. So several
     /// Directors on one machine never all run one check, and a Director that goes away does not strand it.
+    /// A trigger from a factory's definition is claimed only when <paramref name="runsDefinitionChecks"/>: a Director
+    /// that never said it runs them neither takes one nor holds one from a Director that does (phase 5b, design 2.6).
     /// </summary>
-    public IReadOnlyList<TriggerEntity> ClaimForDirector(TenantId tenant, string directorId, string machine, DateTime nowUtc)
+    public IReadOnlyList<TriggerEntity> ClaimForDirector(TenantId tenant, string directorId, string machine, DateTime nowUtc,
+        bool runsDefinitionChecks)
     {
         lock (_gate)
         {
@@ -223,13 +226,14 @@ public sealed class TriggerStore
             foreach (var row in ctx.Triggers.ToList()
                          .Where(t => string.Equals(t.Machine, machine, StringComparison.OrdinalIgnoreCase)))
             {
+                if (row.IsDefinitionCheck && !runsDefinitionChecks) continue;
                 if (IsHeldByAnother(row, directorId, now)) continue;
                 row.ClaimedByDirectorId = directorId;
                 row.ClaimedUtc = now;
                 mine.Add(row);
             }
             ctx.SaveChanges();
-            FileLog.Write($"[TriggerStore] ClaimForDirector: tenant={tenant.ToLogString()}, director={directorId}, machine={machine}, triggers={mine.Count}");
+            FileLog.Write($"[TriggerStore] ClaimForDirector: tenant={tenant.ToLogString()}, director={directorId}, machine={machine}, definitionChecks={runsDefinitionChecks}, triggers={mine.Count}");
             return mine;
         }
     }

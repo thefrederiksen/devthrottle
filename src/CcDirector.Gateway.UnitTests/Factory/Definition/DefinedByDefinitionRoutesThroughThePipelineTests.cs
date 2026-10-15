@@ -98,7 +98,8 @@ public sealed class DefinedByDefinitionRoutesThroughThePipelineTests : IDisposab
         var service = new TriggerService(_triggers, record,
             (_, _, _) => Task.FromResult(TriggerStartAttempt.Failed("no machine in this test")),
             findSession: (_, _) => null, findSessionByName: (_, _) => null,
-            timeZone: _ => TimeZoneInfo.Utc, nowUtc: () => Now, startLifetime: CancellationToken.None);
+            timeZone: _ => TimeZoneInfo.Utc, nowUtc: () => Now, startLifetime: CancellationToken.None,
+            directorRunsDefinitionChecks: (_, _) => true, machineRunsDefinitionChecks: (_, _) => true);
         TriggerEndpoints.Map(_routes, _ => T, service, directorMachine: (_, _) => "SOREN_NORTH", nowUtc: () => Now,
             sessionFactoryOf: _ => SessionFactoryLookup.NotKnown,
             isDefined: _definitions.IsDefined);

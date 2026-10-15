@@ -1,8 +1,8 @@
 """`cc-devthrottle factory check-state show|reset` (Factory Definition mission, phase 5b).
 
 What these tests are about: the route each verb calls and what it sends; that `reset` names the start by the owner key
-the Gateway listed for that seat and number - never one it made up; that a seat with several checked starts needs
---start; that a session's refusal is printed as the Gateway wrote it with a non-zero exit; and that an empty list says
+the Gateway listed for that seat and number - never one it made up; that the number is the start's place among ALL
+the seat's starts, as the Gateway lists it; that a seat with several checked starts needs --start; that a session's refusal is printed as the Gateway wrote it with a non-zero exit; and that an empty list says
 `count: 0` rather than printing nothing.
 
 They answer from a real local HTTP server, as the definition command's tests do, so the whole path - the shared
@@ -30,8 +30,8 @@ ONLY_A_PERSON = ("Only a person resets a check's state. A session of the factory
                  "'cc-devthrottle factory check-state show'; ask the owner to reset it.")
 
 
-def start(seat, number, owner, content="", reset=False, name=None):
-    return {"ownerKey": owner, "seat": seat, "start": number, "name": name or f"{FACTORY}-{seat}",
+def start(seat, number, owner, content="", reset=False):
+    return {"ownerKey": owner, "seat": seat, "start": number, "name": f"{FACTORY}-{seat}-start-{number}",
             "checkPath": "checks/new_mail.py", "content": content,
             "writtenUtc": "2026-10-15T08:00:00Z" if content or reset else None,
             "writtenBy": ("person soren" if reset else "dir-1") if content or reset else None,
@@ -40,8 +40,9 @@ def start(seat, number, owner, content="", reset=False, name=None):
 
 LISTED = {"factory": FACTORY, "count": 3, "states": [
     start("frontdesk", 1, "trigger:11111111-1111-1111-1111-111111111111", content='{"last": "m-41"}'),
-    start("sender", 1, "trigger:22222222-2222-2222-2222-222222222222", name="warmforward-sender"),
-    start("sender", 2, "trigger:33333333-3333-3333-3333-333333333333", name="warmforward-sender-2"),
+    # The sender's first start is timed, so its checked starts are its second and third.
+    start("sender", 2, "trigger:22222222-2222-2222-2222-222222222222"),
+    start("sender", 3, "trigger:33333333-3333-3333-3333-333333333333"),
 ]}
 
 
@@ -113,7 +114,7 @@ def test_show_ListsEveryCheckedStart_WithItsState(gateway):
     assert result.exit_code == 0, result.stderr
     assert (gw.calls[0]["method"], gw.calls[0]["path"]) == ("GET", "/factory-definitions/warmforward/check-state")
     assert "count: 3" in result.stdout
-    assert "frontdesk,1,warmforward-frontdesk,checks/new_mail.py" in result.stdout
+    assert "frontdesk,1,warmforward-frontdesk-start-1,checks/new_mail.py" in result.stdout
     assert '"{\\"last\\": \\"m-41\\"}"' in result.stdout
     assert "(empty)" in result.stdout
 
@@ -121,7 +122,7 @@ def test_show_ListsEveryCheckedStart_WithItsState(gateway):
 def test_show_OneSeatAndStart_FiltersTheJsonToo(gateway):
     gateway((200, LISTED))
 
-    result = run("show", FACTORY, "sender", "--start", "2", "--json")
+    result = run("show", FACTORY, "sender", "--start", "3", "--json")
 
     assert result.exit_code == 0, result.stderr
     answer = json.loads(result.stdout)
@@ -156,21 +157,31 @@ def test_reset_ASeatWithTwoCheckedStarts_NeedsStart_AndPostsNothing(gateway):
     result = run("reset", FACTORY, "sender")
 
     assert result.exit_code == 1
-    assert "sender has 2 checked starts (1, 2); name one with --start." in result.stderr
+    assert "sender has 2 checked starts (2, 3); name one with --start." in result.stderr
     assert len(gw.calls) == 1
 
 
-def test_reset_TheSecondStart_PostsThatStartsOwnerKey(gateway):
-    gw = gateway((200, LISTED), (200, start("sender", 2, "trigger:33333333-3333-3333-3333-333333333333", reset=True)))
+def test_reset_TheThirdStart_PostsThatStartsOwnerKey(gateway):
+    gw = gateway((200, LISTED), (200, start("sender", 3, "trigger:33333333-3333-3333-3333-333333333333", reset=True)))
 
-    result = run("reset", FACTORY, "sender", "--start", "2")
+    result = run("reset", FACTORY, "sender", "--start", "3")
 
     assert result.exit_code == 0, result.stderr
     assert gw.calls[1]["body"] == {"ownerKey": "trigger:33333333-3333-3333-3333-333333333333"}
 
 
+def test_reset_AStartNumberTheSeatHasNoCheckAt_PostsNothing(gateway):
+    gw = gateway((200, LISTED))
+
+    result = run("reset", FACTORY, "sender", "--start", "1")
+
+    assert result.exit_code == 1
+    assert "sender has no checked start numbered 1." in result.stderr
+    assert len(gw.calls) == 1
+
+
 def test_reset_FromASession_IsRefusedWithTheGatewaysSentence_AndExitsNonZero(gateway):
-    gateway((200, LISTED), (403, {"error": ONLY_A_PERSON, "outcome": "OnlyAPersonPublishes"}))
+    gateway((200, LISTED), (403, {"error": ONLY_A_PERSON, "outcome": "OnlyAPersonResets"}))
 
     result = run("reset", FACTORY, "frontdesk")
 

@@ -1,6 +1,7 @@
 using System.Text;
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
+using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Data.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -22,7 +23,7 @@ namespace CcDirector.Gateway.Factory.Triggers;
 public sealed class FactoryCheckStateStore
 {
     /// <summary>The most a state may hold: 64 KB of UTF-8.</summary>
-    public const int MaxContentBytes = 64 * 1024;
+    public const int MaxContentBytes = TriggerCheckLimits.StateCapBytes;
 
     /// <summary>The owner key of a definition trigger's state.</summary>
     public static string TriggerOwner(Guid triggerId) => "trigger:" + triggerId.ToString("D");

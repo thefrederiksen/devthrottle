@@ -6,6 +6,7 @@ using CcDirector.Gateway.Data.Entities;
 using CcDirector.Gateway.Factory;
 using CcDirector.Gateway.Factory.Triggers;
 using CcDirector.Gateway.Tests.Data;
+using Microsoft.EntityFrameworkCore;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests.Factory.Triggers;
@@ -30,7 +31,11 @@ public sealed class DefinitionTriggerServiceTests : IDisposable
     private readonly Dictionary<string, SessionDto> _sessions = new(StringComparer.OrdinalIgnoreCase);
     private DateTime _now = new(2026, 10, 15, 9, 0, 0, DateTimeKind.Utc);
     private int _nextSession;
-
+    // What the fake starter answers next; null starts a session.
+    private TriggerStartAttempt? _attempt;
+    // Which Directors said on Hello that they run checks from a definition, and the machines that have one.
+    private readonly HashSet<string> _definitionDirectors = new(StringComparer.Ordinal) { Director };
+    private readonly HashSet<string> _definitionMachines = new(StringComparer.OrdinalIgnoreCase) { "SOREN_NORTH" };
     public DefinitionTriggerServiceTests()
     {
         _db = _harness.Open();
@@ -43,6 +48,7 @@ public sealed class DefinitionTriggerServiceTests : IDisposable
             (machine, request, _) =>
             {
                 lock (_starts) _starts.Add((machine, request));
+                if (_attempt is not null) return Task.FromResult(_attempt);
                 var id = $"bbbbbbbb-0000-4000-8000-{++_nextSession:D12}";
                 _sessions[id] = new SessionDto { SessionId = id, ActivityState = "Working", Name = request.Name };
                 return Task.FromResult(TriggerStartAttempt.Started(id));
@@ -51,7 +57,9 @@ public sealed class DefinitionTriggerServiceTests : IDisposable
             findSessionByName: (_, name) => _sessions.Values.FirstOrDefault(s => s.Name == name),
             timeZone: _ => TimeZoneInfo.Utc,
             nowUtc: () => _now,
-            startLifetime: CancellationToken.None);
+            startLifetime: CancellationToken.None,
+            directorRunsDefinitionChecks: (_, director) => _definitionDirectors.Contains(director),
+            machineRunsDefinitionChecks: (_, machine) => _definitionMachines.Contains(machine));
 
     /// <summary>A definition trigger as a publish writes it: a check path and no command.</summary>
     private Guid AddDefinitionTrigger(bool paused = false, string prompt = "New mail: {count}. {context}")
@@ -228,22 +236,89 @@ public sealed class DefinitionTriggerServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ACheckThatStartsASession_KeepsItsState_BeforeTheStartReturns()
+    public async Task ACheckThatStartsASession_KeepsItsState_WithTheStartedRun()
     {
         var service = Service();
         var t = AddDefinitionTrigger();
 
-        await Send(service, t, Report("""{"count": 1}""", state: "seen m-9"));
+        var run = await Send(service, t, Report("""{"count": 1}""", state: "seen m-9"));
 
+        Assert.Equal(TriggerRunOutcome.Started, run.Outcome);
         var row = Assert.Single(StateRows(t));
         Assert.Equal("seen m-9", row.Content);
-        Assert.Null(row.RunRef);
+        Assert.Equal(run.Id, row.RunRef);
+    }
+
+    [Fact]
+    public async Task AStartThatFailed_KeepsNoState_SoTheNextCheckSeesTheWorkAgain()
+    {
+        var service = Service();
+        var t = AddDefinitionTrigger();
+        _attempt = TriggerStartAttempt.Failed("the machine refused the session");
+
+        var run = await Send(service, t, Report("""{"count": 1}""", state: "seen m-9"));
+
+        Assert.Equal(TriggerRunOutcome.Failed, run.Outcome);
+        Assert.Empty(StateRows(t));
+    }
+
+    [Fact]
+    public async Task AStartWhoseOutcomeIsUnknown_KeepsNoState()
+    {
+        var service = Service();
+        var t = AddDefinitionTrigger();
+        _attempt = TriggerStartAttempt.Unknown("the Director did not answer in time.");
+
+        var run = await Send(service, t, Report("""{"count": 1}""", state: "seen m-9"));
+
+        Assert.Equal(TriggerRunOutcome.Failed, run.Outcome);
+        Assert.Empty(StateRows(t));
+    }
+
+    [Fact]
+    public async Task AStateWriteThatFails_AfterASessionStarted_LeavesNoLockHeld()
+    {
+        // Arrange: the state table is gone, so the store throws on the write.
+        var service = Service();
+        var t = AddDefinitionTrigger();
+        DropTheStateTable();
+
+        // Act
+        var result = await service.ReportCheckAsync(Tenant, Director, t.ToString("D"),
+            Report("""{"count": 1}""", state: "seen m-9"), CancellationToken.None);
+        var run = await result.Starting!;
+
+        // Assert: the start's failure to keep the state is reported as no row handed back, and nothing holds the trigger.
+        Assert.Null(run);
+        Assert.Single(_starts);
+        Assert.True(service.HoldsNoLock(Tenant, t));
+        var next = await service.ReportCheckAsync(Tenant, Director, t.ToString("D"), Report("""{"count": 0}"""), CancellationToken.None);
+        Assert.Equal(TriggerRunOutcome.NothingToDo, next.Run!.Outcome);
+    }
+
+    [Fact]
+    public async Task AStateWriteThatFails_OnNothingToDo_ThrowsToTheRoute_AndLeavesNoLockHeld()
+    {
+        var service = Service();
+        var t = AddDefinitionTrigger();
+        DropTheStateTable();
+
+        await Assert.ThrowsAnyAsync<Exception>(() => service.ReportCheckAsync(Tenant, Director, t.ToString("D"),
+            Report("""{"count": 0}""", state: "seen m-9"), CancellationToken.None));
+
+        Assert.True(service.HoldsNoLock(Tenant, t));
+    }
+
+    private void DropTheStateTable()
+    {
+        using var ctx = _db.CreateContext(Tenant);
+        ctx.Database.ExecuteSqlRaw("DROP TABLE factory_check_state");
     }
 
     // ---------- pause, skipped-running and the lock behave as today ----------
 
     [Fact]
-    public async Task APausedDefinitionTrigger_WritesPaused_StartsNothing_AndStillKeepsItsState()
+    public async Task APausedDefinitionTrigger_WritesPaused_StartsNothing_AndKeepsNoState()
     {
         var service = Service();
         var t = AddDefinitionTrigger(paused: true);
@@ -252,7 +327,7 @@ public sealed class DefinitionTriggerServiceTests : IDisposable
 
         Assert.Equal(TriggerRunOutcome.Paused, run.Outcome);
         Assert.Empty(_starts);
-        Assert.Equal("s1", Assert.Single(StateRows(t)).Content);
+        Assert.Empty(StateRows(t));
     }
 
     [Fact]
@@ -268,7 +343,8 @@ public sealed class DefinitionTriggerServiceTests : IDisposable
         Assert.Equal(TriggerRunOutcome.SkippedRunning, second.Outcome);
         Assert.Equal(first.SessionId, second.SessionId);
         Assert.Single(_starts);
-        Assert.Equal(new[] { "s1", "s2" }, StateRows(t).Select(r => r.Content));
+        // The skipped check's state is not kept: no session took the work it counted.
+        Assert.Equal(new[] { "s1" }, StateRows(t).Select(r => r.Content));
     }
 
     // ---------- what the Director is handed (design 2.1) ----------
@@ -283,7 +359,7 @@ public sealed class DefinitionTriggerServiceTests : IDisposable
 
         var a = Assert.Single(service.AssignmentsFor(Tenant, Director, "SOREN_NORTH"));
 
-        Assert.Equal(TriggerAssignmentKind.Definition, a.Kind);
+        Assert.Equal(TriggerKinds.Definition, a.Kind);
         Assert.Equal("frontdesk", a.Seat);
         Assert.Equal(Factory, a.Factory);
         Assert.Equal(4, a.DefinitionVersion);
@@ -295,6 +371,66 @@ public sealed class DefinitionTriggerServiceTests : IDisposable
         Assert.Equal("", a.RepoPath);
         Assert.Equal(600, a.IntervalSeconds);
         Assert.Equal(TriggerDefinition.TimeoutSecondsFor(600), a.TimeoutSeconds);
+    }
+
+    // ---------- only a Director that says it runs definition checks gets one (design 2.6) ----------
+
+    [Fact]
+    public void AnOlderDirector_IsHandedNoDefinitionTrigger_AndClaimsNone_ButACapableOneGetsIt()
+    {
+        var service = Service();
+        var t = AddDefinitionTrigger();
+
+        Assert.Empty(service.AssignmentsFor(Tenant, "dir-older", "SOREN_NORTH"));
+        Assert.True(string.IsNullOrEmpty(service.Store.Find(Tenant, t.ToString("D"))!.ClaimedByDirectorId));
+
+        var a = Assert.Single(service.AssignmentsFor(Tenant, Director, "SOREN_NORTH"));
+        Assert.Equal(TriggerKinds.Definition, a.Kind);
+        Assert.Equal(Director, service.Store.Find(Tenant, t.ToString("D"))!.ClaimedByDirectorId);
+    }
+
+    [Fact]
+    public void ACommandTrigger_ReachesAnOlderDirector_AsItAlwaysDid()
+    {
+        var service = Service();
+        var command = AddCommandTrigger(service);
+        AddDefinitionTrigger();
+
+        var a = Assert.Single(service.AssignmentsFor(Tenant, "dir-older", "SOREN_NORTH"));
+
+        Assert.Equal(command.ToString("D"), a.Id);
+        Assert.Null(a.Kind);
+    }
+
+    [Fact]
+    public async Task AnOlderDirectorsReportOfADefinitionCheck_IsRefused_AndWritesNoRunRow()
+    {
+        var service = Service();
+        var t = AddDefinitionTrigger();
+
+        var result = await service.ReportCheckAsync(Tenant, "dir-older", t.ToString("D"),
+            Report("""{"count": 1}""", state: "s1"), CancellationToken.None);
+
+        Assert.Equal(TriggerReportRefusal.CannotRunDefinitionChecks, result.Refusal);
+        Assert.Empty(service.Store.ListRuns(Tenant, t, 10));
+        Assert.Empty(_starts);
+        Assert.Empty(StateRows(t));
+    }
+
+    [Fact]
+    public void ADefinitionTrigger_OnAMachineWithNoCapableDirector_IsRedAndSaysSo_ACommandTriggerIsNot()
+    {
+        var service = Service();
+        var t = AddDefinitionTrigger();
+        var command = AddCommandTrigger(service);
+        _definitionMachines.Clear();
+
+        var definition = service.ToDto(service.Store.Find(Tenant, t.ToString("D"))!);
+        var commandDto = service.ToDto(service.Store.Find(Tenant, command.ToString("D"))!);
+
+        Assert.Equal((TriggerStatusKind.Red, "no Director on SOREN_NORTH can run checks from a definition yet"),
+            (definition.Status, definition.StatusText));
+        Assert.Equal((TriggerStatusKind.Ok, "waiting for the first check"), (commandDto.Status, commandDto.StatusText));
     }
 
     [Fact]

@@ -260,6 +260,10 @@ public sealed class SessionKeyGuardTests
     // factory's boss reads the same status word and the same failing and waiting rows the owner sees.
     [InlineData("GET", "/gateway/factories")]
     [InlineData("GET", "/gateway/factories/website-business")]
+    // The state a defined factory's checks keep (Factory Definition, phase 5b): `cc-devthrottle factory check-state
+    // show|reset`. A session may read it; its reset reaches the route, which refuses it in words (only a person resets).
+    [InlineData("GET", "/factory-definitions/warmforward/check-state")]
+    [InlineData("POST", "/factory-definitions/warmforward/check-state/reset")]
     // The Factory Manager's binding and the name check (Factory Control, step 5):
     // `cc-devthrottle factory manager show|set|clear` and `cc-devthrottle factory name-check`.
     [InlineData("GET", "/gateway/factory-manager")]

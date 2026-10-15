@@ -257,6 +257,8 @@ internal static class TriggerEndpoints
                 TriggerReportRefusal.NoSuchTrigger => NoSuchTrigger(id),
                 TriggerReportRefusal.HeldByAnotherDirector =>
                     Refuse(StatusCodes.Status409Conflict, "held_by_another_director", result.Error!),
+                TriggerReportRefusal.CannotRunDefinitionChecks =>
+                    Refuse(StatusCodes.Status409Conflict, "cannot_run_definition_checks", result.Error!),
                 _ => throw new InvalidOperationException($"unhandled trigger report refusal: {result.Refusal}"),
             };
         });

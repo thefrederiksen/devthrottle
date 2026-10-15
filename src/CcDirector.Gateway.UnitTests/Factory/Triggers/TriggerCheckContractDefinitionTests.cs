@@ -51,7 +51,7 @@ public sealed class TriggerCheckContractDefinitionTests
     public void Read_TheContextLimitCountsBytes_NotCharacters()
     {
         // 4,097 two-byte characters are 8,194 bytes: over the limit though fewer than 8,192 characters.
-        var wide = new string('é', 4097);
+        var wide = new string('\u00e9', 4097);
 
         var reading = TriggerCheckContract.Read(Exit0($$"""{"count": 1, "context": "{{wide}}"}"""), true);
 

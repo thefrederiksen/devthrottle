@@ -328,6 +328,15 @@ public sealed class GatewayHost : IAsyncDisposable
     }
 
     /// <summary>
+    /// Whether any Director of this account on <paramref name="machine"/>, still connected, said on Hello that it runs
+    /// checks from a factory's definition (Factory Definition, phase 5b, design 2.6).
+    /// </summary>
+    private bool MachineRunsDefinitionChecks(Core.Tenancy.TenantId tenant, string machine)
+        => Registry.ListDirectors(tenant)
+            .Where(d => d.StoppedAtUtc is null && string.Equals(d.MachineName, machine, StringComparison.OrdinalIgnoreCase))
+            .Any(d => _definitionCheckCapabilities.RunsDefinitionChecks(tenant, d.DirectorId));
+
+    /// <summary>
     /// The machines one account's Directors report NOW: every registered Director that has not said goodbye
     /// (<see cref="Contracts.DirectorDto.StoppedAtUtc"/>). The Gateway keeps no stored register of machines, so a
     /// machine missing from this list is only "not confirmed", never an error (Factory Definition, phase 1).
@@ -1258,6 +1267,10 @@ public sealed class GatewayHost : IAsyncDisposable
     /// account (Factory Definition mission, phase 5). Handed to every spawn door.</summary>
     private Factory.Definition.SeatRulesReader SeatRulesFor(TenantId tenant)
         => (factory, version, seat) => Factory.Definition.FactorySeatRules.Read(FactoryDefinitions, tenant, factory, version, seat);
+
+    /// <summary>Which Directors run checks from a factory's definition (Factory Definition, phase 5b) - recorded at
+    /// Hello, read when a Director asks for its triggers and when a trigger's status is decided.</summary>
+    private readonly Streaming.DefinitionCheckCapabilityRegistry _definitionCheckCapabilities = new();
     /// <summary>The machines that can receive a secret (the Secret Handoff mission), from each Director's Hello.
     /// Exposed for the host tests, which stand in for a Director's Hello without connecting one.</summary>
     internal Secrets.SecretMachineRegistry SecretMachines { get; } = new();
@@ -2692,7 +2705,9 @@ public sealed class GatewayHost : IAsyncDisposable
                 GatewayEndpoints.LastKnownTriggerSessionByName(Registry, PushedSessions, tenant, name),
             timeZone: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)),
             nowUtc: () => DateTime.UtcNow,
-            startLifetime: _triggerStartLifetime.Token);
+            startLifetime: _triggerStartLifetime.Token,
+            directorRunsDefinitionChecks: _definitionCheckCapabilities.RunsDefinitionChecks,
+            machineRunsDefinitionChecks: MachineRunsDefinitionChecks);
 
         // The activity ledger's 30-day retention, on the same per-tenant worker seam.
         _activityRetentionSweep = new Activity.ActivityRetentionSweep(_tenantBoundary, TenantRegistry, _activityEvents);
@@ -4388,6 +4403,7 @@ public sealed class GatewayHost : IAsyncDisposable
         builder.Services.AddSingleton(_fleetManagerHomeCapabilities);
         builder.Services.AddSingleton(_factoryMachineQuestionCapabilities);
         builder.Services.AddSingleton(_factoryKitCapabilities);
+        builder.Services.AddSingleton(_definitionCheckCapabilities);
         builder.Services.AddSingleton(SecretMachines);
         // License Switching: DirectorHub.PushLicenseUsage hands each report to the ingest.
         builder.Services.AddSingleton(LicenseUsage);

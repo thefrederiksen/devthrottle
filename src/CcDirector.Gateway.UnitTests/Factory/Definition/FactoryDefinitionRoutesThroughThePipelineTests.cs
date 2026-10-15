@@ -40,6 +40,9 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
     private const string FactorySession = "75000000-0000-4000-8000-000000000001";
     private static readonly DateTime Now = new(2026, 10, 14, 12, 0, 0, DateTimeKind.Utc);
     private static readonly TenantId A = new("acct-a");
+    private static readonly TenantId B = new("acct-b");
+    // The account a request is resolved to when a test names one; every other request is account A's.
+    private const string AccountItem = "test-account";
 
     private readonly GatewayDbTestHarness _h = new();
     private readonly ServiceProvider _services;
@@ -62,7 +65,7 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
     {
         var routes = new Routes(_services);
         FactoryDefinitionEndpoints.Map(routes,
-            resolveTenant: _ => A,
+            resolveTenant: ctx => ctx.Items.TryGetValue(AccountItem, out var account) ? (TenantId)account! : A,
             store: new FactoryDefinitionStore(_db),
             sessionFactoryOf: _ => SessionFactoryLookup.In(TheFactory),
             fleetSkillsOf: _ => DefinitionFixture.FleetSkills,
@@ -90,6 +93,12 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
     }
 
     private static void AsAPerson(HttpContext ctx) => ctx.Items[AuthMiddleware.DeviceTypeItemKey] = "browser";
+
+    private static void AsAPersonOfAccountB(HttpContext ctx)
+    {
+        AsAPerson(ctx);
+        ctx.Items[AccountItem] = B;
+    }
 
     private static void AsASessionOfTheFactory(HttpContext ctx) =>
         ctx.Items[AuthMiddleware.AuthenticatedSessionItemKey] = new SessionCredentialIdentity(Guid.Parse(FactorySession), A, "dir-a");
@@ -434,7 +443,7 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
         var published = await Send("POST", FactoryPath + "/publish", AsAPerson, """{"version":1}""");
 
         Assert.Equal(200, published.Status);
-        Assert.Contains("Trigger devthrottle-outreach created for seat outreach: every 10 minutes, check checks/new_mail.py with secret outreach-imap-password, on SOREN_SOUTH.",
+        Assert.Contains("Trigger devthrottle-outreach-start-1 created for seat outreach: every 10 minutes, check checks/new_mail.py with secret outreach-imap-password, on SOREN_SOUTH.",
             published.Body.GetProperty("applied").EnumerateArray().Select(a => a.GetString()));
         var t = Assert.Single(_triggers.List(A), t => t.Factory == TheFactory);
         Assert.Equal(("checks/new_mail.py", 1), (t.CheckPath, t.DefinitionVersion));
@@ -453,7 +462,7 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
         Assert.Equal(1, listed.Body.GetProperty("count").GetInt32());
         var s = listed.Body.GetProperty("states")[0];
         Assert.Equal($"trigger:{t.Id:D}", s.GetProperty("ownerKey").GetString());
-        Assert.Equal(("outreach", 1, "devthrottle-outreach"), (s.GetProperty("seat").GetString(), s.GetProperty("start").GetInt32(), s.GetProperty("name").GetString()));
+        Assert.Equal(("outreach", 1, "devthrottle-outreach-start-1"), (s.GetProperty("seat").GetString(), s.GetProperty("start").GetInt32(), s.GetProperty("name").GetString()));
         Assert.Equal("""{"last":"m-41"}""", s.GetProperty("content").GetString());
         Assert.Equal("dir-1", s.GetProperty("writtenBy").GetString());
     }
@@ -496,7 +505,28 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
 
         Assert.Equal(403, refused.Status);
         Assert.Equal(FactoryDefinitionEndpoints.OnlyAPersonResets, refused.Body.GetProperty("error").GetString());
+        Assert.Equal("OnlyAPersonResets", refused.Body.GetProperty("outcome").GetString());
         Assert.Equal("stuck", _triggers.CheckStates.StateFor(A, TheFactory, owner));
+    }
+
+    [Fact]
+    public async Task A_SECOND_ACCOUNT_READS_NONE_OF_THE_FIRSTS_CHECK_STATE_AND_RESETS_NONE_OF_IT()
+    {
+        // Arrange: account A's checked start holds a state.
+        var t = await PublishTheIntervalCheck();
+        var owner = CcDirector.Gateway.Factory.Triggers.FactoryCheckStateStore.TriggerOwner(t.Id);
+        _triggers.CheckStates.RecordIfChanged(A, TheFactory, owner, "a's state", "dir-1", "run-1", Now);
+
+        // Act: a person of account B reads the same factory, and resets A's start by its owner key.
+        var listed = await Send("GET", FactoryPath + "/check-state", AsAPersonOfAccountB);
+        var reset = await Send("POST", FactoryPath + "/check-state/reset", AsAPersonOfAccountB, $$"""{"ownerKey":"{{owner}}"}""");
+
+        // Assert: B sees no checked start, its reset names nothing it has, and A's state and history are untouched.
+        Assert.Equal((200, 0), (listed.Status, listed.Body.GetProperty("count").GetInt32()));
+        Assert.Equal(404, reset.Status);
+        Assert.Equal("a's state", _triggers.CheckStates.StateFor(A, TheFactory, owner));
+        Assert.Equal(1, _triggers.CheckStates.Newest(A, TheFactory, owner)!.Sequence);
+        Assert.Null(_triggers.CheckStates.Newest(B, TheFactory, owner));
     }
 
     [Fact]

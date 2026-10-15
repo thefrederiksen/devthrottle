@@ -252,6 +252,24 @@ public sealed class DirectorHubTests : IDisposable
     }
 
     [Fact]
+    public void Hello_RecordsWhetherThisDirectorRunsChecksFromADefinition()
+    {
+        // Factory Definition, phase 5b: a definition trigger is handed only to a Director that said this, because an
+        // older one would run its empty command and report every run as a failed check.
+        var caps = new CcDirector.Gateway.Streaming.DefinitionCheckCapabilityRegistry();
+        var newBuild = new DirectorHub(_store, _registry, InputStatsHandle.Available(_inputStats), new GatewayStreamRegistry(), SelfHostBoundary(), definitionChecks: caps) { Context = new FakeHubCallerContext("conn-1") };
+        var oldBuild = new DirectorHub(_store, _registry, InputStatsHandle.Available(_inputStats), new GatewayStreamRegistry(), SelfHostBoundary(), definitionChecks: caps) { Context = new FakeHubCallerContext("conn-2") };
+
+        newBuild.Hello(new DirectorStreamHello { DirectorId = "dir-new", Version = "test", DefinitionChecks = true });
+        oldBuild.Hello(new DirectorStreamHello { DirectorId = "dir-old", Version = "test" });
+
+        Assert.True(caps.RunsDefinitionChecks(TenantId.Local, "dir-new"));
+        Assert.False(caps.RunsDefinitionChecks(TenantId.Local, "dir-old"));
+        Assert.False(caps.RunsDefinitionChecks(TenantId.Local, "dir-never-seen"));
+        Assert.False(caps.RunsDefinitionChecks(new TenantId("11111111-1111-1111-1111-111111111111"), "dir-new"));
+    }
+
+    [Fact]
     public void Hello_RecordsWhetherThisDirectorChangesASessionsOwnerOnlyIfExpected()
     {
         // The Fleet Manager mission, step 8: the Gateway refuses a hand over on a Director that did not say this, because

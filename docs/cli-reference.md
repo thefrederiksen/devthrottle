@@ -2142,7 +2142,9 @@ USAGE: cc-devthrottle factory check-state show FACTORY [SEAT] [--start N] [--jso
        cc-devthrottle factory check-state reset FACTORY SEAT [--start N] [--json]
 ```
 
-A start is named by its seat and its number: the Nth start with a check in that seat's file, counting from 1.
+A start is named by its seat and its number: its place in that seat's `starts:` list, counting every start from 1
+- the number in its trigger's name, `<factory>-<seat>-start-<N>`. A seat whose first start is timed and whose
+second is a checked interval start has one checked start, and its number is 2.
 **Show** lists every checked start of the published definition with the newest state its check left (cut to one
 line; `--json` gives it whole). A factory with no published definition has none and says `count: 0`.
 

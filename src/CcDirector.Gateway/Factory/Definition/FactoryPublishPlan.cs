@@ -40,10 +40,11 @@ public static class FactoryPublishPlan
         "This start runs on an interval and has no check. An interval start is a check that runs often and starts a " +
         "session only when it counts work, so give it a check, or a cron time, or publish it without the start.";
 
-    /// <summary>The name a definition trigger is given: "&lt;factory&gt;-&lt;seat&gt;" for the seat's first interval
-    /// start, then "-2", "-3" in start order.</summary>
-    internal static string TriggerName(string factory, string seat, int suffix)
-        => suffix <= 1 ? $"{factory}-{seat}" : $"{factory}-{seat}-{suffix}";
+    /// <summary>The name a definition trigger is given: "&lt;factory&gt;-&lt;seat&gt;-start-&lt;N&gt;", where N is THE
+    /// number of its start - its place in the seat's <c>starts:</c> list, counting every start from 1. The same number
+    /// <c>cc-devthrottle factory check-state --start</c> takes.</summary>
+    internal static string TriggerName(string factory, string seat, int startNumber)
+        => $"{factory}-{seat}-start-{startNumber}";
 
     /// <summary>
     /// The plan for publishing <paramref name="definition"/> onto the live factory, or why it cannot be. The live rows
@@ -280,10 +281,11 @@ public static class FactoryPublishPlan
     /// trigger is deleted. Then every other trigger of the factory is deleted - a definition trigger whose seat is gone,
     /// and every command trigger.
     ///
-    /// A TRIGGER IS NAMED BY ITS START: "&lt;factory&gt;-&lt;seat&gt;" for the seat's first interval start, then "-2", "-3"
-    /// in start order - so a kept trigger whose start moved in the list is renamed with it. A trigger name is unique in
-    /// the account, so a name another factory's trigger (or a factory-less one) already holds is a refusal on the seat's
-    /// file, in words; nothing is renamed to make room.
+    /// A TRIGGER IS NAMED BY ITS START: "&lt;factory&gt;-&lt;seat&gt;-start-&lt;N&gt;", N the start's place in the seat's
+    /// list counting every start (<see cref="TriggerName"/>) - so a kept trigger whose start moved in the list is renamed
+    /// with it. A trigger name is unique in the account, so two starts whose triggers would share a name, or a name
+    /// another factory's trigger (or a factory-less one) already holds, is a refusal on the seat's file, in words;
+    /// nothing is renamed to make room.
     /// </summary>
     private static List<PlannedTrigger> PlanTriggers(FactoryDefinition d, FactoryRegistryEntity registry,
         IReadOnlyList<TriggerEntity> liveTriggers, List<DefinitionFinding> findings)
@@ -307,7 +309,7 @@ public static class FactoryPublishPlan
             foreach (var pair in pairing.Pairs)
             {
                 var row = live[pair.Old];
-                var name = TriggerName(factory, seat.Seat, pair.New + 1);
+                var name = TriggerName(factory, seat.Seat, interval[pair.New] + 1);
                 var now = TriggerFor(d, registry, seat, interval[pair.New], name);
                 var was = TriggerRow.Of(row);
                 planned.Add(new PlannedTrigger(now == was ? PlannedTriggerAction.Keep : PlannedTriggerAction.Update,
@@ -315,7 +317,7 @@ public static class FactoryPublishPlan
             }
             foreach (var n in pairing.UnpairedNew)
             {
-                var name = TriggerName(factory, seat.Seat, n + 1);
+                var name = TriggerName(factory, seat.Seat, interval[n] + 1);
                 planned.Add(new PlannedTrigger(PlannedTriggerAction.Create, null, name, seat.Seat, interval[n],
                     TriggerFor(d, registry, seat, interval[n], name), null));
             }
@@ -328,11 +330,35 @@ public static class FactoryPublishPlan
             deletes.Add(DeletedTrigger(t, TriggerDeleteReason.SeatNotDefined));
 
         planned = planned.OrderBy(t => t.Seat, StringComparer.Ordinal).ThenBy(t => t.StartIndex).ToList();
+        findings.AddRange(DuplicateNames(planned));
         foreach (var t in planned)
             if (others.TryGetValue(t.Name, out var holder))
                 findings.Add(Error($"seats/{t.Seat}.yaml", NameTaken(t.Name, holder)));
 
         return planned.Concat(deletes).ToList();
+    }
+
+    /// <summary>
+    /// One refusal on each seat file whose start would make a trigger another planned trigger also takes. Trigger names
+    /// are unique in the account ignoring case, so two planned triggers may never share one; nothing is renamed to make
+    /// room. From valid seat ids this does not happen - a name ends in "-start-" and a number, so it names one seat - but
+    /// the plan does not lean on that: a clash is a refusal in words, never a failed write halfway through a publish.
+    /// </summary>
+    internal static IEnumerable<DefinitionFinding> DuplicateNames(IReadOnlyList<PlannedTrigger> planned)
+    {
+        foreach (var clash in planned.Where(t => t.Action != PlannedTriggerAction.Delete)
+                     .GroupBy(t => t.Name, StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1))
+        {
+            var starts = clash.ToList();
+            foreach (var t in starts)
+            {
+                var others = string.Join(" and ", starts.Where(o => !ReferenceEquals(o, t))
+                    .Select(o => $"start {o.StartIndex + 1} of seat {o.Seat}"));
+                yield return Error($"seats/{t.Seat}.yaml",
+                    $"Start {t.StartIndex + 1} of this seat makes a trigger named {t.Name}, and so does {others}. " +
+                    "A trigger's name is unique in the account; rename one of the seats, then publish.");
+            }
+        }
     }
 
     /// <summary>The refusal when the name a start's trigger takes is another trigger's in the account.</summary>

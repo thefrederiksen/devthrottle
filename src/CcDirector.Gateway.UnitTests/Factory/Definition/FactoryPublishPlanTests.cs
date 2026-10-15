@@ -353,38 +353,38 @@ public sealed class FactoryPublishPlanTests
 
         var t = Assert.Single(plan.Triggers);
         Assert.Equal(PlannedTriggerAction.Create, t.Action);
-        Assert.Equal("devthrottle-outreach", t.Name);
-        Assert.Equal(new TriggerRow("devthrottle-outreach", "outreach", "SOREN_SOUTH", Folder, 600,
+        Assert.Equal("devthrottle-outreach-start-1", t.Name);
+        Assert.Equal(new TriggerRow("devthrottle-outreach-start-1", "outreach", "SOREN_SOUTH", Folder, 600,
             "New mail: {count}. {context}", "checks/new_mail.py", new[] { "outreach-imap-password" }), t.Row);
         Assert.DoesNotContain(plan.Schedules, s => s.Seat == "outreach");
-        Assert.Equal("A new trigger devthrottle-outreach for seat outreach: every 10 minutes, check checks/new_mail.py with secret outreach-imap-password, on SOREN_SOUTH.",
+        Assert.Equal("A new trigger devthrottle-outreach-start-1 for seat outreach: every 10 minutes, check checks/new_mail.py with secret outreach-imap-password, on SOREN_SOUTH.",
             t.Sentence());
-        Assert.Equal("Trigger devthrottle-outreach created for seat outreach: every 10 minutes, check checks/new_mail.py with secret outreach-imap-password, on SOREN_SOUTH.",
+        Assert.Equal("Trigger devthrottle-outreach-start-1 created for seat outreach: every 10 minutes, check checks/new_mail.py with secret outreach-imap-password, on SOREN_SOUTH.",
             t.Sentence(2));
     }
 
     [Fact]
     public void Compose_ALiveDefinitionTriggerThatMatches_IsKept_ByItsId_AndOnlyItsVersionMoves()
     {
-        var live = DefTrigger("devthrottle-outreach");
+        var live = DefTrigger("devthrottle-outreach-start-1");
 
         var t = Assert.Single(Plan(Definition(DefinitionFixture.Valid()), triggers: new[] { live }).Triggers);
 
         Assert.Equal((PlannedTriggerAction.Keep, live.Id), (t.Action, t.Id));
-        Assert.Equal("Trigger devthrottle-outreach kept as it is; its check is read from version 3.", t.Sentence(3));
+        Assert.Equal("Trigger devthrottle-outreach-start-1 kept as it is; its check is read from version 3.", t.Sentence(3));
     }
 
     [Fact]
     public void Compose_AnIntervalEdited_ChangesTheTriggerInPlace_AndSaysWhat()
     {
-        var live = DefTrigger("devthrottle-outreach", interval: 300, check: "checks/old_mail.py", secrets: """["old-entry"]""",
+        var live = DefTrigger("devthrottle-outreach-start-1", interval: 300, check: "checks/old_mail.py", secrets: """["old-entry"]""",
             prompt: "Old.", machine: "SOREN_NORTH");
 
         var t = Assert.Single(Plan(Definition(DefinitionFixture.Valid()), triggers: new[] { live }).Triggers);
 
         Assert.Equal((PlannedTriggerAction.Update, live.Id), (t.Action, t.Id));
-        Assert.Equal("devthrottle-outreach", t.Row!.Name);
-        Assert.Equal("Trigger devthrottle-outreach changed: every 5 minutes -> every 10 minutes; check checks/old_mail.py -> checks/new_mail.py; " +
+        Assert.Equal("devthrottle-outreach-start-1", t.Row!.Name);
+        Assert.Equal("Trigger devthrottle-outreach-start-1 changed: every 5 minutes -> every 10 minutes; check checks/old_mail.py -> checks/new_mail.py; " +
                      "secrets old-entry -> outreach-imap-password; prompt changed; machine SOREN_NORTH -> SOREN_SOUTH; its check is read from version 2.",
             t.Sentence(2));
     }
@@ -392,16 +392,16 @@ public sealed class FactoryPublishPlanTests
     [Fact]
     public void Compose_ADefinitionTriggerNoStartNames_AndOneOfAGoneSeat_AreDeleted_AndACommandTriggerToo()
     {
-        var spare = DefTrigger("devthrottle-outreach-2", interval: 3600, check: "checks/other.py");
+        var spare = DefTrigger("devthrottle-outreach-start-2", interval: 3600, check: "checks/other.py");
         var gone = DefTrigger("devthrottle-retired", seat: "retired");
         var command = Trigger("inbox-watch");
-        var kept = DefTrigger("devthrottle-outreach");
+        var kept = DefTrigger("devthrottle-outreach-start-1");
 
         var plan = Plan(Definition(DefinitionFixture.Valid()), triggers: new[] { spare, gone, command, kept });
 
         Assert.Equal(PlannedTriggerAction.Keep, plan.Triggers[0].Action);
         var deletes = plan.Triggers.Where(t => t.Action == PlannedTriggerAction.Delete).ToDictionary(t => t.Name, t => t.Sentence());
-        Assert.Equal("Trigger devthrottle-outreach-2 deleted: no start in the definition names it; its run history is kept.", deletes["devthrottle-outreach-2"]);
+        Assert.Equal("Trigger devthrottle-outreach-start-2 deleted: no start in the definition names it; its run history is kept.", deletes["devthrottle-outreach-start-2"]);
         Assert.Equal("Trigger devthrottle-retired deleted: its seat 'retired' is not in the definition; its run history is kept.", deletes["devthrottle-retired"]);
         Assert.Equal("Trigger inbox-watch deleted: its check is a command, and a defined factory's triggers come from its definition; its run history is kept.", deletes["inbox-watch"]);
     }
@@ -409,8 +409,8 @@ public sealed class FactoryPublishPlanTests
     [Fact]
     public void Compose_ATriggerNameAnotherFactoryHolds_IsRefused_OnTheSeatFile_InWords()
     {
-        // Arrange: another factory's trigger already holds devthrottle-outreach, ignoring case.
-        var theirs = Trigger("DevThrottle-Outreach", "invoice-factory");
+        // Arrange: another factory's trigger already holds devthrottle-outreach-start-1, ignoring case.
+        var theirs = Trigger("DevThrottle-Outreach-Start-1", "invoice-factory");
 
         // Act
         var composed = FactoryPublishPlan.Compose(Definition(DefinitionFixture.Valid()), Registry(),
@@ -420,17 +420,17 @@ public sealed class FactoryPublishPlanTests
         Assert.Null(composed.Plan);
         var finding = Assert.Single(composed.Refusal!.Findings);
         Assert.Equal("seats/outreach.yaml", finding.File);
-        Assert.Equal("The trigger this start makes is named devthrottle-outreach, and that name is taken by the trigger " +
-                     "'DevThrottle-Outreach' of invoice-factory. A trigger's name is unique in the account; rename or delete " +
+        Assert.Equal("The trigger this start makes is named devthrottle-outreach-start-1, and that name is taken by the trigger " +
+                     "'DevThrottle-Outreach-Start-1' of invoice-factory. A trigger's name is unique in the account; rename or delete " +
                      "that trigger, then publish.", finding.Message);
     }
 
     [Fact]
     public void Compose_ATriggerNameThisFactorysCommandTriggerHeld_IsTakenOver_ByTheDefinitionTrigger()
     {
-        var plan = Plan(Definition(DefinitionFixture.Valid()), triggers: new[] { Trigger("devthrottle-outreach") });
+        var plan = Plan(Definition(DefinitionFixture.Valid()), triggers: new[] { Trigger("devthrottle-outreach-start-1") });
 
-        Assert.Equal(new[] { (PlannedTriggerAction.Create, "devthrottle-outreach"), (PlannedTriggerAction.Delete, "devthrottle-outreach") },
+        Assert.Equal(new[] { (PlannedTriggerAction.Create, "devthrottle-outreach-start-1"), (PlannedTriggerAction.Delete, "devthrottle-outreach-start-1") },
             plan.Triggers.Select(t => (t.Action, t.Name)));
     }
 
@@ -438,7 +438,7 @@ public sealed class FactoryPublishPlanTests
     public void Compose_AKeptTriggerWhoseStartMovedInTheList_IsRenamedWithIt()
     {
         // Arrange: the hourly check was the seat's second start and is now its only one.
-        var live = DefTrigger("devthrottle-outreach-2", interval: 3600, prompt: "Hourly.", secrets: "[]");
+        var live = DefTrigger("devthrottle-outreach-start-2", interval: 3600, prompt: "Hourly.", secrets: "[]");
         var d = WithSeat(Definition(DefinitionFixture.Valid()), "outreach", s => s with
         {
             Starts = new[] { new SeatStartDefinition(null, null, "1h", 3600, "checks/new_mail.py", Array.Empty<string>(), "Hourly.", true) },
@@ -448,13 +448,13 @@ public sealed class FactoryPublishPlanTests
         var t = Assert.Single(Plan(d, triggers: new[] { live }).Triggers);
 
         // Assert
-        Assert.Equal((PlannedTriggerAction.Update, live.Id, "devthrottle-outreach"), (t.Action, t.Id, t.Name));
-        Assert.Equal("Trigger devthrottle-outreach changed: renamed devthrottle-outreach-2 -> devthrottle-outreach; its check is read from version 2.",
+        Assert.Equal((PlannedTriggerAction.Update, live.Id, "devthrottle-outreach-start-1"), (t.Action, t.Id, t.Name));
+        Assert.Equal("Trigger devthrottle-outreach-start-1 changed: renamed devthrottle-outreach-start-2 -> devthrottle-outreach-start-1; its check is read from version 2.",
             t.Sentence(2));
     }
 
     [Fact]
-    public void Compose_TwoIntervalStartsOnASeat_TakeTheNameAndTheNameWithTwo()
+    public void Compose_TwoIntervalStartsOnASeat_AreNamedByTheirStartNumbers()
     {
         var d = WithSeat(Definition(DefinitionFixture.Valid()), "outreach", s => s with
         {
@@ -467,8 +467,76 @@ public sealed class FactoryPublishPlanTests
 
         var plan = Plan(d);
 
-        Assert.Equal(new[] { "devthrottle-outreach", "devthrottle-outreach-2" }, plan.Triggers.Select(t => t.Name));
+        Assert.Equal(new[] { "devthrottle-outreach-start-1", "devthrottle-outreach-start-2" }, plan.Triggers.Select(t => t.Name));
         Assert.Equal(new[] { 600, 3600 }, plan.Triggers.Select(t => t.Row!.IntervalSeconds));
+    }
+
+    [Fact]
+    public void Compose_AnIntervalStartAfterATimedStart_IsNumberedAmongEveryStart()
+    {
+        // Arrange: a timed start first, so the interval start is the seat's SECOND start.
+        var d = WithSeat(Definition(DefinitionFixture.Valid()), "outreach", s => s with
+        {
+            Starts = new[]
+            {
+                new SeatStartDefinition("0 9 * * 1-5", "Europe/Copenhagen", null, null, null, Array.Empty<string>(), "Morning.", true),
+                s.Starts[0],
+            },
+        });
+
+        var plan = Plan(d);
+
+        Assert.Equal("devthrottle-outreach-start-2", Assert.Single(plan.Triggers).Name);
+    }
+
+    [Fact]
+    public void CheckStateFold_NumbersAStartByItsPlaceAmongEveryStart_TheNumberInItsTriggersName()
+    {
+        // Arrange: the interval start is the seat's second start; its trigger is the one the plan writes for it.
+        var d = WithSeat(Definition(DefinitionFixture.Valid()), "outreach", s => s with
+        {
+            Starts = new[]
+            {
+                new SeatStartDefinition("0 9 * * 1-5", "Europe/Copenhagen", null, null, null, Array.Empty<string>(), "Morning.", true),
+                s.Starts[0],
+            },
+        });
+        var row = Assert.Single(Plan(d).Triggers).Row!;
+        var live = new TriggerEntity
+        {
+            Name = row.Name, Factory = TheFactory, FactoryAgent = row.FactoryAgent, Machine = row.Machine,
+            RepoPath = row.RepoPath, CheckCommand = "", IntervalSeconds = row.IntervalSeconds, Prompt = row.Prompt,
+            Seat = "outreach", DefinitionVersion = 1, CheckPath = row.CheckPath,
+            SecretsJson = System.Text.Json.JsonSerializer.Serialize(row.Secrets),
+        };
+
+        // Act
+        var listed = CcDirector.Gateway.Factory.Triggers.FactoryCheckStateFold.List(d, new[] { live }, _ => null);
+
+        // Assert
+        var only = Assert.Single(listed);
+        Assert.Equal(("outreach", 2, "devthrottle-outreach-start-2"), (only.Seat, only.Start, only.Name));
+    }
+
+    [Fact]
+    public void DuplicateNames_TwoPlannedTriggersSharingAName_AreRefusedOnEachSeatFile_InWords()
+    {
+        // Arrange: two planned triggers whose names differ only in case - a name is unique in the account ignoring case.
+        var planned = new[]
+        {
+            new PlannedTrigger(PlannedTriggerAction.Create, null, "f-a-start-1", "a", 0, null, null),
+            new PlannedTrigger(PlannedTriggerAction.Create, null, "F-A-start-1", "b", 2, null, null),
+            new PlannedTrigger(PlannedTriggerAction.Create, null, "f-c-start-1", "c", 0, null, null),
+        };
+
+        // Act
+        var findings = FactoryPublishPlan.DuplicateNames(planned).ToList();
+
+        // Assert
+        Assert.Equal(new[] { "seats/a.yaml", "seats/b.yaml" }, findings.Select(f => f.File));
+        Assert.Equal("Start 1 of this seat makes a trigger named f-a-start-1, and so does start 3 of seat b. " +
+                     "A trigger's name is unique in the account; rename one of the seats, then publish.", findings[0].Message);
+        Assert.All(findings, f => Assert.Equal(DefinitionSeverity.Error, f.Severity));
     }
 
     [Fact]
@@ -491,7 +559,7 @@ public sealed class FactoryPublishPlanTests
         var plan = Plan(Definition(DefinitionFixture.Valid()),
             triggers: new[] { DefTrigger("invoice-clerk", seat: "outreach", factory: "invoice-factory") });
 
-        Assert.Equal(new[] { (PlannedTriggerAction.Create, "devthrottle-outreach") }, plan.Triggers.Select(t => (t.Action, t.Name)));
+        Assert.Equal(new[] { (PlannedTriggerAction.Create, "devthrottle-outreach-start-1") }, plan.Triggers.Select(t => (t.Action, t.Name)));
     }
 
     // ---------- refusals (design section 4) ----------

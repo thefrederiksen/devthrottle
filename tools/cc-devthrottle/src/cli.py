@@ -4751,12 +4751,13 @@ def factory_definition_schemas(
 def factory_check_state_show(
     factory: str = typer.Argument(..., help="The factory's id, for example warmforward."),
     seat: Optional[str] = typer.Argument(None, help="Show only this seat's checked starts."),
-    start: Optional[int] = typer.Option(None, "--start", min=1, help="Show only the start with this number in its seat."),
+    start: Optional[int] = typer.Option(None, "--start", min=1, help="Show only the start with this number: its place in the seat's starts list, from 1."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the starts as JSON, each state whole."),
 ) -> None:
     """Every checked start of the published definition, with the newest state its check left.
 
-    A start is named by its seat and its number: the Nth start with a check in the seat's file, counting from 1.
+    A start is named by its seat and its number: its place in the seat's starts: list, counting every start from 1
+    (the number in its trigger's name, <factory>-<seat>-start-<N>).
     A state longer than one line is cut short here; --json gives it whole.
     """
     factory_check_state_ops.show(factory, seat, start, json_output)
@@ -4768,7 +4769,8 @@ def factory_check_state_reset(
     seat: str = typer.Argument(..., help="The seat whose checked start to reset."),
     start: Optional[int] = typer.Option(
         None, "--start", min=1,
-        help="The start's number in its seat (show prints it). Not needed when the seat has one checked start.",
+        help="The start's number: its place in the seat's starts list, from 1 (show prints it). Not needed when the "
+             "seat has one checked start.",
     ),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the reset start as JSON."),
 ) -> None:

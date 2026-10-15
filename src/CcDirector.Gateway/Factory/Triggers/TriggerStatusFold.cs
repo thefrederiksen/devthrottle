@@ -9,6 +9,9 @@ public readonly record struct TriggerStatus(string Kind, string Text);
 /// RED, NEVER SILENCE (the Website Business Factory mission, product track). A trigger's status is decided here,
 /// on the Gateway, and a client only renders it (CLAUDE.md rule 7):
 ///
+///  - RED "no Director on MACHINE can run checks from a definition yet" for a trigger from a factory's definition
+///    when no connected Director on its machine said on Hello that it runs those (Factory Definition, phase 5b,
+///    design 2.6). Checked before everything else: no other reading of the trigger means anything until one does.
 ///  - RED "no checks ran" when no check has been recorded within two intervals - of the last check, or, for a
 ///    trigger never checked, of its creation. A Director that stopped running the check reads as red, because
 ///    silence is never a quiet night. This is checked first: a newer silence outranks an older failure.
@@ -32,6 +35,9 @@ public static class TriggerStatusFold
     /// the tunnel dropped mid-command, so the Director may have created the session. The lock is held meanwhile.</summary>
     public const string StartUnknownPrefix = "the session start outcome is not known: ";
 
+    /// <summary>The status of a trigger from a definition when no Director on its machine runs those yet.</summary>
+    public static string NoDefinitionDirectorStatus(string machine) => $"no Director on {machine} can run checks from a definition yet";
+
     /// <summary>The status while a start whose outcome is not known holds the lock.</summary>
     public const string StartUnknownStatus = "start outcome unknown - waiting for the session";
 
@@ -42,8 +48,12 @@ public static class TriggerStatusFold
 
     public static TriggerStatus For(
         DateTime createdUtc, int intervalSeconds, DateTime? lastCheckUtc, string? lastOutcome, string? lastReason,
-        string? lastSessionId, DateTime? lastStartedUtc, DateTime nowUtc, bool startOutcomeUnknown = false)
+        string? lastSessionId, DateTime? lastStartedUtc, DateTime nowUtc, bool startOutcomeUnknown = false,
+        string? noDefinitionDirectorOn = null)
     {
+        if (noDefinitionDirectorOn is not null)
+            return new TriggerStatus(TriggerStatusKind.Red, NoDefinitionDirectorStatus(noDefinitionDirectorOn));
+
         var silenceLimit = TimeSpan.FromSeconds(intervalSeconds * 2.0);
         var since = lastCheckUtc ?? createdUtc;
         if (nowUtc - since > silenceLimit)

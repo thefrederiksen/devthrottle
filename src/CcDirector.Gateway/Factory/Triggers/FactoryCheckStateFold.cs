@@ -10,10 +10,11 @@ namespace CcDirector.Gateway.Factory.Triggers;
 /// 1.4) - what <c>cc-devthrottle factory check-state show</c> prints and what a reset is aimed with. Pure: the published
 /// definition, the factory's live triggers and a reader of the newest state go in; one row per checked start comes out.
 ///
-/// A START IS NAMED BY ITS SEAT AND ITS NUMBER: the Nth start with a check in that seat's file, counting from 1, in the
-/// order the file lists them - the words a person editing the definition already uses. The live trigger that runs it
-/// is found with the one pairing a publish uses (<see cref="FactoryDefinitionChanges.PairStarts"/>), so the number
-/// a person reads here is the start the publish wrote that trigger from.
+/// A START IS NAMED BY ITS SEAT AND ITS NUMBER: its place in that seat's <c>starts:</c> list, counting EVERY start from
+/// 1 - the number in its trigger's name (<see cref="FactoryPublishPlan.TriggerName"/>) and the words a person editing
+/// the definition already uses. The live trigger that runs it is found with the one pairing a publish uses
+/// (<see cref="FactoryDefinitionChanges.PairStarts"/>), so the number a person reads here is the start the publish
+/// wrote that trigger from.
 /// </summary>
 public static class FactoryCheckStateFold
 {
@@ -32,9 +33,10 @@ public static class FactoryCheckStateFold
 
         foreach (var seat in definition.Seats.OrderBy(s => s.Seat, StringComparer.Ordinal))
         {
-            // The checked starts of the seat, in file order; an interval start is the one kind a trigger runs.
-            var checkedStarts = Enumerable.Range(0, seat.Starts.Count).Where(i => seat.Starts[i].Check is not null).ToList();
-            var interval = checkedStarts.Where(i => seat.Starts[i].Cron is null).ToList();
+            // The seat's checked interval starts, by their place in the whole list: an interval start is the one kind a
+            // trigger runs, and it always has a check.
+            var interval = Enumerable.Range(0, seat.Starts.Count)
+                .Where(i => seat.Starts[i].Check is not null && seat.Starts[i].Cron is null).ToList();
             var live = liveTriggers
                 .Where(t => t.IsDefinitionCheck && string.Equals(t.Factory, definition.Factory, StringComparison.Ordinal)
                             && t.Seat == seat.Seat)
@@ -44,7 +46,7 @@ public static class FactoryCheckStateFold
             foreach (var pair in pairing.Pairs.OrderBy(p => interval[p.New]))
             {
                 var trigger = live[pair.Old];
-                var number = checkedStarts.IndexOf(interval[pair.New]) + 1;
+                var number = interval[pair.New] + 1;
                 rows.Add(Row(trigger, seat.Seat, number, newestOf(FactoryCheckStateStore.TriggerOwner(trigger.Id))));
             }
         }
