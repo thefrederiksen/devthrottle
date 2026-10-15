@@ -23,6 +23,8 @@ public sealed class DefinitionYamlWriterTests
         "first\n  indented\n", "\nstarts empty\n", "a\n   \nb\n", "crlf\r\nline\r\n", "\n", "\n\n",
         "control\u0001char", "bom\uFEFFinside", "ends with colon:", "line\n- looks like a list\n",
         "key: value\nother: value\n",
+        // U+2028 and U+2029: the parser reads both as line breaks, so neither may be written raw (review of 4007).
+        "line\u2028separator", "paragraph\u2029separator\nsecond line\n",
     };
 
     [Theory]

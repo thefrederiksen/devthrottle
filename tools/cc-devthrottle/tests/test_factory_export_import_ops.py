@@ -117,7 +117,7 @@ def test_export_APathOutsideTheFolder_IsNeverWritten(gateway, tmp_path):
     result = runner.invoke(app, ["factory", "export", FACTORY, "--out", str(out)])
 
     assert result.exit_code == 1
-    assert "'../escaped.txt', which is not inside the folder" in result.output
+    assert "'../escaped.txt', which is not inside the folder; nothing was written." in result.output
     assert not (tmp_path / "escaped.txt").exists()
     assert not (out / "factory.yaml").exists()
 
@@ -198,15 +198,15 @@ def test_import_SendsEveryFileExactlyAsOnDisk_ToTheImportRoute_AndPublishesNothi
     assert "Nothing was published: no version is published yet." in result.stdout
 
 
-def test_import_Factory_IsSent_AndAPublishedVersionIsSaidToStay(gateway, folder):
+def test_import_SendsNoFactory_AndAPublishedVersionIsSaidToStay(gateway, folder):
     answer = version(4, published=3, files=None)
     answer["created"] = False
     gw = gateway((200, answer))
 
-    result = runner.invoke(app, ["factory", "import", str(folder), "--factory", FACTORY])
+    result = runner.invoke(app, ["factory", "import", str(folder)])
 
     assert result.exit_code == 0, result.output
-    assert gw.calls[0]["body"]["factory"] == FACTORY
+    assert "factory" not in gw.calls[0]["body"]
     assert "Nothing was published: version 3 stays the published definition." in result.stdout
     assert "created" not in result.stdout
 
@@ -278,3 +278,32 @@ def test_schemas_AnAnswerWithNoSchemas_IsNeverReportedAsNone(gateway):
 
     assert result.exit_code == 1
     assert "answered with no schemas" in result.output
+
+
+def test_import_Factory_IsNotAnOption_BecauseFactoryYamlNamesTheFactory(gateway, folder):
+    gw = gateway()
+
+    result = runner.invoke(app, ["factory", "import", str(folder), "--factory", FACTORY])
+
+    assert result.exit_code != 0
+    assert gw.calls == []
+
+
+def test_export_ADiskFailure_IsASentenceNotATraceback(gateway, tmp_path, monkeypatch):
+    real_open = Path.open
+
+    def failing_open(self, mode="r", *args, **kwargs):
+        if "w" in mode and self.name == "grants.yaml":
+            raise OSError("No space left on device")
+        return real_open(self, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", failing_open)
+    files = dict(STORED, **{"grants.yaml": "grants: []\n"})
+    gateway((200, exported(files=files)))
+
+    result = runner.invoke(app, ["factory", "export", FACTORY, "--out", str(tmp_path / "o")])
+
+    assert result.exit_code == 1
+    assert "grants.yaml could not be written to" in result.output
+    assert "No space left on device" in result.output
+    assert "Traceback" not in result.output

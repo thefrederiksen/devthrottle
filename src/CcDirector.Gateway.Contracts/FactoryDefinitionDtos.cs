@@ -238,14 +238,11 @@ public sealed class FactoryDefinitionExportReportDto
 }
 
 /// <summary>
-/// Body of an import (phase 3): a folder's files, checked exactly as a draft save is and stored as the next draft,
-/// never published.
+/// Body of an import (phase 3): a folder's files, checked exactly as a draft save is and stored as the next draft of
+/// the factory its factory.yaml names, never published.
 /// </summary>
 public sealed class ImportFactoryDefinitionRequest
 {
-    /// <summary>The factory to import into. When null, the factory factory.yaml names.</summary>
-    public string? Factory { get; set; }
-
     public string? Note { get; set; }
 
     public Dictionary<string, string>? Content { get; set; }

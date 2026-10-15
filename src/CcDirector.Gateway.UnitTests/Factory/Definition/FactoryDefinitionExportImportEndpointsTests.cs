@@ -80,9 +80,9 @@ public sealed class FactoryDefinitionExportImportEndpointsTests : IDisposable
         return FactoryDefinitionEndpoints.Export(ctx, factory, _store, InA, FactoryOf, (_, _) => _live);
     }
 
-    private IResult Import(HttpContext ctx, IReadOnlyDictionary<string, string?> content, string? factory = null, string? note = null) =>
+    private IResult Import(HttpContext ctx, IReadOnlyDictionary<string, string?> content, string? note = null) =>
         FactoryDefinitionEndpoints.Import(ctx,
-            new ImportFactoryDefinitionRequest { Factory = factory, Note = note, Content = new Dictionary<string, string>(content!) },
+            new ImportFactoryDefinitionRequest { Note = note, Content = new Dictionary<string, string>(content!) },
             _store, InA, FactoryOf, _account, () => Now);
 
     private IResult Save(HttpContext ctx, IReadOnlyDictionary<string, string?> content, int expect) =>
@@ -274,27 +274,14 @@ public sealed class FactoryDefinitionExportImportEndpointsTests : IDisposable
     }
 
     [Fact]
-    public void AN_IMPORT_NAMING_A_FACTORY_THAT_FACTORY_YAML_DOES_NOT_IS_REFUSED_ON_FACTORY_YAML_LINE_1()
-    {
-        var imported = Import(Person(), Valid(), factory: "another-factory");
-
-        Assert.Equal(422, Status(imported));
-        var error = Assert.Single(Findings(imported), f => f.Severity == "error");
-        Assert.Equal("factory.yaml", error.File);
-        Assert.Equal(1, error.Line);
-        Assert.Contains("this definition is being saved for 'another-factory'", error.Message);
-        Assert.Null(_store.Standing(A, "another-factory").Newest);
-    }
-
-    [Fact]
-    public void AN_IMPORT_WITH_NO_FACTORY_YAML_AND_NO_FACTORY_NAMED_IS_REFUSED_SAYING_SO()
+    public void AN_IMPORT_WITH_NO_FACTORY_YAML_IS_REFUSED_SAYING_SO()
     {
         var withoutFactory = DefinitionFixture.Without("factory.yaml").ToDictionary(p => p.Key, p => (string?)p.Value);
 
         var imported = Import(Person(), withoutFactory);
 
         Assert.Equal(422, Status(imported));
-        Assert.Equal("The folder was not imported: nothing says which factory it is for. Name the factory, or fix factory.yaml.", Field(imported, "error"));
+        Assert.Equal("The folder was not imported: its factory.yaml does not say which factory it is for. Fix factory.yaml.", Field(imported, "error"));
         var error = Assert.Single(Findings(imported), f => f.File == "factory.yaml");
         Assert.Contains("no factory.yaml", error.Message);
     }
@@ -320,6 +307,23 @@ public sealed class FactoryDefinitionExportImportEndpointsTests : IDisposable
         Assert.Equal("session", Version(imported).AuthorKind);
         Assert.Equal(FactorySession, Version(imported).AuthorId);
         Assert.Null(_store.Standing(A, TheFactory).Published);
+    }
+
+    [Fact]
+    public void A_MACHINE_TOKEN_IS_REFUSED_BEFORE_ITS_CONTENT_IS_READ()
+    {
+        // Review of 4007, finding 3: content that would be refused for itself - a null path, no factory.yaml - must not
+        // be answered for a caller that may never write.
+        var nullPath = Valid();
+        nullPath["factory.yaml"] = null;
+        var noFactory = DefinitionFixture.Without("factory.yaml").ToDictionary(p => p.Key, p => (string?)p.Value);
+
+        foreach (var content in new[] { nullPath, noFactory })
+        {
+            var refused = Import(Machine(), content);
+            Assert.Equal(403, Status(refused));
+            Assert.Equal("a factory's definition is written by a person, or by a session of that factory", Field(refused, "error"));
+        }
     }
 
     // ---------- a path that maps to no text (review 2 of 4004) ----------

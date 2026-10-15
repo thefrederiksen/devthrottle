@@ -274,7 +274,7 @@ def main():
         cli(person, ["factory", "import", fixed, "--note", "recreated from what was live"], 0)
 
         # ---- 4. Export, import into a new id, export again: the same bytes.
-        cli(person, ["factory", "import", str(EXAMPLE), "--factory", FACTORY, "--note", "the example"], 0)
+        cli(person, ["factory", "import", str(EXAMPLE), "--note", "the example"], 0)
         cli(person, [*d, "publish", FACTORY, "--version", "1"], 0)
         a = exports / "a"
         cli(person, ["factory", "export", FACTORY, "--out", str(a)], 0)
@@ -306,7 +306,8 @@ def main():
 
         # ---- 7. Refusals with file and line.
         cli(person, ["factory", "import", copy_with("unknown-key", a, [("seats/writer.yaml", "role: Writer", "role: Writer\ncolour: red")])], 1)
-        cli(person, ["factory", "import", str(a), "--factory", "some-other-factory"], 1)
+        # A session of qa-outreach importing a folder whose factory.yaml names another factory: refused by the caller gate.
+        cli(session, ["factory", "import", renamed], 1)
 
         # ---- 8. A path mapped to null: a 400 naming the path, never a 500.
         raw("PUT", f"/factory-definitions/{FACTORY}/draft",

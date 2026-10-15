@@ -28,8 +28,9 @@ namespace CcDirector.Gateway.Api;
 ///   POST /factory-definitions/{factory}/restore            publish a copy of an older version as the newest - A PERSON ONLY
 ///   GET  /factory-definitions/{factory}/export             the definition as a folder of files (phase 3, ?version=N);
 ///                                                          for a factory with NO definition, written from what is live
-///   POST /factory-definitions/import                       a folder's files, checked as a save is, stored as the next
-///                                                          draft - NEVER published (phase 3)
+///   POST /factory-definitions/import                       a folder's files, for the factory its factory.yaml names,
+///                                                          checked as a save is, stored as the next draft - NEVER
+///                                                          published (phase 3)
 ///   GET  /factory-definition-schemas                       the JSON Schemas the check enforces (phase 3)
 ///
 /// WHO IS ASKING is read exactly as it is for a seat's brief and a factory's schedules and triggers
@@ -57,7 +58,7 @@ internal static class FactoryDefinitionEndpoints
 {
     internal const string Prefix = "/factory-definitions";
 
-    /// <summary>Where a folder is imported. Not under <c>{factory}</c>: the factory may be the one factory.yaml names.</summary>
+    /// <summary>Where a folder is imported. Not under <c>{factory}</c>: the factory is the one factory.yaml names.</summary>
     internal const string ImportRoute = Prefix + "/import";
 
     /// <summary>Where the schemas are served. Not under <see cref="Prefix"/>, where any one-word path is a factory.</summary>
@@ -412,19 +413,23 @@ internal static class FactoryDefinitionEndpoints
     /// <summary>
     /// POST a folder's files as the next DRAFT: checked exactly as a draft save is (<see cref="SaveChecked"/>), by the
     /// same callers, and stored after the newest version - creating the factory's definition when it has none. It never
-    /// publishes. The factory is the one the body names, or else the one factory.yaml names; the check then requires
-    /// the two to agree, as a save does.
+    /// publishes. The factory is the one factory.yaml names, and nothing else: an import never rewrites a file, so a
+    /// copy under a new id is a folder whose factory.yaml names that id (review of 4007, finding 2).
     /// </summary>
     internal static IResult Import(HttpContext ctx, ImportFactoryDefinitionRequest? body, FactoryDefinitionStore store,
         Func<HttpContext, TenantId?> resolveTenant, Func<string, SessionFactoryLookup> sessionFactoryOf,
         Account account, Func<DateTime> nowUtc)
     {
         if (resolveTenant(ctx) is not { } tenant) return NoAccount();
+        // A caller that can never write - the shared machine token, a Director - is refused BEFORE its content is read
+        // (review of 4007, finding 3): that needs no factory. A session is matched to the factory once factory.yaml
+        // has named it, below.
+        if (!TryWriter(new Caller(KindOf(ctx), null), $"POST {ImportRoute}", out var notAWriter)) return notAWriter!;
         if (body is null) return NoBody();
         var content = body.Content ?? new Dictionary<string, string>();
         if (NoText(content) is { } noText) return noText;
 
-        var factory = string.IsNullOrWhiteSpace(body.Factory) ? FactoryNamedIn(content) : body.Factory;
+        var factory = FactoryNamedIn(content);
         if (factory is null)
         {
             // Nothing says which factory: the format check's own findings say why factory.yaml does not.
@@ -435,7 +440,7 @@ internal static class FactoryDefinitionEndpoints
             FileLog.Write($"[FactoryDefinitionEndpoints] import REFUSED (422) - no factory named; findings={findings.Count}");
             return Results.Json(new
             {
-                error = "The folder was not imported: nothing says which factory it is for. Name the factory, or fix factory.yaml.",
+                error = "The folder was not imported: its factory.yaml does not say which factory it is for. Fix factory.yaml.",
                 outcome = "CheckFailed",
                 findings,
             }, statusCode: StatusCodes.Status422UnprocessableEntity);
@@ -653,14 +658,23 @@ internal static class FactoryDefinitionEndpoints
         caller = default;
         if (!FactoryNaming.TryAct(ctx, factoryOf, factory, What, route, out error)) return false;
 
-        var deviceType = ctx.Items.TryGetValue(AuthMiddleware.DeviceTypeItemKey, out var dt) ? dt as string : null;
-        if (SessionOriginSurfaces.FromDeviceType(deviceType) != SessionOriginSurfaces.Unknown)
-            caller = new Caller(FactoryMemoryAuthorKinds.Person, FleetManagerOwnerDevice.Caller(ctx)?.Actor);
-        else if (AuthMiddleware.CallingSession(ctx) is { } session)
-            caller = new Caller(FactoryMemoryAuthorKinds.Session, session.SessionId.ToString());
-        else
-            caller = new Caller(NeitherPersonNorSession, null);
+        caller = KindOf(ctx) switch
+        {
+            FactoryMemoryAuthorKinds.Person => new Caller(FactoryMemoryAuthorKinds.Person, FleetManagerOwnerDevice.Caller(ctx)?.Actor),
+            FactoryMemoryAuthorKinds.Session => new Caller(FactoryMemoryAuthorKinds.Session, AuthMiddleware.CallingSession(ctx)!.SessionId.ToString()),
+            var other => new Caller(other, null),
+        };
         return true;
+    }
+
+    /// <summary>What kind of caller this is - a person's device, a session's key, or neither - without asking which
+    /// factory it may touch.</summary>
+    private static string KindOf(HttpContext ctx)
+    {
+        var deviceType = ctx.Items.TryGetValue(AuthMiddleware.DeviceTypeItemKey, out var dt) ? dt as string : null;
+        if (SessionOriginSurfaces.FromDeviceType(deviceType) != SessionOriginSurfaces.Unknown) return FactoryMemoryAuthorKinds.Person;
+        if (AuthMiddleware.CallingSession(ctx) is not null) return FactoryMemoryAuthorKinds.Session;
+        return NeitherPersonNorSession;
     }
 
     /// <summary>A write needs an author: a person or a session. The shared machine token and a Director are neither.</summary>

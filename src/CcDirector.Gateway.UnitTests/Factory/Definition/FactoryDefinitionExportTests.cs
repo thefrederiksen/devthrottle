@@ -132,7 +132,7 @@ public sealed class FactoryDefinitionExportTests
         Reported("seats/boss.yaml", @"(cj_boss) is a start here, but its working folder 'D:\ReposFred\devthrottle-factory' is not kept");
         Reported("seats/boss.yaml", "(cj_boss) is a start here, but its notification ('failure') is not kept");
         Reported("seats/boss.yaml", "(cj_boss) is a start here, but it keeps its session open");
-        Reported("seats/boss.yaml", "The registry lists the schedule 'cj_gone' for this seat, but no such schedule exists");
+        Reported("seats/boss.yaml", "The registry lists the schedule 'cj_gone' for this seat, but no schedule of this factory has that id");
         Reported("seats/outreach.yaml", "The seat has no published brief on the Gateway; its brief is the file 'briefs/outreach.md'");
         Assert.Contains("its check is the command 'python check.py'", Reported("seats/outreach.yaml", "The trigger 'new-mail' (paused)"));
         Reported("seats/", "names the seat 'ghost', which the factory does not have");

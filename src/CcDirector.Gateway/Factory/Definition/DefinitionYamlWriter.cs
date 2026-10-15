@@ -138,7 +138,7 @@ public sealed partial class DefinitionYamlWriter
     /// <summary>
     /// The chomping indicator that writes <paramref name="value"/> as a literal block exactly - "" (keep one final line
     /// break), "-" (none) or "+" (keep them all) - or null when a block cannot hold it exactly: no line break at all, a
-    /// carriage return or other control character, a line that holds only spaces or tabs, a first line that is empty
+    /// carriage return or other control character, a byte-order mark or a Unicode line separator, a line that holds only spaces or tabs, a first line that is empty
     /// or begins with a space or a tab, or nothing but line breaks.
     /// </summary>
     public static string? BlockChomping(string value)
@@ -146,7 +146,7 @@ public sealed partial class DefinitionYamlWriter
         ArgumentNullException.ThrowIfNull(value);
         var trimmed = value.TrimEnd('\n');
         if (trimmed.Length == 0 || !value.Contains('\n')) return null;
-        if (value.Any(c => c != '\n' && (char.IsControl(c) || c == '﻿'))) return null;
+        if (value.Any(c => c != '\n' && IsUnsafeRaw(c))) return null;
         var lines = trimmed.Split('\n');
         if (lines[0].Length == 0 || lines[0][0] is ' ') return null;
         if (lines.Any(l => l.Length > 0 && l.All(c => c is ' '))) return null;
@@ -158,6 +158,14 @@ public sealed partial class DefinitionYamlWriter
             _ => "+",
         };
     }
+
+    /// <summary>
+    /// A character that cannot be written as itself: a control character, the byte-order mark, and the two Unicode line
+    /// separators U+2028 and U+2029, which the definition's parser (YamlDotNet, following YAML 1.1) reads as line breaks,
+    /// so a block holding one fails to parse or comes back with a line break where the separator was. Each is never put
+    /// in a block and is escaped in a quoted value (review of 4007, finding 1).
+    /// </summary>
+    private static bool IsUnsafeRaw(char c) => char.IsControl(c) || c is '\uFEFF' or '\u2028' or '\u2029';
 
     /// <summary>A double-quoted YAML scalar holding exactly <paramref name="value"/>.</summary>
     public static string Quoted(string value)
@@ -175,7 +183,7 @@ public sealed partial class DefinitionYamlWriter
                 case '\r': q.Append("\\r"); break;
                 case '\t': q.Append("\\t"); break;
                 default:
-                    if (char.IsControl(c) || c == '﻿')
+                    if (IsUnsafeRaw(c))
                         q.Append("\\u").Append(((int)c).ToString("X4", CultureInfo.InvariantCulture));
                     else
                         q.Append(c);

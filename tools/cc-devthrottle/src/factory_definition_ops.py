@@ -418,8 +418,8 @@ def _out_path(root: Path, relative: str) -> Path:
     target = (root / relative).resolve()
     if (not relative or relative.startswith("/") or "\\" in relative or ".." in relative.split("/")
             or root.resolve() not in target.parents):
-        axi_cli.fail(f"the Gateway's answer holds the path '{relative}', which is not inside the folder; nothing more "
-                     "was written.", [axi_cli.CHECK_GATEWAY])
+        axi_cli.fail(f"the Gateway's answer holds the path '{relative}', which is not inside the folder; nothing was "
+                     "written.", [axi_cli.CHECK_GATEWAY])
     return target
 
 
@@ -450,9 +450,14 @@ def export(factory: str, out: str, version: Optional[int], json_output: bool) ->
     written: List[Dict[str, Any]] = []
     for path, target in targets.items():
         data = files[path].encode("utf-8")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with target.open("wb") as handle:
-            handle.write(data)
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with target.open("wb") as handle:
+                handle.write(data)
+        except OSError as exc:
+            axi_cli.fail(f"{path} could not be written to {root}: {exc}. {len(written)} of {len(targets)} files were "
+                         "written before it; the folder is incomplete, so delete it before exporting again.",
+                         [f"{_FACTORY_TOOL} export {_f(factory)} --out <new folder>"])
         written.append({"path": path, "bytes": len(data)})
 
     if json_output:
@@ -469,27 +474,24 @@ def export(factory: str, out: str, version: Optional[int], json_output: bool) ->
         lines.extend(axi_cli.ascii_text(f"  {r.get('file', '')}: {r.get('message', '')}") for r in reported
                      if isinstance(r, dict))
     axi_cli.write_lines(*lines)
-    axi_cli.print_next([f"{_FACTORY_TOOL} import {root} --factory {_f(factory)}",
-                        f"{_TOOL} schemas"])
+    axi_cli.print_next([f"{_FACTORY_TOOL} import {root}", f"{_TOOL} schemas"])
 
 
-def import_folder(folder: str, factory: Optional[str], note: Optional[str], json_output: bool) -> None:
-    """Send every file under a folder; the Gateway checks it exactly as a draft save and stores it as the next draft.
-    It never publishes: the published version is the same after an import as before it."""
+def import_folder(folder: str, note: Optional[str], json_output: bool) -> None:
+    """Send every file under a folder; the Gateway checks it exactly as a draft save and stores it as the next draft of
+    the factory its factory.yaml names. It never publishes: the published version is the same after as before."""
     content = read_folder(folder, "import", f"{_FACTORY_TOOL} import --help")
     body: Dict[str, Any] = {"content": content}
-    if factory is not None:
-        body["factory"] = factory
     if note is not None:
         body["note"] = note
-    named = _f(factory) if factory is not None else "<factory>"
+    named = "<factory>"
     try:
         saved = gateway.post_json(f"{ROUTE}/import", body)
     except gateway.GatewayError as exc:
         if exc.status == 409 and _outcome(exc) == "TooManyDrafts":
             axi_cli.fail(f"Not imported: {exc}", [f"{_TOOL} history {named}"])
-        _fail_gateway(exc, [f"{_FACTORY_TOOL} import {folder}" + (f" --factory {named}" if factory is not None else ""),
-                            f"{_TOOL} schemas"] if exc.status in (400, 409, 422) else None)
+        _fail_gateway(exc, [f"{_FACTORY_TOOL} import {folder}", f"{_TOOL} schemas"]
+                      if exc.status in (400, 409, 422) else None)
         return
     if not _is_version(saved):
         axi_cli.fail("the Gateway answered without the version it stored, so this command cannot show the folder was "
@@ -498,7 +500,7 @@ def import_folder(folder: str, factory: Optional[str], note: Optional[str], json
     if json_output:
         print(json.dumps(saved, indent=2))
         return
-    target = _f(str(saved.get("factory") or factory or ""))
+    target = _f(str(saved.get("factory") or ""))
     published = saved.get("publishedVersion")
     axi_cli.write_lines(
         f"Imported: version {saved['version']} of the definition of {saved.get('factory')} is a draft "

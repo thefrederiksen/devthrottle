@@ -1346,7 +1346,6 @@ _ACTIONS = [
         "mutatesState": True,
         "args": [
             {"name": "folder", "required": True},
-            {"name": "factory", "required": False},
             {"name": "note", "required": False},
         ],
     },
@@ -4736,18 +4735,16 @@ def factory_export(
 @factory_app.command("import")
 def factory_import(
     folder: str = typer.Argument(..., help="The folder holding the whole definition: factory.yaml, seats/ and the rest."),
-    factory: Optional[str] = typer.Option(
-        None, "--factory", help="The factory to import into. Default: the one factory.yaml names; the two must agree.",
-    ),
     note: Optional[str] = typer.Option(None, "--note", help="A change note, at most 500 characters."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the stored draft as JSON."),
 ) -> None:
     """Store a folder as the next draft of a factory's definition. It never publishes.
 
-    The Gateway checks the folder exactly as a save: any error refuses it and every finding is printed with
-    its file and line. A factory with no definition gets its first version.
+    The factory is the one factory.yaml names; to copy a factory under a new id, change that line. The
+    Gateway checks the folder exactly as a save: any error refuses it and every finding is printed with its
+    file and line. A factory with no definition gets its first version.
     """
-    factory_definition_ops.import_folder(folder, factory, note, json_output)
+    factory_definition_ops.import_folder(folder, note, json_output)
 
 
 _RECORD_FACTORY_HELP = "The factory's id, for example devthrottle. A session may name only its own factory."

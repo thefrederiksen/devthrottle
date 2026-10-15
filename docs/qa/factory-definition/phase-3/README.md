@@ -15,12 +15,13 @@ wrote against a real Gateway built from this branch.
   - `POST /factory-definitions/import` - a folder's files, stored as the next **draft**. It goes through the SAME
     checked save as `PUT .../draft` (one private method, `SaveChecked`, serves both): the same whole-definition
     check, the same callers, the same 422 with every finding. It creates the factory's definition when it has none.
-    It never publishes. The factory is the one the body names, or else the one `factory.yaml` names.
+    It never publishes. The factory is the one `factory.yaml` names, and nothing else names it. A caller that can
+    never write (the machine token, a Director) is refused before the content is read.
   - `GET /factory-definition-schemas` - the four JSON Schemas the check enforces, exactly as embedded, so an
     editor or an agent can check a file's shape without saving.
 - **The command line moves files; the Gateway rules.** `cc-devthrottle factory export <factory> --out <folder>
   [--version N]` writes every file as UTF-8 with no byte-order mark and its own line endings, into a new or empty
-  folder only, and never outside it. `cc-devthrottle factory import <folder> [--factory id] [--note text]` reads the
+  folder only, and never outside it. `cc-devthrottle factory import <folder> [--note text]` reads the
   folder exactly as `factory definition save` does. `cc-devthrottle factory definition schemas [--out folder]`.
   Entries in `cc-devthrottle actions`, and a section in `docs/cli-reference.md`.
 - **The export of a factory with no definition.** `factory.yaml` from the registry entry (agent `ClaudeCode`, which
@@ -29,19 +30,24 @@ wrote against a real Gateway built from this branch.
   never dropped: the factory's folder, a goal held in a file, a schedule's working folder, other machine,
   notification, kept-open session, work list, a one-off, random or switched-off schedule, a trigger (its check is a
   command; a definition's is a Python file), a schedule naming no seat of the factory, and a schedule id the registry
-  lists that does not exist. The YAML is written by `DefinitionYamlWriter`, which quotes anything YAML would read as
-  something other than the text, so the definition's own parser reads every value back exactly.
+  lists that no schedule of the factory has. The YAML is written by `DefinitionYamlWriter`, which quotes anything
+  YAML would read as something other than the text (the Unicode line separators U+2028 and U+2029 included, which
+  the parser reads as line breaks), so the definition's own parser reads every value back exactly.
 - **The fix from review 2 of pull request 4004.** A draft save whose content maps a path to `null` was a 500 (the
   check threw on it). The route now refuses it with **400**, outcome `NotText`, naming the path in the store's own
   words, before the check runs; an import feeds the same save and is refused the same way.
 
 ## The decisions taken here
 
-- **"Import into a new id" is a folder whose `factory.yaml` names the new id.** Import checks a folder exactly as a
-  save does, and a save refuses a `factory.yaml` that names another factory (shown below), so import never rewrites a
-  file. To copy a factory under a new id, the one line `factory:` is edited; the round trip below shows that the
-  folder imported and the folder exported after are the same bytes, and that the first factory's export differs from
-  the copy's in that one file only.
+- **"Import into a new id" is a folder whose `factory.yaml` names the new id.** Import never rewrites a file, so the
+  factory is the one `factory.yaml` names. The first version of this pull request also took `--factory`; the review
+  showed it could never change what is stored (it could only choose which name a refusal carried), and the Delivery
+  Lead ruled it dropped from the command, the route and mission section 5.4. To copy a factory under a new id, the one
+  line `factory:` is edited; the round trip below shows that the folder imported and the folder exported after are the
+  same bytes, and that the first factory's export differs from the copy's in that one file only.
+- **A schedule's name is not carried into its start.** A start has no name; the schedule's name is generated when the
+  definition is published. This is written into mission section 5.4 (the Delivery Lead's ruling on the review), rather
+  than reported on every start.
 - **An import goes after whatever version is newest.** A folder is a whole definition, not an edit of one, and the
   version it follows stays in the history. A write landing in between is still refused as stale by the store.
 - **Export without `--version`** gives the published version, or the newest when none is published (so a factory
@@ -103,9 +109,9 @@ files[3]{path,bytes}:
 reported[6]{file,message}:
   factory.yaml: No agent or model is recorded for this factory today: every factory seat runs ClaudeCode, on the model its machine uses by default. The folder says agent ClaudeCode and names no model.
   factory.yaml: The factory's folder '<rig>\qa-live-folder' on SOREN_NORTH is not part of a definition: nothing of a factory is kept in a folder of its own. The Gateway holds folders, not repository names, so no repository is listed: name the ones the seats work in under repositories.
-  seats/boss.yaml: The schedule 'QA Live boss morning' (cj_9e13fd) is a start here, but its working folder '<rig>\qa-live-folder' is not kept: a seat works in a repository named under repositories in factory.yaml, or in none.
+  seats/boss.yaml: The schedule 'QA Live boss morning' (cj_e81e40) is a start here, but its working folder '<rig>\qa-live-folder' is not kept: a seat works in a repository named under repositories in factory.yaml, or in none.
   seats/writer.yaml: The seat has no published brief on the Gateway; its brief is the file 'WRITER.md' in the factory's folder. The brief is left empty here: write it in before importing.
-  seats/writer.yaml: The schedule 'QA Live writer at random' (cj_7fe264) is not a start here: it is a random schedule (window=09:00-17:00 perDay=2 minGap=30 shape=human), and a start is a five-field cron expression or an interval.
+  seats/writer.yaml: The schedule 'QA Live writer at random' (cj_23c03c) is not a start here: it is a random schedule (window=09:00-17:00 perDay=2 minGap=30 shape=human), and a start is a five-field cron expression or an interval.
   seats/writer.yaml: The trigger 'qa-live-new-mail' (paused) is not a start here: its check is the command 'python check_mail.py', and a start's check is a Python file under checks/ in the definition. It runs every 600 seconds on SOREN_NORTH in '<rig>\qa-live-folder' with the prompt: Answer the {count} new mails.
 ```
 
@@ -126,8 +132,9 @@ count: 0. qa-live has no definition on the Gateway.
 ```
 
 With the brief written in, the same folder became `qa-live`'s first version: `Imported: version 1 of the definition
-of qa-live is a draft (3 files, 377 bytes). This import created the factory's definition.` Two more refusals, each
-the check's own words on the file and line:
+of qa-live is a draft (3 files, 377 bytes). This import created the factory's definition.` Another refusal, in the check's
+own words on the file and line, and the caller gate refusing a session of `qa-outreach` a folder whose `factory.yaml`
+names the copy:
 
 ```
 $ cc-devthrottle factory import <rig>\variants\unknown-key
@@ -135,10 +142,8 @@ Error: The folder was not imported: the check found 1 error in the definition of
 errors[1]:
   seats/writer.yaml:4: 'colour' is not a key of a seat file. The keys are: seat, name, role, line, machine, agent, model, repository, brief, starts, grants, rules, secrets, skills, files.
 
-$ cc-devthrottle factory import <rig>\exports\a --factory some-other-factory
-Error: The folder was not imported: the check found 1 error in the definition of some-other-factory. Fix each one where it is and try again.
-errors[1]:
-  factory.yaml:1: factory.yaml says the factory is 'qa-outreach', but this definition is being saved for 'some-other-factory'. They must be the same.
+$ cc-devthrottle factory import <rig>\variants\into-a-new-id      (as a session of qa-outreach)
+Error: this definition belongs to factory 'qa-outreach-copy', so only a person or a session of 'qa-outreach-copy' may change or run it
 ```
 
 ### An import never publishes
@@ -147,7 +152,7 @@ The published version, read before an import:
 
 ```
 $ cc-devthrottle factory definition get qa-outreach
-qa-outreach  version 1  published  written by person device browser qa-browser  2026-10-15T10:48:51.6383223Z  6 files  981 bytes
+qa-outreach  version 1  published  written by person device browser qa-browser  2026-10-15T12:05:15.757626Z  6 files  981 bytes
 ```
 
 The import:
@@ -162,7 +167,7 @@ And after it:
 
 ```
 $ cc-devthrottle factory definition get qa-outreach
-qa-outreach  version 1  published  written by person device browser qa-browser  2026-10-15T10:48:51.6383223Z  6 files  981 bytes
+qa-outreach  version 1  published  written by person device browser qa-browser  2026-10-15T12:05:15.757626Z  6 files  981 bytes
 note: the example
 A newer version, 2, is waiting and is not published. Read it with 'get --draft'.
 ```
@@ -217,15 +222,17 @@ schemas[4]{name,applies}:
   export exactly as stored (CRLF and a non-ASCII character kept), twice the same; published over a newer draft;
   `?version`; a missing version and an unregistered factory each a 404 in words; a live export storing nothing;
   import creating the first draft, importing over a published definition as the next draft with the published
-  version unchanged, refused by the check with exactly the findings a save gets, refused when the factory named and
-  `factory.yaml` disagree or nothing names one, refused for a session of another factory and for a machine token; a
+  version unchanged, refused by the check with exactly the findings a save gets, refused when no `factory.yaml` names
+  a factory, refused for a session of another factory and for a machine token, the machine token before its content
+  is read (a null path or no `factory.yaml` still answers 403); a
   null path refused with 400 on a save and on an import; and the round trip into a new id.
 - `FactoryDefinitionRoutesThroughThePipelineTests` - the three routes through the mapped endpoints with real JSON, the
   null body review 2 sent, and the mapped routes and the session key guard held to the same list.
-- `tools/cc-devthrottle/tests/test_factory_export_import_ops.py` - 16 tests against a real local HTTP server: bytes
+- `tools/cc-devthrottle/tests/test_factory_export_import_ops.py` - 18 tests against a real local HTTP server: bytes
   written exactly, twice the same, only into an empty folder, never outside it, the reported list printed, `--json`
   keeping one shape, import sending the folder to the import route and never publishing, refusals printed as
-  `file:line: message`, and the schemas.
+  `file:line: message`, `--factory` refused as an unknown option, a disk failure while writing printed as a sentence,
+  and the schemas.
 
 ## The check, as run
 

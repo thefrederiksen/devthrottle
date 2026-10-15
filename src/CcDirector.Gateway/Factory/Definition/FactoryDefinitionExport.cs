@@ -1,3 +1,4 @@
+using System.Globalization;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
@@ -98,7 +99,7 @@ public static class FactoryDefinitionExport
         foreach (var seat in seats)
             foreach (var id in seat.Schedules.Where(id => !existing.Contains(id)).OrderBy(id => id, StringComparer.Ordinal))
                 reported.Add(new ExportReport($"seats/{seat.Id}.yaml",
-                    $"The registry lists the schedule '{id}' for this seat, but no such schedule exists on the Gateway, so it is not a start."));
+                    $"The registry lists the schedule '{id}' for this seat, but no schedule of this factory has that id on the Gateway, so it is not a start."));
 
         var ordered = reported
             .Select((report, index) => (report, index))
@@ -145,7 +146,7 @@ public static class FactoryDefinitionExport
                 $"The factory's folder '{r.Folder}' on {r.Computer} is not part of a definition: nothing of a factory is kept in a folder of its own. The Gateway holds folders, not repository names, so no repository is listed: name the ones the seats work in under repositories."));
         if (r.ArchivedAtUtc is not null)
             reported.Add(new ExportReport(path,
-                $"The factory was archived by {r.ArchivedBy} on {r.ArchivedAtUtc.Value:yyyy-MM-dd}; a definition does not say whether a factory is archived."));
+                $"The factory was archived by {r.ArchivedBy} on {r.ArchivedAtUtc.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}; a definition does not say whether a factory is archived."));
         return y.ToString();
     }
 

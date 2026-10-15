@@ -2068,7 +2068,7 @@ folder and rules on the import; the command line moves the files.
 
 ```
 USAGE: cc-devthrottle factory export FACTORY --out FOLDER [--version N] [--json]
-       cc-devthrottle factory import FOLDER [--factory ID] [--note TEXT] [--json]
+       cc-devthrottle factory import FOLDER [--note TEXT] [--json]
 ```
 
 **Export** writes into a new or empty folder (anything else is refused, because a file left over would be
@@ -2089,8 +2089,9 @@ checks it exactly as a draft save - the same check, the same callers, the same r
 `file:line: message` - and stores it as the next draft after whatever version is newest. A factory with no
 definition gets its first version (`This import created the factory's definition.`). Import NEVER publishes:
 the published version is the same before and after, and a person publishes the draft with
-`factory definition publish`. Without `--factory` the factory is the one `factory.yaml` names; with it, the two
-must agree, or the check refuses on `factory.yaml` line 1.
+`factory definition publish`. The factory is the one `factory.yaml` names, and nothing else names it: import never
+rewrites a file, so to copy a factory under a new id, change the `factory:` line. A caller that can never write - the
+account's machine token, a Director - is refused before the folder is read.
 
 A save or an import whose content maps a path to no text at all (JSON `null`) is refused with 400 and the path:
 `'factory.yaml' has no text; every file in a definition is text, even if it is empty`.
