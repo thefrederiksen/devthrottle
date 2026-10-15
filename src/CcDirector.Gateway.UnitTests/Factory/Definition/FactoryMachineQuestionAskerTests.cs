@@ -289,16 +289,28 @@ public sealed class FactoryMachineQuestionAskerTests
     }
 
     [Fact]
-    public void QuestionsFor_AStartWhoseCheckNamesAFileOutsideChecks_AsksForNeither()
+    public void QuestionsFor_AStartWhoseCheckNamesAFileOutsideChecks_RaisesNoQuestion()
     {
-        // files/outreach_send.py is in the definition, but not as a check: the definition check refuses the start, and
-        // no run will ever look for a program for it.
+        // The seat schema refuses a check path outside checks/, so such a definition does not parse and the publish
+        // asks no machine anything.
         var content = DefinitionFixture.Edit("seats/outreach.yaml", "check: checks/new_mail.py", "check: files/outreach_send.py");
 
-        var question = Assert.Single(FactoryMachineQuestionAsker.QuestionsFor(FactoryDefinitionCheck.Read(content).Definition, content));
+        Assert.Empty(FactoryMachineQuestionAsker.QuestionsFor(FactoryDefinitionCheck.Read(content).Definition, content));
+    }
 
-        Assert.False(question.AskPython);
-        Assert.False(question.AskUv);
+    [Theory]
+    [InlineData("files/outreach_send.py")]
+    [InlineData("seats/outreach.yaml")]
+    public void ProgramFor_APathInTheDefinitionThatIsNotPlacedAsACheck_IsNone(string path)
+    {
+        // The file is in the content, so only the classification keeps it from being asked about as a check.
+        Assert.Equal(CheckProgram.None, FactoryMachineQuestionAsker.ProgramFor(path, DefinitionFixture.Valid()));
+    }
+
+    [Fact]
+    public void ProgramFor_ACheckPlacedAsOne_IsItsProgram()
+    {
+        Assert.Equal(CheckProgram.Python, FactoryMachineQuestionAsker.ProgramFor("checks/new_mail.py", DefinitionFixture.Valid()));
     }
 
     [Fact]
