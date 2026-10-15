@@ -5311,6 +5311,18 @@ public sealed class GatewayHost : IAsyncDisposable
             // from the definition for a defined factory (Factory Definition, phase 4).
             briefs: _factoryBriefs,
             definedBriefs: _factorySeatBriefs);
+        // The factory page's Definition tab (Factory Definition mission, phase 6): the published version, the draft, what
+        // changes, the history, and the zip its Export downloads and its Import uploads. Publish and restore go to the
+        // definition's own routes, mapped below.
+        Api.FactoryDefinitionTabEndpoints.Map(factoryGate,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            sources: factoriesScreenSources,
+            store: FactoryDefinitions,
+            apply: FactoryDefinitionPublish,
+            liveOf: FactoryLivePartsOf,
+            sessionFactoryOf: _sessionHistory.FactoryOf,
+            account: new Api.FactoryDefinitionEndpoints.Account(FleetSkillIdsOf, ConnectedMachinesOf),
+            nowUtc: () => DateTime.UtcNow);
         // The owner's actions on a factory (round 2): mark old waiting items handled, archive, restore. Owner-only,
         // and mapped OUTSIDE the gate's group like Talk, so a switch-off refusal can carry a sentence.
         Api.FactoryOwnerActionEndpoints.Map(_app, FactoryAgentsSwitch,

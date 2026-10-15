@@ -395,8 +395,7 @@ public sealed class FactoriesScreenFoldTests
         Assert.Equal("4 seats", page.SeatCountText);
         Assert.Equal("runs on SOREN_NORTH", page.ComputerText);
         Assert.Equal("Talk to the boss", page.Talk!.Label);
-        Assert.Equal(new[] { "Overview", "Floor", "Seats (4)", "Activity", "Reports", "Memory", "Documents" }, page.Tabs.Select(t => t.Label));
-        Assert.Contains("not on the", page.DocumentsText);
+        Assert.Equal(new[] { "Overview", "Floor", "Seats (4)", "Activity", "Reports", "Memory", "Definition" }, page.Tabs.Select(t => t.Label));
     }
 
     [Fact]

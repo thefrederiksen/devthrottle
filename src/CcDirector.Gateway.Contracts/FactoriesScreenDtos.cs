@@ -296,10 +296,6 @@ public sealed class FactoryPageViewDto
     public FactoryBossLatestDto BossLatest { get; set; } = new();
     public FactoryLastTalkDto LastTalk { get; set; } = new();
 
-    /// <summary>What the Documents tab says. The definitions are not on the Gateway yet, so it says that, and
-    /// shows no documents.</summary>
-    public string DocumentsText { get; set; } = "";
-
     /// <summary>Set when the record held more rows than one read returns.</summary>
     public string? TruncatedText { get; set; }
 

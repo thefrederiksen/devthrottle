@@ -342,7 +342,7 @@ describe("A factory's page (mockup 2)", () => {
       ["Activity", "/factories/warmforward/activity"],
       ["Reports", "/factories/warmforward/reports"],
       ["Memory", "/factories/warmforward/memory"],
-      ["Documents", "/factories/warmforward/documents"],
+      ["Definition", "/factories/warmforward/definition"],
     ]);
     expect(tabs[0].getAttribute("aria-current")).toBe("page");
   });
@@ -361,12 +361,6 @@ describe("A factory's page (mockup 2)", () => {
     expect(screen.getByText("No goal set yet")).toBeTruthy();
     expect(screen.getByText("No number posted yet")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Talk/ })).toBeNull();
-  });
-
-  it("shows the Documents tab's sentence and no documents", async () => {
-    renderAt("/factories/warmforward/documents");
-
-    expect(await screen.findByText("The factory's documents are not on the Gateway yet (fixture).")).toBeTruthy();
   });
 
   it("fixes the Activity tab to this factory", async () => {

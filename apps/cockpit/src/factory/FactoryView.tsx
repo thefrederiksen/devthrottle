@@ -8,7 +8,7 @@ import {
 } from "@devthrottle/client-core/factory/factoriesScreenClient";
 import { getCronJob, setCronJobEnabled, type CronJob } from "@devthrottle/client-core/schedule/scheduleClient";
 import { savedWarnings } from "@devthrottle/client-core/schedule/savedWarnings";
-import { Button, EmptyState, ErrorBanner, LoadingState } from "../components";
+import { Button, ErrorBanner, LoadingState } from "../components";
 import { ScheduleEditor, type ScheduleEditorRequest } from "../schedule/ScheduleEditor";
 import { PausedBanner, useSchedulerPause } from "../schedule/SchedulerPause";
 import { ActivityTab, ReportsTab, useView } from "./FactoryActivityTabs";
@@ -17,6 +17,7 @@ import { ProblemsCard } from "./FactoryProblems";
 import { EmailsCard } from "./FactoryEmails";
 import { FactoryFloorPanel } from "./FactoryFloor";
 import { FactoryMemoryTab } from "./FactoryMemoryTab";
+import { FactoryDefinitionTab } from "./FactoryDefinitionTab";
 import { OwnerActionButton, TalkButton, ToneChip } from "./FactoryParts";
 import { WaitingItem } from "./FactoryWaitingView";
 import "./factory.css";
@@ -26,8 +27,9 @@ const SURFACE = "cockpit-factory";
 
 // One factory's page (Factories screen mission, mockups 2 and 3): the header - name, status, the boss, seat count, the
 // computer it runs on, and Talk to the boss - then the tabs the Gateway offers: Overview, Seats (n), Activity,
-// Reports, Memory and Documents. Each tab has its own address (/factories/<id>/<tab>; the Overview is the page's own
-// address), and a tab the Gateway did not offer opens the Overview.
+// Reports, Memory and Definition. Each tab has its own address (/factories/<id>/<tab>; the Overview is the page's own
+// address), and a tab the Gateway did not offer opens the Overview. The Definition tab replaced the Documents tab
+// (Factory Definition, phase 6), so the old /documents address opens it.
 //
 // Rule 7: every word and tone is the Gateway's (FactoriesScreenFold).
 
@@ -37,7 +39,8 @@ export function factoryTabHref(factory: string, key: string): string {
 }
 
 export function FactoryView() {
-  const { factory = "", tab: requestedTab = "overview" } = useParams();
+  const { factory = "", tab: askedTab = "overview" } = useParams();
+  const requestedTab = askedTab === "documents" ? "definition" : askedTab;
   const view = useView<FactoryPageView>((s) => getFactoryPage(factory, s), factory, "load this factory");
   // What the owner's last action did, in the Gateway's words (round 2); it stays until the next one.
   const [notice, setNotice] = useState<string | null>(null);
@@ -135,7 +138,7 @@ export function FactoryView() {
       {tab === "activity" && <ActivityTab fixedFactory={page.id} />}
       {tab === "reports" && <ReportsTab fixedFactory={page.id} />}
       {tab === "memory" && <FactoryMemoryTab factory={page.id} />}
-      {tab === "documents" && <EmptyState message={page.documentsText} />}
+      {tab === "definition" && <FactoryDefinitionTab factory={page.id} />}
     </div>
   );
 }

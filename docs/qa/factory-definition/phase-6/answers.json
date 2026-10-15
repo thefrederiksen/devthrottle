@@ -1,0 +1,725 @@
+{
+  "00-writes-the-app-made": [
+    {
+      "authorization": "Bearer <the enrolled browser device key>",
+      "request": "POST /gateway/factories/qa-outreach/definition/import"
+    },
+    {
+      "authorization": "Bearer <the enrolled browser device key>",
+      "request": "POST /factory-definitions/qa-outreach/publish"
+    },
+    {
+      "authorization": "Bearer <the enrolled browser device key>",
+      "request": "POST /gateway/factories/qa-outreach/definition/import"
+    },
+    {
+      "authorization": "Bearer <the enrolled browser device key>",
+      "request": "POST /factory-definitions/qa-outreach/publish"
+    },
+    {
+      "authorization": "Bearer <the enrolled browser device key>",
+      "request": "POST /gateway/factories/qa-outreach/definition/import"
+    },
+    {
+      "authorization": "Bearer <the enrolled browser device key>",
+      "request": "POST /factory-definitions/qa-outreach/publish"
+    },
+    {
+      "authorization": "Bearer <the enrolled browser device key>",
+      "request": "POST /factory-definitions/qa-outreach/restore"
+    },
+    {
+      "authorization": "Bearer <the enrolled browser device key>",
+      "request": "POST /gateway/factories/qa-outreach/definition/import"
+    },
+    {
+      "authorization": "Bearer <the enrolled browser device key>",
+      "request": "POST /gateway/factories/qa-outreach/definition/import"
+    }
+  ],
+  "01-export-from-today": {
+    "file": "qa-undefined-from-today.zip",
+    "files": [
+      "factory.yaml",
+      "seats/boss.yaml",
+      "seats/scout.yaml"
+    ]
+  },
+  "01-tab-no-definition": {
+    "body": {
+      "changes": null,
+      "draft": null,
+      "emptyText": "Today QA Undefined is defined by its registry entry, its briefs, its schedules and its triggers, and it keeps working exactly that way. To give it a definition: Export writes a folder from what it has today; change it if you want, import it here as a draft, read what changes, and publish it.",
+      "export": {
+        "busyLabel": "Exporting...",
+        "href": "/gateway/factories/qa-undefined/definition/export",
+        "label": "Export",
+        "leavesOut": [
+          "factory.yaml: The goal is the file 'GOAL.md' in the factory's folder, which the Gateway does not hold. Write it into goalText.",
+          "factory.yaml: No agent or model is recorded for this factory today: every factory seat runs ClaudeCode, on the model its machine uses by default. The folder says agent ClaudeCode and names no model.",
+          "factory.yaml: The factory's folder '/home/rig/qa-undefined' on RIG_MACHINE is not part of a definition: nothing of a factory is kept in a folder of its own. The Gateway holds folders, not repository names, so no repository is listed: name the ones the seats work in under repositories.",
+          "seats/boss.yaml: The seat has no published brief on the Gateway; its brief is the file 'seats/boss.yaml' in the factory's folder. The brief is left empty here: write it in before importing.",
+          "seats/scout.yaml: The seat has no published brief on the Gateway; its brief is the file 'seats/scout.yaml' in the factory's folder. The brief is left empty here: write it in before importing."
+        ],
+        "noteText": "A zip of a folder written from what QA Undefined has today: its registry entry, published briefs, schedules and triggers. 5 things it has cannot go in the folder:"
+      },
+      "factory": "qa-undefined",
+      "footnoteText": "Only a person publishes or restores. A session of this factory may save a draft, which waits here until a person publishes it. Every version is kept.",
+      "heading": "The definition of QA Undefined",
+      "historyLabel": null,
+      "import": {
+        "busyLabel": "Importing...",
+        "href": "/gateway/factories/qa-undefined/definition/import",
+        "label": "Import a folder",
+        "noteText": "Choose a zip of a definition folder whose factory.yaml names qa-undefined. It is checked exactly as a save is and stored as the next draft. It is never published: read what changes here, then publish it."
+      },
+      "publish": null,
+      "published": null,
+      "stateText": "QA Undefined has no definition on the Gateway."
+    },
+    "request": "GET /gateway/factories/qa-undefined/definition",
+    "status": 200
+  },
+  "03-tab-first-draft": {
+    "body": {
+      "changes": {
+        "cannotCompareText": null,
+        "changes": {
+          "factory": [
+            {
+              "diff": null,
+              "field": "factory",
+              "sentence": "factory qa-outreach"
+            },
+            {
+              "diff": null,
+              "field": "title",
+              "sentence": "title QA Outreach"
+            },
+            {
+              "diff": null,
+              "field": "purpose",
+              "sentence": "purpose Shows a factory definition held on the Gateway"
+            },
+            {
+              "diff": {
+                "added": 1,
+                "lines": [
+                  {
+                    "kind": "added",
+                    "marker": "+",
+                    "newLine": 1,
+                    "oldLine": null,
+                    "text": "Two posts a week, every week."
+                  }
+                ],
+                "linesNotShown": 0,
+                "note": null,
+                "removed": 0
+              },
+              "field": "goalText",
+              "sentence": "goal text set: 1 line"
+            },
+            {
+              "diff": null,
+              "field": "goalApprovedOn",
+              "sentence": "goalApprovedOn 2026-10-14"
+            },
+            {
+              "diff": null,
+              "field": "bossSeat",
+              "sentence": "bossSeat boss"
+            },
+            {
+              "diff": null,
+              "field": "defaults.machine",
+              "sentence": "defaults.machine SOREN_NORTH"
+            },
+            {
+              "diff": null,
+              "field": "defaults.agent",
+              "sentence": "defaults.agent ClaudeCode"
+            },
+            {
+              "diff": null,
+              "field": "defaults.model",
+              "sentence": "defaults.model claude-opus-5-5"
+            }
+          ],
+          "files": [
+            {
+              "change": "added",
+              "diff": {
+                "added": 3,
+                "lines": [
+                  {
+                    "kind": "added",
+                    "marker": "+",
+                    "newLine": 1,
+                    "oldLine": null,
+                    "text": "# Title"
+                  },
+                  {
+                    "kind": "added",
+                    "marker": "+",
+                    "newLine": 2,
+                    "oldLine": null,
+                    "text": ""
+                  },
+                  {
+                    "kind": "added",
+                    "marker": "+",
+                    "newLine": 3,
+                    "oldLine": null,
+                    "text": "One paragraph that says what the post is about."
+                  }
+                ],
+                "linesNotShown": 0,
+                "note": null,
+                "removed": 0
+              },
+              "kind": "file",
+              "path": "files/post-template.md",
+              "sentence": "File files/post-template.md added: 3 lines."
+            }
+          ],
+          "firstPublish": true,
+          "grants": [
+            {
+              "change": "added",
+              "details": [
+                "allows Publish a post on the blog",
+                "limits At most two a week",
+                "seat writer added"
+              ],
+              "id": "publish-posts",
+              "sentence": "Grant publish-posts added."
+            }
+          ],
+          "nothingChanges": false,
+          "rules": [
+            {
+              "direction": "tightened",
+              "ruleSet": "base",
+              "seat": null,
+              "sentence": "Rule set base (new) tightened: deny Bash(git push:*) added."
+            },
+            {
+              "direction": "loosened",
+              "ruleSet": "base",
+              "seat": null,
+              "sentence": "Rule set base (new) loosened: allow Bash(git status) added."
+            },
+            {
+              "direction": "tightened",
+              "ruleSet": null,
+              "seat": "boss",
+              "sentence": "Seat Boss (boss) tightened: now takes rule set base."
+            }
+          ],
+          "seats": [
+            {
+              "briefDiff": {
+                "added": 1,
+                "lines": [
+                  {
+                    "kind": "added",
+                    "marker": "+",
+                    "newLine": 1,
+                    "oldLine": null,
+                    "text": "Run the factory. Read what the writer made and decide what is next."
+                  }
+                ],
+                "linesNotShown": 0,
+                "note": null,
+                "removed": 0
+              },
+              "change": "added",
+              "details": [
+                "role Boss",
+                "machine SOREN_NORTH (the factory's default)",
+                "agent ClaudeCode (the factory's default)",
+                "model claude-opus-5-5 (the factory's default)",
+                "rule set base added",
+                "brief: 1 line"
+              ],
+              "seat": "boss",
+              "sentence": "Seat Boss (boss) added."
+            },
+            {
+              "briefDiff": {
+                "added": 1,
+                "lines": [
+                  {
+                    "kind": "added",
+                    "marker": "+",
+                    "newLine": 1,
+                    "oldLine": null,
+                    "text": "Write one post from the template."
+                  }
+                ],
+                "linesNotShown": 0,
+                "note": null,
+                "removed": 0
+              },
+              "change": "added",
+              "details": [
+                "role Writer",
+                "machine SOREN_NORTH (the factory's default)",
+                "agent ClaudeCode (the factory's default)",
+                "model claude-opus-5-5 (the factory's default)",
+                "grant publish-posts added",
+                "fleet skill dev-throttle added",
+                "file files/post-template.md added",
+                "brief: 1 line"
+              ],
+              "seat": "writer",
+              "sentence": "Seat Writer (writer) added."
+            }
+          ],
+          "starts": [
+            {
+              "change": "created",
+              "details": [
+                "prompt \"Morning round.\""
+              ],
+              "seat": "boss",
+              "sentence": "Boss: start created, Weekdays 08:00 Europe/Copenhagen."
+            }
+          ],
+          "summary": "First publish: 9 factory settings set, 2 seats added, 1 start created, rules tightened on base and boss, rules loosened on base, 1 grant added, 1 file added."
+        },
+        "heading": "What changes when version 1 is published",
+        "plan": {
+          "act": "publish",
+          "findings": [],
+          "heading": "What publishing version 1 would do to the live factory now:",
+          "refused": null,
+          "steps": [
+            "Registry: computer \"RIG_MACHINE\" -> \"SOREN_NORTH\".",
+            "Registry: goal text changed.",
+            "Registry: goal file cleared (was \"GOAL.md\").",
+            "Registry: purpose set to \"Shows a factory definition held on the Gateway\".",
+            "Registry: seat boss computer RIG_MACHINE -> SOREN_NORTH.",
+            "Registry: seat writer computer RIG_MACHINE -> SOREN_NORTH.",
+            "A new schedule (QA Outreach - Boss) for seat boss: Weekdays 08:00 Europe/Copenhagen."
+          ],
+          "version": 1
+        }
+      },
+      "draft": {
+        "lineText": "Written by a person (device browser qa-cockpit-browser) today 13:35. 6 files, 936 bytes.",
+        "noteText": "imported from a zip on the factory page",
+        "openLabel": "Open",
+        "stateTone": "amber",
+        "stateWord": "draft",
+        "title": "Draft: version 1",
+        "version": 1
+      },
+      "emptyText": null,
+      "export": {
+        "busyLabel": "Exporting...",
+        "href": "/gateway/factories/qa-outreach/definition/export?version=1",
+        "label": "Export",
+        "leavesOut": [],
+        "noteText": "A zip of the folder of version 1, the newest draft, as nothing is published, exactly as stored. Two exports of one version are the same bytes. To export another version, open it in History."
+      },
+      "factory": "qa-outreach",
+      "footnoteText": "Only a person publishes or restores. A session of this factory may save a draft, which waits here until a person publishes it. Every version is kept.",
+      "heading": "The definition of QA Outreach",
+      "historyLabel": "History",
+      "import": {
+        "busyLabel": "Importing...",
+        "href": "/gateway/factories/qa-outreach/definition/import",
+        "label": "Import a folder",
+        "noteText": "Choose a zip of a definition folder whose factory.yaml names qa-outreach. It is checked exactly as a save is and stored as the next draft. It is never published: read what changes here, then publish it."
+      },
+      "publish": {
+        "busyLabel": "Publishing...",
+        "confirmLabel": "Publish",
+        "confirmLines": [
+          "Version 1 becomes the definition of QA Outreach. Its registry entry, schedules and triggers are changed to match in one step, or nothing changes.",
+          "What changes: First publish: 9 factory settings set, 2 seats added, 1 start created, rules tightened on base and boss, rules loosened on base, 1 grant added, 1 file added.",
+          "It is the first published version. From then on the definition owns this factory's registry entry, schedules and triggers, and a direct edit of them is refused."
+        ],
+        "confirmTitle": "Publish version 1 of the definition of QA Outreach?",
+        "doneText": "Version 1 is published. It is the definition of QA Outreach now.",
+        "expectedVersion": 1,
+        "label": "Publish version 1",
+        "replaces": null,
+        "version": 1
+      },
+      "published": null,
+      "stateText": "Nothing is published yet. Version 1, a draft, is the only version."
+    },
+    "request": "GET /gateway/factories/qa-outreach/definition",
+    "status": 200
+  },
+  "05-tab-published": {
+    "body": {
+      "changes": null,
+      "draft": null,
+      "emptyText": null,
+      "export": {
+        "busyLabel": "Exporting...",
+        "href": "/gateway/factories/qa-outreach/definition/export?version=1",
+        "label": "Export",
+        "leavesOut": [],
+        "noteText": "A zip of the folder of version 1, the published version, exactly as stored. Two exports of one version are the same bytes. To export another version, open it in History."
+      },
+      "factory": "qa-outreach",
+      "footnoteText": "Only a person publishes or restores. A session of this factory may save a draft, which waits here until a person publishes it. Every version is kept.",
+      "heading": "The definition of QA Outreach",
+      "historyLabel": "History",
+      "import": {
+        "busyLabel": "Importing...",
+        "href": "/gateway/factories/qa-outreach/definition/import",
+        "label": "Import a folder",
+        "noteText": "Choose a zip of a definition folder whose factory.yaml names qa-outreach. It is checked exactly as a save is and stored as the next draft. It is never published: read what changes here, then publish it."
+      },
+      "publish": null,
+      "published": {
+        "lineText": "Published by a person (device browser qa-cockpit-browser) today 13:35. Written by a person (device browser qa-cockpit-browser) today 13:35. 6 files, 936 bytes.",
+        "noteText": "imported from a zip on the factory page",
+        "openLabel": "Open",
+        "stateTone": "ok",
+        "stateWord": "published",
+        "title": "Published: version 1",
+        "version": 1
+      },
+      "stateText": "Version 1 is published, and it is the newest version."
+    },
+    "request": "GET /gateway/factories/qa-outreach/definition",
+    "status": 200
+  },
+  "06-tab-second-draft": {
+    "body": {
+      "changes": {
+        "cannotCompareText": null,
+        "changes": {
+          "factory": [],
+          "files": [],
+          "firstPublish": false,
+          "grants": [],
+          "nothingChanges": false,
+          "rules": [],
+          "seats": [
+            {
+              "briefDiff": {
+                "added": 1,
+                "lines": [
+                  {
+                    "kind": "removed",
+                    "marker": "-",
+                    "newLine": null,
+                    "oldLine": 1,
+                    "text": "Write one post from the template."
+                  },
+                  {
+                    "kind": "added",
+                    "marker": "+",
+                    "newLine": 1,
+                    "oldLine": null,
+                    "text": "Write one post from the template, and link the last one."
+                  }
+                ],
+                "linesNotShown": 0,
+                "note": null,
+                "removed": 1
+              },
+              "change": "changed",
+              "details": [
+                "name Writer -> Author",
+                "brief changed: 1 line added, 1 removed"
+              ],
+              "seat": "writer",
+              "sentence": "Seat Author (writer) changed."
+            }
+          ],
+          "starts": [
+            {
+              "change": "moved",
+              "details": [],
+              "seat": "boss",
+              "sentence": "Boss: start moved, Weekdays 08:00 Europe/Copenhagen -> Weekdays 09:00 Europe/Copenhagen."
+            }
+          ],
+          "summary": "1 seat changed, 1 start moved."
+        },
+        "heading": "What changes when version 2 is published",
+        "plan": {
+          "act": "publish",
+          "findings": [],
+          "heading": "What publishing version 2 would do to the live factory now:",
+          "refused": null,
+          "steps": [
+            "Registry: seat writer renamed Writer -> Author.",
+            "Schedule cj_93ae31 (QA Outreach - Boss) moved: Weekdays 08:00 Europe/Copenhagen -> Weekdays 09:00 Europe/Copenhagen."
+          ],
+          "version": 2
+        }
+      },
+      "draft": {
+        "lineText": "Written by a person (device browser qa-cockpit-browser) today 13:35. 6 files, 959 bytes.",
+        "noteText": "imported from a zip on the factory page",
+        "openLabel": "Open",
+        "stateTone": "amber",
+        "stateWord": "draft",
+        "title": "Draft: version 2",
+        "version": 2
+      },
+      "emptyText": null,
+      "export": {
+        "busyLabel": "Exporting...",
+        "href": "/gateway/factories/qa-outreach/definition/export?version=1",
+        "label": "Export",
+        "leavesOut": [],
+        "noteText": "A zip of the folder of version 1, the published version, exactly as stored. Two exports of one version are the same bytes. To export another version, open it in History."
+      },
+      "factory": "qa-outreach",
+      "footnoteText": "Only a person publishes or restores. A session of this factory may save a draft, which waits here until a person publishes it. Every version is kept.",
+      "heading": "The definition of QA Outreach",
+      "historyLabel": "History",
+      "import": {
+        "busyLabel": "Importing...",
+        "href": "/gateway/factories/qa-outreach/definition/import",
+        "label": "Import a folder",
+        "noteText": "Choose a zip of a definition folder whose factory.yaml names qa-outreach. It is checked exactly as a save is and stored as the next draft. It is never published: read what changes here, then publish it."
+      },
+      "publish": {
+        "busyLabel": "Publishing...",
+        "confirmLabel": "Publish",
+        "confirmLines": [
+          "Version 2 becomes the definition of QA Outreach. Its registry entry, schedules and triggers are changed to match in one step, or nothing changes.",
+          "What changes: 1 seat changed, 1 start moved.",
+          "Version 1, published now, is kept. History can restore it."
+        ],
+        "confirmTitle": "Publish version 2 of the definition of QA Outreach?",
+        "doneText": "Version 2 is published. It is the definition of QA Outreach now.",
+        "expectedVersion": 2,
+        "label": "Publish version 2",
+        "replaces": 1,
+        "version": 2
+      },
+      "published": {
+        "lineText": "Published by a person (device browser qa-cockpit-browser) today 13:35. Written by a person (device browser qa-cockpit-browser) today 13:35. 6 files, 936 bytes.",
+        "noteText": "imported from a zip on the factory page",
+        "openLabel": "Open",
+        "stateTone": "ok",
+        "stateWord": "published",
+        "title": "Published: version 1",
+        "version": 1
+      },
+      "stateText": "Version 1 is published. 1 draft saved after it; the newest is version 2."
+    },
+    "request": "GET /gateway/factories/qa-outreach/definition",
+    "status": 200
+  },
+  "09-publish-refused": {
+    "body": {
+      "error": "Version 3 was not published: the check found 1 error in the definition of qa-outreach. Fix each one where it is and try again.",
+      "findings": [
+        {
+          "file": "seats/writer.yaml",
+          "line": 8,
+          "message": "This start has a check. Checks from a definition run from phase 5b of the factory definition work, so this version cannot be published yet; publish it without the start, or wait.",
+          "severity": "error"
+        },
+        {
+          "file": "factory.yaml",
+          "line": 9,
+          "message": "No Director on SOREN_NORTH is connected now, so it could not be confirmed.",
+          "severity": "notice"
+        }
+      ],
+      "outcome": "CheckFailed"
+    },
+    "request": "POST /factory-definitions/qa-outreach/publish",
+    "status": 422
+  },
+  "10-history": {
+    "body": {
+      "closeLabel": "Back to the definition",
+      "columns": [
+        "Version",
+        "State",
+        "Written by",
+        "When",
+        "Note",
+        "Size"
+      ],
+      "emptyText": null,
+      "heading": "History of the definition of QA Outreach",
+      "newestLabel": null,
+      "nextBefore": null,
+      "olderLabel": null,
+      "pageText": "Versions 3 to 1 of 3.",
+      "rows": [
+        {
+          "exportHref": "/gateway/factories/qa-outreach/definition/export?version=3",
+          "exportLabel": "Export this version",
+          "noteText": "imported from a zip on the factory page",
+          "openLabel": "Open",
+          "publish": {
+            "busyLabel": "Publishing...",
+            "confirmLabel": "Publish",
+            "confirmLines": [
+              "Version 3 becomes the definition of QA Outreach. Its registry entry, schedules and triggers are changed to match in one step, or nothing changes.",
+              "Version 2, published now, is kept. History can restore it."
+            ],
+            "confirmTitle": "Publish version 3 of the definition of QA Outreach?",
+            "doneText": "Version 3 is published. It is the definition of QA Outreach now.",
+            "expectedVersion": 3,
+            "label": "Publish version 3",
+            "replaces": 2,
+            "version": 3
+          },
+          "restore": null,
+          "sizeText": "7 files, 1.0 KB",
+          "stateTone": "amber",
+          "stateWord": "Draft",
+          "title": "Version 3",
+          "version": 3,
+          "whenText": "today 13:35",
+          "whoText": "Written by a person (device browser qa-cockpit-browser)"
+        },
+        {
+          "exportHref": "/gateway/factories/qa-outreach/definition/export?version=2",
+          "exportLabel": "Export this version",
+          "noteText": "imported from a zip on the factory page",
+          "openLabel": "Open",
+          "publish": null,
+          "restore": null,
+          "sizeText": "6 files, 959 bytes",
+          "stateTone": "ok",
+          "stateWord": "Published",
+          "title": "Version 2",
+          "version": 2,
+          "whenText": "today 13:35",
+          "whoText": "Written by a person (device browser qa-cockpit-browser)"
+        },
+        {
+          "exportHref": "/gateway/factories/qa-outreach/definition/export?version=1",
+          "exportLabel": "Export this version",
+          "noteText": "imported from a zip on the factory page",
+          "openLabel": "Open",
+          "publish": null,
+          "restore": {
+            "busyLabel": "Restoring...",
+            "confirmLabel": "Restore",
+            "confirmLines": [
+              "A copy of version 1 becomes version 4, and it is published. The registry entry, schedules and triggers are changed to match in one step, or nothing changes.",
+              "Nothing is removed. Version 2, published now, and every other version are kept.",
+              "Version 3, a draft, is then older than the published version. It is kept and can be restored."
+            ],
+            "confirmTitle": "Restore version 1 of the definition of QA Outreach?",
+            "doneText": "Version 1 was restored as version 4, and it is published. It is the definition of QA Outreach now.",
+            "expectedVersion": 3,
+            "label": "Restore",
+            "replaces": 2,
+            "version": 1
+          },
+          "sizeText": "6 files, 936 bytes",
+          "stateTone": "grey",
+          "stateWord": "Published earlier",
+          "title": "Version 1",
+          "version": 1,
+          "whenText": "today 13:35",
+          "whoText": "Written by a person (device browser qa-cockpit-browser)"
+        }
+      ],
+      "summaryText": "3 versions. Version 2 is published."
+    },
+    "request": "GET /gateway/factories/qa-outreach/definition/history",
+    "status": 200
+  },
+  "13-tab-after-restore": {
+    "body": {
+      "changes": null,
+      "draft": null,
+      "emptyText": null,
+      "export": {
+        "busyLabel": "Exporting...",
+        "href": "/gateway/factories/qa-outreach/definition/export?version=4",
+        "label": "Export",
+        "leavesOut": [],
+        "noteText": "A zip of the folder of version 4, the published version, exactly as stored. Two exports of one version are the same bytes. To export another version, open it in History."
+      },
+      "factory": "qa-outreach",
+      "footnoteText": "Only a person publishes or restores. A session of this factory may save a draft, which waits here until a person publishes it. Every version is kept.",
+      "heading": "The definition of QA Outreach",
+      "historyLabel": "History",
+      "import": {
+        "busyLabel": "Importing...",
+        "href": "/gateway/factories/qa-outreach/definition/import",
+        "label": "Import a folder",
+        "noteText": "Choose a zip of a definition folder whose factory.yaml names qa-outreach. It is checked exactly as a save is and stored as the next draft. It is never published: read what changes here, then publish it."
+      },
+      "publish": null,
+      "published": {
+        "lineText": "Published by a person (device browser qa-cockpit-browser) today 13:35. Written by a person (device browser qa-cockpit-browser) today 13:35. 6 files, 936 bytes.",
+        "noteText": "Restored from version 1.",
+        "openLabel": "Open",
+        "stateTone": "ok",
+        "stateWord": "published",
+        "title": "Published: version 4",
+        "version": 4
+      },
+      "stateText": "Version 4 is published, and it is the newest version."
+    },
+    "request": "GET /gateway/factories/qa-outreach/definition",
+    "status": 200
+  },
+  "14-export-twice": {
+    "files": [
+      "factory.yaml",
+      "files/post-template.md",
+      "grants.yaml",
+      "rules/base.json",
+      "seats/boss.yaml",
+      "seats/writer.yaml"
+    ],
+    "same_bytes": true,
+    "sha256_first": "831f52b271a850cbf5243329771a7ed6da6954864299f3073f2a0751980bdf44",
+    "sha256_second": "831f52b271a850cbf5243329771a7ed6da6954864299f3073f2a0751980bdf44"
+  },
+  "15-import-refused": {
+    "body": {
+      "error": "The folder was not imported: the check found 1 error in the definition of qa-outreach. Fix each one where it is and try again.",
+      "findings": [
+        {
+          "file": "seats/writer.yaml",
+          "line": 10,
+          "message": "'colour' is not a key of a seat file. The keys are: seat, name, role, line, machine, agent, model, repository, brief, starts, grants, rules, secrets, skills, files.",
+          "severity": "error"
+        }
+      ],
+      "outcome": "CheckFailed"
+    },
+    "request": "POST /gateway/factories/qa-outreach/definition/import",
+    "status": 422
+  },
+  "16-import-for-another-factory": {
+    "body": {
+      "error": "This folder's factory.yaml names the factory 'qa-elsewhere', not 'qa-outreach'. Import it on the page of 'qa-elsewhere', or with cc-devthrottle factory import when that factory has no page yet. Nothing was imported.",
+      "outcome": "NotImported"
+    },
+    "request": "POST /gateway/factories/qa-outreach/definition/import",
+    "status": 400
+  },
+  "16-newest-version-before-and-after-the-refused-imports": {
+    "after": 4,
+    "before": 4
+  },
+  "development-proxy": {
+    "body": {
+      "factory": "qa-outreach",
+      "publishedVersion": 4,
+      "state": "published",
+      "version": 4
+    },
+    "request": "GET http://127.0.0.1:5196/factory-definitions/qa-outreach",
+    "same_as_the_gateway_answered_directly": true,
+    "status": 200
+  }
+}

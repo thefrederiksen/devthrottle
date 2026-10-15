@@ -330,7 +330,7 @@ export interface FactoryPageView {
   /** "runs on SOREN_NORTH". */
   computerText: string;
   talk: FactoryTalkTarget | null;
-  /** Overview, Seats (n), Activity, Reports, Memory, Documents. */
+  /** Overview, Floor, Seats (n), Activity, Reports, Memory, Definition. */
   tabs: FactoryTab[];
   goal: FactoryGoalCard;
   goalNumber: FactoryGoalNumberCard;
@@ -345,8 +345,6 @@ export interface FactoryPageView {
   waiting: FactoryPageWaiting;
   bossLatest: FactoryBossLatest;
   lastTalk: FactoryLastTalk;
-  /** What the Documents tab says: the definitions are not on the Gateway yet. */
-  documentsText: string;
   truncatedText: string | null;
   /** "Archive factory", or null when it is archived. */
   archive: FactoryOwnerAction | null;

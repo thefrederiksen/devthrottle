@@ -305,7 +305,7 @@ internal static class FactoryDefinitionEndpoints
     /// the published one can only be restored, so its plan is worded as a restore (review of 4006, observation 3): a
     /// restore's copy has the same content, so the steps are the same.
     /// </summary>
-    private static FactoryDefinitionPlanDto PlanOf(FactoryPublishApply apply, TenantId tenant, FactoryDefinitionVersion compared,
+    internal static FactoryDefinitionPlanDto PlanOf(FactoryPublishApply apply, TenantId tenant, FactoryDefinitionVersion compared,
         int? publishedVersion)
     {
         var version = compared.Summary.Version;
@@ -351,14 +351,14 @@ internal static class FactoryDefinitionEndpoints
     /// </summary>
     private static IResult SaveChecked(FactoryDefinitionStore store, TenantId tenant, string folded,
         IReadOnlyDictionary<string, string> content, int expectedVersion, Caller caller, string? note, Account account,
-        Func<DateTime> nowUtc, string notStored, bool? created)
+        Func<DateTime> nowUtc, string notStored, bool? created, Func<FactoryDefinitionDto, IResult>? saved = null)
     {
         var check = Check(content, folded, tenant, account);
         if (check.HasErrors)
             return CheckRefused(folded, check, notStored);
 
         var write = store.SaveDraft(tenant, folded, content, expectedVersion, caller.Kind, caller.Id, note, nowUtc());
-        return Answer(write, store, tenant, folded, check, created: write.Ok ? created : null);
+        return Answer(write, store, tenant, folded, check, created: write.Ok ? created : null, saved: saved);
     }
 
     /// <summary>
@@ -458,9 +458,11 @@ internal static class FactoryDefinitionEndpoints
     /// publishes. The factory is the one factory.yaml names, and nothing else: an import never rewrites a file, so a
     /// copy under a new id is a folder whose factory.yaml names that id (review of 4007, finding 2).
     /// </summary>
+    /// <param name="saved">Composes the answer to an import that stored a draft (the Cockpit's Definition tab, phase 6);
+    /// every refusal is answered here, the same for both callers. Null answers as this route does.</param>
     internal static IResult Import(HttpContext ctx, ImportFactoryDefinitionRequest? body, FactoryDefinitionStore store,
         Func<HttpContext, TenantId?> resolveTenant, Func<string, SessionFactoryLookup> sessionFactoryOf,
-        Account account, Func<DateTime> nowUtc)
+        Account account, Func<DateTime> nowUtc, Func<FactoryDefinitionDto, IResult>? saved = null)
     {
         if (resolveTenant(ctx) is not { } tenant) return NoAccount();
         // A caller that can never write - the shared machine token, a Director - is refused BEFORE its content is read
@@ -498,7 +500,7 @@ internal static class FactoryDefinitionEndpoints
         var after = store.Standing(tenant, folded).Newest?.Version ?? 0;
         FileLog.Write($"[FactoryDefinitionEndpoints] {folded}: import of {content.Count} files after version {after} by {caller.Kind}");
         return SaveChecked(store, tenant, folded, content, after, caller, body.Note ?? "imported from a folder", account, nowUtc,
-            "The folder was not imported", created: after == 0);
+            "The folder was not imported", created: after == 0, saved: saved);
     }
 
     /// <summary>The factory id factory.yaml names, read with the definition's own parser, or null when it names none.</summary>
@@ -774,7 +776,8 @@ internal static class FactoryDefinitionEndpoints
     private static IResult Answer(FactoryDefinitionWrite write, FactoryDefinitionStore store, TenantId tenant, string factory,
         FactoryDefinitionCheckResult? check, FactoryDefinitionChangesDto? changes = null, DefinitionFinding? notice = null,
         bool? created = null,
-        IReadOnlyList<string>? applied = null, IReadOnlyList<DefinitionFinding>? refusalFindings = null)
+        IReadOnlyList<string>? applied = null, IReadOnlyList<DefinitionFinding>? refusalFindings = null,
+        Func<FactoryDefinitionDto, IResult>? saved = null)
     {
         // Read after the write, so the answer says how the factory stands now: which version is newest and which is published.
         var standing = store.Standing(tenant, factory);
@@ -786,7 +789,7 @@ internal static class FactoryDefinitionEndpoints
             dto.Changes = changes;
             dto.Created = created;
             dto.Applied = applied?.ToList();
-            return Results.Json(dto);
+            return saved is null ? Results.Json(dto) : saved(dto);
         }
         var status = StatusOf(write.Outcome);
         FileLog.Write($"[FactoryDefinitionEndpoints] {factory}: REFUSED ({status}, {write.Outcome}) - {write.Refusal}");

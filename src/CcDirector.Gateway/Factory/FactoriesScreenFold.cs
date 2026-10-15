@@ -91,10 +91,6 @@ public static class FactoriesScreenFold
         ScheduleNotStarted, "worklist-no-list", "worklist-no-director", "worklist-unknown",
     };
 
-    public const string DocumentsText =
-        "A factory's documents - its briefs, its goal file, its rules - live in its folder on its computer, not on the " +
-        "Gateway yet, so there is nothing to show here. They will appear here when the definitions move onto the Gateway.";
-
     // ---------------------------------------------------------------------------------------------------------
     // The list
 
@@ -263,7 +259,6 @@ public static class FactoriesScreenFold
             },
             BossLatest = BossLatest(factory, boss, input),
             LastTalk = LastTalk(factory, input.Talks, input.Schedules, zone, now),
-            DocumentsText = DocumentsText,
             TruncatedText = Truncated(input.Activity),
             Archive = factory.ArchivedAtUtc is null ? FactoryOwnerActions.ArchiveAction(factory, input.Schedules) : null,
             ArchivedText = factory.ArchivedAtUtc is null
@@ -297,7 +292,8 @@ public static class FactoriesScreenFold
         new() { Key = "activity", Label = "Activity" },
         new() { Key = "reports", Label = "Reports" },
         new() { Key = "memory", Label = "Memory" },
-        new() { Key = "documents", Label = "Documents" },
+        // The Definition tab replaced the Documents tab, whose only sentence promised it (Factory Definition, phase 6).
+        new() { Key = "definition", Label = "Definition" },
     };
 
     internal static FactoryGoalCardDto GoalCard(RegisteredFactoryDto f)
