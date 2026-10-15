@@ -1,0 +1,19 @@
+$ dotnet test src/CcDirector.Gateway.UnitTests --no-build --filter "FullyQualifiedName~FactoryPublishApplyTests" --logger "console;verbosity=normal"
+  (run on 2026-10-15 at b2920036e, after a build of that commit; the lines below are the test lines and the totals, filtered from its output)
+
+  Passed CcDirector.Gateway.Tests.Factory.Definition.FactoryPublishApplyTests.Restore_ReplacesAVersionThatIsNoLongerPublished_IsRefused409_AndWritesNothing [4 s]
+  Passed CcDirector.Gateway.Tests.Factory.Definition.FactoryPublishApplyTests.Publish_FirstPublishStatingNone_ReplacesZero_IsAccepted [236 ms]
+  Passed CcDirector.Gateway.Tests.Factory.Definition.FactoryPublishApplyTests.Restore_WhoseScheduleWriteFails_ChangesNothing_AndWritesNoCopy [227 ms]
+  Passed CcDirector.Gateway.Tests.Factory.Definition.FactoryPublishApplyTests.Publish_And_Restore_And_Plan_LeaveTheUNDEFINED_FACTORY_UntouchedWhole [205 ms]
+  Passed CcDirector.Gateway.Tests.Factory.Definition.FactoryPublishApplyTests.Publish_AVersionAlreadyPublished_IsTheStoresOwnRuling_AndWritesNothing [134 ms]
+  Passed CcDirector.Gateway.Tests.Factory.Definition.FactoryPublishApplyTests.Restore_OfAnOlderVersion_PutsItsSeatsAndSchedulesBack_AsANewNewestVersion [167 ms]
+  Passed CcDirector.Gateway.Tests.Factory.Definition.FactoryPublishApplyTests.Publish_OfAnArchivedFactory_IsRefused_AndWritesNothing [169 ms]
+  Passed CcDirector.Gateway.Tests.Factory.Definition.FactoryPublishApplyTests.Publish_ReplacesAVersionThatIsNoLongerPublished_IsRefused409_AndWritesNothing [126 ms]
+  Passed CcDirector.Gateway.Tests.Factory.Definition.FactoryPublishApplyTests.Publish_TwoInARow_EachAnswersWhatChangesAgainstTheVersionItReallyReplaced [157 ms]
+  Passed CcDirector.Gateway.Tests.Factory.Definition.FactoryPublishApplyTests.Publish_ASeatRenamedByOnePublish_ShowsTheNewNameInTheRegistrySeatAndInEveryScheduleName [148 ms]
+  Passed CcDirector.Gateway.Tests.Factory.Definition.FactoryPublishApplyTests.Publish_TheFirstOne_KeepsAMatchingSchedule_DeletesTheRestAndEveryTrigger_AndSaysEachStep [168 ms]
+  Passed CcDirector.Gateway.Tests.Factory.Definition.FactoryPublishApplyTests.Plan_ReadsTheLiveFactory_AndWritesNothing [151 ms]
+  Passed CcDirector.Gateway.Tests.Factory.Definition.FactoryPublishApplyTests.Publish_OfAFactoryTheRegistryDoesNotHold_IsRefused_AndWritesNothing [119 ms]
+  Passed CcDirector.Gateway.Tests.Factory.Definition.FactoryPublishApplyTests.Publish_WhoseScheduleWriteFails_ChangesNothing_RegistrySchedulesTriggersAndThePublishMark [154 ms]
+Total tests: 14
+     Passed: 14
