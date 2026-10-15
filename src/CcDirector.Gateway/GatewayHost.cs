@@ -5323,6 +5323,15 @@ public sealed class GatewayHost : IAsyncDisposable
             sessionFactoryOf: _sessionHistory.FactoryOf,
             account: new Api.FactoryDefinitionEndpoints.Account(FleetSkillIdsOf, ConnectedMachinesOf, AskFactoryMachinesAsync),
             nowUtc: () => DateTime.UtcNow);
+        // The factory page's Records tab (Factory Definition mission, phase 6): its journals by seat, its working
+        // documents with every version, and its attachments - read only; the factory's sessions write them.
+        Api.FactoryRecordsTabEndpoints.Map(factoryGate,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            sources: factoriesScreenSources,
+            journal: _factoryJournal,
+            documents: _factoryDocuments,
+            attachments: _factoryAttachments,
+            nowUtc: () => DateTime.UtcNow);
         // The owner's actions on a factory (round 2): mark old waiting items handled, archive, restore. Owner-only,
         // and mapped OUTSIDE the gate's group like Talk, so a switch-off refusal can carry a sentence.
         Api.FactoryOwnerActionEndpoints.Map(_app, FactoryAgentsSwitch,

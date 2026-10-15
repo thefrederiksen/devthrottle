@@ -18,6 +18,7 @@ import { EmailsCard } from "./FactoryEmails";
 import { FactoryFloorPanel } from "./FactoryFloor";
 import { FactoryMemoryTab } from "./FactoryMemoryTab";
 import { FactoryDefinitionTab } from "./FactoryDefinitionTab";
+import { FactoryRecordsTab } from "./FactoryRecordsTab";
 import { OwnerActionButton, TalkButton, ToneChip } from "./FactoryParts";
 import { WaitingItem } from "./FactoryWaitingView";
 import "./factory.css";
@@ -27,7 +28,7 @@ const SURFACE = "cockpit-factory";
 
 // One factory's page (Factories screen mission, mockups 2 and 3): the header - name, status, the boss, seat count, the
 // computer it runs on, and Talk to the boss - then the tabs the Gateway offers: Overview, Seats (n), Activity,
-// Reports, Memory and Definition. Each tab has its own address (/factories/<id>/<tab>; the Overview is the page's own
+// Reports, Memory, Records and Definition. Each tab has its own address (/factories/<id>/<tab>; the Overview is the page's own
 // address), and a tab the Gateway did not offer opens the Overview. The Definition tab replaced the Documents tab
 // (Factory Definition, phase 6), so the old /documents address opens it.
 //
@@ -138,6 +139,7 @@ export function FactoryView() {
       {tab === "activity" && <ActivityTab fixedFactory={page.id} />}
       {tab === "reports" && <ReportsTab fixedFactory={page.id} />}
       {tab === "memory" && <FactoryMemoryTab factory={page.id} />}
+      {tab === "records" && <FactoryRecordsTab factory={page.id} />}
       {tab === "definition" && <FactoryDefinitionTab factory={page.id} />}
     </div>
   );

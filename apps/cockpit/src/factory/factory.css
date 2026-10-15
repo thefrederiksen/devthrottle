@@ -1920,3 +1920,130 @@ a:focus .ff-bay rect {
 .fa-def-moves p {
   margin: 4px 0;
 }
+
+/* ---------- the Records tab (Factory Definition, phase 6) ---------- */
+
+.fa-rec {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  font-size: 13px;
+}
+
+.fa-rec-head,
+.fa-rec-open,
+.fa-rec-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.fa-rec-head p {
+  margin: 0;
+}
+
+.fa-rec-section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.fa-rec-empty {
+  margin: 0;
+  color: var(--text-dim);
+}
+
+.fa-rec-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  width: 100%;
+}
+
+.fa-rec-card {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.fa-rec-card p {
+  margin: 0;
+}
+
+/* Columns size to what they hold, and the actions take only the room their buttons need. */
+.fa-table.fa-rec-table {
+  table-layout: auto;
+  width: 100%;
+}
+
+.fa-rec-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.fa-rec-table td.fa-rec-actions {
+  display: table-cell;
+  white-space: nowrap;
+  width: 1%;
+}
+
+.fa-rec-error {
+  color: var(--danger-text);
+  margin-left: 6px;
+}
+
+.fa-rec-entries {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.fa-rec-entry {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+
+.fa-rec-entry-head {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.fa-rec-entry-files {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.fa-rec-text {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: "Cascadia Mono", Consolas, Menlo, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* A content type is one word; it never breaks across lines. */
+.fa-rec-table td.fa-rec-type {
+  white-space: nowrap;
+}

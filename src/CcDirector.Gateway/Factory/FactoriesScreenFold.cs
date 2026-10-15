@@ -292,6 +292,8 @@ public static class FactoriesScreenFold
         new() { Key = "activity", Label = "Activity" },
         new() { Key = "reports", Label = "Reports" },
         new() { Key = "memory", Label = "Memory" },
+        // What the factory produced, held on the Gateway beside its memory (Factory Definition, phase 6).
+        new() { Key = "records", Label = "Records" },
         // The Definition tab replaced the Documents tab, whose only sentence promised it (Factory Definition, phase 6).
         new() { Key = "definition", Label = "Definition" },
     };

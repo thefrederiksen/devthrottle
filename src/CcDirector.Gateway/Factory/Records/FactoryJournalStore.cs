@@ -78,6 +78,23 @@ public sealed class FactoryJournalStore
         }
     }
 
+    /// <summary>
+    /// Every journal the factory keeps - one per seat that wrote one, and the factory's own (seat null) - with how many
+    /// entries each holds and its newest day. What the Records tab of the factory's page lists (phase 6).
+    /// </summary>
+    public IReadOnlyList<FactoryJournalGroup> Journals(TenantId tenant, string factory)
+    {
+        if (!FactoryNames.TryFactory(factory, out factory, out _)) return Array.Empty<FactoryJournalGroup>();
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            return ctx.FactoryJournalEntries.AsNoTracking().Where(e => e.Factory == factory)
+                .GroupBy(e => e.Seat)
+                .Select(g => new FactoryJournalGroup(g.Key, g.Count(), g.Max(e => e.EntryDate)!))
+                .ToList();
+        }
+    }
+
     /// <summary>One entry, with its text, or null when the factory has no such entry.</summary>
     public FactoryJournalEntryEntity? Get(TenantId tenant, string factory, Guid id)
     {
@@ -201,6 +218,10 @@ public sealed class FactoryJournalStore
 /// <summary>One entry, everything about it EXCEPT its text. <see cref="AttachmentIds"/> is comma separated.</summary>
 public sealed record FactoryJournalSummary(Guid Id, string? Seat, string EntryDate, int TextBytes, string AttachmentIds,
     string AuthorKind, string? AuthorId, DateTime WrittenAtUtc, string? ImportKey);
+
+/// <summary>One journal of a factory: the seat that keeps it (null for the factory's own), how many entries it holds,
+/// and its newest day.</summary>
+public sealed record FactoryJournalGroup(string? Seat, int Entries, string NewestDate);
 
 /// <summary>A page of entries, newest day first, and how many match in all.</summary>
 public sealed record FactoryJournalList(IReadOnlyList<FactoryJournalSummary> Entries, int Total)
